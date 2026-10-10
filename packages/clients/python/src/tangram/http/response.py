@@ -126,6 +126,16 @@ class Response:
         stream.on("data", receive_data)
         stream.once("trailers", receive_trailers)
         stream.once("end", end)
+
+        def closed() -> None:
+            if not done:
+                from ..http2 import TransportError
+
+                fail(
+                    TransportError("the HTTP/2 stream closed before the response ended")
+                )
+
+        stream.once("close", closed)
         return await response
 
     async def collect(self) -> bytes:

@@ -1,6 +1,11 @@
 type Headers = Record<string, string | number | string[]>;
 
 type ConnectOptions = {
+	flow?: {
+		connectionWindowSize: number;
+		maxConcurrentStreams?: number;
+		streamWindowSize: number;
+	};
 	port?: number;
 };
 
@@ -8,13 +13,15 @@ type RequestOptions = {
 	endStream?: boolean;
 };
 
-type SessionEvent = { kind: "close" } | { kind: "error"; message: string };
+type SessionEvent =
+	| { kind: "close" }
+	| { kind: "error"; message: string; retryable: boolean };
 
 type StreamEvent =
 	| { kind: "close" }
 	| { kind: "data"; bytes: Uint8Array }
 	| { kind: "end" }
-	| { kind: "error"; message: string }
+	| { kind: "error"; message: string; retryable: boolean }
 	| { kind: "response"; headers: [string, string][] }
 	| { kind: "trailers"; headers: [string, string][] };
 
@@ -130,13 +137,13 @@ export class ClientHttp2Session extends EventEmitter {
 		this.#closed = true;
 		this.#connect
 			.then(() =>
-					this.#token === null
-						? null
-						: syscall(
+				this.#token === null
+					? null
+					: syscall(
 							"http2_session_destroy",
 							this.#token,
 							error?.message ?? null,
-						  ),
+						),
 			)
 			.catch(() => undefined)
 			.finally(() => {
@@ -157,11 +164,14 @@ export class ClientHttp2Session extends EventEmitter {
 	async #readLoop(token: number) {
 		let error: unknown;
 		try {
-			let event = (await syscall("http2_session_read", token)) as
-				| SessionEvent
-				| null;
+			let event = (await syscall(
+				"http2_session_read",
+				token,
+			)) as SessionEvent | null;
 			if (event?.kind === "error") {
-				error = new Error(event.message);
+				error = Object.assign(new Error(event.message), {
+					retryable: event.retryable,
+				});
 			}
 		} catch (error_) {
 			error = error_;
@@ -197,9 +207,12 @@ export class ClientHttp2Session extends EventEmitter {
 }
 
 export class ClientHttp2Stream extends EventEmitter {
+	#paused = false;
+	#resume: (() => void) | null = null;
 	#closed = false;
 	#encoding: "utf8" | null = null;
 	#ready: Promise<number>;
+	#request: Promise<number>;
 	#token: number | null = null;
 
 	constructor(
@@ -208,7 +221,7 @@ export class ClientHttp2Stream extends EventEmitter {
 		options: RequestOptions,
 	) {
 		super();
-		this.#ready = session._request(headers, options).then(
+		this.#request = session._request(headers, options).then(
 			(token) => {
 				this.#token = token;
 				this.#readLoop(token);
@@ -221,21 +234,29 @@ export class ClientHttp2Stream extends EventEmitter {
 				throw error;
 			},
 		);
+		this.#ready = this.#request;
 		this.#ready.catch(() => undefined);
 	}
 
-	write(bytes: string | Uint8Array) {
+	write(bytes: string | Uint8Array, callback?: (error?: Error | null) => void) {
 		this.#ready = this.#ready
 			.then(async (token) => {
 				await syscall("http2_stream_write", token, toBytes(bytes));
+				callback?.();
+				this.emit("drain");
 				return token;
 			})
 			.catch((error) => {
+				callback?.(
+					error instanceof Error
+						? error
+						: new Error("failed to write the request body"),
+				);
 				this.emit("error", error);
 				throw error;
 			});
 		this.#ready.catch(() => undefined);
-		return true;
+		return false;
 	}
 
 	end(bytes?: string | Uint8Array) {
@@ -269,6 +290,17 @@ export class ClientHttp2Stream extends EventEmitter {
 		return this;
 	}
 
+	pause() {
+		this.#paused = true;
+		return this;
+	}
+	resume() {
+		this.#paused = false;
+		this.#resume?.();
+		this.#resume = null;
+		return this;
+	}
+
 	setEncoding(encoding: "utf8" | "utf-8") {
 		this.#encoding = "utf8";
 		return this;
@@ -277,9 +309,15 @@ export class ClientHttp2Stream extends EventEmitter {
 	async #readLoop(token: number) {
 		try {
 			while (!this.#closed) {
-				let event = (await syscall("http2_stream_read", token)) as
-					| StreamEvent
-					| null;
+				if (this.#paused)
+					await new Promise<void>((resolve) => {
+						this.#resume = resolve;
+					});
+				if (this.#closed) break;
+				let event = (await syscall(
+					"http2_stream_read",
+					token,
+				)) as StreamEvent | null;
 				if (event === null) {
 					break;
 				}
@@ -297,7 +335,12 @@ export class ClientHttp2Stream extends EventEmitter {
 				} else if (event.kind === "end") {
 					this.emit("end");
 				} else if (event.kind === "error") {
-					this.emit("error", new Error(event.message));
+					this.emit(
+						"error",
+						Object.assign(new Error(event.message), {
+							retryable: event.retryable,
+						}),
+					);
 				} else if (event.kind === "close") {
 					break;
 				}
@@ -315,7 +358,8 @@ export class ClientHttp2Stream extends EventEmitter {
 			return;
 		}
 		this.#closed = true;
-		this.#ready
+		this.resume();
+		this.#request
 			.then((token) => syscall("http2_stream_close", token))
 			.catch(() => undefined)
 			.finally(() => this.emit("close"));
@@ -402,5 +446,7 @@ function defaultEndStream(headers: Headers) {
 }
 
 function toBytes(value: string | Uint8Array) {
-	return typeof value === "string" ? syscall("encoding_utf8_encode", value) : value;
+	return typeof value === "string"
+		? syscall("encoding_utf8_encode", value)
+		: value;
 }

@@ -1,3 +1,4 @@
+export * as Flow from "./http/flow.ts";
 export { Body } from "./http/body.ts";
 export { Headers } from "./http/headers.ts";
 export { Request } from "./http/request.ts";

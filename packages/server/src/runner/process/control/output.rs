@@ -13,10 +13,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
-	tg::process::stdio::{
-		flow,
-		read::{Event, Output, ServerMessage},
-	},
+	tg::process::stdio::read::{Event, Output, ServerMessage},
 	tracing::Instrument as _,
 };
 
@@ -38,7 +35,7 @@ pub(super) struct RunProcessControlOutputTaskArg {
 
 pub(super) enum Message {
 	Close(String),
-	Progress(tg::process::control::ReadServerNotification),
+	Consumption(tg::process::control::ReadConsumption),
 	Read {
 		arg: tg::process::stdio::read::Arg,
 		id: String,
@@ -51,10 +48,11 @@ struct Read {
 	arg: tg::process::stdio::read::Arg,
 	deadline: Option<tokio::time::Instant>,
 	position: u64,
-	window: tg::process::stdio::flow::Sender,
+	window: tangram_http::flow::Sender,
 }
 
 struct Reader {
+	flow: tg::process::stdio::Config,
 	buffered: BTreeMap<tg::process::stdio::Stream, tokio::sync::oneshot::Sender<tg::Result<()>>>,
 	chunks: VecDeque<tg::process::stdio::Chunk>,
 	combined_position: u64,
@@ -196,6 +194,7 @@ impl Session {
 			})
 			.collect();
 		let reader = Reader {
+			flow: self.server.config().process.stdio,
 			buffered,
 			chunks: VecDeque::new(),
 			combined_position: 0,
@@ -282,7 +281,7 @@ impl Session {
 				() = reader.fill(), if !reader.input_ended && reader.error.is_none() => {},
 				message = receiver.recv() => {
 					let Some(message) = message else { break; };
-					Self::handle_process_control_output_message(&mut reads, message).await?;
+					Self::handle_process_control_output_message(reader.flow, &mut reads, message).await?;
 				},
 				() = async { tokio::time::sleep_until(deadline.unwrap()).await }, if deadline.is_some() => {},
 				() = tokio::task::yield_now(), if ready => {},
@@ -292,6 +291,7 @@ impl Session {
 	}
 
 	async fn handle_process_control_output_message(
+		flow: tg::process::stdio::Config,
 		reads: &mut BTreeMap<String, (Read, Reply)>,
 		message: Message,
 	) -> tg::Result<()> {
@@ -303,20 +303,24 @@ impl Session {
 					sender.send_low(response).await?;
 				}
 			},
-			Message::Progress(notification) => {
+			Message::Consumption(notification) => {
 				if let Some((read, _)) = reads.get_mut(&notification.id)
-					&& let Err(error) = read.window.update(notification.progress)
+					&& let Err(error) = read.window.update(notification.consumption)
 				{
 					let (_, sender) = reads.remove(&notification.id).unwrap();
-					let response = Self::process_control_response(notification.id, Err(error));
+					let response = Self::process_control_response(
+						notification.id,
+						Err(tg::error!(!error, "invalid stdio consumption")),
+					);
 					sender.send_low(response).await?;
 				}
 			},
 			Message::Read { arg, id, sender } => {
-				let result = if reads.len() >= 64 {
+				let result = if reads.len() >= flow.max_reads {
 					Err(tg::error!("too many process reads"))
 				} else {
-					Read::new(arg)
+					flow.validate_receiver(arg.flow)
+						.and_then(|()| Read::new(arg))
 				};
 				match result {
 					Ok(read) => {
@@ -329,7 +333,7 @@ impl Session {
 				}
 			},
 			Message::Reconnect => {
-				// The previous transport may have lost chunks or consumption progress, so its reads cannot safely continue.
+				// The previous transport may have lost chunks or consumption, so its reads cannot safely continue.
 				let interrupted = reads
 					.iter()
 					.filter(|(_, (_, sender))| matches!(sender, Reply::Remote(_)))
@@ -349,6 +353,7 @@ impl Session {
 
 impl Read {
 	fn new(mut arg: tg::process::stdio::read::Arg) -> tg::Result<Self> {
+		arg.flow.validate()?;
 		arg.streams.sort();
 		arg.streams.dedup();
 		if arg.streams.is_empty()
@@ -368,7 +373,7 @@ impl Read {
 		let deadline = arg
 			.timeout
 			.and_then(|timeout| tokio::time::Instant::now().checked_add(timeout));
-		let window = tg::process::stdio::flow::Sender::default();
+		let window = tangram_http::flow::Sender::new(arg.flow.limits);
 		Ok(Self {
 			arg,
 			deadline,
@@ -421,7 +426,7 @@ impl Reader {
 			}
 			let offset = (read.position - start).to_usize().unwrap();
 			let length = (chunk.bytes.len() - offset)
-				.min(flow::CHUNK_SIZE)
+				.min(read.arg.flow.max_message_size)
 				.min(
 					read.arg
 						.size
@@ -445,7 +450,9 @@ impl Reader {
 				}
 				return Ok(None);
 			}
-			read.window.send(length)?;
+			read.window
+				.send(length)
+				.map_err(|source| tg::error!(!source, "the stdio window was exceeded"))?;
 			let mut chunk = chunk.clone();
 			chunk.bytes = chunk.bytes.slice(offset..offset + length);
 			chunk.combined_position += offset as u64;
@@ -512,7 +519,8 @@ impl Reader {
 				let input = &mut self.inputs[index];
 				if input.ended
 					|| input.buffered_length >= BUFFER_CAPACITY
-					|| input.buffered_chunks >= BUFFER_CAPACITY / flow::CHUNK_SIZE
+					|| input.buffered_chunks
+						>= BUFFER_CAPACITY / tg::process::stdio::Config::default().max_message_size
 				{
 					continue;
 				}

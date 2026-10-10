@@ -6,7 +6,7 @@ let local_source = server spawn --name local-source
 let remote_destination = server spawn --name remote-destination
 let group = tg --url $local_source.url group create foo | from json
 
-# Encode a put node, put end, and sync end for the destination sync stream.
+# Encode the flow configuration, put node, put end, and sync end for the destination sync stream.
 let id = tg id $group.id | into binary
 let put_node = (
 	0x[0b 01 0b 00 0b 00 0a 03 00 07 14]
@@ -14,7 +14,8 @@ let put_node = (
 	++ 0x[01 06 03 66 6f 6f 03 06 03 66 6f 6f]
 )
 let input = (
-	0x[2b]
+	0x[21 0b 03 0a 04 00 0a 02 00 02 80 80 80 01 01 02 80 08 01 02 80 80 80 20 02 02 80 80 20 03 02 80 80 10]
+	++ 0x[2b]
 	++ $put_node
 	++ 0x[05 0b 01 0b 03 00 05 0b 00 0b 03 00 03 0b 02 00]
 )

@@ -16,22 +16,22 @@ if TYPE_CHECKING:
 
 from ...client import Client
 from ...client import client as default_client
+from ...config import validate_receiver
 from ...error import Error
+from ...http.flow import Receiver
 from ..outcome import Outcome
 from ..stdio import validate_output
-from ..stdio.flow import Receiver, capacity, max_chunks
+from ..stdio.flow import capacity
 from .channel import Channel
-
-CHUNK_SIZE = 32 * 1024
-MAX_CHUNKS = 64
-WINDOW = CHUNK_SIZE * MAX_CHUNKS
 
 
 class Session:
     def __init__(self, client: Client):
         self.client = client
         self._spawn_output: OutputObject | None = None
-        self._input: Channel[dict] = Channel(max_chunks * 6 + 4)
+        self._input: Channel[dict] = Channel(
+            capacity(client.stdio) * (client.stdio["max_reads"] + 1) + 256
+        )
         self._requests: dict[int, asyncio.Future] = {}
         self._pending: dict[int, str] = {}
         self._reads: dict[int, Channel[dict]] = {}
@@ -63,9 +63,13 @@ class Session:
             index + 1: ({"streams": [read]} if isinstance(read, str) else dict(read))
             for index, read in enumerate(reads or [])
         }
+        if len(reads) > connection.client.stdio["max_reads"]:
+            raise ValueError("too many process reads")
         connection._next_id = len(reads) + 1
         for id in reads:
-            connection._reads[id] = Channel(capacity)
+            reads[id].setdefault("flow", connection.client.stdio)
+            validate_receiver(connection.client.stdio, reads[id]["flow"])
+            connection._reads[id] = Channel(capacity(reads[id]["flow"]))
         arg = cast(
             "ConnectArgObject",
             {"mode": mode, "process": process, "reads": reads, **options},
@@ -202,9 +206,17 @@ class Session:
         if self._closed:
             raise self._error or ConnectionError("the process connection closed")
         kind = arg["kind"]
-        limit = max_chunks + 1 if kind == "write" else 64
+        limit = (
+            self.client.stdio["limits"]["messages"] + 1
+            if kind == "write"
+            else self.client.stdio["max_reads"]
+            if kind == "read"
+            else 64
+        )
         count = sum(pending == kind for pending in self._pending.values())
-        if count >= limit or (kind == "read" and len(self._reads) > 64):
+        if count >= limit or (
+            kind == "read" and len(self._reads) > self.client.stdio["max_reads"]
+        ):
             raise RuntimeError("too many pending process requests of this kind")
         if kind != "close":
             self._pending[id] = kind
@@ -239,12 +251,14 @@ class Session:
             self._input.push({"kind": "notification", "value": {"kind": "ready"}})
 
     def has_initial(self, arg):
+        arg = {"flow": self.client.stdio, **arg}
         return any(
             matches_read(initial, arg) for initial in self._initial_reads.values()
         )
 
     async def read(self, streams: list[Stream], **options) -> AsyncIterator[StdioChunk]:
-        arg = {"streams": streams, **options}
+        arg = {"flow": self.client.stdio, "streams": streams, **options}
+        validate_receiver(self.client.stdio, arg["flow"])
         initial = next(
             (id for id, read in self._initial_reads.items() if matches_read(read, arg)),
             None,
@@ -253,7 +267,7 @@ class Session:
         if initial is None:
             id = self._next_id
             self._next_id += 1
-            queue = self._reads[id] = Channel(capacity)
+            queue = self._reads[id] = Channel(capacity(arg["flow"]))
             try:
                 await self._send_request({"kind": "read", "value": arg}, id)
             except BaseException:
@@ -263,7 +277,7 @@ class Session:
             id = initial
             queue = self._reads[id]
         self.ready()
-        receiver = Receiver()
+        receiver = Receiver(arg["flow"]["limits"])
         position = None
         finished = False
         forward = options.get("length") is None or options["length"] >= 0
@@ -283,6 +297,18 @@ class Session:
                     validate_output(
                         output["value"], streams, position or 0, len(streams) > 1
                     )
+                    consumption = receiver.flush()
+                    if consumption is not None:
+                        self._input.push(
+                            {
+                                "kind": "notification",
+                                "value": {
+                                    "kind": "read_consumption",
+                                    "value": {"id": id, "consumption": consumption},
+                                },
+                            },
+                            True,
+                        )
                     self._input.push({"kind": "ack", "value": {"id": id}}, True)
                     finished = True
                     return
@@ -295,6 +321,7 @@ class Session:
                 if chunk["stream"] not in streams:
                     raise ValueError("unexpected process stdio stream")
                 bytes_ = chunk["bytes"]
+                receiver.receive(len(bytes_))
                 start = chunk[
                     "combined_position" if len(streams) > 1 else "stream_position"
                 ]
@@ -303,14 +330,14 @@ class Session:
                     raise ValueError("encountered a gap in the process stdio stream")
                 position = end if forward else start
                 yield chunk
-                progress = receiver.consume(len(bytes_))
-                if progress is not None:
+                consumption = receiver.consume(len(bytes_))
+                if consumption is not None:
                     self._input.push(
                         {
                             "kind": "notification",
                             "value": {
-                                "kind": "read",
-                                "value": {"id": id, "progress": progress},
+                                "kind": "read_consumption",
+                                "value": {"id": id, "consumption": consumption},
                             },
                         },
                         True,
@@ -353,7 +380,7 @@ class Session:
         await self.tty({"size": size})
 
     def write(self, arg):
-        output: Channel[dict] = Channel(capacity)
+        output: Channel[dict] = Channel(capacity(self.client.stdio))
         previous = None
 
         async def request(message):
@@ -419,7 +446,8 @@ class Session:
 
 def matches_read(initial, arg):
     return (
-        initial["streams"] == arg["streams"]
+        initial.get("flow") == arg.get("flow")
+        and initial["streams"] == arg["streams"]
         and (initial.get("position") or 0) == (arg.get("position") or 0)
         and all(
             initial.get(key) == arg.get(key) for key in ("length", "size", "timeout")

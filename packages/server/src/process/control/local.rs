@@ -3,7 +3,7 @@ use {
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
 	tangram_futures::stream::Ext as _,
-	tg::process::stdio::{flow, read},
+	tg::process::stdio::read,
 };
 
 #[cfg(test)]
@@ -16,7 +16,7 @@ pub(crate) struct Local {
 
 pub(crate) enum Message {
 	Close(String),
-	Progress(tg::process::control::ReadServerNotification),
+	Consumption(tg::process::control::ReadConsumption),
 	Request {
 		request: tg::process::control::ServerRequest,
 		sender: Reply,
@@ -35,7 +35,7 @@ struct State {
 	id: String,
 	pending: usize,
 	receiver: tokio::sync::mpsc::Receiver<tg::process::control::ClientMessage>,
-	window: flow::Receiver,
+	window: tangram_http::flow::Receiver,
 }
 
 impl Local {
@@ -90,8 +90,9 @@ impl Local {
 		&self,
 		arg: read::Arg,
 	) -> BoxStream<'static, tg::Result<read::ServerMessage>> {
+		let flow = arg.flow;
 		let id = control::id();
-		let (sender, receiver) = tokio::sync::mpsc::channel(flow::CHANNEL_CAPACITY);
+		let (sender, receiver) = tokio::sync::mpsc::channel(flow.channel_capacity());
 		let request = tg::process::control::ServerRequest {
 			arg: tg::process::control::ServerRequestArg::Read(arg),
 			id: id.clone(),
@@ -118,7 +119,7 @@ impl Local {
 				id,
 				pending: 0,
 				receiver,
-				window: flow::Receiver::default(),
+				window: tangram_http::flow::Receiver::new(flow.limits),
 			};
 			let stream = futures::stream::try_unfold(state, State::next);
 			Ok::<_, tg::Error>(stream)
@@ -172,15 +173,21 @@ impl State {
 		if self.finished {
 			return Ok(None);
 		}
-		if let Some(progress) = self.window.consume(self.pending)? {
-			let notification = tg::process::control::ReadServerNotification {
+		if let Some(consumption) = if self.pending == 0 {
+			None
+		} else {
+			self.window
+				.consume(std::mem::take(&mut self.pending))
+				.map_err(|source| tg::error!(!source, "invalid stdio consumption"))?
+		} {
+			let notification = tg::process::control::ReadConsumption {
 				id: self.id.clone(),
-				progress,
+				consumption,
 			};
 			// The handler may have retired after queueing the final response.
 			self.control_sender
 				.sender
-				.send(Message::Progress(notification))
+				.send(Message::Consumption(notification))
 				.await
 				.ok();
 		}
@@ -203,7 +210,12 @@ impl State {
 			_ => return Err(tg::error!("expected a runner read message")),
 		};
 		self.pending = match &message {
-			read::ServerMessage::Notification(read::Event::Chunk(chunk)) => chunk.bytes.len(),
+			read::ServerMessage::Notification(read::Event::Chunk(chunk)) => {
+				self.window
+					.receive(chunk.bytes.len())
+					.map_err(|source| tg::error!(!source, "the stdio window was exceeded"))?;
+				chunk.bytes.len()
+			},
 			_ => 0,
 		};
 		self.finished = matches!(message, read::ServerMessage::Response(_));

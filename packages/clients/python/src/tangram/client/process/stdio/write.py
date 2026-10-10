@@ -18,9 +18,9 @@ from typing import Any
 
 from tangram.error import Error
 from tangram.http import Body, Request, percent_encode
+from tangram.http.flow import Consumption, Sender
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
-from tangram.process.stdio.flow import chunk_size, max_chunks
 
 
 @dataclass
@@ -78,6 +78,9 @@ async def write_process_stdio_all(
     client: Client, id, arg, input, connection, complete=None
 ):
     pending = deque()
+    consumption: Consumption = {"bytes": 0, "messages": 0}
+    flow = client.stdio
+    window = Sender(flow["limits"])
     remaining = None
     input_event = None
     output_event = None
@@ -87,11 +90,15 @@ async def write_process_stdio_all(
     stream_positions = {stream: 0 for stream in arg["streams"]}
     try:
         while True:
-            while remaining is not None and len(pending) < max_chunks:
+            while remaining is not None and window.available(1):
                 chunk, offset = remaining
                 if chunk["stream"] not in arg["streams"]:
                     raise ProtocolError("invalid process stdio stream")
-                length = min(chunk_size, len(chunk["bytes"]) - offset)
+                length = min(
+                    flow["max_message_size"],
+                    len(chunk["bytes"]) - offset,
+                    window.remaining_bytes(),
+                )
                 if length == 0:
                     if complete is not None:
                         complete(chunk)
@@ -109,6 +116,7 @@ async def write_process_stdio_all(
                     stream_positions[value["stream"]]
                 ):
                     raise ProtocolError("invalid stdio position")
+                window.send(length)
                 offset += length
                 last = offset == len(chunk["bytes"])
                 pending.append(
@@ -147,7 +155,7 @@ async def write_process_stdio_all(
                     )
                     value["sent"] = True
             if (
-                len(pending) < max_chunks
+                window.available(1)
                 and remaining is None
                 and not input_ended
                 and input_event is None
@@ -202,6 +210,12 @@ async def write_process_stdio_all(
                 if request_arg["kind"] == "chunk"
                 else 0
             )
+            if request_arg["kind"] == "chunk":
+                consumption = {
+                    "bytes": consumption["bytes"] + expected,
+                    "messages": consumption["messages"] + 1,
+                }
+                window.update(consumption)
             if (
                 not safe_integer(length)
                 or length < 0

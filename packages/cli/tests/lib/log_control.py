@@ -246,7 +246,7 @@ def reordered():
             event, message = read(reader_response)
             assert event == "notification" and message["kind"] == "chunk", (event, message)
             assert base64.b64decode(message["value"]["bytes"]) == b"A", message
-            send(reader_sock, "notification", {"consumed": 1})
+            send(reader_sock, "notification", {"bytes": 1, "messages": 1})
             close(sock, response)
             sock, response, _ = connect({"id": id, "lease": "test"}, token)
             request(sock, response, "b", chunk("stdout", 1, b"B", 1))
@@ -256,6 +256,7 @@ def reordered():
             }}})
             output = {"stdout": b"A", "stderr": b""}
             position = 1
+            messages = 1
             while True:
                 event, message = read(reader_response)
                 if event == "response" and message["kind"] in ("end", "limit", "timeout"):
@@ -268,7 +269,8 @@ def reordered():
                 value_bytes = base64.b64decode(value["bytes"])
                 output[value["stream"]] += value_bytes
                 position += len(value_bytes)
-                send(reader_sock, "notification", {"consumed": position})
+                messages += 1
+                send(reader_sock, "notification", {"bytes": position, "messages": messages})
             expected_stdout = b"ABC" if last_stream == "stdout" else b"AB"
             expected_stderr = b"" if last_stream == "stdout" else b"C"
             assert output == {"stdout": expected_stdout, "stderr": expected_stderr}, output
@@ -311,7 +313,7 @@ def growing():
                     break
                 assert event == "notification" and message["kind"] == "chunk", (event, message)
                 chunks.append(base64.b64decode(message["value"]["bytes"]))
-                send(reader_sock, "notification", {"consumed": sum(map(len, chunks))})
+                send(reader_sock, "notification", {"bytes": sum(map(len, chunks)), "messages": len(chunks)})
             assert b"".join(chunks) == b"x" * added + b"dcb", chunks
         finally:
             close(reader_sock, reader_response)

@@ -452,6 +452,8 @@ pub struct TursoDatabase {
 pub struct Http {
 	pub coalescing_target_size: usize,
 
+	pub http2: tangram_http::http2::Config,
+
 	pub idle_timeout: Duration,
 
 	pub listeners: Vec<HttpListener>,
@@ -875,6 +877,8 @@ pub struct Process {
 	pub spawn: Spawn,
 
 	pub status_wakeup_interval: Duration,
+
+	pub stdio: tg::process::stdio::Config,
 
 	pub stdio_wakeup_interval: Duration,
 
@@ -1316,13 +1320,13 @@ pub struct IpRange {
 pub struct Sync {
 	pub control: SyncControl,
 
+	pub flow: tg::sync::Config,
+
 	pub get: SyncGet,
 
 	pub permission_time_to_live: Duration,
 
 	pub permission_time_to_touch: Duration,
-
-	pub max_frame_size: u64,
 
 	pub put: SyncPut,
 
@@ -1811,6 +1815,7 @@ impl Default for Http {
 	fn default() -> Self {
 		Self {
 			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
+			http2: tangram_http::http2::Config::default(),
 			idle_timeout: Duration::from_secs(30),
 			listeners: Vec::new(),
 		}
@@ -2140,6 +2145,7 @@ impl Default for Process {
 			permission_time_to_touch: default_time_to_touch(),
 			spawn: Spawn::default(),
 			status_wakeup_interval: Duration::from_mins(1),
+			stdio: tg::process::stdio::Config::default(),
 			stdio_wakeup_interval: Duration::from_mins(1),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
@@ -2282,10 +2288,10 @@ impl Default for Sync {
 	fn default() -> Self {
 		Self {
 			control: SyncControl::default(),
+			flow: tg::sync::Config::default(),
 			get: SyncGet::default(),
 			permission_time_to_live: default_time_to_live(),
 			permission_time_to_touch: default_time_to_touch(),
-			max_frame_size: default_sync_max_frame_size(),
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
 		}
@@ -2686,10 +2692,6 @@ fn default_login_ttl() -> Duration {
 
 fn default_authentication_token_ttl() -> Duration {
 	Duration::from_hours(24)
-}
-
-fn default_sync_max_frame_size() -> u64 {
-	tg::sync::Config::default().max_frame_size
 }
 
 impl From<Retry> for tangram_futures::retry::Options {

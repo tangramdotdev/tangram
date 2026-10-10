@@ -11,6 +11,7 @@ const requests = new Map();
 const notifications = [];
 const chunks = [];
 const consumed = new Map();
+const messages = new Map();
 let nextId = mode === "cached" ? 2 : 1;
 let closed = false;
 let notify;
@@ -135,9 +136,10 @@ request.on("response", (response) => {
 						const bytes = Buffer.from(event.value.bytes, "base64");
 						chunks.push(bytes);
 						consumed.set(id, (consumed.get(id) ?? 0) + bytes.length);
+						messages.set(id, (messages.get(id) ?? 0) + 1);
 						sendEvent("notification", {
-							kind: "read",
-							value: { id, progress: { consumed: consumed.get(id) } },
+							kind: "read_consumption",
+							value: { id, consumption: { bytes: consumed.get(id), messages: messages.get(id) } },
 						});
 					}
 				}

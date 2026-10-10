@@ -16,11 +16,12 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
+from tangram.config import Config, validate_receiver
 from tangram.error import Error
 from tangram.http import Body, Request, Stream, percent_encode
+from tangram.http.flow import Receiver
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
-from tangram.process.stdio.flow import Receiver
 
 
 @dataclass
@@ -31,6 +32,7 @@ class Connection:
 
 
 class KeywordOptions(TypedDict, total=False):
+    flow: Config
     length: int | None
     location: LocationArgObject | None
     position: int | str | None
@@ -50,7 +52,8 @@ async def try_read_process_stdio(
     arg: ReadArgObject | None = None,
     **options: Unpack[KeywordOptions],
 ) -> Stream[StdioChunk] | None:
-    options = {**(arg or {}), **options}
+    options = {"flow": client.stdio, **(arg or {}), **options}
+    validate_receiver(client.stdio, options["flow"])
     connection = await connect(client, id, options)
     if connection is None:
         return None
@@ -78,17 +81,17 @@ async def read_process_stdio_all_inner(client: Client, id, arg, state):
     combined = len(arg["streams"]) > 1
     forward = arg.get("length") is None or arg["length"] >= 0
     next_arg: dict[str, Any] = {**arg, "streams": list(arg["streams"])}
-    window = Receiver()
-    pending = 0
+    window = Receiver(arg.get("flow", client.stdio)["limits"])
+    pending = None
     position = (
         None if isinstance(arg.get("position"), str) else arg.get("position") or 0
     )
     try:
         while not state["canceled"]:
-            progress = window.consume(pending)
-            pending = 0
-            if progress is not None:
-                connection.input.push({"kind": "notification", "value": progress})
+            consumption = None if pending is None else window.consume(pending)
+            pending = None
+            if consumption is not None:
+                connection.input.push({"kind": "notification", "value": consumption})
             message = None
             try:
                 message = await anext(connection.output)
@@ -105,10 +108,15 @@ async def read_process_stdio_all_inner(client: Client, id, arg, state):
                 connection = state["connection"] = await reconnect(
                     client, id, next_arg, connection
                 )
-                window = Receiver()
+                window = Receiver(arg.get("flow", client.stdio)["limits"])
                 continue
             if message["kind"] == "response":
                 Read.Output.validate(message["value"], arg["streams"], position or 0)
+                consumption = window.flush()
+                if consumption is not None:
+                    connection.input.push(
+                        {"kind": "notification", "value": consumption}
+                    )
                 connection.input.push({"kind": "ack"})
                 connection.input.close()
                 return
@@ -129,6 +137,7 @@ async def read_process_stdio_all_inner(client: Client, id, arg, state):
             if message["value"]["kind"] != "chunk":
                 raise ProtocolError("invalid process stdio read notification")
             chunk = message["value"]["value"]
+            window.receive(len(chunk["bytes"]))
             pending = len(chunk["bytes"])
             if chunk["stream"] not in arg["streams"]:
                 raise ProtocolError("invalid process stdio stream")

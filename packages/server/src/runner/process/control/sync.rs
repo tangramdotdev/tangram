@@ -89,61 +89,85 @@ impl Session {
 			Ok(message)
 		});
 		let (sync_sender, sync_receiver) = mpsc::channel(16);
-		let (sync_input_sender, sync_input_receiver) = mpsc::channel(16);
+		let config = self.server.config().sync.flow;
+		let (sync_input_sender, sync_input, consumption) = crate::sync::flow::Input::new(config)?;
+		let updates = crate::sync::flow::Updates::new();
 		let (end_sender, end_receiver) = oneshot::channel();
-		let sync_task = Task::spawn(move |_| async move {
-			let error_sender = sync_sender.clone();
-			let future = async move {
-				let (mut session, objects): (Session, Vec<tg::Referent<tg::object::Id>>) =
-					initialization_receiver.await.map_err(|_| {
-						tg::error!("the process control stream ended before initialization")
-					})?;
-				session.context.stopper = None;
-				if shortcut {
-					crate::checkpoint!(session.server, "runner.process.command.sync.started").await;
-				}
-				let put = objects
-					.into_iter()
-					.map(|node| node.map(Into::into))
-					.collect();
-				let arg = crate::sync::InnerArg {
-					arg: tg::sync::Arg {
-						eager: true,
-						put,
-						..Default::default()
-					},
-					..Default::default()
-				};
-				let input = futures::stream::select(
-					ReceiverStream::new(sync_input_receiver),
-					UnboundedReceiverStream::new(additional_receiver),
-				)
-				.boxed();
-				let (_, mut output) = session.sync_inner(arg, input).await?;
-				let mut outcome_started = false;
-				while let Some(message) = output.next().await {
-					if !outcome_started && *outcome_receiver.borrow() {
-						outcome_started = true;
-						crate::checkpoint!(session.server, "runner.process.outcome.sync.started")
+		let sync_task = Task::spawn({
+			let updates = updates.clone();
+			move |_| async move {
+				let error_sender = sync_sender.clone();
+				let future = async move {
+					let (mut session, objects): (Session, Vec<tg::Referent<tg::object::Id>>) =
+						initialization_receiver.await.map_err(|_| {
+							tg::error!("the process control stream ended before initialization")
+						})?;
+					session.context.stopper = None;
+					if shortcut {
+						crate::checkpoint!(session.server, "runner.process.command.sync.started")
 							.await;
 					}
-					let message = message.map(tg::process::control::ClientMessage::Sync);
-					sync_sender
-						.send(message)
+					let put = objects
+						.into_iter()
+						.map(|node| node.map(Into::into))
+						.collect();
+					let arg = crate::sync::InnerArg {
+						arg: tg::sync::Arg {
+							eager: true,
+							put,
+							..Default::default()
+						},
+						..Default::default()
+					};
+					let input = futures::stream::select(
+						sync_input,
+						UnboundedReceiverStream::new(additional_receiver),
+					)
+					.boxed();
+					let (_, output) = session.sync_inner(arg, input).await?;
+					let mut output = updates.send_sync_messages(output);
+					let mut outcome_started = false;
+					while let Some(message) = output.next().await {
+						if !outcome_started && *outcome_receiver.borrow() {
+							outcome_started = true;
+							crate::checkpoint!(
+								session.server,
+								"runner.process.outcome.sync.started"
+							)
+							.await;
+						}
+						let message = message.map(tg::process::control::ClientMessage::Sync);
+						sync_sender
+							.send(message)
+							.await
+							.map_err(|_| tg::error!("the process control stream closed"))?;
+					}
+					end_receiver
 						.await
-						.map_err(|_| tg::error!("the process control stream closed"))?;
+						.map_err(|_| tg::error!("the process sync ended unexpectedly"))?;
+					crate::checkpoint!(session.server, "runner.process.outcome.sync.finished")
+						.await;
+					completion.send_replace(true);
+					Ok::<_, tg::Error>(())
+				};
+				if let Err(error) = future.await {
+					error_sender.send(Err(error)).await.ok();
 				}
-				end_receiver
-					.await
-					.map_err(|_| tg::error!("the process sync ended unexpectedly"))?;
-				crate::checkpoint!(session.server, "runner.process.outcome.sync.finished").await;
-				completion.send_replace(true);
-				Ok::<_, tg::Error>(())
-			};
-			if let Err(error) = future.await {
-				error_sender.send(Err(error)).await.ok();
 			}
 		});
+		let notifications = futures::stream::once(async move {
+			Ok(tg::process::control::ClientMessage::SyncConfig(config))
+		})
+		.chain(consumption.map(|consumption| {
+			Ok(tg::process::control::ClientMessage::SyncConsumption(
+				consumption,
+			))
+		}))
+		.boxed();
+		let input = futures::stream::select_with_strategy(notifications, input, |(): &mut ()| {
+			futures::stream::PollNext::Left
+		})
+		.boxed();
 		let input = futures::stream::select_with_strategy(
 			input,
 			ReceiverStream::new(sync_receiver),
@@ -159,7 +183,8 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let (sender, receiver) = mpsc::channel(512);
+		let (sender, receiver) =
+			mpsc::channel(self.server.config().process.stdio.connection_capacity());
 		let output_task = Task::spawn(move |_| async move {
 			let error_sender = sender.clone();
 			let future = async move {
@@ -172,7 +197,13 @@ impl Session {
 							{
 								sender.send(()).ok();
 							}
-							sync_input_sender.send(Ok(message)).await.ok();
+							sync_input_sender.receive_sync_message(message)?;
+						},
+						Ok(tg::process::control::ServerMessage::SyncConfig(config)) => {
+							updates.set_sync_config(config)?;
+						},
+						Ok(tg::process::control::ServerMessage::SyncConsumption(consumption)) => {
+							updates.update_sync_consumption(consumption)?;
 						},
 						message => {
 							if sender.send(message).await.is_err() {

@@ -130,7 +130,10 @@ impl Connection {
 							)
 							.await?;
 					},
-					ServerMessage::Notification(_) | ServerMessage::Sync(_) => {},
+					ServerMessage::Notification(_)
+					| ServerMessage::Sync(_)
+					| ServerMessage::SyncConfig(_)
+					| ServerMessage::SyncConsumption(_) => {},
 				}
 			}
 			return Ok(Some(event));

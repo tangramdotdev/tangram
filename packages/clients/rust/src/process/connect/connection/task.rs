@@ -13,6 +13,7 @@ const MAX_MESSAGES: usize = 128;
 const MAX_REQUESTS: usize = 64;
 
 pub(super) struct State {
+	flow: tg::process::stdio::Config,
 	high: VecDeque<ClientMessage>,
 	initial: Vec<(
 		u64,
@@ -74,11 +75,16 @@ impl State {
 		outcome: watch::Sender<Option<tg::Result<tg::process::outcome::Data>>>,
 		status: watch::Sender<Status>,
 	) -> tg::Result<Self> {
+		let flow = instance.arg().stdio;
+		if arg.reads.len() > flow.max_reads {
+			return Err(tg::error!("too many process reads"));
+		}
 		let (sender, receiver) = mpsc::channel(64);
 		let mut initial = Vec::new();
 		let mut reads = BTreeMap::new();
 		for (&id, arg) in &arg.reads {
-			let (sender, receiver) = mpsc::channel(tg::process::stdio::flow::CHANNEL_CAPACITY);
+			flow.validate_receiver(arg.flow)?;
+			let (sender, receiver) = mpsc::channel(arg.flow.channel_capacity());
 			reads.insert(id, sender);
 			initial.push((id, arg.clone(), receiver));
 		}
@@ -94,6 +100,7 @@ impl State {
 			.get_process_connect_stream(arg, ReceiverStream::new(receiver).boxed())
 			.await?;
 		Ok(Self {
+			flow,
 			high: VecDeque::new(),
 			initial,
 			input,
@@ -204,6 +211,10 @@ impl State {
 				if sender.is_closed() {
 					return Ok(());
 				}
+				if let Err(error) = self.flow.validate_receiver(arg.flow) {
+					sender.send(Err(error)).ok();
+					return Ok(());
+				}
 				let output = if let Some(index) = self
 					.initial
 					.iter()
@@ -212,8 +223,7 @@ impl State {
 					let (id, _, receiver) = self.initial.remove(index);
 					Ok((id, receiver))
 				} else {
-					let (read_sender, receiver) =
-						mpsc::channel(tg::process::stdio::flow::CHANNEL_CAPACITY);
+					let (read_sender, receiver) = mpsc::channel(arg.flow.channel_capacity());
 					self.enqueue_request(ClientRequestArg::Read(arg), None)
 						.map(|id| {
 							self.reads.insert(id, read_sender);
@@ -248,6 +258,9 @@ impl State {
 		arg: ClientRequestArg,
 		response: Option<oneshot::Sender<tg::Result<ServerResponseOutput>>>,
 	) -> tg::Result<u64> {
+		if let ClientRequestArg::Read(arg) = &arg {
+			self.flow.validate_receiver(arg.flow)?;
+		}
 		let kind = std::mem::discriminant(&arg);
 		let count = self
 			.pending
@@ -255,11 +268,12 @@ impl State {
 			.filter(|pending| std::mem::discriminant(&pending.request.arg) == kind)
 			.count();
 		let limit = match &arg {
-			ClientRequestArg::Write(_) => tg::process::stdio::flow::MAX_CHUNKS + 1,
+			ClientRequestArg::Read(_) => self.flow.max_reads,
+			ClientRequestArg::Write(_) => self.flow.message_capacity() + 1,
 			_ => MAX_REQUESTS,
 		};
 		if count >= limit
-			|| matches!(arg, ClientRequestArg::Read(_)) && self.reads.len() >= MAX_REQUESTS
+			|| matches!(arg, ClientRequestArg::Read(_)) && self.reads.len() >= self.flow.max_reads
 		{
 			return Err(tg::error!("too many pending process requests of this kind"));
 		}
@@ -309,7 +323,11 @@ impl State {
 				}
 			},
 			ServerMessage::Response(response) => self.complete_request(response)?,
-			ServerMessage::Sync(_) => return Err(tg::error!("unexpected process sync message")),
+			ServerMessage::Sync(_)
+			| ServerMessage::SyncConfig(_)
+			| ServerMessage::SyncConsumption(_) => {
+				return Err(tg::error!("unexpected process sync message"));
+			},
 		}
 		Ok(())
 	}
@@ -355,12 +373,11 @@ impl State {
 					self.acknowledge(id);
 					self.reads.remove(&id);
 				},
-				Ok(read::ClientMessage::Notification(progress)) => {
-					let notification = ReadClientNotification { id, progress };
-					self.high
-						.push_back(ClientMessage::Notification(ClientNotification::Read(
-							notification,
-						)));
+				Ok(read::ClientMessage::Notification(consumption)) => {
+					let notification = ReadConsumption { consumption, id };
+					self.high.push_back(ClientMessage::Notification(
+						ClientNotification::ReadConsumption(notification),
+					));
 				},
 				Err(error) => {
 					if let Some(sender) = self.reads.remove(&id) {
@@ -397,7 +414,7 @@ impl State {
 	}
 
 	fn next_message(&self) -> Option<Next> {
-		// Send acknowledgments and read progress before ordinary requests.
+		// Send acknowledgments and read consumption before ordinary requests.
 		if self.high.front().is_some_and(|message| {
 			!matches!(
 				message,
@@ -460,7 +477,9 @@ impl State {
 }
 
 pub(super) fn matches_read(initial: &read::Arg, arg: &read::Arg) -> bool {
-	initial.streams == arg.streams
+	initial.flow.limits == arg.flow.limits
+		&& initial.flow.max_message_size == arg.flow.max_message_size
+		&& initial.streams == arg.streams
 		&& initial.position.unwrap_or(std::io::SeekFrom::Start(0))
 			== arg.position.unwrap_or(std::io::SeekFrom::Start(0))
 		&& initial.length == arg.length

@@ -538,13 +538,26 @@ function connectHttp2(
 		let path = decodeURIComponent(authority.slice("http+unix://".length));
 		session = http2.connect("http://localhost", {
 			createConnection: () => net.connect(path),
+			settings: {
+				initialWindowSize: options?.flow?.streamWindowSize,
+				maxConcurrentStreams: options?.flow?.maxConcurrentStreams,
+			},
 		});
 	} else {
 		let url = new URL(authority);
 		if (options?.port !== undefined) {
 			url.port = options.port.toString();
 		}
-		session = http2.connect(url);
+		session = http2.connect(url, {
+			settings: {
+				initialWindowSize: options?.flow?.streamWindowSize,
+				maxConcurrentStreams: options?.flow?.maxConcurrentStreams,
+			},
+		});
+	}
+	if (options?.flow !== undefined) {
+		let size = options.flow.connectionWindowSize;
+		session.once("connect", () => session.setLocalWindowSize(size));
 	}
 	return session as unknown as Host.Http2.ClientHttp2Session;
 }

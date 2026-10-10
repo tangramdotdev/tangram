@@ -44,8 +44,6 @@ pub(super) struct ProcessControlConnection {
 
 const LOG_BUFFER_SIZE: usize = 16 * 1024 * 1024;
 const LOG_CHANNEL_CAPACITY: usize = 256;
-const LOG_CHUNK_SIZE: usize = tg::process::stdio::flow::CHUNK_SIZE;
-const LOG_REQUEST_CONCURRENCY: usize = tg::process::stdio::flow::MAX_CHUNKS;
 
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
@@ -132,6 +130,7 @@ enum LogEvent {
 #[derive(Clone)]
 struct LogSender {
 	buffer: Arc<tokio::sync::Semaphore>,
+	flow: tg::process::stdio::Config,
 	sender: tokio::sync::mpsc::Sender<LogEvent>,
 }
 
@@ -199,7 +198,7 @@ impl LogSender {
 			tangram_sandbox::stdio::read::Event::Chunk(chunk) => {
 				let mut offset = 0;
 				while offset < chunk.bytes.len() {
-					let end = (offset + LOG_CHUNK_SIZE).min(chunk.bytes.len());
+					let end = (offset + self.flow.max_message_size).min(chunk.bytes.len());
 					let length = u32::try_from(end - offset).unwrap();
 					let permit = self
 						.buffer
@@ -635,7 +634,12 @@ impl Session {
 		} else {
 			let buffer = Arc::new(tokio::sync::Semaphore::new(LOG_BUFFER_SIZE));
 			let (sender, receiver) = tokio::sync::mpsc::channel(LOG_CHANNEL_CAPACITY);
-			let sender = LogSender { buffer, sender };
+			let flow = self.server.config().process.stdio;
+			let sender = LogSender {
+				buffer,
+				flow,
+				sender,
+			};
 			(Some(sender), Some(receiver))
 		};
 
@@ -1479,6 +1483,8 @@ impl Session {
 		let mut stderr_position = 0_u64;
 		let mut stdout_position = 0_u64;
 		let mut requests = FuturesOrdered::new();
+		let mut pending_bytes = 0_u64;
+		let flow = self.server.config().process.stdio;
 		let mut result = Ok(());
 		let mut stream_ended = false;
 
@@ -1494,6 +1500,13 @@ impl Session {
 				break;
 			};
 			let length = u64::try_from(bytes.len()).unwrap();
+			while requests.len() >= flow.message_capacity()
+				|| length > flow.limits.bytes - pending_bytes
+			{
+				let (length, outcome) = requests.next().await.unwrap();
+				pending_bytes -= length;
+				outcome?;
+			}
 			let prepared = (|| {
 				let stream_position = match stream {
 					tg::process::stdio::Stream::Stderr => stderr_position,
@@ -1567,20 +1580,14 @@ impl Session {
 				},
 			};
 			let request = Self::receive_process_log_response(response, permit, length);
-			requests.push_back(request);
-			if requests.len() >= LOG_REQUEST_CONCURRENCY
-				&& let Some(request_result) = requests.next().await
-				&& let Err(error) = request_result
-			{
-				result = Err(error);
-				break;
-			}
+			requests.push_back(async move { (length, request.await) });
+			pending_bytes += length;
 		}
 		if result.is_ok() && !stream_ended {
 			result = Err(tg::error!("the process log stream ended unexpectedly"));
 		}
 		if result.is_ok() {
-			while let Some(request_result) = requests.next().await {
+			while let Some((_, request_result)) = requests.next().await {
 				if let Err(error) = request_result {
 					result = Err(error);
 					break;

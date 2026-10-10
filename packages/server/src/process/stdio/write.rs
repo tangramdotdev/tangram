@@ -16,10 +16,7 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tg::process::stdio::{
-		flow,
-		write::{Ack, ClientMessage, Data, Output, Response, ServerMessage},
-	},
+	tg::process::stdio::write::{Ack, ClientMessage, Data, Output, Response, ServerMessage},
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -138,7 +135,7 @@ impl Session {
 		control_sender: Option<crate::process::control::local::Local>,
 	) -> BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>> {
 		let (sender, receiver) =
-			tokio::sync::mpsc::channel(tg::process::stdio::flow::CHANNEL_CAPACITY);
+			tokio::sync::mpsc::channel(self.server.config().process.stdio.channel_capacity());
 		let task = Task::spawn({
 			let session = self.clone();
 			let id = id.clone();
@@ -205,6 +202,8 @@ impl Session {
 		.shared();
 		let mut pending = FuturesOrdered::<BoxFuture<'static, (u64, tg::Result<Output>)>>::new();
 		let mut responses = BTreeMap::new();
+		let mut pending_bytes = 0_u64;
+		let mut lengths = BTreeMap::new();
 		let mut end = None;
 		let mut ended = false;
 		loop {
@@ -239,11 +238,20 @@ impl Session {
 						ClientMessage::Request(request) => {
 							if ended || end.is_some() { return Err(tg::error!("received a write after stdio EOF")); }
 							// EOF has a reserved slot after a full window of data chunks.
-							let limit = flow::MAX_CHUNKS + usize::from(matches!(request.arg, Data::End(_)));
+							let limit = self.server.config().process.stdio.message_capacity() + usize::from(matches!(request.arg, Data::End(_)));
 							if responses.len() >= limit || responses.insert(request.id, false).is_some() {
 								return Err(tg::error!("the stdio write window was exceeded"));
 							}
-							validate_write(&request.arg, streams)?;
+							validate_write(self.server.config().process.stdio, &request.arg, streams)?;
+							let length = match &request.arg {
+								Data::Chunk(chunk) => chunk.bytes.len() as u64,
+								Data::End(_) => 0,
+							};
+							if length > self.server.config().process.stdio.limits.bytes - pending_bytes {
+								return Err(tg::error!("the stdio byte window was exceeded"));
+							}
+							pending_bytes += length;
+							lengths.insert(request.id, length);
 							sender.send(Ok(ServerMessage::Ack(Ack { id: request.id }))).await.map_err(|_| tg::error!("the stdio write output closed"))?;
 							if matches!(request.arg, Data::End(_)) { end = Some(request); continue; }
 							// Publish writes in order while their completed outcomes remain pending.
@@ -254,6 +262,7 @@ impl Session {
 				},
 				response = pending.next(), if !pending.is_empty() => {
 					let (id, result) = response.unwrap();
+					pending_bytes -= lengths.remove(&id).unwrap();
 					responses.insert(id, true);
 					let response = create_response(id, result);
 					sender.send(Ok(ServerMessage::Response(response))).await.map_err(|_| tg::error!("the stdio write output closed"))?;
@@ -443,7 +452,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let max_frame_size = self.server.config.sync.max_frame_size;
+		let max_frame_size = self.server.config.sync.flow.max_frame_size;
 		let input = super::decode(request, input_encoding, max_frame_size);
 		let Some(output) = self.try_write_process_stdio(&id, arg, input).await? else {
 			return Ok(http::Response::builder()
@@ -473,11 +482,15 @@ fn get_stdin_destination(data: &tg::process::Data) -> tg::Result<Destination> {
 	}
 }
 
-fn validate_write(data: &Data, streams: &[tg::process::stdio::Stream]) -> tg::Result<()> {
+fn validate_write(
+	flow: tg::process::stdio::Config,
+	data: &Data,
+	streams: &[tg::process::stdio::Stream],
+) -> tg::Result<()> {
 	match data {
 		Data::Chunk(chunk) => {
 			if chunk.bytes.is_empty()
-				|| chunk.bytes.len() > flow::CHUNK_SIZE
+				|| chunk.bytes.len() > flow.max_message_size
 				|| !streams.contains(&chunk.stream)
 			{
 				return Err(tg::error!("invalid process stdio chunk"));

@@ -100,16 +100,18 @@ impl Server {
 				max_retries: retry.max_retries,
 			});
 		let client = tg::Client::new(tg::Arg {
-			http: tg::Http::default(),
+			http: tg::Http {
+				http2: self.config().http.http2,
+				..Default::default()
+			},
 			url: Some(region_config.url.clone()),
 			version: Some(self.version.clone()),
 			token: None,
 			pool: None,
 			reconnect,
 			retry,
-			sync: tg::sync::Config {
-				max_frame_size: self.config().sync.max_frame_size,
-			},
+			stdio: self.config().process.stdio,
+			sync: self.config().sync.flow,
 		})?;
 		self.regions.insert(region.to_owned(), client.clone());
 		Ok(Some(client))

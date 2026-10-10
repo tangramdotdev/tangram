@@ -23,11 +23,32 @@ pub use id::Id;
 pub mod control;
 pub mod id;
 
+pub mod flow;
+
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.sync";
 
-#[derive(Clone, Copy, Debug)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(default, deny_unknown_fields)]
 pub struct Config {
+	#[tangram_serialize(id = 0)]
+	pub limits: tangram_http::flow::Limits,
+
+	#[tangram_serialize(id = 1)]
 	pub max_frame_size: u64,
+
+	#[tangram_serialize(id = 2)]
+	pub max_message_size: u64,
+
+	#[tangram_serialize(id = 3)]
+	pub max_object_size: u64,
 }
 
 #[serde_as]
@@ -156,6 +177,12 @@ pub struct Header {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum Message {
+	#[tangram_serialize(id = 3)]
+	Config(Config),
+
+	#[tangram_serialize(id = 4)]
+	Consumption(tangram_http::flow::Consumption),
+
 	#[tangram_serialize(id = 2)]
 	End,
 
@@ -614,6 +641,91 @@ pub struct ProgressMessageAmounts {
 	pub users: u64,
 }
 
+impl Config {
+	pub fn validate(self) -> tg::Result<()> {
+		self.limits
+			.validate()
+			.map_err(|error| tg::error!(source = error, "invalid sync limits"))?;
+		if self.max_object_size == 0
+			|| self.max_message_size < self.max_object_size.saturating_add(256)
+			|| self.max_message_size > self.limits.bytes / 2
+			|| self.max_message_size > self.max_frame_size
+		{
+			return Err(tg::error!("invalid sync message limits"));
+		}
+		Ok(())
+	}
+
+	pub fn sync_message_size(self, sync_message: &Message) -> tg::Result<usize> {
+		let object_size = match sync_message {
+			Message::Put(PutMessage::Node(PutNodeMessage::Object(sync_message))) => {
+				Some(sync_message.bytes.len())
+			},
+			Message::Put(PutMessage::Node(PutNodeMessage::Process(sync_message))) => {
+				Some(sync_message.bytes.len())
+			},
+			_ => None,
+		};
+		if object_size.is_some_and(|size| size as u64 > self.max_object_size) {
+			return Err(tg::error!("the sync object size limit was exceeded"));
+		}
+		let hint = sync_message.size_hint();
+		if hint.is_none() {
+			let bytes = tangram_serialize::to_vec(sync_message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the sync message"))?;
+			if bytes.len() as u64 > self.max_message_size {
+				return Err(tg::error!("the sync message size limit was exceeded"));
+			}
+		}
+		let size = hint.unwrap_or(self.max_message_size);
+		if size > self.max_message_size {
+			return Err(tg::error!("the sync message size limit was exceeded"));
+		}
+		let size = usize::try_from(size)
+			.map_err(|error| tg::error!(!error, "invalid sync message size"))?;
+		Ok(size)
+	}
+}
+
+impl Message {
+	#[must_use]
+	pub fn size_hint(&self) -> Option<u64> {
+		match self {
+			Self::End | Self::Get(GetMessage::End) | Self::Put(PutMessage::End) => Some(64),
+			Self::Get(
+				GetMessage::Available(GetAvailableMessage::Process(_)) | GetMessage::Progress(_),
+			)
+			| Self::Put(PutMessage::Progress(_)) => Some(256),
+			Self::Get(GetMessage::Available(GetAvailableMessage::Object(_)))
+			| Self::Put(PutMessage::Pending(_)) => Some(128),
+			Self::Get(GetMessage::Node(sync_message)) => {
+				let selector_size =
+					(sync_message.selector.to_string().len() as u64).checked_mul(8)?;
+				256_u64
+					.checked_add(selector_size)?
+					.checked_add(tokens_size_hint(&sync_message.tokens)?)
+			},
+			Self::Put(PutMessage::Node(PutNodeMessage::Object(sync_message))) => {
+				let metadata_size = if sync_message.metadata.is_some() {
+					256
+				} else {
+					0
+				};
+				(sync_message.bytes.len() as u64).checked_add(256 + metadata_size)
+			},
+			Self::Put(PutMessage::Node(PutNodeMessage::Process(sync_message))) => {
+				let metadata_size = if sync_message.metadata.is_some() {
+					4096
+				} else {
+					0
+				};
+				(sync_message.bytes.len() as u64).checked_add(256 + metadata_size)
+			},
+			_ => None,
+		}
+	}
+}
+
 impl tg::Session {
 	pub async fn sync(
 		&self,
@@ -623,7 +735,10 @@ impl tg::Session {
 		tg::sync::Header,
 		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
 	)> {
-		let max_frame_size = self.client().sync.max_frame_size;
+		let config = self.client().sync;
+		let (mut connection, input) = flow::Connection::new(config)?;
+		let stream = connection.send_sync_messages(stream);
+		let max_frame_size = config.max_frame_size;
 		let method = http::Method::POST;
 		let uri = Uri::builder().path("/sync").build().unwrap();
 
@@ -710,7 +825,8 @@ impl tg::Session {
 				.map_err(|error| tg::error!(!error, "failed to read the sync message"))
 				.and_then(|event| futures::future::ready(event.try_into()))
 				.boxed();
-			return Ok((header, stream));
+			let task = connection.receive_sync_messages(stream);
+			return Ok((header, input.attach(task).boxed()));
 		}
 		if content_type != Some(tg::sync::CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
@@ -803,7 +919,8 @@ impl tg::Session {
 			.attach(task)
 			.boxed();
 
-		Ok((header, stream))
+		let task = connection.receive_sync_messages(stream);
+		Ok((header, input.attach(task).boxed()))
 	}
 }
 
@@ -812,6 +929,8 @@ impl TryFrom<Message> for tangram_http::sse::Event {
 
 	fn try_from(message: Message) -> tg::Result<Self> {
 		let (event, data) = match message {
+			Message::Config(message) => ("config", serde_json::to_string(&message)),
+			Message::Consumption(message) => ("consumption", serde_json::to_string(&message)),
 			Message::End => ("end", serde_json::to_string(&())),
 			Message::Get(message) => ("get", serde_json::to_string(&message)),
 			Message::Put(message) => ("put", serde_json::to_string(&message)),
@@ -834,6 +953,8 @@ impl TryFrom<tangram_http::sse::Event> for Message {
 
 	fn try_from(event: tangram_http::sse::Event) -> tg::Result<Self> {
 		let message = match event.event.as_deref() {
+			Some("config") => serde_json::from_str(&event.data).map(Self::Config),
+			Some("consumption") => serde_json::from_str(&event.data).map(Self::Consumption),
 			Some("end") => serde_json::from_str::<()>(&event.data).map(|()| Self::End),
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
@@ -855,7 +976,29 @@ impl TryFrom<tangram_http::sse::Event> for Message {
 impl Default for Config {
 	fn default() -> Self {
 		Self {
+			limits: tangram_http::flow::Limits {
+				bytes: 2 * 1024 * 1024,
+				messages: 1024,
+			},
 			max_frame_size: 64 * 1024 * 1024,
+			max_message_size: 512 * 1024,
+			max_object_size: 256 * 1024,
 		}
 	}
+}
+
+fn tokens_size_hint(tokens: &tg::authorization::Tokens) -> Option<u64> {
+	tokens.iter().try_fold(0_u64, |size, (location, entry)| {
+		let location_size = (location.to_string().len() as u64).checked_mul(8)?;
+		let size = size.checked_add(256)?.checked_add(location_size)?;
+		entry.authorization.iter().try_fold(size, |size, token| {
+			let key_size = (token.metadata.key.len() as u64).checked_mul(8)?;
+			let permission_size = (token.body.permissions.len() as u64).checked_mul(128)?;
+			let signature_size = (token.signature.len() as u64).checked_mul(2)?;
+			size.checked_add(1024)?
+				.checked_add(key_size)?
+				.checked_add(permission_size)?
+				.checked_add(signature_size)
+		})
+	})
 }

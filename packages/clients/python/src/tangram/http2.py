@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import ssl
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
-from contextlib import aclosing
+from collections.abc import AsyncIterable, AsyncIterator
 from dataclasses import dataclass, field
 from urllib.parse import unquote, urlsplit
 
@@ -23,8 +22,16 @@ from h2.events import (
     WindowUpdated,
 )
 from h2.exceptions import NoSuchStreamError
+from h2.settings import SettingCodes
 
+from .config import Http2Config, default_http2_config, validate_http2_config
 from .http import Request, Response
+
+
+class TransportError(ConnectionError):
+    def __init__(self, message: str, *, retryable: bool = True):
+        self.retryable = retryable
+        super().__init__(message)
 
 
 @dataclass
@@ -46,6 +53,7 @@ class Session:
         writer: asyncio.StreamWriter,
         scheme: str,
         authority: str,
+        config: Http2Config | None = None,
     ) -> None:
         self.reader = reader
         self.writer = writer
@@ -58,16 +66,31 @@ class Session:
         self.writers: set[asyncio.Task[None]] = set()
         self.changed = asyncio.Event()
         self.closed = False
+        self.retired = False
+        config = config if config is not None else default_http2_config()
+        validate_http2_config(config)
         self.connection.initiate_connection()
+        settings: dict[SettingCodes | int, int] = {
+            SettingCodes.INITIAL_WINDOW_SIZE: config["stream_window_size"]
+        }
+        if config["max_concurrent_streams"] is not None:
+            settings[SettingCodes.MAX_CONCURRENT_STREAMS] = config[
+                "max_concurrent_streams"
+            ]
+        self.connection.update_settings(settings)
+        if config["connection_window_size"] > 65535:
+            self.connection.increment_flow_control_window(
+                config["connection_window_size"] - 65535
+            )
         self._flush()
         self.reader_task = asyncio.create_task(self._read())
 
     @classmethod
-    async def connect(cls, url: str) -> Session:
+    async def connect(cls, url: str, config: Http2Config | None = None) -> Session:
         if url.startswith("http+unix://"):
             path = unquote(url.removeprefix("http+unix://"))
             reader, writer = await asyncio.open_unix_connection(path)
-            return cls(reader, writer, "http", "localhost")
+            return cls(reader, writer, "http", "localhost", config)
         uri = urlsplit(url)
         if uri.scheme not in ("http", "https") or uri.hostname is None:
             raise ValueError("invalid HTTP/2 URL")
@@ -87,12 +110,12 @@ class Session:
             writer.close()
             await writer.wait_closed()
             raise ConnectionError("failed to negotiate the HTTP/2 protocol")
-        return cls(reader, writer, uri.scheme, uri.netloc)
+        return cls(reader, writer, uri.scheme, uri.netloc, config)
 
     async def send(self, request: Request) -> Response:
         while True:
-            if self.closed:
-                raise ConnectionError("the HTTP/2 session is closed")
+            if self.closed or self.retired:
+                raise TransportError("the HTTP/2 session is closed")
             self.changed.clear()
             if (
                 self.connection.open_outbound_streams
@@ -141,15 +164,14 @@ class Session:
         self, stream_id: int, stream: Stream, body: AsyncIterable[bytes]
     ) -> None:
         try:
-            async with aclosing(
-                coalesce(body, self.connection.max_outbound_frame_size)
-            ) as chunks:
+            chunks = body.__aiter__()
+            try:
                 async for chunk in chunks:
                     offset = 0
                     while offset < len(chunk):
                         self.changed.clear()
                         if self.closed:
-                            raise ConnectionError("the HTTP/2 session is closed")
+                            raise TransportError("the HTTP/2 session is closed")
                         length = min(
                             self.connection.local_flow_control_window(stream_id),
                             self.connection.max_outbound_frame_size,
@@ -163,6 +185,10 @@ class Session:
                         self._flush()
                         await self.writer.drain()
                         await asyncio.sleep(0)
+            finally:
+                close = getattr(chunks, "aclose", None)
+                if close is not None:
+                    await close()
             self.connection.end_stream(stream_id)
             self._flush()
             self.changed.set()
@@ -199,8 +225,9 @@ class Session:
             while data := await self.reader.read(65536):
                 for event in self.connection.receive_data(data):
                     if isinstance(event, ConnectionTerminated):
-                        raise ConnectionError(
-                            f"the HTTP/2 session terminated: {event.error_code}"
+                        raise TransportError(
+                            f"the HTTP/2 session terminated: {event.error_code}",
+                            retryable=event.error_code == 0,
                         )
                     if isinstance(event, (RemoteSettingsChanged, WindowUpdated)):
                         self.changed.set()
@@ -246,14 +273,15 @@ class Session:
                     elif isinstance(event, StreamReset):
                         self._fail_stream(
                             stream,
-                            ConnectionError(
-                                f"the HTTP/2 stream reset: {event.error_code}"
+                            TransportError(
+                                f"the HTTP/2 stream reset: {event.error_code}",
+                                retryable=False,
                             ),
                         )
                         self._release(event.stream_id, stream)
                 self._flush()
                 await self.writer.drain()
-            raise ConnectionError("the HTTP/2 connection closed")
+            raise TransportError("the HTTP/2 connection closed")
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -303,6 +331,14 @@ class Session:
             self._flush()
         stream.chunks.put_nowait(None)
         self.changed.set()
+        if self.retired and not self.streams:
+            self.writer.close()
+
+    def retire(self) -> None:
+        self.retired = True
+        self.changed.set()
+        if not self.streams:
+            self.writer.close()
 
     async def close(self) -> None:
         self.closed = True
@@ -311,7 +347,7 @@ class Session:
         for stream in self.streams.values():
             if not stream.ended:
                 self._fail_stream(
-                    stream, ConnectionError("the HTTP/2 session is closed")
+                    stream, TransportError("the HTTP/2 session is closed")
                 )
         for task in tasks:
             if not task.cancelling():
@@ -320,48 +356,3 @@ class Session:
         self.streams.clear()
         self.writer.close()
         await self.writer.wait_closed()
-
-
-async def coalesce(
-    body: AsyncIterable[bytes], size: int
-) -> AsyncGenerator[bytes, None]:
-    """Combine ready chunks and flush when the producer becomes pending."""
-    iterator = body.__aiter__()
-    pending = None
-    finished = False
-    try:
-        while not finished:
-            if pending is None:
-                pending = asyncio.ensure_future(anext(iterator))
-            try:
-                chunk = await pending
-            except StopAsyncIteration:
-                return
-            pending = None
-            buffer = bytearray(chunk)
-            while len(buffer) < size:
-                pending = asyncio.ensure_future(anext(iterator))
-                # Poll the next chunk without waiting for future input.
-                if not pending.done():
-                    await asyncio.sleep(0)
-                if not pending.done():
-                    break
-                try:
-                    buffer.extend(pending.result())
-                except StopAsyncIteration:
-                    finished = True
-                except Exception:
-                    # Send buffered bytes before surfacing the producer error.
-                    break
-                pending = None
-                if finished:
-                    break
-            if buffer:
-                yield bytes(buffer)
-    finally:
-        if pending is not None:
-            pending.cancel()
-            await asyncio.gather(pending, return_exceptions=True)
-        close = getattr(iterator, "aclose", None)
-        if close is not None:
-            await close()

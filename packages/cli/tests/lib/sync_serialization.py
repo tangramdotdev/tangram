@@ -36,6 +36,15 @@ def event(kind, value):
     return f"event: {kind}\ndata: {json.dumps(value)}\n\n".encode()
 
 
+config = {"limits": {"bytes": 2 * 1024 * 1024, "messages": 1024}, "max_frame_size": 64 * 1024 * 1024, "max_message_size": 512 * 1024, "max_object_size": 256 * 1024}
+
+def uint(value):
+    return b"\x02" + varint(value)
+
+native_config = b"\x0b\x03\x0a\x04\x00\x0a\x02\x00" + uint(config["limits"]["bytes"]) + b"\x01" + uint(config["limits"]["messages"])
+for index, key in enumerate(("max_frame_size", "max_message_size", "max_object_size"), 1):
+    native_config += bytes([index]) + uint(config[key])
+
 native_type = "application/vnd.tangram.sync"
 content_types = {"json": "text/event-stream", "tangram": native_type}
 headers = {
@@ -45,6 +54,7 @@ headers = {
 if input_encoding == "json":
     arg = json.dumps({"ancestors": "never", "get": "foo"}).encode()
     body = frame(arg)
+    body += event("config", config)
     body += event("put", {"kind": "node", "value": {"kind": "group", "value": {
         "id": group_id, "name": "foo", "specifier": "foo",
     }}})
@@ -57,7 +67,7 @@ else:
     node = bytes.fromhex("0b 01 0b 00 0b 00 0a 03 00 07 14")
     node += bytes.fromhex(id_hex)
     node += bytes.fromhex("01 06 03 66 6f 6f 03 06 03 66 6f 6f")
-    body = frame(node)
+    body = frame(native_config) + frame(node)
     body += bytes.fromhex("05 0b 01 0b 03 00 05 0b 00 0b 03 00 03 0b 02 00")
     path = "/sync?ancestors=never&get=foo"
 

@@ -357,7 +357,7 @@ impl Session {
 				message = local.recv(), if local_open => {
 					match message {
 						Some(local::Message::Close(id)) => { output_sender.send(output::Message::Close(id)).await.ok(); continue; },
-						Some(local::Message::Progress(progress)) => { output_sender.send(output::Message::Progress(progress)).await.ok(); continue; },
+						Some(local::Message::Consumption(consumption)) => { output_sender.send(output::Message::Consumption(consumption)).await.ok(); continue; },
 						Some(local::Message::Request { request, sender }) => (tg::process::control::ServerMessage::Request(request), sender),
 						None => { local_open = false; continue; },
 					}
@@ -517,16 +517,18 @@ impl Session {
 					}
 				},
 				tg::process::control::ServerMessage::Response(_) => {},
-				tg::process::control::ServerMessage::Sync(_) => {
+				tg::process::control::ServerMessage::Sync(_)
+				| tg::process::control::ServerMessage::SyncConfig(_)
+				| tg::process::control::ServerMessage::SyncConsumption(_) => {
 					return Err(tg::error!("unexpected sync message"));
 				},
 				tg::process::control::ServerMessage::Ack(_) => unreachable!(),
 				tg::process::control::ServerMessage::Notification(notification) => {
 					match notification {
-						tg::process::control::ServerNotification::Read(notification) => {
-							// Consumption progress may arrive after the reader has sent its terminal response.
+						tg::process::control::ServerNotification::ReadConsumption(notification) => {
+							// Consumption may arrive after the reader has sent its terminal response.
 							output_sender
-								.send(output::Message::Progress(notification))
+								.send(output::Message::Consumption(notification))
 								.await
 								.ok();
 						},

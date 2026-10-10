@@ -4,7 +4,6 @@ use tangram_http::body::Ext as _;
 use {
 	crate::prelude::*,
 	std::{
-		error::Error as _,
 		ops::ControlFlow,
 		path::Path,
 		pin::Pin,
@@ -48,6 +47,7 @@ impl tg::Client {
 		options: tangram_pool::Options,
 		reconnect: &tangram_futures::retry::Options,
 		url: &Uri,
+		http2: tangram_http::http2::Config,
 	) -> Pool {
 		let reconnect = reconnect.clone();
 		let url = url.clone();
@@ -58,7 +58,7 @@ impl tg::Client {
 				tangram_futures::retry(&reconnect, || {
 					let url = url.clone();
 					async move {
-						match Self::connect_h2(&url).await {
+						match Self::connect_h2(&url, http2).await {
 							Ok(sender) => Ok(ControlFlow::Break(Connection::new(sender))),
 							Err(error) => Ok(ControlFlow::Continue(error)),
 						}
@@ -257,11 +257,12 @@ impl tg::Client {
 
 	async fn connect_h2(
 		url: &Uri,
+		http2: tangram_http::http2::Config,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
 		match url.scheme() {
 			Some("http+stdio") => {
 				let stream = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
-				Self::handshake_h2(stream).await
+				Self::handshake_h2(stream, http2).await
 			},
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -271,7 +272,7 @@ impl tg::Client {
 					.try_into()
 					.map_err(|_| tg::error!("invalid port"))?;
 				let stream = Self::connect_tcp(host, port).await?;
-				Self::handshake_h2(stream).await
+				Self::handshake_h2(stream, http2).await
 			},
 			Some("https") => {
 				#[cfg(not(feature = "tls"))]
@@ -290,13 +291,13 @@ impl tg::Client {
 						.map_err(|_| tg::error!("invalid port"))?;
 					let stream = Self::connect_tcp_tls(host, port, vec![b"h2".into()]).await?;
 					Self::verify_alpn_protocol(&stream, b"h2")?;
-					Self::handshake_h2(stream).await
+					Self::handshake_h2(stream, http2).await
 				}
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let stream = Self::connect_unix(Path::new(path)).await?;
-				Self::handshake_h2(stream).await
+				Self::handshake_h2(stream, http2).await
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -313,7 +314,7 @@ impl tg::Client {
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, port);
 					let stream = Self::connect_vsock(addr).await?;
-					Self::handshake_h2(stream).await
+					Self::handshake_h2(stream, http2).await
 				}
 			},
 			_ => Err(tg::error!(%url, "invalid url")),
@@ -354,6 +355,7 @@ impl tg::Client {
 
 	pub(crate) async fn handshake_h2<S>(
 		stream: S,
+		http2: tangram_http::http2::Config,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
@@ -362,7 +364,10 @@ impl tg::Client {
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::Builder::new(executor)
-			.max_concurrent_streams(None)
+			.adaptive_window(false)
+			.initial_connection_window_size(http2.connection_window_size)
+			.initial_stream_window_size(http2.stream_window_size)
+			.max_concurrent_streams(http2.max_concurrent_streams)
 			.max_concurrent_reset_streams(usize::MAX)
 			.handshake(io)
 			.await
@@ -630,28 +635,5 @@ fn with_origin(
 }
 
 fn is_retryable_error(error: &hyper::Error) -> bool {
-	error.is_closed()
-		|| error.is_canceled()
-		|| error.is_incomplete_message()
-		|| io_error_kind(error).is_some_and(|kind| {
-			matches!(
-				kind,
-				std::io::ErrorKind::BrokenPipe
-					| std::io::ErrorKind::ConnectionAborted
-					| std::io::ErrorKind::ConnectionReset
-					| std::io::ErrorKind::NotConnected
-					| std::io::ErrorKind::UnexpectedEof
-			)
-		})
-}
-
-fn io_error_kind(error: &hyper::Error) -> Option<std::io::ErrorKind> {
-	let mut source = error.source();
-	while let Some(error) = source {
-		if let Some(error) = error.downcast_ref::<std::io::Error>() {
-			return Some(error.kind());
-		}
-		source = error.source();
-	}
-	None
+	tangram_http::error::is_retryable(error)
 }

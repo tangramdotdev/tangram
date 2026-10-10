@@ -357,6 +357,7 @@ fn fixture() -> Fixture {
 	let (output, output_receiver) = watch::channel(None);
 	let (status, _) = watch::channel(Status::default());
 	let state = State {
+		flow: tg::process::stdio::Config::default(),
 		high: VecDeque::new(),
 		initial: Vec::new(),
 		input: ReceiverStream::new(input_receiver).boxed(),
@@ -402,4 +403,13 @@ async fn next_request(fixture: &mut Fixture) -> ClientRequest {
 			return request;
 		}
 	}
+}
+
+#[test]
+fn initial_reads_must_match_the_requested_flow_window() {
+	let initial = read::Arg::default();
+	let mut arg = initial.clone();
+	assert!(matches_read(&initial, &arg));
+	arg.flow.limits.messages /= 2;
+	assert!(!matches_read(&initial, &arg));
 }

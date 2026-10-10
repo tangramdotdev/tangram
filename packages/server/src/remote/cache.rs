@@ -403,7 +403,8 @@ mod tests {
 			},
 			signature: Vec::new(),
 		};
-		let expired = token(i64::MIN);
+		let mut expired = token(i64::MIN);
+		expired.body.resource = tg::process::Id::new().into();
 		let valid = token(i64::MAX);
 		let mut tokens =
 			tg::authorization::Tokens::with_authorization([expired.clone(), valid.clone()]);

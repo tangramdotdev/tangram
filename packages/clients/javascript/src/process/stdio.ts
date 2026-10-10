@@ -1,3 +1,5 @@
+import type { Consumption as FlowConsumption } from "../http/flow.ts";
+import { Stdio as StdioConfig } from "../config.ts";
 import * as tg from "../index.ts";
 import type { Connection } from "./connect.ts";
 
@@ -70,8 +72,12 @@ export namespace Stdio {
 		}
 	}
 
+	export type Config = StdioConfig;
+	export const Config = StdioConfig;
+
 	export namespace Read {
 		export type Arg = {
+			flow?: Config;
 			length?: number | null;
 			location?: tg.Location.Arg | null;
 			position?: number | string | null;
@@ -83,7 +89,7 @@ export namespace Stdio {
 
 		export type ClientMessage =
 			| { kind: "ack" }
-			| { kind: "notification"; value: Progress };
+			| { kind: "notification"; value: Consumption };
 
 		export type Event =
 			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
@@ -126,7 +132,7 @@ export namespace Stdio {
 			}
 		}
 
-		export type Progress = { consumed: number };
+		export type Consumption = FlowConsumption;
 
 		export type ServerMessage =
 			| { kind: "notification"; value: Event }

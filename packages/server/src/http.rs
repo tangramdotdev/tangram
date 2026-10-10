@@ -203,6 +203,7 @@ impl Server {
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
 		let idle_timeout = self.http_idle_timeout();
+		let http2 = self.config().http.http2;
 
 		// Create the active connections counter.
 		let active_connections = opentelemetry::global::meter("tangram_http")
@@ -256,7 +257,8 @@ impl Server {
 				async move {
 					match stream {
 						Stream::Stdio(stream) => {
-							Server::serve_connection(stream, service, idle_timeout, stopper).await;
+							Server::serve_connection(stream, service, idle_timeout, http2, stopper)
+								.await;
 						},
 						Stream::Tcp(stream) => {
 							#[cfg(feature = "tls")]
@@ -267,6 +269,7 @@ impl Server {
 											stream,
 											service,
 											idle_timeout,
+											http2,
 											stopper,
 										)
 										.await;
@@ -279,18 +282,27 @@ impl Server {
 									},
 								}
 							} else {
-								Server::serve_connection(stream, service, idle_timeout, stopper)
-									.await;
+								Server::serve_connection(
+									stream,
+									service,
+									idle_timeout,
+									http2,
+									stopper,
+								)
+								.await;
 							}
 							#[cfg(not(feature = "tls"))]
-							Server::serve_connection(stream, service, idle_timeout, stopper).await;
+							Server::serve_connection(stream, service, idle_timeout, http2, stopper)
+								.await;
 						},
 						Stream::Unix(stream) => {
-							Server::serve_connection(stream, service, idle_timeout, stopper).await;
+							Server::serve_connection(stream, service, idle_timeout, http2, stopper)
+								.await;
 						},
 						#[cfg(feature = "vsock")]
 						Stream::Vsock(stream) => {
-							Server::serve_connection(stream, service, idle_timeout, stopper).await;
+							Server::serve_connection(stream, service, idle_timeout, http2, stopper)
+								.await;
 						},
 					}
 					drop(guard);
@@ -376,15 +388,21 @@ impl Server {
 	{
 		let service = self.service(origin, stopper.clone());
 		let idle_timeout = self.http_idle_timeout();
-		Server::serve_connection(stream, service, idle_timeout, stopper).await;
+		let http2 = self.config().http.http2;
+		Server::serve_connection(stream, service, idle_timeout, http2, stopper).await;
 	}
 
 	fn http_idle_timeout(&self) -> Duration {
 		self.config().http.idle_timeout
 	}
 
-	async fn serve_connection<S, T>(stream: S, service: T, idle_timeout: Duration, stopper: Stopper)
-	where
+	async fn serve_connection<S, T>(
+		stream: S,
+		service: T,
+		idle_timeout: Duration,
+		http2: tangram_http::http2::Config,
+		stopper: Stopper,
+	) where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 		T: tower::Service<
 				http::Request<BoxBody>,
@@ -400,7 +418,10 @@ impl Server {
 		let mut builder = hyper_util::server::conn::auto::Builder::new(executor);
 		builder
 			.http2()
-			.max_concurrent_streams(None)
+			.adaptive_window(false)
+			.initial_connection_window_size(http2.connection_window_size)
+			.initial_stream_window_size(http2.stream_window_size)
+			.max_concurrent_streams(http2.max_concurrent_streams)
 			.max_pending_accept_reset_streams(None)
 			.max_local_error_reset_streams(None);
 		let service = service

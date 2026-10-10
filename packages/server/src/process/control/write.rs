@@ -106,7 +106,12 @@ impl Session {
 							.await?;
 						batch_length = 0;
 					}
-					let result = Self::create_process_control_log_entry(id, streams, chunk);
+					let result = Self::create_process_control_log_entry(
+						self.server.config().process.stdio,
+						id,
+						streams,
+						chunk,
+					);
 					match result {
 						Ok(entry) => {
 							batch.push(Pending {
@@ -274,6 +279,7 @@ impl Session {
 	}
 
 	fn create_process_control_log_entry(
+		flow: tg::process::stdio::Config,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 		chunk: tg::process::stdio::Chunk,
@@ -284,7 +290,7 @@ impl Session {
 		if chunk.bytes.is_empty() {
 			return Err(tg::error!("the process log chunk is empty"));
 		}
-		if chunk.bytes.len() > tg::process::stdio::flow::CHUNK_SIZE {
+		if chunk.bytes.len() > flow.max_message_size {
 			return Err(tg::error!("the process log chunk is too large"));
 		}
 		let length = chunk.bytes.len().to_u64().unwrap();

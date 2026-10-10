@@ -224,6 +224,7 @@ class Sync:
         self.response.begin()
         assert self.response.status == status, (self.response.status, self.response.read())
         if status == 200:
+            self.send(Variant(3, {0: {0: 2 * 1024 * 1024, 1: 1024}, 1: 64 * 1024 * 1024, 2: 512 * 1024, 3: 256 * 1024}))
             assert self.response.getheader("Content-Type") == "application/vnd.tangram.sync"
             header = decode(io.BytesIO(self.response.read(read_varint(self.response))))
             referent = header[0]
@@ -259,7 +260,10 @@ class Sync:
                 return message.value
 
     def receive(self):
-        return decode(io.BytesIO(self.response.read(read_varint(self.response))))
+        while True:
+            message = decode(io.BytesIO(self.response.read(read_varint(self.response))))
+            if message.id not in (3, 4):
+                return message
 
     def finish(self):
         self.send(Variant(1, Variant(3)))

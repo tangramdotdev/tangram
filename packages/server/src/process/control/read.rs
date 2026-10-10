@@ -5,10 +5,7 @@ use {
 	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_messenger::Messenger as _,
-	tg::process::{
-		control,
-		stdio::{flow, read},
-	},
+	tg::process::{control, stdio::read},
 };
 
 impl Session {
@@ -17,13 +14,14 @@ impl Session {
 		id: &tg::process::Id,
 		arg: read::Arg,
 	) -> BoxStream<'static, tg::Result<read::ServerMessage>> {
-		let (sender, receiver) = tokio::sync::mpsc::channel(flow::CHANNEL_CAPACITY);
-		let (progress_sender, progress_receiver) = tokio::sync::mpsc::channel(4);
+		let flow = arg.flow;
+		let (sender, receiver) = tokio::sync::mpsc::channel(flow.channel_capacity());
+		let (consumption_sender, consumption_receiver) = tokio::sync::mpsc::channel(4);
 		let session = self.clone();
 		let id = id.clone();
 		tokio::spawn(async move {
 			let result = session
-				.send_process_control_read_task(&id, arg, sender.clone(), progress_receiver)
+				.send_process_control_read_task(&id, arg, sender.clone(), consumption_receiver)
 				.boxed()
 				.await;
 			if let Err(error) = result {
@@ -31,18 +29,35 @@ impl Session {
 			}
 		});
 		let output = tokio_stream::wrappers::ReceiverStream::new(receiver);
-		let state = (output, progress_sender, flow::Receiver::default(), 0);
+		let state = (
+			output,
+			consumption_sender,
+			tangram_http::flow::Receiver::new(flow.limits),
+			0,
+		);
 		futures::stream::try_unfold(
 			state,
 			|(mut output, sender, mut window, pending)| async move {
-				if let Some(progress) = window.consume(pending)? {
-					sender.send(progress).await.ok();
+				if let Some(consumption) = if pending == 0 {
+					None
+				} else {
+					window
+						.consume(pending)
+						.map_err(|source| tg::error!(!source, "invalid stdio consumption"))?
+				} {
+					sender.send(consumption).await.ok();
 				}
 				let Some(message) = output.try_next().await? else {
+					if let Some(consumption) = window.flush() {
+						sender.send(consumption).await.ok();
+					}
 					return Ok(None);
 				};
 				let pending = match &message {
 					read::ServerMessage::Notification(read::Event::Chunk(chunk)) => {
+						window.receive(chunk.bytes.len()).map_err(|source| {
+							tg::error!(!source, "the stdio window was exceeded")
+						})?;
 						chunk.bytes.len()
 					},
 					_ => 0,
@@ -58,7 +73,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: read::Arg,
 		sender: tokio::sync::mpsc::Sender<tg::Result<read::ServerMessage>>,
-		mut progress: tokio::sync::mpsc::Receiver<read::Progress>,
+		mut consumption: tokio::sync::mpsc::Receiver<tangram_http::flow::Consumption>,
 	) -> tg::Result<()> {
 		for stream in &arg.streams {
 			crate::checkpoint!(self.server, "process.stdio.read.request", process = %id, stream = %stream).await;
@@ -132,12 +147,12 @@ impl Session {
 					sender.send(result).await.ok();
 					return Ok(());
 				},
-				value = progress.recv() => {
-					let Some(progress) = value else { break; };
-					let notification = control::ReadServerNotification { id: request_id.clone(), progress };
-					let message = ServerMessage(control::ServerMessage::Notification(control::ServerNotification::Read(notification)));
+				value = consumption.recv() => {
+					let Some(consumption) = value else { break; };
+					let notification = control::ReadConsumption { consumption, id: request_id.clone() };
+					let message = ServerMessage(control::ServerMessage::Notification(control::ServerNotification::ReadConsumption(notification)));
 					self.server.messenger.publish(format!("processes.{id}.control.server"), message).await
-						.map_err(|source| tg::error!(!source, "failed to publish the process read progress"))?;
+						.map_err(|source| tg::error!(!source, "failed to publish the process read consumption"))?;
 				},
 				() = sender.closed() => break,
 			}

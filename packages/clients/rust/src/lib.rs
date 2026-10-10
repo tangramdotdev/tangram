@@ -145,12 +145,14 @@ pub struct Arg {
 	pub pool: Option<tangram_pool::Options>,
 	pub reconnect: Option<tangram_futures::retry::Options>,
 	pub retry: Option<tangram_futures::retry::Options>,
+	pub stdio: tg::process::stdio::Config,
 	pub sync: tg::sync::Config,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Http {
 	pub coalescing_target_size: usize,
+	pub http2: tangram_http::http2::Config,
 }
 
 #[derive(Clone, Debug)]
@@ -164,6 +166,7 @@ pub struct State {
 	reconnect: tangram_futures::retry::Options,
 	retry: tangram_futures::retry::Options,
 	service: self::http::Service,
+	stdio: tg::process::stdio::Config,
 	sync: tg::sync::Config,
 	url: Uri,
 	version: String,
@@ -215,6 +218,11 @@ impl Context {
 impl Client {
 	pub fn new(arg: tg::Arg) -> tg::Result<Self> {
 		let http = arg.http.validate()?;
+		arg.stdio.validate()?;
+		arg.sync.validate()?;
+		http.http2
+			.validate_flow(arg.sync.limits, arg.stdio.limits, arg.stdio.max_reads)
+			.map_err(|source| tg::error!(!source, "invalid HTTP flow configuration"))?;
 		let url = match arg.url {
 			Some(url) => url,
 			None => Self::default_url()?,
@@ -225,9 +233,10 @@ impl Client {
 		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
 		let reconnect = arg.reconnect.unwrap_or_default();
 		let retry = arg.retry.unwrap_or_default();
+		let stdio = arg.stdio;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
-		let pool = Self::pool(pool_options, &reconnect, &url);
+		let pool = Self::pool(pool_options, &reconnect, &url, http.http2);
 		let service = Self::service(&version, &pool, &url, http.coalescing_target_size);
 		let client = Self(Arc::new(State {
 			context,
@@ -237,6 +246,7 @@ impl Client {
 			reconnect,
 			retry,
 			service,
+			stdio,
 			sync,
 			url,
 			version,
@@ -264,6 +274,11 @@ impl Client {
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
 		let http = arg.http.validate()?;
+		arg.stdio.validate()?;
+		arg.sync.validate()?;
+		http.http2
+			.validate_flow(arg.sync.limits, arg.stdio.limits, arg.stdio.max_reads)
+			.map_err(|source| tg::error!(!source, "invalid HTTP flow configuration"))?;
 		let url = match arg.url {
 			Some(url) => url,
 			None => Uri::builder()
@@ -278,9 +293,10 @@ impl Client {
 		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
 		let reconnect = arg.reconnect.unwrap_or_default();
 		let retry = arg.retry.unwrap_or_default();
+		let stdio = arg.stdio;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
-		let sender = Self::handshake_h2(stream).await?;
+		let sender = Self::handshake_h2(stream, http.http2).await?;
 		let options = tangram_pool::Options {
 			min: 1,
 			max: 1,
@@ -300,6 +316,7 @@ impl Client {
 			reconnect,
 			retry,
 			service,
+			stdio,
 			sync,
 			url,
 			version,
@@ -407,12 +424,16 @@ impl Default for Http {
 	fn default() -> Self {
 		Self {
 			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
+			http2: tangram_http::http2::Config::default(),
 		}
 	}
 }
 
 impl Http {
 	fn validate(self) -> tg::Result<Self> {
+		self.http2
+			.validate()
+			.map_err(|error| tg::error!(source = error, "invalid HTTP/2 configuration"))?;
 		if self.coalescing_target_size == 0 {
 			return Err(tg::error!(
 				"expected the HTTP coalescing target size to be greater than zero"

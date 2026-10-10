@@ -18,7 +18,7 @@ mod progress;
 mod put;
 mod queue;
 
-pub(crate) use self::graph::Graph;
+pub(crate) use {self::graph::Graph, tg::sync::flow};
 
 pub(crate) mod control;
 
@@ -289,6 +289,9 @@ impl Session {
 					tg::sync::Message::Put(message) => {
 						get_input_sender.send(message).await.ok();
 					},
+					tg::sync::Message::Config(_) | tg::sync::Message::Consumption(_) => {
+						return Err(tg::error!("unexpected sync flow message"));
+					},
 					tg::sync::Message::End => {
 						tracing::trace!("received end");
 						return Ok(());
@@ -413,13 +416,17 @@ impl Session {
 			crate::process::stdio::Encoding::from_accept(accept.as_ref(), tg::sync::CONTENT_TYPE)?;
 
 		// Decode the request body.
-		let max_frame_size = self.server.config.sync.max_frame_size;
+		let max_frame_size = self.server.config.sync.flow.max_frame_size;
 		let stream = crate::process::stdio::decode(request, input_encoding, max_frame_size);
 
-		let (header, stream) = self
-			.sync(arg, stream)
+		let (mut connection, input) = flow::Connection::new(self.server.config.sync.flow)?;
+		let (header, output) = self
+			.sync(arg, input)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the sync"))?;
+		let output = connection.send_sync_messages(output.boxed());
+		let task = connection.receive_sync_messages(stream);
+		let stream = output.attach(task);
 		crate::checkpoint!(self.server, "sync.request.response").await;
 
 		// Create the response body.

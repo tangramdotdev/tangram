@@ -3,14 +3,31 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import os
 import random
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, Self, TypedDict, Unpack, cast, overload
 
+from ..config import (
+    Config as StdioConfig,
+)
+from ..config import (
+    HttpConfig,
+    RetryOptions,
+    compatibility_date,
+    default_config,
+    default_http_config,
+    default_retry_options,
+    validate_config,
+    validate_http_config,
+    validate_retry_options,
+)
+from ..config import version as default_version
 from ..error import Error, ErrorData
 from ..http import Body, Request, Response, Stream
-from ..http2 import Session
+from ..http.coalesce import coalesce
+from ..http2 import Session, TransportError
 from ..object import Object
 from ..progress import Event, progress
 from ..progress import last_output as last_output
@@ -59,13 +76,6 @@ if TYPE_CHECKING:
     from .write import Write
 
 
-class RetryOptions(TypedDict):
-    backoff: float
-    jitter: float
-    max_delay: float
-    max_retries: int
-
-
 class ObjectPutOutput(TypedDict):
     object: Referent[str]
 
@@ -78,14 +88,6 @@ class RequestError(Exception):
     def __init__(self, source: Exception):
         self.source = source
         super().__init__(str(source))
-
-
-def default_retry_options() -> RetryOptions:
-    return {"backoff": 0.01, "jitter": 0.01, "max_delay": 1, "max_retries": 3}
-
-
-reconnect_options = default_retry_options()
-retry_options = default_retry_options()
 
 
 async def retry[T](
@@ -107,7 +109,26 @@ async def retry[T](
 
 
 class Client:
-    def __init__(self, *, url: str | None = None, token: str | None = None):
+    def __init__(
+        self,
+        *,
+        url: str | None = None,
+        token: str | None = None,
+        stdio: StdioConfig | None = None,
+        http: HttpConfig | None = None,
+        reconnect: RetryOptions | None = None,
+        retry: RetryOptions | None = None,
+        version: str | None = None,
+    ):
+        self.stdio = stdio if stdio is not None else default_config()
+        validate_config(self.stdio)
+        self.http = http if http is not None else default_http_config()
+        validate_http_config(self.http, self.stdio)
+        self.reconnect = reconnect if reconnect is not None else default_retry_options()
+        self.retry = retry if retry is not None else default_retry_options()
+        validate_retry_options(self.reconnect)
+        validate_retry_options(self.retry)
+        self.version = version if version is not None else default_version
         self.url = url
         self.token = token
         self._session: Session | None = None
@@ -152,7 +173,7 @@ class Client:
             connecting = self._connecting
             if connecting is None:
                 connecting = asyncio.create_task(
-                    retry(reconnect_options, self._create_session)
+                    retry(self.reconnect, self._create_session)
                 )
                 self._connecting = connecting
             try:
@@ -175,7 +196,7 @@ class Client:
             raise ValueError("missing TANGRAM_URL")
         from .. import host
 
-        return await host.http2.Session.connect(url)
+        return await host.http2.Session.connect(url, self.http["http2"])
 
     def _disconnect(self, session: Session | None = None) -> None:
         if session is not None and self._session is not session:
@@ -211,29 +232,43 @@ class Client:
             raise ValueError("cannot retry a request with a streaming body")
         try:
             return await retry(
-                retry_options,
+                self.retry,
                 lambda: self._send(request),
-                lambda error: isinstance(error, RequestError),
+                lambda error: (
+                    isinstance(error, RequestError) and is_retryable_error(error.source)
+                ),
             )
         except RequestError as error:
             raise error.source from None
 
     async def _send(self, request: Request) -> Response:
+        async with asyncio.timeout(60):
+            return await self._send_inner(request)
+
+    async def _send_inner(self, request: Request) -> Response:
         token = (
             self.token if self.token is not None else os.environ.get("TANGRAM_TOKEN")
         )
         if token is not None and not isinstance(token, str):
             raise ValueError("invalid TANGRAM_TOKEN")
         headers = dict(request.headers)
-        if token is not None:
+        headers.setdefault("x-tg-compatibility-date", compatibility_date)
+        headers.setdefault("x-tg-version", self.version)
+        if token is not None and "authorization" not in headers:
             headers["authorization"] = f"Bearer {token}"
-        request = Request(request.method, request.uri, headers, request.body)
+        body = (
+            None
+            if request.body is None
+            else Body(coalesce(request.body, self.http["coalescing_target_size"]))
+        )
+        request = Request(request.method, request.uri, headers, body)
         session = await self._connect()
         try:
             return await session.send(request)
         except Exception as error:
-            self._disconnect(session)
-            await session.close()
+            if is_retryable_error(error):
+                self._disconnect(session)
+                session.retire()
             raise RequestError(error) from error
 
     async def _request(
@@ -643,3 +678,17 @@ def response_locations(output: object) -> object:
 
 
 client = Client()
+
+
+def is_retryable_error(error: Exception) -> bool:
+    if isinstance(error, TransportError):
+        return error.retryable
+    return (
+        isinstance(
+            error,
+            (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, EOFError),
+        )
+        or isinstance(error, OSError)
+        and error.errno
+        in (errno.EPIPE, errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN)
+    )

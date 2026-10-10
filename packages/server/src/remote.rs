@@ -384,16 +384,18 @@ impl Server {
 
 	pub(crate) fn create_remote_client(&self, url: Uri) -> tg::Result<tg::Client> {
 		tg::Client::new(tg::Arg {
-			http: tg::Http::default(),
+			http: tg::Http {
+				http2: self.config().http.http2,
+				..Default::default()
+			},
 			url: Some(url),
 			version: Some(self.version.clone()),
 			token: None,
 			pool: None,
 			reconnect: None,
 			retry: None,
-			sync: tg::sync::Config {
-				max_frame_size: self.config().sync.max_frame_size,
-			},
+			stdio: self.config().process.stdio,
+			sync: self.config().sync.flow,
 		})
 	}
 }

@@ -3,6 +3,9 @@ use {
 	tokio::io::{AsyncBufRead, AsyncBufReadExt as _},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug, Default)]
 pub struct Event {
 	pub data: String,
@@ -16,7 +19,7 @@ impl std::fmt::Display for Event {
 		if let Some(event) = self.event.as_ref() {
 			writeln!(f, "event: {event}")?;
 		}
-		for data in self.data.lines() {
+		for data in self.data.split('\n') {
 			writeln!(f, "data: {data}")?;
 		}
 		writeln!(f)?;
@@ -35,12 +38,16 @@ pub fn decode(
 			id: None,
 			retry: None,
 		};
+		let mut has_data = false;
 		loop {
 			let Some(line) = lines.next_line().await? else {
 				return Ok(None);
 			};
 			if line.is_empty() {
-				if event.data.ends_with(' ') {
+				if !has_data && event.event.is_none() {
+					continue;
+				}
+				if has_data {
 					event.data.pop();
 				}
 				return Ok(Some((event, lines)));
@@ -56,16 +63,22 @@ pub fn decode(
 			};
 			match field {
 				"data" => {
+					has_data = true;
 					event.data.push_str(value);
+					event.data.push('\n');
 				},
 				"event" => {
 					event.event = Some(value.to_owned());
 				},
-				"id" => {
+				"id" if !value.contains('\0') => {
 					event.id = Some(value.to_owned());
 				},
 				"retry" => {
-					if let Ok(retry) = value.parse() {
+					if !value.is_empty()
+						&& value.bytes().all(|byte| byte.is_ascii_digit())
+						&& let Ok(retry) = value.parse::<u64>()
+						&& retry < (1u64 << 53)
+					{
 						event.retry = Some(retry);
 					}
 				},

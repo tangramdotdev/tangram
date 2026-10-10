@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Self
 
+from . import flow as flow
 from .body import Body as Body
 from .body import json_bytes as json_bytes
 from .headers import Headers as Headers

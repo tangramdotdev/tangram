@@ -111,6 +111,12 @@ pub enum ClientMessage {
 
 	#[tangram_serialize(id = 3)]
 	Sync(tg::sync::Message),
+
+	#[tangram_serialize(id = 20)]
+	SyncConfig(tg::sync::Config),
+
+	#[tangram_serialize(id = 21)]
+	SyncConsumption(tangram_http::flow::Consumption),
 }
 
 #[derive(
@@ -134,6 +140,12 @@ pub enum ServerMessage {
 
 	#[tangram_serialize(id = 3)]
 	Sync(tg::sync::Message),
+
+	#[tangram_serialize(id = 20)]
+	SyncConfig(tg::sync::Config),
+
+	#[tangram_serialize(id = 21)]
+	SyncConsumption(tangram_http::flow::Consumption),
 }
 
 #[derive(
@@ -160,7 +172,7 @@ pub struct Ack {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientNotification {
 	#[tangram_serialize(id = 0)]
-	Read(ReadClientNotification),
+	ReadConsumption(ReadConsumption),
 
 	#[tangram_serialize(id = 1)]
 	Ready,
@@ -174,12 +186,12 @@ pub enum ClientNotification {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct ReadClientNotification {
+pub struct ReadConsumption {
+	#[tangram_serialize(id = 1)]
+	pub consumption: tangram_http::flow::Consumption,
+
 	#[tangram_serialize(id = 0)]
 	pub id: u64,
-
-	#[tangram_serialize(id = 1)]
-	pub progress: tg::process::stdio::read::Progress,
 }
 
 #[derive(
@@ -372,6 +384,7 @@ impl<O: 'static> tg::Process<O> {
 			.enumerate()
 			.map(|(index, options)| {
 				let arg = tg::process::stdio::read::Arg {
+					flow: instance.arg().stdio,
 					length: options.length,
 					location: options.location,
 					position: options.position,
@@ -468,6 +481,10 @@ impl TryFrom<ClientMessage> for tangram_http::sse::Event {
 			ClientMessage::Notification(value) => ("notification", serde_json::to_string(&value)),
 			ClientMessage::Request(value) => ("request", serde_json::to_string(&value)),
 			ClientMessage::Sync(value) => ("sync", serde_json::to_string(&value)),
+			ClientMessage::SyncConfig(value) => ("sync_config", serde_json::to_string(&value)),
+			ClientMessage::SyncConsumption(value) => {
+				("sync_consumption", serde_json::to_string(&value))
+			},
 		};
 		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 		let event = Some(event.to_owned());
@@ -489,6 +506,10 @@ impl TryFrom<tangram_http::sse::Event> for ClientMessage {
 			Some("notification") => serde_json::from_str(&event.data).map(Self::Notification),
 			Some("request") => serde_json::from_str(&event.data).map(Self::Request),
 			Some("sync") => serde_json::from_str(&event.data).map(Self::Sync),
+			Some("sync_config") => serde_json::from_str(&event.data).map(Self::SyncConfig),
+			Some("sync_consumption") => {
+				serde_json::from_str(&event.data).map(Self::SyncConsumption)
+			},
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
 					serde_json::from_str(&event.data)
@@ -511,6 +532,10 @@ impl TryFrom<ServerMessage> for tangram_http::sse::Event {
 			ServerMessage::Notification(value) => ("notification", serde_json::to_string(&value)),
 			ServerMessage::Response(value) => ("response", serde_json::to_string(&value)),
 			ServerMessage::Sync(value) => ("sync", serde_json::to_string(&value)),
+			ServerMessage::SyncConfig(value) => ("sync_config", serde_json::to_string(&value)),
+			ServerMessage::SyncConsumption(value) => {
+				("sync_consumption", serde_json::to_string(&value))
+			},
 		};
 		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 		let event = Some(event.to_owned());
@@ -532,6 +557,10 @@ impl TryFrom<tangram_http::sse::Event> for ServerMessage {
 			Some("notification") => serde_json::from_str(&event.data).map(Self::Notification),
 			Some("response") => serde_json::from_str(&event.data).map(Self::Response),
 			Some("sync") => serde_json::from_str(&event.data).map(Self::Sync),
+			Some("sync_config") => serde_json::from_str(&event.data).map(Self::SyncConfig),
+			Some("sync_consumption") => {
+				serde_json::from_str(&event.data).map(Self::SyncConsumption)
+			},
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
 					serde_json::from_str(&event.data)

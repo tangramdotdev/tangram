@@ -23,12 +23,31 @@ mod writer;
 
 pub use self::{reader::Reader, writer::Writer};
 
-#[doc(hidden)]
-pub mod flow;
 pub mod read;
 pub mod write;
 
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-stdio";
+
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(default, deny_unknown_fields)]
+pub struct Config {
+	#[tangram_serialize(id = 0)]
+	pub limits: tangram_http::flow::Limits,
+
+	#[tangram_serialize(id = 1)]
+	pub max_message_size: usize,
+
+	#[tangram_serialize(id = 2)]
+	pub max_reads: usize,
+}
 
 #[derive(
 	Clone,
@@ -126,6 +145,68 @@ pub struct End {
 	pub combined_position: u64,
 	#[tangram_serialize(id = 1)]
 	pub stream_positions: BTreeMap<Stream, u64>,
+}
+
+impl Config {
+	pub fn validate(self) -> tg::Result<()> {
+		self.limits
+			.validate()
+			.map_err(|source| tg::error!(!source, "invalid stdio limits"))?;
+		if self.max_message_size == 0
+			|| self.max_message_size as u64 > self.limits.bytes / 2
+			|| self.max_reads == 0
+			|| self
+				.max_reads
+				.checked_add(1)
+				.and_then(|reads| reads.checked_mul(self.channel_capacity()))
+				.and_then(|capacity| capacity.checked_add(256))
+				.is_none_or(|capacity| capacity > tokio::sync::Semaphore::MAX_PERMITS)
+		{
+			return Err(tg::error!("invalid stdio configuration"));
+		}
+		Ok(())
+	}
+
+	pub fn validate_receiver(self, receiver: Self) -> tg::Result<()> {
+		receiver.validate()?;
+		if receiver.limits.bytes > self.limits.bytes
+			|| receiver.limits.messages > self.limits.messages
+			|| receiver.max_message_size > self.max_message_size
+		{
+			return Err(tg::error!(
+				"the requested stdio window exceeds the server limits"
+			));
+		}
+		Ok(())
+	}
+
+	#[must_use]
+	pub fn connection_capacity(self) -> usize {
+		self.channel_capacity() * (self.max_reads + 1) + 256
+	}
+
+	#[must_use]
+	pub fn message_capacity(self) -> usize {
+		usize::try_from(self.limits.messages).unwrap()
+	}
+
+	#[must_use]
+	pub fn channel_capacity(self) -> usize {
+		self.message_capacity() * 2 + 4
+	}
+}
+
+impl Default for Config {
+	fn default() -> Self {
+		Self {
+			limits: tangram_http::flow::Limits {
+				bytes: 2 * 1024 * 1024,
+				messages: 64,
+			},
+			max_message_size: 32 * 1024,
+			max_reads: 4,
+		}
+	}
 }
 
 impl std::fmt::Display for Stdio {

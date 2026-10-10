@@ -1,6 +1,6 @@
 use {
 	super::{Ack, ClientMessage, Data, Input, Request, Response, ServerMessage, stream::Arg},
-	crate::{prelude::*, process::stdio::flow},
+	crate::prelude::*,
 	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	std::collections::{BTreeMap, VecDeque},
 };
@@ -17,6 +17,7 @@ pub(crate) async fn all<I: tg::Instance>(
 	arg: Arg,
 	mut input: BoxStream<'static, tg::Result<Input>>,
 ) -> tg::Result<()> {
+	let flow = instance.arg().stdio;
 	let mut combined_position = 0;
 	let mut stream_positions = arg
 		.streams
@@ -27,6 +28,7 @@ pub(crate) async fn all<I: tg::Instance>(
 	let mut next_id = 0;
 	let mut output = None::<BoxStream<'static, tg::Result<ServerMessage>>>;
 	let mut pending = VecDeque::<Pending>::new();
+	let mut pending_bytes = 0_u64;
 	let mut remaining = None::<Input>;
 	let mut sender = None::<async_channel::Sender<tg::Result<ClientMessage>>>;
 	let mut retries = None::<BoxStream<'static, ()>>;
@@ -36,7 +38,7 @@ pub(crate) async fn all<I: tg::Instance>(
 			if let Some(retries) = &mut retries {
 				retries.next().await;
 			}
-			let (new_sender, receiver) = async_channel::bounded(flow::CHANNEL_CAPACITY);
+			let (new_sender, receiver) = async_channel::bounded(flow.channel_capacity());
 			match instance
 				.try_write_process_stdio(id, arg.clone(), receiver.boxed())
 				.await
@@ -58,13 +60,18 @@ pub(crate) async fn all<I: tg::Instance>(
 		}
 
 		// Keep both bytes and request metadata bounded until responses arrive.
-		if pending.len() < flow::MAX_CHUNKS {
+		if pending.len() < flow.message_capacity() && pending_bytes < flow.limits.bytes {
 			if let Some(mut value) = remaining.take() {
 				let mut chunk = value.chunk.clone();
 				if !arg.streams.contains(&chunk.stream) {
 					return Err(tg::error!("invalid process stdio stream"));
 				}
-				let length = chunk.bytes.len().min(flow::CHUNK_SIZE);
+				let length = chunk
+					.bytes
+					.len()
+					.min(flow.max_message_size)
+					.min((flow.limits.bytes - pending_bytes).try_into().unwrap());
+				pending_bytes += length as u64;
 				if length == 0 {
 					if let Some(completion) = value.completion.take() {
 						completion.send(()).ok();
@@ -149,15 +156,18 @@ pub(crate) async fn all<I: tg::Instance>(
 				retries.take();
 				sender.as_ref().unwrap().send(Ok(ClientMessage::Ack(Ack { id: response.id }))).await.ok();
 				let value = pending.pop_front().ok_or_else(|| tg::error!("received an unexpected write response"))?;
+				if let Data::Chunk(chunk) = &value.request.arg {
+					pending_bytes -= chunk.bytes.len() as u64;
+				}
 				if value.complete(response)? {
 					return Ok(());
 				}
 			},
-			value = input.try_next(), if !input_ended && remaining.is_none() && pending.len() < flow::MAX_CHUNKS => {
+			value = input.try_next(), if !input_ended && remaining.is_none() && pending.len() < flow.message_capacity() && pending_bytes < flow.limits.bytes => {
 				remaining = value?;
 				input_ended = remaining.is_none();
 			},
-			() = tokio::task::yield_now(), if remaining.is_some() && pending.len() < flow::MAX_CHUNKS => {},
+			() = tokio::task::yield_now(), if remaining.is_some() && pending.len() < flow.message_capacity() && pending_bytes < flow.limits.bytes => {},
 		}
 	}
 }

@@ -1,6 +1,6 @@
+import { Sender, type Consumption } from "../../../http/flow.ts";
 import * as tg from "../../../index.ts";
 import { Body, Request, Response, percentEncode } from "../../../http.ts";
-import { chunkSize, maxChunks } from "../../../process/stdio/flow.ts";
 import type { Client } from "../../../client.ts";
 
 export type Connection = {
@@ -67,6 +67,9 @@ export async function writeProcessStdioAll(
 		sent: boolean;
 	};
 	let pending: Array<Pending> = [];
+	let consumption: Consumption = { bytes: 0, messages: 0 };
+	let flow = client.stdio;
+	let window = new Sender(flow.limits);
 	let remaining: { chunk: tg.Process.Stdio.Chunk; offset: number } | null =
 		null;
 	let inputEvent: Promise<WriteEvent> | null = null;
@@ -78,12 +81,16 @@ export async function writeProcessStdioAll(
 		Object.fromEntries(arg.streams.map((stream) => [stream, 0]));
 	try {
 		while (true) {
-			while (remaining !== null && pending.length < maxChunks) {
+			while (remaining !== null && window.available(1)) {
 				let { chunk, offset } = remaining;
 				if (!arg.streams.includes(chunk.stream)) {
 					throw new ProtocolError("invalid process stdio stream");
 				}
-				let length = Math.min(chunkSize, chunk.bytes.length - offset);
+				let length = Math.min(
+					flow.maxMessageSize,
+					chunk.bytes.length - offset,
+					window.remainingBytes(),
+				);
 				if (length === 0) {
 					complete?.(chunk);
 					remaining = null;
@@ -103,6 +110,7 @@ export async function writeProcessStdioAll(
 				) {
 					throw new ProtocolError("invalid stdio position");
 				}
+				window.send(length);
 				remaining.offset += length;
 				let last = remaining.offset === chunk.bytes.length;
 				pending.push({
@@ -130,7 +138,7 @@ export async function writeProcessStdioAll(
 				}
 			}
 			if (
-				pending.length < maxChunks &&
+				window.available(1) &&
 				remaining === null &&
 				!inputEnded &&
 				inputEvent === null
@@ -188,6 +196,13 @@ export async function writeProcessStdioAll(
 				value.request.arg.kind === "chunk"
 					? value.request.arg.value.bytes.length
 					: 0;
+			if (value.request.arg.kind === "chunk") {
+				consumption = {
+					bytes: consumption.bytes + expected,
+					messages: consumption.messages + 1,
+				};
+				window.update(consumption);
+			}
 			if (
 				!Number.isSafeInteger(length) ||
 				length < 0 ||

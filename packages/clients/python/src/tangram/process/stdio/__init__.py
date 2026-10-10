@@ -9,6 +9,7 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Literal, NotRequired, Self, TypedDict
 
 from ...client.process.stdio.read import validate_output as validate_output
+from ...config import Config
 
 if TYPE_CHECKING:
     from ...client import Client
@@ -68,6 +69,7 @@ type StdioReadOutput = StdioEndOutput | StdioLimitOutput
 
 
 class ReadArgObject(TypedDict):
+    flow: NotRequired[Config]
     streams: list[Stream]
     length: NotRequired[int | None]
     location: NotRequired[LocationArgObject | None]

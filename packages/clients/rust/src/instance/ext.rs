@@ -648,6 +648,7 @@ pub trait Ext: tg::Instance {
 		async move {
 			let instance = self.clone();
 			let id = id.clone();
+			instance.arg().stdio.validate_receiver(arg.flow)?;
 			let forward = arg.length.is_none_or(|length| length >= 0);
 			let combined = arg.streams.len() > 1;
 			let position = match arg.position {
@@ -666,7 +667,7 @@ pub trait Ext: tg::Instance {
 				arg: tg::process::stdio::read::Arg,
 				combined: bool,
 				ended: bool,
-				flow: tg::process::stdio::flow::Receiver,
+				flow: tangram_http::flow::Receiver,
 				forward: bool,
 				id: tg::process::Id,
 				instance: I,
@@ -677,11 +678,12 @@ pub trait Ext: tg::Instance {
 				retries: Option<BoxStream<'static, ()>>,
 				sender: async_channel::Sender<tg::Result<tg::process::stdio::read::ClientMessage>>,
 			}
+			let flow = tangram_http::flow::Receiver::new(arg.flow.limits);
 			let state = State {
 				arg,
 				combined,
 				ended: false,
-				flow: tg::process::stdio::flow::Receiver::default(),
+				flow,
 				forward,
 				id,
 				instance,
@@ -712,7 +714,8 @@ pub trait Ext: tg::Instance {
 							.await
 						{
 							Ok(Some(output)) => {
-								state.flow = tg::process::stdio::flow::Receiver::default();
+								state.flow =
+									tangram_http::flow::Receiver::new(state.arg.flow.limits);
 								state.output = Some(output.boxed());
 								state.pending = 0;
 								state.sender = sender;
@@ -724,9 +727,14 @@ pub trait Ext: tg::Instance {
 							},
 						}
 					}
-					if let Some(progress) =
-						state.flow.consume(std::mem::take(&mut state.pending))?
-					{
+					if let Some(progress) = if state.pending == 0 {
+						None
+					} else {
+						state
+							.flow
+							.consume(std::mem::take(&mut state.pending))
+							.map_err(|source| tg::error!(!source, "invalid stdio consumption"))?
+					} {
 						let message =
 							tg::process::stdio::read::ClientMessage::Notification(progress);
 						// Preserve terminal errors on the response stream when the input closes.
@@ -738,6 +746,9 @@ pub trait Ext: tg::Instance {
 							tg::process::stdio::read::Event::Chunk(mut chunk),
 						))) => {
 							state.retries.take();
+							state.flow.receive(chunk.bytes.len()).map_err(|source| {
+								tg::error!(!source, "the stdio window was exceeded")
+							})?;
 							state.pending = chunk.bytes.len();
 							let start = if state.combined {
 								chunk.combined_position
@@ -816,6 +827,12 @@ pub trait Ext: tg::Instance {
 							return Ok(Some((message, state)));
 						},
 						Some(Ok(tg::process::stdio::read::ServerMessage::Response(output))) => {
+							if let Some(consumption) = state.flow.flush() {
+								let message = tg::process::stdio::read::ClientMessage::Notification(
+									consumption,
+								);
+								state.sender.send(Ok(message)).await.ok();
+							}
 							output
 								.validate(&state.arg.streams, state.position.unwrap_or_default())?;
 							state

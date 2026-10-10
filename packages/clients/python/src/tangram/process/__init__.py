@@ -55,7 +55,6 @@ from ..template import Template
 from ..value import Value
 from .command import ProcessCommandData
 from .connect import Connection
-from .connect.session import CHUNK_SIZE
 from .outcome import Outcome, ProcessOutcome
 from .stdio import ReadArgObject, Stdio, StdioChunk
 
@@ -568,7 +567,9 @@ class Process[O: ValueType]:
         async with self._write_lock:
             written = 0
             while written < len(bytes_):
-                chunk = bytes_[written : written + CHUNK_SIZE]
+                chunk = bytes_[
+                    written : written + self.client.stdio["max_message_size"]
+                ]
                 data = {
                     "kind": "chunk",
                     "value": {

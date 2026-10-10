@@ -20,7 +20,7 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tg::process::stdio::{Stream, flow, write},
+	tg::process::stdio::{Stream, write},
 	tokio::sync::{mpsc, oneshot},
 	tokio_stream::wrappers::ReceiverStream,
 };
@@ -29,8 +29,6 @@ mod connection;
 mod sync;
 
 const MAX_OPERATIONS: usize = 64;
-// Bound messages buffered while command sync or process selection is pending.
-const MAX_PENDING: usize = 256;
 
 type Input = BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>;
 type Operation = BoxFuture<'static, (u64, tg::Result<()>)>;
@@ -52,7 +50,7 @@ impl Session {
 	) -> BoxFuture<'_, tg::Result<Option<(tg::process::connect::Header, Output)>>> {
 		async move {
 			// Validate the initial reads.
-			if arg.reads.len() > MAX_OPERATIONS {
+			if arg.reads.len() > self.server.config().process.stdio.max_reads {
 				return Err(tg::error!("invalid initial process reads"));
 			}
 			if arg.mode == tg::process::connect::Mode::Spawn && !arg.reads.is_empty() {
@@ -160,6 +158,7 @@ impl Session {
 		// Start a command sync when this is the first routing hop.
 		let mut input = Some(input);
 		let mut sync_sender = None;
+		let mut sync_updates = None;
 		let start_sync = !arg.sync;
 		if start_sync {
 			crate::checkpoint!(self.server, "process.connect.command.push.started").await;
@@ -169,6 +168,7 @@ impl Session {
 			arg.sync = true;
 			input = Some(source.input);
 			sync_sender = Some(source.sender);
+			sync_updates = Some(source.updates);
 		}
 
 		// Connect to the destination.
@@ -215,10 +215,23 @@ impl Session {
 						sync_sender
 							.as_ref()
 							.unwrap()
-							.send(Ok(message))
-							.await
-							.map_err(|_| tg::error!("the command sync closed"))?;
+							.receive_sync_message(message)?;
 					}
+					continue;
+				},
+				tg::process::connect::ServerMessage::SyncConfig(config)
+					if sync_updates.is_some() =>
+				{
+					sync_updates.as_ref().unwrap().set_sync_config(config)?;
+					continue;
+				},
+				tg::process::connect::ServerMessage::SyncConsumption(consumption)
+					if sync_updates.is_some() =>
+				{
+					sync_updates
+						.as_ref()
+						.unwrap()
+						.update_sync_consumption(consumption)?;
 					continue;
 				},
 				message => message,
@@ -558,6 +571,8 @@ impl Session {
 		match message {
 			tg::process::connect::ServerMessage::Ack(_)
 			| tg::process::connect::ServerMessage::Sync(_)
+			| tg::process::connect::ServerMessage::SyncConfig(_)
+			| tg::process::connect::ServerMessage::SyncConsumption(_)
 			| tg::process::connect::ServerMessage::Notification(
 				tg::process::connect::ServerNotification::Progress(
 					tg::progress::Event::Indicators(_) | tg::progress::Event::Log(_),
@@ -701,7 +716,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(argument, !error, "failed to deserialize the arg"))?;
 		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
-		let max_frame_size = self.server.config.sync.max_frame_size;
+		let max_frame_size = self.server.config.sync.flow.max_frame_size;
 		let input = super::stdio::decode(request, input_encoding, max_frame_size);
 		let Some((header, output)) = self.try_get_process_connect_stream(arg, input).await? else {
 			return Ok(http::Response::builder()

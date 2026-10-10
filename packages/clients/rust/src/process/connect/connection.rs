@@ -207,7 +207,7 @@ impl Connection {
 			});
 			let output = stream::once(futures::future::ok(first))
 				.chain(remaining)
-				.try_buffered(tg::process::stdio::flow::MAX_CHUNKS)
+				.try_buffered(tg::process::stdio::Config::default().message_capacity())
 				.take_while(|result| futures::future::ready(!matches!(result, Ok(None))))
 				.try_filter_map(|message| futures::future::ready(Ok(message)))
 				.boxed();

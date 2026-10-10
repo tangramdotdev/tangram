@@ -386,7 +386,9 @@ impl Session {
 			move |_| async move {
 				while let Some(message) = control.recv_without_ack().await? {
 					match message {
-						tg::process::control::ClientMessage::Sync(_) => {
+						tg::process::control::ClientMessage::Sync(_)
+						| tg::process::control::ClientMessage::SyncConfig(_)
+						| tg::process::control::ClientMessage::SyncConsumption(_) => {
 							return Err(tg::error!("unexpected sync message"));
 						},
 						tg::process::control::ClientMessage::Ack(ack) => {
@@ -1046,7 +1048,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
 		// Create the response stream.
-		let max_frame_size = self.server.config.sync.max_frame_size;
+		let max_frame_size = self.server.config.sync.flow.max_frame_size;
 		let stream = super::stdio::decode(request, input_encoding, max_frame_size);
 
 		// Get the request stream.

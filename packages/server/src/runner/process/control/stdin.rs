@@ -55,7 +55,10 @@ impl Session {
 		let mut closed = false;
 		let mut position = 0_u64;
 		while let Some((id, request, sender)) = receiver.recv().await {
-			let request = match Self::process_control_stdin_chunk(request) {
+			let request = match Self::process_control_stdin_chunk(
+				self.server.config().process.stdio,
+				request,
+			) {
 				Ok(chunk) => chunk,
 				Err(error) => {
 					let response = Self::process_control_response(id, Err(error));
@@ -100,13 +103,12 @@ impl Session {
 	}
 
 	fn process_control_stdin_chunk(
+		flow: tg::process::stdio::Config,
 		data: tg::process::stdio::write::Data,
 	) -> tg::Result<tg::process::stdio::Chunk> {
 		let chunk = match data {
 			Data::Chunk(chunk) => {
-				if chunk.bytes.is_empty()
-					|| chunk.bytes.len() > tg::process::stdio::flow::CHUNK_SIZE
-				{
+				if chunk.bytes.is_empty() || chunk.bytes.len() > flow.max_message_size {
 					return Err(tg::error!("invalid process stdin chunk size"));
 				}
 				chunk

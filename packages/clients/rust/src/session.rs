@@ -40,6 +40,7 @@ impl Session {
 			pool: Some(self.client.pool_options),
 			reconnect: Some(self.client.reconnect.clone()),
 			retry: Some(self.client.retry.clone()),
+			stdio: self.client.stdio,
 			sync: self.client.sync,
 		}
 	}

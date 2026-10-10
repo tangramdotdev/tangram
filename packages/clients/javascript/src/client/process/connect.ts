@@ -28,10 +28,10 @@ export namespace Connect {
 				value:
 					| { kind: "ready" }
 					| {
-							kind: "read";
+							kind: "read_consumption";
 							value: {
 								id: number;
-								progress: tg.Process.Stdio.Read.Progress;
+								consumption: tg.Process.Stdio.Read.Consumption;
 							};
 					  };
 		  }
@@ -75,7 +75,7 @@ export async function connectProcess(
 	input: AsyncIterable<Connect.ClientMessage>,
 ): Promise<[Connect.Header, AsyncIterableIterator<Connect.ServerMessage>]> {
 	let request = new Request({
-		body: Body.sse(encode(input)),
+		body: Body.sse(encode(input, client.stdio)),
 		headers: {
 			accept: "text/event-stream",
 			"content-type": "text/event-stream",
@@ -95,7 +95,10 @@ export async function connectProcess(
 					? process
 					: tg.Process.Spawn.Arg.toJson(process),
 			reads: Object.fromEntries(
-				Object.entries(arg.reads).map(([id, read]) => [id, stdioArg(read)]),
+				Object.entries(arg.reads).map(([id, read]) => [
+					id,
+					stdioArg({ ...read, flow: read.flow ?? client.stdio }),
+				]),
 			),
 		}) as Record<string, Uri.QueryValue>,
 	);
@@ -161,6 +164,7 @@ export async function connectProcess(
 
 async function* encode(
 	input: AsyncIterable<Connect.ClientMessage>,
+	flow: tg.Process.Stdio.Config,
 ): AsyncIterableIterator<Body.SseEvent> {
 	for await (let message of input) {
 		let value: unknown = message.value;
@@ -168,7 +172,10 @@ async function* encode(
 			let arg = message.value.arg;
 			let data: unknown = arg;
 			if (arg.kind === "read") {
-				data = { kind: arg.kind, value: stdioArg(arg.value) };
+				data = {
+					kind: arg.kind,
+					value: stdioArg({ ...arg.value, flow: arg.value.flow ?? flow }),
+				};
 			} else if (arg.kind === "write") {
 				data = {
 					kind: "write",
@@ -211,6 +218,9 @@ function stdioArg(
 ): unknown {
 	return {
 		...arg,
+		...("flow" in arg
+			? { flow: tg.Process.Stdio.Config.toData(arg.flow ?? tg.client.stdio) }
+			: {}),
 		location:
 			arg.location === null || arg.location === undefined
 				? null

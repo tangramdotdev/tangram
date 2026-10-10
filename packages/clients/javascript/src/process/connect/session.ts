@@ -1,5 +1,5 @@
 import * as tg from "../../index.ts";
-import { capacity, maxChunks } from "../stdio/flow.ts";
+import { capacity } from "../stdio/flow.ts";
 import { type Connect, connectProcess } from "../../client/process/connect.ts";
 import type { Connection as ReadConnection } from "../../client/process/stdio/read.ts";
 import type { Connection as WriteConnection } from "../../client/process/stdio/write.ts";
@@ -10,8 +10,8 @@ export class Session {
 	#ready = false;
 	#selected = Promise.withResolvers<tg.Process.Spawn.Output>();
 	#error: unknown;
-	// Reserve room for outstanding requests, response acknowledgments, and batched read progress.
-	#input = new Channel<Connect.ClientMessage>(maxChunks * 6 + 4);
+	// Reserve room for outstanding requests, response acknowledgments, and batched read consumption.
+	#input: Channel<Connect.ClientMessage>;
 	#initial: Array<{
 		arg: tg.Process.Stdio.Read.Arg;
 		id: number;
@@ -31,24 +31,34 @@ export class Session {
 	>();
 	#pending = new Map<number, Connect.ClientRequestArg["kind"]>();
 
-	private constructor() {
+	private constructor(readonly client: tg.Client) {
+		this.#input = new Channel(
+			capacity(client.stdio) * (client.stdio.maxReads + 1) + 256,
+		);
 		this.#outcome.promise.catch(() => {});
 		this.#selected.promise.catch(() => {});
 	}
 
 	static async open(
 		arg: Connect.Arg,
+		client: tg.Client = tg.client,
 	): Promise<{ connection: Session; output: tg.Process.Spawn.Output }> {
-		let connection = new Session();
+		let connection = new Session(client);
+		if (Object.keys(arg.reads).length > client.stdio.maxReads)
+			throw new Error("too many process reads");
 		for (let [key, read] of Object.entries(arg.reads)) {
+			read.flow ??= client.stdio;
+			tg.Process.Stdio.Config.validateReceiver(client.stdio, read.flow);
 			let id = Number(key);
-			let output = new Channel<tg.Process.Stdio.Read.ServerMessage>(capacity);
+			let output = new Channel<tg.Process.Stdio.Read.ServerMessage>(
+				capacity(read.flow),
+			);
 			connection.#initial.push({ arg: read, id, output });
 			connection.#reads.set(id, output);
 			connection.#nextId = Math.max(connection.#nextId, id + 1);
 		}
 		try {
-			let [, output] = await connectProcess(tg.client, arg, connection.#input);
+			let [, output] = await connectProcess(client, arg, connection.#input);
 			connection.#receive(output).catch((error) => connection.#finish(error));
 			connection.output = await connection.#selected.promise;
 			return { connection, output: connection.output };
@@ -143,7 +153,12 @@ export class Session {
 	async #sendRequest(arg: Connect.ClientRequestArg, id: number): Promise<void> {
 		if (this.#closed)
 			throw this.#error ?? new Error("the process connection closed");
-		const limit = arg.kind === "write" ? maxChunks + 1 : 64;
+		const limit =
+			arg.kind === "write"
+				? this.client.stdio.limits.messages + 1
+				: arg.kind === "read"
+					? this.client.stdio.maxReads
+					: 64;
 		const count = [...this.#pending.values()].filter(
 			(kind) => kind === arg.kind,
 		).length;
@@ -245,6 +260,16 @@ export class Session {
 	}
 
 	async read(arg: tg.Process.Stdio.Read.Arg): Promise<ReadConnection> {
+		arg = { ...arg, flow: arg.flow ?? this.client.stdio };
+		tg.Process.Stdio.Config.validateReceiver(
+			this.client.stdio,
+			arg.flow ?? this.client.stdio,
+		);
+		if (
+			this.#reads.size >= this.client.stdio.maxReads &&
+			!this.#initial.some((initial) => matchesRead(initial.arg, arg))
+		)
+			throw new Error("too many process reads");
 		let index = this.#initial.findIndex((initial) =>
 			matchesRead(initial.arg, arg),
 		);
@@ -258,7 +283,7 @@ export class Session {
 			if (this.#closed)
 				throw this.#error ?? new Error("the process connection closed");
 			requestId = this.#nextId++;
-			output = new Channel(capacity);
+			output = new Channel(capacity(arg.flow ?? this.client.stdio));
 			this.#reads.set(requestId, output);
 			try {
 				await this.#sendRequest({ kind: "read", value: arg }, requestId);
@@ -285,8 +310,8 @@ export class Session {
 						{
 							kind: "notification",
 							value: {
-								kind: "read",
-								value: { id: requestId, progress: message.value },
+								kind: "read_consumption",
+								value: { id: requestId, consumption: message.value },
 							},
 						},
 						true,
@@ -308,7 +333,9 @@ export class Session {
 	}
 
 	write(arg: tg.Process.Stdio.Write.Stream.Arg): WriteConnection {
-		let output = new Channel<tg.Process.Stdio.Write.ServerMessage>(capacity);
+		let output = new Channel<tg.Process.Stdio.Write.ServerMessage>(
+			capacity(this.client.stdio),
+		);
 		let previous = Promise.resolve();
 		let connection = {
 			input: {
@@ -388,7 +415,12 @@ function matchesRead(
 	initial: tg.Process.Stdio.Read.Arg,
 	arg: tg.Process.Stdio.Read.Arg,
 ): boolean {
+	let initialFlow = initial.flow ?? tg.client.stdio;
+	let flow = arg.flow ?? tg.client.stdio;
 	return (
+		initialFlow.limits.bytes === flow.limits.bytes &&
+		initialFlow.limits.messages === flow.limits.messages &&
+		initialFlow.maxMessageSize === flow.maxMessageSize &&
 		initial.streams.length === arg.streams.length &&
 		initial.streams.every((stream, index) => stream === arg.streams[index]) &&
 		(initial.position ?? 0) === (arg.position ?? 0) &&

@@ -195,6 +195,17 @@ impl Owned {
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Owned> {
 		// Validate the configuration.
+		config.sync.flow.validate()?;
+		config.process.stdio.validate()?;
+		config
+			.http
+			.http2
+			.validate_flow(
+				config.sync.flow.limits,
+				config.process.stdio.limits,
+				config.process.stdio.max_reads,
+			)
+			.map_err(|source| tg::error!(!source, "invalid HTTP flow configuration"))?;
 		config.sync.control.validate()?;
 		config.usage.validate()?;
 		verification_search_config(&config.verification.permissions.initial)
@@ -1953,6 +1964,8 @@ impl Server {
 				.map(|listener| listener.url.clone())
 		};
 		tg::Arg {
+			stdio: self.config().process.stdio,
+			sync: self.config().sync.flow,
 			url,
 			version: Some(self.version.clone()),
 			..Default::default()

@@ -1,4 +1,4 @@
-use {super::*, tangram_http::request::Ext as _};
+use {super::*, futures::FutureExt as _, tangram_http::request::Ext as _};
 
 #[tokio::test]
 async fn decode_with_header_preserves_error_trailers() {
@@ -155,4 +155,68 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 		assert_eq!(resumed.length, Some(length + 1));
 		server.abort();
 	}
+}
+
+#[tokio::test]
+async fn a_read_streams_a_window_before_consumption_and_completes_after_its_chunks() {
+	let config = Config::default();
+	let chunk = tg::process::stdio::Chunk {
+		bytes: bytes::Bytes::from(vec![0; config.max_message_size]),
+		combined_position: 0,
+		stream: tg::process::stdio::Stream::Stdout,
+		stream_position: 0,
+		timestamp: None,
+	};
+	let messages = std::iter::repeat_n(
+		read::ServerMessage::Notification(read::Event::Chunk(chunk)),
+		config.message_capacity() + 1,
+	)
+	.chain([read::ServerMessage::Response(read::Output::End(
+		tg::process::stdio::End::default(),
+	))]);
+	let (sender, receiver) = async_channel::bounded(4);
+	let mut output = read::flow(
+		config,
+		receiver.boxed(),
+		stream::iter(messages.map(Ok)).boxed(),
+	);
+	for _ in 0..config.message_capacity() {
+		assert!(matches!(
+			output.try_next().now_or_never().unwrap().unwrap(),
+			Some(read::ServerMessage::Notification(read::Event::Chunk(_)))
+		));
+	}
+	assert!(output.try_next().now_or_never().is_none());
+	let consumption = tangram_http::flow::Consumption {
+		bytes: config.limits.bytes / 2,
+		messages: config.limits.messages / 2,
+	};
+	sender
+		.send(Ok(read::ClientMessage::Notification(consumption)))
+		.await
+		.unwrap();
+	assert!(matches!(
+		output.try_next().await.unwrap(),
+		Some(read::ServerMessage::Notification(read::Event::Chunk(_)))
+	));
+	assert!(matches!(
+		output.try_next().await.unwrap(),
+		Some(read::ServerMessage::Response(read::Output::End(_)))
+	));
+	assert!(output.try_next().now_or_never().is_none());
+	sender.send(Ok(read::ClientMessage::Ack)).await.unwrap();
+	assert!(output.try_next().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn closing_an_idle_read_cancels_its_source() {
+	let (sender, receiver) = async_channel::bounded(4);
+	let mut output = read::flow(
+		Config::default(),
+		receiver.boxed(),
+		stream::pending().boxed(),
+	);
+	assert!(output.try_next().now_or_never().is_none());
+	drop(sender);
+	assert!(output.try_next().now_or_never().unwrap().is_err());
 }

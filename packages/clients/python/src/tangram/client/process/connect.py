@@ -14,6 +14,7 @@ from typing import Any, Literal, NotRequired, TypedDict, cast
 from ...error import Error, ErrorData
 from ...http import Body, Request, Stream, Uri
 from ...http.body import SseEvent
+from ...http.flow import Consumption
 from ...location import ArgObject as LocationArgObject
 from ...process.stdio import (
     ReadArgObject,
@@ -83,20 +84,17 @@ class RequestMessage(TypedDict):
     id: int
 
 
-class ReadProgress(TypedDict):
-    consumed: int
-
-
 class ReadNotification(TypedDict):
     id: int
-    progress: ReadProgress
+    consumption: Consumption
 
 
 type ClientMessage = (
     Tagged[Literal["ack"], Receipt]
     | Tagged[
         Literal["notification"],
-        Tagged[Literal["read"], ReadNotification] | EmptyTagged[Literal["ready"]],
+        Tagged[Literal["read_consumption"], ReadNotification]
+        | EmptyTagged[Literal["ready"]],
     ]
     | Tagged[Literal["request"], RequestMessage]
 )
@@ -147,7 +145,7 @@ async def connect_process(
 ) -> tuple[Header, Stream[ServerMessage]]:
     request = Request(
         {
-            "body": Body.sse(encode(input)),
+            "body": Body.sse(encode(input, client.stdio)),
             "headers": {
                 "accept": "text/event-stream",
                 "content-type": "text/event-stream",
@@ -166,7 +164,10 @@ async def connect_process(
             "process": process
             if isinstance(process, str)
             else Spawn.Arg.to_json(process),
-            "reads": {str(id): stdio_arg(read) for id, read in arg["reads"].items()},
+            "reads": {
+                str(id): stdio_arg({"flow": client.stdio, **read})
+                for id, read in arg["reads"].items()
+            },
         }
     )
     response = await client.send(request)
@@ -210,20 +211,22 @@ async def connect_process(
     return header, Stream(messages(), response.close)
 
 
-async def encode(input: AsyncIterable[ClientMessage]) -> AsyncIterator[SseEvent]:
+async def encode(
+    input: AsyncIterable[ClientMessage], flow=None
+) -> AsyncIterator[SseEvent]:
     async for message in input:
         value: Any = message["value"]
         if message["kind"] == "request":
-            value = {**value, "arg": connect_arg(value["arg"])}
+            value = {**value, "arg": connect_arg(value["arg"], flow)}
         yield {"event": message["kind"], "data": json.dumps(value, allow_nan=False)}
 
 
-def connect_arg(arg):
+def connect_arg(arg, flow=None):
     from ...process.stdio import Write
 
     kind = arg["kind"]
     if kind == "read":
-        return {"kind": kind, "value": stdio_arg(arg["value"])}
+        return {"kind": kind, "value": stdio_arg({"flow": flow, **arg["value"]})}
     if kind == "write":
         value = arg["value"]
         return {

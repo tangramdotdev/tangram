@@ -46,7 +46,9 @@ impl Session {
 				}
 			}
 		});
-		let (sync_sender, sync_receiver) = mpsc::channel(16);
+		let config = self.server.config().sync.flow;
+		let (sync_sender, sync_input, consumption) = crate::sync::flow::Input::new(config)?;
+		let updates = crate::sync::flow::Updates::new();
 		let arg = crate::sync::InnerArg {
 			arg: tg::sync::Arg {
 				eager: true,
@@ -55,9 +57,7 @@ impl Session {
 			get: Some(receiver),
 			..Default::default()
 		};
-		let (header, output) = self
-			.sync_inner(arg, ReceiverStream::new(sync_receiver).boxed())
-			.await?;
+		let (header, output) = self.sync_inner(arg, sync_input).await?;
 		let sync = Destination {
 			get: Arc::new(Mutex::new(Some(get_sender))),
 			referent: header.sync.ok_or_else(|| tg::error!("missing the sync"))?,
@@ -76,8 +76,10 @@ impl Session {
 				sync.add(&process.data)?;
 			}
 		}
-		let (sender, receiver) = mpsc::channel(512);
+		let (sender, receiver) =
+			mpsc::channel(self.server.config().process.stdio.connection_capacity());
 		let input_task = Task::spawn({
+			let updates = updates.clone();
 			let sync = sync.clone();
 			move |_| async move {
 				let error_sender = sender.clone();
@@ -86,9 +88,17 @@ impl Session {
 					while let Some(message) = input.next().await {
 						let message = match message {
 							Ok(tg::process::control::ClientMessage::Sync(message)) => {
-								if sync_sender.send(Ok(message)).await.is_err() {
-									break;
-								}
+								sync_sender.receive_sync_message(message)?;
+								continue;
+							},
+							Ok(tg::process::control::ClientMessage::SyncConfig(config)) => {
+								updates.set_sync_config(config)?;
+								continue;
+							},
+							Ok(tg::process::control::ClientMessage::SyncConsumption(
+								consumption,
+							)) => {
+								updates.update_sync_consumption(consumption)?;
 								continue;
 							},
 							Ok(tg::process::control::ClientMessage::Request(mut request)) => {
@@ -122,10 +132,21 @@ impl Session {
 			}
 		});
 		let input = ReceiverStream::new(receiver).attach(input_task).boxed();
-		let output = output
+		let notifications = futures::stream::once(async move {
+			Ok(tg::process::control::ServerMessage::SyncConfig(config))
+		})
+		.chain(consumption.map(|consumption| {
+			Ok(tg::process::control::ServerMessage::SyncConsumption(
+				consumption,
+			))
+		}))
+		.boxed();
+		let output = updates
+			.send_sync_messages(output)
 			.map(|message| message.map(tg::process::control::ServerMessage::Sync))
 			.attach(get_task)
 			.boxed();
+		let output = merge(notifications, output);
 		Ok((sync, input, output))
 	}
 

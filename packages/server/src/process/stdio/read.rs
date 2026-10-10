@@ -31,13 +31,18 @@ impl Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
+		self.server
+			.config()
+			.process
+			.stdio
+			.validate_receiver(arg.flow)?;
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 		let Some(source) = self.try_read_process_stdio_source(id, arg.clone()).await? else {
 			return Ok(None);
 		};
-		let stream = self.read_process_stdio_protocol(arg, input, source);
+		let stream = self.read_process_stdio_protocol(&arg, input, source);
 
 		Ok(Some(stream))
 	}
@@ -113,11 +118,11 @@ impl Session {
 
 	pub(in crate::process) fn read_process_stdio_protocol(
 		&self,
-		_arg: tg::process::stdio::read::Arg,
+		arg: &tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 		output: BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>,
 	) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>> {
-		let stream = tg::process::stdio::flow::read(input, output);
+		let stream = tg::process::stdio::read::flow(arg.flow, input, output);
 		match self.context.stopper.clone() {
 			Some(stopper) => stream
 				.take_until(async move { stopper.wait().await })
@@ -166,8 +171,8 @@ impl Session {
 		}
 		arg.size = Some(
 			arg.size
-				.unwrap_or(tg::process::stdio::flow::CHUNK_SIZE as u64)
-				.min(tg::process::stdio::flow::CHUNK_SIZE as u64),
+				.unwrap_or(arg.flow.max_message_size as u64)
+				.min(arg.flow.max_message_size as u64),
 		);
 		let stream = match source {
 			Source::Log(streams) => {
@@ -663,7 +668,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let max_frame_size = self.server.config.sync.max_frame_size;
+		let max_frame_size = self.server.config.sync.flow.max_frame_size;
 		let input = super::decode(request, input_encoding, max_frame_size);
 		let Some(output) = self.try_read_process_stdio(&id, arg, input).await? else {
 			return Ok(http::Response::builder()

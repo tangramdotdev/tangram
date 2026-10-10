@@ -1,4 +1,12 @@
 import * as tg from "./index.ts";
+import {
+	Http as HttpConfig,
+	Retry as RetryConfig,
+	Stdio as StdioConfig,
+	compatibilityDate,
+	version as defaultVersion,
+} from "./config.ts";
+import { coalesce } from "./http/coalesce.ts";
 import { Request, Response } from "./http.ts";
 import { checkin } from "./client/checkin.ts";
 import { checkout } from "./client/checkout.ts";
@@ -31,27 +39,45 @@ import { destroySandbox, tryDestroySandbox } from "./client/sandbox/destroy.ts";
 import { getSandbox, tryGetSandbox } from "./client/sandbox/get.ts";
 import { write } from "./client/write.ts";
 
-type RetryOptions = {
-	backoff: number;
-	jitter: number;
-	maxDelay: number;
-	maxRetries: number;
-};
-
-let reconnectOptions = defaultRetryOptions();
-let retryOptions = defaultRetryOptions();
-
 class RequestError {
 	constructor(readonly source: unknown) {}
 }
 
 export class Client {
+	readonly http: HttpConfig;
+	readonly reconnect: RetryConfig;
+	readonly retry: RetryConfig;
+	readonly version: string;
+	readonly stdio: tg.Process.Stdio.Config;
+
+	constructor(
+		readonly options: {
+			http?: HttpConfig;
+			reconnect?: RetryConfig;
+			retry?: RetryConfig;
+			version?: string;
+			stdio?: tg.Process.Stdio.Config;
+			token?: string;
+			url?: string;
+		} = {},
+	) {
+		this.stdio = options.stdio ?? StdioConfig.defaultValue();
+		StdioConfig.validate(this.stdio);
+		this.http = options.http ?? HttpConfig.defaultValue();
+		HttpConfig.validate(this.http, this.stdio);
+		this.reconnect = options.reconnect ?? RetryConfig.defaultValue();
+		this.retry = options.retry ?? RetryConfig.defaultValue();
+		RetryConfig.validate(this.reconnect);
+		RetryConfig.validate(this.retry);
+		this.version = options.version ?? defaultVersion;
+	}
+
 	#connecting: Promise<tg.Host.Http2.ClientHttp2Session> | null = null;
 	#session: tg.Host.Http2.ClientHttp2Session | null = null;
 
 	arg() {
-		let token = tg.process.env.TANGRAM_TOKEN;
-		let url = tg.process.env.TANGRAM_URL;
+		let token = this.options.token ?? tg.process.env.TANGRAM_TOKEN;
+		let url = this.options.url ?? tg.process.env.TANGRAM_URL;
 		return {
 			...(typeof token === "string" ? { token } : {}),
 			...(typeof url === "string" ? { url } : {}),
@@ -313,9 +339,10 @@ export class Client {
 		}
 		try {
 			return await retry(
-				retryOptions,
+				this.retry,
 				() => this.#send(request),
-				(error) => error instanceof RequestError,
+				(error) =>
+					error instanceof RequestError && isRetryableError(error.source),
 			);
 		} catch (error) {
 			throw error instanceof RequestError ? error.source : error;
@@ -323,7 +350,34 @@ export class Client {
 	}
 
 	async #send(request: Request): Promise<Response> {
-		let token = tg.process.env.TANGRAM_TOKEN;
+		let state: {
+			stream: tg.Host.Http2.ClientHttp2Stream | null;
+			timedOut: boolean;
+		} = { stream: null, timedOut: false };
+		let stopper = await tg.host.stopperOpen();
+		let timeout = new Promise<never>((_, reject) => {
+			tg.host.sleep(60, stopper).then(() => {
+				state.timedOut = true;
+				reject(new Error("request timed out"));
+				state.stream?.close();
+			}, reject);
+		});
+		try {
+			return await Promise.race([this.#sendInner(request, state), timeout]);
+		} finally {
+			await tg.host.stopperStop(stopper);
+			await tg.host.stopperClose(stopper);
+		}
+	}
+
+	async #sendInner(
+		request: Request,
+		state: {
+			stream: tg.Host.Http2.ClientHttp2Stream | null;
+			timedOut: boolean;
+		},
+	): Promise<Response> {
+		let token = this.options.token ?? tg.process.env.TANGRAM_TOKEN;
 		if (token !== undefined && typeof token !== "string") {
 			throw new Error("invalid TANGRAM_TOKEN");
 		}
@@ -332,23 +386,54 @@ export class Client {
 			":method": request.method,
 			":path": request.uri.toString(),
 		};
-		if (token !== undefined) {
+		headers["x-tg-compatibility-date"] ??= compatibilityDate;
+		headers["x-tg-version"] ??= this.version;
+		if (
+			token !== undefined &&
+			request.headers.get("authorization") === undefined
+		) {
 			headers = {
 				...headers,
 				authorization: `Bearer ${token}`,
 			};
 		}
 		let session = await this.#connect();
+		if (state.timedOut) throw new Error("request timed out");
 		try {
 			let body = request.body;
 			let stream = session.request(headers, {
 				endStream: body === undefined,
 			});
+			state.stream = stream;
 			let response = Response.fromStream(stream);
 			if (body !== undefined) {
 				(async () => {
-					for await (let chunk of body) {
-						stream.write(chunk);
+					for await (let chunk of coalesce(
+						body,
+						this.http.coalescingTargetSize,
+					)) {
+						await new Promise<void>((resolve, reject) => {
+							let finish = (error?: unknown) => {
+								stream.off("close", closed);
+								stream.off("error", finish);
+								if (error === null || error === undefined) resolve();
+								else reject(error);
+							};
+							let closed = () =>
+								finish(
+									Object.assign(
+										new Error("the HTTP/2 stream closed during the request"),
+										{ code: "ERR_HTTP2_STREAM_CLOSED" },
+									),
+								);
+							stream.once("close", closed);
+							stream.once("error", finish);
+							try {
+								stream.write(chunk, finish);
+							} catch (error) {
+								finish(error);
+							}
+						});
 					}
 					stream.end();
 				})().catch((error) => {
@@ -361,8 +446,10 @@ export class Client {
 			}
 			return await response;
 		} catch (error) {
-			this.#disconnect(session);
-			session.destroy();
+			if (isRetryableError(error)) {
+				this.#disconnect(session);
+				void session.close();
+			}
 			throw new RequestError(error);
 		}
 	}
@@ -379,7 +466,7 @@ export class Client {
 			}
 			let connecting = this.#connecting;
 			if (connecting === null) {
-				connecting = retry(reconnectOptions, () => this.#createSession());
+				connecting = retry(this.reconnect, () => this.#createSession());
 				this.#connecting = connecting;
 			}
 			let nextSession: tg.Host.Http2.ClientHttp2Session;
@@ -406,11 +493,11 @@ export class Client {
 	}
 
 	async #createSession() {
-		let url = tg.process.env.TANGRAM_URL;
+		let url = this.options.url ?? tg.process.env.TANGRAM_URL;
 		if (typeof url !== "string") {
 			throw new Error("missing TANGRAM_URL");
 		}
-		let session = tg.host.http2.connect(url);
+		let session = tg.host.http2.connect(url, { flow: this.http.http2 });
 		try {
 			await new Promise<void>((resolve, reject) => {
 				let cleanup = () => {
@@ -445,17 +532,8 @@ export class Client {
 
 export let client = new Client();
 
-function defaultRetryOptions(): RetryOptions {
-	return {
-		backoff: 0.01,
-		jitter: 0.01,
-		maxDelay: 1,
-		maxRetries: 3,
-	};
-}
-
 async function retry<T>(
-	options: RetryOptions,
+	options: RetryConfig,
 	function_: () => Promise<T>,
 	shouldRetry: (error: unknown) => boolean = () => true,
 ) {
@@ -478,4 +556,22 @@ async function retry<T>(
 		}
 	}
 	throw error;
+}
+
+function isRetryableError(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	if ("retryable" in error && typeof error.retryable === "boolean")
+		return error.retryable;
+	let code = "code" in error ? error.code : undefined;
+	return [
+		"EPIPE",
+		"ECONNABORTED",
+		"ECONNRESET",
+		"ENOTCONN",
+		"ERR_HTTP2_INVALID_SESSION",
+		"ERR_HTTP2_GOAWAY_SESSION",
+		"ERR_HTTP2_STREAM_CLOSED",
+		"ERR_STREAM_PREMATURE_CLOSE",
+		"ERR_HTTP2_STREAM_CANCEL",
+	].includes(code as string);
 }

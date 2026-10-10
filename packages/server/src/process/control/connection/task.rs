@@ -129,7 +129,9 @@ impl State {
 					ServerMessage::Response(response) => Some(response.id.clone()),
 					ServerMessage::Ack(_)
 					| ServerMessage::Notification(_)
-					| ServerMessage::Sync(_) => None,
+					| ServerMessage::Sync(_)
+					| ServerMessage::SyncConfig(_)
+					| ServerMessage::SyncConsumption(_) => None,
 				};
 				if let Some(id) = id {
 					if let Some(pending) = self.pending.get_mut(&id) {
@@ -217,7 +219,10 @@ impl State {
 					return;
 				}
 			},
-			ClientMessage::Notification(_) | ClientMessage::Sync(_) => {},
+			ClientMessage::Notification(_)
+			| ClientMessage::Sync(_)
+			| ClientMessage::SyncConfig(_)
+			| ClientMessage::SyncConsumption(_) => {},
 		}
 		self.deliveries
 			.push_back(tg::control::Event::Message(message));

@@ -181,7 +181,18 @@ impl Cli {
 			pool,
 			reconnect,
 			retry,
-			sync: tg::sync::Config::default(),
+			stdio: self
+				.config
+				.as_ref()
+				.and_then(|config| config.client.as_ref())
+				.and_then(|client| client.stdio)
+				.unwrap_or_default(),
+			sync: self
+				.config
+				.as_ref()
+				.and_then(|config| config.client.as_ref())
+				.and_then(|client| client.sync)
+				.unwrap_or_default(),
 		};
 
 		let client = tg::Client::new(arg)?;

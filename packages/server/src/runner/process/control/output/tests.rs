@@ -2,6 +2,7 @@ use super::*;
 
 fn reader() -> Reader {
 	Reader {
+		flow: tg::process::stdio::Config::default(),
 		buffered: BTreeMap::new(),
 		chunks: VecDeque::new(),
 		combined_position: 0,
@@ -65,11 +66,17 @@ fn an_idle_read_does_not_block_another_stream() {
 fn pipes_stream_a_range_until_the_window_or_limit() {
 	let mut reader = reader();
 	reader.push(
-		Bytes::from(vec![0; tg::process::stdio::flow::CHUNK_SIZE * 65]),
+		Bytes::from(vec![
+			0;
+			tg::process::stdio::Config::default().max_message_size
+				* 65
+		]),
 		tg::process::stdio::Stream::Stdout,
 	);
 	let arg = tg::process::stdio::read::Arg {
-		length: Some(i64::try_from(tg::process::stdio::flow::CHUNK_SIZE * 65).unwrap()),
+		length: Some(
+			i64::try_from(tg::process::stdio::Config::default().max_message_size * 65).unwrap(),
+		),
 		streams: vec![tg::process::stdio::Stream::Stdout],
 		..Default::default()
 	};
@@ -81,8 +88,9 @@ fn pipes_stream_a_range_until_the_window_or_limit() {
 		));
 	}
 	assert!(reader.read(&mut read).unwrap().is_none());
-	let progress = tg::process::stdio::read::Progress {
-		consumed: tg::process::stdio::flow::WINDOW / 2,
+	let progress = tangram_http::flow::Consumption {
+		bytes: tg::process::stdio::Config::default().limits.bytes / 2,
+		messages: tg::process::stdio::Config::default().limits.messages / 2,
 	};
 	read.window.update(progress).unwrap();
 	assert!(matches!(
@@ -122,7 +130,11 @@ fn eof_does_not_hide_a_gap_in_a_pipe() {
 fn a_read_times_out_while_its_window_is_full() {
 	let mut reader = reader();
 	reader.push(
-		Bytes::from(vec![0; flow::CHUNK_SIZE * 65]),
+		Bytes::from(vec![
+			0;
+			tg::process::stdio::Config::default().max_message_size
+				* 65
+		]),
 		tg::process::stdio::Stream::Stdout,
 	);
 	let arg = tg::process::stdio::read::Arg {
@@ -131,7 +143,7 @@ fn a_read_times_out_while_its_window_is_full() {
 		..Default::default()
 	};
 	let mut read = Read::new(arg).unwrap();
-	for _ in 0..flow::MAX_CHUNKS {
+	for _ in 0..tg::process::stdio::Config::default().message_capacity() {
 		assert!(matches!(
 			reader.read(&mut read).unwrap(),
 			Some(ServerMessage::Notification(_))
@@ -253,13 +265,21 @@ async fn reconnect_preserves_local_reads() {
 			id: id.into(),
 			sender,
 		};
-		Session::handle_process_control_output_message(&mut reads, message)
-			.await
-			.unwrap();
-	}
-	Session::handle_process_control_output_message(&mut reads, Message::Reconnect)
+		Session::handle_process_control_output_message(
+			tg::process::stdio::Config::default(),
+			&mut reads,
+			message,
+		)
 		.await
 		.unwrap();
+	}
+	Session::handle_process_control_output_message(
+		tg::process::stdio::Config::default(),
+		&mut reads,
+		Message::Reconnect,
+	)
+	.await
+	.unwrap();
 	assert_eq!(
 		reads.keys().map(String::as_str).collect::<Vec<_>>(),
 		["local"]
@@ -274,9 +294,13 @@ async fn reconnect_preserves_local_reads() {
 
 	// An abandoned local reader must not fail the shared output task.
 	drop(local);
-	Session::handle_process_control_output_message(&mut reads, Message::Close("local".into()))
-		.await
-		.unwrap();
+	Session::handle_process_control_output_message(
+		tg::process::stdio::Config::default(),
+		&mut reads,
+		Message::Close("local".into()),
+	)
+	.await
+	.unwrap();
 	assert!(reads.is_empty());
 }
 
@@ -319,11 +343,18 @@ fn completion_detects_chunks_lost_before_the_terminal_response() {
 async fn reconnecting_ends_reads_with_lost_progress() {
 	let mut reader = reader();
 	reader.push(
-		Bytes::from(vec![0; flow::CHUNK_SIZE * (flow::MAX_CHUNKS + 1)]),
+		Bytes::from(vec![
+			0;
+			tg::process::stdio::Config::default().max_message_size
+				* (tg::process::stdio::Config::default()
+					.message_capacity()
+					+ 1)
+		]),
 		tg::process::stdio::Stream::Stdout,
 	);
 	reader.eof.insert(tg::process::stdio::Stream::Stdout);
-	let (sender, mut output) = tokio::sync::mpsc::channel(flow::CHANNEL_CAPACITY);
+	let (sender, mut output) =
+		tokio::sync::mpsc::channel(tg::process::stdio::Config::default().channel_capacity());
 	let control =
 		tg::process::control::Connection::new(stream::pending().boxed(), sender.clone(), sender);
 	let (sender, receiver) = tokio::sync::mpsc::channel(16);
@@ -349,7 +380,7 @@ async fn reconnecting_ends_reads_with_lost_progress() {
 			.await
 			.unwrap();
 	}
-	for _ in 0..flow::MAX_CHUNKS {
+	for _ in 0..tg::process::stdio::Config::default().message_capacity() {
 		let message = tokio::time::timeout(std::time::Duration::from_secs(1), output.recv())
 			.await
 			.unwrap()
@@ -378,7 +409,9 @@ async fn reconnecting_ends_reads_with_lost_progress() {
 
 	// A fresh read can consume the remaining bytes from the caller's position.
 	let arg = tg::process::stdio::read::Arg {
-		position: Some(std::io::SeekFrom::Start(flow::WINDOW)),
+		position: Some(std::io::SeekFrom::Start(
+			tg::process::stdio::Config::default().limits.bytes,
+		)),
 		streams: vec![tg::process::stdio::Stream::Stdout],
 		..Default::default()
 	};
@@ -403,8 +436,14 @@ async fn reconnecting_ends_reads_with_lost_progress() {
 	let Event::Chunk(chunk) = notification.event else {
 		panic!("expected the remaining stdout chunk");
 	};
-	assert_eq!(chunk.stream_position, flow::WINDOW);
-	assert_eq!(chunk.bytes.len(), flow::CHUNK_SIZE);
+	assert_eq!(
+		chunk.stream_position,
+		tg::process::stdio::Config::default().limits.bytes
+	);
+	assert_eq!(
+		chunk.bytes.len(),
+		tg::process::stdio::Config::default().max_message_size
+	);
 	let message = tokio::time::timeout(std::time::Duration::from_secs(1), output.recv())
 		.await
 		.unwrap()

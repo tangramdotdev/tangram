@@ -1,6 +1,6 @@
 import * as tg from "../../../index.ts";
 import { Body, Request, Response, percentEncode } from "../../../http.ts";
-import { Receiver } from "../../../process/stdio/flow.ts";
+import { Receiver } from "../../../http/flow.ts";
 import type { Client } from "../../../client.ts";
 
 export type Connection = {
@@ -19,6 +19,11 @@ export async function tryReadProcessStdio(
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 ): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
+	arg = { ...arg, flow: arg.flow ?? client.stdio };
+	tg.Process.Stdio.Config.validateReceiver(
+		client.stdio,
+		arg.flow ?? client.stdio,
+	);
 	let connection = await connect(client, id, arg);
 	if (connection === null) {
 		return null;
@@ -60,15 +65,15 @@ async function* readProcessStdioAllInner(
 	let forward =
 		arg.length === undefined || arg.length === null || arg.length >= 0;
 	let nextArg = { ...arg, streams: [...arg.streams] };
-	let window = new Receiver();
-	let pending = 0;
+	let window = new Receiver((arg.flow ?? client.stdio).limits);
+	let pending: number | null = null;
 	let position = typeof arg.position === "string" ? null : (arg.position ?? 0);
 	try {
 		while (!state.canceled) {
-			let progress = window.consume(pending);
-			pending = 0;
-			if (progress !== null) {
-				connection.input.push({ kind: "notification", value: progress });
+			let consumption = pending === null ? null : window.consume(pending);
+			pending = null;
+			if (consumption !== null) {
+				connection.input.push({ kind: "notification", value: consumption });
 			}
 			let result: IteratorResult<tg.Process.Stdio.Read.ServerMessage> | null =
 				null;
@@ -88,7 +93,7 @@ async function* readProcessStdioAllInner(
 					nextArg,
 					connection,
 				);
-				window = new Receiver();
+				window = new Receiver((arg.flow ?? client.stdio).limits);
 				continue;
 			}
 			let message = result.value;
@@ -98,6 +103,10 @@ async function* readProcessStdioAllInner(
 					arg.streams,
 					position ?? 0,
 				);
+				let consumption = window.flush();
+				if (consumption !== null) {
+					connection.input.push({ kind: "notification", value: consumption });
+				}
 				connection.input.push({ kind: "ack" });
 				connection.input.close();
 				return;
@@ -120,6 +129,7 @@ async function* readProcessStdioAllInner(
 				throw new ProtocolError("invalid process stdio read notification");
 			}
 			let chunk = message.value.value;
+			window.receive(chunk.bytes.length);
 			pending = chunk.bytes.length;
 			if (!arg.streams.includes(chunk.stream)) {
 				throw new ProtocolError("invalid process stdio stream");
@@ -229,6 +239,7 @@ async function readProcessStdioOnce(
 		uri,
 	}).arg({
 		...arg,
+		flow: tg.Process.Stdio.Config.toData(arg.flow ?? client.stdio),
 		location:
 			arg.location === undefined || arg.location === null
 				? null

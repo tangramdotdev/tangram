@@ -1,5 +1,5 @@
 use {
-	super::{Input, MAX_PENDING, Sender},
+	super::{Input, Sender},
 	crate::Session,
 	futures::{StreamExt as _, TryStreamExt as _, stream},
 	std::collections::VecDeque,
@@ -20,11 +20,13 @@ pub(super) struct Destination {
 
 pub(super) struct Source {
 	pub input: Input,
-	pub sender: mpsc::Sender<tg::Result<tg::sync::Message>>,
+	pub sender: crate::sync::flow::Input,
+	pub updates: crate::sync::flow::Updates,
 }
 
 impl Session {
 	pub(super) async fn connect_process_await_command_sync(
+		flow: tg::process::stdio::Config,
 		task: &mut Option<Task<tg::Result<()>>>,
 		input: &mut Input,
 		pending: &mut VecDeque<tg::process::connect::ClientMessage>,
@@ -40,7 +42,7 @@ impl Session {
 				},
 				message = input.try_next(), if input_open => {
 					match message? {
-						Some(message) => Self::connect_process_buffer_message(pending, message)?,
+						Some(message) => Self::connect_process_buffer_message(flow, pending, message)?,
 						None => input_open = false,
 					}
 				},
@@ -49,16 +51,17 @@ impl Session {
 	}
 
 	pub(super) fn connect_process_buffer_message(
+		flow: tg::process::stdio::Config,
 		pending: &mut VecDeque<tg::process::connect::ClientMessage>,
 		message: tg::process::connect::ClientMessage,
 	) -> tg::Result<()> {
-		if pending.len() >= MAX_PENDING {
+		if pending.len() >= flow.connection_capacity() {
 			return Err(tg::error!("too many buffered process messages"));
 		}
 		if let tg::process::connect::ClientMessage::Request(request) = &message
 			&& let tg::process::connect::ClientRequestArg::Write(arg) = &request.arg
 			&& let tg::process::stdio::write::Data::Chunk(chunk) = &arg.data
-			&& chunk.bytes.len() > tg::process::stdio::flow::CHUNK_SIZE
+			&& chunk.bytes.len() > flow.max_message_size
 		{
 			return Err(tg::error!("invalid stdio chunk size"));
 		}
@@ -83,18 +86,30 @@ impl Session {
 		&self,
 		command: &tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		input: Input,
-		sender: &Sender,
+		high: &Sender,
+		low: &Sender,
 	) -> tg::Result<Destination> {
 		// Split the process and sync messages.
-		let (process_sender, process_receiver) = mpsc::channel(64);
-		let (sync_sender, sync_receiver) = mpsc::channel(1024);
-		let input_task = Task::spawn(move |_| async move {
-			Self::connect_process_split_command_sync_input(input, process_sender, sync_sender).await
+		let (process_sender, process_receiver) =
+			mpsc::channel(self.server.config().process.stdio.connection_capacity());
+		let config = self.server.config().sync.flow;
+		let (sync_sender, sync_input, consumption) = crate::sync::flow::Input::new(config)?;
+		let updates = crate::sync::flow::Updates::new();
+		let input_task = Task::spawn({
+			let updates = updates.clone();
+			move |_| async move {
+				Self::connect_process_split_command_sync_input(
+					input,
+					process_sender,
+					sync_sender,
+					updates,
+				)
+				.await
+			}
 		});
 		let input = ReceiverStream::new(process_receiver)
 			.attach(input_task)
 			.boxed();
-		let sync_input = ReceiverStream::new(sync_receiver).boxed();
 
 		// Start the destination sync and obtain its referent.
 		let get = Self::spawn_process_command_nodes(command)?
@@ -112,14 +127,36 @@ impl Session {
 			process: true,
 			..Default::default()
 		};
-		let (output, mut sync_output) = self.sync_inner(arg, sync_input).await?;
+		let (output, sync_output) = self.sync_inner(arg, sync_input).await?;
+		let mut sync_output = updates.send_sync_messages(sync_output);
 		let sync = output
 			.sync
 			.ok_or_else(|| tg::error!("the command sync did not produce a sync"))?;
 
+		// Send consumption separately from the sync producer so a full window does not delay credit.
+		let notifications = futures::stream::once(async move {
+			Ok(tg::process::connect::ServerMessage::SyncConfig(config))
+		})
+		.chain(consumption.map(|consumption| {
+			Ok(tg::process::connect::ServerMessage::SyncConsumption(
+				consumption,
+			))
+		}))
+		.boxed();
+		let notification_sender = high.clone();
+		let notifications = Task::spawn(move |_| async move {
+			let mut notifications = notifications;
+			while let Some(message) = notifications.next().await {
+				if notification_sender.send(message).await.is_err() {
+					break;
+				}
+			}
+		});
+
 		// Forward the destination sync messages over the process connection.
-		let sender = sender.clone();
+		let sender = low.clone();
 		let task = Task::spawn(move |_| async move {
+			let _notifications = notifications;
 			while let Some(message) = sync_output.next().await {
 				let message = message.map(tg::process::connect::ServerMessage::Sync);
 				let failed = message.is_err();
@@ -160,8 +197,9 @@ impl Session {
 			put,
 			..Default::default()
 		};
-		let (sender, receiver) = mpsc::channel(1024);
-		let sync_input = ReceiverStream::new(receiver).boxed();
+		let config = self.server.config().sync.flow;
+		let (sender, sync_input, consumption) = crate::sync::flow::Input::new(config)?;
+		let updates = crate::sync::flow::Updates::new();
 		let arg = crate::sync::InnerArg {
 			arg,
 			process: true,
@@ -170,10 +208,32 @@ impl Session {
 		let (_, sync_output) = self.sync_inner(arg, sync_input).await?;
 
 		// Add the source sync messages to the process connection.
-		let sync_output =
-			sync_output.map(|message| message.map(tg::process::connect::ClientMessage::Sync));
-		let input = stream::select(input, sync_output).boxed();
-		let source = Source { input, sender };
+		let sync_output = updates
+			.send_sync_messages(sync_output)
+			.map(|message| message.map(tg::process::connect::ClientMessage::Sync));
+		let notifications =
+			stream::once(
+				async move { Ok(tg::process::connect::ClientMessage::SyncConfig(config)) },
+			)
+			.chain(consumption.map(|consumption| {
+				Ok(tg::process::connect::ClientMessage::SyncConsumption(
+					consumption,
+				))
+			}))
+			.boxed();
+		let input = stream::select_with_strategy(input, sync_output.boxed(), |(): &mut ()| {
+			stream::PollNext::Left
+		})
+		.boxed();
+		let input = stream::select_with_strategy(notifications, input, |(): &mut ()| {
+			stream::PollNext::Left
+		})
+		.boxed();
+		let source = Source {
+			input,
+			sender,
+			updates,
+		};
 
 		Ok(source)
 	}
@@ -181,7 +241,8 @@ impl Session {
 	async fn connect_process_split_command_sync_input(
 		mut input: Input,
 		process_sender: mpsc::Sender<tg::Result<tg::process::connect::ClientMessage>>,
-		sync_sender: mpsc::Sender<tg::Result<tg::sync::Message>>,
+		sync_sender: crate::sync::flow::Input,
+		updates: crate::sync::flow::Updates,
 	) -> tg::Result<()> {
 		let mut sync_sender = Some(sync_sender);
 		while let Some(message) = input.next().await {
@@ -193,19 +254,23 @@ impl Session {
 						let sender = sync_sender
 							.as_ref()
 							.ok_or_else(|| tg::error!("received a sync message after the end"))?;
-						sender
-							.send(Ok(message))
-							.await
-							.map_err(|_| tg::error!("the command sync closed"))?;
+						sender.receive_sync_message(message)?;
 					}
+					continue;
+				},
+				Ok(tg::process::connect::ClientMessage::SyncConfig(config)) => {
+					updates.set_sync_config(config)?;
+					continue;
+				},
+				Ok(tg::process::connect::ClientMessage::SyncConsumption(consumption)) => {
+					updates.update_sync_consumption(consumption)?;
 					continue;
 				},
 				message => message,
 			};
-			process_sender
-				.send(message)
-				.await
-				.map_err(|_| tg::error!("the process connection closed"))?;
+			process_sender.try_send(message).map_err(|source| {
+				tg::error!(!source, "the process input closed or exceeded its window")
+			})?;
 		}
 
 		Ok(())

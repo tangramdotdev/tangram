@@ -9417,6 +9417,7 @@ dependencies = [
  "tangram_compiler",
  "tangram_fdb",
  "tangram_futures",
+ "tangram_http",
  "tangram_javascript",
  "tangram_pool",
  "tangram_python",

@@ -1,5 +1,8 @@
 pub mod body;
+pub mod error;
+pub mod flow;
 pub mod header;
+pub mod http2;
 pub mod idle;
 pub mod layer;
 pub mod request;

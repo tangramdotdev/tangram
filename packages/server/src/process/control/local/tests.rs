@@ -7,9 +7,12 @@ async fn buffered_output_survives_control_retirement() {
 		let Some(Message::Request { request, sender }) = receiver.recv().await else {
 			panic!("expected a read request");
 		};
-		let bytes = bytes::Bytes::from(vec![0; flow::CHUNK_SIZE]);
-		for index in 0..flow::MAX_CHUNKS {
-			let position = (index * flow::CHUNK_SIZE) as u64;
+		let bytes = bytes::Bytes::from(vec![
+			0;
+			tg::process::stdio::Config::default().max_message_size
+		]);
+		for index in 0..tg::process::stdio::Config::default().message_capacity() {
+			let position = (index * tg::process::stdio::Config::default().max_message_size) as u64;
 			let chunk = tg::process::stdio::Chunk {
 				bytes: bytes.clone(),
 				combined_position: position,
@@ -27,8 +30,12 @@ async fn buffered_output_survives_control_retirement() {
 			sender.send_low(message).await.unwrap();
 		}
 		let end = tg::process::stdio::End {
-			combined_position: flow::WINDOW,
-			stream_positions: [(tg::process::stdio::Stream::Stdout, flow::WINDOW)].into(),
+			combined_position: tg::process::stdio::Config::default().limits.bytes,
+			stream_positions: [(
+				tg::process::stdio::Stream::Stdout,
+				tg::process::stdio::Config::default().limits.bytes,
+			)]
+			.into(),
 		};
 		let response = tg::process::control::ClientResponse {
 			error: None,
@@ -50,7 +57,10 @@ async fn buffered_output_survives_control_retirement() {
 		..Default::default()
 	};
 	let messages = local.read(arg).try_collect::<Vec<_>>().await.unwrap();
-	assert_eq!(messages.len(), flow::MAX_CHUNKS + 1);
+	assert_eq!(
+		messages.len(),
+		tg::process::stdio::Config::default().message_capacity() + 1
+	);
 	assert!(matches!(
 		messages.last(),
 		Some(read::ServerMessage::Response(read::Output::End(_)))
@@ -71,10 +81,16 @@ async fn read_reports_progress_and_closes() {
 		panic!("expected a read request");
 	};
 	for batch in 0..2 {
-		for index in 0..flow::MAX_CHUNKS / 2 {
-			let position = ((batch * flow::MAX_CHUNKS / 2 + index) * flow::CHUNK_SIZE) as u64;
+		for index in 0..tg::process::stdio::Config::default().message_capacity() / 2 {
+			let position = ((batch * tg::process::stdio::Config::default().message_capacity() / 2
+				+ index) * tg::process::stdio::Config::default().max_message_size)
+				as u64;
 			let chunk = tg::process::stdio::Chunk {
-				bytes: bytes::Bytes::from(vec![0; flow::CHUNK_SIZE]),
+				bytes: bytes::Bytes::from(vec![
+					0;
+					tg::process::stdio::Config::default()
+						.max_message_size
+				]),
 				combined_position: position,
 				stream: tg::process::stdio::Stream::Stdout,
 				stream_position: position,
@@ -94,13 +110,13 @@ async fn read_reports_progress_and_closes() {
 			));
 		}
 		assert!(stream.next().now_or_never().is_none());
-		let Message::Progress(notification) = receiver.try_recv().unwrap() else {
+		let Message::Consumption(notification) = receiver.try_recv().unwrap() else {
 			panic!("expected read progress");
 		};
 		assert_eq!(notification.id, request.id);
 		assert_eq!(
-			notification.progress.consumed,
-			(batch as u64 + 1) * flow::WINDOW / 2
+			notification.consumption.bytes,
+			(batch as u64 + 1) * tg::process::stdio::Config::default().limits.bytes / 2
 		);
 	}
 	drop(stream);

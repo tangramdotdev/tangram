@@ -538,6 +538,27 @@ fn sync_frames_preserve_binary_bytes() {
 }
 
 #[test]
+fn consumption_and_sync_configuration_roundtrip() {
+	let consumption = tangram_http::flow::Consumption {
+		bytes: 2048,
+		messages: 19,
+	};
+	assert_message_roundtrip(&ClientMessage::SyncConsumption(consumption));
+	assert_message_roundtrip(&ServerMessage::SyncConsumption(consumption));
+	assert_message_roundtrip(&tg::process::control::ClientMessage::SyncConsumption(
+		consumption,
+	));
+	assert_message_roundtrip(&tg::process::control::ServerMessage::SyncConsumption(
+		consumption,
+	));
+	let config = tg::sync::Config::default();
+	assert_message_roundtrip(&ClientMessage::SyncConfig(config));
+	assert_message_roundtrip(&ServerMessage::SyncConfig(config));
+	assert_message_roundtrip(&tg::process::control::ClientMessage::SyncConfig(config));
+	assert_message_roundtrip(&tg::process::control::ServerMessage::SyncConfig(config));
+}
+
+#[test]
 fn read_completion_preserves_and_validates_positions() {
 	let end = End {
 		combined_position: 12,
@@ -569,6 +590,25 @@ fn read_completion_preserves_and_validates_positions() {
 		assert!(output.validate(&[Stream::Stdout], 6).is_err());
 		assert!(output.validate(&[Stream::Stdout], 8).is_err());
 	}
+}
+
+fn assert_message_roundtrip<T>(value: &T)
+where
+	T: Clone
+		+ serde::Serialize
+		+ serde::de::DeserializeOwned
+		+ tangram_serialize::Serialize
+		+ for<'de> tangram_serialize::Deserialize<'de>
+		+ TryFrom<tangram_http::sse::Event, Error = tg::Error>,
+	tangram_http::sse::Event: TryFrom<T, Error = tg::Error>,
+{
+	assert_roundtrip(value);
+	let json = serde_json::to_value(value).unwrap();
+	let decoded: T = serde_json::from_value(json.clone()).unwrap();
+	assert_eq!(serde_json::to_value(decoded).unwrap(), json);
+	let event = tangram_http::sse::Event::try_from(value.clone()).unwrap();
+	let decoded = T::try_from(event).unwrap();
+	assert_eq!(serde_json::to_value(decoded).unwrap(), json);
 }
 
 fn assert_sync_roundtrip<T>(value: &T)

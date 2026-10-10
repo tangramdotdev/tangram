@@ -36,7 +36,7 @@ vsock = ["dep:tokio-vsock", "tangram_client/vsock", "tangram_sandbox/vsock"]
 
 [lib]
 doctest = false
-test = false
+test = true
 
 [lints]
 workspace = true

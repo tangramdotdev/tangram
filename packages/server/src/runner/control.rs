@@ -282,6 +282,7 @@ impl Session {
 							tg::runner::control::ClientNotification::Heartbeat(heartbeat),
 						) => {
 							tracing::debug!(%runner, connection_index, index = heartbeat.index, "received the runner heartbeat");
+							crate::checkpoint!(session.server, "runner.control.heartbeat.received", %runner).await;
 							let notification = crate::scheduler::HeartbeatNotification {
 								capacity: heartbeat.capacity,
 								connection_index,

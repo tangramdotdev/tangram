@@ -13,6 +13,7 @@ from typing import (
     TypedDict,
 )
 
+from ..config import Http2Config
 from ..http import Request, Response
 from . import default
 
@@ -53,12 +54,15 @@ Outcome = default.Outcome
 class Http2Session(Protocol):
     closed: bool
 
+    def retire(self) -> None: ...
     async def send(self, request: Request) -> Response: ...
     async def close(self) -> None: ...
 
 
 class Http2SessionType(Protocol):
-    async def connect(self, authority: str) -> Http2Session: ...
+    async def connect(
+        self, authority: str, config: Http2Config | None = None
+    ) -> Http2Session: ...
 
 
 class Http2(Protocol):

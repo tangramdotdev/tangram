@@ -193,6 +193,7 @@ impl Provider {
 			pool: None,
 			reconnect: None,
 			retry: None,
+			stdio: tg::process::stdio::Config::default(),
 			sync: tg::sync::Config::default(),
 			token: None,
 			url: Some(url),

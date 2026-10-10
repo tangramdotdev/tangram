@@ -13,7 +13,8 @@ struct State<'a> {
 	streams: Streams,
 	tokens: tg::authorization::Tokens,
 	writer: Option<Writer>,
-	writes: BTreeSet<u64>,
+	write_bytes: u64,
+	writes: BTreeMap<u64, u64>,
 }
 
 struct Streams {
@@ -72,7 +73,7 @@ impl Session {
 				return Err(tg::error!("command sync requires a spawn"));
 			};
 			let destination = self
-				.connect_process_command_sync_destination(&spawn.command, input, high)
+				.connect_process_command_sync_destination(&spawn.command, input, high, low)
 				.await?;
 			input = destination.input;
 			// Attach the destination-minted tokens to the ephemeral command; process storage strips them.
@@ -90,8 +91,13 @@ impl Session {
 		// Buffer requests while command sync progresses on the same connection.
 		let mut pending = VecDeque::new();
 		if self.server.config.process.await_push {
-			Self::connect_process_await_command_sync(&mut sync_task, &mut input, &mut pending)
-				.await?;
+			Self::connect_process_await_command_sync(
+				self.server.config().process.stdio,
+				&mut sync_task,
+				&mut input,
+				&mut pending,
+			)
+			.await?;
 		}
 
 		let mode = arg.mode;
@@ -234,7 +240,8 @@ impl Session {
 			streams,
 			tokens,
 			writer: None,
-			writes: BTreeSet::new(),
+			write_bytes: 0,
+			writes: BTreeMap::new(),
 		};
 		for (request_id, arg) in arg.reads {
 			state.requests.insert(request_id);
@@ -279,7 +286,7 @@ impl Session {
 			tokio::select! {
 				message = input.try_next(), if input_open => {
 					match message? {
-						Some(message) => Self::connect_process_buffer_message(pending, message)?,
+						Some(message) => Self::connect_process_buffer_message(self.server.config().process.stdio, pending, message)?,
 						None if mode == tg::process::connect::Mode::Spawn => input_open = false,
 						None => return Err(tg::error!("the process connection closed while spawning")),
 					}
@@ -440,7 +447,7 @@ impl Session {
 				}
 			},
 			tg::process::connect::ClientMessage::Notification(
-				tg::process::connect::ClientNotification::Read(notification),
+				tg::process::connect::ClientNotification::ReadConsumption(notification),
 			) => {
 				Self::handle_process_connect_read(state, &notification)?;
 			},
@@ -451,7 +458,9 @@ impl Session {
 			tg::process::connect::ClientMessage::Request(request) => {
 				return self.handle_process_connect_request(state, request).await;
 			},
-			tg::process::connect::ClientMessage::Sync(_) => {
+			tg::process::connect::ClientMessage::Sync(_)
+			| tg::process::connect::ClientMessage::SyncConfig(_)
+			| tg::process::connect::ClientMessage::SyncConsumption(_) => {
 				return Err(tg::error!("unexpected process sync message"));
 			},
 		}
@@ -460,7 +469,7 @@ impl Session {
 
 	fn handle_process_connect_read(
 		state: &State<'_>,
-		notification: &tg::process::connect::ReadClientNotification,
+		notification: &tg::process::connect::ReadConsumption,
 	) -> tg::Result<()> {
 		// Progress already in transit may arrive after an error or cancellation ends the read.
 		let Some(sender) = state.streams.reads.get(&notification.id) else {
@@ -468,7 +477,7 @@ impl Session {
 		};
 		sender
 			.try_send(Ok(tg::process::stdio::read::ClientMessage::Notification(
-				notification.progress,
+				notification.consumption,
 			)))
 			.map_err(|error| tg::error!(!error, "failed to deliver the read message"))?;
 		Ok(())
@@ -497,7 +506,9 @@ impl Session {
 						tg::error!(!error, "failed to acknowledge the stdio write response")
 					})?;
 				state.requests.remove(&id);
-				state.writes.remove(&id);
+				if let Some(length) = state.writes.remove(&id) {
+					state.write_bytes -= length;
+				}
 				let response = tg::process::connect::ServerResponse {
 					error: response.error,
 					id,
@@ -516,7 +527,8 @@ impl Session {
 			None => tg::error!("the stdio write stream closed before completion"),
 		};
 		state.writer = None;
-		for id in std::mem::take(&mut state.writes) {
+		state.write_bytes = 0;
+		for (id, _) in std::mem::take(&mut state.writes) {
 			state.requests.remove(&id);
 			Self::send_process_connect_response(state.high, id, Err(error.clone())).await?;
 		}
@@ -533,7 +545,12 @@ impl Session {
 		if state.responses.contains(&request.id) || !state.requests.insert(request.id) {
 			return Err(tg::error!("duplicate process request id"));
 		}
-		if state.responses.len() >= MAX_OPERATIONS * 3 + 4 {
+		if state.responses.len()
+			>= self.server.config().process.stdio.message_capacity()
+				+ self.server.config().process.stdio.max_reads
+				+ MAX_OPERATIONS * 3
+				+ 4
+		{
 			return Err(tg::error!("too many unacknowledged process responses"));
 		}
 		state.responses.insert(request.id);
@@ -546,11 +563,11 @@ impl Session {
 			tg::process::connect::ClientRequestArg::Close(_)
 			| tg::process::connect::ClientRequestArg::Detach => false,
 			tg::process::connect::ClientRequestArg::Read(_) => {
-				state.streams.tasks.len() >= MAX_OPERATIONS
-					|| state.operations.len() >= MAX_OPERATIONS
+				state.streams.tasks.len() >= self.server.config().process.stdio.max_reads
 			},
 			tg::process::connect::ClientRequestArg::Write(arg) => {
-				let limit = flow::MAX_CHUNKS + usize::from(matches!(arg.data, write::Data::End(_)));
+				let limit = self.server.config().process.stdio.message_capacity()
+					+ usize::from(matches!(arg.data, write::Data::End(_)));
 				state.writes.len() >= limit
 			},
 		};
@@ -596,7 +613,8 @@ impl Session {
 		};
 
 		Self::send_process_connect_response(state.high, request.id, result).await?;
-		if !state.streams.reads.contains_key(&request.id) && !state.writes.contains(&request.id) {
+		if !state.streams.reads.contains_key(&request.id) && !state.writes.contains_key(&request.id)
+		{
 			state.requests.remove(&request.id);
 		}
 
@@ -696,6 +714,14 @@ impl Session {
 		mut arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<()> {
 		// Open the local stdio stream.
+		self.server
+			.config()
+			.process
+			.stdio
+			.validate_receiver(arg.flow)?;
+		if state.streams.reads.len() >= self.server.config().process.stdio.max_reads {
+			return Err(tg::error!("too many process reads"));
+		}
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
@@ -707,7 +733,7 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!("failed to find process stdio"))?;
 		let mut output =
-			self.read_process_stdio_protocol(arg, ReceiverStream::new(receiver).boxed(), output);
+			self.read_process_stdio_protocol(&arg, ReceiverStream::new(receiver).boxed(), output);
 
 		// Register the read request and return its messages.
 		state.streams.reads.insert(request_id, input);
@@ -754,7 +780,8 @@ impl Session {
 		// Prepare stdin once for the connection, then reuse the standalone write implementation.
 		if state.writer.is_none() {
 			arg.tokens.inherit(&state.tokens);
-			let (input, receiver) = mpsc::channel(flow::CHANNEL_CAPACITY);
+			let (input, receiver) =
+				mpsc::channel(self.server.config().process.stdio.channel_capacity());
 			let write_arg = tg::process::stdio::write::stream::Arg {
 				location: state.location.clone(),
 				streams: vec![Stream::Stdin],
@@ -786,6 +813,13 @@ impl Session {
 			},
 			write::Data::Chunk(_) | write::Data::End(_) => {},
 		}
+		let length = match &arg.data {
+			write::Data::Chunk(chunk) => chunk.bytes.len() as u64,
+			write::Data::End(_) => 0,
+		};
+		if length > self.server.config().process.stdio.limits.bytes - state.write_bytes {
+			return Err(tg::error!("the stdio byte window was exceeded"));
+		}
 		let request = write::Request {
 			arg: arg.data,
 			id: request_id,
@@ -797,7 +831,8 @@ impl Session {
 			.input
 			.try_send(Ok(write::ClientMessage::Request(request)))
 			.map_err(|error| tg::error!(!error, "failed to queue the stdio write"))?;
-		state.writes.insert(request_id);
+		state.writes.insert(request_id, length);
+		state.write_bytes += length;
 		Ok(())
 	}
 

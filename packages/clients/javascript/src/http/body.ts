@@ -74,6 +74,8 @@ export namespace Body {
 	export type SseEvent = {
 		data: string;
 		event?: string;
+		id?: string;
+		retry?: number;
 	};
 }
 
@@ -81,29 +83,22 @@ async function* decodeSse(
 	body: AsyncIterable<Uint8Array>,
 ): AsyncIterableIterator<Body.SseEvent> {
 	let buffer = "";
+	let lines: string[] = [];
 	for await (let chunk of body) {
 		buffer += tg.encoding.utf8.decode(chunk);
 		while (true) {
-			let index = buffer.indexOf("\n\n");
-			let length = 2;
-			if (index === -1) {
-				index = buffer.indexOf("\r\n\r\n");
-				length = 4;
+			let index = buffer.indexOf("\n");
+			if (index === -1) break;
+			let line = buffer.slice(0, index).replace(/\r$/, "");
+			buffer = buffer.slice(index + 1);
+			if (line !== "") {
+				lines.push(line);
+				continue;
 			}
-			if (index === -1) {
-				break;
-			}
-			let block = buffer.slice(0, index);
-			buffer = buffer.slice(index + length);
-			let event = parseSse(block);
-			if (event !== undefined) {
-				yield event;
-			}
+			let event = parseSse(lines.join("\n"));
+			lines = [];
+			if (event !== undefined) yield event;
 		}
-	}
-	let event = parseSse(buffer);
-	if (event !== undefined) {
-		yield event;
 	}
 }
 
@@ -139,6 +134,8 @@ async function* normalize(
 
 function parseSse(block: string) {
 	let event: string | undefined;
+	let id: string | undefined;
+	let retry: number | undefined;
 	let data: Array<string> = [];
 	for (let line of block.split(/\r\n|\r|\n/)) {
 		if (line === "" || line.startsWith(":")) {
@@ -152,6 +149,14 @@ function parseSse(block: string) {
 		}
 		if (name === "event") {
 			event = value;
+		} else if (name === "id" && !value.includes("\0")) {
+			id = value;
+		} else if (
+			name === "retry" &&
+			/^\d+$/.test(value) &&
+			Number.isSafeInteger(Number(value))
+		) {
+			retry = Number(value);
 		} else if (name === "data") {
 			data.push(value);
 		}
@@ -162,6 +167,8 @@ function parseSse(block: string) {
 	return {
 		data: data.join("\n"),
 		...(event !== undefined ? { event } : {}),
+		...(id !== undefined ? { id } : {}),
+		...(retry !== undefined ? { retry } : {}),
 	};
 }
 

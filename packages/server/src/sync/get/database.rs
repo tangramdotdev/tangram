@@ -202,7 +202,9 @@ impl Session {
 					end_received = true;
 					break;
 				},
-				tg::sync::Message::Get(
+				tg::sync::Message::Config(_)
+				| tg::sync::Message::Consumption(_)
+				| tg::sync::Message::Get(
 					tg::sync::GetMessage::Node(_) | tg::sync::GetMessage::Available(_),
 				)
 				| tg::sync::Message::Put(

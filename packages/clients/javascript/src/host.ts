@@ -129,6 +129,7 @@ export namespace Host {
 		export type Headers = Record<string, string | number | string[]>;
 
 		export type ConnectOptions = {
+			flow?: import("./config.ts").Http2;
 			port?: number;
 		};
 
@@ -160,7 +161,12 @@ export namespace Host {
 			once(event: string, listener: (...args: unknown[]) => void): this;
 			off(event: string, listener: (...args: unknown[]) => void): this;
 			setEncoding(encoding: "utf8" | "utf-8"): this;
-			write(bytes: string | Uint8Array): boolean;
+			pause(): this;
+			resume(): this;
+			write(
+				bytes: string | Uint8Array,
+				callback?: (error?: Error | null) => void,
+			): boolean;
 		}
 	}
 

@@ -668,6 +668,9 @@ pub struct Http {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub coalescing_target_size: Option<usize>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http2: Option<tangram_http::http2::Config>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub idle_timeout: Option<Duration>,
@@ -1326,6 +1329,9 @@ pub struct Process {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub status_wakeup_interval: Option<Duration>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio: Option<tg::process::stdio::Config>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdio_wakeup_interval: Option<Duration>,
@@ -1790,6 +1796,9 @@ pub struct SyncOptions {
 	pub control: Option<SyncControl>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub flow: Option<tg::sync::Config>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub get: Option<SyncGet>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1799,9 +1808,6 @@ pub struct SyncOptions {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permission_time_to_touch: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_frame_size: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub put: Option<SyncPut>,
@@ -2185,6 +2191,12 @@ pub struct Client {
 	/// Configure request retry options.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio: Option<tg::process::stdio::Config>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<tg::sync::Config>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -2193,6 +2205,9 @@ pub struct ClientHttp {
 	/// The target size for coalesced request body frames.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub coalescing_target_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http2: Option<tangram_http::http2::Config>,
 }
 
 #[serde_as]
@@ -3065,6 +3080,12 @@ fn resolve_database_pool(source: DatabasePool) -> server::DatabasePool {
 
 fn resolve_http(source: Http) -> tg::Result<server::Http> {
 	let mut target = server::Http::default();
+	if let Some(value) = source.http2 {
+		value
+			.validate()
+			.map_err(|error| tg::error!(source = error, "invalid HTTP/2 configuration"))?;
+		target.http2 = value;
+	}
 	if let Some(value) = source.coalescing_target_size {
 		if value == 0 {
 			return Err(tg::error!(
@@ -3088,6 +3109,12 @@ fn resolve_http(source: Http) -> tg::Result<server::Http> {
 
 pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 	let mut target = tg::Http::default();
+	if let Some(value) = source.http2 {
+		value
+			.validate()
+			.map_err(|error| tg::error!(source = error, "invalid HTTP/2 configuration"))?;
+		target.http2 = value;
+	}
 	if let Some(value) = source.coalescing_target_size {
 		if value == 0 {
 			return Err(tg::error!(
@@ -3812,6 +3839,9 @@ fn resolve_process(source: Process) -> server::Process {
 	if let Some(value) = source.time_to_touch {
 		target.time_to_touch = value;
 	}
+	if let Some(stdio) = source.stdio {
+		target.stdio = stdio;
+	}
 	target
 }
 
@@ -4234,8 +4264,8 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	if let Some(value) = source.permission_time_to_touch {
 		target.permission_time_to_touch = value;
 	}
-	if let Some(value) = source.max_frame_size {
-		target.max_frame_size = value;
+	if let Some(value) = source.flow {
+		target.flow = value;
 	}
 	target
 }

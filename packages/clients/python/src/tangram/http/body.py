@@ -14,6 +14,8 @@ def json_bytes(value: object) -> bytes:
 class SseEvent(TypedDict):
     data: str
     event: NotRequired[str]
+    id: NotRequired[str]
+    retry: NotRequired[int]
 
 
 class _JsonMethod:
@@ -123,24 +125,19 @@ class Body:
 
 async def decode_sse(body: AsyncIterable[bytes]) -> AsyncIterator[SseEvent]:
     buffer = ""
+    lines: list[str] = []
     async for chunk in body:
-        buffer += chunk.decode("utf-8-sig", errors="replace")
-        while True:
-            index = buffer.find("\n\n")
-            length = 2
-            if index == -1:
-                index = buffer.find("\r\n\r\n")
-                length = 4
-            if index == -1:
-                break
-            block = buffer[:index]
-            buffer = buffer[index + length :]
-            event = parse_sse(block)
+        buffer += chunk.decode("utf-8", errors="replace")
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            line = line.removesuffix("\r")
+            if line:
+                lines.append(line)
+                continue
+            event = parse_sse("\n".join(lines))
+            lines = []
             if event is not None:
                 yield event
-    event = parse_sse(buffer)
-    if event is not None:
-        yield event
 
 
 async def encode_sse(events: AsyncIterable[SseEvent]) -> AsyncIterator[bytes]:
@@ -172,6 +169,8 @@ async def normalize(body: AsyncIterable[str | bytes]) -> AsyncIterator[bytes]:
 
 def parse_sse(block: str) -> SseEvent | None:
     event = None
+    id = None
+    retry = None
     data = []
     for line in re.split(r"\r\n|\r|\n", block):
         if line == "" or line.startswith(":"):
@@ -183,6 +182,15 @@ def parse_sse(block: str) -> SseEvent | None:
             value = value[1:]
         if name == "event":
             event = value
+        elif name == "id" and "\0" not in value:
+            id = value
+        elif (
+            name == "retry"
+            and re.fullmatch(r"[0-9]+", value)
+            and len(value.lstrip("0")) <= 16
+            and int(value.lstrip("0") or "0") <= 2**53 - 1
+        ):
+            retry = int(value.lstrip("0") or "0")
         elif name == "data":
             data.append(value)
     if event is None and not data:
@@ -190,6 +198,10 @@ def parse_sse(block: str) -> SseEvent | None:
     output: SseEvent = {"data": "\n".join(data)}
     if event is not None:
         output["event"] = event
+    if id is not None:
+        output["id"] = id
+    if retry is not None:
+        output["retry"] = retry
     return output
 
 

@@ -25,6 +25,10 @@ use {
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
+	#[serde(default)]
+	#[tangram_serialize(default, id = 7)]
+	pub flow: super::Config,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
@@ -74,7 +78,7 @@ pub enum ClientMessage {
 	#[tangram_serialize(id = 0)]
 	Ack,
 	#[tangram_serialize(id = 1)]
-	Notification(Progress),
+	Notification(tangram_http::flow::Consumption),
 }
 
 #[derive(
@@ -151,20 +155,62 @@ pub enum Output {
 	},
 }
 
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Default,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Progress {
-	/// The cumulative number of consumed chunk bytes in this read attempt.
-	#[tangram_serialize(id = 0)]
-	pub consumed: u64,
+struct State {
+	config: super::Config,
+	ended: bool,
+	input: BoxStream<'static, tg::Result<ClientMessage>>,
+	output: BoxStream<'static, tg::Result<ServerMessage>>,
+	pending: Option<ServerMessage>,
+	window: tangram_http::flow::Sender,
+}
+
+pub fn flow(
+	config: super::Config,
+	input: BoxStream<'static, tg::Result<ClientMessage>>,
+	output: BoxStream<'static, tg::Result<ServerMessage>>,
+) -> BoxStream<'static, tg::Result<ServerMessage>> {
+	let state = State {
+		config,
+		ended: false,
+		input,
+		output,
+		pending: None,
+		window: tangram_http::flow::Sender::new(config.limits),
+	};
+	stream::try_unfold(state, |mut state| async move {
+		loop {
+			if let Some(message) = state.pending.take() {
+				match &message {
+					ServerMessage::Notification(Event::Chunk(chunk)) => {
+						if chunk.bytes.len() > state.config.max_message_size || chunk.bytes.is_empty() {
+							return Err(tg::error!("invalid stdio chunk size"));
+						}
+						if state.window.available(chunk.bytes.len()) {
+							state.window.send(chunk.bytes.len()).map_err(|source| tg::error!(!source, "the stdio window was exceeded"))?;
+							return Ok(Some((message, state)));
+						}
+						state.pending = Some(message);
+					},
+					ServerMessage::Notification(Event::Position { .. }) => return Ok(Some((message, state))),
+					ServerMessage::Response(_) => {
+						state.ended = true;
+						return Ok(Some((message, state)));
+					},
+				}
+			}
+			tokio::select! {
+				biased;
+				message = state.input.try_next() => match message?.ok_or_else(|| tg::error!("the stdio read input closed before completion"))? {
+					ClientMessage::Ack if state.ended => return Ok(None),
+					ClientMessage::Ack => return Err(tg::error!("received an unexpected stdio read acknowledgment")),
+					ClientMessage::Notification(consumption) => state.window.update(consumption).map_err(|source| tg::error!(!source, "invalid stdio consumption"))?,
+				},
+				message = state.output.try_next(), if !state.ended && state.pending.is_none() => {
+					state.pending = Some(message?.ok_or_else(|| tg::error!("the stdio read source ended before its response"))?);
+				},
+			}
+		}
+	}).boxed()
 }
 
 impl Output {
@@ -294,6 +340,7 @@ impl<O> tg::Process<O> {
 
 		let id = self.id().unwrap_right();
 		let arg = tg::process::stdio::read::Arg {
+			flow: instance.arg().stdio,
 			length: options.length,
 			location: options.location.or_else(|| self.location()),
 			position: options.position,

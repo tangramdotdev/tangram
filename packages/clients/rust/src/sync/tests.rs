@@ -64,3 +64,30 @@ fn sse_preserves_messages_and_errors() {
 	let event = tangram_http::sse::Event::try_from(error).unwrap();
 	assert!(Message::try_from(event).is_err());
 }
+
+#[test]
+fn sync_object_bounds_and_estimates() {
+	let config = Config::default();
+	config.validate().unwrap();
+	let bytes = Bytes::from(vec![0; usize::try_from(config.max_object_size).unwrap()]);
+	let object = PutNodeObjectMessage {
+		bytes: bytes.clone(),
+		id: tg::blob::Id::new(&bytes).into(),
+		metadata: None,
+	};
+	let message = Message::Put(PutMessage::Node(PutNodeMessage::Object(object)));
+	let size = config.sync_message_size(&message).unwrap();
+	assert!(size >= tangram_serialize::to_vec(&message).unwrap().len());
+	assert!(size < usize::try_from(config.max_message_size).unwrap());
+	let bytes = Bytes::from(vec![
+		0;
+		usize::try_from(config.max_object_size).unwrap() + 1
+	]);
+	let object = PutNodeObjectMessage {
+		bytes: bytes.clone(),
+		id: tg::blob::Id::new(&bytes).into(),
+		metadata: None,
+	};
+	let message = Message::Put(PutMessage::Node(PutNodeMessage::Object(object)));
+	assert!(config.sync_message_size(&message).is_err());
+}

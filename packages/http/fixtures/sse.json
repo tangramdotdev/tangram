@@ -1,0 +1,11 @@
+[
+ {"input":": comment\n\nevent: ready\ndata: {}\n\n","events":[{"event":"ready","data":"{}"}]},
+ {"input":"data: first\ndata: second \ndata:\n\n","events":[{"data":"first\nsecond \n"}]},
+ {"input":"event: a\r\ndata: 1\r\n\r\nevent: b\ndata: 2\n\n","events":[{"event":"a","data":"1"},{"event":"b","data":"2"}]},
+ {"input":"data: partial","events":[]},
+ {"input":"data: partial\n","events":[]},
+ {"input":"event: ready\n\n","events":[{"event":"ready","data":""}]},
+ {"input":"id: ignored\nretry: 123\n\ndata: yes\nid: abc\nretry: 123\n\n","events":[{"data":"yes","id":"abc","retry":123}]},
+ {"input":"data:\n\ndata: x\nid: bad\u0000id\nretry: +1\n\n","events":[{"data":""},{"data":"x"}]},
+ {"input":"data: a\nretry: 9007199254740992\n\n","events":[{"data":"a"}]}
+]
