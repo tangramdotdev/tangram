@@ -214,10 +214,35 @@ class Response:
         finally:
             await self.close()
 
+    def on_close(self, callback: Callable[[], None]) -> Response:
+        close = self._close
+        called = False
+
+        def release() -> None:
+            nonlocal called
+            if close is not None:
+                close()
+            if not called:
+                called = True
+                callback()
+
+        self._close = release
+        body = self.body
+
+        async def output() -> AsyncIterator[bytes]:
+            try:
+                async for chunk in body:
+                    yield chunk
+            finally:
+                await self.close()
+
+        self.body = Body(output())
+        return self
+
     async def close(self) -> None:
         if self._close is not None:
-            self._close()
-            self._close = None
+            close, self._close = self._close, None
+            close()
         close = getattr(self._body_source, "aclose", None)
         # An active generator unwinds in its consumer after the transport closes.
         running = inspect.isasyncgen(self._body_source) and self._body_source.ag_running

@@ -83,6 +83,7 @@ async function waitProcessOnce(
 	});
 	let response = await client.sendWithRetry(request);
 	if (response.status === 404) {
+		response.close();
 		throw new Error("failed to find the process");
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());

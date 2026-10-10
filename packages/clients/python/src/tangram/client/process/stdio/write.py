@@ -305,6 +305,7 @@ async def write_process_stdio_once(client: Client, id, arg):
     try:
         response = await client.send(request)
         if response.status == 404:
+            await response.close()
             input.close()
             await response.close()
             return None

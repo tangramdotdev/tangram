@@ -127,9 +127,34 @@ export class Response {
 		});
 	}
 
+	onClose(callback: () => void): this {
+		let close = this.#close;
+		let called = false;
+		this.#close = () => {
+			close?.();
+			if (!called) {
+				called = true;
+				callback();
+			}
+		};
+		let body = this.body;
+		let response = this;
+		this.body = new Body({
+			async *[Symbol.asyncIterator]() {
+				try {
+					yield* body;
+				} finally {
+					response.close();
+				}
+			},
+		});
+		return this;
+	}
+
 	close(): void {
-		this.#close?.();
+		let close = this.#close;
 		this.#close = undefined;
+		close?.();
 	}
 
 	async collect() {

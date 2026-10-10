@@ -78,6 +78,7 @@ async def wait_process_once(client: "Client", id, arg):
     )
     response = await client.send_with_retry(request)
     if response.status == 404:
+        await response.close()
         raise ValueError("failed to find the process")
     elif response.status < 200 or response.status >= 300:
         raise Error.from_data(cast(ErrorData, await response.json()))

@@ -1,8 +1,12 @@
+import { Pool as Connections, type Lease } from "./http/pool.ts";
 import * as tg from "./index.ts";
 import {
+	Config,
 	Http as HttpConfig,
+	Pool as PoolConfig,
 	Retry as RetryConfig,
 	Stdio as StdioConfig,
+	Sync as SyncConfig,
 	compatibilityDate,
 	version as defaultVersion,
 } from "./config.ts";
@@ -45,35 +49,37 @@ class RequestError {
 
 export class Client {
 	readonly http: HttpConfig;
+	readonly pool: PoolConfig;
 	readonly reconnect: RetryConfig;
 	readonly retry: RetryConfig;
-	readonly version: string;
 	readonly stdio: tg.Process.Stdio.Config;
+	readonly sync: SyncConfig;
+	readonly version: string;
 
-	constructor(
-		readonly options: {
-			http?: HttpConfig;
-			reconnect?: RetryConfig;
-			retry?: RetryConfig;
-			version?: string;
-			stdio?: tg.Process.Stdio.Config;
-			token?: string;
-			url?: string;
-		} = {},
-	) {
+	constructor(readonly options: Config = {}) {
 		this.stdio = options.stdio ?? StdioConfig.defaultValue();
 		StdioConfig.validate(this.stdio);
+		this.sync = options.sync ?? SyncConfig.defaultValue();
+		SyncConfig.validate(this.sync);
+		this.pool = options.pool ?? PoolConfig.defaultValue();
+		PoolConfig.validate(this.pool);
 		this.http = options.http ?? HttpConfig.defaultValue();
-		HttpConfig.validate(this.http, this.stdio);
+		HttpConfig.validate(this.http, this.stdio, this.sync);
 		this.reconnect = options.reconnect ?? RetryConfig.defaultValue();
 		this.retry = options.retry ?? RetryConfig.defaultValue();
 		RetryConfig.validate(this.reconnect);
 		RetryConfig.validate(this.retry);
 		this.version = options.version ?? defaultVersion;
+		this.#connections = new Connections(this.pool, () =>
+			retry(this.reconnect, () => this.#createSession()),
+		);
 	}
 
-	#connecting: Promise<tg.Host.Http2.ClientHttp2Session> | null = null;
-	#session: tg.Host.Http2.ClientHttp2Session | null = null;
+	#connections: Connections;
+
+	close(): void {
+		this.#connections.clear();
+	}
 
 	arg() {
 		let token = this.options.token ?? tg.process.env.TANGRAM_TOKEN;
@@ -397,8 +403,12 @@ export class Client {
 				authorization: `Bearer ${token}`,
 			};
 		}
-		let session = await this.#connect();
-		if (state.timedOut) throw new Error("request timed out");
+		let lease = await this.#connect();
+		if (state.timedOut) {
+			lease.release();
+			throw new Error("request timed out");
+		}
+		let session = lease.value;
 		try {
 			let body = request.body;
 			let stream = session.request(headers, {
@@ -444,52 +454,18 @@ export class Client {
 					);
 				});
 			}
-			return await response;
+			return (await response).onClose(() => lease.release());
 		} catch (error) {
 			if (isRetryableError(error)) {
-				this.#disconnect(session);
-				void session.close();
+				lease.discard();
 			}
+			lease.release();
 			throw new RequestError(error);
 		}
 	}
 
-	async #connect() {
-		while (true) {
-			let session = this.#session;
-			if (session !== null) {
-				if (!session.closed) {
-					return session;
-				}
-				this.#disconnect(session);
-				session.destroy();
-			}
-			let connecting = this.#connecting;
-			if (connecting === null) {
-				connecting = retry(this.reconnect, () => this.#createSession());
-				this.#connecting = connecting;
-			}
-			let nextSession: tg.Host.Http2.ClientHttp2Session;
-			try {
-				nextSession = await connecting;
-			} finally {
-				if (this.#connecting === connecting) {
-					this.#connecting = null;
-				}
-			}
-			if (nextSession.closed) {
-				nextSession.destroy();
-				continue;
-			}
-			if (this.#session === null) {
-				this.#session = nextSession;
-				nextSession.once("close", () => this.#disconnect(nextSession));
-				nextSession.once("error", () => this.#disconnect(nextSession));
-			} else if (this.#session !== nextSession) {
-				nextSession.destroy();
-			}
-			return this.#session;
-		}
+	async #connect(): Promise<Lease> {
+		return await this.#connections.get();
 	}
 
 	async #createSession() {
@@ -520,13 +496,6 @@ export class Client {
 			throw error;
 		}
 		return session;
-	}
-
-	#disconnect(value?: tg.Host.Http2.ClientHttp2Session) {
-		if (value !== undefined && this.#session !== value) {
-			return;
-		}
-		this.#session = null;
 	}
 }
 

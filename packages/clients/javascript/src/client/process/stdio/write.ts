@@ -310,6 +310,7 @@ async function writeProcessStdioOnce(
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
+		response.close();
 		input.close();
 		return null;
 	}

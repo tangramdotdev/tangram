@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 from ...client import Client
 from ...client import client as default_client
-from ...config import validate_receiver
+from ...config import validate_stdio_receiver
 from ...error import Error
 from ...http.flow import Receiver
 from ..outcome import Outcome
@@ -68,7 +68,7 @@ class Session:
         connection._next_id = len(reads) + 1
         for id in reads:
             reads[id].setdefault("flow", connection.client.stdio)
-            validate_receiver(connection.client.stdio, reads[id]["flow"])
+            validate_stdio_receiver(connection.client.stdio, reads[id]["flow"])
             connection._reads[id] = Channel(capacity(reads[id]["flow"]))
         arg = cast(
             "ConnectArgObject",
@@ -258,7 +258,7 @@ class Session:
 
     async def read(self, streams: list[Stream], **options) -> AsyncIterator[StdioChunk]:
         arg = {"flow": self.client.stdio, "streams": streams, **options}
-        validate_receiver(self.client.stdio, arg["flow"])
+        validate_stdio_receiver(self.client.stdio, arg["flow"])
         initial = next(
             (id for id, read in self._initial_reads.items() if matches_read(read, arg)),
             None,

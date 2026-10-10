@@ -1,7 +1,7 @@
 """Process stdio queue capacity."""
 
-from ...config import Config
+from ...config import StdioConfig
 
 
-def capacity(config: Config) -> int:
+def capacity(config: StdioConfig) -> int:
     return config["limits"]["messages"] * 2 + 4

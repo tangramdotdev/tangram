@@ -16,7 +16,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
-from tangram.config import Config, validate_receiver
+from tangram.config import StdioConfig, validate_stdio_receiver
 from tangram.error import Error
 from tangram.http import Body, Request, Stream, percent_encode
 from tangram.http.flow import Receiver
@@ -32,7 +32,7 @@ class Connection:
 
 
 class KeywordOptions(TypedDict, total=False):
-    flow: Config
+    flow: StdioConfig
     length: int | None
     location: LocationArgObject | None
     position: int | str | None
@@ -53,7 +53,7 @@ async def try_read_process_stdio(
     **options: Unpack[KeywordOptions],
 ) -> Stream[StdioChunk] | None:
     options = {"flow": client.stdio, **(arg or {}), **options}
-    validate_receiver(client.stdio, options["flow"])
+    validate_stdio_receiver(client.stdio, options["flow"])
     connection = await connect(client, id, options)
     if connection is None:
         return None
@@ -221,8 +221,8 @@ async def read_process_stdio_once(client: Client, id, arg):
     try:
         response = await client.send(request)
         if response.status == 404:
-            input.close()
             await response.close()
+            input.close()
             return None
         if not 200 <= response.status < 300:
             raise await response_error(response)

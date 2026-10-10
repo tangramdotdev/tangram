@@ -32,6 +32,7 @@ from .client.process.signal import Signal
 from .client.read import Read
 from .client.write import Write
 from .command import Command, command
+from .config import Config as Config
 from .diagnostic import Diagnostic
 from .directory import Directory, directory
 from .encoding import Encoding, set_encoding
@@ -87,6 +88,7 @@ __all__ = [
     "Checkout",
     "Checksum",
     "Client",
+    "Config",
     "Command",
     "CompressionFormat",
     "Diagnostic",

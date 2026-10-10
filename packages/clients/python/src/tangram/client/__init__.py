@@ -10,30 +10,33 @@ from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, M
 from typing import TYPE_CHECKING, Any, Self, TypedDict, Unpack, cast, overload
 
 from ..config import (
-    Config as StdioConfig,
-)
-from ..config import (
-    HttpConfig,
+    Config,
     RetryOptions,
     compatibility_date,
-    default_config,
     default_http_config,
+    default_pool_options,
     default_retry_options,
-    validate_config,
+    default_stdio_config,
+    default_sync_config,
     validate_http_config,
+    validate_pool_options,
     validate_retry_options,
+    validate_stdio_config,
+    validate_sync_config,
 )
 from ..config import version as default_version
 from ..error import Error, ErrorData
 from ..http import Body, Request, Response, Stream
 from ..http.coalesce import coalesce
-from ..http2 import Session, TransportError
+from ..http.pool import Lease, Pool
+from ..http2 import TransportError
 from ..object import Object
 from ..progress import Event, progress
 from ..progress import last_output as last_output
 from ..referent import Referent
 
 if TYPE_CHECKING:
+    from ..host import Http2Session
     from ..location import ArgObject as LocationArgObject
     from ..location import LocationObject
     from ..object import ObjectData
@@ -109,30 +112,26 @@ async def retry[T](
 
 
 class Client:
-    def __init__(
-        self,
-        *,
-        url: str | None = None,
-        token: str | None = None,
-        stdio: StdioConfig | None = None,
-        http: HttpConfig | None = None,
-        reconnect: RetryOptions | None = None,
-        retry: RetryOptions | None = None,
-        version: str | None = None,
-    ):
-        self.stdio = stdio if stdio is not None else default_config()
-        validate_config(self.stdio)
-        self.http = http if http is not None else default_http_config()
-        validate_http_config(self.http, self.stdio)
-        self.reconnect = reconnect if reconnect is not None else default_retry_options()
-        self.retry = retry if retry is not None else default_retry_options()
+    def __init__(self, config: Config | None = None, **options: Unpack[Config]):
+        config = {**(config or {}), **options}
+        self.stdio = config.get("stdio", default_stdio_config())
+        validate_stdio_config(self.stdio)
+        self.sync = config.get("sync", default_sync_config())
+        validate_sync_config(self.sync)
+        self.pool = config.get("pool", default_pool_options())
+        validate_pool_options(self.pool)
+        self.http = config.get("http", default_http_config())
+        validate_http_config(self.http, self.stdio, self.sync)
+        self.reconnect = config.get("reconnect", default_retry_options())
+        self.retry = config.get("retry", default_retry_options())
         validate_retry_options(self.reconnect)
         validate_retry_options(self.retry)
-        self.version = version if version is not None else default_version
-        self.url = url
-        self.token = token
-        self._session: Session | None = None
-        self._connecting: asyncio.Task[Session] | None = None
+        self.version = config.get("version", default_version)
+        self.url = config.get("url")
+        self.token = config.get("token")
+        self._connections = Pool(
+            self.pool, lambda: retry(self.reconnect, self._create_session)
+        )
 
     def arg(self) -> dict[str, str]:
         return {
@@ -154,54 +153,18 @@ class Client:
         await self.close()
 
     async def close(self) -> None:
-        if self._connecting is not None:
-            self._connecting.cancel()
-            await asyncio.gather(self._connecting, return_exceptions=True)
-            self._connecting = None
-        if self._session is not None:
-            await self._session.close()
-            self._session = None
+        await self._connections.clear()
 
-    async def _connect(self) -> Session:
-        while True:
-            session = self._session
-            if session is not None:
-                if not session.closed:
-                    return session
-                self._disconnect(session)
-                await session.close()
-            connecting = self._connecting
-            if connecting is None:
-                connecting = asyncio.create_task(
-                    retry(self.reconnect, self._create_session)
-                )
-                self._connecting = connecting
-            try:
-                next_session = await asyncio.shield(connecting)
-            finally:
-                if connecting.done() and self._connecting is connecting:
-                    self._connecting = None
-            if next_session.closed:
-                await next_session.close()
-                continue
-            if self._session is None:
-                self._session = next_session
-            elif self._session is not next_session:
-                await next_session.close()
-            return self._session
+    async def _connect(self) -> Lease:
+        return await self._connections.get()
 
-    async def _create_session(self) -> Session:
+    async def _create_session(self) -> Http2Session:
         url = self.url if self.url is not None else os.environ.get("TANGRAM_URL")
         if not isinstance(url, str):
             raise ValueError("missing TANGRAM_URL")
         from .. import host
 
         return await host.http2.Session.connect(url, self.http["http2"])
-
-    def _disconnect(self, session: Session | None = None) -> None:
-        if session is not None and self._session is not session:
-            return
-        self._session = None
 
     @staticmethod
     def object_id(data: ObjectData) -> str:
@@ -262,14 +225,18 @@ class Client:
             else Body(coalesce(request.body, self.http["coalescing_target_size"]))
         )
         request = Request(request.method, request.uri, headers, body)
-        session = await self._connect()
+        lease = await self._connect()
+        session = lease.value
         try:
-            return await session.send(request)
+            return (await session.send(request)).on_close(lease.release)
         except Exception as error:
             if is_retryable_error(error):
-                self._disconnect(session)
-                session.retire()
+                lease.discard()
+            lease.release()
             raise RequestError(error) from error
+        except BaseException:
+            lease.release()
+            raise
 
     async def _request(
         self, method, path, *, arg=None, data=None, missing=False, statuses=()
