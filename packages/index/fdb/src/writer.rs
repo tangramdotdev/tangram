@@ -945,28 +945,26 @@ impl Index {
 						"failed to execute a request that cannot be split"
 					)),
 					request => {
+						// Split the request in half and execute each half in order.
 						let (mut items, kind) = Self::request_into_operations(request);
-						if items.len() <= 1 {
-							Self::fail_tracker(
-								&tracker,
-								&tg::error!(
-									!error,
-									"failed to execute a request that cannot be split"
-								),
-							);
+						if items.len() > 1 {
+							let right = items.split_off(items.len() / 2);
+							tracker.lock().unwrap().remaining += 1;
+							for items in [items, right] {
+								let request = Self::request_from_operations(items, &kind);
+								let batch = Batch {
+									requests: vec![request],
+									trackers: vec![tracker.clone()],
+								};
+								Box::pin(Self::execute_batch(database, subspace, batch, config))
+									.await;
+							}
 							return;
 						}
-						let right = items.split_off(items.len() / 2);
-						tracker.lock().unwrap().remaining += 1;
-						for items in [items, right] {
-							let request = Self::request_from_operations(items, &kind);
-							let batch = Batch {
-								requests: vec![request],
-								trackers: vec![tracker.clone()],
-							};
-							Box::pin(Self::execute_batch(database, subspace, batch, config)).await;
-						}
-						return;
+						Err(tg::error!(
+							!error,
+							"failed to execute a request that cannot be split"
+						))
 					},
 				};
 				match result {
