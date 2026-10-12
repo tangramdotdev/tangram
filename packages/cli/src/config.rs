@@ -725,6 +725,10 @@ pub struct SqliteDatabase {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TursoDatabase {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub busy_timeout: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub index_queue: Option<DatabaseIndexQueue>,
 
@@ -811,10 +815,16 @@ pub struct FdbIndex {
 	pub storage_and_metadata_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_request_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_transaction_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage_relation_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage_update_partition_total: Option<u64>,
@@ -843,10 +853,16 @@ pub struct LmdbIndex {
 	pub map_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_readers: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub posix_sem_prefix: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_request_batch_size: Option<usize>,
@@ -856,6 +872,9 @@ pub struct LmdbIndex {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage_partition_total: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_operation_batch_size: Option<usize>,
@@ -1269,10 +1288,16 @@ pub struct FjallCache {
 	pub read_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_channel_capacity: Option<usize>,
 }
 
 #[serde_as]
@@ -1281,6 +1306,9 @@ pub struct FjallCache {
 pub struct LmdbCache {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub map_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_readers: Option<u32>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -1292,10 +1320,16 @@ pub struct LmdbCache {
 	pub read_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_channel_capacity: Option<usize>,
 }
 
 #[serde_as]
@@ -1314,10 +1348,16 @@ pub struct RocksdbCache {
 	pub read_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_channel_capacity: Option<usize>,
 }
 
 #[serde_as]
@@ -1334,10 +1374,16 @@ pub struct ScyllaCache {
 	pub connections: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub get_by_positions_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub keepalive: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub keyspace: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_offset: Option<u64>,
@@ -3422,6 +3468,9 @@ fn resolve_sqlite_database(source: SqliteDatabase) -> server::SqliteDatabase {
 
 fn resolve_turso_database(source: TursoDatabase) -> server::TursoDatabase {
 	let mut target = server::TursoDatabase::default();
+	if let Some(value) = source.busy_timeout {
+		target.busy_timeout = value;
+	}
 	if let Some(source) = source.index_queue {
 		target.index_queue = resolve_database_index_queue(source);
 	}
@@ -3541,11 +3590,17 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.storage_and_metadata_update_partition_total {
 		target.storage_and_metadata_update_partition_total = value;
 	}
+	if let Some(value) = source.read_channel_capacity {
+		target.read_channel_capacity = value;
+	}
 	if let Some(value) = source.read_request_batch_size {
 		target.read_request_batch_size = value;
 	}
 	if let Some(value) = source.read_transaction_concurrency {
 		target.read_transaction_concurrency = value;
+	}
+	if let Some(value) = source.storage_relation_batch_size {
+		target.storage_relation_batch_size = value;
 	}
 	if let Some(value) = source.usage_update_partition_total {
 		target.usage_update_partition_total = value;
@@ -3578,11 +3633,17 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	if let Some(value) = source.map_size {
 		target.map_size = value;
 	}
+	if let Some(value) = source.max_readers {
+		target.max_readers = value;
+	}
 	if let Some(value) = source.path {
 		target.path = value;
 	}
 	if let Some(value) = source.posix_sem_prefix {
 		target.posix_sem_prefix = Some(value);
+	}
+	if let Some(value) = source.read_channel_capacity {
+		target.read_channel_capacity = value;
 	}
 	if let Some(value) = source.read_request_batch_size {
 		target.read_request_batch_size = value;
@@ -3592,6 +3653,9 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	}
 	if let Some(value) = source.usage_partition_total {
 		target.usage_partition_total = value;
+	}
+	if let Some(value) = source.write_channel_capacity {
+		target.write_channel_capacity = value;
 	}
 	if let Some(value) = source.write_operation_batch_size {
 		target.write_operation_batch_size = value;
@@ -4057,11 +4121,17 @@ fn resolve_fjall_cache(source: FjallCache) -> server::FjallCache {
 	if let Some(value) = source.read_batch_size {
 		target.read_batch_size = value;
 	}
+	if let Some(value) = source.read_channel_capacity {
+		target.read_channel_capacity = value;
+	}
 	if let Some(value) = source.read_concurrency {
 		target.read_concurrency = value;
 	}
 	if let Some(value) = source.write_batch_size {
 		target.write_batch_size = value;
+	}
+	if let Some(value) = source.write_channel_capacity {
+		target.write_channel_capacity = value;
 	}
 	target
 }
@@ -4070,6 +4140,9 @@ fn resolve_lmdb_cache(source: LmdbCache) -> server::LmdbCache {
 	let mut target = server::LmdbCache::default();
 	if let Some(value) = source.map_size {
 		target.map_size = value;
+	}
+	if let Some(value) = source.max_readers {
+		target.max_readers = value;
 	}
 	if let Some(value) = source.path {
 		target.path = value;
@@ -4080,11 +4153,17 @@ fn resolve_lmdb_cache(source: LmdbCache) -> server::LmdbCache {
 	if let Some(value) = source.read_batch_size {
 		target.read_batch_size = value;
 	}
+	if let Some(value) = source.read_channel_capacity {
+		target.read_channel_capacity = value;
+	}
 	if let Some(value) = source.read_concurrency {
 		target.read_concurrency = value;
 	}
 	if let Some(value) = source.write_batch_size {
 		target.write_batch_size = value;
+	}
+	if let Some(value) = source.write_channel_capacity {
+		target.write_channel_capacity = value;
 	}
 	target
 }
@@ -4097,11 +4176,17 @@ fn resolve_rocksdb_cache(source: RocksdbCache) -> server::RocksdbCache {
 	if let Some(value) = source.read_batch_size {
 		target.read_batch_size = value;
 	}
+	if let Some(value) = source.read_channel_capacity {
+		target.read_channel_capacity = value;
+	}
 	if let Some(value) = source.read_concurrency {
 		target.read_concurrency = value;
 	}
 	if let Some(value) = source.write_batch_size {
 		target.write_batch_size = value;
+	}
+	if let Some(value) = source.write_channel_capacity {
+		target.write_channel_capacity = value;
 	}
 	target
 }
@@ -4117,17 +4202,28 @@ fn resolve_scylla_cache(source: ScyllaCache) -> tg::Result<server::ScyllaCache> 
 		.speculative_execution
 		.map(resolve_scylla_cache_speculative_execution)
 		.transpose()?;
-	let target = server::ScyllaCache {
+	let mut target = server::ScyllaCache {
 		addr,
 		capacity,
 		connections: source.connections,
-		keepalive: source.keepalive.unwrap_or(true),
 		keyspace,
-		partition_offset: source.partition_offset.unwrap_or_default(),
 		password: source.password,
 		speculative_execution,
 		username: source.username,
+		..server::ScyllaCache::default()
 	};
+	if let Some(value) = source.get_by_positions_batch_size {
+		target.get_by_positions_batch_size = value;
+	}
+	if let Some(value) = source.keepalive {
+		target.keepalive = value;
+	}
+	if let Some(value) = source.object_concurrency {
+		target.object_concurrency = value;
+	}
+	if let Some(value) = source.partition_offset {
+		target.partition_offset = value;
+	}
 
 	Ok(target)
 }
@@ -4140,14 +4236,16 @@ fn resolve_scylla_cache_capacity(
 			let available_query =
 				required(source.available_query, "cache.capacity.available_query")?;
 			let total_query = required(source.total_query, "cache.capacity.total_query")?;
-			let ttl = source.ttl.unwrap_or(Duration::from_secs(1));
 			let url = required(source.url, "cache.capacity.url")?;
-			let target = server::ScyllaCachePrometheusCapacity {
+			let mut target = server::ScyllaCachePrometheusCapacity {
 				available_query,
 				total_query,
-				ttl,
 				url,
+				..server::ScyllaCachePrometheusCapacity::default()
 			};
+			if let Some(value) = source.ttl {
+				target.ttl = value;
+			}
 			server::ScyllaCacheCapacity::Prometheus(target)
 		},
 	};

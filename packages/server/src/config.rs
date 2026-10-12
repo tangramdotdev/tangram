@@ -481,6 +481,8 @@ pub struct SqliteDatabase {
 
 #[derive(Clone, Debug)]
 pub struct TursoDatabase {
+	pub busy_timeout: Duration,
+
 	pub index_queue: DatabaseIndexQueue,
 
 	pub path: PathBuf,
@@ -537,9 +539,13 @@ pub struct FdbIndex {
 
 	pub storage_and_metadata_update_partition_total: u64,
 
+	pub read_channel_capacity: usize,
+
 	pub read_request_batch_size: usize,
 
 	pub read_transaction_concurrency: usize,
+
+	pub storage_relation_batch_size: usize,
 
 	pub usage_update_partition_total: u64,
 
@@ -557,15 +563,21 @@ pub struct FdbIndex {
 pub struct LmdbIndex {
 	pub map_size: usize,
 
+	pub max_readers: u32,
+
 	pub path: PathBuf,
 
 	pub posix_sem_prefix: Option<String>,
+
+	pub read_channel_capacity: usize,
 
 	pub read_request_batch_size: usize,
 
 	pub read_transaction_concurrency: usize,
 
 	pub usage_partition_total: u64,
+
+	pub write_channel_capacity: usize,
 
 	pub write_operation_batch_size: usize,
 }
@@ -827,14 +839,20 @@ pub struct FjallCache {
 
 	pub read_batch_size: usize,
 
+	pub read_channel_capacity: usize,
+
 	pub read_concurrency: usize,
 
 	pub write_batch_size: usize,
+
+	pub write_channel_capacity: usize,
 }
 
 #[derive(Clone, Debug)]
 pub struct LmdbCache {
 	pub map_size: usize,
+
+	pub max_readers: u32,
 
 	pub path: PathBuf,
 
@@ -842,9 +860,13 @@ pub struct LmdbCache {
 
 	pub read_batch_size: usize,
 
+	pub read_channel_capacity: usize,
+
 	pub read_concurrency: usize,
 
 	pub write_batch_size: usize,
+
+	pub write_channel_capacity: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -856,9 +878,13 @@ pub struct RocksdbCache {
 
 	pub read_batch_size: usize,
 
+	pub read_channel_capacity: usize,
+
 	pub read_concurrency: usize,
 
 	pub write_batch_size: usize,
+
+	pub write_channel_capacity: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -869,9 +895,13 @@ pub struct ScyllaCache {
 
 	pub connections: Option<usize>,
 
+	pub get_by_positions_batch_size: usize,
+
 	pub keepalive: bool,
 
 	pub keyspace: String,
+
+	pub object_concurrency: usize,
 
 	pub partition_offset: u64,
 
@@ -1951,6 +1981,7 @@ impl Default for SqliteDatabase {
 impl Default for TursoDatabase {
 	fn default() -> Self {
 		Self {
+			busy_timeout: Duration::from_secs(5),
 			index_queue: DatabaseIndexQueue::default(),
 			path: PathBuf::from("database.sqlite3"),
 			pool: DatabasePool::default(),
@@ -2018,8 +2049,10 @@ impl Default for FdbIndex {
 			permission_update_partition_total: 1,
 			instance: None,
 			storage_and_metadata_update_partition_total: 1,
+			read_channel_capacity: 256,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 64,
+			storage_relation_batch_size: 8,
 			usage_update_partition_total: 1,
 			usage_partition_total: 1,
 			verification: FdbIndexVerification::default(),
@@ -2034,11 +2067,14 @@ impl Default for LmdbIndex {
 	fn default() -> Self {
 		Self {
 			map_size: 1_099_511_627_776,
+			max_readers: 1_000,
 			path: PathBuf::from("index.lmdb"),
 			posix_sem_prefix: None,
+			read_channel_capacity: 256,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 4,
 			usage_partition_total: 1,
+			write_channel_capacity: 256,
 			write_operation_batch_size: 8_000,
 		}
 	}
@@ -2278,8 +2314,10 @@ impl Default for FjallCache {
 		Self {
 			path: PathBuf::from("cache.fjall"),
 			read_batch_size: 64,
+			read_channel_capacity: 256,
 			read_concurrency: 4,
 			write_batch_size: 8_000,
+			write_channel_capacity: 256,
 		}
 	}
 }
@@ -2288,11 +2326,14 @@ impl Default for LmdbCache {
 	fn default() -> Self {
 		Self {
 			map_size: 1_099_511_627_776,
+			max_readers: 1_000,
 			path: PathBuf::from("cache.lmdb"),
 			posix_sem_prefix: None,
 			read_batch_size: 64,
+			read_channel_capacity: 256,
 			read_concurrency: 4,
 			write_batch_size: 8_000,
+			write_channel_capacity: 256,
 		}
 	}
 }
@@ -2315,8 +2356,10 @@ impl Default for RocksdbCache {
 		Self {
 			path: PathBuf::from("cache.rocksdb"),
 			read_batch_size: 64,
+			read_channel_capacity: 256,
 			read_concurrency: 4,
 			write_batch_size: 8_000,
+			write_channel_capacity: 256,
 		}
 	}
 }
@@ -2327,6 +2370,35 @@ impl Default for Pagination {
 			database_page_length: 256,
 			default_limit: 100,
 			max_limit: 1000,
+		}
+	}
+}
+
+impl Default for ScyllaCache {
+	fn default() -> Self {
+		Self {
+			addr: String::new(),
+			capacity: None,
+			connections: None,
+			get_by_positions_batch_size: 128,
+			keepalive: true,
+			keyspace: String::new(),
+			object_concurrency: 64,
+			partition_offset: 0,
+			password: None,
+			speculative_execution: None,
+			username: None,
+		}
+	}
+}
+
+impl Default for ScyllaCachePrometheusCapacity {
+	fn default() -> Self {
+		Self {
+			available_query: String::new(),
+			total_query: String::new(),
+			ttl: Duration::from_secs(1),
+			url: "http://localhost:9090".parse().unwrap(),
 		}
 	}
 }

@@ -3,8 +3,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub(crate) const CHANNEL_CAPACITY: usize = 256;
-
 pub(crate) type Receiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)>;
 pub(crate) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 pub(crate) type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;

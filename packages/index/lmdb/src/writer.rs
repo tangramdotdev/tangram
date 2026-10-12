@@ -8,8 +8,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub(super) const CHANNEL_CAPACITY: usize = 256;
-
 pub(super) type RequestReceiver = crossbeam::Receiver<(Request, ResponseSender)>;
 pub(super) type RequestSender = crossbeam::Sender<(Request, ResponseSender)>;
 pub(super) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;

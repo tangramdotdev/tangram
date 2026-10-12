@@ -10,8 +10,10 @@ async fn expiration_deletes_the_complete_log_and_preserves_other_entries() {
 	let config = crate::Config {
 		path: temp.path().join("cache"),
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 1,
 		write_batch_size: 64,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 	let process = tg::process::Id::new();

@@ -10,11 +10,14 @@ async fn test_put_and_get_object() {
 	std::fs::create_dir(temp.path()).unwrap();
 	let config = Config {
 		map_size: 1024 * 1024 * 10,
+		max_readers: 1_000,
 		path: temp.path().join("test.lmdb"),
 		posix_sem_prefix: None,
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -109,11 +112,14 @@ async fn test_put_object_without_bytes_then_with_bytes() {
 	std::fs::create_dir(temp.path()).unwrap();
 	let config = Config {
 		map_size: 1024 * 1024 * 10,
+		max_readers: 1_000,
 		path: temp.path().join("test.lmdb"),
 		posix_sem_prefix: None,
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -185,11 +191,14 @@ async fn test_put_and_get_object_sync() {
 	std::fs::create_dir(temp.path()).unwrap();
 	let config = Config {
 		map_size: 1024 * 1024 * 10,
+		max_readers: 1_000,
 		path: temp.path().join("test.lmdb"),
 		posix_sem_prefix: None,
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -232,11 +241,14 @@ async fn test_put_batch_and_get_object() {
 	std::fs::create_dir(temp.path()).unwrap();
 	let config = Config {
 		map_size: 1024 * 1024 * 10,
+		max_readers: 1_000,
 		path: temp.path().join("test.lmdb"),
 		posix_sem_prefix: None,
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 1,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -302,11 +314,14 @@ async fn test_put_and_get_object_length() {
 	std::fs::create_dir(temp.path()).unwrap();
 	let config = Config {
 		map_size: 1024 * 1024 * 10,
+		max_readers: 1_000,
 		path: temp.path().join("test.lmdb"),
 		posix_sem_prefix: None,
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -407,11 +422,14 @@ async fn test_delete_removes_object() {
 	std::fs::create_dir(temp.path()).unwrap();
 	let config = Config {
 		map_size: 1024 * 1024 * 10,
+		max_readers: 1_000,
 		path: temp.path().join("test.lmdb"),
 		posix_sem_prefix: None,
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 

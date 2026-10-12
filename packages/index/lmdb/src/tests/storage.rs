@@ -72,11 +72,14 @@ fn new_index(usage_partition_total: u64) -> (tempfile::TempDir, Index) {
 	let index = Index::new(&Config {
 		map_size: 1 << 30,
 		max_process_depth: None,
+		max_readers: 1_000,
 		path: dir.path().join("index"),
 		posix_sem_prefix: None,
+		read_channel_capacity: 256,
 		read_request_batch_size: 64,
 		read_transaction_concurrency: 4,
 		usage_partition_total,
+		write_channel_capacity: 256,
 		write_operation_batch_size: 100_000,
 	})
 	.unwrap();
@@ -1054,11 +1057,14 @@ fn rejects_zero_usage_partitions() {
 	let result = Index::new(&Config {
 		map_size: 1 << 30,
 		max_process_depth: None,
+		max_readers: 1_000,
 		path: dir.path().join("index"),
 		posix_sem_prefix: None,
+		read_channel_capacity: 256,
 		read_request_batch_size: 64,
 		read_transaction_concurrency: 4,
 		usage_partition_total: 0,
+		write_channel_capacity: 256,
 		write_operation_batch_size: 100_000,
 	});
 	assert!(result.is_err());

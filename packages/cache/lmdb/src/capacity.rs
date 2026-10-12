@@ -20,11 +20,14 @@ mod tests {
 		std::fs::create_dir(temp.path()).unwrap();
 		let config = super::super::Config {
 			map_size: 1024 * 1024 * 10,
+			max_readers: 1_000,
 			path: temp.path().join("test.lmdb"),
 			posix_sem_prefix: None,
 			read_batch_size: 64,
+			read_channel_capacity: 256,
 			read_concurrency: 1,
 			write_batch_size: 8_000,
+			write_channel_capacity: 256,
 		};
 		let cache = Cache::new(&config).unwrap();
 		let capacity = cache.try_get_capacity().unwrap();

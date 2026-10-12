@@ -21,8 +21,10 @@ mod tests {
 		let config = super::super::Config {
 			path: temp.path().join("test.fjall"),
 			read_batch_size: 64,
+			read_channel_capacity: 256,
 			read_concurrency: 1,
 			write_batch_size: 8_000,
+			write_channel_capacity: 256,
 		};
 		let cache = Cache::new(&config).unwrap();
 		let capacity = cache.try_get_capacity().unwrap();

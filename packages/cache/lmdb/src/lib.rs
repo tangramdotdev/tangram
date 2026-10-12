@@ -22,11 +22,14 @@ mod writer;
 #[derive(Clone, Debug)]
 pub struct Config {
 	pub map_size: usize,
+	pub max_readers: u32,
 	pub path: PathBuf,
 	pub posix_sem_prefix: Option<String>,
 	pub read_batch_size: usize,
+	pub read_channel_capacity: usize,
 	pub read_concurrency: usize,
 	pub write_batch_size: usize,
+	pub write_channel_capacity: usize,
 }
 
 pub struct Cache {
@@ -54,7 +57,9 @@ impl Cache {
 				|error| tg::error!(!error, path = %config.path.display(), "failed to open the lmdb file"),
 			)?;
 		let mut options = lmdb::EnvOpenOptions::new();
-		options.map_size(config.map_size).max_readers(1_000);
+		options
+			.map_size(config.map_size)
+			.max_readers(config.max_readers);
 		unsafe {
 			options.flags(
 				lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::NO_SYNC | lmdb::EnvFlags::WRITE_MAP,
@@ -80,7 +85,8 @@ impl Cache {
 		let (reader_sender, reader_handles) = Self::spawn_readers(config, db, &env);
 
 		// Spawn the writer task.
-		let (writer_sender, writer_receiver) = tokio::sync::mpsc::channel(writer::CHANNEL_CAPACITY);
+		let (writer_sender, writer_receiver) =
+			tokio::sync::mpsc::channel(config.write_channel_capacity);
 		let writer_handle = std::thread::spawn({
 			let env = env.clone();
 			let write_batch_size = config.write_batch_size;
@@ -111,7 +117,9 @@ impl Cache {
 			return Err(tg::error!(path = %config.path.display(), "the lmdb file does not exist"));
 		}
 		let mut options = lmdb::EnvOpenOptions::new();
-		options.map_size(config.map_size).max_readers(1_000);
+		options
+			.map_size(config.map_size)
+			.max_readers(config.max_readers);
 		unsafe {
 			options.flags(lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::READ_ONLY);
 		}
@@ -146,9 +154,19 @@ impl Cache {
 	}
 
 	fn validate_config(config: &Config) -> tg::Result<()> {
+		if config.max_readers == 0 {
+			return Err(tg::error!(
+				"the LMDB cache max readers must be greater than zero"
+			));
+		}
 		if config.read_batch_size == 0 {
 			return Err(tg::error!(
 				"the LMDB cache read batch size must be greater than zero"
+			));
+		}
+		if config.read_channel_capacity == 0 {
+			return Err(tg::error!(
+				"the LMDB cache read channel capacity must be greater than zero"
 			));
 		}
 		if config.read_concurrency == 0 {
@@ -161,6 +179,11 @@ impl Cache {
 				"the LMDB cache write batch size must be greater than zero"
 			));
 		}
+		if config.write_channel_capacity == 0 {
+			return Err(tg::error!(
+				"the LMDB cache write channel capacity must be greater than zero"
+			));
+		}
 
 		Ok(())
 	}
@@ -171,7 +194,7 @@ impl Cache {
 		env: &lmdb::Env,
 	) -> (crate::read::Sender, Vec<std::thread::JoinHandle<()>>) {
 		let (reader_sender, reader_receiver) =
-			tokio::sync::mpsc::channel(crate::read::CHANNEL_CAPACITY);
+			tokio::sync::mpsc::channel(config.read_channel_capacity);
 		let reader_receiver = std::sync::Arc::new(std::sync::Mutex::new(reader_receiver));
 		let reader_handles = (0..config.read_concurrency)
 			.map(|_| {

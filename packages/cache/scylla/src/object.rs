@@ -89,7 +89,7 @@ impl Cache {
 		args: Vec<tangram_cache::object::delete::Arg>,
 	) -> tg::Result<()> {
 		stream::iter(args.into_iter().map(Ok))
-			.try_for_each_concurrent(crate::OBJECT_CONCURRENCY, |arg| self.delete_object(arg))
+			.try_for_each_concurrent(self.object_concurrency, |arg| self.delete_object(arg))
 			.await?;
 
 		Ok(())
@@ -238,7 +238,7 @@ impl Cache {
 			));
 		}
 		stream::iter(args.into_iter().map(Ok))
-			.try_for_each_concurrent(crate::OBJECT_CONCURRENCY, |arg| self.put_object(arg))
+			.try_for_each_concurrent(self.object_concurrency, |arg| self.put_object(arg))
 			.await?;
 
 		Ok(())
@@ -348,7 +348,7 @@ impl Cache {
 
 				Ok::<_, tg::Error>((index, output))
 			})
-			.buffer_unordered(crate::OBJECT_CONCURRENCY)
+			.buffer_unordered(self.object_concurrency)
 			.try_collect::<Vec<_>>()
 			.await?;
 		output.sort_unstable_by_key(|(index, _)| *index);

@@ -15,11 +15,14 @@ fn object(id: tg::object::Id, put: u8) -> object::put::Arg {
 fn cache(path: &Path) -> Cache {
 	let config = crate::Config {
 		map_size: 1024 * 1024 * 10,
+		max_readers: 1_000,
 		path: path.join("test.lmdb"),
 		posix_sem_prefix: None,
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	Cache::new(&config).unwrap()
 }

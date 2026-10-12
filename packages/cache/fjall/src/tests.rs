@@ -11,8 +11,10 @@ async fn test_put_and_get_object() {
 	let config = Config {
 		path: temp.path().join("test.fjall"),
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -102,8 +104,10 @@ async fn test_put_object_without_bytes_then_with_bytes() {
 	let config = Config {
 		path: temp.path().join("test.fjall"),
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -172,8 +176,10 @@ async fn test_put_and_get_object_sync() {
 	let config = Config {
 		path: temp.path().join("test.fjall"),
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -216,8 +222,10 @@ async fn test_put_batch_and_get_object() {
 	let config = Config {
 		path: temp.path().join("test.fjall"),
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 1,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -284,8 +292,10 @@ async fn test_put_and_get_object_length() {
 	let config = Config {
 		path: temp.path().join("test.fjall"),
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 
@@ -367,8 +377,10 @@ async fn test_delete_removes_object() {
 	let config = Config {
 		path: temp.path().join("test.fjall"),
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	let cache = Cache::new(&config).unwrap();
 

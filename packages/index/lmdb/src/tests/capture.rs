@@ -125,11 +125,14 @@ async fn restarting_permission_capture_retains_original_roots_and_partial_permis
 	let config = Config {
 		map_size: 1 << 30,
 		max_process_depth: None,
+		max_readers: 1_000,
 		path: directory.path().join("index"),
 		posix_sem_prefix: None,
+		read_channel_capacity: 256,
 		read_request_batch_size: 64,
 		read_transaction_concurrency: 4,
 		usage_partition_total: 1,
+		write_channel_capacity: 256,
 		write_operation_batch_size: 1,
 	};
 	let index = Index::new(&config).unwrap();

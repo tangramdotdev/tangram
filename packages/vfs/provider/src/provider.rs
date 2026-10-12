@@ -1335,11 +1335,14 @@ impl Fast {
 			CacheKind::Lmdb => {
 				let config = tangram_cache_lmdb::Config {
 					map_size: config.cache_map_size,
+					max_readers: 1_000,
 					path,
 					posix_sem_prefix: config.cache_posix_sem_prefix.clone(),
 					read_batch_size: 64,
+					read_channel_capacity: 256,
 					read_concurrency: 1,
 					write_batch_size: 8_000,
+					write_channel_capacity: 256,
 				};
 				let cache = tangram_cache_lmdb::Cache::new_readonly(&config).map(Cache::Lmdb);
 				(cache, None)
@@ -1349,8 +1352,10 @@ impl Fast {
 				let config = tangram_cache_rocksdb::Config {
 					path,
 					read_batch_size: 64,
+					read_channel_capacity: 256,
 					read_concurrency: 1,
 					write_batch_size: 8_000,
+					write_channel_capacity: 256,
 				};
 				let temp = tangram_util::fs::Temp::new().ok()?;
 				let result = tangram_cache_rocksdb::Cache::new_readonly(&config, temp.path())
@@ -2534,8 +2539,10 @@ mod tests {
 		let config = tangram_cache_rocksdb::Config {
 			path: temp.path().join(&cache_path),
 			read_batch_size: 64,
+			read_channel_capacity: 256,
 			read_concurrency: 1,
 			write_batch_size: 8_000,
+			write_channel_capacity: 256,
 		};
 		let cache = tangram_cache_rocksdb::Cache::new(&config).unwrap();
 		let config = Config {
@@ -2591,11 +2598,14 @@ mod tests {
 		let cache_path = PathBuf::from("cache.lmdb");
 		let cache = tangram_cache_lmdb::Cache::new(&tangram_cache_lmdb::Config {
 			map_size: 10 * 1024 * 1024,
+			max_readers: 1_000,
 			path: temp.path().join(&cache_path),
 			posix_sem_prefix: None,
 			read_batch_size: 64,
+			read_channel_capacity: 256,
 			read_concurrency: 1,
 			write_batch_size: 8_000,
+			write_channel_capacity: 256,
 		})
 		.unwrap();
 		cache

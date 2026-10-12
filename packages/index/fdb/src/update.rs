@@ -17,8 +17,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const STORAGE_RELATION_BATCH_SIZE: usize = 8;
-
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
@@ -381,6 +379,7 @@ impl Index {
 		partition_end: u64,
 		max_process_depth: Option<u64>,
 		partition_totals: crate::PartitionTotals,
+		storage_relation_batch_size: usize,
 	) -> tg::Result<ControlFlow<tangram_index::update::Output, fdb::FdbError>> {
 		let cleaning_partition_total = partition_totals.cleaning;
 		let partition_total = partition_totals.update(kind);
@@ -551,6 +550,7 @@ impl Index {
 							account,
 							cursor.as_ref(),
 							cleaning_partition_total,
+							storage_relation_batch_size,
 						)
 						.await
 					);
@@ -564,6 +564,7 @@ impl Index {
 							&id,
 							cursor.as_ref(),
 							cleaning_partition_total,
+							storage_relation_batch_size,
 						)
 						.await
 					);
@@ -581,6 +582,7 @@ impl Index {
 							account,
 							cursor.as_ref(),
 							partition_total,
+							storage_relation_batch_size,
 							*touched_at,
 							&version,
 						)
@@ -820,6 +822,7 @@ impl Index {
 		account: &tangram_index::usage::Account,
 		cursor: Option<&UsageCursor>,
 		usage_update_partition_total: u64,
+		storage_relation_batch_size: usize,
 		touched_at: i64,
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<ControlFlow<Option<UsageCursor>, fdb::FdbError>> {
@@ -848,7 +851,14 @@ impl Index {
 			);
 		}
 		let (relationships, cursor) = crate::propagate!(
-			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
+			Self::get_storage_relationships_page(
+				txn,
+				subspace,
+				id,
+				cursor,
+				storage_relation_batch_size,
+			)
+			.await
 		);
 		for relationship in relationships {
 			let (id, permissions) = match relationship {
@@ -907,9 +917,17 @@ impl Index {
 		account: &tangram_index::usage::Account,
 		cursor: Option<&UsageCursor>,
 		cleaning_partition_total: u64,
+		storage_relation_batch_size: usize,
 	) -> tg::Result<ControlFlow<Option<UsageCursor>, fdb::FdbError>> {
 		let (relationships, cursor) = crate::propagate!(
-			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
+			Self::get_storage_relationships_page(
+				txn,
+				subspace,
+				id,
+				cursor,
+				storage_relation_batch_size,
+			)
+			.await
 		);
 		{
 			let result =
@@ -956,9 +974,18 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&UsageCursor>,
 		cleaning_partition_total: u64,
+		storage_relation_batch_size: usize,
 	) -> tg::Result<ControlFlow<Option<UsageCursor>, fdb::FdbError>> {
-		let (accounts, cursor) =
-			crate::propagate!(Self::get_storage_accounts_page(txn, subspace, id, cursor).await);
+		let (accounts, cursor) = crate::propagate!(
+			Self::get_storage_accounts_page(
+				txn,
+				subspace,
+				id,
+				cursor,
+				storage_relation_batch_size,
+			)
+			.await
+		);
 		{
 			let result = future::try_join_all(accounts.iter().map(|account| async move {
 				match id {
@@ -1002,6 +1029,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&UsageCursor>,
+		storage_relation_batch_size: usize,
 	) -> tg::Result<ControlFlow<(Vec<UsageRelationship>, Option<UsageCursor>), fdb::FdbError>> {
 		match id {
 			tg::Either::Left(object) => {
@@ -1017,7 +1045,14 @@ impl Index {
 						return Err(tg::error!(%object, "an object update has an invalid cursor"));
 					},
 				};
-				Self::get_storage_object_relationships_page(txn, subspace, object, after).await
+				Self::get_storage_object_relationships_page(
+					txn,
+					subspace,
+					object,
+					after,
+					storage_relation_batch_size,
+				)
+				.await
 			},
 			tg::Either::Right(process) => {
 				if matches!(
@@ -1030,7 +1065,14 @@ impl Index {
 				) {
 					return Err(tg::error!(%process, "a process update has an invalid cursor"));
 				}
-				Self::get_storage_process_relationships_page(txn, subspace, process, cursor).await
+				Self::get_storage_process_relationships_page(
+					txn,
+					subspace,
+					process,
+					cursor,
+					storage_relation_batch_size,
+				)
+				.await
 			},
 		}
 	}
@@ -1040,6 +1082,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&UsageCursor>,
+		storage_relation_batch_size: usize,
 	) -> tg::Result<
 		ControlFlow<(Vec<tangram_index::usage::Account>, Option<UsageCursor>), fdb::FdbError>,
 	> {
@@ -1073,7 +1116,7 @@ impl Index {
 		};
 		let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), item.as_ref()));
 		let mut range = fdb::RangeOption {
-			limit: Some(STORAGE_RELATION_BATCH_SIZE + 1),
+			limit: Some(storage_relation_batch_size + 1),
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
 		};
@@ -1094,8 +1137,8 @@ impl Index {
 				_ => Err(tg::error!("unexpected key type")),
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let cursor = if accounts.len() > STORAGE_RELATION_BATCH_SIZE {
-			accounts.truncate(STORAGE_RELATION_BATCH_SIZE);
+		let cursor = if accounts.len() > storage_relation_batch_size {
+			accounts.truncate(storage_relation_batch_size);
 			let account = accounts.last().unwrap().clone();
 			Some(match id {
 				tg::Either::Left(_) => UsageCursor::ObjectAccount(account),
@@ -1113,6 +1156,7 @@ impl Index {
 		subspace: &Subspace,
 		object: &tg::object::Id,
 		after: Option<&tg::object::Id>,
+		storage_relation_batch_size: usize,
 	) -> tg::Result<ControlFlow<(Vec<UsageRelationship>, Option<UsageCursor>), fdb::FdbError>> {
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
@@ -1123,7 +1167,7 @@ impl Index {
 			),
 		);
 		let mut range = fdb::RangeOption {
-			limit: Some(STORAGE_RELATION_BATCH_SIZE + 1),
+			limit: Some(storage_relation_batch_size + 1),
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
 		};
@@ -1149,8 +1193,8 @@ impl Index {
 				Ok(child)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let cursor = if children.len() > STORAGE_RELATION_BATCH_SIZE {
-			children.truncate(STORAGE_RELATION_BATCH_SIZE);
+		let cursor = if children.len() > storage_relation_batch_size {
+			children.truncate(storage_relation_batch_size);
 			Some(UsageCursor::Object(children.last().unwrap().clone()))
 		} else {
 			None
@@ -1168,6 +1212,7 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		cursor: Option<&UsageCursor>,
+		storage_relation_batch_size: usize,
 	) -> tg::Result<ControlFlow<(Vec<UsageRelationship>, Option<UsageCursor>), fdb::FdbError>> {
 		let mut relationships = Vec::new();
 		let process_object_cursor = match cursor {
@@ -1177,7 +1222,14 @@ impl Index {
 					_ => None,
 				};
 				let (children, child_cursor, more) = crate::propagate!(
-					Self::get_storage_process_children_page(txn, subspace, process, after).await
+					Self::get_storage_process_children_page(
+						txn,
+						subspace,
+						process,
+						after,
+						storage_relation_batch_size,
+					)
+					.await
 				);
 				relationships.extend(children.into_iter().map(UsageRelationship::Process));
 				if more {
@@ -1186,7 +1238,7 @@ impl Index {
 						Some(UsageCursor::ProcessChild(child_cursor.unwrap())),
 					)));
 				}
-				if relationships.len() == STORAGE_RELATION_BATCH_SIZE {
+				if relationships.len() == storage_relation_batch_size {
 					return Ok(ControlFlow::Break((
 						relationships,
 						Some(UsageCursor::ProcessObject(None)),
@@ -1201,7 +1253,7 @@ impl Index {
 				| UsageCursor::ProcessAccount(_),
 			) => unreachable!(),
 		};
-		let limit = STORAGE_RELATION_BATCH_SIZE - relationships.len();
+		let limit = storage_relation_batch_size - relationships.len();
 		let (objects, more) = crate::propagate!(
 			Self::get_storage_process_objects_page(
 				txn,
@@ -1231,6 +1283,7 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		after: Option<i64>,
+		storage_relation_batch_size: usize,
 	) -> tg::Result<ControlFlow<(Vec<tg::process::Id>, Option<i64>, bool), fdb::FdbError>> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
@@ -1241,7 +1294,7 @@ impl Index {
 			),
 		);
 		let mut range = fdb::RangeOption {
-			limit: Some(STORAGE_RELATION_BATCH_SIZE + 1),
+			limit: Some(storage_relation_batch_size + 1),
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
 		};
@@ -1276,8 +1329,8 @@ impl Index {
 				Ok((child, position))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let more = children.len() > STORAGE_RELATION_BATCH_SIZE;
-		children.truncate(STORAGE_RELATION_BATCH_SIZE);
+		let more = children.len() > storage_relation_batch_size;
+		children.truncate(storage_relation_batch_size);
 		let cursor = children.last().map(|(_, position)| *position);
 		let children = children.into_iter().map(|(child, _)| child).collect();
 

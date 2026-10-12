@@ -1135,9 +1135,11 @@ impl Server {
 				}
 				#[cfg(feature = "turso")]
 				{
-					let initialize: tangram_database_turso::Initialize = Arc::new(|connection| {
-						Box::pin(self::database::turso::initialize(connection))
-					});
+					let busy_timeout = config.busy_timeout;
+					let initialize: tangram_database_turso::Initialize =
+						Arc::new(move |connection| {
+							Box::pin(self::database::turso::initialize(connection, busy_timeout))
+						});
 					let options = tangram_database_turso::DatabaseOptions {
 						initialize,
 						max: config.pool.max.unwrap_or(parallelism),
@@ -1190,8 +1192,10 @@ impl Server {
 							}),
 						storage_and_metadata_update_partition_total: options
 							.storage_and_metadata_update_partition_total,
+						read_channel_capacity: options.read_channel_capacity,
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
+						storage_relation_batch_size: options.storage_relation_batch_size,
 						usage_update_partition_total: options.usage_update_partition_total,
 						usage_partition_total: options.usage_partition_total,
 						verification,
@@ -1222,11 +1226,14 @@ impl Server {
 							.then(|| {
 								u64::try_from(config.indexer.updates.max_process_depth).unwrap()
 							}),
+						max_readers: options.max_readers,
 						path,
 						posix_sem_prefix: options.posix_sem_prefix.clone(),
+						read_channel_capacity: options.read_channel_capacity,
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
 						usage_partition_total: options.usage_partition_total,
+						write_channel_capacity: options.write_channel_capacity,
 						write_operation_batch_size: options.write_operation_batch_size,
 					};
 					Index::new_lmdb(&config)

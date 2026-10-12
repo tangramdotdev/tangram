@@ -8,15 +8,15 @@ mod log;
 mod object;
 mod queue;
 
-const OBJECT_CONCURRENCY: usize = 64;
-
 #[derive(Clone, Debug)]
 pub struct Config {
 	pub addr: String,
 	pub capacity: Option<CapacityConfig>,
 	pub connections: Option<usize>,
+	pub get_by_positions_batch_size: usize,
 	pub keepalive: bool,
 	pub keyspace: String,
+	pub object_concurrency: usize,
 	pub partition_offset: u64,
 	pub password: Option<String>,
 	pub speculative_execution: Option<SpeculativeExecution>,
@@ -45,6 +45,8 @@ pub enum SpeculativeExecution {
 
 pub struct Cache {
 	capacity: Option<capacity::Client>,
+	get_by_positions_batch_size: usize,
+	object_concurrency: usize,
 	partition_offset: u64,
 	statements: Statements,
 	session: scylla::client::session::Session,
@@ -69,6 +71,16 @@ struct Statements {
 impl Cache {
 	pub async fn new(config: &Config) -> tg::Result<Self> {
 		physical_partition(0, config.partition_offset)?;
+		if config.get_by_positions_batch_size == 0 {
+			return Err(tg::error!(
+				"the Scylla cache get by positions batch size must be greater than zero"
+			));
+		}
+		if config.object_concurrency == 0 {
+			return Err(tg::error!(
+				"the Scylla cache object concurrency must be greater than zero"
+			));
+		}
 
 		let mut builder =
 			scylla::client::session_builder::SessionBuilder::new().known_node(&config.addr);
@@ -282,6 +294,8 @@ impl Cache {
 			.transpose()?;
 		let scylla = Self {
 			capacity,
+			get_by_positions_batch_size: config.get_by_positions_batch_size,
+			object_concurrency: config.object_concurrency,
 			partition_offset: config.partition_offset,
 			statements: Statements {
 				archive,

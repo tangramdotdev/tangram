@@ -34,6 +34,7 @@ pub(super) struct Arg {
 	pub receiver_high: RequestReceiver,
 	pub receiver_low: RequestReceiver,
 	pub receiver_medium: RequestReceiver,
+	pub storage_relation_batch_size: usize,
 	pub subspace: fdbt::Subspace,
 	pub write_operation_batch_size: usize,
 	pub write_transaction_concurrency: usize,
@@ -56,6 +57,7 @@ struct ExecutionConfig<'a> {
 	max_write_operation_batch_size: usize,
 	metrics: &'a Metrics,
 	partition_totals: crate::PartitionTotals,
+	storage_relation_batch_size: usize,
 }
 
 enum TransactionError {
@@ -74,6 +76,7 @@ impl Index {
 			mut receiver_high,
 			mut receiver_low,
 			mut receiver_medium,
+			storage_relation_batch_size,
 			subspace,
 			write_operation_batch_size,
 			write_transaction_concurrency,
@@ -156,6 +159,7 @@ impl Index {
 					max_write_operation_batch_size,
 					metrics: &metrics,
 					partition_totals,
+					storage_relation_batch_size,
 				};
 				Self::execute_batch(&database, &subspace, batch, config).await;
 			}
@@ -1233,6 +1237,7 @@ impl Index {
 		let ExecutionConfig {
 			max_process_depth,
 			partition_totals,
+			storage_relation_batch_size,
 			..
 		} = config;
 		let partition_total = partition_totals.cleaning;
@@ -1493,6 +1498,7 @@ impl Index {
 					*partition_end,
 					max_process_depth,
 					partition_totals,
+					storage_relation_batch_size,
 				)
 				.await;
 				let output = crate::propagate!(result);

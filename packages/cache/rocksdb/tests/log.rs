@@ -24,8 +24,10 @@ fn cache() -> (tangram_util::fs::Temp, tangram_cache_rocksdb::Cache) {
 	let config = tangram_cache_rocksdb::Config {
 		path: temp.path().join("test.rocksdb"),
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 1,
 		write_batch_size: 64,
+		write_channel_capacity: 256,
 	};
 	let cache = tangram_cache_rocksdb::Cache::new(&config).unwrap();
 	(temp, cache)

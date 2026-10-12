@@ -60,8 +60,10 @@ pub struct Options {
 	pub instance: Option<String>,
 	pub max_process_depth: Option<u64>,
 	pub storage_and_metadata_update_partition_total: u64,
+	pub read_channel_capacity: usize,
 	pub read_request_batch_size: usize,
 	pub read_transaction_concurrency: usize,
+	pub storage_relation_batch_size: usize,
 	pub usage_update_partition_total: u64,
 	pub usage_partition_total: u64,
 	pub max_write_operation_batch_size: usize,
@@ -124,7 +126,7 @@ impl Index {
 
 		// Spawn the reader task.
 		let (reader_sender, reader_receiver) =
-			tokio::sync::mpsc::channel(tangram_index::read::CHANNEL_CAPACITY);
+			tokio::sync::mpsc::channel(options.read_channel_capacity);
 		tokio::spawn({
 			let database = database.clone();
 			let subspace = subspace.clone();
@@ -148,6 +150,7 @@ impl Index {
 		// Spawn the writer task.
 		let max_process_depth = options.max_process_depth;
 		let max_write_operation_batch_size = options.max_write_operation_batch_size;
+		let storage_relation_batch_size = options.storage_relation_batch_size;
 		let write_operation_batch_size = options.write_operation_batch_size;
 		let write_transaction_concurrency = options.write_transaction_concurrency;
 		tokio::spawn({
@@ -164,6 +167,7 @@ impl Index {
 					receiver_high: writer_receiver_high,
 					receiver_low: writer_receiver_low,
 					receiver_medium: writer_receiver_medium,
+					storage_relation_batch_size,
 					subspace,
 					write_operation_batch_size,
 					write_transaction_concurrency,
@@ -210,9 +214,19 @@ impl Index {
 				));
 			}
 		}
+		if options.read_channel_capacity == 0 {
+			return Err(tg::error!(
+				"the FDB index read channel capacity must be greater than zero"
+			));
+		}
 		if options.read_request_batch_size == 0 {
 			return Err(tg::error!(
 				"the FDB index read request batch size must be greater than zero"
+			));
+		}
+		if options.storage_relation_batch_size == 0 {
+			return Err(tg::error!(
+				"the FDB index storage relation batch size must be greater than zero"
 			));
 		}
 		if options.read_transaction_concurrency == 0 {

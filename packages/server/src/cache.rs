@@ -34,8 +34,10 @@ impl Cache {
 		let config = tangram_cache_fjall::Config {
 			path: path.clone(),
 			read_batch_size: config.read_batch_size,
+			read_channel_capacity: config.read_channel_capacity,
 			read_concurrency: config.read_concurrency,
 			write_batch_size: config.write_batch_size,
+			write_channel_capacity: config.write_channel_capacity,
 		};
 		let fjall = tangram_cache_fjall::Cache::new(&config).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the fjall cache"),
@@ -52,11 +54,14 @@ impl Cache {
 		let path = directory.join(&config.path);
 		let config = tangram_cache_lmdb::Config {
 			map_size: config.map_size,
+			max_readers: config.max_readers,
 			path: path.clone(),
 			posix_sem_prefix: config.resolved_posix_sem_prefix(),
 			read_batch_size: config.read_batch_size,
+			read_channel_capacity: config.read_channel_capacity,
 			read_concurrency: config.read_concurrency,
 			write_batch_size: config.write_batch_size,
+			write_channel_capacity: config.write_channel_capacity,
 		};
 		let lmdb = tangram_cache_lmdb::Cache::new(&config).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the lmdb cache"),
@@ -79,8 +84,10 @@ impl Cache {
 		let config = tangram_cache_rocksdb::Config {
 			path: path.clone(),
 			read_batch_size: config.read_batch_size,
+			read_channel_capacity: config.read_channel_capacity,
 			read_concurrency: config.read_concurrency,
 			write_batch_size: config.write_batch_size,
+			write_channel_capacity: config.write_channel_capacity,
 		};
 		let rocksdb = tangram_cache_rocksdb::Cache::new(&config).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the rocksdb cache"),
@@ -123,8 +130,10 @@ impl Cache {
 			addr: config.addr.clone(),
 			capacity,
 			connections: config.connections,
+			get_by_positions_batch_size: config.get_by_positions_batch_size,
 			keepalive: config.keepalive,
 			keyspace: config.keyspace.clone(),
+			object_concurrency: config.object_concurrency,
 			partition_offset: config.partition_offset,
 			password: config.password.clone(),
 			speculative_execution,

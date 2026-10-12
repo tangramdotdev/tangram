@@ -8,8 +8,9 @@ use {
 
 pub async fn initialize(
 	connection: &::turso::Connection,
+	busy_timeout: Duration,
 ) -> Result<(), tangram_database_turso::Error> {
-	connection.busy_timeout(Duration::from_secs(5))?;
+	connection.busy_timeout(busy_timeout)?;
 	for sql in [
 		"pragma cache_size = -20000",
 		"pragma foreign_keys = on",

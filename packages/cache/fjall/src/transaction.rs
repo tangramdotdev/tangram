@@ -220,8 +220,10 @@ mod tests {
 		let config = Config {
 			path: directory.path().to_owned(),
 			read_batch_size: 64,
+			read_channel_capacity: 256,
 			read_concurrency: 1,
 			write_batch_size: 8_000,
+			write_channel_capacity: 256,
 		};
 		let cache = Cache::new(&config).unwrap();
 		let mut transaction = cache.db.write_transaction();

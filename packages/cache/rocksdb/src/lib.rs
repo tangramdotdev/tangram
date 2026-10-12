@@ -25,8 +25,10 @@ pub mod transaction;
 pub struct Config {
 	pub path: PathBuf,
 	pub read_batch_size: usize,
+	pub read_channel_capacity: usize,
 	pub read_concurrency: usize,
 	pub write_batch_size: usize,
+	pub write_channel_capacity: usize,
 }
 
 pub struct Cache {
@@ -60,7 +62,8 @@ impl Cache {
 		let (reader_sender, reader_handles) = Self::spawn_readers(config, &db);
 
 		// Spawn the writer task.
-		let (writer_sender, writer_receiver) = tokio::sync::mpsc::channel(writer::CHANNEL_CAPACITY);
+		let (writer_sender, writer_receiver) =
+			tokio::sync::mpsc::channel(config.write_channel_capacity);
 		let writer_handle = std::thread::spawn({
 			let db = db.clone();
 			let write_batch_size = config.write_batch_size;
@@ -89,6 +92,11 @@ impl Cache {
 				"the RocksDB cache read batch size must be greater than zero"
 			));
 		}
+		if config.read_channel_capacity == 0 {
+			return Err(tg::error!(
+				"the RocksDB cache read channel capacity must be greater than zero"
+			));
+		}
 		if config.read_concurrency == 0 {
 			return Err(tg::error!(
 				"the RocksDB cache read concurrency must be greater than zero"
@@ -97,6 +105,11 @@ impl Cache {
 		if config.write_batch_size == 0 {
 			return Err(tg::error!(
 				"the RocksDB cache write batch size must be greater than zero"
+			));
+		}
+		if config.write_channel_capacity == 0 {
+			return Err(tg::error!(
+				"the RocksDB cache write channel capacity must be greater than zero"
 			));
 		}
 
@@ -108,7 +121,7 @@ impl Cache {
 		db: &std::sync::Arc<database::Database>,
 	) -> (crate::read::Sender, Vec<std::thread::JoinHandle<()>>) {
 		let (reader_sender, reader_receiver) =
-			tokio::sync::mpsc::channel(crate::read::CHANNEL_CAPACITY);
+			tokio::sync::mpsc::channel(config.read_channel_capacity);
 		let reader_receiver = std::sync::Arc::new(std::sync::Mutex::new(reader_receiver));
 		let reader_handles = (0..config.read_concurrency)
 			.map(|_| {

@@ -55,7 +55,7 @@ async fn freezes_read_batches_without_reusing_an_old_snapshot() {
 	let db = env.create_database(&mut transaction, None).unwrap();
 	transaction.commit().unwrap();
 
-	let (sender, receiver) = tokio::sync::mpsc::channel(crate::read::CHANNEL_CAPACITY);
+	let (sender, receiver) = tokio::sync::mpsc::channel(256);
 	let first = enqueue(&sender);
 	let second = enqueue(&sender);
 	let transactions = Arc::new(AtomicUsize::new(0));

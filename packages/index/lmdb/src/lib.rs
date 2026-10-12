@@ -42,11 +42,14 @@ pub(crate) use key::{Key, Kind};
 pub struct Config {
 	pub map_size: usize,
 	pub max_process_depth: Option<u64>,
+	pub max_readers: u32,
 	pub path: PathBuf,
 	pub posix_sem_prefix: Option<String>,
+	pub read_channel_capacity: usize,
 	pub read_request_batch_size: usize,
 	pub read_transaction_concurrency: usize,
 	pub usage_partition_total: u64,
+	pub write_channel_capacity: usize,
 	pub write_operation_batch_size: usize,
 }
 
@@ -84,7 +87,7 @@ impl Index {
 		options
 			.map_size(config.map_size)
 			.max_dbs(3)
-			.max_readers(1_000);
+			.max_readers(config.max_readers);
 		// SAFETY: The index writes to the mapped data only through LMDB transactions.
 		unsafe {
 			options.flags(
@@ -109,16 +112,17 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		let (writer_sender_high, writer_receiver_high) =
-			crossbeam::bounded(writer::CHANNEL_CAPACITY);
+			crossbeam::bounded(config.write_channel_capacity);
 		let (writer_sender_medium, writer_receiver_medium) =
-			crossbeam::bounded(writer::CHANNEL_CAPACITY);
-		let (writer_sender_low, writer_receiver_low) = crossbeam::bounded(writer::CHANNEL_CAPACITY);
+			crossbeam::bounded(config.write_channel_capacity);
+		let (writer_sender_low, writer_receiver_low) =
+			crossbeam::bounded(config.write_channel_capacity);
 
 		let subspace = fdbt::Subspace::all();
 
 		// Spawn the reader tasks.
 		let (reader_sender, reader_receiver) =
-			tokio::sync::mpsc::channel(tangram_index::read::CHANNEL_CAPACITY);
+			tokio::sync::mpsc::channel(config.read_channel_capacity);
 		let reader_receiver = Arc::new(std::sync::Mutex::new(reader_receiver));
 		let reader_handles = (0..config.read_transaction_concurrency)
 			.map(|_| {
@@ -177,6 +181,16 @@ impl Index {
 	}
 
 	fn validate_config(config: &Config) -> tg::Result<()> {
+		if config.max_readers == 0 {
+			return Err(tg::error!(
+				"the LMDB index max readers must be greater than zero"
+			));
+		}
+		if config.read_channel_capacity == 0 {
+			return Err(tg::error!(
+				"the LMDB index read channel capacity must be greater than zero"
+			));
+		}
 		if config.read_request_batch_size == 0 {
 			return Err(tg::error!(
 				"the LMDB index read request batch size must be greater than zero"
@@ -190,6 +204,11 @@ impl Index {
 		if config.usage_partition_total == 0 {
 			return Err(tg::error!(
 				"the LMDB index usage partition total must be greater than zero"
+			));
+		}
+		if config.write_channel_capacity == 0 {
+			return Err(tg::error!(
+				"the LMDB index write channel capacity must be greater than zero"
 			));
 		}
 		if config.write_operation_batch_size == 0 {

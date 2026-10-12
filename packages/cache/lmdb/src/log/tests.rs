@@ -9,11 +9,14 @@ mod cache;
 fn cache(path: &Path) -> Cache {
 	let config = super::super::Config {
 		map_size: 10 * 1024 * 1024,
+		max_readers: 1_000,
 		path: path.join("test.lmdb"),
 		posix_sem_prefix: None,
 		read_batch_size: 64,
+		read_channel_capacity: 256,
 		read_concurrency: 4,
 		write_batch_size: 8_000,
+		write_channel_capacity: 256,
 	};
 	Cache::new(&config).unwrap()
 }

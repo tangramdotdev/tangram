@@ -14,7 +14,6 @@ use {
 
 const END_KIND: i8 = 3;
 const ENTRY_KIND: i8 = 0;
-const GET_BY_POSITIONS_BATCH_SIZE: usize = 128;
 
 const STDERR_KIND: i8 = 2;
 const STDOUT_KIND: i8 = 1;
@@ -389,7 +388,7 @@ impl Cache {
 		let mut bytes = BTreeMap::new();
 		for (kind, positions) in positions {
 			let positions = positions.into_iter().collect::<Vec<_>>();
-			for positions in positions.chunks(GET_BY_POSITIONS_BATCH_SIZE) {
+			for positions in positions.chunks(self.get_by_positions_batch_size) {
 				let result = self
 					.session
 					.execute_unpaged(
