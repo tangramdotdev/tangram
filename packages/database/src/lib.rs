@@ -53,9 +53,7 @@ pub trait Database {
 
 	fn sync(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-	fn retry(&self) -> tangram_futures::retry::Options {
-		tangram_futures::retry::Options::default()
-	}
+	fn retry(&self) -> tangram_futures::retry::Options;
 }
 
 #[derive(Clone, Debug, Default)]

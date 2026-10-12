@@ -336,6 +336,17 @@ impl db::Database for Database {
 			Self::Turso(s) => s.sync().await.map_err(Error::Turso),
 		}
 	}
+
+	fn retry(&self) -> tangram_futures::retry::Options {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(s) => s.retry(),
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(s) => s.retry(),
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => s.retry(),
+		}
+	}
 }
 
 impl db::Connection for Connection {

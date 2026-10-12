@@ -68,6 +68,13 @@ where
 				.right_future(),
 		}
 	}
+
+	fn retry(&self) -> tangram_futures::retry::Options {
+		match self {
+			Either::Left(s) => s.retry(),
+			Either::Right(s) => s.retry(),
+		}
+	}
 }
 
 impl<L, R> Connection for Either<L, R>
