@@ -28,7 +28,7 @@ impl Session {
 	pub(super) async fn finish_login(&self, arg: FinishLoginArg) -> tg::Result<tg::user::Data> {
 		let session = self.clone();
 		let now = self.server.clock.unix_timestamp()?;
-		let options = tangram_futures::retry::Options::default();
+		let options = self.server.config.verification.write_retry.clone().into();
 		let user = tangram_futures::retry(&options, || {
 			let arg = arg.clone();
 			let session = session.clone();

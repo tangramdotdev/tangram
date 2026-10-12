@@ -201,10 +201,20 @@ impl Server {
 				"the scheduler message ack timeout must be greater than zero"
 			));
 		}
-		if config.progress.interval.is_zero() {
-			return Err(tg::error!(
-				"the progress interval must be greater than zero"
-			));
+		for (name, duration) in [
+			("progress interval", config.progress.interval),
+			(
+				"verification poll interval",
+				config.verification.poll_interval,
+			),
+			(
+				"verification request timeout",
+				config.verification.request_timeout,
+			),
+		] {
+			if duration.is_zero() {
+				return Err(tg::error!("the {name} must be greater than zero"));
+			}
 		}
 		let sizes = [(
 			"progress channel capacity",

@@ -69,7 +69,7 @@ impl Session {
 		// Sort the nodes so that parents are written before their children.
 		nodes.sort_by_key(Self::sync_get_database_node_depth);
 
-		let options = tangram_futures::retry::Options::default();
+		let options = self.server.config.verification.write_retry.clone().into();
 		let session = self.clone();
 		let _invalidated_specifiers = tangram_futures::retry(&options, || {
 			let nodes = nodes.clone();

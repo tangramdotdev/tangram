@@ -57,7 +57,7 @@ impl Session {
 			.ok_or_else(|| tg::error!("billing is not configured"))?;
 		let organization = organization.clone();
 		let tokens = tokens.clone();
-		let options = tangram_futures::retry::Options::default();
+		let options = self.server.config.verification.write_retry.clone().into();
 		let session = self.clone();
 		let billing_customer_id = tangram_futures::retry(&options, || {
 			let organization = organization.clone();

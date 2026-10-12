@@ -47,7 +47,7 @@ impl Session {
 			));
 		}
 
-		let options = tangram_futures::retry::Options::default();
+		let options = self.server.config.verification.write_retry.clone().into();
 		let session = self.clone();
 		let output = tangram_futures::retry(&options, || {
 			let arg = arg.clone();

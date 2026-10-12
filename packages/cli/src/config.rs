@@ -415,8 +415,19 @@ pub struct Verification {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permissions: Option<VerificationPermissions>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_timeout: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tokens: Option<BoolOr<TokenKeys>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_retry: Option<Retry>,
 }
 
 #[serde_as]
@@ -2961,8 +2972,17 @@ fn resolve_verification(source: Verification) -> tg::Result<server::Verification
 	if let Some(source) = source.permissions {
 		target.permissions = resolve_verification_permissions(&source)?;
 	}
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
+	}
+	if let Some(value) = source.request_timeout {
+		target.request_timeout = value;
+	}
 	if let Some(source) = source.tokens {
 		target.tokens = resolve_bool_or(source, resolve_token_keys)?;
+	}
+	if let Some(source) = source.write_retry {
+		target.write_retry = resolve_retry_with_default(source, target.write_retry);
 	}
 
 	Ok(target)

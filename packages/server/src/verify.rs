@@ -7,7 +7,6 @@ use {
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		sync::Arc,
-		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
@@ -577,13 +576,7 @@ impl Session {
 		let mut refresh_index = false;
 		let mut retry_index = false;
 		let mut errors = vec![None; outputs.len()];
-		let poll_interval = self
-			.server
-			.config
-			.sync
-			.control
-			.retry_interval
-			.max(Duration::from_millis(100));
+		let poll_interval = self.server.config.verification.poll_interval;
 		let poll = tokio::time::sleep(poll_interval);
 		tokio::pin!(poll);
 		loop {
@@ -1081,7 +1074,7 @@ impl<'a> Requests<'a> {
 		{
 			return;
 		}
-		let timeout = self.session.server.config.sync.control.request_timeout;
+		let timeout = self.session.server.config.verification.request_timeout;
 		self.entries
 			.get_mut(&request.key())
 			.unwrap()
@@ -1094,7 +1087,7 @@ impl<'a> Requests<'a> {
 
 	fn await_indexing(&mut self, request: &Request) {
 		// Keep a descendant's storage proof pending until indexing proves the root's storage.
-		let timeout = self.session.server.config.sync.control.request_timeout;
+		let timeout = self.session.server.config.verification.request_timeout;
 		self.entries
 			.get_mut(&request.key())
 			.unwrap()

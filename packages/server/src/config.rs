@@ -239,7 +239,13 @@ pub struct Verification {
 
 	pub permissions: VerificationPermissions,
 
+	pub poll_interval: Duration,
+
+	pub request_timeout: Duration,
+
 	pub tokens: Option<TokenKeys>,
+
+	pub write_retry: Retry,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -322,7 +328,10 @@ impl Default for Verification {
 		Self {
 			index: VerificationIndex::default(),
 			permissions: VerificationPermissions::default(),
+			poll_interval: Duration::from_secs(1),
+			request_timeout: Duration::from_mins(1),
 			tokens: default_authorization_tokens(),
+			write_retry: tangram_futures::retry::Options::default().into(),
 		}
 	}
 }
@@ -934,7 +943,7 @@ pub struct Reconnect {
 	pub max_retries: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Retry {
 	pub backoff: Duration,
 
@@ -2737,6 +2746,17 @@ fn default_authentication_token_ttl() -> Duration {
 
 fn default_sync_max_frame_size() -> u64 {
 	tg::sync::Config::default().max_frame_size
+}
+
+impl From<tangram_futures::retry::Options> for Retry {
+	fn from(value: tangram_futures::retry::Options) -> Self {
+		Self {
+			backoff: value.backoff,
+			jitter: value.jitter,
+			max_delay: value.max_delay,
+			max_retries: value.max_retries,
+		}
+	}
 }
 
 impl From<Retry> for tangram_futures::retry::Options {
