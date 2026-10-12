@@ -383,11 +383,41 @@ impl Server {
 				"vfs fuse sqpoll entries",
 				usize::try_from(vfs.fuse.sqpoll_entries).unwrap_or(usize::MAX),
 			),
+			("vfs nfs max array length", vfs.nfs.max_array_length),
+			(
+				"vfs nfs max compound operations",
+				vfs.nfs.max_compound_operations,
+			),
+			("vfs nfs max connections", vfs.nfs.max_connections),
+			(
+				"vfs nfs max global in flight requests",
+				vfs.nfs.max_global_in_flight_requests,
+			),
+			(
+				"vfs nfs max in flight requests per connection",
+				vfs.nfs.max_in_flight_requests_per_connection,
+			),
+			("vfs nfs max name length", vfs.nfs.max_name_length),
+			(
+				"vfs nfs max pending responses",
+				vfs.nfs.max_pending_responses,
+			),
+			(
+				"vfs nfs max read size",
+				usize::try_from(vfs.nfs.max_read_size).unwrap_or(usize::MAX),
+			),
+			("vfs nfs max record size", vfs.nfs.max_record_size),
+			("vfs nfs readdir concurrency", vfs.nfs.readdir_concurrency),
 		];
 		for (name, size) in sizes {
 			if size == 0 {
 				return Err(tg::error!("the {name} must be greater than zero"));
 			}
+		}
+		if vfs.nfs.max_record_size > 0x7fff_ffff {
+			return Err(tg::error!(
+				"the vfs nfs max record size must not exceed 2147483647 bytes"
+			));
 		}
 		let durations = [
 			(
@@ -395,6 +425,11 @@ impl Server {
 				vfs.fuse.io_uring_startup_timeout,
 			),
 			("vfs fuse mount ready timeout", vfs.fuse.mount_ready_timeout),
+			(
+				"vfs nfs lease reaper interval",
+				vfs.nfs.lease_reaper_interval,
+			),
+			("vfs nfs lease time", vfs.nfs.lease_time),
 		];
 		for (name, duration) in durations {
 			if duration.is_zero() {

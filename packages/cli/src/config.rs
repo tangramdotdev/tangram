@@ -2359,6 +2359,9 @@ pub struct Vfs {
 	pub io: Option<VfsIo>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub nfs: Option<VfsNfs>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub passthrough: Option<VfsPassthrough>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2410,6 +2413,49 @@ pub struct VfsFuse {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sqpoll_idle: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VfsNfs {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lease_reaper_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lease_time: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_array_length: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_compound_operations: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_connections: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_global_in_flight_requests: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_in_flight_requests_per_connection: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_name_length: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_pending_responses: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_read_size: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_record_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub readdir_concurrency: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
@@ -5239,6 +5285,9 @@ fn resolve_vfs(source: Vfs) -> server::Vfs {
 	if let Some(value) = source.kind {
 		target.kind = resolve_vfs_kind(value);
 	}
+	if let Some(source) = source.nfs {
+		target.nfs = resolve_vfs_nfs(source);
+	}
 	if let Some(value) = source.passthrough {
 		target.passthrough = resolve_vfs_passthrough(value);
 	}
@@ -5310,6 +5359,47 @@ fn resolve_vfs_kind(source: VfsKind) -> server::VfsKind {
 		VfsKind::Fuse => server::VfsKind::Fuse,
 		VfsKind::Nfs => server::VfsKind::Nfs,
 	}
+}
+
+fn resolve_vfs_nfs(source: VfsNfs) -> server::VfsNfs {
+	let mut target = server::VfsNfs::default();
+	if let Some(value) = source.lease_reaper_interval {
+		target.lease_reaper_interval = value;
+	}
+	if let Some(value) = source.lease_time {
+		target.lease_time = value;
+	}
+	if let Some(value) = source.max_array_length {
+		target.max_array_length = value;
+	}
+	if let Some(value) = source.max_compound_operations {
+		target.max_compound_operations = value;
+	}
+	if let Some(value) = source.max_connections {
+		target.max_connections = value;
+	}
+	if let Some(value) = source.max_global_in_flight_requests {
+		target.max_global_in_flight_requests = value;
+	}
+	if let Some(value) = source.max_in_flight_requests_per_connection {
+		target.max_in_flight_requests_per_connection = value;
+	}
+	if let Some(value) = source.max_name_length {
+		target.max_name_length = value;
+	}
+	if let Some(value) = source.max_pending_responses {
+		target.max_pending_responses = value;
+	}
+	if let Some(value) = source.max_read_size {
+		target.max_read_size = value;
+	}
+	if let Some(value) = source.max_record_size {
+		target.max_record_size = value;
+	}
+	if let Some(value) = source.readdir_concurrency {
+		target.readdir_concurrency = value;
+	}
+	target
 }
 
 fn resolve_vfs_passthrough(source: VfsPassthrough) -> server::VfsPassthrough {

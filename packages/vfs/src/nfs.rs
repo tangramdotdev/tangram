@@ -65,18 +65,7 @@ pub mod xdr;
 
 const ROOT: nfs_fh4 = nfs_fh4(crate::ROOT_NODE_ID);
 const FUSE_DIRENT_HEADER_SIZE: usize = 24;
-const MAX_COMPOUND_OPERATIONS: usize = 128;
-const MAX_READ_SIZE: u32 = 2 * 1024 * 1024;
-const MAX_CONNECTIONS: usize = 64;
-const MAX_GLOBAL_IN_FLIGHT_REQUESTS: usize = 64;
-const MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: usize = 8;
-const MAX_NAME_LENGTH: usize = 512;
-const MAX_PENDING_RESPONSES: usize = 1;
 const PROVIDER_READDIR_LENGTH_OVERHEAD: usize = 288;
-const PROVIDER_READDIR_MIN_LENGTH: usize =
-	(FUSE_DIRENT_HEADER_SIZE + MAX_NAME_LENGTH).next_multiple_of(8);
-const LEASE_REAPER_INTERVAL_SECONDS: u64 = 15;
-const LEASE_TIME_SECONDS: u32 = 60;
 
 static DYNAMIC_CHANGE_INDEX: AtomicU64 = AtomicU64::new(1);
 
@@ -93,10 +82,53 @@ pub struct State<P> {
 	open_index: AtomicU64,
 	open_mutex: tokio::sync::Mutex<()>,
 	opens: DashMap<u64, OpenState>,
+	options: Options,
 	path: PathBuf,
 	port: u16,
 	provider: Provider<P>,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Options {
+	/// The interval at which expired client leases are reaped.
+	pub lease_reaper_interval: Duration,
+
+	/// The lease time advertised to clients.
+	pub lease_time: Duration,
+
+	/// The maximum number of elements in a decoded XDR array.
+	pub max_array_length: usize,
+
+	/// The maximum number of operations in a compound request.
+	pub max_compound_operations: usize,
+
+	/// The maximum number of concurrent connections.
+	pub max_connections: usize,
+
+	/// The maximum number of requests in flight across all connections.
+	pub max_global_in_flight_requests: usize,
+
+	/// The maximum number of requests in flight per connection.
+	pub max_in_flight_requests_per_connection: usize,
+
+	/// The maximum length of a file name.
+	pub max_name_length: usize,
+
+	/// The maximum number of encoded responses that wait to be written per connection.
+	pub max_pending_responses: usize,
+
+	/// The maximum size of a read.
+	pub max_read_size: u32,
+
+	/// The maximum size of an RPC record.
+	pub max_record_size: usize,
+
+	/// The port to listen on.
+	pub port: u16,
+
+	/// The number of directory entries whose attributes are fetched concurrently during a readdir.
+	pub readdir_concurrency: usize,
 }
 
 #[derive(Clone)]
@@ -135,32 +167,36 @@ where
 		provider: P,
 		path: &Path,
 		host: &str,
-		port: u16,
+		options: Options,
 	) -> Result<Self, std::io::Error> {
+		// Validate the options.
+		options.validate()?;
+
 		// Create the server.
 		let provider = Provider::new(provider);
 		let server = Self(Arc::new(State {
 			client_index: AtomicU64::new(0),
 			clients: DashMap::default(),
 			clients_by_id: DashMap::default(),
-			connection_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS)),
+			connection_semaphore: Arc::new(tokio::sync::Semaphore::new(options.max_connections)),
 			dns_sd: Mutex::new(None),
 			global_request_semaphore: Arc::new(tokio::sync::Semaphore::new(
-				MAX_GLOBAL_IN_FLIGHT_REQUESTS,
+				options.max_global_in_flight_requests,
 			)),
 			host: host.to_owned(),
 			open_index: AtomicU64::new(1),
 			open_mutex: tokio::sync::Mutex::new(()),
 			opens: DashMap::new(),
+			options,
 			path: path.to_owned(),
-			port,
+			port: options.port,
 			provider,
 			task: Mutex::new(None),
 		}));
 
 		// Listen. On macOS, the advertised host is registered with DNS-SD below and may not be
 		// resolvable yet, so bind directly to the advertised loopback address.
-		let addr = listen_addr(host, port);
+		let addr = listen_addr(host, server.port);
 		let listener = TcpListener::bind(&addr).await?;
 
 		// Unmount.
@@ -331,8 +367,7 @@ where
 	}
 
 	async fn lease_reaper_task(&self, stopper: Stopper) {
-		let mut interval =
-			tokio::time::interval(Duration::from_secs(LEASE_REAPER_INTERVAL_SECONDS));
+		let mut interval = tokio::time::interval(self.options.lease_reaper_interval);
 		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 		loop {
 			let tick = interval.tick();
@@ -354,8 +389,7 @@ where
 			let should_expire = {
 				let client = client.read().await;
 				!client.expired
-					&& now.duration_since(client.last_activity)
-						>= Duration::from_secs(u64::from(LEASE_TIME_SECONDS))
+					&& now.duration_since(client.last_activity) >= self.options.lease_time
 			};
 			if !should_expire {
 				continue;
@@ -366,8 +400,7 @@ where
 				let mut client = client.write().await;
 				let now = tokio::time::Instant::now();
 				if client.expired
-					|| now.duration_since(client.last_activity)
-						< Duration::from_secs(u64::from(LEASE_TIME_SECONDS))
+					|| now.duration_since(client.last_activity) < self.options.lease_time
 				{
 					continue;
 				}
@@ -465,22 +498,25 @@ where
 
 		// Create the writer task.
 		let (message_sender, mut message_receiver) =
-			tokio::sync::mpsc::channel::<Vec<u8>>(MAX_PENDING_RESPONSES);
+			tokio::sync::mpsc::channel::<Vec<u8>>(self.options.max_pending_responses);
+		let max_record_size = self.options.max_record_size;
 		task_tracker.spawn(async move {
 			while let Some(message) = message_receiver.recv().await {
-				if let Err(error) = rpc::write_fragments(&mut writer, &message).await {
+				if let Err(error) =
+					rpc::write_fragments(&mut writer, &message, max_record_size).await
+				{
 					tracing::error!(%error);
 					break;
 				}
 			}
 		});
 		let semaphore = Arc::new(tokio::sync::Semaphore::new(
-			MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
+			self.options.max_in_flight_requests_per_connection,
 		));
 
 		// Receive incoming message fragments.
 		loop {
-			let read = rpc::read_fragments(&mut reader);
+			let read = rpc::read_fragments(&mut reader, max_record_size);
 			let fragments = match future::select(pin!(read), pin!(stopper.wait())).await {
 				future::Either::Left((result, _)) => result?,
 				future::Either::Right(((), _)) => {
@@ -504,7 +540,8 @@ where
 				let message_sender = message_sender.clone();
 				async move {
 					let _permits = (connection_permit, global_permit);
-					let mut decoder = xdr::Decoder::from_bytes(&fragments);
+					let mut decoder =
+						xdr::Decoder::new(&fragments, server.options.max_array_length);
 					let message = match decoder.decode::<rpc::Message>() {
 						Ok(message) => message,
 						Err(error) => {
@@ -639,7 +676,7 @@ where
 			};
 			return rpc::success(verf, entry);
 		}
-		if argarray.len() > MAX_COMPOUND_OPERATIONS {
+		if argarray.len() > self.options.max_compound_operations {
 			let entry = COMPOUND4res {
 				status: nfsstat4::NFS4ERR_RESOURCE,
 				tag,
@@ -873,6 +910,7 @@ where
 				0,
 				O_RX,
 				attrs,
+				&self.options,
 			));
 		}
 
@@ -885,16 +923,33 @@ where
 		};
 		let data = match attr {
 			ExtAttr::Normal(attrs) => match attrs.inner {
-				AttrsInner::Directory => {
-					FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs)
-				},
+				AttrsInner::Directory => FileAttrData::new(
+					file_handle,
+					nfs_ftype4::NF4DIR,
+					0,
+					O_RX,
+					attrs,
+					&self.options,
+				),
 				AttrsInner::File { size, executable } => {
 					let mode = if executable { O_RX } else { O_RDONLY };
-					FileAttrData::new(file_handle, nfs_ftype4::NF4REG, size, mode, attrs)
+					FileAttrData::new(
+						file_handle,
+						nfs_ftype4::NF4REG,
+						size,
+						mode,
+						attrs,
+						&self.options,
+					)
 				},
-				AttrsInner::Symlink { size } => {
-					FileAttrData::new(file_handle, nfs_ftype4::NF4LNK, size, O_RDONLY, attrs)
-				},
+				AttrsInner::Symlink { size } => FileAttrData::new(
+					file_handle,
+					nfs_ftype4::NF4LNK,
+					size,
+					O_RDONLY,
+					attrs,
+					&self.options,
+				),
 			},
 			ExtAttr::AttrDir => FileAttrData::new(
 				file_handle,
@@ -902,6 +957,7 @@ where
 				0,
 				O_RX,
 				Attrs::new(AttrsInner::Directory),
+				&self.options,
 			),
 			ExtAttr::AttrFile(len) => FileAttrData::new(
 				file_handle,
@@ -912,6 +968,7 @@ where
 					executable: false,
 					size: len.to_u64().unwrap(),
 				}),
+				&self.options,
 			),
 		};
 
@@ -1330,7 +1387,7 @@ where
 		}
 
 		// Compute the size of the read.
-		let read_size = u64::from(arg.count.min(MAX_READ_SIZE))
+		let read_size = u64::from(arg.count.min(self.options.max_read_size))
 			.min(size - arg.offset)
 			.to_usize()
 			.unwrap();
@@ -1385,24 +1442,31 @@ where
 			.maxcount
 			.to_usize()
 			.unwrap()
-			.min(rpc::MAX_RECORD_SIZE.saturating_sub(4096));
+			.min(self.options.max_record_size.saturating_sub(4096));
 		let dircount = arg.dircount.to_usize().unwrap();
 		let mut encoded_size = 20;
 		if encoded_size > maxcount {
 			return READDIR4res::Error(nfsstat4::NFS4ERR_TOOSMALL);
 		}
 		let provider_offset = if arg.cookie == 0 { 2 } else { arg.cookie };
+		let provider_min_length = self.options.provider_readdir_min_length();
 		let provider_length = maxcount
 			.saturating_add(PROVIDER_READDIR_LENGTH_OVERHEAD)
-			.max(PROVIDER_READDIR_MIN_LENGTH)
+			.max(provider_min_length)
 			.to_u64()
 			.unwrap();
 		let handle = match self.provider.opendir(fh.0).await {
 			Ok(handle) => handle,
 			Err(error) => return READDIR4res::Error(error.into()),
 		};
-		let page =
-			read_directory_page(&self.provider, handle, provider_offset, provider_length).await;
+		let page = read_directory_page(
+			&self.provider,
+			handle,
+			provider_offset,
+			provider_length,
+			provider_min_length,
+		)
+		.await;
 		self.provider.close(handle).await;
 		let (entries, provider_eof) = match page {
 			Ok(page) => page,
@@ -1432,7 +1496,7 @@ where
 					Ok((index, name, attrs))
 				}
 			})
-			.buffered(16);
+			.buffered(self.options.readdir_concurrency);
 		while let Some(entry) = entry_stream.next().await {
 			let (index, name, attrs) = match entry {
 				Ok(entry) => entry,
@@ -1650,6 +1714,7 @@ async fn read_directory_page<P>(
 	handle: u64,
 	offset: u64,
 	length: u64,
+	min_length: usize,
 ) -> std::io::Result<(Vec<(String, u64, crate::EntryKind)>, bool)>
 where
 	P: crate::Provider + Sync,
@@ -1660,11 +1725,7 @@ where
 	} else {
 		let next_offset = offset.saturating_add(entries.len().to_u64().unwrap());
 		provider
-			.readdir(
-				handle,
-				next_offset,
-				PROVIDER_READDIR_MIN_LENGTH.to_u64().unwrap(),
-			)
+			.readdir(handle, next_offset, min_length.to_u64().unwrap())
 			.await?
 			.is_empty()
 	};
@@ -1680,6 +1741,64 @@ fn xdr_opaque_size(length: usize) -> usize {
 	4 + length + (4 - length % 4) % 4
 }
 
+impl Options {
+	pub fn validate(&self) -> Result<(), std::io::Error> {
+		let sizes = [
+			(self.max_array_length, "the maximum XDR array length"),
+			(
+				self.max_compound_operations,
+				"the maximum number of compound operations",
+			),
+			(self.max_connections, "the maximum number of connections"),
+			(
+				self.max_global_in_flight_requests,
+				"the maximum number of global in flight requests",
+			),
+			(
+				self.max_in_flight_requests_per_connection,
+				"the maximum number of in flight requests per connection",
+			),
+			(self.max_name_length, "the maximum name length"),
+			(
+				self.max_pending_responses,
+				"the maximum number of pending responses",
+			),
+			(
+				self.max_read_size.to_usize().unwrap(),
+				"the maximum read size",
+			),
+			(self.max_record_size, "the maximum record size"),
+			(self.readdir_concurrency, "the readdir concurrency"),
+		];
+		for (value, name) in sizes {
+			if value == 0 {
+				return Err(Error::other(format!("{name} must be greater than zero")));
+			}
+		}
+		if self.max_record_size > 0x7fff_ffff {
+			return Err(Error::other(
+				"the maximum record size must not exceed 2147483647 bytes",
+			));
+		}
+		let durations = [
+			(self.lease_reaper_interval, "the lease reaper interval"),
+			(self.lease_time, "the lease time"),
+		];
+		for (value, name) in durations {
+			if value.is_zero() {
+				return Err(Error::other(format!("{name} must be greater than zero")));
+			}
+		}
+		Ok(())
+	}
+
+	fn provider_readdir_min_length(&self) -> usize {
+		FUSE_DIRENT_HEADER_SIZE
+			.saturating_add(self.max_name_length)
+			.next_multiple_of(8)
+	}
+}
+
 impl<P> Clone for Server<P> {
 	fn clone(&self) -> Self {
 		Self(self.0.clone())
@@ -1691,6 +1810,26 @@ impl<P> Deref for Server<P> {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+impl Default for Options {
+	fn default() -> Self {
+		Self {
+			lease_reaper_interval: Duration::from_secs(15),
+			lease_time: Duration::from_mins(1),
+			max_array_length: 65_536,
+			max_compound_operations: 128,
+			max_connections: 64,
+			max_global_in_flight_requests: 64,
+			max_in_flight_requests_per_connection: 8,
+			max_name_length: 512,
+			max_pending_responses: 1,
+			max_read_size: 2 * 1024 * 1024,
+			max_record_size: 4 * 1024 * 1024,
+			port: 8476,
+			readdir_concurrency: 16,
+		}
 	}
 }
 
@@ -1816,6 +1955,7 @@ impl FileAttrData {
 		size: u64,
 		mode: u32,
 		attrs: Attrs,
+		options: &Options,
 	) -> FileAttrData {
 		let mut supported_attrs = bitmap4(Vec::new());
 		for attr in ALL_SUPPORTED_ATTRS {
@@ -1842,7 +1982,7 @@ impl FileAttrData {
 			named_attr,
 			fsid: fsid4 { major: 0, minor: 1 },
 			unique_handles: true,
-			lease_time: LEASE_TIME_SECONDS,
+			lease_time: options.lease_time.as_secs().to_u32().unwrap_or(u32::MAX),
 			rdattr_error: 0,
 			file_handle,
 			acl: Vec::new(),
@@ -1860,8 +2000,8 @@ impl FileAttrData {
 			homogeneous: true,
 			maxfilesize: u64::MAX,
 			maxlink: u32::MAX,
-			maxname: MAX_NAME_LENGTH.to_u32().unwrap(),
-			maxread: u64::from(MAX_READ_SIZE),
+			maxname: options.max_name_length.to_u32().unwrap_or(u32::MAX),
+			maxread: u64::from(options.max_read_size),
 			maxwrite: 0,
 			mimetype: Vec::new(),
 			mode,

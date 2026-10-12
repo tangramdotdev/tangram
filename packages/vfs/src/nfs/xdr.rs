@@ -1,7 +1,5 @@
 use num::ToPrimitive as _;
 
-const MAX_ARRAY_LENGTH: usize = 65_536;
-
 pub trait Encode {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
@@ -25,6 +23,7 @@ pub struct Encoder<W> {
 
 pub struct Decoder<'a> {
 	input: &'a [u8],
+	max_array_length: usize,
 }
 
 #[derive(Debug)]
@@ -109,8 +108,11 @@ where
 
 impl<'d> Decoder<'d> {
 	#[must_use]
-	pub fn from_bytes(input: &'d [u8]) -> Self {
-		Self { input }
+	pub fn new(input: &'d [u8], max_array_length: usize) -> Self {
+		Self {
+			input,
+			max_array_length,
+		}
 	}
 
 	pub fn decode_n<const N: usize>(&mut self) -> Result<[u8; N], Error> {
@@ -299,7 +301,7 @@ where
 {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		let num_entities = decoder.decode_uint()?.to_usize().unwrap();
-		if num_entities > MAX_ARRAY_LENGTH {
+		if num_entities > decoder.max_array_length {
 			return Err(Error::Custom("the XDR array is too large".into()));
 		}
 		let mut result = Vec::with_capacity(num_entities);
@@ -371,11 +373,11 @@ where
 	bytes
 }
 
-pub fn from_bytes<T>(bytes: &[u8]) -> Result<T, Error>
+pub fn from_bytes<T>(bytes: &[u8], max_array_length: usize) -> Result<T, Error>
 where
 	T: Decode,
 {
-	let mut decoder = Decoder::from_bytes(bytes);
+	let mut decoder = Decoder::new(bytes, max_array_length);
 	decoder.decode()
 }
 

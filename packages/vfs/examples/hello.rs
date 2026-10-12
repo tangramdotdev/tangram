@@ -376,7 +376,11 @@ async fn fuse(path: PathBuf) -> Result<()> {
 
 async fn nfs(path: PathBuf, host: String, port: u16) -> Result<()> {
 	let provider = Provider::new();
-	let server = tangram_vfs::nfs::Server::start(provider, &path, &host, port).await?;
+	let options = tangram_vfs::nfs::Options {
+		port,
+		..Default::default()
+	};
+	let server = tangram_vfs::nfs::Server::start(provider, &path, &host, options).await?;
 	tokio::spawn({
 		let server = server.clone();
 		async move {

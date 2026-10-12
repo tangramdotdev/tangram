@@ -1672,6 +1672,8 @@ pub struct Vfs {
 
 	pub io: VfsIo,
 
+	pub nfs: VfsNfs,
+
 	pub passthrough: VfsPassthrough,
 
 	pub sqpoll: bool,
@@ -1704,6 +1706,33 @@ pub struct VfsFuse {
 	pub sqpoll_entries: u32,
 
 	pub sqpoll_idle: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct VfsNfs {
+	pub lease_reaper_interval: Duration,
+
+	pub lease_time: Duration,
+
+	pub max_array_length: usize,
+
+	pub max_compound_operations: usize,
+
+	pub max_connections: usize,
+
+	pub max_global_in_flight_requests: usize,
+
+	pub max_in_flight_requests_per_connection: usize,
+
+	pub max_name_length: usize,
+
+	pub max_pending_responses: usize,
+
+	pub max_read_size: u32,
+
+	pub max_record_size: usize,
+
+	pub readdir_concurrency: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -2898,6 +2927,7 @@ impl Default for Vfs {
 			fuse: VfsFuse::default(),
 			kind: VfsKind::Auto,
 			io: VfsIo::Auto,
+			nfs: VfsNfs::default(),
 			passthrough: VfsPassthrough::Auto,
 			sqpoll: true,
 		}
@@ -2937,6 +2967,25 @@ impl Default for VfsFuse {
 			read_write_max_reader_count: 8,
 			sqpoll_entries: 256,
 			sqpoll_idle: Duration::from_secs(2),
+		}
+	}
+}
+
+impl Default for VfsNfs {
+	fn default() -> Self {
+		Self {
+			lease_reaper_interval: Duration::from_secs(15),
+			lease_time: Duration::from_mins(1),
+			max_array_length: 65_536,
+			max_compound_operations: 128,
+			max_connections: 64,
+			max_global_in_flight_requests: 64,
+			max_in_flight_requests_per_connection: 8,
+			max_name_length: 512,
+			max_pending_responses: 1,
+			max_read_size: 2 * 1024 * 1024,
+			max_record_size: 4 * 1024 * 1024,
+			readdir_concurrency: 16,
 		}
 	}
 }

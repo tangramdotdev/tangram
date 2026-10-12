@@ -5,8 +5,6 @@ use {
 	tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _},
 };
 
-pub const MAX_RECORD_SIZE: usize = 4 * 1024 * 1024;
-
 #[derive(Clone, Debug)]
 pub struct Auth {
 	pub flavor: AuthFlavor,
@@ -402,7 +400,7 @@ impl xdr::Decode for AuthStat {
 	}
 }
 
-pub async fn read_fragments<S>(stream: &mut S) -> std::io::Result<Vec<u8>>
+pub async fn read_fragments<S>(stream: &mut S, max_record_size: usize) -> std::io::Result<Vec<u8>>
 where
 	S: AsyncRead + Unpin,
 {
@@ -414,7 +412,7 @@ where
 		let old_len = buf.len();
 		let new_len = old_len
 			.checked_add(len)
-			.filter(|new_len| *new_len <= MAX_RECORD_SIZE)
+			.filter(|new_len| *new_len <= max_record_size)
 			.ok_or_else(|| Error::new(ErrorKind::InvalidData, "the RPC record is too large"))?;
 		buf.resize(new_len, 0);
 		stream.read_exact(&mut buf[old_len..]).await?;
@@ -425,11 +423,15 @@ where
 	Ok(buf)
 }
 
-pub async fn write_fragments<S>(stream: &mut S, fragments: &[u8]) -> std::io::Result<()>
+pub async fn write_fragments<S>(
+	stream: &mut S,
+	fragments: &[u8],
+	max_record_size: usize,
+) -> std::io::Result<()>
 where
 	S: AsyncWrite + Unpin,
 {
-	if fragments.len() > MAX_RECORD_SIZE {
+	if fragments.len() > max_record_size {
 		return Err(Error::new(
 			ErrorKind::InvalidData,
 			"the RPC record is too large",

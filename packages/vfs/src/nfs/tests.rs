@@ -67,10 +67,13 @@ async fn attr_directory_reads_honor_offsets_and_lengths() {
 	let provider = provider::Provider::new(provider);
 	let directory = provider.get_attr_dir(7).await.unwrap();
 	let handle = provider.opendir(directory).await.unwrap();
+	let min_length = Options::default().provider_readdir_min_length();
 
 	let entries = provider.readdir(handle, 2, 31).await.unwrap();
 	assert!(entries.is_empty());
-	let (entries, eof) = read_directory_page(&provider, handle, 2, 32).await.unwrap();
+	let (entries, eof) = read_directory_page(&provider, handle, 2, 32, min_length)
+		.await
+		.unwrap();
 	assert_eq!(
 		entries
 			.iter()
@@ -79,7 +82,9 @@ async fn attr_directory_reads_honor_offsets_and_lengths() {
 		["one"],
 	);
 	assert!(!eof);
-	let (entries, eof) = read_directory_page(&provider, handle, 3, 32).await.unwrap();
+	let (entries, eof) = read_directory_page(&provider, handle, 3, 32, min_length)
+		.await
+		.unwrap();
 	assert_eq!(
 		entries
 			.iter()
@@ -109,11 +114,16 @@ async fn directory_reads_look_past_provider_page_limits() {
 		page_size: 2,
 		xattrs: Vec::new(),
 	};
+	let min_length = Options::default().provider_readdir_min_length();
 
-	let (entries, eof) = read_directory_page(&provider, 0, 0, 4096).await.unwrap();
+	let (entries, eof) = read_directory_page(&provider, 0, 0, 4096, min_length)
+		.await
+		.unwrap();
 	assert_eq!(entries.len(), 2);
 	assert!(!eof);
-	let (entries, eof) = read_directory_page(&provider, 0, 2, 4096).await.unwrap();
+	let (entries, eof) = read_directory_page(&provider, 0, 2, 4096, min_length)
+		.await
+		.unwrap();
 	assert_eq!(entries.len(), 1);
 	assert!(eof);
 }
@@ -121,13 +131,14 @@ async fn directory_reads_look_past_provider_page_limits() {
 #[test]
 fn dynamic_attributes_have_distinct_change_values() {
 	let file_handle = nfs_fh4(3);
+	let options = Options::default();
 	let attrs = Attrs::new(AttrsInner::Directory).cacheable(false);
-	let first = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs);
-	let second = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs);
+	let first = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs, &options);
+	let second = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs, &options);
 	assert_ne!(first.change, second.change);
 
 	let attrs = Attrs::new(AttrsInner::Directory);
-	let first = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs);
-	let second = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs);
+	let first = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs, &options);
+	let second = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs, &options);
 	assert_eq!(first.change, second.change);
 }

@@ -128,13 +128,29 @@ impl Server {
 				}
 			},
 			Kind::Nfs => {
-				let port = 8476;
 				let host = if cfg!(target_os = "macos") {
 					"Tangram"
 				} else {
 					"localhost"
 				};
-				let nfs = vfs::nfs::Server::start(provider, path, host, port)
+				let nfs = &options.nfs;
+				let options = vfs::nfs::Options {
+					lease_reaper_interval: nfs.lease_reaper_interval,
+					lease_time: nfs.lease_time,
+					max_array_length: nfs.max_array_length,
+					max_compound_operations: nfs.max_compound_operations,
+					max_connections: nfs.max_connections,
+					max_global_in_flight_requests: nfs.max_global_in_flight_requests,
+					max_in_flight_requests_per_connection: nfs
+						.max_in_flight_requests_per_connection,
+					max_name_length: nfs.max_name_length,
+					max_pending_responses: nfs.max_pending_responses,
+					max_read_size: nfs.max_read_size,
+					max_record_size: nfs.max_record_size,
+					port: 8476,
+					readdir_concurrency: nfs.readdir_concurrency,
+				};
+				let nfs = vfs::nfs::Server::start(provider, path, host, options)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to start the NFS server"))?;
 				Inner::Nfs(nfs)
