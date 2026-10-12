@@ -221,10 +221,10 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
 		>,
 	> + Send {
 		async move {
@@ -238,13 +238,11 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>>
-				+ Send
-				+ 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
 			>,
 		>,
 	> + Send;
@@ -447,11 +445,9 @@ impl tg::instance::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
-		Option<
-			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
-		>,
+		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static>,
 	> {
 		self.session(&self.context)
 			.try_write_process_stdio(id, arg, input)

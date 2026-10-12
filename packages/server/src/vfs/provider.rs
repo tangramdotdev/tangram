@@ -1087,6 +1087,7 @@ impl Provider {
 		let context = Context {
 			billing_ready: false,
 			id: None,
+			local_process_control: false,
 			origin: self.origin,
 			principal: self
 				.principal
@@ -1107,6 +1108,7 @@ impl Provider {
 		let context = Context {
 			billing_ready: false,
 			id: None,
+			local_process_control: false,
 			origin: crate::Origin::Host,
 			principal,
 			stopper: None,

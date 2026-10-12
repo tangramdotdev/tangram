@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, TypedDict, Unpack
 
 if TYPE_CHECKING:
@@ -12,7 +12,6 @@ if TYPE_CHECKING:
 
 import asyncio
 import json
-from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,14 +19,11 @@ from tangram.error import Error
 from tangram.http import Body, Request, Stream, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
-from tangram.process.stdio.flow import Receiver
 
 
 @dataclass
 class Connection:
-    input: Channel
     output: AsyncIterator[dict[str, Any]]
-    reconnect: Callable[..., Awaitable[Connection | None]] | None = None
 
 
 class KeywordOptions(TypedDict, total=False):
@@ -44,6 +40,40 @@ class ProtocolError(ValueError):
     pass
 
 
+class Acks:
+    """The position through which the reader has the read's bytes.
+
+    Each connection sends it, so the runner can release the bytes.
+    """
+
+    def __init__(self, position: int):
+        self._changed = asyncio.Event()
+        self._closed = False
+        self._position = position
+
+    def close(self):
+        self._closed = True
+        self._changed.set()
+
+    def set(self, position: int):
+        if position <= self._position:
+            return
+        self._position = position
+        self._changed.set()
+
+    async def events(self):
+        sent = None
+        while True:
+            if sent != self._position:
+                sent = self._position
+                yield {"data": json.dumps(sent), "event": "ack"}
+                continue
+            if self._closed:
+                return
+            self._changed.clear()
+            await self._changed.wait()
+
+
 async def try_read_process_stdio(
     client: Client,
     id: str,
@@ -51,66 +81,64 @@ async def try_read_process_stdio(
     **options: Unpack[KeywordOptions],
 ) -> Stream[StdioChunk] | None:
     options = {**(arg or {}), **options}
-    connection = await connect(client, id, options)
+    position = options.get("position")
+    acks = Acks(position if isinstance(position, int) else 0)
+    connection = await connect(client, id, options, acks)
     if connection is None:
+        acks.close()
         return None
-    return read_process_stdio_all(client, id, options, connection)
+    return read_process_stdio_all(client, id, options, connection, acks)
 
 
 def read_process_stdio_all(
-    client: Client, id: str, arg, connection: Connection
+    client: Client, id: str, arg, connection: Connection, acks: Acks
 ) -> Stream[StdioChunk]:
     state: dict[str, Any] = {"canceled": False, "connection": connection}
-    output = read_process_stdio_all_inner(client, id, arg, state)
+    output = read_process_stdio_all_inner(client, id, arg, state, acks)
 
     async def close():
         state["canceled"] = True
-        state["connection"].input.close()
+        acks.close()
         await close_output(state["connection"].output)
 
     return Stream(output, close)
 
 
-async def read_process_stdio_all_inner(client: Client, id, arg, state):
+async def read_process_stdio_all_inner(client: Client, id, arg, state, acks: Acks):
     from tangram.process.stdio import Read
 
     connection = state["connection"]
     combined = len(arg["streams"]) > 1
     forward = arg.get("length") is None or arg["length"] >= 0
     next_arg: dict[str, Any] = {**arg, "streams": list(arg["streams"])}
-    window = Receiver()
-    pending = 0
     position = (
         None if isinstance(arg.get("position"), str) else arg.get("position") or 0
     )
+    reconnects = 0
     try:
         while not state["canceled"]:
-            progress = window.consume(pending)
-            pending = 0
-            if progress is not None:
-                connection.input.push({"kind": "notification", "value": progress})
             message = None
+            error = None
             try:
                 message = await anext(connection.output)
             except StopAsyncIteration:
                 pass
-            except Exception as error:
+            except Exception as error_:
                 if state["canceled"]:
                     return
-                if is_terminal_error(error):
+                if not is_retryable_stream_error(error_):
                     raise
+                error = error_
             if state["canceled"]:
                 return
             if message is None:
-                connection = state["connection"] = await reconnect(
-                    client, id, next_arg, connection
+                connection, reconnects = await reconnect(
+                    client, id, next_arg, connection, acks, reconnects, error
                 )
-                window = Receiver()
+                state["connection"] = connection
                 continue
             if message["kind"] == "response":
                 Read.Output.validate(message["value"], arg["streams"], position or 0)
-                connection.input.push({"kind": "ack"})
-                connection.input.close()
                 return
             if message["value"]["kind"] == "position":
                 value = message["value"]["value"]
@@ -128,8 +156,8 @@ async def read_process_stdio_all_inner(client: Client, id, arg, state):
                 continue
             if message["value"]["kind"] != "chunk":
                 raise ProtocolError("invalid process stdio read notification")
+            reconnects = 0
             chunk = message["value"]["value"]
-            pending = len(chunk["bytes"])
             if chunk["stream"] not in arg["streams"]:
                 raise ProtocolError("invalid process stdio stream")
             start = chunk["combined_position"] if combined else chunk["stream_position"]
@@ -161,44 +189,67 @@ async def read_process_stdio_all_inner(client: Client, id, arg, state):
                 else:
                     next_arg["length"] += min(length, abs(next_arg["length"]))
             next_arg["position"] = position
+            # The consumer has the chunk once it is yielded.
+            if forward:
+                acks.set(position)
             yield chunk
     finally:
-        connection.input.close()
+        acks.close()
         await close_output(connection.output)
 
 
-async def connect(client: Client, id: str, arg) -> Connection | None:
-    attempt = 0
-    while True:
-        try:
-            return await read_process_stdio_once(client, id, arg)
-        except Exception as error:
-            if is_terminal_error(error):
-                raise
-            await retry_delay(attempt)
-            attempt += 1
+async def connect(client: Client, id: str, arg, acks: Acks) -> Connection | None:
+    from tangram.client import retry
 
-
-async def reconnect(client: Client, id, arg, connection):
-    connection.input.close()
-    await close_output(connection.output)
-    next_ = (
-        await connect(client, id, arg)
-        if connection.reconnect is None
-        else await connection.reconnect(arg)
+    return await retry(
+        client.stream_retry,
+        lambda: read_process_stdio_once(client, id, arg, acks),
+        is_retryable_error,
     )
-    if next_ is None:
-        raise ValueError("failed to find the process")
-    return next_
 
 
-async def read_process_stdio_once(client: Client, id, arg):
-    input = Channel()
+async def reconnect(
+    client: Client, id, arg, connection, acks: Acks, attempt: int, error
+) -> tuple[Connection, int]:
+    """Reconnect after the given number of consecutive failed attempts.
+
+    Return the new connection and the number of consecutive failed attempts,
+    including this one.
+    """
+    from tangram.client import backoff
+
+    await close_output(connection.output)
+    while True:
+        # Fail once the consecutive attempts exhaust the stream retry options.
+        if attempt >= client.stream_retry["max_retries"]:
+            if error is not None:
+                raise error
+            raise ConnectionError("the process stdio stream ended before completion")
+
+        # Back off, so that an empty stream does not reconnect in a tight loop.
+        await backoff(client.stream_retry, attempt)
+        attempt += 1
+
+        # Connect.
+        try:
+            next_ = await read_process_stdio_once(client, id, arg, acks)
+        except Exception as error_:
+            if not is_retryable_error(error_):
+                raise
+            error = error_
+            continue
+        if next_ is None:
+            raise ValueError("failed to find the process")
+
+        return next_, attempt
+
+
+async def read_process_stdio_once(client: Client, id, arg, acks: Acks):
     request = Request(
         "POST",
         f"/processes/{percent_encode(id)}/stdio/read",
         {"accept": "text/event-stream", "content-type": "text/event-stream"},
-        Body.sse(encode_client_messages(input)),
+        Body.sse(acks.events()),
     ).arg(
         {
             **arg,
@@ -212,7 +263,6 @@ async def read_process_stdio_once(client: Client, id, arg):
     try:
         response = await client.send(request)
         if response.status == 404:
-            input.close()
             await response.close()
             return None
         if not 200 <= response.status < 300:
@@ -223,19 +273,10 @@ async def read_process_stdio_once(client: Client, id, arg):
         ):
             raise ProtocolError("invalid process stdio response content type")
     except BaseException:
-        input.close()
         if "response" in locals():
             await response.close()
         raise
-    return Connection(input, Stream(decode_server_messages(response), response.close))
-
-
-async def encode_client_messages(input):
-    async for message in input:
-        yield {
-            "data": json.dumps(None if message["kind"] == "ack" else message["value"]),
-            "event": message["kind"],
-        }
+    return Connection(Stream(decode_server_messages(response), response.close))
 
 
 async def decode_server_messages(response):
@@ -294,53 +335,19 @@ def is_terminal_error(error):
     return isinstance(error, (Error, ProtocolError))
 
 
-async def retry_delay(attempt):
-    await asyncio.sleep(min(0.01 * 2 ** min(attempt, 7), 1))
+def is_retryable_error(error):
+    from tangram.client import is_transport_error
+
+    return not isinstance(error, ProtocolError) and is_transport_error(error)
 
 
-class Channel:
-    def __init__(self):
-        self.closed = False
-        self.values = deque()
-        self.waiters = deque()
+def is_retryable_stream_error(error):
+    from tangram.client import is_transport_error
 
-    def close(self) -> None:
-        if self.closed:
-            return
-        self.closed = True
-        while self.waiters:
-            waiter = self.waiters.popleft()
-            if not waiter.done():
-                waiter.set_result(None)
-
-    def __aiter__(self) -> AsyncIterator[dict[str, Any]]:
-        return self
-
-    async def __anext__(self) -> dict[str, Any]:
-        if self.values:
-            return self.values.popleft()
-        if self.closed:
-            raise StopAsyncIteration
-        waiter = asyncio.get_running_loop().create_future()
-        self.waiters.append(waiter)
-        value = await waiter
-        if value is None:
-            raise StopAsyncIteration
-        return value
-
-    def push(self, value: dict[str, Any]) -> bool:
-        if self.closed:
-            return False
-        while self.waiters:
-            waiter = self.waiters.popleft()
-            if not waiter.done():
-                waiter.set_result(value)
-                return True
-        self.values.append(value)
-        return True
-
-    async def aclose(self) -> None:
-        self.close()
+    # Retry an open stream's error unless the server sent it.
+    return not isinstance(error, ProtocolError) and (
+        not isinstance(error, Error) or is_transport_error(error)
+    )
 
 
 def safe_integer(value):

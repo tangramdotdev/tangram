@@ -14,6 +14,11 @@ use {
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
+	/// The ID of the `Open` request whose read this write carries.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
+	pub id: Option<String>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,

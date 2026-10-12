@@ -4,6 +4,7 @@ export type Config = {
 	process?: Process;
 	reconnect?: Retry;
 	retry?: Retry;
+	streamRetry?: Retry;
 	token?: string;
 	url?: string;
 	version?: string;
@@ -16,6 +17,7 @@ export namespace Config {
 			process: Process.defaultValue(),
 			reconnect: Retry.defaultValue(),
 			retry: Retry.defaultValue(),
+			streamRetry: Retry.streamDefaultValue(),
 		};
 	}
 }
@@ -142,6 +144,14 @@ export type Retry = {
 export namespace Retry {
 	export function defaultValue(): Retry {
 		return { backoff: 0.01, jitter: 0.01, maxDelay: 1, maxRetries: 3 };
+	}
+	export function streamDefaultValue(): Retry {
+		return {
+			backoff: 0.01,
+			jitter: 0.01,
+			maxDelay: 1,
+			maxRetries: Number.MAX_SAFE_INTEGER,
+		};
 	}
 	export function validate(options: Retry): void {
 		for (let value of [options.backoff, options.jitter, options.maxDelay]) {

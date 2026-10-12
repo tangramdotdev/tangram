@@ -1,56 +1,46 @@
 use super::*;
 
+fn chunk(position: u64) -> read::ServerMessage {
+	let chunk = tg::process::stdio::Chunk {
+		bytes: bytes::Bytes::from_static(b"a"),
+		combined_position: position,
+		stream: tg::process::stdio::Stream::Stdout,
+		stream_position: position,
+		timestamp: None,
+	};
+	read::ServerMessage::Notification(read::Event::Chunk(chunk))
+}
+
 #[tokio::test]
-async fn buffered_output_survives_control_retirement() {
-	let (local, mut receiver) = Local::new();
+async fn read_delivers_output_after_control_retires() {
+	let (local, mut receiver) = Local::new(256);
 	let task = tokio::spawn(async move {
-		let Some(Message::Request { request, sender }) = receiver.recv().await else {
-			panic!("expected a read request");
+		let Some(Message::Read { sender, .. }) = receiver.recv().await else {
+			panic!("expected a read");
 		};
-		let bytes = bytes::Bytes::from(vec![0; flow::CHUNK_SIZE]);
-		for index in 0..flow::MAX_CHUNKS {
-			let position = (index * flow::CHUNK_SIZE) as u64;
-			let chunk = tg::process::stdio::Chunk {
-				bytes: bytes.clone(),
-				combined_position: position,
-				stream: tg::process::stdio::Stream::Stdout,
-				stream_position: position,
-				timestamp: None,
-			};
-			let notification = tg::process::control::ReadClientNotification {
-				event: read::Event::Chunk(chunk),
-				id: request.id.clone(),
-			};
-			let message = tg::process::control::ClientMessage::Notification(
-				tg::process::control::ClientNotification::Read(notification),
-			);
-			sender.send_low(message).await.unwrap();
+
+		// Retire control while the output is still being delivered.
+		drop(receiver);
+		for position in 0..4 {
+			sender.send(Ok(chunk(position))).await.unwrap();
 		}
 		let end = tg::process::stdio::End {
-			combined_position: flow::WINDOW,
-			stream_positions: [(tg::process::stdio::Stream::Stdout, flow::WINDOW)].into(),
+			combined_position: 4,
+			stream_positions: [(tg::process::stdio::Stream::Stdout, 4)].into(),
 		};
-		let response = tg::process::control::ClientResponse {
-			error: None,
-			id: request.id,
-			output: Some(tg::process::control::ClientResponseOutput::Read(
-				read::Output::End(end),
-			)),
-		};
-		sender
-			.send_low(tg::process::control::ClientMessage::Response(response))
-			.await
-			.unwrap();
-
-		// Retire control before the consumer acknowledges the queued output.
-		drop(receiver);
+		let response = read::ServerMessage::Response(read::Output::End(end));
+		sender.send(Ok(response)).await.unwrap();
 	});
 	let arg = read::Arg {
 		streams: vec![tg::process::stdio::Stream::Stdout],
 		..Default::default()
 	};
-	let messages = local.read(arg).try_collect::<Vec<_>>().await.unwrap();
-	assert_eq!(messages.len(), flow::MAX_CHUNKS + 1);
+	let messages = local
+		.read(arg, futures::stream::empty().boxed())
+		.try_collect::<Vec<_>>()
+		.await
+		.unwrap();
+	assert_eq!(messages.len(), 5);
 	assert!(matches!(
 		messages.last(),
 		Some(read::ServerMessage::Response(read::Output::End(_)))
@@ -59,64 +49,37 @@ async fn buffered_output_survives_control_retirement() {
 }
 
 #[tokio::test]
-async fn read_reports_progress_and_closes() {
-	let (control_sender, mut receiver) = Local::new();
+async fn read_holds_back_the_runner_and_ends_when_dropped() {
+	let (local, mut receiver) = Local::new(256);
 	let arg = read::Arg {
 		streams: vec![tg::process::stdio::Stream::Stdout],
 		..Default::default()
 	};
-	let mut stream = control_sender.read(arg);
+	let mut stream = local.read(arg, futures::stream::empty().boxed());
 	assert!(stream.next().now_or_never().is_none());
-	let Message::Request { request, sender } = receiver.try_recv().unwrap() else {
-		panic!("expected a read request");
+	let Message::Read { sender, .. } = receiver.try_recv().unwrap() else {
+		panic!("expected a read");
 	};
-	for batch in 0..2 {
-		for index in 0..flow::MAX_CHUNKS / 2 {
-			let position = ((batch * flow::MAX_CHUNKS / 2 + index) * flow::CHUNK_SIZE) as u64;
-			let chunk = tg::process::stdio::Chunk {
-				bytes: bytes::Bytes::from(vec![0; flow::CHUNK_SIZE]),
-				combined_position: position,
-				stream: tg::process::stdio::Stream::Stdout,
-				stream_position: position,
-				timestamp: None,
-			};
-			let notification = tg::process::control::ReadClientNotification {
-				event: read::Event::Chunk(chunk),
-				id: request.id.clone(),
-			};
-			let message = tg::process::control::ClientMessage::Notification(
-				tg::process::control::ClientNotification::Read(notification),
-			);
-			sender.send_low(message).await.unwrap();
-			assert!(matches!(
-				stream.try_next().await.unwrap(),
-				Some(read::ServerMessage::Notification(read::Event::Chunk(_)))
-			));
-		}
-		assert!(stream.next().now_or_never().is_none());
-		let Message::Progress(notification) = receiver.try_recv().unwrap() else {
-			panic!("expected read progress");
-		};
-		assert_eq!(notification.id, request.id);
-		assert_eq!(
-			notification.progress.consumed,
-			(batch as u64 + 1) * flow::WINDOW / 2
-		);
-	}
+
+	// The channel holds one message until the reader consumes it.
+	sender.try_send(Ok(chunk(0))).unwrap();
+	assert!(sender.try_send(Ok(chunk(1))).is_err());
+	assert!(matches!(
+		stream.try_next().await.unwrap(),
+		Some(read::ServerMessage::Notification(read::Event::Chunk(_)))
+	));
+	sender.try_send(Ok(chunk(1))).unwrap();
+
+	// Dropping the reader closes the channel.
 	drop(stream);
-	let message = tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv())
+	tokio::time::timeout(std::time::Duration::from_secs(1), sender.closed())
 		.await
-		.unwrap()
 		.unwrap();
-	let Message::Close(id) = message else {
-		panic!("expected a read close");
-	};
-	assert_eq!(id, request.id);
 }
 
 #[tokio::test]
 async fn send_request_enqueues_before_waiting_and_preserves_response_errors() {
-	let (local, mut receiver) = Local::new();
+	let (local, mut receiver) = Local::new(256);
 	let arg =
 		tg::process::control::ServerRequestArg::Get(tg::process::control::GetServerRequestArg {});
 	let response = local.send_request(arg).await.unwrap();
@@ -141,7 +104,7 @@ async fn send_request_enqueues_before_waiting_and_preserves_response_errors() {
 
 #[tokio::test]
 async fn send_request_distinguishes_transport_errors_and_abandoned_callers() {
-	let (local, mut receiver) = Local::new();
+	let (local, mut receiver) = Local::new(256);
 	let arg =
 		tg::process::control::ServerRequestArg::Get(tg::process::control::GetServerRequestArg {});
 	let response = local.send_request(arg.clone()).await.unwrap();

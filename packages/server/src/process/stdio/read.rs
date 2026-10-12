@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	futures::{
-		FutureExt as _, StreamExt as _, TryStreamExt as _,
+		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
@@ -14,8 +14,13 @@ use {
 		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::IntervalStream,
+	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
+	tokio_util::task::AbortOnDropHandle,
 };
+
+mod relay;
+
+type Acks = tokio::sync::watch::Receiver<u64>;
 
 enum Source {
 	Log(BTreeSet<tg::process::stdio::Stream>),
@@ -34,18 +39,48 @@ impl Session {
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
-		let Some(source) = self.try_read_process_stdio_source(id, arg.clone()).await? else {
+		if arg.id.is_some() {
+			return self.try_read_process_stdio_relay(id, arg, input).await;
+		}
+
+		// Track the position through which the reader acknowledges the read's bytes, so any route to the runner can forward it.
+		let start = match arg.position {
+			Some(SeekFrom::Start(position)) => position,
+			_ => 0,
+		};
+		let (ack_sender, acks) = tokio::sync::watch::channel(start);
+		let ack_task = Task::spawn(move |_| async move {
+			let mut input = input;
+			while let Some(Ok(tg::process::stdio::read::ClientMessage::Ack { position })) =
+				input.next().await
+			{
+				ack_sender.send_if_modified(|acked| {
+					let modified = position > *acked;
+					*acked = (*acked).max(position);
+					modified
+				});
+			}
+		});
+
+		let Some(source) = self
+			.try_read_process_stdio_source(id, arg.clone(), &acks)
+			.await?
+		else {
 			return Ok(None);
 		};
-		let stream = self.read_process_stdio_protocol(arg, input, source);
+		let stream = self
+			.read_process_stdio_protocol(source)
+			.attach(ack_task)
+			.boxed();
 
 		Ok(Some(stream))
 	}
 
-	pub(in crate::process) async fn try_read_process_stdio_source(
+	async fn try_read_process_stdio_source(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		acks: &Acks,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		if let Some(control) = self
@@ -67,11 +102,12 @@ impl Session {
 				arg.streams = streams.iter().copied().collect();
 				let server = self.server.clone();
 				let id = id.clone();
+				let input = read_process_stdio_acks(acks);
 				let stream = stream::once(async move {
 					for stream in &arg.streams {
 						crate::checkpoint!(server, "process.stdio.read.request", process = %id, stream = %stream).await;
 					}
-					Ok::<_, tg::Error>(control.control_sender.read(arg))
+					Ok::<_, tg::Error>(control.control_sender.read(arg, input))
 				})
 				.try_flatten()
 				.boxed();
@@ -85,14 +121,14 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
-					.try_read_process_stdio_local(id, arg.clone())
+					.try_read_process_stdio_local(id, arg.clone(), acks)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to read local process stdio"))?
 			{
 				return Ok(Some(stream));
 			}
 			if let Some(stream) = self
-				.try_read_process_stdio_regions(id, arg.clone(), &local.regions)
+				.try_read_process_stdio_regions(id, arg.clone(), &local.regions, acks)
 				.await
 				.map_err(|error| {
 					tg::error!(!error, "failed to read process stdio from another region")
@@ -101,7 +137,7 @@ impl Session {
 			}
 		}
 		if let Some(stream) = self
-			.try_read_process_stdio_remotes(id, arg, &locations.remotes)
+			.try_read_process_stdio_remotes(id, arg, &locations.remotes, acks)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read process stdio from a remote"))?
 		{
@@ -111,25 +147,23 @@ impl Session {
 		Ok(None)
 	}
 
-	pub(in crate::process) fn read_process_stdio_protocol(
+	fn read_process_stdio_protocol(
 		&self,
-		_arg: tg::process::stdio::read::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 		output: BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>,
 	) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>> {
-		let stream = tg::process::stdio::flow::read(input, output);
 		match self.context.stopper.clone() {
-			Some(stopper) => stream
+			Some(stopper) => output
 				.take_until(async move { stopper.wait().await })
 				.boxed(),
-			None => stream,
+			None => output,
 		}
 	}
 
-	pub(in crate::process) async fn try_read_process_stdio_local(
+	async fn try_read_process_stdio_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		acks: &Acks,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		let output = self
@@ -164,11 +198,8 @@ impl Session {
 		if arg.size == Some(0) {
 			return Err(tg::error!("expected a nonzero stdio chunk size"));
 		}
-		arg.size = Some(
-			arg.size
-				.unwrap_or(tg::process::stdio::flow::CHUNK_SIZE as u64)
-				.min(tg::process::stdio::flow::CHUNK_SIZE as u64),
-		);
+		let max = tg::process::stdio::MAX_CHUNK_SIZE as u64;
+		arg.size = Some(arg.size.unwrap_or(max).min(max));
 		let stream = match source {
 			Source::Log(streams) => {
 				self.try_read_process_stdio_log_local(id, arg, streams)
@@ -183,7 +214,9 @@ impl Session {
 				),
 			))
 			.boxed(),
-			Source::Pipe(streams) => self.try_read_process_stdio_pipe_local(id, &arg, streams),
+			Source::Pipe(streams) => {
+				self.try_read_process_stdio_pipe_local(id, &arg, streams, acks)
+			},
 		};
 
 		Ok(Some(stream))
@@ -444,12 +477,298 @@ impl Session {
 		id: &tg::process::Id,
 		arg: &tg::process::stdio::read::Arg,
 		streams: BTreeSet<tg::process::stdio::Stream>,
+		acks: &Acks,
 	) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>> {
 		let arg = tg::process::stdio::read::Arg {
 			streams: streams.into_iter().collect(),
 			..arg.clone()
 		};
-		self.send_process_control_read(id, arg)
+		let (sender, receiver) = tokio::sync::mpsc::channel(1);
+		let task = Task::spawn({
+			let session = self.clone();
+			let id = id.clone();
+			let acks = acks.clone();
+			move |_| async move {
+				let result = session
+					.read_process_stdio_relay(&id, arg, &sender, acks)
+					.boxed()
+					.await;
+				if let Err(error) = result {
+					sender.send(Err(error)).await.ok();
+				}
+			}
+		});
+		ReceiverStream::new(receiver).attach(task).boxed()
+	}
+
+	async fn read_process_stdio_relay(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
+		acks: Acks,
+	) -> tg::Result<()> {
+		for stream in &arg.streams {
+			crate::checkpoint!(self.server, "process.stdio.read.request", process = %id, stream = %stream).await;
+		}
+
+		// Track the read's delivered position, so a failed relay can be replaced by one that resumes without delivering a byte twice.
+		let combined = arg.streams.len() > 1;
+		let mut position = match arg.position {
+			None => 0,
+			Some(SeekFrom::Start(position)) => position,
+			Some(_) => return Err(tg::error!("piped stdio only supports an absolute position")),
+		};
+		let mut length = arg.length;
+		let options: tangram_futures::retry::Options = self
+			.server
+			.config()
+			.process
+			.stdio_relay_retry
+			.clone()
+			.into();
+		let mut retries = tangram_futures::retry::stream(options.clone()).boxed();
+		let mut error = None;
+		loop {
+			if retries.next().await.is_none() {
+				return Err(error.unwrap());
+			}
+
+			// Open the read at the reader's acknowledged position, because the bytes delivered after it may not have reached the reader.
+			let acked = (*acks.borrow()).min(position);
+			let mut arg = arg.clone();
+			arg.position = Some(SeekFrom::Start(acked));
+			arg.length =
+				length.map(|length| length.saturating_add((position - acked).to_i64().unwrap()));
+			let start = position;
+			let result = self
+				.read_process_stdio_relay_attempt(
+					id,
+					arg,
+					sender,
+					combined,
+					&mut position,
+					&mut length,
+					acks.clone(),
+				)
+				.await;
+			let attempt_error = match result {
+				Ok(()) => return Ok(()),
+				Err(error) => error,
+			};
+
+			// Return the error unless the relay failed, so that only a failed relay is replaced and a superseded read never takes over again.
+			if attempt_error.kind() != Some(tg::error::Kind::Unavailable) || sender.is_closed() {
+				return Err(attempt_error);
+			}
+
+			// Restart the retries if the attempt delivered bytes, so that only consecutive failures exhaust them.
+			if position > start {
+				retries = tangram_futures::retry::stream(options.clone()).boxed();
+			}
+			tracing::warn!(error = %attempt_error.trace(), %id, "reopening the stdio relay");
+			crate::checkpoint!(self.server, "process.stdio.read.reopen", process = %id).await;
+			error = Some(attempt_error);
+		}
+	}
+
+	#[expect(clippy::too_many_arguments)]
+	async fn read_process_stdio_relay_attempt(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
+		combined: bool,
+		position: &mut u64,
+		length: &mut Option<i64>,
+		acks: Acks,
+	) -> tg::Result<()> {
+		// Open the relay before the read, so the runner's first bytes are not missed.
+		let timeout = arg.timeout;
+		let request_id = crate::control::id();
+		let subject = super::relay::subject(id, &request_id);
+		let options = self.server.config().process.stdio_relay;
+		let (relay_sender, receiver) =
+			tangram_messenger::relay::connect::<super::relay::Output, _>(
+				&self.server.messenger,
+				subject,
+				options,
+			)
+			.await
+			.map_err(super::relay::error)?;
+		let mut items = receiver;
+
+		// Send the reader's acknowledgments back to the runner.
+		let (end_sender, end) = tokio::sync::watch::channel(None);
+		let ack_items = relay_process_stdio_acks(acks.clone(), end);
+		let mut ack_task = AbortOnDropHandle::new(tokio::spawn(relay_sender.send_all(ack_items)));
+
+		// Open the read on the runner.
+		let open = tg::process::control::OpenServerRequestArg { arg };
+		let request = tg::process::control::ServerRequest {
+			arg: tg::process::control::ServerRequestArg::Open(open),
+			id: request_id.clone(),
+		};
+		let mut response = self.send_process_control_open(id, request).await?;
+
+		// Forward the relayed chunks until the relay ends.
+		let mut opened = false;
+		loop {
+			let item = tokio::select! {
+				item = items.next() => item,
+				result = &mut ack_task => {
+					result
+						.map_err(|error| tg::error!(unavailable, !error, "the stdio acknowledgment task panicked"))?
+						.map_err(super::relay::error)?;
+					return Err(tg::error!(unavailable, "the stdio acknowledgments ended"));
+				},
+				result = &mut response, if !opened => {
+					result?;
+					opened = true;
+					continue;
+				},
+				() = sender.closed() => return Ok(()),
+			};
+			let message = match item {
+				Some(Ok(super::relay::Data(tg::process::stdio::write::Data::Chunk(mut chunk)))) => {
+					// Skip the bytes that were already delivered.
+					let start = if combined {
+						chunk.combined_position
+					} else {
+						chunk.stream_position
+					};
+					let size = chunk.bytes.len().to_u64().unwrap();
+					if start + size <= *position {
+						continue;
+					}
+					if start > *position {
+						return Err(
+							tg::error!(expected = %*position, actual = %start, "encountered a gap in the process stdio stream"),
+						);
+					}
+					let offset = *position - start;
+					chunk.bytes = chunk.bytes.slice(offset.to_usize().unwrap()..);
+					chunk.combined_position += offset;
+					chunk.stream_position += offset;
+					let size = size - offset;
+					*position += size;
+					if let Some(length) = length {
+						*length -= size.to_i64().unwrap();
+					}
+					tg::process::stdio::read::ServerMessage::Notification(
+						tg::process::stdio::read::Event::Chunk(chunk),
+					)
+				},
+				Some(Ok(super::relay::Data(tg::process::stdio::write::Data::End(end)))) => {
+					let end_position = if combined {
+						end.combined_position
+					} else {
+						end.stream_positions
+							.values()
+							.copied()
+							.next()
+							.unwrap_or_default()
+					};
+					let output = tg::process::stdio::read::Output::End(end);
+					sender
+						.send(Ok(tg::process::stdio::read::ServerMessage::Response(
+							output,
+						)))
+						.await
+						.ok();
+
+					// Read the relay to its end while the acknowledgments finish, so that the relay acknowledges its end to the runner.
+					let drain = items.for_each(|_| future::ready(()));
+					let finish = finish_process_stdio_acks(
+						end_position,
+						&end_sender,
+						ack_task,
+						options.peer_timeout(),
+					);
+					future::join(drain, finish).await;
+					return Ok(());
+				},
+				Some(Err(error)) => {
+					return Err(super::relay::error(error));
+				},
+				None => {
+					// Respond with the read's limit or timeout when the relay ends without EOF, and otherwise fail the attempt, so that the relay is reopened.
+					let output = if length.is_some_and(|length| length <= 0) {
+						tg::process::stdio::read::Output::Limit {
+							position: *position,
+						}
+					} else if timeout.is_some() {
+						tg::process::stdio::read::Output::Timeout {
+							position: *position,
+						}
+					} else {
+						return Err(tg::error!(unavailable, "the stdio relay ended before EOF"));
+					};
+					sender
+						.send(Ok(tg::process::stdio::read::ServerMessage::Response(
+							output,
+						)))
+						.await
+						.ok();
+					finish_process_stdio_acks(
+						*position,
+						&end_sender,
+						ack_task,
+						options.peer_timeout(),
+					)
+					.await;
+					return Ok(());
+				},
+			};
+			if sender.send(Ok(message)).await.is_err() {
+				return Ok(());
+			}
+		}
+	}
+
+	pub(super) async fn send_process_control_open(
+		&self,
+		id: &tg::process::Id,
+		request: tg::process::control::ServerRequest,
+	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<()>>> {
+		let request_id = request.id.clone();
+		let request = crate::process::control::ServerMessage(
+			tg::process::control::ServerMessage::Request(request),
+		);
+		let options = crate::control::Options {
+			retry: self.server.config.process.stdio_open_retry.clone().into(),
+			timeout: self.server.config.process.stdio_open_timeout,
+		};
+		let arg = crate::control::SendControlRequestArg {
+			ack: |id| {
+				crate::process::control::ServerMessage(tg::process::control::ServerMessage::Ack(
+					tg::process::control::ServerAck { id },
+				))
+			},
+			client_subject: format!("processes.{id}.control.client.{request_id}"),
+			is_ack: |message: &crate::process::control::ClientMessage| {
+				matches!(message.0, tg::process::control::ClientMessage::Ack(_))
+			},
+			marker: std::marker::PhantomData,
+			options,
+			request,
+			response: |message: crate::process::control::ClientMessage| match message.0 {
+				tg::process::control::ClientMessage::Response(response) => {
+					let result = if let Some(error) = response.error {
+						Err(tg::Error::try_from(error)?)
+					} else {
+						Ok(())
+					};
+					Ok(Some((response.id, result)))
+				},
+				_ => Ok(None),
+			},
+			server_subject: format!("processes.{id}.control.server"),
+		};
+		let response = self.server.send_control_request(arg).await?;
+		let response = async move { response.await? }.boxed();
+
+		Ok(response)
 	}
 
 	async fn try_read_process_stdio_regions(
@@ -457,11 +776,12 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		regions: &[String],
+		acks: &Acks,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_read_process_stdio_region(id, arg.clone(), region))
+			.map(|region| self.try_read_process_stdio_region(id, arg.clone(), region, acks))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -483,6 +803,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		region: &str,
+		acks: &Acks,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		let client = self.get_region_session_for_process(region).await.map_err(
@@ -497,8 +818,9 @@ impl Session {
 			tokens,
 			..arg
 		};
+		let acks = read_process_stdio_acks(acks);
 		let stream = client
-			.try_read_process_stdio_all_inner(id, arg)
+			.try_read_process_stdio_all_inner(id, arg, Some(acks))
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to read the process stdio"),
@@ -513,11 +835,12 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		remotes: &[crate::location::Remote],
+		acks: &Acks,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_read_process_stdio_remote(id, arg.clone(), remote))
+			.map(|remote| self.try_read_process_stdio_remote(id, arg.clone(), remote, acks))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -539,6 +862,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		remote: &crate::location::Remote,
+		acks: &Acks,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		let client = self
@@ -561,8 +885,9 @@ impl Session {
 			tokens,
 			..arg
 		};
+		let acks = read_process_stdio_acks(acks);
 		let stream = client
-			.try_read_process_stdio_all_inner(id, arg)
+			.try_read_process_stdio_all_inner(id, arg, Some(acks))
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to read the process stdio"),
@@ -659,7 +984,7 @@ impl Session {
 			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 		let (arg, request) = request
-			.arg::<tg::process::stdio::read::Arg>()
+			.arg_with_tangram::<tg::process::stdio::read::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
@@ -681,4 +1006,76 @@ impl Session {
 
 		Ok(response)
 	}
+}
+
+fn read_process_stdio_acks(
+	acks: &Acks,
+) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>> {
+	tokio_stream::wrappers::WatchStream::new(acks.clone())
+		.map(|position| Ok(tg::process::stdio::read::ClientMessage::Ack { position }))
+		.boxed()
+}
+
+/// Relay the reader's acknowledgments, ending once one at or past the end position has been sent.
+fn relay_process_stdio_acks(
+	acks: Acks,
+	end: tokio::sync::watch::Receiver<Option<u64>>,
+) -> BoxStream<'static, Result<super::relay::Ack, bytes::Bytes>> {
+	struct State {
+		acks: Option<Acks>,
+		end: tokio::sync::watch::Receiver<Option<u64>>,
+		sent: Option<u64>,
+	}
+	let state = State {
+		acks: Some(acks),
+		end,
+		sent: None,
+	};
+	futures::stream::unfold(state, |mut state| async move {
+		loop {
+			if let Some(acks) = &mut state.acks {
+				let acked = *acks.borrow_and_update();
+				if state.sent.is_none_or(|sent| acked > sent) {
+					state.sent = Some(acked);
+					let message = tg::process::stdio::read::ClientMessage::Ack { position: acked };
+					return Some((Ok(super::relay::Ack(message)), state));
+				}
+			}
+			let end = *state.end.borrow_and_update();
+			if end.is_some_and(|end| state.sent.is_none_or(|sent| sent >= end)) {
+				return None;
+			}
+			tokio::select! {
+				result = async { state.acks.as_mut().unwrap().changed().await }, if state.acks.is_some() => {
+					if result.is_err() {
+						state.acks = None;
+					}
+				},
+				result = state.end.changed() => {
+					if result.is_err() {
+						return None;
+					}
+				},
+			}
+		}
+	})
+	.boxed()
+}
+
+/// Give the reader time to acknowledge the read's bytes after its final response, then finish sending acknowledgments, so the runner can release the bytes and complete its write.
+async fn finish_process_stdio_acks(
+	position: u64,
+	end: &tokio::sync::watch::Sender<Option<u64>>,
+	mut ack_task: AbortOnDropHandle<Result<(), tangram_messenger::relay::Error>>,
+	timeout: Duration,
+) {
+	// Finish sending acknowledgments once the reader acknowledges the end position.
+	end.send_replace(Some(position));
+	if tokio::time::timeout(timeout, &mut ack_task).await.is_ok() {
+		return;
+	}
+
+	// Stop waiting for a reader that does not acknowledge, and let the relay deliver what was sent.
+	end.send_replace(Some(0));
+	tokio::time::timeout(timeout, &mut ack_task).await.ok();
 }

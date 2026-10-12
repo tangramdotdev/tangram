@@ -815,7 +815,9 @@ impl Search {
 				container.clone(),
 				self.token_subject.as_ref(),
 			);
-			if self.visited_subjects.contains(&container) || next_depth > self.budget.config.max_depth {
+			if self.visited_subjects.contains(&container)
+				|| next_depth > self.budget.config.max_depth
+			{
 				continue;
 			}
 			if !self.budget.add_node(next_depth) {
@@ -1584,10 +1586,14 @@ mod tests {
 			vec![first.clone()],
 			&[],
 		);
-		search.queues.entry(0).or_default().push_back(DescendantTask::Node {
-			depth: 0,
-			key: source.clone(),
-		});
+		search
+			.queues
+			.entry(0)
+			.or_default()
+			.push_back(DescendantTask::Node {
+				depth: 0,
+				key: source.clone(),
+			});
 		let reads = search.take_reads(&mut state, 1);
 		let [read @ Read::DescendantChecks(_)] = reads.as_slice() else {
 			panic!("expected a checks read");

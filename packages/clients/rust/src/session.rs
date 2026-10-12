@@ -43,6 +43,7 @@ impl Session {
 			reconnect: self.client.reconnect.clone(),
 			retry: self.client.retry.clone(),
 			sandbox: self.client.sandbox,
+			stream_retry: self.client.stream_retry.clone(),
 			sync: self.client.sync,
 			value: self.client.value,
 		}

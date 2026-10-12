@@ -78,7 +78,10 @@ impl Ext for http::request::Builder {
 		T: serde::Serialize,
 		B: http_body::Body<Data = Bytes>,
 	{
-		self.arg_with(arg, body, |_, arg| Ok(serde_json::to_vec(arg)?))
+		self.arg_with(arg, body, |encoding, arg| {
+			encoding.require_json()?;
+			Ok(serde_json::to_vec(arg)?)
+		})
 	}
 
 	fn arg_with_tangram<T, B>(

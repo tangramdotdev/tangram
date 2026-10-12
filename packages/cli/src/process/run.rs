@@ -197,7 +197,6 @@ impl Cli {
 					let _exit_sender = exit_sender;
 					let outcome = local_set.block_on(&runtime, async move {
 						let viewer_options = crate::viewer::Options {
-							attached: true,
 							collapse_process_children: true,
 							config,
 							depth: None,

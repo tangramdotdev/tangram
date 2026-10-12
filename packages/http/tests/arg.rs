@@ -296,6 +296,31 @@ async fn prefixed_args_follow_the_content_type() {
 	}
 }
 
+#[tokio::test]
+async fn json_only_args_reject_native_body_prefixes() {
+	let arg = serde_json::json!({"value": "input"});
+	assert!(
+		http::Request::builder()
+			.uri("/sync")
+			.header(http::header::CONTENT_TYPE, "application/vnd.tangram.sync")
+			.header(body::arg::HEADER, "true")
+			.arg(&arg, body::Empty::new())
+			.is_err()
+	);
+	let request = http::Request::builder()
+		.uri("/sync")
+		.header(http::header::CONTENT_TYPE, "application/vnd.tangram.sync")
+		.header(body::arg::HEADER, "true")
+		.body(body::arg::Body::with_arg(body::Empty::new(), &arg).unwrap())
+		.unwrap();
+	assert!(
+		with_max_length(request)
+			.arg::<serde_json::Value>()
+			.await
+			.is_err()
+	);
+}
+
 fn with_max_length<B>(mut request: http::Request<B>) -> http::Request<B> {
 	request
 		.extensions_mut()

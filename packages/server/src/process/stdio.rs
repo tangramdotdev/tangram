@@ -29,6 +29,8 @@ mod tests {
 	}
 }
 
+mod relay;
+
 pub mod read;
 pub mod write;
 
@@ -154,7 +156,7 @@ where
 				},
 				Ok(_) => unreachable!(),
 				Err(error) => {
-					let error = tg::error!(!error, "failed to read the request body");
+					let error = tg::error!(unavailable, !error, "failed to read the request body");
 					data_sender.send(Err(error)).await.ok();
 					break;
 				},

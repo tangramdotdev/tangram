@@ -1,30 +1,77 @@
 import * as tg from "../../../index.ts";
 import { Body, Request, Response, percentEncode } from "../../../http.ts";
-import { Receiver } from "../../../process/stdio/flow.ts";
-import type { Client } from "../../../client.ts";
+import {
+	type Client,
+	backoff,
+	isTransportError,
+	retry,
+} from "../../../client.ts";
 
 export type Connection = {
-	input: {
-		close(): void;
-		push(message: tg.Process.Stdio.Read.ClientMessage): boolean;
-	};
+	close: () => void;
 	output: AsyncIterableIterator<tg.Process.Stdio.Read.ServerMessage>;
-	reconnect?: (arg: tg.Process.Stdio.Read.Arg) => Promise<Connection>;
 };
 
 class ProtocolError extends Error {}
+
+/** The position through which the reader has the read's bytes, which each connection sends so the runner can release them. */
+class Acks {
+	#closed = false;
+	#position: number;
+	#waiters: Array<() => void> = [];
+
+	constructor(position: number) {
+		this.#position = position;
+	}
+
+	close() {
+		this.#closed = true;
+		this.#wake();
+	}
+
+	set(position: number) {
+		if (position <= this.#position) {
+			return;
+		}
+		this.#position = position;
+		this.#wake();
+	}
+
+	async *events(): AsyncIterableIterator<Body.SseEvent> {
+		let sent: number | null = null;
+		while (true) {
+			if (sent !== this.#position) {
+				sent = this.#position;
+				yield { data: JSON.stringify(sent), event: "ack" };
+				continue;
+			}
+			if (this.#closed) {
+				return;
+			}
+			await new Promise<void>((resolve) => this.#waiters.push(resolve));
+		}
+	}
+
+	#wake() {
+		for (let waiter of this.#waiters.splice(0)) {
+			waiter();
+		}
+	}
+}
 
 export async function tryReadProcessStdio(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 ): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
-	let connection = await connect(client, id, arg);
+	let acks = new Acks(typeof arg.position === "number" ? arg.position : 0);
+	let connection = await connect(client, id, arg, acks);
 	if (connection === null) {
+		acks.close();
 		return null;
 	}
 
-	return readProcessStdioAll(client, id, arg, connection);
+	return readProcessStdioAll(client, id, arg, connection, acks);
 }
 
 export function readProcessStdioAll(
@@ -32,15 +79,17 @@ export function readProcessStdioAll(
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	connection: Connection,
+	acks: Acks,
 ): AsyncIterableIterator<tg.Process.Stdio.Chunk> {
 	let state = { canceled: false, connection };
-	let output = readProcessStdioAllInner(client, id, arg, state);
+	let output = readProcessStdioAllInner(client, id, arg, state, acks);
 	return {
 		next: () => output.next(),
 		return: async () => {
+			// Close the response, so that a pending next settles and the read ends now.
 			state.canceled = true;
-			state.connection.input.close();
-			state.connection.output.return?.().catch(() => {});
+			acks.close();
+			state.connection.close();
 			return await output.return!();
 		},
 		[Symbol.asyncIterator]() {
@@ -54,41 +103,41 @@ async function* readProcessStdioAllInner(
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	state: { canceled: boolean; connection: Connection },
+	acks: Acks,
 ): AsyncIterableIterator<tg.Process.Stdio.Chunk> {
 	let connection = state.connection;
 	let combined = arg.streams.length > 1;
 	let forward =
 		arg.length === undefined || arg.length === null || arg.length >= 0;
 	let nextArg = { ...arg, streams: [...arg.streams] };
-	let window = new Receiver();
-	let pending = 0;
 	let position = typeof arg.position === "string" ? null : (arg.position ?? 0);
+	let reconnects = 0;
 	try {
 		while (!state.canceled) {
-			let progress = window.consume(pending);
-			pending = 0;
-			if (progress !== null) {
-				connection.input.push({ kind: "notification", value: progress });
-			}
 			let result: IteratorResult<tg.Process.Stdio.Read.ServerMessage> | null =
 				null;
+			let error: unknown;
 			try {
 				result = await connection.output.next();
-			} catch (error) {
+			} catch (error_) {
 				if (state.canceled) return;
-				if (isTerminalError(error)) {
-					throw error;
+				if (!isRetryableStreamError(error_)) {
+					throw error_;
 				}
+				error = error_;
 			}
 			if (state.canceled) return;
 			if (result === null || result.done) {
-				connection = state.connection = await reconnect(
+				[connection, reconnects] = await reconnect(
 					client,
 					id,
 					nextArg,
 					connection,
+					acks,
+					reconnects,
+					error,
 				);
-				window = new Receiver();
+				state.connection = connection;
 				continue;
 			}
 			let message = result.value;
@@ -98,8 +147,6 @@ async function* readProcessStdioAllInner(
 					arg.streams,
 					position ?? 0,
 				);
-				connection.input.push({ kind: "ack" });
-				connection.input.close();
 				return;
 			}
 			if (message.value.kind === "position") {
@@ -119,8 +166,8 @@ async function* readProcessStdioAllInner(
 			if (message.value.kind !== "chunk") {
 				throw new ProtocolError("invalid process stdio read notification");
 			}
+			reconnects = 0;
 			let chunk = message.value.value;
-			pending = chunk.bytes.length;
 			if (!arg.streams.includes(chunk.stream)) {
 				throw new ProtocolError("invalid process stdio stream");
 			}
@@ -166,10 +213,14 @@ async function* readProcessStdioAllInner(
 			}
 			nextArg.position = position;
 
+			// The consumer has the chunk once it is yielded, so the runner no longer needs to keep it.
+			if (forward) {
+				acks.set(position);
+			}
 			yield chunk;
 		}
 	} finally {
-		connection.input.close();
+		acks.close();
 		await connection.output.return?.();
 	}
 }
@@ -178,49 +229,66 @@ async function connect(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
+	acks: Acks,
 ): Promise<Connection | null> {
-	let attempt = 0;
-	while (true) {
-		try {
-			return await readProcessStdioOnce(client, id, arg);
-		} catch (error) {
-			if (isTerminalError(error)) {
-				throw error;
-			}
-			await retryDelay(attempt);
-			attempt++;
-		}
-	}
+	return await retry(
+		client.streamRetry,
+		() => readProcessStdioOnce(client, id, arg, acks),
+		isRetryableError,
+	);
 }
 
+/** Reconnect after the given number of consecutive failed attempts, returning the new connection and the number of consecutive failed attempts including this one. */
 async function reconnect(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	connection: Connection,
-): Promise<Connection> {
-	connection.input.close();
+	acks: Acks,
+	attempt: number,
+	error: unknown,
+): Promise<[Connection, number]> {
 	await connection.output.return?.();
-	let next =
-		connection.reconnect === undefined
-			? await connect(client, id, arg)
-			: await connection.reconnect(arg);
-	if (next === null) {
-		throw new Error("failed to find the process");
-	}
+	while (true) {
+		// Fail once the consecutive attempts exhaust the stream retry options.
+		if (attempt >= client.streamRetry.maxRetries) {
+			throw (
+				error ?? new Error("the process stdio stream ended before completion")
+			);
+		}
 
-	return next;
+		// Back off, so that a stream that ends at once does not reconnect in a tight loop.
+		await backoff(client.streamRetry, attempt);
+		attempt++;
+
+		// Connect.
+		let next: Connection | null;
+		try {
+			next = await readProcessStdioOnce(client, id, arg, acks);
+		} catch (error_) {
+			if (!isRetryableError(error_)) {
+				throw error_;
+			}
+			error = error_;
+			continue;
+		}
+		if (next === null) {
+			throw new Error("failed to find the process");
+		}
+
+		return [next, attempt];
+	}
 }
 
 async function readProcessStdioOnce(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
+	acks: Acks,
 ): Promise<Connection | null> {
-	let input = new Channel<tg.Process.Stdio.Read.ClientMessage>();
 	let uri = `/processes/${percentEncode(id)}/stdio/read`;
 	let request = new Request({
-		body: Body.sse(encodeClientMessages(input)),
+		body: Body.sse(acks.events()),
 		headers: {
 			accept: "text/event-stream",
 			"content-type": "text/event-stream",
@@ -238,32 +306,20 @@ async function readProcessStdioOnce(
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
-		input.close();
+		response.close();
 		return null;
 	}
 	if (response.status < 200 || response.status >= 300) {
-		input.close();
 		throw await responseError(response);
 	}
 	let contentType = response.headers.get("content-type")?.split(";", 1)[0];
 	if (contentType !== "text/event-stream") {
-		input.close();
 		throw new ProtocolError("invalid process stdio response content type");
 	}
 	let output = decodeServerMessages(response);
+	let close = () => response.close();
 
-	return { input, output };
-}
-
-async function* encodeClientMessages(
-	input: AsyncIterable<tg.Process.Stdio.Read.ClientMessage>,
-): AsyncIterableIterator<Body.SseEvent> {
-	for await (let message of input) {
-		yield {
-			data: JSON.stringify(message.kind === "ack" ? null : message.value),
-			event: message.kind,
-		};
-	}
+	return { close, output };
 }
 
 async function* decodeServerMessages(
@@ -337,60 +393,14 @@ function errorFromData(data: tg.Error.Data | tg.Error.Id): tg.Error {
 		: tg.Error.fromData(data);
 }
 
-function isTerminalError(error: unknown): boolean {
-	return error instanceof tg.Error || error instanceof ProtocolError;
+function isRetryableError(error: unknown): boolean {
+	return !(error instanceof ProtocolError) && isTransportError(error);
 }
 
-async function retryDelay(attempt: number): Promise<void> {
-	let delay = Math.min(0.01 * 2 ** Math.min(attempt, 7), 1);
-	await tg.sleep(delay);
-}
-
-class Channel<T> implements AsyncIterableIterator<T> {
-	#closed = false;
-	#values: Array<T> = [];
-	#waiters: Array<(result: IteratorResult<T>) => void> = [];
-
-	close(): void {
-		if (this.#closed) {
-			return;
-		}
-		this.#closed = true;
-		while (this.#waiters.length > 0) {
-			this.#waiters.shift()!({ done: true, value: undefined });
-		}
-	}
-
-	next(): Promise<IteratorResult<T>> {
-		let value = this.#values.shift();
-		if (value !== undefined) {
-			return Promise.resolve({ done: false, value });
-		}
-		if (this.#closed) {
-			return Promise.resolve({ done: true, value: undefined });
-		}
-		return new Promise((resolve) => this.#waiters.push(resolve));
-	}
-
-	push(value: T): boolean {
-		if (this.#closed) {
-			return false;
-		}
-		let waiter = this.#waiters.shift();
-		if (waiter === undefined) {
-			this.#values.push(value);
-		} else {
-			waiter({ done: false, value });
-		}
-		return true;
-	}
-
-	return(): Promise<IteratorResult<T>> {
-		this.close();
-		return Promise.resolve({ done: true, value: undefined });
-	}
-
-	[Symbol.asyncIterator](): AsyncIterableIterator<T> {
-		return this;
-	}
+// Retry an error from an open stream unless the server sent it, because any other failure of an open stream is a transport failure.
+function isRetryableStreamError(error: unknown): boolean {
+	return (
+		!(error instanceof ProtocolError) &&
+		(!(error instanceof tg.Error) || isTransportError(error))
+	);
 }

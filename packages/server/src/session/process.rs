@@ -137,11 +137,9 @@ impl tg::instance::Process for Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
-		Option<
-			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
-		>,
+		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static>,
 	> {
 		self.try_write_process_stdio(id, arg, input).await
 	}

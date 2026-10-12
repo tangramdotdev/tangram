@@ -18,6 +18,7 @@ from ..config import (
     default_pool_options,
     default_process_config,
     default_retry_options,
+    default_stream_retry_options,
     validate_http_config,
     validate_pool_options,
     validate_process_config,
@@ -126,8 +127,10 @@ class Client:
         validate_process_config(self.process)
         self.reconnect = config.get("reconnect", default_retry_options())
         self.retry = config.get("retry", default_retry_options())
+        self.stream_retry = config.get("stream_retry", default_stream_retry_options())
         validate_retry_options(self.reconnect)
         validate_retry_options(self.retry)
+        validate_retry_options(self.stream_retry)
         self.version = config.get("version", default_version)
         self.url = config.get("url")
         self.token = config.get("token")

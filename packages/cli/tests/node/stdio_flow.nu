@@ -5,7 +5,7 @@ use ../lib/test.nu *
 const javascript_path = path self '../../../javascript'
 cd $javascript_path
 
-# A 4 MiB write pipelines two windows, and receipt acknowledgments do not release either window.
+# A 4 MiB write and a 4 MiB read complete without credit messages, and the read acknowledges every byte it receives.
 let output = timeout 5 node --input-type=module -e '
 	import assert from "node:assert/strict";
 	import * as tg from "@tangramdotdev/client";
@@ -25,65 +25,66 @@ let output = timeout 5 node --input-type=module -e '
 	    env: Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)),
 	    executable: process.execPath,
 	});
+	let id = "pcs_010000000000000000000000000000000000000000000000000000";
 	let chunkSize = 32 * 1024;
-	let maxChunks = 64;
-	let delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+	let count = 128;
 	let sent = 0;
-	let start = performance.now();
+	let acked = null;
+	let acks = null;
 	tg.client.send = async (request) => {
 	    let input = request.body.sse();
-	    let pending = null;
-	    let read = async () => {
-	        while (true) {
-	            let event = await (pending ?? input.next());
-	            pending = null;
-	            assert.equal(event.done, false);
-	            if (event.value.event === "ack") continue;
-	            assert.equal(event.value.event, "request");
-	            return JSON.parse(event.value.data);
-	        }
-	    };
-	    let response = (id, length, closed = false) => ({
-	        event: "response", data: JSON.stringify({ id, error: null, output: { closed, length } }),
-	    });
+	    if (request.uri.path.endsWith("/stdio/read")) {
+	        // A client read sends only acknowledgments.
+	        acks = (async () => {
+	            while (true) {
+	                let event = await input.next();
+	                if (event.done) return;
+	                assert.equal(event.value.event, "ack");
+	                acked = JSON.parse(event.value.data);
+	            }
+	        })();
+	        let output = async function* () {
+	            for (let index = 0; index < count; index++) {
+	                let chunk = { bytes: Buffer.alloc(chunkSize, 120).toString("base64"), combined_position: index * chunkSize, stream: "stdout", stream_position: index * chunkSize };
+	                yield { event: "notification", data: JSON.stringify({ kind: "chunk", value: chunk }) };
+	            }
+	            let end = { combined_position: count * chunkSize, stream_positions: { stdout: count * chunkSize } };
+	            yield { event: "response", data: JSON.stringify({ kind: "end", value: end }) };
+	        };
+	        return new tg.Response(200, { "content-type": "text/event-stream" }, { sse: output });
+	    }
 	    let output = async function* () {
-	        for (let batch = 0; batch < 2; batch++) {
-	            let requests = [];
-	            for (let index = 0; index < maxChunks; index++) {
-	                let request = await read();
-	                assert.equal(request.arg.kind, "chunk");
-	                assert.equal(request.arg.value.stream_position, sent * chunkSize);
-	                assert.equal(Buffer.from(request.arg.value.bytes, "base64").length, chunkSize);
-	                sent++;
-	                requests.push(request);
+	        while (true) {
+	            let event = await input.next();
+	            assert.equal(event.done, false);
+	            assert.equal(event.value.event, "data");
+	            let data = JSON.parse(event.value.data);
+	            if (data.kind === "end") {
+	                assert.deepEqual(data.value, { combined_position: chunkSize * sent, stream_positions: { stdin: chunkSize * sent } });
+	                yield { event: "output", data: JSON.stringify({ closed: true, position: chunkSize * sent }) };
+	                return;
 	            }
-	            // Receipt acknowledgments must not release the write window.
-	            for (let request of requests) {
-	                yield { event: "ack", data: JSON.stringify({ id: request.id }) };
-	            }
-	            let arrived = false;
-	            pending = input.next().then((event) => { arrived = true; return event; });
-	            await delay(100);
-	            assert.equal(arrived, false);
-	            for (let request of requests) yield response(request.id, chunkSize);
+	            assert.equal(data.value.stream_position, sent * chunkSize);
+	            assert.equal(Buffer.from(data.value.bytes, "base64").length, chunkSize);
+	            sent++;
+	            yield { event: "output", data: JSON.stringify({ closed: false, position: sent * chunkSize }) };
 	        }
-	        let end = await read();
-	        assert.deepEqual(end.arg, {
-	            kind: "end",
-	            value: { combined_position: chunkSize * sent, stream_positions: { stdin: chunkSize * sent } },
-	        });
-	        await delay(100);
-	        yield response(end.id, 0, true);
 	    };
 	    return new tg.Response(200, { "content-type": "text/event-stream" }, { sse: output });
 	};
 	let input = async function* () {
-	    for (let index = 0; index < maxChunks * 2; index++) {
+	    for (let index = 0; index < count; index++) {
 	        yield { bytes: new Uint8Array(chunkSize), combinedPosition: index * chunkSize, stream: "stdin", streamPosition: index * chunkSize };
 	    }
 	};
-	await tg.client.writeProcessStdio("pcs_010000000000000000000000000000000000000000000000000000", { streams: ["stdin"] }, input());
-	assert.equal(sent, maxChunks * 2);
-	console.log(JSON.stringify({ chunks: sent, bytes: sent * chunkSize, latency_ms: 100, elapsed_ms: Math.round(performance.now() - start) }));
+	await tg.client.writeProcessStdio(id, { streams: ["stdin"] }, input());
+	assert.equal(sent, count);
+	let read = await tg.client.tryReadProcessStdio(id, { streams: ["stdout"] });
+	let bytes = 0;
+	for await (let chunk of read) bytes += chunk.bytes.length;
+	assert.equal(bytes, count * chunkSize);
+	await acks;
+	assert.equal(acked, count * chunkSize);
+	console.log("ok");
 ' | complete
 success $output

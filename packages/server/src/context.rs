@@ -4,6 +4,7 @@ use {tangram_client::prelude::*, tangram_futures::task::Stopper};
 pub struct Context {
 	pub billing_ready: bool,
 	pub id: Option<String>,
+	pub local_process_control: bool,
 	pub origin: Origin,
 	pub principal: tg::Principal,
 	pub stopper: Option<Stopper>,
@@ -22,6 +23,7 @@ impl Context {
 		Self {
 			billing_ready: false,
 			id: None,
+			local_process_control: false,
 			origin: Origin::Host,
 			principal: tg::Principal::Root,
 			stopper: None,

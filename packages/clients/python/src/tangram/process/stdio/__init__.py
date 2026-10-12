@@ -77,15 +77,9 @@ class ReadArgObject(TypedDict):
     tokens: NotRequired[dict[str, list[str]] | None]
 
 
-class WriteArgObject(TypedDict):
-    data: StdioChunkEvent | StdioEndOutput
-    location: NotRequired[LocationArgObject | None]
-    tokens: NotRequired[dict[str, list[str]] | None]
-
-
 class StdioWriteOutput(TypedDict):
     closed: bool
-    length: int
+    position: int
 
 
 class Chunk:
@@ -235,8 +229,6 @@ class Reader:
         self._ended = True
         if self._iterator is not None:
             await self._iterator.aclose()
-        elif self.process is not None and self.process.connection is not None:
-            await self.process.connection.close_initial(self.stream)
         if self.fd is not None:
             from ... import host
 

@@ -146,13 +146,11 @@ impl tg::instance::Process for tg::Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>>
-				+ Send
-				+ 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
 			>,
 		>,
 	> {

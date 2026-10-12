@@ -375,6 +375,7 @@ impl Server {
 					let context = Context {
 						billing_ready: false,
 						id: None,
+						local_process_control: false,
 						origin,
 						principal: tg::Principal::Anonymous,
 						stopper: Some(stopper),

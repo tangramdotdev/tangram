@@ -149,6 +149,7 @@ pub struct Arg {
 	pub reconnect: tangram_futures::retry::Options,
 	pub retry: tangram_futures::retry::Options,
 	pub sandbox: tg::sandbox::Config,
+	pub stream_retry: tangram_futures::retry::Options,
 	pub sync: tg::sync::Config,
 	pub value: tg::value::Config,
 }
@@ -176,6 +177,7 @@ pub struct State {
 	retry: tangram_futures::retry::Options,
 	sandbox: tg::sandbox::Config,
 	service: self::http::Service,
+	stream_retry: tangram_futures::retry::Options,
 	sync: tg::sync::Config,
 	url: Uri,
 	value: tg::value::Config,
@@ -243,6 +245,7 @@ impl Client {
 		let pool_options = arg.pool;
 		let reconnect = arg.reconnect;
 		let retry = arg.retry;
+		let stream_retry = arg.stream_retry;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
 		let pool = Self::pool(pool_options, &reconnect, &url, http);
@@ -258,6 +261,7 @@ impl Client {
 			retry,
 			sandbox,
 			service,
+			stream_retry,
 			sync,
 			url,
 			value,
@@ -305,6 +309,7 @@ impl Client {
 		let pool_options = arg.pool;
 		let reconnect = arg.reconnect;
 		let retry = arg.retry;
+		let stream_retry = arg.stream_retry;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
 		let sender = Self::handshake_h2(stream, http.http2).await?;
@@ -330,6 +335,7 @@ impl Client {
 			retry,
 			sandbox,
 			service,
+			stream_retry,
 			sync,
 			url,
 			value,
@@ -436,6 +442,7 @@ impl fmt::Debug for State {
 			.field("reconnect", &self.reconnect)
 			.field("retry", &self.retry)
 			.field("sandbox", &self.sandbox)
+			.field("stream_retry", &self.stream_retry)
 			.field("sync", &self.sync)
 			.field("url", &self.url)
 			.field("value", &self.value)
@@ -460,6 +467,10 @@ impl Default for Arg {
 			shared: usize::MAX,
 			ttl: None,
 		};
+		let stream_retry = tangram_futures::retry::Options {
+			max_retries: u64::MAX,
+			..Default::default()
+		};
 		Self {
 			url: None,
 			version: None,
@@ -471,6 +482,7 @@ impl Default for Arg {
 			reconnect: tangram_futures::retry::Options::default(),
 			retry: tangram_futures::retry::Options::default(),
 			sandbox: tg::sandbox::Config::default(),
+			stream_retry,
 			sync: tg::sync::Config::default(),
 			value: tg::value::Config::default(),
 		}

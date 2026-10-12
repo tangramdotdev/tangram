@@ -4,6 +4,8 @@ import type { Connection } from "./connect.ts";
 export type Stdio = "inherit" | "log" | "null" | "pipe" | "tty";
 
 export namespace Stdio {
+	export const MAX_CHUNK_SIZE = 32 * 1024;
+
 	export type Chunk = {
 		bytes: Uint8Array;
 		combinedPosition: number;
@@ -81,10 +83,6 @@ export namespace Stdio {
 			tokens?: tg.Authorization.Tokens | null;
 		};
 
-		export type ClientMessage =
-			| { kind: "ack" }
-			| { kind: "notification"; value: Progress };
-
 		export type Event =
 			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
 			| {
@@ -126,22 +124,12 @@ export namespace Stdio {
 			}
 		}
 
-		export type Progress = { consumed: number };
-
 		export type ServerMessage =
 			| { kind: "notification"; value: Event }
 			| { kind: "response"; value: Output };
 	}
 
 	export namespace Write {
-		export type Arg = {
-			data: Data;
-			location?: tg.Location.Arg | null;
-			tokens?: tg.Authorization.Tokens | null;
-		};
-		export type ClientMessage =
-			| { kind: "ack"; value: { id: number } }
-			| { kind: "request"; value: Request };
 		export type Data =
 			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
 			| { kind: "end"; value: End };
@@ -156,16 +144,8 @@ export namespace Stdio {
 				};
 			}
 		}
-		export type Output = { closed: boolean; length: number };
-		export type Request = { arg: Data; id: number };
-		export type Response = {
-			error: tg.Error.Data | null;
-			id: number;
-			output: Output | null;
-		};
-		export type ServerMessage =
-			| { kind: "ack"; value: { id: number } }
-			| { kind: "response"; value: Response };
+		/** The position through which the server has written, and whether stdin is closed. */
+		export type Output = { closed: boolean; position: number };
 		export namespace Stream {
 			export type Arg = {
 				location?: tg.Location.Arg | null;

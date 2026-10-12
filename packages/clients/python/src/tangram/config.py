@@ -12,6 +12,7 @@ class Config(TypedDict, total=False):
     process: ProcessConfig
     reconnect: RetryOptions
     retry: RetryOptions
+    stream_retry: RetryOptions
     token: str
     url: str
     version: str
@@ -60,6 +61,7 @@ def default_config() -> Config:
         "process": default_process_config(),
         "reconnect": default_retry_options(),
         "retry": default_retry_options(),
+        "stream_retry": default_stream_retry_options(),
     }
 
 
@@ -93,6 +95,15 @@ def default_process_connect_config() -> ProcessConnectConfig:
 
 def default_retry_options() -> RetryOptions:
     return {"backoff": 0.01, "jitter": 0.01, "max_delay": 1, "max_retries": 3}
+
+
+def default_stream_retry_options() -> RetryOptions:
+    return {
+        "backoff": 0.01,
+        "jitter": 0.01,
+        "max_delay": 1,
+        "max_retries": 2**53 - 1,
+    }
 
 
 def validate_http_config(config: HttpConfig) -> None:

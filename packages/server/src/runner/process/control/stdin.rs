@@ -1,5 +1,5 @@
 use {
-	crate::{process::control::local::Reply, session::Session},
+	crate::session::Session,
 	futures::{TryFutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{pin::pin, sync::Arc},
@@ -11,11 +11,15 @@ use {
 
 pub(super) struct RunProcessControlStdinTaskArg {
 	pub(super) exited: Stopper,
-	pub(super) receiver:
-		tokio::sync::mpsc::Receiver<(String, tg::process::stdio::write::Data, Reply)>,
+	pub(super) receiver: tokio::sync::mpsc::Receiver<Write>,
 	pub(super) sandbox: tangram_sandbox::Sandbox,
 	pub(super) sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
 	pub(super) stdin: tg::process::Stdio,
+}
+
+pub(super) struct Write {
+	pub(super) data: Data,
+	pub(super) sender: tokio::sync::oneshot::Sender<tg::Result<tg::process::stdio::write::Output>>,
 }
 
 impl Session {
@@ -54,12 +58,11 @@ impl Session {
 		}
 		let mut closed = false;
 		let mut position = 0_u64;
-		while let Some((id, request, sender)) = receiver.recv().await {
-			let request = match Self::process_control_stdin_chunk(request) {
+		while let Some(Write { data, sender }) = receiver.recv().await {
+			let request = match Self::process_control_stdin_chunk(data) {
 				Ok(chunk) => chunk,
 				Err(error) => {
-					let response = Self::process_control_response(id, Err(error));
-					sender.send_low(response).await?;
+					sender.send(Err(error)).ok();
 					continue;
 				},
 			};
@@ -91,9 +94,7 @@ impl Session {
 			} else {
 				Self::handle_closed_process_stdin_write_request(&request, position)
 			};
-			let response = result.map(tg::process::control::ClientResponseOutput::Write);
-			let response = Self::process_control_response(id, response);
-			sender.send_low(response).await?;
+			sender.send(result).ok();
 		}
 
 		Ok(())
@@ -104,8 +105,7 @@ impl Session {
 	) -> tg::Result<tg::process::stdio::Chunk> {
 		let chunk = match data {
 			Data::Chunk(chunk) => {
-				if chunk.bytes.is_empty()
-					|| chunk.bytes.len() > tg::process::stdio::flow::CHUNK_SIZE
+				if chunk.bytes.is_empty() || chunk.bytes.len() > tg::process::stdio::MAX_CHUNK_SIZE
 				{
 					return Err(tg::error!("invalid process stdin chunk size"));
 				}
@@ -151,11 +151,10 @@ impl Session {
 				"encountered a gap in the stdin stream"
 			));
 		}
+		let end = start + chunk.bytes.len().to_u64().unwrap();
 		let output = tg::process::stdio::write::Output {
 			closed: true,
-			length: position
-				.saturating_sub(start)
-				.min(chunk.bytes.len().to_u64().unwrap()),
+			position: position.min(end),
 		};
 
 		Ok(output)
@@ -188,7 +187,7 @@ impl Session {
 			*closed = true;
 			let output = tg::process::stdio::write::Output {
 				closed: true,
-				length: 0,
+				position: start,
 			};
 
 			return Ok(output);
@@ -196,7 +195,7 @@ impl Session {
 		if end <= *position {
 			let output = tg::process::stdio::write::Output {
 				closed: false,
-				length: chunk.bytes.len().to_u64().unwrap(),
+				position: end,
 			};
 
 			return Ok(output);
@@ -231,7 +230,7 @@ impl Session {
 		}
 		let output = tg::process::stdio::write::Output {
 			closed: *closed,
-			length: position.saturating_sub(start).min(end - start),
+			position: (*position).min(end),
 		};
 
 		Ok(output)

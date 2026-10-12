@@ -198,6 +198,26 @@ impl Cli {
 			.map(crate::config::resolve_client_sandbox)
 			.unwrap_or_default();
 
+		// Get the stream retry options.
+		let stream_retry = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.stream_retry)
+			.map_or_else(
+				|| tg::Arg::default().stream_retry,
+				crate::config::resolve_client_stream_retry,
+			);
+
+		// Get the sync options.
+		let sync = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.sync)
+			.map(crate::config::resolve_client_sync)
+			.unwrap_or_default();
+
 		// Get the value options.
 		let value = self
 			.config
@@ -218,7 +238,8 @@ impl Cli {
 			reconnect,
 			retry,
 			sandbox,
-			sync: tg::sync::Config::default(),
+			stream_retry,
+			sync,
 			value,
 		};
 

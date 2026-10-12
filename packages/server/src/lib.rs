@@ -249,20 +249,51 @@ impl Server {
 				"the authentication cache ttl must be greater than zero"
 			));
 		}
+		config
+			.process
+			.stdio_relay
+			.validate()
+			.map_err(|source| tg::error!(!source, "invalid stdio relay configuration"))?;
+		if (config.sync.permission_time_to_live / 2).is_zero() {
+			return Err(tg::error!(
+				"the sync permission time to live must be greater than zero"
+			));
+		}
 		if config.scheduler.message_ack_timeout.is_zero() {
 			return Err(tg::error!(
 				"the scheduler message ack timeout must be greater than zero"
 			));
 		}
-		if config.sync.max_frame_size == 0 {
-			return Err(tg::error!(
-				"the sync max frame size must be greater than zero"
-			));
-		}
+		config
+			.process
+			.control
+			.validate()
+			.map_err(|source| tg::error!(!source, "invalid process control configuration"))?;
 		let connect = &config.process.connect;
 		if connect.max_operations == 0 || connect.max_pending_messages == 0 {
 			return Err(tg::error!(
 				"the process connect max operations and max pending messages must be greater than zero"
+			));
+		}
+		let log_batch = &config.process.stdio_log_batch;
+		if log_batch.channel_capacity == 0 || log_batch.max_chunks == 0 || log_batch.max_size == 0 {
+			return Err(tg::error!(
+				"the process stdio log batch channel capacity, max chunks, and max size must be greater than zero"
+			));
+		}
+		if config.process.stdio_open_timeout.is_zero() {
+			return Err(tg::error!(
+				"the process stdio open timeout must be greater than zero"
+			));
+		}
+		if config.runner.stdio_buffer_chunks == 0 || config.runner.stdio_buffer_size == 0 {
+			return Err(tg::error!(
+				"the runner stdio buffer chunks and size must be greater than zero"
+			));
+		}
+		if config.sync.max_frame_size == 0 {
+			return Err(tg::error!(
+				"the sync max frame size must be greater than zero"
 			));
 		}
 		for (name, duration) in [
@@ -364,8 +395,20 @@ impl Server {
 				config.process.connect.spawn_channel_capacity,
 			),
 			(
+				"process control channel capacity",
+				config.process.control_channel_capacity,
+			),
+			(
+				"process local control channel capacity",
+				config.process.local_control_channel_capacity,
+			),
+			(
 				"process spawn authorization batch size",
 				config.process.spawn.authorization_batch_size,
+			),
+			(
+				"process sync channel capacity",
+				config.process.sync_channel_capacity,
 			),
 			(
 				"progress channel capacity",
@@ -375,6 +418,14 @@ impl Server {
 			(
 				"runner control channel capacity",
 				config.runner.control_channel_capacity,
+			),
+			(
+				"runner log channel capacity",
+				config.runner.log_channel_capacity,
+			),
+			(
+				"runner process control channel capacity",
+				config.runner.process_control_channel_capacity,
 			),
 			(
 				"runner progress channel capacity",
@@ -604,6 +655,11 @@ impl Server {
 		if pagination.default_limit == 0 || pagination.default_limit > pagination.max_limit {
 			return Err(tg::error!(
 				"the pagination default limit must be between 1 and the pagination max limit"
+			));
+		}
+		if config.runner.log_buffer_size < tg::process::stdio::MAX_CHUNK_SIZE {
+			return Err(tg::error!(
+				"the runner log buffer size must be at least the maximum stdio chunk size"
 			));
 		}
 		config.usage.validate()?;
@@ -2529,6 +2585,9 @@ impl Server {
 			http: tg::Http {
 				http2: self.config().http.http2,
 				..Default::default()
+			},
+			sync: tg::sync::Config {
+				max_frame_size: self.config().sync.max_frame_size,
 			},
 			url,
 			version: Some(self.version.clone()),

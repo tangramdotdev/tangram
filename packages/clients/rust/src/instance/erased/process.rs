@@ -113,12 +113,10 @@ pub trait Process: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<
-			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>,
-		>,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>>,
 	>;
 
 	fn try_touch_process<'a>(
@@ -287,12 +285,10 @@ where
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<
-			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>,
-		>,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>>,
 	> {
 		self.try_write_process_stdio(id, arg, input)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))

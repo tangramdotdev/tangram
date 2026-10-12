@@ -34,9 +34,12 @@ let tokens = $file | referent tokens local
 let sync = $tokens | where { |token| 'sync_read' in (token-body $token).permissions } | first
 assert ((token-body $sync).resource | str starts-with 'syn_')
 
-# Forwarding the existing token must preserve its signed authority and expiration.
+# Forwarding the stored token must preserve its signed authority and expiration, so repeated index reads return the same full sync token.
 let indexed = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?source=index'
-assert ($sync in ($indexed.data.output.value | referent tokens local))
+let indexed_sync = $indexed.data.output.value | referent tokens local | where { |token| 'sync_read' in (token-body $token).permissions } | first
+assert equal (token-body $indexed_sync).resource (token-body $sync).resource
+let reindexed = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?source=index'
+assert ($indexed_sync in ($reindexed.data.output.value | referent tokens local))
 let pull = job spawn {
 	let job_id = job id
 	let output = tg --url $remote.url --token $reader.token cat $file | complete

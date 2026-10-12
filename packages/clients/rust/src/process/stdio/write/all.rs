@@ -1,13 +1,19 @@
 use {
-	super::{Ack, ClientMessage, Data, Input, Request, Response, ServerMessage, stream::Arg},
-	crate::{prelude::*, process::stdio::flow},
-	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
+	super::{Data, Input, Output, stream::Arg},
+	crate::prelude::*,
+	futures::{
+		FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream,
+	},
 	std::collections::{BTreeMap, VecDeque},
+	tokio_stream::wrappers::ReceiverStream,
 };
+
+type Connecting = BoxFuture<'static, tg::Result<Option<BoxStream<'static, tg::Result<Output>>>>>;
 
 struct Pending {
 	completion: Option<tokio::sync::oneshot::Sender<()>>,
-	request: Request,
+	data: Data,
+	end: u64,
 	sent: bool,
 }
 
@@ -23,172 +29,171 @@ pub(crate) async fn all<I: tg::Instance>(
 		.iter()
 		.map(|stream| (*stream, 0))
 		.collect::<BTreeMap<_, _>>();
+	let mut connecting = None::<Connecting>;
+	let mut error = None::<tg::Error>;
 	let mut input_ended = false;
-	let mut next_id = 0;
-	let mut output = None::<BoxStream<'static, tg::Result<ServerMessage>>>;
+	let mut output = None::<BoxStream<'static, tg::Result<Output>>>;
 	let mut pending = VecDeque::<Pending>::new();
-	let mut remaining = None::<Input>;
-	let mut sender = None::<async_channel::Sender<tg::Result<ClientMessage>>>;
 	let mut retries = None::<BoxStream<'static, ()>>;
+	let mut sender = None::<tokio::sync::mpsc::Sender<tg::Result<Data>>>;
+	let stream_retry = instance.arg().stream_retry;
+	let mut written = 0;
 	loop {
-		// Reconnect with only the writes whose completed outcomes are still unknown.
-		if output.is_none() {
-			if let Some(retries) = &mut retries {
-				retries.next().await;
-			}
-			let (new_sender, receiver) = async_channel::bounded(flow::CHANNEL_CAPACITY);
-			match instance
-				.try_write_process_stdio(id, arg.clone(), receiver.boxed())
-				.await
+		// Reconnect and resend the data the server has not reported written, writing the request body without waiting for the response headers.
+		if output.is_none() && connecting.is_none() {
+			// Fail with the last error once the retries are exhausted.
+			if let Some(retries) = &mut retries
+				&& retries.next().await.is_none()
 			{
-				Ok(Some(stream)) => {
-					output = Some(stream.boxed());
-					sender = Some(new_sender);
-				},
-				Ok(None) => return Err(tg::error!("failed to find the process")),
-				Err(error) if retries.is_some() => {
-					tracing::error!(error = %error.trace(), "failed to reconnect the stdio write stream");
-					continue;
-				},
-				Err(error) => return Err(error),
+				let error = error.take().unwrap_or_else(|| {
+					tg::error!(
+						unavailable,
+						"the process stdio stream ended before completion"
+					)
+				});
+				return Err(error);
 			}
+			let (new_sender, receiver) = tokio::sync::mpsc::channel(1);
+			sender = Some(new_sender);
 			for pending in &mut pending {
 				pending.sent = false;
 			}
+			let instance = instance.clone();
+			let id = id.clone();
+			let arg = arg.clone();
+			connecting = Some(
+				async move {
+					let output = instance
+						.try_write_process_stdio(&id, arg, ReceiverStream::new(receiver).boxed())
+						.await?
+						.map(futures::StreamExt::boxed);
+					Ok(output)
+				}
+				.boxed(),
+			);
 		}
 
-		// Keep both bytes and request metadata bounded until responses arrive.
-		if pending.len() < flow::MAX_CHUNKS {
-			if let Some(mut value) = remaining.take() {
-				let mut chunk = value.chunk.clone();
-				if !arg.streams.contains(&chunk.stream) {
-					return Err(tg::error!("invalid process stdio stream"));
-				}
-				let length = chunk.bytes.len().min(flow::CHUNK_SIZE);
-				if length == 0 {
-					if let Some(completion) = value.completion.take() {
-						completion.send(()).ok();
-					}
-					continue;
-				}
-				chunk.bytes = chunk.bytes.slice(..length);
-				combined_position = chunk
-					.combined_position
-					.checked_add(length as u64)
-					.ok_or_else(|| tg::error!("the stdio position is too large"))?;
-				stream_positions.insert(
-					chunk.stream,
-					chunk
-						.stream_position
-						.checked_add(length as u64)
-						.ok_or_else(|| tg::error!("the stdio position is too large"))?,
-				);
-				let completion = if length == value.chunk.bytes.len() {
-					value.completion.take()
-				} else {
-					value.chunk.bytes = value.chunk.bytes.slice(length..);
-					value.chunk.combined_position += length as u64;
-					value.chunk.stream_position += length as u64;
-					remaining = Some(value);
-					None
-				};
-				let request = Request {
-					arg: Data::Chunk(chunk),
-					id: next_id,
-				};
-				next_id += 1;
-				pending.push_back(Pending {
-					completion,
-					request,
-					sent: false,
-				});
-			} else if input_ended && pending.is_empty() {
-				let end = tg::process::stdio::End {
-					combined_position,
-					stream_positions: stream_positions.clone(),
-				};
-				let request = Request {
-					arg: Data::End(end),
-					id: next_id,
-				};
-				next_id += 1;
-				pending.push_back(Pending {
-					completion: None,
-					request,
-					sent: false,
-				});
-			}
-		}
-		for pending in &mut pending {
-			if !pending.sent {
-				sender
-					.as_ref()
-					.unwrap()
-					.send(Ok(ClientMessage::Request(pending.request.clone())))
-					.await
-					.ok();
-				pending.sent = true;
-			}
-		}
-
-		// Poll responses even while the input is idle or the write window is full.
+		// Write the data, holding it until the server reports it written.
+		let unsent = pending.iter().position(|pending| !pending.sent);
+		let channel = sender.clone();
 		tokio::select! {
 			biased;
-			message = output.as_mut().unwrap().next() => {
+			result = async { connecting.as_mut().unwrap().await }, if connecting.is_some() => {
+				connecting = None;
+				match result {
+					Ok(Some(stream)) => output = Some(stream),
+					Ok(None) => return Err(tg::error!("failed to find the process")),
+					// Retry the attempt if it failed with an unavailable error.
+					Err(attempt_error) if attempt_error.kind() == Some(tg::error::Kind::Unavailable) => {
+						tracing::error!(error = %attempt_error.trace(), "failed to reconnect the stdio write stream");
+						error = Some(attempt_error);
+						sender = None;
+						retries.get_or_insert_with(|| tangram_futures::retry::stream(stream_retry.clone()).boxed());
+					},
+					Err(error) => return Err(error),
+				}
+			},
+			message = async { output.as_mut().unwrap().next().await }, if output.is_some() => {
 				let Some(message) = message else {
 					output = None;
 					sender = None;
-					let options = tangram_futures::retry::Options {
-						max_retries: u64::MAX,
-						..Default::default()
-					};
-					retries.get_or_insert_with(|| tangram_futures::retry::stream(options).boxed());
+					retries.get_or_insert_with(|| tangram_futures::retry::stream(stream_retry.clone()).boxed());
 					continue;
 				};
-				let ServerMessage::Response(response) = message? else { continue; };
+				let Output { closed, position } = message?;
+				error = None;
 				retries.take();
-				sender.as_ref().unwrap().send(Ok(ClientMessage::Ack(Ack { id: response.id }))).await.ok();
-				let value = pending.pop_front().ok_or_else(|| tg::error!("received an unexpected write response"))?;
-				if value.complete(response)? {
+				written = written.max(position);
+				while pending.front().is_some_and(|pending| {
+					matches!(pending.data, Data::Chunk(_)) && pending.end <= written
+				}) {
+					let pending = pending.pop_front().unwrap();
+					if let Some(completion) = pending.completion {
+						completion.send(()).ok();
+					}
+				}
+				if closed {
 					return Ok(());
 				}
 			},
-			value = input.try_next(), if !input_ended && remaining.is_none() && pending.len() < flow::MAX_CHUNKS => {
-				remaining = value?;
-				input_ended = remaining.is_none();
+			permit = async { channel.as_ref().unwrap().reserve().await }, if unsent.is_some() && channel.is_some() => {
+				let Ok(permit) = permit else {
+					sender = None;
+					continue;
+				};
+				let pending = &mut pending[unsent.unwrap()];
+				let mut data = pending.data.clone();
+
+				// Skip the bytes of a resent chunk that the server already wrote.
+				if let Data::Chunk(chunk) = &mut data
+					&& chunk.combined_position < written
+				{
+					let offset = usize::try_from(written - chunk.combined_position).unwrap();
+					chunk.bytes = chunk.bytes.slice(offset..);
+					chunk.combined_position += offset as u64;
+					chunk.stream_position += offset as u64;
+				}
+				permit.send(Ok(data));
+				pending.sent = true;
 			},
-			() = tokio::task::yield_now(), if remaining.is_some() && pending.len() < flow::MAX_CHUNKS => {},
-		}
-	}
-}
+			value = input.try_next(), if !input_ended && unsent.is_none() => {
+				let Some(value) = value? else {
+					input_ended = true;
+					let end = tg::process::stdio::End {
+						combined_position,
+						stream_positions: stream_positions.clone(),
+					};
+					pending.push_back(Pending {
+						completion: None,
+						data: Data::End(end),
+						end: combined_position,
+						sent: false,
+					});
+					continue;
+				};
+				let Input { chunk, mut completion } = value;
+				if !arg.streams.contains(&chunk.stream) {
+					return Err(tg::error!("invalid process stdio stream"));
+				}
 
-impl Pending {
-	fn complete(self, response: Response) -> tg::Result<bool> {
-		if self.request.id != response.id {
-			return Err(tg::error!("received an out-of-order write response"));
+				// Split the chunk, completing the input once its last part is written.
+				let mut offset = 0;
+				while offset < chunk.bytes.len() {
+					let length = (chunk.bytes.len() - offset).min(tg::process::stdio::MAX_CHUNK_SIZE);
+					let part = tg::process::stdio::Chunk {
+						bytes: chunk.bytes.slice(offset..offset + length),
+						combined_position: chunk.combined_position + offset as u64,
+						stream: chunk.stream,
+						stream_position: chunk.stream_position + offset as u64,
+						timestamp: chunk.timestamp,
+					};
+					offset += length;
+					combined_position = part
+						.combined_position
+						.checked_add(length as u64)
+						.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+					stream_positions.insert(
+						part.stream,
+						part.stream_position
+							.checked_add(length as u64)
+							.ok_or_else(|| tg::error!("the stdio position is too large"))?,
+					);
+					let completion = if offset == chunk.bytes.len() {
+						completion.take()
+					} else {
+						None
+					};
+					pending.push_back(Pending {
+						completion,
+						data: Data::Chunk(part),
+						end: combined_position,
+						sent: false,
+					});
+				}
+				if let Some(completion) = completion {
+					completion.send(()).ok();
+				}
+			},
 		}
-		if let Some(error) = response.error {
-			return Err(tg::Error::try_from(error)?);
-		}
-		let output = response
-			.output
-			.ok_or_else(|| tg::error!("missing the process write response"))?;
-		let length = match &self.request.arg {
-			Data::Chunk(chunk) => chunk.bytes.len() as u64,
-			Data::End(_) => 0,
-		};
-		if output.length > length || (!output.closed && output.length != length) {
-			return Err(tg::error!("invalid process stdio write length"));
-		}
-		if matches!(self.request.arg, Data::End(_)) && !output.closed {
-			return Err(tg::error!("the stdio end was not confirmed"));
-		}
-		if output.length == length
-			&& let Some(completion) = self.completion
-		{
-			completion.send(()).ok();
-		}
-
-		Ok(output.closed)
 	}
 }
