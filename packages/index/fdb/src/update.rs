@@ -120,6 +120,11 @@ struct PermissionCover {
 	expires_at: Option<i64>,
 }
 
+enum ParentCandidates {
+	Parents(BTreeSet<tg::process::Id>),
+	Subject(BTreeSet<tg::process::Id>),
+}
+
 impl PermissionUpdate {
 	pub fn new(source: Source) -> Self {
 		Self { source }
@@ -3358,19 +3363,22 @@ impl Index {
 						.await
 					);
 				}
-				let process_parents = crate::propagate!(
-					Self::get_object_processes_with_transaction(txn, subspace, id).await
-				);
-				for (process, _kind) in process_parents {
-					if let Kind::Permission(subject) = kind
-						&& !crate::propagate!(
-							Self::has_process_permissions_for_subject(
-								txn, subspace, &process, subject,
-							)
-							.await
-						) {
-						continue;
-					}
+				// Enqueue only the processes on which the subject holds a permission, because an update for any other process cannot change any of the subject's permissions.
+				let processes = match kind {
+					Kind::Permission(subject) => crate::propagate!(
+						Self::get_object_processes_for_subject_with_transaction(
+							txn, subspace, id, subject,
+						)
+						.await
+					),
+					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+						Self::get_object_processes_with_transaction(txn, subspace, id).await
+					)
+					.into_iter()
+					.map(|(process, _)| process)
+					.collect(),
+				};
+				for process in processes {
 					crate::propagate!(
 						Self::enqueue_update_propagate(
 							txn,
@@ -3385,19 +3393,21 @@ impl Index {
 				}
 			},
 			tg::Either::Right(id) => {
-				let parents = crate::propagate!(
-					Self::get_process_parents_with_transaction(txn, subspace, id).await
-				);
+				// Enqueue only the parents on which the subject holds a permission, because an update for any other process cannot change any of the subject's permissions.
+				let parents = match kind {
+					Kind::Permission(subject) => crate::propagate!(
+						Self::get_process_parents_for_subject_with_transaction(
+							txn, subspace, id, subject,
+						)
+						.await
+					),
+					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+						Self::get_process_parents_with_transaction(txn, subspace, id).await
+					)
+					.into_iter()
+					.collect(),
+				};
 				for parent in parents {
-					if let Kind::Permission(subject) = kind
-						&& !crate::propagate!(
-							Self::has_process_permissions_for_subject(
-								txn, subspace, &parent, subject,
-							)
-							.await
-						) {
-						continue;
-					}
 					crate::propagate!(
 						Self::enqueue_update_propagate(
 							txn,
@@ -3413,6 +3423,197 @@ impl Index {
 			},
 		}
 		Ok(ControlFlow::Break(()))
+	}
+
+	async fn get_object_processes_for_subject_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		object: &tg::object::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<ControlFlow<BTreeSet<tg::process::Id>, fdb::FdbError>> {
+		// Read the candidates from the smaller of the object's processes and the subject's permissions.
+		let object_bytes = object.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(
+				KeyKind::ObjectProcess.to_i32().unwrap(),
+				object_bytes.as_ref(),
+			),
+		);
+		let candidates = crate::propagate!(
+			Self::get_parent_candidates_with_transaction(
+				txn,
+				subspace,
+				prefix,
+				|key| {
+					let crate::Key::Object(crate::object::Key::ObjectProcess { process, .. }) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					Ok(process)
+				},
+				subject,
+			)
+			.await
+		);
+
+		// Keep the candidates that are on both sides.
+		let mut output = BTreeSet::new();
+		match candidates {
+			ParentCandidates::Parents(processes) => {
+				for process in processes {
+					if crate::propagate!(
+						Self::has_process_permissions_for_subject(txn, subspace, &process, subject)
+							.await
+					) {
+						output.insert(process);
+					}
+				}
+			},
+			ParentCandidates::Subject(processes) => {
+				for process in processes {
+					for kind in [
+						tangram_index::process::object::Kind::Command,
+						tangram_index::process::object::Kind::Error,
+						tangram_index::process::object::Kind::Log,
+						tangram_index::process::object::Kind::Output,
+					] {
+						let key = crate::Key::Object(crate::object::Key::ObjectProcess {
+							kind,
+							object: object.clone(),
+							process: process.clone(),
+						});
+						let key = Self::pack(subspace, &key);
+						let result = txn.get(&key, false).await;
+						let value = crate::retry!(result);
+						if value.is_some() {
+							output.insert(process);
+							break;
+						}
+					}
+				}
+			},
+		}
+
+		Ok(ControlFlow::Break(output))
+	}
+
+	async fn get_process_parents_for_subject_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		process: &tg::process::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<ControlFlow<BTreeSet<tg::process::Id>, fdb::FdbError>> {
+		// Read the candidates from the smaller of the process's parents and the subject's permissions.
+		let process_bytes = process.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(
+				KeyKind::ChildProcess.to_i32().unwrap(),
+				process_bytes.as_ref(),
+			),
+		);
+		let candidates = crate::propagate!(
+			Self::get_parent_candidates_with_transaction(
+				txn,
+				subspace,
+				prefix,
+				|key| {
+					let crate::Key::Process(crate::process::Key::ChildProcess { parent, .. }) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					Ok(parent)
+				},
+				subject,
+			)
+			.await
+		);
+
+		// Keep the candidates that are on both sides.
+		let mut output = BTreeSet::new();
+		match candidates {
+			ParentCandidates::Parents(parents) => {
+				for parent in parents {
+					if crate::propagate!(
+						Self::has_process_permissions_for_subject(txn, subspace, &parent, subject)
+							.await
+					) {
+						output.insert(parent);
+					}
+				}
+			},
+			ParentCandidates::Subject(parents) => {
+				for parent in parents {
+					let key = crate::Key::Process(crate::process::Key::ChildProcess {
+						child: process.clone(),
+						parent: parent.clone(),
+					});
+					let key = Self::pack(subspace, &key);
+					let result = txn.get(&key, false).await;
+					let value = crate::retry!(result);
+					if value.is_some() {
+						output.insert(parent);
+					}
+				}
+			},
+		}
+
+		Ok(ControlFlow::Break(output))
+	}
+
+	async fn get_parent_candidates_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		prefix: Vec<u8>,
+		parent: fn(crate::Key) -> tg::Result<tg::process::Id>,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<ControlFlow<ParentCandidates, fdb::FdbError>> {
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::Iterator,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let mut parents = txn.get_ranges_keyvalues(range, false);
+		let prefix = Self::pack(
+			subspace,
+			&(
+				KeyKind::SubjectPermission.to_i32().unwrap(),
+				subject.to_string(),
+			),
+		);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::Iterator,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let mut resources = txn.get_ranges_keyvalues(range, false);
+
+		// Read the parents and the subject's permissions in alternation until one is exhausted, so that the cost is proportional to the smaller of the two.
+		let mut parent_candidates = BTreeSet::new();
+		let mut subject_candidates = BTreeSet::new();
+		let candidates = loop {
+			let result = parents.try_next().await;
+			let Some(entry) = crate::retry!(result) else {
+				break ParentCandidates::Parents(parent_candidates);
+			};
+			let key = Self::unpack(subspace, entry.key())?;
+			parent_candidates.insert(parent(key)?);
+			let result = resources.try_next().await;
+			let Some(entry) = crate::retry!(result) else {
+				break ParentCandidates::Subject(subject_candidates);
+			};
+			let crate::Key::Permission(crate::permission::Key::SubjectPermission {
+				resource, ..
+			}) = Self::unpack(subspace, entry.key())?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			if resource.kind() == tg::id::Kind::Process {
+				let process = tg::process::Id::try_from(resource)?;
+				subject_candidates.insert(process);
+			}
+		};
+
+		Ok(ControlFlow::Break(candidates))
 	}
 
 	async fn has_process_permissions_for_subject(
