@@ -4,18 +4,22 @@ use {
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {}
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+}
 
 impl tg::Session {
 	pub async fn try_delete_user_token(
 		&self,
 		token: &tg::token::Id,
-		_arg: tg::user::token::delete::Arg,
+		arg: tg::user::token::delete::Arg,
 	) -> tg::Result<Option<()>> {
 		let request = http::request::Builder::default()
 			.method(http::Method::DELETE)
 			.uri(format!("/user/tokens/{token}"))
-			.empty()
+			.arg(&arg, tangram_http::body::Empty::new())
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
 			.send_with_retry(request)

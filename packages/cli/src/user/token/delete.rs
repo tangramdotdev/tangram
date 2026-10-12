@@ -4,6 +4,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub location: crate::location::Args,
+
 	#[arg(index = 1)]
 	pub token: tg::token::Id,
 }
@@ -11,8 +14,11 @@ pub struct Args {
 impl Cli {
 	pub async fn command_user_token_delete(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let arg = tg::user::token::delete::Arg {
+			location: args.location.get(),
+		};
 		client
-			.try_delete_user_token(&args.token, tg::user::token::delete::Arg::default())
+			.try_delete_user_token(&args.token, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, token = %args.token, "failed to delete the user token"),

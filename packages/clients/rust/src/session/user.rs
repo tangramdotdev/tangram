@@ -37,8 +37,8 @@ impl tg::instance::User for tg::Session {
 		self.create_login(arg)
 	}
 
-	fn logout(&self) -> impl Future<Output = tg::Result<()>> {
-		self.logout()
+	fn logout(&self, arg: tg::user::logout::Arg) -> impl Future<Output = tg::Result<()>> {
+		self.logout(arg)
 	}
 
 	fn try_get_user(
@@ -51,7 +51,7 @@ impl tg::instance::User for tg::Session {
 
 	fn try_get_user_usage(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
 		self.try_get_user_usage(user, arg)

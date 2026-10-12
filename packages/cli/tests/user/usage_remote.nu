@@ -13,11 +13,18 @@ let month = $user_usage.period.start | str substring 0..6
 
 # The forwarding server has no local user and has usage tracking disabled.
 let local = server spawn --config {
+	accounts: true,
 	remotes: {
 		default: { url: $remote.url, token: $alice.token },
 		staging: { url: $remote.url, token: $alice.token },
 	},
 }
+
+assert equal (tg usage | from json) $user_usage
+assert equal (tg user usage | from json) $user_usage
+assert equal (tg usage alice | from json) $user_usage
+assert equal (tg usage acme | from json) $organization_usage
+assert equal (tg organization usage acme | from json) $organization_usage
 
 assert equal (tg usage -r | from json) $user_usage
 assert equal (tg usage -r=staging | from json) $user_usage

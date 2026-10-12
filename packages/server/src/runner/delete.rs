@@ -4,11 +4,47 @@ use {
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{body::Boxed as BoxBody, response::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Session {
 	pub(crate) async fn try_delete_runner(
+		&self,
+		runner: &tg::runner::Id,
+		mut arg: tg::runner::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let location = self.server.runner_location(arg.location.as_ref())?;
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				let client = self.get_region_session(&region).await?;
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				client.try_delete_runner(runner, arg).await
+			},
+			tg::Location::Local(_) => {
+				if !self.server.config.runners {
+					return Err(tg::error!("local runner management is disabled"));
+				}
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				self.try_delete_runner_local(runner, arg).await
+			},
+			tg::Location::Remote(remote) => {
+				let client = self.get_remote_session(&remote.name).await?;
+				arg.location = Some(
+					tg::Location::Local(tg::location::Local {
+						region: remote.region,
+					})
+					.into(),
+				);
+				client.try_delete_runner(runner, arg).await
+			},
+		}
+	}
+
+	async fn try_delete_runner_local(
 		&self,
 		runner: &tg::runner::Id,
 		arg: tg::runner::delete::Arg,
@@ -74,15 +110,18 @@ impl Session {
 
 	pub(crate) async fn try_delete_runner_request(
 		&self,
-		_request: http::Request<BoxBody>,
+		request: http::Request<BoxBody>,
 		runner: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 		let runner = runner
 			.parse()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the runner ID"))?;
-		let output = self
-			.try_delete_runner(&runner, tg::runner::delete::Arg::default())
-			.await?;
+		let output = self.try_delete_runner(&runner, arg).await?;
 		let response = if output.is_some() {
 			http::Response::builder().empty().unwrap().boxed_body()
 		} else {

@@ -7,7 +7,7 @@ let alice = tg login --verbose --name alice | from json
 tg --token $alice.token put --no-tokens 'tg.file("hello")' | referent node
 tg --token $alice.token index
 
-let output = tg --token $alice.token usage | complete
+let output = tg --token $alice.token usage --local | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred

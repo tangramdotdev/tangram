@@ -44,7 +44,7 @@ impl Cli {
 		let client = self.client().await?;
 		let location = args.location.get();
 		let mut arg = tg::usage::Arg::from(args.period);
-		arg.location = location.clone();
+		arg.location = location;
 		let usage = if let Some(selector) = args.selector {
 			arg.location = args.location.get_for_options(&selector);
 			arg.tokens = selector.options.tokens;
@@ -61,7 +61,7 @@ impl Cli {
 					tg::id::Kind::User => {
 						client
 							.try_get_user_usage(
-								&tg::user::Selector::Id(id.try_into()?),
+								Some(&tg::user::Selector::Id(id.try_into()?)),
 								arg.clone(),
 							)
 							.await?
@@ -69,35 +69,20 @@ impl Cli {
 					_ => return Err(tg::error!("expected a user or organization selector")),
 				},
 				tg::Selector::Specifier(specifier) => {
-					let entry = tg::user::get::Arg {
-						location: arg.location.clone(),
-						tokens: arg.tokens.clone(),
-						..Default::default()
-					};
-					let user_selector = tg::user::Selector::Specifier(specifier.clone());
-					if client.try_get_user(&user_selector, entry).await?.is_some() {
-						client
-							.try_get_user_usage(&user_selector, arg.clone())
-							.await?
+					let user = tg::user::Selector::Specifier(specifier.clone());
+					let usage = client.try_get_user_usage(Some(&user), arg.clone()).await?;
+					if usage.is_some() {
+						usage
 					} else {
+						let organization = tg::organization::Selector::Specifier(specifier);
 						client
-							.try_get_organization_usage(
-								&tg::organization::Selector::Specifier(specifier),
-								arg.clone(),
-							)
+							.try_get_organization_usage(&organization, arg)
 							.await?
 					}
 				},
 			}
 		} else {
-			let current_arg = tg::user::current::Arg { location };
-			let user = client
-				.get_current_user(current_arg)
-				.await?
-				.ok_or_else(|| tg::error!("not logged in"))?;
-			client
-				.try_get_user_usage(&tg::user::Selector::Id(user.data.id), arg)
-				.await?
+			client.try_get_user_usage(None, arg).await?
 		};
 		let usage = usage.ok_or_else(|| tg::error!("failed to find the usage account"))?;
 		self.print_serde(usage, args.print).await?;

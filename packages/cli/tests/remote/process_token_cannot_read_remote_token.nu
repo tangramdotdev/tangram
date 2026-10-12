@@ -38,5 +38,13 @@ assert (($output | get --optional token) == null) "a process must not receive it
 # Internal forwarding still uses the stored credential.
 success (tg --url $local.url --token $process_token get --remote=default --bytes $secret | complete) "the server can still authenticate remote operations"
 
+# A rejected logout must not revoke the owner's remote session.
+let output = tg --url $local.url --token $process_token logout --remote | complete
+failure $output
+assert ($output.stderr | str contains "unauthorized")
+success (tg --url $remote.url --token $owner_remote.token whoami | complete) "the owner's remote session must remain valid"
+let owner_remote_after = tg --url $local.url --token $local_alice.token remote get default | from json
+assert equal $owner_remote_after.token $owner_remote.token
+
 tg --url $local.url --token $local_alice.token cancel $process.process $process.lease
 tg --url $local.url --token $local_alice.token wait $process.process

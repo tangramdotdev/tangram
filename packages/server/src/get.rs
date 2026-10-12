@@ -57,14 +57,11 @@ impl Session {
 		options: &tg::reference::Options,
 		arg: &tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		if options.tokens.is_empty()
-			&& matches!(
-				id.kind(),
-				tg::id::Kind::Group
-					| tg::id::Kind::Organization
-					| tg::id::Kind::Tag
-					| tg::id::Kind::User
-			) {
+		if matches!(
+			id.kind(),
+			tg::id::Kind::Group | tg::id::Kind::Organization | tg::id::Kind::User
+		) || (options.tokens.is_empty() && id.kind() == tg::id::Kind::Tag)
+		{
 			let output = self
 				.try_get_with_selector(
 					&tg::Selector::Id(id.clone()),

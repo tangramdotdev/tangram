@@ -21,6 +21,9 @@ pub struct Arg {
 	pub limit: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub owner: Option<tg::principal::Selector>,
 }
 

@@ -13,7 +13,7 @@ impl Session {
 	) -> tg::Result<Option<tg::user::get::Output>> {
 		let location = self
 			.server
-			.location(arg.location.as_ref())
+			.account_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
 			tg::Location::Local(tg::location::Local {
@@ -42,7 +42,11 @@ impl Session {
 						.into(),
 					),
 				};
-				client.get_current_user(arg).await
+				let mut output = client.get_current_user(arg).await?;
+				if let Some(output) = &mut output {
+					output.location = Some(tg::Location::Remote(remote));
+				}
+				Ok(output)
 			},
 		}
 	}

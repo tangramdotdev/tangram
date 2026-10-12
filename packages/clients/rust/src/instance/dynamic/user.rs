@@ -39,8 +39,8 @@ impl tg::instance::User for Instance {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.create_login(arg)) }
 	}
 
-	fn logout(&self) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.logout()) }
+	fn logout(&self, arg: tg::user::logout::Arg) -> impl Future<Output = tg::Result<()>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.logout(arg)) }
 	}
 
 	fn try_get_user(
@@ -53,7 +53,7 @@ impl tg::instance::User for Instance {
 
 	fn try_get_user_usage(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_user_usage(user, arg)) }

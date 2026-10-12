@@ -30,7 +30,7 @@ pub trait User: Send + Sync + 'static {
 		arg: tg::user::login::create::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::user::login::create::Output>>;
 
-	fn logout(&self) -> BoxFuture<'_, tg::Result<()>>;
+	fn logout(&self, arg: tg::user::logout::Arg) -> BoxFuture<'_, tg::Result<()>>;
 
 	fn try_get_user<'a>(
 		&'a self,
@@ -40,7 +40,7 @@ pub trait User: Send + Sync + 'static {
 
 	fn try_get_user_usage<'a>(
 		&'a self,
-		user: &'a tg::user::Selector,
+		user: Option<&'a tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::usage::Output>>>;
 
@@ -95,8 +95,8 @@ where
 		self.create_login(arg).boxed()
 	}
 
-	fn logout(&self) -> BoxFuture<'_, tg::Result<()>> {
-		self.logout().boxed()
+	fn logout(&self, arg: tg::user::logout::Arg) -> BoxFuture<'_, tg::Result<()>> {
+		self.logout(arg).boxed()
 	}
 
 	fn try_get_user<'a>(
@@ -109,7 +109,7 @@ where
 
 	fn try_get_user_usage<'a>(
 		&'a self,
-		user: &'a tg::user::Selector,
+		user: Option<&'a tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::usage::Output>>> {
 		self.try_get_user_usage(user, arg).boxed()

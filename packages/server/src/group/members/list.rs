@@ -22,7 +22,7 @@ impl Session {
 	) -> tg::Result<tg::group::members::list::Output> {
 		let location = self
 			.server
-			.location(arg.location.as_ref())
+			.account_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
 			tg::Location::Local(tg::location::Local {

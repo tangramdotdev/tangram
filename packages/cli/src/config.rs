@@ -17,6 +17,10 @@ use {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+	/// Enable local account management.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub accounts: Option<bool>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub advanced: Option<Advanced>,
 
@@ -116,6 +120,10 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub runner: Option<Runner>,
+
+	/// Enable local runner management.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub runners: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandbox: Option<Sandbox>,
@@ -3172,6 +3180,12 @@ fn is_default_export(export: &String) -> bool {
 fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	let source = source.clone();
 	let mut target = server::Config::default();
+	if let Some(accounts) = source.accounts {
+		target.accounts = accounts;
+	}
+	if let Some(runners) = source.runners {
+		target.runners = runners;
+	}
 	if let Some(source) = source.advanced {
 		target.advanced = resolve_advanced(source);
 	}
@@ -6113,7 +6127,9 @@ mod tests {
 	#[test]
 	fn parses_bool_or_configs() {
 		let source: Config = serde_json::from_value(serde_json::json!({
+			"accounts": true,
 			"checkouts": false,
+			"runners": true,
 			"indexer": {
 				"log_cache": false,
 				"usage": { "aggregation": true },
@@ -6124,6 +6140,10 @@ mod tests {
 		assert_eq!(source.checkouts, Some(false));
 		assert!(matches!(source.usage, Some(BoolOr::Bool(true))));
 		let target = resolve_server_config(&source).unwrap();
+		assert!(target.accounts);
+		assert!(target.runners);
+		assert!(!server::Config::default().accounts);
+		assert!(!server::Config::default().runners);
 		assert!(!target.checkouts);
 		assert!(server::Config::default().checkouts);
 		let indexer = source.indexer.unwrap();

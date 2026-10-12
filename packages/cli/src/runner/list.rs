@@ -20,6 +20,9 @@ pub struct Args {
 	pub limit: Option<u64>,
 
 	#[command(flatten)]
+	pub location: crate::location::Args,
+
+	#[command(flatten)]
 	pub output: crate::print::OutputOptions,
 
 	#[arg(long, conflicts_with = "all_owners")]
@@ -37,6 +40,7 @@ impl Cli {
 			all_owners: args.all_owners,
 			cursor: args.cursor,
 			limit: args.limit,
+			location: args.location.get(),
 			owner: args.owner,
 		};
 		let output = if args.all {

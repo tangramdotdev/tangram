@@ -11,6 +11,39 @@ use {
 impl Session {
 	pub(crate) async fn create_runner(
 		&self,
+		mut arg: tg::runner::create::Arg,
+	) -> tg::Result<tg::runner::create::Output> {
+		let location = self.server.runner_location(arg.location.as_ref())?;
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				let client = self.get_region_session(&region).await?;
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				client.create_runner(arg).await
+			},
+			tg::Location::Local(_) => {
+				if !self.server.config.runners {
+					return Err(tg::error!("local runner management is disabled"));
+				}
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				self.create_runner_local(arg).await
+			},
+			tg::Location::Remote(remote) => {
+				let client = self.get_remote_session(&remote.name).await?;
+				arg.location = Some(
+					tg::Location::Local(tg::location::Local {
+						region: remote.region,
+					})
+					.into(),
+				);
+				client.create_runner(arg).await
+			},
+		}
+	}
+
+	async fn create_runner_local(
+		&self,
 		arg: tg::runner::create::Arg,
 	) -> tg::Result<tg::runner::create::Output> {
 		if !self.server.is_primary_region() {

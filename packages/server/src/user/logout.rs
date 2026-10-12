@@ -5,11 +5,51 @@ use {
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{body::Boxed as BoxBody, response::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Session {
-	pub(crate) async fn logout(&self) -> tg::Result<()> {
+	pub(crate) async fn logout(&self, mut arg: tg::user::logout::Arg) -> tg::Result<()> {
+		let location = self.server.account_location(arg.location.as_ref())?;
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				let client = self.get_region_session(&region).await?;
+				let location = tg::Location::Local(tg::location::Local {
+					region: Some(region),
+				});
+				arg.location = Some(location.into());
+				client.logout(arg).await?;
+			},
+			tg::Location::Local(_) => {
+				if !self.server.config.accounts {
+					return Err(tg::error!("local account management is disabled"));
+				}
+				self.logout_local().await?;
+			},
+			tg::Location::Remote(remote) => {
+				self.verify_request_can_mutate_remotes()?;
+				let client = self.get_remote_session(&remote.name).await?;
+				arg.location = Some(
+					tg::Location::Local(tg::location::Local {
+						region: remote.region,
+					})
+					.into(),
+				);
+				client
+					.logout(arg)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to log out of the remote"))?;
+				self.set_remote_token(&remote.name, None).await?;
+			},
+		}
+		Ok(())
+	}
+
+	async fn logout_local(&self) -> tg::Result<()> {
 		if !self.server.is_primary_region() {
 			return self.logout_primary_region().await;
 		}
@@ -41,8 +81,11 @@ impl Session {
 			.get_primary_region_session()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let arg = tg::user::logout::Arg {
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+		};
 		client
-			.logout()
+			.logout(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to log out in the primary region"))?;
 
@@ -76,9 +119,14 @@ impl Session {
 
 	pub(crate) async fn logout_request(
 		&self,
-		_request: http::Request<BoxBody>,
+		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
-		self.logout().await?;
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
+		self.logout(arg).await?;
 		let response = http::Response::builder()
 			.status(http::StatusCode::NO_CONTENT)
 			.empty()

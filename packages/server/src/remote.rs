@@ -317,7 +317,11 @@ impl Session {
 		Ok(Some(session))
 	}
 
-	pub(crate) async fn set_remote_token(&self, remote: &str, token: String) -> tg::Result<()> {
+	pub(crate) async fn set_remote_token(
+		&self,
+		remote: &str,
+		token: Option<String>,
+	) -> tg::Result<()> {
 		self.verify_request_can_mutate_remotes()?;
 		let principal = self.resolve_remote_arg_principal(None).await?;
 		let principal = principal.as_ref().map(ToString::to_string);
@@ -334,7 +338,7 @@ impl Session {
 						transaction,
 						&remote,
 						principal.as_deref(),
-						&token,
+						token.as_deref(),
 					)
 					.await
 				}
@@ -352,7 +356,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		remote: &str,
 		principal: Option<&str>,
-		token: &str,
+		token: Option<&str>,
 	) -> tg::Result<ControlFlow<u64, crate::database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(

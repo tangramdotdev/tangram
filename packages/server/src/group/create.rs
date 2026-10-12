@@ -15,8 +15,11 @@ impl Session {
 	) -> tg::Result<tg::group::create::Output> {
 		let location = self
 			.server
-			.location(arg.location.as_ref())
+			.account_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		if location.is_local() && !self.server.config.accounts {
+			return Err(tg::error!("local account management is disabled"));
+		}
 		match location {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),

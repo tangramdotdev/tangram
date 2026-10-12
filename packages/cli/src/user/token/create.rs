@@ -5,14 +5,20 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub location: crate::location::Args,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
 impl Cli {
 	pub async fn command_user_token_create(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let arg = tg::user::token::create::Arg {
+			location: args.location.get(),
+		};
 		let output = client
-			.create_user_token(tg::user::token::create::Arg::default())
+			.create_user_token(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the user token"))?;
 		self.print_serde(output.data, args.print).await?;

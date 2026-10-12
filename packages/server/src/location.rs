@@ -20,14 +20,47 @@ pub(crate) struct Remote {
 }
 
 impl Server {
-	/// Resolve one location while preserving an explicit region, including the current region.
+	pub(crate) fn account_location(
+		&self,
+		arg: Option<&tg::location::Arg>,
+	) -> tg::Result<tg::Location> {
+		let default = default_location(self.config.accounts);
+		self.location_with_default(arg, default)
+	}
+
+	pub(crate) fn runner_location(
+		&self,
+		arg: Option<&tg::location::Arg>,
+	) -> tg::Result<tg::Location> {
+		let default = default_location(self.config.runners);
+		self.location_with_default(arg, default)
+	}
+
+	pub(crate) fn usage_location(
+		&self,
+		arg: Option<&tg::location::Arg>,
+	) -> tg::Result<tg::Location> {
+		let default = default_location(self.config.usage.enabled);
+		self.location_with_default(arg, default)
+	}
+
 	pub(crate) fn location(&self, arg: Option<&tg::location::Arg>) -> tg::Result<tg::Location> {
+		let default = tg::Location::Local(tg::location::Local::default());
+		self.location_with_default(arg, default)
+	}
+
+	/// Resolve one location while preserving an explicit region, including the current region.
+	pub(crate) fn location_with_default(
+		&self,
+		arg: Option<&tg::location::Arg>,
+		default: tg::Location,
+	) -> tg::Result<tg::Location> {
 		let current_region = self.config().region.as_deref();
 		let configured_regions = self.config().regions.as_deref();
 		validate_region_config(current_region, configured_regions)?;
 
 		let Some(arg) = arg else {
-			return Ok(tg::Location::Local(tg::location::Local::default()));
+			return Ok(default);
 		};
 
 		let location = arg
@@ -218,4 +251,15 @@ fn canonicalize_regions(regions: Vec<String>) -> Vec<String> {
 		}
 	}
 	output
+}
+
+fn default_location(local: bool) -> tg::Location {
+	if local {
+		tg::Location::Local(tg::location::Local::default())
+	} else {
+		tg::Location::Remote(tg::location::Remote {
+			name: "default".into(),
+			region: None,
+		})
+	}
 }

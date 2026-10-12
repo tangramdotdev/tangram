@@ -327,6 +327,11 @@ impl Cli {
 		if reference == &direct_reference {
 			match reference.node() {
 				tg::reference::Node::Id(id)
+					if matches!(
+						id.kind(),
+						tg::id::Kind::Group | tg::id::Kind::Organization | tg::id::Kind::User
+					) => {},
+				tg::reference::Node::Id(id)
 					if !tokens.is_empty()
 						|| !matches!(
 							id.kind(),

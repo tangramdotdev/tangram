@@ -56,10 +56,10 @@ where
 		}
 	}
 
-	fn logout(&self) -> impl Future<Output = tg::Result<()>> {
+	fn logout(&self, arg: tg::user::logout::Arg) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s.logout().left_future(),
-			tg::Either::Right(s) => s.logout().right_future(),
+			tg::Either::Left(s) => s.logout(arg).left_future(),
+			tg::Either::Right(s) => s.logout(arg).right_future(),
 		}
 	}
 
@@ -76,7 +76,7 @@ where
 
 	fn try_get_user_usage(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
 		match self {

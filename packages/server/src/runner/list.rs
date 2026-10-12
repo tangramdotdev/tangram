@@ -28,6 +28,36 @@ struct Row {
 impl Session {
 	pub(crate) async fn list_runners(
 		&self,
+		mut arg: tg::runner::list::Arg,
+	) -> tg::Result<tg::runner::list::Output> {
+		let location = self.server.runner_location(arg.location.as_ref())?;
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				let client = self.get_region_session(&region).await?;
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				client.list_runners(arg).await
+			},
+			tg::Location::Local(_) => {
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				self.list_runners_local(arg).await
+			},
+			tg::Location::Remote(remote) => {
+				let client = self.get_remote_session(&remote.name).await?;
+				arg.location = Some(
+					tg::Location::Local(tg::location::Local {
+						region: remote.region,
+					})
+					.into(),
+				);
+				client.list_runners(arg).await
+			},
+		}
+	}
+
+	async fn list_runners_local(
+		&self,
 		arg: tg::runner::list::Arg,
 	) -> tg::Result<tg::runner::list::Output> {
 		self.verify_request_from_host()?;

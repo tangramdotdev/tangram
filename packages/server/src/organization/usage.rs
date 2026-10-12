@@ -17,7 +17,7 @@ impl Session {
 	) -> tg::Result<Option<tg::usage::Output>> {
 		let location = self
 			.server
-			.location(arg.location.as_ref())
+			.usage_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -48,6 +48,9 @@ impl Session {
 		organization: &tg::organization::Selector,
 		arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
+		if !self.server.config.usage.enabled {
+			return Err(tg::error!("usage tracking is disabled"));
+		}
 		let Some(account) = self
 			.try_resolve_organization_usage_account(organization, &arg.tokens)
 			.await?

@@ -7,10 +7,13 @@ use {
 impl tg::Session {
 	pub async fn try_get_user_usage(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
-		let path = format!("/users/{}/usage", user.to_string().replace('/', ":"));
+		let path = user.map_or_else(
+			|| "/user/usage".to_owned(),
+			|user| format!("/users/{}/usage", user.to_string().replace('/', ":")),
+		);
 		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)

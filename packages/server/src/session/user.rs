@@ -37,8 +37,8 @@ impl tg::instance::User for Session {
 		self.create_login(arg).await
 	}
 
-	async fn logout(&self) -> tg::Result<()> {
-		self.logout().await
+	async fn logout(&self, arg: tg::user::logout::Arg) -> tg::Result<()> {
+		self.logout(arg).await
 	}
 
 	async fn try_get_user(
@@ -51,7 +51,7 @@ impl tg::instance::User for Session {
 
 	async fn try_get_user_usage(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
 		self.try_get_user_usage(user, arg).await

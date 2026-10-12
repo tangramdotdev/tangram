@@ -669,6 +669,9 @@ impl Server {
 			// Logins.
 			(http::Method::POST, ["logins"]) => session.create_login_request(request).boxed(),
 			(http::Method::POST, ["login", "wait"]) => session.wait_login_request(request).boxed(),
+			(http::Method::GET, ["user", "usage"]) => {
+				session.try_get_user_usage_request(request, None).boxed()
+			},
 			(http::Method::POST, ["logout"]) => session.logout_request(request).boxed(),
 
 			// Modules.
@@ -847,9 +850,9 @@ impl Server {
 			(http::Method::GET, ["users", user]) => {
 				session.try_get_user_request(request, user).boxed()
 			},
-			(http::Method::GET, ["users", user, "usage"]) => {
-				session.try_get_user_usage_request(request, user).boxed()
-			},
+			(http::Method::GET, ["users", user, "usage"]) => session
+				.try_get_user_usage_request(request, Some(user))
+				.boxed(),
 			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
 			(http::Method::POST, ["user", "billing", "manage"]) => {
 				session.manage_user_billing_request(request).boxed()

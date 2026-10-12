@@ -17,6 +17,9 @@ pub struct Args {
 	pub limit: Option<u64>,
 
 	#[command(flatten)]
+	pub location: crate::location::Args,
+
+	#[command(flatten)]
 	pub output: crate::print::OutputOptions,
 
 	#[command(flatten)]
@@ -33,6 +36,7 @@ impl Cli {
 		let arg = tg::runner::token::list::Arg {
 			cursor: args.cursor,
 			limit: args.limit,
+			location: args.location.get(),
 		};
 		let output = if args.all {
 			client.list_all_runner_tokens(&args.runner, arg).await

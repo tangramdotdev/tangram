@@ -44,7 +44,7 @@ impl Session {
 					},
 					tg::usage::Account::User(id) => {
 						let selector = tg::user::Selector::Id(id.clone());
-						client.try_get_user_usage(&selector, arg).await
+						client.try_get_user_usage(Some(&selector), arg).await
 					},
 				}
 				.map_err(|error| tg::error!(!error, %region, "failed to get the usage"))?

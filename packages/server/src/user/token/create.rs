@@ -11,6 +11,39 @@ use {
 impl Session {
 	pub(crate) async fn create_user_token(
 		&self,
+		mut arg: tg::user::token::create::Arg,
+	) -> tg::Result<tg::user::token::create::Output> {
+		let location = self.server.account_location(arg.location.as_ref())?;
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				let client = self.get_region_session(&region).await?;
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				client.create_user_token(arg).await
+			},
+			tg::Location::Local(_) => {
+				if !self.server.config.accounts {
+					return Err(tg::error!("local account management is disabled"));
+				}
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				self.create_user_token_local(arg).await
+			},
+			tg::Location::Remote(remote) => {
+				let client = self.get_remote_session(&remote.name).await?;
+				arg.location = Some(
+					tg::Location::Local(tg::location::Local {
+						region: remote.region,
+					})
+					.into(),
+				);
+				client.create_user_token(arg).await
+			},
+		}
+	}
+
+	async fn create_user_token_local(
+		&self,
 		arg: tg::user::token::create::Arg,
 	) -> tg::Result<tg::user::token::create::Output> {
 		if !self.server.is_primary_region() {

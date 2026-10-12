@@ -12,8 +12,12 @@ impl Session {
 	pub(crate) async fn try_get_organization(
 		&self,
 		organization: &tg::organization::Selector,
-		arg: tg::organization::get::Arg,
+		mut arg: tg::organization::get::Arg,
 	) -> tg::Result<Option<tg::organization::get::Output>> {
+		if arg.location.is_none() {
+			let location = self.server.account_location(None)?;
+			arg.location = Some(location.into());
+		}
 		let selector = match organization {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
 			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),

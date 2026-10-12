@@ -44,7 +44,7 @@ pub trait User: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::user::login::create::Arg,
 	) -> impl Future<Output = tg::Result<tg::user::login::create::Output>> + Send;
 
-	fn logout(&self) -> impl Future<Output = tg::Result<()>> + Send;
+	fn logout(&self, arg: tg::user::logout::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_user(
 		&self,
@@ -54,7 +54,7 @@ pub trait User: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_get_user_usage(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> + Send;
 
@@ -108,8 +108,8 @@ impl tg::instance::User for tg::Client {
 		self.session(&self.context).create_login(arg).await
 	}
 
-	async fn logout(&self) -> tg::Result<()> {
-		self.session(&self.context).logout().await
+	async fn logout(&self, arg: tg::user::logout::Arg) -> tg::Result<()> {
+		self.session(&self.context).logout(arg).await
 	}
 
 	async fn try_get_user(
@@ -122,7 +122,7 @@ impl tg::instance::User for tg::Client {
 
 	async fn try_get_user_usage(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
 		self.session(&self.context)

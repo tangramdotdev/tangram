@@ -11,6 +11,8 @@ use {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+	pub accounts: bool,
+
 	pub advanced: Advanced,
 
 	pub archive: Option<Archive>,
@@ -66,6 +68,8 @@ pub struct Config {
 	pub roles: BTreeSet<Role>,
 
 	pub runner: Runner,
+
+	pub runners: bool,
 
 	pub scheduler: Scheduler,
 
@@ -1859,6 +1863,7 @@ impl Config {
 impl Default for Config {
 	fn default() -> Self {
 		Self {
+			accounts: false,
 			advanced: Advanced::default(),
 			archive: None,
 			authentication: Authentication::default(),
@@ -1887,6 +1892,7 @@ impl Default for Config {
 			remotes: None,
 			roles: default_roles(),
 			runner: Runner::default(),
+			runners: false,
 			scheduler: Scheduler::default(),
 			sandbox: Sandbox::default(),
 			sync: Sync::default(),

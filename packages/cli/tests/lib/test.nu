@@ -576,6 +576,8 @@ export def --env "server spawn" [
 	}
 
 	mut default_config: any = {
+		accounts: true,
+		runners: true,
 		advanced: {
 			disable_version_check: true
 			internal_error_locations: false

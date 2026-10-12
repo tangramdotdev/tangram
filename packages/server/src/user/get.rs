@@ -14,8 +14,12 @@ impl Session {
 	pub(crate) async fn try_get_user(
 		&self,
 		user: &tg::user::Selector,
-		arg: tg::user::get::Arg,
+		mut arg: tg::user::get::Arg,
 	) -> tg::Result<Option<tg::user::get::Output>> {
+		if arg.location.is_none() {
+			let location = self.server.account_location(None)?;
+			arg.location = Some(location.into());
+		}
 		let selector = match user {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
 			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),

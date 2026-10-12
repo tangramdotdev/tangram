@@ -18,10 +18,13 @@ impl Session {
 		// Get the location.
 		let location = self
 			.server
-			.location(arg.location.as_ref())
+			.account_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 
 		// Await the login.
+		if location.is_local() && !self.server.config.accounts {
+			return Err(tg::error!("local account management is disabled"));
+		}
 		match location {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -41,7 +44,7 @@ impl Session {
 					),
 				};
 				let mut output = client.wait_login(arg).await?;
-				self.set_remote_token(&remote.name, output.token.clone())
+				self.set_remote_token(&remote.name, Some(output.token.clone()))
 					.await
 					.map_err(
 						|error| tg::error!(!error, remote = %remote.name, "failed to save the remote login"),

@@ -12,8 +12,12 @@ impl Session {
 	pub(crate) async fn try_get_group(
 		&self,
 		group: &tg::group::Selector,
-		arg: tg::group::get::Arg,
+		mut arg: tg::group::get::Arg,
 	) -> tg::Result<Option<tg::group::get::Output>> {
+		if arg.location.is_none() {
+			let location = self.server.account_location(None)?;
+			arg.location = Some(location.into());
+		}
 		let selector = match group {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
 			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),

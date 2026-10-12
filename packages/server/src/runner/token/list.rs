@@ -26,6 +26,37 @@ impl Session {
 	pub(crate) async fn list_runner_tokens(
 		&self,
 		runner: &tg::runner::Id,
+		mut arg: tg::runner::token::list::Arg,
+	) -> tg::Result<tg::runner::token::list::Output> {
+		let location = self.server.runner_location(arg.location.as_ref())?;
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				let client = self.get_region_session(&region).await?;
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				client.list_runner_tokens(runner, arg).await
+			},
+			tg::Location::Local(_) => {
+				arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+				self.list_runner_tokens_local(runner, arg).await
+			},
+			tg::Location::Remote(remote) => {
+				let client = self.get_remote_session(&remote.name).await?;
+				arg.location = Some(
+					tg::Location::Local(tg::location::Local {
+						region: remote.region,
+					})
+					.into(),
+				);
+				client.list_runner_tokens(runner, arg).await
+			},
+		}
+	}
+
+	async fn list_runner_tokens_local(
+		&self,
+		runner: &tg::runner::Id,
 		arg: tg::runner::token::list::Arg,
 	) -> tg::Result<tg::runner::token::list::Output> {
 		// Authenticate the runner and parse the arg.

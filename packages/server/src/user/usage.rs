@@ -12,26 +12,43 @@ use {
 impl Session {
 	pub(crate) async fn try_get_user_usage(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
 		let location = self
 			.server
-			.location(arg.location.as_ref())
+			.usage_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
-		match location {
-			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_get_user_usage_regions(user, arg).await
+		let local = match location {
+			tg::Location::Local(local) => local,
+			tg::Location::Remote(remote) => {
+				return self.try_get_user_usage_remote(user, arg, remote).await;
 			},
-			tg::Location::Local(tg::location::Local {
-				region: Some(region),
-			}) if Some(region.as_str()) == self.server.config.region.as_deref() => {
-				self.try_get_user_usage_local(user, arg).await
-			},
-			tg::Location::Local(tg::location::Local {
-				region: Some(region),
-			}) => self.try_get_user_usage_region(user, arg, region).await,
-			tg::Location::Remote(remote) => self.try_get_user_usage_remote(user, arg, remote).await,
+		};
+		if let Some(region) = &local.region
+			&& Some(region.as_str()) != self.server.config.region.as_deref()
+		{
+			return self
+				.try_get_user_usage_region(user, arg, region.clone())
+				.await;
+		}
+		if !self.server.config.usage.enabled {
+			return Err(tg::error!("usage tracking is disabled"));
+		}
+		let current_user;
+		let user = if let Some(user) = user {
+			user
+		} else {
+			let tg::Principal::User(user) = &self.context.principal else {
+				return Err(tg::error!("not logged in"));
+			};
+			current_user = tg::user::Selector::Id(user.clone());
+			&current_user
+		};
+		if local.region.is_some() {
+			self.try_get_user_usage_local(user, arg).await
+		} else {
+			self.try_get_user_usage_regions(user, arg).await
 		}
 	}
 
@@ -78,16 +95,6 @@ impl Session {
 		user: &tg::user::Selector,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::usage::Account>> {
-		let permission = tg::authorization::Permission::User(
-			tg::authorization::permission::user::Permission::Admin,
-		);
-		self.authorize(
-			tg::Referent::with_node_and_tokens(user.clone(), tokens.clone()),
-			permission,
-		)
-		.await?
-		.into_result()?;
-
 		let user = user.clone();
 		let id = self
 			.server
@@ -98,7 +105,19 @@ impl Session {
 					.boxed()
 			})
 			.await?;
-		let account = id.map(tg::usage::Account::User);
+		let Some(id) = id else {
+			return Ok(None);
+		};
+		let permission = tg::authorization::Permission::User(
+			tg::authorization::permission::user::Permission::Admin,
+		);
+		self.authorize(
+			tg::Referent::with_node_and_tokens(user, tokens.clone()),
+			permission,
+		)
+		.await?
+		.into_result()?;
+		let account = Some(tg::usage::Account::User(id));
 
 		Ok(account)
 	}
@@ -126,7 +145,7 @@ impl Session {
 
 	async fn try_get_user_usage_region(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		mut arg: tg::usage::Arg,
 		region: String,
 	) -> tg::Result<Option<tg::usage::Output>> {
@@ -146,7 +165,7 @@ impl Session {
 
 	async fn try_get_user_usage_remote(
 		&self,
-		user: &tg::user::Selector,
+		user: Option<&tg::user::Selector>,
 		mut arg: tg::usage::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<tg::usage::Output>> {
@@ -171,7 +190,7 @@ impl Session {
 	pub(crate) async fn try_get_user_usage_request(
 		&self,
 		request: http::Request<BoxBody>,
-		user: &str,
+		user: Option<&str>,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let (arg, _) = request
 			.arg()
@@ -179,10 +198,10 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
 		let user = user
-			.replace(':', "/")
-			.parse()
+			.map(|user| user.replace(':', "/").parse())
+			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the user"))?;
-		let Some(output) = self.try_get_user_usage(&user, arg).await? else {
+		let Some(output) = self.try_get_user_usage(user.as_ref(), arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
