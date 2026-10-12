@@ -487,8 +487,12 @@ impl Session {
 			Ok::<_, tg::Error>(frame)
 		});
 		let body = BoxBody::with_stream(stream);
-		let body = tangram_http::body::header::set(body, &header)
-			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
+		let body = tangram_http::body::header::set(
+			body,
+			&header,
+			tangram_http::body::encoding::Encoding::Json,
+		)
+		.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
 		let mut response = http::Response::builder();

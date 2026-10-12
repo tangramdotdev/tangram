@@ -99,9 +99,18 @@ pub struct Arg {
 	pub user_children: bool,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Header {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<tg::Referent<tg::sync::Id>>,
 }
 
@@ -530,10 +539,13 @@ impl tg::Session {
 
 		let mut reader =
 			StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
-		let header =
-			tangram_http::body::header::get(&mut reader, self.client().http.max_header_length)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
+		let header = tangram_http::body::header::get(
+			&mut reader,
+			self.client().http.max_header_length,
+			tangram_http::body::encoding::Encoding::Json,
+		)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
 		let data_messages = stream::try_unfold(reader, move |mut reader| async move {
 			let Some(len) = reader
 				.try_read_uvarint()

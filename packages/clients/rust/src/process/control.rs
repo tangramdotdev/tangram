@@ -32,11 +32,20 @@ pub struct Arg {
 	pub start: bool,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Header {
+	#[tangram_serialize(id = 0)]
 	pub process: tg::Referent<tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
 

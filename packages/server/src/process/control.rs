@@ -1082,8 +1082,12 @@ impl Session {
 		// Create the body.
 		let content_type = output_encoding.content_type(tangram_content_type);
 		let body = super::stdio::encode(stream, output_encoding, max_frame_size);
-		let body = tangram_http::body::header::set(body, &header)
-			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
+		let body = tangram_http::body::header::set(
+			body,
+			&header,
+			tangram_http::body::encoding::Encoding::Json,
+		)
+		.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
 		let response = http::Response::builder()

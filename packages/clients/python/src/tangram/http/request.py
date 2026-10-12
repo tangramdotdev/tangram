@@ -2,6 +2,7 @@ from collections.abc import AsyncIterable, Mapping
 from typing import NotRequired, TypedDict
 
 from .body import Body, json_bytes
+from .encoding import require_json
 from .headers import Headers, HeaderValue
 from .uri import Arg as UriArg
 from .uri import QueryValue, Uri
@@ -41,7 +42,8 @@ class Request:
         body = body if body is not None else self.body or Body.empty()
         uri = Uri({"path": self.uri.path, "query": arg})
         headers = self.headers.to_data()
-        if len(uri.query or "") > 4096:
+        if headers.get("x-tg-arg-in-body") == "true" or len(uri.query or "") > 4096:
+            require_json(self.headers.get("content-type"))
             data = json_bytes(arg)
             length = len(data)
             prefix = bytearray()
