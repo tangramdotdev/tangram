@@ -52,7 +52,8 @@ impl Session {
 			.ok_or_else(|| tg::error!("expected the path to be set"))?;
 		*path = self.host_path_for_guest_path(path)?;
 
-		let progress = crate::progress::Handle::new();
+		let capacity = self.server.config.progress.channel_capacity;
+		let progress = crate::progress::Handle::new(capacity);
 		let task = Task::spawn({
 			let session = self.clone();
 			let artifact_id = artifact.node.clone();
@@ -113,7 +114,7 @@ impl Session {
 		});
 
 		let stream = progress
-			.stream()
+			.stream(self.server.config.progress.interval)
 			.and_then({
 				let session = self.clone();
 				move |event| {

@@ -235,7 +235,8 @@ impl Session {
 			})
 			.collect::<Vec<_>>();
 		// Create the progress handle and add the indicators.
-		let progress = crate::progress::Handle::new();
+		let capacity = self.server.config.progress.channel_capacity;
+		let progress = crate::progress::Handle::new(capacity);
 		for name in [
 			"groups",
 			"objects",
@@ -333,7 +334,10 @@ impl Session {
 		});
 
 		// Create the stream.
-		let stream = progress.stream().attach(indicator_total_task).attach(task);
+		let stream = progress
+			.stream(self.server.config.progress.interval)
+			.attach(indicator_total_task)
+			.attach(task);
 
 		let header = header_receiver
 			.await

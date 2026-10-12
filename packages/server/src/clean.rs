@@ -21,7 +21,8 @@ impl Session {
 			return Err(tg::error!("cannot clean in multi-process mode"));
 		}
 
-		let progress = crate::progress::Handle::new();
+		let capacity = self.server.config.progress.channel_capacity;
+		let progress = crate::progress::Handle::new(capacity);
 
 		let task = Task::spawn({
 			let session = self.clone();
@@ -49,7 +50,7 @@ impl Session {
 		});
 
 		let stream = progress
-			.stream()
+			.stream(self.server.config.progress.interval)
 			.attach(task)
 			.with_stopper(self.context.stopper.clone());
 

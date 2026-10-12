@@ -201,6 +201,20 @@ impl Server {
 				"the scheduler message ack timeout must be greater than zero"
 			));
 		}
+		if config.progress.interval.is_zero() {
+			return Err(tg::error!(
+				"the progress interval must be greater than zero"
+			));
+		}
+		let sizes = [(
+			"progress channel capacity",
+			config.progress.channel_capacity,
+		)];
+		for (name, size) in sizes {
+			if size == 0 {
+				return Err(tg::error!("the {name} must be greater than zero"));
+			}
+		}
 		let sizes = [(
 			"pagination database page length",
 			config.pagination.database_page_length,

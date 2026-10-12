@@ -33,8 +33,8 @@ where
 	T: Clone + Send,
 {
 	#[must_use]
-	pub fn new() -> Self {
-		let (mut sender, receiver) = async_broadcast::broadcast(1024);
+	pub fn new(capacity: usize) -> Self {
+		let (mut sender, receiver) = async_broadcast::broadcast(capacity);
 		sender.set_overflow(true);
 		let inactive_receiver = receiver.deactivate();
 		let indicators = Arc::new(RwLock::new(IndexMap::new()));
@@ -171,14 +171,16 @@ where
 		None
 	}
 
-	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + use<T> {
+	pub fn stream(
+		&self,
+		interval: Duration,
+	) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + use<T> {
 		let receiver = self.sender.new_receiver();
 		let last = self.last.read().unwrap().clone();
 		if let Some(result) = last {
 			return stream::once(future::ready(result)).left_stream();
 		}
 		let indicators = self.indicators.clone();
-		let interval = Duration::from_millis(100);
 		let interval = tokio::time::interval(interval);
 		let updates = IntervalStream::new(interval)
 			.skip(1)
@@ -240,14 +242,5 @@ where
 			})
 			.collect();
 		tg::progress::Event::Indicators(indicators)
-	}
-}
-
-impl<T> Default for Handle<T>
-where
-	T: Clone + Send,
-{
-	fn default() -> Self {
-		Self::new()
 	}
 }

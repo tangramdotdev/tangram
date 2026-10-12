@@ -67,7 +67,8 @@ impl Session {
 			return Ok(stream::once(future::ok(tg::progress::Event::Output(()))).left_stream());
 		}
 
-		let progress = crate::progress::Handle::new();
+		let capacity = self.server.config.progress.channel_capacity;
+		let progress = crate::progress::Handle::new(capacity);
 		let task = Task::spawn({
 			let session = self.clone();
 			let progress = progress.clone();
@@ -137,7 +138,10 @@ impl Session {
 			}
 		});
 
-		let stream = progress.stream().attach(task).right_stream();
+		let stream = progress
+			.stream(self.server.config.progress.interval)
+			.attach(task)
+			.right_stream();
 
 		Ok(stream)
 	}
@@ -605,7 +609,8 @@ impl Session {
 			let task = session.server.checkout_tasks.get_or_spawn_with_context(
 				item.id.clone(),
 				|| {
-					let progress = crate::progress::Handle::new();
+					let capacity = session.server.config.progress.channel_capacity;
+					let progress = crate::progress::Handle::new(capacity);
 					progress.start(
 						"artifacts".to_owned(),
 						"artifacts".to_owned(),
@@ -640,7 +645,11 @@ impl Session {
 			// Forward progress events from the dependency to the progress handle.
 			let mut dependency_artifacts = 0u64;
 			let mut dependency_bytes = 0u64;
-			let mut stream = pin!(task.context().stream().fuse());
+			let mut stream = pin!(
+				task.context()
+					.stream(self.server.config.progress.interval)
+					.fuse()
+			);
 			let mut task_future = pin!(task.wait().fuse());
 			loop {
 				futures::select! {
@@ -681,7 +690,8 @@ impl Session {
 				.get_or_spawn_with_context(
 					graph_id.clone(),
 					|| {
-						let progress = crate::progress::Handle::new();
+						let capacity = session.server.config.progress.channel_capacity;
+						let progress = crate::progress::Handle::new(capacity);
 						progress.start(
 							"artifacts".to_owned(),
 							"artifacts".to_owned(),
@@ -716,7 +726,11 @@ impl Session {
 			// Forward progress events from the dependency to the progress handle.
 			let mut dependency_artifacts = 0u64;
 			let mut dependency_bytes = 0u64;
-			let mut stream = pin!(task.context().stream().fuse());
+			let mut stream = pin!(
+				task.context()
+					.stream(self.server.config.progress.interval)
+					.fuse()
+			);
 			let mut task_future = pin!(task.wait().fuse());
 			loop {
 				futures::select! {

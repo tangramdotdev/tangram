@@ -51,6 +51,8 @@ pub struct Config {
 
 	pub process: Process,
 
+	pub progress: Progress,
+
 	pub region: Option<String>,
 
 	pub regions: Option<Vec<Region>>,
@@ -904,6 +906,13 @@ pub struct Spawn {
 }
 
 #[derive(Clone, Debug)]
+pub struct Progress {
+	pub channel_capacity: usize,
+
+	pub interval: Duration,
+}
+
+#[derive(Clone, Debug)]
 pub struct Region {
 	pub name: String,
 
@@ -1612,6 +1621,7 @@ impl Default for Config {
 			pagination: Pagination::default(),
 			primary_region: None,
 			process: Process::default(),
+			progress: Progress::default(),
 			region: None,
 			regions: None,
 			remote_cache: RemoteCache::default(),
@@ -2170,6 +2180,15 @@ impl Default for Process {
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
+		}
+	}
+}
+
+impl Default for Progress {
+	fn default() -> Self {
+		Self {
+			channel_capacity: 1024,
+			interval: Duration::from_millis(100),
 		}
 	}
 }

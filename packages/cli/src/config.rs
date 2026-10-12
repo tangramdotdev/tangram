@@ -85,6 +85,9 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process: Option<Process>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub progress: Option<Progress>,
+
 	/// Configure the publish command.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub publish: Option<Publish>,
@@ -1388,6 +1391,18 @@ pub struct Pagination {
 }
 
 #[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Progress {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub interval: Option<Duration>,
+}
+
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Region {
@@ -2686,6 +2701,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	}
 	if let Some(source) = source.process {
 		target.process = resolve_process(source);
+	}
+	if let Some(source) = source.progress {
+		target.progress = resolve_progress(source);
 	}
 	if let Some(region) = source.region {
 		target.region = Some(region);
@@ -4014,6 +4032,17 @@ fn resolve_pagination(source: Pagination) -> server::Pagination {
 	}
 	if let Some(value) = source.max_limit {
 		target.max_limit = value;
+	}
+	target
+}
+
+pub(crate) fn resolve_progress(source: Progress) -> server::Progress {
+	let mut target = server::Progress::default();
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
+	}
+	if let Some(value) = source.interval {
+		target.interval = value;
 	}
 	target
 }

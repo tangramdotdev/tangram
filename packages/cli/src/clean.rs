@@ -81,8 +81,17 @@ impl Cli {
 		// Force unmount the VFS store path if it is mounted.
 		Self::force_unmount_vfs(&store_path).await;
 
+		// Resolve the progress configuration.
+		let progress_config = crate::config::resolve_progress(
+			self.config
+				.as_ref()
+				.and_then(|config| config.progress)
+				.unwrap_or_default(),
+		);
+
 		// Create the progress handle.
-		let progress = tangram_server::progress::Handle::<()>::new();
+		let progress =
+			tangram_server::progress::Handle::<()>::new(progress_config.channel_capacity);
 
 		// Spawn the blocking task to clean the directory.
 		let progress_ = progress.clone();
@@ -173,7 +182,7 @@ impl Cli {
 		});
 
 		// Render the progress stream.
-		self.render_progress_stream(progress.stream().attach(task))
+		self.render_progress_stream(progress.stream(progress_config.interval).attach(task))
 			.await?;
 
 		Ok(())

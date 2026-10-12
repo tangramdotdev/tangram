@@ -166,7 +166,8 @@ impl Session {
 		let PrepareOutput { parent_sandbox } = prepare_output;
 
 		// Create the progress.
-		let progress = crate::progress::Handle::new();
+		let capacity = self.server.config.progress.channel_capacity;
+		let progress = crate::progress::Handle::new(capacity);
 
 		// Spawn the task.
 		let task = Task::spawn({
@@ -193,7 +194,10 @@ impl Session {
 			}
 		});
 
-		let stream = progress.stream().attach(task).boxed();
+		let stream = progress
+			.stream(self.server.config.progress.interval)
+			.attach(task)
+			.boxed();
 
 		Ok(stream)
 	}

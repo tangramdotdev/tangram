@@ -107,9 +107,12 @@ impl Session {
 
 		// Recognize the store path after resolving parent symlinks and traversal components.
 		if let Some(output) = self.try_checkin_store_path(&arg.path).await? {
-			let progress = crate::progress::Handle::new();
+			let capacity = self.server.config.progress.channel_capacity;
+			let progress = crate::progress::Handle::new(capacity);
 			progress.output(output);
-			return Ok(progress.stream().left_stream());
+			return Ok(progress
+				.stream(self.server.config.progress.interval)
+				.left_stream());
 		}
 
 		// Create the ignorer and determine the root.
@@ -134,9 +137,10 @@ impl Session {
 			root: root.clone(),
 			updates: arg.updates.clone(),
 		};
+		let capacity = self.server.config.progress.channel_capacity;
 		let root_task = self.server.checkin_tasks.get_or_spawn_with_context(
 			key,
-			crate::progress::Handle::new,
+			|| crate::progress::Handle::new(capacity),
 			|progress, _stop| {
 				let session = self.clone();
 				let arg = arg.clone();
@@ -178,7 +182,8 @@ impl Session {
 		let root_progress = root_task.context().clone();
 
 		// Create the progress.
-		let progress = crate::progress::Handle::new();
+		let capacity = self.server.config.progress.channel_capacity;
+		let progress = crate::progress::Handle::new(capacity);
 
 		// Spawn the task.
 		let now = self.server.clock.unix_timestamp()?;
@@ -195,7 +200,8 @@ impl Session {
 					path = %path.display(),
 				)
 				.await;
-				let mut stream = std::pin::pin!(root_progress.stream());
+				let mut stream =
+					std::pin::pin!(root_progress.stream(session.server.config.progress.interval));
 				crate::checkpoint!(
 					session.server,
 					"checkin.progress.subscribed",
@@ -284,7 +290,7 @@ impl Session {
 		});
 
 		let stream = progress
-			.stream()
+			.stream(self.server.config.progress.interval)
 			.attach(task)
 			.attach(root_task)
 			.right_stream();
