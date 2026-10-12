@@ -1485,6 +1485,9 @@ pub struct Process {
 	pub children_wakeup_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default_children_page_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_log_read_size: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1530,6 +1533,9 @@ pub struct Process {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Spawn {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub authorization_batch_size: Option<usize>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub create_delay: Option<Duration>,
@@ -1664,6 +1670,9 @@ pub struct Runner {
 	pub cpu_pool: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub control_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpus: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1686,6 +1695,10 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory_sampling_interval: Option<Duration>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_control_connection_pool_refresh_interval: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_control_connection_pool_size: Option<usize>,
 
@@ -1697,12 +1710,34 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_state_ttl: Option<Duration>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub progress_channel_capacity: Option<usize>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub progress_log_delay: Option<Duration>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub progress_log_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub progress_update_interval: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub restart_delay: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox_channel_capacity: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox_control_connection_pool_refresh_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandbox_control_connection_pool_size: Option<usize>,
@@ -4508,6 +4543,9 @@ fn resolve_process(source: Process) -> server::Process {
 	if let Some(value) = source.children_wakeup_interval {
 		target.children_wakeup_interval = value;
 	}
+	if let Some(value) = source.default_children_page_size {
+		target.default_children_page_size = value;
+	}
 	if let Some(value) = source.default_log_read_size {
 		target.default_log_read_size = value;
 	}
@@ -4546,6 +4584,9 @@ fn resolve_process(source: Process) -> server::Process {
 
 fn resolve_spawn(source: Spawn) -> server::Spawn {
 	let mut target = server::Spawn::default();
+	if let Some(value) = source.authorization_batch_size {
+		target.authorization_batch_size = value;
+	}
 	if let Some(value) = source.create_delay {
 		target.create_delay = value;
 	}
@@ -4695,8 +4736,17 @@ fn resolve_runner(source: Runner) -> server::Runner {
 		cpu_pool: source.cpu_pool,
 		..Default::default()
 	};
+	if let Some(value) = source.control_channel_capacity {
+		target.control_channel_capacity = value;
+	}
 	if let Some(value) = source.cpu_oversubscription {
 		target.cpu_oversubscription = value;
+	}
+	if let Some(value) = source.progress_channel_capacity {
+		target.progress_channel_capacity = value;
+	}
+	if let Some(value) = source.sandbox_channel_capacity {
+		target.sandbox_channel_capacity = value;
 	}
 	if let Some(value) = source.memory_sampling_interval {
 		target.memory_sampling_interval = value;
@@ -4719,8 +4769,23 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	if let Some(value) = source.process_state_ttl {
 		target.process_state_ttl = value;
 	}
+	if let Some(value) = source.process_control_connection_pool_refresh_interval {
+		target.process_control_connection_pool_refresh_interval = value;
+	}
 	if let Some(value) = source.progress_log_delay {
 		target.progress_log_delay = value;
+	}
+	if let Some(value) = source.progress_log_interval {
+		target.progress_log_interval = value;
+	}
+	if let Some(value) = source.progress_update_interval {
+		target.progress_update_interval = value;
+	}
+	if let Some(value) = source.restart_delay {
+		target.restart_delay = value;
+	}
+	if let Some(value) = source.sandbox_control_connection_pool_refresh_interval {
+		target.sandbox_control_connection_pool_refresh_interval = value;
 	}
 	if let Some(value) = source.sandbox_control_connection_pool_size {
 		target.sandbox_control_connection_pool_size = value;

@@ -46,8 +46,10 @@ pub(super) struct Config {
 	pub cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 	#[cfg(target_os = "linux")]
 	pub filesystem_project_ids: crate::config::ContainerRunnerIsolationProjectIds,
+	pub process_control_connection_pool_refresh_interval: Duration,
 	pub process_control_connection_pool_size: usize,
 	pub process_control_connection_pool_ttl: Duration,
+	pub sandbox_control_connection_pool_refresh_interval: Duration,
 	pub sandbox_control_connection_pool_size: usize,
 	pub sandbox_control_connection_pool_ttl: Duration,
 	pub sandbox_pool_size: usize,
@@ -61,6 +63,7 @@ struct ControlConnectionPool<T: Send + 'static> {
 	name: &'static str,
 	notify: Arc<tokio::sync::Notify>,
 	pool: Mutex<Option<tangram_pool::Pool<ControlConnectionPoolEntry<T>, tg::Error>>>,
+	refresh_interval: Duration,
 	size: usize,
 	task: Mutex<Option<Task<()>>>,
 	ttl: Duration,
@@ -112,11 +115,13 @@ impl Runner {
 		let task = Mutex::new(None);
 		let process_control_connection_pool = ControlConnectionPool::new(
 			"process",
+			config.process_control_connection_pool_refresh_interval,
 			config.process_control_connection_pool_size,
 			config.process_control_connection_pool_ttl,
 		);
 		let sandbox_control_connection_pool = ControlConnectionPool::new(
 			"sandbox",
+			config.sandbox_control_connection_pool_refresh_interval,
 			config.sandbox_control_connection_pool_size,
 			config.sandbox_control_connection_pool_ttl,
 		);
@@ -157,11 +162,12 @@ impl Runner {
 
 impl<T: Send + 'static> ControlConnectionPool<T> {
 	#[must_use]
-	fn new(name: &'static str, size: usize, ttl: Duration) -> Self {
+	fn new(name: &'static str, refresh_interval: Duration, size: usize, ttl: Duration) -> Self {
 		Self {
 			name,
 			notify: Arc::new(tokio::sync::Notify::new()),
 			pool: Mutex::new(None),
+			refresh_interval,
 			size,
 			task: Mutex::new(None),
 			ttl,
@@ -194,7 +200,7 @@ impl<T: Send + 'static> ControlConnectionPool<T> {
 		if self.size == 0 || self.ttl.is_zero() {
 			return;
 		}
-		let interval = (self.ttl / 2).max(Duration::from_millis(10));
+		let interval = self.refresh_interval;
 		let name = self.name;
 		let notify = self.notify.clone();
 		let size = self.size;
@@ -413,7 +419,7 @@ impl Session {
 				tracing::error!(error = %error.trace(), "the runner task failed");
 				let stop_future = stopper.wait();
 				let stop_future = pin!(stop_future);
-				let sleep_future = tokio::time::sleep(Duration::from_secs(1));
+				let sleep_future = tokio::time::sleep(self.server.config.runner.restart_delay);
 				let sleep_future = pin!(sleep_future);
 				if matches!(
 					future::select(stop_future, sleep_future).await,
@@ -685,8 +691,9 @@ impl Session {
 			tg::runner::control::ClientMessage,
 		>,
 	)> {
+		let capacity = self.server.config.runner.control_channel_capacity;
 		let (input, input_receiver) =
-			tokio::sync::mpsc::channel::<tg::runner::control::ClientMessage>(256);
+			tokio::sync::mpsc::channel::<tg::runner::control::ClientMessage>(capacity);
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();

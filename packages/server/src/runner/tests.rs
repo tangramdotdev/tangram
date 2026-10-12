@@ -2,7 +2,8 @@ use {super::ControlConnectionPool, std::time::Duration};
 
 #[tokio::test]
 async fn pool_adds_a_replacement_after_take() {
-	let pool = ControlConnectionPool::new("test", 1, Duration::from_secs(60));
+	let pool =
+		ControlConnectionPool::new("test", Duration::from_secs(30), 1, Duration::from_secs(60));
 	let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 	pool.start({
 		let count = count.clone();
@@ -26,7 +27,12 @@ async fn pool_adds_a_replacement_after_take() {
 
 #[tokio::test]
 async fn pool_shutdown_cancels_connection_creation() {
-	let pool = ControlConnectionPool::<()>::new("test", 1, Duration::from_secs(5));
+	let pool = ControlConnectionPool::<()>::new(
+		"test",
+		Duration::from_millis(2500),
+		1,
+		Duration::from_secs(5),
+	);
 	let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
 	pool.start(move || {
 		let sender = sender.clone();
@@ -43,7 +49,7 @@ async fn pool_shutdown_cancels_connection_creation() {
 
 #[tokio::test]
 async fn pool_zero_ttl_only_creates_connections_on_demand() {
-	let pool = ControlConnectionPool::new("test", 1, Duration::ZERO);
+	let pool = ControlConnectionPool::new("test", Duration::ZERO, 1, Duration::ZERO);
 	pool.start(|| async { Ok(()) });
 	assert!(pool.task.lock().unwrap().is_none());
 	pool.take().await.unwrap();

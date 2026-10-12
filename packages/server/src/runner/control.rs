@@ -130,7 +130,8 @@ impl Session {
 			})?;
 
 		let forwarded_requests = Arc::new(DashSet::new());
-		let (sender, receiver) = tokio::sync::mpsc::channel(256);
+		let capacity = self.server.config.runner.control_channel_capacity;
+		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
 		let control = crate::control::Stream::new(
 			stream,
 			sender.clone(),
@@ -167,7 +168,7 @@ impl Session {
 			}
 		});
 		let (heartbeat_sender, mut heartbeat_receiver) =
-			tokio::sync::mpsc::channel::<crate::scheduler::HeartbeatNotification>(256);
+			tokio::sync::mpsc::channel::<crate::scheduler::HeartbeatNotification>(capacity);
 		let scheduler_unavailable = Arc::new(AtomicBool::new(false));
 		let (scheduler_unavailable_sender, scheduler_unavailable_receiver) =
 			tokio::sync::oneshot::channel();

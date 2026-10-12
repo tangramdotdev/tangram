@@ -12,8 +12,6 @@ use {
 	unicode_width::UnicodeWidthChar as _,
 };
 
-const LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
-
 struct State {
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	lines: Option<u16>,
@@ -68,7 +66,8 @@ impl Session {
 	) -> tg::Result<T> {
 		// Log nothing until the delay has elapsed so that short operations stay quiet.
 		let start = tokio::time::Instant::now() + self.server.config.runner.progress_log_delay;
-		let mut interval = tokio::time::interval_at(start, LOG_INTERVAL);
+		let log_interval = self.server.config.runner.progress_log_interval;
+		let mut interval = tokio::time::interval_at(start, log_interval);
 		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		let mut stream = pin!(stream);
 		let mut latest: IndexMap<String, String> = IndexMap::new();
@@ -83,7 +82,7 @@ impl Session {
 						tg::progress::Event::Diagnostic(diagnostic) => {
 							let message = format!("{diagnostic}\n");
 							progress.send(message.into()).ok();
-							reset_log_interval(&mut interval, start);
+							reset_log_interval(&mut interval, start, log_interval);
 						},
 						tg::progress::Event::Indicators(indicators) => {
 							latest.clear();
@@ -103,7 +102,7 @@ impl Session {
 								None => format!("{}\n", log.message),
 							};
 							progress.send(message.into()).ok();
-							reset_log_interval(&mut interval, start);
+							reset_log_interval(&mut interval, start, log_interval);
 						},
 						tg::progress::Event::Output(output) => {
 							let now = tokio::time::Instant::now();
@@ -127,15 +126,17 @@ impl Session {
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
-		let (sender, receiver) = tokio::sync::mpsc::channel(16);
+		let capacity = self.server.config.runner.progress_channel_capacity;
+		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
 		let mut state = State {
 			indicators: IndexMap::new(),
 			lines: None,
 			rendered: None,
 			sender,
 		};
-		let progress_task = Task::spawn(|_| async move {
-			let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
+		let update_interval = self.server.config.runner.progress_update_interval;
+		let progress_task = Task::spawn(move |_| async move {
+			let mut interval = tokio::time::interval(update_interval);
 			let mut stream = pin!(stream);
 			let mut output = None;
 			loop {
@@ -315,8 +316,12 @@ fn clip(string: &str, mut width: usize) -> &str {
 	&string[0..len]
 }
 
-fn reset_log_interval(interval: &mut tokio::time::Interval, start: tokio::time::Instant) {
-	let deadline = (tokio::time::Instant::now() + LOG_INTERVAL).max(start);
+fn reset_log_interval(
+	interval: &mut tokio::time::Interval,
+	start: tokio::time::Instant,
+	log_interval: std::time::Duration,
+) {
+	let deadline = (tokio::time::Instant::now() + log_interval).max(start);
 	interval.reset_at(deadline);
 }
 

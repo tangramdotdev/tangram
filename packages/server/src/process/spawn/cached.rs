@@ -7,8 +7,6 @@ use {
 	tangram_index::prelude::*,
 };
 
-const AUTHORIZATION_BATCH_SIZE: usize = 16;
-
 type Candidate = (tg::process::Id, tangram_index::process::Process);
 
 enum CandidateOutcome {
@@ -161,7 +159,8 @@ impl Session {
 		cycle: &mut Option<tg::process::Id>,
 		public: bool,
 	) -> tg::Result<Option<super::local::Output>> {
-		for candidate_indices in candidate_indices.chunks(AUTHORIZATION_BATCH_SIZE) {
+		let batch_size = self.server.config.process.spawn.authorization_batch_size;
+		for candidate_indices in candidate_indices.chunks(batch_size) {
 			let authorizations = self
 				.authorize_cached_process_candidates(candidates, candidate_indices, public)
 				.await?;
@@ -239,7 +238,8 @@ impl Session {
 		cycle: &mut Option<tg::process::Id>,
 		public: bool,
 	) -> tg::Result<Option<super::local::Output>> {
-		for candidate_indices in candidate_indices.chunks(AUTHORIZATION_BATCH_SIZE) {
+		let batch_size = self.server.config.process.spawn.authorization_batch_size;
+		for candidate_indices in candidate_indices.chunks(batch_size) {
 			let authorizations = self
 				.authorize_cached_process_candidates(candidates, candidate_indices, public)
 				.await?;

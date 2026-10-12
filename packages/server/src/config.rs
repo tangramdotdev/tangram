@@ -975,6 +975,8 @@ pub struct Process {
 
 	pub children_wakeup_interval: Duration,
 
+	pub default_children_page_size: u64,
+
 	pub default_log_read_size: u64,
 
 	pub log_cache_partition_total: u64,
@@ -998,8 +1000,10 @@ pub struct Process {
 	pub time_to_touch: Duration,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Spawn {
+	pub authorization_batch_size: usize,
+
 	pub create_delay: Duration,
 
 	pub host: Option<String>,
@@ -1072,6 +1076,8 @@ pub struct Runner {
 
 	pub cpu_pool: Option<PathBuf>,
 
+	pub control_channel_capacity: usize,
+
 	pub cpus: Option<u64>,
 
 	pub heartbeat_interval: Duration,
@@ -1086,15 +1092,29 @@ pub struct Runner {
 
 	pub memory_sampling_interval: Duration,
 
+	pub process_control_connection_pool_refresh_interval: Duration,
+
 	pub process_control_connection_pool_size: usize,
 
 	pub process_control_connection_pool_ttl: Duration,
 
 	pub process_state_ttl: Duration,
 
+	pub progress_channel_capacity: usize,
+
 	pub progress_log_delay: Duration,
 
+	pub progress_log_interval: Duration,
+
+	pub progress_update_interval: Duration,
+
 	pub remote: Option<String>,
+
+	pub restart_delay: Duration,
+
+	pub sandbox_channel_capacity: usize,
+
+	pub sandbox_control_connection_pool_refresh_interval: Duration,
 
 	pub sandbox_control_connection_pool_size: usize,
 
@@ -2545,6 +2565,7 @@ impl Default for Process {
 		Self {
 			await_push: false,
 			children_wakeup_interval: Duration::from_mins(1),
+			default_children_page_size: 256,
 			default_log_read_size: 4096,
 			log_cache_partition_total: 1,
 			log_time_to_live: Duration::from_hours(1),
@@ -2556,6 +2577,16 @@ impl Default for Process {
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
+		}
+	}
+}
+
+impl Default for Spawn {
+	fn default() -> Self {
+		Self {
+			authorization_batch_size: 16,
+			create_delay: Duration::ZERO,
+			host: None,
 		}
 	}
 }
@@ -2603,6 +2634,7 @@ impl Default for Runner {
 		Self {
 			cpu_oversubscription: 4,
 			cpu_pool: None,
+			control_channel_capacity: 256,
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
@@ -2610,11 +2642,18 @@ impl Default for Runner {
 			javascript: JavaScript::default(),
 			memory: None,
 			memory_sampling_interval: Duration::from_secs(1),
+			process_control_connection_pool_refresh_interval: Duration::from_millis(2500),
 			process_control_connection_pool_size: 1,
 			process_control_connection_pool_ttl: Duration::from_secs(5),
 			process_state_ttl: Duration::from_mins(1),
+			progress_channel_capacity: 16,
 			progress_log_delay: Duration::from_secs(2),
+			progress_log_interval: Duration::from_secs(1),
+			progress_update_interval: Duration::from_millis(100),
 			remote: None,
+			restart_delay: Duration::from_secs(1),
+			sandbox_channel_capacity: 256,
+			sandbox_control_connection_pool_refresh_interval: Duration::from_millis(2500),
 			sandbox_control_connection_pool_size: 1,
 			sandbox_control_connection_pool_ttl: Duration::from_secs(5),
 			sandbox_pool_size: 1,

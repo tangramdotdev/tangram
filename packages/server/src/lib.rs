@@ -222,6 +222,26 @@ impl Server {
 			),
 			("progress interval", config.progress.interval),
 			(
+				"runner process control connection pool refresh interval",
+				config
+					.runner
+					.process_control_connection_pool_refresh_interval,
+			),
+			(
+				"runner progress log interval",
+				config.runner.progress_log_interval,
+			),
+			(
+				"runner progress update interval",
+				config.runner.progress_update_interval,
+			),
+			(
+				"runner sandbox control connection pool refresh interval",
+				config
+					.runner
+					.sandbox_control_connection_pool_refresh_interval,
+			),
+			(
 				"sync metadata poll interval",
 				config.sync.metadata_poll_interval,
 			),
@@ -267,10 +287,26 @@ impl Server {
 				config.indexer.request.channel_capacity,
 			),
 			(
+				"process spawn authorization batch size",
+				config.process.spawn.authorization_batch_size,
+			),
+			(
 				"progress channel capacity",
 				config.progress.channel_capacity,
 			),
 			("read index batch size", config.read.index_batch_size),
+			(
+				"runner control channel capacity",
+				config.runner.control_channel_capacity,
+			),
+			(
+				"runner progress channel capacity",
+				config.runner.progress_channel_capacity,
+			),
+			(
+				"runner sandbox channel capacity",
+				config.runner.sandbox_channel_capacity,
+			),
 			(
 				"sandbox control channel capacity",
 				config.sandbox.control_channel_capacity,
@@ -335,6 +371,10 @@ impl Server {
 			(
 				"pagination database page length",
 				config.pagination.database_page_length,
+			),
+			(
+				"process default children page size",
+				config.process.default_children_page_size,
 			),
 			(
 				"process default log read size",
@@ -1210,10 +1250,16 @@ impl Server {
 			cpu_pool,
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: config.runner.isolation.container.filesystem_project_ids,
+			process_control_connection_pool_refresh_interval: config
+				.runner
+				.process_control_connection_pool_refresh_interval,
 			process_control_connection_pool_size: config
 				.runner
 				.process_control_connection_pool_size,
 			process_control_connection_pool_ttl: config.runner.process_control_connection_pool_ttl,
+			sandbox_control_connection_pool_refresh_interval: config
+				.runner
+				.sandbox_control_connection_pool_refresh_interval,
 			sandbox_control_connection_pool_size: config
 				.runner
 				.sandbox_control_connection_pool_size,

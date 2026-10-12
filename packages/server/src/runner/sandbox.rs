@@ -295,7 +295,8 @@ impl Session {
 			arg: arg.clone(),
 			creator: creator.clone(),
 		};
-		let (input, input_receiver) = tokio::sync::mpsc::channel(256);
+		let capacity = self.server.config.runner.sandbox_channel_capacity;
+		let (input, input_receiver) = tokio::sync::mpsc::channel(capacity);
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();
@@ -1508,7 +1509,8 @@ impl Session {
 			.state
 			.id()
 			.ok_or_else(|| tg::error!("missing the runner id"))?;
-		let (input, input_receiver) = tokio::sync::mpsc::channel(256);
+		let capacity = self.server.config.runner.sandbox_channel_capacity;
+		let (input, input_receiver) = tokio::sync::mpsc::channel(capacity);
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();

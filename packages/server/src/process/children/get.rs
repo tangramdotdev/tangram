@@ -127,11 +127,12 @@ impl Session {
 	) -> BoxFuture<'a, tg::Result<()>> {
 		async move {
 			let mut position = arg.position.unwrap_or(std::io::SeekFrom::Start(0));
+			let default_size = self.server.config.process.default_children_page_size;
 			let mut read = 0;
 			loop {
 				let size = arg
 					.size
-					.unwrap_or(256)
+					.unwrap_or(default_size)
 					.min(arg.length.map_or(u64::MAX, |length| length - read));
 				let output = runner
 					.processes
@@ -282,7 +283,11 @@ impl Session {
 		};
 
 		let position = arg.position.unwrap_or(std::io::SeekFrom::Start(0));
-		let size = arg.size.unwrap_or(256).min(arg.length.unwrap_or(u64::MAX));
+		let default_size = self.server.config.process.default_children_page_size;
+		let size = arg
+			.size
+			.unwrap_or(default_size)
+			.min(arg.length.unwrap_or(u64::MAX));
 		let (start, length) = match position {
 			std::io::SeekFrom::Start(position) => (position, size),
 			std::io::SeekFrom::Current(_) | std::io::SeekFrom::End(_) => (0, 0),
@@ -407,7 +412,8 @@ impl Session {
 		else {
 			return Err(tg::error!(%id, "invalid position"));
 		};
-		let size = arg.size.unwrap_or(256);
+		let default_size = self.server.config.process.default_children_page_size;
+		let size = arg.size.unwrap_or(default_size);
 		let mut read = 0;
 
 		// Send the events.
