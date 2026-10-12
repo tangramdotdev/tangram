@@ -4,10 +4,7 @@ use {
 		authorization::{IntoAuthorizationResource, Outcome, Output as Authorization, Proofs},
 	},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
-	std::{
-		collections::{BTreeMap, BTreeSet},
-		sync::Arc,
-	},
+	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_index::prelude::*,
@@ -36,7 +33,6 @@ type SyncKey = (usize, tg::sync::Id);
 
 struct Requests<'a> {
 	cancelled: BTreeSet<usize>,
-	client: Option<Arc<crate::sync::control::Client>>,
 	entries: BTreeMap<RequestKey, Entry>,
 	errors: BTreeMap<SyncKey, tg::Error>,
 	futures: FuturesUnordered<
@@ -991,7 +987,6 @@ impl<'a> Requests<'a> {
 	fn new(session: &'a Session) -> Self {
 		Self {
 			cancelled: BTreeSet::new(),
-			client: None,
 			entries: BTreeMap::new(),
 			errors: BTreeMap::new(),
 			futures: FuturesUnordered::new(),
@@ -1033,20 +1028,11 @@ impl<'a> Requests<'a> {
 		if !self.entries.get_mut(&request.key()).unwrap().start(abort) {
 			return;
 		}
-		let client = self
-			.client
-			.get_or_insert_with(|| {
-				self.session
-					.sync_control
-					.clone()
-					.unwrap_or_else(|| Arc::new(crate::sync::control::Client::default()))
-			})
-			.clone();
 		let session = self.session;
 		self.futures.push(
 			async move {
 				let future = async {
-					let mut control = client.request(
+					let mut control = session.server.sync_control_clients.request(
 						session,
 						&request.sync,
 						tg::sync::control::ClientRequestArg::Verify(request.arg.clone()),

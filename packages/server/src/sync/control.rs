@@ -15,7 +15,7 @@ use {
 #[cfg(test)]
 mod tests;
 
-pub(crate) use self::client::Client;
+pub(crate) use self::client::Clients;
 
 pub(crate) mod client;
 

@@ -27,7 +27,6 @@ pub(crate) struct Session {
 	pub process_control_sync: Option<tokio::sync::watch::Sender<bool>>,
 	pub server: Server,
 	pub sync: Option<tg::sync::Id>,
-	pub sync_control: Option<std::sync::Arc<crate::sync::control::Client>>,
 }
 
 impl Session {
@@ -39,7 +38,6 @@ impl Session {
 			process_control_sync: None,
 			server,
 			sync: None,
-			sync_control: None,
 		}
 	}
 

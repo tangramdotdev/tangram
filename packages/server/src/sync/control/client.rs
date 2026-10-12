@@ -15,18 +15,21 @@ use {
 	tokio::time::Instant,
 };
 
+/// The server's sync control clients, with one client per sync that every verification shares.
 #[derive(Default)]
-pub(crate) struct Client {
-	peers: Mutex<BTreeMap<tg::sync::Id, Arc<Peer>>>,
+pub(crate) struct Clients {
+	clients: Mutex<BTreeMap<tg::sync::Id, Arc<Client>>>,
 }
 
-struct Peer {
+/// A connection to one sync, which a task runs.
+struct Client {
+	id: String,
 	sender: tokio::sync::mpsc::UnboundedSender<Command>,
 }
 
 pub(crate) struct Request {
+	client: Arc<Client>,
 	id: String,
-	peer: Arc<Peer>,
 	receiver: tokio::sync::watch::Receiver<Output>,
 }
 
@@ -41,9 +44,11 @@ struct State {
 	client: String,
 	heartbeat_at: Instant,
 	heartbeats: BTreeMap<String, Heartbeat>,
+	idle_at: Option<Instant>,
 	last_heartbeat: Option<Instant>,
 	requests: BTreeMap<String, Pending>,
 	subject: String,
+	sync: tg::sync::Id,
 }
 
 struct Heartbeat {
@@ -83,63 +88,90 @@ enum Command {
 	},
 }
 
-impl Client {
+impl Clients {
 	pub fn request(
 		&self,
 		session: &Session,
 		id: &tg::sync::Id,
 		arg: protocol::ClientRequestArg,
 	) -> Request {
-		let peer = {
-			let mut peers = self.peers.lock().unwrap();
-			if let Some(peer) = peers
-				.get(id)
-				.filter(|peer| !peer.sender.is_closed())
-				.cloned()
-			{
-				peer
-			} else {
-				let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-				let peer = Arc::new(Peer { sender });
-				let client = crate::control::id();
-				let state = State {
-					attempt: None,
-					client,
-					heartbeat_at: Instant::now(),
-					heartbeats: BTreeMap::new(),
-					last_heartbeat: None,
-					requests: BTreeMap::new(),
-					subject: subject(id),
-				};
-				session
-					.server
-					.sync_control_tasks
-					.spawn({
-						let server = session.server.clone();
-						move |stopper| async move {
-							let result = server
-								.sync_control_heartbeat_task(state, receiver, stopper)
-								.await;
-							if let Err(error) = &result {
-								tracing::debug!(error = %error.trace(), "the sync heartbeat task failed");
-							}
-							result
-						}
-					})
-					.detach();
-				peers.insert(id.clone(), peer.clone());
-				peer
-			}
-		};
-		let id = crate::control::id();
+		let request = crate::control::id();
 		let (sender, receiver) = tokio::sync::watch::channel(Output::Pending);
 		let command = Command::Request {
 			arg,
-			id: id.clone(),
+			id: request.clone(),
 			sender,
 		};
-		peer.sender.send(command).ok();
-		Request { id, peer, receiver }
+
+		// Send the request while holding the lock, so that an idle client cannot remove itself between being found and receiving the request.
+		let mut clients = self.clients.lock().unwrap();
+		let client = if let Some(client) = clients
+			.get(id)
+			.filter(|client| !client.sender.is_closed())
+			.cloned()
+		{
+			client
+		} else {
+			let (sender, commands) = tokio::sync::mpsc::unbounded_channel();
+			let client = Arc::new(Client {
+				id: crate::control::id(),
+				sender,
+			});
+			let state = State {
+				attempt: None,
+				client: client.id.clone(),
+				heartbeat_at: Instant::now(),
+				heartbeats: BTreeMap::new(),
+				idle_at: None,
+				last_heartbeat: None,
+				requests: BTreeMap::new(),
+				subject: subject(id),
+				sync: id.clone(),
+			};
+			session
+				.server
+				.sync_control_tasks
+				.spawn({
+					let server = session.server.clone();
+					move |stopper| async move {
+						let result = server
+							.sync_control_heartbeat_task(state, commands, stopper)
+							.await;
+						if let Err(error) = &result {
+							tracing::debug!(error = %error.trace(), "the sync heartbeat task failed");
+						}
+						result
+					}
+				})
+				.detach();
+			clients.insert(id.clone(), client.clone());
+			client
+		};
+		client.sender.send(command).ok();
+		drop(clients);
+
+		Request {
+			client,
+			id: request,
+			receiver,
+		}
+	}
+
+	/// Remove an idle client, unless a command arrived for it.
+	fn remove_idle(
+		&self,
+		sync: &tg::sync::Id,
+		client: &str,
+		commands: &tokio::sync::mpsc::UnboundedReceiver<Command>,
+	) -> bool {
+		let mut clients = self.clients.lock().unwrap();
+		if !commands.is_empty() {
+			return false;
+		}
+		if clients.get(sync).is_some_and(|entry| entry.id == client) {
+			clients.remove(sync);
+		}
+		true
 	}
 }
 
@@ -168,7 +200,10 @@ impl Request {
 
 impl Drop for Request {
 	fn drop(&mut self) {
-		self.peer.sender.send(Command::Cancel(self.id.clone())).ok();
+		self.client
+			.sender
+			.send(Command::Cancel(self.id.clone()))
+			.ok();
 	}
 }
 
@@ -249,6 +284,7 @@ impl Server {
 							state.requests.remove(&id);
 						},
 						Some(Command::Request { arg, id, sender }) => {
+							state.idle_at = None;
 							let cancellation = Cancellation {
 								attempts: BTreeSet::new(),
 								id: id.clone(),
@@ -275,14 +311,33 @@ impl Server {
 					}
 				},
 				message = messages.try_next() => {
-					let Some(message) = message.map_err(|error| tg::error!(!error, "failed to receive a sync control response"))? else {
-						return Err(tg::error!("the sync control response stream ended"));
+					// Fail the pending requests with the response stream's error, so that they report its cause.
+					let message = match message {
+						Ok(Some(message)) => message,
+						Ok(None) => {
+							let error = tg::error!("the sync control response stream ended");
+							return Err(Self::sync_control_fail_requests(&mut state, error));
+						},
+						Err(source) => {
+							let error = tg::error!(!source, "failed to receive a sync control response");
+							return Err(Self::sync_control_fail_requests(&mut state, error));
+						},
 					};
-					self.sync_control_client_message(&mut state, message.payload.0).await?;
+					self.sync_control_client_message(&mut state, message.payload.0).await;
 				},
 				_ = tick.tick() => {
 					let now = Instant::now();
 					state.heartbeats.retain(|_, heartbeat| now < heartbeat.sent_at + config.attempt_ttl);
+
+					// Every verification shares this client, so stop it only after it has been idle for a while.
+					if closed_at.is_none() && state.requests.is_empty() {
+						let idle_at = *state.idle_at.get_or_insert(now);
+						if now >= idle_at + config.idle_timeout
+							&& self.sync_control_clients.remove_idle(&state.sync, &state.client, &commands)
+						{
+							break;
+						}
+					}
 					if closed_at.is_none() && !state.requests.is_empty() {
 						if state.attempt.as_ref().is_some_and(|attempt| now >= attempt.deadline) {
 							state.attempt = None;
@@ -332,7 +387,7 @@ impl Server {
 		&self,
 		state: &mut State,
 		message: protocol::ServerMessage,
-	) -> tg::Result<()> {
+	) {
 		match message {
 			protocol::ServerMessage::Ack(ack) => {
 				if let Some(heartbeat) = state.heartbeats.get_mut(&ack.id) {
@@ -384,7 +439,10 @@ impl Server {
 				} else if let Some(request) = state.requests.get(&response.id) {
 					// A terminal response from any attempt can satisfy the idempotent request.
 					let result = match (&response.error, &response.output, &request.arg) {
-						(Some(error), None, _) => Some(Err(tg::Error::try_from(error.clone())?)),
+						(Some(error), None, _) => Some(Err(tg::Error::try_from(error.clone())
+							.unwrap_or_else(|source| {
+								tg::error!(!source, "failed to deserialize the sync control error")
+							}))),
 						(
 							None,
 							Some(protocol::ServerResponseOutput::Verify(output)),
@@ -397,7 +455,7 @@ impl Server {
 						request.cancellation.attempts.remove(&response.attempt);
 						request.sender.send_replace(Output::Ready(result));
 					} else {
-						return Ok(());
+						return;
 					}
 				}
 
@@ -420,8 +478,15 @@ impl Server {
 				.await;
 			},
 		}
+	}
 
-		Ok(())
+	fn sync_control_fail_requests(state: &mut State, error: tg::Error) -> tg::Error {
+		for (_, request) in std::mem::take(&mut state.requests) {
+			request
+				.sender
+				.send_replace(Output::Ready(Err(error.clone())));
+		}
+		error
 	}
 
 	fn sync_control_recover_requests(&self, state: &mut State) {

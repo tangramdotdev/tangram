@@ -2207,6 +2207,10 @@ pub struct SyncControl {
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub idle_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub recovery_timeout: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -5416,6 +5420,9 @@ fn resolve_sync_control(source: SyncControl) -> server::SyncControl {
 	}
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
+	}
+	if let Some(value) = source.idle_timeout {
+		target.idle_timeout = value;
 	}
 	if let Some(value) = source.recovery_timeout {
 		target.recovery_timeout = value;

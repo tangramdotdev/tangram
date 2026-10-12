@@ -60,7 +60,7 @@ for kind in [object process] {
 	let endpoint = if $kind == object { 'objects' } else { 'processes' }
 	let uri = $'http://localhost/($endpoint)/($node)?($query)'
 
-	# Each missing read verifies storage with its own client attempt before storage resumes.
+	# Each missing read verifies storage before storage resumes, and the reads share the server's client for the sync.
 	let reads = 0..3 | each {
 		job spawn {
 			let job_id = job id
@@ -69,9 +69,11 @@ for kind in [object process] {
 		}
 	}
 	let attempts = 0..3 | each {|index|
-		timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack_watch $index | from json | get params.attempt
+		let attempt = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack_watch $index | from json | get params.attempt
+		tg --url $remote.url --token $root_token checkpoint continue sync.control.ack $ack_watch $index
+		$attempt
 	}
-	assert equal ($attempts | uniq | length) 4 'the reads should use separate client attempts'
+	assert equal ($attempts | uniq | length) 1 'the reads should share the client attempt'
 	let blocked_read = job spawn {
 		let job_id = job id
 		let output = http get --max-time 30sec --unix-socket $socket --headers $headers $'http://localhost/objects/($blocker)?($query)'

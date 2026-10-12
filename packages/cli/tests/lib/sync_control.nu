@@ -22,6 +22,7 @@ export def test [case: string] {
 			control: {
 				heartbeat_interval: 0.1,
 				attempt_ttl: 2,
+				idle_timeout: (if $case == 'shared_heartbeat' { 1 } else { 60 }),
 				recovery_timeout: 0.5,
 				request_timeout: 5,
 				retry_interval: (if $case == 'notification' { 2 } else { 0.05 }),

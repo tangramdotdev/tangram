@@ -255,7 +255,6 @@ impl Session {
 	) -> tg::Result<()> {
 		let mut session = self.clone();
 		session.sync = arg.sync.as_ref().map(|sync| sync.node.clone());
-		session.sync_control = Some(Arc::new(control::Client::default()));
 		session
 			.sync_task_inner(arg, get, stream, sender, trust)
 			.await?;

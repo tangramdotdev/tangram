@@ -1570,6 +1570,8 @@ pub struct SyncControl {
 
 	pub heartbeat_interval: Duration,
 
+	pub idle_timeout: Duration,
+
 	pub recovery_timeout: Duration,
 
 	pub request_timeout: Duration,
@@ -2876,6 +2878,7 @@ impl Default for SyncControl {
 		Self {
 			attempt_ttl: Duration::from_secs(10),
 			heartbeat_interval: Duration::from_secs(1),
+			idle_timeout: Duration::from_secs(60),
 			recovery_timeout: Duration::from_secs(60),
 			request_timeout: Duration::from_secs(60),
 			retry_interval: Duration::from_secs(1),

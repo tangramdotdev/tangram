@@ -162,6 +162,7 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
+	sync_control_clients: self::sync::control::Clients,
 	sync_control_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	sync_index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	tangram_path: PathBuf,
@@ -1807,6 +1808,7 @@ impl Server {
 			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			shutdown,
+			sync_control_clients: self::sync::control::Clients::default(),
 			sync_control_tasks: tangram_futures::task::Set::default(),
 			sync_index_tasks: tangram_futures::task::Set::default(),
 			tangram_path,

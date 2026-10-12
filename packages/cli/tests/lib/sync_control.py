@@ -970,7 +970,8 @@ def test_shared_heartbeat(messenger):
     values = ",".join('{"kind":"value","value":' + id + '}' for id in ids)
     parent = command("put", 'tg.command({"args":[' + values + '],"executable":"true","host":"builtin"})')
     sequential_ids = [source_blob(value) for value in ("first", "second")]
-    sync, peer, subscribe = fake_peer(messenger, [parent] + sequential_ids)
+    idle_id = source_blob("third")
+    sync, peer, subscribe = fake_peer(messenger, [parent] + sequential_ids + [idle_id])
     token = urllib.parse.quote(sync.token, safe="")
     outgoing = Sync({"eager": True, "put": f"{parent}?tokens[local][0]={token}"})
     clients, requests = set(), {}
@@ -998,7 +999,7 @@ def test_shared_heartbeat(messenger):
         peer.acknowledged(request[2], "shared")
     outgoing.close()
 
-    # Keep a second transfer open while its individual callers finish, then issue another request.
+    # Sequential requests within another transfer reuse one client.
     ids = sequential_ids
     incoming = Sync({"get": ",".join(f"{id}?tokens[local][0]={token}" for id in ids)})
     client = None
@@ -1008,17 +1009,39 @@ def test_shared_heartbeat(messenger):
         while True:
             request = messenger.receive(lambda path, message:
                 path.startswith(peer.subject + ".") and path.endswith(".server") and message.id == 1
-                and message.value[1] not in clients)
+                and (message.value[0].id == 0 or message.value[0].value[0] == node_bytes(id)))
             if request[0].id == 0:
                 peer.heartbeat(request, "sequential")
             else:
                 break
         if client is None:
             client = request[1]
-        assert request[1] == client and request[3] == "sequential", "sequential requests must reuse the peer task"
+        assert request[1] == client, "sequential requests must reuse the client"
         assert command("put", f"tg.blob({json.dumps(value)})") == id
         peer.respond(request)
-        peer.acknowledged(request[2], "sequential")
+        peer.acknowledged(request[2], request[3])
+    incoming.close()
+
+    # A client that stays idle past the idle timeout stops, so a later request starts a new one.
+    time.sleep(3)
+    incoming = Sync({"get": f"{idle_id}?tokens[local][0]={token}"})
+    incoming.requested(idle_id)
+    incoming.missing(idle_id)
+    while True:
+        try:
+            request = messenger.receive(lambda path, message:
+                path.startswith(peer.subject + ".") and path.endswith(".server") and message.id == 1
+                and message.value[1] != client
+                and (message.value[0].id == 0 or message.value[0].value[0] == node_bytes(idle_id)))
+        except TimeoutError:
+            raise AssertionError("an idle client must be replaced") from None
+        if request[0].id == 0:
+            peer.heartbeat(request, "idle")
+        else:
+            break
+    assert command("put", 'tg.blob("third")') == idle_id
+    peer.respond(request)
+    peer.acknowledged(request[2], request[3])
     incoming.close()
     sync.close()
     release("sync.control.subscribe", subscribe)
@@ -1316,17 +1339,13 @@ def test_authorization_storage(messenger):
                     raise AssertionError("an insufficient response must not finish authorization")
                 peer.respond(request, "the live sync has not proved the permissions")
             if not stored and permissions:
-                # The storage fallback uses a new control client after authorization settles.
-                heartbeat_storage = peer.request(True)
-                while heartbeat_storage[1] == request[1]:
-                    peer.heartbeat(heartbeat_storage, "authorization")
-                    heartbeat_storage = peer.request(True)
-                peer.heartbeat(heartbeat_storage, "storage")
+                # The storage fallback reuses the server's client for the sync after authorization settles.
                 request_storage = peer.request()
                 while request_storage[2] == request[2]:
                     # The initial acknowledgment can race a queued retry of the permission request.
                     peer.ack(request_storage)
                     request_storage = peer.request()
+                assert request_storage[1] == request[1], "the storage fallback should reuse the client"
                 arg_storage = request_storage[0].value
                 assert arg_storage[1] == Variant(1, []), "the authorized read should require only storage"
                 assert arg_storage[2] == Variant(0, [Variant(0)]), "the read must not wait for subtree storage"
