@@ -1620,11 +1620,14 @@ impl Graph {
 				continue;
 			}
 			let (_, node) = self.nodes.get_index(index).unwrap();
-			entry.inherit(tokens(node));
+			entry
+				.authorization
+				.extend(tokens(node).authorization.iter().cloned());
 			for parent in node.parents() {
 				queue.push_back(parent.index());
 			}
 		}
+		entry.normalize(None);
 		entry
 	}
 
