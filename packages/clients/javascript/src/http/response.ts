@@ -6,13 +6,16 @@ export class Response {
 	body: Body;
 	headers: Headers;
 	status: number;
+	#close: (() => void) | undefined;
 
 	constructor(
 		status: number,
 		headers: Headers | tg.Host.Http2.Headers,
 		body: Body,
+		close?: () => void,
 	) {
 		this.body = body;
+		this.#close = close;
 		this.headers = headers instanceof Headers ? headers : new Headers(headers);
 		this.status = status;
 	}
@@ -38,6 +41,7 @@ export class Response {
 						} else {
 							await new Promise<void>((resolve) => {
 								notify = resolve;
+								stream.resume();
 							});
 							notify = undefined;
 						}
@@ -55,6 +59,7 @@ export class Response {
 				error = error_;
 				failed = true;
 				done = true;
+				stream.close();
 				notify?.();
 				if (!settled) {
 					settled = true;
@@ -71,12 +76,13 @@ export class Response {
 						throw new Error("invalid status");
 					}
 					settled = true;
-					resolve(new Response(status, headers_, body));
+					resolve(new Response(status, headers_, body, () => stream.close()));
 				} catch (error) {
 					fail(error);
 				}
 			});
 			stream.on("data", (chunk: unknown) => {
+				stream.pause();
 				chunks.push(chunk as Uint8Array);
 				notify?.();
 			});
@@ -87,26 +93,90 @@ export class Response {
 					if (data === undefined) {
 						fail(new Error("missing data"));
 					} else {
-						fail(tg.Error.fromData(JSON.parse(data) as tg.Error.Data));
+						try {
+							fail(tg.Error.fromData(JSON.parse(data) as tg.Error.Data));
+						} catch (error) {
+							fail(error);
+						}
 					}
 				}
 			});
+			stream.once("close", () => {
+				if (!done)
+					fail(
+						Object.assign(
+							new Error("the HTTP/2 stream closed before the response ended"),
+							{ code: "ERR_HTTP2_STREAM_CLOSED" },
+						),
+					);
+			});
 			stream.once("end", () => {
+				if (!settled) {
+					fail(
+						Object.assign(
+							new Error("the response ended before its headers arrived"),
+							{ code: "ERR_HTTP2_STREAM_CLOSED" },
+						),
+					);
+					return;
+				}
 				done = true;
 				notify?.();
 			});
 		});
 	}
 
+	onClose(callback: () => void): this {
+		let close = this.#close;
+		let called = false;
+		this.#close = () => {
+			close?.();
+			if (!called) {
+				called = true;
+				callback();
+			}
+		};
+		let body = this.body;
+		let response = this;
+		this.body = new Body({
+			async *[Symbol.asyncIterator]() {
+				try {
+					yield* body;
+				} finally {
+					response.close();
+				}
+			},
+		});
+		return this;
+	}
+
+	close(): void {
+		let close = this.#close;
+		this.#close = undefined;
+		close?.();
+	}
+
 	async collect() {
-		return await this.body.collect();
+		try {
+			return await this.body.collect();
+		} finally {
+			this.close();
+		}
 	}
 
 	async json<T = unknown>() {
-		return await this.body.json<T>();
+		try {
+			return await this.body.json<T>();
+		} finally {
+			this.close();
+		}
 	}
 
-	sse() {
-		return this.body.sse();
+	async *sse() {
+		try {
+			yield* this.body.sse();
+		} finally {
+			this.close();
+		}
 	}
 }

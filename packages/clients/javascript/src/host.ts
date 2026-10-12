@@ -1,3 +1,4 @@
+import type { Http2 as Http2Config } from "./config.ts";
 import type * as tg from "./index.ts";
 
 export let host = {} as Host;
@@ -129,6 +130,8 @@ export namespace Host {
 		export type Headers = Record<string, string | number | string[]>;
 
 		export type ConnectOptions = {
+			connectTimeout?: number;
+			http2?: Http2Config;
 			port?: number;
 		};
 
@@ -160,7 +163,12 @@ export namespace Host {
 			once(event: string, listener: (...args: unknown[]) => void): this;
 			off(event: string, listener: (...args: unknown[]) => void): this;
 			setEncoding(encoding: "utf8" | "utf-8"): this;
-			write(bytes: string | Uint8Array): boolean;
+			pause(): this;
+			resume(): this;
+			write(
+				bytes: string | Uint8Array,
+				callback?: (error?: Error | null) => void,
+			): boolean;
 		}
 	}
 

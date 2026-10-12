@@ -39,11 +39,14 @@ export async function tryDestroySandbox(
 	});
 	let response = await client.sendWithRetry(request);
 	if (response.status === 404) {
+		response.close();
 		return null;
 	} else if (response.status === 409) {
+		response.close();
 		return false;
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
+	response.close();
 	return true;
 }

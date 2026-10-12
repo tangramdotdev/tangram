@@ -1,4 +1,14 @@
+import { Pool as Connections, type Lease } from "./http/pool.ts";
 import * as tg from "./index.ts";
+import {
+	Config,
+	Http as HttpConfig,
+	Pool as PoolConfig,
+	Retry as RetryConfig,
+	compatibilityDate,
+	version as defaultVersion,
+} from "./config.ts";
+import { coalesce } from "./http/coalesce.ts";
 import { Request, Response } from "./http.ts";
 import { checkin } from "./client/checkin.ts";
 import { checkout } from "./client/checkout.ts";
@@ -31,27 +41,41 @@ import { destroySandbox, tryDestroySandbox } from "./client/sandbox/destroy.ts";
 import { getSandbox, tryGetSandbox } from "./client/sandbox/get.ts";
 import { write } from "./client/write.ts";
 
-type RetryOptions = {
-	backoff: number;
-	jitter: number;
-	maxDelay: number;
-	maxRetries: number;
-};
-
-let reconnectOptions = defaultRetryOptions();
-let retryOptions = defaultRetryOptions();
-
 class RequestError {
 	constructor(readonly source: unknown) {}
 }
 
 export class Client {
-	#connecting: Promise<tg.Host.Http2.ClientHttp2Session> | null = null;
-	#session: tg.Host.Http2.ClientHttp2Session | null = null;
+	readonly http: HttpConfig;
+	readonly pool: PoolConfig;
+	readonly reconnect: RetryConfig;
+	readonly retry: RetryConfig;
+	readonly version: string;
+
+	constructor(readonly options: Config = {}) {
+		this.pool = options.pool ?? PoolConfig.defaultValue();
+		PoolConfig.validate(this.pool);
+		this.http = options.http ?? HttpConfig.defaultValue();
+		HttpConfig.validate(this.http);
+		this.reconnect = options.reconnect ?? RetryConfig.defaultValue();
+		this.retry = options.retry ?? RetryConfig.defaultValue();
+		RetryConfig.validate(this.reconnect);
+		RetryConfig.validate(this.retry);
+		this.version = options.version ?? defaultVersion;
+		this.#connections = new Connections(this.pool, () =>
+			retry(this.reconnect, () => this.#createSession(), isTransportError),
+		);
+	}
+
+	#connections: Connections;
+
+	close(): void {
+		this.#connections.clear();
+	}
 
 	arg() {
-		let token = tg.process.env.TANGRAM_TOKEN;
-		let url = tg.process.env.TANGRAM_URL;
+		let token = this.options.token ?? tg.process.env.TANGRAM_TOKEN;
+		let url = this.options.url ?? tg.process.env.TANGRAM_URL;
 		return {
 			...(typeof token === "string" ? { token } : {}),
 			...(typeof url === "string" ? { url } : {}),
@@ -307,9 +331,10 @@ export class Client {
 		}
 		try {
 			return await retry(
-				retryOptions,
+				this.retry,
 				() => this.#send(request),
-				(error) => error instanceof RequestError,
+				(error) =>
+					error instanceof RequestError && isRetryableError(error.source),
 			);
 		} catch (error) {
 			throw error instanceof RequestError ? error.source : error;
@@ -317,7 +342,36 @@ export class Client {
 	}
 
 	async #send(request: Request): Promise<Response> {
-		let token = tg.process.env.TANGRAM_TOKEN;
+		let state: {
+			stream: tg.Host.Http2.ClientHttp2Stream | null;
+			timedOut: boolean;
+		} = { stream: null, timedOut: false };
+		let stopper = await tg.host.stopperOpen();
+		let timeout = new Promise<never>((_, reject) => {
+			tg.host.sleep(this.http.requestTimeout, stopper).then(() => {
+				state.timedOut = true;
+				reject(
+					Object.assign(new Error("request timed out"), { code: "ETIMEDOUT" }),
+				);
+				state.stream?.close();
+			}, reject);
+		});
+		try {
+			return await Promise.race([this.#sendInner(request, state), timeout]);
+		} finally {
+			await tg.host.stopperStop(stopper);
+			await tg.host.stopperClose(stopper);
+		}
+	}
+
+	async #sendInner(
+		request: Request,
+		state: {
+			stream: tg.Host.Http2.ClientHttp2Stream | null;
+			timedOut: boolean;
+		},
+	): Promise<Response> {
+		let token = this.options.token ?? tg.process.env.TANGRAM_TOKEN;
 		if (token !== undefined && typeof token !== "string") {
 			throw new Error("invalid TANGRAM_TOKEN");
 		}
@@ -326,23 +380,60 @@ export class Client {
 			":method": request.method,
 			":path": request.uri.toString(),
 		};
-		if (token !== undefined) {
+		headers["x-tg-compatibility-date"] ??= compatibilityDate;
+		headers["x-tg-version"] ??= this.version;
+		if (
+			token !== undefined &&
+			request.headers.get("authorization") === undefined
+		) {
 			headers = {
 				...headers,
 				authorization: `Bearer ${token}`,
 			};
 		}
-		let session = await this.#connect();
+		let lease = await this.#connect();
+		if (state.timedOut) {
+			lease.release();
+			throw Object.assign(new Error("request timed out"), {
+				code: "ETIMEDOUT",
+			});
+		}
+		let session = lease.value;
 		try {
 			let body = request.body;
 			let stream = session.request(headers, {
 				endStream: body === undefined,
 			});
+			state.stream = stream;
 			let response = Response.fromStream(stream);
 			if (body !== undefined) {
 				(async () => {
-					for await (let chunk of body) {
-						stream.write(chunk);
+					for await (let chunk of coalesce(
+						body,
+						this.http.coalescingTargetSize,
+					)) {
+						await new Promise<void>((resolve, reject) => {
+							let finish = (error?: unknown) => {
+								stream.off("close", closed);
+								stream.off("error", finish);
+								if (error === null || error === undefined) resolve();
+								else reject(error);
+							};
+							let closed = () =>
+								finish(
+									Object.assign(
+										new Error("the HTTP/2 stream closed during the request"),
+										{ code: "ERR_HTTP2_STREAM_CLOSED" },
+									),
+								);
+							stream.once("close", closed);
+							stream.once("error", finish);
+							try {
+								stream.write(chunk, finish);
+							} catch (error) {
+								finish(error);
+							}
+						});
 					}
 					stream.end();
 				})().catch((error) => {
@@ -353,58 +444,31 @@ export class Client {
 					);
 				});
 			}
-			return await response;
+			return (await response).onClose(() => lease.release());
 		} catch (error) {
-			this.#disconnect(session);
-			session.destroy();
+			if (isRetryableError(error)) {
+				lease.discard();
+			}
+			lease.release();
 			throw new RequestError(error);
 		}
 	}
 
-	async #connect() {
-		while (true) {
-			let session = this.#session;
-			if (session !== null) {
-				if (!session.closed) {
-					return session;
-				}
-				this.#disconnect(session);
-				session.destroy();
-			}
-			let connecting = this.#connecting;
-			if (connecting === null) {
-				connecting = retry(reconnectOptions, () => this.#createSession());
-				this.#connecting = connecting;
-			}
-			let nextSession: tg.Host.Http2.ClientHttp2Session;
-			try {
-				nextSession = await connecting;
-			} finally {
-				if (this.#connecting === connecting) {
-					this.#connecting = null;
-				}
-			}
-			if (nextSession.closed) {
-				nextSession.destroy();
-				continue;
-			}
-			if (this.#session === null) {
-				this.#session = nextSession;
-				nextSession.once("close", () => this.#disconnect(nextSession));
-				nextSession.once("error", () => this.#disconnect(nextSession));
-			} else if (this.#session !== nextSession) {
-				nextSession.destroy();
-			}
-			return this.#session;
-		}
+	async #connect(): Promise<Lease> {
+		return await this.#connections.get();
 	}
 
 	async #createSession() {
-		let url = tg.process.env.TANGRAM_URL;
+		let url = this.options.url ?? tg.process.env.TANGRAM_URL;
 		if (typeof url !== "string") {
 			throw new Error("missing TANGRAM_URL");
 		}
-		let session = tg.host.http2.connect(url);
+		let http2 = this.http.http2;
+		let options = {
+			connectTimeout: this.http.connectTimeout,
+			...(http2 !== undefined ? { http2 } : {}),
+		};
+		let session = tg.host.http2.connect(url, options);
 		try {
 			await new Promise<void>((resolve, reject) => {
 				let cleanup = () => {
@@ -428,28 +492,12 @@ export class Client {
 		}
 		return session;
 	}
-
-	#disconnect(value?: tg.Host.Http2.ClientHttp2Session) {
-		if (value !== undefined && this.#session !== value) {
-			return;
-		}
-		this.#session = null;
-	}
 }
 
 export let client = new Client();
 
-function defaultRetryOptions(): RetryOptions {
-	return {
-		backoff: 0.01,
-		jitter: 0.01,
-		maxDelay: 1,
-		maxRetries: 3,
-	};
-}
-
-async function retry<T>(
-	options: RetryOptions,
+export async function retry<T>(
+	options: RetryConfig,
 	function_: () => Promise<T>,
 	shouldRetry: (error: unknown) => boolean = () => true,
 ) {
@@ -462,14 +510,75 @@ async function retry<T>(
 			if (attempt === options.maxRetries || !shouldRetry(error)) {
 				break;
 			}
-			let multiplier = 2 ** Math.min(attempt + 1, 31);
-			let jitter = Math.random() * options.jitter;
-			let delay = Math.min(
-				options.backoff * multiplier + jitter,
-				options.maxDelay,
-			);
-			await tg.sleep(delay);
+			await backoff(options, attempt);
 		}
 	}
 	throw error;
+}
+
+/** Sleep for the exponential backoff delay with jitter that precedes the retry after the given attempt. */
+export async function backoff(
+	options: RetryConfig,
+	attempt: number,
+): Promise<void> {
+	let multiplier = 2 ** Math.min(attempt + 1, 31);
+	let jitter = Math.random() * options.jitter;
+	let delay = Math.min(options.backoff * multiplier + jitter, options.maxDelay);
+	await tg.sleep(delay);
+}
+
+/** Determine whether an error is a transport failure or an unavailable error, which a resumable operation can retry. */
+export function isTransportError(error: unknown): boolean {
+	if (error instanceof tg.Error) {
+		let object = error.state.object;
+		return (
+			object?.kind === "error" &&
+			tg.Error.Object.kind(object.value) === "unavailable"
+		);
+	}
+	if (typeof error !== "object" || error === null) return false;
+	// Treat an error that the HTTP/2 transport reports as a transport failure, whether or not its request can be replayed.
+	if ("retryable" in error && typeof error.retryable === "boolean") {
+		return true;
+	}
+	let code = "code" in error ? error.code : undefined;
+	return [
+		"EAI_AGAIN",
+		"ECONNABORTED",
+		"ECONNREFUSED",
+		"ECONNRESET",
+		"EHOSTUNREACH",
+		"ENETDOWN",
+		"ENETUNREACH",
+		"ENOENT",
+		"ENOTCONN",
+		"EPIPE",
+		"ERR_HTTP2_ERROR",
+		"ERR_HTTP2_GOAWAY_SESSION",
+		"ERR_HTTP2_INVALID_SESSION",
+		"ERR_HTTP2_SESSION_ERROR",
+		"ERR_HTTP2_STREAM_CANCEL",
+		"ERR_HTTP2_STREAM_CLOSED",
+		"ERR_HTTP2_STREAM_ERROR",
+		"ERR_STREAM_PREMATURE_CLOSE",
+		"ETIMEDOUT",
+	].includes(code as string);
+}
+
+function isRetryableError(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	if ("retryable" in error && typeof error.retryable === "boolean")
+		return error.retryable;
+	let code = "code" in error ? error.code : undefined;
+	return [
+		"EPIPE",
+		"ECONNABORTED",
+		"ECONNRESET",
+		"ENOTCONN",
+		"ERR_HTTP2_INVALID_SESSION",
+		"ERR_HTTP2_GOAWAY_SESSION",
+		"ERR_HTTP2_STREAM_CLOSED",
+		"ERR_STREAM_PREMATURE_CLOSE",
+		"ERR_HTTP2_STREAM_CANCEL",
+	].includes(code as string);
 }

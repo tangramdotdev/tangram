@@ -11,6 +11,10 @@ let path = artifact {
 
 			close() {}
 
+			pause() {}
+
+			resume() {}
+
 			on(event: string, listener: (...args: Array<any>) => void) {
 				let listeners = this.listeners.get(event) ?? [];
 				listeners.push(listener);

@@ -10,6 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Readable, Writable } from "node:stream";
 import * as tty from "node:tty";
+import { Http2 as Http2Config } from "../config.ts";
 import type { Host } from "../host.ts";
 import type * as tg from "../index.ts";
 
@@ -533,19 +534,45 @@ function connectHttp2(
 	authority: string,
 	options?: Host.Http2.ConnectOptions,
 ): Host.Http2.ClientHttp2Session {
+	// Configure the windows, keeping the connection window much larger than the stream window, so that a single stalled stream cannot consume the whole connection window.
+	let config = options?.http2 ?? Http2Config.defaultValue();
+	Http2Config.validate(config);
+	let settings: http2.Settings = { initialWindowSize: config.streamWindowSize };
+	if (config.maxConcurrentStreams !== undefined) {
+		settings.maxConcurrentStreams = config.maxConcurrentStreams;
+	}
 	let session: http2.ClientHttp2Session;
 	if (authority.startsWith("http+unix://")) {
 		let path = decodeURIComponent(authority.slice("http+unix://".length));
 		session = http2.connect("http://localhost", {
 			createConnection: () => net.connect(path),
+			settings,
 		});
 	} else {
 		let url = new URL(authority);
 		if (options?.port !== undefined) {
 			url.port = options.port.toString();
 		}
-		session = http2.connect(url);
+		session = http2.connect(url, { settings });
 	}
+	session.once("connect", () =>
+		session.setLocalWindowSize(config.connectionWindowSize),
+	);
+
+	// Destroy the session if it does not connect within the connect timeout.
+	let connectTimeout = options?.connectTimeout;
+	if (connectTimeout !== undefined) {
+		let timer = setTimeout(() => {
+			let error = Object.assign(new Error("the connection timed out"), {
+				code: "ETIMEDOUT",
+			});
+			session.destroy(error);
+		}, connectTimeout * 1000);
+		let clear = () => clearTimeout(timer);
+		session.once("connect", clear);
+		session.once("close", clear);
+	}
+
 	return session as unknown as Host.Http2.ClientHttp2Session;
 }
 

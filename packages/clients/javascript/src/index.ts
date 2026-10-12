@@ -1,3 +1,4 @@
+export { Config } from "./config.ts";
 import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert, todo, unimplemented, unreachable } from "./assert.ts";
