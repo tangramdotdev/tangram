@@ -431,10 +431,6 @@ impl Session {
 
 		// Buffer the fixed request window while command sync progresses on the same connection.
 		let mut pending = VecDeque::new();
-		if self.server.config.process.await_push {
-			Self::connect_process_await_command_sync(&mut sync_task, &mut input, &mut pending)
-				.await?;
-		}
 
 		let mode = arg.mode;
 		let (output, location) = match arg.process {

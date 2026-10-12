@@ -78,6 +78,11 @@ pub struct Header {
 	#[serde_as(as = "Vec<DisplayFromStr>")]
 	#[tangram_serialize(id = 0)]
 	pub nodes: Vec<tg::Referent<tg::Id>>,
+
+	/// The destination's sync, with its authorization for the destination.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<tg::Referent<tg::sync::Id>>,
 }
 
 #[serde_as]

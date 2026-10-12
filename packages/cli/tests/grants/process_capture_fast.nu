@@ -12,7 +12,6 @@ let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 	indexer: { permission_capture: { delegation_time_to_live: 60, poll_interval: 0.05 } }
 	object: { permission_time_to_live: 60 }
-	process: { await_push: false }
 	sync: { permission_time_to_live: 60 }
 }
 let alice = tg login --verbose --name alice | from json

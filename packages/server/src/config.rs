@@ -997,9 +997,6 @@ pub struct Pagination {
 
 #[derive(Clone, Debug)]
 pub struct Process {
-	/// Await command pushes before spawn and result pushes before Finish while concurrent transfer has known bugs.
-	pub await_push: bool,
-
 	pub children_wakeup_interval: Duration,
 
 	pub default_children_page_size: u64,
@@ -1013,6 +1010,8 @@ pub struct Process {
 	pub permission_time_to_live: Duration,
 
 	pub permission_time_to_touch: Duration,
+
+	pub push_retry: Retry,
 
 	pub spawn: Spawn,
 
@@ -2616,7 +2615,6 @@ impl Default for ScyllaCachePrometheusCapacity {
 impl Default for Process {
 	fn default() -> Self {
 		Self {
-			await_push: false,
 			children_wakeup_interval: Duration::from_mins(1),
 			default_children_page_size: 256,
 			default_log_read_size: 4096,
@@ -2624,6 +2622,10 @@ impl Default for Process {
 			log_time_to_live: Duration::from_hours(1),
 			permission_time_to_live: default_process_permission_time_to_live(),
 			permission_time_to_touch: default_time_to_touch(),
+			push_retry: Retry {
+				max_retries: 600,
+				..sync_retry_default()
+			},
 			spawn: Spawn::default(),
 			status_wakeup_interval: Duration::from_mins(1),
 			stdio_wakeup_interval: Duration::from_mins(1),

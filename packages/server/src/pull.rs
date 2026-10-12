@@ -41,8 +41,14 @@ impl Session {
 			self.context.principal,
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
 		) {
-			self.push_or_pull_for_process(&arg, source, destination, None)
-				.await?
+			self.push_or_pull_for_process(
+				&arg,
+				source,
+				destination,
+				None,
+				self.server.config.sync.retry.clone().into(),
+			)
+			.await?
 		} else {
 			self.push_or_pull(&arg, source, destination).await?
 		};

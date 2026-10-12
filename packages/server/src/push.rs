@@ -22,6 +22,7 @@ struct PushOrPullInnerArg<'a> {
 	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
 	process: bool,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
+	retry: tangram_futures::retry::Options,
 	source: tg::Location,
 	sync: Option<tg::Referent<tg::sync::Id>>,
 }
@@ -34,6 +35,7 @@ struct PushOrPullTaskArg {
 	process: bool,
 	progress: crate::progress::Handle<tg::push::Output>,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
+	retry: tangram_futures::retry::Options,
 	source: tg::Location,
 	source_session: Option<tg::Session>,
 	sync: Option<tg::Referent<tg::sync::Id>>,
@@ -63,28 +65,26 @@ impl Session {
 		Ok((header, stream))
 	}
 
+	/// Push a process's objects, reusing the given sync's id at the destination when there is one, and retrying with the given options.
 	pub(crate) async fn push_for_process(
 		&self,
 		arg: tg::push::Arg,
 		sync: Option<tg::Referent<tg::sync::Id>>,
+		retry: tangram_futures::retry::Options,
 	) -> tg::Result<(
 		tg::push::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<>,
 	)> {
-		let source = arg.source.clone().unwrap_or_else(|| {
-			tg::Location::Remote(tg::location::Remote {
-				name: "default".to_owned(),
-				region: None,
-			})
-		});
-		let destination = arg.destination.clone().unwrap_or_else(|| {
-			tg::Location::Remote(tg::location::Remote {
-				name: "default".to_owned(),
-				region: None,
-			})
-		});
+		let source = arg
+			.source
+			.clone()
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let destination = arg
+			.destination
+			.clone()
+			.ok_or_else(|| tg::error!("expected a destination"))?;
 		let (header, stream) = self
-			.push_or_pull_for_process(&arg, source, destination, sync)
+			.push_or_pull_for_process(&arg, source, destination, sync, retry)
 			.await?;
 		Ok((header, stream))
 	}
@@ -104,12 +104,14 @@ impl Session {
 			.cloned()
 			.map(|node| node.map(tg::Selector::Id))
 			.collect();
+		let retry = self.server.config.sync.retry.clone().into();
 		let inner_arg = PushOrPullInnerArg {
 			arg,
 			destination,
 			get,
 			process: false,
 			received_specifiers: None,
+			retry,
 			source,
 			sync: None,
 		};
@@ -127,12 +129,14 @@ impl Session {
 		Arc<Mutex<BTreeSet<tg::Specifier>>>,
 	)> {
 		let received_specifiers = Arc::new(Mutex::new(BTreeSet::new()));
+		let retry = self.server.config.sync.retry.clone().into();
 		let inner_arg = PushOrPullInnerArg {
 			arg,
 			destination,
 			get,
 			process: false,
 			received_specifiers: Some(received_specifiers.clone()),
+			retry,
 			source,
 			sync: None,
 		};
@@ -148,6 +152,7 @@ impl Session {
 		source: tg::Location,
 		destination: tg::Location,
 		sync: Option<tg::Referent<tg::sync::Id>>,
+		retry: tangram_futures::retry::Options,
 	) -> tg::Result<(
 		tg::push::Header,
 		BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>,
@@ -164,6 +169,7 @@ impl Session {
 			get,
 			process: true,
 			received_specifiers: None,
+			retry,
 			source,
 			sync,
 		};
@@ -183,6 +189,7 @@ impl Session {
 			get,
 			process,
 			received_specifiers,
+			retry,
 			source,
 			sync,
 		} = inner_arg;
@@ -299,6 +306,7 @@ impl Session {
 					process,
 					progress: progress.clone(),
 					received_specifiers,
+					retry,
 					source,
 					source_session,
 					sync,
@@ -492,18 +500,12 @@ impl Session {
 			process,
 			progress,
 			received_specifiers,
+			retry,
 			source,
 			source_session,
 			sync,
 		} = task_arg;
 		let trust = source_session.as_ref().is_some_and(tg::Session::trusted);
-		let retry = &self.server.config.sync.retry;
-		let retry = tangram_futures::retry::Options {
-			backoff: retry.backoff,
-			jitter: retry.jitter,
-			max_delay: retry.max_delay,
-			max_retries: retry.max_retries,
-		};
 		let session = self.clone();
 		let sync_state = Arc::new(Mutex::new(sync));
 		let output = tangram_futures::retry::retry(&retry, || {
@@ -517,224 +519,255 @@ impl Session {
 			let source = source.clone();
 			let source_session = source_session.clone();
 			let sync_state = sync_state.clone();
+			let server = session.server.clone();
 			async move {
-				let sync = sync_state.lock().unwrap().clone();
-				if let Some(received_specifiers) = &received_specifiers {
-					received_specifiers.lock().unwrap().clear();
-				}
-				let output = Arc::new(Mutex::new(tg::push::Output::default()));
+				let result = async move {
+					let sync = sync_state.lock().unwrap().clone();
+					if let Some(received_specifiers) = &received_specifiers {
+						received_specifiers.lock().unwrap().clear();
+					}
+					let output = Arc::new(Mutex::new(tg::push::Output::default()));
 
-				// Set the progress to zero.
-				for name in [
-					"groups",
-					"objects",
-					"organizations",
-					"processes",
-					"sandboxes",
-					"tags",
-					"users",
-				] {
-					progress.set(name, 0);
-				}
-				progress.set("bytes", 0);
+					// Set the progress to zero.
+					for name in [
+						"groups",
+						"objects",
+						"organizations",
+						"processes",
+						"sandboxes",
+						"tags",
+						"users",
+					] {
+						progress.set(name, 0);
+					}
+					progress.set("bytes", 0);
 
-				// Create the channels.
-				let capacity = session.server.config.sync.push_channel_capacity;
-				let (destination_output_sender, destination_output_receiver) =
-					tokio::sync::mpsc::channel(capacity);
-				let (source_output_sender, source_output_receiver) =
-					tokio::sync::mpsc::channel(capacity);
+					// Create the channels.
+					let capacity = session.server.config.sync.push_channel_capacity;
+					let (destination_output_sender, destination_output_receiver) =
+						tokio::sync::mpsc::channel(capacity);
+					let (source_output_sender, source_output_receiver) =
+						tokio::sync::mpsc::channel(capacity);
 
-				// Create the source arg and input stream.
-				let source_location = match &source {
-					tg::Location::Local(local) => tg::Location::Local(local.clone()),
-					tg::Location::Remote(remote) => tg::Location::Local(tg::location::Local {
-						region: remote.region.clone(),
-					}),
-				};
-				let source_arg = tg::sync::Arg {
-					ancestors: arg.ancestors,
-					eager: arg.eager,
-					force: arg.force,
-					get: Vec::new(),
-					group_children: arg.group_children,
-					location: Some(source_location.into()),
-					metadata: arg.metadata,
-					organization_children: arg.organization_children,
-					process_children: arg.process_children,
-					process_command_objects: arg.process_command_objects,
-					process_error_objects: arg.process_error_objects,
-					process_log_objects: arg.process_log_objects,
-					process_output_objects: arg.process_output_objects,
-					put: Vec::new(),
-					sandbox_processes: arg.sandbox_processes,
-					sync: None,
-					tag_targets: arg.tag_targets,
-					user_children: arg.user_children,
-				};
-				let source_input_stream = ReceiverStream::new(destination_output_receiver)
-					.map(Ok)
-					.boxed();
+					// Create the source arg and input stream.
+					let source_location = match &source {
+						tg::Location::Local(local) => tg::Location::Local(local.clone()),
+						tg::Location::Remote(remote) => tg::Location::Local(tg::location::Local {
+							region: remote.region.clone(),
+						}),
+					};
+					let source_arg = tg::sync::Arg {
+						ancestors: arg.ancestors,
+						eager: arg.eager,
+						force: arg.force,
+						get: Vec::new(),
+						group_children: arg.group_children,
+						location: Some(source_location.into()),
+						metadata: arg.metadata,
+						organization_children: arg.organization_children,
+						process_children: arg.process_children,
+						process_command_objects: arg.process_command_objects,
+						process_error_objects: arg.process_error_objects,
+						process_log_objects: arg.process_log_objects,
+						process_output_objects: arg.process_output_objects,
+						put: Vec::new(),
+						sandbox_processes: arg.sandbox_processes,
+						sync: None,
+						tag_targets: arg.tag_targets,
+						user_children: arg.user_children,
+					};
+					let source_input_stream = ReceiverStream::new(destination_output_receiver)
+						.map(Ok)
+						.boxed();
 
-				// Create the destination arg and input stream.
-				let get_empty = get.is_empty();
-				let destination_arg = tg::sync::Arg {
-					ancestors: arg.ancestors,
-					eager: arg.eager,
-					force: arg.force,
-					get,
-					group_children: arg.group_children,
-					location: Some(destination.clone().into()),
-					metadata: arg.metadata,
-					organization_children: arg.organization_children,
-					process_children: arg.process_children,
-					process_command_objects: arg.process_command_objects,
-					process_error_objects: arg.process_error_objects,
-					process_log_objects: arg.process_log_objects,
-					process_output_objects: arg.process_output_objects,
-					put: Vec::new(),
-					sandbox_processes: arg.sandbox_processes,
-					sync,
-					tag_targets: arg.tag_targets,
-					user_children: arg.user_children,
-				};
-				let destination_input_stream =
-					ReceiverStream::new(source_output_receiver).map(Ok).boxed();
+					// Create the destination arg and input stream.
+					let get_empty = get.is_empty();
+					let destination_arg = tg::sync::Arg {
+						ancestors: arg.ancestors,
+						eager: arg.eager,
+						force: arg.force,
+						get,
+						group_children: arg.group_children,
+						location: Some(destination.clone().into()),
+						metadata: arg.metadata,
+						organization_children: arg.organization_children,
+						process_children: arg.process_children,
+						process_command_objects: arg.process_command_objects,
+						process_error_objects: arg.process_error_objects,
+						process_log_objects: arg.process_log_objects,
+						process_output_objects: arg.process_output_objects,
+						put: Vec::new(),
+						sandbox_processes: arg.sandbox_processes,
+						sync,
+						tag_targets: arg.tag_targets,
+						user_children: arg.user_children,
+					};
+					let destination_input_stream =
+						ReceiverStream::new(source_output_receiver).map(Ok).boxed();
 
-				// Create the source future.
-				let source_future = async {
-					let source_output_stream = if let Some(source_session) = source_session {
-						source_session
-							.sync(source_arg, source_input_stream)
-							.await
-							.map(|(_, stream)| stream.boxed())
-					} else {
-						let arg = crate::sync::InnerArg {
-							arg: source_arg,
+					// Create the source future.
+					let source_future = async {
+						let source_output_stream = if let Some(source_session) = source_session {
+							source_session
+								.sync(source_arg, source_input_stream)
+								.await
+								.map(|(_, stream)| stream.boxed())
+						} else {
+							let arg = crate::sync::InnerArg {
+								arg: source_arg,
+								process,
+								..Default::default()
+							};
+							session
+								.sync_inner(arg, source_input_stream)
+								.await
+								.map(|(_, stream)| stream.boxed())
+						}
+						.map_err(|error| {
+							tg::error!(!error, "failed to create the source stream")
+						})?;
+						let completed = forward(
+							source_output_stream.boxed(),
+							&source_output_sender,
+							|message| match message {
+								tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
+									Self::push_or_pull_increment_progress(&progress, &message);
+									*output.lock().unwrap() += &message;
+									None
+								},
+								message => {
+									Self::push_or_pull_record_received_specifier(
+										&message,
+										received_specifiers.as_ref(),
+									);
+									Some(message)
+								},
+							},
+						)
+						.await?;
+						Ok(completed.then_some(()))
+					};
+
+					// Create the destination future.
+					let destination_future = async {
+						let inner_arg = crate::sync::InnerArg {
+							arg: destination_arg,
 							process,
+							trust,
 							..Default::default()
 						};
-						session
-							.sync_inner(arg, source_input_stream)
+						let (sync_header, destination_output_stream) = session
+							.sync_inner(inner_arg, destination_input_stream)
 							.await
-							.map(|(_, stream)| stream.boxed())
-					}
-					.map_err(|error| tg::error!(!error, "failed to create the source stream"))?;
-					let completed = forward(
-						source_output_stream.boxed(),
-						&source_output_sender,
-						|message| match message {
-							tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
-								Self::push_or_pull_increment_progress(&progress, &message);
-								*output.lock().unwrap() += &message;
-								None
-							},
-							message => {
-								Self::push_or_pull_record_received_specifier(
-									&message,
-									received_specifiers.as_ref(),
-								);
-								Some(message)
-							},
-						},
-					)
-					.await?;
-					Ok(completed.then_some(()))
-				};
+							.map_err(|error| {
+								tg::error!(!error, "failed to create the destination stream")
+							})?;
 
-				// Create the destination future.
-				let destination_future = async {
-					let inner_arg = crate::sync::InnerArg {
-						arg: destination_arg,
-						process,
-						trust,
-						..Default::default()
-					};
-					let (sync_header, destination_output_stream) = session
-						.sync_inner(inner_arg, destination_input_stream)
-						.await
-						.map_err(|error| {
-							tg::error!(!error, "failed to create the destination stream")
-						})?;
+						// Preserve the sync so the header remains valid across transfer retries.
+						*sync_state.lock().unwrap() = sync_header.sync.clone();
 
-					// Preserve the sync so the header remains valid across transfer retries.
-					*sync_state.lock().unwrap() = sync_header.sync.clone();
-
-					// Send the header before transferring the nodes.
-					let mut nodes = arg.nodes.clone();
-					if let Some(sync) = &sync_header.sync {
-						let mut tokens = tg::authorization::Tokens::default();
-						for token in sync.options.tokens.local_authorization() {
-							tokens.insert_authorization(destination.clone(), token.clone());
-						}
-						for node in &mut nodes {
-							node.options.tokens.inherit(&tokens);
-						}
-					}
-					let header = tg::push::Header { nodes };
-					if let Some(sender) = header_sender.lock().unwrap().take() {
-						sender.send(Ok(header)).ok();
-					}
-
-					let mut get_output = None;
-					let completed = forward(
-						destination_output_stream.boxed(),
-						&destination_output_sender,
-						|message| match message {
-							tg::sync::Message::Get(tg::sync::GetMessage::Output(message)) => {
-								get_output = Some(message);
-								None
-							},
-							tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
-								Self::push_or_pull_increment_progress(&progress, &message);
-								*output.lock().unwrap() += &message;
-								None
-							},
-							message => Some(message),
-						},
-					)
-					.await?;
-					Ok(completed.then_some((sync_header, get_output)))
-				};
-
-				let completed = join(source_future, destination_future).boxed().await?;
-				if let Some(((), (sync_header, get_output))) = completed {
-					let mut output = output.lock().unwrap().clone();
-					output.nodes = session.create_sync_output_nodes(&arg)?;
-					if let Some(sync) = sync_header.sync {
-						let mut authorization_tokens = tg::authorization::Tokens::default();
-						for token in sync.options.tokens.local_authorization() {
-							authorization_tokens
-								.insert_authorization(destination.clone(), token.clone());
-						}
-						for node in &mut output.nodes {
-							node.options.tokens.inherit(&authorization_tokens);
-						}
-					}
-
-					// Add the destination's authorization tokens from the get output to the push output nodes.
-					if !get_empty && get_output.is_none() {
-						return Err(tg::error!("the destination did not send the get output"));
-					}
-					let get_output_nodes = get_output.into_iter().flat_map(|output| output.nodes);
-					for get_output_node in get_output_nodes {
-						let mut tokens = tg::authorization::Tokens::default();
-						for token in get_output_node.options.tokens.local_authorization() {
-							tokens.insert_authorization(destination.clone(), token.clone());
-						}
-						for node in &mut output.nodes {
-							if node.node == get_output_node.node {
+						// Send the header before transferring the nodes.
+						let mut nodes = arg.nodes.clone();
+						if let Some(sync) = &sync_header.sync {
+							let mut tokens = tg::authorization::Tokens::default();
+							for token in sync.options.tokens.local_authorization() {
+								tokens.insert_authorization(destination.clone(), token.clone());
+							}
+							for node in &mut nodes {
 								node.options.tokens.inherit(&tokens);
 							}
 						}
-					}
+						let sync = sync_header.sync.as_ref().map(|sync| {
+							let mut tokens = tg::authorization::Tokens::default();
+							for token in sync.options.tokens.local_authorization() {
+								tokens.insert_authorization(destination.clone(), token.clone());
+							}
+							let options = tg::referent::Options {
+								tokens,
+								..Default::default()
+							};
+							tg::Referent::new(sync.node.clone(), options)
+						});
+						let header = tg::push::Header { nodes, sync };
+						if let Some(sender) = header_sender.lock().unwrap().take() {
+							sender.send(Ok(header)).ok();
+						}
 
-					Ok(ControlFlow::Break(output))
-				} else {
-					Ok(ControlFlow::Continue(tg::error!(
-						"sync ended before receiving all end messages"
-					)))
+						let mut get_output = None;
+						let completed = forward(
+							destination_output_stream.boxed(),
+							&destination_output_sender,
+							|message| match message {
+								tg::sync::Message::Get(tg::sync::GetMessage::Output(message)) => {
+									get_output = Some(message);
+									None
+								},
+								tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
+									Self::push_or_pull_increment_progress(&progress, &message);
+									*output.lock().unwrap() += &message;
+									None
+								},
+								message => Some(message),
+							},
+						)
+						.await?;
+						Ok(completed.then_some((sync_header, get_output)))
+					};
+
+					let completed = join(source_future, destination_future).boxed().await?;
+					if let Some(((), (sync_header, get_output))) = completed {
+						let mut output = output.lock().unwrap().clone();
+						output.nodes = session.create_sync_output_nodes(&arg)?;
+						if let Some(sync) = sync_header.sync {
+							let mut authorization_tokens = tg::authorization::Tokens::default();
+							for token in sync.options.tokens.local_authorization() {
+								authorization_tokens
+									.insert_authorization(destination.clone(), token.clone());
+							}
+							for node in &mut output.nodes {
+								node.options.tokens.inherit(&authorization_tokens);
+							}
+						}
+
+						// Add the destination's authorization tokens from the get output to the push output nodes.
+						if !get_empty && get_output.is_none() {
+							return Err(tg::error!("the destination did not send the get output"));
+						}
+						let get_output_nodes =
+							get_output.into_iter().flat_map(|output| output.nodes);
+						for get_output_node in get_output_nodes {
+							let mut tokens = tg::authorization::Tokens::default();
+							for token in get_output_node.options.tokens.local_authorization() {
+								tokens.insert_authorization(destination.clone(), token.clone());
+							}
+							for node in &mut output.nodes {
+								if node.node == get_output_node.node {
+									node.options.tokens.inherit(&tokens);
+								}
+							}
+						}
+
+						Ok(ControlFlow::Break(output))
+					} else {
+						Ok(ControlFlow::Continue(tg::error!(
+							"sync ended before receiving all end messages"
+						)))
+					}
 				}
+				.await;
+
+				// Retry the attempt if it failed with an unavailable error or ended early.
+				let result = match result {
+					Err(error) if error.kind() == Some(tg::error::Kind::Unavailable) => {
+						Ok(ControlFlow::Continue(error))
+					},
+					result => result,
+				};
+				if let Ok(ControlFlow::Continue(error)) = &result {
+					tracing::warn!(error = %error.trace(), "retrying the push or pull");
+					crate::checkpoint!(server, "push.attempt.failed").await;
+				}
+				result
 			}
 		})
 		.boxed()

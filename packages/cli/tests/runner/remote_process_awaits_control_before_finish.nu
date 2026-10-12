@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Finish can be queued before the control response, including with await_push enabled.
+# Finish can be queued before the control response.
 
 let root_token = random chars
 
@@ -15,7 +15,6 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 # Spawn the runner with checkpoints enabled.
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
-	process: { await_push: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, process_control_connection_pool_size: 0, remote: 'default', token: $created.token.token },

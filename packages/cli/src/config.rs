@@ -1512,10 +1512,6 @@ pub struct ScyllaCacheSimpleSpeculativeExecution {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Process {
-	/// Await command pushes before spawn and result pushes before Finish. Defaults to true.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub await_push: Option<bool>,
-
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub children_wakeup_interval: Option<Duration>,
@@ -1540,6 +1536,9 @@ pub struct Process {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permission_time_to_touch: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub push_retry: Option<Retry>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub spawn: Option<Spawn>,
@@ -4801,9 +4800,6 @@ fn resolve_scylla_cache_simple_speculative_execution(
 
 fn resolve_process(source: Process) -> server::Process {
 	let mut target = server::Process::default();
-	if let Some(value) = source.await_push {
-		target.await_push = value;
-	}
 	if let Some(value) = source.children_wakeup_interval {
 		target.children_wakeup_interval = value;
 	}
@@ -4824,6 +4820,9 @@ fn resolve_process(source: Process) -> server::Process {
 	}
 	if let Some(value) = source.permission_time_to_touch {
 		target.permission_time_to_touch = value;
+	}
+	if let Some(source) = source.push_retry {
+		target.push_retry = resolve_retry_with_default(source, target.push_retry);
 	}
 	if let Some(source) = source.spawn {
 		target.spawn = resolve_spawn(source);

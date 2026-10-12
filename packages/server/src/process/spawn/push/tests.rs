@@ -52,7 +52,18 @@ fn spawn_command_authorization_tokens_for_sync_survive_forwarding() {
 		] {
 			let count = if node.is_left() { 4 } else { 1 };
 			let mut command = tg::Referent::with_node(node);
-			Session::set_spawn_process_command_sync(&mut command, &location, &sync);
+
+			// The push header returns the sync with its authorization keyed by the destination.
+			let mut tokens = tg::authorization::Tokens::default();
+			for token in sync.options.tokens.local_authorization() {
+				tokens.insert_authorization(location.clone(), token.clone());
+			}
+			let options = tg::referent::Options {
+				tokens,
+				..Default::default()
+			};
+			let sync = tg::Referent::new(sync.node.clone(), options);
+			Session::set_spawn_process_command_sync(&mut command, &sync);
 			Session::update_spawn_process_command_for_location(&mut command, &location);
 			if let tg::Either::Left(command) = &command.node {
 				assert!(command.host.is_none());

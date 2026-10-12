@@ -1,8 +1,6 @@
 use {
 	crate::Session,
-	futures::{
-		FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream,
-	},
+	futures::{FutureExt as _, StreamExt as _, future::BoxFuture, stream::BoxStream},
 	num::ToPrimitive as _,
 	std::{collections::BTreeMap, pin::pin},
 	tangram_client::prelude::*,
@@ -15,8 +13,8 @@ mod cached;
 mod child;
 mod local;
 mod permissions;
+mod push;
 mod sandbox;
-mod sync;
 mod wait;
 
 pub(super) mod lease;
@@ -504,7 +502,7 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
-		self.spawn_process_push_command(&mut arg.command, &location, progress)
+		self.spawn_process_push_command(&mut arg.command, &location)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
 		let mut arg = tg::process::spawn::Arg {
@@ -554,7 +552,7 @@ impl Session {
 			name: remote.clone(),
 			region: region.clone(),
 		});
-		self.spawn_process_push_command(&mut arg.command, &destination, progress)
+		self.spawn_process_push_command(&mut arg.command, &destination)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to push the command"))?;
 		let mut arg = tg::process::spawn::Arg {
@@ -600,51 +598,6 @@ impl Session {
 			if let Some(output) = progress.forward(event) {
 				return Ok(output);
 			}
-		}
-		Err(tg::error!("expected an output"))
-	}
-
-	pub(super) async fn spawn_process_push_command(
-		&self,
-		command: &mut tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
-		location: &tg::Location,
-		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
-	) -> tg::Result<()> {
-		if !self.server.config.process.await_push {
-			self.spawn_process_sync_command(command, location).await?;
-			return Ok(());
-		}
-		let nodes = Self::spawn_process_command_nodes(command)?;
-		if nodes.is_empty() {
-			return Ok(());
-		}
-		let push_arg = tg::push::Arg {
-			destination: Some(location.clone()),
-			nodes,
-			process_command_objects: true,
-			..Default::default()
-		};
-		let (_, stream) = self
-			.push_for_process(push_arg, None)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to push the command"))?;
-		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
-			let tg::progress::Event::Output(output) = event else {
-				progress.forward(Ok(event));
-				continue;
-			};
-
-			// Add the destination's authorization tokens from the push to the command.
-			let mut tokens = tg::authorization::Tokens::default();
-			for node in &output.nodes {
-				for token in node.options.tokens.authorization(location) {
-					tokens.insert_authorization(location.clone(), token.clone());
-				}
-			}
-			Self::inherit_spawn_process_command_tokens(command, &tokens);
-
-			return Ok(());
 		}
 		Err(tg::error!("expected an output"))
 	}

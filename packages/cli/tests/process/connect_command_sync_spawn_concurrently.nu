@@ -9,7 +9,6 @@ let remote = server spawn --preserve-keys --name remote --config {
 	advanced: { checkpoints: true, single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
-	process: { await_push: false },
 	sync: { get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
