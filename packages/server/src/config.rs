@@ -97,6 +97,8 @@ pub struct S3Archive {
 
 	pub bucket: String,
 
+	pub connect_timeout: Duration,
+
 	pub endpoint: Uri,
 
 	pub express: bool,
@@ -109,7 +111,11 @@ pub struct S3Archive {
 
 	pub region: String,
 
+	pub request_timeout: Duration,
+
 	pub secret_key: String,
+
+	pub session_refresh_buffer: Duration,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -742,12 +748,16 @@ pub struct IndexerUpdate {
 	pub partitions: IndexerPartitions,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub enum Messenger {
-	#[default]
-	Memory,
+	Memory(MemoryMessenger),
 
 	Nats(NatsMessenger),
+}
+
+#[derive(Clone, Debug)]
+pub struct MemoryMessenger {
+	pub subscription_capacity: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1772,6 +1782,25 @@ impl Default for Config {
 	}
 }
 
+impl Default for S3Archive {
+	fn default() -> Self {
+		Self {
+			access_key: String::new(),
+			bucket: String::new(),
+			connect_timeout: Duration::from_secs(1),
+			endpoint: "https://s3.amazonaws.com".parse().unwrap(),
+			express: false,
+			path_style: false,
+			pool: ArchivePool::default(),
+			reconnect: Reconnect::default(),
+			region: String::new(),
+			request_timeout: Duration::from_mins(1),
+			secret_key: String::new(),
+			session_refresh_buffer: Duration::from_mins(1),
+		}
+	}
+}
+
 impl Default for ArchivePool {
 	fn default() -> Self {
 		Self {
@@ -2230,6 +2259,20 @@ impl Default for IndexerUpdate {
 			batch_size: 1024,
 			concurrency: 1,
 			partitions: IndexerPartitions::default(),
+		}
+	}
+}
+
+impl Default for Messenger {
+	fn default() -> Self {
+		Self::Memory(MemoryMessenger::default())
+	}
+}
+
+impl Default for MemoryMessenger {
+	fn default() -> Self {
+		Self {
+			subscription_capacity: 65_536,
 		}
 	}
 }

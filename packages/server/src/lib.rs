@@ -239,6 +239,20 @@ impl Server {
 				return Err(tg::error!("the {name} must be greater than zero"));
 			}
 		}
+		if let self::config::Messenger::Memory(memory) = &config.messenger
+			&& memory.subscription_capacity == 0
+		{
+			return Err(tg::error!(
+				"the memory messenger subscription capacity must be greater than zero"
+			));
+		}
+		if let Some(billing) = &config.billing
+			&& billing.stripe.webhook_tolerance.is_zero()
+		{
+			return Err(tg::error!(
+				"the Stripe webhook tolerance must be greater than zero"
+			));
+		}
 
 		// Validate the channel capacities, batch sizes, concurrencies, and page sizes.
 		let watch = config.watch.clone().unwrap_or_default();
@@ -1259,7 +1273,12 @@ impl Server {
 		let instance = config.instance.clone();
 		let region = config.region.clone();
 		let messenger = match &config.messenger {
-			self::config::Messenger::Memory => Messenger::memory(instance, region),
+			self::config::Messenger::Memory(memory) => {
+				let config = tangram_messenger_memory::Config {
+					subscription_capacity: memory.subscription_capacity,
+				};
+				Messenger::memory(&config, instance, region)
+			},
 			self::config::Messenger::Nats(nats) => {
 				#[cfg(not(feature = "nats"))]
 				{

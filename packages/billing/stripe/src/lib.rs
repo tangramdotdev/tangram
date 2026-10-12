@@ -1,5 +1,7 @@
 use {
-	aws_lc_rs::hmac, data_encoding::HEXLOWER, std::collections::BTreeMap,
+	aws_lc_rs::hmac,
+	data_encoding::HEXLOWER,
+	std::{collections::BTreeMap, time::Duration},
 	tangram_client::prelude::*,
 };
 
@@ -10,14 +12,13 @@ pub use config::Config;
 
 pub mod config;
 
-const WEBHOOK_TOLERANCE: u64 = 300;
-
 #[derive(Clone)]
 pub struct Billing {
 	client: reqwest::Client,
 	secret_key: String,
 	url: String,
 	webhook_secret: String,
+	webhook_tolerance: Duration,
 }
 
 #[derive(serde::Deserialize)]
@@ -76,6 +77,7 @@ impl Billing {
 			secret_key: config.secret_key.clone(),
 			url: config.url.to_string().trim_end_matches('/').to_owned(),
 			webhook_secret: config.webhook_secret.clone(),
+			webhook_tolerance: config.webhook_tolerance,
 		}
 	}
 
@@ -226,7 +228,7 @@ impl Billing {
 		}
 
 		// Validate the timestamp.
-		if now.abs_diff(timestamp) > WEBHOOK_TOLERANCE {
+		if now.abs_diff(timestamp) > self.webhook_tolerance.as_secs() {
 			return Err(tg::error!("the Stripe signature has expired"));
 		}
 

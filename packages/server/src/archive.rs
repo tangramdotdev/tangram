@@ -33,13 +33,16 @@ impl Archive {
 		let config = tangram_archive_s3::Config {
 			access_key: config.access_key.clone(),
 			bucket: config.bucket.clone(),
+			connect_timeout: config.connect_timeout,
 			endpoint: config.endpoint.clone(),
 			express: config.express,
 			path_style: config.path_style,
 			pool,
 			reconnect,
 			region: config.region.clone(),
+			request_timeout: config.request_timeout,
 			secret_key: config.secret_key.clone(),
+			session_refresh_buffer: config.session_refresh_buffer,
 		};
 		let archive = tangram_archive_s3::Archive::new(&config)?;
 

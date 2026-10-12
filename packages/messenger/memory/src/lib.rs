@@ -15,11 +15,15 @@ use {
 	tokio::sync::mpsc::{Receiver, Sender},
 };
 
-const SUBSCRIPTION_CAPACITY: usize = 65_536;
+#[derive(Clone, Debug)]
+pub struct Config {
+	pub subscription_capacity: usize,
+}
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Messenger {
 	state: Arc<State>,
+	subscription_capacity: usize,
 }
 
 #[derive(Default)]
@@ -74,8 +78,11 @@ struct Matches {
 
 impl Messenger {
 	#[must_use]
-	pub fn new() -> Self {
-		Self::default()
+	pub fn new(config: &Config) -> Self {
+		Self {
+			state: Arc::default(),
+			subscription_capacity: config.subscription_capacity,
+		}
 	}
 
 	fn subscribe_inner<T>(
@@ -94,7 +101,7 @@ impl Messenger {
 			.state
 			.next_subscription_id
 			.fetch_add(1, Ordering::Relaxed);
-		let (sender, receiver) = tokio::sync::mpsc::channel(SUBSCRIPTION_CAPACITY);
+		let (sender, receiver) = tokio::sync::mpsc::channel(self.subscription_capacity);
 		self.state.subscriptions.write().unwrap().insert(
 			&tokens,
 			subscription_id,
@@ -392,12 +399,22 @@ fn invalid_input(message: &'static str) -> Error {
 #[cfg(test)]
 mod tests {
 	use {
-		super::Messenger, bytes::Bytes, futures::StreamExt as _, tangram_messenger::Messenger as _,
+		super::{Config, Messenger},
+		bytes::Bytes,
+		futures::StreamExt as _,
+		tangram_messenger::Messenger as _,
 	};
+
+	fn messenger() -> Messenger {
+		let config = Config {
+			subscription_capacity: 65_536,
+		};
+		Messenger::new(&config)
+	}
 
 	#[tokio::test]
 	async fn exact_subscription() {
-		let messenger = Messenger::new();
+		let messenger = messenger();
 		let mut subscription = messenger
 			.subscribe::<Bytes>("foo.bar".into())
 			.await
@@ -413,7 +430,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn wildcard_subscriptions() {
-		let messenger = Messenger::new();
+		let messenger = messenger();
 		let mut token = messenger.subscribe::<()>("foo.*.baz".into()).await.unwrap();
 		let mut full = messenger.subscribe::<()>("foo.>".into()).await.unwrap();
 		messenger.publish("foo.bar.baz".into(), ()).await.unwrap();
@@ -423,7 +440,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn full_wildcard_matches_one_or_more_tokens() {
-		let messenger = Messenger::new();
+		let messenger = messenger();
 		let mut subscription = messenger
 			.subscribe_inner::<()>("foo.>".into(), None)
 			.unwrap();
@@ -435,7 +452,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn plain_subscriptions_fan_out() {
-		let messenger = Messenger::new();
+		let messenger = messenger();
 		let mut first = messenger
 			.subscribe_inner::<()>("foo.*".into(), None)
 			.unwrap();
@@ -449,7 +466,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn queue_group_delivers_to_one_subscription() {
-		let messenger = Messenger::new();
+		let messenger = messenger();
 		let mut first = messenger
 			.subscribe_inner::<()>("foo.*".into(), Some("workers".into()))
 			.unwrap();
@@ -464,7 +481,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn queue_groups_each_receive_once() {
-		let messenger = Messenger::new();
+		let messenger = messenger();
 		let mut first = messenger
 			.subscribe_inner::<()>("foo".into(), Some("first".into()))
 			.unwrap();
@@ -478,7 +495,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn dropped_subscriptions_are_removed() {
-		let messenger = Messenger::new();
+		let messenger = messenger();
 		let subscription = messenger.subscribe::<()>("foo.*.>".into()).await.unwrap();
 		drop(subscription);
 		assert!(
@@ -494,7 +511,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn invalid_subjects_are_rejected() {
-		let messenger = Messenger::new();
+		let messenger = messenger();
 		for subject in ["", ".foo", "foo.", "foo..bar", "foo bar"] {
 			assert!(messenger.subscribe::<()>(subject.into()).await.is_err());
 			assert!(messenger.publish(subject.into(), ()).await.is_err());

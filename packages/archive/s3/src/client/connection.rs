@@ -39,7 +39,7 @@ impl Connection {
 }
 
 impl Client {
-	pub(super) async fn connect(url: &Uri) -> tg::Result<Connection> {
+	pub(super) async fn connect(url: &Uri, timeout: Duration) -> tg::Result<Connection> {
 		let host = url
 			.host()
 			.ok_or_else(|| tg::error!(%url, "the S3 URL has no host"))?;
@@ -50,26 +50,29 @@ impl Client {
 			.map_err(|_| tg::error!(%url, "the S3 URL port is out of range"))?;
 		match url.scheme() {
 			Some("http") => {
-				let stream = Self::connect_tcp(host, port).await?;
+				let stream = Self::connect_tcp(host, port, timeout).await?;
 				Self::handshake_h1(stream).await
 			},
 			Some("https") => {
-				let stream = Self::connect_tcp_tls(host, port).await?;
+				let stream = Self::connect_tcp_tls(host, port, timeout).await?;
 				Self::handshake_h1(stream).await
 			},
 			_ => Err(tg::error!(%url, "the S3 URL has an unsupported scheme")),
 		}
 	}
 
-	async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
+	async fn connect_tcp(
+		host: &str,
+		port: u16,
+		timeout: Duration,
+	) -> tg::Result<tokio::net::TcpStream> {
 		let addr = format!("{host}:{port}");
-		let stream =
-			tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
-				.await
-				.map_err(|_| tg::error!(%host, %port, "the S3 connection timed out"))?
-				.map_err(
-					|error| tg::error!(!error, %host, %port, "failed to create the S3 TCP connection"),
-				)?;
+		let stream = tokio::time::timeout(timeout, tokio::net::TcpStream::connect(addr))
+			.await
+			.map_err(|_| tg::error!(%host, %port, "the S3 connection timed out"))?
+			.map_err(
+				|error| tg::error!(!error, %host, %port, "failed to create the S3 TCP connection"),
+			)?;
 		stream.set_nodelay(true).map_err(|error| {
 			tg::error!(!error, "failed to set nodelay on the S3 TCP connection")
 		})?;
@@ -79,10 +82,11 @@ impl Client {
 	async fn connect_tcp_tls(
 		host: &str,
 		port: u16,
+		timeout: Duration,
 	) -> tg::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
 		use rustls_platform_verifier::BuilderVerifierExt as _;
 
-		let stream = Self::connect_tcp(host, port).await?;
+		let stream = Self::connect_tcp(host, port, timeout).await?;
 		let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
 			rustls::crypto::aws_lc_rs::default_provider(),
 		))

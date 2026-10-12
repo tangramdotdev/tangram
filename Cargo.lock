@@ -9268,6 +9268,7 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
+ "serde_with",
  "tangram_billing",
  "tangram_client",
  "tangram_uri",

@@ -132,13 +132,16 @@ mod tests {
 		super::super::super::Config {
 			access_key: "root-access".into(),
 			bucket: "bucket--use1-az4--x-s3".into(),
+			connect_timeout: std::time::Duration::from_secs(1),
 			endpoint: tangram_uri::Uri::parse("https://objects.example.com").unwrap(),
 			express: true,
 			path_style: false,
 			pool: tangram_pool::Options::default(),
 			reconnect: tangram_futures::retry::Options::default(),
 			region: "us-east-1".into(),
+			request_timeout: std::time::Duration::from_mins(1),
 			secret_key: "root-secret".into(),
+			session_refresh_buffer: std::time::Duration::from_mins(1),
 		}
 	}
 

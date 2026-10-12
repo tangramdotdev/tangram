@@ -19,7 +19,9 @@ pub(super) struct Client {
 	express: bool,
 	pool: Pool,
 	region: String,
+	request_timeout: Duration,
 	session: Option<tokio::sync::Mutex<Option<Session>>>,
+	session_refresh_buffer: time::Duration,
 	url: Uri,
 }
 
@@ -41,6 +43,16 @@ impl Client {
 		if config.express && config.path_style {
 			return Err(tg::error!(
 				"the S3 Express archive does not support path-style addressing"
+			));
+		}
+		if config.connect_timeout.is_zero() {
+			return Err(tg::error!(
+				"the S3 archive connect timeout must be greater than zero"
+			));
+		}
+		if config.request_timeout.is_zero() {
+			return Err(tg::error!(
+				"the S3 archive request timeout must be greater than zero"
 			));
 		}
 		if config.pool.max == 0 {
@@ -88,15 +100,24 @@ impl Client {
 			None,
 			"tangram",
 		);
-		let pool = Self::pool(config.pool, &config.reconnect, &url);
+		let pool = Self::pool(config.pool, &config.reconnect, &url, config.connect_timeout);
 		let region = config.region.clone();
+		let session_refresh_buffer = time::Duration::try_from(config.session_refresh_buffer)
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"the S3 archive session refresh buffer is out of range"
+				)
+			})?;
 
 		Ok(Self {
 			credentials,
 			express: config.express,
 			pool,
 			region,
+			request_timeout: config.request_timeout,
 			session,
+			session_refresh_buffer,
 			url,
 		})
 	}
@@ -105,6 +126,7 @@ impl Client {
 		options: tangram_pool::Options,
 		reconnect: &tangram_futures::retry::Options,
 		url: &Uri,
+		connect_timeout: Duration,
 	) -> Pool {
 		let reconnect = reconnect.clone();
 		let url = url.clone();
@@ -115,7 +137,7 @@ impl Client {
 				tangram_futures::retry(&reconnect, || {
 					let url = url.clone();
 					async move {
-						match Self::connect(&url).await {
+						match Self::connect(&url, connect_timeout).await {
 							Ok(connection) => Ok(ControlFlow::Break(connection)),
 							Err(error) => Ok(ControlFlow::Continue(error)),
 						}
@@ -126,5 +148,3 @@ impl Client {
 		})
 	}
 }
-
-const REQUEST_TIMEOUT: Duration = Duration::from_mins(1);

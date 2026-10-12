@@ -13,7 +13,14 @@ async fn subject_prefixes() {
 		),
 		(Some(""), Some(""), "syncs.test.control.server"),
 	] {
-		let messenger = Messenger::memory(instance.map(str::to_owned), region.map(str::to_owned));
+		let config = tangram_messenger_memory::Config {
+			subscription_capacity: 65_536,
+		};
+		let messenger = Messenger::memory(
+			&config,
+			instance.map(str::to_owned),
+			region.map(str::to_owned),
+		);
 		let messages = messenger
 			.subscribe::<()>("syncs.test.control.*".into())
 			.await

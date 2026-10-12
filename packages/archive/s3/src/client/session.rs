@@ -7,8 +7,6 @@ use {
 	time::{OffsetDateTime, format_description::well_known::Rfc3339},
 };
 
-const REFRESH_BUFFER: time::Duration = time::Duration::minutes(1);
-
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct CreateSessionOutput {
@@ -33,7 +31,7 @@ impl Client {
 		let now = OffsetDateTime::now_utc();
 		if let Some(session) = session
 			.as_ref()
-			.filter(|session| session.expiration > now + REFRESH_BUFFER)
+			.filter(|session| session.expiration > now + self.session_refresh_buffer)
 		{
 			return Ok((session.credentials.clone(), Some(session.token.clone())));
 		}

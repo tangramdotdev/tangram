@@ -19,8 +19,12 @@ pub struct Messenger {
 
 impl Messenger {
 	#[must_use]
-	pub fn memory(instance: Option<String>, region: Option<String>) -> Self {
-		let inner = Inner::Memory(tangram_messenger_memory::Messenger::new());
+	pub fn memory(
+		config: &tangram_messenger_memory::Config,
+		instance: Option<String>,
+		region: Option<String>,
+	) -> Self {
+		let inner = Inner::Memory(tangram_messenger_memory::Messenger::new(config));
 		Self {
 			inner,
 			instance,

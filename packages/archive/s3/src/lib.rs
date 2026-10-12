@@ -1,4 +1,4 @@
-use {self::client::Client, tangram_client::prelude::*, tangram_uri::Uri};
+use {self::client::Client, std::time::Duration, tangram_client::prelude::*, tangram_uri::Uri};
 
 mod client;
 mod object;
@@ -7,13 +7,16 @@ mod object;
 pub struct Config {
 	pub access_key: String,
 	pub bucket: String,
+	pub connect_timeout: Duration,
 	pub endpoint: Uri,
 	pub express: bool,
 	pub path_style: bool,
 	pub pool: tangram_pool::Options,
 	pub reconnect: tangram_futures::retry::Options,
 	pub region: String,
+	pub request_timeout: Duration,
 	pub secret_key: String,
+	pub session_refresh_buffer: Duration,
 }
 
 pub struct Archive {
@@ -68,6 +71,7 @@ mod tests {
 		let config = Config {
 			access_key,
 			bucket,
+			connect_timeout: Duration::from_secs(1),
 			endpoint: Uri::from_str(&endpoint).unwrap(),
 			express: false,
 			path_style: std::env::var("TANGRAM_S3_PATH_STYLE").is_ok_and(|value| value == "true"),
@@ -79,7 +83,9 @@ mod tests {
 			},
 			reconnect: tangram_futures::retry::Options::default(),
 			region,
+			request_timeout: Duration::from_mins(1),
 			secret_key,
+			session_refresh_buffer: Duration::from_mins(1),
 		};
 		let archive = Archive::new(&config).unwrap();
 		let bytes = Bytes::from_static(b"tangram S3 archive integration test");

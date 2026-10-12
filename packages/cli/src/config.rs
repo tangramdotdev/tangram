@@ -187,6 +187,7 @@ pub enum Archive {
 	S3(S3Archive),
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct S3Archive {
@@ -195,6 +196,10 @@ pub struct S3Archive {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub bucket: Option<String>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connect_timeout: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub endpoint: Option<Uri>,
@@ -214,8 +219,16 @@ pub struct S3Archive {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub region: Option<String>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_timeout: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub secret_key: Option<String>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub session_refresh_buffer: Option<Duration>,
 }
 
 #[serde_as]
@@ -1139,9 +1152,16 @@ pub struct IndexerUpdate {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum Messenger {
-	Memory,
+	Memory(MemoryMessenger),
 
 	Nats(NatsMessenger),
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryMessenger {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub subscription_capacity: Option<usize>,
 }
 
 #[serde_as]
@@ -3011,7 +3031,7 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 		.unwrap_or_default();
 	let region = required(source.region, "archive.region")?;
 	let secret_key = required(source.secret_key, "archive.secret_key")?;
-	let target = server::S3Archive {
+	let mut target = server::S3Archive {
 		access_key,
 		bucket,
 		endpoint,
@@ -3021,7 +3041,17 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 		reconnect,
 		region,
 		secret_key,
+		..server::S3Archive::default()
 	};
+	if let Some(value) = source.connect_timeout {
+		target.connect_timeout = value;
+	}
+	if let Some(value) = source.request_timeout {
+		target.request_timeout = value;
+	}
+	if let Some(value) = source.session_refresh_buffer {
+		target.session_refresh_buffer = value;
+	}
 
 	Ok(target)
 }
@@ -3981,11 +4011,19 @@ fn resolve_indexer_update(source: IndexerUpdate) -> server::IndexerUpdate {
 
 fn resolve_messenger(source: Messenger) -> tg::Result<server::Messenger> {
 	let messenger = match source {
-		Messenger::Memory => server::Messenger::Memory,
+		Messenger::Memory(source) => server::Messenger::Memory(resolve_memory_messenger(source)),
 		Messenger::Nats(source) => server::Messenger::Nats(resolve_nats_messenger(source)?),
 	};
 
 	Ok(messenger)
+}
+
+fn resolve_memory_messenger(source: MemoryMessenger) -> server::MemoryMessenger {
+	let mut target = server::MemoryMessenger::default();
+	if let Some(value) = source.subscription_capacity {
+		target.subscription_capacity = value;
+	}
+	target
 }
 
 fn resolve_nats_messenger(source: NatsMessenger) -> tg::Result<server::NatsMessenger> {

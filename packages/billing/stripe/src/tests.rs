@@ -79,6 +79,7 @@ fn billing() -> Billing {
 		secret_key: "sk_test".into(),
 		url: "https://example.invalid".parse().unwrap(),
 		webhook_secret: "whsec_test".into(),
+		webhook_tolerance: std::time::Duration::from_mins(5),
 	};
 	Billing::new(&config)
 }

@@ -1,6 +1,6 @@
 use {
 	super::sign::Request,
-	super::{Client, REQUEST_TIMEOUT, Response},
+	super::{Client, Response},
 	bytes::Bytes,
 	tangram_client::prelude::*,
 	tangram_http::body::Ext as _,
@@ -44,19 +44,20 @@ impl Client {
 			}
 			break connection;
 		};
-		let response = match tokio::time::timeout(REQUEST_TIMEOUT, connection.send(request)).await {
-			Ok(Ok(response)) => response,
-			Ok(Err(error)) => {
-				connection.discard();
-				return Err(error);
-			},
-			Err(_) => {
-				connection.discard();
-				return Err(tg::error!("the S3 request timed out"));
-			},
-		};
+		let response =
+			match tokio::time::timeout(self.request_timeout, connection.send(request)).await {
+				Ok(Ok(response)) => response,
+				Ok(Err(error)) => {
+					connection.discard();
+					return Err(error);
+				},
+				Err(_) => {
+					connection.discard();
+					return Err(tg::error!("the S3 request timed out"));
+				},
+			};
 		let (parts, body) = response.into_parts();
-		let bytes = match tokio::time::timeout(REQUEST_TIMEOUT, body.collect()).await {
+		let bytes = match tokio::time::timeout(self.request_timeout, body.collect()).await {
 			Ok(Ok(body)) => body.to_bytes(),
 			Ok(Err(error)) => {
 				connection.discard();
