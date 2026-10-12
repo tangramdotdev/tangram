@@ -124,7 +124,7 @@ pub struct Options {
 	/// The maximum size of an RPC record.
 	pub max_record_size: usize,
 
-	/// The port to listen on.
+	/// The port to listen on, where zero selects an available port.
 	pub port: u16,
 
 	/// The number of directory entries whose attributes are fetched concurrently during a readdir.
@@ -172,6 +172,11 @@ where
 		// Validate the options.
 		options.validate()?;
 
+		// Listen, and get the port that was bound, so that the mount and the advertisement use it. On macOS, the advertised host is registered with DNS-SD below and may not be resolvable yet, so bind directly to the advertised loopback address.
+		let addr = listen_addr(host, options.port);
+		let listener = TcpListener::bind(&addr).await?;
+		let port = listener.local_addr()?.port();
+
 		// Create the server.
 		let provider = Provider::new(provider);
 		let server = Self(Arc::new(State {
@@ -189,15 +194,10 @@ where
 			opens: DashMap::new(),
 			options,
 			path: path.to_owned(),
-			port: options.port,
+			port,
 			provider,
 			task: Mutex::new(None),
 		}));
-
-		// Listen. On macOS, the advertised host is registered with DNS-SD below and may not be
-		// resolvable yet, so bind directly to the advertised loopback address.
-		let addr = listen_addr(host, server.port);
-		let listener = TcpListener::bind(&addr).await?;
 
 		// Unmount.
 		unmount(&server.path).await.ok();
@@ -1827,7 +1827,7 @@ impl Default for Options {
 			max_pending_responses: 1,
 			max_read_size: 2 * 1024 * 1024,
 			max_record_size: 4 * 1024 * 1024,
-			port: 8476,
+			port: 0,
 			readdir_concurrency: 16,
 		}
 	}

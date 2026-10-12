@@ -2416,9 +2416,12 @@ pub struct VfsFuse {
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VfsNfs {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub host: Option<String>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub lease_reaper_interval: Option<Duration>,
@@ -2453,6 +2456,9 @@ pub struct VfsNfs {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_record_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub port: Option<u16>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub readdir_concurrency: Option<usize>,
@@ -5363,6 +5369,9 @@ fn resolve_vfs_kind(source: VfsKind) -> server::VfsKind {
 
 fn resolve_vfs_nfs(source: VfsNfs) -> server::VfsNfs {
 	let mut target = server::VfsNfs::default();
+	if let Some(value) = source.host {
+		target.host = value;
+	}
 	if let Some(value) = source.lease_reaper_interval {
 		target.lease_reaper_interval = value;
 	}
@@ -5395,6 +5404,9 @@ fn resolve_vfs_nfs(source: VfsNfs) -> server::VfsNfs {
 	}
 	if let Some(value) = source.max_record_size {
 		target.max_record_size = value;
+	}
+	if let Some(value) = source.port {
+		target.port = value;
 	}
 	if let Some(value) = source.readdir_concurrency {
 		target.readdir_concurrency = value;

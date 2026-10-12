@@ -1710,6 +1710,8 @@ pub struct VfsFuse {
 
 #[derive(Clone, Debug)]
 pub struct VfsNfs {
+	pub host: String,
+
 	pub lease_reaper_interval: Duration,
 
 	pub lease_time: Duration,
@@ -1731,6 +1733,8 @@ pub struct VfsNfs {
 	pub max_read_size: u32,
 
 	pub max_record_size: usize,
+
+	pub port: u16,
 
 	pub readdir_concurrency: usize,
 }
@@ -2973,7 +2977,13 @@ impl Default for VfsFuse {
 
 impl Default for VfsNfs {
 	fn default() -> Self {
+		let host = if cfg!(target_os = "macos") {
+			"Tangram"
+		} else {
+			"localhost"
+		};
 		Self {
+			host: host.to_owned(),
 			lease_reaper_interval: Duration::from_secs(15),
 			lease_time: Duration::from_mins(1),
 			max_array_length: 65_536,
@@ -2985,6 +2995,7 @@ impl Default for VfsNfs {
 			max_pending_responses: 1,
 			max_read_size: 2 * 1024 * 1024,
 			max_record_size: 4 * 1024 * 1024,
+			port: 0,
 			readdir_concurrency: 16,
 		}
 	}
