@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn --config {
 	tracing: {
-		filter: 'tangram=warn,tangram_index_lmdb::update=debug'
+		filter: 'tangram=warn,tangram_index_fdb::update=debug,tangram_index_lmdb::update=debug'
 		stderr_format: 'json'
 	}
 }
