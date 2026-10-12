@@ -62,9 +62,10 @@ async def main():
             waiting = asyncio.create_task(process.wait())
             await process.write(prefix)
             await ready.wait()
-            first_transport = client._session
-            assert first_transport is not None
-            await first_transport.close()
+            first_transports = [entry.value for entry in client._connections.entries]
+            assert first_transports
+            for transport in first_transports:
+                await transport.close()
             # Read and wait reconnect concurrently with writes to the detached process.
             await process.write(suffix)
             await process.end()
@@ -74,7 +75,10 @@ async def main():
             assert b"".join(chunks) == prefix + suffix
             assert process.id == id
             assert process.lease == lease
-            assert client._session is not first_transport
+            assert all(
+                entry.value not in first_transports
+                for entry in client._connections.entries
+            )
             assert process.connection.session.output["process"] == id
             assert process.connection.session.output.get("lease") == lease
     print("process reconnected without losing or repeating stdio")

@@ -3,20 +3,37 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import os
 import random
+import socket
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, Self, TypedDict, Unpack, cast, overload
 
-from ..error import Error, ErrorData
+from ..config import (
+    Config,
+    RetryOptions,
+    compatibility_date,
+    default_http_config,
+    default_pool_options,
+    default_retry_options,
+    validate_http_config,
+    validate_pool_options,
+    validate_retry_options,
+)
+from ..config import version as default_version
+from ..error import Error, ErrorData, error_kind
 from ..http import Body, Request, Response, Stream
-from ..http2 import Session
+from ..http.coalesce import coalesce
+from ..http.pool import Lease, Pool
+from ..http2 import TransportError
 from ..object import Object
 from ..progress import Event, progress
 from ..progress import last_output as last_output
 from ..referent import Referent
 
 if TYPE_CHECKING:
+    from ..host import Http2Session
     from ..location import ArgObject as LocationArgObject
     from ..location import LocationObject
     from ..object import ObjectData
@@ -53,13 +70,6 @@ if TYPE_CHECKING:
     from .write import Write
 
 
-class RetryOptions(TypedDict):
-    backoff: float
-    jitter: float
-    max_delay: float
-    max_retries: int
-
-
 class ObjectPutOutput(TypedDict):
     object: Referent[str]
 
@@ -74,14 +84,6 @@ class RequestError(Exception):
         super().__init__(str(source))
 
 
-def default_retry_options() -> RetryOptions:
-    return {"backoff": 0.01, "jitter": 0.01, "max_delay": 1, "max_retries": 3}
-
-
-reconnect_options = default_retry_options()
-retry_options = default_retry_options()
-
-
 async def retry[T](
     options: RetryOptions,
     function: Callable[[], Awaitable[T]],
@@ -93,19 +95,36 @@ async def retry[T](
         except Exception as error:
             if attempt == options["max_retries"] or not should_retry(error):
                 raise
-            multiplier = 2 ** min(attempt + 1, 31)
-            jitter = random.random() * options["jitter"]
-            delay = min(options["backoff"] * multiplier + jitter, options["max_delay"])
-            await asyncio.sleep(delay)
+            await backoff(options, attempt)
     raise AssertionError("unreachable")
 
 
+async def backoff(options: RetryOptions, attempt: int) -> None:
+    """Sleep for the backoff delay that precedes the retry after an attempt."""
+    multiplier = 2 ** min(attempt + 1, 31)
+    jitter = random.random() * options["jitter"]
+    delay = min(options["backoff"] * multiplier + jitter, options["max_delay"])
+    await asyncio.sleep(delay)
+
+
 class Client:
-    def __init__(self, *, url: str | None = None, token: str | None = None):
-        self.url = url
-        self.token = token
-        self._session: Session | None = None
-        self._connecting: asyncio.Task[Session] | None = None
+    def __init__(self, config: Config | None = None, **options: Unpack[Config]):
+        config = {**(config or {}), **options}
+        self.pool = config.get("pool", default_pool_options())
+        validate_pool_options(self.pool)
+        self.http = config.get("http", default_http_config())
+        validate_http_config(self.http)
+        self.reconnect = config.get("reconnect", default_retry_options())
+        self.retry = config.get("retry", default_retry_options())
+        validate_retry_options(self.reconnect)
+        validate_retry_options(self.retry)
+        self.version = config.get("version", default_version)
+        self.url = config.get("url")
+        self.token = config.get("token")
+        self._connections = Pool(
+            self.pool,
+            lambda: retry(self.reconnect, self._create_session, is_transport_error),
+        )
 
     def arg(self) -> dict[str, str]:
         return {
@@ -127,54 +146,20 @@ class Client:
         await self.close()
 
     async def close(self) -> None:
-        if self._connecting is not None:
-            self._connecting.cancel()
-            await asyncio.gather(self._connecting, return_exceptions=True)
-            self._connecting = None
-        if self._session is not None:
-            await self._session.close()
-            self._session = None
+        await self._connections.clear()
 
-    async def _connect(self) -> Session:
-        while True:
-            session = self._session
-            if session is not None:
-                if not session.closed:
-                    return session
-                self._disconnect(session)
-                await session.close()
-            connecting = self._connecting
-            if connecting is None:
-                connecting = asyncio.create_task(
-                    retry(reconnect_options, self._create_session)
-                )
-                self._connecting = connecting
-            try:
-                next_session = await asyncio.shield(connecting)
-            finally:
-                if connecting.done() and self._connecting is connecting:
-                    self._connecting = None
-            if next_session.closed:
-                await next_session.close()
-                continue
-            if self._session is None:
-                self._session = next_session
-            elif self._session is not next_session:
-                await next_session.close()
-            return self._session
+    async def _connect(self) -> Lease:
+        return await self._connections.get()
 
-    async def _create_session(self) -> Session:
+    async def _create_session(self) -> Http2Session:
         url = self.url if self.url is not None else os.environ.get("TANGRAM_URL")
         if not isinstance(url, str):
             raise ValueError("missing TANGRAM_URL")
         from .. import host
 
-        return await host.http2.Session.connect(url)
-
-    def _disconnect(self, session: Session | None = None) -> None:
-        if session is not None and self._session is not session:
-            return
-        self._session = None
+        return await host.http2.Session.connect(
+            url, self.http.get("http2"), connect_timeout=self.http["connect_timeout"]
+        )
 
     @staticmethod
     def object_id(data: ObjectData) -> str:
@@ -205,30 +190,48 @@ class Client:
             raise ValueError("cannot retry a request with a streaming body")
         try:
             return await retry(
-                retry_options,
+                self.retry,
                 lambda: self._send(request),
-                lambda error: isinstance(error, RequestError),
+                lambda error: (
+                    isinstance(error, RequestError) and is_retryable_error(error.source)
+                ),
             )
         except RequestError as error:
             raise error.source from None
 
     async def _send(self, request: Request) -> Response:
+        async with asyncio.timeout(self.http["request_timeout"]):
+            return await self._send_inner(request)
+
+    async def _send_inner(self, request: Request) -> Response:
         token = (
             self.token if self.token is not None else os.environ.get("TANGRAM_TOKEN")
         )
         if token is not None and not isinstance(token, str):
             raise ValueError("invalid TANGRAM_TOKEN")
         headers = dict(request.headers)
-        if token is not None:
+        headers.setdefault("x-tg-compatibility-date", compatibility_date)
+        headers.setdefault("x-tg-version", self.version)
+        if token is not None and "authorization" not in headers:
             headers["authorization"] = f"Bearer {token}"
-        request = Request(request.method, request.uri, headers, request.body)
-        session = await self._connect()
+        body = (
+            None
+            if request.body is None
+            else Body(coalesce(request.body, self.http["coalescing_target_size"]))
+        )
+        request = Request(request.method, request.uri, headers, body)
+        lease = await self._connect()
+        session = lease.value
         try:
-            return await session.send(request)
+            return (await session.send(request)).on_close(lease.release)
         except Exception as error:
-            self._disconnect(session)
-            await session.close()
+            if is_retryable_error(error):
+                lease.discard()
+            lease.release()
             raise RequestError(error) from error
+        except BaseException:
+            lease.release()
+            raise
 
     async def _request(
         self, method, path, *, arg=None, data=None, missing=False, statuses=()
@@ -637,3 +640,44 @@ def response_locations(output: object) -> object:
 
 
 client = Client()
+
+
+def is_transport_error(error: BaseException) -> bool:
+    """Determine whether a resumable operation can retry an error."""
+    if isinstance(error, Error):
+        value = error._value
+        return isinstance(value, dict) and error_kind(value) == "unavailable"
+    # Treat a temporary failure in name resolution as a transport failure.
+    if isinstance(error, socket.gaierror):
+        return error.errno == socket.EAI_AGAIN
+    return (
+        isinstance(error, (ConnectionError, EOFError, TimeoutError))
+        or isinstance(error, OSError)
+        and error.errno
+        in (
+            errno.ECONNABORTED,
+            errno.ECONNREFUSED,
+            errno.ECONNRESET,
+            errno.EHOSTUNREACH,
+            errno.ENETDOWN,
+            errno.ENETUNREACH,
+            errno.ENOENT,
+            errno.ENOTCONN,
+            errno.EPIPE,
+            errno.ETIMEDOUT,
+        )
+    )
+
+
+def is_retryable_error(error: Exception) -> bool:
+    if isinstance(error, TransportError):
+        return error.retryable
+    return (
+        isinstance(
+            error,
+            (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, EOFError),
+        )
+        or isinstance(error, OSError)
+        and error.errno
+        in (errno.EPIPE, errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN)
+    )
