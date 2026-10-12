@@ -41,7 +41,6 @@ type CreateControlConnection<T> = Arc<dyn Fn() -> BoxFuture<'static, tg::Result<
 #[cfg_attr(not(target_os = "linux"), derive(Copy))]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
-	pub cpu_oversubscription: u64,
 	#[cfg(target_os = "linux")]
 	pub cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 	#[cfg(target_os = "linux")]
@@ -53,6 +52,7 @@ pub(super) struct Config {
 	pub sandbox_control_connection_pool_size: usize,
 	pub sandbox_control_connection_pool_ttl: Duration,
 	pub sandbox_pool_size: usize,
+	pub shared_cpu_overcommit: u64,
 }
 
 struct ControlConnectionPoolEntry<T> {
@@ -97,10 +97,21 @@ impl Runner {
 	#[must_use]
 	pub fn new(config: Config) -> Self {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
+		#[cfg(target_os = "linux")]
+		let threads_per_core = config
+			.cpu_pool
+			.as_ref()
+			.map_or(1, tangram_sandbox::cpu::Pool::threads_per_core);
+		#[cfg(not(target_os = "linux"))]
+		let threads_per_core = 1;
 		let state = State {
 			#[cfg(target_os = "linux")]
 			cpu_pool: config.cpu_pool,
-			capacity: self::capacity::Pool::new(config.capacity, config.cpu_oversubscription),
+			capacity: self::capacity::Pool::new(
+				config.capacity,
+				config.shared_cpu_overcommit,
+				threads_per_core,
+			),
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: self::project::Pool::new(config.filesystem_project_ids),
 			heartbeat_index: AtomicU64::new(0),

@@ -141,10 +141,17 @@ impl Session {
 			.map(|process| process.control.clone())
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
+		let shared_cpu_capacity_per_core = self
+			.server
+			.runner
+			.state()
+			.capacity()
+			.get()
+			.shared_cpu_capacity_per_core();
 		loop {
 			let scheduler = self.server.runner.state().wait_for_scheduler().await;
 			if !self.server.runner.state().healthy()
-				|| !capacity.contains(requested, self.server.config.runner.cpu_oversubscription)
+				|| !capacity.contains(requested, shared_cpu_capacity_per_core)
 			{
 				return Ok(());
 			}

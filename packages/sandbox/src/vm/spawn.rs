@@ -114,7 +114,8 @@ pub(crate) fn spawn(
 		command.arg("--hostname").arg(hostname);
 	}
 	if let Some(cpu) = arg.cpu {
-		command.arg("--cpu").arg(cpu.total()?.to_string());
+		let cpu = crate::cpu::threads(cpu, arg.cpu_pool.as_ref())?;
+		command.arg("--cpu").arg(cpu.to_string());
 	}
 	if let Some(memory) = arg.memory {
 		command.arg("--memory").arg(memory.to_string());

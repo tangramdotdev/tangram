@@ -372,7 +372,10 @@ impl Sandbox {
 				let options = crate::container::cgroup::Options {
 					cleanup_interval: arg.cgroup_cleanup_interval,
 					cleanup_timeout: arg.cgroup_cleanup_timeout,
-					cpu: arg.cpu.map(tg::sandbox::Cpu::total).transpose()?,
+					cpu: arg
+						.cpu
+						.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
+						.transpose()?,
 					cpu_parent: arg.cpu_parent.clone(),
 					cpu_pool: arg.cpu_pool.clone(),
 					cpu_request: arg.cpu,

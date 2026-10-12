@@ -48,7 +48,7 @@ try {
 let local = try { server spawn --config {
 	runner: {
 		cpu_pool: $pool,
-		cpu_oversubscription: 4,
+		shared_cpu_overcommit: 4,
 		memory_sampling_interval: 0.05,
 		sandbox_pool_size: 0,
 	},

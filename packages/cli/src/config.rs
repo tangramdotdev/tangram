@@ -1686,9 +1686,6 @@ pub struct RemoteCache {
 #[serde(deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cpu_oversubscription: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpu_pool: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1778,6 +1775,10 @@ pub struct Runner {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub scheduler_ttl: Option<Duration>,
+
+	/// The shared CPU capacity admitted per hardware thread.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub shared_cpu_overcommit: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4957,8 +4958,8 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	if let Some(value) = source.control_channel_capacity {
 		target.control_channel_capacity = value;
 	}
-	if let Some(value) = source.cpu_oversubscription {
-		target.cpu_oversubscription = value;
+	if let Some(value) = source.shared_cpu_overcommit {
+		target.shared_cpu_overcommit = value;
 	}
 	if let Some(value) = source.progress_channel_capacity {
 		target.progress_channel_capacity = value;

@@ -788,10 +788,17 @@ impl State {
 				continue;
 			}
 			let available = available(runner);
-			if !available.contains(sandbox.capacity, runner.capacity.cpu_oversubscription)
-				|| sandbox.capacity.cpu.shared
-					> shared_cpu_limit(runner).saturating_sub(sandbox.capacity.cpu.dedicated)
-			{
+			if !available.contains(
+				sandbox.capacity,
+				runner.capacity.shared_cpu_capacity_per_core(),
+			) || sandbox.capacity.cpu.shared
+				> shared_cpu_limit(runner).saturating_sub(
+					sandbox
+						.capacity
+						.cpu
+						.dedicated
+						.saturating_mul(runner.capacity.cpu_threads_per_core),
+				) {
 				continue;
 			}
 			let score = score(runner, available, sandbox.capacity);
@@ -828,12 +835,12 @@ impl State {
 		let parent = sandbox.request.parent.as_ref()?;
 		let borrowable = self.parents.0.get(parent)?.borrowable.as_ref()?;
 		let runner = self.runners.entries.get(&borrowable.runner)?;
-		if !borrowable
-			.capacity
-			.contains(sandbox.capacity, runner.capacity.cpu_oversubscription)
-			|| borrowable
-				.connection_index
-				.is_some_and(|index| index != runner.connection_index)
+		if !borrowable.capacity.contains(
+			sandbox.capacity,
+			runner.capacity.shared_cpu_capacity_per_core(),
+		) || borrowable
+			.connection_index
+			.is_some_and(|index| index != runner.connection_index)
 			|| !runner.ready
 			|| !matches_host(runner, &sandbox.request)
 		{
@@ -1081,22 +1088,25 @@ fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
 }
 
 fn available(runner: &Runner) -> tg::runner::Capacity {
-	let factor = runner.capacity.cpu_oversubscription;
+	let shared_cpu_capacity_per_core = runner.capacity.shared_cpu_capacity_per_core();
 	let available = runner
 		.capacity
 		.available
-		.subtract(runner.reserved, factor)
-		.subtract(runner.committed, factor);
-	// Keep enough distinct shared cores for newly reserved multi-CPU requests.
-	let width = runner.shared_width;
-	let occupied = shared_cpu_limit(runner).saturating_sub(available.cpu.dedicated);
+		.subtract(runner.reserved, shared_cpu_capacity_per_core)
+		.subtract(runner.committed, shared_cpu_capacity_per_core);
+	// Keep enough shared hardware threads for newly reserved multi-CPU requests.
+	let threads_per_core = runner.capacity.cpu_threads_per_core;
+	let width = runner.shared_width.div_ceil(threads_per_core);
+	let occupied = shared_cpu_limit(runner)
+		.div_ceil(threads_per_core)
+		.saturating_sub(available.cpu.dedicated);
 	let converted = width.saturating_sub(occupied).min(available.cpu.dedicated);
 	let mut available = available;
 	available.cpu.dedicated -= converted;
 	available.cpu.shared = available
 		.cpu
 		.shared
-		.saturating_add(converted.saturating_mul(factor));
+		.saturating_add(converted.saturating_mul(shared_cpu_capacity_per_core));
 	available
 }
 
@@ -1104,8 +1114,20 @@ fn shared_cpu_limit(runner: &Runner) -> u64 {
 	runner
 		.capacity
 		.shared_cpu_limit
-		.saturating_sub(runner.reserved.cpu.dedicated)
-		.saturating_sub(runner.committed.cpu.dedicated)
+		.saturating_sub(
+			runner
+				.reserved
+				.cpu
+				.dedicated
+				.saturating_mul(runner.capacity.cpu_threads_per_core),
+		)
+		.saturating_sub(
+			runner
+				.committed
+				.cpu
+				.dedicated
+				.saturating_mul(runner.capacity.cpu_threads_per_core),
+		)
 }
 
 fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {
@@ -1123,21 +1145,21 @@ fn placeable(runner: &Runner, sandbox: &Sandbox) -> bool {
 		.is_none_or(|owner| sandbox.owner_ancestors.contains(owner));
 	owner_matches
 		&& matches_host(runner, &sandbox.request)
-		&& runner
-			.capacity
-			.total
-			.contains(sandbox.capacity, runner.capacity.cpu_oversubscription)
-		&& sandbox.capacity.cpu.shared
-			<= if runner.capacity.total.cpu.dedicated == 0 {
-				runner.capacity.total.cpu.shared / runner.capacity.cpu_oversubscription
-			} else {
-				runner
-					.capacity
-					.total
-					.cpu
-					.dedicated
-					.saturating_sub(sandbox.capacity.cpu.dedicated)
-			}
+		&& runner.capacity.total.contains(
+			sandbox.capacity,
+			runner.capacity.shared_cpu_capacity_per_core(),
+		) && sandbox.capacity.cpu.shared
+		<= if runner.capacity.total.cpu.dedicated == 0 {
+			runner.capacity.total.cpu.shared / runner.capacity.shared_cpu_capacity_per_core()
+		} else {
+			runner
+				.capacity
+				.total
+				.cpu
+				.dedicated
+				.saturating_sub(sandbox.capacity.cpu.dedicated)
+				.saturating_mul(runner.capacity.cpu_threads_per_core)
+		}
 }
 
 fn score(
@@ -1145,13 +1167,14 @@ fn score(
 	available: tg::runner::Capacity,
 	requested: tg::runner::Capacity,
 ) -> (u128, u128) {
-	let factor = runner.capacity.cpu_oversubscription;
-	let remaining = available.subtract(requested, factor);
+	let shared_cpu_capacity_per_core = runner.capacity.shared_cpu_capacity_per_core();
+	let remaining = available.subtract(requested, shared_cpu_capacity_per_core);
 	let cpu = (u128::from(remaining.cpu.shared)
-		+ u128::from(remaining.cpu.dedicated) * u128::from(factor))
+		+ u128::from(remaining.cpu.dedicated) * u128::from(shared_cpu_capacity_per_core))
 		* 1_000_000
 		/ (u128::from(runner.capacity.total.cpu.shared)
-			+ u128::from(runner.capacity.total.cpu.dedicated) * u128::from(factor))
+			+ u128::from(runner.capacity.total.cpu.dedicated)
+				* u128::from(shared_cpu_capacity_per_core))
 		.max(1);
 	let memory = u128::from(available.memory - requested.memory) * 1_000_000
 		/ u128::from(runner.capacity.total.memory.max(1));
@@ -1183,8 +1206,9 @@ mod tests {
 			borrowable: HashSet::from_iter([parent.clone()]),
 			capacity: tg::runner::control::Capacity {
 				available: tg::runner::Capacity::default(),
-				cpu_oversubscription: 4,
+				cpu_threads_per_core: 1,
 				shared_cpu_limit: 0,
+				shared_cpu_overcommit: 4,
 				total: capacity,
 			},
 			committed: tg::runner::Capacity::default(),
@@ -1236,6 +1260,58 @@ mod tests {
 			state: SandboxState::Pending,
 		};
 		(state, sandbox, parent, runner_id)
+	}
+
+	#[test]
+	fn smt_placement_preserves_shared_thread_width_and_whole_core_exclusivity() {
+		let (mut state, mut sandbox, _, id) = borrowing();
+		let runner = state.runners.entries.get_mut(&id).unwrap();
+		runner.capacity.cpu_threads_per_core = 2;
+		runner.capacity.shared_cpu_overcommit = 4;
+		runner.capacity.total.cpu.dedicated = 2;
+		runner.capacity.available = runner.capacity.total;
+		runner.capacity.shared_cpu_limit = 4;
+		assert!(placeable(runner, &sandbox));
+		sandbox.capacity.cpu = 5.into();
+		assert!(!placeable(runner, &sandbox));
+		sandbox.capacity.cpu = tg::sandbox::Cpu {
+			dedicated: 1,
+			shared: 2,
+		};
+		assert!(placeable(runner, &sandbox));
+		sandbox.capacity.cpu.shared = 3;
+		assert!(!placeable(runner, &sandbox));
+		runner.reserved.cpu.shared = 2;
+		runner.shared_width = 2;
+		assert_eq!(
+			available(runner).cpu,
+			tg::sandbox::Cpu {
+				dedicated: 1,
+				shared: 6
+			}
+		);
+		runner.reserved.cpu.shared = 3;
+		runner.shared_width = 3;
+		assert_eq!(
+			available(runner).cpu,
+			tg::sandbox::Cpu {
+				dedicated: 0,
+				shared: 13
+			}
+		);
+		runner.reserved.cpu = tg::sandbox::Cpu {
+			dedicated: 1,
+			shared: 0,
+		};
+		runner.shared_width = 0;
+		assert_eq!(shared_cpu_limit(runner), 2);
+		assert_eq!(
+			available(runner).cpu,
+			tg::sandbox::Cpu {
+				dedicated: 1,
+				shared: 0
+			}
+		);
 	}
 
 	#[test]

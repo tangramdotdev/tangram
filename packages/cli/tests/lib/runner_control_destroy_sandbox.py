@@ -30,8 +30,9 @@ def send(event, value):
 
 capacity = {
     "available": {"cpu": {"dedicated": 0, "shared": 0}, "memory": 0},
-    "cpu_oversubscription": 4,
+    "cpu_threads_per_core": 1,
     "shared_cpu_limit": 0,
+    "shared_cpu_overcommit": 4,
     "total": {"cpu": {"dedicated": 0, "shared": 0}, "memory": 0},
 }
 arg = {"heartbeat": {"capacity": capacity, "index": 0, "sandboxes": []}, "host": "test", "id": runner, "scheduler_ttl": 300}

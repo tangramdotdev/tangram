@@ -1082,8 +1082,6 @@ pub struct RemoteCache {
 
 #[derive(Clone, Debug)]
 pub struct Runner {
-	pub cpu_oversubscription: u64,
-
 	pub cpu_pool: Option<PathBuf>,
 
 	pub control_channel_capacity: usize,
@@ -1135,6 +1133,9 @@ pub struct Runner {
 	pub sandbox_state_ttl: Duration,
 
 	pub scheduler_ttl: Duration,
+
+	/// The shared CPU capacity admitted per hardware thread.
+	pub shared_cpu_overcommit: u64,
 
 	pub stdio_drain_timeout: Duration,
 
@@ -2649,7 +2650,6 @@ impl Default for RemoteCache {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
-			cpu_oversubscription: 4,
 			cpu_pool: None,
 			control_channel_capacity: 256,
 			cpus: None,
@@ -2676,6 +2676,7 @@ impl Default for Runner {
 			sandbox_pool_size: 1,
 			sandbox_state_ttl: Duration::from_mins(1),
 			scheduler_ttl: Duration::from_secs(10),
+			shared_cpu_overcommit: 4,
 			stdio_drain_timeout: Duration::from_secs(1),
 			token: None,
 		}

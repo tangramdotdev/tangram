@@ -1190,15 +1190,15 @@ impl Server {
 				.cpu_pool
 				.clone()
 				.map(|parent| {
-					tangram_sandbox::cpu::Pool::new(parent, config.runner.cpu_oversubscription)
+					tangram_sandbox::cpu::Pool::new(parent, config.runner.shared_cpu_overcommit)
 				})
 				.transpose()?
 		} else {
 			None
 		};
-		if config.runner.cpu_oversubscription == 0 {
+		if config.runner.shared_cpu_overcommit == 0 {
 			return Err(tg::error!(
-				"the CPU oversubscription factor must be greater than zero"
+				"the shared CPU overcommit must be greater than zero"
 			));
 		}
 		#[cfg(target_os = "macos")]
@@ -1217,7 +1217,7 @@ impl Server {
 				.memory
 				.unwrap_or_else(|| default_memory.saturating_mul(cpus));
 			let shared = cpus
-				.checked_mul(runner.cpu_oversubscription)
+				.checked_mul(runner.shared_cpu_overcommit)
 				.ok_or_else(|| tg::error!("the shared CPU capacity is too large"))?;
 			#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
 			let mut capacity = tg::runner::Capacity {
@@ -1261,7 +1261,6 @@ impl Server {
 		};
 		let runner_config = self::runner::Config {
 			capacity,
-			cpu_oversubscription: config.runner.cpu_oversubscription,
 			#[cfg(target_os = "linux")]
 			cpu_pool,
 			#[cfg(target_os = "linux")]
@@ -1281,6 +1280,7 @@ impl Server {
 				.sandbox_control_connection_pool_size,
 			sandbox_control_connection_pool_ttl: config.runner.sandbox_control_connection_pool_ttl,
 			sandbox_pool_size,
+			shared_cpu_overcommit: config.runner.shared_cpu_overcommit,
 		};
 		let runner = self::runner::Runner::new(runner_config);
 

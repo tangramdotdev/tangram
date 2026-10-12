@@ -30,28 +30,28 @@ pub struct Capacity {
 }
 
 impl Capacity {
-	/// Test a combined request against convertible cores and existing shared slots.
+	/// Test a combined request against convertible cores and existing shared capacity.
 	#[must_use]
-	pub fn contains(self, requested: Self, oversubscription: u64) -> bool {
-		if oversubscription == 0
+	pub fn contains(self, requested: Self, shared_cpu_capacity_per_core: u64) -> bool {
+		if shared_cpu_capacity_per_core == 0
 			|| self.cpu.dedicated < requested.cpu.dedicated
 			|| self.memory < requested.memory
 		{
 			return false;
 		}
-		let slots = u128::from(self.cpu.shared)
+		let shared_capacity = u128::from(self.cpu.shared)
 			+ u128::from(self.cpu.dedicated - requested.cpu.dedicated)
-				* u128::from(oversubscription);
-		u128::from(requested.cpu.shared) <= slots
+				* u128::from(shared_cpu_capacity_per_core);
+		u128::from(requested.cpu.shared) <= shared_capacity
 	}
 
 	/// Inherit an exclusive reservation, converting only the cores needed by the request.
 	#[must_use]
-	pub fn try_borrow(self, requested: Self, oversubscription: u64) -> Option<Self> {
-		if !self.contains(requested, oversubscription) {
+	pub fn try_borrow(self, requested: Self, shared_cpu_capacity_per_core: u64) -> Option<Self> {
+		if !self.contains(requested, shared_cpu_capacity_per_core) {
 			return None;
 		}
-		let remaining = self.subtract(requested, oversubscription);
+		let remaining = self.subtract(requested, shared_cpu_capacity_per_core);
 		let dedicated = remaining
 			.cpu
 			.dedicated
@@ -65,13 +65,15 @@ impl Capacity {
 	}
 
 	#[must_use]
-	pub fn subtract(self, requested: Self, oversubscription: u64) -> Self {
+	pub fn subtract(self, requested: Self, shared_cpu_capacity_per_core: u64) -> Self {
 		let dedicated = self.cpu.dedicated.saturating_sub(requested.cpu.dedicated);
-		let oversubscription = oversubscription.max(1);
+		let shared_cpu_capacity_per_core = shared_cpu_capacity_per_core.max(1);
 		let missing = requested.cpu.shared.saturating_sub(self.cpu.shared);
-		let converted = missing.div_ceil(oversubscription).min(dedicated);
-		let shared =
-			u128::from(self.cpu.shared) + u128::from(converted) * u128::from(oversubscription);
+		let converted = missing
+			.div_ceil(shared_cpu_capacity_per_core)
+			.min(dedicated);
+		let shared = u128::from(self.cpu.shared)
+			+ u128::from(converted) * u128::from(shared_cpu_capacity_per_core);
 		let shared = u64::try_from(shared.saturating_sub(u128::from(requested.cpu.shared)))
 			.unwrap_or(u64::MAX);
 		let dedicated = dedicated.saturating_sub(converted);
@@ -86,7 +88,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn shared_requests_convert_cores_without_inventing_slots() {
+	fn shared_requests_convert_cores_without_inventing_capacity() {
 		let cpu = crate::sandbox::Cpu {
 			dedicated: 4,
 			shared: 0,

@@ -13,7 +13,7 @@ use {
 #[derive(Clone, Debug)]
 pub struct Pool(Arc<State>);
 
-/// A physical CPU reservation that can be lent without acquiring another pool slot.
+/// A physical CPU reservation that can be lent without acquiring additional pool capacity.
 #[derive(Clone, Debug)]
 pub struct Lease(Arc<Reservation>);
 
@@ -29,8 +29,9 @@ struct Reservation {
 struct State {
 	allocations: Mutex<Allocations>,
 	cores: BTreeMap<u32, BTreeSet<u32>>,
-	oversubscription: u64,
 	parent: PathBuf,
+	shared_cpu_overcommit: u64,
+	threads_per_core: u64,
 }
 
 #[derive(Debug, Default)]
@@ -60,11 +61,21 @@ pub(crate) struct Allocation {
 	started_at: Instant,
 }
 
+pub(crate) fn threads(cpu: tg::sandbox::Cpu, pool: Option<&Pool>) -> tg::Result<u64> {
+	let threads_per_core = pool.map_or(1, Pool::threads_per_core);
+	let threads = cpu
+		.dedicated
+		.checked_mul(threads_per_core)
+		.and_then(|dedicated| dedicated.checked_add(cpu.shared))
+		.ok_or_else(|| tg::error!("the sandbox CPU request is too large"))?;
+	Ok(threads)
+}
+
 impl Pool {
-	pub fn new(parent: PathBuf, oversubscription: u64) -> tg::Result<Self> {
-		if oversubscription == 0 {
+	pub fn new(parent: PathBuf, shared_cpu_overcommit: u64) -> tg::Result<Self> {
+		if shared_cpu_overcommit == 0 {
 			return Err(tg::error!(
-				"the CPU oversubscription factor must be greater than zero"
+				"the shared CPU overcommit must be greater than zero"
 			));
 		}
 		// Validate the partition before assigning any cores.
@@ -128,15 +139,25 @@ impl Pool {
 				.ok_or_else(|| tg::error!("the CPU has no SMT siblings"))?;
 			cores.insert(core, siblings);
 		}
-		u64::try_from(cores.len())
+		let threads_per_core = u64::try_from(cores.values().next().unwrap().len()).unwrap();
+		if cores
+			.values()
+			.any(|siblings| u64::try_from(siblings.len()).unwrap() != threads_per_core)
+		{
+			return Err(tg::error!(
+				"the CPU pool requires the same number of hardware threads per core"
+			));
+		}
+		u64::try_from(cpus.len())
 			.unwrap()
-			.checked_mul(oversubscription)
+			.checked_mul(shared_cpu_overcommit)
 			.ok_or_else(|| tg::error!("the shared CPU capacity is too large"))?;
 		let state = State {
 			allocations: Mutex::new(Allocations::default()),
 			cores,
-			oversubscription,
 			parent,
+			shared_cpu_overcommit,
+			threads_per_core,
 		};
 		Ok(Self(Arc::new(state)))
 	}
@@ -149,6 +170,16 @@ impl Pool {
 			shared: 0,
 		};
 		tg::runner::Capacity { cpu, memory: 0 }
+	}
+
+	#[must_use]
+	pub fn threads_per_core(&self) -> u64 {
+		self.0.threads_per_core
+	}
+
+	#[must_use]
+	fn shared_cpu_capacity_per_core(&self) -> u64 {
+		self.0.shared_cpu_overcommit * self.0.threads_per_core
 	}
 
 	#[must_use]
@@ -184,7 +215,12 @@ impl Pool {
 			.cores
 			.keys()
 			.filter(|core| !reserved.contains(core))
-			.map(|core| (occupied.contains(core), *core))
+			.map(|core| {
+				(
+					self.0.cores[core].iter().any(|cpu| occupied.contains(cpu)),
+					*core,
+				)
+			})
 			.collect();
 		candidates.sort_unstable();
 		let dedicated: BTreeSet<_> = candidates
@@ -198,9 +234,9 @@ impl Pool {
 		let shared = self
 			.0
 			.cores
-			.keys()
-			.filter(|core| !dedicated.contains(core))
-			.copied()
+			.iter()
+			.filter(|(core, _)| !dedicated.contains(core))
+			.flat_map(|(_, siblings)| siblings.iter().copied())
 			.collect();
 		let id = allocations.next_id;
 		allocations.next_id = allocations
@@ -256,7 +292,7 @@ impl Pool {
 		};
 		let requested = tg::runner::Capacity { cpu, memory: 0 };
 		let capacity = capacity
-			.try_borrow(requested, self.0.oversubscription)
+			.try_borrow(requested, self.shared_cpu_capacity_per_core())
 			.ok_or_else(|| tg::error!("the CPU request exceeds the parent reservation"))?;
 		if allocations
 			.entries
@@ -277,9 +313,9 @@ impl Pool {
 		let shared = self
 			.0
 			.cores
-			.keys()
-			.filter(|core| !dedicated.contains(core))
-			.copied()
+			.iter()
+			.filter(|(core, _)| !dedicated.contains(core))
+			.flat_map(|(_, siblings)| siblings.iter().copied())
 			.collect();
 		let id = allocations.next_id;
 		allocations.next_id = allocations
@@ -340,7 +376,10 @@ impl Pool {
 			.map(|entry| entry.cpu.shared)
 			.max()
 			.unwrap_or(0);
-		let count = shared.div_ceil(self.0.oversubscription).max(width);
+		let count = shared
+			.div_ceil(self.0.shared_cpu_overcommit)
+			.max(width)
+			.div_ceil(self.0.threads_per_core);
 		let count = usize::try_from(count)
 			.map_err(|_| tg::error!("the shared CPU request is too large"))?;
 		let mut occupied: BTreeMap<u32, u64> = BTreeMap::new();
@@ -349,7 +388,14 @@ impl Pool {
 			.values()
 			.filter(|entry| entry.parent.is_none())
 		{
-			for core in &entry.shared {
+			for cpu in &entry.shared {
+				let core = self
+					.0
+					.cores
+					.iter()
+					.find(|(_, siblings)| siblings.contains(cpu))
+					.unwrap()
+					.0;
 				*occupied.entry(*core).or_default() += 1;
 			}
 		}
@@ -376,8 +422,11 @@ impl Pool {
 				"there are not enough cores for the shared CPU requests"
 			));
 		}
-		let selected: BTreeSet<_> = cores.iter().copied().collect();
-		let mut loads: BTreeMap<_, u64> = cores.into_iter().map(|core| (core, 0)).collect();
+		let selected: BTreeSet<_> = cores
+			.iter()
+			.flat_map(|core| self.0.cores[core].iter().copied())
+			.collect();
+		let mut loads: BTreeMap<_, u64> = selected.iter().map(|cpu| (*cpu, 0)).collect();
 		let mut assignments: BTreeMap<u64, BTreeSet<u32>> = allocations
 			.entries
 			.iter()
@@ -385,8 +434,8 @@ impl Pool {
 			.map(|(id, entry)| (*id, entry.shared.intersection(&selected).copied().collect()))
 			.collect();
 		for shared in assignments.values() {
-			for core in shared {
-				*loads.get_mut(core).unwrap() += 1;
+			for cpu in shared {
+				*loads.get_mut(cpu).unwrap() += 1;
 			}
 		}
 		let mut retained = true;
@@ -399,19 +448,19 @@ impl Pool {
 				.map_err(|_| tg::error!("the shared CPU request is too large"))?;
 			let shared = assignments.get_mut(id).unwrap();
 			while shared.len() < count {
-				let core = loads
+				let cpu = loads
 					.iter()
-					.filter(|(core, load)| {
-						!shared.contains(core) && **load < self.0.oversubscription
+					.filter(|(cpu, load)| {
+						!shared.contains(cpu) && **load < self.0.shared_cpu_overcommit
 					})
-					.min_by_key(|(core, load)| (**load, **core))
-					.map(|(core, _)| *core);
-				let Some(core) = core else {
+					.min_by_key(|(cpu, load)| (**load, **cpu))
+					.map(|(cpu, _)| *cpu);
+				let Some(cpu) = cpu else {
 					retained = false;
 					break;
 				};
-				shared.insert(core);
-				*loads.get_mut(&core).unwrap() += 1;
+				shared.insert(cpu);
+				*loads.get_mut(&cpu).unwrap() += 1;
 			}
 			if !retained {
 				break;
@@ -427,25 +476,23 @@ impl Pool {
 				.iter()
 				.filter(|(_, entry)| entry.parent.is_none())
 			{
-				let mut cores: Vec<_> = loads.iter().map(|(core, load)| (*load, *core)).collect();
-				cores.sort_unstable();
+				let mut cpus: Vec<_> = loads.iter().map(|(cpu, load)| (*load, *cpu)).collect();
+				cpus.sort_unstable();
 				let count = usize::try_from(entry.cpu.shared)
 					.map_err(|_| tg::error!("the shared CPU request is too large"))?;
-				let shared: BTreeSet<_> = cores
-					.into_iter()
-					.take(count)
-					.map(|(_, core)| core)
-					.collect();
-				for core in &shared {
-					*loads.get_mut(core).unwrap() += 1;
+				let shared: BTreeSet<_> =
+					cpus.into_iter().take(count).map(|(_, cpu)| cpu).collect();
+				for cpu in &shared {
+					*loads.get_mut(cpu).unwrap() += 1;
 				}
 				assignments.insert(*id, shared);
 			}
 		}
-		if loads.values().any(|load| *load > self.0.oversubscription) {
-			return Err(tg::error!(
-				"the shared CPU oversubscription limit was exceeded"
-			));
+		if loads
+			.values()
+			.any(|load| *load > self.0.shared_cpu_overcommit)
+		{
+			return Err(tg::error!("the shared CPU overcommit limit was exceeded"));
 		}
 		self.borrowed_assignments(allocations, &mut assignments);
 		Ok(assignments)
@@ -456,7 +503,7 @@ impl Pool {
 		allocations: &Allocations,
 		assignments: &mut BTreeMap<u64, BTreeSet<u32>>,
 	) {
-		// Track inherited slots separately from each sandbox's runnable CPU set.
+		// Track inherited capacity separately from each sandbox's runnable CPU set.
 		let mut reservations: BTreeMap<u64, BTreeMap<u32, u64>> = BTreeMap::new();
 		for (id, entry) in &allocations.entries {
 			let Some(parent) = entry.parent else {
@@ -468,19 +515,21 @@ impl Pool {
 			let mut reservation = reservations[&parent].clone();
 			let mut shared = BTreeSet::new();
 			let mut remaining = entry.cpu.shared;
-			for (core, slots) in &reservation {
+			for cpu in reservation.keys() {
 				if remaining == 0 {
 					break;
 				}
-				shared.insert(*core);
-				remaining = remaining.saturating_sub(*slots);
+				shared.insert(*cpu);
+				remaining = remaining.saturating_sub(1);
 			}
 			// Converted cores remain shared throughout the borrowing chain.
 			for core in parent_entry.reserved.difference(&entry.reserved) {
-				reservation.insert(*core, self.0.oversubscription);
-				if remaining != 0 {
-					shared.insert(*core);
-					remaining = remaining.saturating_sub(self.0.oversubscription);
+				for cpu in &self.0.cores[core] {
+					reservation.insert(*cpu, self.0.shared_cpu_overcommit);
+					if remaining != 0 {
+						shared.insert(*cpu);
+						remaining = remaining.saturating_sub(1);
+					}
 				}
 			}
 			// Keep borrowers runnable while an ancestor's shared CPU set is being moved.
@@ -534,39 +583,39 @@ impl Pool {
 			let mut loads: BTreeMap<u32, u64> = BTreeMap::new();
 			for (id, entry) in &allocations.entries {
 				if entry.parent.is_none() {
-					for core in &current[id] {
-						*loads.entry(*core).or_default() += 1;
+					for cpu in &current[id] {
+						*loads.entry(*cpu).or_default() += 1;
 					}
 				}
 			}
 			let ready = pending
 				.iter()
 				.find(|id| {
-					assignments[id]
-						.difference(&current[id])
-						.all(|core| loads.get(core).copied().unwrap_or(0) < self.0.oversubscription)
+					assignments[id].difference(&current[id]).all(|cpu| {
+						loads.get(cpu).copied().unwrap_or(0) < self.0.shared_cpu_overcommit
+					})
 				})
 				.copied();
 			if let Some(id) = ready {
 				current.insert(id, assignments[&id].clone());
 				self.borrowed_assignments(allocations, &mut current);
-				Self::write_assignments(allocations, &current, written)?;
+				self.write_assignments(allocations, &current, written)?;
 				pending.remove(&id);
 				continue;
 			}
-			// Move onto available target cores before the entire target set becomes available.
+			// Move onto available target cpus before the entire target set becomes available.
 			let partial = pending.iter().find_map(|id| {
 				let mut shared: BTreeSet<_> = current[id]
 					.intersection(&assignments[id])
 					.copied()
 					.collect();
 				let retained = shared.len();
-				shared.extend(assignments[id].difference(&current[id]).filter(|core| {
-					loads.get(core).copied().unwrap_or(0) < self.0.oversubscription
+				shared.extend(assignments[id].difference(&current[id]).filter(|cpu| {
+					loads.get(cpu).copied().unwrap_or(0) < self.0.shared_cpu_overcommit
 				}));
 				(shared.len() > retained).then_some((*id, shared))
 			});
-			// Free shared slots by temporarily shrinking a wide allocation while keeping it runnable.
+			// Free shared capacity by temporarily shrinking a wide allocation while keeping it runnable.
 			let shrunk = pending.iter().find_map(|id| {
 				let entry = &allocations.entries[id];
 				let mut shared: BTreeSet<_> = current[id]
@@ -578,9 +627,9 @@ impl Pool {
 				}
 				(shared.len() < current[id].len()).then_some((*id, shared))
 			});
-			// Break a cycle by staging a single-core allocation in a free shared slot.
+			// Break a cycle by staging an allocation with one hardware thread using available shared capacity.
 			let staged = || {
-				let cores: BTreeSet<_> = allocations
+				let cpus: BTreeSet<_> = allocations
 					.entries
 					.iter()
 					.filter(|(_, entry)| entry.parent.is_none())
@@ -590,11 +639,11 @@ impl Pool {
 					if current[id].len() != 1 {
 						return None;
 					}
-					let core = cores.iter().find(|core| {
-						!current[id].contains(core)
-							&& loads.get(core).copied().unwrap_or(0) < self.0.oversubscription
+					let cpu = cpus.iter().find(|cpu| {
+						!current[id].contains(cpu)
+							&& loads.get(cpu).copied().unwrap_or(0) < self.0.shared_cpu_overcommit
 					});
-					core.map(|core| (*id, BTreeSet::from([*core])))
+					cpu.map(|cpu| (*id, BTreeSet::from([*cpu])))
 				})
 			};
 			let Some((id, shared)) = partial.or(shrunk).or_else(staged) else {
@@ -604,13 +653,14 @@ impl Pool {
 			};
 			current.insert(id, shared);
 			self.borrowed_assignments(allocations, &mut current);
-			Self::write_assignments(allocations, &current, written)?;
+			self.write_assignments(allocations, &current, written)?;
 		}
-		Self::write_assignments(allocations, assignments, written)?;
+		self.write_assignments(allocations, assignments, written)?;
 		Ok(())
 	}
 
 	fn write_assignments(
+		&self,
 		allocations: &Allocations,
 		assignments: &BTreeMap<u64, BTreeSet<u32>>,
 		written: &mut BTreeMap<u64, BTreeSet<u32>>,
@@ -623,7 +673,7 @@ impl Pool {
 				written.insert(*id, assignments[id].clone());
 				continue;
 			};
-			let cpus: BTreeSet<_> = entry.dedicated.union(&assignments[id]).copied().collect();
+			let cpus = self.cpus(&entry.dedicated, &assignments[id]);
 			if cpus.is_empty() {
 				return Err(tg::error!(
 					"a live CPU assignment must keep the sandbox runnable"
@@ -633,6 +683,14 @@ impl Pool {
 			written.insert(*id, assignments[id].clone());
 		}
 		Ok(())
+	}
+
+	fn cpus(&self, dedicated: &BTreeSet<u32>, shared: &BTreeSet<u32>) -> BTreeSet<u32> {
+		dedicated
+			.iter()
+			.flat_map(|core| self.0.cores[core].iter().copied())
+			.chain(shared.iter().copied())
+			.collect()
 	}
 }
 
@@ -645,7 +703,7 @@ impl Allocation {
 			));
 		}
 		let entry = allocations.entries.get_mut(&self.lease.0.id).unwrap();
-		let cpus = entry.dedicated.union(&entry.shared).copied().collect();
+		let cpus = self.lease.0.pool.cpus(&entry.dedicated, &entry.shared);
 		handle.write(c"cpuset.cpus", format_list(&cpus).as_bytes())?;
 		entry.handle = Some(handle);
 		Ok(())
@@ -667,7 +725,7 @@ impl Allocation {
 		&self.lease.0.pool.0.parent
 	}
 
-	/// Monitor every potential shared core so reassignment preserves mixed CPU accounting.
+	/// Monitor every potential shared hardware thread so reassignment preserves mixed CPU accounting.
 	#[must_use]
 	pub(crate) fn shared(&self) -> &BTreeSet<u32> {
 		&self.shared
@@ -735,17 +793,154 @@ fn read(path: &Path) -> tg::Result<String> {
 mod tests {
 	use {super::*, std::os::fd::IntoRawFd as _};
 
-	fn pool(cores: u32, oversubscription: u64) -> Pool {
+	fn pool(cores: u32, shared_cpu_overcommit: u64) -> Pool {
+		pool_with_threads(cores, shared_cpu_overcommit, 1)
+	}
+
+	fn pool_with_threads(cores: u32, shared_cpu_overcommit: u64, threads_per_core: u32) -> Pool {
 		let cores = (0..cores)
-			.map(|core| (core, BTreeSet::from([core, core + 8])))
+			.map(|core| {
+				(
+					core,
+					(0..threads_per_core)
+						.map(|thread| core + thread * cores)
+						.collect(),
+				)
+			})
 			.collect();
 		let state = State {
 			allocations: Mutex::new(Allocations::default()),
 			cores,
-			oversubscription,
 			parent: PathBuf::new(),
+			shared_cpu_overcommit,
+			threads_per_core: threads_per_core.into(),
 		};
 		Pool(Arc::new(state))
+	}
+
+	#[test]
+	fn shared_allocations_use_all_siblings_and_dedicated_allocations_reserve_them() {
+		let pool = pool_with_threads(2, 1, 2);
+		let first = pool.allocate(2.into()).unwrap();
+		let second = pool.allocate(2.into()).unwrap();
+		{
+			let allocations = pool.0.allocations.lock().unwrap();
+			assert_eq!(
+				allocations.entries[&first.lease.0.id].shared,
+				BTreeSet::from([0, 2])
+			);
+			assert_eq!(
+				allocations.entries[&second.lease.0.id].shared,
+				BTreeSet::from([1, 3])
+			);
+		}
+		assert!(pool.allocate(1.into()).is_err());
+		let cpu = tg::sandbox::Cpu {
+			dedicated: 1,
+			shared: 0,
+		};
+		assert!(pool.allocate(cpu).is_err());
+		drop(first);
+		let dedicated = pool.allocate(cpu).unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		std::fs::write(temp.path().join("cpuset.cpus"), "").unwrap();
+		let file = std::fs::File::open(temp.path()).unwrap();
+		// SAFETY: The directory descriptor is transferred from the owned file.
+		let handle = unsafe { Handle::from_raw_fd(file.into_raw_fd()) };
+		dedicated.bind(handle).unwrap();
+		assert_eq!(
+			std::fs::read_to_string(temp.path().join("cpuset.cpus")).unwrap(),
+			"0,2"
+		);
+		let allocations = pool.0.allocations.lock().unwrap();
+		let dedicated = &allocations.entries[&dedicated.lease.0.id];
+		let shared = &allocations.entries[&second.lease.0.id];
+		let cpus = pool.cpus(&dedicated.dedicated, &dedicated.shared);
+		assert_eq!(threads(cpu, Some(&pool)).unwrap(), 2);
+		assert_eq!(cpus, BTreeSet::from([0, 2]));
+		assert!(cpus.is_disjoint(&shared.shared));
+	}
+
+	#[test]
+	fn shared_capacity_and_overcommit_include_every_hardware_thread() {
+		let pool = pool_with_threads(12, 4, 2);
+		let allocations: Vec<_> = (0..4).map(|_| pool.allocate(24.into()).unwrap()).collect();
+		assert!(pool.allocate(1.into()).is_err());
+		assert!(pool.allocate(25.into()).is_err());
+		{
+			let entries = pool.0.allocations.lock().unwrap();
+			for allocation in &allocations {
+				assert_eq!(
+					entries.entries[&allocation.lease.0.id].shared,
+					(0..24).collect()
+				);
+			}
+		}
+		drop(allocations);
+		assert!(pool.allocate(24.into()).is_ok());
+	}
+
+	#[test]
+	fn dedicated_admission_recognizes_shared_work_on_secondary_siblings() {
+		let pool = pool_with_threads(2, 1, 2);
+		let first = pool.allocate(1.into()).unwrap();
+		let second = pool.allocate(1.into()).unwrap();
+		drop(first);
+		let cpu = tg::sandbox::Cpu {
+			dedicated: 1,
+			shared: 0,
+		};
+		let dedicated = pool.allocate(cpu).unwrap();
+		let allocations = pool.0.allocations.lock().unwrap();
+		assert_eq!(
+			allocations.entries[&second.lease.0.id].shared,
+			BTreeSet::from([2])
+		);
+		assert_eq!(
+			allocations.entries[&dedicated.lease.0.id].dedicated,
+			BTreeSet::from([1])
+		);
+	}
+
+	#[test]
+	fn mixed_accounting_monitors_sibling_threads_and_excludes_dedicated_cores() {
+		let pool = pool_with_threads(3, 4, 2);
+		let cpu = tg::sandbox::Cpu {
+			dedicated: 1,
+			shared: 4,
+		};
+		let allocation = pool.allocate(cpu).unwrap();
+		assert_eq!(allocation.shared(), &BTreeSet::from([1, 2, 4, 5]));
+		let allocations = pool.0.allocations.lock().unwrap();
+		let entry = &allocations.entries[&allocation.lease.0.id];
+		assert_eq!(entry.shared, BTreeSet::from([1, 2, 4, 5]));
+		assert_eq!(
+			pool.cpus(&entry.dedicated, &entry.shared),
+			BTreeSet::from([0, 1, 2, 3, 4, 5])
+		);
+	}
+
+	#[test]
+	fn converted_dedicated_reservations_expose_all_shared_siblings() {
+		let pool = pool_with_threads(1, 4, 2);
+		let cpu = tg::sandbox::Cpu {
+			dedicated: 1,
+			shared: 0,
+		};
+		let parent = pool.allocate(cpu).unwrap();
+		let child = pool.borrow(&parent.lease(), 2.into()).unwrap();
+		let grandchild = pool.borrow(&child.lease(), 8.into()).unwrap();
+		let allocations = pool.0.allocations.lock().unwrap();
+		assert_eq!(
+			allocations.entries[&child.lease.0.id].shared,
+			BTreeSet::from([0, 1])
+		);
+		assert_eq!(
+			allocations.entries[&grandchild.lease.0.id].shared,
+			BTreeSet::from([0, 1])
+		);
+		assert_eq!(allocations.entries[&child.lease.0.id].capacity.shared, 8);
 	}
 
 	#[test]
