@@ -1,5 +1,5 @@
 use {
-	super::ParentCandidates,
+	super::{ParentCandidates, object_resource, process_resource},
 	crate::{
 		Config, Index, Key, Kind,
 		permission::{PermissionIndexEntry, PermissionSource},
@@ -29,25 +29,51 @@ fn new_index() -> (tempfile::TempDir, Index) {
 	(dir, index)
 }
 
+fn object_id(n: usize) -> tg::object::Id {
+	tg::object::Id::new(tg::object::Kind::Blob, &n.to_le_bytes().to_vec().into())
+}
+
 fn put(index: &Index, txn: &mut lmdb::RwTxn<'_>, key: &Key, value: &[u8]) {
 	let key = Index::pack(&index.subspace, key);
 	index.db.put(txn, &key, value).unwrap();
 }
 
+fn put_delegation(
+	index: &Index,
+	txn: &mut lmdb::RwTxn<'_>,
+	object: &tg::object::Id,
+	subject: &tg::authorization::Subject,
+) {
+	let arg = tangram_index::delegation::put::Arg {
+		expires_at: i64::MAX,
+		resource: object.clone().into(),
+		source: tg::authorization::Subject::User(tg::user::Id::new()),
+		subject: subject.clone(),
+		version: None,
+	};
+	Index::put_delegation_with_transaction(&index.db, &index.subspace, txn, &arg).unwrap();
+}
+
 fn put_permission(
 	index: &Index,
 	txn: &mut lmdb::RwTxn<'_>,
-	process: &tg::process::Id,
+	resource: &tg::Id,
 	subject: &tg::authorization::Subject,
 ) {
-	let resource = tg::Id::from(process.clone());
+	let permission = if resource.kind() == tg::id::Kind::Process {
+		tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		)
+	} else {
+		tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		)
+	};
 	let entry = PermissionIndexEntry {
 		creator: None,
 		expires_at: None,
-		permission: tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Node,
-		),
-		resource: &resource,
+		permission,
+		resource,
 		subject,
 	};
 	Index::put_permission_index_entry(
@@ -62,50 +88,67 @@ fn put_permission(
 }
 
 #[tokio::test]
-async fn parent_processes_for_subject_read_the_smaller_side() {
+async fn parents_for_subject_read_the_smaller_side() {
 	let (_dir, index) = new_index();
-	let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
+	let object = object_id(0);
 	let child = tg::process::Id::new();
-	let parents = (0..8).map(|_| tg::process::Id::new()).collect::<Vec<_>>();
+	let processes = (0..8).map(|_| tg::process::Id::new()).collect::<Vec<_>>();
+	let objects = (1..9).map(object_id).collect::<Vec<_>>();
 
-	// Give one subject fewer permissions than there are parents and another subject more, each with a permission on one parent and on processes that are not parents.
-	let few = tg::authorization::Subject::Process(parents[0].clone());
+	// Give one subject fewer permissions and delegations than there are parents and another subject more, each with a permission or a delegation on some parents and permissions on resources that are not parents.
+	let few = tg::authorization::Subject::Process(processes[0].clone());
 	let many = tg::authorization::Subject::User(tg::user::Id::new());
 	let mut txn = index.env.write_txn().unwrap();
-	for parent in &parents {
+	for (process, parent) in std::iter::zip(&processes, &objects) {
 		let key = Key::Object(crate::object::Key::ObjectProcess {
 			kind: tangram_index::process::object::Kind::Log,
 			object: object.clone(),
-			process: parent.clone(),
+			process: process.clone(),
 		});
 		put(&index, &mut txn, &key, &[]);
 		let key = Key::Process(crate::process::Key::ChildProcess {
 			child: child.clone(),
-			parent: parent.clone(),
+			parent: process.clone(),
 		});
 		put(&index, &mut txn, &key, &0i64.to_be_bytes());
+		let key = Key::Object(crate::object::Key::ChildObject {
+			child: object.clone(),
+			object: parent.clone(),
+		});
+		put(&index, &mut txn, &key, &[]);
 	}
-	put_permission(&index, &mut txn, &parents[0], &few);
-	put_permission(&index, &mut txn, &tg::process::Id::new(), &few);
-	put_permission(&index, &mut txn, &parents[1], &many);
-	for _ in 0..16 {
-		put_permission(&index, &mut txn, &tg::process::Id::new(), &many);
+	put_permission(&index, &mut txn, &processes[0].clone().into(), &few);
+	put_permission(&index, &mut txn, &objects[0].clone().into(), &few);
+	put_delegation(&index, &mut txn, &objects[1], &few);
+	put_permission(&index, &mut txn, &tg::process::Id::new().into(), &few);
+	put_permission(&index, &mut txn, &object_id(100).into(), &few);
+	put_permission(&index, &mut txn, &processes[1].clone().into(), &many);
+	put_permission(&index, &mut txn, &objects[2].clone().into(), &many);
+	put_delegation(&index, &mut txn, &objects[3], &many);
+	for n in 0..16 {
+		put_permission(&index, &mut txn, &tg::process::Id::new().into(), &many);
+		put_permission(&index, &mut txn, &object_id(200 + n).into(), &many);
 	}
 	txn.commit().unwrap();
 
 	// Verify that the candidates come from the smaller side.
 	let txn = index.env.read_txn().unwrap();
 	let child_bytes = child.to_bytes();
-	let prefix = Index::pack(
+	let process_prefix = Index::pack(
 		&index.subspace,
 		&(Kind::ChildProcess.to_i32().unwrap(), child_bytes.as_ref()),
+	);
+	let object_bytes = object.to_bytes();
+	let object_prefix = Index::pack(
+		&index.subspace,
+		&(Kind::ChildObject.to_i32().unwrap(), object_bytes.as_ref()),
 	);
 	for (subject, expected) in [(&few, false), (&many, true)] {
 		let candidates = Index::get_parent_candidates_with_transaction(
 			&index.db,
 			&index.subspace,
 			&txn,
-			&prefix,
+			&process_prefix,
 			|key| {
 				let Key::Process(crate::process::Key::ChildProcess { parent, .. }) = key else {
 					return Err(tg::error!("unexpected key type"));
@@ -113,15 +156,38 @@ async fn parent_processes_for_subject_read_the_smaller_side() {
 				Ok(parent)
 			},
 			subject,
+			&[Kind::SubjectPermission],
+			process_resource,
+		)
+		.unwrap();
+		assert_eq!(matches!(candidates, ParentCandidates::Parents(_)), expected);
+		let candidates = Index::get_parent_candidates_with_transaction(
+			&index.db,
+			&index.subspace,
+			&txn,
+			&object_prefix,
+			|key| {
+				let Key::Object(crate::object::Key::ChildObject { object, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(object)
+			},
+			subject,
+			&[Kind::SubjectPermission, Kind::DelegationSubject],
+			object_resource,
 		)
 		.unwrap();
 		assert_eq!(matches!(candidates, ParentCandidates::Parents(_)), expected);
 	}
 
-	// Verify that both sides yield only the parents on which the subject holds a permission.
-	for (subject, parent) in [(&few, &parents[0]), (&many, &parents[1])] {
-		let expected = BTreeSet::from([parent.clone()]);
-		let processes = Index::get_object_processes_for_subject_with_transaction(
+	// Verify that both sides yield only the parents on which the subject holds a permission or a delegation.
+	let cases = [
+		(&few, &processes[0], [&objects[0], &objects[1]]),
+		(&many, &processes[1], [&objects[2], &objects[3]]),
+	];
+	for (subject, process, parents) in cases {
+		let expected = BTreeSet::from([process.clone()]);
+		let output = Index::get_object_processes_for_subject_with_transaction(
 			&index.db,
 			&index.subspace,
 			&txn,
@@ -129,8 +195,8 @@ async fn parent_processes_for_subject_read_the_smaller_side() {
 			subject,
 		)
 		.unwrap();
-		assert_eq!(processes, expected);
-		let processes = Index::get_process_parents_for_subject_with_transaction(
+		assert_eq!(output, expected);
+		let output = Index::get_process_parents_for_subject_with_transaction(
 			&index.db,
 			&index.subspace,
 			&txn,
@@ -138,6 +204,16 @@ async fn parent_processes_for_subject_read_the_smaller_side() {
 			subject,
 		)
 		.unwrap();
-		assert_eq!(processes, expected);
+		assert_eq!(output, expected);
+		let expected = parents.into_iter().cloned().collect::<BTreeSet<_>>();
+		let output = Index::get_object_parents_for_subject_with_transaction(
+			&index.db,
+			&index.subspace,
+			&txn,
+			&object,
+			subject,
+		)
+		.unwrap();
+		assert_eq!(output, expected);
 	}
 }

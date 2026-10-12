@@ -481,6 +481,111 @@ async fn shared_log_objects_materialize_permissions_for_a_parent_with_a_permissi
 	assert!(has_materialized_node_log_objects(&entries));
 }
 
+#[tokio::test]
+async fn object_permission_updates_propagate_only_to_parents_with_a_permission_or_delegation() {
+	let (_dir, index) = super::new_index();
+	let child = object_id(0);
+	let parent = object_id(1);
+	let items = [
+		(child.clone(), BTreeSet::new()),
+		(parent.clone(), BTreeSet::from([child.clone()])),
+	]
+	.into_iter()
+	.map(|(id, children)| {
+		tangram_index::batch::Item::PutObject(tangram_index::object::put::Arg {
+			checkout: None,
+			children,
+			id,
+			metadata: tg::object::Metadata::default(),
+			put: [1; 16],
+			storage: tg::object::storage::Set::NODE,
+			time_to_touch: std::time::Duration::ZERO,
+			touched_at: 0,
+		})
+	})
+	.collect();
+	index
+		.batch(tangram_index::batch::Arg { items })
+		.await
+		.unwrap()
+		.unwrap();
+	drain_permission_updates(&index).await;
+
+	// Verify that an update for a subject without a permission or a delegation on the parent does not propagate.
+	let delegated = tg::authorization::Subject::User(tg::user::Id::new());
+	assert!(!propagates_to_parent(&index, &child, &delegated).await);
+
+	// Verify that an update for a subject with a delegation on the parent propagates.
+	let delegation = tangram_index::delegation::put::Arg {
+		expires_at: i64::MAX,
+		resource: parent.clone().into(),
+		source: tg::authorization::Subject::User(tg::user::Id::new()),
+		subject: delegated.clone(),
+		version: None,
+	};
+	let mut transaction = index.env.write_txn().unwrap();
+	Index::put_delegation_with_transaction(
+		&index.db,
+		&index.subspace,
+		&mut transaction,
+		&delegation,
+	)
+	.unwrap();
+	transaction.commit().unwrap();
+	drain_permission_updates(&index).await;
+	assert!(propagates_to_parent(&index, &child, &delegated).await);
+
+	// Verify that an update for a subject with a permission on the parent propagates.
+	let permitted = tg::authorization::Subject::User(tg::user::Id::new());
+	let permission = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: None,
+		permissions: tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		)
+		.into(),
+		resource: parent.into(),
+		source: tangram_index::permission::Source::Grant,
+		subject: permitted.clone(),
+		time_to_touch: None,
+		version: None,
+	};
+	index.put_permissions(&[permission]).await.unwrap();
+	drain_permission_updates(&index).await;
+	assert!(propagates_to_parent(&index, &child, &permitted).await);
+}
+
+async fn propagates_to_parent(
+	index: &Index,
+	child: &tg::object::Id,
+	subject: &tg::authorization::Subject,
+) -> bool {
+	let mut transaction = index.env.write_txn().unwrap();
+	Index::enqueue_update_with_kind(
+		&index.db,
+		&index.subspace,
+		&mut transaction,
+		tg::Either::Left(child.clone()),
+		super::super::update::Kind::Permission(subject.clone()),
+		super::super::update::Source::Put,
+		None,
+	)
+	.unwrap();
+	transaction.commit().unwrap();
+	let output = index
+		.update_batch(tangram_index::update::Kind::Permission, 1)
+		.await
+		.unwrap();
+	assert_eq!(output.count, 1);
+	let oldest = index
+		.try_get_oldest_update_transaction_id(tangram_index::update::Kind::Permission)
+		.await
+		.unwrap();
+	drain_permission_updates(index).await;
+
+	oldest.is_some()
+}
+
 fn node_log_objects() -> tg::authorization::Permission {
 	tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::NodeLogObjects,

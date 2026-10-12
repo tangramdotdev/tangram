@@ -187,6 +187,24 @@ async fn propagation_versions_reset_and_repeated_updates_stop() {
 	put(&index, vec![child.clone(), parent.clone()]).await;
 	drain(&index, tangram_index::update::Kind::StorageAndMetadata).await;
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
+
+	// Give the subject a permission on the parent, so that the subject's permission updates on the child propagate to it.
+	let permission = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: None,
+		permissions: tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		)
+		.into(),
+		resource: parent.id.clone().into(),
+		source: tangram_index::permission::Source::Grant,
+		subject: subject.clone(),
+		time_to_touch: None,
+		version: None,
+	};
+	index.put_permissions(&[permission]).await.unwrap();
+	drain(&index, tangram_index::update::Kind::Permission).await;
+
 	for (kind, queue) in [
 		(
 			Kind::StorageAndMetadata,

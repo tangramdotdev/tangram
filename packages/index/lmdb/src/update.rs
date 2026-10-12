@@ -80,9 +80,9 @@ struct PermissionCover {
 	expires_at: Option<i64>,
 }
 
-enum ParentCandidates {
-	Parents(BTreeSet<tg::process::Id>),
-	Subject(BTreeSet<tg::process::Id>),
+enum ParentCandidates<T> {
+	Parents(BTreeSet<T>),
+	Subject(BTreeSet<T>),
 }
 
 impl PermissionUpdate {
@@ -2184,8 +2184,23 @@ impl Index {
 					}
 				}
 
-				let parents =
-					Self::get_object_parents_with_transaction(db, subspace, transaction, id)?;
+				// Enqueue only the parents on which the subject holds a permission or a delegation, because an update for any other object cannot change any of the subject's permissions.
+				let parents = match kind {
+					Kind::Permission(subject) => {
+						Self::get_object_parents_for_subject_with_transaction(
+							db,
+							subspace,
+							transaction,
+							id,
+							subject,
+						)?
+					},
+					Kind::StorageAndMetadata | Kind::Usage(_) => {
+						Self::get_object_parents_with_transaction(db, subspace, transaction, id)?
+							.into_iter()
+							.collect()
+					},
+				};
 				for parent in parents {
 					Self::enqueue_update_with_kind(
 						db,
@@ -2259,6 +2274,72 @@ impl Index {
 		Ok(())
 	}
 
+	fn get_object_parents_for_subject_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		object: &tg::object::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<BTreeSet<tg::object::Id>> {
+		let object_bytes = object.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(
+				KeyKind::ChildObject.to_i32().unwrap(),
+				object_bytes.as_ref(),
+			),
+		);
+		let candidates = Self::get_parent_candidates_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			|key| {
+				let crate::Key::Object(crate::object::Key::ChildObject { object, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(object)
+			},
+			subject,
+			&[KeyKind::SubjectPermission, KeyKind::DelegationSubject],
+			object_resource,
+		)?;
+
+		let mut output = BTreeSet::new();
+		match candidates {
+			ParentCandidates::Parents(parents) => {
+				for parent in parents {
+					if Self::has_object_permissions_or_delegations_for_subject(
+						db,
+						subspace,
+						transaction,
+						&parent,
+						subject,
+					)? {
+						output.insert(parent);
+					}
+				}
+			},
+			ParentCandidates::Subject(parents) => {
+				for parent in parents {
+					let key = crate::Key::Object(crate::object::Key::ChildObject {
+						child: object.clone(),
+						object: parent.clone(),
+					});
+					let key = Self::pack(subspace, &key);
+					let value = db
+						.get(transaction, &key)
+						.map_err(|error| tg::error!(!error, "failed to get the child object"))?;
+					if value.is_some() {
+						output.insert(parent);
+					}
+				}
+			},
+		}
+
+		Ok(output)
+	}
+
 	fn get_object_processes_for_subject_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -2287,6 +2368,8 @@ impl Index {
 				Ok(process)
 			},
 			subject,
+			&[KeyKind::SubjectPermission],
+			process_resource,
 		)?;
 
 		let mut output = BTreeSet::new();
@@ -2361,6 +2444,8 @@ impl Index {
 				Ok(parent)
 			},
 			subject,
+			&[KeyKind::SubjectPermission],
+			process_resource,
 		)?;
 
 		let mut output = BTreeSet::new();
@@ -2398,27 +2483,29 @@ impl Index {
 		Ok(output)
 	}
 
-	fn get_parent_candidates_with_transaction(
+	#[allow(clippy::too_many_arguments)]
+	fn get_parent_candidates_with_transaction<T: Ord>(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		prefix: &[u8],
-		parent: fn(crate::Key) -> tg::Result<tg::process::Id>,
+		parent: fn(crate::Key) -> tg::Result<T>,
 		subject: &tg::authorization::Subject,
-	) -> tg::Result<ParentCandidates> {
+		kinds: &[KeyKind],
+		resource: fn(tg::Id) -> tg::Result<Option<T>>,
+	) -> tg::Result<ParentCandidates<T>> {
 		let mut parents = db
 			.prefix_iter(transaction, prefix)
 			.map_err(|error| tg::error!(!error, "failed to get the parents"))?;
-		let prefix = Self::pack(
-			subspace,
-			&(
-				KeyKind::SubjectPermission.to_i32().unwrap(),
-				subject.to_string(),
-			),
-		);
-		let mut resources = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get the subject permissions"))?;
+		let mut iterators = Vec::with_capacity(kinds.len());
+		for kind in kinds {
+			let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), subject.to_string()));
+			let iterator = db
+				.prefix_iter(transaction, &prefix)
+				.map_err(|error| tg::error!(!error, "failed to get the subject resources"))?;
+			iterators.push(iterator);
+		}
+		let mut resources = iterators.into_iter().flatten();
 
 		let mut parent_candidates = BTreeSet::new();
 		let mut subject_candidates = BTreeSet::new();
@@ -2434,17 +2521,50 @@ impl Index {
 				break ParentCandidates::Subject(subject_candidates);
 			};
 			let (key, _) = entry
-				.map_err(|error| tg::error!(!error, "failed to read a subject permission entry"))?;
-			let crate::Key::Permission(crate::permission::Key::SubjectPermission {
-				resource, ..
-			}) = Self::unpack(subspace, key)?
+				.map_err(|error| tg::error!(!error, "failed to read a subject resource entry"))?;
+			let (crate::Key::Delegation(crate::delegation::Key::Subject { resource: id, .. })
+			| crate::Key::Permission(crate::permission::Key::SubjectPermission {
+				resource: id,
+				..
+			})) = Self::unpack(subspace, key)?
 			else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			subject_candidates.extend(tg::process::Id::try_from(resource).ok());
+			subject_candidates.extend(resource(id)?);
 		};
 
 		Ok(candidates)
+	}
+
+	fn has_object_permissions_or_delegations_for_subject(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		object: &tg::object::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<bool> {
+		let resource = tg::Id::from(object.clone());
+		let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			subject,
+		)?;
+		if !entries.is_empty() {
+			return Ok(true);
+		}
+		let prefix = Self::pack(
+			subspace,
+			&(
+				KeyKind::Delegation.to_i32().unwrap(),
+				resource.to_bytes().as_ref(),
+				subject.to_string(),
+			),
+		);
+		let delegations = Self::get_delegations_with_prefix(db, subspace, transaction, &prefix, 1)?;
+		let output = !delegations.is_empty();
+		Ok(output)
 	}
 
 	fn has_process_permissions_for_subject(
@@ -2611,6 +2731,30 @@ impl Index {
 		}
 		Ok(())
 	}
+}
+
+fn object_resource(resource: tg::Id) -> tg::Result<Option<tg::object::Id>> {
+	match resource.kind() {
+		tg::id::Kind::Blob
+		| tg::id::Kind::Command
+		| tg::id::Kind::Directory
+		| tg::id::Kind::Error
+		| tg::id::Kind::File
+		| tg::id::Kind::Graph
+		| tg::id::Kind::Symlink => {
+			let object = tg::object::Id::try_from(resource)?;
+			Ok(Some(object))
+		},
+		_ => Ok(None),
+	}
+}
+
+fn process_resource(resource: tg::Id) -> tg::Result<Option<tg::process::Id>> {
+	if resource.kind() != tg::id::Kind::Process {
+		return Ok(None);
+	}
+	let process = tg::process::Id::try_from(resource)?;
+	Ok(Some(process))
 }
 
 fn update_version_key_kind(kind: tangram_index::update::Kind) -> KeyKind {
