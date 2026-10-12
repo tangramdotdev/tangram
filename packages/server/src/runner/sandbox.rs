@@ -923,6 +923,7 @@ impl Session {
 			#[cfg(target_os = "linux")]
 			fuse_fd: fuse_sendfd.map(Arc::new),
 			hostname: arg.hostname,
+			http2: config.http2,
 			identity: self.server.path.clone(),
 			index,
 			#[cfg(target_os = "linux")]

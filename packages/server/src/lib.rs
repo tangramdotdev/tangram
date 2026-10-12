@@ -195,6 +195,11 @@ impl Owned {
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Owned> {
 		// Validate the configuration.
+		config
+			.http
+			.http2
+			.validate()
+			.map_err(|source| tg::error!(!source, "invalid HTTP/2 configuration"))?;
 		config.sync.control.validate()?;
 		if config.scheduler.message_ack_timeout.is_zero() {
 			return Err(tg::error!(
@@ -399,6 +404,11 @@ impl Server {
 		}
 
 		// Validate the sandbox and VFS configuration.
+		config
+			.sandbox
+			.http2
+			.validate()
+			.map_err(|source| tg::error!(!source, "invalid sandbox HTTP/2 configuration"))?;
 		let sandbox = &config.sandbox;
 		let sizes = [
 			("sandbox build attempts", sandbox.build_attempts),
@@ -2317,6 +2327,10 @@ impl Server {
 				.map(|listener| listener.url.clone())
 		};
 		tg::Arg {
+			http: tg::Http {
+				http2: self.config().http.http2,
+				..Default::default()
+			},
 			url,
 			version: Some(self.version.clone()),
 			..Default::default()

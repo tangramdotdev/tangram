@@ -25,6 +25,7 @@ mod process;
 mod shutdown;
 
 pub struct Arg {
+	pub http2: tangram_http::http2::Config,
 	pub library_paths: Vec<std::path::PathBuf>,
 	pub output_path: std::path::PathBuf,
 	pub tangram_path: std::path::PathBuf,
@@ -34,6 +35,7 @@ pub struct Arg {
 pub struct Server(Arc<State>);
 
 pub struct State {
+	http2: tangram_http::http2::Config,
 	library_paths: Vec<std::path::PathBuf>,
 	output_path: std::path::PathBuf,
 	processes: DashMap<u64, Process>,
@@ -73,6 +75,7 @@ pub(crate) enum Stream {
 impl Server {
 	pub fn new(arg: Arg) -> Self {
 		Self(Arc::new(State {
+			http2: arg.http2,
 			library_paths: arg.library_paths,
 			output_path: arg.output_path,
 			processes: DashMap::default(),
@@ -251,7 +254,9 @@ impl Server {
 			hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
 		builder
 			.http2()
-			.max_concurrent_streams(None)
+			.initial_connection_window_size(self.http2.connection_window_size)
+			.initial_stream_window_size(self.http2.stream_window_size)
+			.max_concurrent_streams(self.http2.max_concurrent_streams)
 			.max_pending_accept_reset_streams(None)
 			.max_local_error_reset_streams(None);
 		let connection = builder.serve_connection_with_upgrades(stream, service);

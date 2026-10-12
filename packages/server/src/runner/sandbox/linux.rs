@@ -142,7 +142,18 @@ impl Server {
 			.arg("--serial-connect-interval")
 			.arg(vm.serial_connect_interval.as_secs_f64().to_string())
 			.arg("--serial-connect-timeout")
-			.arg(vm.serial_connect_timeout.as_secs_f64().to_string());
+			.arg(vm.serial_connect_timeout.as_secs_f64().to_string())
+			.arg("--http2-connection-window-size")
+			.arg(config.http2.connection_window_size.to_string())
+			.arg("--http2-max-concurrent-reset-streams")
+			.arg(config.http2.max_concurrent_reset_streams.to_string())
+			.arg("--http2-stream-window-size")
+			.arg(config.http2.stream_window_size.to_string());
+		if let Some(max_concurrent_streams) = config.http2.max_concurrent_streams {
+			command
+				.arg("--http2-max-concurrent-streams")
+				.arg(max_concurrent_streams.to_string());
+		}
 		if let Some(dax) = vm.dax {
 			command.arg("--dax").arg(dax.to_string());
 		}

@@ -58,7 +58,8 @@ pub(crate) fn spawn(
 		.arg("--serial-connect-interval")
 		.arg(crate::util::duration_arg(vm.serial_connect_interval))
 		.arg("--serial-connect-timeout")
-		.arg(crate::util::duration_arg(vm.serial_connect_timeout));
+		.arg(crate::util::duration_arg(vm.serial_connect_timeout))
+		.args(crate::util::http2_args(&serve_arg.http2));
 	if let Some(dax) = vm.dax {
 		command.arg("--dax").arg(dax.to_string());
 	}

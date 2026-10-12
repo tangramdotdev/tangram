@@ -3,6 +3,9 @@ use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub http2: crate::sandbox::Http2,
+
 	#[arg(action = clap::ArgAction::Append, long = "library-path", num_args = 1)]
 	pub library_paths: Vec<PathBuf>,
 
@@ -20,6 +23,7 @@ impl Cli {
 	pub fn command_sandbox_container_init(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = tangram_sandbox::container::init::Arg {
 			serve: tangram_sandbox::serve::Arg {
+				http2: args.http2.config(),
 				library_paths: args.library_paths,
 				listen: false,
 				output_path: args.output_path,

@@ -28,6 +28,7 @@ const ROOTVIEW_MERGED: &str = "/mnt/root/merged";
 pub struct Config {
 	pub gid: u32,
 	pub hostname: Option<String>,
+	pub http2: tangram_http::http2::Config,
 	#[serde(default)]
 	pub library_paths: Vec<PathBuf>,
 	#[serde(default)]
@@ -160,6 +161,7 @@ pub fn run() -> tg::Result<ExitCode> {
 	tracing::trace!("set uid={} gid={}", config.uid, config.gid);
 
 	let serve = crate::serve::Arg {
+		http2: config.http2,
 		library_paths: config.library_paths,
 		listen: false,
 		output_path: config.output_path,
@@ -892,6 +894,7 @@ fn spawn_server(arg: &crate::serve::Arg, home: Option<&Path>) -> tg::Result<std:
 		.arg(arg.url.to_string())
 		.arg("--tangram-path")
 		.arg(&arg.tangram_path)
+		.args(crate::util::http2_args(&arg.http2))
 		.env("SSL_CERT_DIR", Sandbox::guest_ssl_cert_dir())
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())

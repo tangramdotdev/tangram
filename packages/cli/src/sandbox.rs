@@ -113,6 +113,45 @@ pub struct Owner {
 	organization: Option<tg::principal::Selector>,
 }
 
+#[derive(Clone, Copy, Debug, clap::Args)]
+pub struct Http2 {
+	#[arg(
+		id = "sandbox.http2.connection_window_size",
+		long = "http2-connection-window-size"
+	)]
+	connection_window_size: u32,
+
+	#[arg(
+		id = "sandbox.http2.max_concurrent_reset_streams",
+		long = "http2-max-concurrent-reset-streams"
+	)]
+	max_concurrent_reset_streams: usize,
+
+	#[arg(
+		id = "sandbox.http2.max_concurrent_streams",
+		long = "http2-max-concurrent-streams"
+	)]
+	max_concurrent_streams: Option<u32>,
+
+	#[arg(
+		id = "sandbox.http2.stream_window_size",
+		long = "http2-stream-window-size"
+	)]
+	stream_window_size: u32,
+}
+
+impl Http2 {
+	#[must_use]
+	pub fn config(&self) -> tangram_http::http2::Config {
+		tangram_http::http2::Config {
+			connection_window_size: self.connection_window_size,
+			max_concurrent_reset_streams: self.max_concurrent_reset_streams,
+			max_concurrent_streams: self.max_concurrent_streams,
+			stream_window_size: self.stream_window_size,
+		}
+	}
+}
+
 impl Network {
 	pub fn with_network(network: tg::sandbox::Network) -> Self {
 		Self {

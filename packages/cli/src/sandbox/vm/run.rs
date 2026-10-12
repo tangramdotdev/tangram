@@ -34,6 +34,9 @@ pub struct Args {
 	#[arg(long)]
 	pub hostname: Option<String>,
 
+	#[command(flatten)]
+	pub http2: crate::sandbox::Http2,
+
 	#[arg(long, hide = true, value_name = "PATH")]
 	pub image_path: PathBuf,
 
@@ -113,6 +116,7 @@ impl Cli {
 			guest_ip: args.guest_ip,
 			host_ip: args.host_ip,
 			hostname: args.hostname,
+			http2: args.http2.config(),
 			image_path: args.image_path,
 			index: args.index,
 			kernel_path: args.kernel_path,

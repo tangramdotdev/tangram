@@ -22,7 +22,8 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.arg("--url")
 		.arg(arg.serve.url.to_string())
 		.arg("--tangram-path")
-		.arg(&arg.serve.tangram_path);
+		.arg(&arg.serve.tangram_path)
+		.args(crate::util::http2_args(&arg.serve.http2));
 	for path in &arg.serve.library_paths {
 		command.arg("--library-path").arg(path);
 	}

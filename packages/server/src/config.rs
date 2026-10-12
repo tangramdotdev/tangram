@@ -506,6 +506,8 @@ pub struct TursoDatabase {
 pub struct Http {
 	pub coalescing_target_size: usize,
 
+	pub http2: tangram_http::http2::Config,
+
 	pub idle_timeout: Duration,
 
 	pub listeners: Vec<HttpListener>,
@@ -1394,6 +1396,8 @@ pub struct Sandbox {
 
 	pub default_processes_page_size: u64,
 
+	pub http2: tangram_http::http2::Config,
+
 	pub isolation: SandboxIsolation,
 
 	pub network: SandboxNetwork,
@@ -2147,6 +2151,7 @@ impl Default for Http {
 	fn default() -> Self {
 		Self {
 			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
+			http2: tangram_http::http2::Config::default(),
 			idle_timeout: Duration::from_secs(30),
 			listeners: Vec::new(),
 			max_arg_length: tangram_http::body::arg::MaxLength::default().0,
@@ -2711,6 +2716,7 @@ impl Default for Sandbox {
 			connect_timeout: Duration::from_secs(5),
 			control_channel_capacity: 256,
 			default_processes_page_size: 256,
+			http2: tangram_http::http2::Config::default(),
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,

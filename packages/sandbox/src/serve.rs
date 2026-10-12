@@ -2,6 +2,7 @@ use {std::path::PathBuf, tangram_client::prelude::*, tangram_uri::Uri};
 
 #[derive(Clone, Debug)]
 pub struct Arg {
+	pub http2: tangram_http::http2::Config,
 	pub library_paths: Vec<PathBuf>,
 	pub listen: bool,
 	pub output_path: PathBuf,
@@ -14,6 +15,7 @@ pub async fn run(arg: &Arg) -> tg::Result<()> {
 	// Prevent same-UID workloads from inspecting the server through /proc.
 	crate::util::set_dumpable(false)?;
 	let server = crate::server::Server::new(crate::server::Arg {
+		http2: arg.http2,
 		library_paths: arg.library_paths.clone(),
 		output_path: arg.output_path.clone(),
 		tangram_path: arg.tangram_path.clone(),

@@ -27,6 +27,7 @@ pub struct State {
 
 #[derive(Clone, Copy)]
 struct Options {
+	http2: tangram_http::http2::Config,
 	request_timeout: Duration,
 }
 
@@ -50,10 +51,13 @@ enum Error {
 
 impl Client {
 	#[expect(dead_code)]
-	pub fn new(url: &Uri, request_timeout: Duration) -> Self {
+	pub fn new(url: &Uri, http2: tangram_http::http2::Config, request_timeout: Duration) -> Self {
 		let connection = Arc::new(tokio::sync::Mutex::new(None));
 		let sender = Arc::new(tokio::sync::Mutex::new(None));
-		let options = Options { request_timeout };
+		let options = Options {
+			http2,
+			request_timeout,
+		};
 		let service = Self::service(url.clone(), connection.clone(), sender.clone(), options);
 		Self(Arc::new(State {
 			connection,
@@ -64,6 +68,7 @@ impl Client {
 
 	pub async fn with_listener(
 		listener: &crate::server::Listener,
+		http2: tangram_http::http2::Config,
 		request_timeout: Duration,
 	) -> tg::Result<Self> {
 		match listener {
@@ -75,14 +80,14 @@ impl Client {
 				stream
 					.set_nodelay(true)
 					.map_err(|error| tg::error!(!error, "failed to set nodelay on the socket"))?;
-				Self::with_stream(stream, request_timeout).await
+				Self::with_stream(stream, http2, request_timeout).await
 			},
 			crate::server::Listener::Unix { listener, .. } => {
 				let (stream, _) = listener
 					.accept()
 					.await
 					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
-				Self::with_stream(stream, request_timeout).await
+				Self::with_stream(stream, http2, request_timeout).await
 			},
 			#[cfg(feature = "vsock")]
 			crate::server::Listener::Vsock(listener) => {
@@ -90,16 +95,20 @@ impl Client {
 					.accept()
 					.await
 					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
-				Self::with_stream(stream, request_timeout).await
+				Self::with_stream(stream, http2, request_timeout).await
 			},
 		}
 	}
 
-	pub async fn with_stream<S>(stream: S, request_timeout: Duration) -> tg::Result<Self>
+	pub async fn with_stream<S>(
+		stream: S,
+		http2: tangram_http::http2::Config,
+		request_timeout: Duration,
+	) -> tg::Result<Self>
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
-		let (sender, task) = Self::handshake_h2(stream).await?;
+		let (sender, task) = Self::handshake_h2(stream, http2).await?;
 		let connection = Arc::new(tokio::sync::Mutex::new(Some(task)));
 		let sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
 		let url = Uri::builder()
@@ -107,7 +116,10 @@ impl Client {
 			.path("")
 			.build()
 			.map_err(|error| tg::error!(!error, "failed to build the URL"))?;
-		let options = Options { request_timeout };
+		let options = Options {
+			http2,
+			request_timeout,
+		};
 		let service = Self::service(url, connection.clone(), sender.clone(), options);
 		let client = Self(Arc::new(State {
 			connection,
@@ -133,7 +145,9 @@ impl Client {
 								"the sandbox connection was closed and cannot be reestablished"
 							)));
 						}
-						let (sender, task) = Self::connect_h2(&url).await.map_err(Error::Other)?;
+						let (sender, task) = Self::connect_h2(&url, options.http2)
+							.await
+							.map_err(Error::Other)?;
 						connection.lock().await.replace(task);
 						guard.replace(sender.clone());
 						sender
@@ -168,6 +182,7 @@ impl Client {
 
 	async fn connect_h2(
 		url: &Uri,
+		http2: tangram_http::http2::Config,
 	) -> tg::Result<(
 		hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>,
 		tokio::task::JoinHandle<()>,
@@ -181,12 +196,12 @@ impl Client {
 					.try_into()
 					.map_err(|_| tg::error!("invalid port"))?;
 				let stream = Self::connect_tcp(host, port).await?;
-				Self::handshake_h2(stream).await
+				Self::handshake_h2(stream, http2).await
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let stream = Self::connect_unix(Path::new(path)).await?;
-				Self::handshake_h2(stream).await
+				Self::handshake_h2(stream, http2).await
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -202,7 +217,7 @@ impl Client {
 						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let stream = Self::connect_vsock(cid, port).await?;
-					Self::handshake_h2(stream).await
+					Self::handshake_h2(stream, http2).await
 				}
 			},
 			_ => Err(tg::error!(%url, "invalid url")),
@@ -239,6 +254,7 @@ impl Client {
 
 	async fn handshake_h2<S>(
 		stream: S,
+		http2: tangram_http::http2::Config,
 	) -> tg::Result<(
 		hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>,
 		tokio::task::JoinHandle<()>,
@@ -250,8 +266,10 @@ impl Client {
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::Builder::new(executor)
-			.max_concurrent_streams(None)
-			.max_concurrent_reset_streams(usize::MAX)
+			.initial_connection_window_size(http2.connection_window_size)
+			.initial_stream_window_size(http2.stream_window_size)
+			.max_concurrent_streams(http2.max_concurrent_streams)
+			.max_concurrent_reset_streams(http2.max_concurrent_reset_streams)
 			.handshake(io)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to perform the HTTP handshake"))?;

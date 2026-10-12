@@ -774,6 +774,9 @@ pub struct Http {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub coalescing_target_size: Option<usize>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http2: Option<tangram_http::http2::Config>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub idle_timeout: Option<Duration>,
@@ -1958,6 +1961,9 @@ pub struct Sandbox {
 	pub default_processes_page_size: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http2: Option<tangram_http::http2::Config>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub isolation: Option<SandboxIsolation>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2699,6 +2705,10 @@ pub struct ClientHttp {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connect_timeout: Option<Duration>,
+
+	/// Configure HTTP/2.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http2: Option<tangram_http::http2::Config>,
 
 	/// The maximum length of a framed header in a response body.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3875,6 +3885,12 @@ fn resolve_database_pool(source: DatabasePool) -> server::DatabasePool {
 
 fn resolve_http(source: Http) -> tg::Result<server::Http> {
 	let mut target = server::Http::default();
+	if let Some(value) = source.http2 {
+		value
+			.validate()
+			.map_err(|error| tg::error!(source = error, "invalid HTTP/2 configuration"))?;
+		target.http2 = value;
+	}
 	if let Some(value) = source.coalescing_target_size {
 		if value == 0 {
 			return Err(tg::error!(
@@ -3914,6 +3930,12 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 	}
 	if let Some(value) = source.connect_timeout {
 		target.connect_timeout = value;
+	}
+	if let Some(value) = source.http2 {
+		value
+			.validate()
+			.map_err(|error| tg::error!(source = error, "invalid client HTTP/2 configuration"))?;
+		target.http2 = value;
 	}
 	if let Some(value) = source.max_header_length {
 		target.max_header_length = value;
@@ -5157,6 +5179,12 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	if let Some(value) = source.default_processes_page_size {
 		target.default_processes_page_size = value;
 	}
+	if let Some(value) = source.http2 {
+		value
+			.validate()
+			.map_err(|error| tg::error!(source = error, "invalid sandbox HTTP/2 configuration"))?;
+		target.http2 = value;
+	}
 	if let Some(source) = source.isolation {
 		target.isolation = resolve_sandbox_isolation(source)?;
 	}
@@ -6300,6 +6328,30 @@ mod tests {
 			error.to_string(),
 			"expected client.http.coalescing_target_size to be greater than zero"
 		);
+	}
+
+	#[test]
+	fn parses_and_resolves_client_http2() {
+		let source: ClientHttp = serde_json::from_value(serde_json::json!({
+			"http2": { "connection_window_size": 4_194_304, "stream_window_size": 1_048_576 },
+		}))
+		.unwrap();
+		let target = resolve_client_http(source).unwrap();
+
+		assert_eq!(target.http2.connection_window_size, 4 * 1024 * 1024);
+		assert_eq!(target.http2.max_concurrent_streams, None);
+		assert_eq!(target.http2.stream_window_size, 1024 * 1024);
+	}
+
+	#[test]
+	fn rejects_invalid_client_http2() {
+		let source: ClientHttp = serde_json::from_value(serde_json::json!({
+			"http2": { "connection_window_size": 1_048_576, "stream_window_size": 1_048_576 },
+		}))
+		.unwrap();
+		let error = resolve_client_http(source).unwrap_err();
+
+		assert_eq!(error.to_string(), "invalid client HTTP/2 configuration");
 	}
 
 	#[test]

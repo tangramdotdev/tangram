@@ -48,6 +48,23 @@ pub(crate) fn duration_arg(duration: std::time::Duration) -> String {
 	duration.as_secs_f64().to_string()
 }
 
+/// Create the command line arguments that configure the HTTP/2 settings of the sandbox server.
+pub(crate) fn http2_args(http2: &tangram_http::http2::Config) -> Vec<String> {
+	let mut args = vec![
+		"--http2-connection-window-size".to_owned(),
+		http2.connection_window_size.to_string(),
+		"--http2-max-concurrent-reset-streams".to_owned(),
+		http2.max_concurrent_reset_streams.to_string(),
+		"--http2-stream-window-size".to_owned(),
+		http2.stream_window_size.to_string(),
+	];
+	if let Some(max_concurrent_streams) = http2.max_concurrent_streams {
+		args.push("--http2-max-concurrent-streams".to_owned());
+		args.push(max_concurrent_streams.to_string());
+	}
+	args
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) fn set_dumpable(value: bool) -> tg::Result<()> {
 	let value: libc::c_ulong = if value { 1 } else { 0 };

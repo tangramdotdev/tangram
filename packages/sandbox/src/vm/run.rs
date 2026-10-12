@@ -61,6 +61,7 @@ pub struct Arg {
 	pub guest_ip: Option<Ipv4Addr>,
 	pub host_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
+	pub http2: tangram_http::http2::Config,
 	pub image_path: PathBuf,
 	pub index: u64,
 	pub kernel_path: PathBuf,
@@ -252,6 +253,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		let init_config = crate::vm::init::Config {
 			gid: user.gid,
 			hostname: arg.hostname.clone(),
+			http2: arg.http2,
 			library_paths: Vec::new(),
 			mounts,
 			network: network_config,

@@ -101,7 +101,10 @@ impl Server {
 			}
 		});
 		let client = tg::Client::new(tg::Arg {
-			http: tg::Http::default(),
+			http: tg::Http {
+				http2: self.config().http.http2,
+				..Default::default()
+			},
 			url: Some(region_config.url.clone()),
 			version: Some(self.version.clone()),
 			token: None,

@@ -55,7 +55,8 @@ pub(crate) fn spawn(
 		.arg("--url")
 		.arg(serve_arg.url.to_string())
 		.arg("--tangram-path")
-		.arg(&serve_arg.tangram_path);
+		.arg(&serve_arg.tangram_path)
+		.args(crate::util::http2_args(&serve_arg.http2));
 	for path in &serve_arg.library_paths {
 		command.arg("--library-path").arg(path);
 	}

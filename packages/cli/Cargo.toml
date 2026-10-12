@@ -88,6 +88,7 @@ tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_fdb = { workspace = true, optional = true }
 tangram_futures = { workspace = true }
+tangram_http = { workspace = true }
 tangram_javascript = { workspace = true }
 tangram_python = { workspace = true, optional = true }
 tangram_pool = { workspace = true }

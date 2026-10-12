@@ -156,6 +156,7 @@ pub struct Arg {
 pub struct Http {
 	pub coalescing_target_size: usize,
 	pub connect_timeout: Duration,
+	pub http2: tangram_http::http2::Config,
 	pub max_header_length: u64,
 	pub request_timeout: Duration,
 }
@@ -301,7 +302,7 @@ impl Client {
 		let retry = arg.retry;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
-		let sender = Self::handshake_h2(stream).await?;
+		let sender = Self::handshake_h2(stream, http.http2).await?;
 		let options = tangram_pool::Options {
 			min: 1,
 			max: 1,
@@ -473,6 +474,7 @@ impl Default for Http {
 		Self {
 			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
 			connect_timeout: Duration::from_secs(1),
+			http2: tangram_http::http2::Config::default(),
 			max_header_length: 1_048_576,
 			request_timeout: Duration::from_mins(1),
 		}
@@ -501,6 +503,9 @@ impl Http {
 				"expected the HTTP request timeout to be greater than zero"
 			));
 		}
+		self.http2
+			.validate()
+			.map_err(|source| tg::error!(!source, "invalid HTTP/2 configuration"))?;
 		Ok(self)
 	}
 }

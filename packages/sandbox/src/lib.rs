@@ -95,6 +95,7 @@ pub struct Arg {
 	#[cfg(target_os = "linux")]
 	pub fuse_fd: Option<Arc<std::os::fd::OwnedFd>>,
 	pub hostname: Option<String>,
+	pub http2: tangram_http::http2::Config,
 	pub identity: PathBuf,
 	pub index: u64,
 	#[cfg(target_os = "linux")]
@@ -341,6 +342,7 @@ impl Sandbox {
 			},
 		};
 		let serve_arg = self::serve::Arg {
+			http2: arg.http2,
 			library_paths,
 			listen: false,
 			output_path: Self::guest_output_path_from_root(&arg.path),
@@ -414,9 +416,11 @@ impl Sandbox {
 					.take()
 					.ok_or_else(|| tg::error!("failed to take the sandbox stdout"))?;
 				let stream = tokio::io::join(stdout, stdin);
-				Client::with_stream(stream, arg.request_timeout).left_future()
+				Client::with_stream(stream, arg.http2, arg.request_timeout).left_future()
 			},
-			Some(listener) => Client::with_listener(listener, arg.request_timeout).right_future(),
+			Some(listener) => {
+				Client::with_listener(listener, arg.http2, arg.request_timeout).right_future()
+			},
 		};
 
 		let client = match tokio::time::timeout(arg.connect_timeout, async {
