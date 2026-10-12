@@ -5,8 +5,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const PREFETCH_CONCURRENCY: usize = 16;
-
 type Objects = Arc<DashMap<ObjectKey, Option<ObjectOutput>, fnv::FnvBuildHasher>>;
 
 type ObjectData = Arc<DashMap<tg::object::Id, Arc<tg::object::Data>, tg::id::BuildHasher>>;
@@ -141,12 +139,12 @@ pub struct Prefetch {
 }
 
 impl Prefetch {
-	pub fn new(arg: tg::checkin::Arg) -> Self {
+	pub fn new(arg: tg::checkin::Arg, concurrency: usize) -> Self {
 		let data = Arc::new(DashMap::default());
 		let object_tasks = tangram_futures::task::Map::default();
 		let objects = Arc::new(DashMap::default());
 		let prefetched_objects = Arc::new(DashSet::default());
-		let semaphore = Arc::new(tokio::sync::Semaphore::new(PREFETCH_CONCURRENCY));
+		let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 		let tag_tasks = tangram_futures::task::Map::default();
 		let tags = Arc::new(DashMap::default());
 		Self {

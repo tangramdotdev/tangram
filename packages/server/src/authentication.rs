@@ -409,7 +409,8 @@ impl Server {
 	fn authenticate_token(&self, value: &str) -> Option<tg::Principal> {
 		let token = value.parse::<token::Token>().ok()?;
 		let now = self.clock.unix_timestamp().ok()?;
-		token.validate_at(now).ok()?;
+		let clock_skew = self.config.authentication.tokens.clock_skew;
+		token.validate_at(now, clock_skew).ok()?;
 		let principal = token.body.principal.clone().into();
 		let matches = match &principal {
 			tg::Principal::Process(id) => self
@@ -440,7 +441,7 @@ impl Server {
 			.authentication_tokens
 			.public_keys
 			.get(&token.metadata.key)?;
-		token.verify_at(public_key, now).ok()?;
+		token.verify_at(public_key, now, clock_skew).ok()?;
 
 		Some(principal)
 	}

@@ -202,6 +202,10 @@ impl Server {
 			));
 		}
 		for (name, duration) in [
+			(
+				"advanced version check interval",
+				config.advanced.version_check_interval,
+			),
 			("control request timeout", config.control.request_timeout),
 			(
 				"indexer billing cleanup poll interval",
@@ -225,7 +229,14 @@ impl Server {
 				return Err(tg::error!("the {name} must be greater than zero"));
 			}
 		}
+
+		// Validate the channel capacities, batch sizes, concurrencies, and page sizes.
+		let watch = config.watch.clone().unwrap_or_default();
 		let sizes = [
+			(
+				"checkin solve prefetch concurrency",
+				config.checkin.solve.prefetch_concurrency,
+			),
 			(
 				"indexer request channel capacity",
 				config.indexer.request.channel_capacity,
@@ -234,6 +245,8 @@ impl Server {
 				"progress channel capacity",
 				config.progress.channel_capacity,
 			),
+			("read index batch size", config.read.index_batch_size),
+			("watch channel capacity", watch.channel_capacity),
 		];
 		for (name, size) in sizes {
 			if size == 0 {
@@ -249,6 +262,11 @@ impl Server {
 				"pagination database page length",
 				config.pagination.database_page_length,
 			),
+			(
+				"process default log read size",
+				config.process.default_log_read_size,
+			),
+			("read default size", config.read.default_size),
 		];
 		for (name, size) in sizes {
 			if size == 0 {

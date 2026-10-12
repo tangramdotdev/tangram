@@ -113,7 +113,8 @@ impl Session {
 		sender: async_channel::Sender<tg::Result<tg::read::Event>>,
 	) -> tg::Result<()> {
 		let position = arg.options.position.unwrap_or(std::io::SeekFrom::Start(0));
-		let size = arg.options.size.unwrap_or(65_536).to_usize().unwrap();
+		let default_size = self.server.config.read.default_size;
+		let size = arg.options.size.unwrap_or(default_size).to_usize().unwrap();
 		let mut length = 0;
 		let mut buffer = vec![0u8; size];
 		let mut reader = pin!(reader);

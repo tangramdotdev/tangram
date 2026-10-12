@@ -1,6 +1,5 @@
-use tangram_client::prelude::*;
+use {std::time::Duration, tangram_client::prelude::*};
 
-const CLOCK_SKEW: i64 = 60;
 const DOMAIN: &str = "authentication";
 const VERSION: &str = "0";
 
@@ -50,7 +49,12 @@ impl Token {
 		Ok(token)
 	}
 
-	pub fn verify_at(&self, public_key: &tg::authorization::PublicKey, now: i64) -> tg::Result<()> {
+	pub fn verify_at(
+		&self,
+		public_key: &tg::authorization::PublicKey,
+		now: i64,
+		clock_skew: Duration,
+	) -> tg::Result<()> {
 		if self.metadata.algorithm != public_key.algorithm {
 			return Err(tg::error!("invalid algorithm"));
 		}
@@ -68,7 +72,7 @@ impl Token {
 					.map_err(|_| tg::error!("invalid signature"))?;
 			},
 		}
-		self.body.validate_at(now)?;
+		self.body.validate_at(now, clock_skew)?;
 
 		Ok(())
 	}
@@ -78,8 +82,8 @@ impl Token {
 		value.starts_with(&format!("{DOMAIN}.{VERSION}."))
 	}
 
-	pub fn validate_at(&self, now: i64) -> tg::Result<()> {
-		self.body.validate_at(now)
+	pub fn validate_at(&self, now: i64, clock_skew: Duration) -> tg::Result<()> {
+		self.body.validate_at(now, clock_skew)
 	}
 
 	fn input(body: &Body, metadata: &tg::authorization::Metadata) -> tg::Result<String> {
@@ -104,9 +108,10 @@ impl Body {
 		Ok(())
 	}
 
-	fn validate_at(&self, now: i64) -> tg::Result<()> {
+	fn validate_at(&self, now: i64, clock_skew: Duration) -> tg::Result<()> {
 		self.validate()?;
-		if self.issued_at > now.saturating_add(CLOCK_SKEW) {
+		let clock_skew = i64::try_from(clock_skew.as_secs()).unwrap_or(i64::MAX);
+		if self.issued_at > now.saturating_add(clock_skew) {
 			return Err(tg::error!("invalid issuance time"));
 		}
 		if now > self.expires_at {

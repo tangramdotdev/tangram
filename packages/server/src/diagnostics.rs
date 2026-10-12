@@ -1,4 +1,4 @@
-use {crate::Server, std::time::Duration, tangram_client::prelude::*};
+use {crate::Server, tangram_client::prelude::*};
 
 impl Server {
 	pub(crate) async fn diagnostics_task(&self) -> tg::Result<()> {
@@ -20,7 +20,7 @@ impl Server {
 				}
 			}
 			*self.diagnostics.lock().unwrap() = diagnostics;
-			tokio::time::sleep(Duration::from_hours(1)).await;
+			tokio::time::sleep(self.config.advanced.version_check_interval).await;
 		}
 	}
 

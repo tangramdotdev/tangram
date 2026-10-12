@@ -93,6 +93,9 @@ pub struct Config {
 	pub publish: Option<Publish>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read: Option<Read>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub region: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -284,6 +287,7 @@ pub enum Role {
 	Scheduler,
 }
 
+#[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Advanced {
@@ -304,6 +308,10 @@ pub struct Advanced {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub single_process: Option<bool>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub version_check_interval: Option<Duration>,
 }
 
 #[serde_as]
@@ -331,6 +339,10 @@ pub struct RootAuthentication {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationTokens {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub clock_skew: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub private_key: Option<TokenPrivateKey>,
 
@@ -554,6 +566,9 @@ pub struct Checkin {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<CheckinDirectory>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub solve: Option<CheckinSolve>,
 }
 
 #[serde_as]
@@ -584,6 +599,13 @@ pub struct CheckinDirectory {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_leaf_entries: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckinSolve {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub prefetch_concurrency: Option<usize>,
 }
 
 #[serde_as]
@@ -1397,6 +1419,9 @@ pub struct Process {
 	pub children_wakeup_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default_log_read_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log_cache_partition_total: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1470,6 +1495,16 @@ pub struct Progress {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub interval: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Read {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index_batch_size: Option<usize>,
 }
 
 #[serde_as]
@@ -1767,6 +1802,10 @@ pub struct Scheduler {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_concurrency: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub restart_delay: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2242,6 +2281,9 @@ pub enum VfsPassthrough {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Watch {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ttl: Option<Duration>,
 }
@@ -2775,6 +2817,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(source) = source.progress {
 		target.progress = resolve_progress(source);
 	}
+	if let Some(source) = source.read {
+		target.read = resolve_read(source);
+	}
 	if let Some(region) = source.region {
 		target.region = Some(region);
 	}
@@ -2910,6 +2955,9 @@ fn resolve_advanced(source: Advanced) -> server::Advanced {
 	if let Some(value) = source.single_process {
 		target.single_process = value;
 	}
+	if let Some(value) = source.version_check_interval {
+		target.version_check_interval = value;
+	}
 	target
 }
 
@@ -2938,6 +2986,9 @@ fn resolve_authentication_tokens(
 	source: AuthenticationTokens,
 ) -> tg::Result<server::AuthenticationTokens> {
 	let mut target = server::AuthenticationTokens::default();
+	if let Some(value) = source.clock_skew {
+		target.clock_skew = value;
+	}
 	if let Some(source) = source.private_key {
 		target.keys.private_key = Some(resolve_token_private_key(source)?);
 	}
@@ -3202,6 +3253,9 @@ fn resolve_checkin(source: Checkin) -> server::Checkin {
 	if let Some(source) = source.directory {
 		target.directory = resolve_checkin_directory(source);
 	}
+	if let Some(source) = source.solve {
+		target.solve = resolve_checkin_solve(source);
+	}
 	target
 }
 
@@ -3231,6 +3285,14 @@ fn resolve_checkin_directory(source: CheckinDirectory) -> server::CheckinDirecto
 	}
 	if let Some(value) = source.max_leaf_entries {
 		target.max_leaf_entries = value;
+	}
+	target
+}
+
+fn resolve_checkin_solve(source: CheckinSolve) -> server::CheckinSolve {
+	let mut target = server::CheckinSolve::default();
+	if let Some(value) = source.prefetch_concurrency {
+		target.prefetch_concurrency = value;
 	}
 	target
 }
@@ -4108,6 +4170,9 @@ fn resolve_process(source: Process) -> server::Process {
 	if let Some(value) = source.children_wakeup_interval {
 		target.children_wakeup_interval = value;
 	}
+	if let Some(value) = source.default_log_read_size {
+		target.default_log_read_size = value;
+	}
 	if let Some(value) = source.log_cache_partition_total {
 		target.log_cache_partition_total = value;
 	}
@@ -4171,6 +4236,17 @@ pub(crate) fn resolve_progress(source: Progress) -> server::Progress {
 	}
 	if let Some(value) = source.interval {
 		target.interval = value;
+	}
+	target
+}
+
+fn resolve_read(source: Read) -> server::Read {
+	let mut target = server::Read::default();
+	if let Some(value) = source.default_size {
+		target.default_size = value;
+	}
+	if let Some(value) = source.index_batch_size {
+		target.index_batch_size = value;
 	}
 	target
 }
@@ -4419,6 +4495,9 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	}
 	if let Some(source) = source.message_retry {
 		target.message_retry = resolve_retry_with_default(source, target.message_retry);
+	}
+	if let Some(value) = source.restart_delay {
+		target.restart_delay = value;
 	}
 	if let Some(value) = source.create_sandbox_queue_capacity {
 		target.create_sandbox_queue_capacity = value;
@@ -4909,6 +4988,9 @@ fn resolve_vfs_passthrough(source: VfsPassthrough) -> server::VfsPassthrough {
 
 fn resolve_watch(source: Watch) -> server::Watch {
 	let mut target = server::Watch::default();
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
+	}
 	if let Some(value) = source.ttl {
 		target.ttl = value;
 	}

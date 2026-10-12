@@ -223,6 +223,9 @@ impl Session {
 			streams: BTreeSet<tg::process::stdio::Stream>,
 		}
 
+		let size = arg
+			.size
+			.unwrap_or(self.server.config.process.default_log_read_size);
 		let state = State {
 			entries: VecDeque::new(),
 			inner,
@@ -230,7 +233,7 @@ impl Session {
 			position,
 			remaining: arg.length.map(i64::unsigned_abs),
 			reverse: arg.length.is_some_and(|length| length < 0),
-			size: arg.size.unwrap_or(4096),
+			size,
 			streams,
 		};
 

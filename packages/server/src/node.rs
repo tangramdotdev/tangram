@@ -5,8 +5,6 @@ use {
 
 mod named;
 
-const NODE_INDEX_BATCH_SIZE: usize = 128;
-
 pub(crate) struct IndexOutput {
 	pub ids: Vec<Option<tg::Id>>,
 	pub specifiers: Vec<Option<tg::Specifier>>,
@@ -126,9 +124,10 @@ impl Session {
 		ids: &[tg::Id],
 		specifiers: &[tg::Specifier],
 	) -> tg::Result<IndexOutput> {
+		let batch_size = self.server.config.read.index_batch_size;
 		let ids_future = async {
 			let mut outputs = Vec::with_capacity(specifiers.len());
-			for specifiers in specifiers.chunks(NODE_INDEX_BATCH_SIZE) {
+			for specifiers in specifiers.chunks(batch_size) {
 				let batch = self
 					.server
 					.index
@@ -141,7 +140,7 @@ impl Session {
 		};
 		let specifiers_future = async {
 			let mut outputs = Vec::with_capacity(ids.len());
-			for ids in ids.chunks(NODE_INDEX_BATCH_SIZE) {
+			for ids in ids.chunks(batch_size) {
 				let batch = self.server.index.try_get_specifiers_for_ids(ids).await?;
 				outputs.extend(batch);
 			}

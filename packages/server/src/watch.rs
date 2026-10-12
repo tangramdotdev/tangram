@@ -120,7 +120,8 @@ impl Watch {
 
 		// Create the watcher.
 		let config = notify::Config::default();
-		let (sender, mut receiver) = tokio::sync::mpsc::channel::<Message>(1024);
+		let watch = server.config.watch.clone().unwrap_or_default();
+		let (sender, mut receiver) = tokio::sync::mpsc::channel::<Message>(watch.channel_capacity);
 		let handler = {
 			let sender = sender.clone();
 			move |result| match result {

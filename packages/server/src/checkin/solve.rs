@@ -227,7 +227,8 @@ impl Session {
 			solutions,
 		} = arg;
 		// Create the prefetcher.
-		let prefetch = Prefetch::new(arg.clone());
+		let concurrency = self.server.config.checkin.solve.prefetch_concurrency;
+		let prefetch = Prefetch::new(arg.clone(), concurrency);
 		let _prefetch_abort_guard = scopeguard::guard(prefetch.clone(), |prefetch| {
 			prefetch.abort();
 		});

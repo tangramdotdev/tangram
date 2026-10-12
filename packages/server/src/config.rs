@@ -53,6 +53,8 @@ pub struct Config {
 
 	pub progress: Progress,
 
+	pub read: Read,
+
 	pub region: Option<String>,
 
 	pub regions: Option<Vec<Region>>,
@@ -171,6 +173,8 @@ pub struct Advanced {
 	pub single_directory: bool,
 
 	pub single_process: bool,
+
+	pub version_check_interval: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -189,6 +193,8 @@ pub struct RootAuthentication {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AuthenticationTokens {
+	pub clock_skew: Duration,
+
 	pub keys: TokenKeys,
 
 	pub ttl: Duration,
@@ -317,6 +323,7 @@ pub struct TokenPublicKey {
 impl Default for AuthenticationTokens {
 	fn default() -> Self {
 		Self {
+			clock_skew: Duration::from_mins(1),
 			keys: TokenKeys::default(),
 			ttl: default_authentication_token_ttl(),
 		}
@@ -369,6 +376,8 @@ pub struct Checkin {
 	pub checkout: CheckinCheckout,
 
 	pub directory: CheckinDirectory,
+
+	pub solve: CheckinSolve,
 }
 
 #[derive(Clone, Debug)]
@@ -388,6 +397,11 @@ pub struct CheckinDirectory {
 	pub max_branch_children: usize,
 
 	pub max_leaf_entries: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct CheckinSolve {
+	pub prefetch_concurrency: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -921,6 +935,8 @@ pub struct Process {
 
 	pub children_wakeup_interval: Duration,
 
+	pub default_log_read_size: u64,
+
 	pub log_cache_partition_total: u64,
 
 	pub log_time_to_live: Duration,
@@ -954,6 +970,13 @@ pub struct Progress {
 	pub channel_capacity: usize,
 
 	pub interval: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct Read {
+	pub default_size: u64,
+
+	pub index_batch_size: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1284,6 +1307,8 @@ pub struct Scheduler {
 	/// The maximum number of unfinished requests of each kind.
 	pub request_concurrency: usize,
 
+	pub restart_delay: Duration,
+
 	pub runner_ttl: Duration,
 }
 
@@ -1611,6 +1636,8 @@ pub enum VfsPassthrough {
 
 #[derive(Clone, Debug)]
 pub struct Watch {
+	pub channel_capacity: usize,
+
 	pub ttl: Duration,
 }
 
@@ -1666,6 +1693,7 @@ impl Default for Config {
 			primary_region: None,
 			process: Process::default(),
 			progress: Progress::default(),
+			read: Read::default(),
 			region: None,
 			regions: None,
 			remote_cache: RemoteCache::default(),
@@ -1761,6 +1789,7 @@ impl Default for Advanced {
 			preserve_temp_directories: false,
 			single_directory: true,
 			single_process: true,
+			version_check_interval: Duration::from_hours(1),
 		}
 	}
 }
@@ -1796,6 +1825,14 @@ impl Default for CheckinDirectory {
 		Self {
 			max_branch_children: 128,
 			max_leaf_entries: 1024,
+		}
+	}
+}
+
+impl Default for CheckinSolve {
+	fn default() -> Self {
+		Self {
+			prefetch_concurrency: 16,
 		}
 	}
 }
@@ -2270,6 +2307,7 @@ impl Default for Process {
 		Self {
 			await_push: false,
 			children_wakeup_interval: Duration::from_mins(1),
+			default_log_read_size: 4096,
 			log_cache_partition_total: 1,
 			log_time_to_live: Duration::from_hours(1),
 			permission_time_to_live: default_process_permission_time_to_live(),
@@ -2289,6 +2327,15 @@ impl Default for Progress {
 		Self {
 			channel_capacity: 1024,
 			interval: Duration::from_millis(100),
+		}
+	}
+}
+
+impl Default for Read {
+	fn default() -> Self {
+		Self {
+			default_size: 65_536,
+			index_batch_size: 128,
 		}
 	}
 }
@@ -2360,6 +2407,7 @@ impl Default for Scheduler {
 			max_create_sandbox_requests_per_runner:
 				default_scheduler_max_create_sandbox_requests_per_runner(),
 			request_concurrency: 1024,
+			restart_delay: Duration::from_secs(1),
 			runner_ttl: Duration::from_secs(10),
 		}
 	}
@@ -2663,6 +2711,7 @@ impl Vfs {
 impl Default for Watch {
 	fn default() -> Self {
 		Self {
+			channel_capacity: 1024,
 			ttl: Duration::from_hours(1),
 		}
 	}

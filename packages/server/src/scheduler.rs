@@ -682,7 +682,7 @@ impl Server {
 			let result = self.scheduler_task_inner(config, &mut started).await;
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), "the scheduler task failed");
-				tokio::time::sleep(Duration::from_secs(1)).await;
+				tokio::time::sleep(config.restart_delay).await;
 			}
 		}
 	}
