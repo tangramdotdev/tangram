@@ -1,4 +1,5 @@
 pub mod body;
+pub mod error;
 pub mod header;
 pub mod idle;
 pub mod layer;

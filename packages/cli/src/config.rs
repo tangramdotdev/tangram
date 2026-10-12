@@ -2687,6 +2687,7 @@ pub struct Client {
 	pub value: Option<ClientValue>,
 }
 
+#[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClientHttp {
@@ -2694,9 +2695,19 @@ pub struct ClientHttp {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub coalescing_target_size: Option<usize>,
 
+	/// The timeout for creating a connection.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connect_timeout: Option<Duration>,
+
 	/// The maximum length of a framed header in a response body.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_header_length: Option<u64>,
+
+	/// The timeout for receiving a response to a request.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_timeout: Option<Duration>,
 }
 
 #[serde_as]
@@ -3901,8 +3912,14 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 		}
 		target.coalescing_target_size = value;
 	}
+	if let Some(value) = source.connect_timeout {
+		target.connect_timeout = value;
+	}
 	if let Some(value) = source.max_header_length {
 		target.max_header_length = value;
+	}
+	if let Some(value) = source.request_timeout {
+		target.request_timeout = value;
 	}
 	Ok(target)
 }

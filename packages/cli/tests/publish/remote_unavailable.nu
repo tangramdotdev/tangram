@@ -28,7 +28,7 @@ snapshot --normalize --redact [$path $remote.url $remote.directory ($remote.dire
 	-> failed to put local tag
 	   tag = test-pkg/1.0.0
 	-> the request failed
-	   status = 500 Internal Server Error
+	   status = 503 Service Unavailable
 	-> failed to create the source stream
 	-> failed to send the request
 	-> failed to resolve the socket path

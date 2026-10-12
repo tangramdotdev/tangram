@@ -4,6 +4,7 @@ use {
 		fmt,
 		ops::Deref,
 		sync::{Arc, RwLock},
+		time::Duration,
 	},
 	tangram_uri::Uri,
 	tokio::io::{AsyncRead, AsyncWrite},
@@ -154,7 +155,9 @@ pub struct Arg {
 #[derive(Clone, Copy, Debug)]
 pub struct Http {
 	pub coalescing_target_size: usize,
+	pub connect_timeout: Duration,
 	pub max_header_length: u64,
+	pub request_timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -238,8 +241,8 @@ impl Client {
 		let retry = arg.retry;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
-		let pool = Self::pool(pool_options, &reconnect, &url);
-		let service = Self::service(&version, &pool, &url, http.coalescing_target_size);
+		let pool = Self::pool(pool_options, &reconnect, &url, http);
+		let service = Self::service(&version, &pool, &url, http);
 		let client = Self(Arc::new(State {
 			context,
 			http,
@@ -309,7 +312,7 @@ impl Client {
 			Err(tg::error!("cannot create a connection for a stream client"))
 		});
 		pool.add(self::http::Connection::new(sender));
-		let service = Self::service(&version, &pool, &url, http.coalescing_target_size);
+		let service = Self::service(&version, &pool, &url, http);
 		let client = Self(Arc::new(crate::State {
 			context,
 			http,
@@ -469,7 +472,9 @@ impl Default for Http {
 	fn default() -> Self {
 		Self {
 			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
+			connect_timeout: Duration::from_secs(1),
 			max_header_length: 1_048_576,
+			request_timeout: Duration::from_mins(1),
 		}
 	}
 }
@@ -481,9 +486,19 @@ impl Http {
 				"expected the HTTP coalescing target size to be greater than zero"
 			));
 		}
+		if self.connect_timeout.is_zero() {
+			return Err(tg::error!(
+				"expected the HTTP connect timeout to be greater than zero"
+			));
+		}
 		if self.max_header_length == 0 {
 			return Err(tg::error!(
 				"expected the HTTP max header length to be greater than zero"
+			));
+		}
+		if self.request_timeout.is_zero() {
+			return Err(tg::error!(
+				"expected the HTTP request timeout to be greater than zero"
 			));
 		}
 		Ok(self)

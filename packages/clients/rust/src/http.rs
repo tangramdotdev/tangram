@@ -4,7 +4,6 @@ use tangram_http::body::Ext as _;
 use {
 	crate::prelude::*,
 	std::{
-		error::Error as _,
 		ops::ControlFlow,
 		path::Path,
 		pin::Pin,
@@ -48,6 +47,7 @@ impl tg::Client {
 		options: tangram_pool::Options,
 		reconnect: &tangram_futures::retry::Options,
 		url: &Uri,
+		http: tg::Http,
 	) -> Pool {
 		let reconnect = reconnect.clone();
 		let url = url.clone();
@@ -58,7 +58,7 @@ impl tg::Client {
 				tangram_futures::retry(&reconnect, || {
 					let url = url.clone();
 					async move {
-						match Self::connect_h2(&url).await {
+						match Self::connect_h2(&url, http).await {
 							Ok(sender) => Ok(ControlFlow::Break(Connection::new(sender))),
 							Err(error) => Ok(ControlFlow::Continue(error)),
 						}
@@ -69,12 +69,7 @@ impl tg::Client {
 		})
 	}
 
-	pub(crate) fn service(
-		version: &str,
-		pool: &Pool,
-		url: &Uri,
-		coalescing_target_size: usize,
-	) -> Service {
+	pub(crate) fn service(version: &str, pool: &Pool, url: &Uri, http: tg::Http) -> Service {
 		let origin = match (url.scheme(), url.authority_raw()) {
 			(Some(scheme @ ("http" | "https")), Some(authority)) => {
 				Some(format!("{scheme}://{authority}"))
@@ -122,14 +117,17 @@ impl tg::Client {
 		});
 		let service = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.layer(tower::layer::layer_fn(|service| {
+			.layer(tower::layer::layer_fn(move |service| {
 				let service = Service::new(service);
 				tower::service_fn(move |request| {
 					let future = service.clone().call(request);
 					async move {
-						match tokio::time::timeout(Duration::from_mins(1), future).await {
+						match tokio::time::timeout(http.request_timeout, future).await {
 							Ok(result) => result,
-							Err(_) => Err(Error::Other(tg::error!("request timed out"))),
+							Err(_) => Err(Error::Other(tg::error!(
+								unavailable,
+								"the request timed out"
+							))),
 						}
 					}
 				})
@@ -163,7 +161,7 @@ impl tg::Client {
 			)
 			.layer(
 				tangram_http::layer::coalescing::RequestCoalescingLayer::new(
-					coalescing_target_size,
+					http.coalescing_target_size,
 				),
 			)
 			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
@@ -191,6 +189,7 @@ impl tg::Client {
 
 	pub(crate) async fn connect_h1(
 		url: &Uri,
+		connect_timeout: Duration,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
 		match url.scheme() {
 			Some("http+stdio") => {
@@ -204,7 +203,7 @@ impl tg::Client {
 					.ok_or_else(|| tg::error!(%url, "invalid url"))?
 					.try_into()
 					.map_err(|_| tg::error!("invalid port"))?;
-				let stream = Self::connect_tcp(host, port).await?;
+				let stream = Self::connect_tcp(host, port, connect_timeout).await?;
 				Self::handshake_h1(stream).await
 			},
 			Some("https") => {
@@ -222,8 +221,13 @@ impl tg::Client {
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.try_into()
 						.map_err(|_| tg::error!("invalid port"))?;
-					let stream =
-						Self::connect_tcp_tls(host, port, vec![b"http/1.1".into()]).await?;
+					let stream = Self::connect_tcp_tls(
+						host,
+						port,
+						vec![b"http/1.1".into()],
+						connect_timeout,
+					)
+					.await?;
 					Self::verify_alpn_protocol(&stream, b"http/1.1")?;
 					Self::handshake_h1(stream).await
 				}
@@ -247,7 +251,7 @@ impl tg::Client {
 						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, port);
-					let stream = Self::connect_vsock(addr).await?;
+					let stream = Self::connect_vsock(addr, connect_timeout).await?;
 					Self::handshake_h1(stream).await
 				}
 			},
@@ -257,7 +261,11 @@ impl tg::Client {
 
 	async fn connect_h2(
 		url: &Uri,
+		http: tg::Http,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
+		let tg::Http {
+			connect_timeout, ..
+		} = http;
 		match url.scheme() {
 			Some("http+stdio") => {
 				let stream = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
@@ -270,7 +278,7 @@ impl tg::Client {
 					.ok_or_else(|| tg::error!("invalid url"))?
 					.try_into()
 					.map_err(|_| tg::error!("invalid port"))?;
-				let stream = Self::connect_tcp(host, port).await?;
+				let stream = Self::connect_tcp(host, port, connect_timeout).await?;
 				Self::handshake_h2(stream).await
 			},
 			Some("https") => {
@@ -288,7 +296,9 @@ impl tg::Client {
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.try_into()
 						.map_err(|_| tg::error!("invalid port"))?;
-					let stream = Self::connect_tcp_tls(host, port, vec![b"h2".into()]).await?;
+					let stream =
+						Self::connect_tcp_tls(host, port, vec![b"h2".into()], connect_timeout)
+							.await?;
 					Self::verify_alpn_protocol(&stream, b"h2")?;
 					Self::handshake_h2(stream).await
 				}
@@ -312,7 +322,7 @@ impl tg::Client {
 						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, port);
-					let stream = Self::connect_vsock(addr).await?;
+					let stream = Self::connect_vsock(addr, connect_timeout).await?;
 					Self::handshake_h2(stream).await
 				}
 			},
@@ -328,9 +338,12 @@ impl tg::Client {
 	{
 		// Perform the HTTP handshake.
 		let io = hyper_util::rt::TokioIo::new(stream);
-		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to perform the HTTP handshake"))?;
+		let (mut sender, connection) =
+			hyper::client::conn::http1::handshake(io)
+				.await
+				.map_err(|error| {
+					tg::error!(unavailable, !error, "failed to perform the HTTP handshake")
+				})?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -347,7 +360,7 @@ impl tg::Client {
 		sender
 			.ready()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to ready the sender"))?;
+			.map_err(|error| tg::error!(unavailable, !error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -366,7 +379,9 @@ impl tg::Client {
 			.max_concurrent_reset_streams(usize::MAX)
 			.handshake(io)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to perform the HTTP handshake"))?;
+			.map_err(|error| {
+				tg::error!(unavailable, !error, "failed to perform the HTTP handshake")
+			})?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -382,18 +397,23 @@ impl tg::Client {
 		sender
 			.ready()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to ready the sender"))?;
+			.map_err(|error| tg::error!(unavailable, !error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
 
-	pub(crate) async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
+	pub(crate) async fn connect_tcp(
+		host: &str,
+		port: u16,
+		connect_timeout: Duration,
+	) -> tg::Result<tokio::net::TcpStream> {
 		let addr = format!("{host}:{port}");
-		let stream =
-			tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
-				.await
-				.map_err(|_| tg::error!("connection timeout"))?
-				.map_err(|error| tg::error!(!error, "failed to create the TCP connection"))?;
+		let stream = tokio::time::timeout(connect_timeout, tokio::net::TcpStream::connect(addr))
+			.await
+			.map_err(|_| tg::error!(unavailable, "timed out creating the TCP connection"))?
+			.map_err(|error| {
+				tg::error!(unavailable, !error, "failed to create the TCP connection")
+			})?;
 		stream
 			.set_nodelay(true)
 			.map_err(|error| tg::error!(!error, "failed to set nodelay on the TCP connection"))?;
@@ -405,8 +425,9 @@ impl tg::Client {
 		host: &str,
 		port: u16,
 		protocols: Vec<Vec<u8>>,
+		connect_timeout: Duration,
 	) -> tg::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
-		let stream = Self::connect_tcp(host, port).await?;
+		let stream = Self::connect_tcp(host, port, connect_timeout).await?;
 
 		// Create the connector.
 		let mut config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
@@ -435,27 +456,30 @@ impl tg::Client {
 	}
 
 	async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
-		let path_ = tangram_util::io::unix::resolve(path).map_err(
-			|error| tg::error!(!error, path = %path.display(), "failed to resolve the socket path"),
-		)?;
+		// Mark a missing socket unavailable, because it means the server is not running.
+		let path_ = tangram_util::io::unix::resolve(path).map_err(|error| {
+			if error.kind() == std::io::ErrorKind::NotFound {
+				tg::error!(unavailable, !error, path = %path.display(), "failed to resolve the socket path")
+			} else {
+				tg::error!(!error, path = %path.display(), "failed to resolve the socket path")
+			}
+		})?;
 		tokio::net::UnixStream::connect(path_.as_ref())
 			.await
-			.map_err(
-				|error| tg::error!(!error, path = %path.display(), "failed to connect to the socket"),
-			)
+			.map_err(|error| {
+				tg::error!(unavailable, !error, path = %path.display(), "failed to connect to the socket")
+			})
 	}
 
 	#[cfg(feature = "vsock")]
 	pub(crate) async fn connect_vsock(
 		addr: tokio_vsock::VsockAddr,
+		connect_timeout: Duration,
 	) -> tg::Result<tokio_vsock::VsockStream> {
-		tokio::time::timeout(
-			Duration::from_secs(1),
-			tokio_vsock::VsockStream::connect(addr),
-		)
-		.await
-		.map_err(|error| tg::error!(!error, "timed out connecting to the socket"))?
-		.map_err(|error| tg::error!(!error, "failed to connect to the socket"))
+		tokio::time::timeout(connect_timeout, tokio_vsock::VsockStream::connect(addr))
+			.await
+			.map_err(|error| tg::error!(unavailable, !error, "timed out connecting to the socket"))?
+			.map_err(|error| tg::error!(unavailable, !error, "failed to connect to the socket"))
 	}
 
 	#[cfg(feature = "tls")]
@@ -486,6 +510,9 @@ impl tg::Client {
 		let request = request.boxed_body();
 		let future = self.service.clone().call(request);
 		let response = future.await.map_err(|error| match error {
+			Error::Hyper(source) if is_transport_error(&source) => {
+				tg::error!(unavailable, source = source, "failed to send the request")
+			},
 			Error::Hyper(source) => tg::error!(source = source, "failed to send the request"),
 			Error::Other(error) => error,
 		})?;
@@ -563,10 +590,17 @@ impl tg::Session {
 						let response = response.map(Into::into);
 						Ok(ControlFlow::Break(response))
 					},
-					Err(Error::Hyper(error)) if is_retryable_error(&error) => Ok(
-						ControlFlow::Continue(tg::error!(!error, "failed to send the request")),
-					),
+					Err(Error::Hyper(error)) if is_retryable_error(&error) => {
+						Ok(ControlFlow::Continue(tg::error!(
+							unavailable,
+							!error,
+							"failed to send the request"
+						)))
+					},
 					Err(error) => Err(match error {
+						Error::Hyper(source) if is_transport_error(&source) => {
+							tg::error!(unavailable, source = source, "failed to send the request")
+						},
 						Error::Hyper(source) => {
 							tg::error!(source = source, "failed to send the request")
 						},
@@ -594,7 +628,10 @@ impl http_body::Body for Body {
 				this.guard.take();
 			},
 			Poll::Ready(Some(Err(_))) => {
-				if let Some(guard) = this.guard.take() {
+				// Discard the connection if the stream error closed it.
+				if let Some(guard) = this.guard.take()
+					&& guard.is_closed()
+				{
 					guard.discard();
 				}
 			},
@@ -629,29 +666,10 @@ fn with_origin(
 	Ok(request)
 }
 
-fn is_retryable_error(error: &hyper::Error) -> bool {
-	error.is_closed()
-		|| error.is_canceled()
-		|| error.is_incomplete_message()
-		|| io_error_kind(error).is_some_and(|kind| {
-			matches!(
-				kind,
-				std::io::ErrorKind::BrokenPipe
-					| std::io::ErrorKind::ConnectionAborted
-					| std::io::ErrorKind::ConnectionReset
-					| std::io::ErrorKind::NotConnected
-					| std::io::ErrorKind::UnexpectedEof
-			)
-		})
+fn is_transport_error(error: &hyper::Error) -> bool {
+	!(error.is_parse() || error.is_parse_status() || error.is_user())
 }
 
-fn io_error_kind(error: &hyper::Error) -> Option<std::io::ErrorKind> {
-	let mut source = error.source();
-	while let Some(error) = source {
-		if let Some(error) = error.downcast_ref::<std::io::Error>() {
-			return Some(error.kind());
-		}
-		source = error.source();
-	}
-	None
+fn is_retryable_error(error: &hyper::Error) -> bool {
+	tangram_http::error::is_retryable(error)
 }
