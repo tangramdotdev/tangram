@@ -7,11 +7,16 @@ use {
 	tangram_http::body::BodyStream,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::{CommaSeparatedString, is_default, is_false, is_true, return_true},
+	tangram_util::serde::{
+		BytesBase64, CommaSeparatedString, is_default, is_false, is_true, return_true,
+	},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::StreamReader,
 };
+
+#[cfg(test)]
+mod tests;
 
 pub use id::Id;
 
@@ -26,76 +31,102 @@ pub struct Config {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Arg {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
 	pub ancestors: tg::node::AncestorsPull,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
 	pub force: bool,
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "Vec::is_empty")]
 	pub get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
 	pub group_children: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 5, default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 6, default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 7, default, skip_serializing_if = "is_false")]
 	pub organization_children: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 8, default, skip_serializing_if = "is_false")]
 	pub process_children: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 9, default, skip_serializing_if = "is_false")]
 	pub process_command_objects: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 10, default, skip_serializing_if = "is_false")]
 	pub process_error_objects: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 11, default, skip_serializing_if = "is_false")]
 	pub process_log_objects: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 12, default, skip_serializing_if = "is_false")]
 	pub process_output_objects: bool,
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(id = 13, default, skip_serializing_if = "Vec::is_empty")]
 	pub put: Vec<tg::Referent<tg::Id>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 14, default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 15, default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<tg::Referent<tg::sync::Id>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 16, default, skip_serializing_if = "is_false")]
 	pub tag_targets: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 17, default, skip_serializing_if = "is_false")]
 	pub user_children: bool,
 }
 
@@ -118,9 +149,12 @@ pub struct Header {
 	Clone,
 	Debug,
 	derive_more::TryUnwrap,
+	serde::Deserialize,
+	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum Message {
 	#[tangram_serialize(id = 2)]
 	End,
@@ -132,7 +166,15 @@ pub enum Message {
 	Put(PutMessage),
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum GetMessage {
 	#[tangram_serialize(id = 1)]
 	Available(GetAvailableMessage),
@@ -150,17 +192,27 @@ pub enum GetMessage {
 	Progress(ProgressMessage),
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct GetNodeMessage {
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	#[tangram_serialize(default = "return_true", id = 3, skip_serializing_if = "is_true")]
 	pub descendants: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
 	#[tangram_serialize(id = 0)]
 	pub selector: tg::Selector<tg::Id>,
 
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	#[tangram_serialize(
 		default,
 		id = 2,
@@ -169,7 +221,15 @@ pub struct GetNodeMessage {
 	pub tokens: tg::authorization::Tokens,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum GetAvailableMessage {
 	#[tangram_serialize(id = 0)]
 	Object(GetAvailableObjectMessage),
@@ -178,52 +238,90 @@ pub enum GetAvailableMessage {
 	Process(GetAvailableProcessMessage),
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct GetAvailableObjectMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct GetAvailableProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub node_command_available: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 8, skip_serializing_if = "is_false")]
 	pub node_error_available: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_false")]
 	pub node_log_available: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_false")]
 	pub node_output_available: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 7, skip_serializing_if = "is_false")]
 	pub subtree_available: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_false")]
 	pub subtree_command_available: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 9, skip_serializing_if = "is_false")]
 	pub subtree_error_available: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "is_false")]
 	pub subtree_log_available: bool,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
 	pub subtree_output_available: bool,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct GetOutputMessage {
 	#[tangram_serialize(id = 0)]
 	pub nodes: Vec<tg::Referent<tg::Id>>,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum PutMessage {
 	#[tangram_serialize(id = 3)]
 	End,
@@ -241,7 +339,15 @@ pub enum PutMessage {
 	Progress(ProgressMessage),
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum PutNodeMessage {
 	#[tangram_serialize(id = 0)]
 	Group(PutNodeGroupMessage),
@@ -265,7 +371,14 @@ pub enum PutNodeMessage {
 	User(PutNodeUserMessage),
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct PutNodeGroupMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::group::Id,
@@ -273,6 +386,7 @@ pub struct PutNodeGroupMessage {
 	#[tangram_serialize(id = 1)]
 	pub name: String,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::Id>,
 
@@ -280,19 +394,36 @@ pub struct PutNodeGroupMessage {
 	pub specifier: tg::Specifier,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[serde_as]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct PutNodeObjectMessage {
+	#[tangram_serialize(id = 1)]
+	#[serde_as(as = "BytesBase64")]
+	pub bytes: Bytes,
+
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
 
-	#[tangram_serialize(id = 1)]
-	pub bytes: Bytes,
-
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::object::Metadata>,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct PutNodeOrganizationMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::organization::Id,
@@ -304,19 +435,36 @@ pub struct PutNodeOrganizationMessage {
 	pub specifier: tg::Specifier,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[serde_as]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct PutNodeProcessMessage {
+	#[tangram_serialize(id = 1)]
+	#[serde_as(as = "BytesBase64")]
+	pub bytes: Bytes,
+
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
 
-	#[tangram_serialize(id = 1)]
-	pub bytes: Bytes,
-
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::process::Metadata>,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct PutNodeSandboxMessage {
 	#[tangram_serialize(id = 0)]
 	pub created_at: i64,
@@ -331,7 +479,14 @@ pub struct PutNodeSandboxMessage {
 	pub processes: Vec<tg::process::Id>,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct PutNodeTagMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::tag::Id,
@@ -339,6 +494,7 @@ pub struct PutNodeTagMessage {
 	#[tangram_serialize(id = 2)]
 	pub name: String,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::Id>,
 
@@ -348,11 +504,19 @@ pub struct PutNodeTagMessage {
 	#[tangram_serialize(id = 1)]
 	pub target: tg::Id,
 
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
 	pub tokens: Vec<tg::authorization::Token>,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct PutNodeUserMessage {
 	#[tangram_serialize(id = 0)]
 	pub emails: Vec<String>,
@@ -367,11 +531,19 @@ pub struct PutNodeUserMessage {
 	pub specifier: tg::Specifier,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct PutMissingMessage {
 	#[tangram_serialize(id = 0)]
 	pub selector: tg::Selector<tg::Id>,
 
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Vec::is_empty")]
 	pub tokens: Vec<tg::authorization::Token>,
 }
@@ -382,13 +554,17 @@ pub struct PutMissingMessage {
 	Default,
 	Eq,
 	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
 pub struct ProgressMessage {
+	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub skipped: ProgressMessageAmounts,
 
+	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub transferred: ProgressMessageAmounts,
 }
@@ -399,31 +575,41 @@ pub struct ProgressMessage {
 	Default,
 	Eq,
 	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
 pub struct ProgressMessageAmounts {
+	#[serde(default, skip_serializing_if = "num::Zero::is_zero")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "num::Zero::is_zero")]
 	pub bytes: u64,
 
+	#[serde(default, skip_serializing_if = "num::Zero::is_zero")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "num::Zero::is_zero")]
 	pub groups: u64,
 
+	#[serde(default, skip_serializing_if = "num::Zero::is_zero")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "num::Zero::is_zero")]
 	pub objects: u64,
 
+	#[serde(default, skip_serializing_if = "num::Zero::is_zero")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "num::Zero::is_zero")]
 	pub organizations: u64,
 
+	#[serde(default, skip_serializing_if = "num::Zero::is_zero")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "num::Zero::is_zero")]
 	pub processes: u64,
 
+	#[serde(default, skip_serializing_if = "num::Zero::is_zero")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "num::Zero::is_zero")]
 	pub sandboxes: u64,
 
+	#[serde(default, skip_serializing_if = "num::Zero::is_zero")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "num::Zero::is_zero")]
 	pub tags: u64,
 
+	#[serde(default, skip_serializing_if = "num::Zero::is_zero")]
 	#[tangram_serialize(default, id = 7, skip_serializing_if = "num::Zero::is_zero")]
 	pub users: u64,
 }
@@ -488,7 +674,7 @@ impl tg::Session {
 				tg::sync::CONTENT_TYPE.to_string(),
 			);
 		let request = request
-			.arg(&arg, body)
+			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
@@ -509,6 +695,23 @@ impl tg::Session {
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
+		if content_type.as_ref().is_some_and(|value| {
+			value.type_() == mime::TEXT && value.subtype() == mime::EVENT_STREAM
+		}) {
+			let mut reader = response.reader();
+			let header = tangram_http::body::header::get(
+				&mut reader,
+				self.client().http.max_header_length,
+				tangram_http::body::encoding::Encoding::Json,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
+			let stream = tangram_http::sse::decode(tokio::io::BufReader::new(reader))
+				.map_err(|error| tg::error!(!error, "failed to read the sync message"))
+				.and_then(|event| futures::future::ready(event.try_into()))
+				.boxed();
+			return Ok((header, stream));
+		}
 		if content_type != Some(tg::sync::CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
@@ -542,7 +745,7 @@ impl tg::Session {
 		let header = tangram_http::body::header::get(
 			&mut reader,
 			self.client().http.max_header_length,
-			tangram_http::body::encoding::Encoding::Json,
+			tangram_http::body::encoding::Encoding::Tangram,
 		)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
@@ -596,9 +799,56 @@ impl tg::Session {
 			}
 		});
 
-		let stream = stream::select(data_messages, trailer_messages).attach(task);
+		let stream = stream::select(data_messages, trailer_messages)
+			.attach(task)
+			.boxed();
 
 		Ok((header, stream))
+	}
+}
+
+impl TryFrom<Message> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(message: Message) -> tg::Result<Self> {
+		let (event, data) = match message {
+			Message::End => ("end", serde_json::to_string(&())),
+			Message::Get(message) => ("get", serde_json::to_string(&message)),
+			Message::Put(message) => ("put", serde_json::to_string(&message)),
+		};
+		let data =
+			data.map_err(|error| tg::error!(!error, "failed to serialize the sync message"))?;
+		let event = Some(event.to_owned());
+		let event = Self {
+			data,
+			event,
+			..Default::default()
+		};
+
+		Ok(event)
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for Message {
+	type Error = tg::Error;
+
+	fn try_from(event: tangram_http::sse::Event) -> tg::Result<Self> {
+		let message = match event.event.as_deref() {
+			Some("end") => serde_json::from_str::<()>(&event.data).map(|()| Self::End),
+			Some("error") => {
+				let error: tg::Either<tg::error::Data, tg::error::Id> =
+					serde_json::from_str(&event.data).map_err(|error| {
+						tg::error!(!error, "failed to deserialize the sync error")
+					})?;
+				return Err(error.try_into()?);
+			},
+			Some("get") => serde_json::from_str(&event.data).map(Self::Get),
+			Some("put") => serde_json::from_str(&event.data).map(Self::Put),
+			_ => return Err(tg::error!("invalid sync message")),
+		}
+		.map_err(|error| tg::error!(!error, "failed to deserialize the sync message"))?;
+
+		Ok(message)
 	}
 }
 

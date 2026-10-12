@@ -23,13 +23,18 @@ pub struct Ancestors {
 	derive_more::FromStr,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum AncestorsPull {
+	#[tangram_serialize(id = 0)]
 	Always,
 	#[default]
+	#[tangram_serialize(id = 1)]
 	Missing,
+	#[tangram_serialize(id = 2)]
 	Never,
 }

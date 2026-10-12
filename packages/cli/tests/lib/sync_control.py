@@ -24,6 +24,10 @@ class Variant:
     value: object = None
 
 
+class Map(dict):
+    pass
+
+
 class Signed(int):
     pass
 
@@ -67,6 +71,8 @@ def encode(value):
         return b"".join(map(encode, value))
     if isinstance(value, list):
         return b"\x08" + varint(len(value)) + b"".join(map(encode, value))
+    if isinstance(value, Map):
+        return b"\x09" + varint(len(value)) + b"".join(encode(key) + encode(item) for key, item in sorted(value.items()))
     if isinstance(value, dict):
         return b"\x0a" + varint(len(value)) + b"".join(bytes([key]) + encode(item) for key, item in sorted(value.items()))
     if isinstance(value, Variant):
@@ -101,13 +107,59 @@ def decode(reader):
 
 ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
 BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+KINDS = {"blb": 0, "dir": 1, "fil": 2, "sym": 3, "gph": 4, "cmd": 5, "err": 6,
+         "sbx": 7, "pcs": 8, "usr": 9, "grp": 10, "org": 11, "tag": 12,
+         "rnr": 13, "sch": 14, "tok": 15, "idx": 16, "syn": 17}
 
 
 def node_bytes(id):
     body = id[6:].translate(str.maketrans(ALPHABET, BASE32))
     body = base64.b32decode(body + "=" * (-len(body) % 8))
-    kind = {"blb": 0, "pcs": 8}[id[:3]]
+    kind = KINDS[id[:3]]
     return bytes([0, 0, kind, int(id[5])]) + body
+
+
+def node_string(value):
+    body = base64.b32encode(value[4:]).decode().rstrip("=")
+    kind = next(kind for kind, code in KINDS.items() if code == value[2])
+    return f"{kind}_0{value[3]}" + body.translate(str.maketrans(BASE32, ALPHABET))
+
+
+def referent_bytes(value, selector=False):
+    if isinstance(value, str):
+        node, _, query = value.partition("?")
+        tokens = {}
+        for key, token in urllib.parse.parse_qsl(query):
+            if key.startswith("tokens["):
+                location = key.split("[")[1].rstrip("]")
+                tokens.setdefault(location, []).append(token)
+            else:
+                raise ValueError(f"unsupported referent option: {key}")
+    else:
+        node = value["node"]
+        tokens = value.get("options", {}).get("tokens", {})
+    node = node_bytes(node)
+    if selector:
+        node = Variant(0, node)
+    return {0: node, 1: {5: Map(tokens)}}
+
+
+def sync_arg(arg):
+    fields = ["ancestors", "eager", "force", "get", "group_children", "location",
+              "metadata", "organization_children", "process_children",
+              "process_command_objects", "process_error_objects", "process_log_objects",
+              "process_output_objects", "put", "sandbox_processes", "sync",
+              "tag_targets", "user_children"]
+    output = {}
+    for name, value in arg.items():
+        if name in ("get", "put"):
+            value = [referent_bytes(item, name == "get") for item in value.split(",")]
+        elif name == "sync":
+            value = referent_bytes(value)
+        elif name == "ancestors":
+            value = Variant(["always", "missing", "never"].index(value))
+        output[fields.index(name)] = value
+    return encode(output)
 
 
 def verification_output(node, storage, permissions):
@@ -166,15 +218,17 @@ class Sync:
                    "Accept: application/vnd.tangram.sync\r\nContent-Type: application/vnd.tangram.sync\r\n"
                    "x-tg-arg-in-body: true\r\nTransfer-Encoding: chunked\r\n\r\n")
         self.socket.sendall(headers.encode())
-        arg = json.dumps(arg or {}).encode()
+        arg = sync_arg(arg or {})
         self.chunk(varint(len(arg)) + arg)
         self.response = http.client.HTTPResponse(self.socket)
         self.response.begin()
         assert self.response.status == status, (self.response.status, self.response.read())
         if status == 200:
             assert self.response.getheader("Content-Type") == "application/vnd.tangram.sync"
-            self.header = json.loads(self.response.read(read_varint(self.response)))
-            self.sync = self.header["sync"]
+            header = decode(io.BytesIO(self.response.read(read_varint(self.response))))
+            referent = header[0]
+            self.sync = {"node": node_string(referent[0]), "options": {"tokens": referent[1][5]}}
+            self.header = {"sync": self.sync}
             self.token = self.sync["options"]["tokens"]["local"][0]
 
     def chunk(self, data):
