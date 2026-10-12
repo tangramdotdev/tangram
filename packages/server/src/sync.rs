@@ -169,7 +169,8 @@ impl Session {
 		&self,
 		sync: Option<tg::Referent<tg::sync::Id>>,
 	) -> tg::Result<tg::Referent<tg::sync::Id>> {
-		if let Some(sync) = sync {
+		// Verify an existing sync, or create a new one.
+		let id = if let Some(sync) = sync {
 			let authorized = sync
 				.options
 				.tokens
@@ -179,11 +180,15 @@ impl Session {
 			if !authorized {
 				return Err(tg::error!("invalid sync authorization"));
 			}
-			return Ok(sync);
-		}
-		let id = tg::sync::Id::new();
+			sync.node
+		} else {
+			tg::sync::Id::new()
+		};
+
+		// Issue a fresh token for the sync, so that a new attempt of the sync holds an unexpired token.
 		let token = self.create_read_token(&id.clone().into())?;
 		let sync = tg::Referent::with_node_and_local_tokens(id, token);
+
 		Ok(sync)
 	}
 
@@ -246,22 +251,6 @@ impl Session {
 	}
 
 	async fn sync_task(
-		&self,
-		arg: tg::sync::Arg,
-		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
-		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
-		trust: bool,
-	) -> tg::Result<()> {
-		let mut session = self.clone();
-		session.sync = arg.sync.as_ref().map(|sync| sync.node.clone());
-		session
-			.sync_task_inner(arg, get, stream, sender, trust)
-			.await?;
-		Ok(())
-	}
-
-	async fn sync_task_inner(
 		&self,
 		arg: tg::sync::Arg,
 		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,

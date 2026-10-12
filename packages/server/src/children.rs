@@ -207,7 +207,7 @@ impl Session {
 			options.tokens.local_authorization().to_vec(),
 		);
 		let mut authorizations = self
-			.authorize_batch_with_required([(resource, permissions)], required.into())
+			.authorize_batch_with_required([(resource, permissions)], required.into(), None)
 			.await?;
 		let permissions = authorizations
 			.pop()

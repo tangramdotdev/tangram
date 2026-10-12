@@ -175,6 +175,7 @@ impl Session {
 				let (mut outputs, _) = self
 					.sync_get_touch_authorized_processes(
 						&state.graph,
+						&state.id,
 						std::slice::from_ref(&id),
 						&state.arg,
 						touched_at,
@@ -190,6 +191,7 @@ impl Session {
 							resource,
 							tg::authorization::permission::Set::Process(permissions),
 							storage,
+							Some(&state.id),
 						)
 						.await?
 						.check_exhaustion()?;
@@ -202,6 +204,7 @@ impl Session {
 						let (mut outputs, _) = self
 							.sync_get_touch_authorized_processes(
 								&state.graph,
+								&state.id,
 								std::slice::from_ref(&id),
 								&state.arg,
 								touched_at,

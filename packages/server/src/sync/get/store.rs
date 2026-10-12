@@ -339,6 +339,7 @@ impl Session {
 					.iter()
 					.map(|(id, _, _)| (tg::Referent::with_node(id.clone()), permission.into()))
 					.collect::<Vec<_>>(),
+				Some(&state.id),
 			)
 			.await?;
 		crate::authorization::check_exhaustion(&authorizations)?;

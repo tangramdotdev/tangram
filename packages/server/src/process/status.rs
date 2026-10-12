@@ -236,7 +236,7 @@ impl Session {
 		);
 		let requested = tg::authorization::permission::Set::Process(requested);
 		let authorize_future =
-			self.authorize_batch_with_required([(resource, requested)], required);
+			self.authorize_batch_with_required([(resource, requested)], required, None);
 		let get_future = self.try_get_process_data_local(id, source, deadline);
 		let (mut permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let Some(tg::authorization::permission::Set::Process(permissions)) =

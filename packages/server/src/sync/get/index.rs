@@ -197,6 +197,7 @@ impl Session {
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_objects(
 				&state.graph,
+				&state.id,
 				&ids,
 				touched_at,
 				self.server.config.object.time_to_touch,
@@ -263,7 +264,7 @@ impl Session {
 					);
 					let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
 					let output = self
-						.verify(resource, permissions, storage)
+						.verify(resource, permissions, storage, Some(&state.id))
 						.await?
 						.check_exhaustion()?;
 					if output.outcome == crate::authorization::Outcome::Satisfied {
@@ -381,6 +382,7 @@ impl Session {
 		let (mut objects, mut permissions) = self
 			.sync_get_touch_authorized_objects(
 				&state.graph,
+				&state.id,
 				std::slice::from_ref(id),
 				touched_at,
 				self.server.config.object.time_to_touch,
@@ -476,6 +478,7 @@ impl Session {
 		let (mut outputs, permissions) = self
 			.sync_get_touch_authorized_processes(
 				&state.graph,
+				&state.id,
 				&ids,
 				&state.arg,
 				touched_at,
@@ -699,7 +702,7 @@ impl Session {
 			}
 			process_objects.into_iter().collect::<Vec<_>>()
 		};
-		self.sync_get_authorize_objects(&graph, &process_objects)
+		self.sync_get_authorize_objects(&graph, sync, &process_objects)
 			.await?;
 
 		// Create the index args and update the graph with the permissions being written.

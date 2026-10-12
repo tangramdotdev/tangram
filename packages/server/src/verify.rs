@@ -33,6 +33,7 @@ type SyncKey = (usize, tg::sync::Id);
 
 struct Requests<'a> {
 	cancelled: BTreeSet<usize>,
+	current_sync: Option<&'a tg::sync::Id>,
 	entries: BTreeMap<RequestKey, Entry>,
 	errors: BTreeMap<SyncKey, tg::Error>,
 	futures: FuturesUnordered<
@@ -99,9 +100,11 @@ impl Session {
 		resource: impl IntoAuthorizationResource,
 		permissions: tg::authorization::permission::Set,
 		storage: tg::storage::Set,
+		current_sync: Option<&tg::sync::Id>,
 	) -> tg::Result<Output> {
+		let args = [(resource, permissions, None, storage)];
 		let mut outputs = self
-			.verify_batch([(resource, permissions, storage)])
+			.verify_batch_inner(args, None, false, current_sync)
 			.await?;
 		Ok(outputs.pop().unwrap())
 	}
@@ -121,6 +124,7 @@ impl Session {
 				true,
 				Some(subject),
 				Mode::Normal,
+				None,
 			)
 			.await?;
 		Ok(outputs.pop().unwrap())
@@ -136,7 +140,7 @@ impl Session {
 		let args = args
 			.into_iter()
 			.map(|(resource, permissions, storage)| (resource, permissions, None, storage));
-		let outputs = self.verify_batch_inner(args, None, false).await?;
+		let outputs = self.verify_batch_inner(args, None, false, None).await?;
 		Ok(outputs)
 	}
 
@@ -144,6 +148,7 @@ impl Session {
 		&self,
 		args: I,
 		required: tg::authorization::permission::Set,
+		current_sync: Option<&tg::sync::Id>,
 	) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,
@@ -152,14 +157,22 @@ impl Session {
 		let args = args
 			.into_iter()
 			.map(|(resource, requested)| (resource, requested, None, empty_storage(requested)));
-		self.verify_batch_inner_with_subject(args, Some(required), false, None, Mode::Initial)
-			.await
+		self.verify_batch_inner_with_subject(
+			args,
+			Some(required),
+			false,
+			None,
+			Mode::Initial,
+			current_sync,
+		)
+		.await
 	}
 
 	pub(crate) async fn verify_batch_with_required<R, I>(
 		&self,
 		args: I,
 		required: tg::authorization::permission::Set,
+		current_sync: Option<&tg::sync::Id>,
 	) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,
@@ -168,7 +181,8 @@ impl Session {
 		let args = args
 			.into_iter()
 			.map(|(resource, permissions, storage)| (resource, permissions, None, storage));
-		self.verify_batch_inner(args, Some(required), false).await
+		self.verify_batch_inner(args, Some(required), false, current_sync)
+			.await
 	}
 
 	pub(crate) async fn verify_batch_inner<R, I>(
@@ -176,6 +190,7 @@ impl Session {
 		args: I,
 		required: Option<tg::authorization::permission::Set>,
 		wait_for_requested_permissions: bool,
+		current_sync: Option<&tg::sync::Id>,
 	) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,
@@ -194,6 +209,7 @@ impl Session {
 			wait_for_requested_permissions,
 			None,
 			Mode::Normal,
+			current_sync,
 		)
 		.await
 	}
@@ -205,6 +221,7 @@ impl Session {
 		wait_for_requested_permissions: bool,
 		subject: Option<tg::authorization::Subject>,
 		mode: Mode,
+		current_sync: Option<&tg::sync::Id>,
 	) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,
@@ -243,7 +260,7 @@ impl Session {
 		let mut outputs = Vec::new();
 		let mut index_args = Vec::new();
 		let mut index_positions = Vec::new();
-		let mut requests = Requests::new(self);
+		let mut requests = Requests::new(self, current_sync);
 
 		for (position, (resource, mut tokens, permissions, trusted, storage)) in
 			args.into_iter().enumerate()
@@ -420,7 +437,7 @@ impl Session {
 				let mut syncs = BTreeMap::new();
 				for token in &tokens {
 					if let Some(sync) = self.try_get_sync_id_from_token(token)
-						&& self.sync.as_ref() != Some(&sync)
+						&& current_sync != Some(&sync)
 					{
 						syncs.entry(sync).or_insert(token);
 					}
@@ -764,7 +781,7 @@ impl Session {
 						!output.is_some_and(|output| output.permissions.contains(requested));
 					let missing_storage = !stored[*position].contains(resources[*position].1);
 					for sync in result.syncs {
-						if self.sync.as_ref() == Some(&sync.sync) {
+						if current_sync == Some(&sync.sync) {
 							continue;
 						}
 						let mut args = Vec::new();
@@ -984,9 +1001,10 @@ impl Session {
 }
 
 impl<'a> Requests<'a> {
-	fn new(session: &'a Session) -> Self {
+	fn new(session: &'a Session, current_sync: Option<&'a tg::sync::Id>) -> Self {
 		Self {
 			cancelled: BTreeSet::new(),
+			current_sync,
 			entries: BTreeMap::new(),
 			errors: BTreeMap::new(),
 			futures: FuturesUnordered::new(),
@@ -995,7 +1013,8 @@ impl<'a> Requests<'a> {
 	}
 
 	fn push(&mut self, request: Request) {
-		if self.session.sync.as_ref() == Some(&request.sync) {
+		// A sync does not ask itself for permissions.
+		if self.current_sync == Some(&request.sync) {
 			return;
 		}
 		let key = request.key();

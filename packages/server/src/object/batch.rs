@@ -286,7 +286,7 @@ impl Session {
 			}
 		}
 
-		let outputs = self.authorize_batch(authorization_args).await?;
+		let outputs = self.authorize_batch(authorization_args, None).await?;
 		let authorized = outputs
 			.into_iter()
 			.all(|output| output.permissions.contains(permission));

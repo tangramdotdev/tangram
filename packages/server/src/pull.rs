@@ -151,7 +151,7 @@ impl Session {
 			.iter()
 			.map(|(_, permissions)| *permissions)
 			.collect::<Vec<_>>();
-		let outputs = self.authorize_batch(args).await?;
+		let outputs = self.authorize_batch(args, None).await?;
 		if !outputs
 			.iter()
 			.zip(&required)

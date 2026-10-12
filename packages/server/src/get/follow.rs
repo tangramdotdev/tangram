@@ -708,7 +708,13 @@ impl Session {
 			tokens.clone(),
 		);
 		let authorization = self
-			.authorize_with_permissions(resource, permission, permission, permission.empty_like())
+			.authorize_with_permissions(
+				resource,
+				permission,
+				permission,
+				permission.empty_like(),
+				None,
+			)
 			.await?;
 		if !authorization.permissions.contains(permission) {
 			return Ok(None);

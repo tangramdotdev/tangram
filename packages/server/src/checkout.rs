@@ -315,7 +315,7 @@ impl Session {
 				Ok::<_, tg::Error>((resource, permissions))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let authorization = self.authorize_batch(authorization_args).await?;
+		let authorization = self.authorize_batch(authorization_args, None).await?;
 		crate::authorization::check_exhaustion(&authorization)?;
 		let mut allowed = tree
 			.ancestors

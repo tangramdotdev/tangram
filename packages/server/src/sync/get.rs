@@ -228,7 +228,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
 			// Commit the database nodes.
-			self.sync_get_database(&state.graph, state.arg.force)
+			self.sync_get_database(&state.graph, state.arg.force, &state.id)
 				.await?;
 
 			Ok(())
@@ -322,6 +322,7 @@ impl Session {
 	async fn sync_get_touch_authorized_objects(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
 		ids: &[tg::object::Id],
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
@@ -329,7 +330,7 @@ impl Session {
 		Vec<Option<tangram_index::object::Object>>,
 		Vec<Option<tg::authorization::permission::Set>>,
 	)> {
-		let permissions = self.sync_get_authorize_objects(graph, ids).await?;
+		let permissions = self.sync_get_authorize_objects(graph, sync, ids).await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
@@ -355,6 +356,7 @@ impl Session {
 	async fn sync_get_authorize_objects(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>> {
 		let mut requested = tg::authorization::permission::object::Set::empty();
@@ -368,6 +370,7 @@ impl Session {
 		);
 		self.sync_get_authorize(
 			graph,
+			sync,
 			ids.iter().cloned().map(tg::Id::from),
 			requested,
 			required,
@@ -378,6 +381,7 @@ impl Session {
 	async fn sync_get_touch_authorized_processes(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
 		ids: &[tg::process::Id],
 		arg: &tg::sync::Arg,
 		touched_at: i64,
@@ -386,7 +390,9 @@ impl Session {
 		Vec<Option<tangram_index::process::Process>>,
 		Vec<Option<tg::authorization::permission::Set>>,
 	)> {
-		let permissions = self.sync_get_authorize_processes(graph, ids, arg).await?;
+		let permissions = self
+			.sync_get_authorize_processes(graph, sync, ids, arg)
+			.await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
@@ -414,6 +420,7 @@ impl Session {
 	async fn sync_get_authorize_processes(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
 		ids: &[tg::process::Id],
 		arg: &tg::sync::Arg,
 	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>> {
@@ -421,6 +428,7 @@ impl Session {
 
 		self.sync_get_authorize(
 			graph,
+			sync,
 			ids.iter().cloned().map(tg::Id::from),
 			required,
 			required,
@@ -472,6 +480,7 @@ impl Session {
 	async fn sync_get_authorize(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
 		ids: impl IntoIterator<Item = tg::Id>,
 		requested: tg::authorization::permission::Set,
 		required: tg::authorization::permission::Set,
@@ -508,7 +517,7 @@ impl Session {
 
 		// Authorize the remaining nodes.
 		let authorization_outputs = self
-			.authorize_batch_initial(args, required)
+			.authorize_batch_initial(args, required, Some(sync))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the sync nodes"))?;
 		let mut graph = graph.lock().unwrap();

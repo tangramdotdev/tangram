@@ -101,7 +101,7 @@ impl Session {
 			tg::authorization::permission::process::Set::NODE,
 		);
 		let mut permissions = self
-			.authorize_batch_with_required([(resource, permissions)], required)
+			.authorize_batch_with_required([(resource, permissions)], required, None)
 			.await?;
 		let permissions = permissions.pop().unwrap().check_exhaustion()?;
 		let permission = tg::authorization::Permission::Process(

@@ -156,7 +156,7 @@ impl Session {
 			);
 			let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
 			if self
-				.verify(resource, permissions, storage)
+				.verify(resource, permissions, storage, None)
 				.boxed()
 				.await?
 				.check_exhaustion()?

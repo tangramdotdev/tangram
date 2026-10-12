@@ -168,7 +168,7 @@ impl Session {
 				.iter()
 				.map(|(resource, _, permissions)| (resource.clone(), *permissions))
 				.collect::<Vec<_>>();
-			let outputs = self.authorize_batch(args).await?;
+			let outputs = self.authorize_batch(args, None).await?;
 			crate::authorization::check_exhaustion(&outputs)?;
 			for ((resource, allow_unclaimed, permissions), output) in
 				std::iter::zip(authorizations, outputs)

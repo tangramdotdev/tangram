@@ -189,7 +189,7 @@ impl Session {
 			})
 			.collect::<Vec<_>>();
 		let authorizations = self
-			.authorize_batch(authorizations)
+			.authorize_batch(authorizations, None)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the sandboxes"))?;
 		crate::authorization::check_exhaustion(&authorizations)?;

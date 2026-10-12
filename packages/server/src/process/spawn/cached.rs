@@ -303,7 +303,7 @@ impl Session {
 		let authorizations = self
 			.server
 			.session(&context)
-			.authorize_batch(args)
+			.authorize_batch(args, None)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the cached processes"))?;
 		crate::authorization::check_exhaustion(&authorizations)?;

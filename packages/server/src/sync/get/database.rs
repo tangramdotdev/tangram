@@ -38,6 +38,7 @@ impl Session {
 		&self,
 		graph: &Arc<Mutex<Graph>>,
 		force: bool,
+		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
 		// Get the staged nodes.
 		let mut nodes = {
@@ -75,9 +76,10 @@ impl Session {
 			let nodes = nodes.clone();
 			let session = session.clone();
 			let tag_permissions = tag_permissions.clone();
+			let sync = sync.clone();
 			async move {
 				match session
-					.sync_get_database_attempt(&nodes, force, &tag_permissions, touched_at)
+					.sync_get_database_attempt(&nodes, force, &tag_permissions, touched_at, &sync)
 					.await?
 				{
 					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
@@ -100,8 +102,9 @@ impl Session {
 		force: bool,
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		touched_at: i64,
+		sync: &tg::sync::Id,
 	) -> tg::Result<ControlFlow<BTreeSet<tg::Specifier>>> {
-		let authorized_state = self.sync_get_database_authorize(nodes, force).await?;
+		let authorized_state = self.sync_get_database_authorize(nodes, force, sync).await?;
 		crate::checkpoint!(self.server, "sync.get.database.authorized").await;
 		let session = self.clone();
 		let output = self
@@ -406,6 +409,7 @@ impl Session {
 		&self,
 		nodes: &[tg::sync::PutNodeMessage],
 		force: bool,
+		sync: &tg::sync::Id,
 	) -> tg::Result<(
 		Specifiers,
 		BTreeMap<tg::Id, tg::Specifier>,
@@ -505,7 +509,7 @@ impl Session {
 				.iter()
 				.map(|(resource, _, permissions)| (resource.clone(), *permissions))
 				.collect::<Vec<_>>();
-			let outputs = self.authorize_batch(args).await?;
+			let outputs = self.authorize_batch(args, Some(sync)).await?;
 			crate::authorization::check_exhaustion(&outputs)?;
 			for ((resource, allow_unclaimed, permissions), output) in
 				std::iter::zip(authorizations, outputs)

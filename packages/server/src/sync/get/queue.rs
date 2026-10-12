@@ -167,6 +167,7 @@ impl Session {
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_objects(
 				&state.graph,
+				&state.id,
 				&ids,
 				touched_at,
 				self.server.config.object.time_to_touch,
@@ -431,6 +432,7 @@ impl Session {
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_processes(
 				&state.graph,
+				&state.id,
 				&ids,
 				&state.arg,
 				touched_at,

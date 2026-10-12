@@ -148,7 +148,7 @@ impl Session {
 			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 		);
 		if self
-			.verify(artifact.clone(), permissions, storage)
+			.verify(artifact.clone(), permissions, storage, None)
 			.await?
 			.check_exhaustion()?
 			.outcome == crate::authorization::Outcome::Satisfied

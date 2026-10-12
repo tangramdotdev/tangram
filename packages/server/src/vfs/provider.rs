@@ -1322,7 +1322,13 @@ impl Provider {
 		let requested = tg::authorization::permission::Set::from(permission);
 		let session = self.session();
 		let output = session
-			.authorize_with_permissions(resource, requested, requested, requested.empty_like())
+			.authorize_with_permissions(
+				resource,
+				requested,
+				requested,
+				requested.empty_like(),
+				None,
+			)
 			.await
 			.and_then(crate::authorization::Output::check_exhaustion)
 			.map_err(|error| Self::map_cache_sync_error(&error))?;

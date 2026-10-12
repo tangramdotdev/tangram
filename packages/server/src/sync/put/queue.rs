@@ -569,6 +569,7 @@ impl Session {
 			let authorization = self.authorize_batch_with_required(
 				authorization_args.clone(),
 				Self::sync_put_object_node_permissions(),
+				state.arg.sync.as_ref().map(|sync| &sync.node),
 			);
 			tokio::pin!(authorization);
 			let outputs = if let Some(outputs) =
@@ -734,6 +735,7 @@ impl Session {
 			let authorization = self.authorize_batch_with_required(
 				authorization_args.clone(),
 				Self::sync_put_process_node_permissions(),
+				state.arg.sync.as_ref().map(|sync| &sync.node),
 			);
 			tokio::pin!(authorization);
 			let outputs = if let Some(outputs) =

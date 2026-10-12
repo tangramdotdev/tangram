@@ -259,7 +259,14 @@ impl Session {
 						);
 						let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
 						let args = [(object.clone(), required, Some(*permissions), storage)];
-						let mut outputs = self.verify_batch_inner(args, None, false).await?;
+						let mut outputs = self
+							.verify_batch_inner(
+								args,
+								None,
+								false,
+								state.arg.sync.as_ref().map(|sync| &sync.node),
+							)
+							.await?;
 						let output = outputs.pop().unwrap();
 						if !output.permissions.contains(required) {
 							output.check_exhaustion()?;
@@ -636,7 +643,14 @@ impl Session {
 						);
 						let storage = tg::storage::Set::Process(tg::process::storage::Set::NODE);
 						let args = [(process.clone(), required, Some(*permissions), storage)];
-						let mut outputs = self.verify_batch_inner(args, None, false).await?;
+						let mut outputs = self
+							.verify_batch_inner(
+								args,
+								None,
+								false,
+								state.arg.sync.as_ref().map(|sync| &sync.node),
+							)
+							.await?;
 						let output = outputs.pop().unwrap();
 						if !output.permissions.contains(required) {
 							output.check_exhaustion()?;
