@@ -1,5 +1,5 @@
 use {
-	super::{Indexer, RETRY_OPTIONS},
+	super::Indexer,
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -11,8 +11,6 @@ use {
 };
 
 mod tasks;
-
-const RECOVERY_BATCH_SIZE: u64 = 1024;
 
 pub(super) type CheckpointSender =
 	tokio::sync::mpsc::UnboundedSender<tokio::sync::oneshot::Sender<tg::Result<()>>>;
@@ -144,10 +142,11 @@ impl Queues {
 			index_end = self.index.reserved_sequence_end,
 			"recovering the queues"
 		);
+		let batch_size = indexer.server.config.object.queue_recovery_batch_size;
 		let mut sequence_start = self.archive.read_sequence;
 		while sequence_start < self.archive.reserved_sequence_end {
 			let sequence_end = sequence_start
-				.saturating_add(RECOVERY_BATCH_SIZE)
+				.saturating_add(batch_size)
 				.min(self.archive.reserved_sequence_end);
 			let arg = crate::cache::archive::queue::get::batch::Arg {
 				indexer: indexer.id().clone(),
@@ -187,7 +186,7 @@ impl Queues {
 		let mut sequence_start = self.index.read_sequence;
 		while sequence_start < self.index.reserved_sequence_end {
 			let sequence_end = sequence_start
-				.saturating_add(RECOVERY_BATCH_SIZE)
+				.saturating_add(batch_size)
 				.min(self.index.reserved_sequence_end);
 			let arg = crate::cache::index::queue::get::batch::Arg {
 				indexer: indexer.id().clone(),
@@ -574,7 +573,7 @@ impl Indexer {
 		&self,
 		reservation: SequenceReservation,
 	) -> tg::Result<()> {
-		tangram_futures::retry(&RETRY_OPTIONS, || async {
+		tangram_futures::retry(&self.retry_options(), || async {
 			match self.persist_reservation(reservation).await {
 				Ok(()) => Ok(ControlFlow::Break(())),
 				Err(error) => {
@@ -711,7 +710,7 @@ impl Indexer {
 		&self,
 		entry: &crate::cache::archive::queue::Entry,
 	) -> tg::Result<()> {
-		tangram_futures::retry(&RETRY_OPTIONS, || async {
+		tangram_futures::retry(&self.retry_options(), || async {
 			match self.process_archive_entry(entry).await {
 				Ok(()) => Ok(ControlFlow::Break(())),
 				Err(error) => {
@@ -727,7 +726,7 @@ impl Indexer {
 	}
 
 	async fn process_index_batch_with_retry(&self, batch: &IndexBatch) -> tg::Result<()> {
-		let result = tangram_futures::retry(&RETRY_OPTIONS, || async {
+		let result = tangram_futures::retry(&self.retry_options(), || async {
 			match self.process_index_batch(&batch.fragments).await {
 				Ok(result) => Ok(ControlFlow::Break(result)),
 				Err(error) => {
@@ -820,7 +819,7 @@ impl Indexer {
 	}
 
 	async fn delete_archive_sequence(&self, sequence: u64) -> tg::Result<()> {
-		tangram_futures::retry(&RETRY_OPTIONS, || async {
+		tangram_futures::retry(&self.retry_options(), || async {
 			let arg = crate::cache::archive::queue::delete::Arg {
 				indexer: self.id().clone(),
 				sequence,
@@ -841,7 +840,7 @@ impl Indexer {
 
 	async fn delete_index_sequences(&self, sequences: &[u64]) -> tg::Result<()> {
 		for &sequence in sequences {
-			tangram_futures::retry(&RETRY_OPTIONS, || async {
+			tangram_futures::retry(&self.retry_options(), || async {
 				let arg = crate::cache::index::queue::delete::Arg {
 					indexer: self.id().clone(),
 					sequence,

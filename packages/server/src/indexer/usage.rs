@@ -1,5 +1,5 @@
 use {
-	super::{Indexer, RETRY_OPTIONS, partition},
+	super::{Indexer, partition},
 	futures::future,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -46,7 +46,7 @@ impl Indexer {
 				partition_end,
 				partition_start,
 			};
-			let output = tangram_futures::retry(&RETRY_OPTIONS, || async {
+			let output = tangram_futures::retry(&self.retry_options(), || async {
 				match self.server.index.aggregate_usage(arg.clone()).await {
 					Ok(output) => Ok(ControlFlow::Break(output)),
 					Err(error) => {

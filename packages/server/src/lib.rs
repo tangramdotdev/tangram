@@ -203,6 +203,14 @@ impl Server {
 		}
 		for (name, duration) in [
 			("control request timeout", config.control.request_timeout),
+			(
+				"indexer billing cleanup poll interval",
+				config.indexer.billing_cleanup.poll_interval,
+			),
+			(
+				"indexer updates poll interval",
+				config.indexer.updates.poll_interval,
+			),
 			("progress interval", config.progress.interval),
 			(
 				"verification poll interval",
@@ -217,19 +225,31 @@ impl Server {
 				return Err(tg::error!("the {name} must be greater than zero"));
 			}
 		}
-		let sizes = [(
-			"progress channel capacity",
-			config.progress.channel_capacity,
-		)];
+		let sizes = [
+			(
+				"indexer request channel capacity",
+				config.indexer.request.channel_capacity,
+			),
+			(
+				"progress channel capacity",
+				config.progress.channel_capacity,
+			),
+		];
 		for (name, size) in sizes {
 			if size == 0 {
 				return Err(tg::error!("the {name} must be greater than zero"));
 			}
 		}
-		let sizes = [(
-			"pagination database page length",
-			config.pagination.database_page_length,
-		)];
+		let sizes = [
+			(
+				"object queue recovery batch size",
+				config.object.queue_recovery_batch_size,
+			),
+			(
+				"pagination database page length",
+				config.pagination.database_page_length,
+			),
+		];
 		for (name, size) in sizes {
 			if size == 0 {
 				return Err(tg::error!("the {name} must be greater than zero"));

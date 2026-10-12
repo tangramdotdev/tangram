@@ -218,7 +218,8 @@ impl Indexer {
 			.map_err(|source| tg::error!(!source, "failed to receive an indexer message"))
 			.map_ok(|message| message.payload)
 			.boxed();
-		let (sender, receiver) = tokio::sync::mpsc::channel(256);
+		let capacity = self.server.config.indexer.request.channel_capacity;
+		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
 		let mut options = crate::control::stream_options(&self.server.config.control);
 		options.outbox_ttl = Some(self.server.config.indexer.request.response_ttl);
 		let control = crate::control::Stream::new(messages, sender, options);

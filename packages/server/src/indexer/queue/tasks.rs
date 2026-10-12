@@ -1,5 +1,5 @@
 use {
-	crate::indexer::{Indexer, RETRY_OPTIONS, State, queue},
+	crate::indexer::{Indexer, State, queue},
 	futures::future,
 	std::{ops::ControlFlow, sync::Mutex},
 	tangram_client::prelude::*,
@@ -170,7 +170,7 @@ impl Indexer {
 		&self,
 		checkpoints: &queue::CheckpointSender,
 	) -> tg::Result<()> {
-		tangram_futures::retry(&RETRY_OPTIONS, || async {
+		tangram_futures::retry(&self.retry_options(), || async {
 			let (sender, receiver) = tokio::sync::oneshot::channel();
 			let result = match checkpoints.send(sender) {
 				Ok(()) => receiver

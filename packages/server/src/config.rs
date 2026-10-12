@@ -556,9 +556,11 @@ pub struct LmdbIndex {
 	pub write_operation_batch_size: usize,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Indexer {
 	pub batch: IndexerBatch,
+
+	pub billing_cleanup: IndexerBillingCleanup,
 
 	pub cache: IndexerCache,
 
@@ -574,11 +576,20 @@ pub struct Indexer {
 
 	pub request: IndexerRequest,
 
+	pub retry: Retry,
+
 	pub updates: IndexerUpdates,
 
 	pub usage: IndexerUsage,
 
 	pub usage_partitions: IndexerPartitions,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerBillingCleanup {
+	pub poll_interval: Duration,
+
+	pub webhook_ttl: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -599,6 +610,7 @@ pub struct IndexerPermissionCapture {
 	pub concurrency: usize,
 	pub delegation_time_to_live: Duration,
 	pub poll_interval: Duration,
+	pub retry_delay: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -626,6 +638,8 @@ pub struct IndexerPartitions {
 #[derive(Clone, Debug)]
 pub struct IndexerRequest {
 	pub archive_concurrency: usize,
+
+	pub channel_capacity: usize,
 
 	/// The maximum number of concurrent message publications.
 	pub concurrency: usize,
@@ -686,6 +700,8 @@ pub struct IndexerUpdates {
 
 	pub max_process_depth: usize,
 
+	pub poll_interval: Duration,
+
 	pub storage_and_metadata: IndexerUpdate,
 
 	pub usage: IndexerUpdate,
@@ -721,6 +737,8 @@ pub struct NatsMessenger {
 pub struct Object {
 	pub archive_queue: ArchiveQueue,
 
+	pub archive_retry: Retry,
+
 	pub cache: Option<ObjectCache>,
 
 	pub permission_time_to_live: Duration,
@@ -732,6 +750,8 @@ pub struct Object {
 	pub put_timeout: Duration,
 
 	pub queue_checkpoint_interval: Duration,
+
+	pub queue_recovery_batch_size: u64,
 
 	pub time_to_index: Duration,
 
@@ -1958,6 +1978,41 @@ impl Default for LmdbIndex {
 	}
 }
 
+impl Default for Indexer {
+	fn default() -> Self {
+		let retry = tangram_futures::retry::Options {
+			backoff: Duration::from_secs(1),
+			jitter: Duration::ZERO,
+			max_delay: Duration::from_secs(1),
+			max_retries: u64::MAX,
+		};
+		Self {
+			batch: IndexerBatch::default(),
+			billing_cleanup: IndexerBillingCleanup::default(),
+			cache: IndexerCache::default(),
+			cleaning: IndexerCleaning::default(),
+			id: None,
+			log_cache: IndexerLogCache::default(),
+			object_cache_partitions: IndexerPartitions::default(),
+			permission_capture: IndexerPermissionCapture::default(),
+			request: IndexerRequest::default(),
+			retry: retry.into(),
+			updates: IndexerUpdates::default(),
+			usage: IndexerUsage::default(),
+			usage_partitions: IndexerPartitions::default(),
+		}
+	}
+}
+
+impl Default for IndexerBillingCleanup {
+	fn default() -> Self {
+		Self {
+			poll_interval: Duration::from_hours(1),
+			webhook_ttl: Duration::from_hours(35 * 24),
+		}
+	}
+}
+
 impl Default for IndexerBatch {
 	fn default() -> Self {
 		Self {
@@ -1982,6 +2037,7 @@ impl Default for IndexerPermissionCapture {
 			concurrency: 4,
 			delegation_time_to_live: Duration::from_hours(168),
 			poll_interval: Duration::from_secs(1),
+			retry_delay: Duration::from_secs(1),
 		}
 	}
 }
@@ -2009,6 +2065,7 @@ impl Default for IndexerRequest {
 	fn default() -> Self {
 		Self {
 			archive_concurrency: 64,
+			channel_capacity: 256,
 			concurrency: 64,
 			index_concurrency: 4096,
 			poll_interval: Duration::from_millis(10),
@@ -2058,6 +2115,7 @@ impl Default for IndexerUpdates {
 		Self {
 			permissions: IndexerUpdate::default(),
 			max_process_depth: 1024,
+			poll_interval: Duration::from_millis(100),
 			storage_and_metadata: IndexerUpdate::default(),
 			usage: IndexerUpdate::default(),
 		}
@@ -2090,12 +2148,14 @@ impl Default for Object {
 	fn default() -> Self {
 		Self {
 			archive_queue: ArchiveQueue::default(),
+			archive_retry: object_archive_retry_default(),
 			cache: None,
 			permission_time_to_live: default_object_permission_time_to_live(),
 			permission_time_to_touch: default_time_to_touch(),
 			index_queue: IndexQueue::default(),
 			put_timeout: default_object_put_timeout(),
 			queue_checkpoint_interval: Duration::from_secs(1),
+			queue_recovery_batch_size: 1024,
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -2726,6 +2786,15 @@ fn message_retry_default() -> Retry {
 		jitter: options.jitter,
 		max_delay: options.max_delay,
 		max_retries: options.max_retries,
+	}
+}
+
+fn object_archive_retry_default() -> Retry {
+	Retry {
+		backoff: Duration::from_secs(1),
+		jitter: Duration::ZERO,
+		max_delay: Duration::from_secs(1),
+		max_retries: u64::MAX,
 	}
 }
 

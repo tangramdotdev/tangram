@@ -1,5 +1,5 @@
 use {
-	super::{Indexer, RETRY_OPTIONS, partition},
+	super::{Indexer, partition},
 	futures::{FutureExt as _, future},
 	std::collections::BTreeMap,
 	tangram_client::prelude::*,
@@ -56,7 +56,7 @@ impl Indexer {
 					tracing::error!(error = %error.trace(), "failed to read permission capture entries");
 					tokio::select! {
 						() = stopper.wait() => return Ok(()),
-						() = tokio::time::sleep(RETRY_OPTIONS.max_delay) => {},
+						() = tokio::time::sleep(config.retry_delay) => {},
 					}
 					continue;
 				},
@@ -87,7 +87,7 @@ impl Indexer {
 			if failed {
 				tokio::select! {
 					() = stopper.wait() => return Ok(()),
-					() = tokio::time::sleep(RETRY_OPTIONS.max_delay) => {},
+					() = tokio::time::sleep(config.retry_delay) => {},
 				}
 			}
 		}

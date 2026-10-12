@@ -68,7 +68,8 @@ impl Server {
 	}
 
 	async fn archive_object_with_retry(&self, arg: object::put::Arg) -> tg::Result<()> {
-		tangram_futures::retry(&crate::indexer::RETRY_OPTIONS, || {
+		let retry = self.config.object.archive_retry.clone().into();
+		tangram_futures::retry(&retry, || {
 			let arg = arg.clone();
 			async move {
 				match self.archive_object(arg).await {

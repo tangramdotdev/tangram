@@ -2,17 +2,15 @@ use {
 	super::Indexer,
 	futures::FutureExt as _,
 	num::ToPrimitive as _,
-	std::{ops::ControlFlow, time::Duration},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Stopper,
 };
 
-const POLL_INTERVAL: Duration = Duration::from_hours(1);
-const WEBHOOK_TTL: Duration = Duration::from_hours(35 * 24);
-
 impl Indexer {
 	pub(super) async fn billing_cleanup_task(&self, stopper: &Stopper) -> tg::Result<()> {
+		let poll_interval = self.server.config.indexer.billing_cleanup.poll_interval;
 		loop {
 			if stopper.stopped() {
 				return Ok(());
@@ -23,13 +21,21 @@ impl Indexer {
 			}
 			tokio::select! {
 				() = stopper.wait() => return Ok(()),
-				() = tokio::time::sleep(POLL_INTERVAL) => {},
+				() = tokio::time::sleep(poll_interval) => {},
 			}
 		}
 	}
 
 	async fn clean_billing_webhooks(&self, now: i64) -> tg::Result<()> {
-		let ttl = WEBHOOK_TTL.as_secs().to_i64().unwrap();
+		let ttl = self
+			.server
+			.config
+			.indexer
+			.billing_cleanup
+			.webhook_ttl
+			.as_secs()
+			.to_i64()
+			.unwrap_or(i64::MAX);
 		let max_created_at = now.saturating_sub(ttl);
 		self.server
 			.database

@@ -847,6 +847,9 @@ pub struct Indexer {
 	pub batch: Option<IndexerBatch>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub billing_cleanup: Option<IndexerBillingCleanup>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<IndexerCache>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -868,6 +871,9 @@ pub struct Indexer {
 	pub request: Option<IndexerRequest>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub updates: Option<IndexerUpdates>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -887,6 +893,19 @@ pub struct IndexerBatch {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub timeout: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerBillingCleanup {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub webhook_ttl: Option<Duration>,
 }
 
 #[serde_as]
@@ -915,6 +934,10 @@ pub struct IndexerPermissionCapture {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub poll_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry_delay: Option<Duration>,
 }
 
 #[serde_as]
@@ -954,6 +977,9 @@ pub struct IndexerPartitions {
 pub struct IndexerRequest {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub archive_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
@@ -1035,6 +1061,7 @@ pub struct IndexerUsageExpiration {
 	pub poll_interval: Option<Duration>,
 }
 
+#[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerUpdates {
@@ -1043,6 +1070,10 @@ pub struct IndexerUpdates {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_process_depth: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage_and_metadata: Option<IndexerUpdate>,
@@ -1097,6 +1128,9 @@ pub struct Object {
 	pub archive_queue: Option<ArchiveQueue>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub archive_retry: Option<Retry>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<ObjectCache>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1117,6 +1151,9 @@ pub struct Object {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub queue_checkpoint_interval: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queue_recovery_batch_size: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
@@ -3459,6 +3496,9 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.batch {
 		target.batch = resolve_indexer_batch(source);
 	}
+	if let Some(source) = source.billing_cleanup {
+		target.billing_cleanup = resolve_indexer_billing_cleanup(source);
+	}
 	if let Some(source) = source.cache {
 		target.cache = resolve_indexer_cache(source);
 	}
@@ -3480,6 +3520,9 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.request {
 		target.request = resolve_indexer_request(source);
 	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
 	if let Some(source) = source.updates {
 		target.updates = resolve_indexer_updates(source);
 	}
@@ -3500,6 +3543,18 @@ fn resolve_indexer_batch(source: IndexerBatch) -> server::IndexerBatch {
 	}
 	if let Some(value) = source.timeout {
 		target.timeout = value;
+	}
+
+	target
+}
+
+fn resolve_indexer_billing_cleanup(source: IndexerBillingCleanup) -> server::IndexerBillingCleanup {
+	let mut target = server::IndexerBillingCleanup::default();
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
+	}
+	if let Some(value) = source.webhook_ttl {
+		target.webhook_ttl = value;
 	}
 
 	target
@@ -3529,6 +3584,10 @@ fn resolve_indexer_permission_capture(
 	}
 	if let Some(value) = source.poll_interval {
 		target.poll_interval = value;
+	}
+
+	if let Some(value) = source.retry_delay {
+		target.retry_delay = value;
 	}
 
 	target
@@ -3577,6 +3636,9 @@ fn resolve_indexer_request(source: IndexerRequest) -> server::IndexerRequest {
 	let mut target = server::IndexerRequest::default();
 	if let Some(value) = source.archive_concurrency {
 		target.archive_concurrency = value;
+	}
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
 	}
 	if let Some(value) = source.index_concurrency {
 		target.index_concurrency = value;
@@ -3665,6 +3727,9 @@ fn resolve_indexer_updates(source: IndexerUpdates) -> server::IndexerUpdates {
 	}
 	if let Some(value) = source.max_process_depth {
 		target.max_process_depth = value;
+	}
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
 	}
 	if let Some(source) = source.storage_and_metadata {
 		target.storage_and_metadata = resolve_indexer_update(source);
@@ -3776,6 +3841,9 @@ fn resolve_object(source: &Object) -> server::Object {
 	if let Some(source) = source.archive_queue {
 		target.archive_queue = resolve_archive_queue(source);
 	}
+	if let Some(source) = source.archive_retry {
+		target.archive_retry = resolve_retry_with_default(source, target.archive_retry);
+	}
 	if let Some(source) = source.cache {
 		target.cache = Some(resolve_object_cache(source));
 	}
@@ -3793,6 +3861,9 @@ fn resolve_object(source: &Object) -> server::Object {
 	}
 	if let Some(value) = source.queue_checkpoint_interval {
 		target.queue_checkpoint_interval = value;
+	}
+	if let Some(value) = source.queue_recovery_batch_size {
+		target.queue_recovery_batch_size = value;
 	}
 	if let Some(value) = source.time_to_index {
 		target.time_to_index = value;
@@ -5704,6 +5775,7 @@ mod tests {
 					}),
 				}),
 				max_process_depth: Some(55),
+				poll_interval: None,
 				storage_and_metadata: Some(IndexerUpdate {
 					batch_size: Some(22),
 					concurrency: Some(3),

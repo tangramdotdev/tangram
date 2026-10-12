@@ -1,5 +1,5 @@
 use {
-	super::super::{Indexer, RETRY_OPTIONS},
+	super::super::Indexer,
 	futures::{FutureExt as _, StreamExt as _, stream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -26,7 +26,7 @@ impl Indexer {
 		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let wakeup_interval = queue.wakeup_interval;
-		tangram_futures::retry(&RETRY_OPTIONS, || async {
+		tangram_futures::retry(&self.retry_options(), || async {
 			match self
 				.database_index_queue_task_inner(queue, region, wakeup_interval, stopper)
 				.await

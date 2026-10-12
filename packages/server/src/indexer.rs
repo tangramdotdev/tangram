@@ -30,13 +30,6 @@ pub(crate) use {
 	request::{ArchiveRequestArg, IndexRequestArg, RequestArg},
 };
 
-pub(crate) const RETRY_OPTIONS: tangram_futures::retry::Options = tangram_futures::retry::Options {
-	backoff: std::time::Duration::from_secs(1),
-	jitter: std::time::Duration::ZERO,
-	max_delay: std::time::Duration::from_secs(1),
-	max_retries: u64::MAX,
-};
-
 #[derive(Clone)]
 struct Indexer {
 	id: Option<tg::indexer::Id>,
@@ -569,6 +562,11 @@ impl Indexer {
 			.expect("a queue operation requires an indexer ID")
 	}
 
+	#[must_use]
+	fn retry_options(&self) -> tangram_futures::retry::Options {
+		self.server.config.indexer.retry.clone().into()
+	}
+
 	async fn shutdown(&self, args: ShutdownArgs<'_>) -> tg::Result<()> {
 		let ShutdownArgs {
 			changed,
@@ -695,7 +693,7 @@ impl Indexer {
 	}
 
 	async fn update_availability_with_retry(&self, available: bool) -> tg::Result<()> {
-		tangram_futures::retry(&RETRY_OPTIONS, || async {
+		tangram_futures::retry(&self.retry_options(), || async {
 			match self.update_availability(available).await {
 				Ok(()) => Ok(ControlFlow::Break(())),
 				Err(error) => {
@@ -719,7 +717,7 @@ impl Indexer {
 	}
 
 	async fn delete_with_retry(&self) -> tg::Result<()> {
-		tangram_futures::retry(&RETRY_OPTIONS, || async {
+		tangram_futures::retry(&self.retry_options(), || async {
 			let arg = tangram_index::indexer::delete::Arg {
 				id: self.id().clone(),
 			};

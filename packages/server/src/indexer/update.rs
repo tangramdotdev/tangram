@@ -1,7 +1,7 @@
 use {
-	super::{Indexer, RETRY_OPTIONS, partition},
+	super::{Indexer, partition},
 	futures::future,
-	std::{ops::ControlFlow, pin::pin, time::Duration},
+	std::{ops::ControlFlow, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,
@@ -28,13 +28,15 @@ impl Indexer {
 			tangram_index::update::Kind::Usage => "indexer.update.usage.batch",
 		};
 		let finish_tasks = tangram_futures::task::Map::<tg::process::Id, ()>::default();
+		let poll_interval = self.server.config.indexer.updates.poll_interval;
+		let retry = self.server.config.indexer.retry.clone().into();
 		loop {
 			if stopper.stopped() {
 				finish_tasks.wait().await;
 				return Ok(());
 			}
 			crate::checkpoint!(self.server, checkpoint).await;
-			let output = tangram_futures::retry(&RETRY_OPTIONS, || async {
+			let output = tangram_futures::retry(&retry, || async {
 				let futures = partition::ranges(partition_start, partition_end, config.concurrency)
 					.map(|range| {
 						self.server.index.update_batch(
@@ -73,7 +75,7 @@ impl Indexer {
 			if output.count == 0 {
 				tokio::select! {
 					() = stopper.wait() => {},
-					() = tokio::time::sleep(Duration::from_millis(100)) => {},
+					() = tokio::time::sleep(poll_interval) => {},
 				}
 			} else {
 				self.server.index_changed.notify_waiters();
