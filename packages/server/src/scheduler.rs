@@ -273,6 +273,7 @@ struct Config {
 }
 
 struct SchedulerMessageOptions {
+	ack_timeout: Duration,
 	retry: tangram_futures::retry::Options,
 	timeout: Duration,
 }
@@ -361,9 +362,10 @@ impl Session {
 		request: EnqueueSandboxRequestArg,
 	) -> tg::Result<tg::scheduler::Id> {
 		tracing::info!(sandbox = %request.sandbox, "enqueueing the sandbox");
-		let mut options = self.scheduler_message_options().retry;
-		options.max_retries = u64::MAX;
-		let result = tangram_futures::retry::retry(&options, || {
+		let options = self.server.config.scheduler.enqueue_retry.clone().into();
+		let (declined_sender, declined) = tokio::sync::watch::channel(None);
+		let enqueue = tangram_futures::retry::retry(&options, || {
+			let declined_sender = declined_sender.clone();
 			let request = request.clone();
 			let sandbox = request.sandbox.clone();
 			async move {
@@ -404,17 +406,72 @@ impl Session {
 					tracing::info!(%sandbox, %scheduler, "enqueued the sandbox");
 					Ok(ControlFlow::Break(scheduler))
 				} else {
+					declined_sender.send_if_modified(|declined| {
+						if declined.as_ref() == Some(&scheduler) {
+							return false;
+						}
+						declined.replace(scheduler);
+						true
+					});
 					Ok(ControlFlow::Continue(None::<tg::Error>))
 				}
 			}
 			.boxed()
 		})
-		.boxed()
-		.await;
+		.boxed();
+
+		// Retry while the scheduler declines the sandbox. Fail a targeted enqueue if its scheduler's heartbeat expires, and leave an untargeted enqueue to the schedulers that remain.
+		let result = if request.parent.is_some() {
+			tokio::select! {
+				result = enqueue => result,
+				result = self.declining_scheduler_heartbeat_expired(declined, &options) => {
+					let scheduler = result?;
+					return Err(tg::error!(
+						code = tg::error::Code::HeartbeatExpiration,
+						sandbox = %request.sandbox,
+						%scheduler,
+						"the scheduler heartbeat expired"
+					));
+				},
+			}
+		} else {
+			enqueue.await
+		};
 		match result {
 			Ok(scheduler) => Ok(scheduler),
 			Err(Some(error)) => Err(error),
 			Err(None) => unreachable!(),
+		}
+	}
+
+	async fn declining_scheduler_heartbeat_expired(
+		&self,
+		mut declined: tokio::sync::watch::Receiver<Option<tg::scheduler::Id>>,
+		options: &tangram_futures::retry::Options,
+	) -> tg::Result<tg::scheduler::Id> {
+		let mut retries = tangram_futures::retry::stream(options.clone()).boxed();
+		loop {
+			let scheduler = declined
+				.wait_for(Option::is_some)
+				.await
+				.map_err(|_| tg::error!("the enqueue ended"))?
+				.clone()
+				.unwrap();
+			tokio::select! {
+				result = self.scheduler_heartbeat_expired(&scheduler) => match result {
+					Ok(()) => return Ok(scheduler),
+					Err(error) => {
+						// Watch the heartbeat again after a failure, so that a messenger error does not end the enqueue.
+						tracing::warn!(error = %error.trace(), %scheduler, "failed to watch the scheduler heartbeat");
+						if retries.next().await.is_none() {
+							return Err(error);
+						}
+					},
+				},
+				result = declined.changed() => {
+					result.map_err(|_| tg::error!("the enqueue ended"))?;
+				},
+			}
 		}
 	}
 
@@ -539,7 +596,7 @@ impl Session {
 			let message = message.clone();
 			let server = server.clone();
 			let server_subject = server_subject.clone();
-			let timeout = options.timeout;
+			let timeout = options.ack_timeout;
 			async move {
 				let mut messages = server
 					.messenger
@@ -607,6 +664,7 @@ impl Session {
 	fn scheduler_message_options(&self) -> SchedulerMessageOptions {
 		let config = self.server.config.scheduler.clone();
 		SchedulerMessageOptions {
+			ack_timeout: config.message_ack_timeout,
 			retry: config.message_retry.into(),
 			timeout: config.message_timeout,
 		}
@@ -614,9 +672,14 @@ impl Session {
 }
 
 impl Server {
-	pub(crate) async fn scheduler_task(&self, config: &crate::config::Scheduler) {
+	pub(crate) async fn scheduler_task(
+		&self,
+		config: &crate::config::Scheduler,
+		started: tokio::sync::oneshot::Sender<()>,
+	) {
+		let mut started = Some(started);
 		loop {
-			let result = self.scheduler_task_inner(config).await;
+			let result = self.scheduler_task_inner(config, &mut started).await;
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), "the scheduler task failed");
 				tokio::time::sleep(Duration::from_secs(1)).await;
@@ -624,8 +687,18 @@ impl Server {
 		}
 	}
 
-	async fn scheduler_task_inner(&self, config: &crate::config::Scheduler) -> tg::Result<()> {
+	async fn scheduler_task_inner(
+		&self,
+		config: &crate::config::Scheduler,
+		started: &mut Option<tokio::sync::oneshot::Sender<()>>,
+	) -> tg::Result<()> {
 		let scheduler = Scheduler::start(self, config).await?;
+
+		// Report that the scheduler is subscribed to its messages.
+		if let Some(started) = started.take() {
+			started.send(()).ok();
+		}
+
 		scheduler.wait().await?;
 		Ok(())
 	}
@@ -668,32 +741,24 @@ impl Scheduler {
 			id,
 			server: server.clone(),
 		};
-		let task = scheduler.spawn_task();
-		let owned = Owned { task };
-
-		Ok(owned)
-	}
-
-	fn spawn_task(self) -> Task<tg::Result<()>> {
-		Task::spawn(move |_| async move { self.task().await })
-	}
-
-	async fn task(self) -> tg::Result<()> {
-		let shared_stream = self
-			.server
+		// Subscribe to the scheduler's messages before starting, so that no message sent after the start is lost.
+		let shared_stream = server
 			.messenger
 			.queue_subscribe::<Message>(scheduler_server_subject(None), "schedulers".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the shared scheduler stream"))?;
-		let private_stream = self
-			.server
+		let private_stream = server
 			.messenger
-			.subscribe::<Message>(scheduler_server_subject(Some(&self.id)))
+			.subscribe::<Message>(scheduler_server_subject(Some(&scheduler.id)))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the private scheduler stream"))?;
 		let stream = stream::select(shared_stream, private_stream).boxed();
 
-		self.message_handler_task(stream).await
+		let task =
+			Task::spawn(move |_| async move { scheduler.message_handler_task(stream).await });
+		let owned = Owned { task };
+
+		Ok(owned)
 	}
 
 	async fn message_handler_task(&self, mut stream: MessageStream) -> tg::Result<()> {

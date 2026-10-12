@@ -1613,6 +1613,9 @@ pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_memory: Option<u64>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub enqueue_retry: Option<Retry>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub heartbeat_interval: Option<Duration>,
@@ -1624,6 +1627,10 @@ pub struct Scheduler {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub inbox_ttl: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_ack_timeout: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub message_retry: Option<Retry>,
@@ -4059,6 +4066,12 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	let mut target = server::Scheduler::default();
 	if let Some(value) = source.request_concurrency {
 		target.request_concurrency = value;
+	}
+	if let Some(source) = source.enqueue_retry {
+		target.enqueue_retry = resolve_retry_with_default(source, target.enqueue_retry);
+	}
+	if let Some(value) = source.message_ack_timeout {
+		target.message_ack_timeout = value;
 	}
 	if let Some(source) = source.message_retry {
 		target.message_retry = resolve_retry_with_default(source, target.message_retry);

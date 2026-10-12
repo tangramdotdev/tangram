@@ -196,6 +196,11 @@ impl Server {
 	pub async fn start(config: Config) -> tg::Result<Owned> {
 		// Validate the configuration.
 		config.sync.control.validate()?;
+		if config.scheduler.message_ack_timeout.is_zero() {
+			return Err(tg::error!(
+				"the scheduler message ack timeout must be greater than zero"
+			));
+		}
 		config.usage.validate()?;
 		verification_search_config(&config.verification.permissions.initial)
 			.validate()
@@ -1543,6 +1548,7 @@ impl Server {
 			});
 
 		// Spawn the scheduler task.
+		let (scheduler_started_sender, scheduler_started) = tokio::sync::oneshot::channel();
 		let scheduler_task = server
 			.config
 			.roles
@@ -1552,7 +1558,9 @@ impl Server {
 				Task::spawn({
 					let server = server.clone();
 					|_| async move {
-						server.scheduler_task(&config).await;
+						server
+							.scheduler_task(&config, scheduler_started_sender)
+							.await;
 					}
 				})
 			});
@@ -1679,7 +1687,15 @@ impl Server {
 					..server.context.clone()
 				};
 				let session = server.session(&context);
+				let scheduler_started = scheduler_task.is_some().then_some(scheduler_started);
 				|stopper| async move {
+					// Wait for this server's scheduler to subscribe, so that the runner's first scheduler message is not lost, unless the server stops first.
+					if let Some(scheduler_started) = scheduler_started {
+						tokio::select! {
+							_ = scheduler_started => {},
+							() = stopper.wait() => return,
+						}
+					}
 					session.runner_task(id, stopper).boxed().await;
 				}
 			});

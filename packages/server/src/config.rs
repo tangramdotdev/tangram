@@ -1197,11 +1197,15 @@ pub struct Scheduler {
 
 	pub default_memory: u64,
 
+	pub enqueue_retry: Retry,
+
 	pub heartbeat_interval: Duration,
 
 	pub heartbeat_ttl: Duration,
 
 	pub inbox_ttl: Duration,
+
+	pub message_ack_timeout: Duration,
 
 	pub message_retry: Retry,
 
@@ -2203,9 +2207,11 @@ impl Default for Scheduler {
 			create_sandbox_timeout: Duration::from_secs(10),
 			default_cpu: default_scheduler_cpu(),
 			default_memory: default_scheduler_memory(),
+			enqueue_retry: message_retry_default(),
 			heartbeat_interval: Duration::from_secs(1),
 			heartbeat_ttl: Duration::from_secs(10),
 			inbox_ttl: Duration::from_mins(1),
+			message_ack_timeout: Duration::from_secs(10),
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
 			max_create_sandbox_attempts: default_scheduler_max_create_sandbox_attempts(),
