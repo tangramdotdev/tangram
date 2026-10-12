@@ -1662,6 +1662,12 @@ pub struct Vfs {
 	/// The macOS app group identifier.
 	pub app_group_identifier: Option<String>,
 
+	pub directory_snapshot_cache_capacity: usize,
+
+	pub directory_snapshot_read_entry_limit: usize,
+
+	pub fuse: VfsFuse,
+
 	pub kind: VfsKind,
 
 	pub io: VfsIo,
@@ -1669,6 +1675,35 @@ pub struct Vfs {
 	pub passthrough: VfsPassthrough,
 
 	pub sqpoll: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct VfsFuse {
+	pub io_uring_completion_batch_size: usize,
+
+	pub io_uring_max_retired_slots_per_worker: usize,
+
+	pub io_uring_max_slots_per_queue: usize,
+
+	pub io_uring_max_worker_count: usize,
+
+	pub io_uring_payload_memory_budget: usize,
+
+	pub io_uring_startup_timeout: Duration,
+
+	pub max_write: usize,
+
+	pub mount_ready_timeout: Duration,
+
+	pub read_write_async_concurrency: usize,
+
+	pub read_write_async_queue_depth: usize,
+
+	pub read_write_max_reader_count: usize,
+
+	pub sqpoll_entries: u32,
+
+	pub sqpoll_idle: Duration,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -2858,6 +2893,9 @@ impl Default for Vfs {
 	fn default() -> Self {
 		Self {
 			app_group_identifier: None,
+			directory_snapshot_cache_capacity: 64 * 1024 * 1024,
+			directory_snapshot_read_entry_limit: 65_536,
+			fuse: VfsFuse::default(),
 			kind: VfsKind::Auto,
 			io: VfsIo::Auto,
 			passthrough: VfsPassthrough::Auto,
@@ -2880,6 +2918,26 @@ impl Vfs {
 			.join(identifier)
 			.join("socket");
 		Some(socket)
+	}
+}
+
+impl Default for VfsFuse {
+	fn default() -> Self {
+		Self {
+			io_uring_completion_batch_size: 64,
+			io_uring_max_retired_slots_per_worker: 8,
+			io_uring_max_slots_per_queue: 4,
+			io_uring_max_worker_count: 8,
+			io_uring_payload_memory_budget: 256 * 1024 * 1024,
+			io_uring_startup_timeout: Duration::from_secs(5),
+			max_write: 1024 * 1024,
+			mount_ready_timeout: Duration::from_secs(5),
+			read_write_async_concurrency: 64,
+			read_write_async_queue_depth: 64,
+			read_write_max_reader_count: 8,
+			sqpoll_entries: 256,
+			sqpoll_idle: Duration::from_secs(2),
+		}
 	}
 }
 

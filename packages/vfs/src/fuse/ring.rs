@@ -6,10 +6,6 @@ use {
 pub(super) mod worker;
 
 const FUSE_MIN_READ_BUFFER: usize = 8192;
-const IO_URING_MAX_READER_COUNT: usize = 8;
-const IO_URING_MAX_SLOTS_PER_QUEUE: usize = 4;
-const IO_URING_PAYLOAD_MEMORY_BUDGET: usize = 256 * 1024 * 1024;
-const IO_URING_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct RingConfig {
@@ -49,16 +45,21 @@ impl<P> Server<P>
 where
 	P: Provider + Send + Sync + 'static,
 {
-	pub(super) fn ring_config(page_size: usize, external_mount: bool) -> Result<RingConfig> {
+	pub(super) fn ring_config(
+		page_size: usize,
+		external_mount: bool,
+		options: &Options,
+	) -> Result<RingConfig> {
 		// Derive the per-queue payload budget.
 		if page_size == 0 {
 			return Err(Error::other("the system page size is zero"));
 		}
 		let queue_count = Self::possible_cpu_count()?;
-		let max_payload_size = IO_URING_PAYLOAD_MEMORY_BUDGET
+		let max_payload_size = options
+			.io_uring_payload_memory_budget
 			.checked_div(queue_count)
 			.ok_or_else(|| Error::other("the io_uring queue count is zero"))?;
-		let max_write = DEFAULT_MAX_WRITE.min(max_payload_size) / page_size * page_size;
+		let max_write = options.max_write.min(max_payload_size) / page_size * page_size;
 		let limits = Self::request_limits(page_size, max_write)?;
 		if limits.payload_size > max_payload_size {
 			return Err(Error::other(format!(
@@ -71,10 +72,11 @@ where
 		let slots_per_queue = if external_mount {
 			1
 		} else {
-			IO_URING_PAYLOAD_MEMORY_BUDGET
+			options
+				.io_uring_payload_memory_budget
 				.checked_div(payload_memory_per_slot)
 				.unwrap_or(0)
-				.clamp(1, IO_URING_MAX_SLOTS_PER_QUEUE)
+				.clamp(1, options.io_uring_max_slots_per_queue)
 		};
 
 		// Derive the worker count.
@@ -85,7 +87,7 @@ where
 		} else {
 			available_parallelism
 				.min(queue_count)
-				.clamp(1, IO_URING_MAX_READER_COUNT)
+				.clamp(1, options.io_uring_max_worker_count)
 		};
 
 		Ok(RingConfig {
@@ -274,7 +276,10 @@ where
 			// Confirm that the kernel can dispatch through io_uring.
 			match &ready {
 				None => Self::probe_io_uring(path).await?,
-				Some(ready) => Self::wait_for_mount_ready(ready.clone()).await?,
+				Some(ready) => {
+					Self::wait_for_mount_ready(ready.clone(), self.options.mount_ready_timeout)
+						.await?;
+				},
 			}
 			while let Ok(event) = event_receiver.try_recv() {
 				if let WorkerEvent::Failed { error, worker } = event {
@@ -318,7 +323,7 @@ where
 
 			Ok(())
 		};
-		let startup = tokio::time::timeout(IO_URING_STARTUP_TIMEOUT, startup)
+		let startup = tokio::time::timeout(self.options.io_uring_startup_timeout, startup)
 			.await
 			.map_err(|_| Error::other("timed out waiting for the io_uring transport"))
 			.and_then(std::convert::identity);

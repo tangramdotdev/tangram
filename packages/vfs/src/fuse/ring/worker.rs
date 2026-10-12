@@ -1,8 +1,6 @@
 use super::*;
 
 const EVENTFD_USER_DATA: u64 = u64::MAX;
-const IO_URING_MAX_RETIRED_SLOTS_PER_WORKER: usize = 8;
-const THREAD_CQE_BATCH_SIZE: usize = 64;
 const THREAD_FIXED_EVENTFD_FD: u32 = 1;
 const THREAD_FIXED_FUSE_FD: u32 = 0;
 const URING_CMD_BYTES: usize = 80;
@@ -153,11 +151,12 @@ where
 	pub(in crate::fuse) fn replace_stale_uring_slot(
 		slots: &mut [Box<UringSlot>],
 		retired_slots: &mut VecDeque<Box<UringSlot>>,
+		max_retired_slots: usize,
 		payload_size: usize,
 		slot: usize,
 	) -> Result<()> {
 		// Validate the retirement request.
-		if retired_slots.len() >= IO_URING_MAX_RETIRED_SLOTS_PER_WORKER {
+		if retired_slots.len() >= max_retired_slots {
 			return Err(Error::other(
 				"the io_uring stale slot retirement limit was exhausted",
 			));
@@ -452,13 +451,13 @@ where
 
 	fn run(mut self) -> Result<()> {
 		// Allocate the reusable batch buffers.
-		let mut batch_requests = Vec::<PendingRequest>::with_capacity(THREAD_CQE_BATCH_SIZE);
-		let mut batch_results = Vec::<Dispatch>::with_capacity(THREAD_CQE_BATCH_SIZE);
-		let mut commits =
-			Vec::<(usize, u64, Result<Response>)>::with_capacity(THREAD_CQE_BATCH_SIZE);
-		let mut deferred = Vec::<PendingRequest>::with_capacity(THREAD_CQE_BATCH_SIZE);
-		let mut register_retries = Vec::<usize>::with_capacity(THREAD_CQE_BATCH_SIZE);
-		let mut stale_commits = Vec::<usize>::with_capacity(THREAD_CQE_BATCH_SIZE);
+		let batch_size = self.server.options.io_uring_completion_batch_size;
+		let mut batch_requests = Vec::<PendingRequest>::with_capacity(batch_size);
+		let mut batch_results = Vec::<Dispatch>::with_capacity(batch_size);
+		let mut commits = Vec::<(usize, u64, Result<Response>)>::with_capacity(batch_size);
+		let mut deferred = Vec::<PendingRequest>::with_capacity(batch_size);
+		let mut register_retries = Vec::<usize>::with_capacity(batch_size);
+		let mut stale_commits = Vec::<usize>::with_capacity(batch_size);
 
 		// Register the initial request slots.
 		{
@@ -529,7 +528,7 @@ where
 			stale_commits.clear();
 			{
 				let mut completion = self.io_uring.completion();
-				for completion in completion.by_ref().take(THREAD_CQE_BATCH_SIZE) {
+				for completion in completion.by_ref().take(batch_size) {
 					if completion.user_data() == EVENTFD_USER_DATA {
 						self.eventfd_inflight = false;
 						saw_eventfd = true;
@@ -608,6 +607,7 @@ where
 				Server::<P>::replace_stale_uring_slot(
 					&mut self.slots,
 					&mut self.retired_slots,
+					self.server.options.io_uring_max_retired_slots_per_worker,
 					self.payload_size,
 					slot,
 				)?;

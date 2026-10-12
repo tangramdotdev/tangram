@@ -1,7 +1,5 @@
 use super::*;
 
-const READ_WRITE_MAX_READER_COUNT: usize = 8;
-
 pub(super) struct MountControl {
 	fd: OwnedFd,
 	receiver: Arc<tokio::sync::Mutex<()>>,
@@ -305,7 +303,10 @@ where
 		Ok(())
 	}
 
-	pub(super) async fn wait_for_mount_ready(ready: Arc<MountControl>) -> Result<()> {
+	pub(super) async fn wait_for_mount_ready(
+		ready: Arc<MountControl>,
+		timeout: Duration,
+	) -> Result<()> {
 		let receiver = ready.lock_receiver().await;
 		ready.send(EXTERNAL_MOUNT_PROBE).map_err(|error| {
 			Error::other(format!(
@@ -335,7 +336,7 @@ where
 				)),
 			}
 		});
-		let result = tokio::time::timeout(FUSE_MOUNT_READY_TIMEOUT, wait)
+		let result = tokio::time::timeout(timeout, wait)
 			.await
 			.map_err(|_| Error::other("timed out waiting for the FUSE mount readiness probe"))?
 			.map_err(|error| {
@@ -377,11 +378,14 @@ where
 		task.wait().await.unwrap();
 	}
 
-	pub(super) fn clone_read_write_fds(fd: &Arc<OwnedFd>) -> Result<Vec<Arc<OwnedFd>>> {
+	pub(super) fn clone_read_write_fds(
+		fd: &Arc<OwnedFd>,
+		max_reader_count: usize,
+	) -> Result<Vec<Arc<OwnedFd>>> {
 		// Determine the reader count.
 		let reader_count = std::thread::available_parallelism()
 			.map_or(1, std::num::NonZero::get)
-			.clamp(1, READ_WRITE_MAX_READER_COUNT);
+			.clamp(1, max_reader_count);
 
 		// Clone the reader descriptors.
 		let mut fds = Vec::with_capacity(reader_count);

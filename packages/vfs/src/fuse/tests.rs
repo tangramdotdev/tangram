@@ -116,6 +116,7 @@ where
 		active_requests: Mutex::new(HashMap::new()),
 		auto_unmount: true,
 		no_opendir_support: false,
+		options: Options::default(),
 		passthrough_backings: Mutex::new(PassthroughBackings::default()),
 		passthrough_enabled,
 		passthrough_permission_warning_emitted: AtomicBool::new(false),
@@ -213,7 +214,7 @@ fn parses_possible_cpu_sets() {
 
 #[test]
 fn external_mounts_use_lightweight_ring_configs() {
-	let config = Server::<TestProvider>::ring_config(4096, true).unwrap();
+	let config = Server::<TestProvider>::ring_config(4096, true, &Options::default()).unwrap();
 
 	assert_eq!(config.slots_per_queue, 1);
 	assert_eq!(config.worker_count, 1);
@@ -245,7 +246,7 @@ async fn waits_for_external_mount_readiness_signals() {
 	});
 
 	let control = Arc::new(connection::MountControl::new(receiver));
-	Server::<TestProvider>::wait_for_mount_ready(control)
+	Server::<TestProvider>::wait_for_mount_ready(control, Options::default().mount_ready_timeout)
 		.await
 		.unwrap();
 	client.await.unwrap();
@@ -272,9 +273,12 @@ async fn reports_external_mount_readiness_failures() {
 	});
 
 	let control = Arc::new(connection::MountControl::new(receiver));
-	let error = Server::<TestProvider>::wait_for_mount_ready(control)
-		.await
-		.unwrap_err();
+	let error = Server::<TestProvider>::wait_for_mount_ready(
+		control,
+		Options::default().mount_ready_timeout,
+	)
+	.await
+	.unwrap_err();
 	assert!(error.to_string().contains("readiness probe failed"));
 	client.await.unwrap();
 }
@@ -390,8 +394,14 @@ fn stale_uring_slots_are_replaced_with_distinct_buffers() {
 	let payload = slots[0].payload.as_ptr();
 	let mut retired_slots = VecDeque::new();
 
-	Server::<TestProvider>::replace_stale_uring_slot(&mut slots, &mut retired_slots, 4096, 0)
-		.unwrap();
+	Server::<TestProvider>::replace_stale_uring_slot(
+		&mut slots,
+		&mut retired_slots,
+		Options::default().io_uring_max_retired_slots_per_worker,
+		4096,
+		0,
+	)
+	.unwrap();
 
 	assert_eq!(retired_slots.len(), 1);
 	assert_eq!(slots[0].qid, 7);
@@ -414,11 +424,12 @@ fn parses_fuse_connection_ids_without_accessing_the_mount() {
 
 #[test]
 fn derives_request_limits_from_page_size() {
-	let limits = Server::<TestProvider>::request_limits(64 * 1024, DEFAULT_MAX_WRITE).unwrap();
+	let max_write = Options::default().max_write;
+	let limits = Server::<TestProvider>::request_limits(64 * 1024, max_write).unwrap();
 	assert_eq!(limits.max_pages, 16);
-	assert_eq!(limits.max_write, DEFAULT_MAX_WRITE.to_u32().unwrap());
-	assert_eq!(limits.payload_size, DEFAULT_MAX_WRITE);
-	assert_eq!(limits.request_buffer_size, DEFAULT_MAX_WRITE + 64 * 1024);
+	assert_eq!(limits.max_write, max_write.to_u32().unwrap());
+	assert_eq!(limits.payload_size, max_write);
+	assert_eq!(limits.request_buffer_size, max_write + 64 * 1024);
 }
 
 #[test]

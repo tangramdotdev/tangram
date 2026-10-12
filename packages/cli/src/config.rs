@@ -2344,6 +2344,15 @@ pub struct Vfs {
 	pub app_group_identifier: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub directory_snapshot_cache_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub directory_snapshot_read_entry_limit: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub fuse: Option<VfsFuse>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<VfsKind>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2354,6 +2363,53 @@ pub struct Vfs {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sqpoll: Option<bool>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VfsFuse {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub io_uring_completion_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub io_uring_max_retired_slots_per_worker: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub io_uring_max_slots_per_queue: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub io_uring_max_worker_count: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub io_uring_payload_memory_budget: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub io_uring_startup_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_write: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub mount_ready_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_write_async_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_write_async_queue_depth: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_write_max_reader_count: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sqpoll_entries: Option<u32>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sqpoll_idle: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
@@ -5168,6 +5224,15 @@ fn resolve_usage(source: BoolOr<Usage>) -> tg::Result<server::Usage> {
 
 fn resolve_vfs(source: Vfs) -> server::Vfs {
 	let mut target = server::Vfs::default();
+	if let Some(value) = source.directory_snapshot_cache_capacity {
+		target.directory_snapshot_cache_capacity = value;
+	}
+	if let Some(value) = source.directory_snapshot_read_entry_limit {
+		target.directory_snapshot_read_entry_limit = value;
+	}
+	if let Some(source) = source.fuse {
+		target.fuse = resolve_vfs_fuse(source);
+	}
 	if let Some(value) = source.io {
 		target.io = resolve_vfs_io(value);
 	}
@@ -5182,6 +5247,50 @@ fn resolve_vfs(source: Vfs) -> server::Vfs {
 	}
 	if let Some(value) = source.app_group_identifier {
 		target.app_group_identifier = Some(value);
+	}
+	target
+}
+
+fn resolve_vfs_fuse(source: VfsFuse) -> server::VfsFuse {
+	let mut target = server::VfsFuse::default();
+	if let Some(value) = source.io_uring_completion_batch_size {
+		target.io_uring_completion_batch_size = value;
+	}
+	if let Some(value) = source.io_uring_max_retired_slots_per_worker {
+		target.io_uring_max_retired_slots_per_worker = value;
+	}
+	if let Some(value) = source.io_uring_max_slots_per_queue {
+		target.io_uring_max_slots_per_queue = value;
+	}
+	if let Some(value) = source.io_uring_max_worker_count {
+		target.io_uring_max_worker_count = value;
+	}
+	if let Some(value) = source.io_uring_payload_memory_budget {
+		target.io_uring_payload_memory_budget = value;
+	}
+	if let Some(value) = source.io_uring_startup_timeout {
+		target.io_uring_startup_timeout = value;
+	}
+	if let Some(value) = source.max_write {
+		target.max_write = value;
+	}
+	if let Some(value) = source.mount_ready_timeout {
+		target.mount_ready_timeout = value;
+	}
+	if let Some(value) = source.read_write_async_concurrency {
+		target.read_write_async_concurrency = value;
+	}
+	if let Some(value) = source.read_write_async_queue_depth {
+		target.read_write_async_queue_depth = value;
+	}
+	if let Some(value) = source.read_write_max_reader_count {
+		target.read_write_max_reader_count = value;
+	}
+	if let Some(value) = source.sqpoll_entries {
+		target.sqpoll_entries = value;
+	}
+	if let Some(value) = source.sqpoll_idle {
+		target.sqpoll_idle = value;
 	}
 	target
 }

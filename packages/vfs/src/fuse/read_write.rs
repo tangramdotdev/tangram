@@ -1,8 +1,5 @@
 use {super::*, tokio::task::JoinSet};
 
-const READ_WRITE_ASYNC_CONCURRENCY: usize = 64;
-const READ_WRITE_ASYNC_QUEUE_DEPTH: usize = 64;
-
 pub(super) struct ReadWriteRequest {
 	pub(super) fd: Arc<OwnedFd>,
 	pub(super) request: Request,
@@ -39,7 +36,10 @@ where
 		} = context;
 
 		// Prepare the readers and dispatcher.
-		let reader_fds = match Self::clone_read_write_fds(&connection.fd) {
+		let reader_fds = match Self::clone_read_write_fds(
+			&connection.fd,
+			self.options.read_write_max_reader_count,
+		) {
 			Err(error) => {
 				self.disconnect_transport(&connection.abort, path).await;
 				return Err(error);
@@ -48,11 +48,11 @@ where
 		};
 		let reader_count = reader_fds.len();
 		let (request_sender, request_receiver) =
-			tokio::sync::mpsc::channel(READ_WRITE_ASYNC_QUEUE_DEPTH);
+			tokio::sync::mpsc::channel(self.options.read_write_async_queue_depth);
 		let dispatcher = self.spawn_read_write_dispatcher(request_receiver, event_sender.clone());
 		tracing::info!(
-			async_concurrency = READ_WRITE_ASYNC_CONCURRENCY,
-			async_queue_depth = READ_WRITE_ASYNC_QUEUE_DEPTH,
+			async_concurrency = self.options.read_write_async_concurrency,
+			async_queue_depth = self.options.read_write_async_queue_depth,
 			reader_count,
 			"started the FUSE ReadWrite transport",
 		);
@@ -119,7 +119,8 @@ where
 		}
 		if startup_error.is_none()
 			&& let Some(ready) = &ready
-			&& let Err(error) = Self::wait_for_mount_ready(ready.clone()).await
+			&& let Err(error) =
+				Self::wait_for_mount_ready(ready.clone(), self.options.mount_ready_timeout).await
 		{
 			startup_error = Some(error);
 		}
@@ -167,7 +168,9 @@ where
 		mut receiver: tokio::sync::mpsc::Receiver<ReadWriteRequest>,
 		worker_event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
 	) {
-		let semaphore = Arc::new(tokio::sync::Semaphore::new(READ_WRITE_ASYNC_CONCURRENCY));
+		let semaphore = Arc::new(tokio::sync::Semaphore::new(
+			self.options.read_write_async_concurrency,
+		));
 		let mut tasks = JoinSet::new();
 
 		// Dispatch requests while the input channel is open.

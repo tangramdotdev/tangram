@@ -30,10 +30,8 @@ type Transaction<'a> = ();
 
 const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 const FUSE_DIRENT_PLUS_HEADER_SIZE: usize = 152;
-const DIRECTORY_SNAPSHOT_CACHE_CAPACITY: usize = 64 * 1024 * 1024;
 const DIRECTORY_SNAPSHOT_ENTRY_OVERHEAD: usize = 256;
 const DIRECTORY_SNAPSHOT_OVERHEAD: usize = 256;
-const DIRECTORY_SNAPSHOT_READ_ENTRY_LIMIT: usize = 65_536;
 const NAME_MAX: usize = 255;
 
 #[derive(Clone)]
@@ -44,7 +42,9 @@ pub struct Weak(std::sync::Weak<Inner>);
 
 pub struct Inner {
 	directory_handles: DashMap<u64, DirectorySnapshot, fnv::FnvBuildHasher>,
+	directory_snapshot_cache_capacity: usize,
 	directory_snapshot_loads: DashMap<u64, Arc<tokio::sync::Mutex<()>>, fnv::FnvBuildHasher>,
+	directory_snapshot_read_entry_limit: usize,
 	directory_snapshots: Mutex<vfs::cache::WeightedLruCache<u64, DirectorySnapshot>>,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	handle_count: AtomicU64,
@@ -165,10 +165,13 @@ impl Provider {
 		let nodes = Nodes::new();
 
 		// Create the provider.
+		let config = server.config.vfs.clone().unwrap_or_default();
 		let directory_handles = DashMap::default();
+		let directory_snapshot_cache_capacity = config.directory_snapshot_cache_capacity;
 		let directory_snapshot_loads = DashMap::default();
+		let directory_snapshot_read_entry_limit = config.directory_snapshot_read_entry_limit;
 		let directory_snapshots = Mutex::new(vfs::cache::WeightedLruCache::new(
-			DIRECTORY_SNAPSHOT_CACHE_CAPACITY,
+			directory_snapshot_cache_capacity,
 		));
 		let file_handles = DashMap::default();
 		let handle_count = AtomicU64::new(1000);
@@ -177,7 +180,9 @@ impl Provider {
 		let server = server.clone();
 		let provider = Inner {
 			directory_handles,
+			directory_snapshot_cache_capacity,
 			directory_snapshot_loads,
+			directory_snapshot_read_entry_limit,
 			directory_snapshots,
 			file_handles,
 			handle_count,
@@ -1534,7 +1539,7 @@ impl Provider {
 		};
 		let pageable = artifact.is_some();
 		let snapshot = Self::create_directory_snapshot(id, parent, depth, entries, pageable);
-		let snapshot = if snapshot.weight() > DIRECTORY_SNAPSHOT_CACHE_CAPACITY {
+		let snapshot = if snapshot.weight() > self.directory_snapshot_cache_capacity {
 			snapshot.paged()
 		} else {
 			snapshot
@@ -1590,7 +1595,7 @@ impl Provider {
 		};
 		let pageable = artifact.is_some();
 		let snapshot = Self::create_directory_snapshot(id, parent, depth, entries, pageable);
-		let snapshot = if snapshot.weight() > DIRECTORY_SNAPSHOT_CACHE_CAPACITY {
+		let snapshot = if snapshot.weight() > self.directory_snapshot_cache_capacity {
 			snapshot.paged()
 		} else {
 			snapshot
@@ -1711,7 +1716,7 @@ impl Provider {
 	async fn should_page_directory_inner(&self, artifact: &ArtifactState) -> std::io::Result<bool> {
 		let (directory, _) = self.directory_node_inner(artifact).await?;
 
-		Ok(Self::directory_requires_paging(&directory))
+		Ok(self.directory_requires_paging(&directory))
 	}
 
 	fn should_page_directory_sync_inner(
@@ -1721,10 +1726,10 @@ impl Provider {
 	) -> std::io::Result<bool> {
 		let (directory, _) = self.directory_node_sync_inner(artifact, transaction)?;
 
-		Ok(Self::directory_requires_paging(&directory))
+		Ok(self.directory_requires_paging(&directory))
 	}
 
-	fn directory_requires_paging(directory: &tg::graph::data::Directory) -> bool {
+	fn directory_requires_paging(&self, directory: &tg::graph::data::Directory) -> bool {
 		let count = match directory {
 			tg::graph::data::Directory::Branch(branch) => branch
 				.children
@@ -1741,7 +1746,7 @@ impl Provider {
 			.saturating_mul(entry_weight)
 			.saturating_add(DIRECTORY_SNAPSHOT_OVERHEAD);
 
-		estimated_weight > DIRECTORY_SNAPSHOT_CACHE_CAPACITY
+		estimated_weight > self.directory_snapshot_cache_capacity
 	}
 
 	fn directory_children_range(
@@ -1939,7 +1944,7 @@ impl Provider {
 		offset: u64,
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		let limit = Self::directory_snapshot_entry_limit(length, FUSE_DIRENT_HEADER_SIZE);
+		let limit = self.directory_snapshot_entry_limit(length, FUSE_DIRENT_HEADER_SIZE);
 		let snapshot_entries = self
 			.directory_snapshot_entries_inner(snapshot, offset, limit)
 			.await?;
@@ -1964,7 +1969,7 @@ impl Provider {
 		length: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		let limit = Self::directory_snapshot_entry_limit(length, FUSE_DIRENT_HEADER_SIZE);
+		let limit = self.directory_snapshot_entry_limit(length, FUSE_DIRENT_HEADER_SIZE);
 		let snapshot_entries =
 			self.directory_snapshot_entries_sync_inner(snapshot, offset, limit, transaction)?;
 		let mut entries = Vec::new();
@@ -2139,7 +2144,7 @@ impl Provider {
 		offset: u64,
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
-		let limit = Self::directory_snapshot_entry_limit(length, FUSE_DIRENT_PLUS_HEADER_SIZE);
+		let limit = self.directory_snapshot_entry_limit(length, FUSE_DIRENT_PLUS_HEADER_SIZE);
 		let snapshot_entries = self
 			.directory_snapshot_entries_inner(directory, offset, limit)
 			.await?;
@@ -2269,7 +2274,7 @@ impl Provider {
 		length: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
-		let limit = Self::directory_snapshot_entry_limit(length, FUSE_DIRENT_PLUS_HEADER_SIZE);
+		let limit = self.directory_snapshot_entry_limit(length, FUSE_DIRENT_PLUS_HEADER_SIZE);
 		let snapshot_entries =
 			self.directory_snapshot_entries_sync_inner(directory, offset, limit, transaction)?;
 		let mut entries = Vec::new();
@@ -3860,13 +3865,13 @@ impl Provider {
 		FUSE_DIRENT_PLUS_HEADER_SIZE + name_len + padding
 	}
 
-	fn directory_snapshot_entry_limit(length: u64, header_size: usize) -> usize {
+	fn directory_snapshot_entry_limit(&self, length: u64, header_size: usize) -> usize {
 		length
 			.to_usize()
 			.unwrap_or(usize::MAX)
 			.checked_div(header_size)
 			.unwrap()
-			.min(DIRECTORY_SNAPSHOT_READ_ENTRY_LIMIT)
+			.min(self.directory_snapshot_read_entry_limit)
 	}
 }
 

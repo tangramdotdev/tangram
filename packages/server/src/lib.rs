@@ -255,6 +255,7 @@ impl Server {
 		}
 
 		// Validate the channel capacities, batch sizes, concurrencies, and page sizes.
+		let vfs = config.vfs.clone().unwrap_or_default();
 		let watch = config.watch.clone().unwrap_or_default();
 		let sizes = [
 			(
@@ -307,6 +308,14 @@ impl Server {
 				"sync put channel capacity",
 				config.sync.put.channel_capacity,
 			),
+			(
+				"vfs directory snapshot cache capacity",
+				vfs.directory_snapshot_cache_capacity,
+			),
+			(
+				"vfs directory snapshot read entry limit",
+				vfs.directory_snapshot_read_entry_limit,
+			),
 			("watch channel capacity", watch.channel_capacity),
 		];
 		for (name, size) in sizes {
@@ -331,6 +340,64 @@ impl Server {
 		];
 		for (name, size) in sizes {
 			if size == 0 {
+				return Err(tg::error!("the {name} must be greater than zero"));
+			}
+		}
+
+		// Validate the VFS configuration.
+		let sizes = [
+			(
+				"vfs fuse io_uring completion batch size",
+				vfs.fuse.io_uring_completion_batch_size,
+			),
+			(
+				"vfs fuse io_uring max retired slots per worker",
+				vfs.fuse.io_uring_max_retired_slots_per_worker,
+			),
+			(
+				"vfs fuse io_uring max slots per queue",
+				vfs.fuse.io_uring_max_slots_per_queue,
+			),
+			(
+				"vfs fuse io_uring max worker count",
+				vfs.fuse.io_uring_max_worker_count,
+			),
+			(
+				"vfs fuse io_uring payload memory budget",
+				vfs.fuse.io_uring_payload_memory_budget,
+			),
+			("vfs fuse max write", vfs.fuse.max_write),
+			(
+				"vfs fuse read write async concurrency",
+				vfs.fuse.read_write_async_concurrency,
+			),
+			(
+				"vfs fuse read write async queue depth",
+				vfs.fuse.read_write_async_queue_depth,
+			),
+			(
+				"vfs fuse read write max reader count",
+				vfs.fuse.read_write_max_reader_count,
+			),
+			(
+				"vfs fuse sqpoll entries",
+				usize::try_from(vfs.fuse.sqpoll_entries).unwrap_or(usize::MAX),
+			),
+		];
+		for (name, size) in sizes {
+			if size == 0 {
+				return Err(tg::error!("the {name} must be greater than zero"));
+			}
+		}
+		let durations = [
+			(
+				"vfs fuse io_uring startup timeout",
+				vfs.fuse.io_uring_startup_timeout,
+			),
+			("vfs fuse mount ready timeout", vfs.fuse.mount_ready_timeout),
+		];
+		for (name, duration) in durations {
+			if duration.is_zero() {
 				return Err(tg::error!("the {name} must be greater than zero"));
 			}
 		}

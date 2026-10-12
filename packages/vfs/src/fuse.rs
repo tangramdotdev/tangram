@@ -51,7 +51,6 @@ mod tests;
 
 pub mod sys;
 
-const DEFAULT_MAX_WRITE: usize = 1024 * 1024;
 const EXTERNAL_MOUNT_COMMIT: u8 = 2;
 const EXTERNAL_MOUNT_PROBE: u8 = 0;
 const EXTERNAL_MOUNT_PROBE_ERROR: u8 = 1;
@@ -64,7 +63,6 @@ const FUSE_DEV_IOC_BACKING_OPEN: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::write::<sys::fuse_backing_map>(FUSE_DEV_IOC_MAGIC, 1);
 const FUSE_DEV_IOC_BACKING_CLOSE: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::write::<u32>(FUSE_DEV_IOC_MAGIC, 2);
-const FUSE_MOUNT_READY_TIMEOUT: Duration = Duration::from_secs(5);
 const S_IFDIR: u32 = 0o040_000;
 const S_IFREG: u32 = 0o100_000;
 const S_IFLNK: u32 = 0o120_000;
@@ -72,16 +70,133 @@ const S_IFLNK: u32 = 0o120_000;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Options {
 	pub io: Io,
+
+	/// The maximum number of `io_uring` completions a worker processes in one batch.
+	pub io_uring_completion_batch_size: usize,
+
+	/// The maximum number of retired `io_uring` slots a worker retains before it fails.
+	pub io_uring_max_retired_slots_per_worker: usize,
+
+	/// The maximum number of `io_uring` slots per kernel queue.
+	pub io_uring_max_slots_per_queue: usize,
+
+	/// The maximum number of `io_uring` worker threads.
+	pub io_uring_max_worker_count: usize,
+
+	/// The total payload memory shared by the `io_uring` kernel queues.
+	pub io_uring_payload_memory_budget: usize,
+
+	/// The time to wait for the `io_uring` transport to start.
+	pub io_uring_startup_timeout: Duration,
+
+	/// The maximum size of a FUSE write and read payload.
+	pub max_write: usize,
+
+	/// The time to wait for a sandbox mount to answer the readiness probe.
+	pub mount_ready_timeout: Duration,
+
 	pub passthrough: Passthrough,
+
+	/// The maximum number of concurrent asynchronous requests for the `ReadWrite` transport.
+	pub read_write_async_concurrency: usize,
+
+	/// The capacity of the asynchronous request queue for the `ReadWrite` transport.
+	pub read_write_async_queue_depth: usize,
+
+	/// The maximum number of reader threads for the `ReadWrite` transport.
+	pub read_write_max_reader_count: usize,
+
 	pub sqpoll: bool,
+
+	/// The number of submission queue entries in the SQPOLL ring.
+	pub sqpoll_entries: u32,
+
+	/// The time the SQPOLL kernel thread waits idle before it sleeps.
+	pub sqpoll_idle: Duration,
+}
+
+impl Options {
+	pub fn validate(&self) -> Result<()> {
+		let sizes = [
+			(
+				self.io_uring_completion_batch_size,
+				"the io_uring completion batch size",
+			),
+			(
+				self.io_uring_max_retired_slots_per_worker,
+				"the maximum number of retired io_uring slots per worker",
+			),
+			(
+				self.io_uring_max_slots_per_queue,
+				"the maximum number of io_uring slots per queue",
+			),
+			(
+				self.io_uring_max_worker_count,
+				"the maximum number of io_uring workers",
+			),
+			(
+				self.io_uring_payload_memory_budget,
+				"the io_uring payload memory budget",
+			),
+			(self.max_write, "the maximum write size"),
+			(
+				self.read_write_async_concurrency,
+				"the ReadWrite async concurrency",
+			),
+			(
+				self.read_write_async_queue_depth,
+				"the ReadWrite async queue depth",
+			),
+			(
+				self.read_write_max_reader_count,
+				"the maximum number of ReadWrite readers",
+			),
+		];
+		for (value, name) in sizes {
+			if value == 0 {
+				return Err(Error::other(format!("{name} must be greater than zero")));
+			}
+		}
+		let durations = [
+			(
+				self.io_uring_startup_timeout,
+				"the io_uring startup timeout",
+			),
+			(self.mount_ready_timeout, "the mount ready timeout"),
+		];
+		for (value, name) in durations {
+			if value.is_zero() {
+				return Err(Error::other(format!("{name} must be greater than zero")));
+			}
+		}
+		if self.sqpoll_entries == 0 {
+			return Err(Error::other(
+				"the number of SQPOLL entries must be greater than zero",
+			));
+		}
+		Ok(())
+	}
 }
 
 impl Default for Options {
 	fn default() -> Self {
 		Self {
 			io: Io::default(),
+			io_uring_completion_batch_size: 64,
+			io_uring_max_retired_slots_per_worker: 8,
+			io_uring_max_slots_per_queue: 4,
+			io_uring_max_worker_count: 8,
+			io_uring_payload_memory_budget: 256 * 1024 * 1024,
+			io_uring_startup_timeout: Duration::from_secs(5),
+			max_write: 1024 * 1024,
+			mount_ready_timeout: Duration::from_secs(5),
 			passthrough: Passthrough::default(),
+			read_write_async_concurrency: 64,
+			read_write_async_queue_depth: 64,
+			read_write_max_reader_count: 8,
 			sqpoll: true,
+			sqpoll_entries: 256,
+			sqpoll_idle: Duration::from_secs(2),
 		}
 	}
 }
@@ -108,6 +223,7 @@ pub struct State<P> {
 	active_requests: Mutex<HashMap<u64, CancellationToken>>,
 	auto_unmount: bool,
 	no_opendir_support: bool,
+	options: Options,
 	passthrough_backings: Mutex<PassthroughBackings>,
 	passthrough_enabled: bool,
 	passthrough_permission_warning_emitted: AtomicBool,

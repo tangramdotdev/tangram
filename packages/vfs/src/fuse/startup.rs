@@ -1,15 +1,11 @@
 use super::{
-	Arc, AtomicBool, DEFAULT_MAX_WRITE, Error, Features, HashMap, Io, IoUring, Mutex, Options,
-	OwnedFd, Passthrough, PassthroughBackings, Path, Provider, RequestLimits, Result, Server,
-	State, WorkerEvent,
+	Arc, AtomicBool, Error, Features, HashMap, Io, IoUring, Mutex, Options, OwnedFd, Passthrough,
+	PassthroughBackings, Path, Provider, RequestLimits, Result, Server, State, WorkerEvent,
 	connection::{Connection, MountControl},
 	fusermount3,
 	read_write::ReadWriteStartupContext,
 	ring::{RingConfig, RingStartupContext},
 };
-
-const IO_URING_ENTRIES: u32 = 256;
-const SQPOLL_IDLE_MS: u32 = 2_000;
 
 type SqpollRing = IoUring<io_uring::squeue::Entry128>;
 
@@ -40,6 +36,9 @@ where
 		options: Options,
 		recvfd: OwnedFd,
 	) -> Result<Self> {
+		// Validate the options.
+		options.validate()?;
+
 		// Receive the mounted FUSE descriptor.
 		let mount = Self::receive_mount(recvfd).await?;
 		let connection_id = mount.connection_id;
@@ -87,6 +86,7 @@ where
 			active_requests: Mutex::new(HashMap::new()),
 			auto_unmount,
 			no_opendir_support: connection.features.no_opendir_support,
+			options: config.options,
 			passthrough_backings: Mutex::new(PassthroughBackings::default()),
 			passthrough_enabled: connection.features.passthrough,
 			passthrough_permission_warning_emitted: AtomicBool::new(false),
@@ -132,7 +132,7 @@ where
 					drop(connection);
 					config.options.io = Io::ReadWrite;
 					config.limits =
-						Self::request_limits(rustix::param::page_size(), DEFAULT_MAX_WRITE)?;
+						Self::request_limits(rustix::param::page_size(), config.options.max_write)?;
 					let mount = match ready {
 						None => Self::remount(path).await?,
 						Some(ready) => Self::remount_external(ready).await?,
@@ -234,7 +234,7 @@ where
 		let ring_config = if options.io == Io::ReadWrite {
 			None
 		} else {
-			match Self::ring_config(page_size, external_mount) {
+			match Self::ring_config(page_size, external_mount, &options) {
 				Err(error) if options.io == Io::Auto => {
 					tracing::warn!(
 						%error,
@@ -250,7 +250,7 @@ where
 
 		// Select the request limits.
 		let limits = match ring_config {
-			None => Self::request_limits(page_size, DEFAULT_MAX_WRITE)?,
+			None => Self::request_limits(page_size, options.max_write)?,
 			Some(config) => config.limits,
 		};
 
@@ -282,7 +282,7 @@ where
 				return Ok((connection, None));
 			}
 
-			match Self::build_sqpoll_ring() {
+			match Self::build_sqpoll_ring(&config.options) {
 				Err(error) if config.options.io == Io::Auto => {
 					tracing::warn!(
 						%error,
@@ -292,7 +292,7 @@ where
 					config.options.io = Io::ReadWrite;
 					config.ring_config = None;
 					config.limits =
-						Self::request_limits(rustix::param::page_size(), DEFAULT_MAX_WRITE)?;
+						Self::request_limits(rustix::param::page_size(), config.options.max_write)?;
 					mount = match mount.ready.clone() {
 						None => Self::remount(path).await?,
 						Some(ready) => Self::remount_external(ready).await?,
@@ -304,11 +304,12 @@ where
 		}
 	}
 
-	fn build_sqpoll_ring() -> Result<SqpollRing> {
+	fn build_sqpoll_ring(options: &Options) -> Result<SqpollRing> {
+		let idle = u32::try_from(options.sqpoll_idle.as_millis()).unwrap_or(u32::MAX);
 		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
-		builder.setup_sqpoll(SQPOLL_IDLE_MS).setup_no_sqarray();
+		builder.setup_sqpoll(idle).setup_no_sqarray();
 		builder
-			.build(IO_URING_ENTRIES)
+			.build(options.sqpoll_entries)
 			.map_err(|error| Error::other(format!("failed to build an SQPOLL ring: {error}")))
 	}
 

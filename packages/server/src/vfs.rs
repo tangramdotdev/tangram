@@ -76,22 +76,35 @@ impl Server {
 			Kind::Fuse => {
 				#[cfg(target_os = "linux")]
 				{
+					let fuse = &options.fuse;
+					let io = match options.io {
+						crate::config::VfsIo::Auto => vfs::fuse::Io::Auto,
+						crate::config::VfsIo::IoUring => vfs::fuse::Io::IoUring,
+						crate::config::VfsIo::ReadWrite => vfs::fuse::Io::ReadWrite,
+					};
+					let passthrough = match options.passthrough {
+						crate::config::VfsPassthrough::Auto => vfs::fuse::Passthrough::Auto,
+						crate::config::VfsPassthrough::Disabled => vfs::fuse::Passthrough::Disabled,
+						crate::config::VfsPassthrough::Required => vfs::fuse::Passthrough::Required,
+					};
 					let options = vfs::fuse::Options {
-						io: match options.io {
-							crate::config::VfsIo::Auto => vfs::fuse::Io::Auto,
-							crate::config::VfsIo::IoUring => vfs::fuse::Io::IoUring,
-							crate::config::VfsIo::ReadWrite => vfs::fuse::Io::ReadWrite,
-						},
-						passthrough: match options.passthrough {
-							crate::config::VfsPassthrough::Auto => vfs::fuse::Passthrough::Auto,
-							crate::config::VfsPassthrough::Disabled => {
-								vfs::fuse::Passthrough::Disabled
-							},
-							crate::config::VfsPassthrough::Required => {
-								vfs::fuse::Passthrough::Required
-							},
-						},
+						io,
+						io_uring_completion_batch_size: fuse.io_uring_completion_batch_size,
+						io_uring_max_retired_slots_per_worker: fuse
+							.io_uring_max_retired_slots_per_worker,
+						io_uring_max_slots_per_queue: fuse.io_uring_max_slots_per_queue,
+						io_uring_max_worker_count: fuse.io_uring_max_worker_count,
+						io_uring_payload_memory_budget: fuse.io_uring_payload_memory_budget,
+						io_uring_startup_timeout: fuse.io_uring_startup_timeout,
+						max_write: fuse.max_write,
+						mount_ready_timeout: fuse.mount_ready_timeout,
+						passthrough,
+						read_write_async_concurrency: fuse.read_write_async_concurrency,
+						read_write_async_queue_depth: fuse.read_write_async_queue_depth,
+						read_write_max_reader_count: fuse.read_write_max_reader_count,
 						sqpoll: options.sqpoll,
+						sqpoll_entries: fuse.sqpoll_entries,
+						sqpoll_idle: fuse.sqpoll_idle,
 					};
 					// Without a sandbox socket, mount with the fusermount3 helper after unmounting a stale mount.
 					let recvfd = match recvfd {
