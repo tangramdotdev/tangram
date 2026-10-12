@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Spawn returns before the command transfer completes when awaiting pushes is disabled.
+# Spawn returns before the command transfer completes.
 let root_token = random chars
 
 # Spawn a scheduler with checkpoints enabled and no local runner.

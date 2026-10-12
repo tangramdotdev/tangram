@@ -42,7 +42,6 @@ let path = artifact {
 				lease: spawned.lease,
 				location: spawned.location,
 				tokens: spawned.tokens,
-				reads: [{ streams: ["stdout"] }],
 			});
 			tg.assert((await attached.stdout.text()) === "attached\n");
 			tg.assert((await attached.wait()).exit === 0);
@@ -52,5 +51,7 @@ let path = artifact {
 }
 let output = tg --url $local.url run $path | from json
 assert equal $output "ok"
-assert equal (open --raw $log | lines) ['/processes/connect' '/processes/connect' '/processes/connect']
+let requests = open --raw $log | lines | each { split row '?' | first }
+assert equal ($requests | where { $in == '/processes/connect' } | length) 3
+assert ($requests | all { $in == '/processes/connect' or ($in =~ '^/processes/[^/]+/stdio/(read|write)$') })
 job kill $proxy

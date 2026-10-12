@@ -736,6 +736,7 @@ impl tg::Session {
 		}
 		let (header, stream) = super::stdio::decode_with_header(
 			response.into_body(),
+			tangram_http::body::encoding::Encoding::Json,
 			max_header_length,
 			max_frame_size,
 		)

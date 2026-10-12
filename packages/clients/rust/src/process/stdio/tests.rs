@@ -11,9 +11,14 @@ async fn decode_with_header_preserves_error_trailers() {
 		tangram_http::body::encoding::Encoding::Json,
 	)
 	.unwrap();
-	let (header, mut stream) = decode_with_header::<u64, u64>(body, 1_048_576, 1024)
-		.await
-		.unwrap();
+	let (header, mut stream) = decode_with_header::<u64, u64>(
+		body,
+		tangram_http::body::encoding::Encoding::Json,
+		1_048_576,
+		1024,
+	)
+	.await
+	.unwrap();
 
 	assert_eq!(header, 42);
 	assert_eq!(stream.try_next().await.unwrap(), Some(7));

@@ -177,6 +177,15 @@ impl Cli {
 				crate::config::resolve_client_pool,
 			);
 
+		// Get the process options.
+		let process = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.process)
+			.map(crate::config::resolve_client_process)
+			.unwrap_or_default();
+
 		// Get the progress options.
 		let progress = self.progress_config();
 
@@ -204,6 +213,7 @@ impl Cli {
 			token,
 			http,
 			pool,
+			process,
 			progress,
 			reconnect,
 			retry,

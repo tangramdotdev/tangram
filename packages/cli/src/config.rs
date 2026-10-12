@@ -1518,6 +1518,9 @@ pub struct Process {
 	pub children_wakeup_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connect: Option<ProcessConnect>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_children_page_size: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1563,6 +1566,28 @@ pub struct Process {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttt", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_touch: Option<Duration>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessConnect {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub high_priority_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub low_priority_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_operations: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_pending_messages: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_unacknowledged_responses: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub spawn_channel_capacity: Option<usize>,
 }
 
 #[serde_as]
@@ -2727,6 +2752,10 @@ pub struct Client {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pool: Option<Pool>,
 
+	/// Configure process connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process: Option<ClientProcess>,
+
 	/// Configure progress rendering.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub progress: Option<ClientProgress>,
@@ -2773,6 +2802,38 @@ pub struct ClientHttp {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_timeout: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientProcess {
+	/// Configure process connect connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connect: Option<ClientProcessConnect>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientProcessConnect {
+	/// The capacity of the progress event channel.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub event_capacity: Option<usize>,
+
+	/// The capacity of the channel of messages sent to the server.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub input_capacity: Option<usize>,
+
+	/// The maximum number of queued high priority messages.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_messages: Option<usize>,
+
+	/// The maximum number of pending requests.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_requests: Option<usize>,
+
+	/// The capacity of the channel of messages sent to the connection task.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_capacity: Option<usize>,
 }
 
 #[serde_as]
@@ -4020,6 +4081,34 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 	Ok(target)
 }
 
+pub(crate) fn resolve_client_process(source: ClientProcess) -> tg::process::Config {
+	let mut target = tg::process::Config::default();
+	if let Some(value) = source.connect {
+		target.connect = resolve_client_process_connect(value);
+	}
+	target
+}
+
+fn resolve_client_process_connect(source: ClientProcessConnect) -> tg::process::connect::Config {
+	let mut target = tg::process::connect::Config::default();
+	if let Some(value) = source.event_capacity {
+		target.event_capacity = value;
+	}
+	if let Some(value) = source.input_capacity {
+		target.input_capacity = value;
+	}
+	if let Some(value) = source.max_messages {
+		target.max_messages = value;
+	}
+	if let Some(value) = source.max_requests {
+		target.max_requests = value;
+	}
+	if let Some(value) = source.message_capacity {
+		target.message_capacity = value;
+	}
+	target
+}
+
 pub(crate) fn resolve_client_pool(source: &Pool) -> tangram_pool::Options {
 	let mut target = tg::Arg::default().pool;
 	if let Some(value) = source.max {
@@ -4837,6 +4926,26 @@ fn resolve_process(source: Process) -> server::Process {
 	}
 	if let Some(value) = source.default_log_read_size {
 		target.default_log_read_size = value;
+	}
+	if let Some(source) = source.connect {
+		if let Some(value) = source.high_priority_channel_capacity {
+			target.connect.high_priority_channel_capacity = value;
+		}
+		if let Some(value) = source.low_priority_channel_capacity {
+			target.connect.low_priority_channel_capacity = value;
+		}
+		if let Some(value) = source.max_operations {
+			target.connect.max_operations = value;
+		}
+		if let Some(value) = source.spawn_channel_capacity {
+			target.connect.spawn_channel_capacity = value;
+		}
+		if let Some(value) = source.max_pending_messages {
+			target.connect.max_pending_messages = value;
+		}
+		if let Some(value) = source.max_unacknowledged_responses {
+			target.connect.max_unacknowledged_responses = value;
+		}
 	}
 	if let Some(value) = source.log_cache_partition_total {
 		target.log_cache_partition_total = value;

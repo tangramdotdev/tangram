@@ -1003,6 +1003,8 @@ pub struct Pagination {
 pub struct Process {
 	pub children_wakeup_interval: Duration,
 
+	pub connect: ProcessConnect,
+
 	pub default_children_page_size: u64,
 
 	pub default_log_read_size: u64,
@@ -1028,6 +1030,21 @@ pub struct Process {
 	pub time_to_live: Duration,
 
 	pub time_to_touch: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcessConnect {
+	pub high_priority_channel_capacity: usize,
+
+	pub low_priority_channel_capacity: usize,
+
+	pub max_operations: usize,
+
+	pub max_pending_messages: usize,
+
+	pub max_unacknowledged_responses: usize,
+
+	pub spawn_channel_capacity: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -2661,6 +2678,7 @@ impl Default for Process {
 	fn default() -> Self {
 		Self {
 			children_wakeup_interval: Duration::from_mins(1),
+			connect: ProcessConnect::default(),
 			default_children_page_size: 256,
 			default_log_read_size: 4096,
 			log_cache_partition_total: 1,
@@ -2677,6 +2695,19 @@ impl Default for Process {
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
+		}
+	}
+}
+
+impl Default for ProcessConnect {
+	fn default() -> Self {
+		Self {
+			high_priority_channel_capacity: 64,
+			low_priority_channel_capacity: 16,
+			max_operations: 64,
+			max_pending_messages: 64,
+			max_unacknowledged_responses: 196,
+			spawn_channel_capacity: 64,
 		}
 	}
 }

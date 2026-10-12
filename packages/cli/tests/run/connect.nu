@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A retained connection carries stdin, independent output readers, and repeated waits in one HTTP request.
+# A retained connection carries repeated waits in one HTTP request, and stdio uses the stdio endpoints.
 let local = server spawn
 let path = artifact {
 	tangram.ts: '
@@ -27,7 +27,8 @@ let path = artifact {
 			tg.assert(stderr === "err:hello\n");
 			tg.assert(outcome.exit === 0);
 			tg.assert((await process.wait()).exit === 0);
-			tg.assert(requests.length === 1 && requests[0] === "/processes/connect");
+			tg.assert(requests.filter((path) => path === "/processes/connect").length === 1);
+			tg.assert(requests.every((path) => path === "/processes/connect" || /^\/processes\/[^/]+\/stdio\/(read|write)$/.test(path)));
 			return "ok";
 		}
 	'

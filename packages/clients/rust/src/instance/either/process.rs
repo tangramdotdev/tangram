@@ -8,13 +8,21 @@ where
 	L: tg::instance::Process,
 	R: tg::instance::Process,
 {
-	async fn try_connect_process(
+	async fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
+	) -> tg::Result<
+		Option<(
+			tg::process::connect::Header,
+			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+		)>,
+	> {
 		match self {
-			tg::Either::Left(instance) => instance.try_connect_process(input).await,
-			tg::Either::Right(instance) => instance.try_connect_process(input).await,
+			tg::Either::Left(instance) => instance.try_get_process_connect_stream(arg, input).await,
+			tg::Either::Right(instance) => {
+				instance.try_get_process_connect_stream(arg, input).await
+			},
 		}
 	}
 

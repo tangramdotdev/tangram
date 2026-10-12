@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
     from ...client import Client
+    from ...client.process.spawn import OutputObject
     from ...value import ValueType
     from ..outcome import ProcessOutcome
-    from ..stdio import StdioChunk, StdioWriteOutput
 
+from ...client import is_transport_error
 from ...error import Error
 from ...location import Arg as LocationArg
 from .session import Session
@@ -22,21 +22,25 @@ class Connection:
     """Reconnect a process session while preserving the process's lease."""
 
     def __init__(self, session: Session):
-        self.initial = session
         self.session = session
         self._opening = None
+        self._closing = asyncio.Event()
         self.closed = False
 
     @classmethod
     async def open(cls, process, **options) -> Self:
         session = await Session.connect(process, **options)
-        session.confirm()
+        session.ready()
         connection = cls(session)
         if options.get("mode") == "spawn":
             await connection.close()
         return connection
 
-    async def ensure_session(self, read=None) -> Session:
+    @property
+    def output(self) -> OutputObject:
+        return self.session.output
+
+    async def ensure_session(self) -> Session:
         if self.closed:
             raise ConnectionError("the process connection was closed")
         if not self.session._closed and self.session._error is None:
@@ -57,7 +61,6 @@ class Connection:
                     if location is None
                     else LocationArg.from_location(location),
                     tokens=output.get("tokens") or {},
-                    reads=[] if read is None else [read],
                 )
                 if self.closed:
                     await session.close()
@@ -80,7 +83,9 @@ class Connection:
             try:
                 return await self.session.wait()
             except Exception as error:
-                if self.closed or isinstance(error, Error):
+                if self.closed or (
+                    isinstance(error, Error) and not is_transport_error(error)
+                ):
                     raise
                 await self.ensure_session()
 
@@ -98,39 +103,13 @@ class Connection:
         await (await self.ensure_session()).tty(arg)
 
     def stdio_client(self):
-        async def read(id, options=None, **arg):
-            return self.read({**(options or {}), **arg})
+        client = self.session.client
 
-        async def write(id, input, options=None, *, complete=None, **arg):
-            options = {**(options or {}), **arg}
-            position = 0
-            positions = {stream: 0 for stream in options["streams"]}
-            async for chunk in input:
-                if chunk["stream"] not in positions:
-                    raise ValueError("unexpected process stdio stream")
-                output = await self.write(
-                    {"kind": "chunk", "value": chunk}, options=options
-                )
-                if output["length"] != len(chunk["bytes"]):
-                    raise BrokenPipeError(
-                        "the process stdio closed before writing the chunk"
-                    )
-                position = chunk["combined_position"] + output["length"]
-                positions[chunk["stream"]] = chunk["stream_position"] + output["length"]
-                if complete is not None:
-                    complete(chunk)
-                if output["closed"]:
-                    return
-            await self.write(
-                {
-                    "kind": "end",
-                    "value": {
-                        "combined_position": position,
-                        "stream_positions": positions,
-                    },
-                },
-                options=options,
-            )
+        async def read(id, arg=None, **options):
+            stream = await client.try_read_process_stdio(id, arg, **options)
+            if stream is None:
+                return None
+            return BoundStream(stream, self._closing)
 
         async def tty(id, options=None, **arg):
             await self.tty({**(options or {}), **arg})
@@ -138,96 +117,8 @@ class Connection:
         return SimpleNamespace(
             set_process_tty_size=tty,
             try_read_process_stdio=read,
-            write_process_stdio=write,
+            write_process_stdio=client.write_process_stdio,
         )
-
-    async def read(self, arg) -> AsyncIterator[StdioChunk]:
-        arg = dict(arg)
-        streams = arg.pop("streams")
-        forward = arg.get("length") is None or arg["length"] >= 0
-        cursor = arg.get("position", 0)
-        cursor = cursor if type(cursor) is int else None
-        while True:
-            initial_arg = {"streams": streams, **arg}
-            session = (
-                self.initial
-                if self.initial.has_initial(initial_arg)
-                else await self.ensure_session(initial_arg)
-            )
-            try:
-                async for chunk in session.read(streams, **arg):
-                    chunk: StdioChunk = {**chunk}
-                    bytes_ = chunk["bytes"]
-                    key = "combined_position" if len(streams) > 1 else "stream_position"
-                    start = chunk[key]
-                    end = start + len(bytes_)
-                    if cursor is not None:
-                        if (forward and start > cursor) or (
-                            not forward and end < cursor
-                        ):
-                            raise ValueError(
-                                "encountered a gap in the process stdio stream"
-                            )
-                        if forward and start < cursor:
-                            overlap = min(len(bytes_), cursor - start)
-                            bytes_ = bytes_[overlap:]
-                            chunk["combined_position"] += overlap
-                            chunk["stream_position"] += overlap
-                        elif not forward and end > cursor:
-                            bytes_ = bytes_[: max(0, cursor - start)]
-                    if not bytes_:
-                        continue
-                    chunk["bytes"] = bytes_
-                    cursor = chunk[key] + (len(bytes_) if forward else 0)
-                    arg["position"] = cursor
-                    if arg.get("length") is not None:
-                        arg["length"] += (-1 if forward else 1) * len(bytes_)
-                    yield chunk
-                return
-            except (OSError, ConnectionError):
-                if self.closed:
-                    raise
-                await self.ensure_session({"streams": streams, **arg})
-
-    async def write(self, data, *, options=None) -> StdioWriteOutput:
-        while True:
-            session = await self.ensure_session()
-            try:
-                output = await session._request(
-                    "write",
-                    {
-                        "data": data,
-                        **{
-                            key: options[key]
-                            for key in ("location", "tokens")
-                            if options is not None and key in options
-                        },
-                    },
-                )
-                if output["kind"] != "write":
-                    raise ValueError("expected a process write response")
-                return output["value"]
-            except (OSError, ConnectionError):
-                if self.closed:
-                    raise
-                # Replay the original positions to deduplicate a committed write.
-                await self.ensure_session()
-
-    async def close_initial(self, stream):
-        initial = self.initial
-        id = next(
-            (
-                id
-                for id, arg in initial._initial_reads.items()
-                if arg["streams"] == [stream]
-            ),
-            None,
-        )
-        if id is not None:
-            initial._initial_reads.pop(id)
-            initial._reads.pop(id, None)
-            if not initial._closed and initial._error is None:
-                await initial._request("close", id)
 
     async def detach(self) -> None:
         if self.closed:
@@ -238,16 +129,52 @@ class Connection:
 
     async def close(self) -> None:
         self.closed = True
+        self._closing.set()
         await self.session.close()
-        if self.initial is not self.session:
-            await self.initial.close()
         if self._opening is not None:
             self._opening.cancel()
             await asyncio.gather(self._opening, return_exceptions=True)
 
 
+class BoundStream:
+    def __init__(self, stream, closing: asyncio.Event):
+        self._stream = stream
+        self._closing = closing
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self):
+        async def step():
+            try:
+                return True, await anext(self._stream)
+            except StopAsyncIteration:
+                return False, None
+
+        next_ = asyncio.ensure_future(step())
+        closing = asyncio.ensure_future(self._closing.wait())
+        try:
+            await asyncio.wait({next_, closing}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            closing.cancel()
+        if not next_.done():
+            next_.cancel()
+            await asyncio.gather(next_, return_exceptions=True)
+            await self.aclose()
+            raise StopAsyncIteration
+        ok, chunk = next_.result()
+        if not ok:
+            raise StopAsyncIteration
+        return chunk
+
+    async def aclose(self) -> None:
+        close = getattr(self._stream, "aclose", None)
+        if close is not None:
+            await close()
+
+
 async def connect(id, options=None, *, client: Client | None = None, **kwargs):
-    """Connect to an existing process with its referrer options and initial reads."""
+    """Connect to an existing process with its referrer options."""
     from .. import Process
 
     return await Process.connect(id, client=client, **{**(options or {}), **kwargs})

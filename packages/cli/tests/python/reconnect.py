@@ -39,7 +39,6 @@ async def main():
             client=client,
             location=spawned.location,
             tokens=spawned.tokens,
-            reads=["stdout"],
         )
         async with process:
             id, lease = process.id, process.lease

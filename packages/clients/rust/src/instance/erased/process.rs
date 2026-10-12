@@ -4,12 +4,18 @@ use {
 };
 
 pub trait Process: Send + Sync + 'static {
-	fn try_connect_process(
+	fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> BoxFuture<
 		'_,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>>,
+		tg::Result<
+			Option<(
+				tg::process::connect::Header,
+				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			)>,
+		>,
 	>;
 
 	fn try_spawn_process(
@@ -135,14 +141,20 @@ impl<T> Process for T
 where
 	T: tg::instance::Process,
 {
-	fn try_connect_process(
+	fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> BoxFuture<
 		'_,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>>,
+		tg::Result<
+			Option<(
+				tg::process::connect::Header,
+				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			)>,
+		>,
 	> {
-		self.try_connect_process(input).boxed()
+		self.try_get_process_connect_stream(arg, input).boxed()
 	}
 
 	fn try_spawn_process(

@@ -202,7 +202,6 @@ export namespace Stdio {
 		async close(): Promise<void> {
 			let fd = this.#fd;
 			let input = this.#input;
-			if (input === null) this.#process?.connection?.closeInitial(this.#stream);
 			this.#fd = null;
 			this.#input = null;
 			this.#process = null;

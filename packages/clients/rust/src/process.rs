@@ -87,6 +87,11 @@ pub struct Arg {
 	pub user: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Config {
+	pub connect: tg::process::connect::Config,
+}
+
 #[derive(Clone, Debug)]
 pub enum SandboxArg {
 	Arg(tg::process::SandboxCreateArg),
@@ -106,4 +111,13 @@ pub struct SandboxCreateArg {
 	pub storage: Option<tg::sandbox::Resource<u64>>,
 	pub swap: Option<tg::sandbox::Resource<u64>>,
 	pub ttl: Option<Option<Duration>>,
+}
+
+impl Config {
+	pub(crate) fn validate(self) -> tg::Result<Self> {
+		self.connect
+			.validate()
+			.map_err(|source| tg::error!(!source, "invalid process connect configuration"))?;
+		Ok(self)
+	}
 }

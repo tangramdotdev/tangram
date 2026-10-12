@@ -38,6 +38,7 @@ impl Session {
 			token: self.context.token(),
 			http: self.client.http,
 			pool: self.client.pool_options,
+			process: self.client.process,
 			progress: self.client.progress,
 			reconnect: self.client.reconnect.clone(),
 			retry: self.client.retry.clone(),

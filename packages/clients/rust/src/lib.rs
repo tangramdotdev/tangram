@@ -144,6 +144,7 @@ pub struct Arg {
 	pub token: Option<String>,
 	pub http: Http,
 	pub pool: tangram_pool::Options,
+	pub process: tg::process::Config,
 	pub progress: tg::progress::Config,
 	pub reconnect: tangram_futures::retry::Options,
 	pub retry: tangram_futures::retry::Options,
@@ -169,6 +170,7 @@ pub struct State {
 	http: Http,
 	pool: self::http::Pool,
 	pool_options: tangram_pool::Options,
+	process: tg::process::Config,
 	progress: tg::progress::Config,
 	reconnect: tangram_futures::retry::Options,
 	retry: tangram_futures::retry::Options,
@@ -226,6 +228,7 @@ impl Context {
 impl Client {
 	pub fn new(arg: tg::Arg) -> tg::Result<Self> {
 		let http = arg.http.validate()?;
+		let process = arg.process.validate()?;
 		let progress = arg.progress;
 		let sandbox = arg.sandbox;
 		let value = arg.value;
@@ -249,6 +252,7 @@ impl Client {
 			http,
 			pool,
 			pool_options,
+			process,
 			progress,
 			reconnect,
 			retry,
@@ -282,6 +286,7 @@ impl Client {
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
 		let http = arg.http.validate()?;
+		let process = arg.process.validate()?;
 		let progress = arg.progress;
 		let sandbox = arg.sandbox;
 		let value = arg.value;
@@ -319,6 +324,7 @@ impl Client {
 			http,
 			pool,
 			pool_options,
+			process,
 			progress,
 			reconnect,
 			retry,
@@ -425,6 +431,7 @@ impl fmt::Debug for State {
 		f.debug_struct("State")
 			.field("context", &self.context)
 			.field("pool_options", &self.pool_options)
+			.field("process", &self.process)
 			.field("progress", &self.progress)
 			.field("reconnect", &self.reconnect)
 			.field("retry", &self.retry)
@@ -459,6 +466,7 @@ impl Default for Arg {
 			token: None,
 			http: Http::default(),
 			pool,
+			process: tg::process::Config::default(),
 			progress: tg::progress::Config::default(),
 			reconnect: tangram_futures::retry::Options::default(),
 			retry: tangram_futures::retry::Options::default(),

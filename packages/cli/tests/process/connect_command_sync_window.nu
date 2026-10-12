@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Command sync must progress while the entire fixed process request window is buffered.
+# The header, carrying the command sync, must arrive before the command push completes, and requests must not block the push.
 
 const script = path self ../lib/process_connect_window.mjs
 let root_token = random chars
@@ -36,7 +36,7 @@ let local = server spawn --name local --config {
 let architecture = (^uname -m | str trim | str replace arm64 aarch64)
 let operating_system = if $nu.os-info.name == 'macos' { 'darwin' } else { $nu.os-info.name }
 let host = $"($architecture)-($operating_system)"
-let contents = "#!/bin/sh\nwhile read -r line; do :; done\n"
+let contents = "#!/bin/sh\nexit 0\n"
 let blob_value = ['tg.blob(' ($contents | to json) ')'] | str join
 let blob = tg --url $local.url put --no-tokens $blob_value | referent node
 let file_value = ['tg.file({"contents":' $blob ',"executable":true})'] | str join
@@ -49,7 +49,6 @@ let command = (
 	tg --url $local.url put --no-tokens $value | referent node
 	| str trim
 )
-
 
 let ready = mktemp -d | path join ready
 let socket = $local.url | str replace 'http+unix://' '' | url decode
@@ -65,6 +64,6 @@ wait_until { $ready | path exists }
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $watch
 tg --url $runner.url checkpoint unwatch runner.process.run $run_watch
 let output = job recv --tag $run --timeout 30sec
-success $output "the full request window and stdin EOF must not block command sync"
+success $output "buffered requests must not block command sync"
 assert equal ($output.stdout | str trim) 'ok'
 

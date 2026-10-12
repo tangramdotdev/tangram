@@ -1,11 +1,11 @@
 use ../lib/test.nu *
 
-# A node process connects to its control stream and receives its result.
+# A node process connects and receives its outcome.
 
 const javascript_path = path self '../../../javascript'
 cd $javascript_path
 
-# Receipt, operation completion, process exit, and read EOF are independent handshakes.
+# Receipt, operation completion, process exit, and read EOF are independent handshakes, and stdio uses its own requests.
 let output = timeout 15 node --input-type=module -e '
 	import assert from "node:assert/strict";
 	import * as tg from "@tangramdotdev/client";
@@ -38,27 +38,41 @@ let output = timeout 15 node --input-type=module -e '
 			return this;
 		}
 	}
+	const stream = (Body, events, header) => new Body({
+		[Symbol.asyncIterator]: async function* () {
+			if (header) yield new Uint8Array([2, 123, 125]);
+			for await (let event of events) {
+				if (event === null) return;
+				if (event instanceof Error) throw event;
+				yield new TextEncoder().encode("event: " + event.event + "\ndata: " + event.data + "\n\n");
+			}
+		},
+	});
+	const encode = (value) => ({ event: value[0], data: JSON.stringify(value[1]) });
 	let requests = [];
 	let input;
+	let query;
 	let events = new Queue();
+	let stdio = new Queue();
 	tg.client.send = async (request) => {
 		requests.push(request.uri.path);
-		input = request.body.sse();
-		return new tg.Response(
-			200,
-			{ "content-type": "text/event-stream" },
-			{
-				sse: async function* () {
-					for await (let event of events) {
-						if (event instanceof Error) throw event;
-						yield event;
-					}
-				},
-			},
-		);
+		if (request.uri.path === "/processes/connect") {
+			input = request.body.sse();
+			query = new URLSearchParams(request.uri.query);
+			return new tg.Response(200, { "content-type": "text/event-stream" }, stream(request.body.constructor, events, true));
+		}
+		let output = new Queue();
+		stdio.push({
+			emit: (event, value) => output.push(encode([event, value])),
+			end: () => output.push(null),
+			input: request.body.sse(),
+			path: request.uri.path,
+			query: new URLSearchParams(request.uri.query),
+		});
+		return new tg.Response(200, { "content-type": "text/event-stream" }, stream(request.body.constructor, output, false));
 	};
-	const emit = (event, value) =>
-		events.push({ event, data: JSON.stringify(value) });
+	const emit = (event, value) => events.push(encode([event, value]));
+	const selected = (value) => emit("notification", { kind: "progress", value: { kind: "output", value } });
 	const response = (id, kind, value) =>
 		emit("response", {
 			id,
@@ -68,32 +82,31 @@ let output = timeout 15 node --input-type=module -e '
 	const next = async () => {
 		while (true) {
 			let event = (await input.next()).value;
-			if (event.event !== "ack")
+			if (event.event !== "ack" && !(event.event === "notification" && JSON.parse(event.data).kind === "ready"))
 				return { kind: event.event, value: JSON.parse(event.data) };
 		}
 	};
+	const data = async (connection) => {
+		let event = (await connection.input.next()).value;
+		assert.equal(event.event, "data");
+		return JSON.parse(event.data);
+	};
+	const output = { cached: false, lease: null, location: null, process: id, tokens: {}, outcome: null };
+
 	let connected = false;
-	let opening = tg.Process.connect(id, { reads: [{ streams: ["stdout"] }] }).then(
-		(value) => {
-			connected = true;
-			return value;
-		},
-	);
+	let opening = tg.Process.connect(id).then((value) => {
+		connected = true;
+		return value;
+	});
 	await tick();
-	let initial = await next();
-	assert.equal(initial.value.arg.kind, "connect");
-	emit("ack", { id: 0 });
+	assert.equal(query.get("process"), id);
+	assert.equal([...query.keys()].some((key) => key.startsWith("reads")), false);
 	await tick();
 	assert.equal(connected, false);
-	response(0, "connect", {
-		cached: false,
-		lease: null,
-		location: null,
-		process: id,
-		tokens: {},
-		outcome: null,
-	});
+	selected(output);
 	let process = await opening;
+
+	// A write completes only once the server reports its position.
 	let written = false;
 	let writing = process.stdin
 		.write(new TextEncoder().encode("abc"))
@@ -101,91 +114,82 @@ let output = timeout 15 node --input-type=module -e '
 			written = true;
 			return value;
 		});
-	let write = await next();
-	assert.equal(write.value.arg.kind, "write");
-	emit("ack", { id: write.value.id });
+	let writer = (await stdio.next()).value;
+	assert.equal(writer.path, `/processes/${id}/stdio/write`);
+	let write = await data(writer);
+	assert.equal(write.kind, "chunk");
 	await tick();
 	assert.equal(written, false);
-    assert.equal(write.value.arg.value.data.kind, "chunk");
-    response(write.value.id, "write", { closed: false, length: 3 });
-    assert.equal(await writing, 3);
-    let closing = process.stdin.close();
-    let end = await next();
-    assert.deepEqual(end.value.arg.value.data, {
-        kind: "end", value: { combined_position: 3, stream_positions: { stdin: 3 } },
-    });
-    response(end.value.id, "write", { closed: true, length: 0 });
-    await closing;
+	writer.emit("output", { closed: false, position: 3 });
+	assert.equal(await writing, 3);
+	let closing = process.stdin.close();
+	let end = await data(writer);
+	assert.deepEqual(end, {
+		kind: "end", value: { combined_position: 3, stream_positions: { stdin: 3 } },
+	});
+	writer.emit("output", { closed: true, position: 3 });
+	await closing;
+	writer.end();
+
+	// The outcome arrives on the connection.
 	emit("notification", { kind: "outcome", value: { exit: 0 } });
 	assert.equal((await process.wait()).exit, 0);
-    let readDone = false;
-    let reading = process.stdout.text().then(value => { readDone = true; return value; });
-    emit("notification", {
-        kind: "read", value: { id: 1, event: { kind: "chunk", value: {
-            bytes: "YWJj", combined_position: 0, stream: "stdout", stream_position: 0,
-        } } },
-    });
-    await tick();
-    assert.equal(readDone, false);
-    response(1, "read", { kind: "end", value: { combined_position: 3, stream_positions: { stdout: 3 } } });
-    assert.equal(await reading, "abc");
-    while (true) {
-        const event = (await input.next()).value;
-        if (event.event === "ack" && JSON.parse(event.data).id === 1) break;
-    }
-	assert.equal((await process.wait()).exit, 0);
-	assert.deepEqual(requests, ["/processes/connect"]);
 
+	// A chunk does not end a read; its response does.
+	let readDone = false;
+	let reading = process.stdout.text().then((value) => {
+		readDone = true;
+		return value;
+	});
+	let reader = (await stdio.next()).value;
+	assert.equal(reader.path, `/processes/${id}/stdio/read`);
+	assert.equal(reader.query.get("streams"), "stdout");
+	reader.emit("notification", { kind: "chunk", value: {
+		bytes: "YWJj", combined_position: 0, stream: "stdout", stream_position: 0,
+	} });
+	await tick();
+	assert.equal(readDone, false);
+	reader.emit("response", { kind: "end", value: { combined_position: 3, stream_positions: { stdout: 3 } } });
+	reader.end();
+	assert.equal(await reading, "abc");
+	assert.equal((await process.wait()).exit, 0);
+	assert.deepEqual(requests, [
+		"/processes/connect",
+		`/processes/${id}/stdio/write`,
+		`/processes/${id}/stdio/read`,
+	]);
+
+	// A transport failure after a receipt fails the operation, and the connection reopens to wait.
+	requests = [];
 	events = new Queue();
 	let reopening = tg.Process.connect(id);
 	await tick();
-	await next();
-	response(0, "connect", {
-		cached: false,
-		lease: null,
-		location: null,
-		process: id,
-		tokens: {},
-		outcome: null,
-	});
+	selected(output);
 	let failed = await reopening;
 	let signaling = failed.signal(tg.Process.Signal.TERM);
 	let waiting = failed.wait();
 	let signalError = assert.rejects(signaling, /transport failed/);
-
 	let signal = await next();
 	assert.equal(signal.value.arg.kind, "signal");
 	emit("ack", { id: signal.value.id });
 	events.push(new Error("transport failed"));
 	await signalError;
 	await tick();
-	let reconnect = await next();
-	assert.equal(reconnect.value.arg.value.mode, "run");
-	assert.equal(reconnect.value.arg.value.process, id);
-	response(0, "connect", {
-		cached: false, lease: null, location: null, process: id, tokens: {}, outcome: null,
-	});
+	assert.equal(query.get("mode"), "run");
+	assert.equal(query.get("process"), id);
+	selected(output);
 	emit("notification", { kind: "outcome", value: { exit: 0 } });
 	assert.equal((await waiting).exit, 0);
-	assert.deepEqual(requests, Array(3).fill("/processes/connect"));
+	assert.deepEqual(requests, Array(2).fill("/processes/connect"));
 	await failed.detach();
 
-	// Backpressure on requests and stdio must leave room for response acknowledgments.
+	// Backpressure on requests must leave room for response acknowledgments.
 	events = new Queue();
-	let openingBusy = tg.Process.connect(id, { reads: [{ streams: ["stdout"] }] });
+	let openingBusy = tg.Process.connect(id);
 	await tick();
-	await next();
-	response(0, "connect", {
-		cached: false,
-		lease: null,
-		location: null,
-		process: id,
-		tokens: {},
-		outcome: null,
-	});
+	selected(output);
 	let busy = await openingBusy;
-	assert.equal((await input.next()).value.event, "ack");
-	let busyReading = busy.stdout.text();
+	assert.deepEqual(JSON.parse((await input.next()).value.data), { kind: "ready" });
 	let pending = [busy.signal(tg.Process.Signal.TERM)];
 	pending[0].catch(() => {});
 	let first = await next();
@@ -194,11 +198,7 @@ let output = timeout 15 node --input-type=module -e '
 		signaling.catch(() => {});
 		pending.push(signaling);
 	}
-    response(1, "read", { kind: "end", value: { combined_position: 0, stream_positions: { stdout: 0 } } });
-    assert.equal(await busyReading, "");
-    const readAck = (await input.next()).value;
-    assert.equal(readAck.event, "ack");
-    assert.deepEqual(JSON.parse(readAck.data), { id: 1 });
+	await assert.rejects(busy.signal(tg.Process.Signal.TERM), /too many pending/);
 	response(first.value.id, "signal");
 	await pending[0];
 	let acknowledgment = (await input.next()).value;

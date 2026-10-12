@@ -4,25 +4,33 @@ use {
 };
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
-	fn connect_process(
+	fn get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+		Output = tg::Result<(
+			tg::process::connect::Header,
+			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+		)>,
 	> + Send {
 		async move {
-			self.try_connect_process(input)
+			self.try_get_process_connect_stream(arg, input)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
 	}
 
-	fn try_connect_process(
+	fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+			Option<(
+				tg::process::connect::Header,
+				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			)>,
 		>,
 	> + Send;
 
@@ -289,11 +297,19 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::instance::Process for tg::Client {
-	async fn try_connect_process(
+	async fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
-		self.session(&self.context).try_connect_process(input).await
+	) -> tg::Result<
+		Option<(
+			tg::process::connect::Header,
+			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+		)>,
+	> {
+		self.session(&self.context)
+			.try_get_process_connect_stream(arg, input)
+			.await
 	}
 
 	async fn try_spawn_process(

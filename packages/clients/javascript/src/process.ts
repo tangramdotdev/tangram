@@ -807,9 +807,6 @@ export class Process<O extends tg.Value = tg.Value> {
 			location: options.location ?? this.#location,
 			tokens: this.#tokens,
 		};
-		if (this.#connection !== null) {
-			return this.#connection.read(this.#id, arg);
-		}
 		return tg.client.tryReadProcessStdio(this.#id, arg);
 	}
 
@@ -844,6 +841,7 @@ export namespace Process {
 	export namespace Connect {
 		export type Arg = ProcessConnect.Arg;
 		export type ClientMessage = ProcessConnect.ClientMessage;
+		export type Header = ProcessConnect.Header;
 		export type Mode = ProcessConnect.Mode;
 		export type Options = ProcessConnect.Options;
 		export type ServerMessage = ProcessConnect.ServerMessage;

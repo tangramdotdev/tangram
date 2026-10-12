@@ -63,9 +63,6 @@ impl Instance {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
-		if let Some(connection) = self.try_connection(id) {
-			return connection.read(arg, input).await.map(Some);
-		}
 		self.0.try_read_process_stdio(id, arg, input).await
 	}
 
@@ -76,9 +73,6 @@ impl Instance {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
 	{
-		if let Some(connection) = self.try_connection(id) {
-			return connection.write(arg, input).await.map(Some);
-		}
 		self.0.try_write_process_stdio(id, arg, input).await
 	}
 
@@ -97,15 +91,19 @@ impl Instance {
 }
 
 impl tg::instance::Process for Instance {
-	fn try_connect_process(
+	fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+			Option<(
+				tg::process::connect::Header,
+				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			)>,
 		>,
 	> + Send {
-		self.0.try_connect_process(input)
+		self.0.try_get_process_connect_stream(arg, input)
 	}
 
 	fn try_spawn_process(

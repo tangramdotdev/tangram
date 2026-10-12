@@ -259,6 +259,12 @@ impl Server {
 				"the sync max frame size must be greater than zero"
 			));
 		}
+		let connect = &config.process.connect;
+		if connect.max_operations == 0 || connect.max_pending_messages == 0 {
+			return Err(tg::error!(
+				"the process connect max operations and max pending messages must be greater than zero"
+			));
+		}
 		for (name, duration) in [
 			(
 				"advanced version check interval",
@@ -344,6 +350,18 @@ impl Server {
 			(
 				"indexer request channel capacity",
 				config.indexer.request.channel_capacity,
+			),
+			(
+				"process connect high priority channel capacity",
+				config.process.connect.high_priority_channel_capacity,
+			),
+			(
+				"process connect low priority channel capacity",
+				config.process.connect.low_priority_channel_capacity,
+			),
+			(
+				"process connect spawn channel capacity",
+				config.process.connect.spawn_channel_capacity,
 			),
 			(
 				"process spawn authorization batch size",

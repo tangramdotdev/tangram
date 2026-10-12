@@ -8,22 +8,17 @@ let path = artifact {
 			let send = tg.client.send.bind(tg.client);
 			tg.client.send = (request) => {
 				if (request.uri.path === "/processes/connect") {
-					let input = request.body!.sse();
-					request.body = new tg.Request({
-						...request,
-						body: (async function* () {
-							let first = await input.next();
-							tg.assert(!first.done);
-							let opening = JSON.parse(first.value.data);
-							tg.assert(opening.arg.value.mode === "spawn");
-							yield [
-								`event: ${first.value.event}`,
-								`data: ${first.value.data}`,
-								"",
-								"",
-							].join("\n");
-						})(),
-					}).body;
+                    tg.assert(request.headers.get("x-tg-arg-in-body") === "true");
+                    let input = request.body![Symbol.asyncIterator]();
+                    request.body = new tg.Request({
+                        ...request,
+                        body: (async function* () {
+                            let first = await input.next();
+                            tg.assert(!first.done);
+                            yield first.value;
+                            await input.return?.();
+                        })(),
+                    }).body;
 				}
 				return send(request);
 			};

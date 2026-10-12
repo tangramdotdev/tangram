@@ -1,6 +1,7 @@
 export type Config = {
 	http?: Http;
 	pool?: Pool;
+	process?: Process;
 	reconnect?: Retry;
 	retry?: Retry;
 	token?: string;
@@ -12,6 +13,7 @@ export namespace Config {
 		return {
 			http: Http.defaultValue(),
 			pool: Pool.defaultValue(),
+			process: Process.defaultValue(),
 			reconnect: Retry.defaultValue(),
 			retry: Retry.defaultValue(),
 		};
@@ -108,6 +110,27 @@ export namespace Pool {
 				(!Number.isFinite(config.ttl) || config.ttl < 0))
 		)
 			throw new Error("invalid pool options");
+	}
+}
+export type Process = { connect: ProcessConnect };
+export namespace Process {
+	export function defaultValue(): Process {
+		return { connect: ProcessConnect.defaultValue() };
+	}
+	export function validate(config: Process): void {
+		ProcessConnect.validate(config.connect);
+	}
+}
+export type ProcessConnect = { maxMessages: number; maxRequests: number };
+export namespace ProcessConnect {
+	export function defaultValue(): ProcessConnect {
+		return { maxMessages: 128, maxRequests: 64 };
+	}
+	export function validate(config: ProcessConnect): void {
+		if (!Number.isSafeInteger(config.maxMessages) || config.maxMessages <= 0)
+			throw new Error("invalid process connect max messages");
+		if (!Number.isSafeInteger(config.maxRequests) || config.maxRequests <= 0)
+			throw new Error("invalid process connect max requests");
 	}
 }
 export type Retry = {
