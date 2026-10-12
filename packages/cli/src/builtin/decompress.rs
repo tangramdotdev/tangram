@@ -21,7 +21,7 @@ pub struct Args {
 	pub output_positional: Option<PathBuf>,
 }
 
-pub async fn run(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args, progress_interval: std::time::Duration) -> tg::Result<()> {
 	let input = super::util::resolve_path(args.input_named, args.input_positional);
 	let output = super::util::resolve_path(args.output_named, args.output_positional);
 	let total = super::util::input_length(input.as_deref()).await;
@@ -40,6 +40,7 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		"decompressing",
 		total,
 		input.get_ref().shared_position(),
+		progress_interval,
 	)?;
 	let mut input: Box<dyn tokio::io::AsyncRead + Send + Unpin> = match format {
 		tg::CompressionFormat::Bz2 => {

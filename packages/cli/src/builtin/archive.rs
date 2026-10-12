@@ -32,7 +32,7 @@ pub struct Args {
 	pub output_positional: Option<PathBuf>,
 }
 
-pub async fn run(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args, progress_interval: std::time::Duration) -> tg::Result<()> {
 	let input = super::util::resolve_path(args.input_named, args.input_positional)
 		.ok_or_else(|| tg::error!("expected an input path"))?;
 	let output = super::util::resolve_path(args.output_named, args.output_positional);
@@ -45,7 +45,7 @@ pub async fn run(args: Args) -> tg::Result<()> {
 	if args.compression.is_some() && matches!(args.format, tg::ArchiveFormat::Zip) {
 		return Err(tg::error!("compression is not supported for zip archives"));
 	}
-	let progress = super::progress::Progress::new("archiving", None)?;
+	let progress = super::progress::Progress::new("archiving", None, progress_interval)?;
 	let position = progress.position();
 	match args.format {
 		tg::ArchiveFormat::Tar => {

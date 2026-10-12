@@ -1,7 +1,7 @@
 use {
 	crate::Cli,
 	byteorder::ReadBytesExt as _,
-	std::{os::fd::AsRawFd as _, path::PathBuf, time::Duration},
+	std::{os::fd::AsRawFd as _, path::PathBuf},
 	tangram_client::prelude::*,
 };
 
@@ -196,8 +196,9 @@ impl Cli {
 		drop(ready_writer);
 
 		// Wait for the server to be ready.
+		let start_timeout = self.server_config().start_timeout;
 		let task = tokio::task::spawn_blocking(move || ready_reader.read_u8());
-		let ready = tokio::time::timeout(Duration::from_secs(5), task)
+		let ready = tokio::time::timeout(start_timeout, task)
 			.await
 			.map_err(|error| tg::error!(!error, "timed out waiting for the server ready signal"))
 			.and_then(|output| {
@@ -274,10 +275,12 @@ impl Cli {
 			return Err(tg::error!(!error, "failed to send SIGINT to the server"));
 		}
 
-		// Wait up to one second for the server to exit.
+		// Wait for the server to exit.
+		let server_config = self.server_config();
+		let stop_timeout = server_config.stop_timeout;
 		let (mut handle, status) = tokio::task::spawn_blocking(move || {
 			let mut handle = handle;
-			let status = handle.wait_timeout(Duration::from_secs(1))?;
+			let status = handle.wait_timeout(stop_timeout)?;
 			Ok::<_, std::io::Error>((handle, status))
 		})
 		.await
@@ -297,12 +300,12 @@ impl Cli {
 			return Err(tg::error!(!error, "failed to send SIGTERM to the server"));
 		}
 
-		// Wait up to one second for the server to exit.
-		let status =
-			tokio::task::spawn_blocking(move || handle.wait_timeout(Duration::from_secs(1)))
-				.await
-				.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
-				.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
+		// Wait for the server to exit.
+		let kill_timeout = server_config.kill_timeout;
+		let status = tokio::task::spawn_blocking(move || handle.wait_timeout(kill_timeout))
+			.await
+			.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
 		if status.is_some() {
 			return Ok(());
 		}

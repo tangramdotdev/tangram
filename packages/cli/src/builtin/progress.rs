@@ -20,15 +20,16 @@ pub struct Progress {
 }
 
 impl Progress {
-	pub fn new(title: &str, total: Option<u64>) -> tg::Result<Self> {
+	pub fn new(title: &str, total: Option<u64>, interval: Duration) -> tg::Result<Self> {
 		let position = Arc::new(AtomicU64::new(0));
-		Self::with_position(title, total, position)
+		Self::with_position(title, total, position, interval)
 	}
 
 	pub fn with_position(
 		title: &str,
 		total: Option<u64>,
 		position: Arc<AtomicU64>,
+		interval: Duration,
 	) -> tg::Result<Self> {
 		let is_tty = tangram_util::tty::is_foreground_controlling_tty(libc::STDERR_FILENO);
 		write_indicator(&position, title, total, is_tty, false)?;
@@ -37,7 +38,7 @@ impl Progress {
 			let title = title.to_owned();
 			move |_| async move {
 				loop {
-					tokio::time::sleep(Duration::from_secs(1)).await;
+					tokio::time::sleep(interval).await;
 					if write_indicator(&position, &title, total, is_tty, true).is_err() {
 						break;
 					}

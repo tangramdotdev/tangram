@@ -110,8 +110,9 @@ impl Cli {
 			.map(|tag| tag.parse())
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
+		let tag_concurrency = self.publish_config().tag_concurrency;
 		let plan = state
-			.create_plan(&client, tag)
+			.create_plan(&client, tag, tag_concurrency)
 			.boxed()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create publishing plan"))?;
@@ -506,6 +507,7 @@ impl State {
 		&mut self,
 		client: &impl tg::Instance,
 		mut tag: Option<tg::Specifier>,
+		tag_concurrency: usize,
 	) -> tg::Result<Vec<Step>> {
 		// Fetch all package tags in parallel with limited concurrency.
 		let packages: Vec<_> = self
@@ -525,7 +527,7 @@ impl State {
 				let tag = try_get_package_tag(client, &object, path.as_deref()).await?;
 				Ok::<_, tg::Error>((id, tag))
 			})
-			.buffer_unordered(16)
+			.buffer_unordered(tag_concurrency)
 			.try_collect()
 			.await?;
 

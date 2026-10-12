@@ -38,13 +38,14 @@ impl Cli {
 		};
 		let output_path = util::resolve_path(named.clone(), positional.clone());
 
+		let progress_interval = self.builtin_config().progress_interval;
 		let result = match args.command {
-			Command::Archive(args) => archive::run(args).await,
-			Command::Checksum(args) => checksum::run(args).await,
-			Command::Compress(args) => compress::run(args).await,
-			Command::Decompress(args) => decompress::run(args).await,
-			Command::Download(args) => download::run(args).await,
-			Command::Extract(args) => extract::run(args).await,
+			Command::Archive(args) => archive::run(args, progress_interval).await,
+			Command::Checksum(args) => checksum::run(args, progress_interval).await,
+			Command::Compress(args) => compress::run(args, progress_interval).await,
+			Command::Decompress(args) => decompress::run(args, progress_interval).await,
+			Command::Download(args) => download::run(args, progress_interval).await,
+			Command::Extract(args) => extract::run(args, progress_interval).await,
 		};
 
 		if let Err(error) = &result

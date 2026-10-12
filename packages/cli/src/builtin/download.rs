@@ -37,7 +37,7 @@ pub struct Args {
 	pub url: Uri,
 }
 
-pub async fn run(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args, progress_interval: std::time::Duration) -> tg::Result<()> {
 	let output = super::util::resolve_path(args.output_named, args.output_positional);
 	let response = reqwest::get(args.url.as_str())
 		.await
@@ -53,6 +53,7 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		"downloading",
 		content_length,
 		downloaded.clone(),
+		progress_interval,
 	)?;
 	let checksum = args.checksum.map(|algorithm| {
 		let writer = tg::checksum::Writer::new(algorithm);

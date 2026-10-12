@@ -23,7 +23,7 @@ pub struct Args {
 	pub output_positional: Option<PathBuf>,
 }
 
-pub async fn run(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args, progress_interval: std::time::Duration) -> tg::Result<()> {
 	let input = super::util::resolve_path(args.input_named, args.input_positional);
 	let output = super::util::resolve_path(args.output_named, args.output_positional);
 	if let Some(input) = &input {
@@ -42,6 +42,7 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		"computing checksum",
 		None,
 		input.shared_position(),
+		progress_interval,
 	)?;
 	let mut writer = tg::checksum::Writer::new(args.algorithm);
 	tokio::io::copy(&mut input, &mut writer)

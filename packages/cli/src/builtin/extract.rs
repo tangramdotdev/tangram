@@ -27,7 +27,7 @@ pub struct Args {
 	pub output_positional: Option<PathBuf>,
 }
 
-pub async fn run(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args, progress_interval: std::time::Duration) -> tg::Result<()> {
 	let input = super::util::resolve_path(args.input_named, args.input_positional);
 	let output = super::util::resolve_path(args.output_named, args.output_positional)
 		.ok_or_else(|| tg::error!("expected an output path"))?;
@@ -47,6 +47,7 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		"extracting",
 		total,
 		input.get_ref().shared_position(),
+		progress_interval,
 	)?;
 	tokio::fs::create_dir(&output).await.map_err(
 		|error| tg::error!(!error, path = %output.display(), "failed to create the output"),

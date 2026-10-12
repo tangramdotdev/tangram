@@ -5,8 +5,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const HISTORY_SIZE: usize = 10_000;
-
 /// Run a REPL.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -93,7 +91,8 @@ impl crate::Cli {
 
 		// Set up reedline.
 		let history_path = self.directory_path().join("history");
-		let history = reedline::FileBackedHistory::with_file(HISTORY_SIZE, history_path)
+		let history_size = self.repl_config().history_size;
+		let history = reedline::FileBackedHistory::with_file(history_size, history_path)
 			.map_err(|error| tg::error!(!error, "failed to initialize the repl history"))?;
 		let history_exclusion_prefix = " ".to_owned();
 		let hinter_style = nu_ansi_term::Style::new()

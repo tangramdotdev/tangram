@@ -23,7 +23,7 @@ pub struct Args {
 	pub output_positional: Option<PathBuf>,
 }
 
-pub async fn run(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args, progress_interval: std::time::Duration) -> tg::Result<()> {
 	let input = super::util::resolve_path(args.input_named, args.input_positional);
 	let output = super::util::resolve_path(args.output_named, args.output_positional);
 	let total = super::util::input_length(input.as_deref()).await;
@@ -31,8 +31,12 @@ pub async fn run(args: Args) -> tg::Result<()> {
 	let input = SharedPositionReader::with_reader_and_position(input, 0)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to track the input position"))?;
-	let progress =
-		super::progress::Progress::with_position("compressing", total, input.shared_position())?;
+	let progress = super::progress::Progress::with_position(
+		"compressing",
+		total,
+		input.shared_position(),
+		progress_interval,
+	)?;
 	let input = tokio::io::BufReader::new(input);
 	let mut input: Box<dyn tokio::io::AsyncRead + Send + Unpin> = match args.format {
 		tg::CompressionFormat::Bz2 => {

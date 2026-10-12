@@ -29,6 +29,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub billing: Option<Billing>,
 
+	/// Configure the builtin commands.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub builtin: Option<Builtin>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<Cache>,
 
@@ -81,6 +85,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process: Option<Process>,
 
+	/// Configure the publish command.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub publish: Option<Publish>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub region: Option<String>,
 
@@ -93,6 +101,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<BTreeMap<String, Remote>>,
 
+	/// Configure the REPL.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub repl: Option<Repl>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub roles: Option<BTreeSet<Role>>,
 
@@ -104,6 +116,10 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub scheduler: Option<Scheduler>,
+
+	/// Configure how the CLI starts and stops the server.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub server: Option<Server>,
 
 	/// Configure shell behavior.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2256,6 +2272,46 @@ pub struct ShellDirectory {
 	pub export: String,
 }
 
+#[serde_as]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Builtin {
+	/// The interval at which a builtin progress indicator is redrawn.
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub progress_interval: Duration,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Publish {
+	/// The maximum number of concurrent package tag lookups.
+	pub tag_concurrency: usize,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Repl {
+	/// The maximum number of history entries.
+	pub history_size: usize,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Server {
+	/// The time to wait for the server to exit after sending SIGTERM, before sending SIGKILL.
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub kill_timeout: Duration,
+
+	/// The time to wait for a spawned server to signal that it is ready.
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub start_timeout: Duration,
+
+	/// The time to wait for the server to exit after sending SIGINT, before sending SIGTERM.
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub stop_timeout: Duration,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Telemetry {
@@ -2329,7 +2385,43 @@ impl Config {
 				.map_err(|error| tg::error!(!error, "failed to deserialize the config as YAML"))?,
 		};
 
+		config.validate()?;
+
 		Ok(config)
+	}
+
+	fn validate(&self) -> tg::Result<()> {
+		if let Some(builtin) = &self.builtin
+			&& builtin.progress_interval.is_zero()
+		{
+			return Err(tg::error!(
+				"the builtin progress interval must be greater than zero"
+			));
+		}
+		if let Some(publish) = &self.publish
+			&& publish.tag_concurrency == 0
+		{
+			return Err(tg::error!(
+				"the publish tag concurrency must be greater than zero"
+			));
+		}
+		if let Some(repl) = &self.repl
+			&& repl.history_size == 0
+		{
+			return Err(tg::error!(
+				"the REPL history size must be greater than zero"
+			));
+		}
+		if let Some(server) = &self.server
+			&& (server.kill_timeout.is_zero()
+				|| server.start_timeout.is_zero()
+				|| server.stop_timeout.is_zero())
+		{
+			return Err(tg::error!(
+				"the server kill, start, and stop timeouts must be greater than zero"
+			));
+		}
+		Ok(())
 	}
 
 	fn serialize(&self, format: Format) -> tg::Result<String> {
@@ -2361,6 +2453,34 @@ impl Format {
 }
 
 impl Cli {
+	pub(crate) fn builtin_config(&self) -> Builtin {
+		self.config
+			.as_ref()
+			.and_then(|config| config.builtin)
+			.unwrap_or_default()
+	}
+
+	pub(crate) fn publish_config(&self) -> Publish {
+		self.config
+			.as_ref()
+			.and_then(|config| config.publish)
+			.unwrap_or_default()
+	}
+
+	pub(crate) fn repl_config(&self) -> Repl {
+		self.config
+			.as_ref()
+			.and_then(|config| config.repl)
+			.unwrap_or_default()
+	}
+
+	pub(crate) fn server_config(&self) -> Server {
+		self.config
+			.as_ref()
+			.and_then(|config| config.server)
+			.unwrap_or_default()
+	}
+
 	pub(crate) fn resolve_config(&self) -> tg::Result<tangram_server::Config> {
 		let config = match self.config.as_ref() {
 			Some(config) => resolve_server_config(config)?,
@@ -2421,6 +2541,40 @@ impl Cli {
 		std::fs::write(path, config)
 			.map_err(|error| tg::error!(!error, "failed to save the config"))?;
 		Ok(())
+	}
+}
+
+impl Default for Builtin {
+	fn default() -> Self {
+		Self {
+			progress_interval: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for Publish {
+	fn default() -> Self {
+		Self {
+			tag_concurrency: 16,
+		}
+	}
+}
+
+impl Default for Repl {
+	fn default() -> Self {
+		Self {
+			history_size: 10_000,
+		}
+	}
+}
+
+impl Default for Server {
+	fn default() -> Self {
+		Self {
+			kill_timeout: Duration::from_secs(1),
+			start_timeout: Duration::from_secs(5),
+			stop_timeout: Duration::from_secs(1),
+		}
 	}
 }
 
