@@ -2,6 +2,7 @@ pub use self::payload::Payload;
 
 pub mod either;
 pub mod payload;
+pub mod relay;
 
 pub mod prelude {
 	pub use super::Messenger as _;
