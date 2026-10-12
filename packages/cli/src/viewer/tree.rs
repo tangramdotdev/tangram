@@ -25,7 +25,6 @@ use {
 };
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const PROCESS_LOG_LINE_LIMIT: usize = 16 * 1024;
 
 pub struct Tree {
 	client: tg::Client,
@@ -288,11 +287,19 @@ impl Tree {
 				let counter = counter.clone();
 				let client = client.clone();
 				let referent = referent.clone();
+				let line_limit = options.config.process_log_line_limit;
 				let update_sender = update_sender.clone();
 				let guard = counter.guard();
-				let task = Task::spawn_local(|_| async move {
-					Self::expand_task(&client, counter.clone(), referent, update_sender, false)
-						.await;
+				let task = Task::spawn_local(move |_| async move {
+					Self::expand_task(
+						&client,
+						counter.clone(),
+						referent,
+						line_limit,
+						update_sender,
+						false,
+					)
+					.await;
 					drop(guard);
 				});
 				Some(task)
@@ -497,8 +504,17 @@ impl Tree {
 			let client = self.client.clone();
 			let update_sender = node.update_sender.clone();
 			let referent = referent.clone();
+			let line_limit = node.options.config.process_log_line_limit;
 			move |_| async move {
-				Self::expand_task(&client, counter, referent, update_sender, force_log).await;
+				Self::expand_task(
+					&client,
+					counter,
+					referent,
+					line_limit,
+					update_sender,
+					force_log,
+				)
+				.await;
 				drop(guard);
 			}
 		});
@@ -1599,6 +1615,7 @@ impl Tree {
 		client: &tg::Client,
 		counter: UpdateCounter,
 		referent: tg::Referent<tg::Process>,
+		line_limit: usize,
 		update_sender: NodeUpdateSender,
 		force_log: bool,
 	) -> tg::Result<()> {
@@ -1618,8 +1635,8 @@ impl Tree {
 				let client = client.clone();
 				let guard = counter.guard();
 				let update_sender = update_sender.clone();
-				|_| async move {
-					Self::process_log_task(&client, process, streams, update_sender)
+				move |_| async move {
+					Self::process_log_task(&client, process, streams, line_limit, update_sender)
 						.await
 						.ok();
 					drop(guard);
@@ -1868,6 +1885,7 @@ impl Tree {
 		client: &tg::Client,
 		counter: UpdateCounter,
 		referent: tg::Referent<Item>,
+		line_limit: usize,
 		update_sender: NodeUpdateSender,
 		force_log: bool,
 	) {
@@ -1898,6 +1916,7 @@ impl Tree {
 					client,
 					counter.clone(),
 					referent,
+					line_limit,
 					update_sender.clone(),
 					force_log,
 				)
@@ -2174,10 +2193,19 @@ impl Tree {
 			let guard = counter.guard();
 			let client = client.clone();
 			let referent = referent.clone();
+			let line_limit = options.config.process_log_line_limit;
 			let update_sender = update_sender.clone();
 			let force_log = options.attached;
 			let task: Task<()> = Task::spawn_local(move |_| async move {
-				Self::expand_task(&client, counter, referent, update_sender, force_log).await;
+				Self::expand_task(
+					&client,
+					counter,
+					referent,
+					line_limit,
+					update_sender,
+					force_log,
+				)
+				.await;
 				drop(guard);
 			});
 			Some(task)
@@ -2290,6 +2318,7 @@ impl Tree {
 		client: &tg::Client,
 		process: tg::Process,
 		streams: Vec<tg::process::stdio::Stream>,
+		line_limit: usize,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		let options = tg::process::stdio::read::Options {
@@ -2313,7 +2342,7 @@ impl Tree {
 				} else {
 					segment
 				};
-				extend_process_log_line(&mut line, segment);
+				extend_process_log_line(&mut line, segment, line_limit);
 				if complete {
 					if line.last() == Some(&b'\r') {
 						line.pop();
@@ -2713,6 +2742,7 @@ impl Tree {
 		let Some(referent) = node.borrow().referent.clone() else {
 			return;
 		};
+		let config = node.borrow().options.config;
 		let client = self.client.clone();
 		let data = self.data.clone();
 		let selection_generation = self.selection_generation.clone();
@@ -2737,7 +2767,7 @@ impl Tree {
 					let selection_generation = selection_generation.clone();
 					let update = move |viewer: &mut super::Viewer| {
 						if selection_generation.load(Ordering::Acquire) == generation {
-							let log = Log::new(&client, &process, streams);
+							let log = Log::new(&client, &process, streams, config.log_page_size);
 							viewer.log.replace(log);
 						}
 					};
@@ -2798,7 +2828,7 @@ impl Tree {
 							},
 							Item::User(user) => serde_json::to_string_pretty(&user).unwrap(),
 							Item::Value(tg::Value::Object(tg::Object::Blob(blob))) => {
-								super::util::format_blob(&client, &blob)
+								super::util::format_blob(&client, &blob, config.blob_length_limit)
 									.await
 									.unwrap_or_else(|error| error.to_string())
 							},
@@ -2835,7 +2865,7 @@ impl Tree {
 						}
 					}
 				};
-				let timeout = tokio::time::sleep(std::time::Duration::from_millis(20));
+				let timeout = tokio::time::sleep(config.loading_delay);
 				match future::select(pin!(content_future), pin!(timeout)).await {
 					future::Either::Left((content, _)) => {
 						let selection_generation = selection_generation.clone();
@@ -3056,16 +3086,16 @@ impl std::fmt::Display for Display {
 	}
 }
 
-fn extend_process_log_line(line: &mut Vec<u8>, segment: &[u8]) {
-	if segment.len() >= PROCESS_LOG_LINE_LIMIT {
+fn extend_process_log_line(line: &mut Vec<u8>, segment: &[u8], limit: usize) {
+	if segment.len() >= limit {
 		line.clear();
-		line.extend_from_slice(&segment[segment.len() - PROCESS_LOG_LINE_LIMIT..]);
+		line.extend_from_slice(&segment[segment.len() - limit..]);
 		return;
 	}
 	let excess = line
 		.len()
 		.saturating_add(segment.len())
-		.saturating_sub(PROCESS_LOG_LINE_LIMIT);
+		.saturating_sub(limit);
 	if excess > 0 {
 		line.drain(..excess);
 	}
@@ -3197,7 +3227,7 @@ fn subtree_to_value(subtree: &tg::object::metadata::Subtree) -> tg::Value {
 #[cfg(test)]
 mod tests {
 	use {
-		super::{PROCESS_LOG_LINE_LIMIT, ProcessLogUpdates, Tree, extend_process_log_line},
+		super::{ProcessLogUpdates, Tree, extend_process_log_line},
 		tangram_client::prelude::*,
 		tg::process::{
 			Stdio,
@@ -3237,12 +3267,13 @@ mod tests {
 
 	#[test]
 	fn process_log_line_retains_only_the_suffix() {
-		let mut line = vec![b'a'; PROCESS_LOG_LINE_LIMIT - 1];
-		extend_process_log_line(&mut line, b"bc");
-		assert_eq!(line.len(), PROCESS_LOG_LINE_LIMIT);
+		let limit = 16 * 1024;
+		let mut line = vec![b'a'; limit - 1];
+		extend_process_log_line(&mut line, b"bc", limit);
+		assert_eq!(line.len(), limit);
 		assert_eq!(&line[line.len() - 2..], b"bc");
 
-		extend_process_log_line(&mut line, &vec![b'd'; PROCESS_LOG_LINE_LIMIT + 1]);
-		assert_eq!(line, vec![b'd'; PROCESS_LOG_LINE_LIMIT]);
+		extend_process_log_line(&mut line, &vec![b'd'; limit + 1], limit);
+		assert_eq!(line, vec![b'd'; limit]);
 	}
 }

@@ -185,6 +185,7 @@ impl Cli {
 				let (view_ready_sender, view_ready_receiver) = tokio::sync::oneshot::channel();
 				let client = client.clone();
 				let root = process.clone().map(crate::viewer::Item::Process);
+				let config = self.viewer_config();
 				let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
@@ -198,6 +199,7 @@ impl Cli {
 						let viewer_options = crate::viewer::Options {
 							attached: true,
 							collapse_process_children: true,
+							config,
 							depth: None,
 							expand_groups: false,
 							expand_metadata: false,

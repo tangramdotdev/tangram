@@ -134,6 +134,7 @@ impl Cli {
 
 		let alternate_screen = args.alternate_screen.get().unwrap_or(true);
 		let mode = args.mode;
+		let config = self.viewer_config();
 		let outcome = Task::spawn_blocking(move |stop| -> tg::Result<crate::viewer::Outcome> {
 			let local_set = tokio::task::LocalSet::new();
 			let runtime = tokio::runtime::Builder::new_current_thread()
@@ -144,6 +145,7 @@ impl Cli {
 				let options = crate::viewer::Options {
 					attached: false,
 					collapse_process_children: args.collapse_process_children,
+					config,
 					depth: args.depth,
 					expand_groups: args.expand_groups,
 					expand_metadata: args.expand_metadata,

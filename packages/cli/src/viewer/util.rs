@@ -1,14 +1,20 @@
 use {std::pin::pin, tangram_client::prelude::*, tokio::io::AsyncReadExt as _};
 
-const BLOB_LENGTH_LIMIT: u64 = 1 << 20;
-
-pub async fn format_blob(client: &tg::Client, blob: &tg::Blob) -> tg::Result<String> {
+pub async fn format_blob(
+	client: &tg::Client,
+	blob: &tg::Blob,
+	length_limit: u64,
+) -> tg::Result<String> {
 	let length = blob.length_with_instance(client).await?;
-	if length > BLOB_LENGTH_LIMIT {
-		return Err(tg::error!("cannot view blobs larger than 1 MiB"));
+	if length > length_limit {
+		return Err(tg::error!(
+			%length,
+			limit = %length_limit,
+			"cannot view a blob larger than the length limit"
+		));
 	}
 	let options = tg::read::Options {
-		length: Some(BLOB_LENGTH_LIMIT),
+		length: Some(length_limit),
 		..tg::read::Options::default()
 	};
 	let reader = blob

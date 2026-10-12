@@ -171,6 +171,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 
+	/// Configure the viewer.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub viewer: Option<Viewer>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub vfs: Option<BoolOr<Vfs>>,
 
@@ -2793,6 +2797,28 @@ pub struct Server {
 	pub stop_timeout: Duration,
 }
 
+#[serde_as]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Viewer {
+	/// The maximum length of a blob that the viewer displays.
+	pub blob_length_limit: u64,
+
+	/// The time to wait for an item's contents before showing a loading placeholder.
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub loading_delay: Duration,
+
+	/// The length of each page read from a process log.
+	pub log_page_size: u64,
+
+	/// The maximum length of the latest process log line shown in the tree.
+	pub process_log_line_limit: usize,
+
+	/// The interval at which the viewer polls for changes and redraws.
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub render_interval: Duration,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Telemetry {
@@ -2902,6 +2928,16 @@ impl Config {
 				"the server kill, start, and stop timeouts must be greater than zero"
 			));
 		}
+		if let Some(viewer) = &self.viewer
+			&& (viewer.blob_length_limit == 0
+				|| viewer.log_page_size == 0
+				|| viewer.process_log_line_limit == 0
+				|| viewer.render_interval.is_zero())
+		{
+			return Err(tg::error!(
+				"the viewer blob length limit, log page size, process log line limit, and render interval must be greater than zero"
+			));
+		}
 		Ok(())
 	}
 
@@ -2968,6 +3004,13 @@ impl Cli {
 		self.config
 			.as_ref()
 			.and_then(|config| config.server)
+			.unwrap_or_default()
+	}
+
+	pub(crate) fn viewer_config(&self) -> Viewer {
+		self.config
+			.as_ref()
+			.and_then(|config| config.viewer)
 			.unwrap_or_default()
 	}
 
@@ -3064,6 +3107,18 @@ impl Default for Server {
 			kill_timeout: Duration::from_secs(1),
 			start_timeout: Duration::from_secs(5),
 			stop_timeout: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for Viewer {
+	fn default() -> Self {
+		Self {
+			blob_length_limit: 1 << 20,
+			loading_delay: Duration::from_millis(20),
+			log_page_size: 4096,
+			process_log_line_limit: 16 * 1024,
+			render_interval: Duration::from_millis(100),
 		}
 	}
 }

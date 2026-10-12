@@ -34,6 +34,7 @@ pub struct Viewer {
 	help: Help,
 	log: Option<Log>,
 	quit: bool,
+	render_interval: Duration,
 	signals: Signals,
 	split: Split,
 	tree: Tree,
@@ -57,6 +58,7 @@ pub enum Item {
 pub struct Options {
 	pub attached: bool,
 	pub collapse_process_children: bool,
+	pub config: crate::config::Viewer,
 	pub depth: Option<u32>,
 	pub expand_groups: bool,
 	pub expand_metadata: bool,
@@ -132,6 +134,7 @@ impl Viewer {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 
 		// Create the views.
+		let render_interval = options.config.render_interval;
 		let data = Data::new();
 		let tree = Tree::new(
 			client,
@@ -149,6 +152,7 @@ impl Viewer {
 			help: Help,
 			log: None,
 			quit: false,
+			render_interval,
 			signals,
 			split: Split::Vertical,
 			tree,
@@ -211,7 +215,7 @@ impl Viewer {
 			}
 
 			// Wait for and handle an event.
-			let sleep = tokio::time::sleep(Duration::from_millis(100));
+			let sleep = tokio::time::sleep(self.render_interval);
 			tokio::select! {
 				outcome = self.signals.recv() => {
 					break outcome;
@@ -330,7 +334,7 @@ impl Viewer {
 			}
 
 			// Wait for the task to be stopped, a change, or a timeout.
-			let sleep = tokio::time::sleep(Duration::from_millis(100));
+			let sleep = tokio::time::sleep(self.render_interval);
 			tokio::select! {
 				outcome = self.signals.recv() => {
 					break outcome?;

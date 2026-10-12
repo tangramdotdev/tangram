@@ -17,8 +17,6 @@ use {
 
 mod scroll;
 
-const PAGE_SIZE: u64 = 4096;
-
 #[derive(Clone, Debug)]
 pub(super) struct Chunk {
 	bytes: Bytes,
@@ -34,6 +32,7 @@ pub struct Log {
 struct State {
 	client: tg::Client,
 	dirty: AtomicBool,
+	page_size: u64,
 	process: tg::Process,
 	sender: mpsc::UnboundedSender<Event>,
 	stream: tokio::sync::Mutex<StreamState>,
@@ -90,6 +89,7 @@ impl Log {
 		client: &tg::Client,
 		process: &tg::Process,
 		streams: Vec<tg::process::stdio::Stream>,
+		page_size: u64,
 	) -> Self {
 		// Create the state.
 		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -98,6 +98,7 @@ impl Log {
 		let state = Arc::new(State {
 			client: client.clone(),
 			dirty: AtomicBool::new(true),
+			page_size,
 			process: process.clone(),
 			sender,
 			stream: tokio::sync::Mutex::new(stream),
@@ -411,7 +412,7 @@ impl State {
 				std::io::SeekFrom::Start(chunk.position + chunk.bytes.len().to_u64().unwrap())
 			});
 			let stream = self
-				.read_log(position, None, Some(PAGE_SIZE))
+				.read_log(position, None, Some(self.page_size))
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the log stream"))?
 				.boxed();
@@ -462,7 +463,7 @@ impl State {
 				.first()
 				.map(|chunk| std::io::SeekFrom::Start(chunk.position));
 			let stream = self
-				.read_log(position, Some(-(PAGE_SIZE.to_i64().unwrap())), None)
+				.read_log(position, Some(-(self.page_size.to_i64().unwrap())), None)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the log stream"))?
 				.boxed();
