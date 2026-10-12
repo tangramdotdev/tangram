@@ -156,7 +156,15 @@ declare global {
 	function syscall(
 		syscall: "http2_connect",
 		authority: string,
-		options: { port?: number },
+		options: {
+			connect_timeout?: number;
+			http2?: {
+				connection_window_size: number;
+				max_concurrent_streams?: number;
+				stream_window_size: number;
+			};
+			port?: number;
+		},
 	): Promise<number>;
 
 	function syscall(syscall: "http2_session_close", session: number): Promise<void>;

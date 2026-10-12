@@ -129,7 +129,11 @@ impl Runtime {
 		let global_source_map = OnceCell::new();
 		let instance = arg.instance.clone();
 		let host = crate::host::Host::default();
-		let http2 = crate::http2::Http2::new(arg.http.coalescing_target_size);
+		let http2 = crate::http2::Http2::new(
+			arg.http.coalescing_target_size,
+			arg.http.connect_timeout,
+			arg.http.http2,
+		);
 		let main_runtime_handle = arg.main_runtime_handle.clone();
 		let modules = RefCell::new(Vec::new());
 		let state = Rc::new(State {

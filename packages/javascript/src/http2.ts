@@ -1,20 +1,30 @@
 type Headers = Record<string, string | number | string[]>;
 
 type ConnectOptions = {
+	connectTimeout?: number;
+	http2?: Http2Config;
 	port?: number;
+};
+
+type Http2Config = {
+	connectionWindowSize: number;
+	maxConcurrentStreams?: number;
+	streamWindowSize: number;
 };
 
 type RequestOptions = {
 	endStream?: boolean;
 };
 
-type SessionEvent = { kind: "close" } | { kind: "error"; message: string };
+type SessionEvent =
+	| { kind: "close" }
+	| { kind: "error"; message: string; retryable: boolean };
 
 type StreamEvent =
 	| { kind: "close" }
 	| { kind: "data"; bytes: Uint8Array }
 	| { kind: "end" }
-	| { kind: "error"; message: string }
+	| { kind: "error"; message: string; retryable: boolean }
 	| { kind: "response"; headers: [string, string][] }
 	| { kind: "trailers"; headers: [string, string][] };
 
@@ -69,7 +79,11 @@ export class ClientHttp2Session extends EventEmitter {
 		readonly options: ConnectOptions = {},
 	) {
 		super();
-		this.#connect = syscall("http2_connect", authority, options).then(
+		this.#connect = syscall(
+			"http2_connect",
+			authority,
+			connectOptionsToSyscall(options),
+		).then(
 			(token) => {
 				this.#token = token;
 				this.#readLoop(token);
@@ -96,7 +110,7 @@ export class ClientHttp2Session extends EventEmitter {
 
 	request(headers: Headers, options: RequestOptions = {}) {
 		if (this.#closed) {
-			throw new Error("the HTTP/2 session is closed");
+			throw sessionClosedError();
 		}
 		let stream = new ClientHttp2Stream(this, headers, options);
 		this.#streams++;
@@ -130,13 +144,13 @@ export class ClientHttp2Session extends EventEmitter {
 		this.#closed = true;
 		this.#connect
 			.then(() =>
-					this.#token === null
-						? null
-						: syscall(
+				this.#token === null
+					? null
+					: syscall(
 							"http2_session_destroy",
 							this.#token,
 							error?.message ?? null,
-						  ),
+						),
 			)
 			.catch(() => undefined)
 			.finally(() => {
@@ -157,11 +171,14 @@ export class ClientHttp2Session extends EventEmitter {
 	async #readLoop(token: number) {
 		let error: unknown;
 		try {
-			let event = (await syscall("http2_session_read", token)) as
-				| SessionEvent
-				| null;
+			let event = (await syscall(
+				"http2_session_read",
+				token,
+			)) as SessionEvent | null;
 			if (event?.kind === "error") {
-				error = new Error(event.message);
+				error = Object.assign(new Error(event.message), {
+					retryable: event.retryable,
+				});
 			}
 		} catch (error_) {
 			error = error_;
@@ -182,7 +199,7 @@ export class ClientHttp2Session extends EventEmitter {
 	async #ready() {
 		await this.#connect;
 		if (this.#token === null) {
-			throw new Error("the HTTP/2 session is closed");
+			throw sessionClosedError();
 		}
 		return this.#token;
 	}
@@ -197,9 +214,12 @@ export class ClientHttp2Session extends EventEmitter {
 }
 
 export class ClientHttp2Stream extends EventEmitter {
+	#paused = false;
+	#resume: (() => void) | null = null;
 	#closed = false;
 	#encoding: "utf8" | null = null;
 	#ready: Promise<number>;
+	#request: Promise<number>;
 	#token: number | null = null;
 
 	constructor(
@@ -208,7 +228,7 @@ export class ClientHttp2Stream extends EventEmitter {
 		options: RequestOptions,
 	) {
 		super();
-		this.#ready = session._request(headers, options).then(
+		this.#request = session._request(headers, options).then(
 			(token) => {
 				this.#token = token;
 				this.#readLoop(token);
@@ -221,21 +241,26 @@ export class ClientHttp2Stream extends EventEmitter {
 				throw error;
 			},
 		);
+		this.#ready = this.#request;
 		this.#ready.catch(() => undefined);
 	}
 
-	write(bytes: string | Uint8Array) {
+	write(bytes: string | Uint8Array, callback?: (error?: Error | null) => void) {
 		this.#ready = this.#ready
 			.then(async (token) => {
 				await syscall("http2_stream_write", token, toBytes(bytes));
+				callback?.();
+				this.emit("drain");
 				return token;
 			})
 			.catch((error) => {
+				error = streamClosedError(error);
+				callback?.(error);
 				this.emit("error", error);
 				throw error;
 			});
 		this.#ready.catch(() => undefined);
-		return true;
+		return false;
 	}
 
 	end(bytes?: string | Uint8Array) {
@@ -249,6 +274,7 @@ export class ClientHttp2Stream extends EventEmitter {
 				return token;
 			})
 			.catch((error) => {
+				error = streamClosedError(error);
 				this.emit("error", error);
 				throw error;
 			});
@@ -269,6 +295,17 @@ export class ClientHttp2Stream extends EventEmitter {
 		return this;
 	}
 
+	pause() {
+		this.#paused = true;
+		return this;
+	}
+	resume() {
+		this.#paused = false;
+		this.#resume?.();
+		this.#resume = null;
+		return this;
+	}
+
 	setEncoding(encoding: "utf8" | "utf-8") {
 		this.#encoding = "utf8";
 		return this;
@@ -277,9 +314,15 @@ export class ClientHttp2Stream extends EventEmitter {
 	async #readLoop(token: number) {
 		try {
 			while (!this.#closed) {
-				let event = (await syscall("http2_stream_read", token)) as
-					| StreamEvent
-					| null;
+				if (this.#paused)
+					await new Promise<void>((resolve) => {
+						this.#resume = resolve;
+					});
+				if (this.#closed) break;
+				let event = (await syscall(
+					"http2_stream_read",
+					token,
+				)) as StreamEvent | null;
 				if (event === null) {
 					break;
 				}
@@ -297,7 +340,12 @@ export class ClientHttp2Stream extends EventEmitter {
 				} else if (event.kind === "end") {
 					this.emit("end");
 				} else if (event.kind === "error") {
-					this.emit("error", new Error(event.message));
+					this.emit(
+						"error",
+						Object.assign(new Error(event.message), {
+							retryable: event.retryable,
+						}),
+					);
 				} else if (event.kind === "close") {
 					break;
 				}
@@ -315,7 +363,8 @@ export class ClientHttp2Stream extends EventEmitter {
 			return;
 		}
 		this.#closed = true;
-		this.#ready
+		this.resume();
+		this.#request
 			.then((token) => syscall("http2_stream_close", token))
 			.catch(() => undefined)
 			.finally(() => this.emit("close"));
@@ -363,6 +412,26 @@ export let http2 = {
 	constants,
 };
 
+function connectOptionsToSyscall(options: ConnectOptions) {
+	let http2 =
+		options.http2 === undefined
+			? undefined
+			: {
+					connection_window_size: options.http2.connectionWindowSize,
+					...(options.http2.maxConcurrentStreams !== undefined
+						? { max_concurrent_streams: options.http2.maxConcurrentStreams }
+						: {}),
+					stream_window_size: options.http2.streamWindowSize,
+				};
+	return {
+		...(options.connectTimeout !== undefined
+			? { connect_timeout: options.connectTimeout }
+			: {}),
+		...(http2 !== undefined ? { http2 } : {}),
+		...(options.port !== undefined ? { port: options.port } : {}),
+	};
+}
+
 function headersToEntries(headers: Headers) {
 	let entries: [string, string][] = [];
 	for (let [name, value] of Object.entries(headers)) {
@@ -401,6 +470,30 @@ function defaultEndStream(headers: Headers) {
 	return method !== "POST" && method !== "PUT" && method !== "PATCH";
 }
 
+// Report a request on a closed session as an invalid session, as Node does, so that clients treat it as a transport error.
+function sessionClosedError() {
+	return Object.assign(new Error("the HTTP/2 session is closed"), {
+		code: "ERR_HTTP2_INVALID_SESSION",
+	});
+}
+
+// Report a failed request body write as a closed stream, as Node does, so that clients treat it as a transport error.
+function streamClosedError(cause: unknown) {
+	if (
+		cause instanceof Error &&
+		"code" in cause &&
+		cause.code === "ERR_HTTP2_STREAM_CLOSED"
+	) {
+		return cause;
+	}
+	return Object.assign(
+		new Error("the HTTP/2 stream is closed", { cause }),
+		{ code: "ERR_HTTP2_STREAM_CLOSED" },
+	);
+}
+
 function toBytes(value: string | Uint8Array) {
-	return typeof value === "string" ? syscall("encoding_utf8_encode", value) : value;
+	return typeof value === "string"
+		? syscall("encoding_utf8_encode", value)
+		: value;
 }

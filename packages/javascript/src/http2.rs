@@ -28,6 +28,8 @@ type Handshake = (
 
 pub(crate) struct Http2 {
 	coalescing_target_size: usize,
+	config: tangram_http::http2::Config,
+	connect_timeout: Duration,
 	next: AtomicUsize,
 	sessions: DashMap<usize, Arc<Session>>,
 	streams: DashMap<usize, Arc<Stream>>,
@@ -47,11 +49,18 @@ struct Stream {
 	events: Mutex<mpsc::Receiver<StreamEvent>>,
 	request: Mutex<Option<mpsc::Sender<BodyFrame>>>,
 	session: usize,
+	task: tokio::task::AbortHandle,
 	token: usize,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct ConnectOptions {
+	#[serde(default)]
+	connect_timeout: Option<f64>,
+
+	#[serde(default)]
+	http2: Option<tangram_http::http2::Config>,
+
 	#[serde(default)]
 	port: Option<u16>,
 }
@@ -66,7 +75,7 @@ pub struct RequestOptions {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SessionEvent {
 	Close,
-	Error { message: String },
+	Error { message: String, retryable: bool },
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -75,19 +84,25 @@ pub enum StreamEvent {
 	Close,
 	Data { bytes: Bytes },
 	End,
-	Error { message: String },
+	Error { message: String, retryable: bool },
 	Response { headers: Vec<(String, String)> },
 	Trailers { headers: Vec<(String, String)> },
 }
 
 impl Http2 {
-	pub(crate) fn new(coalescing_target_size: usize) -> Self {
+	pub(crate) fn new(
+		coalescing_target_size: usize,
+		connect_timeout: Duration,
+		config: tangram_http::http2::Config,
+	) -> Self {
 		assert!(
 			coalescing_target_size > 0,
 			"the coalescing target size must be greater than zero"
 		);
 		Self {
 			coalescing_target_size,
+			config,
+			connect_timeout,
 			next: AtomicUsize::new(0),
 			sessions: DashMap::new(),
 			streams: DashMap::new(),
@@ -103,10 +118,25 @@ impl Http2 {
 		authority: String,
 		options: ConnectOptions,
 	) -> tg::Result<usize> {
+		// Resolve the HTTP/2 configuration.
+		let http2 = options.http2.unwrap_or(self.config);
+		http2
+			.validate()
+			.map_err(|error| tg::error!(source = error, "invalid HTTP/2 configuration"))?;
+
+		// Resolve the connect timeout.
+		let connect_timeout = match options.connect_timeout {
+			Some(seconds) => Duration::try_from_secs_f64(seconds)
+				.ok()
+				.filter(|timeout| !timeout.is_zero())
+				.ok_or_else(|| tg::error!(%seconds, "invalid connect timeout"))?,
+			None => self.connect_timeout,
+		};
+
 		if let Some(path) = authority.strip_prefix("http+unix://") {
 			let path = unix_path_from_str(path)?;
 			let stream = connect_unix(&path).await?;
-			let handshake = handshake(stream).await?;
+			let handshake = handshake(stream, http2).await?;
 			return Ok(self.insert_session("localhost".to_owned(), "http".to_owned(), handshake));
 		}
 
@@ -136,20 +166,20 @@ impl Http2 {
 				} else {
 					host.to_owned()
 				};
-				let stream = connect_tcp(host, port).await?;
+				let stream = connect_tcp(host, port, connect_timeout).await?;
 				let handshake = if scheme == "https" {
 					let stream = connect_tls(host, stream).await?;
 					verify_alpn_protocol(&stream)?;
-					handshake(stream).await?
+					handshake(stream, http2).await?
 				} else {
-					handshake(stream).await?
+					handshake(stream, http2).await?
 				};
 				(authority, scheme.to_owned(), handshake)
 			},
 			"http+unix" => {
 				let path = unix_path(&uri)?;
 				let stream = connect_unix(&path).await?;
-				let handshake = handshake(stream).await?;
+				let handshake = handshake(stream, http2).await?;
 				("localhost".to_owned(), "http".to_owned(), handshake)
 			},
 			_ => return Err(tg::error!("unsupported URL scheme")),
@@ -205,21 +235,22 @@ impl Http2 {
 			self.coalescing_target_size,
 		)?;
 		let token = self.token();
+		let task = tokio::spawn(send_request(
+			session_value.clone(),
+			request,
+			event_tx.clone(),
+		))
+		.abort_handle();
 		let stream = Arc::new(Stream {
 			event_tx,
 			events: Mutex::new(event_rx),
 			request: Mutex::new((!options.end_stream).then_some(request_tx)),
 			session,
+			task,
 			token,
 		});
 		session_value.streams.insert(token, ());
 		self.streams.insert(token, stream.clone());
-
-		tokio::spawn(send_request(
-			session_value,
-			request,
-			stream.event_tx.clone(),
-		));
 
 		Ok(token)
 	}
@@ -231,7 +262,7 @@ impl Http2 {
 			.ok_or_else(|| tg::error!("invalid HTTP/2 stream"))?
 			.value()
 			.clone();
-		let request = stream.request.lock().await;
+		let request = stream.request.lock().await.clone();
 		send_request_body_frame(request.as_ref(), bytes).await
 	}
 
@@ -242,11 +273,10 @@ impl Http2 {
 			.ok_or_else(|| tg::error!("invalid HTTP/2 stream"))?
 			.value()
 			.clone();
-		let mut request = stream.request.lock().await;
+		let request = stream.request.lock().await.take();
 		if let Some(bytes) = bytes {
 			send_request_body_frame(request.as_ref(), bytes).await?;
 		}
-		request.take();
 		Ok(())
 	}
 
@@ -311,28 +341,30 @@ impl Http2 {
 
 impl Stream {
 	async fn close(&self, error: Option<&str>) {
+		self.task.abort();
 		self.request.lock().await.take();
 		if let Some(message) = error {
 			self.event_tx
-				.send(StreamEvent::Error {
+				.try_send(StreamEvent::Error {
 					message: message.to_owned(),
+					retryable: false,
 				})
-				.await
 				.ok();
 		}
 		self.event_tx.try_send(StreamEvent::Close).ok();
 	}
 }
 
-async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
+async fn connect_tcp(
+	host: &str,
+	port: u16,
+	connect_timeout: Duration,
+) -> tg::Result<tokio::net::TcpStream> {
 	let addr = format!("{host}:{port}");
-	let stream = tokio::time::timeout(
-		Duration::from_secs(10),
-		tokio::net::TcpStream::connect(addr),
-	)
-	.await
-	.map_err(|_| tg::error!("connection timeout"))?
-	.map_err(|error| tg::error!(!error, "failed to create the TCP connection"))?;
+	let stream = tokio::time::timeout(connect_timeout, tokio::net::TcpStream::connect(addr))
+		.await
+		.map_err(|_| tg::error!(unavailable, "connection timeout"))?
+		.map_err(|error| tg::error!(unavailable, !error, "failed to create the TCP connection"))?;
 	stream
 		.set_nodelay(true)
 		.map_err(|error| tg::error!(!error, "failed to set nodelay on the TCP connection"))?;
@@ -346,7 +378,7 @@ async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
 	tokio::net::UnixStream::connect(resolved.as_ref())
 		.await
 		.map_err(
-			|error| tg::error!(!error, path = %path.display(), "failed to connect to the socket"),
+			|error| tg::error!(unavailable, !error, path = %path.display(), "failed to connect to the socket"),
 		)
 }
 
@@ -391,18 +423,26 @@ fn unix_path_from_str(path: &str) -> tg::Result<PathBuf> {
 	Ok(PathBuf::from(path.as_ref()))
 }
 
-async fn handshake<S>(stream: S) -> tg::Result<Handshake>
+async fn handshake<S>(stream: S, http2: tangram_http::http2::Config) -> tg::Result<Handshake>
 where
 	S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
 {
 	let executor = hyper_util::rt::TokioExecutor::new();
 	let io = hyper_util::rt::TokioIo::new(stream);
 	let (mut sender, connection) = hyper::client::conn::http2::Builder::new(executor)
-		.max_concurrent_streams(None)
-		.max_concurrent_reset_streams(usize::MAX)
+		.initial_connection_window_size(http2.connection_window_size)
+		.initial_stream_window_size(http2.stream_window_size)
+		.max_concurrent_streams(http2.max_concurrent_streams)
+		.max_concurrent_reset_streams(http2.max_concurrent_reset_streams)
 		.handshake(io)
 		.await
-		.map_err(|error| tg::error!(!error, "failed to perform the HTTP/2 handshake"))?;
+		.map_err(|error| {
+			tg::error!(
+				unavailable,
+				!error,
+				"failed to perform the HTTP/2 handshake"
+			)
+		})?;
 	let (event_tx, event_rx) = mpsc::channel(1);
 	tokio::spawn({
 		let event_tx = event_tx.clone();
@@ -411,6 +451,7 @@ where
 				Ok(()) => SessionEvent::Close,
 				Err(error) => SessionEvent::Error {
 					message: error.to_string(),
+					retryable: tangram_http::error::is_retryable(&error),
 				},
 			};
 			event_tx.send(event).await.ok();
@@ -419,7 +460,7 @@ where
 	sender
 		.ready()
 		.await
-		.map_err(|error| tg::error!(!error, "failed to ready the HTTP/2 sender"))?;
+		.map_err(|error| tg::error!(unavailable, !error, "failed to ready the HTTP/2 sender"))?;
 	Ok((sender, event_tx, event_rx))
 }
 
@@ -492,16 +533,17 @@ async fn send_request(
 	event_tx: mpsc::Sender<StreamEvent>,
 ) {
 	let mut sender = session.sender.clone();
+	let mut retryable = false;
 	let result = async {
-		sender
-			.ready()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to ready the HTTP/2 sender"))?;
-		let response = sender
-			.send_request(request)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the HTTP/2 request"))?;
-		send_response_events(response, event_tx.clone()).await?;
+		sender.ready().await.map_err(|error| {
+			retryable = tangram_http::error::is_retryable(&error);
+			tg::error!(!error, "failed to ready the HTTP/2 sender")
+		})?;
+		let response = sender.send_request(request).await.map_err(|error| {
+			retryable = tangram_http::error::is_retryable(&error);
+			tg::error!(!error, "failed to send the HTTP/2 request")
+		})?;
+		send_response_events(response, event_tx.clone(), &mut retryable).await?;
 		Ok::<_, tg::Error>(())
 	}
 	.await;
@@ -509,6 +551,7 @@ async fn send_request(
 		event_tx
 			.send(StreamEvent::Error {
 				message: error.to_string(),
+				retryable,
 			})
 			.await
 			.ok();
@@ -519,6 +562,7 @@ async fn send_request(
 async fn send_response_events(
 	response: http::Response<Incoming>,
 	event_tx: mpsc::Sender<StreamEvent>,
+	retryable: &mut bool,
 ) -> tg::Result<()> {
 	let (parts, mut body) = response.into_parts();
 	let mut headers = headers_to_vec(&parts.headers);
@@ -528,8 +572,10 @@ async fn send_response_events(
 		.await
 		.map_err(|_| tg::error!("the HTTP/2 stream event channel is closed"))?;
 	while let Some(frame) = body.frame().await {
-		let frame =
-			frame.map_err(|error| tg::error!(!error, "failed to read the HTTP/2 response body"))?;
+		let frame = frame.map_err(|error| {
+			*retryable = tangram_http::error::is_retryable(&error);
+			tg::error!(!error, "failed to read the HTTP/2 response body")
+		})?;
 		if let Some(data) = frame.data_ref() {
 			event_tx
 				.send(StreamEvent::Data {
@@ -573,6 +619,9 @@ async fn send_request_body_frame(
 	let Some(sender) = sender else {
 		return Err(tg::error!("the HTTP/2 stream request body is closed"));
 	};
-	sender.send(Ok(http_body::Frame::data(bytes))).await.ok();
+	sender
+		.send(Ok(http_body::Frame::data(bytes)))
+		.await
+		.map_err(|_| tg::error!("the HTTP/2 stream request body is closed"))?;
 	Ok(())
 }
