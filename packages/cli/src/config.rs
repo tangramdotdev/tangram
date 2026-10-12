@@ -590,10 +590,32 @@ pub struct CheckinDirectory {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Control {
+	/// The retry for get process and get sandbox control requests.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub get_retry: Option<Retry>,
+
 	/// The maximum time in seconds to wait for a live process or sandbox read response.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_timeout: Option<Duration>,
+
+	/// The retry for process, sandbox, and runner control requests.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_retry: Option<Retry>,
+
+	/// The maximum time in seconds to wait for a process, sandbox, or runner control response.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_timeout: Option<Duration>,
+
+	/// The time to live in seconds of unacknowledged messages in a control stream inbox.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stream_inbox_ttl: Option<Duration>,
+
+	/// The retry for resending unacknowledged control stream messages.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stream_retry: Option<Retry>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -3178,8 +3200,23 @@ fn resolve_checkin_directory(source: CheckinDirectory) -> server::CheckinDirecto
 
 fn resolve_control(source: Control) -> server::Control {
 	let mut target = server::Control::default();
+	if let Some(source) = source.get_retry {
+		target.get_retry = resolve_retry_with_default(source, target.get_retry);
+	}
 	if let Some(value) = source.read_timeout {
 		target.read_timeout = value;
+	}
+	if let Some(source) = source.request_retry {
+		target.request_retry = resolve_retry_with_default(source, target.request_retry);
+	}
+	if let Some(value) = source.request_timeout {
+		target.request_timeout = value;
+	}
+	if let Some(value) = source.stream_inbox_ttl {
+		target.stream_inbox_ttl = value;
+	}
+	if let Some(source) = source.stream_retry {
+		target.stream_retry = resolve_retry_with_default(source, target.stream_retry);
 	}
 	target
 }

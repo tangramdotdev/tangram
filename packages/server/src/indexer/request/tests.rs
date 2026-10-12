@@ -118,7 +118,7 @@ async fn full_reply_channel_does_not_block_reception() {
 		Ok(ServerMessage::Request(next)),
 	])
 	.boxed();
-	let options = crate::control::stream_options();
+	let options = crate::control::stream_options(&crate::config::Control::default());
 	let mut control = crate::control::Stream::new(messages, sender, options);
 	control.acknowledge_now("first".into());
 	let message = tokio::time::timeout(

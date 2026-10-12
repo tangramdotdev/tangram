@@ -211,10 +211,9 @@ impl Session {
 		let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(
 			tg::sandbox::control::SpawnProcessServerRequestArg { process },
 		);
-		let options = crate::control::Options {
-			retry: tangram_futures::retry::Options::default(),
-			timeout: std::time::Duration::from_secs(10),
-		};
+		let retry = self.server.config.control.request_retry.clone().into();
+		let timeout = self.server.config.control.request_timeout;
+		let options = crate::control::Options { retry, timeout };
 		// Spawn preparation has already checked sandbox access and the request origin.
 		let response = if let Some(control_sender) =
 			self.try_get_sandbox_control_runner_inner(&sandbox, location)

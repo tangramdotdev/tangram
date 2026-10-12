@@ -371,7 +371,7 @@ impl Session {
 			requests,
 			control_sender_high.clone(),
 			control_sender_low,
-			crate::control::stream_options(),
+			crate::control::stream_options(&self.server.config.control),
 		);
 
 		// Obtain the shortcut process identity before starting execution.
@@ -1074,7 +1074,7 @@ impl Session {
 			requests,
 			input_high.clone(),
 			input_low,
-			crate::control::stream_options(),
+			crate::control::stream_options(&self.server.config.control),
 		);
 		let connection = ProcessControlConnection {
 			control,

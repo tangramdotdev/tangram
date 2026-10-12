@@ -17,7 +17,7 @@ async fn local_requests_do_not_cancel_remote_acknowledgments() {
 	let stream = crate::control::Stream::new(
 		ReceiverStream::new(receiver).boxed(),
 		output,
-		crate::control::stream_options(),
+		crate::control::stream_options(&crate::config::Control::default()),
 	);
 	let (local, receiver) = Local::new();
 	let mut control = Control::new(stream, receiver);
@@ -87,7 +87,7 @@ async fn local_requests_survive_remote_end_and_abandoned_callers() {
 	let stream = crate::control::Stream::new(
 		futures::stream::empty().boxed(),
 		output,
-		crate::control::stream_options(),
+		crate::control::stream_options(&crate::config::Control::default()),
 	);
 	let (local, receiver) = Local::new();
 	let mut control = Control::new(stream, receiver);

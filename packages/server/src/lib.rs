@@ -202,6 +202,7 @@ impl Server {
 			));
 		}
 		for (name, duration) in [
+			("control request timeout", config.control.request_timeout),
 			("progress interval", config.progress.interval),
 			(
 				"verification poll interval",

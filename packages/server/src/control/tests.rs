@@ -13,7 +13,7 @@ async fn receipt_does_not_complete_and_reconnect_replays() {
 	let (input, stream) = tokio::sync::mpsc::channel(8);
 	let (output, mut received) = tokio::sync::mpsc::channel(8);
 	let stream = ReceiverStream::new(stream).boxed();
-	let mut options = stream_options();
+	let mut options = stream_options(&crate::config::Control::default());
 	options.retry.backoff = Duration::from_millis(5);
 	options.retry.max_delay = Duration::from_millis(5);
 	let mut control = Stream::new_reconnecting(stream, output, options);
@@ -87,7 +87,7 @@ async fn response_retries_until_receipt() {
 	let mut control = Stream::new(
 		ReceiverStream::new(stream).boxed(),
 		output,
-		stream_options(),
+		stream_options(&crate::config::Control::default()),
 	);
 	let sender = control.sender();
 	let response = Message::Response {
@@ -107,7 +107,7 @@ async fn cancellation_releases_pending_requests() {
 	let control = Stream::<Message, Message>::new(
 		futures::stream::pending().boxed(),
 		output,
-		stream_options(),
+		stream_options(&crate::config::Control::default()),
 	);
 	let sender = control.sender();
 	let request = Message::Request {
@@ -127,7 +127,7 @@ async fn stream_drop_ends_pending_responses() {
 	let control = Stream::<Message, Message>::new(
 		futures::stream::pending().boxed(),
 		output,
-		stream_options(),
+		stream_options(&crate::config::Control::default()),
 	);
 	let sender = control.sender();
 	let request = Message::Request {
@@ -161,7 +161,7 @@ async fn retries_preserve_request_order_within_each_priority() {
 	let control = Stream::<Message, Message>::new(
 		futures::stream::pending().boxed(),
 		output,
-		stream_options(),
+		stream_options(&crate::config::Control::default()),
 	);
 	let sender = control.sender();
 	let start = Message::Request {

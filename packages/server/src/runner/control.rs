@@ -131,8 +131,11 @@ impl Session {
 
 		let forwarded_requests = Arc::new(DashSet::new());
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
-		let control =
-			crate::control::Stream::new(stream, sender.clone(), crate::control::stream_options());
+		let control = crate::control::Stream::new(
+			stream,
+			sender.clone(),
+			crate::control::stream_options(&self.server.config.control),
+		);
 		let control_sender = control.sender();
 		let mut server_messages = server_messages;
 		let server_messages_task = Task::spawn({

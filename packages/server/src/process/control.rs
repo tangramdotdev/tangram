@@ -313,7 +313,7 @@ impl Session {
 			stream,
 			sender_high,
 			sender_low,
-			crate::control::stream_options(),
+			crate::control::stream_options(&self.server.config.control),
 		);
 		let control_sender = control.sender();
 		if let Some(id) = &start_request {

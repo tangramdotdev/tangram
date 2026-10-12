@@ -100,10 +100,9 @@ impl Indexer {
 				exit: 1,
 			},
 		);
-		let options = crate::control::Options {
-			retry: tangram_futures::retry::Options::default(),
-			timeout: Duration::from_secs(10),
-		};
+		let retry = self.server.config.control.request_retry.clone().into();
+		let timeout = self.server.config.control.request_timeout;
+		let options = crate::control::Options { retry, timeout };
 		let session = self.server.session(&self.server.context);
 		let wait_future = session
 			.try_wait_process_future(id, tg::process::wait::Arg::default())

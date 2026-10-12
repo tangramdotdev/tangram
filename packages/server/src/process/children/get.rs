@@ -376,10 +376,9 @@ impl Session {
 		let request = tg::process::control::ServerRequestArg::GetChildren(
 			tg::process::control::GetChildrenServerRequestArg { length, position },
 		);
-		let options = crate::control::Options {
-			retry: tangram_futures::retry::Options::default(),
-			timeout: self.server.config.control.read_timeout,
-		};
+		let retry = self.server.config.control.request_retry.clone().into();
+		let timeout = self.server.config.control.read_timeout;
+		let options = crate::control::Options { retry, timeout };
 		let response = self
 			.request_process_control(id, request, options)
 			.boxed()

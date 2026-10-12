@@ -390,10 +390,25 @@ pub struct CheckinDirectory {
 	pub max_leaf_entries: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Control {
+	/// The retry for get process and get sandbox control requests.
+	pub get_retry: Retry,
+
 	/// The maximum time to wait for a live process or sandbox read response.
 	pub read_timeout: Duration,
+
+	/// The retry for process, sandbox, and runner control requests.
+	pub request_retry: Retry,
+
+	/// The maximum time to wait for a process, sandbox, or runner control response.
+	pub request_timeout: Duration,
+
+	/// The time to live of unacknowledged messages in a control stream inbox.
+	pub stream_inbox_ttl: Duration,
+
+	/// The retry for resending unacknowledged control stream messages.
+	pub stream_retry: Retry,
 }
 
 #[derive(Clone, Debug)]
@@ -1767,8 +1782,24 @@ impl Default for CheckinDirectory {
 
 impl Default for Control {
 	fn default() -> Self {
+		let get_retry = tangram_futures::retry::Options {
+			max_retries: u64::MAX,
+			..tangram_futures::retry::Options::default()
+		};
+		let request_retry = tangram_futures::retry::Options::default();
+		let stream_retry = tangram_futures::retry::Options {
+			backoff: Duration::from_secs(1),
+			jitter: Duration::ZERO,
+			max_delay: Duration::from_secs(1),
+			max_retries: u64::MAX,
+		};
 		Self {
+			get_retry: get_retry.into(),
 			read_timeout: Duration::from_secs(1),
+			request_retry: request_retry.into(),
+			request_timeout: Duration::from_secs(10),
+			stream_inbox_ttl: Duration::from_mins(1),
+			stream_retry: stream_retry.into(),
 		}
 	}
 }

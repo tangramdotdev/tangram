@@ -192,7 +192,7 @@ async fn draining_stdout_keeps_stderr_eof_available() {
 	let control = crate::control::Stream::new(
 		stream::pending().boxed(),
 		sender,
-		crate::control::stream_options(),
+		crate::control::stream_options(&crate::config::Control::default()),
 	);
 	let (sender, receiver) = tokio::sync::mpsc::channel(16);
 	let task = tokio::spawn(Session::run_process_control_output_reader_task(
@@ -242,7 +242,7 @@ async fn reconnect_preserves_local_reads() {
 	let control = crate::control::Stream::new(
 		stream::pending().boxed(),
 		sender,
-		crate::control::stream_options(),
+		crate::control::stream_options(&crate::config::Control::default()),
 	);
 	let (sender, mut local) = tokio::sync::mpsc::channel(4);
 	let mut reads = BTreeMap::new();
@@ -333,7 +333,7 @@ async fn reconnecting_ends_reads_with_lost_progress() {
 	let control = crate::control::Stream::new(
 		stream::pending().boxed(),
 		sender,
-		crate::control::stream_options(),
+		crate::control::stream_options(&crate::config::Control::default()),
 	);
 	let (sender, receiver) = tokio::sync::mpsc::channel(16);
 	let task = tokio::spawn(Session::run_process_control_output_reader_task(

@@ -251,8 +251,11 @@ impl Session {
 
 		let forwarded_requests = Arc::new(DashSet::new());
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
-		let mut control =
-			crate::control::Stream::new(stream, sender, crate::control::stream_options());
+		let mut control = crate::control::Stream::new(
+			stream,
+			sender,
+			crate::control::stream_options(&self.server.config.control),
+		);
 		if let Some(id) = &create_request {
 			control.acknowledge_now(id.clone());
 		}

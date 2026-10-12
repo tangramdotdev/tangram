@@ -547,16 +547,11 @@ where
 	stream.boxed()
 }
 
-pub(crate) fn stream_options() -> StreamOptions {
+pub(crate) fn stream_options(config: &crate::config::Control) -> StreamOptions {
 	StreamOptions {
-		inbox_ttl: Duration::from_mins(1),
+		inbox_ttl: config.stream_inbox_ttl,
 		outbox_ttl: None,
-		retry: tangram_futures::retry::Options {
-			backoff: Duration::from_secs(1),
-			jitter: Duration::ZERO,
-			max_delay: Duration::from_secs(1),
-			max_retries: u64::MAX,
-		},
+		retry: config.stream_retry.clone().into(),
 	}
 }
 

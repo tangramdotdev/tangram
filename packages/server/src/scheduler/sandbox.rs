@@ -1045,10 +1045,8 @@ async fn create_sandbox(
 			token: request.token.clone(),
 		},
 	);
-	let options = crate::control::Options {
-		retry: tangram_futures::retry::Options::default(),
-		timeout,
-	};
+	let retry = session.server.config.control.request_retry.clone().into();
+	let options = crate::control::Options { retry, timeout };
 	let result = session
 		.send_runner_control_request(
 			&runner.id,

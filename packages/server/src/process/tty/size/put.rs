@@ -125,7 +125,7 @@ impl Session {
 		let request = tg::process::control::ServerRequestArg::Tty(
 			tg::process::control::TtyServerRequestArg { size },
 		);
-		let retry = tangram_futures::retry::Options::default();
+		let retry = self.server.config.control.request_retry.clone().into();
 		let timeout = if self
 			.server
 			.config
@@ -134,7 +134,7 @@ impl Session {
 		{
 			self.server.config.runner.stdio_drain_timeout
 		} else {
-			std::time::Duration::from_secs(10)
+			self.server.config.control.request_timeout
 		};
 		let options = crate::control::Options { retry, timeout };
 		let response = if let Some(control_sender) = control_sender {

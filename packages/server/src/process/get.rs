@@ -616,14 +616,9 @@ impl Session {
 		let request = tg::process::control::ServerRequestArg::Get(
 			tg::process::control::GetServerRequestArg {},
 		);
-		let retry = tangram_futures::retry::Options {
-			max_retries: u64::MAX,
-			..Default::default()
-		};
-		let options = crate::control::Options {
-			retry,
-			timeout: self.server.config.control.read_timeout,
-		};
+		let retry = self.server.config.control.get_retry.clone().into();
+		let timeout = self.server.config.control.read_timeout;
+		let options = crate::control::Options { retry, timeout };
 		let response = self
 			.request_process_control(id, request, options)
 			.boxed()

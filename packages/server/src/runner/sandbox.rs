@@ -534,7 +534,7 @@ impl Session {
 				crate::control::Stream::new_reconnecting(
 					requests,
 					input,
-					crate::control::stream_options(),
+					crate::control::stream_options(&self.server.config.control),
 				)
 			},
 		};
@@ -1503,7 +1503,7 @@ impl Session {
 		let control = crate::control::Stream::new_reconnecting(
 			requests,
 			input,
-			crate::control::stream_options(),
+			crate::control::stream_options(&self.server.config.control),
 		);
 		let connection = SandboxControlConnection {
 			control,

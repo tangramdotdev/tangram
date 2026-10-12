@@ -91,10 +91,9 @@ impl Session {
 		let request = tg::process::control::ServerRequestArg::ReleaseLease(
 			tg::process::control::ReleaseLeaseServerRequestArg { lease },
 		);
-		let options = crate::control::Options {
-			retry: tangram_futures::retry::Options::default(),
-			timeout: std::time::Duration::from_secs(10),
-		};
+		let retry = self.server.config.control.request_retry.clone().into();
+		let timeout = self.server.config.control.request_timeout;
+		let options = crate::control::Options { retry, timeout };
 		let runner = control_sender.is_some();
 		let response = if let Some(control_sender) = control_sender {
 			match control_sender.send_request(request).await {

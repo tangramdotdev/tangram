@@ -383,10 +383,9 @@ impl Session {
 		let request = tg::process::control::ServerRequestArg::AcquireLease(
 			tg::process::control::AcquireLeaseServerRequestArg {},
 		);
-		let options = crate::control::Options {
-			retry: tangram_futures::retry::Options::default(),
-			timeout: std::time::Duration::from_secs(10),
-		};
+		let retry = self.server.config.control.request_retry.clone().into();
+		let timeout = self.server.config.control.request_timeout;
+		let options = crate::control::Options { retry, timeout };
 		let location = tg::Location::Local(tg::location::Local::default()).into();
 		let runner = self.try_get_process_runner_inner(&output.id, Some(&location));
 		let control = runner.as_ref().and_then(|runner| {

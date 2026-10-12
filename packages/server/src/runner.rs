@@ -707,8 +707,11 @@ impl Session {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect to the scheduler"))?;
 		let output_stream = output_stream.boxed();
-		let stream =
-			crate::control::Stream::new(output_stream, input, crate::control::stream_options());
+		let stream = crate::control::Stream::new(
+			output_stream,
+			input,
+			crate::control::stream_options(&self.server.config.control),
+		);
 		Ok((header, stream))
 	}
 
