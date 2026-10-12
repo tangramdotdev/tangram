@@ -4,7 +4,7 @@ use {
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future},
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
-	std::{fmt::Write as _, io::Write as _, pin::pin, time::Duration},
+	std::{fmt::Write as _, io::Write as _, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 };
@@ -77,7 +77,7 @@ impl Cli {
 			output: None,
 		};
 
-		let interval = Duration::from_millis(100);
+		let interval = self.progress_config().interval;
 		let mut interval = tokio::time::interval(interval);
 		let mut stream = pin!(stream);
 		loop {

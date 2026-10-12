@@ -34,7 +34,7 @@ impl tg::Value {
 			location,
 			..tg::object::get::Arg::default()
 		};
-		let semaphore = Arc::new(Semaphore::new(16));
+		let semaphore = Arc::new(Semaphore::new(instance.arg().value.load_concurrency));
 		let mut join_set: JoinSet<tg::Result<(Vec<Self>, Option<u64>)>> = JoinSet::new();
 		let mut queue = VecDeque::new();
 		queue.push_back((self.clone(), depth));

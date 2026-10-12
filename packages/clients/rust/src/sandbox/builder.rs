@@ -7,22 +7,25 @@ use {
 #[derive(Clone, Debug)]
 pub struct Builder {
 	arg: tg::sandbox::create::Arg,
+	default_ttl: bool,
 }
 
 impl Builder {
 	#[must_use]
 	pub fn new() -> Self {
-		let arg = tg::sandbox::create::Arg {
-			ttl: Some(Duration::from_mins(5)),
-			..Default::default()
-		};
-
-		Self { arg }
+		let arg = tg::sandbox::create::Arg::default();
+		Self {
+			arg,
+			default_ttl: true,
+		}
 	}
 
 	#[must_use]
 	pub fn with_arg(arg: tg::sandbox::create::Arg) -> Self {
-		Self { arg }
+		Self {
+			arg,
+			default_ttl: false,
+		}
 	}
 
 	#[must_use]
@@ -88,18 +91,24 @@ impl Builder {
 	#[must_use]
 	pub fn ttl(mut self, ttl: impl Into<Option<Duration>>) -> Self {
 		self.arg.ttl = ttl.into();
+		self.default_ttl = false;
 		self
 	}
 
 	pub async fn build(self) -> tg::Result<tg::Sandbox> {
-		tg::Sandbox::create_with_arg(self.arg).await
+		let instance = tg::instance()?;
+		self.build_with_instance(instance).await
 	}
 
 	pub async fn build_with_instance<I>(self, instance: &I) -> tg::Result<tg::Sandbox>
 	where
 		I: tg::Instance,
 	{
-		tg::Sandbox::create_with_arg_with_instance(instance, self.arg).await
+		let mut arg = self.arg;
+		if self.default_ttl {
+			arg.ttl = Some(instance.arg().sandbox.ttl);
+		}
+		tg::Sandbox::create_with_arg_with_instance(instance, arg).await
 	}
 }
 

@@ -138,12 +138,15 @@ impl Cli {
 			.and_then(|client| client.reconnect)
 			.map(crate::config::resolve_reconnect)
 			.transpose()?
-			.map(|reconnect| tangram_futures::retry::Options {
-				backoff: reconnect.backoff,
-				jitter: reconnect.jitter,
-				max_delay: reconnect.max_delay,
-				max_retries: reconnect.max_retries,
-			});
+			.map_or_else(
+				|| tg::Arg::default().reconnect,
+				|reconnect| tangram_futures::retry::Options {
+					backoff: reconnect.backoff,
+					jitter: reconnect.jitter,
+					max_delay: reconnect.max_delay,
+					max_retries: reconnect.max_retries,
+				},
+			);
 
 		// Get the retry options.
 		let retry = self
@@ -153,25 +156,47 @@ impl Cli {
 			.and_then(|client| client.retry)
 			.map(crate::config::resolve_retry)
 			.transpose()?
-			.map(|retry| tangram_futures::retry::Options {
-				backoff: retry.backoff,
-				jitter: retry.jitter,
-				max_delay: retry.max_delay,
-				max_retries: retry.max_retries,
-			});
+			.map_or_else(
+				|| tg::Arg::default().retry,
+				|retry| tangram_futures::retry::Options {
+					backoff: retry.backoff,
+					jitter: retry.jitter,
+					max_delay: retry.max_delay,
+					max_retries: retry.max_retries,
+				},
+			);
 
 		// Get the pool options.
 		let pool = self
 			.config
 			.as_ref()
 			.and_then(|config| config.client.as_ref())
-			.and_then(|client| client.pool.clone())
-			.map(|pool| tangram_pool::Options {
-				min: pool.min.unwrap_or(0),
-				max: pool.max.unwrap_or(1),
-				shared: pool.shared.unwrap_or(usize::MAX),
-				ttl: pool.ttl,
-			});
+			.and_then(|client| client.pool.as_ref())
+			.map_or_else(
+				|| tg::Arg::default().pool,
+				crate::config::resolve_client_pool,
+			);
+
+		// Get the progress options.
+		let progress = self.progress_config();
+
+		// Get the sandbox options.
+		let sandbox = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.sandbox)
+			.map(crate::config::resolve_client_sandbox)
+			.unwrap_or_default();
+
+		// Get the value options.
+		let value = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.value)
+			.map(crate::config::resolve_client_value)
+			.unwrap_or_default();
 
 		let arg = tg::Arg {
 			url: Some(url),
@@ -179,9 +204,12 @@ impl Cli {
 			token,
 			http,
 			pool,
+			progress,
 			reconnect,
 			retry,
+			sandbox,
 			sync: tg::sync::Config::default(),
+			value,
 		};
 
 		let client = tg::Client::new(arg)?;

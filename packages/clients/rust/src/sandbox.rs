@@ -29,3 +29,16 @@ pub mod handle;
 pub mod list;
 pub mod processes;
 pub mod status;
+
+#[derive(Clone, Copy, Debug)]
+pub struct Config {
+	pub ttl: std::time::Duration,
+}
+
+impl Default for Config {
+	fn default() -> Self {
+		Self {
+			ttl: std::time::Duration::from_mins(5),
+		}
+	}
+}

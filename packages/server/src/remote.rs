@@ -388,12 +388,10 @@ impl Server {
 			url: Some(url),
 			version: Some(self.version.clone()),
 			token: None,
-			pool: None,
-			reconnect: None,
-			retry: None,
 			sync: tg::sync::Config {
 				max_frame_size: self.config().sync.max_frame_size,
 			},
+			..Default::default()
 		})
 	}
 }

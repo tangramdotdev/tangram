@@ -136,16 +136,19 @@ pub mod prelude {
 	};
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Arg {
 	pub url: Option<Uri>,
 	pub version: Option<String>,
 	pub token: Option<String>,
 	pub http: Http,
-	pub pool: Option<tangram_pool::Options>,
-	pub reconnect: Option<tangram_futures::retry::Options>,
-	pub retry: Option<tangram_futures::retry::Options>,
+	pub pool: tangram_pool::Options,
+	pub progress: tg::progress::Config,
+	pub reconnect: tangram_futures::retry::Options,
+	pub retry: tangram_futures::retry::Options,
+	pub sandbox: tg::sandbox::Config,
 	pub sync: tg::sync::Config,
+	pub value: tg::value::Config,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -162,11 +165,14 @@ pub struct State {
 	http: Http,
 	pool: self::http::Pool,
 	pool_options: tangram_pool::Options,
+	progress: tg::progress::Config,
 	reconnect: tangram_futures::retry::Options,
 	retry: tangram_futures::retry::Options,
+	sandbox: tg::sandbox::Config,
 	service: self::http::Service,
 	sync: tg::sync::Config,
 	url: Uri,
+	value: tg::value::Config,
 	version: String,
 }
 
@@ -216,6 +222,10 @@ impl Context {
 impl Client {
 	pub fn new(arg: tg::Arg) -> tg::Result<Self> {
 		let http = arg.http.validate()?;
+		let progress = arg.progress;
+		let sandbox = arg.sandbox;
+		let value = arg.value;
+		Self::validate(progress, sandbox, value)?;
 		let url = match arg.url {
 			Some(url) => url,
 			None => Self::default_url()?,
@@ -223,9 +233,9 @@ impl Client {
 		let version = arg
 			.version
 			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
-		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
-		let reconnect = arg.reconnect.unwrap_or_default();
-		let retry = arg.retry.unwrap_or_default();
+		let pool_options = arg.pool;
+		let reconnect = arg.reconnect;
+		let retry = arg.retry;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
 		let pool = Self::pool(pool_options, &reconnect, &url);
@@ -235,11 +245,14 @@ impl Client {
 			http,
 			pool,
 			pool_options,
+			progress,
 			reconnect,
 			retry,
+			sandbox,
 			service,
 			sync,
 			url,
+			value,
 			version,
 		}));
 		Ok(client)
@@ -265,6 +278,10 @@ impl Client {
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
 		let http = arg.http.validate()?;
+		let progress = arg.progress;
+		let sandbox = arg.sandbox;
+		let value = arg.value;
+		Self::validate(progress, sandbox, value)?;
 		let url = match arg.url {
 			Some(url) => url,
 			None => Uri::builder()
@@ -276,9 +293,9 @@ impl Client {
 		let version = arg
 			.version
 			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
-		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
-		let reconnect = arg.reconnect.unwrap_or_default();
-		let retry = arg.retry.unwrap_or_default();
+		let pool_options = arg.pool;
+		let reconnect = arg.reconnect;
+		let retry = arg.retry;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
 		let sender = Self::handshake_h2(stream).await?;
@@ -298,14 +315,40 @@ impl Client {
 			http,
 			pool,
 			pool_options,
+			progress,
 			reconnect,
 			retry,
+			sandbox,
 			service,
 			sync,
 			url,
+			value,
 			version,
 		}));
 		Ok(client)
+	}
+
+	fn validate(
+		progress: tg::progress::Config,
+		sandbox: tg::sandbox::Config,
+		value: tg::value::Config,
+	) -> tg::Result<()> {
+		if progress.interval.is_zero() {
+			return Err(tg::error!(
+				"expected the progress interval to be greater than zero"
+			));
+		}
+		if sandbox.ttl.is_zero() {
+			return Err(tg::error!(
+				"expected the sandbox TTL to be greater than zero"
+			));
+		}
+		if value.load_concurrency == 0 {
+			return Err(tg::error!(
+				"expected the value load concurrency to be greater than zero"
+			));
+		}
+		Ok(())
 	}
 
 	fn default_url() -> tg::Result<Uri> {
@@ -373,24 +416,18 @@ impl Client {
 	}
 }
 
-fn default_pool_options() -> tangram_pool::Options {
-	tangram_pool::Options {
-		min: 0,
-		max: 1,
-		shared: usize::MAX,
-		ttl: None,
-	}
-}
-
 impl fmt::Debug for State {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("State")
 			.field("context", &self.context)
 			.field("pool_options", &self.pool_options)
+			.field("progress", &self.progress)
 			.field("reconnect", &self.reconnect)
 			.field("retry", &self.retry)
+			.field("sandbox", &self.sandbox)
 			.field("sync", &self.sync)
 			.field("url", &self.url)
+			.field("value", &self.value)
 			.field("version", &self.version)
 			.finish_non_exhaustive()
 	}
@@ -401,6 +438,30 @@ impl Deref for Client {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+impl Default for Arg {
+	fn default() -> Self {
+		let pool = tangram_pool::Options {
+			min: 0,
+			max: 1,
+			shared: usize::MAX,
+			ttl: None,
+		};
+		Self {
+			url: None,
+			version: None,
+			token: None,
+			http: Http::default(),
+			pool,
+			progress: tg::progress::Config::default(),
+			reconnect: tangram_futures::retry::Options::default(),
+			retry: tangram_futures::retry::Options::default(),
+			sandbox: tg::sandbox::Config::default(),
+			sync: tg::sync::Config::default(),
+			value: tg::value::Config::default(),
+		}
 	}
 }
 

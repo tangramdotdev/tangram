@@ -34,11 +34,11 @@ pub struct Ttl {
 }
 
 impl Ttl {
-	fn get(&self) -> Option<Duration> {
+	fn get(&self, default: Duration) -> Option<Duration> {
 		if self.no_ttl {
 			None
 		} else {
-			self.ttl.or(Some(Duration::from_mins(5)))
+			Some(self.ttl.unwrap_or(default))
 		}
 	}
 }
@@ -49,6 +49,7 @@ impl Cli {
 		let ports = args.arg.ports;
 		let network = crate::sandbox::normalize_network(&args.arg.network, ports)?;
 		let owner = self.resolve_owner(&client, &args.arg.owner).await?;
+		let ttl = args.ttl.get(client.arg().sandbox.ttl);
 		let sandbox = tg::Sandbox::builder()
 			.cpu(
 				args.arg
@@ -72,7 +73,7 @@ impl Cli {
 			.mounts(args.arg.mounts)
 			.network(network)
 			.owner(owner)
-			.ttl(args.ttl.get())
+			.ttl(ttl)
 			.build_with_instance(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;

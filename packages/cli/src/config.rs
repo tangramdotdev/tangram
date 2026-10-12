@@ -2654,6 +2654,10 @@ pub struct Client {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pool: Option<Pool>,
 
+	/// Configure progress rendering.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub progress: Option<ClientProgress>,
+
 	/// Configure reconnect retry options.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub reconnect: Option<Reconnect>,
@@ -2661,6 +2665,14 @@ pub struct Client {
 	/// Configure request retry options.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
+
+	/// Configure sandboxes.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<ClientSandbox>,
+
+	/// Configure values.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub value: Option<ClientValue>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -2673,6 +2685,34 @@ pub struct ClientHttp {
 	/// The maximum length of a framed header in a response body.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_header_length: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientProgress {
+	/// The interval at which progress is rendered.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub interval: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientSandbox {
+	/// The default time to live for a created sandbox.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientValue {
+	/// The maximum number of objects to load concurrently.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub load_concurrency: Option<usize>,
 }
 
 #[serde_as]
@@ -2898,6 +2938,15 @@ impl Cli {
 		self.config
 			.as_ref()
 			.and_then(|config| config.builtin)
+			.unwrap_or_default()
+	}
+
+	pub(crate) fn progress_config(&self) -> tg::progress::Config {
+		self.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.progress)
+			.map(resolve_client_progress)
 			.unwrap_or_default()
 	}
 
@@ -3787,6 +3836,47 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 		target.max_header_length = value;
 	}
 	Ok(target)
+}
+
+pub(crate) fn resolve_client_pool(source: &Pool) -> tangram_pool::Options {
+	let mut target = tg::Arg::default().pool;
+	if let Some(value) = source.max {
+		target.max = value;
+	}
+	if let Some(value) = source.min {
+		target.min = value;
+	}
+	if let Some(value) = source.shared {
+		target.shared = value;
+	}
+	if let Some(value) = source.ttl {
+		target.ttl = Some(value);
+	}
+	target
+}
+
+fn resolve_client_progress(source: ClientProgress) -> tg::progress::Config {
+	let mut target = tg::progress::Config::default();
+	if let Some(value) = source.interval {
+		target.interval = value;
+	}
+	target
+}
+
+pub(crate) fn resolve_client_sandbox(source: ClientSandbox) -> tg::sandbox::Config {
+	let mut target = tg::sandbox::Config::default();
+	if let Some(value) = source.ttl {
+		target.ttl = value;
+	}
+	target
+}
+
+pub(crate) fn resolve_client_value(source: ClientValue) -> tg::value::Config {
+	let mut target = tg::value::Config::default();
+	if let Some(value) = source.load_concurrency {
+		target.load_concurrency = value;
+	}
+	target
 }
 
 fn resolve_http_listener(source: HttpListener) -> tg::Result<server::HttpListener> {

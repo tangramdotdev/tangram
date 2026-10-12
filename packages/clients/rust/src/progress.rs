@@ -9,6 +9,11 @@ use {
 	tokio::io::AsyncReadExt as _,
 };
 
+#[derive(Clone, Copy, Debug)]
+pub struct Config {
+	pub interval: Duration,
+}
+
 #[derive(
 	Clone,
 	Debug,
@@ -274,6 +279,14 @@ where
 	}
 }
 
+impl Default for Config {
+	fn default() -> Self {
+		Self {
+			interval: Duration::from_millis(100),
+		}
+	}
+}
+
 struct State<I, T, W> {
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	instance: I,
@@ -315,7 +328,7 @@ where
 		writer,
 	};
 
-	let interval = Duration::from_millis(100);
+	let interval = instance.arg().progress.interval;
 	let mut interval = tokio::time::interval(interval);
 	let mut stream = pin!(stream);
 	loop {

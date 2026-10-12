@@ -37,10 +37,13 @@ impl Session {
 			version: Some(self.client.version().to_owned()),
 			token: self.context.token(),
 			http: self.client.http,
-			pool: Some(self.client.pool_options),
-			reconnect: Some(self.client.reconnect.clone()),
-			retry: Some(self.client.retry.clone()),
+			pool: self.client.pool_options,
+			progress: self.client.progress,
+			reconnect: self.client.reconnect.clone(),
+			retry: self.client.retry.clone(),
+			sandbox: self.client.sandbox,
 			sync: self.client.sync,
+			value: self.client.value,
 		}
 	}
 

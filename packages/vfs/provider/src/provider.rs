@@ -189,14 +189,8 @@ impl Provider {
 			.build()
 			.map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
 		let arg = tg::Arg {
-			http: tg::Http::default(),
-			pool: None,
-			reconnect: None,
-			retry: None,
-			sync: tg::sync::Config::default(),
-			token: None,
 			url: Some(url),
-			version: None,
+			..Default::default()
 		};
 		// Connect lazily so mounting does not depend on the server already serving on its socket.
 		let client = tg::Client::new(arg).map_err(std::io::Error::other)?;

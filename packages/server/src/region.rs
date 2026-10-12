@@ -80,36 +80,37 @@ impl Server {
 		let Some(region_config) = region_config else {
 			return Ok(None);
 		};
-		let reconnect =
-			region_config
-				.reconnect
-				.clone()
-				.map(|reconnect| tangram_futures::retry::Options {
+		let defaults = tg::Arg::default();
+		let reconnect = region_config
+			.reconnect
+			.clone()
+			.map_or(defaults.reconnect, |reconnect| {
+				tangram_futures::retry::Options {
 					backoff: reconnect.backoff,
 					jitter: reconnect.jitter,
 					max_delay: reconnect.max_delay,
 					max_retries: reconnect.max_retries,
-				});
-		let retry = region_config
-			.retry
-			.clone()
-			.map(|retry| tangram_futures::retry::Options {
+				}
+			});
+		let retry = region_config.retry.clone().map_or(defaults.retry, |retry| {
+			tangram_futures::retry::Options {
 				backoff: retry.backoff,
 				jitter: retry.jitter,
 				max_delay: retry.max_delay,
 				max_retries: retry.max_retries,
-			});
+			}
+		});
 		let client = tg::Client::new(tg::Arg {
 			http: tg::Http::default(),
 			url: Some(region_config.url.clone()),
 			version: Some(self.version.clone()),
 			token: None,
-			pool: None,
 			reconnect,
 			retry,
 			sync: tg::sync::Config {
 				max_frame_size: self.config().sync.max_frame_size,
 			},
+			..Default::default()
 		})?;
 		self.regions.insert(region.to_owned(), client.clone());
 		Ok(Some(client))
