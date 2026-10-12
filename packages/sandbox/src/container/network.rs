@@ -1,34 +1,31 @@
-use {
-	std::{net::Ipv4Addr, path::Path},
-	tangram_client::prelude::*,
-};
+use tangram_client::prelude::*;
 
-pub(crate) fn create(
-	index: u64,
-	identity: &Path,
-	dns: &[Ipv4Addr],
-	firewall: crate::Firewall,
-	network: Option<&crate::Network>,
-	pool: &crate::network::ip::Pool,
-	ports: &[tg::sandbox::Port],
-) -> tg::Result<Option<crate::network::Network>> {
-	let Some(network) = network else {
+pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Option<crate::network::Network>> {
+	let Some(network) = arg.network.as_ref() else {
 		return Ok(None);
 	};
+	let ports = network.ports();
 	match network {
 		crate::Network::Bridge(_) | crate::Network::Default => {
 			if crate::network::root() {
-				crate::network::veth::setup(firewall, dns)?;
-				let guest = reserve_veth_guest(pool)?;
-				let network =
-					crate::network::veth::Network::new(index, identity, firewall, guest, ports)?;
+				crate::network::veth::setup(arg.firewall, &arg.dns)?;
+				let guest = reserve_veth_guest(&arg.ip_pool)?;
+				let network = crate::network::veth::Network::new(
+					arg.index,
+					&arg.identity,
+					arg.firewall,
+					guest,
+					ports,
+				)?;
 				let network = crate::network::Network::Veth(network);
 				Ok(Some(network))
 			} else {
 				let options = crate::network::pasta::Options {
-					dns: dns.to_owned(),
+					dns: arg.dns.clone(),
+					executable: None,
+					interface: None,
 					ports: ports.to_owned(),
-					..Default::default()
+					startup_timeout: arg.network_startup_timeout,
 				};
 				let network = crate::network::pasta::Network::new(options)?;
 				let network = crate::network::Network::Pasta(network);

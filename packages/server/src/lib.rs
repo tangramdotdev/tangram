@@ -271,6 +271,10 @@ impl Server {
 				config.progress.channel_capacity,
 			),
 			("read index batch size", config.read.index_batch_size),
+			(
+				"sandbox control channel capacity",
+				config.sandbox.control_channel_capacity,
+			),
 			("sync channel capacity", config.sync.channel_capacity),
 			(
 				"sync get channel capacity",
@@ -337,6 +341,10 @@ impl Server {
 				config.process.default_log_read_size,
 			),
 			("read default size", config.read.default_size),
+			(
+				"sandbox default processes page size",
+				config.sandbox.default_processes_page_size,
+			),
 		];
 		for (name, size) in sizes {
 			if size == 0 {
@@ -344,8 +352,10 @@ impl Server {
 			}
 		}
 
-		// Validate the VFS configuration.
+		// Validate the sandbox and VFS configuration.
+		let sandbox = &config.sandbox;
 		let sizes = [
+			("sandbox build attempts", sandbox.build_attempts),
 			(
 				"vfs fuse io_uring completion batch size",
 				vfs.fuse.io_uring_completion_batch_size,
@@ -419,7 +429,22 @@ impl Server {
 				"the vfs nfs max record size must not exceed 2147483647 bytes"
 			));
 		}
-		let durations = [
+		let mut durations = vec![
+			(
+				"sandbox cgroup cleanup interval",
+				sandbox.cgroup_cleanup_interval,
+			),
+			(
+				"sandbox cgroup cleanup timeout",
+				sandbox.cgroup_cleanup_timeout,
+			),
+			("sandbox connect timeout", sandbox.connect_timeout),
+			(
+				"sandbox network startup timeout",
+				sandbox.network.startup_timeout,
+			),
+			("sandbox request timeout", sandbox.request_timeout),
+			("sandbox shutdown timeout", sandbox.shutdown_timeout),
 			(
 				"vfs fuse io_uring startup timeout",
 				vfs.fuse.io_uring_startup_timeout,
@@ -431,6 +456,23 @@ impl Server {
 			),
 			("vfs nfs lease time", vfs.nfs.lease_time),
 		];
+		if let Some(vm) = &sandbox.isolation.vm {
+			durations.extend([
+				(
+					"sandbox vm network interface timeout",
+					vm.network_interface_timeout,
+				),
+				("sandbox vm ready timeout", vm.ready_timeout),
+				(
+					"sandbox vm serial connect interval",
+					vm.serial_connect_interval,
+				),
+				(
+					"sandbox vm serial connect timeout",
+					vm.serial_connect_timeout,
+				),
+			]);
+		}
 		for (name, duration) in durations {
 			if duration.is_zero() {
 				return Err(tg::error!("the {name} must be greater than zero"));
@@ -1457,6 +1499,7 @@ impl Server {
 			.map(|_| path.join("vm/image.squashfs"));
 		#[cfg(target_os = "linux")]
 		tangram_sandbox::container::root::create(&tangram_sandbox::container::root::Arg {
+			build_attempts: config.sandbox.build_attempts,
 			path: sandbox_container_root.clone(),
 			tangram_path: tangram_path.clone(),
 			vm: sandbox_vm_image.is_some(),

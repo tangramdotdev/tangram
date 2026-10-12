@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn send_request_enqueues_before_waiting_and_preserves_response_errors() {
-	let (local, mut receiver) = Local::new();
+	let (local, mut receiver) = Local::new(256);
 	let arg =
 		tg::sandbox::control::ServerRequestArg::Get(tg::sandbox::control::GetServerRequestArg {});
 	let response = local.send_request(arg).await.unwrap();
@@ -17,7 +17,7 @@ async fn send_request_enqueues_before_waiting_and_preserves_response_errors() {
 
 #[tokio::test]
 async fn send_request_distinguishes_transport_errors_and_abandoned_callers() {
-	let (local, mut receiver) = Local::new();
+	let (local, mut receiver) = Local::new(256);
 	let arg =
 		tg::sandbox::control::ServerRequestArg::Get(tg::sandbox::control::GetServerRequestArg {});
 	let response = local.send_request(arg.clone()).await.unwrap();

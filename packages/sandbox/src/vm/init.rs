@@ -14,8 +14,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const NETWORK_INTERFACE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
-
 const SANDBOX_FS_TAG: &str = "sandbox";
 const STORE_FS_TAG: &str = "store";
 const HOST_MOUNT_POINT: &str = "/mnt/host";
@@ -35,6 +33,7 @@ pub struct Config {
 	#[serde(default)]
 	pub mounts: Vec<MountConfig>,
 	pub network: Option<NetworkConfig>,
+	pub network_interface_timeout: Duration,
 	pub output_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub uid: u32,
@@ -146,7 +145,7 @@ pub fn run() -> tg::Result<ExitCode> {
 	}
 
 	if let Some(network) = &network {
-		configure_network(network)
+		configure_network(network, config.network_interface_timeout)
 			.map_err(|error| tg::error!(!error, "failed to configure network"))?;
 		prime_network(network);
 		write_resolv_conf(&network.dns_servers)
@@ -699,8 +698,8 @@ fn configure_dev(target: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn configure_network(network: &Network) -> tg::Result<()> {
-	let interface = wait_for_network_interface()?;
+fn configure_network(network: &Network, interface_timeout: Duration) -> tg::Result<()> {
+	let interface = wait_for_network_interface(interface_timeout)?;
 	let socket = open_network_socket()?;
 	set_interface_up(socket.as_raw_fd(), "lo")?;
 	set_interface_address(
@@ -908,9 +907,9 @@ fn spawn_server(arg: &crate::serve::Arg, home: Option<&Path>) -> tg::Result<std:
 		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox server"))
 }
 
-fn wait_for_network_interface() -> tg::Result<String> {
+fn wait_for_network_interface(timeout: Duration) -> tg::Result<String> {
 	let inotify = watch_network_interfaces()?;
-	let deadline = Instant::now() + NETWORK_INTERFACE_WAIT_TIMEOUT;
+	let deadline = Instant::now() + timeout;
 	loop {
 		if let Some(interface) = find_network_interface()? {
 			return Ok(interface);

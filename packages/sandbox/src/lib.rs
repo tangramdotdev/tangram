@@ -25,8 +25,6 @@ mod server;
 mod usage;
 mod util;
 
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
-
 #[cfg(target_os = "linux")]
 pub mod container;
 #[cfg(target_os = "linux")]
@@ -81,6 +79,11 @@ pub struct SpawnArg {
 
 #[derive(Clone, Debug)]
 pub struct Arg {
+	#[cfg(target_os = "linux")]
+	pub cgroup_cleanup_interval: Duration,
+	#[cfg(target_os = "linux")]
+	pub cgroup_cleanup_timeout: Duration,
+	pub connect_timeout: Duration,
 	pub cpu: Option<tg::sandbox::Cpu>,
 	#[cfg(target_os = "linux")]
 	pub cpu_parent: Option<cpu::Lease>,
@@ -101,9 +104,13 @@ pub struct Arg {
 	pub memory_sampling_interval: Duration,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<Network>,
+	#[cfg(target_os = "linux")]
+	pub network_startup_timeout: Duration,
 	pub nice: u8,
 	pub path: PathBuf,
+	pub request_timeout: Duration,
 	pub rootfs_path: PathBuf,
+	pub shutdown_timeout: Duration,
 	pub store_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub tangram_socket_path: Option<PathBuf>,
@@ -189,10 +196,14 @@ pub struct SeatbeltIsolation {}
 pub struct VmIsolation {
 	pub cloud_hypervisor_path: Option<PathBuf>,
 	pub dax: Option<u64>,
+	pub image_path: PathBuf,
 	pub kernel_path: PathBuf,
 	pub max_cpu: u64,
 	pub max_memory: u64,
-	pub image_path: PathBuf,
+	pub network_interface_timeout: Duration,
+	pub ready_timeout: Duration,
+	pub serial_connect_interval: Duration,
+	pub serial_connect_timeout: Duration,
 	pub snapshot: Option<PathBuf>,
 	pub snapshot_cpu: u64,
 	pub snapshot_memory: u64,
@@ -339,16 +350,7 @@ impl Sandbox {
 		#[cfg(target_os = "linux")]
 		let (mut process, network, filesystem, cgroup) = match &arg.isolation {
 			Isolation::Container(_) => {
-				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
-				let mut network = crate::container::network::create(
-					arg.index,
-					&arg.identity,
-					&arg.dns,
-					arg.firewall,
-					arg.network.as_ref(),
-					&arg.ip_pool,
-					ports,
-				)?;
+				let mut network = crate::container::network::create(&arg)?;
 				let output = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
 				(output.process, network, output.filesystem, output.cgroup)
 			},
@@ -366,6 +368,8 @@ impl Sandbox {
 					ports,
 				)?;
 				let options = crate::container::cgroup::Options {
+					cleanup_interval: arg.cgroup_cleanup_interval,
+					cleanup_timeout: arg.cgroup_cleanup_timeout,
 					cpu: arg.cpu.map(tg::sandbox::Cpu::total).transpose()?,
 					cpu_parent: arg.cpu_parent.clone(),
 					cpu_pool: arg.cpu_pool.clone(),
@@ -410,12 +414,12 @@ impl Sandbox {
 					.take()
 					.ok_or_else(|| tg::error!("failed to take the sandbox stdout"))?;
 				let stream = tokio::io::join(stdout, stdin);
-				Client::with_stream(stream).left_future()
+				Client::with_stream(stream, arg.request_timeout).left_future()
 			},
-			Some(listener) => Client::with_listener(listener).right_future(),
+			Some(listener) => Client::with_listener(listener, arg.request_timeout).right_future(),
 		};
 
-		let client = match tokio::time::timeout(Duration::from_secs(5), async {
+		let client = match tokio::time::timeout(arg.connect_timeout, async {
 			tokio::select! {
 				result = connect => result,
 				result = process.wait() => {
@@ -723,7 +727,7 @@ impl Sandbox {
 		}
 
 		// Gracefully shut down the sandbox process.
-		let result = tokio::time::timeout(SHUTDOWN_TIMEOUT, async {
+		let result = tokio::time::timeout(self.0.arg.shutdown_timeout, async {
 			self.0.client.shutdown().await?;
 			process
 				.wait()

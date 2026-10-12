@@ -1883,6 +1883,27 @@ pub struct Scheduler {
 #[serde(deny_unknown_fields)]
 pub struct Sandbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub build_attempts: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cgroup_cleanup_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cgroup_cleanup_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connect_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub control_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default_processes_page_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub isolation: Option<SandboxIsolation>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1902,6 +1923,14 @@ pub struct Sandbox {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub processes_wakeup_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub shutdown_timeout: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1962,13 +1991,29 @@ pub struct VmSandboxIsolation {
 	pub kernel_path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub listener_port: Option<u16>,
+	pub listener_port: Option<u32>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_cpu: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_memory: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub network_interface_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ready_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub serial_connect_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub serial_connect_timeout: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub snapshot: Option<PathBuf>,
@@ -2001,6 +2046,10 @@ pub struct SandboxNetwork {
 	#[serde_as(as = "Option<Vec<DisplayFromStr>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ip_ranges: Option<Vec<server::IpRange>>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub startup_timeout: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
@@ -4829,6 +4878,24 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 
 fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	let mut target = server::Sandbox::default();
+	if let Some(value) = source.build_attempts {
+		target.build_attempts = value;
+	}
+	if let Some(value) = source.cgroup_cleanup_interval {
+		target.cgroup_cleanup_interval = value;
+	}
+	if let Some(value) = source.cgroup_cleanup_timeout {
+		target.cgroup_cleanup_timeout = value;
+	}
+	if let Some(value) = source.connect_timeout {
+		target.connect_timeout = value;
+	}
+	if let Some(value) = source.control_channel_capacity {
+		target.control_channel_capacity = value;
+	}
+	if let Some(value) = source.default_processes_page_size {
+		target.default_processes_page_size = value;
+	}
 	if let Some(source) = source.isolation {
 		target.isolation = resolve_sandbox_isolation(source)?;
 	}
@@ -4846,6 +4913,12 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	}
 	if let Some(value) = source.processes_wakeup_interval {
 		target.processes_wakeup_interval = value;
+	}
+	if let Some(value) = source.request_timeout {
+		target.request_timeout = value;
+	}
+	if let Some(value) = source.shutdown_timeout {
+		target.shutdown_timeout = value;
 	}
 	if let Some(value) = source.status_wakeup_interval {
 		target.status_wakeup_interval = value;
@@ -4893,16 +4966,27 @@ fn resolve_vm_sandbox_isolation(
 		None => Some(server::Dax::default()),
 	};
 	let kernel_path = required(source.kernel_path, "sandbox.isolation.vm.kernel_path")?;
+	let default = server::VmSandboxIsolation::default();
 	let target = server::VmSandboxIsolation {
 		cloud_hypervisor_path: source.cloud_hypervisor_path,
 		dax,
 		kernel_path,
-		listener_port: source.listener_port,
-		max_cpu: source.max_cpu.unwrap_or(8),
-		max_memory: source.max_memory.unwrap_or(8 * 1024 * 1024 * 1024),
+		listener_port: source.listener_port.unwrap_or(default.listener_port),
+		max_cpu: source.max_cpu.unwrap_or(default.max_cpu),
+		max_memory: source.max_memory.unwrap_or(default.max_memory),
+		network_interface_timeout: source
+			.network_interface_timeout
+			.unwrap_or(default.network_interface_timeout),
+		ready_timeout: source.ready_timeout.unwrap_or(default.ready_timeout),
+		serial_connect_interval: source
+			.serial_connect_interval
+			.unwrap_or(default.serial_connect_interval),
+		serial_connect_timeout: source
+			.serial_connect_timeout
+			.unwrap_or(default.serial_connect_timeout),
 		snapshot: source.snapshot,
-		snapshot_cpu: source.snapshot_cpu.unwrap_or(1),
-		snapshot_memory: source.snapshot_memory.unwrap_or(512 * 1024 * 1024),
+		snapshot_cpu: source.snapshot_cpu.unwrap_or(default.snapshot_cpu),
+		snapshot_memory: source.snapshot_memory.unwrap_or(default.snapshot_memory),
 	};
 
 	Ok(target)
@@ -4926,6 +5010,9 @@ fn resolve_sandbox_network(source: SandboxNetwork) -> server::SandboxNetwork {
 	}
 	if let Some(value) = source.ip_ranges {
 		target.ip_ranges = value;
+	}
+	if let Some(value) = source.startup_timeout {
+		target.startup_timeout = value;
 	}
 	target
 }

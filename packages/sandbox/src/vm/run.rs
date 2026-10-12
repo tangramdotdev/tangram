@@ -69,9 +69,14 @@ pub struct Arg {
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<NetworkKind>,
+	pub network_interface_timeout: Duration,
+	pub network_startup_timeout: Duration,
 	pub path: PathBuf,
 	pub ports: Vec<tg::sandbox::Port>,
+	pub ready_timeout: Duration,
 	pub rootfs_path: PathBuf,
+	pub serial_connect_interval: Duration,
+	pub serial_connect_timeout: Duration,
 	pub snapshot: Option<PathBuf>,
 	pub snapshot_cpu: u64,
 	pub snapshot_memory: u64,
@@ -250,6 +255,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			library_paths: Vec::new(),
 			mounts,
 			network: network_config,
+			network_interface_timeout: arg.network_interface_timeout,
 			output_path: Sandbox::guest_output_path_from_root(&arg.path),
 			tangram_path: Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
 			uid: user.uid,
@@ -396,7 +402,11 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let mut cloud_hypervisor = ChildProcess::new(cloud_hypervisor_pid);
 
 	let serial_socket_path = host_vm_path_from_root(&arg.path).join(SERIAL_SOCKET_NAME);
-	let mut serial_stream = connect_serial_socket(&serial_socket_path, Duration::from_secs(10))?;
+	let mut serial_stream = connect_serial_socket(
+		&serial_socket_path,
+		arg.serial_connect_timeout,
+		arg.serial_connect_interval,
+	)?;
 	tracing::trace!("connected to guest serial socket; tailing to stderr");
 	let serial_reader = serial_stream
 		.try_clone()
@@ -455,7 +465,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		let ch_remote_bin = find_in_path("ch-remote")
 			.map_err(|error| tg::error!(!error, "failed to locate ch-remote on PATH"))?;
 
-		if ready_rx.recv_timeout(Duration::from_mins(1)).is_err() {
+		if ready_rx.recv_timeout(arg.ready_timeout).is_err() {
 			return Err(tg::error!("timed out waiting for the guest ready signal"));
 		}
 
@@ -558,6 +568,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 fn connect_serial_socket(
 	path: &Path,
 	timeout: Duration,
+	interval: Duration,
 ) -> tg::Result<std::os::unix::net::UnixStream> {
 	let parent = path.parent().ok_or_else(
 		|| tg::error!(path = %path.display(), "the serial socket path has no parent"),
@@ -585,7 +596,7 @@ fn connect_serial_socket(
 						"timed out connecting to the guest serial socket",
 					));
 				}
-				std::thread::sleep(Duration::from_millis(10));
+				std::thread::sleep(interval);
 			},
 			Err(error) => {
 				return Err(tg::error!(
@@ -1257,6 +1268,7 @@ impl Network {
 					host_ip,
 					guest_ip,
 					&arg.ports,
+					arg.network_startup_timeout,
 				)?;
 				Ok(Some(Network::Passt(passt)))
 			},

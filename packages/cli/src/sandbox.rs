@@ -130,6 +130,16 @@ impl Network {
 	}
 }
 
+/// Parse a duration from fractional seconds.
+pub fn parse_duration(value: &str) -> tg::Result<std::time::Duration> {
+	let seconds = value
+		.parse::<f64>()
+		.map_err(|error| tg::error!(!error, %value, "invalid duration"))?;
+	let duration = std::time::Duration::try_from_secs_f64(seconds)
+		.map_err(|error| tg::error!(!error, %value, "invalid duration"))?;
+	Ok(duration)
+}
+
 fn parse_network(s: &str) -> tg::Result<tg::sandbox::Network> {
 	match s {
 		"" | "default" | "true" => Ok(tg::sandbox::Network::Default),

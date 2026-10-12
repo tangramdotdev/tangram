@@ -111,6 +111,7 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 				memory_oom_group: arg.cgroup_memory_oom_group,
 				memory_swap: arg.cgroup_memory_swap,
 				pids: arg.cgroup_pids,
+				..Default::default()
 			};
 			cgroup::Cgroup::new(name, &entry)
 		})

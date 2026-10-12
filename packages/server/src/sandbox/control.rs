@@ -250,7 +250,8 @@ impl Session {
 			})?;
 
 		let forwarded_requests = Arc::new(DashSet::new());
-		let (sender, receiver) = tokio::sync::mpsc::channel(256);
+		let capacity = self.server.config.sandbox.control_channel_capacity;
+		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
 		let mut control = crate::control::Stream::new(
 			stream,
 			sender,

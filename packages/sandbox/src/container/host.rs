@@ -386,6 +386,7 @@ fn validate_cgroup_v2() -> tg::Result<()> {
 		memory_oom_group: true,
 		memory_swap: Some(0),
 		pids: Some(32),
+		..Default::default()
 	};
 	let cgroup = super::cgroup::Cgroup::new(&name, &options)?;
 	let directory = cgroup.handle()?.open_fd()?;

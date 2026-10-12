@@ -10,11 +10,10 @@ use {
 	tangram_client::prelude::*,
 };
 
-const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
-const CLEANUP_WAIT_INTERVAL: Duration = Duration::from_millis(10);
-
 pub struct Cgroup {
 	allocation: Option<crate::cpu::Allocation>,
+	cleanup_interval: Duration,
+	cleanup_timeout: Duration,
 	directory: OwnedFd,
 	name: String,
 	parent: OwnedFd,
@@ -27,8 +26,10 @@ pub struct Handle {
 	directory: OwnedFd,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Options {
+	pub cleanup_interval: Duration,
+	pub cleanup_timeout: Duration,
 	pub cpu: Option<u64>,
 	pub cpu_parent: Option<crate::cpu::Lease>,
 	pub cpu_pool: Option<crate::cpu::Pool>,
@@ -120,6 +121,8 @@ impl Cgroup {
 		let directory = OwnedFd::from(directory);
 		let cgroup = Self {
 			allocation,
+			cleanup_interval: options.cleanup_interval,
+			cleanup_timeout: options.cleanup_timeout,
 			directory,
 			name,
 			parent,
@@ -235,7 +238,7 @@ impl Cgroup {
 	pub(crate) fn stop(&self) -> tg::Result<()> {
 		write_file_at(&self.directory, c"cgroup.kill", b"1\n")
 			.map_err(|error| tg::error!(!error, "failed to stop the sandbox cgroup"))?;
-		self.wait_until_empty(CLEANUP_TIMEOUT)?;
+		self.wait_until_empty()?;
 		Ok(())
 	}
 
@@ -249,8 +252,8 @@ impl Cgroup {
 		self.allocation.as_ref().map(crate::cpu::Allocation::shared)
 	}
 
-	fn wait_until_empty(&self, timeout: Duration) -> tg::Result<()> {
-		let deadline = Instant::now() + timeout;
+	fn wait_until_empty(&self) -> tg::Result<()> {
+		let deadline = Instant::now() + self.cleanup_timeout;
 		loop {
 			let contents = read_file_at(&self.directory, c"cgroup.events").map_err(|error| {
 				tg::error!(
@@ -268,7 +271,7 @@ impl Cgroup {
 					"timed out waiting for the cgroup to become empty"
 				));
 			}
-			std::thread::sleep(CLEANUP_WAIT_INTERVAL);
+			std::thread::sleep(self.cleanup_interval);
 		}
 	}
 }
@@ -302,6 +305,23 @@ impl Handle {
 	pub fn move_self(&self) -> tg::Result<()> {
 		write_file_at(&self.directory, c"cgroup.procs", b"0\n")
 			.map_err(|error| tg::error!(!error, "failed to move the process into the cgroup"))
+	}
+}
+
+impl Default for Options {
+	fn default() -> Self {
+		Self {
+			cleanup_interval: Duration::from_millis(10),
+			cleanup_timeout: Duration::from_secs(5),
+			cpu: None,
+			cpu_parent: None,
+			cpu_pool: None,
+			cpu_request: None,
+			memory: None,
+			memory_oom_group: false,
+			memory_swap: None,
+			pids: None,
+		}
 	}
 }
 

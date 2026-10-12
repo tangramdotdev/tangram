@@ -6,10 +6,9 @@ use {
 	tangram_client::prelude::*,
 };
 
-const BUILD_ATTEMPTS: usize = 3;
-
 #[derive(Clone, Debug)]
 pub struct Arg {
+	pub build_attempts: usize,
 	pub image_path: PathBuf,
 	pub path: PathBuf,
 }
@@ -20,7 +19,7 @@ pub fn ensure(arg: &Arg) -> tg::Result<bool> {
 		return Ok(false);
 	}
 	let temp_image_path = arg.image_path.with_extension("squashfs.tmp");
-	for _ in 0..BUILD_ATTEMPTS {
+	for _ in 0..arg.build_attempts {
 		let result = build_image(&arg.path, &temp_image_path);
 		if let Err(error) = result {
 			std::fs::remove_file(&temp_image_path).ok();
@@ -47,7 +46,7 @@ pub fn ensure(arg: &Arg) -> tg::Result<bool> {
 	}
 	std::fs::remove_file(&temp_image_path).ok();
 	let error = tg::error!(
-		attempts = %BUILD_ATTEMPTS,
+		attempts = %arg.build_attempts,
 		"the sandbox root did not stabilize while building the VM image"
 	);
 	Err(error)

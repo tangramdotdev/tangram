@@ -1354,6 +1354,18 @@ pub struct Scheduler {
 
 #[derive(Clone, Debug)]
 pub struct Sandbox {
+	pub build_attempts: usize,
+
+	pub cgroup_cleanup_interval: Duration,
+
+	pub cgroup_cleanup_timeout: Duration,
+
+	pub connect_timeout: Duration,
+
+	pub control_channel_capacity: usize,
+
+	pub default_processes_page_size: u64,
+
 	pub isolation: SandboxIsolation,
 
 	pub network: SandboxNetwork,
@@ -1365,6 +1377,10 @@ pub struct Sandbox {
 	pub process_permission_time_to_touch: Duration,
 
 	pub processes_wakeup_interval: Duration,
+
+	pub request_timeout: Duration,
+
+	pub shutdown_timeout: Duration,
 
 	pub status_wakeup_interval: Duration,
 
@@ -1403,11 +1419,19 @@ pub struct VmSandboxIsolation {
 
 	pub kernel_path: PathBuf,
 
-	pub listener_port: Option<u16>,
+	pub listener_port: u32,
 
 	pub max_cpu: u64,
 
 	pub max_memory: u64,
+
+	pub network_interface_timeout: Duration,
+
+	pub ready_timeout: Duration,
+
+	pub serial_connect_interval: Duration,
+
+	pub serial_connect_timeout: Duration,
 
 	pub snapshot: Option<PathBuf>,
 
@@ -1428,6 +1452,8 @@ pub struct SandboxNetwork {
 	pub firewall: SandboxNetworkFirewall,
 
 	pub ip_ranges: Vec<IpRange>,
+
+	pub startup_timeout: Duration,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -2628,12 +2654,20 @@ impl Default for Scheduler {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
+			build_attempts: 3,
+			cgroup_cleanup_interval: Duration::from_millis(10),
+			cgroup_cleanup_timeout: Duration::from_secs(5),
+			connect_timeout: Duration::from_secs(5),
+			control_channel_capacity: 256,
+			default_processes_page_size: 256,
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
 			process_permission_time_to_live: default_process_permission_time_to_live(),
 			process_permission_time_to_touch: default_time_to_touch(),
 			processes_wakeup_interval: Duration::from_mins(1),
+			request_timeout: Duration::from_mins(1),
+			shutdown_timeout: Duration::from_secs(5),
 			status_wakeup_interval: Duration::from_mins(1),
 			time_to_live: default_time_to_live(),
 		}
@@ -2667,6 +2701,26 @@ impl Default for SandboxIsolation {
 	}
 }
 
+impl Default for VmSandboxIsolation {
+	fn default() -> Self {
+		Self {
+			cloud_hypervisor_path: None,
+			dax: Some(Dax::default()),
+			kernel_path: PathBuf::new(),
+			listener_port: 8476,
+			max_cpu: 8,
+			max_memory: 8 * 1024 * 1024 * 1024,
+			network_interface_timeout: Duration::from_secs(5),
+			ready_timeout: Duration::from_mins(1),
+			serial_connect_interval: Duration::from_millis(10),
+			serial_connect_timeout: Duration::from_secs(10),
+			snapshot: None,
+			snapshot_cpu: 1,
+			snapshot_memory: 512 * 1024 * 1024,
+		}
+	}
+}
+
 impl Default for Dax {
 	fn default() -> Self {
 		Self {
@@ -2681,6 +2735,7 @@ impl Default for SandboxNetwork {
 			dns: default_dns(),
 			firewall: SandboxNetworkFirewall::default(),
 			ip_ranges: default_ip_ranges(),
+			startup_timeout: Duration::from_secs(5),
 		}
 	}
 }

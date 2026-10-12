@@ -8,12 +8,12 @@ use {
 		},
 		path::{Path, PathBuf},
 		process::{Child, Command},
+		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
 };
 
-const TIMEOUT_MS: u64 = 5000;
 pub(crate) const DNS_FORWARD_IP: &str = "169.254.1.1";
 
 pub(crate) struct Network {
@@ -25,14 +25,15 @@ pub(crate) struct Network {
 	interface: Option<String>,
 	pid_file: PathBuf,
 	ports: Vec<tg::sandbox::Port>,
+	startup_timeout: Duration,
 }
 
-#[derive(Default)]
 pub struct Options {
 	pub dns: Vec<Ipv4Addr>,
 	pub executable: Option<PathBuf>,
 	pub interface: Option<String>,
 	pub ports: Vec<tg::sandbox::Port>,
+	pub startup_timeout: Duration,
 }
 
 impl Network {
@@ -70,6 +71,7 @@ impl Network {
 			interface: options.interface,
 			pid_file,
 			ports: options.ports,
+			startup_timeout: options.startup_timeout,
 		})
 	}
 
@@ -124,7 +126,7 @@ impl Network {
 			.map_err(|error| tg::error!(!error, "failed to spawn pasta"))?;
 		self.child = Some(child);
 
-		wait_for_pid_file_async(self.pid_file.clone(), executable).await?;
+		wait_for_pid_file_async(self.pid_file.clone(), executable, self.startup_timeout).await?;
 
 		// Signal the child to proceed.
 		host_pipe
@@ -189,13 +191,17 @@ impl Drop for Network {
 	}
 }
 
-async fn wait_for_pid_file_async(path: PathBuf, executable: PathBuf) -> tg::Result<()> {
-	tokio::task::spawn_blocking(move || wait_for_pid_file(&path, &executable))
+async fn wait_for_pid_file_async(
+	path: PathBuf,
+	executable: PathBuf,
+	timeout: Duration,
+) -> tg::Result<()> {
+	tokio::task::spawn_blocking(move || wait_for_pid_file(&path, &executable, timeout))
 		.await
 		.map_err(|error| tg::error!(!error, "the pid file wait task panicked"))?
 }
 
-fn wait_for_pid_file(path: &Path, executable: &Path) -> tg::Result<()> {
+fn wait_for_pid_file(path: &Path, executable: &Path, timeout: Duration) -> tg::Result<()> {
 	if pid_file_ready(path)? {
 		return Ok(());
 	}
@@ -203,7 +209,7 @@ fn wait_for_pid_file(path: &Path, executable: &Path) -> tg::Result<()> {
 	if pid_file_ready(path)? {
 		return Ok(());
 	}
-	wait_for_pid_file_write(&inotify, executable)?;
+	wait_for_pid_file_write(&inotify, executable, timeout)?;
 	if pid_file_ready(path)? {
 		return Ok(());
 	}
@@ -231,19 +237,18 @@ fn watch_pid_file(path: &Path) -> tg::Result<OwnedFd> {
 	Ok(fd)
 }
 
-fn wait_for_pid_file_write(inotify: &OwnedFd, executable: &Path) -> tg::Result<()> {
+fn wait_for_pid_file_write(
+	inotify: &OwnedFd,
+	executable: &Path,
+	timeout: Duration,
+) -> tg::Result<()> {
 	let mut event = libc::pollfd {
 		fd: inotify.as_raw_fd(),
 		events: libc::POLLIN,
 		revents: 0,
 	};
-	let result = unsafe {
-		libc::poll(
-			std::ptr::addr_of_mut!(event),
-			1,
-			i32::try_from(TIMEOUT_MS).unwrap(),
-		)
-	};
+	let timeout = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+	let result = unsafe { libc::poll(std::ptr::addr_of_mut!(event), 1, timeout) };
 	if result < 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to wait for the pid file"));

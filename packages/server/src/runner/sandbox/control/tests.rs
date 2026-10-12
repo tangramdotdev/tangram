@@ -19,7 +19,7 @@ async fn local_requests_do_not_cancel_remote_acknowledgments() {
 		output,
 		crate::control::stream_options(&crate::config::Control::default()),
 	);
-	let (local, receiver) = Local::new();
+	let (local, receiver) = Local::new(256);
 	let mut control = Control::new(stream, receiver);
 	let request = tg::sandbox::control::ServerRequest {
 		arg: tg::sandbox::control::ServerRequestArg::Get(
@@ -89,7 +89,7 @@ async fn local_requests_survive_remote_end_and_abandoned_callers() {
 		output,
 		crate::control::stream_options(&crate::config::Control::default()),
 	);
-	let (local, receiver) = Local::new();
+	let (local, receiver) = Local::new(256);
 	let mut control = Control::new(stream, receiver);
 	assert!(control.recv().await.unwrap().is_none());
 	let arg = tg::sandbox::control::ServerRequestArg::Destroy(

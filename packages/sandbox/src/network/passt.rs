@@ -9,12 +9,12 @@ use {
 		},
 		path::{Path, PathBuf},
 		process::{Child, Command},
+		time::Duration,
 	},
 	tangram_client::prelude::*,
 };
 
 const SOCKET_NAME: &str = "passt.sock";
-const TIMEOUT_MS: u64 = 5000;
 
 pub(crate) struct Network {
 	guest: ip::Lease,
@@ -52,6 +52,7 @@ impl Device {
 		host_ip: Ipv4Addr,
 		guest_ip: Ipv4Addr,
 		ports: &[tg::sandbox::Port],
+		startup_timeout: Duration,
 	) -> tg::Result<Self> {
 		let netmask = Ipv4Addr::new(255, 255, 255, 252);
 		let socket = path.join(SOCKET_NAME);
@@ -89,7 +90,7 @@ impl Device {
 		let mut child = command
 			.spawn()
 			.map_err(|error| tg::error!(!error, "failed to spawn {}", executable.display()))?;
-		if let Err(error) = wait_for_pid_file(&pid_file, executable) {
+		if let Err(error) = wait_for_pid_file(&pid_file, executable, startup_timeout) {
 			let pid = child.id().try_into().unwrap();
 			unsafe {
 				libc::kill(pid, libc::SIGTERM);
@@ -180,7 +181,7 @@ impl Drop for Device {
 	}
 }
 
-fn wait_for_pid_file(path: &Path, executable: &Path) -> tg::Result<()> {
+fn wait_for_pid_file(path: &Path, executable: &Path, timeout: Duration) -> tg::Result<()> {
 	if pid_file_ready(path)? {
 		return Ok(());
 	}
@@ -188,7 +189,7 @@ fn wait_for_pid_file(path: &Path, executable: &Path) -> tg::Result<()> {
 	if pid_file_ready(path)? {
 		return Ok(());
 	}
-	wait_for_pid_file_write(&inotify, executable)?;
+	wait_for_pid_file_write(&inotify, executable, timeout)?;
 	if pid_file_ready(path)? {
 		return Ok(());
 	}
@@ -216,19 +217,18 @@ fn watch_pid_file(path: &Path) -> tg::Result<OwnedFd> {
 	Ok(fd)
 }
 
-fn wait_for_pid_file_write(inotify: &OwnedFd, executable: &Path) -> tg::Result<()> {
+fn wait_for_pid_file_write(
+	inotify: &OwnedFd,
+	executable: &Path,
+	timeout: Duration,
+) -> tg::Result<()> {
 	let mut event = libc::pollfd {
 		fd: inotify.as_raw_fd(),
 		events: libc::POLLIN,
 		revents: 0,
 	};
-	let result = unsafe {
-		libc::poll(
-			std::ptr::addr_of_mut!(event),
-			1,
-			i32::try_from(TIMEOUT_MS).unwrap(),
-		)
-	};
+	let timeout = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+	let result = unsafe { libc::poll(std::ptr::addr_of_mut!(event), 1, timeout) };
 	if result < 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to wait for the pid file"));

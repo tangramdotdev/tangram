@@ -7,11 +7,11 @@ use {
 	tangram_client::prelude::*,
 };
 
-const BUILD_ATTEMPTS: usize = 3;
 const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/rootfs");
 
 #[derive(Clone, Debug)]
 pub struct Arg {
+	pub build_attempts: usize,
 	pub path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub vm: bool,
@@ -50,7 +50,7 @@ pub fn create(arg: &Arg) -> tg::Result<()> {
 	})?;
 	let temp_path = temporary_path(&arg.path)?;
 
-	for _ in 0..BUILD_ATTEMPTS {
+	for _ in 0..arg.build_attempts {
 		// Build the root without modifying the installed root.
 		remove_path(&temp_path)?;
 		let result = build(&temp_path, &arg.tangram_path, &libraries, arg.vm);
@@ -81,7 +81,7 @@ pub fn create(arg: &Arg) -> tg::Result<()> {
 	}
 	remove_path(&temp_path).ok();
 	let error = tg::error!(
-		attempts = %BUILD_ATTEMPTS,
+		attempts = %arg.build_attempts,
 		"the sandbox inputs did not stabilize while building the root"
 	);
 	Err(error)

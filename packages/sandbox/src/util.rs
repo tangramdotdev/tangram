@@ -42,6 +42,12 @@ pub fn which(path: &Path, executable: &std::path::Path) -> Option<std::path::Pat
 	None
 }
 
+/// Format a duration as fractional seconds for a command line argument.
+#[cfg(target_os = "linux")]
+pub(crate) fn duration_arg(duration: std::time::Duration) -> String {
+	duration.as_secs_f64().to_string()
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) fn set_dumpable(value: bool) -> tg::Result<()> {
 	let value: libc::c_ulong = if value { 1 } else { 0 };

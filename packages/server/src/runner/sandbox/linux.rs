@@ -19,6 +19,7 @@ impl Session {
 		if !*image_created {
 			let _file_lock = acquire_vm_lock(&self.server.path).await?;
 			let arg = tangram_sandbox::vm::image::Arg {
+				build_attempts: self.server.config.sandbox.build_attempts,
 				image_path: vm.image_path.clone(),
 				path: self.server.sandbox_container_root.clone(),
 			};
@@ -94,7 +95,8 @@ impl Server {
 			sandbox = %id,
 			"creating vm snapshot",
 		);
-		let firewall = match self.config.sandbox.network.firewall {
+		let config = &self.config.sandbox;
+		let firewall = match config.network.firewall {
 			crate::config::SandboxNetworkFirewall::Iptables => tangram_sandbox::Firewall::Iptables,
 			crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
 		};
@@ -130,7 +132,17 @@ impl Server {
 			.arg("--path")
 			.arg(temp.path())
 			.arg("--url")
-			.arg("http+vsock://2:6748");
+			.arg("http+vsock://2:6748")
+			.arg("--network-interface-timeout")
+			.arg(vm.network_interface_timeout.as_secs_f64().to_string())
+			.arg("--network-startup-timeout")
+			.arg(config.network.startup_timeout.as_secs_f64().to_string())
+			.arg("--ready-timeout")
+			.arg(vm.ready_timeout.as_secs_f64().to_string())
+			.arg("--serial-connect-interval")
+			.arg(vm.serial_connect_interval.as_secs_f64().to_string())
+			.arg("--serial-connect-timeout")
+			.arg(vm.serial_connect_timeout.as_secs_f64().to_string());
 		if let Some(dax) = vm.dax {
 			command.arg("--dax").arg(dax.to_string());
 		}

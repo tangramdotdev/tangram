@@ -440,7 +440,9 @@ impl Session {
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		let index = create_output.sandbox.index();
 		let processes = Arc::new(crate::process::Processes::default());
-		let (control_sender, control_receiver) = crate::sandbox::control::local::Local::new();
+		let control_channel_capacity = self.server.config.sandbox.control_channel_capacity;
+		let (control_sender, control_receiver) =
+			crate::sandbox::control::local::Local::new(control_channel_capacity);
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
 			authorization_tokens: tg::authorization::Tokens::default(),
@@ -720,6 +722,10 @@ impl Session {
 						kernel_path,
 						max_cpu: vm.max_cpu,
 						max_memory: vm.max_memory,
+						network_interface_timeout: vm.network_interface_timeout,
+						ready_timeout: vm.ready_timeout,
+						serial_connect_interval: vm.serial_connect_interval,
+						serial_connect_timeout: vm.serial_connect_timeout,
 						snapshot,
 						snapshot_cpu: vm.snapshot_cpu,
 						snapshot_memory: vm.snapshot_memory,
@@ -856,8 +862,16 @@ impl Session {
 		};
 
 		// Create the listener.
+		let listener_port = self
+			.server
+			.config
+			.sandbox
+			.isolation
+			.vm
+			.as_ref()
+			.map(|vm| vm.listener_port);
 		let (listener, guest_url, tangram_socket_path) =
-			Server::run_create_listener(temp.path(), &isolation)
+			Server::run_create_listener(temp.path(), &isolation, listener_port)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %index, "failed to create the sandbox listener"),
@@ -885,15 +899,21 @@ impl Session {
 			},
 			Some(tg::sandbox::Network::Host) => Some(tangram_sandbox::Network::Host),
 		};
+		let config = &self.server.config.sandbox;
 		let arg = tangram_sandbox::Arg {
+			#[cfg(target_os = "linux")]
+			cgroup_cleanup_interval: config.cgroup_cleanup_interval,
+			#[cfg(target_os = "linux")]
+			cgroup_cleanup_timeout: config.cgroup_cleanup_timeout,
+			connect_timeout: config.connect_timeout,
 			cpu: arg.cpu,
 			#[cfg(target_os = "linux")]
 			cpu_parent,
 			#[cfg(target_os = "linux")]
 			cpu_pool: self.server.runner.state.cpu_pool.clone(),
-			dns: self.server.config.sandbox.network.dns.clone(),
+			dns: config.network.dns.clone(),
 			#[cfg(target_os = "linux")]
-			firewall: match self.server.config.sandbox.network.firewall {
+			firewall: match config.network.firewall {
 				crate::config::SandboxNetworkFirewall::Iptables => {
 					tangram_sandbox::Firewall::Iptables
 				},
@@ -911,9 +931,13 @@ impl Session {
 			memory_sampling_interval: self.server.config.runner.memory_sampling_interval,
 			mounts,
 			network,
-			nice: self.server.config.sandbox.nice,
+			#[cfg(target_os = "linux")]
+			network_startup_timeout: config.network.startup_timeout,
+			nice: config.nice,
 			path: temp.path().to_owned(),
+			request_timeout: config.request_timeout,
 			rootfs_path,
+			shutdown_timeout: config.shutdown_timeout,
 			store_path: store_source,
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,

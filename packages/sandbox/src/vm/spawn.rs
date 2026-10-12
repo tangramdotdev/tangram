@@ -48,7 +48,17 @@ pub(crate) fn spawn(
 		.arg("--tangram-path")
 		.arg(&arg.tangram_path)
 		.arg("--url")
-		.arg(serve_arg.url.to_string());
+		.arg(serve_arg.url.to_string())
+		.arg("--network-interface-timeout")
+		.arg(crate::util::duration_arg(vm.network_interface_timeout))
+		.arg("--network-startup-timeout")
+		.arg(crate::util::duration_arg(arg.network_startup_timeout))
+		.arg("--ready-timeout")
+		.arg(crate::util::duration_arg(vm.ready_timeout))
+		.arg("--serial-connect-interval")
+		.arg(crate::util::duration_arg(vm.serial_connect_interval))
+		.arg("--serial-connect-timeout")
+		.arg(crate::util::duration_arg(vm.serial_connect_timeout));
 	if let Some(dax) = vm.dax {
 		command.arg("--dax").arg(dax.to_string());
 	}

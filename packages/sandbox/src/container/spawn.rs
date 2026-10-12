@@ -113,6 +113,8 @@ pub(crate) async fn spawn(
 		.and_then(|name| name.to_str())
 		.unwrap_or("sandbox");
 	let options = super::cgroup::Options {
+		cleanup_interval: arg.cgroup_cleanup_interval,
+		cleanup_timeout: arg.cgroup_cleanup_timeout,
 		cpu: arg.cpu.map(tg::sandbox::Cpu::total).transpose()?,
 		cpu_parent: arg.cpu_parent.clone(),
 		cpu_pool: arg.cpu_pool.clone(),

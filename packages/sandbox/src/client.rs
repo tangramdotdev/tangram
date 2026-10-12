@@ -25,6 +25,11 @@ pub struct State {
 	service: Service,
 }
 
+#[derive(Clone, Copy)]
+struct Options {
+	request_timeout: Duration,
+}
+
 type Connection = Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>;
 
 type Sender = Arc<
@@ -45,10 +50,11 @@ enum Error {
 
 impl Client {
 	#[expect(dead_code)]
-	pub fn new(url: &Uri) -> Self {
+	pub fn new(url: &Uri, request_timeout: Duration) -> Self {
 		let connection = Arc::new(tokio::sync::Mutex::new(None));
 		let sender = Arc::new(tokio::sync::Mutex::new(None));
-		let service = Self::service(url.clone(), connection.clone(), sender.clone());
+		let options = Options { request_timeout };
+		let service = Self::service(url.clone(), connection.clone(), sender.clone(), options);
 		Self(Arc::new(State {
 			connection,
 			sender,
@@ -56,7 +62,10 @@ impl Client {
 		}))
 	}
 
-	pub async fn with_listener(listener: &crate::server::Listener) -> tg::Result<Self> {
+	pub async fn with_listener(
+		listener: &crate::server::Listener,
+		request_timeout: Duration,
+	) -> tg::Result<Self> {
 		match listener {
 			crate::server::Listener::Tcp(listener) => {
 				let (stream, _) = listener
@@ -66,14 +75,14 @@ impl Client {
 				stream
 					.set_nodelay(true)
 					.map_err(|error| tg::error!(!error, "failed to set nodelay on the socket"))?;
-				Self::with_stream(stream).await
+				Self::with_stream(stream, request_timeout).await
 			},
 			crate::server::Listener::Unix { listener, .. } => {
 				let (stream, _) = listener
 					.accept()
 					.await
 					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
-				Self::with_stream(stream).await
+				Self::with_stream(stream, request_timeout).await
 			},
 			#[cfg(feature = "vsock")]
 			crate::server::Listener::Vsock(listener) => {
@@ -81,12 +90,12 @@ impl Client {
 					.accept()
 					.await
 					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
-				Self::with_stream(stream).await
+				Self::with_stream(stream, request_timeout).await
 			},
 		}
 	}
 
-	pub async fn with_stream<S>(stream: S) -> tg::Result<Self>
+	pub async fn with_stream<S>(stream: S, request_timeout: Duration) -> tg::Result<Self>
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
@@ -98,7 +107,8 @@ impl Client {
 			.path("")
 			.build()
 			.map_err(|error| tg::error!(!error, "failed to build the URL"))?;
-		let service = Self::service(url, connection.clone(), sender.clone());
+		let options = Options { request_timeout };
+		let service = Self::service(url, connection.clone(), sender.clone(), options);
 		let client = Self(Arc::new(State {
 			connection,
 			sender,
@@ -107,7 +117,7 @@ impl Client {
 		Ok(client)
 	}
 
-	fn service(url: Uri, connection: Connection, sender: Sender) -> Service {
+	fn service(url: Uri, connection: Connection, sender: Sender, options: Options) -> Service {
 		let service = tower::service_fn(move |request| {
 			let connection = connection.clone();
 			let sender = sender.clone();
@@ -144,7 +154,7 @@ impl Client {
 				tower::service_fn(move |request| {
 					let future = service.clone().call(request);
 					async move {
-						match tokio::time::timeout(Duration::from_mins(1), future).await {
+						match tokio::time::timeout(options.request_timeout, future).await {
 							Ok(result) => result,
 							Err(_) => Err(Error::Other(tg::error!("request timed out"))),
 						}

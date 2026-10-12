@@ -5,6 +5,7 @@ impl Server {
 	pub(super) async fn run_create_listener(
 		root_path: &Path,
 		isolation: &tangram_sandbox::Isolation,
+		_listener_port: Option<u32>,
 	) -> tg::Result<(
 		crate::http::Listener,
 		tangram_uri::Uri,
@@ -27,6 +28,7 @@ impl Server {
 	pub(super) async fn run_create_listener(
 		root_path: &Path,
 		isolation: &tangram_sandbox::Isolation,
+		listener_port: Option<u32>,
 	) -> tg::Result<(
 		crate::http::Listener,
 		tangram_uri::Uri,
@@ -65,11 +67,13 @@ impl Server {
 			tangram_sandbox::Isolation::Vm(_) => {
 				#[cfg(not(feature = "vsock"))]
 				{
+					let _ = listener_port;
 					Err(tg::error!("vsock is not enabled"))
 				}
 				#[cfg(feature = "vsock")]
 				{
-					let port = 8476;
+					let port = listener_port
+						.ok_or_else(|| tg::error!("missing the vm isolation configuration"))?;
 					let socket = format!(
 						"{}_{port}",
 						tangram_sandbox::vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME

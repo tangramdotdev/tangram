@@ -26,8 +26,8 @@ pub(crate) enum Reply {
 
 impl Local {
 	#[must_use]
-	pub(crate) fn new() -> (Self, tokio::sync::mpsc::Receiver<Message>) {
-		let (sender, receiver) = tokio::sync::mpsc::channel(256);
+	pub(crate) fn new(capacity: usize) -> (Self, tokio::sync::mpsc::Receiver<Message>) {
+		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
 		(Self { sender }, receiver)
 	}
 

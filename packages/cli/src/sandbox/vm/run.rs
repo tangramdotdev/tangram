@@ -1,6 +1,6 @@
 use {
-	crate::Cli,
-	std::{net::Ipv4Addr, path::PathBuf},
+	crate::{Cli, sandbox::parse_duration},
+	std::{net::Ipv4Addr, path::PathBuf, time::Duration},
 	tangram_client::prelude::*,
 };
 
@@ -58,14 +58,29 @@ pub struct Args {
 	#[arg(long)]
 	pub network: Option<tangram_sandbox::vm::run::NetworkKind>,
 
+	#[arg(long, value_parser = parse_duration)]
+	pub network_interface_timeout: Duration,
+
+	#[arg(long, value_parser = parse_duration)]
+	pub network_startup_timeout: Duration,
+
 	#[arg(long)]
 	pub path: PathBuf,
 
 	#[arg(action = clap::ArgAction::Append, long = "port", num_args = 1)]
 	pub ports: Vec<tg::sandbox::Port>,
 
+	#[arg(long, value_parser = parse_duration)]
+	pub ready_timeout: Duration,
+
 	#[arg(long)]
 	pub rootfs_path: PathBuf,
+
+	#[arg(long, value_parser = parse_duration)]
+	pub serial_connect_interval: Duration,
+
+	#[arg(long, value_parser = parse_duration)]
+	pub serial_connect_timeout: Duration,
 
 	#[arg(long)]
 	pub snapshot: Option<PathBuf>,
@@ -106,9 +121,14 @@ impl Cli {
 			memory: args.memory,
 			mounts: args.mounts,
 			network: args.network,
+			network_interface_timeout: args.network_interface_timeout,
+			network_startup_timeout: args.network_startup_timeout,
 			path: args.path,
 			ports: args.ports,
+			ready_timeout: args.ready_timeout,
 			rootfs_path: args.rootfs_path,
+			serial_connect_interval: args.serial_connect_interval,
+			serial_connect_timeout: args.serial_connect_timeout,
 			snapshot: args.snapshot,
 			snapshot_cpu: args.snapshot_cpu,
 			snapshot_memory: args.snapshot_memory,
