@@ -114,16 +114,18 @@ impl Session {
 				Self::sync_get_nodes(&state.arg, &state.graph, &state.queue, &state.sender, get);
 
 			// Create the channels.
+			let config = &self.server.config.sync.get;
 			let (store_object_sender, store_object_receiver) =
-				tokio::sync::mpsc::channel::<self::store::ObjectNode>(256);
+				tokio::sync::mpsc::channel::<self::store::ObjectNode>(config.channel_capacity);
 			let (store_process_sender, store_process_receiver) =
-				tokio::sync::mpsc::channel::<self::store::ProcessNode>(256);
-			let (checkout_sender, checkout_receiver) =
-				tokio::sync::mpsc::channel::<self::checkout::ObjectNode>(64);
+				tokio::sync::mpsc::channel::<self::store::ProcessNode>(config.channel_capacity);
+			let (checkout_sender, checkout_receiver) = tokio::sync::mpsc::channel::<
+				self::checkout::ObjectNode,
+			>(config.checkout.channel_capacity);
 			let (index_object_sender, index_object_receiver) =
-				tokio::sync::mpsc::channel::<self::index::ObjectNode>(256);
+				tokio::sync::mpsc::channel::<self::index::ObjectNode>(config.channel_capacity);
 			let (index_process_sender, index_process_receiver) =
-				tokio::sync::mpsc::channel::<self::index::ProcessNode>(256);
+				tokio::sync::mpsc::channel::<self::index::ProcessNode>(config.channel_capacity);
 
 			// Create the input future.
 			let input_future = {

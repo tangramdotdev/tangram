@@ -95,18 +95,19 @@ impl Session {
 		}
 
 		// Create the channels.
+		let capacity = self.server.config.sync.put.channel_capacity;
 		let (database_sender, database_receiver) =
-			tokio::sync::mpsc::channel::<self::database::Node>(256);
+			tokio::sync::mpsc::channel::<self::database::Node>(capacity);
 		let (index_object_sender, index_object_receiver) =
-			tokio::sync::mpsc::channel::<self::index::ObjectNode>(256);
+			tokio::sync::mpsc::channel::<self::index::ObjectNode>(capacity);
 		let (index_process_sender, index_process_receiver) =
-			tokio::sync::mpsc::channel::<self::index::ProcessNode>(256);
+			tokio::sync::mpsc::channel::<self::index::ProcessNode>(capacity);
 		let (store_object_sender, store_object_receiver) =
-			tokio::sync::mpsc::channel::<self::store::ObjectNode>(256);
+			tokio::sync::mpsc::channel::<self::store::ObjectNode>(capacity);
 		let (store_process_sender, store_process_receiver) =
-			tokio::sync::mpsc::channel::<self::store::ProcessNode>(256);
+			tokio::sync::mpsc::channel::<self::store::ProcessNode>(capacity);
 		let (sandbox_sender, sandbox_receiver) =
-			tokio::sync::mpsc::channel::<self::sandbox::Node>(256);
+			tokio::sync::mpsc::channel::<self::sandbox::Node>(capacity);
 
 		// Spawn the input task.
 		let input_task = Task::spawn({

@@ -201,6 +201,11 @@ impl Server {
 				"the scheduler message ack timeout must be greater than zero"
 			));
 		}
+		if config.sync.max_frame_size == 0 {
+			return Err(tg::error!(
+				"the sync max frame size must be greater than zero"
+			));
+		}
 		for (name, duration) in [
 			(
 				"advanced version check interval",
@@ -216,6 +221,11 @@ impl Server {
 				config.indexer.updates.poll_interval,
 			),
 			("progress interval", config.progress.interval),
+			(
+				"sync metadata poll interval",
+				config.sync.metadata_poll_interval,
+			),
+			("sync progress interval", config.sync.progress_interval),
 			(
 				"verification poll interval",
 				config.verification.poll_interval,
@@ -246,6 +256,43 @@ impl Server {
 				config.progress.channel_capacity,
 			),
 			("read index batch size", config.read.index_batch_size),
+			("sync channel capacity", config.sync.channel_capacity),
+			(
+				"sync get channel capacity",
+				config.sync.get.channel_capacity,
+			),
+			(
+				"sync get checkout batch size",
+				config.sync.get.checkout.batch_size,
+			),
+			(
+				"sync get checkout channel capacity",
+				config.sync.get.checkout.channel_capacity,
+			),
+			(
+				"sync get checkout max read handles",
+				config.sync.get.checkout.max_read_handles,
+			),
+			(
+				"sync get checkout max write handles",
+				config.sync.get.checkout.max_write_handles,
+			),
+			(
+				"sync get queue checkout batch size",
+				config.sync.get.queue.checkout_batch_size,
+			),
+			(
+				"sync message channel capacity",
+				config.sync.message_channel_capacity,
+			),
+			(
+				"sync push channel capacity",
+				config.sync.push_channel_capacity,
+			),
+			(
+				"sync put channel capacity",
+				config.sync.put.channel_capacity,
+			),
 			("watch channel capacity", watch.channel_capacity),
 		];
 		for (name, size) in sizes {

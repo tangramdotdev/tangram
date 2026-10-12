@@ -7,7 +7,6 @@ use {
 		ops::ControlFlow,
 		panic::AssertUnwindSafe,
 		sync::{Arc, Mutex},
-		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
@@ -352,6 +351,7 @@ impl Session {
 		progress: crate::progress::Handle<tg::push::Output>,
 		arg: &tg::push::Arg,
 	) -> tg::Result<()> {
+		let poll_interval = self.server.config.sync.metadata_poll_interval;
 		let mut metadata_futures = arg
 			.nodes
 			.iter()
@@ -417,7 +417,7 @@ impl Session {
 								break Ok::<_, tg::Error>(tg::Either::Right(metadata));
 							}
 						}
-						tokio::time::sleep(Duration::from_secs(1)).await;
+						tokio::time::sleep(poll_interval).await;
 					}
 				})
 			})
@@ -539,10 +539,11 @@ impl Session {
 				progress.set("bytes", 0);
 
 				// Create the channels.
+				let capacity = session.server.config.sync.push_channel_capacity;
 				let (destination_output_sender, destination_output_receiver) =
-					tokio::sync::mpsc::channel(1024);
+					tokio::sync::mpsc::channel(capacity);
 				let (source_output_sender, source_output_receiver) =
-					tokio::sync::mpsc::channel(1024);
+					tokio::sync::mpsc::channel(capacity);
 
 				// Create the source arg and input stream.
 				let source_location = match &source {

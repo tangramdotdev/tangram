@@ -1950,10 +1950,23 @@ pub enum SandboxNetworkFirewall {
 #[serde(deny_unknown_fields)]
 pub struct SyncOptions {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub control: Option<SyncControl>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub get: Option<SyncGet>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_frame_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_channel_capacity: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub metadata_poll_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1963,8 +1976,12 @@ pub struct SyncOptions {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permission_time_to_touch: Option<Duration>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_frame_size: Option<u64>,
+	pub progress_interval: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub push_channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub put: Option<SyncPut>,
@@ -2003,6 +2020,12 @@ pub struct SyncControl {
 #[serde(deny_unknown_fields)]
 pub struct SyncGet {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checkout: Option<SyncGetCheckout>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checkout_pointers: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2016,6 +2039,22 @@ pub struct SyncGet {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub store: Option<SyncGetStore>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetCheckout {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_read_handles: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_write_handles: Option<usize>,
 }
 
 #[serde_as]
@@ -2055,6 +2094,9 @@ pub struct SyncGetIndex {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SyncGetQueue {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checkout_batch_size: Option<usize>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub object_batch_size: Option<usize>,
 
@@ -2124,6 +2166,9 @@ pub struct SyncGetStoreObject {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SyncPut {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub index: Option<SyncPutIndex>,
 
@@ -4652,6 +4697,15 @@ fn resolve_sandbox_network_firewall(
 
 fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	let mut target = server::Sync::default();
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
+	}
+	if let Some(value) = source.message_channel_capacity {
+		target.message_channel_capacity = value;
+	}
+	if let Some(value) = source.push_channel_capacity {
+		target.push_channel_capacity = value;
+	}
 	if let Some(source) = source.control {
 		target.control = resolve_sync_control(source);
 	}
@@ -4663,6 +4717,12 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.metadata_poll_interval {
+		target.metadata_poll_interval = value;
+	}
+	if let Some(value) = source.progress_interval {
+		target.progress_interval = value;
 	}
 	if let Some(value) = source.permission_time_to_live {
 		target.permission_time_to_live = value;
@@ -4698,6 +4758,12 @@ fn resolve_sync_control(source: SyncControl) -> server::SyncControl {
 
 fn resolve_sync_get(source: &SyncGet) -> server::SyncGet {
 	let mut target = server::SyncGet::default();
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
+	}
+	if let Some(source) = source.checkout {
+		target.checkout = resolve_sync_get_checkout(source);
+	}
 	if let Some(value) = source.checkout_pointers {
 		target.checkout_pointers = value;
 	}
@@ -4712,6 +4778,23 @@ fn resolve_sync_get(source: &SyncGet) -> server::SyncGet {
 	}
 	if let Some(source) = source.store {
 		target.store = resolve_sync_get_store(&source);
+	}
+	target
+}
+
+fn resolve_sync_get_checkout(source: SyncGetCheckout) -> server::SyncGetCheckout {
+	let mut target = server::SyncGetCheckout::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
+	}
+	if let Some(value) = source.max_read_handles {
+		target.max_read_handles = value;
+	}
+	if let Some(value) = source.max_write_handles {
+		target.max_write_handles = value;
 	}
 	target
 }
@@ -4749,6 +4832,9 @@ fn resolve_sync_get_index(source: SyncGetIndex) -> server::SyncGetIndex {
 
 fn resolve_sync_get_queue(source: SyncGetQueue) -> server::SyncGetQueue {
 	let mut target = server::SyncGetQueue::default();
+	if let Some(value) = source.checkout_batch_size {
+		target.checkout_batch_size = value;
+	}
 	if let Some(value) = source.object_batch_size {
 		target.object_batch_size = value;
 	}
@@ -4817,6 +4903,9 @@ fn resolve_sync_get_store_object(
 
 fn resolve_sync_put(source: &SyncPut) -> server::SyncPut {
 	let mut target = server::SyncPut::default();
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
+	}
 	if let Some(source) = source.index {
 		target.index = resolve_sync_put_index(source);
 	}

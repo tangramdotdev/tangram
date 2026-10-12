@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	futures::future,
-	std::{pin::pin, sync::atomic::AtomicU64, time::Duration},
+	std::{pin::pin, sync::atomic::AtomicU64},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 };
@@ -34,7 +34,7 @@ impl Session {
 		loop {
 			let stopper = stopper.wait();
 			let stopper = pin!(stopper);
-			let sleep = tokio::time::sleep(Duration::from_millis(100));
+			let sleep = tokio::time::sleep(self.server.config.sync.progress_interval);
 			let sleep = pin!(sleep);
 			let result = future::select(sleep, stopper).await;
 			let message = progress.reset();
@@ -57,7 +57,7 @@ impl Session {
 		loop {
 			let stopper = stopper.wait();
 			let stopper = pin!(stopper);
-			let sleep = tokio::time::sleep(Duration::from_millis(100));
+			let sleep = tokio::time::sleep(self.server.config.sync.progress_interval);
 			let sleep = pin!(sleep);
 			let result = future::select(sleep, stopper).await;
 			let message = progress.reset();

@@ -1407,15 +1407,25 @@ pub struct IpRange {
 
 #[derive(Clone, Debug)]
 pub struct Sync {
+	pub channel_capacity: usize,
+
 	pub control: SyncControl,
 
 	pub get: SyncGet,
+
+	pub max_frame_size: u64,
+
+	pub message_channel_capacity: usize,
+
+	pub metadata_poll_interval: Duration,
 
 	pub permission_time_to_live: Duration,
 
 	pub permission_time_to_touch: Duration,
 
-	pub max_frame_size: u64,
+	pub progress_interval: Duration,
+
+	pub push_channel_capacity: usize,
 
 	pub put: SyncPut,
 
@@ -1437,6 +1447,10 @@ pub struct SyncControl {
 
 #[derive(Clone, Debug)]
 pub struct SyncGet {
+	pub channel_capacity: usize,
+
+	pub checkout: SyncGetCheckout,
+
 	pub checkout_pointers: bool,
 
 	pub database: SyncGetDatabase,
@@ -1446,6 +1460,17 @@ pub struct SyncGet {
 	pub queue: SyncGetQueue,
 
 	pub store: SyncGetStore,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SyncGetCheckout {
+	pub batch_size: usize,
+
+	pub channel_capacity: usize,
+
+	pub max_read_handles: usize,
+
+	pub max_write_handles: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1470,6 +1495,8 @@ pub struct SyncGetIndex {
 
 #[derive(Clone, Debug)]
 pub struct SyncGetQueue {
+	pub checkout_batch_size: usize,
+
 	pub object_batch_size: usize,
 
 	pub object_batch_timeout: Duration,
@@ -1511,8 +1538,10 @@ pub struct SyncGetStoreObject {
 	pub object_max_bytes: u64,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct SyncPut {
+	pub channel_capacity: usize,
+
 	pub index: SyncPutIndex,
 
 	pub queue: SyncPutQueue,
@@ -2476,11 +2505,16 @@ impl Default for SandboxNetwork {
 impl Default for Sync {
 	fn default() -> Self {
 		Self {
+			channel_capacity: 4096,
 			control: SyncControl::default(),
 			get: SyncGet::default(),
+			max_frame_size: tg::sync::Config::default().max_frame_size,
+			message_channel_capacity: 256,
+			metadata_poll_interval: Duration::from_secs(1),
 			permission_time_to_live: default_time_to_live(),
 			permission_time_to_touch: default_time_to_touch(),
-			max_frame_size: default_sync_max_frame_size(),
+			progress_interval: Duration::from_millis(100),
+			push_channel_capacity: 1024,
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
 		}
@@ -2519,11 +2553,24 @@ impl Default for SyncControl {
 impl Default for SyncGet {
 	fn default() -> Self {
 		Self {
+			channel_capacity: 256,
+			checkout: SyncGetCheckout::default(),
 			checkout_pointers: true,
 			database: SyncGetDatabase::default(),
 			index: SyncGetIndex::default(),
 			queue: SyncGetQueue::default(),
 			store: SyncGetStore::default(),
+		}
+	}
+}
+
+impl Default for SyncGetCheckout {
+	fn default() -> Self {
+		Self {
+			batch_size: 64,
+			channel_capacity: 64,
+			max_read_handles: 32,
+			max_write_handles: 32,
 		}
 	}
 }
@@ -2550,6 +2597,7 @@ impl Default for SyncGetIndex {
 impl Default for SyncGetQueue {
 	fn default() -> Self {
 		Self {
+			checkout_batch_size: 64,
 			object_batch_size: 16,
 			object_batch_timeout: Duration::ZERO,
 			object_concurrency: 8,
@@ -2591,6 +2639,18 @@ impl Default for SyncGetStore {
 				object_max_batch: 1_000,
 				object_max_bytes: 65_536,
 			},
+		}
+	}
+}
+
+impl Default for SyncPut {
+	fn default() -> Self {
+		Self {
+			channel_capacity: 256,
+			index: SyncPutIndex::default(),
+			queue: SyncPutQueue::default(),
+			resolve: SyncPutResolve::default(),
+			store: SyncPutStore::default(),
 		}
 	}
 }
@@ -2891,10 +2951,6 @@ fn default_login_ttl() -> Duration {
 
 fn default_authentication_token_ttl() -> Duration {
 	Duration::from_hours(24)
-}
-
-fn default_sync_max_frame_size() -> u64 {
-	tg::sync::Config::default().max_frame_size
 }
 
 impl From<tangram_futures::retry::Options> for Retry {

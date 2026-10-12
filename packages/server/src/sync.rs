@@ -110,7 +110,8 @@ impl Session {
 		};
 
 		// Start the transfer.
-		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
+		let capacity = self.server.config.sync.channel_capacity;
+		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
 		let task = Task::spawn({
 			let session = self.clone();
 			|_| {
@@ -277,10 +278,11 @@ impl Session {
 		let graph = Arc::new(Mutex::new(graph));
 
 		// Spawn the input task to receive the input.
+		let capacity = self.server.config.sync.message_channel_capacity;
 		let (get_input_sender, get_input_receiver) =
-			tokio::sync::mpsc::channel::<tg::sync::PutMessage>(256);
+			tokio::sync::mpsc::channel::<tg::sync::PutMessage>(capacity);
 		let (put_input_sender, put_input_receiver) =
-			tokio::sync::mpsc::channel::<tg::sync::GetMessage>(256);
+			tokio::sync::mpsc::channel::<tg::sync::GetMessage>(capacity);
 		let mut input_task = Task::spawn(|_| async move {
 			while let Some(message) = stream.try_next().await? {
 				match message {
@@ -302,9 +304,9 @@ impl Session {
 
 		// Create the output future to send the output.
 		let (get_output_sender, get_output_receiver) =
-			tokio::sync::mpsc::channel::<tg::Result<tg::sync::GetMessage>>(256);
+			tokio::sync::mpsc::channel::<tg::Result<tg::sync::GetMessage>>(capacity);
 		let (put_output_sender, put_output_receiver) =
-			tokio::sync::mpsc::channel::<tg::Result<tg::sync::PutMessage>>(256);
+			tokio::sync::mpsc::channel::<tg::Result<tg::sync::PutMessage>>(capacity);
 		let output_future = async move {
 			let mut stream = stream::select(
 				ReceiverStream::new(get_output_receiver).map_ok(tg::sync::Message::Get),

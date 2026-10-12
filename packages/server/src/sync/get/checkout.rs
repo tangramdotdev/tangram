@@ -12,12 +12,9 @@ use {
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _},
 };
 
-const LOAD_BATCH_SIZE: usize = 64;
-const MAX_READ_HANDLES: usize = 32;
-const MAX_WRITE_HANDLES: usize = 32;
-
 struct State {
 	blobs: HashMap<tg::blob::Id, Blob>,
+	config: crate::config::SyncGetCheckout,
 	files: HashMap<tg::file::Id, File>,
 	graph: Arc<Mutex<super::super::graph::Graph>>,
 	loads: VecDeque<tg::blob::Id>,
@@ -98,8 +95,10 @@ impl Session {
 		if !self.sync_get_checkout_pointers_enabled() {
 			return Ok(());
 		}
+		let config = self.server.config.sync.get.checkout;
 		let mut state = State {
 			blobs: HashMap::new(),
+			config,
 			files: HashMap::new(),
 			graph: sync_state.graph.clone(),
 			loads: VecDeque::new(),
@@ -265,7 +264,7 @@ impl Session {
 			return Ok(());
 		}
 		let temp = Temp::new(&self.server);
-		if state.write_handles.len() >= MAX_WRITE_HANDLES {
+		if state.write_handles.len() >= state.config.max_write_handles {
 			state.write_handles.shift_remove_index(0);
 		}
 		let handle = tokio::fs::File::create_new(temp.path())
@@ -353,8 +352,8 @@ impl Session {
 	}
 
 	async fn sync_get_checkout_load_existing_batch(&self, state: &mut State) -> tg::Result<()> {
-		let mut ids = Vec::with_capacity(LOAD_BATCH_SIZE);
-		while ids.len() < LOAD_BATCH_SIZE
+		let mut ids = Vec::with_capacity(state.config.batch_size);
+		while ids.len() < state.config.batch_size
 			&& let Some(id) = state.loads.pop_front()
 		{
 			let registered = state.queued_loads.remove(&id).unwrap();
@@ -687,7 +686,7 @@ impl Session {
 		if let Some(handle) = state.read_handles.shift_remove(path) {
 			return Ok(handle);
 		}
-		if state.read_handles.len() >= MAX_READ_HANDLES {
+		if state.read_handles.len() >= state.config.max_read_handles {
 			state.read_handles.shift_remove_index(0);
 		}
 		let file = tokio::fs::File::open(path.as_ref())
@@ -705,7 +704,7 @@ impl Session {
 		if let Some(handle) = state.write_handles.shift_remove(id) {
 			return Ok(handle);
 		}
-		if state.write_handles.len() >= MAX_WRITE_HANDLES {
+		if state.write_handles.len() >= state.config.max_write_handles {
 			state.write_handles.shift_remove_index(0);
 		}
 		let path = state.files.get(id).unwrap().temp.path();
@@ -720,14 +719,14 @@ impl Session {
 	}
 
 	fn sync_get_checkout_put_read_handle(state: &mut State, path: Arc<PathBuf>, handle: Handle) {
-		if state.read_handles.len() >= MAX_READ_HANDLES {
+		if state.read_handles.len() >= state.config.max_read_handles {
 			state.read_handles.shift_remove_index(0);
 		}
 		state.read_handles.insert(path, handle);
 	}
 
 	fn sync_get_checkout_put_write_handle(state: &mut State, id: tg::file::Id, handle: Handle) {
-		if state.write_handles.len() >= MAX_WRITE_HANDLES {
+		if state.write_handles.len() >= state.config.max_write_handles {
 			state.write_handles.shift_remove_index(0);
 		}
 		state.write_handles.insert(id, handle);

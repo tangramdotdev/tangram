@@ -34,8 +34,9 @@ impl Session {
 		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessNode>,
 	) -> tg::Result<()> {
 		// Create the retry queue.
+		let capacity = self.server.config.sync.get.channel_capacity;
 		let (retry_sender, mut retry_receiver) =
-			tokio::sync::mpsc::channel::<tg::Either<ObjectNode, ProcessNode>>(256);
+			tokio::sync::mpsc::channel::<tg::Either<ObjectNode, ProcessNode>>(capacity);
 
 		// Create the objects future.
 		let object_batch_size = self.server.config.sync.get.index.object_batch_size;

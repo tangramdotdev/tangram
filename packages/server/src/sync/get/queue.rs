@@ -12,8 +12,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const CHECKOUT_BATCH_SIZE: usize = 64;
-
 impl Session {
 	pub(super) async fn sync_get_queue(
 		&self,
@@ -345,9 +343,10 @@ impl Session {
 		id: tg::object::Id,
 	) -> tg::Result<()> {
 		let mut stack = vec![id];
+		let batch_size = self.server.config.sync.get.queue.checkout_batch_size;
 		while !stack.is_empty() {
-			let mut ids = Vec::with_capacity(CHECKOUT_BATCH_SIZE);
-			while ids.len() < CHECKOUT_BATCH_SIZE
+			let mut ids = Vec::with_capacity(batch_size);
+			while ids.len() < batch_size
 				&& let Some(id) = stack.pop()
 			{
 				let queued = state.graph.lock().unwrap().queue_checkout_object(&id);
