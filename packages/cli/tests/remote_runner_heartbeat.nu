@@ -79,7 +79,7 @@ let sandbox = tg --url $remote.url --token $root_token get --source=index $proce
 tg --url $remote.url --token $root_token sandbox wait --source=index $sandbox | ignore
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let output = http get --raw --unix-socket $socket --headers { Authorization: $'Bearer ($root_token)' } $'http://localhost/sandboxes/($sandbox)/processes?source=index&timeout=0'
-let processes = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json | get data } | flatten
+let processes = $output | lines | where { $in starts-with 'data: ' and $in != 'data: ' } | each { str substring 6.. | from json | get data } | flatten
 assert ($process in $processes)
 
 # Recovery finishes nonempty and empty log objects before publishing the failed processes.
