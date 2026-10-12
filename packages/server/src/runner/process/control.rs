@@ -132,6 +132,8 @@ impl Session {
 			},
 			Err(error) => {
 				let error = Some(tg::error::Data {
+					code: error.code(),
+					kind: error.kind(),
 					message: Some(error.to_string()),
 					..Default::default()
 				});

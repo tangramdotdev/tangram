@@ -834,13 +834,18 @@ impl Session {
 	) -> tg::process::control::ServerMessage {
 		let (error, output) = match result {
 			Ok(output) => (None, Some(output)),
-			Err(error) => (
-				Some(tg::error::Data {
+			Err(error) => {
+				let error = tg::error::Data {
+					code: error.code(),
 					message: Some(error.to_string()),
+					source: Some(tg::Referent::new(
+						error.to_data_or_id().map_left(Box::new),
+						tg::referent::Options::default(),
+					)),
 					..Default::default()
-				}),
-				None,
-			),
+				};
+				(Some(error), None)
+			},
 		};
 		tg::process::control::ServerMessage::Response(tg::process::control::ServerResponse {
 			error,
