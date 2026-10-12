@@ -1595,12 +1595,12 @@ impl Graph {
 
 	#[must_use]
 	pub fn get_node_local_tokens(&self, id: &tg::Id) -> tg::authorization::tokens::Entry {
-		self.get_node_tokens(id, Node::local_tokens)
+		self.get_node_tokens(id, Node::local_tokens, |_| true)
 	}
 
 	#[must_use]
 	pub fn get_node_remote_tokens(&self, id: &tg::Id) -> tg::authorization::tokens::Entry {
-		self.get_node_tokens(id, Node::remote_tokens)
+		self.get_node_tokens(id, Node::remote_tokens, |_| true)
 	}
 
 	/// Collect the tokens attached to the node and its ancestors.
@@ -1608,6 +1608,7 @@ impl Graph {
 		&self,
 		id: &tg::Id,
 		tokens: fn(&Node) -> &tg::authorization::tokens::Entry,
+		filter: fn(&tg::authorization::Token) -> bool,
 	) -> tg::authorization::tokens::Entry {
 		let mut entry = tg::authorization::tokens::Entry::default();
 		let Some(index) = self.nodes.get_index_of(id) else {
@@ -1620,9 +1621,13 @@ impl Graph {
 				continue;
 			}
 			let (_, node) = self.nodes.get_index(index).unwrap();
-			entry
-				.authorization
-				.extend(tokens(node).authorization.iter().cloned());
+			entry.authorization.extend(
+				tokens(node)
+					.authorization
+					.iter()
+					.filter(|token| filter(token))
+					.cloned(),
+			);
 			for parent in node.parents() {
 				queue.push_back(parent.index());
 			}
@@ -1758,10 +1763,10 @@ impl Graph {
 		};
 		let id = self.nodes.get_index(index).unwrap().0;
 		tokens.authorization.extend(
-			self.get_node_local_tokens(id)
-				.authorization
-				.into_iter()
-				.filter(|token| token.body.resource.kind() == tg::id::Kind::Sync),
+			self.get_node_tokens(id, Node::local_tokens, |token| {
+				token.body.resource.kind() == tg::id::Kind::Sync
+			})
+			.authorization,
 		);
 		tokens.normalize(Some(id));
 		Authorization {

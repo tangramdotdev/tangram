@@ -4,6 +4,76 @@ use {
 };
 
 #[test]
+fn local_authorization_sync_token_collection_scales() {
+	let key =
+		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+			.unwrap();
+	let body = tg::authorization::Body {
+		expires_at: i64::MAX,
+		permissions: vec![tg::authorization::Permission::Sync(
+			tg::authorization::permission::sync::Permission::Read,
+		)],
+		resource: tg::sync::Id::new().into(),
+	};
+	let sync = tg::authorization::Token::sign(body, &key).unwrap();
+	let required = tg::authorization::permission::Set::Object(
+		tg::authorization::permission::object::Set::NODE,
+	);
+	let count = 4096_usize;
+	let arg = tg::sync::Arg::default();
+	let mut graph = Graph::new(&arg, false);
+	let mut expected = tg::authorization::tokens::Entry::default();
+	let mut last = None;
+	for index in 0..count {
+		let id: tg::object::Id = tg::blob::Id::new(&index.to_le_bytes()).into();
+		let body = tg::authorization::Body {
+			expires_at: i64::MAX,
+			permissions: vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)],
+			resource: id.clone().into(),
+		};
+		let token = tg::authorization::Token::sign(body, &key).unwrap();
+		let mut tokens = tg::authorization::tokens::Entry {
+			authorization: vec![token.clone()],
+		};
+		if index == 0 {
+			tokens.authorization.push(sync.clone());
+		}
+		let parents = index
+			.checked_sub(1)
+			.map(super::Parent::Object)
+			.into_iter()
+			.collect();
+		let node = super::ObjectNode {
+			local_permissions: Some(required),
+			local_tokens: tokens,
+			parents,
+			..Default::default()
+		};
+		graph
+			.nodes
+			.insert(id.clone().into(), super::Node::Object(node));
+		expected.authorization = vec![token, sync.clone()];
+		last = Some(id);
+	}
+	let id = last.unwrap();
+	expected.normalize(Some(&id.clone().into()));
+	let started = std::time::Instant::now();
+	for _ in 0..16 {
+		let authorization = graph.get_object_local_authorization(&id, required);
+		assert_eq!(authorization.permissions, required);
+		assert_eq!(authorization.tokens, expected);
+	}
+	let elapsed = started.elapsed();
+	eprintln!("authorized 16 requests across {count} ancestors in {elapsed:?}");
+	assert!(
+		elapsed < std::time::Duration::from_secs(1),
+		"collecting ancestor sync tokens took {elapsed:?}"
+	);
+}
+
+#[test]
 fn ancestor_token_collection_scales() {
 	let key =
 		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
