@@ -73,6 +73,9 @@ pub struct Config {
 	pub object: Option<Object>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pagination: Option<Pagination>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub primary_region: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1355,6 +1358,19 @@ pub struct Spawn {
 	pub host: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Pagination {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub database_page_length: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default_limit: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_limit: Option<u64>,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -2510,6 +2526,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	}
 	if let Some(primary_region) = source.primary_region {
 		target.primary_region = Some(primary_region);
+	}
+	if let Some(source) = source.pagination {
+		target.pagination = resolve_pagination(source);
 	}
 	if let Some(source) = source.process {
 		target.process = resolve_process(source);
@@ -3828,6 +3847,20 @@ fn resolve_spawn(source: Spawn) -> server::Spawn {
 		target.create_delay = value;
 	}
 	target.host = source.host;
+	target
+}
+
+fn resolve_pagination(source: Pagination) -> server::Pagination {
+	let mut target = server::Pagination::default();
+	if let Some(value) = source.database_page_length {
+		target.database_page_length = value;
+	}
+	if let Some(value) = source.default_limit {
+		target.default_limit = value;
+	}
+	if let Some(value) = source.max_limit {
+		target.max_limit = value;
+	}
 	target
 }
 

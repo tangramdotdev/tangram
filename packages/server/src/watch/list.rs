@@ -1,8 +1,5 @@
 use {
-	crate::{
-		Session,
-		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
-	},
+	crate::Session,
 	std::path::PathBuf,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -22,12 +19,7 @@ impl Session {
 		self.verify_request_from_host()?;
 
 		// Parse the arg.
-		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
-		if !(1..=MAX_LIMIT).contains(&limit) {
-			return Err(tg::error!(
-				"the page limit must be between 1 and {MAX_LIMIT}"
-			));
-		}
+		let limit = self.parse_page_limit(arg.limit)?;
 		let cursor = arg
 			.cursor
 			.as_deref()

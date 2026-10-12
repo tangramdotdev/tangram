@@ -1,8 +1,5 @@
 use {
-	crate::{
-		Session,
-		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
-	},
+	crate::Session,
 	futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, ops::ControlFlow},
@@ -16,8 +13,6 @@ use {
 mod tests;
 
 pub mod remote;
-
-const DATABASE_PAGE_LENGTH: u64 = 256;
 
 #[derive(Default, serde::Deserialize)]
 struct Arg {
@@ -52,12 +47,7 @@ impl Session {
 	#[tracing::instrument(level = "trace", name = "list", skip_all)]
 	pub(crate) async fn list(&self, mut arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
 		// Parse the pagination arguments.
-		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
-		if !(1..=MAX_LIMIT).contains(&limit) {
-			return Err(tg::error!(
-				"the page limit must be between 1 and {MAX_LIMIT}"
-			));
-		}
+		let limit = self.parse_page_limit(arg.limit)?;
 		let cursor = arg
 			.cursor
 			.as_deref()
@@ -190,7 +180,7 @@ impl Session {
 			.map(|options| options.tokens.clone())
 			.unwrap_or_default();
 		loop {
-			let database_length = DATABASE_PAGE_LENGTH;
+			let database_length = self.server.config.pagination.database_page_length;
 			let arg = arg.clone();
 			let parent = parent.clone();
 			let entries = self

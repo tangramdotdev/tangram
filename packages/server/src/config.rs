@@ -45,6 +45,8 @@ pub struct Config {
 
 	pub object: Object,
 
+	pub pagination: Pagination,
+
 	pub primary_region: Option<String>,
 
 	pub process: Process,
@@ -858,6 +860,15 @@ pub struct ScyllaCacheSimpleSpeculativeExecution {
 }
 
 #[derive(Clone, Debug)]
+pub struct Pagination {
+	pub database_page_length: u64,
+
+	pub default_limit: u64,
+
+	pub max_limit: u64,
+}
+
+#[derive(Clone, Debug)]
 pub struct Process {
 	/// Await command pushes before spawn and result pushes before Finish while concurrent transfer has known bugs.
 	pub await_push: bool,
@@ -1598,6 +1609,7 @@ impl Default for Config {
 			instance: None,
 			messenger: Messenger::default(),
 			object: Object::default(),
+			pagination: Pagination::default(),
 			primary_region: None,
 			process: Process::default(),
 			region: None,
@@ -2129,6 +2141,16 @@ impl Default for RocksdbCache {
 			read_batch_size: 64,
 			read_concurrency: 4,
 			write_batch_size: 8_000,
+		}
+	}
+}
+
+impl Default for Pagination {
+	fn default() -> Self {
+		Self {
+			database_page_length: 256,
+			default_limit: 100,
+			max_limit: 1000,
 		}
 	}
 }

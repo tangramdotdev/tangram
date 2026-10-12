@@ -201,6 +201,21 @@ impl Server {
 				"the scheduler message ack timeout must be greater than zero"
 			));
 		}
+		let sizes = [(
+			"pagination database page length",
+			config.pagination.database_page_length,
+		)];
+		for (name, size) in sizes {
+			if size == 0 {
+				return Err(tg::error!("the {name} must be greater than zero"));
+			}
+		}
+		let pagination = &config.pagination;
+		if pagination.default_limit == 0 || pagination.default_limit > pagination.max_limit {
+			return Err(tg::error!(
+				"the pagination default limit must be between 1 and the pagination max limit"
+			));
+		}
 		config.usage.validate()?;
 		verification_search_config(&config.verification.permissions.initial)
 			.validate()

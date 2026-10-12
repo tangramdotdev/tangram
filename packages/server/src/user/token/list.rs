@@ -1,8 +1,5 @@
 use {
-	crate::{
-		Session,
-		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
-	},
+	crate::Session,
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -32,12 +29,7 @@ impl Session {
 	) -> tg::Result<tg::user::token::list::Output> {
 		// Authenticate the user and parse the arg.
 		let user = self.authenticated_user()?;
-		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
-		if !(1..=MAX_LIMIT).contains(&limit) {
-			return Err(tg::error!(
-				"the page limit must be between 1 and {MAX_LIMIT}"
-			));
-		}
+		let limit = self.parse_page_limit(arg.limit)?;
 		let cursor = arg
 			.cursor
 			.as_deref()
