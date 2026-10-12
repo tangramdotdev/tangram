@@ -4,6 +4,58 @@ use {
 };
 
 #[test]
+fn ancestor_token_collection_scales() {
+	let key =
+		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+			.unwrap();
+	for count in [64_usize, 256, 1024] {
+		let arg = tg::sync::Arg::default();
+		let mut graph = Graph::new(&arg, false);
+		let mut expected = Vec::new();
+		let mut last = None;
+		for index in 0..count {
+			let id: tg::Id = tg::blob::Id::new(&index.to_le_bytes()).into();
+			let body = tg::authorization::Body {
+				expires_at: i64::MAX,
+				permissions: vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				)],
+				resource: id.clone(),
+			};
+			let token = tg::authorization::Token::sign(body, &key).unwrap();
+			expected.push(token.clone());
+			let tokens = tg::authorization::tokens::Entry {
+				authorization: vec![token],
+			};
+			let parents = index
+				.checked_sub(1)
+				.map(super::Parent::Object)
+				.into_iter()
+				.collect();
+			let node = super::ObjectNode {
+				local_tokens: tokens.clone(),
+				parents,
+				remote_tokens: tokens,
+				..Default::default()
+			};
+			graph.nodes.insert(id.clone(), super::Node::Object(node));
+			last = Some(id);
+		}
+		expected.sort_by_cached_key(ToString::to_string);
+		let id = last.unwrap();
+		let started = std::time::Instant::now();
+		assert_eq!(graph.get_node_local_tokens(&id).authorization, expected);
+		let elapsed = started.elapsed();
+		eprintln!("collected {count} ancestor tokens in {elapsed:?}");
+		assert!(
+			elapsed < std::time::Duration::from_secs(5),
+			"collecting ancestor tokens took {elapsed:?}"
+		);
+		assert_eq!(graph.get_node_remote_tokens(&id).authorization, expected);
+	}
+}
+
+#[test]
 fn inline_command_objects_are_distinct_process_children() {
 	for count in [0, 2] {
 		let id = tg::process::Id::new();
