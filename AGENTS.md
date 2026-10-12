@@ -94,7 +94,8 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 
 - Put comments on their own lines immediately before the code they describe.
 - Keep comments on a single line when practical, and do not manually wrap a single comment across multiple lines with `//` prefixes.
-- Use comments to explain intent, invariants, or non-obvious constraints rather than restating the code.
+- Write each comment as a summary of what the code block it precedes does, which may include its purpose, such as `// Send the request while holding the lock, so that an idle peer cannot remove itself between being found and receiving the request.`.
+- Do not write commentary about the code, such as its history, the alternatives that were not chosen, or remarks that do not describe what the block does.
 - Include articles in comments.
 - Write comments as complete sentences ending in periods.
 - Avoid contractions in comments.
