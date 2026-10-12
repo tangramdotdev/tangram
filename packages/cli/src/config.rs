@@ -768,6 +768,13 @@ pub struct Http {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub listeners: Option<Vec<HttpListener>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_arg_length: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_timeout: Option<Duration>,
 }
 
 #[serde_as]
@@ -2662,6 +2669,10 @@ pub struct ClientHttp {
 	/// The target size for coalesced request body frames.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub coalescing_target_size: Option<usize>,
+
+	/// The maximum length of a framed header in a response body.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_header_length: Option<u64>,
 }
 
 #[serde_as]
@@ -3752,6 +3763,12 @@ fn resolve_http(source: Http) -> tg::Result<server::Http> {
 	if let Some(value) = source.idle_timeout {
 		target.idle_timeout = value;
 	}
+	if let Some(value) = source.max_arg_length {
+		target.max_arg_length = value;
+	}
+	if let Some(value) = source.request_timeout {
+		target.request_timeout = value;
+	}
 
 	Ok(target)
 }
@@ -3765,6 +3782,9 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 			));
 		}
 		target.coalescing_target_size = value;
+	}
+	if let Some(value) = source.max_header_length {
+		target.max_header_length = value;
 	}
 	Ok(target)
 }

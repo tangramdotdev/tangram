@@ -505,6 +505,10 @@ pub struct Http {
 	pub idle_timeout: Duration,
 
 	pub listeners: Vec<HttpListener>,
+
+	pub max_arg_length: u64,
+
+	pub request_timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -2139,6 +2143,8 @@ impl Default for Http {
 			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
 			idle_timeout: Duration::from_secs(30),
 			listeners: Vec::new(),
+			max_arg_length: tangram_http::body::arg::MaxLength::default().0,
+			request_timeout: Duration::from_mins(1),
 		}
 	}
 }

@@ -8,8 +8,6 @@ use {
 	tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _},
 };
 
-pub const MAX_LENGTH: u64 = 1_048_576;
-
 pub async fn get<T, R>(mut reader: &mut R, max_len: u64) -> Result<T>
 where
 	T: DeserializeOwned,

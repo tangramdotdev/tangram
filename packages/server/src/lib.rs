@@ -212,6 +212,7 @@ impl Server {
 				config.advanced.version_check_interval,
 			),
 			("control request timeout", config.control.request_timeout),
+			("HTTP request timeout", config.http.request_timeout),
 			(
 				"indexer billing cleanup poll interval",
 				config.indexer.billing_cleanup.poll_interval,
@@ -258,6 +259,11 @@ impl Server {
 			if duration.is_zero() {
 				return Err(tg::error!("the {name} must be greater than zero"));
 			}
+		}
+		if config.http.max_arg_length == 0 {
+			return Err(tg::error!(
+				"the HTTP max arg length must be greater than zero"
+			));
 		}
 		if let self::config::Messenger::Memory(memory) = &config.messenger
 			&& memory.subscription_capacity == 0

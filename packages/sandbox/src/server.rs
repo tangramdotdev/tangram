@@ -233,7 +233,10 @@ impl Server {
 			move |request: http::Request<hyper::body::Incoming>| {
 				let server = server.clone();
 				async move {
-					let request = request.boxed_body();
+					let mut request = request.boxed_body();
+					request
+						.extensions_mut()
+						.insert(tangram_http::body::arg::MaxLength::default());
 					let response = server.handle_request(request).await;
 					Ok::<_, Infallible>(response)
 				}

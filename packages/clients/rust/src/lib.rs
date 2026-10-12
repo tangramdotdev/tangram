@@ -151,6 +151,7 @@ pub struct Arg {
 #[derive(Clone, Copy, Debug)]
 pub struct Http {
 	pub coalescing_target_size: usize,
+	pub max_header_length: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -407,6 +408,7 @@ impl Default for Http {
 	fn default() -> Self {
 		Self {
 			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
+			max_header_length: 1_048_576,
 		}
 	}
 }
@@ -416,6 +418,11 @@ impl Http {
 		if self.coalescing_target_size == 0 {
 			return Err(tg::error!(
 				"expected the HTTP coalescing target size to be greater than zero"
+			));
+		}
+		if self.max_header_length == 0 {
+			return Err(tg::error!(
+				"expected the HTTP max header length to be greater than zero"
 			));
 		}
 		Ok(self)

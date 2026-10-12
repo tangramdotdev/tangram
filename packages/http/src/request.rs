@@ -66,6 +66,11 @@ where
 		}
 
 		// Read the arg.
+		let body::arg::MaxLength(max_length) = self
+			.extensions()
+			.get::<body::arg::MaxLength>()
+			.copied()
+			.ok_or_else(|| std::io::Error::other("the request is missing the max arg length"))?;
 		let (mut parts, body) = self.into_parts();
 		let mut frames = body::BodyStream::new(body);
 		let (arg, chunk) = {
@@ -76,7 +81,7 @@ where
 				})
 			});
 			let mut reader = StreamReader::new(stream);
-			let arg = body::arg::get(&mut reader, body::arg::MAX_LENGTH).await?;
+			let arg = body::arg::get(&mut reader, max_length).await?;
 			let (_, chunk) = reader.into_inner_with_chunk();
 			(arg, chunk)
 		};

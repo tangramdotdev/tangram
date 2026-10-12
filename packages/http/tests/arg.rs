@@ -18,7 +18,10 @@ async fn deeply_nested_args_use_the_body() {
 		.unwrap();
 	assert!(request.headers().contains_key(body::arg::HEADER));
 	assert!(request.uri().query().is_none());
-	let (output, request) = request.arg::<serde_json::Value>().await.unwrap();
+	let (output, request) = with_max_length(request)
+		.arg::<serde_json::Value>()
+		.await
+		.unwrap();
 	assert_eq!(output, Some(arg));
 	assert_eq!(request.bytes().await.unwrap(), "payload");
 }
@@ -39,7 +42,7 @@ async fn small_args_use_the_query_string() {
 			.unwrap(),
 		arg
 	);
-	let (output, request) = request
+	let (output, request) = with_max_length(request)
 		.arg::<BTreeMap<String, Vec<String>>>()
 		.await
 		.unwrap();
@@ -62,7 +65,7 @@ async fn large_args_preserve_the_body_and_retries() {
 	assert!(!request.headers().contains_key(http::header::CONTENT_LENGTH));
 	assert!(request.uri().query().is_none());
 	for request in [request.clone(), request] {
-		let (output, request) = request
+		let (output, request) = with_max_length(request)
 			.arg::<BTreeMap<String, Vec<String>>>()
 			.await
 			.unwrap();
@@ -93,7 +96,7 @@ async fn fragmented_args_preserve_trailers() {
 	frames.push(Ok(http_body::Frame::trailers(trailers.clone())));
 	let body = body::Boxed::with_stream(stream::iter(frames));
 	let request = http::Request::from_parts(parts, body);
-	let (output, request) = request
+	let (output, request) = with_max_length(request)
 		.arg::<BTreeMap<String, Vec<String>>>()
 		.await
 		.unwrap();
@@ -116,7 +119,7 @@ async fn fragmented_args_preserve_trailers() {
 
 #[tokio::test]
 async fn oversized_args_are_rejected_before_reading_the_arg() {
-	let length = tangram_util::varint::encode_uvarint(body::arg::MAX_LENGTH + 1);
+	let length = tangram_util::varint::encode_uvarint(body::arg::MaxLength::default().0 + 1);
 	let body = body::Boxed::with_data_stream(
 		stream::iter([Ok::<_, tangram_http::Error>(Bytes::from(length))]).chain(stream::pending()),
 	);
@@ -124,7 +127,10 @@ async fn oversized_args_are_rejected_before_reading_the_arg() {
 		.header(body::arg::HEADER, "true")
 		.body(body)
 		.unwrap();
-	let result = request.arg::<serde_json::Value>().now_or_never().unwrap();
+	let result = with_max_length(request)
+		.arg::<serde_json::Value>()
+		.now_or_never()
+		.unwrap();
 	let error = result.err().unwrap();
 	assert_eq!(error.to_string(), "arg too large");
 }
@@ -145,7 +151,10 @@ async fn query_threshold_and_existing_query() {
 			request.headers().contains_key(body::arg::HEADER),
 			length + 6 > body::arg::THRESHOLD
 		);
-		let (output, _) = request.arg::<BTreeMap<String, String>>().await.unwrap();
+		let (output, _) = with_max_length(request)
+			.arg::<BTreeMap<String, String>>()
+			.await
+			.unwrap();
 		assert_eq!(output, Some(arg));
 	}
 }
@@ -158,7 +167,7 @@ async fn missing_args_do_not_read_the_body() {
 		.uri("/objects/id")
 		.body(body)
 		.unwrap();
-	let (output, _) = request
+	let (output, _) = with_max_length(request)
 		.arg::<BTreeMap<String, String>>()
 		.now_or_never()
 		.unwrap()
@@ -202,7 +211,7 @@ async fn large_args_deserialize_directly_into_the_requested_type() {
 		.header(body::arg::HEADER, "true")
 		.body(body)
 		.unwrap();
-	let (output, _) = request.arg::<Arg>().await.unwrap();
+	let (output, _) = with_max_length(request).arg::<Arg>().await.unwrap();
 	assert_eq!(output, Some(arg));
 }
 
@@ -219,7 +228,12 @@ async fn malformed_args_are_rejected() {
 			.header(body::arg::HEADER, header)
 			.bytes(Bytes::copy_from_slice(bytes))
 			.unwrap();
-		assert!(request.arg::<BTreeMap<String, String>>().await.is_err());
+		assert!(
+			with_max_length(request)
+				.arg::<BTreeMap<String, String>>()
+				.await
+				.is_err()
+		);
 	}
 }
 
@@ -233,4 +247,11 @@ fn invalid_builders_return_the_http_error() {
 			.unwrap();
 		assert!(result.is_err());
 	}
+}
+
+fn with_max_length<B>(mut request: http::Request<B>) -> http::Request<B> {
+	request
+		.extensions_mut()
+		.insert(body::arg::MaxLength::default());
+	request
 }

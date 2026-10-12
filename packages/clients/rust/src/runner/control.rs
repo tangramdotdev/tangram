@@ -245,7 +245,7 @@ impl tg::Session {
 		}
 		let mut reader = response.reader();
 		let header =
-			tangram_http::body::header::get(&mut reader, tangram_http::body::header::MAX_LENGTH)
+			tangram_http::body::header::get(&mut reader, self.client().http.max_header_length)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
 		let stream = tangram_http::sse::decode(reader)

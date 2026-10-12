@@ -36,11 +36,14 @@ async fn request_arg_preserves_list_and_node_options() {
 			"ttl": "infinite",
 			"users": false,
 		});
-		let request = http::Request::builder()
+		let mut request = http::Request::builder()
 			.uri("/list/node")
 			.arg(&value, BoxBody::empty())
 			.unwrap()
 			.unwrap();
+		request
+			.extensions_mut()
+			.insert(tangram_http::body::arg::MaxLength::default());
 		let (arg, _) = request.arg::<Arg>().await.unwrap();
 		let Arg { arg, options } = arg.unwrap();
 		assert!(arg.cached);

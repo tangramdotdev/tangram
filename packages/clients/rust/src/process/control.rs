@@ -692,6 +692,7 @@ impl tg::Session {
 		let method = http::Method::POST;
 		let path = "/processes/control";
 		let uri = Uri::builder().path(path).build().unwrap();
+		let max_header_length = self.client().http.max_header_length;
 		let max_frame_size = self.client().sync.max_frame_size;
 		let body = super::stdio::encode(stream, max_frame_size);
 		let request = http::request::Builder::default()
@@ -724,8 +725,12 @@ impl tg::Session {
 		if content_type != Some(TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let (header, stream) =
-			super::stdio::decode_with_header(response.into_body(), max_frame_size).await?;
+		let (header, stream) = super::stdio::decode_with_header(
+			response.into_body(),
+			max_header_length,
+			max_frame_size,
+		)
+		.await?;
 		Ok(Some((header, stream)))
 	}
 }

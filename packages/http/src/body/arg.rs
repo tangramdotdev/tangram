@@ -16,7 +16,6 @@ use {
 };
 
 pub const HEADER: &str = "x-tg-arg-in-body";
-pub const MAX_LENGTH: u64 = 64 * 1024 * 1024;
 pub const THRESHOLD: usize = QUERY_PARAMS_LENGTH_THRESHOLD;
 
 #[pin_project]
@@ -26,6 +25,10 @@ pub struct Body<B> {
 	#[pin]
 	body: B,
 }
+
+/// The maximum length of an arg in a request body. A server inserts it into the extensions of each request it parses.
+#[derive(Clone, Copy, Debug)]
+pub struct MaxLength(pub u64);
 
 pub fn get_header(headers: &http::HeaderMap) -> Result<bool> {
 	let Some(value) = headers.get(HEADER) else {
@@ -110,5 +113,11 @@ where
 			hint.set_upper(upper);
 		}
 		hint
+	}
+}
+
+impl Default for MaxLength {
+	fn default() -> Self {
+		Self(64 * 1024 * 1024)
 	}
 }

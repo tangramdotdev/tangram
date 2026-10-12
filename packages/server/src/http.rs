@@ -316,7 +316,7 @@ impl Server {
 			})
 			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
 				http::StatusCode::REQUEST_TIMEOUT,
-				Duration::from_mins(1),
+				self.config.http.request_timeout,
 			))
 			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
 			.layer(
@@ -350,11 +350,16 @@ impl Server {
 
 		Service::new(builder.service_fn({
 			let server = self.clone();
-			move |request| {
+			move |mut request: http::Request<BoxBody>| {
 				let origin = origin;
 				let server = server.clone();
 				let stopper = stopper.clone();
 				async move {
+					// Insert the max arg length, so that the request parser can bound the arg in the body.
+					let max_length =
+						tangram_http::body::arg::MaxLength(server.config().http.max_arg_length);
+					request.extensions_mut().insert(max_length);
+
 					let context = Context {
 						billing_ready: false,
 						id: None,
