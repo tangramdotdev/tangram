@@ -1,5 +1,5 @@
 use {
-	crate::{Sandbox, vm::Network},
+	crate::{Sandbox, cloud_hypervisor::Network},
 	std::{
 		ffi::{CStr, CString},
 		net::Ipv4Addr,

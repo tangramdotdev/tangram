@@ -59,7 +59,7 @@ pub struct Args {
 	pub mounts: Vec<tg::sandbox::Mount>,
 
 	#[arg(long)]
-	pub network: Option<tangram_sandbox::vm::run::NetworkKind>,
+	pub network: Option<tangram_sandbox::cloud_hypervisor::run::NetworkKind>,
 
 	#[arg(long, value_parser = parse_duration)]
 	pub network_interface_timeout: Duration,
@@ -106,7 +106,7 @@ pub struct Args {
 
 impl Cli {
 	pub fn command_sandbox_vm_run(args: Args) -> tg::Result<std::process::ExitCode> {
-		let arg = tangram_sandbox::vm::run::Arg {
+		let arg = tangram_sandbox::cloud_hypervisor::run::Arg {
 			cloud_hypervisor_path: args.cloud_hypervisor_path,
 			create_snapshot: args.create_snapshot,
 			cpu: args.cpu,
@@ -140,6 +140,6 @@ impl Cli {
 			tangram_path: args.tangram_path,
 			url: args.url,
 		};
-		tangram_sandbox::vm::run::run(&arg)
+		tangram_sandbox::cloud_hypervisor::run::run(&arg)
 	}
 }

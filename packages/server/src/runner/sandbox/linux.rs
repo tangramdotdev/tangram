@@ -18,13 +18,13 @@ impl Session {
 		let mut image_created = self.server.sandbox_vm_image_lock.lock().await;
 		if !*image_created {
 			let _file_lock = acquire_vm_lock(&self.server.path).await?;
-			let arg = tangram_sandbox::vm::image::Arg {
+			let arg = tangram_sandbox::cloud_hypervisor::image::Arg {
 				build_attempts: self.server.config.sandbox.build_attempts,
 				image_path: vm.image_path.clone(),
 				path: self.server.sandbox_container_root.clone(),
 			};
 			let created =
-				tokio::task::spawn_blocking(move || tangram_sandbox::vm::image::ensure(&arg))
+				tokio::task::spawn_blocking(move || tangram_sandbox::cloud_hypervisor::image::ensure(&arg))
 					.await
 					.map_err(|error| tg::error!(!error, "the vm image task panicked"))??;
 			if created {
@@ -45,7 +45,7 @@ impl Server {
 		&self,
 		snapshot_path: &std::path::Path,
 		kernel_path: &std::path::Path,
-		vm: &tangram_sandbox::VmIsolation,
+		vm: &tangram_sandbox::CloudHypervisor,
 	) -> tg::Result<()> {
 		if snapshot_path.exists() {
 			return Ok(());

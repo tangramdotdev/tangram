@@ -1,5 +1,5 @@
 use {
-	crate::{Sandbox, container, vm::virtiofs},
+	crate::{Sandbox, container, cloud_hypervisor::virtiofs},
 	std::{
 		collections::hash_map::DefaultHasher,
 		ffi::{CStr, CString, OsStr},
@@ -214,7 +214,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			Network::Passt(passt) => vec![passt.host_ip()],
 			Network::Tap(_) => arg.dns.clone(),
 		};
-		crate::vm::init::NetworkConfig {
+		crate::cloud_hypervisor::init::NetworkConfig {
 			dns_servers,
 			gateway_ip: net.host_ip(),
 			guest_ip: net.guest_ip(),
@@ -240,7 +240,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 						"failed to stat the user mount source",
 					)
 				})?;
-				Ok(crate::vm::init::MountConfig {
+				Ok(crate::cloud_hypervisor::init::MountConfig {
 					directory: metadata.is_dir(),
 					readonly: mount.readonly,
 					source: Path::new(HOST_MOUNT_POINT)
@@ -250,7 +250,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				})
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let init_config = crate::vm::init::Config {
+		let init_config = crate::cloud_hypervisor::init::Config {
 			gid: user.gid,
 			hostname: arg.hostname.clone(),
 			http2: arg.http2,

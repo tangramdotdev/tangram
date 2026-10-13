@@ -51,7 +51,7 @@ impl Server {
 							.unwrap_or_else(|| self.vm_snapshot_path()),
 					);
 					Ok(tangram_sandbox::Isolation::Vm(
-						tangram_sandbox::VmIsolation {
+						tangram_sandbox::CloudHypervisor {
 							cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
 							dax: vm.dax.map(|dax| dax.window_size as u64),
 							image_path,
@@ -133,7 +133,7 @@ impl Server {
 					.unwrap_or_else(|| self.vm_snapshot_path()),
 			);
 			return Some(tangram_sandbox::Isolation::Vm(
-				tangram_sandbox::VmIsolation {
+				tangram_sandbox::CloudHypervisor {
 					cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
 					dax: vm.dax.map(|dax| dax.window_size as u64),
 					image_path,

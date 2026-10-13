@@ -38,7 +38,7 @@ pub enum Command {
 	Serve(self::serve::Args),
 	#[cfg(target_os = "linux")]
 	#[command(hide = true)]
-	Vm(self::vm::Args),
+	Vm(self::cloud_hypervisor::Args),
 	Wait(self::wait::Args),
 }
 

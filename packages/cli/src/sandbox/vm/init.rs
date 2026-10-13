@@ -6,6 +6,6 @@ pub struct Args {}
 
 impl Cli {
 	pub fn command_sandbox_vm_init(_args: Args) -> tg::Result<std::process::ExitCode> {
-		tangram_sandbox::vm::init::run()
+		tangram_sandbox::cloud_hypervisor::init::run()
 	}
 }

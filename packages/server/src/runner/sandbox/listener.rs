@@ -76,7 +76,7 @@ impl Server {
 						.ok_or_else(|| tg::error!("missing the vm isolation configuration"))?;
 					let socket = format!(
 						"{}_{port}",
-						tangram_sandbox::vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME
+						tangram_sandbox::cloud_hypervisor::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME
 					);
 					let path = root_path.join("vm").join(socket);
 					tokio::fs::create_dir_all(path.parent().unwrap())
@@ -88,7 +88,7 @@ impl Server {
 						.map_err(|error| tg::error!(!error, url = %host_url, "failed to listen"))?;
 					let guest_url = format!(
 						"http+vsock://{}:{port}",
-						tangram_sandbox::vm::VMADDR_CID_HOST
+						tangram_sandbox::cloud_hypervisor::VMADDR_CID_HOST
 					)
 					.parse::<tangram_uri::Uri>()
 					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?;

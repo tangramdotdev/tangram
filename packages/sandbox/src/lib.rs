@@ -48,7 +48,7 @@ pub mod seatbelt;
 pub mod serve;
 pub mod stdio;
 #[cfg(target_os = "linux")]
-pub mod vm;
+pub mod cloud_hypervisor;
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -169,7 +169,7 @@ pub struct Command {
 pub enum Isolation {
 	Container(ContainerIsolation),
 	Seatbelt(SeatbeltIsolation),
-	Vm(VmIsolation),
+	Vm(CloudHypervisor),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -216,7 +216,7 @@ pub enum SeccompPolicy {
 pub struct SeatbeltIsolation {}
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct VmIsolation {
+pub struct CloudHypervisor {
 	pub cloud_hypervisor_path: Option<PathBuf>,
 	pub dax: Option<u64>,
 	pub image_path: PathBuf,
@@ -408,7 +408,7 @@ impl Sandbox {
 			},
 			Isolation::Vm(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
-				let network = crate::vm::network::create(
+				let network = crate::cloud_hypervisor::network::create(
 					arg.index,
 					&arg.identity,
 					arg.firewall,
@@ -418,7 +418,7 @@ impl Sandbox {
 				)?;
 				let cgroup = self::cgroup::create(&arg)?;
 				let process =
-					self::vm::spawn(&arg, &serve_arg, network.as_ref(), &cgroup.handle()?)?;
+					self::cloud_hypervisor::spawn(&arg, &serve_arg, network.as_ref(), &cgroup.handle()?)?;
 				(process, network, None, Some(cgroup), None)
 			},
 		};
@@ -718,10 +718,10 @@ impl Sandbox {
 		#[cfg(target_os = "linux")]
 		{
 			let port = 6748;
-			let host_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
+			let host_url = format!("http+vsock://{}:{port}", self::cloud_hypervisor::VMADDR_CID_ANY)
 				.parse()
 				.map_err(|_| tg::error!("failed to parse host url"))?;
-			let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
+			let guest_url = format!("http+vsock://{}:{port}", self::cloud_hypervisor::VMADDR_CID_ANY)
 				.parse()
 				.map_err(|_| tg::error!("failed to parse guest url"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
@@ -734,7 +734,7 @@ impl Sandbox {
 		root_path: &Path,
 	) -> tg::Result<(crate::server::Listener, Uri)> {
 		let port = 6748;
-		let socket = format!("{}_{port}", vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
+		let socket = format!("{}_{port}", cloud_hypervisor::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
 		let path = root_path.join("vm").join(socket);
 		tokio::fs::create_dir_all(path.parent().unwrap())
 			.await
@@ -746,7 +746,7 @@ impl Sandbox {
 			.path("")
 			.build()
 			.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
-		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_HOST)
+		let guest_url = format!("http+vsock://{}:{port}", self::cloud_hypervisor::VMADDR_CID_HOST)
 			.parse()
 			.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
 		let listener = crate::server::Server::listen(&host_url).await?;
