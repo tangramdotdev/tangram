@@ -800,7 +800,6 @@ impl Index {
 			}
 		}
 		for (subject, permission, expires_at) in expected.difference(&current) {
-			tracing::debug!(%resource, %subject, %permission, "put a materialized permission");
 			let entry = crate::permission::PermissionIndexEntry {
 				creator: None,
 				expires_at: *expires_at,

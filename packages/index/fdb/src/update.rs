@@ -1873,7 +1873,6 @@ impl Index {
 			}
 		}
 		for (subject, permission, expires_at) in expected.difference(&current) {
-			tracing::debug!(%resource, %subject, %permission, "put a materialized permission");
 			if crate::propagate!(
 				Self::put_permission_index_entry(
 					txn,
