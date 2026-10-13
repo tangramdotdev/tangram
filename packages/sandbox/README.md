@@ -37,12 +37,19 @@ when that protection is insufficient. An exclusive runner pool sets its
 own memory protection and physical memory/swap budgets before accepting sandboxes.
 Above the minimum, memory can be reclaimed, swapped, or subject to an OOM kill.
 Swap is a separate resource, limited with `memory.swap.max`. Local storage uses
-ext4 or XFS project quotas, and includes the writable overlay, scratch space,
-outputs, and temporary files. Linux needs delegated CPU, cpuset, memory, and pids
-controllers; filesystem quota enforcement needs enabled project quotas and
-CAP_SYS_ADMIN. The default container maxima are one CPU, 1 GiB RAM, 10 GiB local
-storage, and zero swap. macOS rejects explicit resource bounds. VM isolation
-supports whole CPU maxima and memory maxima, and rejects the other bounds.
+ext4 or XFS project quotas or Btrfs subvolume quotas, and includes the writable
+overlay, scratch space, outputs, and temporary files. Linux needs delegated CPU,
+cpuset, memory, and pids controllers; filesystem quota enforcement needs enabled
+quotas and CAP_SYS_ADMIN. The default container maxima are one CPU, 1 GiB RAM,
+10 GiB local storage, and zero swap. macOS rejects explicit resource bounds. VM
+isolation supports whole CPU maxima and memory maxima, and rejects the other bounds.
+
+Btrfs requires consistent quotas and the quota counters exposed under
+`/sys/fs/btrfs` on Linux 6.1 or later. Both qgroups and
+simple quotas are supported. Sandbox project IDs identify level-one quota groups;
+configure distinct project ID ranges for runners sharing a filesystem. Byte limits
+include pending data and metadata allocations. Btrfs does not support inode limits,
+so hardened isolation, which requires an inode limit, still requires ext4 or XFS.
 
 ```json
 {

@@ -20,6 +20,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod btrfs;
+
+const BTRFS_SUPER_MAGIC: libc::c_long = 0x9123_683e_u32 as libc::c_long;
 const EXT4_SUPER_MAGIC: libc::c_long = 0xef53;
 const FS_XFLAG_PROJINHERIT: u32 = 0x0000_0200;
 const PRJQUOTA: libc::c_int = 2;
@@ -87,6 +90,14 @@ impl Filesystem {
 }
 
 pub fn create(path: &Path, project: u32, size: Option<u64>, inodes: Option<u64>) -> tg::Result<()> {
+	let parent = path
+		.parent()
+		.ok_or_else(|| tg::error!("the sandbox filesystem has no parent"))?;
+	let directory = std::fs::File::open(parent)
+		.map_err(|error| tg::error!(!error, "failed to open the sandbox filesystem parent"))?;
+	if kind(&directory)? == BTRFS_SUPER_MAGIC {
+		return btrfs::create(&directory, path, project, size, inodes);
+	}
 	create_directory(path)?;
 	let directory = std::fs::File::open(path).map_err(|error| {
 		tg::error!(!error, path = %path.display(), "failed to open the sandbox filesystem directory")
@@ -108,22 +119,10 @@ fn configure_quota(
 	size: Option<u64>,
 	inodes: Option<u64>,
 ) -> tg::Result<()> {
-	// Check the filesystem type.
-	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
-
-	// SAFETY: The descriptor and output pointer are valid.
-	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
-		return Err(tg::error!(
-			source = std::io::Error::last_os_error(),
-			"failed to inspect the sandbox filesystem"
-		));
-	}
-
-	// SAFETY: fstatfs initialized the structure on success.
-	let statistics = unsafe { statistics.assume_init() };
-	if !matches!(statistics.f_type, EXT4_SUPER_MAGIC | XFS_SUPER_MAGIC) {
+	let filesystem = kind(directory)?;
+	if !matches!(filesystem, EXT4_SUPER_MAGIC | XFS_SUPER_MAGIC) {
 		return Err(
-			tg::error!(filesystem = %statistics.f_type, "hardened filesystem limits require a disk-backed ext4 or XFS filesystem with project quotas enabled"),
+			tg::error!(%filesystem, "filesystem limits require ext4 or XFS project quotas or Btrfs quotas"),
 		);
 	}
 
@@ -144,9 +143,7 @@ fn configure_quota(
 			tg::error!(source = std::io::Error::last_os_error(), %project, "failed to assign the sandbox filesystem project; enable project quotas and grant CAP_SYS_ADMIN"),
 		);
 	}
-
-	// Set the project quota.
-	set_quota(directory, statistics.f_type, project, size, inodes)?;
+	set_quota(directory, filesystem, project, size, inodes)?;
 
 	Ok(())
 }
@@ -155,20 +152,9 @@ pub(crate) fn clear(path: &Path, project: u32) -> tg::Result<()> {
 	let directory = std::fs::File::open(path).map_err(|error| {
 		tg::error!(!error, path = %path.display(), "failed to open the sandbox filesystem directory")
 	})?;
-	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
-
-	// SAFETY: The descriptor and output pointer are valid.
-	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
-		return Err(tg::error!(
-			source = std::io::Error::last_os_error(),
-			"failed to inspect the sandbox filesystem"
-		));
-	}
-
-	// SAFETY: fstatfs initialized the structure on success.
-	let statistics = unsafe { statistics.assume_init() };
-
-	set_quota(&directory, statistics.f_type, project, Some(0), Some(0))
+	let filesystem = kind(&directory)?;
+	set_quota(&directory, filesystem, project, Some(0), Some(0))?;
+	Ok(())
 }
 
 pub fn open(path: &Path) -> tg::Result<OwnedFd> {
@@ -399,6 +385,9 @@ fn set_quota(
 	size: Option<u64>,
 	inodes: Option<u64>,
 ) -> tg::Result<()> {
+	if filesystem == BTRFS_SUPER_MAGIC {
+		return btrfs::set_limit(directory, project, size.unwrap_or(u64::MAX));
+	}
 	let result = if filesystem == XFS_SUPER_MAGIC {
 		let block_mask = if size.is_some() {
 			(1 << 2) | (1 << 3)
@@ -543,6 +532,9 @@ fn syscall_fd(number: libc::c_long, args: &[usize]) -> std::io::Result<OwnedFd> 
 }
 
 pub(crate) fn usage(directory: &std::fs::File, project: u32) -> tg::Result<u64> {
+	if kind(directory)? == BTRFS_SUPER_MAGIC {
+		return btrfs::usage(directory, project);
+	}
 	let mut quota = std::mem::MaybeUninit::<libc::dqblk>::zeroed();
 	let command = libc::QCMD(libc::Q_GETQUOTA, PRJQUOTA);
 	quota_control(directory, command, project, quota.as_mut_ptr().cast())
@@ -561,26 +553,27 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 	let directory = std::fs::File::open(parent)
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project"))?;
 	let directory = std::sync::Arc::new(directory);
-	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
-
-	// SAFETY: The descriptor and output pointer are valid.
-	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
-		return Err(tg::error!(
-			source = std::io::Error::last_os_error(),
-			"failed to inspect the filesystem project"
-		));
-	}
-
-	// SAFETY: fstatfs initialized the structure on success.
-	let statistics = unsafe { statistics.assume_init() };
+	let filesystem = kind(&directory)?;
 	let usage = {
 		let directory = directory.clone();
 		Box::new(move || usage(&directory, project))
 	};
-	let limit =
-		Box::new(move |size| set_quota(&directory, statistics.f_type, project, Some(size), None));
-
+	let limit = Box::new(move |size| set_quota(&directory, filesystem, project, Some(size), None));
 	Ok(crate::budget::Control { limit, usage })
+}
+
+fn kind(directory: &std::fs::File) -> tg::Result<libc::c_long> {
+	let mut statistics = MaybeUninit::<libc::statfs>::uninit();
+	// SAFETY: The descriptor and output pointer are valid.
+	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to inspect the sandbox filesystem"
+		));
+	}
+	// SAFETY: fstatfs initialized the structure on success.
+	let statistics = unsafe { statistics.assume_init() };
+	Ok(statistics.f_type)
 }
 
 #[cfg(test)]
