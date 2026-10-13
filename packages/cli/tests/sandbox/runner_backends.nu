@@ -2,8 +2,6 @@ use ../lib/test.nu *
 
 # Every runner backend supports the same sandbox lifecycle and workload API.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }
-let quota_root = $env.TANGRAM_TEST_PROJECT_QUOTA_PATH? | default ''
-if ($quota_root | is-empty) { skip_test 'TANGRAM_TEST_PROJECT_QUOTA_PATH is required for sandbox storage accounting' }
 for kind in [builtin bubblewrap gvisor-systrap gvisor-kvm] {
     let backend = match $kind {
         builtin => { kind: builtin },
@@ -18,7 +16,7 @@ for kind in [builtin bubblewrap gvisor-systrap gvisor-kvm] {
             { kind: gvisor, path: (which runsc | first | get path), platform: $platform }
         },
     }
-    let directory = mktemp --directory --tmpdir-path $quota_root
+    let directory = mktemp --directory
     let local = server spawn --directory $directory --config { runner: { backend: $backend } }
     let path = artifact {
         tangram.ts: '

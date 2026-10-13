@@ -716,13 +716,7 @@ impl Session {
 		}
 
 		// Enforce the sandbox storage maximum only when storage limits are enabled, because enforcement requires a filesystem with project quotas.
-		if !self
-			.server
-			.config
-			.runner
-			.resources
-			.storage_limits()
-		{
+		if !self.server.config.runner.resources.storage_limits() {
 			arg.storage = None;
 		}
 
