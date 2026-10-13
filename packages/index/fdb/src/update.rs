@@ -1939,7 +1939,6 @@ impl Index {
 
 		let mut expected = BTreeSet::new();
 
-		// Derive object aspect permissions only for a subject that holds a direct or grant permission on the process, so that an object shared by unrelated processes does not materialize permissions on each of them.
 		let anchored = input
 			.entries
 			.iter()
@@ -3364,7 +3363,6 @@ impl Index {
 					Self::get_object_processes_with_transaction(txn, subspace, id).await
 				);
 				for (process, _kind) in process_parents {
-					// Skip a process on which the subject holds no permission, because its update cannot change any of the subject's permissions.
 					if let Kind::Permission(subject) = kind
 						&& !crate::propagate!(
 							Self::has_process_permissions_for_subject(
@@ -3392,7 +3390,6 @@ impl Index {
 					Self::get_process_parents_with_transaction(txn, subspace, id).await
 				);
 				for parent in parents {
-					// Skip a process on which the subject holds no permission, because its update cannot change any of the subject's permissions.
 					if let Kind::Permission(subject) = kind
 						&& !crate::propagate!(
 							Self::has_process_permissions_for_subject(
