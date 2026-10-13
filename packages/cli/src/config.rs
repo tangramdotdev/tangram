@@ -1699,6 +1699,9 @@ pub struct RemoteCache {
 #[serde(deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub backend: Option<RunnerBackend>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub control_channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1716,12 +1719,6 @@ pub struct Runner {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::runner::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub backend: Option<RunnerBackend>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub resources: Option<RunnerResources>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub javascript: Option<JavaScript>,
@@ -1769,6 +1766,9 @@ pub struct Runner {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub resources: Option<RunnerResources>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6244,7 +6244,7 @@ mod tests {
 				panic!("expected gvisor");
 			};
 			assert_eq!(path, Path::new("runsc"));
-			assert_eq!(selected.to_string(), platform);
+			assert_eq!(selected.name(), platform);
 		}
 		assert!(
 			serde_json::from_value::<Runner>(

@@ -102,6 +102,7 @@ pub struct SpawnArg {
 
 #[derive(Clone, Debug)]
 pub struct Arg {
+	pub backend: Backend,
 	#[cfg(target_os = "linux")]
 	pub cgroup_cleanup_interval: Duration,
 	#[cfg(target_os = "linux")]
@@ -125,7 +126,6 @@ pub struct Arg {
 	pub index: u64,
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
-	pub backend: Backend,
 	pub memory: Option<tg::sandbox::Resource<u64>>,
 	pub memory_sampling_interval: Duration,
 	pub mounts: Vec<tg::sandbox::Mount>,

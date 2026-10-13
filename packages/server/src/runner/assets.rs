@@ -6,9 +6,11 @@ use {
 
 pub(crate) struct Assets {
 	pub image: Option<PathBuf>,
+	#[cfg(target_os = "linux")]
 	pub image_ready: tokio::sync::Mutex<bool>,
 	pub root: PathBuf,
 	pub snapshot: Option<PathBuf>,
+	#[cfg(target_os = "linux")]
 	pub snapshot_lock: tokio::sync::Mutex<()>,
 }
 
@@ -57,9 +59,11 @@ impl Assets {
 		};
 		let assets = Self {
 			image,
+			#[cfg(target_os = "linux")]
 			image_ready: tokio::sync::Mutex::new(false),
 			root,
 			snapshot,
+			#[cfg(target_os = "linux")]
 			snapshot_lock: tokio::sync::Mutex::new(()),
 		};
 		Ok(assets)

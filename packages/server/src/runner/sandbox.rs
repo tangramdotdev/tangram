@@ -864,6 +864,7 @@ impl Session {
 		};
 		let config = &self.server.config.sandbox;
 		let arg = tangram_sandbox::Arg {
+			backend: isolation,
 			#[cfg(target_os = "linux")]
 			cgroup_cleanup_interval: config.cgroup_cleanup_interval,
 			#[cfg(target_os = "linux")]
@@ -892,8 +893,6 @@ impl Session {
 			index,
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
-			backend: isolation,
-			resources,
 			memory: arg.memory,
 			memory_sampling_interval: self.server.config.runner.memory_sampling_interval,
 			mounts,
@@ -903,6 +902,7 @@ impl Session {
 			nice: config.nice,
 			path: temp.path().to_owned(),
 			request_timeout: config.request_timeout,
+			resources,
 			rootfs_path,
 			shutdown_timeout: config.shutdown_timeout,
 			storage: arg.storage,

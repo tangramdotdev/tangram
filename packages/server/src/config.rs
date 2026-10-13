@@ -1098,6 +1098,7 @@ pub struct RemoteCache {
 
 #[derive(Clone, Debug)]
 pub struct Runner {
+	pub backend: RunnerBackend,
 	pub control_channel_capacity: usize,
 
 	/// Whether to pin each sandbox without a CPU pool to as many hardware threads as its CPU maximum, which requires the cpuset cgroup controller.
@@ -1110,9 +1111,6 @@ pub struct Runner {
 	pub heartbeat_interval: Duration,
 
 	pub id: Option<tg::runner::Id>,
-
-	pub backend: RunnerBackend,
-	pub resources: RunnerResources,
 
 	pub javascript: JavaScript,
 
@@ -1140,6 +1138,8 @@ pub struct Runner {
 	pub progress_update_interval: Duration,
 
 	pub remote: Option<String>,
+
+	pub resources: RunnerResources,
 
 	pub restart_delay: Duration,
 
@@ -2681,14 +2681,13 @@ impl Default for RemoteCache {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
+			backend: RunnerBackend::default(),
 			control_channel_capacity: 256,
 			cpu_affinity: false,
 			cpu_pool: None,
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
-			backend: RunnerBackend::default(),
-			resources: RunnerResources::default(),
 			javascript: JavaScript::default(),
 			memory: None,
 			memory_sampling_interval: Duration::from_secs(1),
@@ -2702,6 +2701,7 @@ impl Default for Runner {
 			progress_log_interval: Duration::from_secs(1),
 			progress_update_interval: Duration::from_millis(100),
 			remote: None,
+			resources: RunnerResources::default(),
 			restart_delay: Duration::from_secs(1),
 			sandbox_channel_capacity: 256,
 			sandbox_control_connection_pool_refresh_interval: Duration::from_millis(2500),
