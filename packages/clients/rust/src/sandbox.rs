@@ -1,3 +1,4 @@
+mod amount;
 mod builder;
 mod cpu;
 mod data;
@@ -5,17 +6,20 @@ mod id;
 mod isolation;
 mod mount;
 mod network;
+mod resource;
 
 pub use {
 	self::{
+		amount::Amount,
 		builder::Builder,
 		cpu::Cpu,
-		data::{Data, Usage},
+		data::{Data, ResourceUsage, Usage},
 		handle::{Options, Sandbox as Handle},
 		id::Id,
 		isolation::Isolation,
 		mount::Mount,
 		network::{Bridge, Network, Port, Protocol as PortProtocol, Range as PortRange},
+		resource::Resource,
 		status::Status,
 	},
 	crate::process::Source,

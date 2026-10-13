@@ -1195,21 +1195,26 @@ impl Server {
 				.runner
 				.cpu_pool
 				.clone()
-				.map(|parent| {
-					tangram_sandbox::cpu::Pool::new(parent, config.runner.shared_cpu_overcommit)
-				})
+				.map(|parent| tangram_sandbox::cpu::Pool::new(parent, config.runner.overcommit.cpu))
 				.transpose()?
 		} else {
 			None
 		};
-		if config.runner.shared_cpu_overcommit == 0 {
+		if [
+			config.runner.overcommit.cpu,
+			config.runner.overcommit.memory,
+			config.runner.overcommit.storage,
+			config.runner.overcommit.swap,
+		]
+		.contains(&0)
+		{
 			return Err(tg::error!(
-				"the shared CPU overcommit must be greater than zero"
+				"the resource overcommit factors must be greater than zero"
 			));
 		}
 		#[cfg(target_os = "macos")]
 		if config.runner.cpu_pool.is_some() {
-			return Err(tg::error!("dedicated CPU pools are not supported on macos"));
+			return Err(tg::error!("CPU pools are not supported on macos"));
 		}
 
 		// Create the runner state.
@@ -1218,20 +1223,55 @@ impl Server {
 			let cpus = runner
 				.cpus
 				.unwrap_or_else(|| u64::try_from(parallelism).unwrap());
-			let default_memory = config.scheduler.default_memory;
-			let memory = runner
-				.memory
-				.unwrap_or_else(|| default_memory.saturating_mul(cpus));
-			let shared = cpus
-				.checked_mul(runner.shared_cpu_overcommit)
-				.ok_or_else(|| tg::error!("the shared CPU capacity is too large"))?;
+			#[cfg(target_os = "linux")]
+			let (physical_memory, physical_storage, physical_swap) =
+				tangram_sandbox::capacity::detect(&path, runner.cpu_pool.as_deref())?;
+			#[cfg(not(target_os = "linux"))]
+			let (physical_memory, physical_storage, physical_swap) =
+				(config.scheduler.default_memory.saturating_mul(cpus), 0, 0);
+			let memory = runner.memory.unwrap_or(physical_memory * 3 / 4);
+			let storage = runner.storage.unwrap_or(physical_storage * 3 / 4);
+			let swap = runner.swap.unwrap_or(physical_swap);
+			if memory > physical_memory || storage > physical_storage || swap > physical_swap {
+				return Err(tg::error!(
+					"the runner resource capacity exceeds its available backing"
+				));
+			}
+			let memory = tg::sandbox::Resource::new(
+				memory,
+				memory
+					.checked_mul(runner.overcommit.memory)
+					.ok_or_else(|| tg::error!("the memory overcommit capacity overflowed"))?,
+			);
+			let storage = tg::sandbox::Resource::new(
+				storage,
+				storage
+					.checked_mul(runner.overcommit.storage)
+					.ok_or_else(|| tg::error!("the storage overcommit capacity overflowed"))?,
+			);
+			let swap = tg::sandbox::Resource::new(
+				swap,
+				swap.checked_mul(runner.overcommit.swap)
+					.ok_or_else(|| tg::error!("the swap overcommit capacity overflowed"))?,
+			);
+
+			let max = cpus
+				.checked_mul(runner.overcommit.cpu)
+				.and_then(|value| value.checked_mul(1000))
+				.ok_or_else(|| tg::error!("the CPU capacity is too large"))?;
+			let max = tg::sandbox::Amount::from_millis(max);
+			if cpus > u64::try_from(parallelism).unwrap() {
+				return Err(tg::error!(
+					"the runner CPU capacity exceeds its available hardware threads"
+				));
+			}
+			let min = tg::sandbox::Amount::default();
 			#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
 			let mut capacity = tg::runner::Capacity {
-				cpu: tg::sandbox::Cpu {
-					dedicated: 0,
-					shared,
-				},
+				cpu: tg::sandbox::Cpu { max, min },
 				memory,
+				storage,
+				swap,
 			};
 			#[cfg(target_os = "linux")]
 			if let Some(pool) = &cpu_pool {
@@ -1241,14 +1281,15 @@ impl Server {
 					));
 				}
 				capacity.cpu = pool.capacity().cpu;
+				pool.budget(memory.min, swap.min)?;
 			}
-			if capacity.cpu.shared == 0 && capacity.cpu.dedicated == 0 {
+			if capacity.cpu.max.millis() == 0 {
 				return Err(tg::error!(
 					"the runner CPU capacity must be greater than zero"
 				));
 			}
 
-			if capacity.memory == 0 {
+			if capacity.memory.max == 0 {
 				return Err(tg::error!(
 					"the runner memory capacity must be greater than zero"
 				));
@@ -1257,20 +1298,14 @@ impl Server {
 		} else {
 			tg::runner::Capacity::default()
 		};
-		// Warm sandboxes would claim physical CPU slots before scheduler admission.
-		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner)
-			&& config.runner.cpu_pool.is_none()
-		{
-			config.runner.sandbox_pool_size
-		} else {
-			0
-		};
+		let sandbox_pool_size = 0;
 		let runner_config = self::runner::Config {
 			capacity,
 			#[cfg(target_os = "linux")]
 			cpu_pool,
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: config.runner.isolation.container.filesystem_project_ids,
+			overcommit: config.runner.overcommit,
 			process_control_connection_pool_refresh_interval: config
 				.runner
 				.process_control_connection_pool_refresh_interval,
@@ -1286,7 +1321,6 @@ impl Server {
 				.sandbox_control_connection_pool_size,
 			sandbox_control_connection_pool_ttl: config.runner.sandbox_control_connection_pool_ttl,
 			sandbox_pool_size,
-			shared_cpu_overcommit: config.runner.shared_cpu_overcommit,
 		};
 		let runner = self::runner::Runner::new(runner_config);
 
@@ -1407,8 +1441,6 @@ impl Server {
 					let options = tangram_index_fdb::Options {
 						cleaning_partition_total: options.cleaning_partition_total,
 						cluster: options.cluster.clone(),
-						permission_update_partition_total: options
-							.permission_update_partition_total,
 						instance: options.instance.clone(),
 						max_process_depth: config
 							.roles
@@ -1416,16 +1448,18 @@ impl Server {
 							.then(|| {
 								u64::try_from(config.indexer.updates.max_process_depth).unwrap()
 							}),
-						storage_and_metadata_update_partition_total: options
-							.storage_and_metadata_update_partition_total,
+						max_write_operation_batch_size: options.max_write_operation_batch_size,
+						permission_update_partition_total: options
+							.permission_update_partition_total,
 						read_channel_capacity: options.read_channel_capacity,
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
+						storage_and_metadata_update_partition_total: options
+							.storage_and_metadata_update_partition_total,
 						storage_relation_batch_size: options.storage_relation_batch_size,
-						usage_update_partition_total: options.usage_update_partition_total,
 						usage_partition_total: options.usage_partition_total,
+						usage_update_partition_total: options.usage_update_partition_total,
 						verification,
-						max_write_operation_batch_size: options.max_write_operation_batch_size,
 						write_operation_batch_size: options.write_operation_batch_size,
 						write_transaction_concurrency: options.write_transaction_concurrency,
 					};

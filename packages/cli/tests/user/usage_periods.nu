@@ -28,8 +28,8 @@ assert equal $current_hour.period.start '2026-01-01T00:00:00Z'
 assert equal $current_hour.period.end '2026-01-01T01:00:00Z'
 
 let future_hour = usage $alice.token --hour 2026-01-01T01:00:00Z
-assert equal $future_hour.sandbox_cpu 0
-assert equal $future_hour.sandbox_memory 0
+assert equal $future_hour.sandbox_cpu_consumption 0
+assert equal $future_hour.sandbox_memory_consumption 0
 assert equal $future_hour.object_count 0
 assert equal $future_hour.object_size 0
 assert equal $future_hour.process_count 0

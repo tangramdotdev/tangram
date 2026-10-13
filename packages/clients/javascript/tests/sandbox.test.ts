@@ -35,30 +35,28 @@ test("sandbox reads send authorization tokens and the requested source", async (
 	}
 });
 
-test("CPU shorthand normalizes to shared and mixed requests retain both counts", () => {
-	assert.deepEqual(tg.Sandbox.Arg.toData({ cpu: 2 }), { cpu: { shared: 2 } });
-	assert.deepEqual(
-		tg.Sandbox.Arg.toData({ cpu: { dedicated: 2, shared: 4 } }),
-		{ cpu: { dedicated: 2, shared: 4 } },
-	);
-	assert.deepEqual(tg.Sandbox.Arg.toData({ cpu: { dedicated: 2 } }), {
-		cpu: { dedicated: 2 },
+test("resource shorthand and omitted maxima normalize consistently", () => {
+	for (let key of ["cpu", "memory", "storage", "swap"] as const) {
+		for (let [value, expected] of [
+			[2, { max: 2, min: 0 }],
+			[
+				{ max: 4, min: 2 },
+				{ max: 4, min: 2 },
+			],
+			[{ min: 2 }, { max: 2, min: 2 }],
+		] as const)
+			assert.deepEqual(tg.Sandbox.Arg.toData({ [key]: value })[key], expected);
+	}
+	assert.deepEqual(tg.Sandbox.Arg.toData({ cpu: { min: 0.25, max: 1 } }).cpu, {
+		min: 0.25,
+		max: 1,
 	});
-	for (let cpu of [
-		0,
-		-1,
-		0.5,
-		NaN,
-		Infinity,
-		{ dedicated: -1 },
-		{},
-		{ shared: Number.MAX_SAFE_INTEGER, dedicated: 1 },
-	]) {
+	for (let cpu of [0, -1, 0.0001, NaN, Infinity, {}, { min: 2, max: 1 }]) {
 		assert.throws(() => tg.Sandbox.Arg.toData({ cpu }));
 	}
 });
 
-test("sandbox CPU builders resolve the numeric shorthand and mixed objects", async () => {
+test("resource builders preserve minima and fractional CPU values", async () => {
 	let createSandbox = tg.client.createSandbox;
 	let requests: Array<tg.Sandbox.Create.Arg> = [];
 	tg.client.createSandbox = async (arg) => {
@@ -67,10 +65,21 @@ test("sandbox CPU builders resolve the numeric shorthand and mixed objects", asy
 	};
 	try {
 		await tg.Sandbox.create().cpu(Promise.resolve(2));
-		await tg.Sandbox.create().cpu({ dedicated: 2, shared: 4 });
+		await tg.Sandbox.create()
+			.cpu({ min: 0.25, max: 1 })
+			.memory({ min: 1024 })
+			.storage(4096)
+			.swap({ min: 0, max: 8192 });
+		assert.deepEqual(requests[0]?.cpu, { max: 2, min: 0 });
+		let { cpu, memory, storage, swap } = requests[1]!;
 		assert.deepEqual(
-			requests.map((arg) => arg.cpu),
-			[{ shared: 2 }, { dedicated: 2, shared: 4 }],
+			{ cpu, memory, storage, swap },
+			{
+				cpu: { max: 1, min: 0.25 },
+				memory: { max: 1024, min: 1024 },
+				storage: { max: 4096, min: 0 },
+				swap: { max: 8192, min: 0 },
+			},
 		);
 	} finally {
 		tg.client.createSandbox = createSandbox;

@@ -218,7 +218,15 @@ impl Session {
 				let scheduler = &self.server.config.scheduler;
 				Some(tg::runner::Capacity {
 					cpu: sandbox.cpu.unwrap_or(scheduler.default_cpu.into()),
-					memory: sandbox.memory.unwrap_or(scheduler.default_memory),
+					memory: sandbox.memory.unwrap_or(scheduler.default_memory.into()),
+					storage: sandbox.storage.unwrap_or_else(|| {
+						if cfg!(target_os = "macos") {
+							0.into()
+						} else {
+							(10 * 1024 * 1024 * 1024).into()
+						}
+					}),
+					swap: sandbox.swap.unwrap_or_default(),
 				})
 			} else {
 				None
@@ -334,7 +342,15 @@ impl Session {
 		let scheduler = &self.server.config.scheduler;
 		let requested = tg::runner::Capacity {
 			cpu: sandbox.cpu.unwrap_or(scheduler.default_cpu.into()),
-			memory: sandbox.memory.unwrap_or(scheduler.default_memory),
+			memory: sandbox.memory.unwrap_or(scheduler.default_memory.into()),
+			storage: sandbox.storage.unwrap_or_else(|| {
+				if cfg!(target_os = "macos") {
+					0.into()
+				} else {
+					(10 * 1024 * 1024 * 1024).into()
+				}
+			}),
+			swap: sandbox.swap.unwrap_or_default(),
 		};
 		let session = self.clone();
 		let parent = parent.clone();

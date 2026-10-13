@@ -161,16 +161,11 @@ impl Index {
 				&& let (Some(account), Some(data)) = (&sandbox.account, &sandbox.data)
 				&& data.data.status.is_destroyed()
 			{
-				let cpu = data.data.usage.as_ref().map(|usage| usage.cpu.shared);
-				let cpu_dedicated = data.data.usage.as_ref().map(|usage| usage.cpu.dedicated);
-				let memory = data.data.usage.as_ref().map(|usage| usage.memory);
 				let arg = tangram_index::usage::compute::put::Arg {
 					account,
 					at: touched_at,
-					cpu,
-					cpu_dedicated,
-					memory,
 					sandbox_count: 1,
+					usage: data.data.usage.as_ref(),
 				};
 				crate::propagate!(Self::put_compute_usage(
 					txn,
@@ -262,8 +257,8 @@ impl Index {
 				txn.clear(&key);
 
 				let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
-					sandbox: arg.id.clone(),
 					runner: runner.clone(),
+					sandbox: arg.id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
 				txn.clear(&key);
@@ -283,8 +278,8 @@ impl Index {
 				txn.set(&key, &[]);
 
 				let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
-					sandbox: arg.id.clone(),
 					runner: runner.clone(),
+					sandbox: arg.id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
 				txn.set(&key, &[]);

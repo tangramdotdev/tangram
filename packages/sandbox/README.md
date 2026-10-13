@@ -1,131 +1,81 @@
-# Sandbox resources and usage
+# Sandbox resources
 
-CPU requests can combine shared and dedicated CPUs:
+Each sandbox has a minimum and maximum for CPU, memory, local storage, and swap.
+The minimum reserves backed runner capacity for the sandbox's lifetime. The maximum
+limits consumption. A scalar specifies a maximum with a zero minimum; an object
+containing only a minimum uses that value for its maximum too.
 
-```typescript
+```sh
+tg sandbox create --cpu 1 --memory 1GiB --storage 10GiB --swap 2GiB
+tg sandbox create --cpu-min 0.25 --cpu-max 1 --memory-min 256MiB --memory-max 1GiB
+```
+
+```ts
 await using sandbox = await tg.Sandbox.create()
-	.cpu({ dedicated: 2, shared: 4 })
-	.memory(1024 * 1024 * 1024);
+    .cpu({ min: 0.25, max: 1 })
+    .memory({ min: 256 * 1024 ** 2, max: 1024 ** 3 })
+    .storage({ min: 1024 ** 3, max: 10 * 1024 ** 3 })
+    .swap({ max: 2 * 1024 ** 3 });
+await sandbox.run`echo hello`;
 ```
 
-`.cpu(2)` is shorthand for `.cpu({ shared: 2 })`. Counts must be nonnegative
-integers, and their sum must be positive. Shared CPUs count hardware threads and set an execution limit.
-Dedicated CPUs reserve physical cores for the sandbox. The CLI accepts `--cpu` for shared CPUs and `--dedicated-cpu` for
-dedicated CPUs, including both flags together.
+CPU units are hardware threads, with precision of 0.001 CPU. Each sandbox stays
+within a fixed CPU affinity domain containing enough threads for its maximum.
+CPU minima require an empty delegated exclusive cpuset partition configured with
+`runner.cpu_pool`; the pool includes every SMT sibling of its physical cores.
+Fractional minima reserve execution time within that fixed domain. The allocator
+accounts for reservations before distributing scheduler weight to other workloads.
+A minimum in a domain wider than one thread can hold additional physical capacity
+to preserve the promise for a single busy worker. Runner heartbeats include this
+affinity padding; billing uses the requested minimum. Domains stay fixed, so
+placement can fail because of fragmentation even when aggregate capacity remains.
 
-`tangram_sandbox` measures usage; the runner schedules resources and forwards
-the finalized measurements. The runner calls `start()` when it claims a sandbox.
-`usage()` samples current cumulative usage without stopping accounting. `destroy()`
-stops the sandbox and returns an `Output` containing finalized `usage`; later
-`usage()` calls return the same totals. Destroying an unclaimed sandbox returns
-zero usage. Sandbox usage contains:
-
-- `cpu.shared`: actual shared CPU execution in milliseconds, including user and
-  kernel execution. Sleeping and waiting for I/O do not accrue execution time.
-- `cpu.dedicated`: assigned physical cores multiplied by elapsed milliseconds,
-  from allocation until teardown, including idle time.
-- `memory`: the integral of sampled memory consumption, in MiB-milliseconds.
-  Adjacent samples are integrated using their actual elapsed time. The memory
-  limit remains an enforcement and admission limit.
-
-The usage index exposes shared CPU time as `sandbox_cpu`, dedicated core-time as
-`sandbox_cpu_dedicated`, and sampled memory-time as `sandbox_memory`.
-
-On Linux, each sandbox owns a cgroup. Accounting starts when a sandbox is claimed,
-before workloads start, and finishes after all processes in its cgroup stop.
-Prewarming execution and memory are excluded. Dedicated allocation time includes
-startup. Helpers placed inside this cgroup are included. Separate sandboxes own
-separate cgroups, regardless of how their creating processes are related.
-
-Shared-only requests use `cpu.stat`. Mixed requests use cgroup-scoped perf CPU
-clock events on the assigned shared CPUs, so execution on dedicated cores does
-not also accrue shared CPU time. Mixed requests require permission to open these
-events, typically `CAP_PERFMON`, and fail explicitly if it is unavailable.
-
-Memory samples use `memory.current`, including memory the kernel charges to the
-cgroup, such as page cache. Brief changes between samples can be missed. Configure
-the sampling interval in seconds; the default is one second, and zero is rejected:
+Memory minima reserve capacity and set `memory.min`; maxima set `memory.max`.
+Runner ancestor cgroups must provide enough memory protection for a minimum.
+Admission checks the sum of sibling minima at each ancestor and rejects requests
+when that protection is insufficient. An exclusive runner pool sets its
+own memory protection and physical memory/swap budgets before accepting sandboxes.
+Above the minimum, memory can be reclaimed, swapped, or subject to an OOM kill.
+Swap is a separate resource, limited with `memory.swap.max`. Local storage uses
+ext4 or XFS project quotas, and includes the writable overlay, scratch space,
+outputs, and temporary files. Linux needs delegated CPU, cpuset, memory, and pids
+controllers; filesystem quota enforcement needs enabled project quotas and
+CAP_SYS_ADMIN. The default container maxima are one CPU, 1 GiB RAM, 10 GiB local
+storage, and zero swap. macOS rejects explicit resource bounds. VM isolation
+supports whole CPU maxima and memory maxima, and rejects the other bounds.
 
 ```json
 {
-	"runner": {
-		"memory_sampling_interval": 0.1
-	}
+  "runner": {
+    "overcommit": { "cpu": 4, "memory": 2, "storage": 2, "swap": 2 },
+    "memory": 68719476736,
+    "storage": 1099511627776,
+    "swap": 68719476736
+  }
 }
 ```
 
-## Dedicated CPU configuration
+Overcommit factors are positive integers. Only capacity above minima is
+overcommitted. Capacity admission charges `min * factor + (max - min)` against
+`backed capacity * factor`. Runner budgets cannot exceed available host backing.
+Without explicit budgets, RAM and disk use 75% of available backing and swap uses
+its available capacity. Disk and swap pools assign kernel limits within their
+backed budgets; capacity above minima is best effort and may be unavailable even
+before a sandbox reaches its requested maximum. Persistent data prevents a new
+minimum from being admitted until enough backing becomes available. Sandbox
+prewarming is disabled so allocation happens after capacity admission.
 
-Dedicated CPUs require a host-managed cgroup v2 cpuset partition. Configure an
-empty, writable partition owned exclusively by this runner:
-
-```json
-{
-	"runner": {
-		"cpu_pool": "/sys/fs/cgroup/tangram-cpus",
-		"shared_cpu_overcommit": 4,
-		"memory_sampling_interval": 0.1
-	}
-}
-```
-
-The partition must have valid `root` or `isolated` status, matching effective and
-exclusive CPU sets, no processes or child cgroups, and the `cpu`, `cpuset`,
-`memory`, and `pids` controllers enabled for children. The host must keep the
-partition exclusive to this runner throughout its lifetime.
-
-The partition must contain every SMT sibling of each physical core, with the same number of hardware threads per core. All cores
-start available for dedicated allocation; no fixed shared/dedicated split is
-configured. Shared allocations use hardware threads, including all SMT siblings. Dedicated
-allocations expose every sibling of each reserved physical core while excluding
-those siblings from other sandboxes.
-
-`shared_cpu_overcommit` defaults to 4 and must be a positive integer. Each hardware thread
-can serve at most that many shared sandbox CPU allocations. Shared requests use
-distinct hardware threads, preserving their requested parallelism. The allocator
-packs shared requests, moves them by updating their cgroup CPU sets, and frees
-whole cores for dedicated requests. Existing placements are retained where
-possible, and dedicated requests prefer idle cores. Live CPU-set updates keep
-sandboxes runnable while shared workloads move; dedicated cores remain in each
-sandbox's CPU set throughout the transition. Dedicated cores return to shared
-eligibility when released after their cgroups empty. Mixed accounting monitors
-every potential shared hardware thread, so CPU-set changes preserve execution accounting.
-Failed teardown or recovery disables pool admission and causes runner heartbeats
-to advertise zero capacity until restart.
-
-Runner capacity uses `cpu: { dedicated, shared }`: free exclusive physical cores and
-available shared capacity on currently shared cores. These are convertible resources.
-A core contributes `threads_per_core * shared_cpu_overcommit` shared CPU capacity.
-For example, four idle two-thread cores advertise `{ dedicated: 4, shared: 0 }`;
-admitting one shared CPU with `shared_cpu_overcommit: 4` leaves
-`{ dedicated: 3, shared: 7 }`. Scheduler reservations account for that conversion,
-mixed requests, memory, and the distinct-thread requirement.
-
-Children can borrow their parents' reservations without consuming additional
-runner capacity. Each dedicated parent core can supply one dedicated child core
-or shared child capacity equal to its hardware-thread count multiplied by
-`shared_cpu_overcommit`. Shared parent capacity can supply only shared child
-capacity. Borrowing remains exclusive: each parent lends to one child at a time.
-The child inherits the full memory reservation and unused CPU headroom for its
-descendants, while its own sandbox limits use its request. Only the dedicated
-cores needed for shared capacity are converted, and converted cores remain shared
-throughout the borrowing chain. CPU leases keep ancestor reservations alive until
-their borrowers finish, and borrowed cgroups follow ancestor CPU placement changes.
-Borrowed shared capacity does not promise simultaneous execution on distinct
-hardware threads. The runner advertises potential parent capacity before waiting
-for a current borrower to finish. The scheduler keeps eligible children queued
-until that capacity can be lent, and newer runner heartbeats remove hints for
-parents that have stopped.
-
-Sandbox prewarming is disabled for exclusive pools because unclaimed sandboxes
-would consume physical CPU capacity outside admission.
-
-Without an exclusive pool, `runner.cpus` selects the shared CPU base capacity, and the factor determines the shared admission limit.
-
-This reserves CPU scheduling capacity. Frequency scaling, thermal limits, memory
-bandwidth, and interrupts can still affect performance.
-
-On macOS, shared accounting uses process and child user/system CPU counters and
-sampled resident memory. Process enumeration can race with exits or reparenting,
-and resident memory can count shared pages more than once. Explicit CPU/memory
-limits and dedicated pools remain unsupported with Seatbelt isolation.
+Usage has a `{ reservation, consumption }` counter for each resource. Reservation
+accrues as `min * duration`, including idle time. Consumption accrues above the
+minimum in each sampling interval; idle periods do not offset later bursts.
+CPU consumption settles over one-second bandwidth windows matching the CPU quota
+period, with the final partial window settled when the sandbox is destroyed.
+Short bursts retain their actual execution time, even if their average over that
+partial window exceeds the configured maximum. Equal CPU bounds accrue only a
+reservation.
+CPU counters use hardware thread-milliseconds. Memory, storage, and swap use
+MiB-milliseconds. Memory and swap come from cgroup counters, disk from project
+quota space usage, and CPU from total execution time in `cpu.stat`. No disk I/O
+byte counters are billed. Aggregate indexes expose the eight counters as
+`sandbox_{resource}_{reservation|consumption}`. Both counters are needed to
+calculate charges; consumption already excludes the minimum.

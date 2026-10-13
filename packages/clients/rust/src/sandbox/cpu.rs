@@ -1,50 +1,21 @@
 use crate::prelude::*;
 
-/// CPU limits and exclusive physical core requests.
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Default,
-	Eq,
-	PartialEq,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(deny_unknown_fields)]
-pub struct Cpu {
-	#[serde(default)]
-	#[tangram_serialize(default, id = 0)]
-	pub dedicated: u64,
-	#[serde(default)]
-	#[tangram_serialize(default, id = 1)]
-	pub shared: u64,
-}
+pub type Cpu = super::Resource<super::Amount>;
 
 impl Cpu {
-	pub fn validate(self) -> tg::Result<()> {
-		if self.total()? == 0 {
-			return Err(tg::error!("the sandbox CPU must be greater than zero"));
-		}
-		Ok(())
-	}
-
 	pub fn total(self) -> tg::Result<u64> {
-		let total = self
-			.dedicated
-			.checked_add(self.shared)
-			.ok_or_else(|| tg::error!("the sandbox CPU is too large"))?;
-		Ok(total)
+		self.validate()?;
+		if self.max.millis() == 0 || self.max.millis() > u64::from(u32::MAX) {
+			return Err(tg::error!(
+				"the sandbox CPU maximum must be between 0.001 and 4294967.295"
+			));
+		}
+		Ok(self.max.threads())
 	}
 }
 
 impl From<u64> for Cpu {
-	fn from(shared: u64) -> Self {
-		Self {
-			dedicated: 0,
-			shared,
-		}
+	fn from(threads: u64) -> Self {
+		Self::from(super::Amount::from_millis(threads.saturating_mul(1000)))
 	}
 }

@@ -146,25 +146,17 @@ pub struct Options {
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Debug {
 	#[arg(
-		env = "TANGRAM_JAVASCRIPT_DEBUG",
-		id = "spawn.debug.enabled",
-		long = "debug"
-	)]
-	enabled: bool,
-
-	#[arg(
 		env = "TANGRAM_JAVASCRIPT_DEBUG_ADDR",
 		id = "spawn.debug.addr",
 		long = "debug-addr"
 	)]
 	addr: Option<std::net::SocketAddr>,
-
 	#[arg(
-		env = "TANGRAM_JAVASCRIPT_DEBUG_MODE",
-		long = "debug-mode",
-		id = "spawn.debug.mode"
+		env = "TANGRAM_JAVASCRIPT_DEBUG",
+		id = "spawn.debug.enabled",
+		long = "debug"
 	)]
-	mode: Option<tg::process::debug::Mode>,
+	enabled: bool,
 
 	#[arg(
 		id = "spawn.debug.inspect",
@@ -195,6 +187,13 @@ pub struct Debug {
 		value_parser = parse_inspect_addr,
 	)]
 	inspect_wait: Option<std::net::SocketAddr>,
+
+	#[arg(
+		env = "TANGRAM_JAVASCRIPT_DEBUG_MODE",
+		long = "debug-mode",
+		id = "spawn.debug.mode"
+	)]
+	mode: Option<tg::process::debug::Mode>,
 }
 
 impl Debug {
@@ -274,10 +273,10 @@ pub struct Sandbox {
 impl Sandbox {
 	pub fn new(sandbox: Option<tg::Either<bool, tg::Referent<tg::sandbox::Id>>>) -> Self {
 		Self {
-			value: sandbox,
-			disabled: None,
 			arg: crate::sandbox::Options::default(),
+			disabled: None,
 			ttl: Ttl::default(),
+			value: sandbox,
 		}
 	}
 
@@ -295,15 +294,14 @@ impl Sandbox {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Ttl {
-	#[arg(id = "spawn.sandbox.ttl.ttl", long = "ttl", overrides_with = "spawn.sandbox.ttl.no_ttl", value_parser = humantime::parse_duration)]
-	pub ttl: Option<Duration>,
-
 	#[arg(
 		id = "spawn.sandbox.ttl.no_ttl",
 		long = "no-ttl",
 		overrides_with = "spawn.sandbox.ttl.ttl"
 	)]
 	pub no_ttl: bool,
+	#[arg(id = "spawn.sandbox.ttl.ttl", long = "ttl", overrides_with = "spawn.sandbox.ttl.no_ttl", value_parser = humantime::parse_duration)]
+	pub ttl: Option<Duration>,
 }
 
 impl Ttl {
@@ -344,8 +342,8 @@ pub struct Tty {
 impl Tty {
 	pub fn new_disabled() -> Self {
 		Self {
-			tty: None,
 			no_tty: Some(true),
+			tty: None,
 		}
 	}
 }
@@ -475,13 +473,13 @@ impl Cli {
 				.cloned()
 				.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
 			let arg = tg::tag::put::Arg {
-				tokens: referent.options.tokens.clone(),
 				ancestors,
 				force,
 				location: location.clone(),
 				public: false,
 				specifier: specifier.clone(),
 				target: id.into(),
+				tokens: referent.options.tokens.clone(),
 			};
 			client
 				.put_tag(arg)
@@ -922,9 +920,9 @@ impl Cli {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 			mounts.push(tg::sandbox::Mount {
+				readonly: mount.readonly,
 				source,
 				target: mount.target.clone(),
-				readonly: mount.readonly,
 			});
 		}
 		let sandbox = if sandboxed {
@@ -941,29 +939,25 @@ impl Cli {
 					.await?;
 				Some(tg::process::SandboxArg::Arg(
 					tg::process::SandboxCreateArg {
-						cpu: options
-							.sandbox
-							.arg
-							.cpu
-							.map(|shared| tg::sandbox::Cpu {
-								dedicated: options.sandbox.arg.dedicated_cpu.unwrap_or(0),
-								shared,
-							})
-							.or_else(|| {
-								options.sandbox.arg.dedicated_cpu.map(|dedicated| {
-									tg::sandbox::Cpu {
-										dedicated,
-										shared: 0,
-									}
-								})
-							}),
+						cpu: crate::sandbox::cpu(&options.sandbox.arg),
 						hostname: options.sandbox.arg.hostname.clone(),
 						isolation: options.sandbox.arg.isolation,
 						location: None,
-						memory: options.sandbox.arg.memory,
+						memory: crate::sandbox::resource(
+							options.sandbox.arg.memory_min,
+							options.sandbox.arg.memory,
+						),
 						mounts,
 						network,
 						owner,
+						storage: crate::sandbox::resource(
+							options.sandbox.arg.storage_min,
+							options.sandbox.arg.storage,
+						),
+						swap: crate::sandbox::resource(
+							options.sandbox.arg.swap_min,
+							options.sandbox.arg.swap,
+						),
 						ttl: Some(options.sandbox.ttl.get()),
 					},
 				))

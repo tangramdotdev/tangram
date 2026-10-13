@@ -59,7 +59,7 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn memory(mut self, memory: impl Into<Option<u64>>) -> Self {
+	pub fn memory(mut self, memory: impl Into<Option<tg::sandbox::Resource<u64>>>) -> Self {
 		self.arg.memory = memory.into();
 		self
 	}
@@ -85,6 +85,18 @@ impl Builder {
 	#[must_use]
 	pub fn owner(mut self, owner: impl Into<Option<tg::Principal>>) -> Self {
 		self.arg.owner = owner.into();
+		self
+	}
+
+	#[must_use]
+	pub fn storage(mut self, storage: impl Into<Option<tg::sandbox::Resource<u64>>>) -> Self {
+		self.arg.storage = storage.into();
+		self
+	}
+
+	#[must_use]
+	pub fn swap(mut self, swap: impl Into<Option<tg::sandbox::Resource<u64>>>) -> Self {
+		self.arg.swap = swap.into();
 		self
 	}
 

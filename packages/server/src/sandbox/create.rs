@@ -66,6 +66,8 @@ impl Session {
 			arg.cpu,
 			arg.memory,
 			arg.hostname.as_deref(),
+			arg.storage,
+			arg.swap,
 		)?;
 
 		let id = tg::sandbox::Id::new();

@@ -118,7 +118,7 @@ pub(crate) fn spawn(
 		command.arg("--cpu").arg(cpu.to_string());
 	}
 	if let Some(memory) = arg.memory {
-		command.arg("--memory").arg(memory.to_string());
+		command.arg("--memory").arg(memory.max.to_string());
 	}
 	for mount in &arg.mounts {
 		command.arg("--mount").arg(mount.to_string());

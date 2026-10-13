@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Generator
 from typing import (
     TYPE_CHECKING,
@@ -50,18 +51,23 @@ class SandboxNetworkData(TypedDict):
     ports: NotRequired[list[str]]
 
 
-class Cpu(TypedDict, total=False):
-    dedicated: int
-    shared: int
+class Resource(TypedDict, total=False):
+    max: int | float
+    min: int | float
+
+
+type Cpu = Resource
 
 
 class SandboxArg(TypedDict, total=False):
-    cpu: Unresolved[int | Cpu | Mutation | None]
+    cpu: Unresolved[int | float | Cpu | Mutation | None]
     host: Unresolved[str | Mutation | None]
     hostname: Unresolved[str | Mutation | None]
     isolation: Unresolved[IsolationValue | Mutation | None]
     location: Unresolved[str | ArgObject | None]
-    memory: Unresolved[int | float | Mutation | None]
+    memory: Unresolved[int | float | Resource | Mutation | None]
+    storage: Unresolved[int | float | Resource | Mutation | None]
+    swap: Unresolved[int | float | Resource | Mutation | None]
     mounts: Unresolved[list[Unresolved[MountValue]] | None]
     network: Unresolved[bool | NetworkValue | Mutation | None]
     owner: Unresolved[str | Mutation | None]
@@ -74,9 +80,16 @@ type SandboxInput = Unresolved[
 ]
 
 
+class ResourceUsage(TypedDict):
+    consumption: int
+    reservation: int
+
+
 class SandboxUsage(TypedDict):
-    cpu: Cpu
-    memory: int | float
+    cpu: ResourceUsage
+    memory: ResourceUsage
+    storage: ResourceUsage
+    swap: ResourceUsage
 
 
 class SandboxData(TypedDict, total=False):
@@ -86,7 +99,9 @@ class SandboxData(TypedDict, total=False):
     creator: str | None
     hostname: str | None
     isolation: dict[str, IsolationValue] | None
-    memory: int | float | None
+    memory: Resource | None
+    storage: Resource | None
+    swap: Resource | None
     mounts: list[str]
     network: SandboxNetworkData | None
     owner: str | None
@@ -253,7 +268,7 @@ class Builder:
         self._args.append(capture({name: value}, self._memo))
         return self
 
-    def cpu(self, value: Unresolved[int | Cpu | Mutation | None]) -> Self:
+    def cpu(self, value: Unresolved[int | float | Cpu | Mutation | None]) -> Self:
         return self._push("cpu", value)
 
     def host(self, value: Unresolved[str | Mutation | None]) -> Self:
@@ -268,11 +283,21 @@ class Builder:
     def location(self, value: Unresolved[str | ArgObject | Mutation | None]) -> Self:
         return self._push("location", value)
 
-    def memory(self, value: Unresolved[int | float | Mutation | None]) -> Self:
+    def memory(
+        self, value: Unresolved[int | float | Resource | Mutation | None]
+    ) -> Self:
         return self._push("memory", value)
 
     def mount(self, *values: Unresolved[MountValue]) -> Self:
         return self._push("mounts", values)
+
+    def storage(
+        self, value: Unresolved[int | float | Resource | Mutation | None]
+    ) -> Self:
+        return self._push("storage", value)
+
+    def swap(self, value: Unresolved[int | float | Resource | Mutation | None]) -> Self:
+        return self._push("swap", value)
 
     def mounts(self, *values: Unresolved[list[MountValue] | Mutation | None]) -> Self:
         for value in values:
@@ -362,7 +387,16 @@ def normalize_network(value, ports=()):
 def arg_to_data(arg):
     output = {
         key: arg[key]
-        for key in ("cpu", "host", "hostname", "memory", "owner", "ttl")
+        for key in (
+            "cpu",
+            "host",
+            "hostname",
+            "memory",
+            "owner",
+            "storage",
+            "swap",
+            "ttl",
+        )
         if key in arg
     }
     if "isolation" in arg:
@@ -375,8 +409,9 @@ def arg_to_data(arg):
     network = normalize_network(arg.get("network"), arg.get("ports") or [])
     if network is not None:
         output["network"] = network
-    if "cpu" in output and isinstance(output["cpu"], (int, float)):
-        output["cpu"] = {"shared": output["cpu"]}
+    for key in ("cpu", "memory", "storage", "swap"):
+        if key in output and output[key] is not None:
+            output[key] = normalize_resource(output[key], cpu=key == "cpu")
     return output
 
 
@@ -485,3 +520,27 @@ Sandbox.Get = Get
 Sandbox.Id = Id
 Sandbox.Isolation = Isolation
 Sandbox.Network = Network
+
+
+def normalize_resource(value, *, cpu: bool = False) -> Resource:
+    resource = {"max": value} if isinstance(value, (int, float)) else value
+    if not isinstance(resource, dict) or not resource or set(resource) - {"min", "max"}:
+        raise ValueError("a resource requires min or max")
+    minimum = resource.get("min", 0)
+    maximum = resource.get("max", minimum)
+    for amount in (minimum, maximum):
+        if (
+            isinstance(amount, bool)
+            or not isinstance(amount, (int, float))
+            or not math.isfinite(amount)
+            or amount < 0
+        ):
+            raise ValueError("resource amounts must be finite and nonnegative")
+        if cpu:
+            if abs(amount * 1000 - round(amount * 1000)) > 0.000001:
+                raise ValueError("CPU must be a multiple of 0.001")
+        elif int(amount) != amount:
+            raise ValueError("resource bytes must be integers")
+    if minimum > maximum or (cpu and maximum == 0):
+        raise ValueError("invalid resource bounds")
+    return {"max": maximum, "min": minimum}

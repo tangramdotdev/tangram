@@ -124,12 +124,12 @@ fn configure_quota(
 		);
 	}
 	let attributes = FsXAttr {
-		xflags: FS_XFLAG_PROJINHERIT,
+		cowextsize: 0,
 		extsize: 0,
 		nextents: 0,
-		project,
-		cowextsize: 0,
 		pad: [0; 8],
+		project,
+		xflags: FS_XFLAG_PROJINHERIT,
 	};
 	let request = ioctl_write_request(b'X', 32, std::mem::size_of::<FsXAttr>());
 	// SAFETY: The descriptor refers to the new directory and the attribute pointer is valid.
@@ -393,31 +393,31 @@ fn set_quota(
 			0
 		};
 		let limits = XfsDiskQuota {
-			version: 1,
-			flags: 1 << 1,
-			fieldmask: block_mask | inode_mask,
-			id: project,
+			block_count: 0,
 			block_hard: size.unwrap_or_default().div_ceil(512),
 			block_soft: size.unwrap_or_default().div_ceil(512),
+			block_timer: 0,
+			block_timer_high: 0,
+			block_warnings: 0,
+			fieldmask: block_mask | inode_mask,
+			flags: 1 << 1,
+			id: project,
+			inode_count: 0,
 			inode_hard: inodes.unwrap_or_default(),
 			inode_soft: inodes.unwrap_or_default(),
-			block_count: 0,
-			inode_count: 0,
 			inode_timer: 0,
-			block_timer: 0,
-			inode_warnings: 0,
-			block_warnings: 0,
 			inode_timer_high: 0,
-			block_timer_high: 0,
-			realtime_block_timer_high: 0,
+			inode_warnings: 0,
 			padding2: 0,
-			realtime_block_hard: 0,
-			realtime_block_soft: 0,
-			realtime_block_count: 0,
-			realtime_block_timer: 0,
-			realtime_block_warnings: 0,
 			padding3: 0,
 			padding4: [0; 8],
+			realtime_block_count: 0,
+			realtime_block_hard: 0,
+			realtime_block_soft: 0,
+			realtime_block_timer: 0,
+			realtime_block_timer_high: 0,
+			realtime_block_warnings: 0,
+			version: 1,
 		};
 		let command = libc::QCMD((u32::from(b'X') << 8).cast_signed() | 4, PRJQUOTA);
 		quota_control(directory, command, project, (&raw const limits).cast())
@@ -425,11 +425,11 @@ fn set_quota(
 		let limits = libc::dqblk {
 			dqb_bhardlimit: size.unwrap_or_default().div_ceil(1024),
 			dqb_bsoftlimit: size.unwrap_or_default().div_ceil(1024),
+			dqb_btime: 0,
+			dqb_curinodes: 0,
 			dqb_curspace: 0,
 			dqb_ihardlimit: inodes.unwrap_or_default(),
 			dqb_isoftlimit: inodes.unwrap_or_default(),
-			dqb_curinodes: 0,
-			dqb_btime: 0,
 			dqb_itime: 0,
 			dqb_valid: (u32::from(size.is_some()) * libc::QIF_BLIMITS)
 				| (u32::from(inodes.is_some()) * libc::QIF_ILIMITS),
@@ -523,9 +523,57 @@ fn syscall_fd(number: libc::c_long, args: &[usize]) -> std::io::Result<OwnedFd> 
 	Ok(fd)
 }
 
+pub(crate) fn usage(directory: &std::fs::File, project: u32) -> tg::Result<u64> {
+	let mut quota = std::mem::MaybeUninit::<libc::dqblk>::zeroed();
+	let command = libc::QCMD(libc::Q_GETQUOTA, PRJQUOTA);
+	quota_control(directory, command, project, quota.as_mut_ptr().cast())
+		.map_err(|error| tg::error!(!error, "failed to read the filesystem project usage"))?;
+	// SAFETY: The quota syscall initialized the structure on success.
+	let quota = unsafe { quota.assume_init() };
+	Ok(quota.dqb_curspace)
+}
+
+pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Control> {
+	let parent = path
+		.parent()
+		.ok_or_else(|| tg::error!("the filesystem project has no parent"))?;
+	let directory = std::fs::File::open(parent)
+		.map_err(|error| tg::error!(!error, "failed to open the filesystem project"))?;
+	let directory = std::sync::Arc::new(directory);
+	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
+	// SAFETY: The descriptor and output pointer are valid.
+	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to inspect the filesystem project"
+		));
+	}
+	// SAFETY: fstatfs initialized the structure on success.
+	let statistics = unsafe { statistics.assume_init() };
+	let usage = {
+		let directory = directory.clone();
+		Box::new(move || usage(&directory, project))
+	};
+	let limit =
+		Box::new(move |size| set_quota(&directory, statistics.f_type, project, Some(size), None));
+	Ok(crate::budget::Control { limit, usage })
+}
+
 #[cfg(test)]
 mod tests {
 	use {super::*, std::path::PathBuf};
+
+	#[test]
+	fn quota_structures_preserve_the_linux_abi() {
+		assert_eq!(std::mem::size_of::<FsXAttr>(), 28);
+		assert_eq!(std::mem::offset_of!(FsXAttr, xflags), 0);
+		assert_eq!(std::mem::offset_of!(FsXAttr, project), 12);
+		assert_eq!(std::mem::size_of::<XfsDiskQuota>(), 112);
+		assert_eq!(std::mem::offset_of!(XfsDiskQuota, version), 0);
+		assert_eq!(std::mem::offset_of!(XfsDiskQuota, fieldmask), 2);
+		assert_eq!(std::mem::offset_of!(XfsDiskQuota, id), 4);
+		assert_eq!(std::mem::offset_of!(XfsDiskQuota, block_hard), 8);
+	}
 
 	#[test]
 	fn relocate_descendant() {

@@ -5,25 +5,34 @@ use {
 		io::{Read as _, Write as _},
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 		path::{Path, PathBuf},
+		sync::{Arc, Mutex},
 		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
 };
 
+static MEMORY: Mutex<()> = Mutex::new(());
+
 pub struct Cgroup {
 	allocation: Option<crate::cpu::Allocation>,
+	cleanup: Arc<Cleanup>,
 	cleanup_interval: Duration,
 	cleanup_timeout: Duration,
-	directory: OwnedFd,
 	name: String,
-	parent: OwnedFd,
 	path: PathBuf,
-	removed: bool,
+	stopped: bool,
+	swap_allocation: Option<crate::budget::Allocation>,
 }
 
 #[derive(Debug)]
 pub struct Handle {
 	directory: OwnedFd,
+}
+
+struct Cleanup {
+	directory: OwnedFd,
+	name: String,
+	parent: OwnedFd,
 }
 
 #[derive(Clone, Debug)]
@@ -34,15 +43,20 @@ pub struct Options {
 	pub cpu_parent: Option<crate::cpu::Lease>,
 	pub cpu_pool: Option<crate::cpu::Pool>,
 	pub cpu_request: Option<tg::sandbox::Cpu>,
-	pub memory: Option<u64>,
+	pub memory: Option<tg::sandbox::Resource<u64>>,
 	pub memory_oom_group: bool,
 	pub memory_swap: Option<u64>,
 	pub pids: Option<u64>,
+	pub swap: Option<tg::sandbox::Resource<u64>>,
+	pub swap_pool: Option<crate::budget::Pool>,
 }
 
 impl Cgroup {
 	pub fn new(name: &str, options: &Options) -> tg::Result<Self> {
 		use std::os::unix::fs::OpenOptionsExt as _;
+		let _memory = MEMORY
+			.lock()
+			.map_err(|error| tg::error!(%error, "the memory admission lock is poisoned"))?;
 		let root = Path::new("/sys/fs/cgroup");
 		if !root.join("cgroup.controllers").exists() {
 			return Err(tg::error!("cgroup v2 is not available"));
@@ -77,7 +91,7 @@ impl Cgroup {
 				}
 			})
 			.transpose()?;
-		if allocation.is_some() {
+		if allocation.is_some() || options.cpu_request.is_some() {
 			controllers.push("cpuset");
 		}
 		let current = if let Some(allocation) = &allocation {
@@ -85,6 +99,12 @@ impl Cgroup {
 		} else {
 			resolve_parent(root, &current, &controllers)?
 		};
+		if let Some(memory) = options.memory
+			&& memory.min > 0
+		{
+			validate_memory(root, &current, memory.min)?;
+		}
+
 		let name = sanitize_name(name);
 		// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
 		let parent = std::fs::OpenOptions::new()
@@ -100,6 +120,13 @@ impl Cgroup {
 			})?;
 		let parent = OwnedFd::from(parent);
 		let path = current.join(&name);
+		let swap = match (options.swap, &options.swap_pool) {
+			(Some(resource), Some(pool)) => Some(pool.allocate(resource)?),
+			(Some(resource), None) if resource.max > 0 => {
+				return Err(tg::error!("swap limits require a runner swap pool"));
+			},
+			_ => None,
+		};
 		std::fs::create_dir(&path).map_err(|error| {
 			tg::error!(
 				!error,
@@ -119,15 +146,22 @@ impl Cgroup {
 				)
 			})?;
 		let directory = OwnedFd::from(directory);
+
+		let cleanup = Cleanup {
+			directory,
+			name: name.clone(),
+			parent,
+		};
+		let cleanup = Arc::new(cleanup);
 		let cgroup = Self {
 			allocation,
+			cleanup,
 			cleanup_interval: options.cleanup_interval,
 			cleanup_timeout: options.cleanup_timeout,
-			directory,
 			name,
-			parent,
 			path: path.clone(),
-			removed: false,
+			stopped: false,
+			swap_allocation: swap,
 		};
 
 		if let Some(allocation) = &cgroup.allocation {
@@ -138,12 +172,41 @@ impl Cgroup {
 			allocation.bind(cgroup.handle()?)?;
 		}
 
+		if cgroup.allocation.is_none()
+			&& let Some(cpu) = options.cpu_request
+		{
+			let cpus = crate::cpu::parse_list(
+				&std::fs::read_to_string(current.join("cpuset.cpus.effective"))
+					.map_err(|error| tg::error!(!error, "failed to read the available CPUs"))?,
+			)?;
+			let width = usize::try_from(cpu.max.threads())
+				.map_err(|_| tg::error!("the CPU affinity is too wide"))?;
+			if width > cpus.len() {
+				return Err(tg::error!(
+					"the CPU maximum exceeds the available hardware threads"
+				));
+			}
+			let offset = cgroup.name.bytes().map(usize::from).sum::<usize>() % cpus.len();
+			let cpus = cpus
+				.iter()
+				.copied()
+				.cycle()
+				.skip(offset)
+				.take(width)
+				.collect();
+			cgroup
+				.handle()?
+				.write(c"cpuset.cpus", crate::cpu::format_list(&cpus).as_bytes())?;
+		}
+
 		if let Some(cpu) = options.cpu {
-			let quota = cpu
-				.checked_mul(100_000)
-				.ok_or_else(|| tg::error!("sandbox cpu is too large"))?;
+			let quota = match options.cpu_request {
+				Some(request) => request.max.millis().checked_mul(1000),
+				None => cpu.checked_mul(1_000_000),
+			}
+			.ok_or_else(|| tg::error!("the sandbox CPU is too large"))?;
 			let cpu_max = path.join("cpu.max");
-			write_file(&cpu_max, format!("{quota} 100000\n").as_bytes()).map_err(|error| {
+			write_file(&cpu_max, format!("{quota} 1000000\n").as_bytes()).map_err(|error| {
 				tg::error!(
 					!error,
 					path = %cpu_max.display(),
@@ -154,13 +217,18 @@ impl Cgroup {
 
 		if let Some(memory) = options.memory {
 			let memory_max = path.join("memory.max");
-			write_file(&memory_max, format!("{memory}\n").as_bytes()).map_err(|error| {
+			write_file(&memory_max, format!("{}\n", memory.max).as_bytes()).map_err(|error| {
 				tg::error!(
 					!error,
 					path = %memory_max.display(),
 					"failed to set memory.max"
 				)
 			})?;
+		}
+
+		if let Some(memory) = options.memory {
+			write_file(&path.join("memory.min"), memory.min.to_string().as_bytes())
+				.map_err(|error| tg::error!(!error, "failed to set memory.min"))?;
 		}
 
 		if options.memory_oom_group {
@@ -176,7 +244,12 @@ impl Cgroup {
 			}
 		}
 
-		if let Some(memory_swap) = options.memory_swap {
+		if let Some(memory_swap) = cgroup
+			.swap_allocation
+			.as_ref()
+			.map(crate::budget::Allocation::limit)
+			.or(options.memory_swap)
+		{
 			let memory_swap_max = path.join("memory.swap.max");
 			write_file(&memory_swap_max, format!("{memory_swap}\n").as_bytes()).map_err(
 				|error| {
@@ -187,6 +260,23 @@ impl Cgroup {
 					)
 				},
 			)?;
+		}
+
+		if let Some(swap) = &cgroup.swap_allocation {
+			let cleanup = cgroup.cleanup.clone();
+			let limit_handle = cgroup.handle()?;
+			let usage = Box::new(move || {
+				read_file_at(&cleanup.directory, c"memory.swap.current")
+					.map_err(|error| tg::error!(!error, "failed to read the sandbox swap usage"))?
+					.trim()
+					.parse()
+					.map_err(|error| tg::error!(!error, "invalid swap usage"))
+			});
+			let limit = Box::new(move |limit: u64| {
+				limit_handle.write(c"memory.swap.max", limit.to_string().as_bytes())
+			});
+			let control = crate::budget::Control { limit, usage };
+			swap.bind(control)?;
 		}
 
 		if let Some(pids) = options.pids {
@@ -209,7 +299,7 @@ impl Cgroup {
 	}
 
 	pub fn handle(&self) -> tg::Result<Handle> {
-		let directory = self.directory.try_clone().map_err(|error| {
+		let directory = self.cleanup.directory.try_clone().map_err(|error| {
 			tg::error!(
 				!error,
 				path = %self.path.display(),
@@ -221,47 +311,31 @@ impl Cgroup {
 
 	pub fn cleanup(mut self) -> tg::Result<()> {
 		self.stop()?;
-		// Release the stopped allocation before unlinking its cgroup so concurrent reassignments cannot access a removed directory.
+		self.stopped = true;
+		// Retained swap allocations keep the directory alive until their data is released.
 		drop(self.allocation.take());
-		unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR).map_err(|error| {
-			tg::error!(
-				!error,
-				path = %self.path.display(),
-				"failed to remove the cgroup"
-			)
-		})?;
-		self.removed = true;
-
+		drop(self.swap_allocation.take());
 		Ok(())
 	}
 
 	pub(crate) fn stop(&self) -> tg::Result<()> {
-		write_file_at(&self.directory, c"cgroup.kill", b"1\n")
+		write_file_at(&self.cleanup.directory, c"cgroup.kill", b"1\n")
 			.map_err(|error| tg::error!(!error, "failed to stop the sandbox cgroup"))?;
 		self.wait_until_empty()?;
 		Ok(())
 	}
 
-	pub(crate) fn dedicated_started_at(&self) -> Instant {
-		self.allocation
-			.as_ref()
-			.map_or_else(Instant::now, crate::cpu::Allocation::started_at)
-	}
-
-	pub(crate) fn shared_cpus(&self) -> Option<&std::collections::BTreeSet<u32>> {
-		self.allocation.as_ref().map(crate::cpu::Allocation::shared)
-	}
-
 	fn wait_until_empty(&self) -> tg::Result<()> {
 		let deadline = Instant::now() + self.cleanup_timeout;
 		loop {
-			let contents = read_file_at(&self.directory, c"cgroup.events").map_err(|error| {
-				tg::error!(
-					!error,
-					path = %self.path.display(),
-					"failed to read the cgroup events"
-				)
-			})?;
+			let contents =
+				read_file_at(&self.cleanup.directory, c"cgroup.events").map_err(|error| {
+					tg::error!(
+						!error,
+						path = %self.path.display(),
+						"failed to read the cgroup events"
+					)
+				})?;
 			if !parse_populated(&contents)? {
 				return Ok(());
 			}
@@ -321,13 +395,15 @@ impl Default for Options {
 			memory_oom_group: false,
 			memory_swap: None,
 			pids: None,
+			swap: None,
+			swap_pool: None,
 		}
 	}
 }
 
 impl Drop for Cgroup {
 	fn drop(&mut self) {
-		if self.removed {
+		if self.stopped {
 			return;
 		}
 		if let Err(error) = self.stop() {
@@ -339,8 +415,14 @@ impl Drop for Cgroup {
 			return;
 		}
 		drop(self.allocation.take());
+		drop(self.swap_allocation.take());
+	}
+}
+
+impl Drop for Cleanup {
+	fn drop(&mut self) {
 		if let Err(error) = unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR) {
-			tracing::error!(%error, path = %self.path.display(), "failed to remove cgroup");
+			tracing::error!(%error, name = %self.name, "failed to remove the cgroup");
 		}
 	}
 }
@@ -414,6 +496,47 @@ fn resolve_parent(root: &Path, current: &Path, controllers: &[&str]) -> tg::Resu
 	))
 }
 
+fn validate_memory(root: &Path, parent: &Path, additional: u64) -> tg::Result<()> {
+	for ancestor in parent
+		.ancestors()
+		.take_while(|ancestor| *ancestor != root && ancestor.starts_with(root))
+	{
+		let minimum = read_minimum(ancestor)?;
+		let children = std::fs::read_dir(ancestor).map_err(|error| {
+			tg::error!(!error, "failed to read the memory protection hierarchy")
+		})?;
+		let mut required = if ancestor == parent { additional } else { 0 };
+		for child in children {
+			let child = child
+				.map_err(|error| tg::error!(!error, "failed to read a memory protection entry"))?;
+			if !child
+				.file_type()
+				.map_err(|error| tg::error!(!error, "failed to inspect a memory protection entry"))?
+				.is_dir()
+			{
+				continue;
+			}
+			required = required
+				.checked_add(read_minimum(&child.path())?)
+				.ok_or_else(|| tg::error!("the memory reservation overflowed"))?;
+		}
+		if required > minimum {
+			return Err(tg::error!(
+				"memory minima exceed the runner ancestor protection"
+			));
+		}
+	}
+	Ok(())
+}
+
+fn read_minimum(path: &Path) -> tg::Result<u64> {
+	std::fs::read_to_string(path.join("memory.min"))
+		.map_err(|error| tg::error!(!error, "failed to read the runner memory protection"))?
+		.trim()
+		.parse()
+		.map_err(|error| tg::error!(!error, "invalid runner memory protection"))
+}
+
 fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 	let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
 	file.write_all(bytes)
@@ -456,6 +579,60 @@ fn write_file_at(directory: &OwnedFd, name: &CStr, bytes: &[u8]) -> std::io::Res
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn retained_swap_keeps_its_directory_until_usage_is_zero() {
+		use std::sync::atomic::{AtomicU64, Ordering};
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		let path = temp.path().join("sandbox");
+		std::fs::create_dir_all(&path).unwrap();
+		let directory = std::fs::File::open(&path).unwrap().into();
+		let parent = std::fs::File::open(temp.path()).unwrap().into();
+		let cleanup = Cleanup {
+			directory,
+			name: "sandbox".to_owned(),
+			parent,
+		};
+		let cleanup = Arc::new(cleanup);
+		let pool = crate::budget::Pool::new(100, 0, 1);
+		let allocation = pool.allocate(100.into()).unwrap();
+		let usage = Arc::new(AtomicU64::new(90));
+		let retained = cleanup.clone();
+		let current = usage.clone();
+		let control = crate::budget::Control {
+			limit: Box::new(|_| Ok(())),
+			usage: Box::new(move || {
+				rustix::fs::fstat(&retained.directory)
+					.map_err(|error| tg::error!(!error, "failed to inspect the directory"))?;
+				Ok(current.load(Ordering::SeqCst))
+			}),
+		};
+		allocation.bind(control).unwrap();
+		drop(cleanup);
+		drop(allocation);
+		assert!(path.exists());
+		assert!(pool.allocate(tg::sandbox::Resource::new(20, 20)).is_err());
+		usage.store(0, Ordering::SeqCst);
+		assert!(pool.allocate(tg::sandbox::Resource::new(20, 20)).is_ok());
+		assert!(!path.exists());
+	}
+
+	#[test]
+	fn memory_admission_accounts_for_sibling_minima() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		let parent = temp.path().join("runner");
+		let child = parent.join("sandbox");
+		std::fs::create_dir_all(&child).unwrap();
+		std::fs::write(parent.join("memory.min"), "100").unwrap();
+		std::fs::write(child.join("memory.min"), "60").unwrap();
+		assert!(validate_memory(temp.path(), &parent, 40).is_ok());
+		assert!(validate_memory(temp.path(), &parent, 41).is_err());
+		let leaf = child.join("leaf");
+		std::fs::create_dir(&leaf).unwrap();
+		std::fs::write(child.join("memory.min"), "120").unwrap();
+		std::fs::write(leaf.join("memory.min"), "0").unwrap();
+		assert!(validate_memory(temp.path(), &child, 1).is_err());
+	}
 
 	#[test]
 	fn select_delegated_parent_for_populated_leaf() {

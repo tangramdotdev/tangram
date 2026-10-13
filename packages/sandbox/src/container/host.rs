@@ -382,7 +382,7 @@ fn validate_cgroup_v2() -> tg::Result<()> {
 		cpu_parent: None,
 		cpu_pool: None,
 		cpu_request: None,
-		memory: Some(64 * 1024 * 1024),
+		memory: Some((64 * 1024 * 1024).into()),
 		memory_oom_group: true,
 		memory_swap: Some(0),
 		pids: Some(32),

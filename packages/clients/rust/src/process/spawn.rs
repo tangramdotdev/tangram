@@ -338,8 +338,8 @@ where
 	let command = tg::Referent::new(tg::Either::Left(command_arg), options);
 
 	let spawn_arg = tg::process::spawn::Arg {
-		cached: arg.cached,
 		cache_location: arg.cache_location,
+		cached: arg.cached,
 		checksum,
 		command,
 		debug: normalize_debug(arg.debug),
@@ -630,8 +630,8 @@ impl<O: 'static> tg::Process<O> {
 			let tokens = output.tokens.clone();
 			Some(tangram_futures::task::Shared::spawn(move |_| async move {
 				let arg = super::stdio::StdioTaskArg {
-					instance,
 					id,
+					instance,
 					location,
 					raw,
 					stderr,
@@ -1401,6 +1401,8 @@ fn normalize_sandbox(
 				mounts,
 				network,
 				owner: arg.owner.clone(),
+				storage: None,
+				swap: None,
 				ttl: Some(Duration::ZERO),
 			};
 			Ok(Some(tg::Either::Left(sandbox)))
@@ -1421,6 +1423,8 @@ fn normalize_sandbox_create_arg(
 		mounts: sandbox.mounts,
 		network: sandbox.network,
 		owner: sandbox.owner,
+		storage: sandbox.storage,
+		swap: sandbox.swap,
 		ttl: sandbox.ttl.unwrap_or(Some(Duration::ZERO)),
 	}
 }

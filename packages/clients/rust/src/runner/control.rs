@@ -101,12 +101,12 @@ pub struct HeartbeatClientNotification {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Capacity {
 	pub available: tg::runner::Capacity,
+	/// The maximum number of hardware threads in one affinity domain.
+	pub cpu_limit: u64,
 	/// The number of hardware threads in each physical core.
 	pub cpu_threads_per_core: u64,
-	/// The number of hardware threads not held by dedicated allocations, including convertible cores.
-	pub shared_cpu_limit: u64,
-	/// The shared CPU capacity admitted per hardware thread.
-	pub shared_cpu_overcommit: u64,
+	/// The maximum overcommit factor for each resource.
+	pub overcommit: tg::runner::Overcommit,
 	pub total: tg::runner::Capacity,
 }
 
@@ -195,14 +195,6 @@ pub struct Header {
 
 	#[tangram_serialize(id = 1)]
 	pub scheduler: tg::scheduler::Id,
-}
-
-impl Capacity {
-	#[must_use]
-	pub fn shared_cpu_capacity_per_core(&self) -> u64 {
-		self.shared_cpu_overcommit
-			.saturating_mul(self.cpu_threads_per_core)
-	}
 }
 
 impl tg::Session {

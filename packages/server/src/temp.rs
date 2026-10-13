@@ -49,10 +49,28 @@ impl Temp {
 		self.preserve = true;
 		#[cfg(target_os = "linux")]
 		if let Some(project_id) = self.filesystem_project_id.take() {
-			project_id.release();
+			let path = self.path.parent().unwrap().to_owned();
+			tokio::spawn(Self::release_filesystem_project_id(path, project_id));
 		}
 
 		Ok(())
+	}
+
+	#[cfg(target_os = "linux")]
+	async fn release_filesystem_project_id(path: PathBuf, project_id: crate::runner::project::Id) {
+		loop {
+			match tangram_sandbox::filesystem_project_usage(&path, project_id.value()) {
+				Ok(0) => {
+					project_id.release();
+					return;
+				},
+				Ok(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+				Err(error) => {
+					tracing::error!(%error, "failed to release the filesystem project ID");
+					return;
+				},
+			}
+		}
 	}
 }
 
@@ -82,7 +100,8 @@ impl Drop for Temp {
 					server.temps.remove(&path);
 					#[cfg(target_os = "linux")]
 					if removed && let Some(project_id) = filesystem_project_id {
-						project_id.release();
+						let parent = path.parent().unwrap().to_owned();
+						tokio::spawn(Self::release_filesystem_project_id(parent, project_id));
 					}
 				}
 			});

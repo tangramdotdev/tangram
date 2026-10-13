@@ -567,11 +567,11 @@ pub struct FdbIndex {
 
 	pub cluster: PathBuf,
 
-	pub permission_update_partition_total: u64,
-
 	pub instance: Option<String>,
 
-	pub storage_and_metadata_update_partition_total: u64,
+	pub max_write_operation_batch_size: usize,
+
+	pub permission_update_partition_total: u64,
 
 	pub read_channel_capacity: usize,
 
@@ -579,13 +579,13 @@ pub struct FdbIndex {
 
 	pub read_transaction_concurrency: usize,
 
-	pub storage_relation_batch_size: usize,
+	pub storage_and_metadata_update_partition_total: u64,
 
-	pub usage_update_partition_total: u64,
+	pub storage_relation_batch_size: usize,
 
 	pub usage_partition_total: u64,
 
-	pub max_write_operation_batch_size: usize,
+	pub usage_update_partition_total: u64,
 
 	pub verification: FdbIndexVerification,
 	pub write_operation_batch_size: usize,
@@ -756,9 +756,8 @@ pub struct IndexerUsageExpiration {
 
 #[derive(Clone, Debug)]
 pub struct IndexerUpdates {
-	pub permissions: IndexerUpdate,
-
 	pub max_process_depth: usize,
+	pub permissions: IndexerUpdate,
 
 	pub poll_interval: Duration,
 
@@ -805,11 +804,11 @@ pub struct Object {
 
 	pub cache: Option<ObjectCache>,
 
+	pub index_queue: IndexQueue,
+
 	pub permission_time_to_live: Duration,
 
 	pub permission_time_to_touch: Duration,
-
-	pub index_queue: IndexQueue,
 
 	pub put_timeout: Duration,
 
@@ -1100,9 +1099,8 @@ pub struct RemoteCache {
 
 #[derive(Clone, Debug)]
 pub struct Runner {
-	pub cpu_pool: Option<PathBuf>,
-
 	pub control_channel_capacity: usize,
+	pub cpu_pool: Option<PathBuf>,
 
 	pub cpus: Option<u64>,
 
@@ -1117,6 +1115,9 @@ pub struct Runner {
 	pub memory: Option<u64>,
 
 	pub memory_sampling_interval: Duration,
+
+	/// The maximum overcommit factor for each resource.
+	pub overcommit: tg::runner::Overcommit,
 
 	pub process_control_connection_pool_refresh_interval: Duration,
 
@@ -1151,11 +1152,10 @@ pub struct Runner {
 	pub sandbox_state_ttl: Duration,
 
 	pub scheduler_ttl: Duration,
-
-	/// The shared CPU capacity admitted per hardware thread.
-	pub shared_cpu_overcommit: u64,
-
 	pub stdio_drain_timeout: Duration,
+
+	pub storage: Option<u64>,
+	pub swap: Option<u64>,
 
 	pub token: Option<String>,
 }
@@ -1381,17 +1381,17 @@ pub struct Scheduler {
 
 	pub inbox_ttl: Duration,
 
-	pub message_ack_timeout: Duration,
-
-	pub message_retry: Retry,
-
-	pub message_timeout: Duration,
-
 	pub max_create_sandbox_attempts: usize,
 
 	pub max_create_sandbox_requests: usize,
 
 	pub max_create_sandbox_requests_per_runner: usize,
+
+	pub message_ack_timeout: Duration,
+
+	pub message_retry: Retry,
+
+	pub message_timeout: Duration,
 
 	/// The maximum number of unfinished requests of each kind.
 	pub request_concurrency: usize,
@@ -1745,9 +1745,9 @@ pub struct Vfs {
 
 	pub fuse: VfsFuse,
 
-	pub kind: VfsKind,
-
 	pub io: VfsIo,
+
+	pub kind: VfsKind,
 
 	pub nfs: VfsNfs,
 
@@ -1916,8 +1916,8 @@ impl Default for Config {
 			roles: default_roles(),
 			runner: Runner::default(),
 			runners: false,
-			scheduler: Scheduler::default(),
 			sandbox: Sandbox::default(),
+			scheduler: Scheduler::default(),
 			sync: Sync::default(),
 			usage: Usage::default(),
 			verification: Verification::default(),
@@ -2225,17 +2225,17 @@ impl Default for FdbIndex {
 		Self {
 			cleaning_partition_total: 1,
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
-			permission_update_partition_total: 1,
 			instance: None,
-			storage_and_metadata_update_partition_total: 1,
+			max_write_operation_batch_size: 1_000,
+			permission_update_partition_total: 1,
 			read_channel_capacity: 256,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 64,
+			storage_and_metadata_update_partition_total: 1,
 			storage_relation_batch_size: 8,
-			usage_update_partition_total: 1,
 			usage_partition_total: 1,
+			usage_update_partition_total: 1,
 			verification: FdbIndexVerification::default(),
-			max_write_operation_batch_size: 1_000,
 			write_operation_batch_size: 8_000,
 			write_transaction_concurrency: 256,
 		}
@@ -2394,8 +2394,8 @@ impl Default for IndexerUsageExpiration {
 impl Default for IndexerUpdates {
 	fn default() -> Self {
 		Self {
-			permissions: IndexerUpdate::default(),
 			max_process_depth: 1024,
+			permissions: IndexerUpdate::default(),
 			poll_interval: Duration::from_millis(100),
 			storage_and_metadata: IndexerUpdate::default(),
 			usage: IndexerUpdate::default(),
@@ -2445,9 +2445,9 @@ impl Default for Object {
 			archive_queue: ArchiveQueue::default(),
 			archive_retry: object_archive_retry_default(),
 			cache: None,
+			index_queue: IndexQueue::default(),
 			permission_time_to_live: default_object_permission_time_to_live(),
 			permission_time_to_touch: default_time_to_touch(),
-			index_queue: IndexQueue::default(),
 			put_timeout: default_object_put_timeout(),
 			queue_checkpoint_interval: Duration::from_secs(1),
 			queue_recovery_batch_size: 1024,
@@ -2668,8 +2668,8 @@ impl Default for RemoteCache {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
-			cpu_pool: None,
 			control_channel_capacity: 256,
+			cpu_pool: None,
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
@@ -2677,6 +2677,7 @@ impl Default for Runner {
 			javascript: JavaScript::default(),
 			memory: None,
 			memory_sampling_interval: Duration::from_secs(1),
+			overcommit: tg::runner::Overcommit::default(),
 			process_control_connection_pool_refresh_interval: Duration::from_millis(2500),
 			process_control_connection_pool_size: 1,
 			process_control_connection_pool_ttl: Duration::from_secs(5),
@@ -2694,8 +2695,9 @@ impl Default for Runner {
 			sandbox_pool_size: 1,
 			sandbox_state_ttl: Duration::from_mins(1),
 			scheduler_ttl: Duration::from_secs(10),
-			shared_cpu_overcommit: 4,
 			stdio_drain_timeout: Duration::from_secs(1),
+			storage: None,
+			swap: None,
 			token: None,
 		}
 	}
@@ -2712,13 +2714,13 @@ impl Default for Scheduler {
 			heartbeat_interval: Duration::from_secs(1),
 			heartbeat_ttl: Duration::from_secs(10),
 			inbox_ttl: Duration::from_mins(1),
-			message_ack_timeout: Duration::from_secs(10),
-			message_retry: message_retry_default(),
-			message_timeout: Duration::from_secs(10),
 			max_create_sandbox_attempts: default_scheduler_max_create_sandbox_attempts(),
 			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),
 			max_create_sandbox_requests_per_runner:
 				default_scheduler_max_create_sandbox_requests_per_runner(),
+			message_ack_timeout: Duration::from_secs(10),
+			message_retry: message_retry_default(),
+			message_timeout: Duration::from_secs(10),
 			request_concurrency: 1024,
 			restart_delay: Duration::from_secs(1),
 			runner_ttl: Duration::from_secs(10),
@@ -3060,8 +3062,8 @@ impl Default for Vfs {
 			directory_snapshot_cache_capacity: 64 * 1024 * 1024,
 			directory_snapshot_read_entry_limit: 65_536,
 			fuse: VfsFuse::default(),
-			kind: VfsKind::Auto,
 			io: VfsIo::Auto,
+			kind: VfsKind::Auto,
 			nfs: VfsNfs::default(),
 			passthrough: VfsPassthrough::Auto,
 			sqpoll: true,

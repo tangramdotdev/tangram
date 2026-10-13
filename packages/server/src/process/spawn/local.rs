@@ -141,17 +141,11 @@ impl Session {
 			.map(|process| process.control.clone())
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
-		let shared_cpu_capacity_per_core = self
-			.server
-			.runner
-			.state()
-			.capacity()
-			.get()
-			.shared_cpu_capacity_per_core();
+		let overcommit = self.server.runner.state().capacity().get().overcommit;
 		loop {
 			let scheduler = self.server.runner.state().wait_for_scheduler().await;
 			if !self.server.runner.state().healthy()
-				|| !capacity.contains(requested, shared_cpu_capacity_per_core)
+				|| capacity.try_borrow(requested, overcommit).is_none()
 			{
 				return Ok(());
 			}
@@ -441,6 +435,8 @@ impl Session {
 					sandbox_arg.cpu,
 					sandbox_arg.memory,
 					sandbox_arg.hostname.as_deref(),
+					sandbox_arg.storage,
+					sandbox_arg.swap,
 				)?;
 				let sandbox = tg::sandbox::Id::new();
 				let token = self

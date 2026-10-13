@@ -21,40 +21,42 @@ pub(crate) struct Accounting {
 	task: Option<tokio::task::JoinHandle<tg::Result<tg::sandbox::Usage>>>,
 }
 
+#[derive(Default)]
 pub(crate) struct Snapshot {
 	pub(crate) cpu: u64,
 	pub(crate) memory: u64,
+	pub(crate) storage: u64,
+	pub(crate) swap: u64,
 }
 
 struct Accumulator {
-	cpu: tg::sandbox::Cpu,
-	dedicated_started_at: Instant,
-	initial_cpu: u64,
+	allocated_at: Instant,
+	consumption: u128,
+	cpu: u128,
+	cpu_duration: u128,
 	memory: u128,
 	previous: Snapshot,
 	previous_at: Instant,
+	resources: tg::runner::Capacity,
+	storage: u128,
+	swap: u128,
 }
 
 impl Accounting {
 	pub(crate) fn new(
 		source: Source,
-		cpu: tg::sandbox::Cpu,
+		resources: tg::runner::Capacity,
 		interval: Duration,
-		dedicated_started_at: Instant,
+		allocated_at: Instant,
 	) -> tg::Result<Self> {
-		Self::with_source(
-			move || source.snapshot(),
-			cpu,
-			interval,
-			dedicated_started_at,
-		)
+		Self::with_source(move || source.snapshot(), resources, interval, allocated_at)
 	}
 
 	fn with_source(
 		source: impl Fn() -> tg::Result<Snapshot> + Send + 'static,
-		cpu: tg::sandbox::Cpu,
+		resources: tg::runner::Capacity,
 		interval: Duration,
-		dedicated_started_at: Instant,
+		allocated_at: Instant,
 	) -> tg::Result<Self> {
 		if interval.is_zero() {
 			return Err(tg::error!(
@@ -63,8 +65,8 @@ impl Accounting {
 		}
 		let initial = source()?;
 		let started_at = Instant::now();
-		let mut accumulator = Accumulator::new(cpu, initial, started_at);
-		accumulator.dedicated_started_at = dedicated_started_at;
+		let mut accumulator = Accumulator::new(resources, Snapshot::default(), allocated_at);
+		accumulator.sample(initial, started_at)?;
 		let (requests, mut request_receiver) = tokio::sync::mpsc::channel::<
 			tokio::sync::oneshot::Sender<tg::Result<tg::sandbox::Usage>>,
 		>(1);
@@ -85,6 +87,7 @@ impl Accounting {
 				}
 			}
 			accumulator.sample(source()?, Instant::now())?;
+			accumulator.finish_cpu()?;
 			let usage = accumulator.usage()?;
 			Ok(usage)
 		});
@@ -136,194 +139,289 @@ impl Drop for Accounting {
 }
 
 impl Accumulator {
-	fn new(cpu: tg::sandbox::Cpu, initial: Snapshot, started_at: Instant) -> Self {
+	fn new(resources: tg::runner::Capacity, initial: Snapshot, started_at: Instant) -> Self {
 		Self {
-			cpu,
-			dedicated_started_at: started_at,
-			initial_cpu: initial.cpu,
+			allocated_at: started_at,
+			consumption: 0,
+			cpu: 0,
+			cpu_duration: 0,
 			memory: 0,
 			previous: initial,
 			previous_at: started_at,
+			resources,
+			storage: 0,
+			swap: 0,
 		}
 	}
 
 	fn sample(&mut self, snapshot: Snapshot, at: Instant) -> tg::Result<()> {
-		// Integrate adjacent memory samples using the actual elapsed time.
-		let bytes = u128::from(self.previous.memory) + u128::from(snapshot.memory);
 		let duration = at.duration_since(self.previous_at).as_nanos();
-		let memory = bytes
-			.checked_mul(duration)
-			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
-		self.memory = self
-			.memory
-			.checked_add(memory)
-			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
+		let cpu = snapshot
+			.cpu
+			.checked_sub(self.previous.cpu)
+			.ok_or_else(|| tg::error!("the CPU counter decreased"))?;
+		self.sample_cpu(u128::from(cpu) * 1000, duration)?;
+		for (accumulated, previous, current, minimum) in [
+			(
+				&mut self.memory,
+				self.previous.memory.min(self.resources.memory.max),
+				snapshot.memory.min(self.resources.memory.max),
+				self.resources.memory.min,
+			),
+			(
+				&mut self.storage,
+				self.previous.storage.min(self.resources.storage.max),
+				snapshot.storage.min(self.resources.storage.max),
+				self.resources.storage.min,
+			),
+			(
+				&mut self.swap,
+				self.previous.swap.min(self.resources.swap.max),
+				snapshot.swap.min(self.resources.swap.max),
+				self.resources.swap.min,
+			),
+		] {
+			let area = integral(previous, current, minimum, duration)?;
+			*accumulated = accumulated
+				.checked_add(area)
+				.ok_or_else(|| tg::error!("the resource consumption overflowed"))?;
+		}
+
 		self.previous = snapshot;
 		self.previous_at = at;
 		Ok(())
 	}
 
-	fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
-		let shared = self
-			.previous
-			.cpu
-			.checked_sub(self.initial_cpu)
-			.ok_or_else(|| tg::error!("the sandbox CPU counter decreased"))?;
-		let shared = if self.cpu.shared == 0 {
+	fn sample_cpu(&mut self, mut cpu: u128, mut duration: u128) -> tg::Result<()> {
+		while duration > 0 {
+			let chunk = duration.min(1_000_000_000 - self.cpu_duration);
+			let consumed = if chunk == duration {
+				cpu
+			} else {
+				cpu.checked_mul(chunk)
+					.ok_or_else(|| tg::error!("the CPU usage overflowed"))?
+					/ duration
+			};
+			self.cpu = self
+				.cpu
+				.checked_add(consumed)
+				.ok_or_else(|| tg::error!("the CPU usage overflowed"))?;
+			self.cpu_duration += chunk;
+			cpu -= consumed;
+			duration -= chunk;
+			if self.cpu_duration == 1_000_000_000 {
+				self.finish_cpu()?;
+			}
+		}
+		Ok(())
+	}
+
+	fn finish_cpu(&mut self) -> tg::Result<()> {
+		let minimum = u128::from(self.resources.cpu.min.millis()) * self.cpu_duration;
+		let consumed = if self.resources.cpu.min == self.resources.cpu.max {
 			0
 		} else {
-			shared.div_ceil(1_000_000)
+			self.cpu.saturating_sub(minimum)
 		};
-		let dedicated = u128::from(self.cpu.dedicated)
-			.checked_mul(
-				self.previous_at
-					.duration_since(self.dedicated_started_at)
-					.as_nanos(),
-			)
-			.ok_or_else(|| tg::error!("the dedicated CPU usage overflowed"))?
-			.div_ceil(1_000_000);
-		let dedicated = u64::try_from(dedicated)
-			.map_err(|_| tg::error!("the dedicated CPU usage is too large"))?;
-		let memory = self.memory.div_ceil(2 * 1_048_576 * 1_000_000);
-		let memory = u64::try_from(memory)
-			.map_err(|_| tg::error!("the sandbox memory usage is too large"))?;
-		let cpu = tg::sandbox::Cpu { dedicated, shared };
-		Ok(tg::sandbox::Usage { cpu, memory })
+		self.consumption = self
+			.consumption
+			.checked_add(consumed)
+			.ok_or_else(|| tg::error!("the CPU usage overflowed"))?;
+		self.cpu = 0;
+		self.cpu_duration = 0;
+		Ok(())
 	}
+
+	fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
+		let consumption = u64::try_from(self.consumption.div_ceil(1_000_000_000))
+			.map_err(|_| tg::error!("the CPU consumption is too large"))?;
+		let reservation = u128::from(self.resources.cpu.min.millis())
+			* self
+				.previous_at
+				.duration_since(self.allocated_at)
+				.as_nanos();
+		let reservation = u64::try_from(reservation.div_ceil(1_000_000_000))
+			.map_err(|_| tg::error!("the CPU reservation is too large"))?;
+
+		let duration = self
+			.previous_at
+			.duration_since(self.allocated_at)
+			.as_nanos();
+		let cpu = tg::sandbox::ResourceUsage {
+			consumption,
+			reservation,
+		};
+		let memory = byte_usage(self.memory, self.resources.memory.min, duration)?;
+		let storage = byte_usage(self.storage, self.resources.storage.min, duration)?;
+		let swap = byte_usage(self.swap, self.resources.swap.min, duration)?;
+		Ok(tg::sandbox::Usage {
+			cpu,
+			memory,
+			storage,
+			swap,
+		})
+	}
+}
+
+fn integral(previous: u64, current: u64, minimum: u64, duration: u128) -> tg::Result<u128> {
+	let low = previous.min(current);
+	let high = previous.max(current);
+	if high <= minimum {
+		return Ok(0);
+	}
+	let area = if low >= minimum {
+		u128::from(low - minimum) + u128::from(high - minimum)
+	} else {
+		let excess = u128::from(high - minimum);
+		return excess
+			.checked_mul(excess)
+			.and_then(|area| area.checked_mul(duration))
+			.map(|area| area / u128::from(high - low))
+			.ok_or_else(|| tg::error!("the resource consumption overflowed"));
+	};
+	area.checked_mul(duration)
+		.ok_or_else(|| tg::error!("the resource consumption overflowed"))
+}
+
+fn byte_usage(
+	consumption: u128,
+	minimum: u64,
+	duration: u128,
+) -> tg::Result<tg::sandbox::ResourceUsage> {
+	let consumption = u64::try_from(consumption.div_ceil(2 * 1_048_576 * 1_000_000))
+		.map_err(|_| tg::error!("the resource consumption is too large"))?;
+	let reservation = u128::from(minimum)
+		.checked_mul(duration)
+		.ok_or_else(|| tg::error!("the resource reservation overflowed"))?
+		.div_ceil(1_048_576 * 1_000_000);
+	let reservation = u64::try_from(reservation)
+		.map_err(|_| tg::error!("the resource reservation is too large"))?;
+	Ok(tg::sandbox::ResourceUsage {
+		consumption,
+		reservation,
+	})
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 
-	#[tokio::test]
-	async fn current_usage_keeps_accounting_running_and_final_usage_is_cached() {
-		let counter = std::sync::atomic::AtomicU64::new(0);
-		let source = move || {
-			let snapshot = Snapshot {
-				cpu: counter.fetch_add(500_000_000, std::sync::atomic::Ordering::Relaxed),
-				memory: 1_048_576,
-			};
-			Ok(snapshot)
-		};
-		let mut accounting =
-			Accounting::with_source(source, 1.into(), Duration::from_secs(3600), Instant::now())
-				.unwrap();
-		assert_eq!(accounting.usage().await.unwrap().cpu.shared, 500);
-		assert_eq!(accounting.usage().await.unwrap().cpu.shared, 1000);
-		let usage = accounting.finish().await.unwrap();
-		assert_eq!(usage.cpu.shared, 1500);
-		let current = accounting.usage().await.unwrap();
-		assert_eq!(current.cpu, usage.cpu);
-		assert_eq!(current.memory, usage.memory);
-		let finalized = accounting.finish().await.unwrap();
-		assert_eq!(finalized.cpu, usage.cpu);
-		assert_eq!(finalized.memory, usage.memory);
-	}
-
-	#[tokio::test]
-	async fn current_usage_preserves_sampling_errors() {
-		let first = std::sync::atomic::AtomicBool::new(true);
-		let source = move || {
-			if !first.swap(false, std::sync::atomic::Ordering::Relaxed) {
-				return Err(tg::error!("the usage source failed"));
-			}
-			let snapshot = Snapshot { cpu: 0, memory: 0 };
-			Ok(snapshot)
-		};
-		let mut accounting =
-			Accounting::with_source(source, 1.into(), Duration::from_secs(3600), Instant::now())
-				.unwrap();
-		assert!(accounting.usage().await.is_err());
-		assert!(accounting.usage().await.is_err());
-		assert!(accounting.finish().await.is_err());
-	}
-
 	#[test]
-	fn dedicated_time_includes_allocation_before_claim() {
+	fn charges_the_minimum_and_clips_each_consumption_interval() {
 		let allocated_at = Instant::now();
-		let claimed_at = allocated_at + Duration::from_secs(2);
-		let cpu = tg::sandbox::Cpu {
-			dedicated: 1,
-			shared: 0,
+		let started_at = allocated_at + Duration::from_secs(2);
+		let cpu = tg::sandbox::Cpu::new(
+			tg::sandbox::Amount::from_millis(250),
+			tg::sandbox::Amount::from_millis(1000),
+		);
+		let resources = tg::runner::Capacity {
+			cpu,
+			..Default::default()
 		};
-		let initial = Snapshot {
-			cpu: 500_000_000,
-			memory: 1_048_576,
-		};
-		let mut accumulator = Accumulator::new(cpu, initial, claimed_at);
-		accumulator.dedicated_started_at = allocated_at;
+		let mut accumulator = Accumulator::new(resources, Snapshot::default(), started_at);
+		accumulator.allocated_at = allocated_at;
 		accumulator
 			.sample(
 				Snapshot {
-					cpu: 600_000_000,
-					memory: 1_048_576,
+					cpu: 100_000_000,
+					..Default::default()
 				},
-				claimed_at + Duration::from_secs(1),
+				started_at + Duration::from_secs(1),
 			)
 			.unwrap();
-		let usage = accumulator.usage().unwrap();
-		assert_eq!(usage.cpu.shared, 0);
-		assert_eq!(usage.cpu.dedicated, 3000);
-		assert_eq!(usage.memory, 1000);
-	}
-
-	#[test]
-	fn integrates_memory_and_counts_only_cpu_execution() {
-		let started_at = Instant::now();
-		let cpu = tg::sandbox::Cpu {
-			dedicated: 2,
-			shared: 4,
-		};
-		let initial = Snapshot {
-			cpu: 100,
-			memory: 1_048_576,
-		};
-		let mut accumulator = Accumulator::new(cpu, initial, started_at);
 		accumulator
 			.sample(
 				Snapshot {
-					cpu: 500_000_100,
-					memory: 3 * 1_048_576,
+					cpu: 900_000_000,
+					..Default::default()
 				},
 				started_at + Duration::from_secs(2),
 			)
 			.unwrap();
+		let usage = accumulator.usage().unwrap();
+		assert_eq!(usage.cpu.reservation, 1000);
+		assert_eq!(usage.cpu.consumption, 550);
+	}
+
+	#[test]
+	fn fractional_cpu_bursts_are_billed_over_bandwidth_windows() {
+		for (maximum, expected) in [(250, 0), (500, 250)] {
+			let started_at = Instant::now();
+			let cpu = tg::sandbox::Cpu::new(
+				tg::sandbox::Amount::from_millis(250),
+				tg::sandbox::Amount::from_millis(maximum),
+			);
+			let resources = tg::runner::Capacity {
+				cpu,
+				..Default::default()
+			};
+			let mut accumulator = Accumulator::new(resources, Snapshot::default(), started_at);
+			for sample in 1..=20 {
+				let snapshot = Snapshot {
+					cpu: (sample * 50_000_000_u64).min(maximum * 1_000_000),
+					..Default::default()
+				};
+				accumulator
+					.sample(snapshot, started_at + Duration::from_millis(sample * 50))
+					.unwrap();
+			}
+			let usage = accumulator.usage().unwrap();
+			assert_eq!(usage.cpu.reservation, 250);
+			assert_eq!(usage.cpu.consumption, expected);
+		}
+	}
+
+	#[test]
+	fn short_cpu_bursts_preserve_actual_execution() {
+		let start = Instant::now();
+		let resources = tg::runner::Capacity {
+			cpu: tg::sandbox::Amount::from_millis(250).into(),
+			..Default::default()
+		};
+		let mut accumulator = Accumulator::new(resources, Snapshot::default(), start);
+		let snapshot = Snapshot {
+			cpu: 100_000_000,
+			..Default::default()
+		};
 		accumulator
-			.sample(
-				Snapshot {
-					cpu: 750_000_100,
-					memory: 1_048_576,
-				},
-				started_at + Duration::from_secs(3),
-			)
+			.sample(snapshot, start + Duration::from_millis(100))
+			.unwrap();
+		accumulator.finish_cpu().unwrap();
+		assert_eq!(accumulator.usage().unwrap().cpu.consumption, 100);
+	}
+
+	#[test]
+	fn fixed_byte_reservations_do_not_also_bill_consumption() {
+		let started_at = Instant::now();
+		let resource = tg::sandbox::Resource::new(1_048_576, 1_048_576);
+		let resources = tg::runner::Capacity {
+			memory: resource,
+			storage: resource,
+			swap: resource,
+			..Default::default()
+		};
+		let mut accumulator = Accumulator::new(resources, Snapshot::default(), started_at);
+		let snapshot = Snapshot {
+			memory: 2_097_152,
+			storage: 2_097_152,
+			swap: 2_097_152,
+			..Default::default()
+		};
+		accumulator
+			.sample(snapshot, started_at + Duration::from_secs(1))
 			.unwrap();
 		let usage = accumulator.usage().unwrap();
-		assert_eq!(usage.cpu.shared, 750);
-		assert_eq!(usage.cpu.dedicated, 6000);
-		assert_eq!(usage.memory, 6000);
-	}
-	#[test]
-	fn rounds_once_after_accumulating_partial_intervals() {
-		let started_at = Instant::now();
-		let initial = Snapshot {
-			cpu: 0,
-			memory: 1_048_576,
-		};
-		let mut accumulator = Accumulator::new(1.into(), initial, started_at);
-		for index in 1..=10 {
-			accumulator
-				.sample(
-					Snapshot {
-						cpu: index * 100_000,
-						memory: 1_048_576,
-					},
-					started_at + Duration::from_micros(index * 100),
-				)
-				.unwrap();
+		for resource in [usage.memory, usage.storage, usage.swap] {
+			assert_eq!(resource.reservation, 1000);
+			assert_eq!(resource.consumption, 0);
 		}
-		let usage = accumulator.usage().unwrap();
-		assert_eq!(usage.cpu.shared, 1);
-		assert_eq!(usage.memory, 1);
+	}
+
+	#[test]
+	fn integrates_only_the_triangle_above_a_crossed_minimum() {
+		assert_eq!(integral(0, 4, 2, 10).unwrap(), 10);
+		assert_eq!(integral(4, 0, 2, 10).unwrap(), 10);
+		assert_eq!(integral(0, 1, 2, 10).unwrap(), 0);
+		assert_eq!(integral(3, 4, 2, 10).unwrap(), 30);
 	}
 }

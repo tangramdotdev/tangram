@@ -38,7 +38,7 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub memory: Option<u64>,
+	pub memory: Option<tg::sandbox::Resource<u64>>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
@@ -51,6 +51,14 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 8, skip_serializing_if = "Option::is_none")]
 	pub owner: Option<tg::Principal>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
+	pub storage: Option<tg::sandbox::Resource<u64>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
+	pub swap: Option<tg::sandbox::Resource<u64>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]

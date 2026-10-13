@@ -22,15 +22,14 @@ pub struct Args {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Ttl {
-	#[arg(id = "create.ttl.ttl", long = "ttl", overrides_with = "create.ttl.no_ttl", value_parser = humantime::parse_duration)]
-	pub ttl: Option<Duration>,
-
 	#[arg(
 		id = "create.ttl.no_ttl",
 		long = "no-ttl",
 		overrides_with = "create.ttl.ttl"
 	)]
 	pub no_ttl: bool,
+	#[arg(id = "create.ttl.ttl", long = "ttl", overrides_with = "create.ttl.no_ttl", value_parser = humantime::parse_duration)]
+	pub ttl: Option<Duration>,
 }
 
 impl Ttl {
@@ -46,30 +45,26 @@ impl Ttl {
 impl Cli {
 	pub async fn command_sandbox_create(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let cpu = crate::sandbox::cpu(&args.arg);
 		let ports = args.arg.ports;
 		let network = crate::sandbox::normalize_network(&args.arg.network, ports)?;
 		let owner = self.resolve_owner(&client, &args.arg.owner).await?;
 		let ttl = args.ttl.get(client.arg().sandbox.ttl);
 		let sandbox = tg::Sandbox::builder()
-			.cpu(
-				args.arg
-					.cpu
-					.map(|shared| tg::sandbox::Cpu {
-						dedicated: args.arg.dedicated_cpu.unwrap_or(0),
-						shared,
-					})
-					.or_else(|| {
-						args.arg.dedicated_cpu.map(|dedicated| tg::sandbox::Cpu {
-							dedicated,
-							shared: 0,
-						})
-					}),
-			)
+			.cpu(cpu)
 			.host(args.host)
 			.hostname(args.arg.hostname)
 			.isolation(args.arg.isolation)
 			.location(args.location.get())
-			.memory(args.arg.memory)
+			.memory(crate::sandbox::resource(
+				args.arg.memory_min,
+				args.arg.memory,
+			))
+			.storage(crate::sandbox::resource(
+				args.arg.storage_min,
+				args.arg.storage,
+			))
+			.swap(crate::sandbox::resource(args.arg.swap_min, args.arg.swap))
 			.mounts(args.arg.mounts)
 			.network(network)
 			.owner(owner)

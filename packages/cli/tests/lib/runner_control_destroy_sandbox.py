@@ -28,13 +28,15 @@ def send(event, value):
     chunk(f"event: {event}\ndata: {json.dumps(value)}\n\n".encode())
 
 
+empty = {resource: {"max": 0, "min": 0} for resource in ("cpu", "memory", "storage", "swap")}
 capacity = {
-    "available": {"cpu": {"dedicated": 0, "shared": 0}, "memory": 0},
+    "available": empty,
+    "cpu_limit": 0,
     "cpu_threads_per_core": 1,
-    "shared_cpu_limit": 0,
-    "shared_cpu_overcommit": 4,
-    "total": {"cpu": {"dedicated": 0, "shared": 0}, "memory": 0},
+    "overcommit": {"cpu": 4, "memory": 1, "storage": 1, "swap": 1},
+    "total": empty,
 }
+
 arg = {"heartbeat": {"capacity": capacity, "index": 0, "sandboxes": []}, "host": "test", "id": runner, "scheduler_ttl": 300}
 payload = json.dumps(arg).encode()
 length = len(payload)

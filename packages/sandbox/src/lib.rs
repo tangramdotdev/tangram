@@ -26,6 +26,10 @@ mod usage;
 mod util;
 
 #[cfg(target_os = "linux")]
+pub mod budget;
+#[cfg(target_os = "linux")]
+pub mod capacity;
+#[cfg(target_os = "linux")]
 pub mod container;
 #[cfg(target_os = "linux")]
 pub mod cpu;
@@ -42,6 +46,8 @@ pub mod vm;
 pub struct Sandbox(Arc<State>);
 
 pub struct State {
+	#[cfg(target_os = "linux")]
+	_storage: Option<budget::Allocation>,
 	accounting: tokio::sync::Mutex<Option<usage::Accounting>>,
 	arg: Arg,
 
@@ -79,6 +85,7 @@ pub struct SpawnArg {
 
 #[derive(Clone, Debug)]
 pub struct Arg {
+	pub allocated_at: std::time::Instant,
 	#[cfg(target_os = "linux")]
 	pub cgroup_cleanup_interval: Duration,
 	#[cfg(target_os = "linux")]
@@ -101,7 +108,7 @@ pub struct Arg {
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
 	pub isolation: Isolation,
-	pub memory: Option<u64>,
+	pub memory: Option<tg::sandbox::Resource<u64>>,
 	pub memory_sampling_interval: Duration,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<Network>,
@@ -112,7 +119,13 @@ pub struct Arg {
 	pub request_timeout: Duration,
 	pub rootfs_path: PathBuf,
 	pub shutdown_timeout: Duration,
+	pub storage: Option<tg::sandbox::Resource<u64>>,
+	#[cfg(target_os = "linux")]
+	pub storage_pool: Option<budget::Pool>,
 	pub store_path: PathBuf,
+	pub swap: Option<tg::sandbox::Resource<u64>>,
+	#[cfg(target_os = "linux")]
+	pub swap_pool: Option<budget::Pool>,
 	pub tangram_path: PathBuf,
 	pub tangram_socket_path: Option<PathBuf>,
 }
@@ -263,15 +276,32 @@ pub enum Stdio {
 	Tty,
 }
 
+#[cfg(target_os = "linux")]
+pub fn filesystem_project_usage(path: &Path, project: u32) -> tg::Result<u64> {
+	let directory = std::fs::File::open(path)
+		.map_err(|error| tg::error!(!error, "failed to open the filesystem project meter"))?;
+	container::filesystem::usage(&directory, project)
+}
+
 impl Sandbox {
 	#[tracing::instrument(name = "sandbox.create_physical", level = "debug", skip_all, fields(sandbox_index = arg.index), err(level = "debug"))]
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
 		validate_resources(&arg.isolation, arg.cpu, arg.memory)?;
+		for resource in [arg.memory, arg.storage, arg.swap].into_iter().flatten() {
+			resource.validate()?;
+		}
+		if !matches!(arg.isolation, Isolation::Container(_))
+			&& (arg.storage.is_some() || arg.swap.is_some())
+		{
+			return Err(tg::error!(
+				"storage and swap bounds require container isolation"
+			));
+		}
 		validate_options(&arg)?;
 		#[cfg(target_os = "linux")]
-		if arg.cpu.is_some_and(|cpu| cpu.dedicated > 0) && arg.cpu_pool.is_none() {
+		if arg.cpu.is_some_and(|cpu| cpu.min.millis() > 0) && arg.cpu_pool.is_none() {
 			return Err(tg::error!(
-				"dedicated CPUs require an exclusive sandbox CPU pool"
+				"CPU reservations require an exclusive sandbox CPU pool"
 			));
 		}
 
@@ -350,11 +380,18 @@ impl Sandbox {
 			url,
 		};
 		#[cfg(target_os = "linux")]
-		let (mut process, network, filesystem, cgroup) = match &arg.isolation {
+		let (mut process, network, filesystem, cgroup, storage, accounting) = match &arg.isolation {
 			Isolation::Container(_) => {
 				let mut network = crate::container::network::create(&arg)?;
 				let output = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
-				(output.process, network, output.filesystem, output.cgroup)
+				(
+					output.process,
+					network,
+					output.filesystem,
+					output.cgroup,
+					output.storage,
+					Some(output.accounting),
+				)
 			},
 			Isolation::Seatbelt(_) => {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
@@ -386,7 +423,7 @@ impl Sandbox {
 				let cgroup = crate::container::cgroup::Cgroup::new(&name, &options)?;
 				let process =
 					self::vm::spawn(&arg, &serve_arg, network.as_ref(), &cgroup.handle()?)?;
-				(process, network, None, Some(cgroup))
+				(process, network, None, Some(cgroup), None, None)
 			},
 		};
 
@@ -455,7 +492,18 @@ impl Sandbox {
 		};
 
 		let sandbox = Self(Arc::new(State {
-			accounting: tokio::sync::Mutex::new(None),
+			#[cfg(target_os = "linux")]
+			_storage: storage,
+			accounting: tokio::sync::Mutex::new({
+				#[cfg(target_os = "linux")]
+				{
+					accounting
+				}
+				#[cfg(target_os = "macos")]
+				{
+					None
+				}
+			}),
 			arg,
 			#[cfg(target_os = "linux")]
 			cgroup: tokio::sync::Mutex::new(cgroup),
@@ -500,7 +548,7 @@ impl Sandbox {
 			.and_then(container::cgroup::Cgroup::cpu_lease)
 	}
 
-	/// Begin accounting when a sandbox is claimed, before spawning its workloads.
+	/// Ensure accounting has started before spawning workloads.
 	pub async fn start(&self) -> tg::Result<()> {
 		let _destroy = self.0.destroy.lock().await;
 		let mut accounting = self.0.accounting.lock().await;
@@ -508,40 +556,55 @@ impl Sandbox {
 			return Ok(());
 		}
 		#[cfg(target_os = "linux")]
-		let (source, dedicated_started_at) = {
+		let (source, allocated_at) = {
 			let cgroup = self.0.cgroup.lock().await;
 			let cgroup = cgroup
 				.as_ref()
 				.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
-			let cpu = self.0.arg.cpu.unwrap_or(1.into());
-			let source = usage::Source::new(
-				cgroup.handle()?,
-				cgroup.shared_cpus(),
-				cpu.dedicated > 0 && cpu.shared > 0,
-			)?;
-			(source, cgroup.dedicated_started_at())
+			let (path, project) = if let Isolation::Container(container) = &self.0.arg.isolation {
+				let project = container.filesystem_project_id;
+				let path = if project.is_some() {
+					Self::host_filesystem_path_from_root(&self.0.arg.path)
+				} else {
+					self.0.arg.path.clone()
+				};
+				(path, project)
+			} else {
+				(self.0.arg.path.clone(), None)
+			};
+			let source = usage::Source::new(cgroup.handle()?, path, project)?;
+			(source, self.0.arg.allocated_at)
 		};
 		#[cfg(target_os = "macos")]
-		let (source, dedicated_started_at) = {
+		let (source, allocated_at) = {
 			let process = self.0.process.lock().await;
 			let pid = process
 				.id()
 				.ok_or_else(|| tg::error!("the sandbox process has exited"))?
 				.try_into()
 				.map_err(|_| tg::error!("the sandbox process ID is too large"))?;
-			(usage::Source::new(pid), std::time::Instant::now())
+			(usage::Source::new(pid), self.0.arg.allocated_at)
 		};
-		let cpu = self.0.arg.cpu.unwrap_or(1.into());
+		let resources = tg::runner::Capacity {
+			cpu: self
+				.0
+				.arg
+				.cpu
+				.unwrap_or(tg::sandbox::Amount::from_millis(u64::from(u32::MAX)).into()),
+			memory: self.0.arg.memory.unwrap_or(u64::MAX.into()),
+			storage: self.0.arg.storage.unwrap_or(u64::MAX.into()),
+			swap: self.0.arg.swap.unwrap_or(u64::MAX.into()),
+		};
 		*accounting = Some(usage::Accounting::new(
 			source,
-			cpu,
+			resources,
 			self.0.arg.memory_sampling_interval,
-			dedicated_started_at,
+			allocated_at,
 		)?);
 		Ok(())
 	}
 
-	/// Return the current sandbox CPU and memory usage without stopping accounting.
+	/// Return the current sandbox resource usage without stopping accounting.
 	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
 		let mut accounting = self.0.accounting.lock().await;
 		let accounting = accounting
@@ -713,8 +776,10 @@ impl Sandbox {
 			.finish_accounting()
 			.await?
 			.unwrap_or(tg::sandbox::Usage {
-				cpu: tg::sandbox::Cpu::default(),
-				memory: 0,
+				cpu: tg::sandbox::ResourceUsage::default(),
+				memory: tg::sandbox::ResourceUsage::default(),
+				storage: tg::sandbox::ResourceUsage::default(),
+				swap: tg::sandbox::ResourceUsage::default(),
 			});
 		let output = Output { usage };
 		Ok(output)
@@ -781,6 +846,16 @@ impl Sandbox {
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "the cgroup stop task panicked"))??;
+
+		if let Some(accounting) = self.0.accounting.lock().await.as_mut() {
+			accounting.usage().await?;
+		}
+		if self.0.arg.storage.is_some() {
+			let path = Self::host_filesystem_path_from_root(&self.0.arg.path);
+			tokio::fs::remove_dir_all(&path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove the sandbox storage"))?;
+		}
 
 		let usage = self.finish_accounting().await;
 		tokio::task::spawn_blocking(move || cgroup.cleanup())
@@ -899,17 +974,34 @@ impl Process {
 fn validate_resources(
 	isolation: &Isolation,
 	cpu: Option<tg::sandbox::Cpu>,
-	memory: Option<u64>,
+	memory: Option<tg::sandbox::Resource<u64>>,
 ) -> tg::Result<()> {
 	if let Some(cpu) = cpu {
-		cpu.validate()?;
+		cpu.total()?;
 	}
-	if memory == Some(0) {
+	if matches!(isolation, Isolation::Vm(_)) {
+		validate_vm_resources(cpu, memory)?;
+	}
+	if memory.is_some_and(|memory| memory.max == 0) {
 		return Err(tg::error!("sandbox memory must be greater than zero"));
 	}
 	if matches!(isolation, Isolation::Seatbelt(_)) && (cpu.is_some() || memory.is_some()) {
 		return Err(tg::error!(
 			"sandbox cpu and memory are not supported with seatbelt isolation"
+		));
+	}
+	Ok(())
+}
+
+fn validate_vm_resources(
+	cpu: Option<tg::sandbox::Cpu>,
+	memory: Option<tg::sandbox::Resource<u64>>,
+) -> tg::Result<()> {
+	if cpu.is_some_and(|cpu| cpu.min.millis() > 0 || cpu.max.millis() % 1000 != 0)
+		|| memory.is_some_and(|memory| memory.min > 0)
+	{
+		return Err(tg::error!(
+			"resource minima and fractional CPUs require container isolation"
 		));
 	}
 	Ok(())
@@ -943,5 +1035,23 @@ impl std::ops::Deref for Sandbox {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+#[cfg(test)]
+mod resource_tests {
+	use super::*;
+
+	#[test]
+	fn vm_resources_reject_promises_the_guest_cannot_enforce() {
+		assert!(validate_vm_resources(Some(1.into()), Some(1_073_741_824.into())).is_ok());
+		let fractional = tg::sandbox::Amount::from_millis(250).into();
+		assert!(validate_vm_resources(Some(fractional), None).is_err());
+		let reserved = tg::sandbox::Cpu::new(
+			tg::sandbox::Amount::from_millis(250),
+			tg::sandbox::Amount::from_millis(1000),
+		);
+		assert!(validate_vm_resources(Some(reserved), None).is_err());
+		assert!(validate_vm_resources(None, Some(tg::sandbox::Resource::new(256, 1024))).is_err());
 	}
 }

@@ -13,41 +13,52 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<()> {
 		let partition = rand::random_range(0..partition_total);
-		if let Some(cpu) = arg.cpu {
-			let delta =
-				i64::try_from(cpu).map_err(|_| tg::error!("the compute CPU usage is too large"))?;
-			let entry = tangram_index::usage::DeltaArg {
-				account: arg.account,
-				at: arg.at,
-				delta,
-				kind: tangram_index::usage::DeltaKind::SandboxCpu,
-				partition,
-			};
-			Self::add_usage_delta(db, subspace, transaction, entry)?;
-		}
-		if let Some(cpu) = arg.cpu_dedicated {
-			let delta =
-				i64::try_from(cpu).map_err(|_| tg::error!("the compute CPU usage is too large"))?;
-			let entry = tangram_index::usage::DeltaArg {
-				account: arg.account,
-				at: arg.at,
-				delta,
-				kind: tangram_index::usage::DeltaKind::SandboxCpuDedicated,
-				partition,
-			};
-			Self::add_usage_delta(db, subspace, transaction, entry)?;
-		}
-		if let Some(memory) = arg.memory {
-			let delta = i64::try_from(memory)
-				.map_err(|_| tg::error!("the compute memory usage is too large"))?;
-			let entry = tangram_index::usage::DeltaArg {
-				account: arg.account,
-				at: arg.at,
-				delta,
-				kind: tangram_index::usage::DeltaKind::SandboxMemory,
-				partition,
-			};
-			Self::add_usage_delta(db, subspace, transaction, entry)?;
+		if let Some(usage) = arg.usage {
+			for (kind, value) in [
+				(
+					tangram_index::usage::DeltaKind::SandboxCpuConsumption,
+					usage.cpu.consumption,
+				),
+				(
+					tangram_index::usage::DeltaKind::SandboxCpuReservation,
+					usage.cpu.reservation,
+				),
+				(
+					tangram_index::usage::DeltaKind::SandboxMemoryConsumption,
+					usage.memory.consumption,
+				),
+				(
+					tangram_index::usage::DeltaKind::SandboxMemoryReservation,
+					usage.memory.reservation,
+				),
+				(
+					tangram_index::usage::DeltaKind::SandboxStorageConsumption,
+					usage.storage.consumption,
+				),
+				(
+					tangram_index::usage::DeltaKind::SandboxStorageReservation,
+					usage.storage.reservation,
+				),
+				(
+					tangram_index::usage::DeltaKind::SandboxSwapConsumption,
+					usage.swap.consumption,
+				),
+				(
+					tangram_index::usage::DeltaKind::SandboxSwapReservation,
+					usage.swap.reservation,
+				),
+			] {
+				let delta = i64::try_from(value)
+					.map_err(|_| tg::error!("the resource usage is too large"))?;
+				let entry = tangram_index::usage::DeltaArg {
+					account: arg.account,
+					at: arg.at,
+					delta,
+					kind,
+					partition,
+				};
+				Self::add_usage_delta(db, subspace, transaction, entry)?;
+			}
 		}
 		let delta = i64::try_from(arg.sandbox_count)
 			.map_err(|_| tg::error!("the sandbox count usage is too large"))?;

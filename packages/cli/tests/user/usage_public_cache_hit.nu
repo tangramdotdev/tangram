@@ -17,8 +17,8 @@ let alice_sandbox = tg --token $alice.token process get $alice_spawn.process | f
 tg --token $alice.token wait $alice_sandbox
 tg index
 let alice_usage = tg --token $alice.token user usage | from json
-assert ($alice_usage.sandbox_cpu > 0) "a destroyed sandbox must charge CPU usage"
-assert ($alice_usage.sandbox_memory > 0) "a destroyed sandbox must charge memory usage"
+assert ($alice_usage.sandbox_cpu_consumption > 0) "a destroyed sandbox must charge CPU usage"
+assert ($alice_usage.sandbox_memory_consumption > 0) "a destroyed sandbox must charge memory usage"
 
 # Eve reuses Alice's process rather than creating one of her own.
 let eve_spawn = tg --token $eve.token process spawn --sandbox --cached=true --verbose $path | from json

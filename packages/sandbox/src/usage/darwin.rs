@@ -68,6 +68,10 @@ impl Source {
 				children.resize(children.len() * 2, 0);
 			}
 		}
-		Ok(Snapshot { cpu, memory })
+		Ok(Snapshot {
+			cpu,
+			memory,
+			..Default::default()
+		})
 	}
 }

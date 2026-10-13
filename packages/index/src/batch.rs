@@ -120,17 +120,27 @@ mod tests {
 				hostname: Some("host".into()),
 				id: sandbox.clone(),
 				isolation: Some(tg::sandbox::Isolation::Container),
-				memory: Some(1024),
+				memory: Some(1024.into()),
 				mounts: Vec::new(),
 				network: Some(tg::sandbox::Network::Bridge(tg::sandbox::Bridge {
 					ports: vec!["127.0.0.1:8080:80/udp".parse().unwrap()],
 				})),
 				owner: Some(tg::Principal::Root),
 				status: tg::sandbox::Status::Destroyed,
+				storage: None,
+				swap: None,
 				ttl: Some(std::time::Duration::new(60, 123)),
 				usage: Some(tg::sandbox::Usage {
-					cpu: 123.into(),
-					memory: 456,
+					cpu: tg::sandbox::ResourceUsage {
+						consumption: 123,
+						reservation: 0,
+					},
+					memory: tg::sandbox::ResourceUsage {
+						consumption: 456,
+						reservation: 0,
+					},
+					storage: tg::sandbox::ResourceUsage::default(),
+					swap: tg::sandbox::ResourceUsage::default(),
 				}),
 			},
 			location: None,
@@ -204,8 +214,8 @@ mod tests {
 		let data = sandbox_arg.data.as_ref().unwrap();
 		assert_eq!(data.data.cpu, Some(2.into()));
 		assert_eq!(data.data.ttl, Some(std::time::Duration::new(60, 123)));
-		assert_eq!(data.data.usage.as_ref().unwrap().cpu.shared, 123);
-		assert_eq!(data.data.usage.as_ref().unwrap().memory, 456);
+		assert_eq!(data.data.usage.as_ref().unwrap().cpu.consumption, 123);
+		assert_eq!(data.data.usage.as_ref().unwrap().memory.consumption, 456);
 		assert_eq!(data.data.network.as_ref().unwrap().ports().len(), 1);
 	}
 }

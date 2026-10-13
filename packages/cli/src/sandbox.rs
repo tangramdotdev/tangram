@@ -45,11 +45,11 @@ pub enum Command {
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
-	#[arg(id = "sandbox.cpu", long = "cpu")]
-	pub cpu: Option<u64>,
+	#[arg(alias = "cpu-max", id = "sandbox.cpu", long = "cpu")]
+	pub cpu: Option<tg::sandbox::Amount>,
 
-	#[arg(id = "sandbox.dedicated_cpu", long = "dedicated-cpu")]
-	pub dedicated_cpu: Option<u64>,
+	#[arg(id = "sandbox.cpu_min", long = "cpu-min")]
+	pub cpu_min: Option<tg::sandbox::Amount>,
 
 	#[arg(id = "sandbox.hostname", long = "hostname")]
 	pub hostname: Option<String>,
@@ -57,8 +57,11 @@ pub struct Options {
 	#[arg(id = "sandbox.isolation", long = "isolation")]
 	pub isolation: Option<tg::sandbox::Isolation>,
 
-	#[arg(id = "sandbox.memory", long = "memory")]
+	#[arg(alias = "memory-max", id = "sandbox.memory", long = "memory", value_parser = parse_bytes)]
 	pub memory: Option<u64>,
+
+	#[arg(id = "sandbox.memory_min", long = "memory-min", value_parser = parse_bytes)]
+	pub memory_min: Option<u64>,
 
 	#[arg(action = clap::ArgAction::Append, id = "sandbox.mounts", long = "mount", num_args = 1, short = 'm')]
 	pub mounts: Vec<tg::sandbox::Mount>,
@@ -71,6 +74,14 @@ pub struct Options {
 
 	#[arg(action = clap::ArgAction::Append, id = "sandbox.ports", long = "port", num_args = 1, short = 'p')]
 	pub ports: Vec<tg::sandbox::Port>,
+	#[arg(alias = "storage-max", id = "sandbox.storage", long = "storage", value_parser = parse_bytes)]
+	pub storage: Option<u64>,
+	#[arg(id = "sandbox.storage_min", long = "storage-min", value_parser = parse_bytes)]
+	pub storage_min: Option<u64>,
+	#[arg(alias = "swap-max", id = "sandbox.swap", long = "swap", value_parser = parse_bytes)]
+	pub swap: Option<u64>,
+	#[arg(id = "sandbox.swap_min", long = "swap-min", value_parser = parse_bytes)]
+	pub swap_min: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -515,4 +526,44 @@ pub fn normalize_network(
 			ports,
 		}))),
 	}
+}
+
+pub(crate) fn cpu(options: &Options) -> Option<tg::sandbox::Cpu> {
+	if options.cpu.is_none() && options.cpu_min.is_none() {
+		return None;
+	}
+	let min = options.cpu_min.unwrap_or_default();
+	let max = options.cpu.unwrap_or(min);
+	Some(tg::sandbox::Cpu { max, min })
+}
+
+pub(crate) fn resource(min: Option<u64>, max: Option<u64>) -> Option<tg::sandbox::Resource<u64>> {
+	if min.is_none() && max.is_none() {
+		return None;
+	}
+	let min = min.unwrap_or_default();
+	let max = max.unwrap_or(min);
+	Some(tg::sandbox::Resource { max, min })
+}
+
+fn parse_bytes(value: &str) -> tg::Result<u64> {
+	let (value, multiplier) = [
+		("TiB", 1_u64 << 40),
+		("GiB", 1_u64 << 30),
+		("MiB", 1_u64 << 20),
+		("KiB", 1_u64 << 10),
+		("GB", 1_000_000_000),
+		("MB", 1_000_000),
+		("KB", 1_000),
+		("B", 1),
+	]
+	.into_iter()
+	.find_map(|(suffix, multiplier)| value.strip_suffix(suffix).map(|value| (value, multiplier)))
+	.unwrap_or((value, 1));
+	let value = value
+		.parse::<u64>()
+		.map_err(|error| tg::error!(!error, "invalid resource byte count"))?;
+	value
+		.checked_mul(multiplier)
+		.ok_or_else(|| tg::error!("the resource byte count is too large"))
 }

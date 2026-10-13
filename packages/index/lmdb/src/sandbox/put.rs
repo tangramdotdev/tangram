@@ -153,16 +153,11 @@ impl Index {
 				&& let (Some(account), Some(data)) = (&sandbox.account, &sandbox.data)
 				&& data.data.status.is_destroyed()
 			{
-				let cpu = data.data.usage.as_ref().map(|usage| usage.cpu.shared);
-				let cpu_dedicated = data.data.usage.as_ref().map(|usage| usage.cpu.dedicated);
-				let memory = data.data.usage.as_ref().map(|usage| usage.memory);
 				let arg = tangram_index::usage::compute::put::Arg {
 					account,
 					at: touched_at,
-					cpu,
-					cpu_dedicated,
-					memory,
 					sandbox_count: 1,
+					usage: data.data.usage.as_ref(),
 				};
 				Self::put_compute_usage(db, subspace, transaction, arg, usage_partition_total)?;
 			}
@@ -252,8 +247,8 @@ impl Index {
 					.map_err(|error| tg::error!(!error, "failed to delete the runner sandbox"))?;
 
 				let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
-					sandbox: arg.id.clone(),
 					runner: runner.clone(),
+					sandbox: arg.id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.delete(transaction, &key)
@@ -275,8 +270,8 @@ impl Index {
 					.map_err(|error| tg::error!(!error, "failed to put the runner sandbox"))?;
 
 				let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
-					sandbox: arg.id.clone(),
 					runner: runner.clone(),
+					sandbox: arg.id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])

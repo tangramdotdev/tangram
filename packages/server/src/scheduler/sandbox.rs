@@ -395,11 +395,16 @@ impl State {
 				.arg
 				.memory
 				.unwrap_or(scheduler.config.default_capacity.memory),
+			storage: default_storage(&request.arg, scheduler.config.default_capacity.storage),
+			swap: request
+				.arg
+				.swap
+				.unwrap_or(scheduler.config.default_capacity.swap),
 		};
-		if capacity.cpu.shared == 0 && capacity.cpu.dedicated == 0 {
+		if capacity.cpu.max.millis() == 0 {
 			return Err(tg::error!("the sandbox CPU must be greater than zero"));
 		}
-		if capacity.memory == 0 {
+		if capacity.memory.max == 0 {
 			return Err(tg::error!("the sandbox memory must be greater than zero"));
 		}
 		let id = request.sandbox.clone();
@@ -457,7 +462,7 @@ impl State {
 		let borrowable =
 			Borrowable::new(notification, connection_index, parent.borrowable.as_ref());
 		let previous = parent.borrowable.take();
-		if borrowable.capacity.cpu.dedicated != 0 || borrowable.capacity.cpu.shared != 0 {
+		if borrowable.capacity.cpu.max.millis() != 0 {
 			parent.borrowable = Some(borrowable);
 		}
 		if let Some(previous) = previous
@@ -519,17 +524,9 @@ impl State {
 		}
 		runner.capacity = notification.capacity;
 		runner.committed = tg::runner::Capacity::default();
-		runner.shared_width = runner
-			.reservations
-			.values()
-			.filter(|reservation| matches!(reservation.source, ReservationSource::Regular))
-			.map(|reservation| reservation.capacity.cpu.shared)
-			.max()
-			.unwrap_or(0);
 		runner.heartbeat_at = tokio::time::Instant::now();
 		runner.heartbeat_index = notification.heartbeat_index;
-		runner.ready =
-			runner.capacity.total.cpu.dedicated != 0 || runner.capacity.total.cpu.shared != 0;
+		runner.ready = runner.capacity.total.cpu.max.millis() != 0;
 		self.queue.wake();
 
 		true
@@ -788,17 +785,9 @@ impl State {
 				continue;
 			}
 			let available = available(runner);
-			if !available.contains(
-				sandbox.capacity,
-				runner.capacity.shared_cpu_capacity_per_core(),
-			) || sandbox.capacity.cpu.shared
-				> shared_cpu_limit(runner).saturating_sub(
-					sandbox
-						.capacity
-						.cpu
-						.dedicated
-						.saturating_mul(runner.capacity.cpu_threads_per_core),
-				) {
+			if !available.contains(sandbox.capacity, runner.capacity.overcommit)
+				|| sandbox.capacity.cpu.max.threads() > cpu_limit(runner)
+			{
 				continue;
 			}
 			let score = score(runner, available, sandbox.capacity);
@@ -835,12 +824,13 @@ impl State {
 		let parent = sandbox.request.parent.as_ref()?;
 		let borrowable = self.parents.0.get(parent)?.borrowable.as_ref()?;
 		let runner = self.runners.entries.get(&borrowable.runner)?;
-		if !borrowable.capacity.contains(
-			sandbox.capacity,
-			runner.capacity.shared_cpu_capacity_per_core(),
-		) || borrowable
-			.connection_index
-			.is_some_and(|index| index != runner.connection_index)
+		if borrowable
+			.capacity
+			.try_borrow(sandbox.capacity, runner.capacity.overcommit)
+			.is_none()
+			|| borrowable
+				.connection_index
+				.is_some_and(|index| index != runner.connection_index)
 			|| !runner.ready
 			|| !matches_host(runner, &sandbox.request)
 		{
@@ -974,7 +964,6 @@ impl State {
 			Placement::Borrowed { .. } => ReservationSource::Borrowed,
 			Placement::Regular { .. } => {
 				add(&mut runner.reserved, capacity);
-				runner.shared_width = runner.shared_width.max(capacity.cpu.shared);
 				ReservationSource::Regular
 			},
 		};
@@ -1082,52 +1071,41 @@ async fn create_sandbox(
 }
 
 fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
-	capacity.cpu.shared = capacity.cpu.shared.saturating_add(value.cpu.shared);
-	capacity.cpu.dedicated = capacity.cpu.dedicated.saturating_add(value.cpu.dedicated);
-	capacity.memory = capacity.memory.saturating_add(value.memory);
+	capacity.cpu.max = tg::sandbox::Amount::from_millis(
+		capacity
+			.cpu
+			.max
+			.millis()
+			.saturating_add(value.cpu.max.millis()),
+	);
+	capacity.cpu.min = tg::sandbox::Amount::from_millis(
+		capacity
+			.cpu
+			.min
+			.millis()
+			.saturating_add(value.cpu.min.millis()),
+	);
+	for (resource, value) in [
+		(&mut capacity.memory, value.memory),
+		(&mut capacity.storage, value.storage),
+		(&mut capacity.swap, value.swap),
+	] {
+		resource.min = resource.min.saturating_add(value.min);
+		resource.max = resource.max.saturating_add(value.max);
+	}
 }
 
 fn available(runner: &Runner) -> tg::runner::Capacity {
-	let shared_cpu_capacity_per_core = runner.capacity.shared_cpu_capacity_per_core();
-	let available = runner
-		.capacity
-		.available
-		.subtract(runner.reserved, shared_cpu_capacity_per_core)
-		.subtract(runner.committed, shared_cpu_capacity_per_core);
-	// Keep enough shared hardware threads for newly reserved multi-CPU requests.
-	let threads_per_core = runner.capacity.cpu_threads_per_core;
-	let width = runner.shared_width.div_ceil(threads_per_core);
-	let occupied = shared_cpu_limit(runner)
-		.div_ceil(threads_per_core)
-		.saturating_sub(available.cpu.dedicated);
-	let converted = width.saturating_sub(occupied).min(available.cpu.dedicated);
-	let mut available = available;
-	available.cpu.dedicated -= converted;
-	available.cpu.shared = available
-		.cpu
-		.shared
-		.saturating_add(converted.saturating_mul(shared_cpu_capacity_per_core));
-	available
-}
-
-fn shared_cpu_limit(runner: &Runner) -> u64 {
+	let factor = runner.capacity.overcommit;
 	runner
 		.capacity
-		.shared_cpu_limit
-		.saturating_sub(
-			runner
-				.reserved
-				.cpu
-				.dedicated
-				.saturating_mul(runner.capacity.cpu_threads_per_core),
-		)
-		.saturating_sub(
-			runner
-				.committed
-				.cpu
-				.dedicated
-				.saturating_mul(runner.capacity.cpu_threads_per_core),
-		)
+		.available
+		.subtract(runner.reserved, factor)
+		.subtract(runner.committed, factor)
+}
+
+fn cpu_limit(runner: &Runner) -> u64 {
+	runner.capacity.cpu_limit
 }
 
 fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {
@@ -1145,21 +1123,11 @@ fn placeable(runner: &Runner, sandbox: &Sandbox) -> bool {
 		.is_none_or(|owner| sandbox.owner_ancestors.contains(owner));
 	owner_matches
 		&& matches_host(runner, &sandbox.request)
-		&& runner.capacity.total.contains(
-			sandbox.capacity,
-			runner.capacity.shared_cpu_capacity_per_core(),
-		) && sandbox.capacity.cpu.shared
-		<= if runner.capacity.total.cpu.dedicated == 0 {
-			runner.capacity.total.cpu.shared / runner.capacity.shared_cpu_capacity_per_core()
-		} else {
-			runner
-				.capacity
-				.total
-				.cpu
-				.dedicated
-				.saturating_sub(sandbox.capacity.cpu.dedicated)
-				.saturating_mul(runner.capacity.cpu_threads_per_core)
-		}
+		&& runner
+			.capacity
+			.total
+			.contains(sandbox.capacity, runner.capacity.overcommit)
+		&& sandbox.capacity.cpu.max.threads() <= runner.capacity.cpu_limit
 }
 
 fn score(
@@ -1167,258 +1135,72 @@ fn score(
 	available: tg::runner::Capacity,
 	requested: tg::runner::Capacity,
 ) -> (u128, u128) {
-	let shared_cpu_capacity_per_core = runner.capacity.shared_cpu_capacity_per_core();
-	let remaining = available.subtract(requested, shared_cpu_capacity_per_core);
-	let cpu = (u128::from(remaining.cpu.shared)
-		+ u128::from(remaining.cpu.dedicated) * u128::from(shared_cpu_capacity_per_core))
-		* 1_000_000
-		/ (u128::from(runner.capacity.total.cpu.shared)
-			+ u128::from(runner.capacity.total.cpu.dedicated)
-				* u128::from(shared_cpu_capacity_per_core))
-		.max(1);
-	let memory = u128::from(available.memory - requested.memory) * 1_000_000
-		/ u128::from(runner.capacity.total.memory.max(1));
-
+	let remaining = available.subtract(requested, runner.capacity.overcommit);
+	let cpu = u128::from(remaining.cpu.max.millis()) * 1_000_000
+		/ u128::from(runner.capacity.total.cpu.max.millis().max(1));
+	let memory = u128::from(remaining.memory.max) * 1_000_000
+		/ u128::from(runner.capacity.total.memory.max.max(1));
 	(cpu.max(memory), cpu + memory)
 }
 
 fn subtract(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
-	capacity.cpu.shared = capacity.cpu.shared.saturating_sub(value.cpu.shared);
-	capacity.cpu.dedicated = capacity.cpu.dedicated.saturating_sub(value.cpu.dedicated);
-	capacity.memory = capacity.memory.saturating_sub(value.memory);
+	capacity.cpu.max = tg::sandbox::Amount::from_millis(
+		capacity
+			.cpu
+			.max
+			.millis()
+			.saturating_sub(value.cpu.max.millis()),
+	);
+	capacity.cpu.min = tg::sandbox::Amount::from_millis(
+		capacity
+			.cpu
+			.min
+			.millis()
+			.saturating_sub(value.cpu.min.millis()),
+	);
+	for (resource, value) in [
+		(&mut capacity.memory, value.memory),
+		(&mut capacity.storage, value.storage),
+		(&mut capacity.swap, value.swap),
+	] {
+		resource.min = resource.min.saturating_sub(value.min);
+		resource.max = resource.max.saturating_sub(value.max);
+	}
+}
+
+fn default_storage(
+	arg: &tg::sandbox::create::Arg,
+	default: tg::sandbox::Resource<u64>,
+) -> tg::sandbox::Resource<u64> {
+	if let Some(storage) = arg.storage {
+		return storage;
+	}
+	if arg
+		.host
+		.as_ref()
+		.is_some_and(|host| host.ends_with("-darwin"))
+	{
+		return 0.into();
+	}
+	default
 }
 
 #[cfg(test)]
-mod tests {
-	use {super::*, std::collections::BTreeSet};
-
-	fn borrowing() -> (State, Sandbox, tg::sandbox::Id, tg::runner::Id) {
-		let parent = tg::sandbox::Id::new();
-		let runner_id = tg::runner::Id::new();
-		let capacity = tg::runner::Capacity {
-			cpu: tg::sandbox::Cpu {
-				dedicated: 1,
-				shared: 0,
-			},
-			memory: 16,
-		};
-		let runner = Runner {
-			borrowable: HashSet::from_iter([parent.clone()]),
-			capacity: tg::runner::control::Capacity {
-				available: tg::runner::Capacity::default(),
-				cpu_threads_per_core: 1,
-				shared_cpu_limit: 0,
-				shared_cpu_overcommit: 4,
-				total: capacity,
-			},
-			committed: tg::runner::Capacity::default(),
-			connection_index: 1,
-			heartbeat_at: tokio::time::Instant::now(),
-			heartbeat_index: 1,
-			host: tg::host::current().to_owned(),
-			owner: None,
-			ready: true,
-			requests: 0,
-			reservations: HashMap::default(),
-			reserved: tg::runner::Capacity::default(),
-			shared_width: 0,
-		};
-		let borrowable = Borrowable {
-			available: false,
-			capacity,
-			connection_index: Some(1),
-			heartbeat_index: 1,
-			runner: runner_id.clone(),
-		};
-		let entry = Parent {
-			borrowable: Some(borrowable),
-			queue: Queue::new(),
-		};
-		let mut state = State::new();
-		state.parents.0.insert(parent.clone(), entry);
-		state.runners.entries.insert(runner_id.clone(), runner);
-		let request = EnqueueSandboxRequestArg {
-			arg: tg::sandbox::create::Arg::default(),
-			creator: None,
-			parent: Some(parent.clone()),
-			process: None,
-			sandbox: tg::sandbox::Id::new(),
-			scheduler: None,
-			token: None,
-		};
-		let sandbox = Sandbox {
-			attempts: 0,
-			blocked: HashMap::default(),
-			capacity: tg::runner::Capacity {
-				cpu: 4.into(),
-				memory: 16,
-			},
-			dequeue_requests: Vec::new(),
-			owner_ancestors: Arc::new(HashSet::default()),
-			request,
-			retrying: false,
-			state: SandboxState::Pending,
-		};
-		(state, sandbox, parent, runner_id)
-	}
+mod resource_tests {
+	use super::*;
 
 	#[test]
-	fn smt_placement_preserves_shared_thread_width_and_whole_core_exclusivity() {
-		let (mut state, mut sandbox, _, id) = borrowing();
-		let runner = state.runners.entries.get_mut(&id).unwrap();
-		runner.capacity.cpu_threads_per_core = 2;
-		runner.capacity.shared_cpu_overcommit = 4;
-		runner.capacity.total.cpu.dedicated = 2;
-		runner.capacity.available = runner.capacity.total;
-		runner.capacity.shared_cpu_limit = 4;
-		assert!(placeable(runner, &sandbox));
-		sandbox.capacity.cpu = 5.into();
-		assert!(!placeable(runner, &sandbox));
-		sandbox.capacity.cpu = tg::sandbox::Cpu {
-			dedicated: 1,
-			shared: 2,
-		};
-		assert!(placeable(runner, &sandbox));
-		sandbox.capacity.cpu.shared = 3;
-		assert!(!placeable(runner, &sandbox));
-		runner.reserved.cpu.shared = 2;
-		runner.shared_width = 2;
-		assert_eq!(
-			available(runner).cpu,
-			tg::sandbox::Cpu {
-				dedicated: 1,
-				shared: 6
-			}
-		);
-		runner.reserved.cpu.shared = 3;
-		runner.shared_width = 3;
-		assert_eq!(
-			available(runner).cpu,
-			tg::sandbox::Cpu {
-				dedicated: 0,
-				shared: 13
-			}
-		);
-		runner.reserved.cpu = tg::sandbox::Cpu {
-			dedicated: 1,
-			shared: 0,
-		};
-		runner.shared_width = 0;
-		assert_eq!(shared_cpu_limit(runner), 2);
-		assert_eq!(
-			available(runner).cpu,
-			tg::sandbox::Cpu {
-				dedicated: 1,
-				shared: 0
-			}
-		);
-	}
-
-	#[test]
-	fn busy_parent_keeps_convertible_requests_queued_without_admitting_them() {
-		let (mut state, sandbox, parent, runner) = borrowing();
-		assert!(!placeable(&state.runners.entries[&runner], &sandbox));
-		assert!(state.placeable(&sandbox));
-		assert!(state.borrowed_placement(&sandbox, 1).is_none());
-		state
-			.parents
-			.0
-			.get_mut(&parent)
-			.unwrap()
-			.borrowable
-			.as_mut()
-			.unwrap()
-			.available = true;
-		assert!(matches!(
-			state.borrowed_placement(&sandbox, 1),
-			Some(Placement::Borrowed { .. })
-		));
-		state.runners.entries.get_mut(&runner).unwrap().ready = false;
-		assert!(!state.placeable(&sandbox));
-		assert!(state.borrowed_placement(&sandbox, 1).is_none());
-	}
-
-	#[test]
-	fn impossible_borrowing_requests_do_not_wait_on_the_parent() {
-		let (mut state, mut sandbox, parent, _) = borrowing();
-		sandbox.capacity.cpu = 5.into();
-		assert!(!state.placeable(&sandbox));
-		sandbox.capacity.cpu = 4.into();
-		sandbox.capacity.memory = 17;
-		assert!(!state.placeable(&sandbox));
-		sandbox.capacity.memory = 16;
-		sandbox.capacity.cpu = 2.into();
-		state
-			.parents
-			.0
-			.get_mut(&parent)
-			.unwrap()
-			.borrowable
-			.as_mut()
-			.unwrap()
-			.capacity
-			.cpu = 1.into();
-		assert!(!state.placeable(&sandbox));
-		sandbox.capacity.cpu = tg::sandbox::Cpu {
-			dedicated: 1,
-			shared: 0,
-		};
-		assert!(state.borrowable(&sandbox).is_none());
-	}
-
-	#[test]
-	fn only_newer_heartbeats_withdraw_potential_parent_capacity() {
-		let (mut state, sandbox, parent, runner) = borrowing();
-		state
-			.parents
-			.0
-			.get_mut(&parent)
-			.unwrap()
-			.borrowable
-			.as_mut()
-			.unwrap()
-			.heartbeat_index = 2;
-		let capacity = state.runners.entries[&runner].capacity;
-		let notification = HeartbeatNotification {
-			capacity,
-			connection_index: 1,
-			heartbeat_index: 2,
-			runner,
-			sandboxes: BTreeSet::default(),
-		};
-		assert!(state.handle_heartbeat(&notification));
-		assert!(state.placeable(&sandbox));
-		let notification = HeartbeatNotification {
-			heartbeat_index: 3,
-			..notification
-		};
-		assert!(state.handle_heartbeat(&notification));
-		assert!(!state.placeable(&sandbox));
-		assert!(!state.parents.0.contains_key(&parent));
-	}
-
-	#[test]
-	fn pending_borrowers_preserve_unconsumed_reservations() {
-		let (state, _, parent, runner) = borrowing();
-		let previous = state.parents.0[&parent].borrowable.as_ref().unwrap();
-		let notification = BorrowableCapacityNotification {
-			available: true,
-			capacity: previous.capacity,
-			heartbeat_index: 1,
-			parent,
-			runner,
-		};
-		let reserved = Borrowable::new(notification.clone(), Some(1), Some(previous));
-		let notification = BorrowableCapacityNotification {
-			available: false,
-			..notification
-		};
-		assert!(Borrowable::new(notification.clone(), Some(1), Some(&reserved)).available);
-		assert!(!Borrowable::new(notification.clone(), Some(2), Some(&reserved)).available);
-		let notification = BorrowableCapacityNotification {
-			capacity: tg::runner::Capacity::default(),
-			..notification
-		};
-		assert!(!Borrowable::new(notification.clone(), Some(1), Some(&reserved)).available);
+	fn storage_defaults_follow_the_requested_host() {
+		let default = (10 * 1024 * 1024 * 1024).into();
+		for (host, expected) in [
+			("aarch64-darwin", 0),
+			("x86_64-linux", 10 * 1024 * 1024 * 1024),
+		] {
+			let arg = tg::sandbox::create::Arg {
+				host: Some(host.to_owned()),
+				..Default::default()
+			};
+			assert_eq!(default_storage(&arg, default).max, expected);
+		}
 	}
 }

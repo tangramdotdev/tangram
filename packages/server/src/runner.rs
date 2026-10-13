@@ -45,6 +45,7 @@ pub(super) struct Config {
 	pub cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 	#[cfg(target_os = "linux")]
 	pub filesystem_project_ids: crate::config::ContainerRunnerIsolationProjectIds,
+	pub overcommit: tg::runner::Overcommit,
 	pub process_control_connection_pool_refresh_interval: Duration,
 	pub process_control_connection_pool_size: usize,
 	pub process_control_connection_pool_ttl: Duration,
@@ -52,7 +53,6 @@ pub(super) struct Config {
 	pub sandbox_control_connection_pool_size: usize,
 	pub sandbox_control_connection_pool_ttl: Duration,
 	pub sandbox_pool_size: usize,
-	pub shared_cpu_overcommit: u64,
 }
 
 struct ControlConnectionPoolEntry<T> {
@@ -82,6 +82,10 @@ pub struct State {
 	cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 	capacity: self::capacity::Pool,
 	#[cfg(target_os = "linux")]
+	storage_pool: tangram_sandbox::budget::Pool,
+	#[cfg(target_os = "linux")]
+	swap_pool: tangram_sandbox::budget::Pool,
+	#[cfg(target_os = "linux")]
 	filesystem_project_ids: self::project::Pool,
 	heartbeat_index: AtomicU64,
 	id: Mutex<Option<tg::runner::Id>>,
@@ -105,13 +109,13 @@ impl Runner {
 		#[cfg(not(target_os = "linux"))]
 		let threads_per_core = 1;
 		let state = State {
-			#[cfg(target_os = "linux")]
-			cpu_pool: config.cpu_pool,
 			capacity: self::capacity::Pool::new(
 				config.capacity,
-				config.shared_cpu_overcommit,
+				config.overcommit,
 				threads_per_core,
 			),
+			#[cfg(target_os = "linux")]
+			cpu_pool: config.cpu_pool,
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: self::project::Pool::new(config.filesystem_project_ids),
 			heartbeat_index: AtomicU64::new(0),
@@ -122,7 +126,17 @@ impl Runner {
 			reservations: self::capacity::Reservations::new(),
 			sandboxes: crate::sandbox::Sandboxes::default(),
 			scheduler,
+			#[cfg(target_os = "linux")]
+			storage_pool: tangram_sandbox::budget::Pool::new(
+				config.capacity.storage.min,
+				4096,
+				4096,
+			),
+			#[cfg(target_os = "linux")]
+			swap_pool: tangram_sandbox::budget::Pool::new(config.capacity.swap.min, 0, 4096),
 		};
+		#[cfg(target_os = "linux")]
+		state.capacity.set_cpu_pool(state.cpu_pool.clone());
 		let task = Mutex::new(None);
 		let process_control_connection_pool = ControlConnectionPool::new(
 			"process",
@@ -855,7 +869,7 @@ impl Session {
 		} else {
 			self.server.runner.state.capacity.get()
 		};
-		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_dedicated_cpus = capacity.available.cpu.dedicated, available_shared_cpus = capacity.available.cpu.shared, available_memory = capacity.available.memory, "sending the runner heartbeat");
+		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_cpu_min = capacity.available.cpu.min.millis(), available_cpu_max = capacity.available.cpu.max.millis(), available_memory = ?capacity.available.memory, "sending the runner heartbeat");
 		let sandboxes = self
 			.server
 			.runner

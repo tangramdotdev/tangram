@@ -455,6 +455,8 @@ impl Session {
 				network: data.arg.network,
 				owner: data.arg.owner,
 				status: tg::sandbox::Status::Started,
+				storage: data.arg.storage,
+				swap: data.arg.swap,
 				ttl: data.arg.ttl,
 				usage: None,
 			},

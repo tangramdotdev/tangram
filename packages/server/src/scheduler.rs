@@ -724,7 +724,9 @@ impl Scheduler {
 			create_sandbox_timeout: config.create_sandbox_timeout,
 			default_capacity: tg::runner::Capacity {
 				cpu: config.default_cpu.into(),
-				memory: config.default_memory,
+				memory: config.default_memory.into(),
+				storage: (10 * 1024 * 1024 * 1024).into(),
+				swap: 0.into(),
 			},
 			heartbeat_interval: config.heartbeat_interval,
 			inbox_ttl: config.inbox_ttl,

@@ -34,9 +34,11 @@ enum UserQuery {
 }
 
 pub(crate) struct Output {
+	pub accounting: crate::usage::Accounting,
 	pub cgroup: Option<super::cgroup::Cgroup>,
 	pub filesystem: Option<super::filesystem::Filesystem>,
 	pub process: tokio::process::Child,
+	pub storage: Option<crate::budget::Allocation>,
 }
 
 pub(crate) async fn spawn(
@@ -78,7 +80,15 @@ pub(crate) async fn spawn(
 		_ => None,
 	};
 	let filesystem_inodes = isolation.max_filesystem_inodes;
-	let filesystem_size = isolation.max_filesystem_size;
+	let storage = match (arg.storage, &arg.storage_pool) {
+		(Some(resource), Some(pool)) => Some(pool.allocate(resource)?),
+		(Some(_), None) => return Err(tg::error!("storage limits require a runner storage pool")),
+		(None, _) => None,
+	};
+	let filesystem_size = storage
+		.as_ref()
+		.map(crate::budget::Allocation::limit)
+		.or(isolation.max_filesystem_size);
 	let filesystem_limited = filesystem_inodes.is_some() || filesystem_size.is_some();
 	let filesystem_separate = filesystem_limited || isolation.uid_map.is_some();
 	let filesystem_path = if filesystem_separate {
@@ -99,6 +109,12 @@ pub(crate) async fn spawn(
 	} else if filesystem_separate {
 		super::filesystem::create_directory(&filesystem_path)?;
 	}
+	if let Some(storage) = &storage {
+		let project = isolation.filesystem_project_id.unwrap();
+		let control = super::filesystem::control(&filesystem_path, project)?;
+		storage.bind(control)?;
+	}
+
 	prepare_sandbox_directory(
 		&arg.path,
 		&filesystem_path,
@@ -124,10 +140,32 @@ pub(crate) async fn spawn(
 		cpu_request: arg.cpu,
 		memory: arg.memory,
 		memory_oom_group: true,
-		memory_swap: isolation.memory_swap,
+		memory_swap: arg.swap.map(|swap| swap.max).or(isolation.memory_swap),
 		pids: isolation.max_pids,
+		swap: arg.swap,
+		swap_pool: arg.swap_pool.clone(),
 	};
 	let cgroup = Some(super::cgroup::Cgroup::new(cgroup_name, &options)?);
+	let source = crate::usage::Source::new(
+		cgroup.as_ref().unwrap().handle()?,
+		filesystem_path.clone(),
+		isolation.filesystem_project_id,
+	)?;
+	let resources = tg::runner::Capacity {
+		cpu: arg
+			.cpu
+			.unwrap_or(tg::sandbox::Amount::from_millis(u64::from(u32::MAX)).into()),
+		memory: arg.memory.unwrap_or(u64::MAX.into()),
+		storage: arg.storage.unwrap_or(u64::MAX.into()),
+		swap: arg.swap.unwrap_or(u64::MAX.into()),
+	};
+	let accounting = crate::usage::Accounting::new(
+		source,
+		resources,
+		arg.memory_sampling_interval,
+		arg.allocated_at,
+	)?;
+
 	let cgroup_handle = cgroup
 		.as_ref()
 		.map(super::cgroup::Cgroup::handle)
@@ -250,7 +288,7 @@ pub(crate) async fn spawn(
 	if cgroup.is_none()
 		&& let Some(memory) = arg.memory
 	{
-		command.arg("--cgroup-memory").arg(memory.to_string());
+		command.arg("--cgroup-memory").arg(memory.max.to_string());
 	}
 	command
 		.arg("--setenv")
@@ -405,9 +443,11 @@ pub(crate) async fn spawn(
 		None => None,
 	};
 	let output = Output {
+		accounting,
 		cgroup,
 		filesystem,
 		process: child,
+		storage,
 	};
 
 	Ok(output)

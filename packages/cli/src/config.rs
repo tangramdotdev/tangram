@@ -856,13 +856,13 @@ pub struct FdbIndex {
 	pub cluster: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub permission_update_partition_total: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub instance: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub storage_and_metadata_update_partition_total: Option<u64>,
+	pub max_write_operation_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub permission_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_channel_capacity: Option<usize>,
@@ -874,16 +874,16 @@ pub struct FdbIndex {
 	pub read_transaction_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub storage_relation_batch_size: Option<usize>,
+	pub storage_and_metadata_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub usage_update_partition_total: Option<u64>,
+	pub storage_relation_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_write_operation_batch_size: Option<usize>,
+	pub usage_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub verification: Option<FdbIndexVerification>,
@@ -1157,10 +1157,9 @@ pub struct IndexerUsageExpiration {
 #[serde(deny_unknown_fields)]
 pub struct IndexerUpdates {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub permissions: Option<IndexerUpdate>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_process_depth: Option<usize>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub permissions: Option<IndexerUpdate>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1231,6 +1230,9 @@ pub struct Object {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<ObjectCache>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index_queue: Option<IndexQueue>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permission_time_to_live: Option<Duration>,
@@ -1238,9 +1240,6 @@ pub struct Object {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permission_time_to_touch: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index_queue: Option<IndexQueue>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1701,10 +1700,9 @@ pub struct RemoteCache {
 #[serde(deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cpu_pool: Option<PathBuf>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub control_channel_capacity: Option<usize>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cpu_pool: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpus: Option<u64>,
@@ -1728,6 +1726,10 @@ pub struct Runner {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory_sampling_interval: Option<Duration>,
+
+	/// The shared CPU capacity admitted per hardware thread.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub overcommit: Option<tg::runner::Overcommit>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1791,13 +1793,13 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub scheduler_ttl: Option<Duration>,
 
-	/// The shared CPU capacity admitted per hardware thread.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub shared_cpu_overcommit: Option<u64>,
-
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdio_drain_timeout: Option<Duration>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub swap: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
@@ -1919,6 +1921,15 @@ pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub inbox_ttl: Option<Duration>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_create_sandbox_attempts: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_create_sandbox_requests: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_create_sandbox_requests_per_runner: Option<usize>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub message_ack_timeout: Option<Duration>,
@@ -1929,15 +1940,6 @@ pub struct Scheduler {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub message_timeout: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_create_sandbox_attempts: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_create_sandbox_requests: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_create_sandbox_requests_per_runner: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_concurrency: Option<usize>,
@@ -2478,10 +2480,10 @@ pub struct Vfs {
 	pub fuse: Option<VfsFuse>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub kind: Option<VfsKind>,
+	pub io: Option<VfsIo>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub io: Option<VfsIo>,
+	pub kind: Option<VfsKind>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub nfs: Option<VfsNfs>,
@@ -4987,8 +4989,14 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	if let Some(value) = source.control_channel_capacity {
 		target.control_channel_capacity = value;
 	}
-	if let Some(value) = source.shared_cpu_overcommit {
-		target.shared_cpu_overcommit = value;
+	if let Some(value) = source.storage {
+		target.storage = Some(value);
+	}
+	if let Some(value) = source.swap {
+		target.swap = Some(value);
+	}
+	if let Some(value) = source.overcommit {
+		target.overcommit = value;
 	}
 	if let Some(value) = source.progress_channel_capacity {
 		target.progress_channel_capacity = value;
@@ -6734,6 +6742,7 @@ mod tests {
 	fn resolves_indexer_update_queues() {
 		let source = Indexer {
 			updates: Some(IndexerUpdates {
+				max_process_depth: Some(55),
 				permissions: Some(IndexerUpdate {
 					batch_size: Some(11),
 					concurrency: Some(2),
@@ -6742,7 +6751,6 @@ mod tests {
 						start: Some(3),
 					}),
 				}),
-				max_process_depth: Some(55),
 				poll_interval: None,
 				storage_and_metadata: Some(IndexerUpdate {
 					batch_size: Some(22),

@@ -1,5 +1,10 @@
 use ../lib/test.nu *
 
+let quota_root = $env.TANGRAM_TEST_PROJECT_QUOTA_PATH? | default ''
+if $nu.os-info.name == 'linux' and ($quota_root | is-empty) {
+	skip_test 'TANGRAM_TEST_PROJECT_QUOTA_PATH is required for sandbox storage accounting'
+}
+
 # DestroySandbox control requests enforce runner ownership and are idempotent.
 
 const driver = path self ../lib/runner_control_destroy_sandbox.py
@@ -11,7 +16,8 @@ let remote = server spawn --name remote --config {
 	scheduler: { runner_ttl: 300 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
-let runner = server spawn --name runner --config {
+let runner_directory = if ($quota_root | is-empty) { mktemp --directory } else { mktemp --directory --tmpdir-path $quota_root }
+let runner = server spawn --name runner --directory $runner_directory --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }

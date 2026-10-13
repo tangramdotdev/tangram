@@ -37,13 +37,13 @@ pub struct Item {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpu: Option<tg::sandbox::Cpu>,
 
-	pub id: tg::sandbox::Id,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,
 
+	pub id: tg::sandbox::Id,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub memory: Option<u64>,
+	pub memory: Option<tg::sandbox::Resource<u64>>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::sandbox::Mount>,

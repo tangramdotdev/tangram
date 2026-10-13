@@ -9,8 +9,8 @@ let local = server spawn --config {
 let alice = tg login --verbose --name alice | from json
 
 let initial = tg usage | from json
-assert ($initial.sandbox_cpu == 0)
-assert ($initial.sandbox_memory == 0)
+assert ($initial.sandbox_cpu_consumption == 0)
+assert ($initial.sandbox_memory_consumption == 0)
 assert ($initial.object_count == 0)
 assert ($initial.object_size == 0)
 assert ($initial.process_count == 0)

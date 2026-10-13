@@ -20,7 +20,7 @@ pub struct Allocation {
 	cpu_lease: Option<tangram_sandbox::cpu::Lease>,
 	#[cfg(target_os = "linux")]
 	cpu_parent: Option<tangram_sandbox::cpu::Lease>,
-	shared_cpu_capacity_per_core: u64,
+	overcommit: tg::runner::Overcommit,
 	source: AllocationSource,
 }
 
@@ -39,8 +39,10 @@ pub struct ReservationGuard {
 struct State {
 	allocations: Mutex<BTreeMap<u64, tg::runner::Capacity>>,
 	changed: tokio::sync::Notify,
+	#[cfg(target_os = "linux")]
+	cpu_pool: Mutex<Option<tangram_sandbox::cpu::Pool>>,
 	next_index: AtomicU64,
-	shared_cpu_capacity_per_core: u64,
+	overcommit: tg::runner::Overcommit,
 	threads_per_core: u64,
 	total: tg::runner::Capacity,
 }
@@ -65,19 +67,26 @@ impl Pool {
 	#[must_use]
 	pub fn new(
 		total: tg::runner::Capacity,
-		shared_cpu_overcommit: u64,
+		overcommit: tg::runner::Overcommit,
 		threads_per_core: u64,
 	) -> Self {
 		Self {
 			state: Arc::new(State {
 				allocations: Mutex::new(BTreeMap::new()),
 				changed: tokio::sync::Notify::new(),
+				#[cfg(target_os = "linux")]
+				cpu_pool: Mutex::new(None),
 				next_index: AtomicU64::new(0),
-				shared_cpu_capacity_per_core: shared_cpu_overcommit * threads_per_core,
+				overcommit,
 				threads_per_core,
 				total,
 			}),
 		}
+	}
+
+	#[cfg(target_os = "linux")]
+	pub fn set_cpu_pool(&self, pool: Option<tangram_sandbox::cpu::Pool>) {
+		*self.state.cpu_pool.lock().unwrap() = pool;
 	}
 
 	#[must_use]
@@ -91,44 +100,29 @@ impl Pool {
 		allocations: &BTreeMap<u64, tg::runner::Capacity>,
 	) -> tg::runner::control::Capacity {
 		let total = self.state.total;
-		let shared_cpu_capacity_per_core = self.state.shared_cpu_capacity_per_core;
+		let overcommit = self.state.overcommit;
 		let cpu_threads_per_core = self.state.threads_per_core;
-		let mut used = tg::runner::Capacity::default();
-		let mut width = 0;
-		for allocation in allocations.values() {
-			used.cpu.dedicated += allocation.cpu.dedicated;
-			used.cpu.shared += allocation.cpu.shared;
-			used.memory += allocation.memory;
-			width = width.max(allocation.cpu.shared);
-		}
-		let (dedicated, shared, shared_cpu_limit) = if total.cpu.dedicated == 0 {
-			(
-				0,
-				total.cpu.shared.saturating_sub(used.cpu.shared),
-				total.cpu.shared / shared_cpu_capacity_per_core,
-			)
+		let available = allocations.values().fold(total, |available, allocation| {
+			available.subtract(*allocation, overcommit)
+		});
+		#[cfg(target_os = "linux")]
+		let available = if let Some(pool) = &*self.state.cpu_pool.lock().unwrap() {
+			let cpu = pool.available();
+			let cpu = tg::sandbox::Cpu::new(
+				cpu.min.min(available.cpu.min),
+				cpu.max.min(available.cpu.max),
+			);
+			tg::runner::Capacity { cpu, ..available }
 		} else {
-			let cores = total.cpu.dedicated.saturating_sub(used.cpu.dedicated);
-			let shared_cpu_limit = cores.saturating_mul(cpu_threads_per_core);
-			let occupied = used
-				.cpu
-				.shared
-				.div_ceil(shared_cpu_capacity_per_core)
-				.max(width.div_ceil(cpu_threads_per_core));
-			let dedicated = cores.saturating_sub(occupied);
-			let shared = occupied
-				.saturating_mul(shared_cpu_capacity_per_core)
-				.saturating_sub(used.cpu.shared);
-			(dedicated, shared, shared_cpu_limit)
+			available
 		};
-		let cpu = tg::sandbox::Cpu { dedicated, shared };
-		let memory = total.memory.saturating_sub(used.memory);
-		let available = tg::runner::Capacity { cpu, memory };
+
+		let cpu_limit = total.cpu.max.millis() / (1000 * overcommit.cpu);
 		tg::runner::control::Capacity {
 			available,
+			cpu_limit,
 			cpu_threads_per_core,
-			shared_cpu_limit,
-			shared_cpu_overcommit: shared_cpu_capacity_per_core / cpu_threads_per_core,
+			overcommit,
 			total,
 		}
 	}
@@ -137,16 +131,9 @@ impl Pool {
 	pub fn try_acquire(&self, capacity: tg::runner::Capacity) -> Option<Allocation> {
 		let mut allocations = self.state.allocations.lock().unwrap();
 		let current = self.capacity(&allocations);
-		if !current
-			.available
-			.contains(capacity, current.shared_cpu_capacity_per_core())
-			|| capacity.cpu.shared
-				> current.shared_cpu_limit.saturating_sub(
-					capacity
-						.cpu
-						.dedicated
-						.saturating_mul(current.cpu_threads_per_core),
-				) {
+		if !current.available.contains(capacity, current.overcommit)
+			|| capacity.cpu.max.threads() > current.cpu_limit
+		{
 			return None;
 		}
 		let index = self.state.next_index.fetch_add(1, Ordering::Relaxed);
@@ -160,7 +147,7 @@ impl Pool {
 			cpu_lease: None,
 			#[cfg(target_os = "linux")]
 			cpu_parent: None,
-			shared_cpu_capacity_per_core: self.state.shared_cpu_capacity_per_core,
+			overcommit: self.state.overcommit,
 			source: AllocationSource::Pool { index, pool },
 		})
 	}
@@ -196,9 +183,7 @@ impl Reservations {
 	) -> Option<(tg::runner::Capacity, ReservationGuard)> {
 		let parent_allocation = allocation.as_ref()?;
 		let capacity = parent_allocation.capacity;
-		if !capacity.contains(requested, parent_allocation.shared_cpu_capacity_per_core) {
-			return None;
-		}
+		capacity.try_borrow(requested, parent_allocation.overcommit)?;
 		let index = self.state.next_index.fetch_add(1, Ordering::Relaxed);
 		let (consumed, receiver) = tokio::sync::oneshot::channel();
 		let reservation = Reservation {
@@ -232,9 +217,10 @@ impl Reservations {
 		let mut entries = self.state.entries.lock().unwrap();
 		let reservation = entries.remove(parent)?;
 		let allocation = reservation.allocation.as_ref()?;
-		if !allocation
+		if allocation
 			.capacity
-			.contains(requested, allocation.shared_cpu_capacity_per_core)
+			.try_borrow(requested, allocation.overcommit)
+			.is_none()
 		{
 			entries.insert(parent.clone(), reservation);
 			return None;
@@ -262,17 +248,17 @@ impl Allocation {
 		let allocation = parent.as_ref()?;
 		let capacity = allocation
 			.capacity
-			.try_borrow(requested, allocation.shared_cpu_capacity_per_core)?;
+			.try_borrow(requested, allocation.overcommit)?;
 		#[cfg(target_os = "linux")]
 		let cpu_parent = allocation.cpu_lease.clone();
-		let shared_cpu_capacity_per_core = allocation.shared_cpu_capacity_per_core;
+		let overcommit = allocation.overcommit;
 		Some(Self {
 			capacity,
 			#[cfg(target_os = "linux")]
 			cpu_lease: None,
 			#[cfg(target_os = "linux")]
 			cpu_parent,
-			shared_cpu_capacity_per_core,
+			overcommit,
 			source: AllocationSource::Parent(parent),
 		})
 	}
@@ -320,191 +306,56 @@ impl Drop for Allocation {
 mod tests {
 	use super::*;
 
-	fn capacity(dedicated: u64, shared: u64) -> tg::runner::Capacity {
-		let cpu = tg::sandbox::Cpu { dedicated, shared };
-		tg::runner::Capacity { cpu, memory: 1 }
+	fn capacity(min: u64, max: u64) -> tg::runner::Capacity {
+		let cpu = tg::sandbox::Cpu::new(
+			tg::sandbox::Amount::from_millis(min),
+			tg::sandbox::Amount::from_millis(max),
+		);
+		tg::runner::Capacity {
+			cpu,
+			memory: tg::sandbox::Resource::new(min, max),
+			storage: tg::sandbox::Resource::new(min, max),
+			swap: tg::sandbox::Resource::new(min, max),
+		}
 	}
 
 	#[test]
-	fn smt_capacity_counts_shared_threads_and_reserves_whole_dedicated_cores() {
-		let mut total = capacity(2, 0);
-		total.memory = 32;
-		let pool = Pool::new(total, 4, 2);
-		assert_eq!(pool.get().shared_cpu_limit, 4);
-		assert_eq!(pool.get().shared_cpu_overcommit, 4);
-		assert_eq!(pool.get().shared_cpu_capacity_per_core(), 8);
-		let shared = pool.try_acquire(capacity(0, 2)).unwrap();
+	fn admission_reserves_all_minima_and_recovers_capacity_on_release() {
+		let total = capacity(2000, 8000);
+		let overcommit = tg::runner::Overcommit {
+			cpu: 4,
+			memory: 4,
+			storage: 4,
+			swap: 4,
+		};
+		let pool = Pool::new(total, overcommit, 2);
+		let first = pool.try_acquire(capacity(250, 1000)).unwrap();
+		assert_eq!(pool.get().cpu_limit, 2);
 		assert_eq!(
-			pool.get().available.cpu,
-			tg::sandbox::Cpu {
-				dedicated: 1,
-				shared: 6
-			}
+			pool.get().available.memory,
+			tg::sandbox::Resource::new(1562, 6250)
 		);
-		let dedicated = pool.try_acquire(capacity(1, 0)).unwrap();
-		assert_eq!(pool.get().shared_cpu_limit, 2);
-		assert!(pool.try_acquire(capacity(0, 3)).is_none());
-		drop(dedicated);
-		drop(shared);
-		assert!(pool.try_acquire(capacity(0, 4)).is_some());
-		assert!(pool.try_acquire(capacity(0, 5)).is_none());
-	}
-
-	#[test]
-	fn dedicated_capacity_can_be_borrowed_as_shared_without_extra_admission() {
-		let pool = Pool::new(capacity(1, 0), 4, 1);
-		let parent = pool.try_acquire(capacity(1, 0)).unwrap();
-		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
-		let before = pool.get().available;
-		let guard = parent.clone().try_lock_owned().unwrap();
-		let child = Allocation::try_borrow(guard, capacity(0, 1)).unwrap();
-		assert_eq!(child.capacity, capacity(0, 4));
-		assert_eq!(pool.get().available, before);
-		let child = Arc::new(tokio::sync::Mutex::new(Some(child)));
-		let guard = child.clone().try_lock_owned().unwrap();
-		assert!(Allocation::try_borrow(guard, capacity(1, 0)).is_none());
-		let guard = child.clone().try_lock_owned().unwrap();
-		let grandchild = Allocation::try_borrow(guard, capacity(0, 4)).unwrap();
-		drop(grandchild);
-		drop(child);
-		assert!(parent.clone().try_lock_owned().is_ok());
-		drop(parent);
-		assert_eq!(pool.get().available, capacity(1, 0));
-	}
-
-	#[test]
-	fn descendants_inherit_memory_and_cpu_headroom_exclusively() {
-		let mut total = capacity(4, 0);
-		total.memory = 16 << 30;
-		let pool = Pool::new(total, 4, 1);
-		let parent = pool.try_acquire(total).unwrap();
-		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
-		let mut requested = capacity(1, 0);
-		requested.memory = 1 << 30;
-		let guard = parent.clone().try_lock_owned().unwrap();
-		let child = Allocation::try_borrow(guard, requested).unwrap();
-		assert_eq!(child.capacity(), total);
-		assert!(parent.clone().try_lock_owned().is_err());
-		let child = Arc::new(tokio::sync::Mutex::new(Some(child)));
-		let mut requested = capacity(4, 0);
-		requested.memory = 8 << 30;
-		let reservations = Reservations::new();
-		let id = tg::sandbox::Id::new();
-		let guard = child.clone().try_lock_owned().unwrap();
-		let (advertised, reservation) = reservations.reserve(guard, id.clone(), requested).unwrap();
-		assert_eq!(advertised, total);
-		let grandchild = reservations.try_acquire(&id, requested).unwrap();
-		assert_eq!(grandchild.capacity(), total);
-		assert_eq!(pool.get().available, tg::runner::Capacity::default());
-		assert!(child.clone().try_lock_owned().is_err());
-		drop(grandchild);
-		drop(reservation);
-		drop(child);
-		assert!(parent.clone().try_lock_owned().is_ok());
-		drop(parent);
-		assert_eq!(pool.get().available, total);
-	}
-
-	#[test]
-	fn reservations_apply_the_same_conversion_rules_as_shortcuts() {
-		let pool = Pool::new(capacity(1, 0), 4, 1);
-		let parent = pool.try_acquire(capacity(1, 0)).unwrap();
-		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
-		let reservations = Reservations::new();
-		let id = tg::sandbox::Id::new();
-		let guard = parent.clone().try_lock_owned().unwrap();
-		assert!(
-			reservations
-				.reserve(guard, id.clone(), capacity(0, 5))
-				.is_none()
-		);
-		let guard = parent.clone().try_lock_owned().unwrap();
-		let (advertised, reservation) = reservations
-			.reserve(guard, id.clone(), capacity(0, 4))
-			.unwrap();
-		assert_eq!(advertised, capacity(1, 0));
-		let child = reservations.try_acquire(&id, capacity(0, 4)).unwrap();
-		assert_eq!(child.capacity, capacity(0, 4));
-		drop(child);
-		drop(reservation);
-		let guard = parent.clone().try_lock_owned().unwrap();
-		assert!(Allocation::try_borrow(guard, capacity(1, 0)).is_some());
-	}
-
-	#[test]
-	fn shared_capacity_cannot_be_promoted_or_overcommitted_again() {
-		let pool = Pool::new(capacity(1, 0), 4, 1);
-		let parent = pool.try_acquire(capacity(0, 1)).unwrap();
-		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
-		let guard = parent.clone().try_lock_owned().unwrap();
-		assert!(Allocation::try_borrow(guard, capacity(1, 0)).is_none());
-		let guard = parent.clone().try_lock_owned().unwrap();
-		assert!(Allocation::try_borrow(guard, capacity(0, 2)).is_none());
-		let guard = parent.clone().try_lock_owned().unwrap();
-		assert!(Allocation::try_borrow(guard, capacity(0, 1)).is_some());
-	}
-
-	#[test]
-	fn converts_free_cores_to_shared_capacity_and_reclaims_them() {
-		let mut total = capacity(3, 0);
-		total.memory = 32;
-		let pool = Pool::new(total, 4, 1);
-		let first = pool.try_acquire(capacity(0, 1)).unwrap();
-		assert_eq!(
-			pool.get().available.cpu,
-			tg::sandbox::Cpu {
-				dedicated: 2,
-				shared: 3
-			}
-		);
-		let second = pool.try_acquire(capacity(0, 1)).unwrap();
-		assert_eq!(
-			pool.get().available.cpu,
-			tg::sandbox::Cpu {
-				dedicated: 2,
-				shared: 2
-			}
-		);
-		let dedicated = pool.try_acquire(capacity(2, 0)).unwrap();
-		assert!(pool.try_acquire(capacity(1, 0)).is_none());
+		assert!(pool.try_acquire(capacity(1600, 2000)).is_none());
+		let second = pool.try_acquire(capacity(0, 1000)).unwrap();
 		drop(first);
 		drop(second);
-		assert_eq!(
-			pool.get().available.cpu,
-			tg::sandbox::Cpu {
-				dedicated: 1,
-				shared: 0
-			}
-		);
-		drop(dedicated);
 		assert_eq!(pool.get().available, total);
 	}
 
 	#[test]
-	fn accounts_for_distinct_shared_cores_and_mixed_requests() {
-		let mut total = capacity(3, 0);
-		total.memory = 32;
-		let pool = Pool::new(total, 4, 1);
-		let shared = pool.try_acquire(capacity(0, 2)).unwrap();
-		assert_eq!(
-			pool.get().available.cpu,
-			tg::sandbox::Cpu {
-				dedicated: 1,
-				shared: 6
-			}
-		);
-		assert!(pool.try_acquire(capacity(2, 0)).is_none());
-		assert!(pool.try_acquire(capacity(1, 3)).is_none());
-		let mixed = pool.try_acquire(capacity(1, 2)).unwrap();
-		assert_eq!(
-			pool.get().available.cpu,
-			tg::sandbox::Cpu {
-				dedicated: 0,
-				shared: 4
-			}
-		);
-		drop(mixed);
-		drop(shared);
+	fn a_borrower_cannot_promote_a_maximum_into_a_new_minimum() {
+		let total = capacity(2000, 8000);
+		let pool = Pool::new(total, tg::runner::Overcommit::default(), 2);
+		let parent = pool.try_acquire(capacity(0, 1000)).unwrap();
+		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
+		let available = pool.get().available;
+		let guard = parent.clone().try_lock_owned().unwrap();
+		assert!(Allocation::try_borrow(guard, capacity(250, 1000)).is_none());
+		let guard = parent.clone().try_lock_owned().unwrap();
+		let child = Allocation::try_borrow(guard, capacity(0, 1000)).unwrap();
+		assert_eq!(pool.get().available, available);
+		drop(child);
+		drop(parent);
 		assert_eq!(pool.get().available, total);
 	}
 }

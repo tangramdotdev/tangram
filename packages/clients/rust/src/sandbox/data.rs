@@ -35,7 +35,7 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub memory: Option<u64>,
+	pub memory: Option<tg::sandbox::Resource<u64>>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
@@ -51,6 +51,14 @@ pub struct Data {
 
 	#[tangram_serialize(id = 9)]
 	pub status: tg::sandbox::Status,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 12, skip_serializing_if = "Option::is_none")]
+	pub storage: Option<tg::sandbox::Resource<u64>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
+	pub swap: Option<tg::sandbox::Resource<u64>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -75,11 +83,35 @@ pub struct Data {
 	tangram_serialize::Serialize,
 )]
 pub struct Usage {
-	/// Shared CPU execution milliseconds and dedicated physical core-milliseconds.
+	/// Hardware thread-milliseconds.
 	#[tangram_serialize(id = 0)]
-	pub cpu: tg::sandbox::Cpu,
+	pub cpu: ResourceUsage,
 
 	/// The integral of actual memory use in mebibyte-milliseconds.
 	#[tangram_serialize(id = 1)]
-	pub memory: u64,
+	pub memory: ResourceUsage,
+	#[tangram_serialize(id = 2)]
+	pub storage: ResourceUsage,
+	#[tangram_serialize(id = 3)]
+	pub swap: ResourceUsage,
+}
+
+/// Resource time charged for a reservation and for consumption above it.
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ResourceUsage {
+	#[tangram_serialize(id = 0)]
+	pub consumption: u64,
+	#[tangram_serialize(id = 1)]
+	pub reservation: u64,
 }

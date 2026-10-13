@@ -35,13 +35,18 @@ pub struct Aggregate {
 	/// Sandboxes.
 	pub sandbox_count: u64,
 
-	/// Shared sandbox CPU-milliseconds.
-	pub sandbox_cpu: u128,
-	/// Dedicated sandbox core-milliseconds.
-	pub sandbox_cpu_dedicated: u128,
+	/// Sandbox CPU consumption above the minimum in hardware thread-milliseconds.
+	pub sandbox_cpu_consumption: u128,
+	/// Sandbox CPU reservation in hardware thread-milliseconds.
+	pub sandbox_cpu_reservation: u128,
 
 	/// Sandbox mebibyte-milliseconds.
-	pub sandbox_memory: u128,
+	pub sandbox_memory_consumption: u128,
+	pub sandbox_memory_reservation: u128,
+	pub sandbox_storage_consumption: u128,
+	pub sandbox_storage_reservation: u128,
+	pub sandbox_swap_consumption: u128,
+	pub sandbox_swap_reservation: u128,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -115,13 +120,18 @@ pub struct Output {
 	/// The number of sandboxes.
 	pub sandbox_count: u64,
 
-	/// The shared sandbox usage in CPU-milliseconds.
-	pub sandbox_cpu: u128,
-	/// Dedicated sandbox core-milliseconds.
-	pub sandbox_cpu_dedicated: u128,
+	/// The sandbox CPU consumption above the minimum in hardware thread-milliseconds.
+	pub sandbox_cpu_consumption: u128,
+	/// Sandbox CPU reservation in hardware thread-milliseconds.
+	pub sandbox_cpu_reservation: u128,
 
 	/// The sandbox usage in mebibyte-milliseconds.
-	pub sandbox_memory: u128,
+	pub sandbox_memory_consumption: u128,
+	pub sandbox_memory_reservation: u128,
+	pub sandbox_storage_consumption: u128,
+	pub sandbox_storage_reservation: u128,
+	pub sandbox_swap_consumption: u128,
+	pub sandbox_swap_reservation: u128,
 }
 
 impl Account {
@@ -160,17 +170,37 @@ impl Aggregate {
 			.sandbox_count
 			.checked_add(other.sandbox_count)
 			.ok_or_else(|| tg::error!("the sandbox count usage overflowed"))?;
-		self.sandbox_cpu = self
-			.sandbox_cpu
-			.checked_add(other.sandbox_cpu)
+		self.sandbox_cpu_consumption = self
+			.sandbox_cpu_consumption
+			.checked_add(other.sandbox_cpu_consumption)
 			.ok_or_else(|| tg::error!("the sandbox CPU usage overflowed"))?;
-		self.sandbox_cpu_dedicated = self
-			.sandbox_cpu_dedicated
-			.checked_add(other.sandbox_cpu_dedicated)
-			.ok_or_else(|| tg::error!("the dedicated CPU usage overflowed"))?;
-		self.sandbox_memory = self
-			.sandbox_memory
-			.checked_add(other.sandbox_memory)
+		self.sandbox_cpu_reservation = self
+			.sandbox_cpu_reservation
+			.checked_add(other.sandbox_cpu_reservation)
+			.ok_or_else(|| tg::error!("the CPU reservation usage overflowed"))?;
+		self.sandbox_memory_consumption = self
+			.sandbox_memory_consumption
+			.checked_add(other.sandbox_memory_consumption)
+			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
+		self.sandbox_memory_reservation = self
+			.sandbox_memory_reservation
+			.checked_add(other.sandbox_memory_reservation)
+			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
+		self.sandbox_storage_consumption = self
+			.sandbox_storage_consumption
+			.checked_add(other.sandbox_storage_consumption)
+			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
+		self.sandbox_storage_reservation = self
+			.sandbox_storage_reservation
+			.checked_add(other.sandbox_storage_reservation)
+			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
+		self.sandbox_swap_consumption = self
+			.sandbox_swap_consumption
+			.checked_add(other.sandbox_swap_consumption)
+			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
+		self.sandbox_swap_reservation = self
+			.sandbox_swap_reservation
+			.checked_add(other.sandbox_swap_reservation)
 			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
 
 		Ok(())

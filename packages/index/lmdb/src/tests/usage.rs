@@ -92,8 +92,8 @@ fn usage_keys_round_trip() {
 		(tangram_index::usage::DeltaKind::ObjectSize, 1),
 		(tangram_index::usage::DeltaKind::ProcessCount, 2),
 		(tangram_index::usage::DeltaKind::SandboxCount, 3),
-		(tangram_index::usage::DeltaKind::SandboxCpu, 4),
-		(tangram_index::usage::DeltaKind::SandboxMemory, 5),
+		(tangram_index::usage::DeltaKind::SandboxCpuConsumption, 4),
+		(tangram_index::usage::DeltaKind::SandboxMemoryConsumption, 5),
 	] {
 		assert_eq!(kind.to_i32(), Some(value));
 		keys.push(crate::usage::Key::Delta {
@@ -267,11 +267,13 @@ fn sandbox_data(
 			hostname: None,
 			id,
 			isolation: None,
-			memory: Some(1 << 30),
+			memory: Some((1 << 30).into()),
 			mounts: Vec::new(),
 			network: None,
 			owner: Some(owner),
 			status,
+			storage: None,
+			swap: None,
 			ttl: None,
 			usage,
 		},
@@ -288,14 +290,14 @@ async fn aggregates_compute_and_carries_storage_across_empty_hours() {
 		&index,
 		&account,
 		1,
-		tangram_index::usage::DeltaKind::SandboxCpu,
+		tangram_index::usage::DeltaKind::SandboxCpuConsumption,
 		3,
 	);
 	add_delta(
 		&index,
 		&account,
 		1,
-		tangram_index::usage::DeltaKind::SandboxMemory,
+		tangram_index::usage::DeltaKind::SandboxMemoryConsumption,
 		5,
 	);
 	add_delta(
@@ -322,8 +324,8 @@ async fn aggregates_compute_and_carries_storage_across_empty_hours() {
 
 	let now = jiff::Timestamp::new(3 * 60 * 60, 0).unwrap();
 	let first = index.get_usage(&account, hour(0), now).await.unwrap();
-	assert_eq!(first.sandbox_cpu, 3);
-	assert_eq!(first.sandbox_memory, 5);
+	assert_eq!(first.sandbox_cpu_consumption, 3);
+	assert_eq!(first.sandbox_memory_consumption, 5);
 	assert_eq!(first.object_count, 1);
 	assert_eq!(first.object_size, 10);
 	assert_eq!(first.sandbox_count, 1);
@@ -334,8 +336,8 @@ async fn aggregates_compute_and_carries_storage_across_empty_hours() {
 		.get_usage(&account, period, during_third)
 		.await
 		.unwrap();
-	assert_eq!(partial.sandbox_cpu, 3);
-	assert_eq!(partial.sandbox_memory, 5);
+	assert_eq!(partial.sandbox_cpu_consumption, 3);
+	assert_eq!(partial.sandbox_memory_consumption, 5);
 	assert_eq!(partial.object_count, 3);
 	assert_eq!(partial.object_size, 30);
 	assert_eq!(partial.sandbox_count, 1);
@@ -344,8 +346,8 @@ async fn aggregates_compute_and_carries_storage_across_empty_hours() {
 		.get_usage(&account, hour(2 * 60 * 60), now)
 		.await
 		.unwrap();
-	assert_eq!(third.sandbox_cpu, 0);
-	assert_eq!(third.sandbox_memory, 0);
+	assert_eq!(third.sandbox_cpu_consumption, 0);
+	assert_eq!(third.sandbox_memory_consumption, 0);
 	assert_eq!(third.object_count, 1);
 	assert_eq!(third.object_size, 10);
 	assert_eq!(third.sandbox_count, 0);
@@ -388,7 +390,7 @@ async fn aggregates_hourly_storage_gauges_into_a_day() {
 		&index,
 		&account,
 		1,
-		tangram_index::usage::DeltaKind::SandboxCpu,
+		tangram_index::usage::DeltaKind::SandboxCpuConsumption,
 		3,
 	);
 	add_delta(
@@ -423,8 +425,8 @@ async fn aggregates_hourly_storage_gauges_into_a_day() {
 	let period = tangram_index::usage::Period::day("1970-01-01").unwrap();
 	let now = jiff::Timestamp::new(24 * 60 * 60, 0).unwrap();
 	let usage = index.get_usage(&account, period, now).await.unwrap();
-	assert_eq!(usage.sandbox_cpu, 3);
-	assert_eq!(usage.sandbox_memory, 0);
+	assert_eq!(usage.sandbox_cpu_consumption, 3);
+	assert_eq!(usage.sandbox_memory_consumption, 0);
 	assert_eq!(usage.object_count, 2);
 	assert_eq!(usage.object_size, 20);
 	assert_eq!(usage.process_count, 0);
@@ -466,7 +468,7 @@ async fn aggregates_parent_periods_without_boundary_usage() {
 		&index,
 		&account,
 		1,
-		tangram_index::usage::DeltaKind::SandboxCpu,
+		tangram_index::usage::DeltaKind::SandboxCpuConsumption,
 		3,
 	);
 	let now = jiff::Timestamp::new(32 * 24 * 60 * 60, 0).unwrap();
@@ -488,7 +490,7 @@ async fn aggregates_parent_periods_without_boundary_usage() {
 		)
 		.unwrap()
 		.unwrap();
-		assert_eq!(aggregate.sandbox_cpu, 3);
+		assert_eq!(aggregate.sandbox_cpu_consumption, 3);
 	}
 }
 
@@ -661,11 +663,16 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 			owner,
 			tg::sandbox::Status::Destroyed,
 			Some(tg::sandbox::Usage {
-				cpu: tg::sandbox::Cpu {
-					dedicated: 789,
-					shared: 123,
+				cpu: tg::sandbox::ResourceUsage {
+					consumption: 123,
+					reservation: 789,
 				},
-				memory: 456,
+				memory: tg::sandbox::ResourceUsage {
+					consumption: 456,
+					reservation: 0,
+				},
+				storage: tg::sandbox::ResourceUsage::default(),
+				swap: tg::sandbox::ResourceUsage::default(),
 			}),
 		)),
 		id: sandbox.clone(),
@@ -693,9 +700,9 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
 	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
-	assert_eq!(usage.sandbox_cpu, 123);
-	assert_eq!(usage.sandbox_cpu_dedicated, 789);
-	assert_eq!(usage.sandbox_memory, 456);
+	assert_eq!(usage.sandbox_cpu_consumption, 123);
+	assert_eq!(usage.sandbox_cpu_reservation, 789);
+	assert_eq!(usage.sandbox_memory_consumption, 456);
 	assert_eq!(usage.sandbox_count, 1);
 }
 
@@ -712,11 +719,16 @@ async fn records_compute_once_when_destroy_precedes_start() {
 		tg::sandbox::Status::Destroyed,
 	] {
 		let usage = status.is_destroyed().then_some(tg::sandbox::Usage {
-			cpu: tg::sandbox::Cpu {
-				dedicated: 789,
-				shared: 123,
+			cpu: tg::sandbox::ResourceUsage {
+				consumption: 123,
+				reservation: 789,
 			},
-			memory: 456,
+			memory: tg::sandbox::ResourceUsage {
+				consumption: 456,
+				reservation: 0,
+			},
+			storage: tg::sandbox::ResourceUsage::default(),
+			swap: tg::sandbox::ResourceUsage::default(),
 		});
 		let arg = tangram_index::sandbox::put::Arg {
 			account: Some(account.clone()),
@@ -737,9 +749,9 @@ async fn records_compute_once_when_destroy_precedes_start() {
 	}
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
 	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
-	assert_eq!(usage.sandbox_cpu, 123);
-	assert_eq!(usage.sandbox_cpu_dedicated, 789);
-	assert_eq!(usage.sandbox_memory, 456);
+	assert_eq!(usage.sandbox_cpu_consumption, 123);
+	assert_eq!(usage.sandbox_cpu_reservation, 789);
+	assert_eq!(usage.sandbox_memory_consumption, 456);
 	assert_eq!(usage.sandbox_count, 1);
 }
 
@@ -782,11 +794,16 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 			owner,
 			tg::sandbox::Status::Destroyed,
 			Some(tg::sandbox::Usage {
-				cpu: tg::sandbox::Cpu {
-					dedicated: 789,
-					shared: 123,
+				cpu: tg::sandbox::ResourceUsage {
+					consumption: 123,
+					reservation: 789,
 				},
-				memory: 456,
+				memory: tg::sandbox::ResourceUsage {
+					consumption: 456,
+					reservation: 0,
+				},
+				storage: tg::sandbox::ResourceUsage::default(),
+				swap: tg::sandbox::ResourceUsage::default(),
 			}),
 		)),
 		id: sandbox.clone(),

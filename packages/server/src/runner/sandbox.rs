@@ -666,6 +666,7 @@ impl Session {
 		mut arg: tg::sandbox::create::Arg,
 		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
+		let allocated_at = std::time::Instant::now();
 		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
 		let mut isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
@@ -755,7 +756,7 @@ impl Session {
 			arg.cpu
 				.get_or_insert(self.server.config().scheduler.default_cpu.into());
 			arg.memory
-				.get_or_insert(self.server.config().scheduler.default_memory);
+				.get_or_insert(self.server.config().scheduler.default_memory.into());
 		}
 
 		#[cfg(target_os = "linux")]
@@ -771,6 +772,23 @@ impl Session {
 			},
 			tangram_sandbox::Isolation::Seatbelt(_) => self.server.sandbox_seatbelt_root.clone(),
 		};
+
+		#[cfg(target_os = "linux")]
+		if matches!(isolation, tangram_sandbox::Isolation::Container(_)) {
+			arg.memory
+				.get_or_insert(self.server.config.scheduler.default_memory.into());
+			arg.storage.get_or_insert((10 * 1024 * 1024 * 1024).into());
+			arg.swap.get_or_insert(0.into());
+		}
+
+		// Apply the sandbox storage maximum.
+		if let Some(storage) = arg.storage {
+			storage.validate()?;
+			let tangram_sandbox::Isolation::Container(container) = &mut isolation else {
+				return Err(tg::error!("storage bounds require container isolation"));
+			};
+			container.max_filesystem_size = Some(storage.max);
+		}
 
 		// Allocate the filesystem project ID.
 		#[cfg(target_os = "linux")]
@@ -902,6 +920,7 @@ impl Session {
 		};
 		let config = &self.server.config.sandbox;
 		let arg = tangram_sandbox::Arg {
+			allocated_at,
 			#[cfg(target_os = "linux")]
 			cgroup_cleanup_interval: config.cgroup_cleanup_interval,
 			#[cfg(target_os = "linux")]
@@ -940,7 +959,13 @@ impl Session {
 			request_timeout: config.request_timeout,
 			rootfs_path,
 			shutdown_timeout: config.shutdown_timeout,
+			storage: arg.storage,
+			#[cfg(target_os = "linux")]
+			storage_pool: Some(self.server.runner.state.storage_pool.clone()),
 			store_path: store_source,
+			swap: arg.swap,
+			#[cfg(target_os = "linux")]
+			swap_pool: Some(self.server.runner.state.swap_pool.clone()),
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,
 		};

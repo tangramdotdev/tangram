@@ -155,7 +155,9 @@ export namespace Sandbox {
 		hostname?: string | null;
 		isolation?: tg.Sandbox.Isolation.Data | null;
 		location?: string | null;
-		memory?: number | null;
+		memory?: number | tg.Sandbox.Resource | null;
+		storage?: number | tg.Sandbox.Resource | null;
+		swap?: number | tg.Sandbox.Resource | null;
 		mounts?: Array<tg.Sandbox.Mount.Data>;
 		network?: tg.Sandbox.Network.Data | null;
 		owner?: string | null;
@@ -168,7 +170,9 @@ export namespace Sandbox {
 		hostname?: string | null;
 		id: tg.Sandbox.Id;
 		isolation?: tg.Sandbox.Isolation.Data | null;
-		memory?: number | null;
+		memory?: number | tg.Sandbox.Resource | null;
+		storage?: number | tg.Sandbox.Resource | null;
+		swap?: number | tg.Sandbox.Resource | null;
 		mounts?: Array<tg.Sandbox.Mount.Data>;
 		network?: tg.Sandbox.Network.Data | null;
 		owner?: string | null;
@@ -178,37 +182,52 @@ export namespace Sandbox {
 	};
 
 	export type Usage = {
-		cpu: { dedicated: number; shared: number };
-		memory: number;
+		cpu: ResourceUsage;
+		memory: ResourceUsage;
+		storage: ResourceUsage;
+		swap: ResourceUsage;
 	};
 
-	export type Cpu = { dedicated?: number; shared?: number };
+	export type ResourceUsage = { consumption: number; reservation: number };
+	export type Resource = { min?: number; max?: number };
+	export type Cpu = Resource;
+
+	export namespace Resource {
+		export let from = (value: number | Resource, cpu = false): Resource => {
+			let resource = typeof value === "number" ? { max: value } : value;
+			tg.assert(
+				Object.keys(resource).every((key) => key === "min" || key === "max"),
+				"unknown resource property",
+			);
+			tg.assert(
+				resource.min !== undefined || resource.max !== undefined,
+				"a resource requires min or max",
+			);
+			let min = resource.min ?? 0;
+			let max = resource.max ?? min;
+			for (let amount of [min, max]) {
+				tg.assert(
+					Number.isFinite(amount) && amount >= 0,
+					"resource amounts must be finite and nonnegative",
+				);
+				tg.assert(
+					cpu
+						? Number.isSafeInteger(Math.round(amount * 1000)) &&
+								Math.abs(amount * 1000 - Math.round(amount * 1000)) < 0.000001
+						: Number.isSafeInteger(amount),
+					cpu
+						? "CPU must be a multiple of 0.001"
+						: "resource bytes must be safe integers",
+				);
+			}
+			tg.assert(min <= max, "resource min must not exceed max");
+			if (cpu) tg.assert(max > 0, "CPU max must be greater than zero");
+			return { max, min };
+		};
+	}
 
 	export namespace Cpu {
-		export let from = (value: number | Cpu): Cpu => {
-			let cpu = typeof value === "number" ? { shared: value } : value;
-			for (let key of Object.keys(cpu)) {
-				tg.assert(
-					key === "dedicated" || key === "shared",
-					`unknown CPU property: ${key}`,
-				);
-			}
-			for (let count of [cpu.dedicated, cpu.shared]) {
-				tg.assert(
-					count === undefined || (Number.isSafeInteger(count) && count >= 0),
-					"CPU counts must be nonnegative safe integers",
-				);
-			}
-			tg.assert(
-				(cpu.dedicated ?? 0) + (cpu.shared ?? 0) > 0,
-				"CPU must be greater than zero",
-			);
-			tg.assert(
-				Number.isSafeInteger((cpu.dedicated ?? 0) + (cpu.shared ?? 0)),
-				"CPU is too large",
-			);
-			return { ...cpu };
-		};
+		export let from = (value: number | Cpu): Cpu => Resource.from(value, true);
 	}
 
 	export type Source = tg.Process.Source;
@@ -239,7 +258,9 @@ export namespace Sandbox {
 		hostname?: string | null;
 		isolation?: tg.Sandbox.Isolation | null;
 		location?: tg.Location.Arg | null;
-		memory?: number | null;
+		memory?: number | tg.Sandbox.Resource | null;
+		storage?: number | tg.Sandbox.Resource | null;
+		swap?: number | tg.Sandbox.Resource | null;
 		mounts?: Array<tg.Sandbox.Mount> | null;
 		network?: boolean | tg.Sandbox.Network | null;
 		owner?: string | null;
@@ -272,8 +293,15 @@ export namespace Sandbox {
 						: tg.Location.Arg.toDataString(arg.location);
 			}
 			if (arg.memory !== undefined) {
-				output.memory = arg.memory;
+				output.memory =
+					arg.memory === null ? null : tg.Sandbox.Resource.from(arg.memory);
 			}
+			for (let key of ["storage", "swap"] as const) {
+				let value = arg[key];
+				if (value !== undefined)
+					output[key] = value === null ? null : tg.Sandbox.Resource.from(value);
+			}
+
 			if (arg.mounts !== undefined && arg.mounts !== null) {
 				output.mounts = arg.mounts.map(tg.Sandbox.Mount.toDataString);
 			}
@@ -329,8 +357,30 @@ export namespace Sandbox {
 			return this;
 		}
 
-		memory(memory: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
+		memory(
+			memory: tg.Unresolved<tg.MaybeMutation<
+				number | tg.Sandbox.Resource
+			> | null>,
+		): this {
 			this.#args.push({ memory });
+			return this;
+		}
+
+		storage(
+			storage: tg.Unresolved<tg.MaybeMutation<
+				number | tg.Sandbox.Resource
+			> | null>,
+		): this {
+			this.#args.push({ storage });
+			return this;
+		}
+
+		swap(
+			swap: tg.Unresolved<tg.MaybeMutation<
+				number | tg.Sandbox.Resource
+			> | null>,
+		): this {
+			this.#args.push({ swap });
 			return this;
 		}
 

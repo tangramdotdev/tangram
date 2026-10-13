@@ -119,6 +119,8 @@ impl State {
 			network: arg.network.clone(),
 			owner: arg.owner.clone(),
 			status: self.status,
+			storage: arg.storage,
+			swap: arg.swap,
 			ttl: arg.ttl,
 			usage: self.usage.clone(),
 		};
@@ -177,13 +179,33 @@ impl Server {
 	pub(crate) fn validate_sandbox_resources(
 		isolation: &tangram_sandbox::Isolation,
 		cpu: Option<tg::sandbox::Cpu>,
-		memory: Option<u64>,
+		memory: Option<tg::sandbox::Resource<u64>>,
 		hostname: Option<&str>,
+		storage: Option<tg::sandbox::Resource<u64>>,
+		swap: Option<tg::sandbox::Resource<u64>>,
 	) -> tg::Result<()> {
 		if let Some(cpu) = cpu {
-			cpu.validate()?;
+			cpu.total()?;
 		}
-		if memory == Some(0) {
+		for resource in [memory, storage, swap].into_iter().flatten() {
+			resource.validate()?;
+		}
+		if !matches!(isolation, tangram_sandbox::Isolation::Container(_))
+			&& (storage.is_some() || swap.is_some())
+		{
+			return Err(tg::error!(
+				"storage and swap bounds require container isolation"
+			));
+		}
+		if matches!(isolation, tangram_sandbox::Isolation::Vm(_))
+			&& (cpu.is_some_and(|cpu| cpu.min.millis() > 0 || cpu.max.millis() % 1000 != 0)
+				|| memory.is_some_and(|memory| memory.min > 0))
+		{
+			return Err(tg::error!(
+				"resource minima and fractional CPUs require container isolation"
+			));
+		}
+		if memory.is_some_and(|memory| memory.max == 0) {
 			return Err(tg::error!("sandbox memory must be greater than zero"));
 		}
 		if matches!(isolation, tangram_sandbox::Isolation::Seatbelt(_))

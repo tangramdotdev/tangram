@@ -37,7 +37,7 @@ assert equal $output.exit_code 124 "creating a sandbox for an unmatched host sho
 # Requests that exceed a runner's total capacity also wait for a compatible runner.
 # Explicit resource options require container or VM isolation on Linux.
 if $nu.os-info.name == 'linux' {
-	let output = timeout 2s tg --url $runner.url sandbox create --no-tokens --dedicated-cpu 2 | complete
+	let output = timeout 2s tg --url $runner.url sandbox create --no-tokens --cpu-min 2 | complete
 	assert equal $output.exit_code 124 "creating a sandbox with too many CPUs should wait for a compatible runner"
 	let output = timeout 2s tg --url $runner.url sandbox create --no-tokens --memory 2147483648 | complete
 	assert equal $output.exit_code 124 "creating a sandbox with too much memory should wait for a compatible runner"

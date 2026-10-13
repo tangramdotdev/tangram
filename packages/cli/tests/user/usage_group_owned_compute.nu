@@ -18,6 +18,6 @@ tg --token $alice.token wait $sandbox
 tg index
 let after = tg --token $alice.token usage | from json
 
-assert ($after.sandbox_cpu > $before.sandbox_cpu) "a group-owned sandbox must charge CPU usage"
-assert ($after.sandbox_memory > $before.sandbox_memory) "a group-owned sandbox must charge memory usage"
+assert ($after.sandbox_cpu_consumption > $before.sandbox_cpu_consumption) "a group-owned sandbox must charge CPU usage"
+assert ($after.sandbox_memory_consumption > $before.sandbox_memory_consumption) "a group-owned sandbox must charge memory usage"
 assert ($after.sandbox_count > $before.sandbox_count) "a group-owned sandbox must charge sandbox usage"

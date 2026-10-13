@@ -107,7 +107,7 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 				cpu_parent: None,
 				cpu_pool: None,
 				cpu_request: None,
-				memory: arg.cgroup_memory,
+				memory: arg.cgroup_memory.map(Into::into),
 				memory_oom_group: arg.cgroup_memory_oom_group,
 				memory_swap: arg.cgroup_memory_swap,
 				pids: arg.cgroup_pids,
@@ -439,8 +439,8 @@ fn open_pidfd() -> tg::Result<OwnedFd> {
 
 fn validate_parent(parent: &OwnedFd) -> tg::Result<()> {
 	let mut descriptor = libc::pollfd {
-		fd: parent.as_raw_fd(),
 		events: libc::POLLIN,
+		fd: parent.as_raw_fd(),
 		revents: 0,
 	};
 	loop {
@@ -686,6 +686,13 @@ fn drop_capabilities() -> tg::Result<()> {
 		inheritable: u32,
 	}
 
+	const _: () = {
+		assert!(std::mem::offset_of!(CapUserHeader, version) == 0);
+		assert!(std::mem::offset_of!(CapUserHeader, pid) == 4);
+		assert!(std::mem::offset_of!(CapUserData, permitted) == 4);
+		assert!(std::mem::offset_of!(CapUserData, inheritable) == 8);
+	};
+
 	const CAPABILITY_VERSION_3: u32 = 0x2008_0522;
 	const PR_CAP_AMBIENT: libc::c_int = 47;
 	const PR_CAP_AMBIENT_CLEAR_ALL: libc::c_int = 4;
@@ -712,13 +719,13 @@ fn drop_capabilities() -> tg::Result<()> {
 		}
 	}
 	let mut header = CapUserHeader {
-		version: CAPABILITY_VERSION_3,
 		pid: 0,
+		version: CAPABILITY_VERSION_3,
 	};
 	let mut data = [CapUserData {
 		effective: 0,
-		permitted: 0,
 		inheritable: 0,
+		permitted: 0,
 	}; 2];
 	let ret = unsafe {
 		libc::syscall(
