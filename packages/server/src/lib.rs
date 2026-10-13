@@ -1298,7 +1298,14 @@ impl Server {
 		} else {
 			tg::runner::Capacity::default()
 		};
-		let sandbox_pool_size = 0;
+		// Warm sandboxes would claim physical CPU slots before scheduler admission.
+		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner)
+			&& config.runner.cpu_pool.is_none()
+		{
+			config.runner.sandbox_pool_size
+		} else {
+			0
+		};
 		let runner_config = self::runner::Config {
 			capacity,
 			#[cfg(target_os = "linux")]
