@@ -1,5 +1,8 @@
 use {
 	crate::run::linux::{Arg, Network},
+	rustix::thread::{
+		CapabilitySet, capabilities, configure_capability_in_ambient_set, set_capabilities,
+	},
 	std::{
 		os::unix::{fs::FileTypeExt as _, process::CommandExt as _},
 		path::Path,
@@ -26,6 +29,10 @@ pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
 		));
 	}
 
+	if matches!(arg.network, Some(Network::Pasta | Network::Veth)) {
+		retain_setup_capabilities()?;
+	}
+
 	// Write an OCI bundle referencing the prepared filesystem.
 	let bundle = root.parent().unwrap().join("gvisor");
 	std::fs::create_dir(&bundle)
@@ -34,10 +41,11 @@ pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
 	crate::run::write_config(&bundle.join("config.json"), &spec)?;
 	let state = bundle.join("state");
 	let path = arg.runtime_path.as_deref().unwrap_or(Path::new("runsc"));
+	// Run the setup with capabilities scoped to the prepared user namespace.
 	let mut command = std::process::Command::new(path);
 	command
 		.arg(format!("--platform={}", arg.platform.name()))
-		.arg("--rootless=true")
+		.arg("--rootless=false")
 		.arg("--ignore-cgroups=true")
 		.arg("--host-uds=all")
 		.arg("--overlay2=none")
@@ -124,10 +132,36 @@ fn spec(arg: &Arg, root: &Path) -> tg::Result<serde_json::Value> {
 		process["rlimits"] =
 			serde_json::json!([{ "type": "RLIMIT_NOFILE", "hard": limit, "soft": limit }]);
 	}
+	// SAFETY: The identity getters have no preconditions.
+	let setup_uid = unsafe { libc::geteuid() };
+	let setup_gid = unsafe { libc::getegid() };
 	let spec = serde_json::json!({
 		"ociVersion": "1.2.0", "hostname": arg.hostname.clone().unwrap_or_else(|| "tangram".into()),
 		"root": { "path": root, "readonly": false }, "process": process, "mounts": mounts,
-		"linux": { "namespaces": [ { "type": "mount" }, { "type": "pid" }, { "type": "ipc" }, { "type": "uts" } ] },
+		"linux": {
+			"gidMappings": [{ "containerID": arg.gid, "hostID": setup_gid, "size": 1 }],
+			"uidMappings": [{ "containerID": arg.uid, "hostID": setup_uid, "size": 1 }],
+			"namespaces": [{ "type": "user" }, { "type": "mount" }, { "type": "pid" }, { "type": "ipc" }, { "type": "uts" }],
+		},
 	});
 	Ok(spec)
+}
+
+fn retain_setup_capabilities() -> tg::Result<()> {
+	let mut sets = capabilities(None)
+		.map_err(|error| tg::error!(!error, "failed to read the gvisor setup capabilities"))?;
+	let setup = CapabilitySet::NET_ADMIN | CapabilitySet::NET_RAW | CapabilitySet::SYS_ADMIN;
+	sets.inheritable |= setup;
+	set_capabilities(None, sets)
+		.map_err(|error| tg::error!(!error, "failed to retain the gvisor setup capabilities"))?;
+	for capability in [
+		CapabilitySet::NET_ADMIN,
+		CapabilitySet::NET_RAW,
+		CapabilitySet::SYS_ADMIN,
+	] {
+		configure_capability_in_ambient_set(capability, true).map_err(|error| {
+			tg::error!(!error, "failed to inherit the gvisor setup capabilities")
+		})?;
+	}
+	Ok(())
 }
