@@ -1,11 +1,14 @@
 use {
 	std::{
 		borrow::Cow,
-		os::fd::OwnedFd,
+		os::{fd::OwnedFd, unix::net::SocketAddr},
 		path::{Path, PathBuf},
 	},
 	uuid::Uuid,
 };
+
+#[cfg(test)]
+mod tests;
 
 pub struct Guard {
 	entry: PathBuf,
@@ -62,7 +65,7 @@ pub fn bind_datagram(path: &Path) -> std::io::Result<(OwnedFd, Guard)> {
 }
 
 pub fn bind_listener(path: &Path) -> std::io::Result<(tokio::net::UnixListener, Guard)> {
-	if rustix::net::SocketAddrUnix::new(path).is_ok() {
+	if SocketAddr::from_pathname(path).is_ok() {
 		let listener = std::os::unix::net::UnixListener::bind(path)?;
 		listener.set_nonblocking(true)?;
 		let listener = tokio::net::UnixListener::from_std(listener)?;
@@ -153,7 +156,7 @@ fn bind_listener_at(
 	directory: &Path,
 	path: &Path,
 ) -> std::io::Result<(tokio::net::UnixListener, Guard)> {
-	if rustix::net::SocketAddrUnix::new(path).is_err() {
+	if SocketAddr::from_pathname(path).is_err() {
 		return Err(invalid_input("the socket path is too long"));
 	}
 	std::fs::create_dir(directory)?;
