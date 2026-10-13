@@ -1060,6 +1060,13 @@ impl Server {
 			}
 		}
 		let container = &config.runner.resources;
+		if !matches!(config.runner.backend, config::RunnerBackend::Builtin)
+			&& (container.uid_map.is_some() || container.gid_map.is_some())
+		{
+			return Err(tg::error!(
+				"subordinate identity maps require the builtin backend"
+			));
+		}
 		container.filesystem_project_ids.validate()?;
 		if container.max_open_files == Some(0) {
 			return Err(tg::error!(
