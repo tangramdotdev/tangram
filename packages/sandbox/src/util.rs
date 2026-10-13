@@ -42,12 +42,6 @@ pub fn which(path: &Path, executable: &std::path::Path) -> Option<std::path::Pat
 	None
 }
 
-/// Format a duration as fractional seconds for a command line argument.
-#[cfg(target_os = "linux")]
-pub(crate) fn duration_arg(duration: std::time::Duration) -> String {
-	duration.as_secs_f64().to_string()
-}
-
 /// Create the command line arguments that configure the HTTP/2 settings of the sandbox server.
 pub(crate) fn http2_args(http2: &tangram_http::http2::Config) -> Vec<String> {
 	let mut args = vec![

@@ -1718,7 +1718,10 @@ pub struct Runner {
 	pub id: Option<tg::runner::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub isolation: Option<RunnerIsolation>,
+	pub backend: Option<RunnerBackend>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub resources: Option<RunnerResources>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub javascript: Option<JavaScript>,
@@ -1808,22 +1811,33 @@ pub struct Runner {
 	pub token: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct RunnerIsolation {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub container: Option<ContainerRunnerIsolation>,
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case", tag = "kind", deny_unknown_fields)]
+pub enum RunnerBackend {
+	Builtin,
+	Bubblewrap {
+		#[serde(default)]
+		path: Option<PathBuf>,
+	},
+	CloudHypervisor(CloudHypervisorBackend),
+	Gvisor {
+		#[serde(default)]
+		path: Option<PathBuf>,
+		#[serde(default)]
+		platform: tangram_sandbox::Platform,
+	},
+	Seatbelt,
 }
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ContainerRunnerIsolation {
+pub struct RunnerResources {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub filesystem_project_ids: Option<ContainerRunnerIsolationProjectIds>,
+	pub filesystem_project_ids: Option<FilesystemProjectIds>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
+	pub gid_map: Option<IdMap>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub harden: Option<bool>,
@@ -1854,12 +1868,12 @@ pub struct ContainerRunnerIsolation {
 	pub storage_limits: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
+	pub uid_map: Option<IdMap>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ContainerRunnerIsolationIdMap {
+pub struct IdMap {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub count: Option<u32>,
 
@@ -1871,7 +1885,7 @@ pub struct ContainerRunnerIsolationIdMap {
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ContainerRunnerIsolationProjectIds {
+pub struct FilesystemProjectIds {
 	pub count: u32,
 	pub start: u32,
 }
@@ -1991,9 +2005,6 @@ pub struct Sandbox {
 	pub http2: Option<tangram_http::http2::Config>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub isolation: Option<SandboxIsolation>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub network: Option<SandboxNetwork>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2031,43 +2042,7 @@ pub struct Sandbox {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct SandboxIsolation {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub container: Option<ContainerSandboxIsolation>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub default: Option<SandboxIsolationDefault>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub seatbelt: Option<SeatbeltSandboxIsolation>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub vm: Option<VmSandboxIsolation>,
-}
-
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SandboxIsolationDefault {
-	Container,
-
-	Seatbelt,
-
-	Vm,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ContainerSandboxIsolation {}
-
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct SeatbeltSandboxIsolation {}
-
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct VmSandboxIsolation {
+pub struct CloudHypervisorBackend {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cloud_hypervisor_path: Option<PathBuf>,
 
@@ -3330,7 +3305,7 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 		target.roles = roles.into_iter().map(resolve_role).collect();
 	}
 	if let Some(source) = source.runner {
-		target.runner = resolve_runner(source);
+		target.runner = resolve_runner(source)?;
 	}
 	if let Some(source) = source.sandbox {
 		target.sandbox = resolve_sandbox(source)?;
@@ -4994,7 +4969,7 @@ fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {
 	target
 }
 
-fn resolve_runner(source: Runner) -> server::Runner {
+fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	let mut target = server::Runner {
 		cpu_affinity: source.cpu_affinity.unwrap_or_default(),
 		cpu_pool: source.cpu_pool,
@@ -5021,8 +4996,11 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	if let Some(value) = source.memory_sampling_interval {
 		target.memory_sampling_interval = value;
 	}
-	if let Some(source) = source.isolation {
-		target.isolation = resolve_runner_isolation(source);
+	if let Some(source) = source.backend {
+		target.backend = resolve_runner_backend(source)?;
+	}
+	if let Some(source) = source.resources {
+		target.resources = resolve_runner_resources(source);
 	}
 	if let Some(source) = source.javascript {
 		target.javascript = resolve_javascript(source);
@@ -5090,49 +5068,60 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	if let Some(value) = source.token {
 		target.token = Some(value);
 	}
-	target
+	Ok(target)
 }
 
-fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation {
-	let mut target = server::RunnerIsolation::default();
-	if let Some(source) = source.container {
-		target.container = server::ContainerRunnerIsolation {
-			filesystem_project_ids: source
-				.filesystem_project_ids
-				.map_or_else(Default::default, Into::into),
-			gid_map: source
-				.gid_map
-				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newgidmap")),
-			harden: source.harden.unwrap_or_default(),
-			max_duration: source.max_duration,
-			max_filesystem_inodes: source.max_filesystem_inodes,
-			max_filesystem_size: source.max_filesystem_size,
-			max_open_files: source.max_open_files,
-			max_pids: source.max_pids,
-			memory_swap: source.memory_swap,
-			seccomp: source.seccomp,
-			storage_limits: source.storage_limits.unwrap_or_default(),
-			uid_map: source
-				.uid_map
-				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newuidmap")),
-		};
+fn resolve_runner_backend(source: RunnerBackend) -> tg::Result<server::RunnerBackend> {
+	let backend = match source {
+		RunnerBackend::Builtin => server::RunnerBackend::Builtin,
+		RunnerBackend::Bubblewrap { path } => server::RunnerBackend::Bubblewrap {
+			path: path.unwrap_or_else(|| "bwrap".into()),
+		},
+		RunnerBackend::CloudHypervisor(source) => {
+			server::RunnerBackend::CloudHypervisor(resolve_cloud_hypervisor_backend(source)?)
+		},
+		RunnerBackend::Gvisor { path, platform } => server::RunnerBackend::Gvisor {
+			path: path.unwrap_or_else(|| "runsc".into()),
+			platform,
+		},
+		RunnerBackend::Seatbelt => server::RunnerBackend::Seatbelt,
+	};
+	Ok(backend)
+}
+
+fn resolve_runner_resources(source: RunnerResources) -> server::RunnerResources {
+	server::RunnerResources {
+		filesystem_project_ids: source
+			.filesystem_project_ids
+			.map_or_else(Default::default, Into::into),
+		gid_map: source
+			.gid_map
+			.map(|map| resolve_runner_id_map(map, "/usr/bin/newgidmap")),
+		harden: source.harden.unwrap_or_default(),
+		max_duration: source.max_duration,
+		max_filesystem_inodes: source.max_filesystem_inodes,
+		max_filesystem_size: source.max_filesystem_size,
+		max_open_files: source.max_open_files,
+		max_pids: source.max_pids,
+		memory_swap: source.memory_swap,
+		seccomp: source.seccomp,
+		storage_limits: source.storage_limits.unwrap_or_default(),
+		uid_map: source
+			.uid_map
+			.map(|map| resolve_runner_id_map(map, "/usr/bin/newuidmap")),
 	}
-	target
 }
 
-fn resolve_container_runner_isolation_id_map(
-	source: ContainerRunnerIsolationIdMap,
-	helper: &str,
-) -> server::ContainerRunnerIsolationIdMap {
-	server::ContainerRunnerIsolationIdMap {
+fn resolve_runner_id_map(source: IdMap, helper: &str) -> server::IdMap {
+	server::IdMap {
 		count: source.count.unwrap_or(65_536),
 		helper: source.helper.unwrap_or_else(|| helper.into()),
 		host: source.host,
 	}
 }
 
-impl From<ContainerRunnerIsolationProjectIds> for server::ContainerRunnerIsolationProjectIds {
-	fn from(value: ContainerRunnerIsolationProjectIds) -> Self {
+impl From<FilesystemProjectIds> for server::FilesystemProjectIds {
+	fn from(value: FilesystemProjectIds) -> Self {
 		Self {
 			count: value.count,
 			start: value.start,
@@ -5241,9 +5230,6 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 			.map_err(|error| tg::error!(source = error, "invalid sandbox HTTP/2 configuration"))?;
 		target.http2 = value;
 	}
-	if let Some(source) = source.isolation {
-		target.isolation = resolve_sandbox_isolation(source)?;
-	}
 	if let Some(source) = source.network {
 		target.network = resolve_sandbox_network(source);
 	}
@@ -5275,44 +5261,16 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	Ok(target)
 }
 
-fn resolve_sandbox_isolation(source: SandboxIsolation) -> tg::Result<server::SandboxIsolation> {
-	let mut target = server::SandboxIsolation::default();
-	if source.container.is_some() {
-		target.container = Some(server::ContainerSandboxIsolation {});
-	}
-	if source.seatbelt.is_some() {
-		target.seatbelt = Some(server::SeatbeltSandboxIsolation {});
-	}
-	if let Some(source) = source.vm {
-		target.vm = Some(resolve_vm_sandbox_isolation(source)?);
-	}
-	if let Some(value) = source.default {
-		target.default = Some(resolve_sandbox_isolation_default(value));
-	}
-
-	Ok(target)
-}
-
-fn resolve_sandbox_isolation_default(
-	source: SandboxIsolationDefault,
-) -> server::SandboxIsolationDefault {
-	match source {
-		SandboxIsolationDefault::Container => server::SandboxIsolationDefault::Container,
-		SandboxIsolationDefault::Seatbelt => server::SandboxIsolationDefault::Seatbelt,
-		SandboxIsolationDefault::Vm => server::SandboxIsolationDefault::Vm,
-	}
-}
-
-fn resolve_vm_sandbox_isolation(
-	source: VmSandboxIsolation,
-) -> tg::Result<server::VmSandboxIsolation> {
+fn resolve_cloud_hypervisor_backend(
+	source: CloudHypervisorBackend,
+) -> tg::Result<server::CloudHypervisorBackend> {
 	let dax = match source.dax {
 		Some(source) => resolve_bool_or(source, |source| Ok(resolve_dax(source)))?,
 		None => Some(server::Dax::default()),
 	};
-	let kernel_path = required(source.kernel_path, "sandbox.isolation.vm.kernel_path")?;
-	let default = server::VmSandboxIsolation::default();
-	let target = server::VmSandboxIsolation {
+	let kernel_path = required(source.kernel_path, "runner.backend.kernel_path")?;
+	let default = server::CloudHypervisorBackend::default();
+	let target = server::CloudHypervisorBackend {
 		cloud_hypervisor_path: source.cloud_hypervisor_path,
 		dax,
 		kernel_path,
@@ -6271,10 +6229,35 @@ mod tests {
 	}
 
 	#[test]
-	fn parses_and_resolves_container_runner_isolation() {
+	fn selects_a_single_runner_backend() {
+		for platform in ["kvm", "systrap"] {
+			let source = serde_json::from_value(
+				serde_json::json!({ "backend": { "kind": "gvisor", "platform": platform } }),
+			)
+			.unwrap();
+			let target = resolve_runner(source).unwrap();
+			let server::RunnerBackend::Gvisor {
+				path,
+				platform: selected,
+			} = target.backend
+			else {
+				panic!("expected gvisor");
+			};
+			assert_eq!(path, Path::new("runsc"));
+			assert_eq!(selected.to_string(), platform);
+		}
+		assert!(
+			serde_json::from_value::<Runner>(
+				serde_json::json!({ "backend": { "kind": "gvisor", "platform": "unknown" } })
+			)
+			.is_err()
+		);
+	}
+
+	#[test]
+	fn parses_and_resolves_runner_resources() {
 		let source: Runner = serde_json::from_value(serde_json::json!({
-			"isolation": {
-				"container": {
+			"resources": {
 					"filesystem_project_ids": { "count": 10_000, "start": 20_000 },
 					"gid_map": { "host": 200_000 },
 					"harden": true,
@@ -6284,12 +6267,11 @@ mod tests {
 					"memory_swap": 0,
 					"seccomp": "default",
 					"uid_map": { "count": 1000, "helper": "/opt/newuidmap", "host": 100_000 }
-				},
 			},
 		}))
 		.unwrap();
-		let target = resolve_runner(source);
-		let container = target.isolation.container;
+		let target = resolve_runner(source).unwrap();
+		let container = target.resources;
 
 		assert_eq!(container.filesystem_project_ids.count, 10_000);
 		assert_eq!(container.filesystem_project_ids.start, 20_000);
@@ -6317,15 +6299,13 @@ mod tests {
 	}
 
 	#[test]
-	fn resolves_container_runner_isolation_as_optional() {
+	fn resolves_runner_resources_as_optional() {
 		let source: Runner = serde_json::from_value(serde_json::json!({
-			"isolation": {
-				"container": {},
-			},
+			"resources": {},
 		}))
 		.unwrap();
-		let target = resolve_runner(source);
-		let container = target.isolation.container;
+		let target = resolve_runner(source).unwrap();
+		let container = target.resources;
 
 		assert!(!container.harden);
 		assert_eq!(

@@ -1,16 +1,12 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-#[cfg(target_os = "linux")]
-pub mod container;
 pub mod create;
 pub mod destroy;
 pub mod get;
+pub mod init;
 pub mod list;
-#[cfg(target_os = "macos")]
-pub mod seatbelt;
+pub mod run;
 pub mod serve;
-#[cfg(target_os = "linux")]
-pub mod vm;
 pub mod wait;
 
 /// Manage sandboxes.
@@ -23,22 +19,17 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
-	#[cfg(target_os = "linux")]
-	#[command(hide = true)]
-	Container(self::container::Args),
 	Create(self::create::Args),
 	Destroy(self::destroy::Args),
 	Get(self::get::Args),
+	#[command(hide = true)]
+	Init(self::init::Args),
 	#[command(alias = "ls")]
 	List(self::list::Args),
-	#[cfg(target_os = "macos")]
 	#[command(hide = true)]
-	Seatbelt(self::seatbelt::Args),
+	Run(self::run::Args),
 	#[command(hide = true)]
 	Serve(self::serve::Args),
-	#[cfg(target_os = "linux")]
-	#[command(hide = true)]
-	Vm(self::cloud_hypervisor::Args),
 	Wait(self::wait::Args),
 }
 
@@ -175,17 +166,6 @@ impl Network {
 			self.network.clone()
 		}
 	}
-}
-
-/// Parse a duration from fractional seconds.
-#[cfg(target_os = "linux")]
-pub fn parse_duration(value: &str) -> tg::Result<std::time::Duration> {
-	let seconds = value
-		.parse::<f64>()
-		.map_err(|error| tg::error!(!error, %value, "invalid duration"))?;
-	let duration = std::time::Duration::try_from_secs_f64(seconds)
-		.map_err(|error| tg::error!(!error, %value, "invalid duration"))?;
-	Ok(duration)
 }
 
 fn parse_network(s: &str) -> tg::Result<tg::sandbox::Network> {
@@ -461,10 +441,6 @@ impl Cli {
 
 	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
-			#[cfg(target_os = "linux")]
-			Command::Container(args) => {
-				self.command_sandbox_container(args).await?;
-			},
 			Command::Create(args) => {
 				self.command_sandbox_create(args).await?;
 			},
@@ -474,19 +450,17 @@ impl Cli {
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;
 			},
+			Command::Init(args) => {
+				self.exit = Some(Self::command_sandbox_init(args)?);
+			},
 			Command::List(args) => {
 				self.command_sandbox_list(args).await?;
 			},
-			#[cfg(target_os = "macos")]
-			Command::Seatbelt(args) => {
-				self.command_sandbox_seatbelt(args).await?;
+			Command::Run(args) => {
+				self.exit = Some(Self::command_sandbox_run(args)?);
 			},
 			Command::Serve(args) => {
 				self.command_sandbox_serve(args).await?;
-			},
-			#[cfg(target_os = "linux")]
-			Command::Vm(args) => {
-				self.command_sandbox_vm(args).await?;
 			},
 			Command::Wait(args) => {
 				self.command_sandbox_wait(args).await?;

@@ -1,5 +1,5 @@
 use {
-	crate::config::ContainerRunnerIsolationProjectIds,
+	crate::config::FilesystemProjectIds,
 	std::{
 		collections::BTreeSet,
 		sync::{Arc, Mutex},
@@ -17,11 +17,11 @@ pub(crate) struct Id {
 struct State {
 	available: BTreeSet<u32>,
 	next: u32,
-	range: ContainerRunnerIsolationProjectIds,
+	range: FilesystemProjectIds,
 }
 
 impl Pool {
-	pub(crate) fn new(range: ContainerRunnerIsolationProjectIds) -> Self {
+	pub(crate) fn new(range: FilesystemProjectIds) -> Self {
 		Self(Arc::new(Mutex::new(State {
 			available: BTreeSet::new(),
 			next: 0,
@@ -65,7 +65,7 @@ mod tests {
 
 	#[test]
 	fn reuses_released_ids() {
-		let pool = Pool::new(ContainerRunnerIsolationProjectIds {
+		let pool = Pool::new(FilesystemProjectIds {
 			count: 2,
 			start: 101,
 		});

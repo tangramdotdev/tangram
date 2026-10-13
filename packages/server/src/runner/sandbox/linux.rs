@@ -4,11 +4,11 @@ use {
 };
 
 impl Session {
-	pub(super) async fn ensure_vm_isolation(
+	pub(super) async fn ensure_cloud_hypervisor_assets(
 		&self,
-		isolation: &tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Backend,
 	) -> tg::Result<()> {
-		let tangram_sandbox::Isolation::Vm(vm) = isolation else {
+		let tangram_sandbox::Backend::CloudHypervisor(vm) = isolation else {
 			return Ok(());
 		};
 		let Some(snapshot_path) = vm.snapshot.as_deref() else {
@@ -17,16 +17,17 @@ impl Session {
 
 		let mut image_created = self.server.sandbox_assets.image_ready.lock().await;
 		if !*image_created {
-			let _file_lock = acquire_vm_lock(&self.server.path).await?;
+			let _file_lock = acquire_cloud_hypervisor_lock(&self.server.path).await?;
 			let arg = tangram_sandbox::cloud_hypervisor::image::Arg {
 				build_attempts: self.server.config.sandbox.build_attempts,
 				image_path: vm.image_path.clone(),
 				path: self.server.sandbox_assets.root.clone(),
 			};
-			let created =
-				tokio::task::spawn_blocking(move || tangram_sandbox::cloud_hypervisor::image::ensure(&arg))
-					.await
-					.map_err(|error| tg::error!(!error, "the vm image task panicked"))??;
+			let created = tokio::task::spawn_blocking(move || {
+				tangram_sandbox::cloud_hypervisor::image::ensure(&arg)
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "the vm image task panicked"))??;
 			if created {
 				std::fs::remove_dir_all(snapshot_path).ok();
 				std::fs::remove_file(snapshot_path).ok();
@@ -34,14 +35,14 @@ impl Session {
 			*image_created = true;
 		}
 		self.server
-			.ensure_vm_snapshot(snapshot_path, &vm.kernel_path, vm)
+			.ensure_cloud_hypervisor_snapshot(snapshot_path, &vm.kernel_path, vm)
 			.await?;
 		Ok(())
 	}
 }
 
 impl Server {
-	async fn ensure_vm_snapshot(
+	async fn ensure_cloud_hypervisor_snapshot(
 		&self,
 		snapshot_path: &std::path::Path,
 		kernel_path: &std::path::Path,
@@ -54,7 +55,7 @@ impl Server {
 		if snapshot_path.exists() {
 			return Ok(());
 		}
-		let _file_lock = acquire_vm_lock(&self.path).await?;
+		let _file_lock = acquire_cloud_hypervisor_lock(&self.path).await?;
 		if snapshot_path.exists() {
 			return Ok(());
 		}
@@ -100,66 +101,50 @@ impl Server {
 			crate::config::SandboxNetworkFirewall::Iptables => tangram_sandbox::Firewall::Iptables,
 			crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
 		};
+		let launch = tangram_sandbox::cloud_hypervisor::run::Arg {
+			cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
+			create_snapshot: Some(snapshot_path.to_owned()),
+			cpu: None,
+			dax: vm.dax,
+			dns: config.network.dns.clone(),
+			firewall,
+			guest_ip: None,
+			host_ip: None,
+			hostname: None,
+			http2: config.http2,
+			image_path: image_path.clone(),
+			index,
+			kernel_path: kernel_path.to_owned(),
+			max_cpu: vm.max_cpu,
+			max_memory: vm.max_memory,
+			memory: None,
+			mounts: Vec::new(),
+			network: None,
+			network_interface_timeout: vm.network_interface_timeout,
+			network_startup_timeout: config.network.startup_timeout,
+			path: temp.path().to_owned(),
+			ports: Vec::new(),
+			ready_timeout: vm.ready_timeout,
+			rootfs_path: self.sandbox_assets.root.clone(),
+			serial_connect_interval: vm.serial_connect_interval,
+			serial_connect_timeout: vm.serial_connect_timeout,
+			snapshot: None,
+			snapshot_cpu: vm.snapshot_cpu,
+			snapshot_memory: vm.snapshot_memory,
+			store_path: self.store_path(),
+			tangram_path: self.tangram_path.clone(),
+			url: "http+vsock://2:6748".parse().unwrap(),
+		};
+		let path = temp.path().join("launch.json");
+		tangram_sandbox::run::write_config(&path, &launch)?;
 		let mut command = tokio::process::Command::new(&self.tangram_path);
 		command
 			.arg("sandbox")
-			.arg("vm")
 			.arg("run")
-			.arg("--create-snapshot")
-			.arg(snapshot_path)
-			.arg("--index")
-			.arg(index.to_string())
-			.arg("--store-path")
-			.arg(self.store_path())
-			.arg("--firewall")
-			.arg(firewall.to_string())
-			.arg("--kernel-path")
-			.arg(kernel_path)
-			.arg("--max-cpu")
-			.arg(vm.max_cpu.to_string())
-			.arg("--max-memory")
-			.arg(vm.max_memory.to_string())
-			.arg("--rootfs-path")
-			.arg(&self.sandbox_assets.root)
-			.arg("--image-path")
-			.arg(image_path)
-			.arg("--snapshot-cpu")
-			.arg(vm.snapshot_cpu.to_string())
-			.arg("--snapshot-memory")
-			.arg(vm.snapshot_memory.to_string())
-			.arg("--tangram-path")
-			.arg(&self.tangram_path)
-			.arg("--path")
-			.arg(temp.path())
-			.arg("--url")
-			.arg("http+vsock://2:6748")
-			.arg("--network-interface-timeout")
-			.arg(vm.network_interface_timeout.as_secs_f64().to_string())
-			.arg("--network-startup-timeout")
-			.arg(config.network.startup_timeout.as_secs_f64().to_string())
-			.arg("--ready-timeout")
-			.arg(vm.ready_timeout.as_secs_f64().to_string())
-			.arg("--serial-connect-interval")
-			.arg(vm.serial_connect_interval.as_secs_f64().to_string())
-			.arg("--serial-connect-timeout")
-			.arg(vm.serial_connect_timeout.as_secs_f64().to_string())
-			.arg("--http2-connection-window-size")
-			.arg(config.http2.connection_window_size.to_string())
-			.arg("--http2-max-concurrent-reset-streams")
-			.arg(config.http2.max_concurrent_reset_streams.to_string())
-			.arg("--http2-stream-window-size")
-			.arg(config.http2.stream_window_size.to_string());
-		if let Some(max_concurrent_streams) = config.http2.max_concurrent_streams {
-			command
-				.arg("--http2-max-concurrent-streams")
-				.arg(max_concurrent_streams.to_string());
-		}
-		if let Some(dax) = vm.dax {
-			command.arg("--dax").arg(dax.to_string());
-		}
-		if let Some(path) = &vm.cloud_hypervisor_path {
-			command.arg("--cloud-hypervisor-path").arg(path);
-		}
+			.arg("--backend")
+			.arg("cloud-hypervisor")
+			.arg("--config")
+			.arg(path);
 		let status = command
 			.status()
 			.await
@@ -179,7 +164,7 @@ impl Server {
 	}
 }
 
-async fn acquire_vm_lock(data_dir: &std::path::Path) -> tg::Result<std::fs::File> {
+async fn acquire_cloud_hypervisor_lock(data_dir: &std::path::Path) -> tg::Result<std::fs::File> {
 	let lock_path = data_dir.join(".tangram/vm.lock");
 	tokio::task::spawn_blocking(move || -> tg::Result<std::fs::File> {
 		if let Some(parent) = lock_path.parent() {

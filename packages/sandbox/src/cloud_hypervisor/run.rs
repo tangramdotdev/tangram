@@ -50,7 +50,7 @@ const VMM_SNAPSHOT_OUTPUT_DIR: &str = "/snapshot";
 
 const VMM_GUEST_CID: u32 = 3;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub cloud_hypervisor_path: Option<PathBuf>,
 	pub create_snapshot: Option<PathBuf>,
@@ -86,7 +86,7 @@ pub struct Arg {
 	pub url: tangram_uri::Uri,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub enum NetworkKind {
 	Passt,
 	Tap,
@@ -778,7 +778,7 @@ fn kernel_cmdline(arg: &Arg) -> String {
 	}
 	write!(
 		&mut cmdline,
-		" init={} -- sandbox vm init",
+		" init={} -- sandbox init --backend cloud-hypervisor",
 		tangram_path.display(),
 	)
 	.unwrap();
@@ -1102,6 +1102,9 @@ fn build_cloud_hypervisor_mount_arg(
 		});
 	}
 	run::linux::Arg {
+		backend: crate::Kind::Builtin,
+		platform: crate::Platform::Kvm,
+		runtime_path: None,
 		as_pid_1: false,
 		binds,
 		cgroup: None,

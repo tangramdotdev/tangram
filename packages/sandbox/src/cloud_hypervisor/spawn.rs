@@ -1,4 +1,7 @@
-use {crate::serve, tangram_client::prelude::*};
+use {
+	crate::{cloud_hypervisor::run, serve},
+	tangram_client::prelude::*,
+};
 
 pub(crate) fn spawn(
 	arg: &crate::Arg,
@@ -8,132 +11,91 @@ pub(crate) fn spawn(
 ) -> tg::Result<tokio::process::Child> {
 	if !serve_arg.library_paths.is_empty() {
 		return Err(tg::error!(
-			"vm sandboxes do not support additional library paths"
+			"cloud-hypervisor does not support additional library paths"
 		));
 	}
-
-	let crate::Isolation::Vm(vm) = &arg.isolation else {
+	let crate::Backend::CloudHypervisor(config) = &arg.backend else {
 		unreachable!()
 	};
+	let (network_kind, host_ip, guest_ip) = match network {
+		None => (None, None, None),
+		Some(crate::network::Network::Passt(network)) => (
+			Some(run::NetworkKind::Passt),
+			Some(network.host_ip()),
+			Some(network.guest_ip()),
+		),
+		Some(crate::network::Network::Tap(network)) => (
+			Some(run::NetworkKind::Tap),
+			Some(network.host_ip()),
+			Some(network.guest_ip()),
+		),
+		Some(
+			crate::network::Network::Host
+			| crate::network::Network::Pasta(_)
+			| crate::network::Network::Veth(_),
+		) => return Err(tg::error!("unsupported cloud-hypervisor networking")),
+	};
+	let cpu = arg
+		.cpu
+		.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
+		.transpose()?;
+	let launch = run::Arg {
+		cloud_hypervisor_path: config.cloud_hypervisor_path.clone(),
+		create_snapshot: None,
+		cpu,
+		dax: config.dax,
+		dns: arg.dns.clone(),
+		firewall: arg.firewall,
+		guest_ip,
+		host_ip,
+		hostname: arg.hostname.clone(),
+		http2: arg.http2,
+		image_path: config.image_path.clone(),
+		index: arg.index,
+		kernel_path: config.kernel_path.clone(),
+		max_cpu: config.max_cpu,
+		max_memory: config.max_memory,
+		memory: arg.memory.map(|memory| memory.max),
+		mounts: arg.mounts.clone(),
+		network: network_kind,
+		network_interface_timeout: config.network_interface_timeout,
+		network_startup_timeout: arg.network_startup_timeout,
+		path: arg.path.clone(),
+		ports: arg
+			.network
+			.as_ref()
+			.map(crate::Network::ports)
+			.unwrap_or_default()
+			.to_owned(),
+		ready_timeout: config.ready_timeout,
+		rootfs_path: arg.rootfs_path.clone(),
+		serial_connect_interval: config.serial_connect_interval,
+		serial_connect_timeout: config.serial_connect_timeout,
+		snapshot: config.snapshot.clone(),
+		snapshot_cpu: config.snapshot_cpu,
+		snapshot_memory: config.snapshot_memory,
+		store_path: arg.store_path.clone(),
+		tangram_path: arg.tangram_path.clone(),
+		url: serve_arg.url.clone(),
+	};
+	let path = arg.path.join("launch.json");
+	crate::run::write_config(&path, &launch)?;
 	let directory = cgroup.open_fd()?;
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	crate::cgroup::enter_before_exec(&mut command, std::os::fd::AsRawFd::as_raw_fd(&directory));
-	command.arg("sandbox").arg("vm").arg("run");
 	command
-		.arg("--index")
-		.arg(arg.index.to_string())
-		.arg("--store-path")
-		.arg(&arg.store_path)
-		.arg("--kernel-path")
-		.arg(&vm.kernel_path)
-		.arg("--max-cpu")
-		.arg(vm.max_cpu.to_string())
-		.arg("--max-memory")
-		.arg(vm.max_memory.to_string())
-		.arg("--firewall")
-		.arg(arg.firewall.to_string())
-		.arg("--path")
-		.arg(&arg.path)
-		.arg("--rootfs-path")
-		.arg(&arg.rootfs_path)
-		.arg("--image-path")
-		.arg(&vm.image_path)
-		.arg("--snapshot-cpu")
-		.arg(vm.snapshot_cpu.to_string())
-		.arg("--snapshot-memory")
-		.arg(vm.snapshot_memory.to_string())
-		.arg("--tangram-path")
-		.arg(&arg.tangram_path)
-		.arg("--url")
-		.arg(serve_arg.url.to_string())
-		.arg("--network-interface-timeout")
-		.arg(crate::util::duration_arg(vm.network_interface_timeout))
-		.arg("--network-startup-timeout")
-		.arg(crate::util::duration_arg(arg.network_startup_timeout))
-		.arg("--ready-timeout")
-		.arg(crate::util::duration_arg(vm.ready_timeout))
-		.arg("--serial-connect-interval")
-		.arg(crate::util::duration_arg(vm.serial_connect_interval))
-		.arg("--serial-connect-timeout")
-		.arg(crate::util::duration_arg(vm.serial_connect_timeout))
-		.args(crate::util::http2_args(&serve_arg.http2));
-	if let Some(dax) = vm.dax {
-		command.arg("--dax").arg(dax.to_string());
-	}
-	if let Some(path) = &vm.cloud_hypervisor_path {
-		command.arg("--cloud-hypervisor-path").arg(path);
-	}
-	if let Some(snapshot) = &vm.snapshot {
-		command.arg("--snapshot").arg(snapshot);
-	}
-	if let Some(network) = network {
-		match network {
-			crate::network::Network::Host => {
-				return Err(tg::error!("vm sandboxes do not support host networking"));
-			},
-			crate::network::Network::Passt(_) => {
-				let host_ip = network
-					.host_ip()
-					.ok_or_else(|| tg::error!("missing host IP address"))?;
-				let guest_ip = network
-					.guest_ip()
-					.ok_or_else(|| tg::error!("missing guest IP address"))?;
-				command.arg("--network").arg(network.kind());
-				command.arg("--host-ip").arg(host_ip.to_string());
-				command.arg("--guest-ip").arg(guest_ip.to_string());
-				for server in &arg.dns {
-					command.arg("--dns").arg(server.to_string());
-				}
-			},
-			crate::network::Network::Pasta(_) => {
-				return Err(tg::error!("vm sandboxes do not support pasta networking"));
-			},
-			crate::network::Network::Tap(_) => {
-				let host_ip = network
-					.host_ip()
-					.ok_or_else(|| tg::error!("missing host IP address"))?;
-				let guest_ip = network
-					.guest_ip()
-					.ok_or_else(|| tg::error!("missing guest IP address"))?;
-				command.arg("--network").arg(network.kind());
-				command.arg("--host-ip").arg(host_ip.to_string());
-				command.arg("--guest-ip").arg(guest_ip.to_string());
-				for server in &arg.dns {
-					command.arg("--dns").arg(server.to_string());
-				}
-			},
-			crate::network::Network::Veth(_) => {
-				return Err(tg::error!("vm sandboxes do not support veth networking"));
-			},
-		}
-	}
-	if let Some(hostname) = &arg.hostname {
-		command.arg("--hostname").arg(hostname);
-	}
-	if let Some(cpu) = arg.cpu {
-		let cpu = crate::cpu::threads(cpu, arg.cpu_pool.as_ref())?;
-		command.arg("--cpu").arg(cpu.to_string());
-	}
-	if let Some(memory) = arg.memory {
-		command.arg("--memory").arg(memory.max.to_string());
-	}
-	for mount in &arg.mounts {
-		command.arg("--mount").arg(mount.to_string());
-	}
-	let ports = arg
-		.network
-		.as_ref()
-		.map(crate::Network::ports)
-		.unwrap_or_default();
-	for port in ports {
-		command.arg("--port").arg(port.to_string());
-	}
-	command
+		.arg("sandbox")
+		.arg("run")
+		.arg("--backend")
+		.arg("cloud-hypervisor")
+		.arg("--config")
+		.arg(path)
 		.kill_on_drop(true)
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
 		.stderr(std::process::Stdio::inherit());
-	command
+	let child = command
 		.spawn()
-		.map_err(|error| tg::error!(!error, "failed to spawn sandbox vm"))
+		.map_err(|error| tg::error!(!error, "failed to spawn cloud-hypervisor"))?;
+	Ok(child)
 }

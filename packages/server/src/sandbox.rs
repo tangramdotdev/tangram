@@ -11,11 +11,11 @@ mod runner;
 
 pub(crate) use runner::Runner;
 
+pub mod backend;
 pub mod control;
 pub mod create;
 pub mod destroy;
 pub mod get;
-pub mod isolation;
 pub mod list;
 pub mod processes;
 pub mod status;
@@ -176,7 +176,7 @@ impl Server {
 	}
 
 	pub(crate) fn validate_sandbox_resources(
-		isolation: &tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Backend,
 		cpu: Option<tg::sandbox::Cpu>,
 		memory: Option<tg::sandbox::Resource<u64>>,
 		hostname: Option<&str>,
@@ -189,14 +189,18 @@ impl Server {
 		for resource in [memory, storage, swap].into_iter().flatten() {
 			resource.validate()?;
 		}
-		if !matches!(isolation, tangram_sandbox::Isolation::Container(_))
-			&& (storage.is_some() || swap.is_some())
+		if !matches!(
+			isolation,
+			tangram_sandbox::Backend::Builtin
+				| tangram_sandbox::Backend::Bubblewrap { .. }
+				| tangram_sandbox::Backend::Gvisor { .. }
+		) && (storage.is_some() || swap.is_some())
 		{
 			return Err(tg::error!(
 				"storage and swap bounds require container isolation"
 			));
 		}
-		if matches!(isolation, tangram_sandbox::Isolation::Vm(_))
+		if matches!(isolation, tangram_sandbox::Backend::CloudHypervisor(_))
 			&& (cpu.is_some_and(|cpu| cpu.min.millis() > 0 || cpu.max.millis() % 1000 != 0)
 				|| memory.is_some_and(|memory| memory.min > 0))
 		{
@@ -207,14 +211,14 @@ impl Server {
 		if memory.is_some_and(|memory| memory.max == 0) {
 			return Err(tg::error!("sandbox memory must be greater than zero"));
 		}
-		if matches!(isolation, tangram_sandbox::Isolation::Seatbelt(_))
+		if matches!(isolation, tangram_sandbox::Backend::Seatbelt)
 			&& (cpu.is_some() || memory.is_some())
 		{
 			return Err(tg::error!(
 				"sandbox cpu and memory are not supported with seatbelt isolation"
 			));
 		}
-		if matches!(isolation, tangram_sandbox::Isolation::Seatbelt(_)) && hostname.is_some() {
+		if matches!(isolation, tangram_sandbox::Backend::Seatbelt) && hostname.is_some() {
 			return Err(tg::error!(
 				"setting a hostname is not supported with seatbelt isolation"
 			));

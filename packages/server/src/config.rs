@@ -1111,7 +1111,8 @@ pub struct Runner {
 
 	pub id: Option<tg::runner::Id>,
 
-	pub isolation: RunnerIsolation,
+	pub backend: RunnerBackend,
+	pub resources: RunnerResources,
 
 	pub javascript: JavaScript,
 
@@ -1163,16 +1164,35 @@ pub struct Runner {
 	pub token: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct RunnerIsolation {
-	pub container: ContainerRunnerIsolation,
+#[derive(Clone, Debug)]
+pub enum RunnerBackend {
+	Builtin,
+	Bubblewrap {
+		path: PathBuf,
+	},
+	CloudHypervisor(CloudHypervisorBackend),
+	Gvisor {
+		path: PathBuf,
+		platform: tangram_sandbox::Platform,
+	},
+	Seatbelt,
+}
+
+impl Default for RunnerBackend {
+	fn default() -> Self {
+		if cfg!(target_os = "macos") {
+			Self::Seatbelt
+		} else {
+			Self::Builtin
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct ContainerRunnerIsolation {
-	pub filesystem_project_ids: ContainerRunnerIsolationProjectIds,
+pub struct RunnerResources {
+	pub filesystem_project_ids: FilesystemProjectIds,
 
-	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
+	pub gid_map: Option<IdMap>,
 
 	pub harden: bool,
 
@@ -1193,23 +1213,23 @@ pub struct ContainerRunnerIsolation {
 	/// Whether to enforce sandbox storage maximums as filesystem limits, which requires a disk-backed ext4 or XFS filesystem with project quotas enabled.
 	pub storage_limits: bool,
 
-	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
+	pub uid_map: Option<IdMap>,
 }
 
 #[derive(Clone, Debug)]
-pub struct ContainerRunnerIsolationIdMap {
+pub struct IdMap {
 	pub count: u32,
 	pub helper: PathBuf,
 	pub host: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ContainerRunnerIsolationProjectIds {
+pub struct FilesystemProjectIds {
 	pub count: u32,
 	pub start: u32,
 }
 
-impl Default for ContainerRunnerIsolationProjectIds {
+impl Default for FilesystemProjectIds {
 	fn default() -> Self {
 		Self {
 			count: i32::MAX.cast_unsigned() - 1,
@@ -1218,7 +1238,7 @@ impl Default for ContainerRunnerIsolationProjectIds {
 	}
 }
 
-impl ContainerRunnerIsolation {
+impl RunnerResources {
 	#[must_use]
 	pub fn max_duration(&self) -> Option<Duration> {
 		self.max_duration
@@ -1265,8 +1285,8 @@ impl ContainerRunnerIsolation {
 	}
 }
 
-impl From<&ContainerRunnerIsolationIdMap> for tangram_sandbox::IdMap {
-	fn from(value: &ContainerRunnerIsolationIdMap) -> Self {
+impl From<&IdMap> for tangram_sandbox::IdMap {
+	fn from(value: &IdMap) -> Self {
 		Self {
 			count: value.count,
 			helper: value.helper.clone(),
@@ -1275,7 +1295,7 @@ impl From<&ContainerRunnerIsolationIdMap> for tangram_sandbox::IdMap {
 	}
 }
 
-impl ContainerRunnerIsolationProjectIds {
+impl FilesystemProjectIds {
 	pub(crate) fn validate(self) -> tg::Result<()> {
 		if self.count == 0 {
 			return Err(tg::error!(
@@ -1301,7 +1321,7 @@ impl ContainerRunnerIsolationProjectIds {
 	}
 }
 
-impl ContainerRunnerIsolationIdMap {
+impl IdMap {
 	pub(crate) fn validate(&self, id: u32, kind: &str) -> tg::Result<()> {
 		if self.count == 0 {
 			return Err(tg::error!(
@@ -1431,8 +1451,6 @@ pub struct Sandbox {
 
 	pub http2: tangram_http::http2::Config,
 
-	pub isolation: SandboxIsolation,
-
 	pub network: SandboxNetwork,
 
 	pub nice: u8,
@@ -1453,31 +1471,7 @@ pub struct Sandbox {
 }
 
 #[derive(Clone, Debug)]
-pub struct SandboxIsolation {
-	pub container: Option<ContainerSandboxIsolation>,
-
-	pub default: Option<SandboxIsolationDefault>,
-
-	pub seatbelt: Option<SeatbeltSandboxIsolation>,
-
-	pub vm: Option<VmSandboxIsolation>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ContainerSandboxIsolation {}
-
-#[derive(Clone, Copy, Debug)]
-pub enum SandboxIsolationDefault {
-	Container,
-	Seatbelt,
-	Vm,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SeatbeltSandboxIsolation {}
-
-#[derive(Clone, Debug)]
-pub struct VmSandboxIsolation {
+pub struct CloudHypervisorBackend {
 	pub cloud_hypervisor_path: Option<PathBuf>,
 
 	pub dax: Option<Dax>,
@@ -2693,7 +2687,8 @@ impl Default for Runner {
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
-			isolation: RunnerIsolation::default(),
+			backend: RunnerBackend::default(),
+			resources: RunnerResources::default(),
 			javascript: JavaScript::default(),
 			memory: None,
 			memory_sampling_interval: Duration::from_secs(1),
@@ -2759,7 +2754,6 @@ impl Default for Sandbox {
 			control_channel_capacity: 256,
 			default_processes_page_size: 256,
 			http2: tangram_http::http2::Config::default(),
-			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
 			process_permission_time_to_live: default_process_permission_time_to_live(),
@@ -2773,34 +2767,7 @@ impl Default for Sandbox {
 	}
 }
 
-impl Default for SandboxIsolation {
-	fn default() -> Self {
-		if cfg!(target_os = "linux") {
-			Self {
-				container: Some(ContainerSandboxIsolation::default()),
-				default: None,
-				seatbelt: None,
-				vm: None,
-			}
-		} else if cfg!(target_os = "macos") {
-			Self {
-				container: None,
-				default: None,
-				seatbelt: Some(SeatbeltSandboxIsolation {}),
-				vm: None,
-			}
-		} else {
-			Self {
-				container: None,
-				default: None,
-				seatbelt: None,
-				vm: None,
-			}
-		}
-	}
-}
-
-impl Default for VmSandboxIsolation {
+impl Default for CloudHypervisorBackend {
 	fn default() -> Self {
 		Self {
 			cloud_hypervisor_path: None,

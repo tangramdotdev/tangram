@@ -36,14 +36,6 @@ pub(crate) fn spawn(
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command
 		.arg("sandbox")
-		.arg("seatbelt")
-		.arg("run")
-		.arg("--profile")
-		.arg(Sandbox::host_profile_path_from_root(&arg.path));
-	command
-		.arg("--")
-		.arg(&arg.tangram_path)
-		.arg("sandbox")
 		.arg("serve")
 		.arg(if serve_arg.listen {
 			"--listen"
@@ -69,6 +61,28 @@ pub(crate) fn spawn(
 			.map_err(|error| tg::error!(!error, "failed to build `DYLD_LIBRARY_PATH`"))?;
 		command.env("DYLD_LIBRARY_PATH", path);
 	}
+	let environment = command
+		.as_std()
+		.get_envs()
+		.filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
+		.collect::<Vec<_>>();
+	let launch = crate::seatbelt::run::Arg {
+		command: std::iter::once(arg.tangram_path.as_os_str().to_owned())
+			.chain(command.as_std().get_args().map(std::ffi::OsStr::to_owned))
+			.collect(),
+		profile: Sandbox::host_profile_path_from_root(&arg.path),
+	};
+	let path = arg.path.join("launch.json");
+	crate::run::write_config(&path, &launch)?;
+	let mut command = tokio::process::Command::new(&arg.tangram_path);
+	command.envs(environment);
+	command
+		.arg("sandbox")
+		.arg("run")
+		.arg("--backend")
+		.arg("seatbelt")
+		.arg("--config")
+		.arg(path);
 	command
 		.kill_on_drop(true)
 		.process_group(0)

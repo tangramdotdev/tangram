@@ -45,7 +45,7 @@ pub(super) struct Config {
 	#[cfg(target_os = "linux")]
 	pub cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 	#[cfg(target_os = "linux")]
-	pub filesystem_project_ids: crate::config::ContainerRunnerIsolationProjectIds,
+	pub filesystem_project_ids: crate::config::FilesystemProjectIds,
 	pub overcommit: tg::runner::Overcommit,
 	pub process_control_connection_pool_refresh_interval: Duration,
 	pub process_control_connection_pool_size: usize,

@@ -4,7 +4,8 @@ impl Server {
 	#[cfg(target_os = "macos")]
 	pub(super) async fn run_create_listener(
 		root_path: &Path,
-		isolation: &tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Backend,
+		_resources: &tangram_sandbox::Resources,
 		_listener_port: Option<u32>,
 	) -> tg::Result<(
 		crate::http::Listener,
@@ -12,13 +13,13 @@ impl Server {
 		Option<std::path::PathBuf>,
 	)> {
 		match isolation {
-			tangram_sandbox::Isolation::Container(_) => {
+			tangram_sandbox::Backend::Builtin
+			| tangram_sandbox::Backend::Bubblewrap { .. }
+			| tangram_sandbox::Backend::Gvisor { .. } => {
 				Err(tg::error!("container isolation is not supported on macos"))
 			},
-			tangram_sandbox::Isolation::Seatbelt(_) => {
-				Self::run_create_unix_listener(root_path).await
-			},
-			tangram_sandbox::Isolation::Vm(_) => {
+			tangram_sandbox::Backend::Seatbelt => Self::run_create_unix_listener(root_path).await,
+			tangram_sandbox::Backend::CloudHypervisor(_) => {
 				Err(tg::error!("vm isolation is not supported on macos"))
 			},
 		}
@@ -27,7 +28,8 @@ impl Server {
 	#[cfg(target_os = "linux")]
 	pub(super) async fn run_create_listener(
 		root_path: &Path,
-		isolation: &tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Backend,
+		resources: &tangram_sandbox::Resources,
 		listener_port: Option<u32>,
 	) -> tg::Result<(
 		crate::http::Listener,
@@ -35,9 +37,11 @@ impl Server {
 		Option<std::path::PathBuf>,
 	)> {
 		match isolation {
-			tangram_sandbox::Isolation::Container(isolation) => {
+			tangram_sandbox::Backend::Builtin
+			| tangram_sandbox::Backend::Bubblewrap { .. }
+			| tangram_sandbox::Backend::Gvisor { .. } => {
 				let output = Self::run_create_unix_listener(root_path).await?;
-				if isolation.uid_map.is_some() {
+				if resources.uid_map.is_some() {
 					// Restrict host access before allowing the mapped workload to connect to its API socket.
 					let permissions =
 						<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(
@@ -61,10 +65,10 @@ impl Server {
 				}
 				Ok(output)
 			},
-			tangram_sandbox::Isolation::Seatbelt(_) => {
+			tangram_sandbox::Backend::Seatbelt => {
 				Err(tg::error!("seatbelt isolation is not supported on linux"))
 			},
-			tangram_sandbox::Isolation::Vm(_) => {
+			tangram_sandbox::Backend::CloudHypervisor(_) => {
 				#[cfg(not(feature = "vsock"))]
 				{
 					let _ = listener_port;

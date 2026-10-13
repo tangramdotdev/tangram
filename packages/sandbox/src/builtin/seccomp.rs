@@ -13,10 +13,14 @@ const CLONE_NAMESPACE_FLAGS: u32 = libc::CLONE_NEWCGROUP as u32
 	| libc::CLONE_NEWUSER as u32
 	| libc::CLONE_NEWUTS as u32;
 
+pub(crate) fn filter(policy: SeccompPolicy) -> tg::Result<Vec<libc::sock_filter>> {
+	match policy {
+		SeccompPolicy::Default => default_filter(),
+	}
+}
+
 pub fn install(policy: SeccompPolicy) -> tg::Result<()> {
-	let mut filter = match policy {
-		SeccompPolicy::Default => default_filter()?,
-	};
+	let mut filter = filter(policy)?;
 	let length = filter
 		.len()
 		.try_into()

@@ -446,16 +446,11 @@ fn main() -> std::process::ExitCode {
 	// Parse the args.
 	let matches = Args::command().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();
-	#[cfg(target_os = "linux")]
 	if let Command::Sandbox(self::sandbox::Args {
-		command:
-			self::sandbox::Command::Container(self::sandbox::container::Args {
-				command: self::sandbox::container::Command::Run(args),
-			}),
-		..
+		command: self::sandbox::Command::Run(args),
 	}) = args.command.clone()
 	{
-		return match Cli::command_sandbox_container_run(args) {
+		return match Cli::command_sandbox_run(args) {
 			Ok(exit) => exit,
 			Err(error) => {
 				Cli::print_error_basic(tg::Referent::with_node(error), false);
@@ -507,33 +502,13 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 			Some(result)
 		},
 
-		#[cfg(target_os = "linux")]
 		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Container(command_args),
-			..
+			command: self::sandbox::Command::Init(command_args),
 		}) => {
 			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
-			let result = cli.command_sandbox_container(command_args).await;
-			Some(result)
-		},
-
-		#[cfg(target_os = "macos")]
-		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Seatbelt(command_args),
-			..
-		}) => {
-			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
-			let result = cli.command_sandbox_seatbelt(command_args).await;
-			Some(result)
-		},
-
-		#[cfg(target_os = "linux")]
-		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Vm(command_args),
-			..
-		}) => {
-			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
-			let result = cli.command_sandbox_vm(command_args).await;
+			let result = Cli::command_sandbox_init(command_args).map(|exit| {
+				cli.exit = Some(exit);
+			});
 			Some(result)
 		},
 

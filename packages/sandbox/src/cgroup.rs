@@ -53,10 +53,7 @@ pub struct Options {
 }
 
 pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
-	let container = match &arg.isolation {
-		crate::Isolation::Container(container) => Some(container),
-		crate::Isolation::Seatbelt(_) | crate::Isolation::Vm(_) => None,
-	};
+	let resources = &arg.resources;
 	let options = Options {
 		cleanup_interval: arg.cgroup_cleanup_interval,
 		cleanup_timeout: arg.cgroup_cleanup_timeout,
@@ -68,13 +65,10 @@ pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
 		cpu_parent: arg.cpu_parent.clone(),
 		cpu_pool: arg.cpu_pool.clone(),
 		cpu_request: arg.cpu,
-		memory: container.and(arg.memory),
+		memory: arg.memory,
 		memory_oom_group: true,
-		memory_swap: arg
-			.swap
-			.map(|swap| swap.max)
-			.or_else(|| container.and_then(|container| container.memory_swap)),
-		pids: container.and_then(|container| container.max_pids),
+		memory_swap: arg.swap.map(|swap| swap.max).or(resources.memory_swap),
+		pids: resources.max_pids,
 		swap: arg.swap,
 		swap_pool: arg.swap_pool.clone(),
 	};
@@ -91,7 +85,11 @@ pub(crate) fn enter_before_exec(command: &mut tokio::process::Command, cgroup: l
 	// SAFETY: The pre_exec closure only invokes async-signal-safe system calls.
 	unsafe {
 		command.pre_exec(move || {
-			let fd = libc::openat(cgroup, c"cgroup.procs".as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
+			let fd = libc::openat(
+				cgroup,
+				c"cgroup.procs".as_ptr(),
+				libc::O_WRONLY | libc::O_CLOEXEC,
+			);
 			if fd < 0 {
 				return Err(std::io::Error::last_os_error());
 			}

@@ -513,7 +513,7 @@ impl Server {
 			),
 			("vfs nfs lease time", vfs.nfs.lease_time),
 		];
-		if let Some(vm) = &sandbox.isolation.vm {
+		if let self::config::RunnerBackend::CloudHypervisor(vm) = &config.runner.backend {
 			durations.extend([
 				(
 					"sandbox vm network interface timeout",
@@ -623,16 +623,14 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
 		#[cfg(target_os = "linux")]
-		if config.roles.contains(&self::config::Role::Runner)
-			&& config.runner.isolation.container.harden
-		{
+		if config.roles.contains(&self::config::Role::Runner) && config.runner.resources.harden {
 			tangram_sandbox::builtin::host::validate(&temp_path).map_err(|error| {
 				tg::error!(
 					!error,
 					"the host does not satisfy the hardened container prerequisites"
 				)
 			})?;
-			let container = &config.runner.isolation.container;
+			let container = &config.runner.resources;
 			tracing::info!(
 				cpu = config.scheduler.default_cpu,
 				filesystem_inodes = ?container.max_filesystem_inodes(),
@@ -1061,7 +1059,7 @@ impl Server {
 				));
 			}
 		}
-		let container = &config.runner.isolation.container;
+		let container = &config.runner.resources;
 		container.filesystem_project_ids.validate()?;
 		if container.max_open_files == Some(0) {
 			return Err(tg::error!(
@@ -1078,12 +1076,12 @@ impl Server {
 				"the maximum number of container sandbox pids must be greater than zero"
 			));
 		}
-		if config.runner.isolation.container.max_filesystem_inodes == Some(0) {
+		if config.runner.resources.max_filesystem_inodes == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox filesystem inodes must be greater than zero"
 			));
 		}
-		if config.runner.isolation.container.max_filesystem_size == Some(0) {
+		if config.runner.resources.max_filesystem_size == Some(0) {
 			return Err(tg::error!(
 				"the maximum container sandbox filesystem size must be greater than zero"
 			));
@@ -1306,7 +1304,7 @@ impl Server {
 			#[cfg(target_os = "linux")]
 			cpu_pool,
 			#[cfg(target_os = "linux")]
-			filesystem_project_ids: config.runner.isolation.container.filesystem_project_ids,
+			filesystem_project_ids: config.runner.resources.filesystem_project_ids,
 			overcommit: config.runner.overcommit,
 			process_control_connection_pool_refresh_interval: config
 				.runner
@@ -2505,7 +2503,6 @@ impl Server {
 	fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
 	}
-
 }
 
 impl From<Owned> for Shared {

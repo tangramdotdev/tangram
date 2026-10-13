@@ -21,9 +21,10 @@ use {
 // The Linux clone3 ABI defines CLONE_INTO_CGROUP as bit 33.
 const CLONE_INTO_CGROUP: u64 = 1 << 33;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub as_pid_1: bool,
+	pub backend: crate::Kind,
 	pub binds: Vec<Bind>,
 	pub cgroup: Option<String>,
 	pub cgroup_cpu: Option<u64>,
@@ -57,9 +58,11 @@ pub struct Arg {
 	pub nice: u8,
 	pub overlay_sources: Vec<PathBuf>,
 	pub overlays: Vec<Overlay>,
+	pub platform: crate::Platform,
 	pub procs: Vec<PathBuf>,
 	pub rlimit_nofile: Option<u64>,
 	pub ro_binds: Vec<Bind>,
+	pub runtime_path: Option<PathBuf>,
 	pub seccomp: Option<crate::SeccompPolicy>,
 	pub setenvs: Vec<SetEnv>,
 	pub tmpfs: Vec<PathBuf>,
@@ -68,27 +71,27 @@ pub struct Arg {
 	pub user_namespace_fd: Option<i32>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Bind {
 	pub source: PathBuf,
 	pub target: PathBuf,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Network {
 	Host,
 	Pasta,
 	Veth,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Overlay {
 	pub target: PathBuf,
 	pub upperdir: PathBuf,
 	pub workdir: PathBuf,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SetEnv {
 	pub key: String,
 	pub value: String,
@@ -275,6 +278,23 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 		}
 	}
 	let status = wait_for_child(child);
+	// Detach the prepared root before removing the scratch directory so its writable layer is retained.
+	if arg.backend != crate::Kind::Builtin
+		&& let Some(root) = &root_path
+	{
+		let root = CString::new(root.as_os_str().as_bytes()).unwrap();
+		// SAFETY: The pointer references a valid, terminated path in the launcher's mount namespace.
+		let result = unsafe { libc::umount2(root.as_ptr(), libc::MNT_DETACH) };
+		if result != 0 {
+			let error = std::io::Error::last_os_error();
+			if !matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOENT)) {
+				return Err(tg::error!(
+					!error,
+					"failed to detach the external backend root"
+				));
+			}
+		}
+	}
 	let cleanup = cgroup.map(cgroup::Cgroup::cleanup).transpose();
 	let status = status?;
 	cleanup?;
@@ -402,7 +422,25 @@ fn child_main(
 	if arg.new_session {
 		start_session()?;
 	}
+	set_rlimit_nofile(arg.rlimit_nofile)?;
 	mount::apply(arg, root.map(PathBuf::as_path))?;
+	if arg.backend != crate::Kind::Builtin {
+		unshare(
+			libc::CLONE_NEWNS,
+			"failed to isolate the external backend mounts",
+		)?;
+		close_non_std_fds()?;
+		let root = root.ok_or_else(|| {
+			tg::error!("the external backend requires a prepared root filesystem")
+		})?;
+		return match arg.backend {
+			crate::Kind::Bubblewrap => crate::bubblewrap::exec(arg, root),
+			crate::Kind::Gvisor => crate::gvisor::exec(arg, root),
+			crate::Kind::Builtin | crate::Kind::CloudHypervisor | crate::Kind::Seatbelt => {
+				Err(tg::error!("invalid linux launch backend"))
+			},
+		};
+	}
 	if let Some(root) = root {
 		mount::pivot_root_into(root)?;
 	}
@@ -570,7 +608,7 @@ fn exec_command(arg: &Arg) -> tg::Result<()> {
 	Err(tg::error!(!error, "failed to execute the command"))
 }
 
-fn environment(arg: &Arg) -> tg::Result<BTreeMap<OsString, OsString>> {
+pub(crate) fn environment(arg: &Arg) -> tg::Result<BTreeMap<OsString, OsString>> {
 	let mut env = if arg.clearenv {
 		BTreeMap::new()
 	} else {

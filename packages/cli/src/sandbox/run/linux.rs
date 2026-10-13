@@ -1,14 +1,16 @@
-use {
-	crate::Cli,
-	std::{ffi::OsString, net::Ipv4Addr, path::PathBuf},
-	tangram_client::prelude::*,
-};
+use std::{ffi::OsString, net::Ipv4Addr, path::PathBuf};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[arg(long)]
 	pub as_pid_1: bool,
+
+	#[arg(long, default_value = "kvm")]
+	pub platform: tangram_sandbox::Platform,
+
+	#[arg(long)]
+	pub runtime_path: Option<PathBuf>,
 
 	#[arg(action = clap::ArgAction::Append, long = "bind", num_args = 2)]
 	pub binds: Vec<PathBuf>,
@@ -46,7 +48,7 @@ pub struct Args {
 	#[arg(long)]
 	pub clearenv: bool,
 
-	#[arg(allow_hyphen_values = true, required = true, trailing_var_arg = true)]
+	#[arg(allow_hyphen_values = true, trailing_var_arg = true)]
 	pub command: Vec<OsString>,
 
 	#[arg(action = clap::ArgAction::Append, long = "dev", num_args = 1)]
@@ -76,7 +78,7 @@ pub struct Args {
 	#[arg(long)]
 	pub gateway_ip: Option<Ipv4Addr>,
 
-	#[arg(long)]
+	#[arg(long, default_value_t = 0)]
 	pub gid: u32,
 
 	#[arg(long)]
@@ -85,7 +87,7 @@ pub struct Args {
 	#[arg(long)]
 	pub hostname: Option<String>,
 
-	#[arg(long)]
+	#[arg(long, default_value_t = 0)]
 	pub index: u64,
 
 	#[arg(long)]
@@ -124,7 +126,7 @@ pub struct Args {
 	#[arg(action = clap::ArgAction::Append, long = "tmpfs", num_args = 1)]
 	pub tmpfs: Vec<PathBuf>,
 
-	#[arg(long)]
+	#[arg(long, default_value_t = 0)]
 	pub uid: u32,
 
 	#[arg(long)]
@@ -135,12 +137,15 @@ pub struct Args {
 }
 
 impl Args {
-	fn into_arg(self) -> tangram_sandbox::run::linux::Arg {
-		let binds = super::chunk_pairs(self.binds)
+	pub(super) fn into_arg(
+		self,
+		backend: tangram_sandbox::Kind,
+	) -> tangram_sandbox::run::linux::Arg {
+		let binds = chunk_pairs(self.binds)
 			.into_iter()
 			.map(|[source, target]| tangram_sandbox::run::linux::Bind { source, target })
 			.collect();
-		let overlays = super::chunk_triples(self.overlays)
+		let overlays = chunk_triples(self.overlays)
 			.into_iter()
 			.map(
 				|[upperdir, workdir, target]| tangram_sandbox::run::linux::Overlay {
@@ -150,15 +155,18 @@ impl Args {
 				},
 			)
 			.collect();
-		let ro_binds = super::chunk_pairs(self.ro_binds)
+		let ro_binds = chunk_pairs(self.ro_binds)
 			.into_iter()
 			.map(|[source, target]| tangram_sandbox::run::linux::Bind { source, target })
 			.collect();
-		let setenvs = super::chunk_pairs(self.setenvs)
+		let setenvs = chunk_pairs(self.setenvs)
 			.into_iter()
 			.map(|[key, value]| tangram_sandbox::run::linux::SetEnv { key, value })
 			.collect();
 		tangram_sandbox::run::linux::Arg {
+			backend,
+			platform: self.platform,
+			runtime_path: self.runtime_path,
 			as_pid_1: self.as_pid_1,
 			binds,
 			cgroup: self.cgroup,
@@ -206,9 +214,20 @@ impl Args {
 	}
 }
 
-impl Cli {
-	pub fn command_sandbox_container_run(args: Args) -> tg::Result<std::process::ExitCode> {
-		let arg = args.into_arg();
-		tangram_sandbox::run::linux::run(arg)
+fn chunk_pairs<T>(values: Vec<T>) -> Vec<[T; 2]> {
+	let mut iter = values.into_iter();
+	let mut output = Vec::new();
+	while let Some(first) = iter.next() {
+		output.push([first, iter.next().unwrap()]);
 	}
+	output
+}
+
+fn chunk_triples<T>(values: Vec<T>) -> Vec<[T; 3]> {
+	let mut iter = values.into_iter();
+	let mut output = Vec::new();
+	while let Some(first) = iter.next() {
+		output.push([first, iter.next().unwrap(), iter.next().unwrap()]);
+	}
+	output
 }

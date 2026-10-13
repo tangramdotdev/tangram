@@ -17,7 +17,7 @@ unsafe extern "C" {
 	fn sandbox_free_error(errorbuf: *const libc::c_char);
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub command: Vec<OsString>,
 	pub profile: PathBuf,

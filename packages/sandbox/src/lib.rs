@@ -15,11 +15,16 @@ use {
 	tangram_uri::Uri,
 };
 
+mod backend;
+#[cfg(target_os = "linux")]
+mod bubblewrap;
 #[cfg(target_os = "linux")]
 mod cgroup;
 mod client;
 #[cfg(target_os = "linux")]
 mod filesystem;
+#[cfg(target_os = "linux")]
+mod gvisor;
 #[cfg(target_os = "linux")]
 mod launch;
 mod libraries;
@@ -31,15 +36,18 @@ mod server;
 mod usage;
 mod util;
 
+pub use self::backend::{Backend, Kind, Platform};
+
 #[cfg(target_os = "linux")]
 pub mod budget;
 #[cfg(target_os = "linux")]
-pub mod capacity;
-#[cfg(target_os = "linux")]
 pub mod builtin;
 #[cfg(target_os = "linux")]
-pub mod cpu;
+pub mod capacity;
 #[cfg(target_os = "linux")]
+pub mod cloud_hypervisor;
+#[cfg(target_os = "linux")]
+pub mod cpu;
 pub mod init;
 #[cfg(target_os = "linux")]
 pub mod network;
@@ -50,8 +58,6 @@ pub mod run;
 pub mod seatbelt;
 pub mod serve;
 pub mod stdio;
-#[cfg(target_os = "linux")]
-pub mod cloud_hypervisor;
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -119,7 +125,7 @@ pub struct Arg {
 	pub index: u64,
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
-	pub isolation: Isolation,
+	pub backend: Backend,
 	pub memory: Option<tg::sandbox::Resource<u64>>,
 	pub memory_sampling_interval: Duration,
 	pub mounts: Vec<tg::sandbox::Mount>,
@@ -129,6 +135,7 @@ pub struct Arg {
 	pub nice: u8,
 	pub path: PathBuf,
 	pub request_timeout: Duration,
+	pub resources: Resources,
 	pub rootfs_path: PathBuf,
 	pub shutdown_timeout: Duration,
 	pub storage: Option<tg::sandbox::Resource<u64>>,
@@ -147,9 +154,19 @@ pub struct Output {
 	pub usage: tg::sandbox::Usage,
 }
 
-#[derive(Clone, Copy, Debug, Default, derive_more::Display, derive_more::FromStr)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde::Deserialize,
+	serde::Serialize,
+)]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Firewall {
 	Iptables,
 	#[default]
@@ -167,16 +184,8 @@ pub struct Command {
 	pub stdout: Stdio,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
-pub enum Isolation {
-	Container(ContainerIsolation),
-	Seatbelt(SeatbeltIsolation),
-	Vm(CloudHypervisor),
-}
-
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct ContainerIsolation {
+pub struct Resources {
 	pub cgroup_readonly: bool,
 	pub filesystem_project_id: Option<u32>,
 	pub gid_map: Option<IdMap>,
@@ -214,9 +223,6 @@ pub struct IdMap {
 pub enum SeccompPolicy {
 	Default,
 }
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct SeatbeltIsolation {}
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct CloudHypervisor {
@@ -298,12 +304,14 @@ pub fn filesystem_project_usage(path: &Path, project: u32) -> tg::Result<u64> {
 impl Sandbox {
 	#[tracing::instrument(name = "sandbox.create_physical", level = "debug", skip_all, fields(sandbox_index = arg.index), err(level = "debug"))]
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
-		validate_resources(&arg.isolation, arg.cpu, arg.memory)?;
+		validate_resources(&arg.backend, arg.cpu, arg.memory)?;
 		for resource in [arg.memory, arg.storage, arg.swap].into_iter().flatten() {
 			resource.validate()?;
 		}
-		if !matches!(arg.isolation, Isolation::Container(_))
-			&& (arg.storage.is_some() || arg.swap.is_some())
+		if !matches!(
+			arg.backend,
+			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. }
+		) && (arg.storage.is_some() || arg.swap.is_some())
 		{
 			return Err(tg::error!(
 				"storage and swap bounds require container isolation"
@@ -369,8 +377,11 @@ impl Sandbox {
 			}
 		};
 
-		let (listener, url) = match arg.isolation {
-			Isolation::Container(_) | Isolation::Seatbelt(_) => {
+		let (listener, url) = match arg.backend {
+			Backend::Builtin
+			| Backend::Bubblewrap { .. }
+			| Backend::Gvisor { .. }
+			| Backend::Seatbelt => {
 				let uri = Uri::builder()
 					.scheme("http+stdio")
 					.path("")
@@ -378,8 +389,8 @@ impl Sandbox {
 					.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
 				(None, uri)
 			},
-			Isolation::Vm(_) => {
-				let (listener, uri) = Self::listen(&arg.isolation, &arg.path).await?;
+			Backend::CloudHypervisor(_) => {
+				let (listener, uri) = Self::listen(&arg.backend, &arg.path).await?;
 				(Some(listener), uri)
 			},
 		};
@@ -392,8 +403,8 @@ impl Sandbox {
 			url,
 		};
 		#[cfg(target_os = "linux")]
-		let (mut process, network, filesystem, cgroup, storage) = match &arg.isolation {
-			Isolation::Container(_) => {
+		let (mut process, network, filesystem, cgroup, storage) = match &arg.backend {
+			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 				let mut network = crate::network::linux::create(&arg)?;
 				let cgroup = self::cgroup::create(&arg)?;
 				let output =
@@ -406,10 +417,10 @@ impl Sandbox {
 					output.storage,
 				)
 			},
-			Isolation::Seatbelt(_) => {
+			Backend::Seatbelt => {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
 			},
-			Isolation::Vm(_) => {
+			Backend::CloudHypervisor(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
 				let network = crate::cloud_hypervisor::network::create(
 					arg.index,
@@ -420,8 +431,12 @@ impl Sandbox {
 					ports,
 				)?;
 				let cgroup = self::cgroup::create(&arg)?;
-				let process =
-					self::cloud_hypervisor::spawn(&arg, &serve_arg, network.as_ref(), &cgroup.handle()?)?;
+				let process = self::cloud_hypervisor::spawn(
+					&arg,
+					&serve_arg,
+					network.as_ref(),
+					&cgroup.handle()?,
+				)?;
 				(process, network, None, Some(cgroup), None)
 			},
 		};
@@ -434,12 +449,12 @@ impl Sandbox {
 			..arg
 		};
 		#[cfg(target_os = "macos")]
-		let mut process = match &arg.isolation {
-			Isolation::Container(_) => {
+		let mut process = match &arg.backend {
+			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 				return Err(tg::error!("container isolation is not supported on macos"));
 			},
-			Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
-			Isolation::Vm(_) => {
+			Backend::Seatbelt => self::seatbelt::spawn(&arg, &serve_arg)?,
+			Backend::CloudHypervisor(_) => {
 				return Err(tg::error!("vm isolation is not supported on macos"));
 			},
 		};
@@ -506,24 +521,6 @@ impl Sandbox {
 			next_process_index: AtomicU64::new(1),
 			process: tokio::sync::Mutex::new(process),
 		}));
-		if let Isolation::Container(isolation) = &sandbox.0.arg.isolation
-			&& let Some(duration) = isolation.max_duration
-		{
-			let state = Arc::downgrade(&sandbox.0);
-			tokio::spawn(async move {
-				tokio::time::sleep(duration).await;
-				let Some(state) = state.upgrade() else {
-					return;
-				};
-				let sandbox = Sandbox(state);
-				if let Err(error) = sandbox.destroy().await {
-					tracing::warn!(
-						error = %error,
-						"failed to destroy a container sandbox after its maximum duration"
-					);
-				}
-			});
-		}
 
 		Ok(sandbox)
 	}
@@ -551,7 +548,8 @@ impl Sandbox {
 			let cgroup = cgroup
 				.as_ref()
 				.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
-			let (path, project) = if let Isolation::Container(container) = &self.0.arg.isolation {
+			let (path, project) = if self.0.arg.backend.is_linux() {
+				let container = &self.0.arg.resources;
 				let project = container.filesystem_project_id;
 				let path = if project.is_some() {
 					Self::host_filesystem_path_from_root(&self.0.arg.path)
@@ -589,6 +587,22 @@ impl Sandbox {
 			resources,
 			self.0.arg.memory_sampling_interval,
 		)?);
+		if let Some(duration) = self.0.arg.resources.max_duration {
+			let state = Arc::downgrade(&self.0);
+			tokio::spawn(async move {
+				tokio::time::sleep(duration).await;
+				let Some(state) = state.upgrade() else {
+					return;
+				};
+				let sandbox = Sandbox(state);
+				if let Err(error) = sandbox.destroy().await {
+					tracing::warn!(
+						error = %error,
+						"failed to destroy a sandbox after its maximum duration"
+					);
+				}
+			});
+		}
 		Ok(())
 	}
 
@@ -617,28 +631,32 @@ impl Sandbox {
 	}
 
 	async fn listen(
-		isolation: &Isolation,
+		backend: &Backend,
 		root_path: &Path,
 	) -> tg::Result<(crate::server::Listener, Uri)> {
 		#[cfg(target_os = "linux")]
 		{
-			match isolation {
-				Isolation::Container(_) => Self::listen_unix(root_path).await,
-				Isolation::Seatbelt(_) => {
+			match backend {
+				Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
+					Self::listen_unix(root_path).await
+				},
+				Backend::Seatbelt => {
 					Err(tg::error!("seatbelt isolation is not supported on linux"))
 				},
-				Isolation::Vm(_) => Self::listen_cloud_hypervisor(root_path).await,
+				Backend::CloudHypervisor(_) => Self::listen_cloud_hypervisor(root_path).await,
 			}
 		}
 
 		#[cfg(not(target_os = "linux"))]
 		{
-			match isolation {
-				Isolation::Container(_) => {
+			match backend {
+				Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 					Err(tg::error!("container isolation is not supported on macos"))
 				},
-				Isolation::Seatbelt(_) => Self::listen_unix(root_path).await,
-				Isolation::Vm(_) => Err(tg::error!("vm isolation is not supported on macos")),
+				Backend::Seatbelt => Self::listen_unix(root_path).await,
+				Backend::CloudHypervisor(_) => {
+					Err(tg::error!("vm isolation is not supported on macos"))
+				},
 			}
 		}
 	}
@@ -721,12 +739,18 @@ impl Sandbox {
 		#[cfg(target_os = "linux")]
 		{
 			let port = 6748;
-			let host_url = format!("http+vsock://{}:{port}", self::cloud_hypervisor::VMADDR_CID_ANY)
-				.parse()
-				.map_err(|_| tg::error!("failed to parse host url"))?;
-			let guest_url = format!("http+vsock://{}:{port}", self::cloud_hypervisor::VMADDR_CID_ANY)
-				.parse()
-				.map_err(|_| tg::error!("failed to parse guest url"))?;
+			let host_url = format!(
+				"http+vsock://{}:{port}",
+				self::cloud_hypervisor::VMADDR_CID_ANY
+			)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse host url"))?;
+			let guest_url = format!(
+				"http+vsock://{}:{port}",
+				self::cloud_hypervisor::VMADDR_CID_ANY
+			)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse guest url"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
 			Ok((listener, guest_url))
 		}
@@ -737,7 +761,10 @@ impl Sandbox {
 		root_path: &Path,
 	) -> tg::Result<(crate::server::Listener, Uri)> {
 		let port = 6748;
-		let socket = format!("{}_{port}", cloud_hypervisor::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
+		let socket = format!(
+			"{}_{port}",
+			cloud_hypervisor::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME
+		);
 		let path = root_path.join("vm").join(socket);
 		tokio::fs::create_dir_all(path.parent().unwrap())
 			.await
@@ -749,9 +776,12 @@ impl Sandbox {
 			.path("")
 			.build()
 			.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
-		let guest_url = format!("http+vsock://{}:{port}", self::cloud_hypervisor::VMADDR_CID_HOST)
-			.parse()
-			.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
+		let guest_url = format!(
+			"http+vsock://{}:{port}",
+			self::cloud_hypervisor::VMADDR_CID_HOST
+		)
+		.parse()
+		.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
 		let listener = crate::server::Server::listen(&host_url).await?;
 		Ok((listener, guest_url))
 	}
@@ -960,20 +990,20 @@ impl Process {
 }
 
 fn validate_resources(
-	isolation: &Isolation,
+	backend: &Backend,
 	cpu: Option<tg::sandbox::Cpu>,
 	memory: Option<tg::sandbox::Resource<u64>>,
 ) -> tg::Result<()> {
 	if let Some(cpu) = cpu {
 		cpu.total()?;
 	}
-	if matches!(isolation, Isolation::Vm(_)) {
+	if matches!(backend, Backend::CloudHypervisor(_)) {
 		validate_vm_resources(cpu, memory)?;
 	}
 	if memory.is_some_and(|memory| memory.max == 0) {
 		return Err(tg::error!("sandbox memory must be greater than zero"));
 	}
-	if matches!(isolation, Isolation::Seatbelt(_)) && (cpu.is_some() || memory.is_some()) {
+	if matches!(backend, Backend::Seatbelt) && (cpu.is_some() || memory.is_some()) {
 		return Err(tg::error!(
 			"sandbox cpu and memory are not supported with seatbelt isolation"
 		));
@@ -996,21 +1026,17 @@ fn validate_vm_resources(
 }
 
 fn validate_options(arg: &Arg) -> tg::Result<()> {
-	if let Isolation::Container(container) = &arg.isolation
-		&& container.max_open_files == Some(0)
-	{
+	if arg.resources.max_open_files == Some(0) {
 		return Err(tg::error!(
 			"the maximum number of container sandbox open files must be greater than zero"
 		));
 	}
-	if let Isolation::Container(container) = &arg.isolation
-		&& container.max_pids == Some(0)
-	{
+	if arg.resources.max_pids == Some(0) {
 		return Err(tg::error!(
 			"the maximum number of container sandbox pids must be greater than zero"
 		));
 	}
-	if matches!(arg.isolation, Isolation::Seatbelt(_)) && arg.hostname.is_some() {
+	if matches!(arg.backend, Backend::Seatbelt) && arg.hostname.is_some() {
 		return Err(tg::error!(
 			"setting a hostname is not supported with seatbelt isolation"
 		));

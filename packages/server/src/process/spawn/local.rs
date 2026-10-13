@@ -430,7 +430,7 @@ impl Session {
 				sandbox_arg.host = Some(host.to_owned());
 				sandbox_arg.location.clone_from(&arg.location);
 				sandbox_arg.owner.clone_from(&owner);
-				let isolation = self.server.resolve_sandbox_isolation()?;
+				let isolation = self.server.resolve_sandbox_backend()?;
 				crate::Server::validate_sandbox_resources(
 					&isolation,
 					sandbox_arg.cpu,

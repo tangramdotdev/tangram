@@ -10,25 +10,31 @@ pub struct Args {
 	pub library_paths: Vec<PathBuf>,
 
 	#[arg(long)]
-	pub output_path: PathBuf,
+	pub output_path: Option<PathBuf>,
 
 	#[arg(long)]
-	pub url: tangram_uri::Uri,
+	pub tangram_path: Option<PathBuf>,
 
 	#[arg(long)]
-	pub tangram_path: PathBuf,
+	pub url: Option<tangram_uri::Uri>,
 }
 
 impl Cli {
-	pub fn command_sandbox_container_init(args: Args) -> tg::Result<std::process::ExitCode> {
+	pub fn command_sandbox_linux_init(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = tangram_sandbox::init::linux::Arg {
 			serve: tangram_sandbox::serve::Arg {
 				http2: args.http2.config(),
 				library_paths: args.library_paths,
 				listen: false,
-				output_path: args.output_path,
-				tangram_path: args.tangram_path,
-				url: args.url,
+				output_path: args
+					.output_path
+					.ok_or_else(|| tg::error!("the sandbox output path is required"))?,
+				tangram_path: args
+					.tangram_path
+					.ok_or_else(|| tg::error!("the tangram executable path is required"))?,
+				url: args
+					.url
+					.ok_or_else(|| tg::error!("the sandbox URL is required"))?,
 			},
 		};
 		tangram_sandbox::init::linux::run(&arg)

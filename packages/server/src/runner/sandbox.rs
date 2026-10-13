@@ -666,10 +666,14 @@ impl Session {
 		mut arg: tg::sandbox::create::Arg,
 		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
-		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
-		let mut isolation = self.server.resolve_sandbox_isolation()?;
-		if matches!(&isolation, tangram_sandbox::Isolation::Container(_))
-			&& self.server.config().runner.isolation.container.harden
+		let isolation = self.server.resolve_sandbox_backend()?;
+		let mut resources = self.server.sandbox_resources();
+		if matches!(
+			&isolation,
+			tangram_sandbox::Backend::Builtin
+				| tangram_sandbox::Backend::Bubblewrap { .. }
+				| tangram_sandbox::Backend::Gvisor { .. }
+		) && self.server.config().runner.resources.harden
 		{
 			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
 				return Err(tg::error!(
@@ -692,17 +696,17 @@ impl Session {
 			.get_or_insert(self.server.config.scheduler.default_cpu.into());
 
 		#[cfg(target_os = "linux")]
-		self.ensure_vm_isolation(&isolation).await?;
+		self.ensure_cloud_hypervisor_assets(&isolation).await?;
 
-		let rootfs_path = match &isolation {
-			tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Vm(_) => {
-				self.server.sandbox_assets.root.clone()
-			},
-			tangram_sandbox::Isolation::Seatbelt(_) => self.server.sandbox_assets.root.clone(),
-		};
+		let rootfs_path = self.server.sandbox_assets.root.clone();
 
 		#[cfg(target_os = "linux")]
-		if matches!(isolation, tangram_sandbox::Isolation::Container(_)) {
+		if matches!(
+			isolation,
+			tangram_sandbox::Backend::Builtin
+				| tangram_sandbox::Backend::Bubblewrap { .. }
+				| tangram_sandbox::Backend::Gvisor { .. }
+		) {
 			arg.memory
 				.get_or_insert(self.server.config.scheduler.default_memory.into());
 			if let Some(storage) = self.server.config.scheduler.default_storage {
@@ -716,8 +720,7 @@ impl Session {
 			.server
 			.config
 			.runner
-			.isolation
-			.container
+			.resources
 			.storage_limits()
 		{
 			arg.storage = None;
@@ -726,21 +729,22 @@ impl Session {
 		// Apply the sandbox storage maximum.
 		if let Some(storage) = arg.storage {
 			storage.validate()?;
-			let tangram_sandbox::Isolation::Container(container) = &mut isolation else {
+			if !isolation.is_linux() {
 				return Err(tg::error!("storage bounds require container isolation"));
-			};
-			container.max_filesystem_size = Some(storage.max);
+			}
+			resources.max_filesystem_size = Some(storage.max);
 		}
 
 		// Allocate the filesystem project ID.
 		#[cfg(target_os = "linux")]
-		let filesystem_project_id = match &mut isolation {
-			tangram_sandbox::Isolation::Container(container)
-				if container.max_filesystem_inodes.is_some()
-					|| container.max_filesystem_size.is_some() =>
+		let filesystem_project_id = match &isolation {
+			backend
+				if backend.is_linux()
+					&& (resources.max_filesystem_inodes.is_some()
+						|| resources.max_filesystem_size.is_some()) =>
 			{
 				let project_id = self.server.runner.state.create_filesystem_project_id()?;
-				container.filesystem_project_id = Some(project_id.value());
+				resources.filesystem_project_id = Some(project_id.value());
 				Some(project_id)
 			},
 			_ => None,
@@ -763,7 +767,7 @@ impl Session {
 		// Start an unbound per-sandbox VFS that denies access until its principal is set.
 		#[cfg(target_os = "linux")]
 		let (vfs, vfs_task, vfs_mount, fuse_sendfd) = match &isolation {
-			tangram_sandbox::Isolation::Vm(vm) => {
+			tangram_sandbox::Backend::CloudHypervisor(vm) => {
 				let socket = temp.path().join("vfs.sock");
 				let vfs = crate::vfs::Server::start_virtiofs(
 					&self.server,
@@ -776,7 +780,9 @@ impl Session {
 				.map_err(|error| tg::error!(!error, %index, "failed to start the store VFS"))?;
 				(Some(vfs), None, None, None)
 			},
-			tangram_sandbox::Isolation::Container(_)
+			tangram_sandbox::Backend::Builtin
+			| tangram_sandbox::Backend::Bubblewrap { .. }
+			| tangram_sandbox::Backend::Gvisor { .. }
 				if self.server.checkouts_enabled() && self.server.config.vfs.is_some() =>
 			{
 				let mount_path = temp.path().join("store");
@@ -823,16 +829,12 @@ impl Session {
 		};
 
 		// Create the listener.
-		let listener_port = self
-			.server
-			.config
-			.sandbox
-			.isolation
-			.vm
-			.as_ref()
-			.map(|vm| vm.listener_port);
+		let listener_port = match &self.server.config.runner.backend {
+			crate::config::RunnerBackend::CloudHypervisor(config) => Some(config.listener_port),
+			_ => None,
+		};
 		let (listener, guest_url, tangram_socket_path) =
-			Server::run_create_listener(temp.path(), &isolation, listener_port)
+			Server::run_create_listener(temp.path(), &isolation, &resources, listener_port)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %index, "failed to create the sandbox listener"),
@@ -890,7 +892,8 @@ impl Session {
 			index,
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
-			isolation,
+			backend: isolation,
+			resources,
 			memory: arg.memory,
 			memory_sampling_interval: self.server.config.runner.memory_sampling_interval,
 			mounts,

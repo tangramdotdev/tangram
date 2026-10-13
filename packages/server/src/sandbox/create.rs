@@ -60,7 +60,7 @@ impl Session {
 			.or_else(|| (!matches!(creator, tg::Principal::Root)).then(|| creator.clone()));
 		arg.owner.clone_from(&owner);
 		self.verify_billing(owner.as_ref()).await?;
-		let isolation = self.server.resolve_sandbox_isolation()?;
+		let isolation = self.server.resolve_sandbox_backend()?;
 		Server::validate_sandbox_resources(
 			&isolation,
 			arg.cpu,

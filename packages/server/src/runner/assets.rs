@@ -17,7 +17,10 @@ impl Assets {
 		// Prepare the shared root before warming any instances.
 		#[cfg(target_os = "linux")]
 		let (root, image, snapshot) = {
-			let vm = config.sandbox.isolation.vm.is_some();
+			let vm = matches!(
+				config.runner.backend,
+				crate::config::RunnerBackend::CloudHypervisor(_)
+			);
 			let root = path.join("container/root");
 			let arg = tangram_sandbox::root::Arg {
 				build_attempts: config.sandbox.build_attempts,
@@ -26,15 +29,19 @@ impl Assets {
 				vm,
 			};
 			tangram_sandbox::root::create(&arg)?;
-			let (image, snapshot) = if let Some(backend) = &config.sandbox.isolation.vm {
-				let image = path.join("vm/image.squashfs");
-				let snapshot = backend
-					.snapshot
-					.clone()
-					.unwrap_or_else(|| path.join("vm/snapshot"));
-				(Some(image), Some(snapshot))
-			} else {
-				(None, None)
+			let (image, snapshot) = match &config.runner.backend {
+				crate::config::RunnerBackend::CloudHypervisor(backend) => {
+					let image = path.join("vm/image.squashfs");
+					let snapshot = backend
+						.snapshot
+						.clone()
+						.unwrap_or_else(|| path.join("vm/snapshot"));
+					(Some(image), Some(snapshot))
+				},
+				crate::config::RunnerBackend::Builtin
+				| crate::config::RunnerBackend::Bubblewrap { .. }
+				| crate::config::RunnerBackend::Gvisor { .. }
+				| crate::config::RunnerBackend::Seatbelt => (None, None),
 			};
 			(root, image, snapshot)
 		};

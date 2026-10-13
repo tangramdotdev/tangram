@@ -45,9 +45,7 @@ pub(crate) async fn spawn(
 	network: Option<&mut crate::network::Network>,
 	cgroup: &crate::cgroup::Cgroup,
 ) -> tg::Result<Output> {
-	let crate::Isolation::Container(isolation) = &arg.isolation else {
-		unreachable!()
-	};
+	let isolation = &arg.resources;
 	let network_arg = match network.as_deref() {
 		None => None,
 		Some(crate::network::Network::Host) => Some("host".to_owned()),
@@ -142,7 +140,25 @@ pub(crate) async fn spawn(
 		serve: serve_arg.clone(),
 	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
-	command.arg("sandbox").arg("container").arg("run");
+	command
+		.arg("sandbox")
+		.arg("run")
+		.arg("--backend")
+		.arg(arg.backend.kind().to_string());
+	match &arg.backend {
+		crate::Backend::Bubblewrap { path } => {
+			command.arg("--runtime-path").arg(path);
+		},
+		crate::Backend::Gvisor { path, platform } => {
+			command
+				.arg("--runtime-path")
+				.arg(path)
+				.arg("--platform")
+				.arg(platform.to_string());
+		},
+		crate::Backend::Builtin | crate::Backend::CloudHypervisor(_) | crate::Backend::Seatbelt => {
+		},
+	}
 	command
 		.arg("--index")
 		.arg(arg.index.to_string())
@@ -314,8 +330,9 @@ pub(crate) async fn spawn(
 			&arg.tangram_path,
 		))
 		.arg("sandbox")
-		.arg("container")
 		.arg("init")
+		.arg("--backend")
+		.arg(arg.backend.kind().to_string())
 		.arg("--output-path")
 		.arg(&init_arg.serve.output_path)
 		.arg("--url")
@@ -444,7 +461,7 @@ fn prepare_sandbox_directory(
 }
 
 fn prepare_user_namespace(
-	isolation: &crate::ContainerIsolation,
+	isolation: &crate::Resources,
 	user: &User,
 ) -> tg::Result<Option<(UnixStream, UnixStream, crate::IdMap, crate::IdMap)>> {
 	let (Some(uid_map), Some(gid_map)) = (&isolation.uid_map, &isolation.gid_map) else {
