@@ -1,8 +1,9 @@
 use {super::super::Index, futures::future, std::time::Duration, tangram_client::prelude::*};
 
-#[tokio::test(flavor = "multi_thread")]
+// Run the stress regression with four workers; its deadline depends on available CPU and database latency.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
-async fn concurrent_verifications_complete_within_the_transaction_lifetime() {
+async fn concurrent_verifications_complete_before_the_deadline() {
 	let options = crate::Options {
 		cleaning_partition_total: 1,
 		cluster: std::env::var_os("FDB_CLUSTER_FILE")
@@ -62,21 +63,29 @@ async fn concurrent_verifications_complete_within_the_transaction_lifetime() {
 		let config = tangram_index::verify::Config::default();
 		let principal = tg::Principal::User(tg::user::Id::new());
 
-		// Verify concurrent copies of the request, whose combined verification work exceeds the transaction lifetime when it runs on one thread.
+		// Verify concurrent copies of the request before the deadline, allowing transaction retries.
 		let count = 64;
 		let deadline = Duration::from_secs(30);
 		let outputs = future::join_all((0..count).map(|_| {
 			tokio::time::timeout(deadline, index.verify_batch(&args, config, &principal))
 		}))
 		.await;
-		let completed = outputs
-			.iter()
-			.filter(|output| matches!(output, Ok(Ok(_))))
-			.count();
-		assert_eq!(
-			completed, count,
-			"the concurrent verifications did not complete before the deadline"
+
+		// Check that each verification denies the subtree permission and preserves the node permission.
+		let permissions = tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::NODE,
 		);
+		for output in outputs {
+			let output = output
+				.expect("the verification exceeded the deadline")
+				.expect("the verification returned an error");
+			assert_eq!(output.len(), 1);
+			assert_eq!(
+				output[0].outcome,
+				tangram_index::verify::Outcome::Unsatisfied
+			);
+			assert_eq!(output[0].permissions, permissions);
+		}
 	})
 	.await;
 }

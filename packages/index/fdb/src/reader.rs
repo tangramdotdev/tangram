@@ -108,7 +108,7 @@ impl Index {
 			tracing::debug!(request_count, "starting an index read transaction");
 			let verification_fact_cache = tangram_index::verify::facts::Cache::new();
 			let (retry_error, mut retry_requests) = {
-				// Execute each pending request on its own task, so that the requests run in parallel.
+				// Execute each pending request on its own task, so that verification can use multiple runtime workers.
 				let request_count = requests.len();
 				let mut tasks = JoinSet::new();
 				for (request, sender) in requests {
