@@ -1538,6 +1538,13 @@ def test_expiration(messenger):
     assert peer.response("fresh")[0] is not None
 
 
+def without_expiration(response):
+    # Each response carries a freshly signed authorization body, so compare responses without its expiration.
+    error, output = response[0], response[3]
+    bodies = [{key: value for key, value in body.items() if key != 0} for body in output.value.value[2]]
+    return error, output.id, output.value.id, output.value.value[0], output.value.value[1], bodies
+
+
 def test_failed_transfer(messenger):
     id = source_blob("stored")
     filler = source_blob("filler")
@@ -1564,12 +1571,12 @@ def test_failed_transfer(messenger):
     sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(missing), 1: b"\xff"}))))
     failure = peer.response("missing")
     assert failure[0] is not None and failure[3] is None, failure
-    assert peer.response("stored") == stored
+    assert without_expiration(peer.response("stored")) == without_expiration(stored)
     peer.acknowledge(stored)
     peer.acknowledge(failure)
     peer.send("late", id, attempt)
     late = peer.response("late")
-    assert late[0] is None and late[3] == stored[3], late
+    assert late[0] is None and without_expiration(late) == without_expiration(stored), late
     peer.acknowledge(late)
     sync.close()
 
