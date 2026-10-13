@@ -119,7 +119,6 @@ mod tests {
 				creator: Some(tg::Principal::User(user.clone())),
 				hostname: Some("host".into()),
 				id: sandbox.clone(),
-				isolation: Some(tg::sandbox::Isolation::Container),
 				memory: Some(1024.into()),
 				mounts: Vec::new(),
 				network: Some(tg::sandbox::Network::Bridge(tg::sandbox::Bridge {

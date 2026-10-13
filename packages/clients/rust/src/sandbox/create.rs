@@ -15,6 +15,7 @@ use {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
@@ -27,10 +28,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
-	pub isolation: Option<tg::sandbox::Isolation>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]

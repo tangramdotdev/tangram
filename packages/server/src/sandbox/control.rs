@@ -449,7 +449,6 @@ impl Session {
 				creator: data.creator,
 				hostname: data.arg.hostname,
 				id: id.clone(),
-				isolation: data.arg.isolation,
 				memory: data.arg.memory,
 				mounts: data.arg.mounts,
 				network: data.arg.network,

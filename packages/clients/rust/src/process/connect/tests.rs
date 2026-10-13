@@ -336,7 +336,6 @@ fn spawn_metadata_uses_native_types() {
 			"cpu": {"max": 2, "min": 0},
 			"host": "aarch64-darwin",
 			"hostname": "test",
-			"isolation": {"kind": "seatbelt"},
 			"location": "local",
 			"memory": 1_048_576,
 			"network": {"kind": "host"},

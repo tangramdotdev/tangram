@@ -30,10 +30,6 @@ pub struct Data {
 	pub id: tg::sandbox::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
-	pub isolation: Option<tg::sandbox::Isolation>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<tg::sandbox::Resource<u64>>,
 

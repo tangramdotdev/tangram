@@ -1072,12 +1072,6 @@ let normalizeSandbox = (
 		if (sandbox.hostname !== undefined) {
 			output.hostname = sandbox.hostname;
 		}
-		if (sandbox.isolation !== undefined) {
-			output.isolation =
-				sandbox.isolation === null
-					? null
-					: tg.Sandbox.Isolation.toData(sandbox.isolation);
-		}
 		if (sandbox.location !== undefined) {
 			output.location =
 				sandbox.location === null

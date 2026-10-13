@@ -47,12 +47,6 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn isolation(mut self, isolation: impl Into<Option<tg::sandbox::Isolation>>) -> Self {
-		self.arg.isolation = isolation.into();
-		self
-	}
-
-	#[must_use]
 	pub fn location(mut self, location: impl Into<Option<tg::location::Arg>>) -> Self {
 		self.arg.location = location.into();
 		self

@@ -667,78 +667,7 @@ impl Session {
 		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
 		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
-		let mut isolation = match &arg.isolation {
-			Some(tg::sandbox::Isolation::Container) => {
-				self.server
-					.config()
-					.sandbox
-					.isolation
-					.container
-					.as_ref()
-					.ok_or_else(|| tg::error!("container isolation is not configured"))?;
-				let container = &self.server.config().runner.isolation.container;
-				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {
-					cgroup_readonly: container.harden,
-					filesystem_project_id: None,
-					gid_map: container.gid_map.as_ref().map(Into::into),
-					max_duration: container.max_duration(),
-					max_filesystem_inodes: container.max_filesystem_inodes(),
-					max_filesystem_size: container.max_filesystem_size(),
-					max_open_files: container.max_open_files(),
-					max_pids: container.max_pids(),
-					memory_swap: container.memory_swap(),
-					seccomp: container.seccomp(),
-					uid_map: container.uid_map.as_ref().map(Into::into),
-				})
-			},
-			Some(tg::sandbox::Isolation::Seatbelt) => {
-				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
-			},
-			Some(tg::sandbox::Isolation::Vm) => {
-				#[cfg(target_os = "linux")]
-				{
-					let vm = self
-						.server
-						.config()
-						.sandbox
-						.isolation
-						.vm
-						.as_ref()
-						.ok_or_else(|| tg::error!("missing vm configuration"))?;
-					let kernel_path = vm.kernel_path.clone();
-					let image_path = self.server.sandbox_vm_image.clone().ok_or_else(|| {
-						tg::error!(
-							"vm isolation requested but no image path was configured; check the server config"
-						)
-					})?;
-					let snapshot = Some(
-						vm.snapshot
-							.clone()
-							.unwrap_or_else(|| self.server.vm_snapshot_path()),
-					);
-					tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
-						cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
-						dax: vm.dax.map(|dax| dax.window_size as u64),
-						image_path,
-						kernel_path,
-						max_cpu: vm.max_cpu,
-						max_memory: vm.max_memory,
-						network_interface_timeout: vm.network_interface_timeout,
-						ready_timeout: vm.ready_timeout,
-						serial_connect_interval: vm.serial_connect_interval,
-						serial_connect_timeout: vm.serial_connect_timeout,
-						snapshot,
-						snapshot_cpu: vm.snapshot_cpu,
-						snapshot_memory: vm.snapshot_memory,
-					})
-				}
-				#[cfg(target_os = "macos")]
-				{
-					return Err(tg::error!("vm isolation is not supported on macos"));
-				}
-			},
-			None => self.server.resolve_sandbox_isolation()?,
-		};
+		let mut isolation = self.server.resolve_sandbox_isolation()?;
 		if matches!(&isolation, tangram_sandbox::Isolation::Container(_))
 			&& self.server.config().runner.isolation.container.harden
 		{

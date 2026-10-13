@@ -54,7 +54,6 @@ impl Cli {
 			.cpu(cpu)
 			.host(args.host)
 			.hostname(args.arg.hostname)
-			.isolation(args.arg.isolation)
 			.location(args.location.get())
 			.memory(crate::sandbox::resource(
 				args.arg.memory_min,

@@ -941,7 +941,6 @@ impl Cli {
 					tg::process::SandboxCreateArg {
 						cpu: crate::sandbox::cpu(&options.sandbox.arg),
 						hostname: options.sandbox.arg.hostname.clone(),
-						isolation: options.sandbox.arg.isolation,
 						location: None,
 						memory: crate::sandbox::resource(
 							options.sandbox.arg.memory_min,

@@ -153,7 +153,6 @@ export namespace Sandbox {
 		cpu?: tg.Sandbox.Cpu | null;
 		host?: string | null;
 		hostname?: string | null;
-		isolation?: tg.Sandbox.Isolation.Data | null;
 		location?: string | null;
 		memory?: number | tg.Sandbox.Resource | null;
 		storage?: number | tg.Sandbox.Resource | null;
@@ -169,7 +168,6 @@ export namespace Sandbox {
 		creator?: string | null;
 		hostname?: string | null;
 		id: tg.Sandbox.Id;
-		isolation?: tg.Sandbox.Isolation.Data | null;
 		memory?: number | tg.Sandbox.Resource | null;
 		storage?: number | tg.Sandbox.Resource | null;
 		swap?: number | tg.Sandbox.Resource | null;
@@ -256,7 +254,6 @@ export namespace Sandbox {
 		cpu?: number | tg.Sandbox.Cpu | null;
 		host?: string | null;
 		hostname?: string | null;
-		isolation?: tg.Sandbox.Isolation | null;
 		location?: tg.Location.Arg | null;
 		memory?: number | tg.Sandbox.Resource | null;
 		storage?: number | tg.Sandbox.Resource | null;
@@ -279,12 +276,6 @@ export namespace Sandbox {
 			}
 			if (arg.hostname !== undefined) {
 				output.hostname = arg.hostname;
-			}
-			if (arg.isolation !== undefined) {
-				output.isolation =
-					arg.isolation === null
-						? null
-						: tg.Sandbox.Isolation.toData(arg.isolation);
 			}
 			if (arg.location !== undefined) {
 				output.location =
@@ -340,13 +331,6 @@ export namespace Sandbox {
 
 		hostname(hostname: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ hostname });
-			return this;
-		}
-
-		isolation(
-			isolation: tg.Unresolved<tg.MaybeMutation<tg.Sandbox.Isolation> | null>,
-		): this {
-			this.#args.push({ isolation });
 			return this;
 		}
 
@@ -501,24 +485,6 @@ export namespace Sandbox {
 	export namespace Destroy {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
-		};
-	}
-
-	export type Isolation = "container" | "seatbelt" | "vm";
-
-	export namespace Isolation {
-		export type Data = { kind: tg.Sandbox.Isolation };
-
-		export let toData = (
-			value: tg.Sandbox.Isolation,
-		): tg.Sandbox.Isolation.Data => {
-			return { kind: value };
-		};
-
-		export let fromData = (
-			data: tg.Sandbox.Isolation.Data,
-		): tg.Sandbox.Isolation => {
-			return data.kind;
 		};
 	}
 

@@ -266,7 +266,6 @@ fn sandbox_data(
 			creator: Some(owner.clone()),
 			hostname: None,
 			id,
-			isolation: None,
 			memory: Some((1 << 30).into()),
 			mounts: Vec::new(),
 			network: None,

@@ -85,7 +85,6 @@ fn sandbox_arg(
 			creator: None,
 			hostname: None,
 			id: id.clone(),
-			isolation: None,
 			memory: None,
 			mounts: Vec::new(),
 			network: None,

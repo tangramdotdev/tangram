@@ -54,9 +54,6 @@ pub struct Options {
 	#[arg(id = "sandbox.hostname", long = "hostname")]
 	pub hostname: Option<String>,
 
-	#[arg(id = "sandbox.isolation", long = "isolation")]
-	pub isolation: Option<tg::sandbox::Isolation>,
-
 	#[arg(alias = "memory-max", id = "sandbox.memory", long = "memory", value_parser = parse_bytes)]
 	pub memory: Option<u64>,
 
@@ -204,7 +201,6 @@ impl Options {
 	pub fn is_empty(&self) -> bool {
 		self.cpu.is_none()
 			&& self.hostname.is_none()
-			&& self.isolation.is_none()
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.get().is_none()

@@ -113,7 +113,6 @@ impl State {
 			creator: self.data.creator.clone(),
 			hostname: arg.hostname.clone(),
 			id,
-			isolation: arg.isolation,
 			memory: arg.memory,
 			mounts: arg.mounts.clone(),
 			network: arg.network.clone(),

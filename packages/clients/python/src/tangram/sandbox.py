@@ -28,7 +28,6 @@ from .location import ArgObject, LocationObject
 from .mutation import Mutation
 from .resolve import Unresolved, capture
 
-type IsolationValue = Literal["container", "seatbelt", "vm"]
 type NetworkKind = Literal["default", "host", "bridge"]
 
 
@@ -63,7 +62,6 @@ class SandboxArg(TypedDict, total=False):
     cpu: Unresolved[int | float | Cpu | Mutation | None]
     host: Unresolved[str | Mutation | None]
     hostname: Unresolved[str | Mutation | None]
-    isolation: Unresolved[IsolationValue | Mutation | None]
     location: Unresolved[str | ArgObject | None]
     memory: Unresolved[int | float | Resource | Mutation | None]
     storage: Unresolved[int | float | Resource | Mutation | None]
@@ -98,7 +96,6 @@ class SandboxData(TypedDict, total=False):
     cpu: Cpu | None
     creator: str | None
     hostname: str | None
-    isolation: dict[str, IsolationValue] | None
     memory: Resource | None
     storage: Resource | None
     swap: Resource | None
@@ -133,7 +130,6 @@ class Sandbox:
     Destroy: ClassVar[type[Destroy]]
     Get: ClassVar[type[Get]]
     Id: ClassVar[type[Id]]
-    Isolation: ClassVar[type[Isolation]]
     Mount: ClassVar[type[Mount]]
     Network: ClassVar[type[Network]]
     Port: ClassVar[type[Port]]
@@ -277,9 +273,6 @@ class Builder:
     def hostname(self, value: Unresolved[str | Mutation | None]) -> Self:
         return self._push("hostname", value)
 
-    def isolation(self, value: Unresolved[IsolationValue | Mutation | None]) -> Self:
-        return self._push("isolation", value)
-
     def location(self, value: Unresolved[str | ArgObject | Mutation | None]) -> Self:
         return self._push("location", value)
 
@@ -399,9 +392,6 @@ def arg_to_data(arg):
         )
         if key in arg
     }
-    if "isolation" in arg:
-        value = arg["isolation"]
-        output["isolation"] = None if value is None else Isolation.to_data(value)
     if "location" in arg:
         output["location"] = _location_data(arg["location"])
     if arg.get("mounts") is not None:
@@ -474,18 +464,6 @@ class Destroy:
     Arg = dict
 
 
-class Isolation:
-    Data = dict
-
-    @staticmethod
-    def to_data(value):
-        return {"kind": value}
-
-    @staticmethod
-    def from_data(data):
-        return data["kind"]
-
-
 class Network:
     Bridge = dict
     Data = dict
@@ -518,7 +496,6 @@ Sandbox.Create = Create
 Sandbox.Destroy = Destroy
 Sandbox.Get = Get
 Sandbox.Id = Id
-Sandbox.Isolation = Isolation
 Sandbox.Network = Network
 
 
