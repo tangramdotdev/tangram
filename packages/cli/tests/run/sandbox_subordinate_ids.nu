@@ -5,8 +5,8 @@ use ../lib/test.nu *
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
-if not (container_id_mapped_mount_supported) {
-	skip_test 'this test requires ID-mapped mount support from the backing filesystem'
+if ($env.TANGRAM_TEST_ID_MAPPED_MOUNTS? | default '') != '1' {
+	skip_test 'set TANGRAM_TEST_ID_MAPPED_MOUNTS=1 with CAP_SYS_ADMIN on tangram and an ID-mapped backing filesystem'
 }
 
 let maps = container_id_maps
@@ -14,6 +14,7 @@ let local = server spawn --busybox --config {
 	runner: {
 		backend: ({ kind: builtin } | merge $maps),
 	},
+	tracing: { stderr_format: 'json' },
 }
 
 let script = 'while IFS= read -r line; do echo "$line"; done < /proc/self/uid_map; while IFS= read -r line; do echo "$line"; done < /proc/self/gid_map'
@@ -60,3 +61,6 @@ for network in ['false' 'true'] {
 	assert equal (open --raw ($path | path join nested link)) 'private'
 	assert equal (^stat -c %a ($path | path join nested file) | str trim) '555'
 }
+
+# Sandbox teardown must remove private and read-only files without leaving errors.
+assert equal (server_errors $local) []

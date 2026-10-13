@@ -9,12 +9,9 @@ use {
 	},
 	std::{
 		ffi::CString,
-		io::{IoSlice, IoSliceMut, Read as _},
+		io::{IoSlice, IoSliceMut},
 		mem::MaybeUninit,
-		os::{
-			fd::{AsRawFd as _, FromRawFd as _},
-			unix::net::UnixStream,
-		},
+		os::fd::{AsRawFd as _, FromRawFd as _},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -28,10 +25,10 @@ const EXT4_SUPER_MAGIC: libc::c_long = 0xef53;
 const MOUNT_ATTR_IDMAP: u64 = 0x0010_0000;
 const XFS_SUPER_MAGIC: libc::c_long = 0x5846_5342;
 
-/// A detached view of a disk-backed directory shared by the runner and its sandbox launcher.
+/// The runner's detached view of the writable sandbox filesystem.
 ///
-/// Keeping the filesystem detached avoids modifying the host mount namespace. The mount remains
-/// alive only while either process holds its descriptor, so an abrupt runner exit cannot leak a mount.
+/// The launcher attaches its mapped view only inside the private sandbox mount namespace.
+/// The mounts disappear when their descriptors and the sandbox namespace are dropped.
 /// Overlay upper/work, the output directory, and /tmp all reside on this filesystem and share its
 /// byte and inode limits.
 pub struct Filesystem {
@@ -102,116 +99,9 @@ pub fn open(path: &Path) -> tg::Result<OwnedFd> {
 	Ok(mount)
 }
 
-/// Create a mapping from the workload IDs to the runner's host identity.
-pub fn host_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<OwnedFd> {
-	// The setup identity remains mapped to the runner in the parent user namespace.
-	// SAFETY: These functions have no preconditions.
-	let setup_uid = unsafe { libc::geteuid() };
-	let setup_gid = unsafe { libc::getegid() };
-
-	// Create the namespace synchronization socket.
-	let (mut host, guest) = UnixStream::pair()
-		.map_err(|error| tg::error!(!error, "failed to create the host mapping socket pair"))?;
-
-	// Fork the host namespace helper.
-	// SAFETY: The child only invokes async-signal-safe operations before exiting.
-	let pid = unsafe { libc::fork() };
-	if pid < 0 {
-		return Err(tg::error!(
-			source = std::io::Error::last_os_error(),
-			"failed to fork the host mapping process"
-		));
-	}
-	if pid == 0 {
-		// SAFETY: The sockets are live, the buffer is valid, and the child exits without running destructors.
-		unsafe {
-			libc::close(host.as_raw_fd());
-			let mut status = libc::unshare(libc::CLONE_NEWUSER);
-			if status < 0 {
-				status = std::io::Error::last_os_error()
-					.raw_os_error()
-					.unwrap_or(libc::EIO);
-			}
-			if libc::write(
-				guest.as_raw_fd(),
-				(&raw const status).cast(),
-				std::mem::size_of_val(&status),
-			) != std::mem::size_of_val(&status).cast_signed()
-			{
-				libc::_exit(1);
-			}
-			let mut byte = 0u8;
-			loop {
-				if libc::read(guest.as_raw_fd(), (&raw mut byte).cast(), 1) >= 0 {
-					break;
-				}
-				if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-					break;
-				}
-			}
-			libc::_exit(0);
-		}
-	}
-
-	// Receive the host namespace descriptor.
-	drop(guest);
-	let result = (|| {
-		let mut status = [0; std::mem::size_of::<libc::c_int>()];
-		host.read_exact(&mut status)
-			.map_err(|error| tg::error!(!error, "failed to wait for the host mapping namespace"))?;
-		let status = libc::c_int::from_ne_bytes(status);
-		if status != 0 {
-			return Err(tg::error!(
-				source = std::io::Error::from_raw_os_error(status),
-				"failed to create the host mapping namespace"
-			));
-		}
-		std::fs::write(
-			format!("/proc/{pid}/uid_map"),
-			format!("{uid} {setup_uid} 1\n"),
-		)
-		.map_err(|error| tg::error!(!error, "failed to write the host uid mapping"))?;
-		std::fs::write(
-			format!("/proc/{pid}/gid_map"),
-			format!("{gid} {setup_gid} 1\n"),
-		)
-		.map_err(|error| tg::error!(!error, "failed to write the host gid mapping"))?;
-		let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
-			.map_err(|error| tg::error!(!error, "failed to open the host mapping namespace"))?;
-		Ok(namespace.into())
-	})();
-
-	// Release and reap the helper even if configuring its mapping failed.
-	drop(host);
-	loop {
-		// SAFETY: The PID identifies our child and no wait status is requested.
-		if unsafe { libc::waitpid(pid, std::ptr::null_mut(), 0) } >= 0 {
-			break;
-		}
-		let error = std::io::Error::last_os_error();
-		if error.raw_os_error() != Some(libc::EINTR) {
-			return Err(tg::error!(
-				!error,
-				"failed to reap the host mapping process"
-			));
-		}
-	}
-
-	result
-}
-
-/// Return a detached host view without changing ownership in the workload's mount.
-pub fn host_mount(filesystem: &OwnedFd, namespace: &OwnedFd) -> tg::Result<OwnedFd> {
-	let flags = libc::OPEN_TREE_CLONE | libc::OPEN_TREE_CLOEXEC | libc::AT_EMPTY_PATH as u32;
-	let mount = syscall_fd(
-		libc::SYS_open_tree,
-		&[
-			raw_fd_arg(filesystem),
-			c"".as_ptr() as usize,
-			flags as usize,
-		],
-	)
-	.map_err(|error| tg::error!(!error, "failed to clone the sandbox filesystem mount"))?;
+/// Open a detached view of the runner-owned filesystem mapped into the workload user namespace.
+pub fn open_mapped(path: &Path, namespace: &OwnedFd) -> tg::Result<OwnedFd> {
+	let mount = open(path)?;
 	let attributes = [
 		MOUNT_ATTR_IDMAP,
 		0,
@@ -221,15 +111,30 @@ pub fn host_mount(filesystem: &OwnedFd, namespace: &OwnedFd) -> tg::Result<Owned
 	syscall(libc::SYS_mount_setattr, &[
 		raw_fd_arg(&mount), c"".as_ptr() as usize, libc::AT_EMPTY_PATH as usize,
 		attributes.as_ptr() as usize, std::mem::size_of_val(&attributes),
-	]).map_err(|error| tg::error!(!error, "failed to map the sandbox filesystem for the host; subordinate identities require ID-mapped mount support from the backing filesystem"))?;
+	]).map_err(|error| tg::error!(!error, "failed to map the sandbox filesystem for the workload; subordinate identities require ID-mapped mount support and CAP_SYS_ADMIN in the backing filesystem's user namespace"))?;
 
 	Ok(mount)
 }
 
+pub fn attach(fd: &OwnedFd, path: &Path) -> tg::Result<()> {
+	let path = CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+	syscall(
+		libc::SYS_move_mount,
+		&[
+			raw_fd_arg(fd),
+			c"".as_ptr() as usize,
+			usize::from_ne_bytes(isize::try_from(libc::AT_FDCWD).unwrap().to_ne_bytes()),
+			path.as_ptr() as usize,
+			libc::MOVE_MOUNT_F_EMPTY_PATH as usize,
+		],
+	)
+	.map_err(|error| tg::error!(!error, "failed to attach the workload filesystem mount"))?;
+	Ok(())
+}
+
 pub fn prepare(fd: &OwnedFd, uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
 	let root = path(fd);
-
-	// Keep every parent directory owned by the workload so the host mapping can also create and remove entries.
+	// Keep every parent directory accessible to both the workload and the runner.
 	for (name, mode) in [
 		("", 0o755),
 		("output", 0o755),
@@ -257,7 +162,7 @@ pub fn prepare(fd: &OwnedFd, uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<(
 	Ok(())
 }
 
-pub fn receive(fd: &OwnedFd) -> tg::Result<Filesystem> {
+pub fn receive(fd: &OwnedFd) -> tg::Result<OwnedFd> {
 	let mut byte = [0u8; 1];
 	let mut iovecs = [IoSliceMut::new(&mut byte)];
 	let mut space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
@@ -279,7 +184,7 @@ pub fn receive(fd: &OwnedFd) -> tg::Result<Filesystem> {
 	rustix::io::fcntl_setfd(&fd, FdFlags::CLOEXEC)
 		.map_err(|error| tg::error!(!error, "failed to configure the sandbox filesystem fd"))?;
 
-	Ok(Filesystem::new(fd))
+	Ok(fd)
 }
 
 pub fn send(socket: &OwnedFd, filesystem: &OwnedFd) -> tg::Result<()> {
