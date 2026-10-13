@@ -1,5 +1,5 @@
 use {
-	super::{ParentCandidates, object_resource, process_resource},
+	super::ParentCandidates,
 	crate::{
 		Config, Index, Key, Kind,
 		permission::{PermissionIndexEntry, PermissionSource},
@@ -157,7 +157,7 @@ async fn parents_for_subject_read_the_smaller_side() {
 			},
 			subject,
 			&[Kind::SubjectPermission],
-			process_resource,
+			|id| tg::process::Id::try_from(id).ok(),
 		)
 		.unwrap();
 		assert_eq!(matches!(candidates, ParentCandidates::Parents(_)), expected);
@@ -174,7 +174,7 @@ async fn parents_for_subject_read_the_smaller_side() {
 			},
 			subject,
 			&[Kind::SubjectPermission, Kind::DelegationSubject],
-			object_resource,
+			|id| tg::object::Id::try_from(id).ok(),
 		)
 		.unwrap();
 		assert_eq!(matches!(candidates, ParentCandidates::Parents(_)), expected);

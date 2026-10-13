@@ -2301,7 +2301,7 @@ impl Index {
 			},
 			subject,
 			&[KeyKind::SubjectPermission, KeyKind::DelegationSubject],
-			object_resource,
+			|id| tg::object::Id::try_from(id).ok(),
 		)?;
 
 		let mut output = BTreeSet::new();
@@ -2368,7 +2368,7 @@ impl Index {
 			},
 			subject,
 			&[KeyKind::SubjectPermission],
-			process_resource,
+			|id| tg::process::Id::try_from(id).ok(),
 		)?;
 
 		let mut output = BTreeSet::new();
@@ -2444,7 +2444,7 @@ impl Index {
 			},
 			subject,
 			&[KeyKind::SubjectPermission],
-			process_resource,
+			|id| tg::process::Id::try_from(id).ok(),
 		)?;
 
 		let mut output = BTreeSet::new();
@@ -2491,7 +2491,7 @@ impl Index {
 		parent: fn(crate::Key) -> tg::Result<T>,
 		subject: &tg::authorization::Subject,
 		kinds: &[KeyKind],
-		resource: fn(tg::Id) -> tg::Result<Option<T>>,
+		resource: fn(tg::Id) -> Option<T>,
 	) -> tg::Result<ParentCandidates<T>> {
 		let mut parents = db
 			.prefix_iter(transaction, prefix)
@@ -2529,7 +2529,7 @@ impl Index {
 			else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			subject_candidates.extend(resource(id)?);
+			subject_candidates.extend(resource(id));
 		};
 
 		Ok(candidates)
@@ -2730,30 +2730,6 @@ impl Index {
 		}
 		Ok(())
 	}
-}
-
-fn object_resource(resource: tg::Id) -> tg::Result<Option<tg::object::Id>> {
-	match resource.kind() {
-		tg::id::Kind::Blob
-		| tg::id::Kind::Command
-		| tg::id::Kind::Directory
-		| tg::id::Kind::Error
-		| tg::id::Kind::File
-		| tg::id::Kind::Graph
-		| tg::id::Kind::Symlink => {
-			let object = tg::object::Id::try_from(resource)?;
-			Ok(Some(object))
-		},
-		_ => Ok(None),
-	}
-}
-
-fn process_resource(resource: tg::Id) -> tg::Result<Option<tg::process::Id>> {
-	if resource.kind() != tg::id::Kind::Process {
-		return Ok(None);
-	}
-	let process = tg::process::Id::try_from(resource)?;
-	Ok(Some(process))
 }
 
 fn update_version_key_kind(kind: tangram_index::update::Kind) -> KeyKind {
