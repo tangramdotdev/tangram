@@ -28,6 +28,8 @@ mod response;
 mod runner;
 mod sandbox;
 mod tag;
+#[cfg(test)]
+mod tests;
 mod transaction;
 mod update;
 mod usage;
