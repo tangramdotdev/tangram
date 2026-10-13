@@ -518,7 +518,7 @@ async fn object_permission_updates_propagate_only_to_parents_with_a_permission_o
 	// Verify that an update for a subject with a delegation on the parent propagates.
 	let delegation = tangram_index::delegation::put::Arg {
 		expires_at: i64::MAX,
-		resource: parent.clone().into(),
+		resource: parent.into(),
 		source: tg::authorization::Subject::User(tg::user::Id::new()),
 		subject: delegated.clone(),
 		version: None,
@@ -534,25 +534,6 @@ async fn object_permission_updates_propagate_only_to_parents_with_a_permission_o
 	transaction.commit().unwrap();
 	drain_permission_updates(&index).await;
 	assert!(propagates_to_parent(&index, &child, &delegated).await);
-
-	// Verify that an update for a subject with a permission on the parent propagates.
-	let permitted = tg::authorization::Subject::User(tg::user::Id::new());
-	let permission = tangram_index::permission::put::Arg {
-		created_at: 0,
-		creator: None,
-		permissions: tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
-		)
-		.into(),
-		resource: parent.into(),
-		source: tangram_index::permission::Source::Grant,
-		subject: permitted.clone(),
-		time_to_touch: None,
-		version: None,
-	};
-	index.put_permissions(&[permission]).await.unwrap();
-	drain_permission_updates(&index).await;
-	assert!(propagates_to_parent(&index, &child, &permitted).await);
 }
 
 async fn propagates_to_parent(

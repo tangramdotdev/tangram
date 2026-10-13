@@ -3347,7 +3347,6 @@ impl Index {
 					}
 				}
 
-				// Enqueue only the parents on which the subject holds a permission or a delegation, because an update for any other object cannot change any of the subject's permissions.
 				let parents = match kind {
 					Kind::Permission(subject) => crate::propagate!(
 						Self::get_object_parents_for_subject_with_transaction(
@@ -3440,7 +3439,6 @@ impl Index {
 		object: &tg::object::Id,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<ControlFlow<BTreeSet<tg::object::Id>, fdb::FdbError>> {
-		// Read the candidates from the smaller of the object's parents and the objects on which the subject holds a permission or a delegation.
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -3468,7 +3466,6 @@ impl Index {
 			.await
 		);
 
-		// Keep the candidates that are on both sides.
 		let mut output = BTreeSet::new();
 		match candidates {
 			ParentCandidates::Parents(parents) => {

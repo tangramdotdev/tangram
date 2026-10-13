@@ -2184,7 +2184,6 @@ impl Index {
 					}
 				}
 
-				// Enqueue only the parents on which the subject holds a permission or a delegation, because an update for any other object cannot change any of the subject's permissions.
 				let parents = match kind {
 					Kind::Permission(subject) => {
 						Self::get_object_parents_for_subject_with_transaction(
