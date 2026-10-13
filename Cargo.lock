@@ -7468,7 +7468,7 @@ dependencies = [
 [[package]]
 name = "ruff_annotate_snippets"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/astral-sh/ruff?rev=3265ed1f944c98bb4c04d632fbefb1257cdb583d#3265ed1f944c98bb4c04d632fbefb1257cdb583d"
 dependencies = [
  "anstyle",
  "memchr",
@@ -7478,7 +7478,7 @@ dependencies = [
 [[package]]
 name = "ruff_annotate_snippets"
 version = "0.0.16"
-source = "git+https://github.com/astral-sh/ruff?rev=3265ed1f944c98bb4c04d632fbefb1257cdb583d#3265ed1f944c98bb4c04d632fbefb1257cdb583d"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "anstyle",
  "memchr",
@@ -7488,7 +7488,7 @@ dependencies = [
 [[package]]
 name = "ruff_cache"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/astral-sh/ruff?rev=3265ed1f944c98bb4c04d632fbefb1257cdb583d#3265ed1f944c98bb4c04d632fbefb1257cdb583d"
 dependencies = [
  "char_str",
  "filetime",
@@ -7502,7 +7502,7 @@ dependencies = [
 [[package]]
 name = "ruff_cache"
 version = "0.0.16"
-source = "git+https://github.com/astral-sh/ruff?rev=3265ed1f944c98bb4c04d632fbefb1257cdb583d#3265ed1f944c98bb4c04d632fbefb1257cdb583d"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "char_str",
  "filetime",
@@ -7511,45 +7511,6 @@ dependencies = [
  "itertools 0.15.0",
  "regex",
  "seahash",
-]
-
-[[package]]
-name = "ruff_db"
-version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
-dependencies = [
- "anstyle",
- "arc-swap",
- "camino",
- "compact_str 0.10.0",
- "dashmap",
- "dunce",
- "filetime",
- "get-size2",
- "matchit 0.9.2",
- "path-slash",
- "pathdiff",
- "ruff_annotate_snippets 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_cache 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_notebook 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_parser 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "rustc-hash 2.1.3",
- "salsa",
- "serde",
- "serde_json",
- "similar 3.2.0",
- "supports-hyperlinks",
- "thiserror 2.0.21",
- "tracing",
- "ty_static 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "web-time",
- "zip",
 ]
 
 [[package]]
@@ -7589,14 +7550,42 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruff_diagnostics"
+name = "ruff_db"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
+ "anstyle",
+ "arc-swap",
+ "camino",
+ "compact_str 0.10.0",
+ "dashmap",
+ "dunce",
+ "filetime",
  "get-size2",
- "is-macro",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "matchit 0.9.2",
+ "path-slash",
+ "pathdiff",
+ "ruff_annotate_snippets 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_cache 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_notebook 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "rustc-hash 2.1.3",
+ "salsa",
  "serde",
+ "serde_json",
+ "similar 3.2.0",
+ "supports-hyperlinks",
+ "thiserror 2.0.21",
+ "tracing",
+ "ty_static 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "web-time",
+ "zip",
 ]
 
 [[package]]
@@ -7607,6 +7596,17 @@ dependencies = [
  "get-size2",
  "is-macro",
  "ruff_text_size 0.0.16 (git+https://github.com/astral-sh/ruff?rev=3265ed1f944c98bb4c04d632fbefb1257cdb583d)",
+]
+
+[[package]]
+name = "ruff_diagnostics"
+version = "0.0.16"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+dependencies = [
+ "get-size2",
+ "is-macro",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "serde",
 ]
 
 [[package]]
@@ -7628,25 +7628,11 @@ dependencies = [
 [[package]]
 name = "ruff_index"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "get-size2",
- "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "salsa",
-]
-
-[[package]]
-name = "ruff_macros"
-version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
-dependencies = [
- "heck",
- "itertools 0.15.0",
- "proc-macro2",
- "quote",
- "regex",
- "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "syn 3.0.6",
 ]
 
 [[package]]
@@ -7664,11 +7650,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruff_memory_usage"
+name = "ruff_macros"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
- "get-size2",
+ "heck",
+ "itertools 0.15.0",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -7680,19 +7672,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruff_notebook"
+name = "ruff_memory_usage"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
- "anyhow",
- "rand 0.10.3",
- "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "uuid",
+ "get-size2",
 ]
 
 [[package]]
@@ -7712,33 +7696,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruff_options_metadata"
+name = "ruff_notebook"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+dependencies = [
+ "anyhow",
+ "rand 0.10.3",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
 
 [[package]]
-name = "ruff_python_ast"
+name = "ruff_options_metadata"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
-dependencies = [
- "aho-corasick",
- "arrayvec",
- "bitflags 2.13.2",
- "char_str",
- "compact_str 0.10.0",
- "get-size2",
- "is-macro",
- "memchr",
- "ruff_cache 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "rustc-hash 2.1.3",
- "salsa",
- "serde",
- "thin-vec",
- "thiserror 2.0.21",
-]
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 
 [[package]]
 name = "ruff_python_ast"
@@ -7764,25 +7740,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruff_python_ast"
+version = "0.0.16"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+dependencies = [
+ "aho-corasick",
+ "arrayvec",
+ "bitflags 2.13.2",
+ "char_str",
+ "compact_str 0.10.0",
+ "get-size2",
+ "is-macro",
+ "memchr",
+ "ruff_cache 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "rustc-hash 2.1.3",
+ "salsa",
+ "serde",
+ "thin-vec",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ruff_python_codegen"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_python_literal",
- "ruff_python_parser 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
 ]
 
 [[package]]
 name = "ruff_python_edits"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
 ]
 
 [[package]]
@@ -7817,49 +7817,26 @@ dependencies = [
 [[package]]
 name = "ruff_python_importer"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "anyhow",
- "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_python_codegen",
- "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
 ]
 
 [[package]]
 name = "ruff_python_literal"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "bitflags 2.13.2",
  "icu_properties",
  "itertools 0.15.0",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
-]
-
-[[package]]
-name = "ruff_python_parser"
-version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
-dependencies = [
- "bitflags 2.13.2",
- "bstr",
- "drop_bomb",
- "get-size2",
- "hashbrown 0.17.1",
- "memchr",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "rustc-hash 2.1.3",
- "stacker",
- "static_assertions",
- "thin-vec",
- "unicode-ident",
- "unicode-normalization",
- "unicode_names2",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
 ]
 
 [[package]]
@@ -7886,26 +7863,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruff_python_stdlib"
+name = "ruff_python_parser"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "bitflags 2.13.2",
+ "bstr",
+ "drop_bomb",
+ "get-size2",
+ "hashbrown 0.17.1",
+ "memchr",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "rustc-hash 2.1.3",
+ "stacker",
+ "static_assertions",
+ "thin-vec",
  "unicode-ident",
+ "unicode-normalization",
+ "unicode_names2",
 ]
 
 [[package]]
-name = "ruff_python_trivia"
+name = "ruff_python_stdlib"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
- "itertools 0.15.0",
- "memchr",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "rustc-hash 2.1.3",
+ "bitflags 2.13.2",
  "unicode-ident",
- "unicode-normalization",
 ]
 
 [[package]]
@@ -7923,27 +7909,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruff_ranged_value"
+name = "ruff_python_trivia"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
- "get-size2",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "serde",
- "toml",
+ "itertools 0.15.0",
+ "memchr",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "rustc-hash 2.1.3",
+ "unicode-ident",
+ "unicode-normalization",
 ]
 
 [[package]]
-name = "ruff_source_file"
+name = "ruff_ranged_value"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "get-size2",
- "memchr",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "serde",
+ "toml",
 ]
 
 [[package]]
@@ -7958,9 +7947,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruff_source_file"
+version = "0.0.16"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+dependencies = [
+ "get-size2",
+ "memchr",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "serde",
+]
+
+[[package]]
 name = "ruff_text_size"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/astral-sh/ruff?rev=3265ed1f944c98bb4c04d632fbefb1257cdb583d#3265ed1f944c98bb4c04d632fbefb1257cdb583d"
 dependencies = [
  "get-size2",
  "serde",
@@ -7969,7 +7969,7 @@ dependencies = [
 [[package]]
 name = "ruff_text_size"
 version = "0.0.16"
-source = "git+https://github.com/astral-sh/ruff?rev=3265ed1f944c98bb4c04d632fbefb1257cdb583d#3265ed1f944c98bb4c04d632fbefb1257cdb583d"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "get-size2",
  "serde",
@@ -9546,13 +9546,13 @@ dependencies = [
  "oxc_formatter",
  "oxc_formatter_core",
  "pep440_rs",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_notebook 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_notebook 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_python_ast 0.0.16 (git+https://github.com/astral-sh/ruff?rev=3265ed1f944c98bb4c04d632fbefb1257cdb583d)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_python_formatter",
  "ruff_python_parser 0.0.16 (git+https://github.com/astral-sh/ruff?rev=3265ed1f944c98bb4c04d632fbefb1257cdb583d)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "salsa",
  "scopeguard",
  "serde",
@@ -11408,18 +11408,18 @@ dependencies = [
 [[package]]
 name = "ty_combine"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "ordermap",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_ranged_value",
 ]
 
 [[package]]
 name = "ty_ide"
 version = "0.0.0"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "bitflags 2.13.2",
  "compact_str 0.10.0",
@@ -11428,16 +11428,16 @@ dependencies = [
  "itertools 0.15.0",
  "rayon",
  "regex",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_index",
- "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_python_literal",
  "ruff_python_stdlib",
- "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "rustc-hash 2.1.3",
  "salsa",
  "smallvec",
@@ -11455,7 +11455,7 @@ dependencies = [
 [[package]]
 name = "ty_module_resolver"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "anyhow",
  "camino",
@@ -11466,9 +11466,9 @@ dependencies = [
  "ordermap",
  "regex",
  "regex-syntax",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_python_stdlib",
  "rustc-hash 2.1.3",
  "salsa",
@@ -11481,7 +11481,7 @@ dependencies = [
 [[package]]
 name = "ty_project"
 version = "0.0.0"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -11499,14 +11499,14 @@ dependencies = [
  "rayon",
  "regex",
  "regex-automata",
- "ruff_cache 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_cache 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_options_metadata",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_ranged_value",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "rustc-hash 2.1.3",
  "salsa",
  "serde",
@@ -11521,14 +11521,14 @@ dependencies = [
  "ty_module_resolver",
  "ty_python_core",
  "ty_python_semantic",
- "ty_static 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ty_static 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ty_vendored",
 ]
 
 [[package]]
 name = "ty_python_core"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "bitflags 2.13.2",
  "bitvec",
@@ -11536,13 +11536,13 @@ dependencies = [
  "get-size2",
  "hashbrown 0.17.1",
  "itertools 0.15.0",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_index",
- "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_parser 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "rustc-hash 2.1.3",
  "salsa",
  "serde",
@@ -11559,7 +11559,7 @@ dependencies = [
 [[package]]
 name = "ty_python_semantic"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "bitflags 2.13.2",
  "char_str",
@@ -11571,21 +11571,21 @@ dependencies = [
  "memchr",
  "ordermap",
  "rayon",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_diagnostics 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_index",
- "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_memory_usage 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_python_codegen",
  "ruff_python_edits",
  "ruff_python_importer",
  "ruff_python_literal",
- "ruff_python_parser 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_python_parser 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "ruff_python_stdlib",
- "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "rustc-hash 2.1.3",
  "salsa",
  "serde",
@@ -11598,36 +11598,28 @@ dependencies = [
  "ty_module_resolver",
  "ty_python_core",
  "ty_site_packages",
- "ty_static 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ty_static 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
 ]
 
 [[package]]
 name = "ty_site_packages"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "camino",
  "colored",
  "get-size2",
  "indexmap 2.14.2",
- "ruff_annotate_snippets 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
- "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_annotate_snippets 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_ast 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_python_trivia 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_source_file 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+ "ruff_text_size 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "tracing",
- "ty_static 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
-]
-
-[[package]]
-name = "ty_static"
-version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
-dependencies = [
- "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ty_static 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
 ]
 
 [[package]]
@@ -11639,12 +11631,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ty_static"
+version = "0.0.16"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+dependencies = [
+ "ruff_macros 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
+]
+
+[[package]]
 name = "ty_vendored"
 version = "0.0.16"
-source = "git+https://github.com/tangramdotdev/ruff?branch=main#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
+source = "git+https://github.com/tangramdotdev/ruff#a77f0de521e0e8244890cd2c1846d8ff92361dc0"
 dependencies = [
  "path-slash",
- "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff?branch=main)",
+ "ruff_db 0.0.16 (git+https://github.com/tangramdotdev/ruff)",
  "static_assertions",
  "walkdir",
  "zip",
