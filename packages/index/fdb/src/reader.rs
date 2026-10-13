@@ -1,12 +1,10 @@
 use {
 	super::Index,
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::{
-		StreamExt as _,
-		stream::{self, FuturesUnordered},
-	},
+	futures::{StreamExt as _, stream},
 	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
+	tokio::task::JoinSet,
 };
 
 pub(super) struct Arg {
@@ -110,33 +108,39 @@ impl Index {
 			tracing::debug!(request_count, "starting an index read transaction");
 			let verification_fact_cache = tangram_index::verify::facts::Cache::new();
 			let (retry_error, mut retry_requests) = {
-				// Execute the pending requests concurrently.
-				let transaction = &transaction;
+				// Execute each pending request on its own task, so that the requests run in parallel.
 				let request_count = requests.len();
-				let mut futures = requests
-					.into_iter()
-					.map(|(request, sender)| {
-						let verification_fact_cache = verification_fact_cache.clone();
-						async move {
-							let result = Self::execute_read_request(
-								verification_fact_cache,
-								verification_concurrency,
-								partition_totals,
-								transaction,
-								subspace,
-								&request,
-							)
-							.await;
+				let mut tasks = JoinSet::new();
+				for (request, sender) in requests {
+					let subspace = subspace.clone();
+					let transaction = transaction.clone();
+					let verification_fact_cache = verification_fact_cache.clone();
+					tasks.spawn(async move {
+						let result = Self::execute_read_request(
+							verification_fact_cache,
+							verification_concurrency,
+							partition_totals,
+							&transaction,
+							&subspace,
+							&request,
+						)
+						.await;
 
-							(result, request, sender)
-						}
-					})
-					.collect::<FuturesUnordered<_>>();
+						(result, request, sender)
+					});
+				}
 
 				// Send each completed response and collect the retryable requests.
 				let mut retry_error = None;
 				let mut retry_requests = Vec::with_capacity(request_count);
-				while let Some((result, request, sender)) = futures.next().await {
+				while let Some(output) = tasks.join_next().await {
+					let (result, request, sender) = match output {
+						Ok(output) => output,
+						Err(error) => {
+							tracing::error!(%error, "a read request task panicked");
+							continue;
+						},
+					};
 					match result {
 						Err(error) => {
 							sender.send(Err(error)).ok();
