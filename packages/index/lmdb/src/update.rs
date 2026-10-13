@@ -2441,10 +2441,7 @@ impl Index {
 			else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			if resource.kind() == tg::id::Kind::Process {
-				let process = tg::process::Id::try_from(resource)?;
-				subject_candidates.insert(process);
-			}
+			subject_candidates.extend(tg::process::Id::try_from(resource).ok());
 		};
 
 		Ok(candidates)
