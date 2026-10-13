@@ -886,7 +886,7 @@ cleanup() {
 	status=$?
 	trap - EXIT HUP INT TERM
 	if [ "$platform" = macos ]; then
-		docker rm --force "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
+		docker rm --force --volumes "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
 	fi
 	for pid in "${pids[@]}"; do
 		kill -TERM -- "-$pid" 2>/dev/null || true
@@ -1066,7 +1066,7 @@ if [ "$platform" = linux ]; then
 		"$state_path/fdb/logs" \
 		"$state_path/scylla"
 else
-	docker rm --force "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
+	docker rm --force --volumes "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
 fi
 
 initdb --auth=trust --no-instructions --pgdata="$state_path/postgres" --username=postgres >/dev/null
@@ -1117,12 +1117,12 @@ else
 		--tmpfs /var/fdb/data:rw \
 		--tmpfs /var/fdb/logs:rw \
 		"$foundationdb_image"
+	# Store the ScyllaDB data in the image's disk-backed anonymous volume, which is removed with the container.
 	start scylla \
 		docker run \
 		--rm \
 		--name "$scylla_container" \
 		--publish 127.0.0.1:9042:9042 \
-		--tmpfs /var/lib/scylla:rw,mode=0777 \
 		"$scylla_image" \
 		--auto-snapshot=false \
 		--commitlog-segment-size-in-mb=8 \
