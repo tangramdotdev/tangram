@@ -93,6 +93,8 @@ pub struct Arg {
 	pub connect_timeout: Duration,
 	pub cpu: Option<tg::sandbox::Cpu>,
 	#[cfg(target_os = "linux")]
+	pub cpu_affinity: bool,
+	#[cfg(target_os = "linux")]
 	pub cpu_parent: Option<cpu::Lease>,
 	#[cfg(target_os = "linux")]
 	pub cpu_pool: Option<cpu::Pool>,
@@ -413,6 +415,7 @@ impl Sandbox {
 						.cpu
 						.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
 						.transpose()?,
+					cpu_affinity: arg.cpu_affinity,
 					cpu_parent: arg.cpu_parent.clone(),
 					cpu_pool: arg.cpu_pool.clone(),
 					cpu_request: arg.cpu,
@@ -572,7 +575,7 @@ impl Sandbox {
 			} else {
 				(self.0.arg.path.clone(), None)
 			};
-			let source = usage::Source::new(cgroup.handle()?, path, project)?;
+			let source = usage::Source::new(cgroup.handle()?, &path, project)?;
 			(source, self.0.arg.allocated_at)
 		};
 		#[cfg(target_os = "macos")]

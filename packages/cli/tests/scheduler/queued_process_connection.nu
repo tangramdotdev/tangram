@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A queued process connects after the scheduler makes it runnable.
 
 let local = server spawn --config {
-	runner: { cpus: 1 },
+	runner: { cpus: 1, overcommit: { cpu: 1 } },
 }
 
 let path = artifact {

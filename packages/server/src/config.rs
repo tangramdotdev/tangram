@@ -1100,6 +1100,10 @@ pub struct RemoteCache {
 #[derive(Clone, Debug)]
 pub struct Runner {
 	pub control_channel_capacity: usize,
+
+	/// Whether to pin each sandbox without a CPU pool to as many hardware threads as its CPU maximum, which requires the cpuset cgroup controller.
+	pub cpu_affinity: bool,
+
 	pub cpu_pool: Option<PathBuf>,
 
 	pub cpus: Option<u64>,
@@ -1187,6 +1191,9 @@ pub struct ContainerRunnerIsolation {
 
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
 
+	/// Whether to enforce sandbox storage maximums as filesystem limits, which requires a disk-backed ext4 or XFS filesystem with project quotas enabled.
+	pub storage_limits: bool,
+
 	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
 }
 
@@ -1251,6 +1258,11 @@ impl ContainerRunnerIsolation {
 		self.seccomp.or(self
 			.harden
 			.then_some(tangram_sandbox::SeccompPolicy::Default))
+	}
+
+	#[must_use]
+	pub fn storage_limits(&self) -> bool {
+		self.storage_limits || self.harden
 	}
 }
 
@@ -1372,6 +1384,9 @@ pub struct Scheduler {
 	pub default_cpu: u64,
 
 	pub default_memory: u64,
+
+	/// The storage maximum for a sandbox that does not request one, where none means unlimited.
+	pub default_storage: Option<u64>,
 
 	pub enqueue_retry: Retry,
 
@@ -2669,6 +2684,7 @@ impl Default for Runner {
 	fn default() -> Self {
 		Self {
 			control_channel_capacity: 256,
+			cpu_affinity: false,
 			cpu_pool: None,
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
@@ -2710,6 +2726,7 @@ impl Default for Scheduler {
 			create_sandbox_timeout: Duration::from_secs(10),
 			default_cpu: default_scheduler_cpu(),
 			default_memory: default_scheduler_memory(),
+			default_storage: None,
 			enqueue_retry: message_retry_default(),
 			heartbeat_interval: Duration::from_secs(1),
 			heartbeat_ttl: Duration::from_secs(10),

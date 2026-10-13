@@ -17,7 +17,7 @@ let runners = 1..3 | each {
 		remotes: { default: { token: $created.token.token, url: $remote.url } },
 		roles: [api indexer runner],
 
-		runner: { cpus: 1, id: $created.data.id, remote: 'default', token: $created.token.token },
+		runner: { cpus: 1, overcommit: { cpu: 1 }, id: $created.data.id, remote: 'default', token: $created.token.token },
 	}
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json

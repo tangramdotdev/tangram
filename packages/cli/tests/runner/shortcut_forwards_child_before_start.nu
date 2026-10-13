@@ -22,7 +22,7 @@ let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
-	runner: { cpus: 1, id: $created.data.id, remote: default, token: $created.token.token },
+	runner: { cpus: 1, overcommit: { cpu: 1 }, id: $created.data.id, remote: default, token: $created.token.token },
 }
 
 # Hold Start on the server while the shortcut process runs on the runner.

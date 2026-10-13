@@ -135,6 +135,7 @@ pub(crate) async fn spawn(
 			.cpu
 			.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
 			.transpose()?,
+		cpu_affinity: arg.cpu_affinity,
 		cpu_parent: arg.cpu_parent.clone(),
 		cpu_pool: arg.cpu_pool.clone(),
 		cpu_request: arg.cpu,
@@ -148,7 +149,7 @@ pub(crate) async fn spawn(
 	let cgroup = Some(super::cgroup::Cgroup::new(cgroup_name, &options)?);
 	let source = crate::usage::Source::new(
 		cgroup.as_ref().unwrap().handle()?,
-		filesystem_path.clone(),
+		&filesystem_path,
 		isolation.filesystem_project_id,
 	)?;
 	let resources = tg::runner::Capacity {

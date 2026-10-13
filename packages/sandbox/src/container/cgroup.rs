@@ -40,6 +40,7 @@ pub struct Options {
 	pub cleanup_interval: Duration,
 	pub cleanup_timeout: Duration,
 	pub cpu: Option<u64>,
+	pub cpu_affinity: bool,
 	pub cpu_parent: Option<crate::cpu::Lease>,
 	pub cpu_pool: Option<crate::cpu::Pool>,
 	pub cpu_request: Option<tg::sandbox::Cpu>,
@@ -91,7 +92,7 @@ impl Cgroup {
 				}
 			})
 			.transpose()?;
-		if allocation.is_some() || options.cpu_request.is_some() {
+		if allocation.is_some() || (options.cpu_affinity && options.cpu_request.is_some()) {
 			controllers.push("cpuset");
 		}
 		let current = if let Some(allocation) = &allocation {
@@ -173,6 +174,7 @@ impl Cgroup {
 		}
 
 		if cgroup.allocation.is_none()
+			&& options.cpu_affinity
 			&& let Some(cpu) = options.cpu_request
 		{
 			let cpus = crate::cpu::parse_list(
@@ -388,6 +390,7 @@ impl Default for Options {
 			cleanup_interval: Duration::from_millis(10),
 			cleanup_timeout: Duration::from_secs(5),
 			cpu: None,
+			cpu_affinity: false,
 			cpu_parent: None,
 			cpu_pool: None,
 			cpu_request: None,

@@ -28,7 +28,7 @@ assert equal $output.exit_code 124 "building with no runners should wait for a s
 
 # A runner whose host does not match the request can never satisfy the sandbox.
 let runner = server spawn --name runner --config {
-	runner: { cpus: 1, memory: 1_073_741_824 },
+	runner: { cpus: 1, overcommit: { cpu: 1 }, memory: 1_073_741_824 },
 	scheduler: $scheduler,
 }
 let output = timeout 2s tg --url $runner.url sandbox create --no-tokens --host nonexistent | complete

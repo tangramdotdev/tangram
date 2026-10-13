@@ -13,6 +13,7 @@ let local = server spawn --config {
 	},
 	runner: {
 		cpus: 1,
+		overcommit: { cpu: 1 },
 	},
 }
 

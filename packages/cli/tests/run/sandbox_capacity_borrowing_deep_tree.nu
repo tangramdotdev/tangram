@@ -7,6 +7,7 @@ use ../lib/test.nu *
 let local = server spawn --config {
 	runner: {
 		cpus: 1,
+		overcommit: { cpu: 1 },
 		memory: 1_073_741_824,
 	},
 }

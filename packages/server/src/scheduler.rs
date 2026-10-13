@@ -725,7 +725,7 @@ impl Scheduler {
 			default_capacity: tg::runner::Capacity {
 				cpu: config.default_cpu.into(),
 				memory: config.default_memory.into(),
-				storage: (10 * 1024 * 1024 * 1024).into(),
+				storage: config.default_storage.unwrap_or_default().into(),
 				swap: 0.into(),
 			},
 			heartbeat_interval: config.heartbeat_interval,

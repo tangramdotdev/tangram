@@ -6,24 +6,22 @@ use {
 pub(crate) struct Source {
 	cgroup: Handle,
 	directory: Option<std::fs::File>,
-	path: std::path::PathBuf,
 	project: Option<u32>,
 }
 
 impl Source {
 	pub(crate) fn new(
 		cgroup: Handle,
-		path: std::path::PathBuf,
+		path: &std::path::Path,
 		project: Option<u32>,
 	) -> tg::Result<Self> {
 		let directory = project
-			.map(|_| std::fs::File::open(path.parent().unwrap_or(&path)))
+			.map(|_| std::fs::File::open(path.parent().unwrap_or(path)))
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to open the sandbox storage meter"))?;
 		Ok(Self {
 			cgroup,
 			directory,
-			path,
 			project,
 		})
 	}
@@ -44,10 +42,11 @@ impl Source {
 			.trim()
 			.parse()
 			.map_err(|error| tg::error!(!error, "invalid sandbox swap usage"))?;
+		// Read the storage usage from the filesystem's project quota counter, and report none without a project quota.
 		let storage = if let (Some(directory), Some(project)) = (&self.directory, self.project) {
 			crate::container::filesystem::usage(directory, project)?
 		} else {
-			allocated(&self.path)?
+			0
 		};
 		Ok(Snapshot {
 			cpu,
@@ -56,36 +55,6 @@ impl Source {
 			swap,
 		})
 	}
-}
-
-fn allocated(path: &std::path::Path) -> tg::Result<u64> {
-	use std::os::unix::fs::MetadataExt as _;
-	let mut pending = vec![path.to_owned()];
-	let mut seen = std::collections::BTreeSet::new();
-	let mut bytes = 0_u64;
-	while let Some(path) = pending.pop() {
-		let metadata = match std::fs::symlink_metadata(&path) {
-			Ok(metadata) => metadata,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-			Err(error) => return Err(tg::error!(!error, "failed to read the sandbox disk usage")),
-		};
-		if !seen.insert((metadata.dev(), metadata.ino())) {
-			continue;
-		}
-		bytes = bytes
-			.checked_add(metadata.blocks().saturating_mul(512))
-			.ok_or_else(|| tg::error!("the disk usage overflowed"))?;
-		if metadata.is_dir() {
-			let entries = std::fs::read_dir(&path)
-				.map_err(|error| tg::error!(!error, "failed to read the sandbox disk usage"))?;
-			for entry in entries {
-				let entry = entry
-					.map_err(|error| tg::error!(!error, "failed to read the sandbox disk usage"))?;
-				pending.push(entry.path());
-			}
-		}
-	}
-	Ok(bytes)
 }
 
 fn parse_cpu(contents: &str) -> tg::Result<u64> {

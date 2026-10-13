@@ -1701,6 +1701,10 @@ pub struct RemoteCache {
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub control_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cpu_affinity: Option<bool>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpu_pool: Option<PathBuf>,
 
@@ -1848,6 +1852,9 @@ pub struct ContainerRunnerIsolation {
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage_limits: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
 }
 
@@ -1905,6 +1912,9 @@ pub struct Scheduler {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_memory: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default_storage: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub enqueue_retry: Option<Retry>,
@@ -4983,6 +4993,7 @@ fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {
 
 fn resolve_runner(source: Runner) -> server::Runner {
 	let mut target = server::Runner {
+		cpu_affinity: source.cpu_affinity.unwrap_or_default(),
 		cpu_pool: source.cpu_pool,
 		..Default::default()
 	};
@@ -5097,6 +5108,7 @@ fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation 
 			max_pids: source.max_pids,
 			memory_swap: source.memory_swap,
 			seccomp: source.seccomp,
+			storage_limits: source.storage_limits.unwrap_or_default(),
 			uid_map: source
 				.uid_map
 				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newuidmap")),
@@ -5169,6 +5181,9 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	}
 	if let Some(value) = source.default_memory {
 		target.default_memory = value;
+	}
+	if let Some(value) = source.default_storage {
+		target.default_storage = Some(value);
 	}
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;

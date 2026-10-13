@@ -27,6 +27,7 @@ let runner = server spawn --name runner --config {
 	},
 	runner: {
 		cpus: 1,
+		overcommit: { cpu: 1 },
 		id: $created.data.id
 		remote: "default",
 		token: $created.token.token
@@ -92,6 +93,7 @@ let runner_replacement = server spawn --name runner-replacement --config {
 	},
 	runner: {
 		cpus: 1,
+		overcommit: { cpu: 1 },
 		id: $replacement_created.data.id
 		remote: "default",
 		token: $replacement_created.token.token

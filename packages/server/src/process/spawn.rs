@@ -223,7 +223,7 @@ impl Session {
 						if cfg!(target_os = "macos") {
 							0.into()
 						} else {
-							(10 * 1024 * 1024 * 1024).into()
+							scheduler.default_storage.unwrap_or_default().into()
 						}
 					}),
 					swap: sandbox.swap.unwrap_or_default(),
@@ -347,7 +347,7 @@ impl Session {
 				if cfg!(target_os = "macos") {
 					0.into()
 				} else {
-					(10 * 1024 * 1024 * 1024).into()
+					scheduler.default_storage.unwrap_or_default().into()
 				}
 			}),
 			swap: sandbox.swap.unwrap_or_default(),

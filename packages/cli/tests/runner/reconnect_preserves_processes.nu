@@ -11,7 +11,7 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
-	runner: { cpus: 1, id: $created.data.id, remote: "default", token: $created.token.token },
+	runner: { cpus: 1, overcommit: { cpu: 1 }, id: $created.data.id, remote: "default", token: $created.token.token },
 }
 let local = server spawn --name local --config {
 	remotes: { default: { token: $root_token, url: $remote.url } },

@@ -777,8 +777,22 @@ impl Session {
 		if matches!(isolation, tangram_sandbox::Isolation::Container(_)) {
 			arg.memory
 				.get_or_insert(self.server.config.scheduler.default_memory.into());
-			arg.storage.get_or_insert((10 * 1024 * 1024 * 1024).into());
+			if let Some(storage) = self.server.config.scheduler.default_storage {
+				arg.storage.get_or_insert(storage.into());
+			}
 			arg.swap.get_or_insert(0.into());
+		}
+
+		// Enforce the sandbox storage maximum only when storage limits are enabled, because enforcement requires a filesystem with project quotas.
+		if !self
+			.server
+			.config
+			.runner
+			.isolation
+			.container
+			.storage_limits()
+		{
+			arg.storage = None;
 		}
 
 		// Apply the sandbox storage maximum.
@@ -927,6 +941,8 @@ impl Session {
 			cgroup_cleanup_timeout: config.cgroup_cleanup_timeout,
 			connect_timeout: config.connect_timeout,
 			cpu: arg.cpu,
+			#[cfg(target_os = "linux")]
+			cpu_affinity: self.server.config.runner.cpu_affinity,
 			#[cfg(target_os = "linux")]
 			cpu_parent,
 			#[cfg(target_os = "linux")]
