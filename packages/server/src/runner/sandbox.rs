@@ -666,7 +666,6 @@ impl Session {
 		mut arg: tg::sandbox::create::Arg,
 		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
-		let allocated_at = std::time::Instant::now();
 		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
 		let mut isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
@@ -934,7 +933,6 @@ impl Session {
 		};
 		let config = &self.server.config.sandbox;
 		let arg = tangram_sandbox::Arg {
-			allocated_at,
 			#[cfg(target_os = "linux")]
 			cgroup_cleanup_interval: config.cgroup_cleanup_interval,
 			#[cfg(target_os = "linux")]

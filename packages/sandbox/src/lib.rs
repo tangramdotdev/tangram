@@ -85,7 +85,6 @@ pub struct SpawnArg {
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub allocated_at: std::time::Instant,
 	#[cfg(target_os = "linux")]
 	pub cgroup_cleanup_interval: Duration,
 	#[cfg(target_os = "linux")]
@@ -382,7 +381,7 @@ impl Sandbox {
 			url,
 		};
 		#[cfg(target_os = "linux")]
-		let (mut process, network, filesystem, cgroup, storage, accounting) = match &arg.isolation {
+		let (mut process, network, filesystem, cgroup, storage) = match &arg.isolation {
 			Isolation::Container(_) => {
 				let mut network = crate::container::network::create(&arg)?;
 				let output = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
@@ -392,7 +391,6 @@ impl Sandbox {
 					output.filesystem,
 					output.cgroup,
 					output.storage,
-					Some(output.accounting),
 				)
 			},
 			Isolation::Seatbelt(_) => {
@@ -426,7 +424,7 @@ impl Sandbox {
 				let cgroup = crate::container::cgroup::Cgroup::new(&name, &options)?;
 				let process =
 					self::vm::spawn(&arg, &serve_arg, network.as_ref(), &cgroup.handle()?)?;
-				(process, network, None, Some(cgroup), None, None)
+				(process, network, None, Some(cgroup), None)
 			},
 		};
 
@@ -497,16 +495,7 @@ impl Sandbox {
 		let sandbox = Self(Arc::new(State {
 			#[cfg(target_os = "linux")]
 			_storage: storage,
-			accounting: tokio::sync::Mutex::new({
-				#[cfg(target_os = "linux")]
-				{
-					accounting
-				}
-				#[cfg(target_os = "macos")]
-				{
-					None
-				}
-			}),
+			accounting: tokio::sync::Mutex::new(None),
 			arg,
 			#[cfg(target_os = "linux")]
 			cgroup: tokio::sync::Mutex::new(cgroup),
@@ -551,7 +540,7 @@ impl Sandbox {
 			.and_then(container::cgroup::Cgroup::cpu_lease)
 	}
 
-	/// Ensure accounting has started before spawning workloads.
+	/// Begin charging when the sandbox is assigned, before spawning workloads.
 	pub async fn start(&self) -> tg::Result<()> {
 		let _destroy = self.0.destroy.lock().await;
 		let mut accounting = self.0.accounting.lock().await;
@@ -559,7 +548,7 @@ impl Sandbox {
 			return Ok(());
 		}
 		#[cfg(target_os = "linux")]
-		let (source, allocated_at) = {
+		let source = {
 			let cgroup = self.0.cgroup.lock().await;
 			let cgroup = cgroup
 				.as_ref()
@@ -575,18 +564,17 @@ impl Sandbox {
 			} else {
 				(self.0.arg.path.clone(), None)
 			};
-			let source = usage::Source::new(cgroup.handle()?, &path, project)?;
-			(source, self.0.arg.allocated_at)
+			usage::Source::new(cgroup.handle()?, &path, project)?
 		};
 		#[cfg(target_os = "macos")]
-		let (source, allocated_at) = {
+		let source = {
 			let process = self.0.process.lock().await;
 			let pid = process
 				.id()
 				.ok_or_else(|| tg::error!("the sandbox process has exited"))?
 				.try_into()
 				.map_err(|_| tg::error!("the sandbox process ID is too large"))?;
-			(usage::Source::new(pid), self.0.arg.allocated_at)
+			usage::Source::new(pid)
 		};
 		let resources = tg::runner::Capacity {
 			cpu: self
@@ -602,7 +590,6 @@ impl Sandbox {
 			source,
 			resources,
 			self.0.arg.memory_sampling_interval,
-			allocated_at,
 		)?);
 		Ok(())
 	}

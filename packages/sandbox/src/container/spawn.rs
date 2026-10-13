@@ -34,7 +34,6 @@ enum UserQuery {
 }
 
 pub(crate) struct Output {
-	pub accounting: crate::usage::Accounting,
 	pub cgroup: Option<super::cgroup::Cgroup>,
 	pub filesystem: Option<super::filesystem::Filesystem>,
 	pub process: tokio::process::Child,
@@ -147,25 +146,6 @@ pub(crate) async fn spawn(
 		swap_pool: arg.swap_pool.clone(),
 	};
 	let cgroup = Some(super::cgroup::Cgroup::new(cgroup_name, &options)?);
-	let source = crate::usage::Source::new(
-		cgroup.as_ref().unwrap().handle()?,
-		&filesystem_path,
-		isolation.filesystem_project_id,
-	)?;
-	let resources = tg::runner::Capacity {
-		cpu: arg
-			.cpu
-			.unwrap_or(tg::sandbox::Amount::from_millis(u64::from(u32::MAX)).into()),
-		memory: arg.memory.unwrap_or(u64::MAX.into()),
-		storage: arg.storage.unwrap_or(u64::MAX.into()),
-		swap: arg.swap.unwrap_or(u64::MAX.into()),
-	};
-	let accounting = crate::usage::Accounting::new(
-		source,
-		resources,
-		arg.memory_sampling_interval,
-		arg.allocated_at,
-	)?;
 
 	let cgroup_handle = cgroup
 		.as_ref()
@@ -444,7 +424,6 @@ pub(crate) async fn spawn(
 		None => None,
 	};
 	let output = Output {
-		accounting,
 		cgroup,
 		filesystem,
 		process: child,
