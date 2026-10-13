@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # Every sandboxed process execs its executable through its own per-sandbox FUSE mount. This ensures
 # that the lightweight per-sandbox io_uring configuration stays within the process's locked memory
-# limit under high concurrency. The runner capacity is set here so the number of concurrent
-# sandboxes does not depend on the host's core count.
+# limit under high concurrency. The runner overcommit is set here so the number of concurrent
+# sandboxes does not depend on the host's capacity.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -15,9 +15,9 @@ if not (fuse_io_uring_available) {
 let local = server spawn --config {
 	# Allow room for the process records and permissions from 256 concurrent sandboxes.
 	index: { map_size: 67_108_864 }
+	# Admit 256 concurrent sandboxes with the default resource requests regardless of the host's capacity.
 	runner: {
-		cpus: 128,
-		memory: (128e9 | into int),
+		overcommit: { cpu: 256, memory: 1024 },
 	}
 	vfs: {
 		io: 'auto'

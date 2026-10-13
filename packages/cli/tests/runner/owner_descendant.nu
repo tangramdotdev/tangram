@@ -21,6 +21,7 @@ let runner_organization = server spawn --name runner-organization --config {
 }
 
 let alice_local = server spawn --name alice-local --config {
+	accounts: false,
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
@@ -36,6 +37,7 @@ def build_background [url: string, owner: string, path: path] {
 }
 
 let bob_local = server spawn --name bob-local --config {
+	accounts: false,
 	remotes: { default: { token: $bob.token, url: $remote.url } },
 }
 let unrelated_path = artifact { tangram.ts: 'export default () => tg.file("unrelated")' }
