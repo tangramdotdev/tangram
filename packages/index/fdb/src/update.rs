@@ -3363,7 +3363,6 @@ impl Index {
 						.await
 					);
 				}
-				// Enqueue only the processes on which the subject holds a permission, because an update for any other process cannot change any of the subject's permissions.
 				let processes = match kind {
 					Kind::Permission(subject) => crate::propagate!(
 						Self::get_object_processes_for_subject_with_transaction(
@@ -3393,7 +3392,6 @@ impl Index {
 				}
 			},
 			tg::Either::Right(id) => {
-				// Enqueue only the parents on which the subject holds a permission, because an update for any other process cannot change any of the subject's permissions.
 				let parents = match kind {
 					Kind::Permission(subject) => crate::propagate!(
 						Self::get_process_parents_for_subject_with_transaction(
@@ -3431,7 +3429,6 @@ impl Index {
 		object: &tg::object::Id,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<ControlFlow<BTreeSet<tg::process::Id>, fdb::FdbError>> {
-		// Read the candidates from the smaller of the object's processes and the subject's permissions.
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -3457,7 +3454,6 @@ impl Index {
 			.await
 		);
 
-		// Keep the candidates that are on both sides.
 		let mut output = BTreeSet::new();
 		match candidates {
 			ParentCandidates::Parents(processes) => {
@@ -3504,7 +3500,6 @@ impl Index {
 		process: &tg::process::Id,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<ControlFlow<BTreeSet<tg::process::Id>, fdb::FdbError>> {
-		// Read the candidates from the smaller of the process's parents and the subject's permissions.
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -3530,7 +3525,6 @@ impl Index {
 			.await
 		);
 
-		// Keep the candidates that are on both sides.
 		let mut output = BTreeSet::new();
 		match candidates {
 			ParentCandidates::Parents(parents) => {
@@ -3587,7 +3581,6 @@ impl Index {
 		};
 		let mut resources = txn.get_ranges_keyvalues(range, false);
 
-		// Read the parents and the subject's permissions in alternation until one is exhausted, so that the cost is proportional to the smaller of the two.
 		let mut parent_candidates = BTreeSet::new();
 		let mut subject_candidates = BTreeSet::new();
 		let candidates = loop {

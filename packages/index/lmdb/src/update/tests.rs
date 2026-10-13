@@ -1,10 +1,11 @@
 use {
 	super::ParentCandidates,
 	crate::{
-		Config, Index, Key,
+		Config, Index, Key, Kind,
 		permission::{PermissionIndexEntry, PermissionSource},
 	},
 	heed as lmdb,
+	num_traits::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 };
@@ -94,24 +95,28 @@ async fn parent_processes_for_subject_read_the_smaller_side() {
 
 	// Verify that the candidates come from the smaller side.
 	let txn = index.env.read_txn().unwrap();
-	let candidates = Index::get_parent_candidates_with_transaction(
-		&index.db,
+	let child_bytes = child.to_bytes();
+	let prefix = Index::pack(
 		&index.subspace,
-		&txn,
-		parents.iter().cloned().map(Ok),
-		&few,
-	)
-	.unwrap();
-	assert!(matches!(candidates, ParentCandidates::Subject(_)));
-	let candidates = Index::get_parent_candidates_with_transaction(
-		&index.db,
-		&index.subspace,
-		&txn,
-		parents.iter().cloned().map(Ok),
-		&many,
-	)
-	.unwrap();
-	assert!(matches!(candidates, ParentCandidates::Parents(_)));
+		&(Kind::ChildProcess.to_i32().unwrap(), child_bytes.as_ref()),
+	);
+	for (subject, expected) in [(&few, false), (&many, true)] {
+		let candidates = Index::get_parent_candidates_with_transaction(
+			&index.db,
+			&index.subspace,
+			&txn,
+			&prefix,
+			|key| {
+				let Key::Process(crate::process::Key::ChildProcess { parent, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(parent)
+			},
+			subject,
+		)
+		.unwrap();
+		assert_eq!(matches!(candidates, ParentCandidates::Parents(_)), expected);
+	}
 
 	// Verify that both sides yield only the parents on which the subject holds a permission.
 	for (subject, parent) in [(&few, &parents[0]), (&many, &parents[1])] {
