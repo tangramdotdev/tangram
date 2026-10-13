@@ -15,7 +15,13 @@ use {
 	tangram_uri::Uri,
 };
 
+#[cfg(target_os = "linux")]
+mod cgroup;
 mod client;
+#[cfg(target_os = "linux")]
+mod filesystem;
+#[cfg(target_os = "linux")]
+mod launch;
 mod libraries;
 #[cfg(target_os = "linux")]
 mod netlink;
@@ -35,6 +41,8 @@ pub mod container;
 pub mod cpu;
 #[cfg(target_os = "linux")]
 pub mod network;
+#[cfg(target_os = "linux")]
+pub mod root;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
@@ -52,14 +60,14 @@ pub struct State {
 	arg: Arg,
 
 	#[cfg(target_os = "linux")]
-	cgroup: tokio::sync::Mutex<Option<crate::container::cgroup::Cgroup>>,
+	cgroup: tokio::sync::Mutex<Option<crate::cgroup::Cgroup>>,
 
 	client: Client,
 
 	destroy: tokio::sync::Mutex<()>,
 
 	#[cfg(target_os = "linux")]
-	filesystem: Option<crate::container::filesystem::Filesystem>,
+	filesystem: Option<crate::filesystem::Filesystem>,
 
 	#[cfg(target_os = "linux")]
 	#[expect(dead_code)]
@@ -281,7 +289,7 @@ pub enum Stdio {
 pub fn filesystem_project_usage(path: &Path, project: u32) -> tg::Result<u64> {
 	let directory = std::fs::File::open(path)
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project meter"))?;
-	container::filesystem::usage(&directory, project)
+	filesystem::usage(&directory, project)
 }
 
 impl Sandbox {
@@ -384,12 +392,14 @@ impl Sandbox {
 		let (mut process, network, filesystem, cgroup, storage) = match &arg.isolation {
 			Isolation::Container(_) => {
 				let mut network = crate::container::network::create(&arg)?;
-				let output = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
+				let cgroup = self::cgroup::create(&arg)?;
+				let output =
+					self::launch::spawn(&arg, &serve_arg, network.as_mut(), &cgroup).await?;
 				(
 					output.process,
 					network,
 					output.filesystem,
-					output.cgroup,
+					Some(cgroup),
 					output.storage,
 				)
 			},
@@ -406,22 +416,7 @@ impl Sandbox {
 					&arg.ip_pool,
 					ports,
 				)?;
-				let options = crate::container::cgroup::Options {
-					cleanup_interval: arg.cgroup_cleanup_interval,
-					cleanup_timeout: arg.cgroup_cleanup_timeout,
-					cpu: arg
-						.cpu
-						.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
-						.transpose()?,
-					cpu_affinity: arg.cpu_affinity,
-					cpu_parent: arg.cpu_parent.clone(),
-					cpu_pool: arg.cpu_pool.clone(),
-					cpu_request: arg.cpu,
-					memory_oom_group: true,
-					..Default::default()
-				};
-				let name = format!("sandbox-vm-{}-{:016x}", arg.index, rand::random::<u64>());
-				let cgroup = crate::container::cgroup::Cgroup::new(&name, &options)?;
+				let cgroup = self::cgroup::create(&arg)?;
 				let process =
 					self::vm::spawn(&arg, &serve_arg, network.as_ref(), &cgroup.handle()?)?;
 				(process, network, None, Some(cgroup), None)
@@ -537,7 +532,7 @@ impl Sandbox {
 			.lock()
 			.await
 			.as_ref()
-			.and_then(container::cgroup::Cgroup::cpu_lease)
+			.and_then(cgroup::Cgroup::cpu_lease)
 	}
 
 	/// Begin charging when the sandbox is assigned, before spawning workloads.

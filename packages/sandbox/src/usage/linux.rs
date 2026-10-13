@@ -1,5 +1,5 @@
 use {
-	crate::{container::cgroup::Handle, usage::Snapshot},
+	crate::{cgroup::Handle, usage::Snapshot},
 	tangram_client::prelude::*,
 };
 
@@ -44,7 +44,7 @@ impl Source {
 			.map_err(|error| tg::error!(!error, "invalid sandbox swap usage"))?;
 		// Read the storage usage from the filesystem's project quota counter, and report none without a project quota.
 		let storage = if let (Some(directory), Some(project)) = (&self.directory, self.project) {
-			crate::container::filesystem::usage(directory, project)?
+			crate::filesystem::usage(directory, project)?
 		} else {
 			0
 		};

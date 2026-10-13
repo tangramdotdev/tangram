@@ -1639,7 +1639,7 @@ impl Server {
 			.as_ref()
 			.map(|_| path.join("vm/image.squashfs"));
 		#[cfg(target_os = "linux")]
-		tangram_sandbox::container::root::create(&tangram_sandbox::container::root::Arg {
+		tangram_sandbox::root::create(&tangram_sandbox::root::Arg {
 			build_attempts: config.sandbox.build_attempts,
 			path: sandbox_container_root.clone(),
 			tangram_path: tangram_path.clone(),

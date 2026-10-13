@@ -1,5 +1,5 @@
 use {
-	crate::container::cgroup::Handle,
+	crate::cgroup::Handle,
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::{Path, PathBuf},

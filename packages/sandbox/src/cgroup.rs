@@ -52,6 +52,61 @@ pub struct Options {
 	pub swap_pool: Option<crate::budget::Pool>,
 }
 
+pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
+	let container = match &arg.isolation {
+		crate::Isolation::Container(container) => Some(container),
+		crate::Isolation::Seatbelt(_) | crate::Isolation::Vm(_) => None,
+	};
+	let options = Options {
+		cleanup_interval: arg.cgroup_cleanup_interval,
+		cleanup_timeout: arg.cgroup_cleanup_timeout,
+		cpu: arg
+			.cpu
+			.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
+			.transpose()?,
+		cpu_affinity: arg.cpu_affinity,
+		cpu_parent: arg.cpu_parent.clone(),
+		cpu_pool: arg.cpu_pool.clone(),
+		cpu_request: arg.cpu,
+		memory: container.and(arg.memory),
+		memory_oom_group: true,
+		memory_swap: arg
+			.swap
+			.map(|swap| swap.max)
+			.or_else(|| container.and_then(|container| container.memory_swap)),
+		pids: container.and_then(|container| container.max_pids),
+		swap: arg.swap,
+		swap_pool: arg.swap_pool.clone(),
+	};
+	let name = arg
+		.path
+		.file_name()
+		.and_then(|name| name.to_str())
+		.unwrap_or("sandbox");
+	let cgroup = Cgroup::new(name, &options)?;
+	Ok(cgroup)
+}
+
+pub(crate) fn enter_before_exec(command: &mut tokio::process::Command, cgroup: libc::c_int) {
+	// SAFETY: The pre_exec closure only invokes async-signal-safe system calls.
+	unsafe {
+		command.pre_exec(move || {
+			let fd = libc::openat(cgroup, c"cgroup.procs".as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
+			if fd < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			let bytes = b"0\n";
+			let result = libc::write(fd, bytes.as_ptr().cast(), bytes.len());
+			let error = std::io::Error::last_os_error();
+			libc::close(fd);
+			if result != isize::try_from(bytes.len()).unwrap() {
+				return Err(error);
+			}
+			Ok(())
+		});
+	}
+}
+
 impl Cgroup {
 	pub fn new(name: &str, options: &Options) -> tg::Result<Self> {
 		use std::os::unix::fs::OpenOptionsExt as _;

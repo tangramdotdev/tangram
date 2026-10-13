@@ -1,5 +1,6 @@
 use {
-	super::{cgroup, mount, seccomp, util::CStringVec, validate::validate},
+	super::{mount, seccomp, util::CStringVec, validate::validate},
+	crate::cgroup,
 	num::ToPrimitive,
 	std::{
 		collections::BTreeMap,
@@ -135,7 +136,7 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 		}
 		// Create the host mapping before entering the PID namespace and dropping setup privileges.
 		let host_namespace = if arg.user_namespace_fd.is_some() && arg.filesystem_fd.is_some() {
-			Some(super::filesystem::host_namespace(arg.uid, arg.gid)?)
+			Some(crate::filesystem::host_namespace(arg.uid, arg.gid)?)
 		} else {
 			None
 		};
@@ -286,21 +287,21 @@ fn prepare_filesystem(
 	let (Some(path), Some(socket)) = (arg.filesystem_path.clone(), arg.filesystem_fd) else {
 		return Ok(None);
 	};
-	let filesystem = super::filesystem::open(&path)?;
-	super::filesystem::prepare(&filesystem, arg.uid, arg.gid)?;
+	let filesystem = crate::filesystem::open(&path)?;
+	crate::filesystem::prepare(&filesystem, arg.uid, arg.gid)?;
 	arg.filesystem_mount_fd = Some(filesystem.as_raw_fd());
-	let target = super::filesystem::path(&filesystem);
+	let target = crate::filesystem::path(&filesystem);
 	for bind in arg.binds.iter_mut().chain(&mut arg.ro_binds) {
-		super::filesystem::relocate(&mut bind.source, &path, &target);
+		crate::filesystem::relocate(&mut bind.source, &path, &target);
 	}
 	for overlay in &mut arg.overlays {
-		super::filesystem::relocate(&mut overlay.upperdir, &path, &target);
-		super::filesystem::relocate(&mut overlay.workdir, &path, &target);
+		crate::filesystem::relocate(&mut overlay.upperdir, &path, &target);
+		crate::filesystem::relocate(&mut overlay.workdir, &path, &target);
 	}
 	// SAFETY: The descriptor is inherited from the parent and is exclusively owned here.
 	let socket = unsafe { OwnedFd::from_raw_fd(socket) };
 	let host_filesystem = host_namespace
-		.map(|namespace| super::filesystem::host_mount(&filesystem, namespace))
+		.map(|namespace| crate::filesystem::host_mount(&filesystem, namespace))
 		.transpose();
 	let host_filesystem = match host_filesystem {
 		Ok(host_filesystem) => host_filesystem,
@@ -316,7 +317,7 @@ fn prepare_filesystem(
 			return Err(error);
 		},
 	};
-	super::filesystem::send(&socket, host_filesystem.as_ref().unwrap_or(&filesystem))?;
+	crate::filesystem::send(&socket, host_filesystem.as_ref().unwrap_or(&filesystem))?;
 
 	Ok(Some(filesystem))
 }

@@ -32,7 +32,7 @@ fn validate_filesystem(root: &Path) -> tg::Result<()> {
 
 	let name = format!("tangram-quota-probe-{:016x}", rand::random::<u64>());
 	let path = root.join(name);
-	let result = super::filesystem::create(&path, PROJECT, Some(64 * 1024), Some(4));
+	let result = crate::filesystem::create(&path, PROJECT, Some(64 * 1024), Some(4));
 	let enforcement_result = if result.is_ok() {
 		probe_filesystem_enforcement(&path)
 	} else {
@@ -47,7 +47,7 @@ fn validate_filesystem(root: &Path) -> tg::Result<()> {
 		}
 	}
 	let clear_result = if result.is_ok() {
-		super::filesystem::clear(&path, PROJECT)
+		crate::filesystem::clear(&path, PROJECT)
 	} else {
 		Ok(())
 	};
@@ -377,7 +377,7 @@ unsafe fn write_probe_file(path: &std::ffi::CStr, bytes: &[u8]) -> libc::c_int {
 fn validate_cgroup_v2() -> tg::Result<()> {
 	// Probe a child so the hierarchy root need not expose per-cgroup limits itself.
 	let name = format!("tangram-probe-{:016x}", rand::random::<u64>());
-	let options = super::cgroup::Options {
+	let options = crate::cgroup::Options {
 		cpu: Some(1),
 		cpu_parent: None,
 		cpu_pool: None,
@@ -388,7 +388,7 @@ fn validate_cgroup_v2() -> tg::Result<()> {
 		pids: Some(32),
 		..Default::default()
 	};
-	let cgroup = super::cgroup::Cgroup::new(&name, &options)?;
+	let cgroup = crate::cgroup::Cgroup::new(&name, &options)?;
 	let directory = cgroup.handle()?.open_fd()?;
 	let path = std::path::PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
 	validate_cgroup_features(&path)?;

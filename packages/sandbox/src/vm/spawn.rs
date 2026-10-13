@@ -4,7 +4,7 @@ pub(crate) fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &serve::Arg,
 	network: Option<&crate::network::Network>,
-	cgroup: &crate::container::cgroup::Handle,
+	cgroup: &crate::cgroup::Handle,
 ) -> tg::Result<tokio::process::Child> {
 	if !serve_arg.library_paths.is_empty() {
 		return Err(tg::error!(
@@ -17,10 +17,7 @@ pub(crate) fn spawn(
 	};
 	let directory = cgroup.open_fd()?;
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
-	crate::container::enter_cgroup_before_exec(
-		&mut command,
-		std::os::fd::AsRawFd::as_raw_fd(&directory),
-	);
+	crate::cgroup::enter_before_exec(&mut command, std::os::fd::AsRawFd::as_raw_fd(&directory));
 	command.arg("sandbox").arg("vm").arg("run");
 	command
 		.arg("--index")

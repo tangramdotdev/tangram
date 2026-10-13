@@ -34,8 +34,7 @@ enum UserQuery {
 }
 
 pub(crate) struct Output {
-	pub cgroup: Option<super::cgroup::Cgroup>,
-	pub filesystem: Option<super::filesystem::Filesystem>,
+	pub filesystem: Option<crate::filesystem::Filesystem>,
 	pub process: tokio::process::Child,
 	pub storage: Option<crate::budget::Allocation>,
 }
@@ -44,6 +43,7 @@ pub(crate) async fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
 	network: Option<&mut crate::network::Network>,
+	cgroup: &crate::cgroup::Cgroup,
 ) -> tg::Result<Output> {
 	let crate::Isolation::Container(isolation) = &arg.isolation else {
 		unreachable!()
@@ -99,18 +99,18 @@ pub(crate) async fn spawn(
 		let project = isolation.filesystem_project_id.ok_or_else(|| {
 			tg::error!("missing a project ID for the limited container filesystem")
 		})?;
-		super::filesystem::create(
+		crate::filesystem::create(
 			&filesystem_path,
 			project,
 			filesystem_size,
 			filesystem_inodes,
 		)?;
 	} else if filesystem_separate {
-		super::filesystem::create_directory(&filesystem_path)?;
+		crate::filesystem::create_directory(&filesystem_path)?;
 	}
 	if let Some(storage) = &storage {
 		let project = isolation.filesystem_project_id.unwrap();
-		let control = super::filesystem::control(&filesystem_path, project)?;
+		let control = crate::filesystem::control(&filesystem_path, project)?;
 		storage.bind(control)?;
 	}
 
@@ -122,39 +122,9 @@ pub(crate) async fn spawn(
 	)?;
 	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
 	let user_namespace = prepare_user_namespace(isolation, &user)?;
-	let cgroup_name = arg
-		.path
-		.file_name()
-		.and_then(|name| name.to_str())
-		.unwrap_or("sandbox");
-	let options = super::cgroup::Options {
-		cleanup_interval: arg.cgroup_cleanup_interval,
-		cleanup_timeout: arg.cgroup_cleanup_timeout,
-		cpu: arg
-			.cpu
-			.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
-			.transpose()?,
-		cpu_affinity: arg.cpu_affinity,
-		cpu_parent: arg.cpu_parent.clone(),
-		cpu_pool: arg.cpu_pool.clone(),
-		cpu_request: arg.cpu,
-		memory: arg.memory,
-		memory_oom_group: true,
-		memory_swap: arg.swap.map(|swap| swap.max).or(isolation.memory_swap),
-		pids: isolation.max_pids,
-		swap: arg.swap,
-		swap_pool: arg.swap_pool.clone(),
-	};
-	let cgroup = Some(super::cgroup::Cgroup::new(cgroup_name, &options)?);
+	let cgroup_handle = cgroup.handle()?;
+	let cgroup_fd = cgroup_handle.open_fd()?;
 
-	let cgroup_handle = cgroup
-		.as_ref()
-		.map(super::cgroup::Cgroup::handle)
-		.transpose()?;
-	let cgroup_fd = cgroup_handle
-		.as_ref()
-		.map(super::cgroup::Handle::open_fd)
-		.transpose()?;
 	let (filesystem_sendfd, filesystem_recvfd) = if filesystem_separate {
 		let (sendfd, recvfd) = rustix::net::socketpair(
 			rustix::net::AddressFamily::UNIX,
@@ -168,7 +138,7 @@ pub(crate) async fn spawn(
 		(None, None)
 	};
 	let stdio = matches!(serve_arg.url.scheme(), Some("http+stdio"));
-	let init_arg = super::init::Arg {
+	let init_arg = crate::container::init::Arg {
 		serve: serve_arg.clone(),
 	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
@@ -216,8 +186,9 @@ pub(crate) async fn spawn(
 		}
 		inherit_fd(&mut command, filesystem_sendfd.as_raw_fd());
 	}
-	if let Some(cgroup_fd) = &cgroup_fd {
-		enter_cgroup_before_exec(&mut command, cgroup_fd.as_raw_fd());
+	{
+		let cgroup_fd = &cgroup_fd;
+		crate::cgroup::enter_before_exec(&mut command, cgroup_fd.as_raw_fd());
 	}
 	if let Some((_, guest, _, _)) = &user_namespace {
 		command
@@ -261,16 +232,7 @@ pub(crate) async fn spawn(
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);
 	}
-	if cgroup.is_none()
-		&& let Some(cpu) = arg.cpu
-	{
-		command.arg("--cgroup-cpu").arg(cpu.total()?.to_string());
-	}
-	if cgroup.is_none()
-		&& let Some(memory) = arg.memory
-	{
-		command.arg("--cgroup-memory").arg(memory.max.to_string());
-	}
+
 	command
 		.arg("--setenv")
 		.arg("HOME")
@@ -325,19 +287,15 @@ pub(crate) async fn spawn(
 			.arg(&mount.source)
 			.arg(&mount.target);
 	}
-	if let Some(cgroup_fd) = &cgroup_fd {
+	{
+		let cgroup_fd = &cgroup_fd;
 		command
 			.arg("--cgroup-entered")
 			.arg("--cgroup-fd")
 			.arg(cgroup_fd.as_raw_fd().to_string());
 		inherit_fd(&mut command, cgroup_fd.as_raw_fd());
 	}
-	if cgroup.is_none() {
-		command
-			.arg("--cgroup")
-			.arg(cgroup_name)
-			.arg("--cgroup-memory-oom-group");
-	}
+
 	if isolation.cgroup_readonly || arg.cpu_pool.is_some() {
 		command.arg("--cgroup-readonly");
 	}
@@ -346,18 +304,7 @@ pub(crate) async fn spawn(
 			.arg("--rlimit-nofile")
 			.arg(max_open_files.to_string());
 	}
-	if cgroup.is_none()
-		&& let Some(max_pids) = isolation.max_pids
-	{
-		command.arg("--cgroup-pids").arg(max_pids.to_string());
-	}
-	if cgroup.is_none()
-		&& let Some(memory_swap) = isolation.memory_swap
-	{
-		command
-			.arg("--cgroup-memory-swap")
-			.arg(memory_swap.to_string());
-	}
+
 	if let Some(seccomp) = isolation.seccomp {
 		command.arg("--seccomp").arg(seccomp.to_string());
 	}
@@ -417,14 +364,13 @@ pub(crate) async fn spawn(
 	// The child prepares its filesystem only after the network handshake completes.
 	let filesystem = match filesystem_recvfd {
 		Some(fd) => Some(
-			tokio::task::spawn_blocking(move || super::filesystem::receive(&fd))
+			tokio::task::spawn_blocking(move || crate::filesystem::receive(&fd))
 				.await
 				.map_err(|error| tg::error!(!error, "the filesystem task panicked"))??,
 		),
 		None => None,
 	};
 	let output = Output {
-		cgroup,
 		filesystem,
 		process: child,
 		storage,
@@ -539,30 +485,6 @@ fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
 			}
 			if libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
 				return Err(std::io::Error::last_os_error());
-			}
-			Ok(())
-		});
-	}
-}
-
-pub(crate) fn enter_cgroup_before_exec(command: &mut tokio::process::Command, cgroup: libc::c_int) {
-	// SAFETY: The pre_exec closure only invokes async-signal-safe system calls.
-	unsafe {
-		command.pre_exec(move || {
-			let fd = libc::openat(
-				cgroup,
-				c"cgroup.procs".as_ptr(),
-				libc::O_WRONLY | libc::O_CLOEXEC,
-			);
-			if fd < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let bytes = b"0\n";
-			let result = libc::write(fd, bytes.as_ptr().cast(), bytes.len());
-			let error = std::io::Error::last_os_error();
-			libc::close(fd);
-			if result != isize::try_from(bytes.len()).unwrap() {
-				return Err(error);
 			}
 			Ok(())
 		});
