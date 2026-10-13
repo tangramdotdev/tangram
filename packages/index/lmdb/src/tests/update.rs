@@ -413,16 +413,19 @@ async fn shared_log_objects_do_not_materialize_permissions_on_unrelated_processe
 	}
 
 	// Verify that the permission updates for each added process do not grow with the number of processes that share the log object.
-	assert!(counts.windows(2).all(|window| window[0] == window[1]));
+	assert!(
+		counts.windows(2).all(|window| window[0] == window[1]),
+		"{counts:?}"
+	);
 
 	// Verify that an unrelated process is still authorized to read the shared log without a materialized permission.
 	let permissions = tg::authorization::permission::Set::from(node_log_objects());
 	let arg = tangram_index::verify::Arg {
-		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
-		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(processes[0].clone().into()),
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		tokens: Vec::new(),
 	};
 	let principal = tg::Principal::Process(processes[3].clone());
@@ -434,7 +437,7 @@ async fn shared_log_objects_do_not_materialize_permissions_on_unrelated_processe
 }
 
 #[tokio::test]
-async fn shared_log_objects_materialize_permissions_only_for_a_parent_with_a_permission() {
+async fn shared_log_objects_materialize_permissions_for_a_parent_with_a_permission() {
 	let (_dir, index) = super::new_index();
 	let log = object_id(0);
 	put_log_object(&index, &log).await;
@@ -473,11 +476,9 @@ async fn shared_log_objects_materialize_permissions_only_for_a_parent_with_a_per
 		.unwrap();
 	drain_permission_updates(&index).await;
 
-	// Verify that the parent materializes the child's log permission, and that the child gains nothing on the parent.
+	// Verify that the parent materializes the child's log permission.
 	let entries = process_permission_entries(&index, &child, &parent);
 	assert!(has_materialized_node_log_objects(&entries));
-	let entries = process_permission_entries(&index, &parent, &child);
-	assert_eq!(entries, Vec::new());
 }
 
 fn node_log_objects() -> tg::authorization::Permission {

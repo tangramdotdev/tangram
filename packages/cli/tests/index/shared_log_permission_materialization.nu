@@ -33,12 +33,4 @@ assert ($permissions | any { |entry| $entry.resource == $first and $entry.subjec
 let redundant = $permissions
 	| where { |entry| $entry.resource in $processes and $entry.subject in $processes and $entry.resource != $entry.subject }
 
-# Report the cumulative cross-process writes among the first n processes.
-for n in 1..($processes | length) {
-	let prefix = $processes | first $n
-	let writes = $redundant
-		| where { |entry| $entry.resource in $prefix and $entry.subject in $prefix }
-		| length
-	print $'processes=($n) cross_process_writes=($writes)'
-}
 assert equal ($redundant | length) 0 'shared logs should not materialize permissions on unrelated processes'
