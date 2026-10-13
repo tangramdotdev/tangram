@@ -1,4 +1,4 @@
-use {std::path::PathBuf, tangram_client::prelude::*};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
@@ -50,48 +50,25 @@ impl Backend {
 	}
 }
 
-impl std::str::FromStr for Kind {
-	type Err = tg::Error;
-	fn from_str(value: &str) -> tg::Result<Self> {
-		match value {
-			"builtin" => Ok(Self::Builtin),
-			"bubblewrap" => Ok(Self::Bubblewrap),
-			"cloud-hypervisor" => Ok(Self::CloudHypervisor),
-			"gvisor" => Ok(Self::Gvisor),
-			"seatbelt" => Ok(Self::Seatbelt),
-			_ => Err(tg::error!(%value, "invalid sandbox backend")),
+impl Platform {
+	#[must_use]
+	pub const fn name(self) -> &'static str {
+		match self {
+			Self::Kvm => "kvm",
+			Self::Systrap => "systrap",
 		}
 	}
 }
 
-impl std::fmt::Display for Kind {
-	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		formatter.write_str(match self {
+impl Kind {
+	#[must_use]
+	pub const fn name(self) -> &'static str {
+		match self {
 			Self::Builtin => "builtin",
 			Self::Bubblewrap => "bubblewrap",
 			Self::CloudHypervisor => "cloud-hypervisor",
 			Self::Gvisor => "gvisor",
 			Self::Seatbelt => "seatbelt",
-		})
-	}
-}
-
-impl std::str::FromStr for Platform {
-	type Err = tg::Error;
-	fn from_str(value: &str) -> tg::Result<Self> {
-		match value {
-			"kvm" => Ok(Self::Kvm),
-			"systrap" => Ok(Self::Systrap),
-			_ => Err(tg::error!(%value, "invalid gvisor platform")),
 		}
-	}
-}
-
-impl std::fmt::Display for Platform {
-	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		formatter.write_str(match self {
-			Self::Kvm => "kvm",
-			Self::Systrap => "systrap",
-		})
 	}
 }

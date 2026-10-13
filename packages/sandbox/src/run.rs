@@ -1,10 +1,10 @@
 use {std::path::Path, tangram_client::prelude::*};
 
 #[cfg(target_os = "linux")]
-pub mod linux;
-#[cfg(target_os = "linux")]
-#[cfg(target_os = "linux")]
 mod validate;
+
+#[cfg(target_os = "linux")]
+pub mod linux;
 
 pub fn write_config<T: serde::Serialize>(path: &Path, arg: &T) -> tg::Result<()> {
 	let contents = serde_json::to_vec(arg).map_err(|error| {

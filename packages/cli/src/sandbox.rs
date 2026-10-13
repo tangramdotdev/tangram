@@ -168,6 +168,11 @@ impl Network {
 	}
 }
 
+pub(crate) fn parse_backend(value: &str) -> tg::Result<tangram_sandbox::Kind> {
+	serde_json::from_value(serde_json::Value::String(value.to_owned()))
+		.map_err(|error| tg::error!(!error, %value, "invalid sandbox backend"))
+}
+
 fn parse_network(s: &str) -> tg::Result<tg::sandbox::Network> {
 	match s {
 		"" | "default" | "true" => Ok(tg::sandbox::Network::Default),

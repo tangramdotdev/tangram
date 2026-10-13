@@ -144,7 +144,7 @@ pub(crate) async fn spawn(
 		.arg("sandbox")
 		.arg("run")
 		.arg("--backend")
-		.arg(arg.backend.kind().to_string());
+		.arg(arg.backend.kind().name());
 	match &arg.backend {
 		crate::Backend::Bubblewrap { path } => {
 			command.arg("--runtime-path").arg(path);
@@ -154,7 +154,7 @@ pub(crate) async fn spawn(
 				.arg("--runtime-path")
 				.arg(path)
 				.arg("--platform")
-				.arg(platform.to_string());
+				.arg(platform.name());
 		},
 		crate::Backend::Builtin | crate::Backend::CloudHypervisor(_) | crate::Backend::Seatbelt => {
 		},
@@ -332,7 +332,7 @@ pub(crate) async fn spawn(
 		.arg("sandbox")
 		.arg("init")
 		.arg("--backend")
-		.arg(arg.backend.kind().to_string())
+		.arg(arg.backend.kind().name())
 		.arg("--output-path")
 		.arg(&init_arg.serve.output_path)
 		.arg("--url")

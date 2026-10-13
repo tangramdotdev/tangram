@@ -1102,10 +1102,8 @@ fn build_cloud_hypervisor_mount_arg(
 		});
 	}
 	run::linux::Arg {
-		backend: crate::Kind::Builtin,
-		platform: crate::Platform::Kvm,
-		runtime_path: None,
 		as_pid_1: false,
+		backend: crate::Kind::Builtin,
 		binds,
 		cgroup: None,
 		cgroup_cpu: None,
@@ -1139,9 +1137,11 @@ fn build_cloud_hypervisor_mount_arg(
 		nice: 0,
 		overlay_sources: Vec::new(),
 		overlays: Vec::new(),
+		platform: crate::Platform::Kvm,
 		procs: Vec::new(),
 		rlimit_nofile: None,
 		ro_binds,
+		runtime_path: None,
 		seccomp: None,
 		setenvs: Vec::new(),
 		tmpfs: Vec::new(),

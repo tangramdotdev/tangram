@@ -6,12 +6,6 @@ pub struct Args {
 	#[arg(long)]
 	pub as_pid_1: bool,
 
-	#[arg(long, default_value = "kvm")]
-	pub platform: tangram_sandbox::Platform,
-
-	#[arg(long)]
-	pub runtime_path: Option<PathBuf>,
-
 	#[arg(action = clap::ArgAction::Append, long = "bind", num_args = 2)]
 	pub binds: Vec<PathBuf>,
 
@@ -108,6 +102,9 @@ pub struct Args {
 	#[arg(action = clap::ArgAction::Append, long = "overlay", num_args = 3)]
 	pub overlays: Vec<PathBuf>,
 
+	#[arg(long, default_value = "kvm", value_parser = parse_platform)]
+	pub platform: tangram_sandbox::Platform,
+
 	#[arg(action = clap::ArgAction::Append, long = "proc", num_args = 1)]
 	pub procs: Vec<PathBuf>,
 
@@ -116,6 +113,9 @@ pub struct Args {
 
 	#[arg(action = clap::ArgAction::Append, long = "ro-bind", num_args = 2)]
 	pub ro_binds: Vec<PathBuf>,
+
+	#[arg(long)]
+	pub runtime_path: Option<PathBuf>,
 
 	#[arg(long)]
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
@@ -164,10 +164,8 @@ impl Args {
 			.map(|[key, value]| tangram_sandbox::run::linux::SetEnv { key, value })
 			.collect();
 		tangram_sandbox::run::linux::Arg {
-			backend,
-			platform: self.platform,
-			runtime_path: self.runtime_path,
 			as_pid_1: self.as_pid_1,
+			backend,
 			binds,
 			cgroup: self.cgroup,
 			cgroup_cpu: self.cgroup_cpu,
@@ -201,9 +199,11 @@ impl Args {
 			nice: self.nice,
 			overlay_sources: self.overlay_sources,
 			overlays,
+			platform: self.platform,
 			procs: self.procs,
 			rlimit_nofile: self.rlimit_nofile,
 			ro_binds,
+			runtime_path: self.runtime_path,
 			seccomp: self.seccomp,
 			setenvs,
 			tmpfs: self.tmpfs,
@@ -230,4 +230,9 @@ fn chunk_triples<T>(values: Vec<T>) -> Vec<[T; 3]> {
 		output.push([first, iter.next().unwrap(), iter.next().unwrap()]);
 	}
 	output
+}
+
+fn parse_platform(value: &str) -> tangram_client::Result<tangram_sandbox::Platform> {
+	serde_json::from_value(serde_json::Value::String(value.to_owned()))
+		.map_err(|error| tangram_client::error!(!error, %value, "invalid gvisor platform"))
 }

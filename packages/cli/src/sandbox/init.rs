@@ -6,7 +6,7 @@ mod linux;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long, default_value = "builtin")]
+	#[arg(long, default_value = "builtin", value_parser = crate::sandbox::parse_backend)]
 	pub backend: tangram_sandbox::Kind,
 	#[cfg(target_os = "linux")]
 	#[command(flatten)]
