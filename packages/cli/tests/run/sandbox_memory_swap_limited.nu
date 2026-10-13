@@ -14,6 +14,6 @@ let script = r#'
 	cgroup="$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)"
 	test "$(cat "/sys/fs/cgroup${cgroup}/memory.swap.max")" = 0
 '#
-let output = ^tangram sandbox container run --index 0 --unshare-all --uid 0 --gid 0 --chdir / --cgroup $cgroup --cgroup-memory-swap 0 -- /bin/sh -c $script | complete
+let output = ^tangram sandbox run --backend builtin --index 0 --unshare-all --uid 0 --gid 0 --chdir / --cgroup $cgroup --cgroup-memory-swap 0 -- /bin/sh -c $script | complete
 success $output
 assert not ($cgroup_parent | path join $cgroup | path exists) 'the sandbox cgroup should be removed'

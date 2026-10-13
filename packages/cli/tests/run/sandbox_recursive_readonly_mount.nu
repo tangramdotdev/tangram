@@ -15,7 +15,7 @@ let script = r#'
 	mkdir "$1/nested"
 	mount -t tmpfs -o mode=0777 tmpfs "$1/nested"
 	printf original > "$1/nested/file"
-	exec tangram sandbox container run \
+	exec tangram sandbox run --backend builtin \
 		--index 0 \
 		--unshare-all \
 		--uid 0 \
