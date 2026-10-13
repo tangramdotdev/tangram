@@ -14,6 +14,11 @@ impl Messenger {
 	pub fn new(client: nats::Client) -> Self {
 		Self { client }
 	}
+
+	#[must_use]
+	pub fn connected(&self) -> bool {
+		self.client.connection_state() == nats::connection::State::Connected
+	}
 }
 
 impl tangram_messenger::Messenger for Messenger {

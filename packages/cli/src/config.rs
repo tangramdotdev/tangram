@@ -344,6 +344,9 @@ pub struct Advanced {
 #[serde(deny_unknown_fields)]
 pub struct Authentication {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache: Option<AuthenticationCache>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub root: Option<RootAuthentication>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -351,6 +354,18 @@ pub struct Authentication {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub users: Option<BoolOr<UserAuthentication>>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthenticationCache {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub capacity: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -3427,6 +3442,9 @@ fn resolve_advanced(source: Advanced) -> server::Advanced {
 
 fn resolve_authentication(source: Authentication) -> tg::Result<server::Authentication> {
 	let mut target = server::Authentication::default();
+	if let Some(source) = source.cache {
+		target.cache = resolve_authentication_cache(source);
+	}
 	if let Some(source) = source.root {
 		target.root = resolve_root_authentication(source);
 	}
@@ -3438,6 +3456,17 @@ fn resolve_authentication(source: Authentication) -> tg::Result<server::Authenti
 	}
 
 	Ok(target)
+}
+
+fn resolve_authentication_cache(source: AuthenticationCache) -> server::AuthenticationCache {
+	let mut target = server::AuthenticationCache::default();
+	if let Some(value) = source.capacity {
+		target.capacity = value;
+	}
+	if let Some(value) = source.ttl {
+		target.ttl = value;
+	}
+	target
 }
 
 fn resolve_root_authentication(source: RootAuthentication) -> server::RootAuthentication {
@@ -5855,6 +5884,20 @@ fn required<T>(value: Option<T>, field: &'static str) -> tg::Result<T> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn resolves_authentication_cache() {
+		let source: Authentication = serde_json::from_value(serde_json::json!({
+			"cache": { "capacity": 42, "ttl": 1.5 }
+		}))
+		.unwrap();
+		let target = resolve_authentication(source).unwrap();
+		assert_eq!(target.cache.capacity, 42);
+		assert_eq!(target.cache.ttl, Duration::from_millis(1500));
+		let target = resolve_authentication(Authentication::default()).unwrap();
+		assert_eq!(target.cache.capacity, 10_000);
+		assert_eq!(target.cache.ttl, Duration::from_secs(60));
+	}
 
 	#[test]
 	fn parses_and_resolves_object_cache_and_scylla_capacity() {

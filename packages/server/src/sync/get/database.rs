@@ -128,7 +128,13 @@ impl Session {
 			})
 			.await?;
 
-		Ok(output)
+		let (specifiers, users) = match output {
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(()) => return Ok(ControlFlow::Continue(())),
+		};
+		self.server.invalidate_user_authentication(&users).await;
+
+		Ok(ControlFlow::Break(specifiers))
 	}
 
 	fn sync_get_database_add_tag_target_tokens(
@@ -235,7 +241,12 @@ impl Session {
 		),
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		touched_at: i64,
-	) -> tg::Result<ControlFlow<ControlFlow<BTreeSet<tg::Specifier>>, crate::database::Error>> {
+	) -> tg::Result<
+		ControlFlow<
+			ControlFlow<(BTreeSet<tg::Specifier>, Vec<tg::user::Id>)>,
+			crate::database::Error,
+		>,
+	> {
 		let (specifiers, replacement_roots, tag_targets) = authorized_state;
 		let batch_size = self.server.config.sync.get.database.batch_size;
 		let invalidated_specifiers = nodes
@@ -383,9 +394,12 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(ControlFlow::Break(
+		let users = crate::authentication::cache::deleted_users(&batch);
+
+		Ok(ControlFlow::Break(ControlFlow::Break((
 			invalidated_specifiers,
-		)))
+			users,
+		))))
 	}
 
 	async fn sync_get_database_authorize(

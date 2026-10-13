@@ -47,6 +47,15 @@ impl Messenger {
 		}
 	}
 
+	#[must_use]
+	pub(crate) fn connected(&self) -> bool {
+		match &self.inner {
+			Inner::Memory(_) => true,
+			#[cfg(feature = "nats")]
+			Inner::Nats(messenger) => messenger.connected(),
+		}
+	}
+
 	pub async fn publish_to_region<T>(
 		&self,
 		region: Option<&str>,
@@ -61,6 +70,31 @@ impl Messenger {
 			Inner::Memory(messenger) => messenger.publish(subject, payload).await,
 			#[cfg(feature = "nats")]
 			Inner::Nats(messenger) => messenger.publish(subject, payload).await,
+		}
+	}
+
+	pub async fn subscribe_to_region<T>(
+		&self,
+		region: Option<&str>,
+		subject: String,
+	) -> Result<
+		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + Send + 'static,
+		messenger::Error,
+	>
+	where
+		T: messenger::Payload,
+	{
+		let subject = self.subject_name(region, subject);
+		match &self.inner {
+			Inner::Memory(messenger) => messenger
+				.subscribe(subject)
+				.await
+				.map(futures::StreamExt::boxed),
+			#[cfg(feature = "nats")]
+			Inner::Nats(messenger) => messenger
+				.subscribe(subject)
+				.await
+				.map(futures::StreamExt::boxed),
 		}
 	}
 
@@ -103,18 +137,8 @@ impl messenger::Messenger for Messenger {
 	where
 		T: messenger::Payload,
 	{
-		let subject = self.subject_name(self.region.as_deref(), subject);
-		match &self.inner {
-			Inner::Memory(messenger) => messenger
-				.subscribe(subject)
-				.await
-				.map(futures::StreamExt::boxed),
-			#[cfg(feature = "nats")]
-			Inner::Nats(messenger) => messenger
-				.subscribe(subject)
-				.await
-				.map(futures::StreamExt::boxed),
-		}
+		self.subscribe_to_region(self.region.as_deref(), subject)
+			.await
 	}
 
 	async fn queue_subscribe<T>(

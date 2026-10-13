@@ -170,6 +170,7 @@ impl Network {
 }
 
 /// Parse a duration from fractional seconds.
+#[cfg(target_os = "linux")]
 pub fn parse_duration(value: &str) -> tg::Result<std::time::Duration> {
 	let seconds = value
 		.parse::<f64>()

@@ -67,6 +67,12 @@ impl Session {
 			})
 			.await?;
 
+		self.server
+			.invalidate_authentication(crate::authentication::cache::Invalidation::Principal(
+				tg::Principal::Runner(runner),
+			))
+			.await;
+
 		Ok(Some(()))
 	}
 

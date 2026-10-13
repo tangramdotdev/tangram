@@ -73,6 +73,14 @@ impl Session {
 			})
 			.await?;
 
+		let hash = blake3::Hash::from_hex(token)
+			.map_err(|error| tg::error!(!error, "failed to parse the token hash"))?;
+		self.server
+			.invalidate_authentication(crate::authentication::cache::Invalidation::Token(
+				*hash.as_bytes(),
+			))
+			.await;
+
 		Ok(())
 	}
 

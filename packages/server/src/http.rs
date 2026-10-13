@@ -596,7 +596,7 @@ impl Server {
 				return response;
 			},
 		};
-		context.billing_ready = authentication.billing_ready;
+		context.billing_ready = authentication.billing_ready.unwrap_or(false);
 		context.principal = authentication.principal;
 
 		let session = self.session(&context);

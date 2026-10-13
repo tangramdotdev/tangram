@@ -61,9 +61,16 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		let Some(batch) = batch else {
+		let Some((batch, users)) = batch else {
 			return Ok(());
 		};
+		for user in users {
+			self.server
+				.invalidate_authentication(crate::authentication::cache::Invalidation::Principal(
+					tg::Principal::User(user),
+				))
+				.await;
+		}
 		self.server
 			.spawn_publish_database_index_queue_notification_task();
 		self.server.index.batch(batch).await??;
@@ -77,7 +84,9 @@ impl Session {
 		event: &str,
 		created_at: i64,
 		update: Option<&CustomerUpdate>,
-	) -> tg::Result<ControlFlow<Option<tangram_index::batch::Arg>, crate::database::Error>> {
+	) -> tg::Result<
+		ControlFlow<Option<(tangram_index::batch::Arg, Vec<tg::user::Id>)>, crate::database::Error>,
+	> {
 		let p = transaction.p();
 		let statement = format!(
 			"insert into billing_webhooks (id, created_at) values ({p}1, {p}2) on conflict (id) do nothing;"
@@ -92,6 +101,7 @@ impl Session {
 		}
 
 		let mut batch = tangram_index::batch::Arg::default();
+		let mut affected_users = Vec::new();
 		if let Some(update) = update {
 			#[derive(db::row::Deserialize)]
 			struct OrganizationRow {
@@ -129,6 +139,7 @@ impl Session {
 				.await;
 			let users = crate::database::retry!(result, "failed to get the billing users");
 
+			affected_users.extend(users.iter().map(|row| row.id.clone()));
 			let billing_ready = update.ready;
 			batch.items.extend(organizations.into_iter().map(|row| {
 				tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
@@ -167,7 +178,7 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(Some(batch)))
+		Ok(ControlFlow::Break(Some((batch, affected_users))))
 	}
 
 	async fn is_billing_webhook_event_processed(&self, event: &str) -> tg::Result<bool> {

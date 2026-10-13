@@ -9,7 +9,13 @@ pub(crate) fn create() -> (tg::token::Id, String) {
 }
 
 pub(crate) fn hash(token: &str) -> String {
-	blake3::hash(token.as_bytes()).to_hex().to_string()
+	blake3::Hash::from_bytes(hash_bytes(token))
+		.to_hex()
+		.to_string()
+}
+
+pub(crate) fn hash_bytes(token: &str) -> [u8; 32] {
+	*blake3::hash(token.as_bytes()).as_bytes()
 }
 
 pub(crate) fn matches(actual: &str, expected: &str) -> bool {

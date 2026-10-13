@@ -100,7 +100,13 @@ impl Session {
 			})
 			.await?;
 
-		Ok(output)
+		let users = match output {
+			ControlFlow::Break(users) => users,
+			ControlFlow::Continue(()) => return Ok(ControlFlow::Continue(())),
+		};
+		self.server.invalidate_user_authentication(&users).await;
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn post_tag_batch_local_with_transaction(
@@ -109,7 +115,7 @@ impl Session {
 		arg: tg::tag::batch::Arg,
 		ids_by_specifier: BTreeMap<tg::Specifier, Option<tg::Id>>,
 		touched_at: i64,
-	) -> tg::Result<ControlFlow<ControlFlow<()>, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<ControlFlow<Vec<tg::user::Id>>, crate::database::Error>> {
 		let batch_size = self.server.config.sync.get.database.batch_size;
 		match Self::verify_ids_for_specifiers_with_transaction(
 			transaction,
@@ -195,7 +201,9 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(ControlFlow::Break(())))
+		let users = crate::authentication::cache::deleted_users(&batch);
+
+		Ok(ControlFlow::Break(ControlFlow::Break(users)))
 	}
 
 	async fn post_tag_batch_primary_region(&self, mut arg: tg::tag::batch::Arg) -> tg::Result<()> {

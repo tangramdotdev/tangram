@@ -189,11 +189,20 @@ pub struct Advanced {
 
 #[derive(Clone, Debug, Default)]
 pub struct Authentication {
+	pub cache: AuthenticationCache,
+
 	pub root: RootAuthentication,
 
 	pub tokens: AuthenticationTokens,
 
 	pub users: Option<UserAuthentication>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AuthenticationCache {
+	pub capacity: u64,
+
+	pub ttl: Duration,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -328,6 +337,15 @@ pub struct TokenPublicKey {
 	pub name: String,
 
 	pub path: Option<PathBuf>,
+}
+
+impl Default for AuthenticationCache {
+	fn default() -> Self {
+		Self {
+			capacity: 10_000,
+			ttl: Duration::from_secs(60),
+		}
+	}
 }
 
 impl Default for AuthenticationTokens {

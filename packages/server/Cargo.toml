@@ -36,7 +36,7 @@ vsock = ["dep:tokio-vsock", "tangram_client/vsock", "tangram_sandbox/vsock"]
 
 [lib]
 doctest = false
-test = false
+test = true
 
 [lints]
 workspace = true
@@ -67,6 +67,7 @@ itertools = { workspace = true }
 jiff = { workspace = true }
 libc = { workspace = true }
 mime = { workspace = true }
+moka = { workspace = true }
 notify = { workspace = true }
 num = { workspace = true }
 opentelemetry = { workspace = true }

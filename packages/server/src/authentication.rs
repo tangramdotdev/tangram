@@ -9,8 +9,11 @@ use {
 
 mod token;
 
-pub(crate) struct Authentication {
-	pub billing_ready: bool,
+pub(crate) mod cache;
+
+#[derive(Clone)]
+pub(crate) struct Entry {
+	pub billing_ready: Option<bool>,
 	pub principal: tg::Principal,
 }
 
@@ -28,21 +31,6 @@ pub(crate) struct Process {
 pub(crate) struct Sandbox {
 	pub location: tg::Location,
 	pub token: Option<String>,
-}
-
-#[derive(db::row::Deserialize)]
-struct UserEmailRow {
-	email: String,
-}
-
-#[derive(db::row::Deserialize)]
-struct UserRow {
-	billing_ready: bool,
-	#[tangram_database(as = "db::value::FromStr")]
-	id: tg::user::Id,
-	name: String,
-	#[tangram_database(as = "db::value::FromStr")]
-	specifier: tg::Specifier,
 }
 
 impl Session {
@@ -250,25 +238,25 @@ impl Server {
 		&self,
 		origin: Origin,
 		token: Option<&str>,
-	) -> tg::Result<Authentication> {
+	) -> tg::Result<Entry> {
 		let authentication = self.authenticate_inner(token).await?;
 		if self.origin_can_authenticate_as(origin, &authentication.principal)? {
 			return Ok(authentication);
 		}
 
-		Ok(Authentication {
-			billing_ready: false,
+		Ok(Entry {
+			billing_ready: None,
 			principal: tg::Principal::Anonymous,
 		})
 	}
 
-	async fn authenticate_inner(&self, token: Option<&str>) -> tg::Result<Authentication> {
+	async fn authenticate_inner(&self, token: Option<&str>) -> tg::Result<Entry> {
 		if let Some((token, root_token)) =
 			token.zip(self.config().authentication.root.token.as_deref())
 			&& crate::token::matches(token, root_token)
 		{
-			return Ok(Authentication {
-				billing_ready: false,
+			return Ok(Entry {
+				billing_ready: None,
 				principal: tg::Principal::Root,
 			});
 		}
@@ -277,8 +265,8 @@ impl Server {
 			let principal = self
 				.authenticate_token(value)
 				.unwrap_or(tg::Principal::Anonymous);
-			return Ok(Authentication {
-				billing_ready: false,
+			return Ok(Entry {
+				billing_ready: None,
 				principal,
 			});
 		}
@@ -292,14 +280,14 @@ impl Server {
 		}) {
 			let state = self.runner.state();
 			let Some(sandbox) = state.sandboxes().get(sandbox_index) else {
-				return Ok(Authentication {
-					billing_ready: false,
+				return Ok(Entry {
+					billing_ready: None,
 					principal: tg::Principal::Anonymous,
 				});
 			};
 			let Some(process) = sandbox.processes.get(&id) else {
-				return Ok(Authentication {
-					billing_ready: false,
+				return Ok(Entry {
+					billing_ready: None,
 					principal: tg::Principal::Anonymous,
 				});
 			};
@@ -311,42 +299,27 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "the process index task panicked"))?
 				.map_err(|error| tg::error!(!error, %id, "failed to index the process"))?;
-			return Ok(Authentication {
-				billing_ready: false,
+			return Ok(Entry {
+				billing_ready: None,
 				principal: tg::Principal::Process(id),
 			});
 		}
 
-		if let Some(token) = token {
-			match self.authenticate_user(token).await {
-				Ok(Some((billing_ready, user))) => {
-					return Ok(Authentication {
-						billing_ready,
-						principal: tg::Principal::User(user.id),
-					});
-				},
-				Ok(None) => (),
-				Err(error) => {
-					return Err(error);
-				},
-			}
-			if let Some(runner) = self.authenticate_runner(token).await? {
-				return Ok(Authentication {
-					billing_ready: false,
-					principal: tg::Principal::Runner(runner),
-				});
-			}
+		if let Some(token) = token
+			&& let Some(entry) = self.authenticate_token_cached(token).await?
+		{
+			return Ok(entry);
 		}
 
 		if self.config().authentication.users.is_none() {
-			return Ok(Authentication {
-				billing_ready: false,
+			return Ok(Entry {
+				billing_ready: None,
 				principal: tg::Principal::Root,
 			});
 		}
 
-		Ok(Authentication {
-			billing_ready: false,
+		Ok(Entry {
+			billing_ready: None,
 			principal: tg::Principal::Anonymous,
 		})
 	}
@@ -374,36 +347,6 @@ impl Server {
 		};
 
 		Ok(can_authenticate)
-	}
-
-	async fn authenticate_runner(&self, token: &str) -> tg::Result<Option<tg::runner::Id>> {
-		let token = crate::token::hash(token);
-		let runner = self
-			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				let token = token.clone();
-				async move { Self::authenticate_runner_with_transaction(transaction, &token).await }
-					.boxed()
-			})
-			.await?
-			.map(|runner| runner.parse())
-			.transpose()?;
-
-		Ok(runner)
-	}
-
-	async fn authenticate_runner_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		token: &str,
-	) -> tg::Result<ControlFlow<Option<String>, crate::database::Error>> {
-		let p = transaction.p();
-		let statement = format!("select runner from runner_tokens where token = {p}1;");
-		let result = transaction
-			.query_optional_value_into::<String>(statement.into(), db::params![token])
-			.await;
-		let runner = crate::database::retry!(result, "failed to execute the statement");
-
-		Ok(ControlFlow::Break(runner))
 	}
 
 	fn authenticate_token(&self, value: &str) -> Option<tg::Principal> {
@@ -446,67 +389,79 @@ impl Server {
 		Some(principal)
 	}
 
-	pub(crate) async fn authenticate_user(
-		&self,
-		token: &str,
-	) -> tg::Result<Option<(bool, tg::user::Data)>> {
-		let token = crate::token::hash(token);
-		let row = self
-			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				let token = token.clone();
-				async move { Self::authenticate_user_with_transaction(transaction, &token).await }
-					.boxed()
-			})
-			.await?;
-		let Some((user, rows)) = row else {
-			return Ok(None);
-		};
-		let emails = rows.into_iter().map(|row| row.email).collect();
-		let billing_ready = user.billing_ready;
-		let user = tg::user::Data {
-			emails,
-			id: user.id,
-			name: user.name,
-			specifier: user.specifier,
-		};
+	async fn authenticate_token_cached(&self, token: &str) -> tg::Result<Option<Entry>> {
+		let hash = crate::token::hash_bytes(token);
+		if let Some(entry) = self.authentication_cache.get(&hash).await {
+			return Ok(Some(entry));
+		}
+		let entry = self.authenticate_token_from_database(&hash).await?;
+		if let Some(entry) = &entry {
+			self.authentication_cache.insert(hash, entry.clone()).await;
+		}
 
-		Ok(Some((billing_ready, user)))
+		Ok(entry)
 	}
 
-	async fn authenticate_user_with_transaction(
+	async fn authenticate_token_from_database(
+		&self,
+		hash: &cache::Hash,
+	) -> tg::Result<Option<Entry>> {
+		let hash = blake3::Hash::from_bytes(*hash).to_hex().to_string();
+		let entry = self
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let hash = hash.clone();
+				async move {
+					Self::authenticate_token_from_database_with_transaction(transaction, &hash)
+						.await
+				}
+				.boxed()
+			})
+			.await?;
+
+		Ok(entry)
+	}
+
+	async fn authenticate_token_from_database_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
-		token: &str,
-	) -> tg::Result<ControlFlow<Option<(UserRow, Vec<UserEmailRow>)>, crate::database::Error>> {
+		hash: &str,
+	) -> tg::Result<ControlFlow<Option<Entry>, crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			billing_ready: bool,
+			id: String,
+			kind: String,
+		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
-				select users.id, users.name, specifiers.specifier, users.billing_ready
-				from users
-				join specifiers on specifiers.id = users.id
-				join user_tokens on user_tokens."user" = users.id
-				where user_tokens.token = {p}1;
+				select users.billing_ready, users.id, 'user' as kind
+				from user_tokens join users on users.id = user_tokens."user"
+				where user_tokens.token = {p}1
+				union all
+				select false as billing_ready, runner_tokens.runner as id, 'runner' as kind
+				from runner_tokens join runners on runners.id = runner_tokens.runner
+				where runner_tokens.token = {p}1
+				order by kind desc limit 1;
 			"#
 		);
 		let result = transaction
-			.query_optional_into::<UserRow>(statement.into(), db::params![token])
+			.query_optional_into::<Row>(statement.into(), db::params![hash])
 			.await;
-		let Some(user) = crate::database::retry!(result, "failed to execute the statement") else {
+		let row = crate::database::retry!(result, "failed to authenticate the token");
+		let Some(row) = row else {
 			return Ok(ControlFlow::Break(None));
 		};
-		let statement = formatdoc!(
-			r#"
-				select email
-				from user_emails
-				where user_emails."user" = {p}1
-				order by email;
-			"#
-		);
-		let result = transaction
-			.query_all_into::<UserEmailRow>(statement.into(), db::params![user.id.to_string()])
-			.await;
-		let rows = crate::database::retry!(result, "failed to execute the statement");
+		let principal = match row.kind.as_str() {
+			"runner" => tg::Principal::Runner(row.id.parse()?),
+			"user" => tg::Principal::User(row.id.parse()?),
+			_ => return Err(tg::error!("invalid token principal kind")),
+		};
+		let entry = Entry {
+			billing_ready: row.billing_ready.then_some(true),
+			principal,
+		};
 
-		Ok(ControlFlow::Break(Some((user, rows))))
+		Ok(ControlFlow::Break(Some(entry)))
 	}
 }

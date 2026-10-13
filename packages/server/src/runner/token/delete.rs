@@ -73,7 +73,13 @@ impl Session {
 			})
 			.await?;
 
-		Ok(deleted.then_some(()))
+		if let Some(hash) = deleted {
+			self.server
+				.invalidate_authentication(crate::authentication::cache::Invalidation::Token(hash))
+				.await;
+		}
+
+		Ok(deleted.map(|_| ()))
 	}
 
 	async fn try_delete_runner_token_primary_region(
@@ -103,23 +109,28 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		runner: &tg::runner::Id,
 		token: &tg::token::Id,
-	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<crate::authentication::cache::Hash>, crate::database::Error>>
+	{
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				delete from runner_tokens
-				where id = {p}1 and runner = {p}2;
+				where id = {p}1 and runner = {p}2 returning token;
 			"
 		);
 		let result = transaction
-			.execute(
+			.query_optional_value_into::<String>(
 				statement.into(),
 				db::params![token.to_string(), runner.to_string()],
 			)
 			.await;
-		let count = crate::database::retry!(result, "failed to execute the statement");
+		let hash = crate::database::retry!(result, "failed to execute the statement");
+		let hash = hash
+			.map(|hash| blake3::Hash::from_hex(hash).map(|hash| *hash.as_bytes()))
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the token hash"))?;
 
-		Ok(ControlFlow::Break(count == 1))
+		Ok(ControlFlow::Break(hash))
 	}
 
 	pub(crate) async fn try_delete_runner_token_request(

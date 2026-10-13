@@ -117,6 +117,7 @@ pub enum Shutdown {
 pub struct State {
 	archive: Option<Archive>,
 	archive_tasks: tangram_futures::task::Set<tg::Result<()>>,
+	authentication_cache: Arc<self::authentication::cache::Cache>,
 	authentication_tokens: Tokens,
 	authorization_tokens: Tokens,
 	billing: Option<self::billing::Billing>,
@@ -201,6 +202,11 @@ impl Server {
 			.validate()
 			.map_err(|source| tg::error!(!source, "invalid HTTP/2 configuration"))?;
 		config.sync.control.validate()?;
+		if config.authentication.cache.capacity != 0 && config.authentication.cache.ttl.is_zero() {
+			return Err(tg::error!(
+				"the authentication cache ttl must be greater than zero"
+			));
+		}
 		if config.scheduler.message_ack_timeout.is_zero() {
 			return Err(tg::error!(
 				"the scheduler message ack timeout must be greater than zero"
@@ -1475,6 +1481,13 @@ impl Server {
 		// Create the library.
 		let library = Mutex::new(None);
 
+		// Create the authentication cache.
+		let authentication_cache = Arc::new(self::authentication::cache::Cache::new(
+			&config.authentication.cache,
+		));
+		let (authentication_cache_events, authentication_cache_events_receiver) =
+			tokio::sync::broadcast::channel(16);
+
 		// Create the messenger.
 		let instance = config.instance.clone();
 		let region = config.region.clone();
@@ -1495,7 +1508,31 @@ impl Server {
 				}
 				#[cfg(feature = "nats")]
 				{
-					let mut options = async_nats::ConnectOptions::new();
+					let cache = authentication_cache.clone();
+					let events = authentication_cache_events.clone();
+					let mut options =
+						async_nats::ConnectOptions::new().event_callback(move |event| {
+							let cache = cache.clone();
+							let events = events.clone();
+							async move {
+								match event {
+									async_nats::Event::ClientError(error) => {
+										tracing::error!(%error, "the messenger client failed; disabling authentication caching");
+									},
+									async_nats::Event::Closed
+									| async_nats::Event::Connected
+									| async_nats::Event::Disconnected
+									| async_nats::Event::Draining
+									| async_nats::Event::SlowConsumer(_) => {},
+									async_nats::Event::LameDuckMode => return,
+									async_nats::Event::ServerError(error) => {
+										tracing::error!(%error, "the messenger server failed; disabling authentication caching");
+									},
+								}
+								cache.set_ready(false);
+								let _ = events.send(());
+							}
+						});
 					if let (Some(username), Some(password)) = (&nats.username, &nats.password) {
 						options = options.user_and_password(username.clone(), password.clone());
 					}
@@ -1684,6 +1721,7 @@ impl Server {
 		let server = Self(Arc::new(State {
 			archive,
 			archive_tasks,
+			authentication_cache,
 			authentication_tokens,
 			authorization_tokens,
 			billing,
@@ -1923,6 +1961,23 @@ impl Server {
 				})
 			});
 
+		// Subscribe to authentication invalidations before accepting requests.
+		let (authentication_cache_started_sender, authentication_cache_started) =
+			tokio::sync::oneshot::channel();
+		let authentication_cache_task = Task::spawn({
+			let server = server.clone();
+			|_| async move {
+				let _events = authentication_cache_events;
+				server
+					.authentication_cache_task(
+						authentication_cache_events_receiver,
+						authentication_cache_started_sender,
+					)
+					.await;
+			}
+		});
+		let _ = authentication_cache_started.await;
+
 		// Spawn the HTTP task.
 		let http_listeners = if server.config.roles.contains(&self::config::Role::Api) {
 			let config = &server.config.http;
@@ -2095,6 +2150,10 @@ impl Server {
 					}
 					tracing::trace!("runner task");
 				}
+
+				// Stop the authentication cache subscriber.
+				authentication_cache_task.abort();
+				server.authentication_cache.set_ready(false);
 
 				// Abort the sandbox tasks.
 				server.sandbox_tasks.abort_all();
