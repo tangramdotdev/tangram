@@ -42,14 +42,10 @@ impl Server {
 						.as_ref()
 						.ok_or_else(|| tg::error!("vm isolation is not configured"))?;
 					let image_path = self
-						.sandbox_vm_image
+						.sandbox_assets.image
 						.clone()
 						.ok_or_else(|| tg::error!("vm image is not available"))?;
-					let snapshot = Some(
-						vm.snapshot
-							.clone()
-							.unwrap_or_else(|| self.vm_snapshot_path()),
-					);
+					let snapshot = self.sandbox_assets.snapshot.clone();
 					Ok(tangram_sandbox::Isolation::Vm(
 						tangram_sandbox::CloudHypervisor {
 							cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
@@ -126,12 +122,8 @@ impl Server {
 			));
 		}
 		if let Some(vm) = &isolation.vm {
-			let image_path = self.sandbox_vm_image.clone()?;
-			let snapshot = Some(
-				vm.snapshot
-					.clone()
-					.unwrap_or_else(|| self.vm_snapshot_path()),
-			);
+			let image_path = self.sandbox_assets.image.clone()?;
+			let snapshot = self.sandbox_assets.snapshot.clone();
 			return Some(tangram_sandbox::Isolation::Vm(
 				tangram_sandbox::CloudHypervisor {
 					cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),

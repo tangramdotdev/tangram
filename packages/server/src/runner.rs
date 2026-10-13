@@ -20,6 +20,7 @@ use {
 #[cfg(test)]
 mod tests;
 
+pub(crate) mod assets;
 pub(crate) mod capacity;
 pub(crate) mod process;
 #[cfg(target_os = "linux")]

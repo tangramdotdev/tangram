@@ -153,14 +153,8 @@ pub struct State {
 	remote_object_put_tasks: tangram_futures::task::Set<()>,
 	remote_process_put_tasks: tangram_futures::task::Set<()>,
 	runner: self::runner::Runner,
-	sandbox_container_root: PathBuf,
-	sandbox_seatbelt_root: PathBuf,
+	sandbox_assets: self::runner::assets::Assets,
 	sandbox_tasks: self::sandbox::Tasks,
-	sandbox_vm_image: Option<PathBuf>,
-	#[cfg(target_os = "linux")]
-	sandbox_vm_image_lock: tokio::sync::Mutex<bool>,
-	#[cfg(target_os = "linux")]
-	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
 	sync_control_clients: self::sync::control::Clients,
 	sync_control_tasks: tangram_futures::task::Set<tg::Result<()>>,
@@ -1625,31 +1619,10 @@ impl Server {
 		// Create the remote list tasks.
 		let remote_list_tasks = tangram_futures::task::Map::default();
 
-		// Create the sandbox container root.
-		let sandbox_container_root_path = path.join("container/root");
-		let sandbox_seatbelt_root_path = path.join("seatbelt/root");
+		// Prepare the runner's reusable sandbox assets.
 		let tangram_path = tangram_util::env::current_exe()
 			.map_err(|error| tg::error!(!error, "failed to get the tangram executable path"))?;
-		let sandbox_container_root = sandbox_container_root_path.clone();
-		let sandbox_seatbelt_root = sandbox_seatbelt_root_path.clone();
-		let sandbox_vm_image = config
-			.sandbox
-			.isolation
-			.vm
-			.as_ref()
-			.map(|_| path.join("vm/image.squashfs"));
-		#[cfg(target_os = "linux")]
-		tangram_sandbox::root::create(&tangram_sandbox::root::Arg {
-			build_attempts: config.sandbox.build_attempts,
-			path: sandbox_container_root.clone(),
-			tangram_path: tangram_path.clone(),
-			vm: sandbox_vm_image.is_some(),
-		})?;
-		#[cfg(target_os = "macos")]
-		tangram_sandbox::seatbelt::root::create(&tangram_sandbox::seatbelt::root::Arg {
-			path: sandbox_seatbelt_root.clone(),
-			tangram_path: tangram_path.clone(),
-		})?;
+		let sandbox_assets = self::runner::assets::Assets::new(&path, &tangram_path, &config)?;
 
 		// Create the cache.
 		let cache = match &config.cache {
@@ -1799,14 +1772,8 @@ impl Server {
 			remote_object_put_tasks,
 			remote_process_put_tasks,
 			runner,
-			sandbox_container_root,
-			sandbox_seatbelt_root,
+			sandbox_assets,
 			sandbox_tasks,
-			sandbox_vm_image,
-			#[cfg(target_os = "linux")]
-			sandbox_vm_image_lock: tokio::sync::Mutex::new(false),
-			#[cfg(target_os = "linux")]
-			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			shutdown,
 			sync_control_clients: self::sync::control::Clients::default(),
 			sync_control_tasks: tangram_futures::task::Set::default(),
@@ -2539,10 +2506,6 @@ impl Server {
 		self.path.join("tmp")
 	}
 
-	#[must_use]
-	pub fn vm_snapshot_path(&self) -> PathBuf {
-		self.path.join("vm/snapshot")
-	}
 }
 
 impl From<Owned> for Shared {

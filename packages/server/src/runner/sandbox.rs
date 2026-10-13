@@ -696,9 +696,9 @@ impl Session {
 
 		let rootfs_path = match &isolation {
 			tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Vm(_) => {
-				self.server.sandbox_container_root.clone()
+				self.server.sandbox_assets.root.clone()
 			},
-			tangram_sandbox::Isolation::Seatbelt(_) => self.server.sandbox_seatbelt_root.clone(),
+			tangram_sandbox::Isolation::Seatbelt(_) => self.server.sandbox_assets.root.clone(),
 		};
 
 		#[cfg(target_os = "linux")]
