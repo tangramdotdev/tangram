@@ -89,7 +89,7 @@ pub struct Args {
 	pub index: u64,
 
 	#[arg(long)]
-	pub network: Option<tangram_sandbox::container::run::Network>,
+	pub network: Option<tangram_sandbox::run::linux::Network>,
 
 	#[arg(long)]
 	pub network_fd: Option<i32>,
@@ -135,15 +135,15 @@ pub struct Args {
 }
 
 impl Args {
-	fn into_arg(self) -> tangram_sandbox::container::run::Arg {
+	fn into_arg(self) -> tangram_sandbox::run::linux::Arg {
 		let binds = super::chunk_pairs(self.binds)
 			.into_iter()
-			.map(|[source, target]| tangram_sandbox::container::run::Bind { source, target })
+			.map(|[source, target]| tangram_sandbox::run::linux::Bind { source, target })
 			.collect();
 		let overlays = super::chunk_triples(self.overlays)
 			.into_iter()
 			.map(
-				|[upperdir, workdir, target]| tangram_sandbox::container::run::Overlay {
+				|[upperdir, workdir, target]| tangram_sandbox::run::linux::Overlay {
 					target,
 					upperdir,
 					workdir,
@@ -152,13 +152,13 @@ impl Args {
 			.collect();
 		let ro_binds = super::chunk_pairs(self.ro_binds)
 			.into_iter()
-			.map(|[source, target]| tangram_sandbox::container::run::Bind { source, target })
+			.map(|[source, target]| tangram_sandbox::run::linux::Bind { source, target })
 			.collect();
 		let setenvs = super::chunk_pairs(self.setenvs)
 			.into_iter()
-			.map(|[key, value]| tangram_sandbox::container::run::SetEnv { key, value })
+			.map(|[key, value]| tangram_sandbox::run::linux::SetEnv { key, value })
 			.collect();
-		tangram_sandbox::container::run::Arg {
+		tangram_sandbox::run::linux::Arg {
 			as_pid_1: self.as_pid_1,
 			binds,
 			cgroup: self.cgroup,
@@ -209,6 +209,6 @@ impl Args {
 impl Cli {
 	pub fn command_sandbox_container_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = args.into_arg();
-		tangram_sandbox::container::run::run(arg)
+		tangram_sandbox::run::linux::run(arg)
 	}
 }

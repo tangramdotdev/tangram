@@ -580,7 +580,7 @@ mod tests {
 		let executable = std::env::current_exe().unwrap();
 		let status = std::process::Command::new(executable)
 			.arg("--exact")
-			.arg("container::seccomp::tests::install_default_policy")
+			.arg("builtin::seccomp::tests::install_default_policy")
 			.arg("--nocapture")
 			.env("TANGRAM_SECCOMP_TEST_CHILD", "1")
 			.status()

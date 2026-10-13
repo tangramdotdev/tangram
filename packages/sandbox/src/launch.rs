@@ -138,7 +138,7 @@ pub(crate) async fn spawn(
 		(None, None)
 	};
 	let stdio = matches!(serve_arg.url.scheme(), Some("http+stdio"));
-	let init_arg = crate::container::init::Arg {
+	let init_arg = crate::init::linux::Arg {
 		serve: serve_arg.clone(),
 	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);

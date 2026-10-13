@@ -1,6 +1,7 @@
 use std::net::Ipv4Addr;
 
 pub(crate) mod host;
+pub(crate) mod linux;
 pub(crate) mod passt;
 pub(crate) mod pasta;
 pub(crate) mod tap;

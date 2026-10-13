@@ -1,5 +1,5 @@
 use {
-	crate::{Sandbox, container, cloud_hypervisor::virtiofs},
+	crate::{Sandbox, builtin, cloud_hypervisor::virtiofs, run},
 	std::{
 		collections::hash_map::DefaultHasher,
 		ffi::{CStr, CString, OsStr},
@@ -1009,16 +1009,16 @@ fn cloud_hypervisor_child_main(
 		log_stdio(&host_vm_path_from_root(&arg.path).join("cloud-hypervisor.log"))?;
 
 	let mount_arg = build_cloud_hypervisor_mount_arg(arg, cloud_hypervisor_bin, passt_bin);
-	container::mount::apply(&mount_arg, Some(&chroot))?;
+	builtin::mount::apply(&mount_arg, Some(&chroot))?;
 	set_no_new_privs()?;
 
-	container::mount::change_directory(&chroot)?;
+	builtin::mount::change_directory(&chroot)?;
 	let result = unsafe { libc::chroot(c".".as_ptr()) };
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "chroot failed"));
 	}
-	container::mount::change_directory(Path::new("/"))?;
+	builtin::mount::change_directory(Path::new("/"))?;
 
 	setresgid(user.gid)?;
 	setresuid(user.uid)?;
@@ -1037,71 +1037,71 @@ fn build_cloud_hypervisor_mount_arg(
 	arg: &Arg,
 	cloud_hypervisor_bin: &Path,
 	passt_bin: Option<&Path>,
-) -> container::run::Arg {
+) -> run::linux::Arg {
 	let mut binds = vec![
-		container::run::Bind {
+		run::linux::Bind {
 			source: host_vm_path_from_root(&arg.path),
 			target: VMM_ROOT_DIR.into(),
 		},
-		container::run::Bind {
+		run::linux::Bind {
 			source: "/dev".into(),
 			target: "/dev".into(),
 		},
-		container::run::Bind {
+		run::linux::Bind {
 			source: "/proc".into(),
 			target: "/proc".into(),
 		},
 	];
 	if arg.create_snapshot.is_some() {
-		binds.push(container::run::Bind {
+		binds.push(run::linux::Bind {
 			source: host_snapshot_output_path_from_root(&arg.path),
 			target: VMM_SNAPSHOT_OUTPUT_DIR.into(),
 		});
 	} else {
-		binds.push(container::run::Bind {
+		binds.push(run::linux::Bind {
 			source: arg.path.join(VFS_SOCKET_NAME),
 			target: VMM_VFS_SOCKET.into(),
 		});
 	}
-	binds.push(container::run::Bind {
+	binds.push(run::linux::Bind {
 		source: arg.path.join(VFS_SOCKET_NAME),
 		target: VMM_VFS_SOCKET.into(),
 	});
 	let mut ro_binds = vec![
-		container::run::Bind {
+		run::linux::Bind {
 			source: arg.rootfs_path.clone(),
 			target: "/".into(),
 		},
-		container::run::Bind {
+		run::linux::Bind {
 			source: "/sys".into(),
 			target: "/sys".into(),
 		},
-		container::run::Bind {
+		run::linux::Bind {
 			source: arg.kernel_path.clone(),
 			target: VMM_KERNEL_PATH.into(),
 		},
-		container::run::Bind {
+		run::linux::Bind {
 			source: arg.image_path.clone(),
 			target: VMM_ROOTFS_IMAGE_PATH.into(),
 		},
-		container::run::Bind {
+		run::linux::Bind {
 			source: cloud_hypervisor_bin.to_owned(),
 			target: VMM_CLOUD_HYPERVISOR_BIN.into(),
 		},
 	];
 	if let Some(passt_bin) = passt_bin {
-		ro_binds.push(container::run::Bind {
+		ro_binds.push(run::linux::Bind {
 			source: passt_bin.to_owned(),
 			target: VMM_PASST_BIN.into(),
 		});
 	}
 	if let Some(snapshot) = &arg.snapshot {
-		ro_binds.push(container::run::Bind {
+		ro_binds.push(run::linux::Bind {
 			source: snapshot.clone(),
 			target: VMM_SNAPSHOT_PATH.into(),
 		});
 	}
-	container::run::Arg {
+	run::linux::Arg {
 		as_pid_1: false,
 		binds,
 		cgroup: None,

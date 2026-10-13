@@ -21,7 +21,7 @@ pub struct Args {
 
 impl Cli {
 	pub fn command_sandbox_container_init(args: Args) -> tg::Result<std::process::ExitCode> {
-		let arg = tangram_sandbox::container::init::Arg {
+		let arg = tangram_sandbox::init::linux::Arg {
 			serve: tangram_sandbox::serve::Arg {
 				http2: args.http2.config(),
 				library_paths: args.library_paths,
@@ -31,6 +31,6 @@ impl Cli {
 				url: args.url,
 			},
 		};
-		tangram_sandbox::container::init::run(&arg)
+		tangram_sandbox::init::linux::run(&arg)
 	}
 }

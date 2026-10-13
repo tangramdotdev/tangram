@@ -36,13 +36,16 @@ pub mod budget;
 #[cfg(target_os = "linux")]
 pub mod capacity;
 #[cfg(target_os = "linux")]
-pub mod container;
+pub mod builtin;
 #[cfg(target_os = "linux")]
 pub mod cpu;
+#[cfg(target_os = "linux")]
+pub mod init;
 #[cfg(target_os = "linux")]
 pub mod network;
 #[cfg(target_os = "linux")]
 pub mod root;
+pub mod run;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
@@ -391,7 +394,7 @@ impl Sandbox {
 		#[cfg(target_os = "linux")]
 		let (mut process, network, filesystem, cgroup, storage) = match &arg.isolation {
 			Isolation::Container(_) => {
-				let mut network = crate::container::network::create(&arg)?;
+				let mut network = crate::network::linux::create(&arg)?;
 				let cgroup = self::cgroup::create(&arg)?;
 				let output =
 					self::launch::spawn(&arg, &serve_arg, network.as_mut(), &cgroup).await?;

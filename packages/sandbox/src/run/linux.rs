@@ -1,5 +1,6 @@
 use {
-	super::{mount, seccomp, util::CStringVec, validate::validate},
+	super::validate::validate,
+	crate::builtin::{mount, seccomp, util::CStringVec},
 	crate::cgroup,
 	num::ToPrimitive,
 	std::{

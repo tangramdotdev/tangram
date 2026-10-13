@@ -1,4 +1,4 @@
-use {super::run::Arg, tangram_client::prelude::*};
+use {super::linux::Arg, tangram_client::prelude::*};
 
 pub fn validate(arg: &Arg) -> tg::Result<()> {
 	if !arg.unshare_all {
