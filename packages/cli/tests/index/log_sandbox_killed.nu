@@ -11,7 +11,7 @@ let spawn = job spawn {
 }
 
 let claimed = timeout 10s tg checkpoint wait runner.sandbox.pool.take $watch 0 | from json
-let sandbox_path = $claimed.params.path
+let pid = $claimed.params.pid | into int
 tg checkpoint unwatch runner.sandbox.pool.take $watch
 
 let output = job recv --tag $spawn --timeout 10sec
@@ -22,11 +22,8 @@ wait_until {
 	(tg log $process | complete).stdout | str contains 'ready'
 } 'the process should produce a log before its sandbox is killed'
 
-let pids = ps --long | where { |row| $row.command | str contains $sandbox_path } | get pid
-assert (not ($pids | is-empty)) 'the sandbox should be running'
-for pid in $pids {
-	kill --signal 9 $pid
-}
+assert (ps | any { |process| $process.pid == $pid }) 'the sandbox launcher should be running'
+kill --signal 9 $pid
 success (timeout 30s tg wait $process | complete) 'the process should finish after its sandbox is killed'
 
 let output = timeout 30s tg index | complete

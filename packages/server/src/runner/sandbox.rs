@@ -644,6 +644,7 @@ impl Session {
 						"runner.sandbox.pool.take",
 						index = output.sandbox.index(),
 						path = %output.temp.path().display(),
+						pid = output.sandbox.pid(),
 					)
 					.await;
 					tracing::debug!(

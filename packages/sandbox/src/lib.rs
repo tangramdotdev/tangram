@@ -95,6 +95,8 @@ pub struct State {
 
 	next_process_index: AtomicU64,
 
+	pid: u32,
+
 	process: tokio::sync::Mutex<tokio::process::Child>,
 }
 
@@ -497,6 +499,9 @@ impl Sandbox {
 			},
 		};
 
+		let pid = process
+			.id()
+			.ok_or_else(|| tg::error!("the sandbox process has exited"))?;
 		let connect = match listener.as_ref() {
 			None => {
 				let stdin = process
@@ -566,6 +571,8 @@ impl Sandbox {
 			network,
 
 			next_process_index: AtomicU64::new(1),
+
+			pid,
 
 			process: tokio::sync::Mutex::new(process),
 		}));
@@ -684,6 +691,12 @@ impl Sandbox {
 	#[must_use]
 	pub fn index(&self) -> u64 {
 		self.0.arg.index
+	}
+
+	/// Return the host process ID of the sandbox launcher.
+	#[must_use]
+	pub fn pid(&self) -> u32 {
+		self.0.pid
 	}
 
 	async fn listen(
