@@ -64,6 +64,7 @@ mod location;
 mod log;
 mod match_;
 mod messenger;
+mod migrations;
 mod module;
 mod node;
 mod notification;
@@ -709,34 +710,6 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to write the pid to the lock file"))?;
 		let lock = Mutex::new(Some(lock));
-
-		// Verify the version file.
-		let version_path = path.join("version");
-		let version = match tokio::fs::read_to_string(&version_path).await {
-			Ok(string) => Some(
-				string
-					.parse::<u64>()
-					.ok()
-					.ok_or_else(|| tg::error!("invalid version file"))?,
-			),
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to read the version file"));
-			},
-		};
-		match version {
-			Some(0) => (),
-			Some(_) => {
-				return Err(tg::error!(
-					"the data directory was created with a newer version of tangram"
-				));
-			},
-			None => {
-				tokio::fs::write(&version_path, b"0")
-					.await
-					.map_err(|error| tg::error!(!error, "failed to write the version file"))?;
-			},
-		}
 
 		// Ensure the temp directory exists.
 		let temp_path = path.join("tmp");
@@ -1967,24 +1940,12 @@ impl Server {
 			watches,
 		}));
 
+		// Migrate the directory before using its databases.
+		server.migrate().await?;
+
 		// Start usage tracking.
 		if server.config.usage.enabled {
 			server.index.start_usage(server.clock.now()?).await?;
-		}
-
-		// Migrate the database if necessary.
-		#[cfg(feature = "sqlite")]
-		if let Ok(database) = server.database.try_unwrap_sqlite_ref() {
-			self::database::sqlite::migrate(database)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
-		}
-
-		#[cfg(feature = "turso")]
-		if let Ok(database) = server.database.try_unwrap_turso_ref() {
-			self::database::turso::migrate(database)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
 		}
 
 		// Destroy unfinished sandboxes if single process mode is enabled.

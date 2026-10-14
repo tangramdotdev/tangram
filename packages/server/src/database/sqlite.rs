@@ -40,56 +40,17 @@ pub fn initialize(
 	Ok(())
 }
 
-pub async fn migrate(database: &tangram_database_sqlite::Database) -> tg::Result<()> {
-	let schema_version = 1;
-
-	let version = database
-		.run(get_database_version_with_transaction)
+pub async fn create_schema(database: &tangram_database_sqlite::Database) -> tg::Result<()> {
+	database
+		.run(create_schema_with_transaction)
 		.await
-		.map_err(|error| tg::error!(!error, "failed to get the database version"))?;
-
-	if version > schema_version {
-		return Err(tg::error!(
-			r"The database has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
-		));
-	}
-
-	// Fail on databases from older incompatible schemas.
-	if version != 0 && version != schema_version {
-		return Err(tg::error!(
-			"the database schema is incompatible with this version of tangram; please recreate the data directory"
-		));
-	}
-
-	if version == 0 {
-		database
-			.run(move |transaction, _cache| {
-				migration_0000_with_transaction(transaction, schema_version)
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the database schema"))?;
-	}
-
+		.map_err(|error| tg::error!(!error, "failed to create the database schema"))?;
 	Ok(())
 }
 
-fn get_database_version_with_transaction(
+fn create_schema_with_transaction(
 	transaction: &sqlite::Transaction<'_>,
 	_cache: &tangram_database_sqlite::Cache,
-) -> tg::Result<std::ops::ControlFlow<usize, tangram_database_sqlite::Error>> {
-	let result = transaction
-		.pragma_query_value(None, "user_version", |row| {
-			Ok(row.get_unwrap::<_, i64>(0).to_usize().unwrap())
-		})
-		.map_err(tangram_database_sqlite::Error::from);
-	let version = crate::database::retry!(result, "failed to get the version");
-
-	Ok(std::ops::ControlFlow::Break(version))
-}
-
-fn migration_0000_with_transaction(
-	transaction: &sqlite::Transaction<'_>,
-	schema_version: usize,
 ) -> tg::Result<std::ops::ControlFlow<(), tangram_database_sqlite::Error>> {
 	let sql = include_str!("./sqlite.sql");
 	let result = transaction
@@ -101,10 +62,6 @@ fn migration_0000_with_transaction(
 		.execute_batch(sql)
 		.map_err(tangram_database_sqlite::Error::from);
 	crate::database::retry!(result, "failed to execute the statements");
-	let result = transaction
-		.pragma_update(None, "user_version", schema_version.to_i64().unwrap())
-		.map_err(tangram_database_sqlite::Error::from);
-	crate::database::retry!(result, "failed to set the version");
 
 	Ok(std::ops::ControlFlow::Break(()))
 }

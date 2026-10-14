@@ -1,9 +1,7 @@
 use {
 	futures::FutureExt as _,
-	num::ToPrimitive as _,
 	std::{ops::ControlFlow, ops::Deref as _, time::Duration},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 };
 
 pub async fn initialize(
@@ -25,57 +23,16 @@ pub async fn initialize(
 	Ok(())
 }
 
-pub async fn migrate(database: &tangram_database_turso::Database) -> tg::Result<()> {
-	let schema_version = 1;
-
-	let version = database
-		.run(|transaction| {
-			async move { get_database_version_with_transaction(transaction).await }.boxed()
-		})
+pub async fn create_schema(database: &tangram_database_turso::Database) -> tg::Result<()> {
+	database
+		.run(|transaction| async move { create_schema_with_transaction(transaction).await }.boxed())
 		.await
-		.map_err(|error| tg::error!(!error, "failed to get the database version"))?;
-
-	if version > schema_version {
-		return Err(tg::error!(
-			r"The database has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
-		));
-	}
-
-	if version != 0 && version != schema_version {
-		return Err(tg::error!(
-			"the database schema is incompatible with this version of tangram; please recreate the data directory"
-		));
-	}
-
-	if version == 0 {
-		database
-			.run(|transaction| {
-				async move { migration_0000_with_transaction(transaction, schema_version).await }
-					.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the database schema"))?;
-	}
-
+		.map_err(|error| tg::error!(!error, "failed to create the database schema"))?;
 	Ok(())
 }
 
-async fn get_database_version_with_transaction(
+async fn create_schema_with_transaction(
 	transaction: &tangram_database_turso::Transaction<'_>,
-) -> tg::Result<ControlFlow<usize, tangram_database_turso::Error>> {
-	let result = transaction
-		.query_one_value_into::<i64>("pragma user_version".into(), db::params![])
-		.await;
-	let version = crate::database::retry!(result, "failed to get the version")
-		.to_usize()
-		.unwrap();
-
-	Ok(ControlFlow::Break(version))
-}
-
-async fn migration_0000_with_transaction(
-	transaction: &tangram_database_turso::Transaction<'_>,
-	schema_version: usize,
 ) -> tg::Result<ControlFlow<(), tangram_database_turso::Error>> {
 	let sql = include_str!("./sqlite.sql");
 	let result = transaction
@@ -94,13 +51,6 @@ async fn migration_0000_with_transaction(
 		.await
 		.map_err(tangram_database_turso::Error::from);
 	crate::database::retry!(result, "failed to execute the statements");
-	let result = transaction
-		.execute(
-			format!("pragma user_version = {schema_version}").into(),
-			db::params![],
-		)
-		.await;
-	crate::database::retry!(result, "failed to set the version");
 
 	Ok(ControlFlow::Break(()))
 }
