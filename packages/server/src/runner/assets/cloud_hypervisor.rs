@@ -1,27 +1,29 @@
 use {
-	crate::{Server, Session, temp::Temp},
+	super::Assets,
+	crate::{Server, temp::Temp},
 	tangram_client::prelude::*,
 };
 
-impl Session {
-	pub(super) async fn ensure_cloud_hypervisor_assets(
+impl Assets {
+	pub(crate) async fn ensure_cloud_hypervisor(
 		&self,
-		isolation: &tangram_sandbox::Backend,
+		server: &Server,
+		backend: &tangram_sandbox::Backend,
 	) -> tg::Result<()> {
-		let tangram_sandbox::Backend::CloudHypervisor(vm) = isolation else {
+		let tangram_sandbox::Backend::CloudHypervisor(vm) = backend else {
 			return Ok(());
 		};
 		let Some(snapshot_path) = vm.snapshot.as_deref() else {
 			return Ok(());
 		};
 
-		let mut image_created = self.server.sandbox_assets.image_ready.lock().await;
+		let mut image_created = self.image_ready.lock().await;
 		if !*image_created {
-			let _file_lock = acquire_cloud_hypervisor_lock(&self.server.path).await?;
+			let _file_lock = acquire_cloud_hypervisor_lock(&server.path).await?;
 			let arg = tangram_sandbox::cloud_hypervisor::image::Arg {
-				build_attempts: self.server.config.sandbox.build_attempts,
+				build_attempts: server.config.sandbox.build_attempts,
 				image_path: vm.image_path.clone(),
-				path: self.server.sandbox_assets.root.clone(),
+				path: self.root.clone(),
 			};
 			let created = tokio::task::spawn_blocking(move || {
 				tangram_sandbox::cloud_hypervisor::image::ensure(&arg)
@@ -34,16 +36,14 @@ impl Session {
 			}
 			*image_created = true;
 		}
-		self.server
-			.ensure_cloud_hypervisor_snapshot(snapshot_path, &vm.kernel_path, vm)
+		self.ensure_cloud_hypervisor_snapshot(server, snapshot_path, &vm.kernel_path, vm)
 			.await?;
 		Ok(())
 	}
-}
 
-impl Server {
 	async fn ensure_cloud_hypervisor_snapshot(
 		&self,
+		server: &Server,
 		snapshot_path: &std::path::Path,
 		kernel_path: &std::path::Path,
 		vm: &tangram_sandbox::CloudHypervisor,
@@ -51,11 +51,11 @@ impl Server {
 		if snapshot_path.exists() {
 			return Ok(());
 		}
-		let _guard = self.sandbox_assets.snapshot_lock.lock().await;
+		let _guard = self.snapshot_lock.lock().await;
 		if snapshot_path.exists() {
 			return Ok(());
 		}
-		let _file_lock = acquire_cloud_hypervisor_lock(&self.path).await?;
+		let _file_lock = acquire_cloud_hypervisor_lock(&server.path).await?;
 		if snapshot_path.exists() {
 			return Ok(());
 		}
@@ -64,7 +64,7 @@ impl Server {
 				tg::error!(!error, path = %parent.display(), "failed to create the vm snapshot parent directory")
 			})?;
 		}
-		let temp = Temp::new(self);
+		let temp = Temp::new(server);
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|error| {
@@ -75,7 +75,7 @@ impl Server {
 			// Run the shared VM snapshot mount as root; per-sandbox mounts enforce permissions after resume.
 			let principal = Some(tg::Principal::Root);
 			crate::vfs::Server::start_virtiofs(
-				self,
+				server,
 				&socket,
 				vm.dax,
 				crate::Origin::Host,
@@ -84,19 +84,19 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the store VFS"))?
 		};
-		let image_path = self.sandbox_assets.image.as_ref().ok_or_else(|| {
+		let image_path = self.image.as_ref().ok_or_else(|| {
 			tg::error!(
 				"cannot create the vm snapshot without an image; ensure vm isolation is configured"
 			)
 		})?;
 		let id = tg::sandbox::Id::new();
-		let index = self.runner.state.create_sandbox_index();
+		let index = server.runner.state.create_sandbox_index();
 		tracing::info!(
 			snapshot = %snapshot_path.display(),
 			sandbox = %id,
 			"creating vm snapshot",
 		);
-		let config = &self.config.sandbox;
+		let config = &server.config.sandbox;
 		let firewall = match config.network.firewall {
 			crate::config::SandboxNetworkFirewall::Iptables => tangram_sandbox::Firewall::Iptables,
 			crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
@@ -125,19 +125,19 @@ impl Server {
 			path: temp.path().to_owned(),
 			ports: Vec::new(),
 			ready_timeout: vm.ready_timeout,
-			rootfs_path: self.sandbox_assets.root.clone(),
+			rootfs_path: self.root.clone(),
 			serial_connect_interval: vm.serial_connect_interval,
 			serial_connect_timeout: vm.serial_connect_timeout,
 			snapshot: None,
 			snapshot_cpu: vm.snapshot_cpu,
 			snapshot_memory: vm.snapshot_memory,
-			store_path: self.store_path(),
-			tangram_path: self.tangram_path.clone(),
+			store_path: server.store_path(),
+			tangram_path: server.tangram_path.clone(),
 			url: "http+vsock://2:6748".parse().unwrap(),
 		};
 		let path = temp.path().join("launch.json");
 		tangram_sandbox::run::write_config(&path, &launch)?;
-		let mut command = tokio::process::Command::new(&self.tangram_path);
+		let mut command = tokio::process::Command::new(&server.tangram_path);
 		command
 			.arg("sandbox")
 			.arg("run")

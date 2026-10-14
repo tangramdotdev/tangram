@@ -21,8 +21,6 @@ use {
 };
 
 mod control;
-#[cfg(target_os = "linux")]
-mod linux;
 mod listener;
 mod pool;
 
@@ -696,7 +694,10 @@ impl Session {
 			.get_or_insert(self.server.config.scheduler.default_cpu.into());
 
 		#[cfg(target_os = "linux")]
-		self.ensure_cloud_hypervisor_assets(&isolation).await?;
+		self.server
+			.sandbox_assets
+			.ensure_cloud_hypervisor(&self.server, &isolation)
+			.await?;
 
 		let rootfs_path = self.server.sandbox_assets.root.clone();
 

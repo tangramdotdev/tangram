@@ -4,6 +4,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(target_os = "linux")]
+mod cloud_hypervisor;
+
 pub(crate) struct Assets {
 	pub image: Option<PathBuf>,
 	#[cfg(target_os = "linux")]
