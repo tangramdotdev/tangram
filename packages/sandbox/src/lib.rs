@@ -30,8 +30,6 @@ mod mount;
 #[cfg(target_os = "linux")]
 mod netlink;
 mod paths;
-#[cfg(target_os = "linux")]
-mod prepare;
 mod pty;
 #[cfg(target_os = "linux")]
 mod seccomp;
