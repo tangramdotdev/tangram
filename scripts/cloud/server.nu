@@ -39,4 +39,4 @@ let config = {
 	vfs: false,
 }
 $config | to json | save -f .tangram/cloud/server.json
-exec cargo run --all-features -- --config .tangram/cloud/server.json --directory .tangram/cloud/server serve
+exec cargo run --release --all-features -- --config .tangram/cloud/server.json --directory .tangram/cloud/server serve
