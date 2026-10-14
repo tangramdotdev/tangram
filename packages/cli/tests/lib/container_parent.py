@@ -2,15 +2,17 @@ import ctypes
 import json
 import os
 import pathlib
+import select
 import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
 
-# Adopt and reap the workload even when its launcher is killed.
+# Adopt and reap the orphaned launcher processes.
 libc = ctypes.CDLL(None, use_errno=True)
 assert libc.prctl(36, 1, 0, 0, 0) == 0
 maps = json.loads(sys.argv[2])
@@ -18,16 +20,21 @@ name = 'tangram-test-' + uuid.uuid4().hex
 cgroup = pathlib.Path(sys.argv[3]) / name
 host, guest = socket.socketpair()
 host.settimeout(5)
+directory = tempfile.TemporaryDirectory()
+config = pathlib.Path(directory.name) / 'setup.json'
+config.write_text(json.dumps({
+    'cgroup': {'name': name},
+    'gid': os.getgid(),
+    'process': {'arguments': ['/bin/sleep', '30']},
+    'uid': os.getuid(),
+    'user_namespace_fd': guest.fileno(),
+}))
 process = subprocess.Popen([
-    sys.argv[1], 'sandbox', 'container', 'run', '--index', '0',
-    '--unshare-all', '--as-pid-1', '--die-with-parent',
-    '--uid', str(os.getuid()), '--gid', str(os.getgid()), '--chdir', '/',
-    '--cgroup', name, '--user-namespace-fd', str(guest.fileno()),
-    '--', '/bin/sleep', '30',
-], pass_fds=(guest.fileno(),))
+    sys.argv[1], 'sandbox', 'setup', '--config', str(config),
+], env={**os.environ, 'TMPDIR': directory.name}, pass_fds=(guest.fileno(),))
 guest.close()
 child = None
-reaped = False
+workload_fd = None
 try:
     pid = struct.unpack('i', host.recv(4))[0]
     for kind, identity in [('uid', os.getuid()), ('gid', os.getgid())]:
@@ -46,33 +53,48 @@ try:
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         assert process.poll() is None, 'the launcher exited before the workload'
-        children = pathlib.Path(f'/proc/{pid}/task/{pid}/children').read_text().split()
-        if children:
-            candidate = int(children[0])
-            if pathlib.Path(f'/proc/{candidate}/comm').read_text().strip() == 'sleep':
-                child = candidate
-                break
-        time.sleep(.01)
-    assert child is not None, 'the workload did not start'
-    process.kill()
-    process.wait(timeout=5)
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        pid, status = os.waitpid(child, os.WNOHANG)
-        if pid == child:
-            reaped = True
-            assert os.WIFSIGNALED(status) and os.WTERMSIG(status) == 9
+        pending = [pid]
+        while pending and child is None:
+            parent = pending.pop()
+            try:
+                children = pathlib.Path(f'/proc/{parent}/task/{parent}/children').read_text().split()
+            except FileNotFoundError:
+                continue
+            for candidate in map(int, children):
+                try:
+                    command = pathlib.Path(f'/proc/{candidate}/comm').read_text().strip()
+                except FileNotFoundError:
+                    continue
+                if command == 'sleep':
+                    child = candidate
+                    break
+                pending.append(candidate)
+        if child is not None:
             break
         time.sleep(.01)
-    assert reaped, 'the mapped workload survived its launcher'
+    assert child is not None, 'the workload did not start'
+    workload_fd = os.pidfd_open(child)
+    poll = select.poll()
+    poll.register(workload_fd, select.POLLIN)
+    assert not poll.poll(0), 'the workload exited before its launcher'
+    process.kill()
+    process.wait(timeout=5)
+    assert poll.poll(5000), 'the mapped workload survived its launcher'
+
 finally:
     if cgroup.exists():
         (cgroup / 'cgroup.kill').write_text('1\n')
     if process.poll() is None:
         process.kill()
         process.wait(timeout=5)
-    if child is not None and not reaped:
-        os.waitpid(child, 0)
+    while True:
+        try:
+            os.waitpid(-1, 0)
+        except ChildProcessError:
+            break
     if cgroup.exists():
         cgroup.rmdir()
+    if workload_fd is not None:
+        os.close(workload_fd)
     host.close()
+    directory.cleanup()
