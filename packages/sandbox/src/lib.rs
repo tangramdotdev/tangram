@@ -65,8 +65,6 @@ pub mod run;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
-#[cfg(target_os = "linux")]
-pub mod setup;
 pub mod stdio;
 
 #[derive(Clone)]

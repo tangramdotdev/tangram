@@ -195,14 +195,14 @@ pub(crate) async fn spawn(
 	}
 	let network_arg = match network.as_deref() {
 		None => None,
-		Some(crate::network::Network::Host) => Some(crate::setup::Network::Host),
-		Some(crate::network::Network::Pasta(network)) => Some(crate::setup::Network::Pasta {
+		Some(crate::network::Network::Host) => Some(crate::run::linux::Network::Host),
+		Some(crate::network::Network::Pasta(network)) => Some(crate::run::linux::Network::Pasta {
 			fd: network
 				.guest_pipe()
 				.ok_or_else(|| tg::error!("missing the pasta synchronization descriptor"))?
 				.as_raw_fd(),
 		}),
-		Some(crate::network::Network::Veth(network)) => Some(crate::setup::Network::Veth {
+		Some(crate::network::Network::Veth(network)) => Some(crate::run::linux::Network::Veth {
 			fd: veth
 				.as_ref()
 				.unwrap()
@@ -265,13 +265,13 @@ pub(crate) async fn spawn(
 			Ok((key, value))
 		})
 		.collect::<tg::Result<_>>()?;
-	let process = crate::setup::Process {
+	let process = crate::run::linux::Process {
 		arguments,
 		directory: "/".into(),
 		environment,
 		hostname: arg.hostname.clone(),
 	};
-	let setup = crate::setup::Arg {
+	let setup = crate::run::linux::Arg {
 		backend: arg.backend.clone(),
 		cgroup_readonly: isolation.cgroup_readonly || arg.cpu_pool.is_some(),
 		filesystem_fd: filesystem_sendfd
@@ -309,10 +309,10 @@ pub(crate) async fn spawn(
 		inherit_fd(&mut command, fd);
 	}
 	match setup.network {
-		Some(crate::setup::Network::Pasta { fd } | crate::setup::Network::Veth { fd, .. }) => {
+		Some(crate::run::linux::Network::Pasta { fd } | crate::run::linux::Network::Veth { fd, .. }) => {
 			inherit_fd(&mut command, fd);
 		},
-		None | Some(crate::setup::Network::Host) => {},
+		None | Some(crate::run::linux::Network::Host) => {},
 	}
 	// Keep the launcher outside the server's terminal process group during Ctrl-C shutdown.
 	command

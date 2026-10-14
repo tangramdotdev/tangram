@@ -16,7 +16,7 @@ impl Cli {
 			let arg = serde_json::from_slice(&contents).map_err(|error| {
 				tg::error!(!error, "failed to parse the sandbox setup configuration")
 			})?;
-			tangram_sandbox::setup::run(arg)
+			tangram_sandbox::run::linux::run(arg)
 		}
 		#[cfg(not(target_os = "linux"))]
 		{

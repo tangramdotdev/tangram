@@ -1,5 +1,5 @@
 use {
-	crate::setup::Prepared,
+	crate::run::linux::Prepared,
 	std::{os::fd::IntoRawFd as _, path::Path, process::Command},
 	tangram_client::prelude::*,
 };

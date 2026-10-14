@@ -3,6 +3,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(target_os = "linux")]
+pub mod linux;
+
 pub fn write_config<T: serde::Serialize>(path: &Path, arg: &T) -> tg::Result<()> {
 	let contents = serde_json::to_vec(arg).map_err(|error| {
 		tg::error!(

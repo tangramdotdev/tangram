@@ -1,5 +1,5 @@
 use {
-	crate::setup::{Network, Prepared},
+	crate::run::linux::{Network, Prepared},
 	rustix::thread::{
 		CapabilitySet, capabilities, configure_capability_in_ambient_set, set_capabilities,
 	},
