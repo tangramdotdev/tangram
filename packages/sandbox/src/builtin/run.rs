@@ -103,6 +103,11 @@ pub fn run(arguments: Vec<OsString>) -> tg::Result<u8> {
 	if arg.command.is_empty() {
 		return Err(tg::error!("a command is required"));
 	}
+	if arg.hostname.is_some() && !arg.unshare_all && !arg.unshare_uts {
+		return Err(tg::error!(
+			"--hostname requires --unshare-uts or --unshare-all"
+		));
+	}
 	if arg.cap_drop.iter().any(|capability| capability != "ALL") {
 		return Err(tg::error!("the builtin supports --cap-drop ALL"));
 	}
