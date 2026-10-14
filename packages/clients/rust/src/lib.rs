@@ -159,6 +159,8 @@ pub struct Http {
 	pub coalescing_target_size: usize,
 	pub connect_timeout: Duration,
 	pub http2: tangram_http::http2::Config,
+	pub keep_alive_interval: Duration,
+	pub keep_alive_timeout: Duration,
 	pub max_header_length: u64,
 	pub request_timeout: Duration,
 }
@@ -312,7 +314,7 @@ impl Client {
 		let stream_retry = arg.stream_retry;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
-		let sender = Self::handshake_h2(stream, http.http2).await?;
+		let sender = Self::handshake_h2(stream, http).await?;
 		let options = tangram_pool::Options {
 			min: 1,
 			max: 1,
@@ -495,6 +497,8 @@ impl Default for Http {
 			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
 			connect_timeout: Duration::from_secs(1),
 			http2: tangram_http::http2::Config::default(),
+			keep_alive_interval: Duration::from_secs(10),
+			keep_alive_timeout: Duration::from_secs(5),
 			max_header_length: 1_048_576,
 			request_timeout: Duration::from_mins(1),
 		}
@@ -511,6 +515,16 @@ impl Http {
 		if self.connect_timeout.is_zero() {
 			return Err(tg::error!(
 				"expected the HTTP connect timeout to be greater than zero"
+			));
+		}
+		if self.keep_alive_interval.is_zero() {
+			return Err(tg::error!(
+				"expected the HTTP keep alive interval to be greater than zero"
+			));
+		}
+		if self.keep_alive_timeout.is_zero() {
+			return Err(tg::error!(
+				"expected the HTTP keep alive timeout to be greater than zero"
 			));
 		}
 		if self.max_header_length == 0 {

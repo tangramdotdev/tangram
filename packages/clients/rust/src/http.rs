@@ -263,15 +263,11 @@ impl tg::Client {
 		url: &Uri,
 		http: tg::Http,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
-		let tg::Http {
-			connect_timeout,
-			http2,
-			..
-		} = http;
+		let connect_timeout = http.connect_timeout;
 		match url.scheme() {
 			Some("http+stdio") => {
 				let stream = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
-				Self::handshake_h2(stream, http2).await
+				Self::handshake_h2(stream, http).await
 			},
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -281,7 +277,7 @@ impl tg::Client {
 					.try_into()
 					.map_err(|_| tg::error!("invalid port"))?;
 				let stream = Self::connect_tcp(host, port, connect_timeout).await?;
-				Self::handshake_h2(stream, http2).await
+				Self::handshake_h2(stream, http).await
 			},
 			Some("https") => {
 				#[cfg(not(feature = "tls"))]
@@ -302,13 +298,13 @@ impl tg::Client {
 						Self::connect_tcp_tls(host, port, vec![b"h2".into()], connect_timeout)
 							.await?;
 					Self::verify_alpn_protocol(&stream, b"h2")?;
-					Self::handshake_h2(stream, http2).await
+					Self::handshake_h2(stream, http).await
 				}
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let stream = Self::connect_unix(Path::new(path)).await?;
-				Self::handshake_h2(stream, http2).await
+				Self::handshake_h2(stream, http).await
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -325,7 +321,7 @@ impl tg::Client {
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, port);
 					let stream = Self::connect_vsock(addr, connect_timeout).await?;
-					Self::handshake_h2(stream, http2).await
+					Self::handshake_h2(stream, http).await
 				}
 			},
 			_ => Err(tg::error!(%url, "invalid url")),
@@ -369,7 +365,7 @@ impl tg::Client {
 
 	pub(crate) async fn handshake_h2<S>(
 		stream: S,
-		http2: tangram_http::http2::Config,
+		http: tg::Http,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
@@ -377,11 +373,16 @@ impl tg::Client {
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
+		let http2 = http.http2;
 		let (mut sender, connection) = hyper::client::conn::http2::Builder::new(executor)
+			.timer(hyper_util::rt::TokioTimer::new())
 			.initial_connection_window_size(http2.connection_window_size)
 			.initial_stream_window_size(http2.stream_window_size)
 			.max_concurrent_streams(http2.max_concurrent_streams)
 			.max_concurrent_reset_streams(http2.max_concurrent_reset_streams)
+			.keep_alive_interval(http.keep_alive_interval)
+			.keep_alive_timeout(http.keep_alive_timeout)
+			.keep_alive_while_idle(true)
 			.handshake(io)
 			.await
 			.map_err(|error| {

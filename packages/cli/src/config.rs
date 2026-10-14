@@ -2891,6 +2891,16 @@ pub struct ClientHttp {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub http2: Option<tangram_http::http2::Config>,
 
+	/// The interval between HTTP/2 keep alive pings on an idle connection.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub keep_alive_interval: Option<Duration>,
+
+	/// The time to wait for a keep alive ping acknowledgement before closing the connection.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub keep_alive_timeout: Option<Duration>,
+
 	/// The maximum length of a framed header in a response body.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_header_length: Option<u64>,
@@ -4206,6 +4216,22 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 			.validate()
 			.map_err(|error| tg::error!(source = error, "invalid client HTTP/2 configuration"))?;
 		target.http2 = value;
+	}
+	if let Some(value) = source.keep_alive_interval {
+		if value.is_zero() {
+			return Err(tg::error!(
+				"expected client.http.keep_alive_interval to be greater than zero"
+			));
+		}
+		target.keep_alive_interval = value;
+	}
+	if let Some(value) = source.keep_alive_timeout {
+		if value.is_zero() {
+			return Err(tg::error!(
+				"expected client.http.keep_alive_timeout to be greater than zero"
+			));
+		}
+		target.keep_alive_timeout = value;
 	}
 	if let Some(value) = source.max_header_length {
 		target.max_header_length = value;
@@ -6873,6 +6899,20 @@ mod tests {
 		let target = resolve_client_http(source).unwrap();
 
 		assert_eq!(target.coalescing_target_size, 32 * 1024);
+	}
+
+	#[test]
+	fn rejects_zero_client_http_keep_alive_interval() {
+		let source: ClientHttp = serde_json::from_value(serde_json::json!({
+			"keep_alive_interval": 0,
+		}))
+		.unwrap();
+		let error = resolve_client_http(source).unwrap_err();
+
+		assert_eq!(
+			error.to_string(),
+			"expected client.http.keep_alive_interval to be greater than zero"
+		);
 	}
 
 	#[test]
