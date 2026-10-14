@@ -786,38 +786,55 @@ impl Session {
 						tg::error!(!error, "failed to create the store mount directory")
 					})?;
 
-				// Create the socket pair over which the sandbox sends the mounted FUSE descriptor.
-				let (sendfd, recvfd) = rustix::net::socketpair(
-					rustix::net::AddressFamily::UNIX,
-					rustix::net::SocketType::STREAM,
-					rustix::net::SocketFlags::CLOEXEC,
-					None,
-				)
-				.map_err(|error| tg::error!(!error, "failed to create the FUSE socket pair"))?;
+				if matches!(isolation, tangram_sandbox::Backend::Builtin) {
+					// Create the socket pair over which the sandbox sends the mounted FUSE descriptor.
+					let (sendfd, recvfd) = rustix::net::socketpair(
+						rustix::net::AddressFamily::UNIX,
+						rustix::net::SocketType::STREAM,
+						rustix::net::SocketFlags::CLOEXEC,
+						None,
+					)
+					.map_err(|error| tg::error!(!error, "failed to create the FUSE socket pair"))?;
 
-				// Start the VFS concurrently, because it blocks until the sandbox mounts the filesystem and sends the descriptor.
-				let mut options = self.server.config.vfs.clone().unwrap_or_default();
-				options.sqpoll = false;
-				let vfs_task = Task::spawn({
-					let server = self.server.clone();
-					let mount_path = mount_path.clone();
-					move |_| {
-						async move {
-							crate::vfs::Server::start(
-								&server,
-								crate::vfs::Kind::Fuse,
-								&mount_path,
-								options,
-								Origin::Sandbox(index),
-								None,
-								Some(recvfd),
-							)
-							.await
+					// Start the VFS concurrently, because it blocks until the sandbox mounts the filesystem and sends the descriptor.
+					let mut options = self.server.config.vfs.clone().unwrap_or_default();
+					options.sqpoll = false;
+					let vfs_task = Task::spawn({
+						let server = self.server.clone();
+						let mount_path = mount_path.clone();
+						move |_| {
+							async move {
+								crate::vfs::Server::start(
+									&server,
+									crate::vfs::Kind::Fuse,
+									&mount_path,
+									options,
+									Origin::Sandbox(index),
+									None,
+									Some(recvfd),
+								)
+								.await
+							}
+							.in_current_span()
 						}
-						.in_current_span()
-					}
-				});
-				(None, Some(vfs_task), Some(mount_path), Some(sendfd))
+					});
+					(None, Some(vfs_task), Some(mount_path), Some(sendfd))
+				} else {
+					let mut options = self.server.config.vfs.clone().unwrap_or_default();
+					options.sqpoll = false;
+					let vfs = crate::vfs::Server::start(
+						&self.server,
+						crate::vfs::Kind::Fuse,
+						&mount_path,
+						options,
+						Origin::Sandbox(index),
+						None,
+						None,
+					)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to start the store VFS"))?;
+					(Some(vfs), None, Some(mount_path), None)
+				}
 			},
 			_ => (None, None, None, None),
 		};
