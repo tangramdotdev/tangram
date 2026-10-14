@@ -309,13 +309,7 @@ pub(crate) async fn spawn(
 	};
 	let launch = crate::run::Arg { backend };
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
-	let config = arg.path.join("launch.json");
-	crate::run::write_config(&config, &launch)?;
-	command
-		.arg("sandbox")
-		.arg("run")
-		.arg("--config")
-		.arg(config);
+	let config = crate::run::configure_command(&mut command, &launch)?;
 	for fd in [setup.filesystem_fd, setup.fuse_fd, setup.user_namespace_fd]
 		.into_iter()
 		.flatten()
@@ -342,12 +336,14 @@ pub(crate) async fn spawn(
 		(guest, task)
 	});
 	let child = spawn_command(&mut command, cgroup);
+	let configuration = config.finish();
 	if let Some((guest, task)) = user_namespace {
 		drop(guest);
 		task.join()
 			.map_err(|_| tg::error!("the user namespace mapping thread panicked"))??;
 	}
 	let child = child.map_err(|error| tg::error!(!error, "failed to spawn sandbox container"))?;
+	configuration?;
 	drop(filesystem_sendfd);
 	if let Some(crate::network::Network::Pasta(network)) = network {
 		network.take_guest_pipe();

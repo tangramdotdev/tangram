@@ -77,21 +77,19 @@ pub(crate) fn spawn(
 	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.envs(environment);
-	let config = arg.path.join("launch.json");
-	crate::run::write_config(&config, &launch)?;
-	command
-		.arg("sandbox")
-		.arg("run")
-		.arg("--config")
-		.arg(config);
+	let config = crate::run::configure_command(&mut command, &launch)?;
 	command
 		.kill_on_drop(true)
 		.process_group(0)
 		.stdin(std::process::Stdio::piped())
 		.stdout(std::process::Stdio::piped());
-	command
+	let process = command
 		.spawn()
-		.map_err(|error| tg::error!(!error, "failed to spawn sandbox seatbelt"))
+		.map_err(|error| tg::error!(!error, "failed to spawn sandbox seatbelt"));
+	let configuration = config.finish();
+	let process = process?;
+	configuration?;
+	Ok(process)
 }
 
 fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {

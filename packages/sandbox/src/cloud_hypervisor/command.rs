@@ -7,7 +7,7 @@ pub(crate) fn command(
 	arg: &crate::Arg,
 	serve_arg: &serve::Arg,
 	network: Option<&crate::network::Network>,
-) -> tg::Result<tokio::process::Command> {
+) -> tg::Result<(tokio::process::Command, crate::run::Config)> {
 	if !serve_arg.library_paths.is_empty() {
 		return Err(tg::error!(
 			"cloud-hypervisor does not support additional library paths"
@@ -81,17 +81,11 @@ pub(crate) fn command(
 		backend: crate::run::Backend::CloudHypervisor(launch),
 	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
-	let config = arg.path.join("launch.json");
-	crate::run::write_config(&config, &launch)?;
-	command
-		.arg("sandbox")
-		.arg("run")
-		.arg("--config")
-		.arg(config);
+	let config = crate::run::configure_command(&mut command, &launch)?;
 	command
 		.kill_on_drop(true)
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
 		.stderr(std::process::Stdio::inherit());
-	Ok(command)
+	Ok((command, config))
 }

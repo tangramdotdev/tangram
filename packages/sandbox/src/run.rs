@@ -1,5 +1,13 @@
 use {
-	std::{io::Write as _, os::unix::fs::OpenOptionsExt as _, path::Path, process::ExitCode},
+	std::{
+		io::Write as _,
+		os::{
+			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+			unix::{fs::OpenOptionsExt as _, process::CommandExt as _},
+		},
+		path::Path,
+		process::ExitCode,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -36,6 +44,11 @@ pub enum Backend {
 	Seatbelt(crate::seatbelt::run::Arg),
 }
 
+pub struct Config {
+	reader: OwnedFd,
+	task: std::thread::JoinHandle<std::io::Result<()>>,
+}
+
 pub fn run(arg: Arg) -> tg::Result<ExitCode> {
 	match arg.backend {
 		#[cfg(target_os = "linux")]
@@ -55,6 +68,67 @@ pub fn run(arg: Arg) -> tg::Result<ExitCode> {
 	}
 }
 
+pub fn configure_command(command: &mut tokio::process::Command, arg: &Arg) -> tg::Result<Config> {
+	let contents = serde_json::to_vec(arg).map_err(|error| {
+		tg::error!(
+			!error,
+			"failed to serialize the sandbox launch configuration"
+		)
+	})?;
+	let mut descriptors = [-1; 2];
+	// SAFETY: The array has space for both descriptors returned by the pipe syscall.
+	#[cfg(target_os = "linux")]
+	let result = unsafe { libc::pipe2(descriptors.as_mut_ptr(), libc::O_CLOEXEC) };
+	// SAFETY: The array has space for both descriptors returned by the pipe syscall.
+	#[cfg(not(target_os = "linux"))]
+	let result = unsafe { libc::pipe(descriptors.as_mut_ptr()) };
+	if result != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to create the sandbox configuration pipe"
+		));
+	}
+	// SAFETY: A successful pipe call returns two newly owned descriptors.
+	let (reader, writer) = unsafe {
+		(
+			OwnedFd::from_raw_fd(descriptors[0]),
+			OwnedFd::from_raw_fd(descriptors[1]),
+		)
+	};
+	for fd in [&reader, &writer] {
+		// SAFETY: The owned descriptors remain valid while their flags are set.
+		if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to protect the sandbox configuration descriptor"
+			));
+		}
+	}
+	let fd = reader.as_raw_fd();
+	command
+		.arg("sandbox")
+		.arg("run")
+		.arg("--config-fd")
+		.arg(fd.to_string());
+	// SAFETY: The closure only invokes an async-signal-safe syscall, and Config retains the descriptor until spawn completes.
+	unsafe {
+		command.as_std_mut().pre_exec(move || {
+			if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			Ok(())
+		});
+	}
+	let task = std::thread::Builder::new()
+		.spawn(move || {
+			let mut writer = std::fs::File::from(writer);
+			writer.write_all(&contents)
+		})
+		.map_err(|error| tg::error!(!error, "failed to start the sandbox configuration writer"))?;
+	let config = Config { reader, task };
+	Ok(config)
+}
+
 pub fn write_config<T: serde::Serialize>(path: &Path, arg: &T) -> tg::Result<()> {
 	let contents = serde_json::to_vec(arg).map_err(|error| {
 		tg::error!(
@@ -67,4 +141,17 @@ pub fn write_config<T: serde::Serialize>(path: &Path, arg: &T) -> tg::Result<()>
 	file.write_all(&contents)
         .map_err(|error| tg::error!(!error, path = %path.display(), "failed to write the sandbox launch configuration"))?;
 	Ok(())
+}
+
+impl Config {
+	pub fn finish(self) -> tg::Result<()> {
+		drop(self.reader);
+		self.task
+			.join()
+			.map_err(|_| tg::error!("the sandbox configuration writer panicked"))?
+			.map_err(|error| {
+				tg::error!(!error, "failed to write the sandbox launch configuration")
+			})?;
+		Ok(())
+	}
 }

@@ -139,17 +139,18 @@ impl Assets {
 			backend: tangram_sandbox::run::Backend::CloudHypervisor(launch),
 		};
 		let mut command = tokio::process::Command::new(&server.tangram_path);
-		let config = temp.path().join("launch.json");
-		tangram_sandbox::run::write_config(&config, &launch)?;
-		command
-			.arg("sandbox")
-			.arg("run")
-			.arg("--config")
-			.arg(config);
-		let status = command
-			.status()
+		command.kill_on_drop(true);
+		let config = tangram_sandbox::run::configure_command(&mut command, &launch)?;
+		let child = command
+			.spawn()
+			.map_err(|error| tg::error!(!error, "failed to spawn the snapshot process"));
+		let configuration = config.finish();
+		let mut child = child?;
+		configuration?;
+		let status = child
+			.wait()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to spawn the snapshot process"))?;
+			.map_err(|error| tg::error!(!error, "failed to wait for the snapshot process"))?;
 		if !status.success() {
 			return Err(tg::error!(
 				%status,
