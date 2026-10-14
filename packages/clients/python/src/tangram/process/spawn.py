@@ -241,19 +241,11 @@ async def spawn_sandboxed(
         state["tty"] = tty
     else:
         state.pop("tty", None)
-    reads = []
-    if mode == "run":
-        streams = [name for name in ("stdout", "stderr") if local[name] is not None]
-        if streams:
-            reads.append({"streams": streams})
-        for name in ("stdout", "stderr"):
-            if provide[name]:
-                reads.append({"streams": [name]})
     spawn_location = state.pop("location", None)
     opened = await Connection.open(
-        state, client=client, mode=mode, reads=reads, location=spawn_location
+        state, client=client, mode=mode, location=spawn_location
     )
-    output = opened.initial.output
+    output = opened.output
     connection = opened if mode == "run" else None
     if not isinstance(output["process"], str):
         raise ValueError("expected a sandboxed process id")

@@ -4,25 +4,33 @@ use {
 };
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
-	fn connect_process(
+	fn get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+		Output = tg::Result<(
+			tg::process::connect::Header,
+			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+		)>,
 	> + Send {
 		async move {
-			self.try_connect_process(input)
+			self.try_get_process_connect_stream(arg, input)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
 	}
 
-	fn try_connect_process(
+	fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+			Option<(
+				tg::process::connect::Header,
+				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			)>,
 		>,
 	> + Send;
 
@@ -213,10 +221,10 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
 		>,
 	> + Send {
 		async move {
@@ -230,13 +238,11 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>>
-				+ Send
-				+ 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
 			>,
 		>,
 	> + Send;
@@ -289,11 +295,19 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::instance::Process for tg::Client {
-	async fn try_connect_process(
+	async fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
-		self.session(&self.context).try_connect_process(input).await
+	) -> tg::Result<
+		Option<(
+			tg::process::connect::Header,
+			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+		)>,
+	> {
+		self.session(&self.context)
+			.try_get_process_connect_stream(arg, input)
+			.await
 	}
 
 	async fn try_spawn_process(
@@ -431,11 +445,9 @@ impl tg::instance::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
-		Option<
-			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
-		>,
+		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static>,
 	> {
 		self.session(&self.context)
 			.try_write_process_stdio(id, arg, input)

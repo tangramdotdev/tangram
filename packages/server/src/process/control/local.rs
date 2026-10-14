@@ -2,8 +2,8 @@ use {
 	crate::control,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
-	tangram_futures::stream::Ext as _,
-	tg::process::stdio::{flow, read},
+	tangram_futures::{stream::Ext as _, task::Task},
+	tg::process::stdio::{read, write},
 };
 
 #[cfg(test)]
@@ -15,35 +15,34 @@ pub(crate) struct Local {
 }
 
 pub(crate) enum Message {
-	Close(String),
-	Progress(tg::process::control::ReadServerNotification),
+	Ack {
+		position: u64,
+		streams: Vec<tg::process::stdio::Stream>,
+	},
+	Read {
+		arg: read::Arg,
+		sender: tokio::sync::mpsc::Sender<tg::Result<read::ServerMessage>>,
+	},
 	Request {
 		request: tg::process::control::ServerRequest,
 		sender: Reply,
+	},
+	Write {
+		data: write::Data,
+		sender: tokio::sync::oneshot::Sender<tg::Result<write::Output>>,
 	},
 }
 
 #[derive(Clone)]
 pub(crate) enum Reply {
 	Local(tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>),
-	Remote(
-		control::Sender<tg::process::control::ServerMessage, tg::process::control::ClientMessage>,
-	),
-}
-
-struct State {
-	control_sender: Local,
-	finished: bool,
-	id: String,
-	pending: usize,
-	receiver: tokio::sync::mpsc::Receiver<tg::process::control::ClientMessage>,
-	window: flow::Receiver,
+	Remote(tg::process::control::Sender),
 }
 
 impl Local {
 	#[must_use]
-	pub(crate) fn new() -> (Self, tokio::sync::mpsc::Receiver<Message>) {
-		let (sender, receiver) = tokio::sync::mpsc::channel(256);
+	pub(crate) fn new(capacity: usize) -> (Self, tokio::sync::mpsc::Receiver<Message>) {
+		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
 		(Self { sender }, receiver)
 	}
 
@@ -88,44 +87,78 @@ impl Local {
 		Ok(future)
 	}
 
+	pub(crate) async fn write(
+		&self,
+		data: write::Data,
+	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<write::Output>>> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let message = Message::Write { data, sender };
+		self.sender
+			.send(message)
+			.await
+			.map_err(|_| tg::error!("the runner control channel closed"))?;
+		let future = async move {
+			receiver
+				.await
+				.map_err(|_| tg::error!("the runner stdin response channel closed"))?
+		}
+		.boxed();
+		Ok(future)
+	}
+
 	pub(crate) fn read(
 		&self,
-		arg: read::Arg,
+		mut arg: read::Arg,
+		mut input: BoxStream<'static, tg::Result<read::ClientMessage>>,
 	) -> BoxStream<'static, tg::Result<read::ServerMessage>> {
-		let id = control::id();
-		let (sender, receiver) = tokio::sync::mpsc::channel(flow::CHANNEL_CAPACITY);
-		let request = tg::process::control::ServerRequest {
-			arg: tg::process::control::ServerRequestArg::Read(arg),
-			id: id.clone(),
-		};
-		let message = Message::Request {
-			request,
-			sender: Reply::Local(sender),
-		};
-		let guard = scopeguard::guard((self.clone(), id.clone()), |(control_sender, id)| {
-			tokio::spawn(async move {
-				control_sender.sender.send(Message::Close(id)).await.ok();
-			});
+		// Normalize the streams, so that the acknowledgments use the read's coordinates.
+		arg.streams.sort();
+		arg.streams.dedup();
+
+		// Forward the reader's acknowledgments, so the runner releases the bytes it has.
+		let streams = arg.streams.clone();
+		let ack_task = Task::spawn({
+			let control_sender = self.clone();
+			move |_| async move {
+				while let Some(Ok(read::ClientMessage::Ack { position })) = input.next().await {
+					let streams = streams.clone();
+					let message = Message::Ack { position, streams };
+					if control_sender.sender.send(message).await.is_err() {
+						break;
+					}
+				}
+			}
 		});
+
+		// The bounded channel holds back the runner, and dropping the receiver ends the read.
+		let (sender, receiver) = tokio::sync::mpsc::channel(1);
+		let message = Message::Read { arg, sender };
 		let control_sender = self.clone();
-		let stream = futures::stream::once(async move {
+		futures::stream::once(async move {
 			control_sender
 				.sender
 				.send(message)
 				.await
 				.map_err(|_| tg::error!("the runner control channel closed"))?;
-			let state = State {
-				control_sender,
-				finished: false,
-				id,
-				pending: 0,
-				receiver,
-				window: flow::Receiver::default(),
-			};
-			let stream = futures::stream::try_unfold(state, State::next);
+			let stream = futures::stream::try_unfold(
+				(receiver, false),
+				|(mut receiver, finished)| async move {
+					if finished {
+						return Ok(None);
+					}
+					let message = receiver
+						.recv()
+						.await
+						.ok_or_else(|| tg::error!("the runner read channel closed"))??;
+					let finished = matches!(message, read::ServerMessage::Response(_));
+					Ok(Some((message, (receiver, finished))))
+				},
+			);
 			Ok::<_, tg::Error>(stream)
-		});
-		stream.try_flatten().attach(guard).boxed()
+		})
+		.try_flatten()
+		.attach(ack_task)
+		.boxed()
 	}
 }
 
@@ -158,7 +191,7 @@ impl Reply {
 		sender: &tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 		message: tg::process::control::ClientMessage,
 	) -> tg::Result<()> {
-		// The read flow window bounds the queue; abandoned callers must not stop the runner.
+		// Each request has a single response, and abandoned callers must not stop the runner.
 		match sender.try_send(message) {
 			Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => (),
 			Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
@@ -166,51 +199,6 @@ impl Reply {
 			},
 		}
 		Ok(())
-	}
-}
-
-impl State {
-	async fn next(mut self) -> tg::Result<Option<(read::ServerMessage, Self)>> {
-		if self.finished {
-			return Ok(None);
-		}
-		if let Some(progress) = self.window.consume(self.pending)? {
-			let notification = tg::process::control::ReadServerNotification {
-				id: self.id.clone(),
-				progress,
-			};
-			// The handler may have retired after queueing the final response.
-			self.control_sender
-				.sender
-				.send(Message::Progress(notification))
-				.await
-				.ok();
-		}
-		let message = self
-			.receiver
-			.recv()
-			.await
-			.ok_or_else(|| tg::error!("the runner read response channel closed"))?;
-		let message = match message {
-			tg::process::control::ClientMessage::Notification(
-				tg::process::control::ClientNotification::Read(notification),
-			) => read::ServerMessage::Notification(notification.event),
-			tg::process::control::ClientMessage::Response(response) => {
-				read::ServerMessage::Response(
-					response_output(response)?
-						.try_unwrap_read()
-						.map_err(|_| tg::error!("expected a runner read response"))?,
-				)
-			},
-			_ => return Err(tg::error!("expected a runner read message")),
-		};
-		self.pending = match &message {
-			read::ServerMessage::Notification(read::Event::Chunk(chunk)) => chunk.bytes.len(),
-			_ => 0,
-		};
-		self.finished = matches!(message, read::ServerMessage::Response(_));
-
-		Ok(Some((message, self)))
 	}
 }
 

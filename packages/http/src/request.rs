@@ -74,8 +74,11 @@ where
 	where
 		T: serde::de::DeserializeOwned,
 	{
-		self.arg_with(|_, bytes| Ok(serde_json::from_slice(bytes)?))
-			.await
+		self.arg_with(|encoding, bytes| {
+			encoding.require_json()?;
+			Ok(serde_json::from_slice(bytes)?)
+		})
+		.await
 	}
 
 	async fn arg_with_tangram<T>(self) -> Result<(Option<T>, http::Request<body::Boxed>), Error>

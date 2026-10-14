@@ -1,26 +1,26 @@
 use ../lib/test.nu *
 
-# A node process reconnects to its control stream without losing pending events.
+# A node process reconnects without losing pending stdio.
 
 const javascript_path = path self '../../../javascript'
 cd $javascript_path
 
-# Reopen the selected process, preserve stdio positions, and cancel unused reads.
+# Reopen the selected process once for concurrent operations, and resume stdio from its positions.
 let output = timeout 15 node --input-type=module -e '
 	import assert from "node:assert/strict";
 	import * as tg from "@tangramdotdev/client";
 	tg.setEncoding({
 		base64: {
-			decode: value => new Uint8Array(Buffer.from(value, "base64")),
-			encode: value => Buffer.from(value).toString("base64"),
+			decode: (value) => new Uint8Array(Buffer.from(value, "base64")),
+			encode: (value) => Buffer.from(value).toString("base64"),
 		},
 		utf8: {
-			decode: value => new TextDecoder().decode(value),
-			encode: value => new TextEncoder().encode(value),
+			decode: (value) => new TextDecoder().decode(value),
+			encode: (value) => new TextEncoder().encode(value),
 		},
 	});
 	const id = "pcs_010000000000000000000000000000000000000000000000000000";
-	const tick = () => new Promise(resolve => setImmediate(resolve));
+	const tick = () => new Promise((resolve) => setImmediate(resolve));
 	class Queue {
 		values = [];
 		waiters = [];
@@ -30,150 +30,126 @@ let output = timeout 15 node --input-type=module -e '
 			else this.values.push(value);
 		}
 		next() {
-			return this.values.length ? Promise.resolve(this.values.shift()) : new Promise(resolve => this.waiters.push(resolve));
+			return this.values.length ? Promise.resolve(this.values.shift()) : new Promise((resolve) => this.waiters.push(resolve));
 		}
 	}
 	let connections = new Queue();
+	let stdio = new Queue();
 	let requests = [];
-	tg.client.send = async request => {
+	tg.client.send = async (request) => {
 		requests.push(request.uri.path);
-		assert.equal(request.uri.path, "/processes/connect");
 		let input = request.body.sse();
+		let query = new URLSearchParams(request.uri.query);
 		let events = new Queue();
 		let next = async () => {
 			while (true) {
 				let event = await input.next();
 				assert.equal(event.done, false);
-				if (event.value.event === "request") return JSON.parse(event.value.data);
+				if (event.value.event === "request" || event.value.event === "data") return JSON.parse(event.value.data);
 			}
 		};
 		let emit = (event, value) => events.push({ event, data: JSON.stringify(value) });
-		let response = (id, kind, value) => emit("response", { id, error: null, output: { kind, value } });
-		connections.push({ input, next, emit, response, end: (error = null) => events.push(error) });
-		return new tg.Response(200, { "content-type": "text/event-stream" }, {
-			sse: async function* () {
+		let connection = { emit, end: (error = null) => events.push(error), next, path: request.uri.path, query };
+		let connect = request.uri.path === "/processes/connect";
+		(connect ? connections : stdio).push(connection);
+		let Body = request.body.constructor;
+		return new tg.Response(200, { "content-type": "text/event-stream" }, new Body({
+			[Symbol.asyncIterator]: async function* () {
+				if (connect) yield new Uint8Array([2, 123, 125]);
 				while (true) {
 					let event = await events.next();
 					if (event === null) return;
 					if (event instanceof Error) throw event;
-					yield event;
+					yield new TextEncoder().encode("event: " + event.event + "\ndata: " + event.data + "\n\n");
 				}
 			},
-		});
+		}));
 	};
 	const selected = { cached: false, lease: null, location: null, process: id, tokens: {}, outcome: null };
 	const accept = async () => {
 		let connection = await connections.next();
-		let opening = await connection.next();
-		assert.equal(opening.arg.kind, "connect");
-		assert.equal(opening.arg.value.mode, "run");
-		assert.equal(opening.arg.value.process, id);
-		connection.response(0, "connect", selected);
-		return { ...connection, reads: opening.arg.value.reads };
+		assert.equal(connection.query.get("mode"), "run");
+		assert.equal(connection.query.get("process"), id);
+		connection.emit("notification", { kind: "progress", value: { kind: "output", value: selected } });
+		return connection;
 	};
-	const chunk = (connection, id, position, text) => connection.emit("notification", {
-		kind: "read", value: { id, event: { kind: "chunk", value: {
-			bytes: Buffer.from(text).toString("base64"), combined_position: position, stream: "stdout", stream_position: position,
-		} } },
-	});
-	const end = (connection, id, position, stream = "stdout") => connection.response(id, "read", {
-		kind: "end", value: { combined_position: position, stream_positions: { [stream]: position } },
+	const chunk = (connection, position, text) => connection.emit("notification", { kind: "chunk", value: {
+		bytes: Buffer.from(text).toString("base64"), combined_position: position, stream: "stdout", stream_position: position,
+	} });
+	const end = (connection, position) => connection.emit("response", {
+		kind: "end", value: { combined_position: position, stream_positions: { stdout: position } },
 	});
 
-	let opening = tg.Process.connect(id, { reads: [{ streams: ["stderr"] }] });
+	let opening = tg.Process.connect(id);
 	let first = await accept();
 	let process = await opening;
-	await process.stderr.close();
-	assert.deepEqual((await first.next()).arg, { kind: "close", value: 1 });
 	first.end();
 	await tick();
 
 	// Concurrent operations share a single reopened stream.
-	let stdout = process.readStdio({ streams: ["stdout"] });
-	let stderr = process.readStdio({ streams: ["stderr"] });
-	let second = await accept();
-	assert.equal(second.reads[1].streams, "stdout");
-	let extra = await second.next();
-	assert.equal(extra.arg.kind, "read");
-	assert.equal(extra.arg.value.streams, "stderr");
-	assert.equal(requests.length, 2);
-	let out = await stdout;
-	let err = await stderr;
-	let reading = out.next();
-	chunk(second, 1, 0, "a");
-	assert.equal(Buffer.from((await reading).value.bytes).toString(), "a");
-	// Returning an iterator before its first next still releases its read request.
-	await err.return();
-	assert.deepEqual((await second.next()).arg, { kind: "close", value: extra.id });
-	second.end(new Error("transport failed"));
-	await tick();
-
-	reading = out.next();
+	let signaling = process.signal(tg.Process.Signal.TERM);
+	let resizing = process.setTtySize({ cols: 80, rows: 24 });
 	let current = await accept();
-	assert.equal(current.reads[1].position, 1);
-	chunk(current, 1, 1, "b");
-	end(current, 1, 2);
+	let kinds = [];
+	for (let index = 0; index < 2; index++) {
+		let request = await current.next();
+		kinds.push(request.arg.kind);
+		current.emit("response", { id: request.id, error: null, output: { kind: request.arg.kind } });
+	}
+	assert.deepEqual(kinds.sort(), ["signal", "tty"]);
+	await signaling;
+	await resizing;
+	assert.equal(requests.filter((path) => path === "/processes/connect").length, 2);
+
+	// A failed read resumes from the position it reached.
+	let out = await process.readStdio({ streams: ["stdout"] });
+	let reading = out.next();
+	let read = await stdio.next();
+	assert.equal(read.path, `/processes/${id}/stdio/read`);
+	chunk(read, 0, "a");
+	assert.equal(Buffer.from((await reading).value.bytes).toString(), "a");
+	reading = out.next();
+	read.end(new Error("transport failed"));
+	read = await stdio.next();
+	assert.equal(read.query.get("position"), "1");
+	chunk(read, 1, "b");
+	end(read, 2);
 	assert.equal(Buffer.from((await reading).value.bytes).toString(), "b");
 	assert.equal((await out.next()).done, true);
 
-	// An idle in-progress read is also canceled immediately.
-	let idle = await process.readStdio({ streams: ["stderr"] });
-	let idleRequest = await current.next();
-	let pendingRead = idle.next();
-	await idle.return();
-	assert.equal((await pendingRead).done, true);
-	assert.deepEqual((await current.next()).arg, { kind: "close", value: idleRequest.id });
-
-	// Canceling while the replacement connection is opening also releases its read.
-	let interrupted = await process.readStdio({ streams: ["stderr"] });
-	assert.equal((await current.next()).arg.kind, "read");
-	let interruptedRead = interrupted.next();
-	current.end();
-	let replacement = await connections.next();
-	let reconnect = await replacement.next();
-	assert.equal(reconnect.arg.kind, "connect");
-	assert.equal(reconnect.arg.value.reads[1].streams, "stderr");
-	let returning = interrupted.return();
-	replacement.response(0, "connect", selected);
-	assert.equal((await returning).done, true);
-	assert.equal((await interruptedRead).done, true);
-	assert.deepEqual((await replacement.next()).arg, { kind: "close", value: 1 });
-	current = replacement;
-
 	// A retried EOF or finite completion cannot hide a missing final chunk.
 	for (let kind of ["end", "limit", "timeout"]) {
-		let read = await process.readStdio({ streams: ["stdout"] });
-		let request = await current.next();
-		let pending = read.next();
+		let iterator = await process.readStdio({ streams: ["stdout"] });
+		let pending = iterator.next();
 		let rejected = assert.rejects(pending, /gap at the end/);
-		if (kind === "end") end(current, request.id, 4);
-		else current.response(request.id, "read", { kind, value: { position: 4 } });
+		let read = await stdio.next();
+		if (kind === "end") end(read, 4);
+		else read.emit("response", { kind, value: { position: 4 } });
 		await rejected;
-		assert.deepEqual((await current.next()).arg, { kind: "close", value: request.id });
 	}
 
-	// A receipt ACK does not complete a write; reconnect replays its unconfirmed bytes.
+	// A write completes only once its position is reported; reconnect resends its unreported bytes.
 	let writing = process.stdin.write(new TextEncoder().encode("abc"));
-	let write = await current.next();
-	assert.equal(write.arg.kind, "write");
-	current.emit("ack", { id: write.id });
-	current.end();
-	let last = await accept();
-	let retry = await last.next();
-	assert.deepEqual(retry.arg.value.data, write.arg.value.data);
-	last.response(retry.id, "write", { closed: false, length: 3 });
+	let writer = await stdio.next();
+	assert.equal(writer.path, `/processes/${id}/stdio/write`);
+	let write = await writer.next();
+	assert.equal(write.kind, "chunk");
+	writer.end(new Error("transport failed"));
+	writer = await stdio.next();
+	let retry = await writer.next();
+	assert.deepEqual(retry, write);
+	writer.emit("output", { closed: false, position: 3 });
 	assert.equal(await writing, 3);
 	let closing = process.stdin.close();
-	let eof = await last.next();
-	assert.deepEqual(eof.arg.value.data, { kind: "end", value: { combined_position: 3, stream_positions: { stdin: 3 } } });
-	last.response(eof.id, "write", { closed: true, length: 0 });
+	let eof = await writer.next();
+	assert.deepEqual(eof, { kind: "end", value: { combined_position: 3, stream_positions: { stdin: 3 } } });
+	writer.emit("output", { closed: true, position: 3 });
 	await closing;
-	last.emit("notification", { kind: "outcome", value: { exit: 0 } });
+
+	current.emit("notification", { kind: "outcome", value: { exit: 0 } });
 	assert.equal((await process.wait()).exit, 0);
-	let connection = process.connection;
 	await process.detach();
-	await assert.rejects(connection.read(id, { streams: ["stdout"] }), /closed/);
 	assert.equal(process.connection, null);
-	assert.equal(requests.length, 5);
+	assert.equal(requests.filter((path) => path === "/processes/connect").length, 2);
 ' | complete
 success $output

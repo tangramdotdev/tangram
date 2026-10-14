@@ -179,6 +179,7 @@ impl Writer {
 		let (location, process, tokens) =
 			ensure_process_with_instance(state.process.clone(), &instance).await?;
 		let arg = tg::process::stdio::write::stream::Arg {
+			id: None,
 			location,
 			streams: vec![state.stream],
 			tokens,

@@ -55,7 +55,6 @@ let path = artifact {
 				lease: spawned.lease,
 				location: spawned.location,
 				tokens: spawned.tokens,
-				reads: [{ streams: ["stdout"] }],
 			});
 			let [, text, outcome] = await Promise.all([
 				attached.stdin.writeAll(tg.encoding.utf8.encode("attached\n")),
@@ -70,5 +69,7 @@ let path = artifact {
 }
 let output = tg --url $local.url run $path | from json
 assert equal $output "ok"
-assert equal (open --raw $log | lines) ['/processes/connect' '/processes/connect' '/processes/connect' '/processes/connect']
+let requests = open --raw $log | lines | each { split row '?' | first }
+assert equal ($requests | where { $in == '/processes/connect' } | length) 4
+assert ($requests | all { $in == '/processes/connect' or ($in =~ '^/processes/[^/]+/stdio/(read|write)$') })
 job kill $proxy

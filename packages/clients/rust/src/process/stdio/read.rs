@@ -25,6 +25,11 @@ use {
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
+	/// The ID of the `Open` request whose write this read carries.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 8, skip_serializing_if = "Option::is_none")]
+	pub id: Option<String>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
@@ -71,10 +76,12 @@ pub struct Arg {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientMessage {
+	/// The position, in the read's coordinates, through which the reader has the read's bytes, so they no longer need to be kept for a new read to resume from.
 	#[tangram_serialize(id = 0)]
-	Ack,
-	#[tangram_serialize(id = 1)]
-	Notification(Progress),
+	Ack {
+		#[tangram_serialize(id = 0)]
+		position: u64,
+	},
 }
 
 #[derive(
@@ -149,22 +156,6 @@ pub enum Output {
 		#[tangram_serialize(id = 0)]
 		position: u64,
 	},
-}
-
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Default,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Progress {
-	/// The cumulative number of consumed chunk bytes in this read attempt.
-	#[tangram_serialize(id = 0)]
-	pub consumed: u64,
 }
 
 impl Output {
@@ -294,6 +285,7 @@ impl<O> tg::Process<O> {
 
 		let id = self.id().unwrap_right();
 		let arg = tg::process::stdio::read::Arg {
+			id: None,
 			length: options.length,
 			location: options.location.or_else(|| self.location()),
 			position: options.position,
@@ -336,7 +328,7 @@ impl tg::Session {
 			.uri(uri)
 			.header(http::header::ACCEPT, super::TANGRAM_CONTENT_TYPE)
 			.header(http::header::CONTENT_TYPE, super::TANGRAM_CONTENT_TYPE)
-			.arg(&arg, body)
+			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
@@ -371,10 +363,7 @@ impl TryFrom<ClientMessage> for tangram_http::sse::Event {
 	type Error = tg::Error;
 	fn try_from(message: ClientMessage) -> tg::Result<Self> {
 		let (event, data) = match message {
-			ClientMessage::Ack => ("ack", Ok("null".to_owned())),
-			ClientMessage::Notification(progress) => {
-				("notification", serde_json::to_string(&progress))
-			},
+			ClientMessage::Ack { position } => ("ack", serde_json::to_string(&position)),
 		};
 		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 		let event = Self {
@@ -390,8 +379,7 @@ impl TryFrom<tangram_http::sse::Event> for ClientMessage {
 	type Error = tg::Error;
 	fn try_from(event: tangram_http::sse::Event) -> tg::Result<Self> {
 		let message = match event.event.as_deref() {
-			Some("ack") => serde_json::from_str::<()>(&event.data).map(|()| Self::Ack),
-			Some("notification") => serde_json::from_str(&event.data).map(Self::Notification),
+			Some("ack") => serde_json::from_str(&event.data).map(|position| Self::Ack { position }),
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
 					serde_json::from_str(&event.data)

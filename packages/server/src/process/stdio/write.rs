@@ -3,9 +3,9 @@ use {
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _,
 		future::{self, BoxFuture},
-		stream::{BoxStream, FuturesOrdered},
+		stream::BoxStream,
 	},
-	std::{collections::BTreeMap, time::Duration},
+	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -16,12 +16,12 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tg::process::stdio::{
-		flow,
-		write::{Ack, ClientMessage, Data, Output, Response, ServerMessage},
-	},
+	tg::process::stdio::write::{Data, Output},
 	tokio_stream::wrappers::ReceiverStream,
 };
+
+mod log;
+mod relay;
 
 #[cfg(test)]
 mod tests;
@@ -37,18 +37,19 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
-	{
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
 		Self::validate_process_stdio_write_streams(&arg.streams)?;
-		if let Some(control) = self
-			.try_get_process_control_runner(
-				id,
-				arg.location.as_ref(),
-				&arg.tokens,
-				tg::authorization::permission::process::Set::PARENT,
-			)
-			.await?
+		let stdin = arg.streams.contains(&tg::process::stdio::Stream::Stdin);
+		if stdin
+			&& let Some(control) = self
+				.try_get_process_control_runner(
+					id,
+					arg.location.as_ref(),
+					&arg.tokens,
+					tg::authorization::permission::process::Set::PARENT,
+				)
+				.await?
 		{
 			let stream = self.write_process_stdio_with_control(
 				id,
@@ -68,7 +69,11 @@ impl Session {
 				self.try_write_process_stdio_region(id, &arg, input, region)
 					.await?
 			},
-			tg::Location::Local(_) => {
+			tg::Location::Local(_) if arg.id.is_some() => {
+				let open = arg.id.as_deref().unwrap();
+				self.write_process_stdio_relay_local(id, open, &arg.streams, input)?
+			},
+			tg::Location::Local(_) if stdin => {
 				self.try_write_process_stdio_local(
 					id,
 					&arg.streams,
@@ -77,6 +82,10 @@ impl Session {
 					arg.tokens.local_authorization(),
 				)
 				.await?
+			},
+			tg::Location::Local(_) => {
+				self.try_write_process_stdio_log_local(id, &arg.streams, input)
+					.await?
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
@@ -94,11 +103,10 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		stopper: Option<Stopper>,
 		tokens: &[tg::authorization::Token],
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
-	{
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
 		let Some(tg::process::get::Output { data, location, .. }) = self
 			.try_get_process_local(id, false, false, tokens, tg::process::Source::Auto)
 			.await
@@ -133,12 +141,11 @@ impl Session {
 		id: &tg::process::Id,
 		data: tg::process::Data,
 		streams: &[tg::process::stdio::Stream],
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		stopper: Option<Stopper>,
 		control_sender: Option<crate::process::control::local::Local>,
-	) -> BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>> {
-		let (sender, receiver) =
-			tokio::sync::mpsc::channel(tg::process::stdio::flow::CHANNEL_CAPACITY);
+	) -> BoxStream<'static, tg::Result<tg::process::stdio::write::Output>> {
+		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 		let task = Task::spawn({
 			let session = self.clone();
 			let id = id.clone();
@@ -181,9 +188,11 @@ impl Session {
 			.iter()
 			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
 		match (stdin, output) {
-			(true, false) => Ok(()),
+			(true, false) | (false, true) => Ok(()),
 			(false, false) => Err(tg::error!("expected at least one stdio stream")),
-			(_, true) => Err(tg::error!("cannot write process stdout or stderr")),
+			(true, true) => Err(tg::error!(
+				"cannot write stdin and stdout or stderr in a single request"
+			)),
 		}
 	}
 
@@ -192,8 +201,8 @@ impl Session {
 		id: &tg::process::Id,
 		data: &tg::process::Data,
 		streams: &[tg::process::stdio::Stream],
-		mut input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
-		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
+		mut input: BoxStream<'static, tg::Result<Data>>,
+		sender: &tokio::sync::mpsc::Sender<tg::Result<Output>>,
 		control_sender: Option<&crate::process::control::local::Local>,
 	) -> tg::Result<()> {
 		let destination = get_stdin_destination(data)?;
@@ -203,164 +212,124 @@ impl Session {
 			self.create_wait_process_finished_future_local(id).await?
 		}
 		.shared();
-		let mut pending = FuturesOrdered::<BoxFuture<'static, (u64, tg::Result<Output>)>>::new();
-		let mut responses = BTreeMap::new();
-		let mut end = None;
-		let mut ended = false;
-		loop {
-			if pending.is_empty()
-				&& let Some(request) = end.take()
-			{
-				let request: tg::process::stdio::write::Request = request;
-				let response = self
-					.start_write_process_stdio_local(
-						id,
-						request.arg,
-						destination,
-						wait.clone(),
-						control_sender,
-					)
-					.await?;
-				pending.push_back(async move { (request.id, response.await) }.boxed());
-				ended = true;
-			}
-			if ended && pending.is_empty() && responses.is_empty() {
+
+		// Relay stdin to a runner on another server, unless the process has already finished.
+		if destination == Destination::Pipe
+			&& control_sender.is_none()
+			&& wait.clone().now_or_never().is_none()
+		{
+			return self
+				.write_process_stdio_relay_task(id, streams, input, sender, wait)
+				.boxed()
+				.await;
+		}
+
+		// Write each chunk, then report the position through which it was written.
+		while let Some(data) = input.try_next().await? {
+			validate_write(&data, streams)?;
+			crate::checkpoint!(self.server, "process.stdio.write.request", close = %matches!(&data, Data::End(_)), stream = %tg::process::stdio::Stream::Stdin).await;
+			let output = self
+				.write_process_stdio_data(data, destination, wait.clone(), control_sender)
+				.await?;
+			sender
+				.send(Ok(output))
+				.await
+				.map_err(|_| tg::error!("the stdio write output closed"))?;
+			if output.closed {
 				return Ok(());
 			}
-			tokio::select! {
-				message = input.try_next() => {
-					let Some(message) = message? else { return Err(tg::error!("the stdio write input closed before completion")); };
-					match message {
-						ClientMessage::Ack(Ack { id }) => {
-							if responses.get(&id) == Some(&true) {
-								responses.remove(&id);
-							}
-						},
-						ClientMessage::Request(request) => {
-							if ended || end.is_some() { return Err(tg::error!("received a write after stdio EOF")); }
-							// EOF has a reserved slot after a full window of data chunks.
-							let limit = flow::MAX_CHUNKS + usize::from(matches!(request.arg, Data::End(_)));
-							if responses.len() >= limit || responses.insert(request.id, false).is_some() {
-								return Err(tg::error!("the stdio write window was exceeded"));
-							}
-							validate_write(&request.arg, streams)?;
-							sender.send(Ok(ServerMessage::Ack(Ack { id: request.id }))).await.map_err(|_| tg::error!("the stdio write output closed"))?;
-							if matches!(request.arg, Data::End(_)) { end = Some(request); continue; }
-							// Publish writes in order while their completed outcomes remain pending.
-							let response = self.start_write_process_stdio_local(id, request.arg, destination, wait.clone(), control_sender).await?;
-							pending.push_back(async move { (request.id, response.await) }.boxed());
-						},
-					}
-				},
-				response = pending.next(), if !pending.is_empty() => {
-					let (id, result) = response.unwrap();
-					responses.insert(id, true);
-					let response = create_response(id, result);
-					sender.send(Ok(ServerMessage::Response(response))).await.map_err(|_| tg::error!("the stdio write output closed"))?;
-				},
-			}
 		}
+
+		Ok(())
 	}
 
-	async fn start_write_process_stdio_local(
+	async fn write_process_stdio_data(
 		&self,
-		id: &tg::process::Id,
-		data: tg::process::stdio::write::Data,
+		data: Data,
 		destination: Destination,
-		wait: futures::future::Shared<BoxFuture<'static, tg::Result<()>>>,
+		wait: future::Shared<BoxFuture<'static, tg::Result<()>>>,
 		control_sender: Option<&crate::process::control::local::Local>,
-	) -> tg::Result<BoxFuture<'static, tg::Result<tg::process::stdio::write::Output>>> {
-		crate::checkpoint!(self.server, "process.stdio.write.request", close = %matches!(&data, Data::End(_)), stream = %tg::process::stdio::Stream::Stdin).await;
-		let length = match &data {
-			Data::Chunk(chunk) => chunk.bytes.len() as u64,
-			Data::End(_) => 0,
+	) -> tg::Result<Output> {
+		let (start, end) = match &data {
+			Data::Chunk(chunk) => (
+				chunk.stream_position,
+				chunk.stream_position + chunk.bytes.len() as u64,
+			),
+			Data::End(end) => {
+				let position = end
+					.stream_positions
+					.get(&tg::process::stdio::Stream::Stdin)
+					.copied()
+					.unwrap_or_default();
+				(position, position)
+			},
+		};
+		let closed = Output {
+			closed: true,
+			position: start,
 		};
 		if destination == Destination::Null {
 			let output = Output {
 				closed: matches!(data, Data::End(_)),
-				length,
+				position: end,
 			};
-			return Ok(future::ok(output).boxed());
+			return Ok(output);
 		}
 		if let Some(result) = wait.clone().now_or_never() {
 			result?;
-			return Ok(future::ok(Output {
-				closed: true,
-				length: 0,
-			})
-			.boxed());
+			return Ok(closed);
 		}
-		let request = tg::process::control::ServerRequestArg::Write(data);
-		let options = crate::control::Options {
-			retry: tangram_futures::retry::Options {
-				max_retries: u64::MAX,
-				..Default::default()
-			},
-			timeout: Duration::from_secs(10),
+		let Some(control_sender) = control_sender else {
+			return Ok(closed);
 		};
-		let response = if let Some(control_sender) = control_sender {
-			match control_sender.send_request(request).await {
-				Ok(response) => response,
-				Err(error) => future::err(error).boxed(),
-			}
-		} else {
-			self.send_process_control_request(id, request, options)
-				.await?
+		let response = match control_sender.write(data).await {
+			Ok(response) => response,
+			Err(error) => future::err(error).boxed(),
 		};
-		let local = control_sender.is_some();
-		let future = Self::finish_write_process_stdio(response, wait, local).boxed();
-		Ok(future)
+		let timeout = self.server.config.process.stdio_retire_timeout;
+		let output = Self::finish_write_process_stdio(response, wait, start, timeout).await?;
+
+		Ok(output)
 	}
 
 	async fn finish_write_process_stdio(
-		response: BoxFuture<
-			'static,
-			tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>,
-		>,
-		wait: futures::future::Shared<BoxFuture<'static, tg::Result<()>>>,
-		local: bool,
+		response: BoxFuture<'static, tg::Result<Output>>,
+		wait: future::Shared<BoxFuture<'static, tg::Result<()>>>,
+		start: u64,
+		timeout: Duration,
 	) -> tg::Result<Output> {
+		let closed = Output {
+			closed: true,
+			position: start,
+		};
 		let response = tokio::select! {
 			biased;
 			response = response => response,
-			result = wait.clone() => { result?; return Ok(Output { closed: true, length: 0 }); },
-		};
-		let response = match response {
-			Ok(response) => response?,
-			Err(error) => {
-				// The local handler can retire between enqueueing a write and delivering its response.
-				let finished = if local {
-					tokio::time::timeout(Duration::from_secs(10), wait)
-						.await
-						.ok()
-				} else {
-					wait.now_or_never()
-				};
-				if let Some(result) = finished {
-					result?;
-					return Ok(Output {
-						closed: true,
-						length: 0,
-					});
-				}
-				return Err(error);
+			result = wait.clone() => {
+				result?;
+				return Ok(closed);
 			},
 		};
-		let output = response
-			.try_unwrap_write()
-			.map_err(|_| tg::error!("expected a write response"))?;
-
-		Ok(output)
+		match response {
+			Ok(output) => Ok(output),
+			Err(error) => {
+				// The local handler can retire between enqueueing a write and delivering its response.
+				if let Ok(result) = tokio::time::timeout(timeout, wait).await {
+					result?;
+					return Ok(closed);
+				}
+				Err(error)
+			},
+		}
 	}
 
 	async fn try_write_process_stdio_region(
 		&self,
 		id: &tg::process::Id,
 		arg: &tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		region: String,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
-	{
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
 		let client = self.get_region_session_for_process(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -368,6 +337,7 @@ impl Session {
 			region: Some(region.clone()),
 		});
 		let arg = tg::process::stdio::write::stream::Arg {
+			id: arg.id.clone(),
 			location: Some(location.clone().into()),
 			streams: arg.streams.clone(),
 			tokens: arg.tokens.for_location(&location),
@@ -384,11 +354,10 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: &tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
-	{
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
 		let client = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
@@ -397,6 +366,7 @@ impl Session {
 			region: region.clone(),
 		});
 		let arg = tg::process::stdio::write::stream::Arg {
+			id: arg.id.clone(),
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			streams: arg.streams.clone(),
 			tokens: arg.tokens.for_location(&location),
@@ -439,7 +409,7 @@ impl Session {
 			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 		let (arg, request) = request
-			.arg::<tg::process::stdio::write::stream::Arg>()
+			.arg_with_tangram::<tg::process::stdio::write::stream::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
@@ -452,6 +422,7 @@ impl Session {
 				.unwrap()
 				.boxed_body());
 		};
+		crate::checkpoint!(self.server, "process.stdio.write.response", process = %id).await;
 		let content_type = output_encoding.content_type(tangram_content_type);
 		let body = super::encode(output, output_encoding, max_frame_size);
 		let response = http::Response::builder()
@@ -477,7 +448,7 @@ fn validate_write(data: &Data, streams: &[tg::process::stdio::Stream]) -> tg::Re
 	match data {
 		Data::Chunk(chunk) => {
 			if chunk.bytes.is_empty()
-				|| chunk.bytes.len() > flow::CHUNK_SIZE
+				|| chunk.bytes.len() > tg::process::stdio::MAX_CHUNK_SIZE
 				|| !streams.contains(&chunk.stream)
 			{
 				return Err(tg::error!("invalid process stdio chunk"));
@@ -498,22 +469,4 @@ fn validate_write(data: &Data, streams: &[tg::process::stdio::Stream]) -> tg::Re
 		},
 	}
 	Ok(())
-}
-
-fn create_response(id: u64, result: tg::Result<Output>) -> Response {
-	let (error, output) = match result {
-		Err(error) => {
-			let error = tg::error::Data {
-				message: Some(error.to_string()),
-				source: Some(tg::Referent::new(
-					error.to_data_or_id().map_left(Box::new),
-					tg::referent::Options::default(),
-				)),
-				..Default::default()
-			};
-			(Some(error), None)
-		},
-		Ok(output) => (None, Some(output)),
-	};
-	Response { error, id, output }
 }

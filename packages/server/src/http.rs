@@ -375,6 +375,7 @@ impl Server {
 					let context = Context {
 						billing_ready: false,
 						id: None,
+						local_process_control: false,
 						origin,
 						principal: tg::Principal::Anonymous,
 						stopper: Some(stopper),
@@ -758,9 +759,9 @@ impl Server {
 				.boxed(),
 
 			// Processes.
-			(http::Method::POST, ["processes", "connect"]) => {
-				session.try_connect_process_request(request).boxed()
-			},
+			(http::Method::POST, ["processes", "connect"]) => session
+				.try_get_process_connect_stream_request(request)
+				.boxed(),
 			(http::Method::POST, ["processes", "spawn"]) => {
 				session.try_spawn_process_request(request).boxed()
 			},

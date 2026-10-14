@@ -4,11 +4,17 @@ use {
 };
 
 impl tg::instance::Process for tg::Session {
-	async fn try_connect_process(
+	async fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
-		self.try_connect_process(input).await
+	) -> tg::Result<
+		Option<(
+			tg::process::connect::Header,
+			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+		)>,
+	> {
+		self.try_get_process_connect_stream(arg, input).await
 	}
 
 	fn try_spawn_process(
@@ -140,13 +146,11 @@ impl tg::instance::Process for tg::Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>>
-				+ Send
-				+ 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
 			>,
 		>,
 	> {

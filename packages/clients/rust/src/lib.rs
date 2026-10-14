@@ -144,10 +144,12 @@ pub struct Arg {
 	pub token: Option<String>,
 	pub http: Http,
 	pub pool: tangram_pool::Options,
+	pub process: tg::process::Config,
 	pub progress: tg::progress::Config,
 	pub reconnect: tangram_futures::retry::Options,
 	pub retry: tangram_futures::retry::Options,
 	pub sandbox: tg::sandbox::Config,
+	pub stream_retry: tangram_futures::retry::Options,
 	pub sync: tg::sync::Config,
 	pub value: tg::value::Config,
 }
@@ -169,11 +171,13 @@ pub struct State {
 	http: Http,
 	pool: self::http::Pool,
 	pool_options: tangram_pool::Options,
+	process: tg::process::Config,
 	progress: tg::progress::Config,
 	reconnect: tangram_futures::retry::Options,
 	retry: tangram_futures::retry::Options,
 	sandbox: tg::sandbox::Config,
 	service: self::http::Service,
+	stream_retry: tangram_futures::retry::Options,
 	sync: tg::sync::Config,
 	url: Uri,
 	value: tg::value::Config,
@@ -226,6 +230,7 @@ impl Context {
 impl Client {
 	pub fn new(arg: tg::Arg) -> tg::Result<Self> {
 		let http = arg.http.validate()?;
+		let process = arg.process.validate()?;
 		let progress = arg.progress;
 		let sandbox = arg.sandbox;
 		let value = arg.value;
@@ -240,6 +245,7 @@ impl Client {
 		let pool_options = arg.pool;
 		let reconnect = arg.reconnect;
 		let retry = arg.retry;
+		let stream_retry = arg.stream_retry;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
 		let pool = Self::pool(pool_options, &reconnect, &url, http);
@@ -249,11 +255,13 @@ impl Client {
 			http,
 			pool,
 			pool_options,
+			process,
 			progress,
 			reconnect,
 			retry,
 			sandbox,
 			service,
+			stream_retry,
 			sync,
 			url,
 			value,
@@ -282,6 +290,7 @@ impl Client {
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
 		let http = arg.http.validate()?;
+		let process = arg.process.validate()?;
 		let progress = arg.progress;
 		let sandbox = arg.sandbox;
 		let value = arg.value;
@@ -300,6 +309,7 @@ impl Client {
 		let pool_options = arg.pool;
 		let reconnect = arg.reconnect;
 		let retry = arg.retry;
+		let stream_retry = arg.stream_retry;
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
 		let sender = Self::handshake_h2(stream, http.http2).await?;
@@ -319,11 +329,13 @@ impl Client {
 			http,
 			pool,
 			pool_options,
+			process,
 			progress,
 			reconnect,
 			retry,
 			sandbox,
 			service,
+			stream_retry,
 			sync,
 			url,
 			value,
@@ -425,10 +437,12 @@ impl fmt::Debug for State {
 		f.debug_struct("State")
 			.field("context", &self.context)
 			.field("pool_options", &self.pool_options)
+			.field("process", &self.process)
 			.field("progress", &self.progress)
 			.field("reconnect", &self.reconnect)
 			.field("retry", &self.retry)
 			.field("sandbox", &self.sandbox)
+			.field("stream_retry", &self.stream_retry)
 			.field("sync", &self.sync)
 			.field("url", &self.url)
 			.field("value", &self.value)
@@ -453,16 +467,22 @@ impl Default for Arg {
 			shared: usize::MAX,
 			ttl: None,
 		};
+		let stream_retry = tangram_futures::retry::Options {
+			max_retries: u64::MAX,
+			..Default::default()
+		};
 		Self {
 			url: None,
 			version: None,
 			token: None,
 			http: Http::default(),
 			pool,
+			process: tg::process::Config::default(),
 			progress: tg::progress::Config::default(),
 			reconnect: tangram_futures::retry::Options::default(),
 			retry: tangram_futures::retry::Options::default(),
 			sandbox: tg::sandbox::Config::default(),
+			stream_retry,
 			sync: tg::sync::Config::default(),
 			value: tg::value::Config::default(),
 		}

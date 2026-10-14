@@ -16,9 +16,12 @@ from ..config import (
     compatibility_date,
     default_http_config,
     default_pool_options,
+    default_process_config,
     default_retry_options,
+    default_stream_retry_options,
     validate_http_config,
     validate_pool_options,
+    validate_process_config,
     validate_retry_options,
 )
 from ..config import version as default_version
@@ -50,7 +53,13 @@ if TYPE_CHECKING:
     from .checkout import Output as CheckoutOutput
     from .process.cancel import Cancel
     from .process.cancel import KeywordOptions as CancelKeywordOptions
-    from .process.connect import ClientMessage, ServerMessage, TtyArg
+    from .process.connect import (
+        ClientMessage,
+        ConnectArgObject,
+        Header,
+        ServerMessage,
+        TtyArg,
+    )
     from .process.get import Get as ProcessGet
     from .process.put import KeywordOptions as PutKeywordOptions
     from .process.put import Put as ProcessPut
@@ -114,10 +123,14 @@ class Client:
         validate_pool_options(self.pool)
         self.http = config.get("http", default_http_config())
         validate_http_config(self.http)
+        self.process = config.get("process", default_process_config())
+        validate_process_config(self.process)
         self.reconnect = config.get("reconnect", default_retry_options())
         self.retry = config.get("retry", default_retry_options())
+        self.stream_retry = config.get("stream_retry", default_stream_retry_options())
         validate_retry_options(self.reconnect)
         validate_retry_options(self.retry)
+        validate_retry_options(self.stream_retry)
         self.version = config.get("version", default_version)
         self.url = config.get("url")
         self.token = config.get("token")
@@ -507,11 +520,11 @@ class Client:
         return await wait_process(self, id, **_options(arg, options))
 
     async def connect_process(
-        self, input: AsyncIterable[ClientMessage]
-    ) -> Stream[ServerMessage]:
+        self, arg: ConnectArgObject, input: AsyncIterable[ClientMessage]
+    ) -> tuple[Header, Stream[ServerMessage]]:
         from .process.connect import connect_process
 
-        return await connect_process(self, input)
+        return await connect_process(self, arg, input)
 
     async def try_read_process_stdio(
         self,

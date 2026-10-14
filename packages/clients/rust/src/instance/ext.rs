@@ -10,7 +10,7 @@ use {
 		pin::pin,
 		sync::{Arc, Mutex},
 	},
-	tangram_futures::task::Task,
+	tangram_futures::{stream::Ext as _, task::Task},
 };
 
 pub trait Ext: tg::Instance {
@@ -533,6 +533,7 @@ pub trait Ext: tg::Instance {
 			let (header, output_stream) = instance
 				.get_sandbox_control_stream(arg.clone(), input_receiver.clone().boxed())
 				.await?;
+			let stream_retry = instance.arg().stream_retry;
 			let instance = reconnect(&header);
 			let arg = tg::sandbox::control::Arg {
 				id: Some(header.id.clone()),
@@ -553,6 +554,7 @@ pub trait Ext: tg::Instance {
 				let arg = arg.clone();
 				let input_receiver = input_receiver.clone();
 				let create_state = create_state.clone();
+				let stream_retry = stream_retry.clone();
 				async move {
 					loop {
 						if state.stream.is_none() {
@@ -564,11 +566,7 @@ pub trait Ext: tg::Instance {
 							.chain(input_receiver.clone())
 							.boxed();
 							let retries = state.retries.get_or_insert_with(|| {
-								let options = tangram_futures::retry::Options {
-									max_retries: u64::MAX,
-									..Default::default()
-								};
-								tangram_futures::retry::stream(options).boxed()
+								tangram_futures::retry::stream(stream_retry.clone()).boxed()
 							});
 							retries.next().await?;
 							match instance
@@ -606,140 +604,6 @@ pub trait Ext: tg::Instance {
 		}
 	}
 
-	fn try_get_process_control_stream_all(
-		&self,
-		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-		reconnect: impl FnOnce(&tg::process::control::Header) -> Self + Send,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<(
-				tg::process::control::Header,
-				impl Stream<Item = tg::Result<tg::control::Event<tg::process::control::ServerMessage>>>
-				+ Send
-				+ 'static,
-			)>,
-		>,
-	> + Send {
-		async move {
-			let instance = self.clone();
-			let deferred = !arg.start;
-			#[derive(Default)]
-			struct StartState {
-				start: Option<tg::process::control::ClientRequest>,
-			}
-			let start_state = Arc::new(Mutex::new(StartState::default()));
-
-			// Create a channel for buffering events from the input.
-			let (response_sender, response_receiver) = async_channel::bounded(1);
-
-			// Create the input task. This will read events from the input stream and write them to the response channel. It is detached so that it forwards the remaining events when the request stream is dropped. It completes when the input stream ends or all of the receivers are dropped.
-			let mut input_task = Task::spawn({
-				let start_state = start_state.clone();
-				move |_| async move {
-					let mut input = pin!(stream);
-					while let Some(event) = input.next().await {
-						if deferred
-							&& let Ok(tg::process::control::ClientMessage::Request(request)) =
-								&event && let tg::process::control::ClientRequestArg::Start(_) =
-							&request.arg
-						{
-							start_state.lock().unwrap().start.replace(request.clone());
-						}
-						if response_sender.send(event).await.is_err() {
-							break;
-						}
-					}
-				}
-			});
-			input_task.detach();
-
-			// Get the initial header and stream.
-			let Some((header, output_stream)) = instance
-				.try_get_process_control_stream(arg.clone(), response_receiver.clone().boxed())
-				.await?
-			else {
-				input_task.abort();
-				return Ok(None);
-			};
-			let instance = reconnect(&header);
-			let arg = tg::process::control::Arg {
-				data: None,
-				id: Some(header.process.node.clone()),
-				..arg
-			};
-
-			// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
-			struct State {
-				retries: Option<BoxStream<'static, ()>>,
-				stream: Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>,
-			}
-			let state = State {
-				retries: None,
-				stream: Some(output_stream.boxed()),
-			};
-			let stream = stream::unfold(state, move |mut state| {
-				let instance = instance.clone();
-				let arg = arg.clone();
-				let response_receiver = response_receiver.clone();
-				let start_state = start_state.clone();
-				async move {
-					loop {
-						if state.stream.is_none() {
-							// A successful start confirms submission, not persistence.
-							let start = start_state.lock().unwrap().start.clone();
-							let input = stream::iter(start.map(|request| {
-								Ok(tg::process::control::ClientMessage::Request(request))
-							}))
-							.chain(response_receiver.clone())
-							.boxed();
-							let retries = state.retries.get_or_insert_with(|| {
-								let options = tangram_futures::retry::Options {
-									max_retries: u64::MAX,
-									..Default::default()
-								};
-								tangram_futures::retry::stream(options).boxed()
-							});
-							retries.next().await?;
-							match instance
-								.try_get_process_control_stream(arg.clone(), input)
-								.await
-							{
-								Ok(Some((_, stream))) => {
-									state.stream.replace(stream.boxed());
-									return Some((Ok(tg::control::Event::Reconnect), state));
-								},
-								Ok(None) => {
-									let error = tg::error!("failed to find the process");
-									return Some((Err(error), state));
-								},
-								Err(error) => {
-									tracing::error!(error = %error.trace(), "failed to reconnect the control stream");
-									continue;
-								},
-							}
-						}
-						match state.stream.as_mut().unwrap().next().await {
-							Some(Ok(event)) => {
-								state.retries.take();
-								return Some((Ok(tg::control::Event::Message(event)), state));
-							},
-							Some(Err(error)) => {
-								tracing::error!(error = %error.trace(), "the control stream returned an error");
-								state.stream.take();
-							},
-							None => {
-								state.stream.take();
-							},
-						}
-					}
-				}
-			});
-
-			Ok(Some((header, stream)))
-		}
-	}
-
 	fn try_read_process_stdio_all(
 		&self,
 		id: &tg::process::Id,
@@ -750,7 +614,7 @@ pub trait Ext: tg::Instance {
 		>,
 	> + Send {
 		async move {
-			let output = self.try_read_process_stdio_all_inner(id, arg).await?;
+			let output = self.try_read_process_stdio_all_inner(id, arg, None).await?;
 			let output = output.map(|stream| {
 				stream.try_filter_map(|message| {
 					future::ready(Ok(match message {
@@ -768,10 +632,12 @@ pub trait Ext: tg::Instance {
 		}
 	}
 
+	/// Read the process's stdio, reconnecting from the acknowledged position. The reader acknowledges each chunk as it yields it, unless `acks` reports the positions that its own reader has acknowledged.
 	fn try_read_process_stdio_all_inner(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		acks: Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
@@ -789,41 +655,63 @@ pub trait Ext: tg::Instance {
 				Some(SeekFrom::Start(position)) => Some(position),
 				Some(SeekFrom::Current(_) | SeekFrom::End(_)) => None,
 			};
-			let (sender, receiver) = async_channel::bounded(4);
+
+			// Acknowledge the read's bytes, so the runner releases them only once this reader or its own reader has them.
+			let (ack_sender, ack_receiver) =
+				tokio::sync::watch::channel(position.unwrap_or_default());
+			let ack_task = acks.map(|mut acks| {
+				let ack_sender = ack_sender.clone();
+				Task::spawn(move |_| async move {
+					while let Some(Ok(tg::process::stdio::read::ClientMessage::Ack { position })) =
+						acks.next().await
+					{
+						ack_sender.send_if_modified(|acked| {
+							let modified = position > *acked;
+							*acked = (*acked).max(position);
+							modified
+						});
+					}
+				})
+			});
+			let ack_sender = ack_task.is_none().then_some(ack_sender);
+			let input = read_process_stdio_acks(ack_receiver.clone());
 			let Some(output) = instance
-				.try_read_process_stdio(&id, arg.clone(), receiver.boxed())
+				.try_read_process_stdio(&id, arg.clone(), input)
 				.await?
 			else {
 				return Ok(None);
 			};
 			struct State<I> {
+				ack_receiver: tokio::sync::watch::Receiver<u64>,
+				ack_sender: Option<tokio::sync::watch::Sender<u64>>,
 				arg: tg::process::stdio::read::Arg,
 				combined: bool,
 				ended: bool,
-				flow: tg::process::stdio::flow::Receiver,
+				error: Option<tg::Error>,
 				forward: bool,
 				id: tg::process::Id,
 				instance: I,
 				output:
 					Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>,
-				pending: usize,
 				position: Option<u64>,
 				retries: Option<BoxStream<'static, ()>>,
-				sender: async_channel::Sender<tg::Result<tg::process::stdio::read::ClientMessage>>,
+				stream_retry: tangram_futures::retry::Options,
 			}
+			let stream_retry = instance.arg().stream_retry;
 			let state = State {
+				ack_receiver,
+				ack_sender,
 				arg,
 				combined,
 				ended: false,
-				flow: tg::process::stdio::flow::Receiver::default(),
+				error: None,
 				forward,
 				id,
 				instance,
 				output: Some(output.boxed()),
-				pending: 0,
 				position,
 				retries: None,
-				sender,
+				stream_retry,
 			};
 			let stream = stream::try_unfold(state, move |mut state| async move {
 				if state.ended {
@@ -831,48 +719,58 @@ pub trait Ext: tg::Instance {
 				}
 				loop {
 					if state.output.is_none() {
+						// Fail with the last error once the retries are exhausted.
 						let retries = state.retries.get_or_insert_with(|| {
-							let options = tangram_futures::retry::Options {
-								max_retries: u64::MAX,
-								..Default::default()
-							};
-							tangram_futures::retry::stream(options).boxed()
+							tangram_futures::retry::stream(state.stream_retry.clone()).boxed()
 						});
-						retries.next().await;
-						let (sender, receiver) = async_channel::bounded(4);
+						if retries.next().await.is_none() {
+							let error = state.error.take().unwrap_or_else(|| {
+								tg::error!(
+									unavailable,
+									"the process stdio stream ended before completion"
+								)
+							});
+							return Err(error);
+						}
+
+						// Resume from the acknowledged position, because the bytes delivered after it may not have reached this reader's own reader.
+						let mut arg = state.arg.clone();
+						if state.forward
+							&& let Some(position) = state.position
+						{
+							let acked = (*state.ack_receiver.borrow()).min(position);
+							arg.position = Some(SeekFrom::Start(acked));
+							if let Some(length) = &mut arg.length {
+								*length =
+									length.saturating_add((position - acked).to_i64().unwrap());
+							}
+						}
+						let input = read_process_stdio_acks(state.ack_receiver.clone());
 						match state
 							.instance
-							.try_read_process_stdio(&state.id, state.arg.clone(), receiver.boxed())
+							.try_read_process_stdio(&state.id, arg, input)
 							.await
 						{
 							Ok(Some(output)) => {
-								state.flow = tg::process::stdio::flow::Receiver::default();
 								state.output = Some(output.boxed());
-								state.pending = 0;
-								state.sender = sender;
 							},
 							Ok(None) => return Err(tg::error!("failed to find the process")),
-							Err(error) => {
+							// Retry the attempt if it failed with an unavailable error.
+							Err(error) if error.kind() == Some(tg::error::Kind::Unavailable) => {
 								tracing::error!(error = %error.trace(), "failed to reconnect the stdio read stream");
+								state.error = Some(error);
 								continue;
 							},
+							Err(error) => return Err(error),
 						}
-					}
-					if let Some(progress) =
-						state.flow.consume(std::mem::take(&mut state.pending))?
-					{
-						let message =
-							tg::process::stdio::read::ClientMessage::Notification(progress);
-						// Preserve terminal errors on the response stream when the input closes.
-						state.sender.send(Ok(message)).await.ok();
 					}
 					let message = state.output.as_mut().unwrap().next().await;
 					match message {
 						Some(Ok(tg::process::stdio::read::ServerMessage::Notification(
 							tg::process::stdio::read::Event::Chunk(mut chunk),
 						))) => {
+							state.error = None;
 							state.retries.take();
-							state.pending = chunk.bytes.len();
 							let start = if state.combined {
 								chunk.combined_position
 							} else {
@@ -931,6 +829,11 @@ pub trait Ext: tg::Instance {
 							state.arg.position = Some(SeekFrom::Start(position));
 
 							state.position = Some(position);
+							if state.forward
+								&& let Some(ack_sender) = &state.ack_sender
+							{
+								ack_sender.send_replace(position);
+							}
 
 							let notification =
 								tg::process::stdio::read::ServerMessage::Notification(
@@ -952,11 +855,6 @@ pub trait Ext: tg::Instance {
 						Some(Ok(tg::process::stdio::read::ServerMessage::Response(output))) => {
 							output
 								.validate(&state.arg.streams, state.position.unwrap_or_default())?;
-							state
-								.sender
-								.send(Ok(tg::process::stdio::read::ClientMessage::Ack))
-								.await
-								.ok();
 							state.ended = true;
 							let message = tg::process::stdio::read::ServerMessage::Response(output);
 							return Ok(Some((message, state)));
@@ -968,6 +866,10 @@ pub trait Ext: tg::Instance {
 					}
 				}
 			});
+			let stream = match ack_task {
+				Some(task) => stream.attach(task).left_stream(),
+				None => stream.right_stream(),
+			};
 			Ok(Some(stream))
 		}
 	}
@@ -989,3 +891,11 @@ pub trait Ext: tg::Instance {
 }
 
 impl<T> Ext for T where T: tg::Instance {}
+
+fn read_process_stdio_acks(
+	ack_receiver: tokio::sync::watch::Receiver<u64>,
+) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>> {
+	tokio_stream::wrappers::WatchStream::new(ack_receiver)
+		.map(|position| Ok(tg::process::stdio::read::ClientMessage::Ack { position }))
+		.boxed()
+}

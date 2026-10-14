@@ -2,18 +2,15 @@ use {
 	crate::prelude::*,
 	futures::{StreamExt as _, stream::BoxStream},
 	tangram_futures::stream::TryExt as _,
-	tangram_http::response::Ext as _,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::is_false,
 };
 
 mod connection;
-mod session;
 #[cfg(test)]
 mod tests;
 
 pub use connection::Connection;
-
-pub const REQUEST_WINDOW: usize = 128;
 
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-connect";
 
@@ -25,151 +22,7 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-connect"
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientMessage {
-	#[tangram_serialize(id = 0)]
-	Ack(Ack),
-
-	#[tangram_serialize(id = 1)]
-	Notification(ClientNotification),
-
-	#[tangram_serialize(id = 2)]
-	Request(ClientRequest),
-
-	#[tangram_serialize(id = 3)]
-	Sync(Vec<u8>),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerMessage {
-	#[tangram_serialize(id = 0)]
-	Ack(Ack),
-
-	#[tangram_serialize(id = 1)]
-	Notification(ServerNotification),
-
-	#[tangram_serialize(id = 2)]
-	Response(ServerResponse),
-
-	#[tangram_serialize(id = 3)]
-	Sync(Vec<u8>),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Ack {
-	#[tangram_serialize(id = 0)]
-	pub id: u64,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientNotification {
-	#[tangram_serialize(id = 0)]
-	Read(ReadClientNotification),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ReadClientNotification {
-	#[tangram_serialize(id = 0)]
-	pub id: u64,
-
-	#[tangram_serialize(id = 1)]
-	pub progress: tg::process::stdio::read::Progress,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ClientRequest {
-	#[tangram_serialize(id = 0)]
-	pub arg: ClientRequestArg,
-
-	#[tangram_serialize(id = 1)]
-	pub id: u64,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientRequestArg {
-	#[tangram_serialize(id = 0)]
-	Cancel(tg::process::cancel::Arg),
-
-	#[tangram_serialize(id = 1)]
-	Close(u64),
-
-	#[tangram_serialize(id = 2)]
-	Connect(Arg),
-
-	#[tangram_serialize(id = 3)]
-	Detach,
-
-	#[tangram_serialize(id = 4)]
-	Read(tg::process::stdio::read::Arg),
-
-	#[tangram_serialize(id = 5)]
-	Signal(tg::process::signal::post::Arg),
-
-	#[tangram_serialize(id = 6)]
-	Tty(tg::process::tty::size::put::Arg),
-
-	#[tangram_serialize(id = 7)]
-	Write(tg::process::stdio::write::Arg),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
 pub struct Arg {
-	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
-	pub command_sync: bool,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub lease: Option<String>,
@@ -186,9 +39,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 3)]
 	pub process: tg::Either<Box<tg::process::spawn::Arg>, tg::process::Id>,
 
-	#[serde(default)]
-	#[tangram_serialize(default, id = 4)]
-	pub reads: std::collections::BTreeMap<u64, tg::process::stdio::read::Arg>,
+	/// Whether an upstream routing hop pushes the command objects, using the sync in the destination's header.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
+	pub push: bool,
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	#[tangram_serialize(
@@ -224,6 +78,127 @@ pub enum Mode {
 #[derive(
 	Clone,
 	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Header {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<tg::Referent<tg::sync::Id>>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ClientMessage {
+	#[tangram_serialize(id = 0)]
+	Ack(Ack),
+
+	#[tangram_serialize(id = 1)]
+	Notification(ClientNotification),
+
+	#[tangram_serialize(id = 2)]
+	Request(ClientRequest),
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ServerMessage {
+	#[tangram_serialize(id = 0)]
+	Ack(Ack),
+
+	#[tangram_serialize(id = 1)]
+	Notification(ServerNotification),
+
+	#[tangram_serialize(id = 2)]
+	Response(ServerResponse),
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Ack {
+	#[tangram_serialize(id = 0)]
+	pub id: u64,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ClientNotification {
+	#[tangram_serialize(id = 1)]
+	Ready,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ClientRequest {
+	#[tangram_serialize(id = 0)]
+	pub arg: ClientRequestArg,
+
+	#[tangram_serialize(id = 1)]
+	pub id: u64,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ClientRequestArg {
+	#[tangram_serialize(id = 0)]
+	Cancel(tg::process::cancel::Arg),
+
+	#[tangram_serialize(id = 3)]
+	Detach,
+
+	#[tangram_serialize(id = 5)]
+	Signal(tg::process::signal::post::Arg),
+
+	#[tangram_serialize(id = 6)]
+	Tty(tg::process::tty::size::put::Arg),
+}
+
+#[derive(
+	Clone,
+	Debug,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
@@ -235,26 +210,7 @@ pub enum ServerNotification {
 	Outcome(tg::process::outcome::Data),
 
 	#[tangram_serialize(id = 0)]
-	Progress(tg::progress::Event<()>),
-
-	#[tangram_serialize(id = 1)]
-	Read(ReadServerNotification),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ReadServerNotification {
-	#[tangram_serialize(id = 1)]
-	pub event: tg::process::stdio::read::Event,
-
-	#[tangram_serialize(id = 0)]
-	pub id: u64,
+	Progress(tg::progress::Event<tg::process::spawn::Output>),
 }
 
 #[derive(
@@ -289,34 +245,30 @@ pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 0)]
 	Cancel(tg::process::cancel::Output),
 
-	#[tangram_serialize(id = 1)]
-	Close,
-
-	#[tangram_serialize(id = 2)]
-	Connect(tg::process::spawn::Output),
-
 	#[tangram_serialize(id = 3)]
 	Detach,
-
-	#[tangram_serialize(id = 4)]
-	Read(tg::process::stdio::read::Output),
 
 	#[tangram_serialize(id = 5)]
 	Signal,
 
 	#[tangram_serialize(id = 6)]
 	Tty,
-
-	#[tangram_serialize(id = 7)]
-	Write(tg::process::stdio::write::Output),
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub lease: Option<String>,
 	pub location: Option<tg::location::Arg>,
-	pub reads: Vec<tg::process::stdio::read::Options>,
 	pub tokens: tg::authorization::Tokens,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Config {
+	pub event_capacity: usize,
+	pub input_capacity: usize,
+	pub max_messages: usize,
+	pub max_requests: usize,
+	pub message_capacity: usize,
 }
 
 pub async fn connect(id: tg::process::Id, options: Options) -> tg::Result<tg::Process> {
@@ -360,30 +312,12 @@ impl<O: 'static> tg::Process<O> {
 		id: tg::process::Id,
 		options: Options,
 	) -> tg::Result<Self> {
-		let reads = options
-			.reads
-			.into_iter()
-			.enumerate()
-			.map(|(index, options)| {
-				let arg = tg::process::stdio::read::Arg {
-					length: options.length,
-					location: options.location,
-					position: options.position,
-					size: options.size,
-					streams: options.streams,
-					timeout: options.timeout,
-					tokens: tg::authorization::Tokens::default(),
-				};
-				(index as u64 + 1, arg)
-			})
-			.collect();
 		let arg = Arg {
-			command_sync: false,
 			lease: options.lease,
 			location: options.location,
 			mode: Mode::Run,
 			process: tg::Either::Right(id.clone()),
-			reads,
+			push: false,
 			tokens: options.tokens,
 		};
 		let (connection, progress) = Connection::open(instance, arg).await?;
@@ -405,18 +339,27 @@ impl<O: 'static> tg::Process<O> {
 }
 
 impl tg::Session {
-	pub async fn try_connect_process(
+	pub async fn try_get_process_connect_stream(
 		&self,
+		arg: Arg,
 		input: BoxStream<'static, tg::Result<ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<ServerMessage>>>> {
+	) -> tg::Result<Option<(Header, BoxStream<'static, tg::Result<ServerMessage>>)>> {
 		let max_frame_size = self.client().sync.max_frame_size;
 		let body = super::stdio::encode(input, max_frame_size);
 		let request = http::Request::builder()
 			.method(http::Method::POST)
 			.uri("/processes/connect")
 			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
-			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
-			.body(body)
+			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE);
+		// Preserve native spawn values that cannot round-trip through a query.
+		let request = if arg.process.is_left() {
+			request.header(tangram_http::body::arg::HEADER, "true")
+		} else {
+			request
+		};
+		let request = request
+			.arg_with_tangram(&arg, body)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
 			.send(request)
@@ -438,8 +381,56 @@ impl tg::Session {
 		if content_type != Some(TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = super::stdio::decode(response.into_body(), max_frame_size);
-		Ok(Some(stream.boxed()))
+		let (header, stream) = super::stdio::decode_with_header(
+			response.into_body(),
+			self.client().http.max_header_length,
+			max_frame_size,
+		)
+		.await?;
+		Ok(Some((header, stream)))
+	}
+}
+
+impl Config {
+	pub(crate) fn validate(self) -> tg::Result<Self> {
+		if self.event_capacity == 0 {
+			return Err(tg::error!(
+				"expected the event capacity to be greater than zero"
+			));
+		}
+		if self.input_capacity == 0 {
+			return Err(tg::error!(
+				"expected the input capacity to be greater than zero"
+			));
+		}
+		if self.max_messages == 0 {
+			return Err(tg::error!(
+				"expected the maximum number of messages to be greater than zero"
+			));
+		}
+		if self.max_requests == 0 {
+			return Err(tg::error!(
+				"expected the maximum number of requests to be greater than zero"
+			));
+		}
+		if self.message_capacity == 0 {
+			return Err(tg::error!(
+				"expected the message capacity to be greater than zero"
+			));
+		}
+		Ok(self)
+	}
+}
+
+impl Default for Config {
+	fn default() -> Self {
+		Self {
+			event_capacity: 64,
+			input_capacity: 64,
+			max_messages: 128,
+			max_requests: 64,
+			message_capacity: 64,
+		}
 	}
 }
 
@@ -451,7 +442,6 @@ impl TryFrom<ClientMessage> for tangram_http::sse::Event {
 			ClientMessage::Ack(value) => ("ack", serde_json::to_string(&value)),
 			ClientMessage::Notification(value) => ("notification", serde_json::to_string(&value)),
 			ClientMessage::Request(value) => ("request", serde_json::to_string(&value)),
-			ClientMessage::Sync(value) => ("sync", serde_json::to_string(&value)),
 		};
 		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 		let event = Some(event.to_owned());
@@ -472,7 +462,6 @@ impl TryFrom<tangram_http::sse::Event> for ClientMessage {
 			Some("ack") => serde_json::from_str(&event.data).map(Self::Ack),
 			Some("notification") => serde_json::from_str(&event.data).map(Self::Notification),
 			Some("request") => serde_json::from_str(&event.data).map(Self::Request),
-			Some("sync") => serde_json::from_str(&event.data).map(Self::Sync),
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
 					serde_json::from_str(&event.data)
@@ -494,7 +483,6 @@ impl TryFrom<ServerMessage> for tangram_http::sse::Event {
 			ServerMessage::Ack(value) => ("ack", serde_json::to_string(&value)),
 			ServerMessage::Notification(value) => ("notification", serde_json::to_string(&value)),
 			ServerMessage::Response(value) => ("response", serde_json::to_string(&value)),
-			ServerMessage::Sync(value) => ("sync", serde_json::to_string(&value)),
 		};
 		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 		let event = Some(event.to_owned());
@@ -515,7 +503,6 @@ impl TryFrom<tangram_http::sse::Event> for ServerMessage {
 			Some("ack") => serde_json::from_str(&event.data).map(Self::Ack),
 			Some("notification") => serde_json::from_str(&event.data).map(Self::Notification),
 			Some("response") => serde_json::from_str(&event.data).map(Self::Response),
-			Some("sync") => serde_json::from_str(&event.data).map(Self::Sync),
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
 					serde_json::from_str(&event.data)

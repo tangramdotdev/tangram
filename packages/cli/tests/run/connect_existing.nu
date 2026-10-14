@@ -17,7 +17,6 @@ let path = artifact {
 				lease: process.lease,
 				location: process.location,
 				tokens: process.tokens,
-				reads: [{ streams: ["stdout"] }],
 			});
 			let [, text] = await Promise.all([
 				connected.stdin.writeAll(tg.encoding.utf8.encode("attached\n")),

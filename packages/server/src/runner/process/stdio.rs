@@ -1,5 +1,5 @@
 use {
-	crate::{process::control::local::Reply, session::Session},
+	crate::session::Session,
 	bytes::Bytes,
 	futures::{
 		FutureExt as _, StreamExt as _, TryFutureExt as _, future,
@@ -13,19 +13,16 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
-	tg::process::stdio::{
-		flow,
-		read::{Event, Output, ServerMessage},
-	},
+	tg::process::stdio::read::{Event, Output, ServerMessage},
 	tracing::Instrument as _,
 };
 
 #[cfg(test)]
 mod tests;
 
-const BUFFER_CAPACITY: usize = 8 * 1024 * 1024;
+pub(super) type Sender = tokio::sync::mpsc::Sender<tg::Result<ServerMessage>>;
 
-pub(super) struct RunProcessControlOutputTaskArg {
+pub(super) struct RunProcessStdioTaskArg {
 	pub(super) receiver: tokio::sync::mpsc::Receiver<Message>,
 	pub(super) sandbox: tangram_sandbox::Sandbox,
 	pub(super) sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
@@ -37,24 +34,27 @@ pub(super) struct RunProcessControlOutputTaskArg {
 }
 
 pub(super) enum Message {
-	Close(String),
-	Progress(tg::process::control::ReadServerNotification),
+	/// Release the kept chunks through the position, in the coordinates of a read of the streams.
+	Ack {
+		position: u64,
+		streams: Vec<tg::process::stdio::Stream>,
+	},
 	Read {
 		arg: tg::process::stdio::read::Arg,
-		id: String,
-		sender: Reply,
+		sender: Sender,
 	},
-	Reconnect,
 }
 
 struct Read {
 	arg: tg::process::stdio::read::Arg,
 	deadline: Option<tokio::time::Instant>,
 	position: u64,
-	window: tg::process::stdio::flow::Sender,
+	sender: Sender,
 }
 
-struct Reader {
+struct Pipe {
+	buffer_chunks: usize,
+	buffer_size: usize,
 	buffered: BTreeMap<tg::process::stdio::Stream, tokio::sync::oneshot::Sender<tg::Result<()>>>,
 	chunks: VecDeque<tg::process::stdio::Chunk>,
 	combined_position: u64,
@@ -87,25 +87,22 @@ enum InputEvent {
 }
 
 impl Session {
-	pub(super) fn spawn_process_control_output_task(
+	pub(super) fn spawn_process_stdio_task(
 		&self,
-		arg: RunProcessControlOutputTaskArg,
+		arg: RunProcessStdioTaskArg,
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
 		Task::spawn(move |_| {
-			async move { session.run_process_control_output_task(arg).boxed().await }
+			async move { session.run_process_stdio_task(arg).boxed().await }
 				.inspect_err(
-					|error| tracing::error!(error = %error.trace(), "the process control output task failed"),
+					|error| tracing::error!(error = %error.trace(), "the process stdio task failed"),
 				)
 				.in_current_span()
 		})
 	}
 
-	async fn run_process_control_output_task(
-		&self,
-		arg: RunProcessControlOutputTaskArg,
-	) -> tg::Result<()> {
-		let RunProcessControlOutputTaskArg {
+	async fn run_process_stdio_task(&self, arg: RunProcessStdioTaskArg) -> tg::Result<()> {
+		let RunProcessStdioTaskArg {
 			receiver,
 			sandbox,
 			mut sandbox_process,
@@ -195,7 +192,9 @@ impl Session {
 				stream,
 			})
 			.collect();
-		let reader = Reader {
+		let pipe = Pipe {
+			buffer_chunks: self.server.config.runner.stdio_buffer_chunks,
+			buffer_size: self.server.config.runner.stdio_buffer_size,
 			buffered,
 			chunks: VecDeque::new(),
 			combined_position: 0,
@@ -210,145 +209,191 @@ impl Session {
 			stdout_position: 0,
 			streams,
 		};
-		Self::run_process_control_output_reader_task(reader, receiver)
+		let drained_ttl = self.server.config.runner.stdio_drained_ttl;
+		Self::run_process_stdio_pipe_task(pipe, receiver, drained_ttl)
 			.boxed()
 			.await?;
 
 		Ok(())
 	}
 
-	async fn run_process_control_output_reader_task(
-		mut reader: Reader,
+	async fn run_process_stdio_pipe_task(
+		mut pipe: Pipe,
 		mut receiver: tokio::sync::mpsc::Receiver<Message>,
+		drained_ttl: std::time::Duration,
 	) -> tg::Result<()> {
-		let mut reads = BTreeMap::<String, (Read, Reply)>::new();
+		let mut reads = Vec::<Read>::new();
 		let mut drained = BTreeSet::new();
+		let mut drained_deadline = None;
+		let mut receiving = true;
 		loop {
-			// Give each read a turn without waiting for another read to consume its output.
+			// Send to each read whose sink has room, and collect the deadlines of the reads that are not waiting for room.
+			let mut deadline = None::<tokio::time::Instant>;
 			let mut ready = false;
-			let mut finished = Vec::new();
-			for (id, (read, sender)) in &mut reads {
-				// A dropped transport must not consume output while its close request is pending.
-				if matches!(sender, Reply::Local(sender) if sender.is_closed()) {
-					finished.push(id.clone());
-					continue;
-				}
-				let message = reader.read(read);
-				let response = match message {
-					Ok(Some(tg::process::stdio::read::ServerMessage::Notification(event))) => {
-						let notification = tg::process::control::ReadClientNotification {
-							event,
-							id: id.clone(),
-						};
-						let message = tg::process::control::ClientMessage::Notification(
-							tg::process::control::ClientNotification::Read(notification),
-						);
-						sender.send_low(message).await?;
-						ready = true;
+			let mut waiting = Vec::new();
+			let mut index = 0;
+			while index < reads.len() {
+				let sender = reads[index].sender.clone();
+				let permit = match sender.clone().try_reserve_owned() {
+					Ok(permit) => permit,
+					Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+						waiting.push(sender);
+						index += 1;
 						continue;
 					},
-					Ok(Some(tg::process::stdio::read::ServerMessage::Response(output))) => {
-						Ok(tg::process::control::ClientResponseOutput::Read(output))
+					Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+						reads.remove(index);
+						continue;
 					},
-					Ok(None) => continue,
-					Err(error) => Err(error),
 				};
-				if matches!(
-					&response,
-					Ok(tg::process::control::ClientResponseOutput::Read(
-						tg::process::stdio::read::Output::End(_)
-					))
-				) {
-					drained.extend(read.arg.streams.iter().copied());
+				let read = &mut reads[index];
+				let finished = match pipe.read(read) {
+					Ok(Some(message @ ServerMessage::Notification(_))) => {
+						permit.send(Ok(message));
+						ready = true;
+						false
+					},
+					Ok(Some(message @ ServerMessage::Response(_))) => {
+						if matches!(message, ServerMessage::Response(Output::End(_))) {
+							drained.extend(read.arg.streams.iter().copied());
+						}
+						permit.send(Ok(message));
+						true
+					},
+					Ok(None) => false,
+					Err(error) => {
+						permit.send(Err(error));
+						true
+					},
+				};
+				if finished {
+					reads.remove(index);
+				} else {
+					if let Some(read_deadline) = reads[index].deadline {
+						deadline = Some(
+							deadline.map_or(read_deadline, |deadline| deadline.min(read_deadline)),
+						);
+					}
+					index += 1;
 				}
-				let response = Self::process_control_response(id.clone(), response);
-				sender.send_low(response).await?;
-				finished.push(id.clone());
 			}
-			for id in finished {
-				reads.remove(&id);
-			}
-			// Keep empty streams available until their readers have received EOF too.
-			if reader.streams.is_subset(&drained)
-				&& reads.is_empty()
-				&& reader.sources.is_empty()
-				&& reader.chunks.is_empty()
-				&& reader.error.is_none()
-			{
+
+			// Exit once no more reads are accepted and the queued reads are answered.
+			if !receiving && reads.is_empty() {
 				break;
 			}
-			let deadline = reads.values().filter_map(|(read, _)| read.deadline).min();
+
+			// Keep the streams for a while after their readers have received EOF, so that a reader that reconnects can resume from its unacknowledged chunks or receive EOF again.
+			let finished = pipe.streams.is_subset(&drained)
+				&& reads.is_empty()
+				&& pipe.sources.is_empty()
+				&& pipe.error.is_none();
+			if !finished {
+				drained_deadline = None;
+			} else if drained_deadline.is_none() {
+				drained_deadline = Some(tokio::time::Instant::now() + drained_ttl);
+			}
+
+			// Wait for input, a new read, a deadline, or room in a sink.
+			let deadline = deadline.into_iter().chain(drained_deadline).min();
+			let room = async {
+				let futures = waiting
+					.iter()
+					.map(|sender| sender.reserve().map(drop).boxed());
+				futures::future::select_all(futures).await;
+			};
 			tokio::select! {
-				() = reader.fill(), if !reader.input_ended && reader.error.is_none() => {},
-				message = receiver.recv() => {
-					let Some(message) = message else { break; };
-					Self::handle_process_control_output_message(&mut reads, message).await?;
+				() = pipe.fill(), if !pipe.input_ended && pipe.error.is_none() => {},
+				message = receiver.recv(), if receiving => {
+					let Some(message) = message else {
+						receiving = false;
+						continue;
+					};
+					Self::handle_process_stdio_message(&mut pipe, &mut reads, message);
 				},
-				() = async { tokio::time::sleep_until(deadline.unwrap()).await }, if deadline.is_some() => {},
+				() = async { tokio::time::sleep_until(deadline.unwrap()).await }, if deadline.is_some() => {
+					// Stop accepting reads once the streams have been kept long enough, and answer the reads that are already queued before exiting.
+					if drained_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+						receiver.close();
+						drained_deadline = None;
+					}
+				},
+				() = room, if !waiting.is_empty() => {},
 				() = tokio::task::yield_now(), if ready => {},
+				else => break,
 			}
 		}
 		Ok(())
 	}
 
-	async fn handle_process_control_output_message(
-		reads: &mut BTreeMap<String, (Read, Reply)>,
-		message: Message,
-	) -> tg::Result<()> {
+	fn handle_process_stdio_message(pipe: &mut Pipe, reads: &mut Vec<Read>, message: Message) {
 		match message {
-			Message::Close(id) => {
-				if let Some((_, sender)) = reads.remove(&id) {
-					let error = tg::error!("the process read was canceled");
-					let response = Self::process_control_response(id, Err(error));
-					sender.send_low(response).await?;
-				}
-			},
-			Message::Progress(notification) => {
-				if let Some((read, _)) = reads.get_mut(&notification.id)
-					&& let Err(error) = read.window.update(notification.progress)
-				{
-					let (_, sender) = reads.remove(&notification.id).unwrap();
-					let response = Self::process_control_response(notification.id, Err(error));
-					sender.send_low(response).await?;
-				}
-			},
-			Message::Read { arg, id, sender } => {
-				let result = if reads.len() >= 64 {
-					Err(tg::error!("too many process reads"))
-				} else {
-					Read::new(arg)
+			Message::Ack { position, streams } => pipe.acknowledge(position, &streams),
+			Message::Read { arg, sender } => {
+				let read = match Read::new(arg, sender) {
+					Ok(read) => read,
+					Err((error, sender)) => {
+						sender.try_send(Err(error)).ok();
+						return;
+					},
 				};
-				match result {
-					Ok(read) => {
-						reads.insert(id, (read, sender));
-					},
-					Err(error) => {
-						let response = Self::process_control_response(id, Err(error));
-						sender.send_low(response).await?;
-					},
-				}
-			},
-			Message::Reconnect => {
-				// The previous transport may have lost chunks or consumption progress, so its reads cannot safely continue.
-				let interrupted = reads
-					.iter()
-					.filter(|(_, (_, sender))| matches!(sender, Reply::Remote(_)))
-					.map(|(id, _)| id.clone())
-					.collect::<Vec<_>>();
-				for id in interrupted {
-					let (_, sender) = reads.remove(&id).unwrap();
-					let error = tg::error!("the process control connection was interrupted");
-					let response = Self::process_control_response(id, Err(error));
-					sender.send_low(response).await?;
-				}
+
+				// Acknowledge the bytes before the read's position, which its reader already has.
+				pipe.acknowledge(read.position, &read.arg.streams);
+
+				// A pipe or tty stream has one reader, so a new read supersedes any read that shares a stream.
+				reads.retain(|existing| {
+					let superseded = existing
+						.arg
+						.streams
+						.iter()
+						.any(|stream| read.arg.streams.contains(stream));
+					if superseded {
+						// Deliver the cancellation even when the read's channel is full, so the reader does not reconnect and take the stream back.
+						let error = tg::error!(
+							code = tg::error::Code::Cancellation,
+							"the process read was superseded"
+						);
+						if let Err(tokio::sync::mpsc::error::TrySendError::Full(message)) =
+							existing.sender.try_send(Err(error))
+						{
+							let sender = existing.sender.clone();
+							tokio::spawn(async move {
+								sender.send(message).await.ok();
+							});
+						}
+					}
+					!superseded
+				});
+				reads.push(read);
 			},
 		}
-		Ok(())
 	}
 }
 
 impl Read {
-	fn new(mut arg: tg::process::stdio::read::Arg) -> tg::Result<Self> {
+	fn new(
+		arg: tg::process::stdio::read::Arg,
+		sender: Sender,
+	) -> Result<Self, (tg::Error, Sender)> {
+		match Self::validate(arg) {
+			Ok((arg, deadline, position)) => Ok(Self {
+				arg,
+				deadline,
+				position,
+				sender,
+			}),
+			Err(error) => Err((error, sender)),
+		}
+	}
+
+	fn validate(
+		mut arg: tg::process::stdio::read::Arg,
+	) -> tg::Result<(
+		tg::process::stdio::read::Arg,
+		Option<tokio::time::Instant>,
+		u64,
+	)> {
 		arg.streams.sort();
 		arg.streams.dedup();
 		if arg.streams.is_empty()
@@ -368,17 +413,11 @@ impl Read {
 		let deadline = arg
 			.timeout
 			.and_then(|timeout| tokio::time::Instant::now().checked_add(timeout));
-		let window = tg::process::stdio::flow::Sender::default();
-		Ok(Self {
-			arg,
-			deadline,
-			position,
-			window,
-		})
+		Ok((arg, deadline, position))
 	}
 }
 
-impl Reader {
+impl Pipe {
 	fn read(
 		&mut self,
 		read: &mut Read,
@@ -389,10 +428,14 @@ impl Reader {
 			})));
 		}
 
+		// Find the next kept chunk of the read's streams, including chunks sent to a previous read that were not acknowledged.
+		let mut skipped = 0;
 		while let Some(index) = self
 			.chunks
 			.iter()
+			.skip(skipped)
 			.position(|chunk| read.arg.streams.contains(&chunk.stream))
+			.map(|index| index + skipped)
 		{
 			let chunk = &self.chunks[index];
 			let start = if read.arg.streams.len() > 1 {
@@ -404,14 +447,7 @@ impl Reader {
 				.checked_add(chunk.bytes.len() as u64)
 				.ok_or_else(|| tg::error!("the stdio position is too large"))?;
 			if end <= read.position {
-				let chunk = self.chunks.remove(index).unwrap();
-				let input = self
-					.inputs
-					.iter_mut()
-					.find(|input| input.stream == chunk.stream)
-					.unwrap();
-				input.buffered_chunks -= 1;
-				input.buffered_length -= chunk.bytes.len();
+				skipped = index + 1;
 				continue;
 			}
 			if start > read.position {
@@ -421,7 +457,7 @@ impl Reader {
 			}
 			let offset = (read.position - start).to_usize().unwrap();
 			let length = (chunk.bytes.len() - offset)
-				.min(flow::CHUNK_SIZE)
+				.min(tg::process::stdio::MAX_CHUNK_SIZE)
 				.min(
 					read.arg
 						.size
@@ -434,18 +470,6 @@ impl Reader {
 						.length
 						.map_or(usize::MAX, |length| length.try_into().unwrap_or(usize::MAX)),
 				);
-			if !read.window.available(length) {
-				if read
-					.deadline
-					.is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
-				{
-					return Ok(Some(ServerMessage::Response(Output::Timeout {
-						position: read.position,
-					})));
-				}
-				return Ok(None);
-			}
-			read.window.send(length)?;
 			let mut chunk = chunk.clone();
 			chunk.bytes = chunk.bytes.slice(offset..offset + length);
 			chunk.combined_position += offset as u64;
@@ -506,13 +530,13 @@ impl Reader {
 
 	async fn fill(&mut self) {
 		let event = future::poll_fn(|cx| {
-			// A full stdout buffer must not prevent polling stderr, or vice versa.
+			// Poll the inputs in turn, skipping an input whose buffer is full, so that one stream cannot block the other.
 			for offset in 0..self.inputs.len() {
 				let index = (self.next_input + offset) % self.inputs.len();
 				let input = &mut self.inputs[index];
 				if input.ended
-					|| input.buffered_length >= BUFFER_CAPACITY
-					|| input.buffered_chunks >= BUFFER_CAPACITY / flow::CHUNK_SIZE
+					|| input.buffered_length >= self.buffer_size
+					|| input.buffered_chunks >= self.buffer_chunks
 				{
 					continue;
 				}
@@ -575,6 +599,29 @@ impl Reader {
 				self.end_source(stream);
 			},
 		}
+	}
+
+	fn acknowledge(&mut self, position: u64, streams: &[tg::process::stdio::Stream]) {
+		let combined = streams.len() > 1;
+		let inputs = &mut self.inputs;
+		self.chunks.retain(|chunk| {
+			let start = if combined {
+				chunk.combined_position
+			} else {
+				chunk.stream_position
+			};
+			let acknowledged =
+				streams.contains(&chunk.stream) && start + chunk.bytes.len() as u64 <= position;
+			if acknowledged {
+				let input = inputs
+					.iter_mut()
+					.find(|input| input.stream == chunk.stream)
+					.unwrap();
+				input.buffered_chunks -= 1;
+				input.buffered_length -= chunk.bytes.len();
+			}
+			!acknowledged
+		});
 	}
 
 	fn end_source(&mut self, stream: tg::process::stdio::Stream) {

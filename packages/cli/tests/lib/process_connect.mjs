@@ -9,13 +9,30 @@ const timer = setTimeout(() => {
 }, 10000);
 const requests = new Map();
 const notifications = [];
-const chunks = [];
-const consumed = new Map();
-let nextId = 0;
+let nextId = 1;
 let closed = false;
 let notify;
 let error;
 let connected = false;
+const selected =
+	mode === "cached"
+		? {
+				cached: true,
+				command: JSON.parse(id),
+				sandbox: {},
+				stderr: "log",
+				stdin: "null",
+				stdout: "log",
+			}
+		: id;
+const arg = {
+	...(mode === "cached"
+		? {}
+		: { lease: lease === "none" ? null : lease, location }),
+	mode: "run",
+	process: selected,
+	tokens: options.tokens,
+};
 const request = http.request({
 	socketPath,
 	path: "/processes/connect",
@@ -23,7 +40,10 @@ const request = http.request({
 	headers: {
 		accept: "text/event-stream",
 		"content-type": "text/event-stream",
-		...(options.authorization ? { authorization: `Bearer ${options.authorization}` } : {}),
+		"x-tg-arg-in-body": "true",
+		...(options.authorization
+			? { authorization: `Bearer ${options.authorization}` }
+			: {}),
 	},
 });
 function finish(cause) {
@@ -62,9 +82,18 @@ request.on("error", (cause) => {
 request.on("response", (response) => {
 	assert.equal(response.statusCode, 200);
 	let buffer = "";
-	response.setEncoding("utf8");
+	let prefix = Buffer.alloc(0);
+	let headerReceived = false;
+
 	response.on("data", (chunk) => {
-		buffer += chunk;
+		if (!headerReceived) {
+			prefix = Buffer.concat([prefix, chunk]);
+			if (prefix.length < 3) return;
+			assert.deepEqual(prefix.subarray(0, 3), Buffer.from([2, 123, 125]));
+			headerReceived = true;
+			chunk = prefix.subarray(3);
+		}
+		buffer += chunk.toString("utf8");
 		while (buffer.includes("\n\n")) {
 			const index = buffer.indexOf("\n\n");
 			const frame = buffer.slice(0, index);
@@ -93,15 +122,6 @@ request.on("response", (response) => {
 				else pending?.resolve(value.output);
 			} else if (event === "notification") {
 				notifications.push(value);
-                if ((mode === "cached" || mode === "control") && value.kind === "read") {
-                    const { id, event } = value.value;
-                    if (event.kind === "chunk") {
-                        const bytes = Buffer.from(event.value.bytes, "base64");
-                        chunks.push(bytes);
-                        consumed.set(id, (consumed.get(id) ?? 0) + bytes.length);
-                        sendEvent("notification", { kind: "read", value: { id, progress: { consumed: consumed.get(id) } } });
-                    }
-                }
 				notify?.();
 			}
 		}
@@ -112,81 +132,50 @@ request.on("response", (response) => {
 	response.on("end", () => finish());
 });
 try {
-	const selected = mode === "cached" ? {
-		cached: true,
-		command: JSON.parse(id),
-		sandbox: {},
-		stderr: "log",
-		stdin: "null",
-		stdout: "log",
-	} : id;
-	const reads = mode === "cached" ? { 1: { streams: "stderr" } } : {};
-	const arg = {
-		...(mode === "cached" ? {} : { lease: lease === "none" ? null : lease, location }),
-		mode: "run",
-		process: selected,
-		reads,
-		tokens: options.tokens,
-	};
-	const output = await send({ kind: "connect", value: arg });
-	if (mode === "cached") nextId = 2;
-	assert.equal(output.kind, "connect");
+	const bytes = Buffer.from(JSON.stringify(arg));
+	let length = bytes.length;
+	const prefix = [];
+	while (length >= 128) {
+		prefix.push((length % 128) | 128);
+		length = Math.floor(length / 128);
+	}
+	prefix.push(length);
+	request.write(Buffer.concat([Buffer.from(prefix), bytes]));
+	request.flushHeaders();
+	await until(() =>
+		notifications.some(
+			(value) => value.kind === "progress" && value.value.kind === "output",
+		),
+	);
+	const output = notifications.find(
+		(value) => value.kind === "progress" && value.value.kind === "output",
+	).value;
+	sendEvent("notification", { kind: "ready" });
 	connected = true;
 	if (mode === "cached") {
 		assert.equal(output.value.cached, true);
+		console.log(output.value.process);
 		await until(() => closed);
-		assert.equal(Buffer.concat(chunks).toString(), "cached log\n");
 		const outcome = notifications.find((value) => value.kind === "outcome");
 		assert.equal(outcome.value.exit, 0);
 		assert.equal(outcome.value.output, "cached output");
 	} else if (mode === "disconnect") {
 		request.destroy();
-	} else if (mode === "write") {
-        const write = await send({ kind: "write", value: { data: { kind: "chunk", value: {
-            bytes: "eA==", combined_position: 0, stream: "stdin", stream_position: 0,
-        } } } });
-        assert.equal(write.kind, "write");
-        assert.equal(write.value.length, 1);
-        const end = send({ kind: "write", value: { data: { kind: "end", value: {
-            combined_position: 1, stream_positions: { stdin: 1 },
-        } } } });
-        assert.equal((await send({ kind: "cancel", value: { lease } })).kind, "cancel");
-        assert.equal((await end).kind, "write");
-        await until(() => closed);
 	} else if (mode === "control" || mode === "control_denied") {
-		const operations = [
-			{ kind: "read", value: { length: 6, streams: "stdout" } },
-			{ kind: "signal", value: { signal: "TERM" } },
-			{ kind: "write", value: { data: { kind: "chunk", value: {
-				bytes: Buffer.from("hello\n").toString("base64"), combined_position: 0, stream: "stdin", stream_position: 0,
-			} } } },
-			...["stdout", "stderr"].map(stream => ({ kind: "read", value: {
-				length: 6, position: stream === "stdout" ? 6 : 0, streams: stream,
-			} })),
-		];
+		const operations = [{ kind: "signal", value: { signal: "TERM" } }];
 		for (const operation of operations) {
 			if (mode === "control_denied") {
-				await assert.rejects(send(operation), /unauthorized|not found|failed to find/i);
+				await assert.rejects(
+					send(operation),
+					/unauthorized|not found|failed to find/i,
+				);
 			} else {
 				assert.equal((await send(operation)).kind, operation.kind);
 			}
 		}
-		if (mode === "control") assert.equal(Buffer.concat(chunks).toString(), "ready\nhello\nhello\n");
 		assert.equal((await send({ kind: "detach" })).kind, "detach");
 		await until(() => closed);
 	} else {
-		if (mode === "idle") {
-			for (let index = 0; index < 70; index++) {
-				const readId = nextId;
-                const read = send({ kind: "read", value: { streams: "stdout" } });
-                read.catch(() => {});
-                requests.delete(readId);
-				assert.equal(
-					(await send({ kind: "close", value: readId })).kind,
-					"close",
-				);
-			}
-		}
 		assert.equal((await send({ kind: "detach" })).kind, "detach");
 		await until(() => closed);
 	}

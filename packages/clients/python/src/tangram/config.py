@@ -9,8 +9,10 @@ from typing import NotRequired, TypedDict
 class Config(TypedDict, total=False):
     http: HttpConfig
     pool: PoolOptions
+    process: ProcessConfig
     reconnect: RetryOptions
     retry: RetryOptions
+    stream_retry: RetryOptions
     token: str
     url: str
     version: str
@@ -36,6 +38,15 @@ class PoolOptions(TypedDict):
     ttl: float | None
 
 
+class ProcessConfig(TypedDict):
+    connect: ProcessConnectConfig
+
+
+class ProcessConnectConfig(TypedDict):
+    max_messages: int
+    max_requests: int
+
+
 class RetryOptions(TypedDict):
     backoff: float
     jitter: float
@@ -47,8 +58,10 @@ def default_config() -> Config:
     return {
         "http": default_http_config(),
         "pool": default_pool_options(),
+        "process": default_process_config(),
         "reconnect": default_retry_options(),
         "retry": default_retry_options(),
+        "stream_retry": default_stream_retry_options(),
     }
 
 
@@ -72,8 +85,25 @@ def default_pool_options() -> PoolOptions:
     return {"max": 1, "min": 0, "shared": 2**53 - 1, "ttl": None}
 
 
+def default_process_config() -> ProcessConfig:
+    return {"connect": default_process_connect_config()}
+
+
+def default_process_connect_config() -> ProcessConnectConfig:
+    return {"max_messages": 128, "max_requests": 64}
+
+
 def default_retry_options() -> RetryOptions:
     return {"backoff": 0.01, "jitter": 0.01, "max_delay": 1, "max_retries": 3}
+
+
+def default_stream_retry_options() -> RetryOptions:
+    return {
+        "backoff": 0.01,
+        "jitter": 0.01,
+        "max_delay": 1,
+        "max_retries": 2**53 - 1,
+    }
 
 
 def validate_http_config(config: HttpConfig) -> None:
@@ -123,6 +153,17 @@ def validate_pool_options(options: PoolOptions) -> None:
     ttl = options["ttl"]
     if ttl is not None and (not math.isfinite(ttl) or ttl < 0):
         raise ValueError("invalid pool TTL")
+
+
+def validate_process_config(config: ProcessConfig) -> None:
+    validate_process_connect_config(config["connect"])
+
+
+def validate_process_connect_config(config: ProcessConnectConfig) -> None:
+    for name in ("max_messages", "max_requests"):
+        value = config[name]
+        if type(value) is not int or not 0 < value <= 2**53 - 1:
+            raise ValueError(f"invalid process connect {name.replace('_', ' ')}")
 
 
 def validate_retry_options(options: RetryOptions) -> None:

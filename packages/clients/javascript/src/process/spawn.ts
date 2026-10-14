@@ -688,32 +688,12 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 	} else {
 		delete spawnArg.tty;
 	}
-	let reads: { [id: number]: tg.Process.Stdio.Read.Arg } = {};
-	if (mode === "run") {
-		let streams: Array<tg.Process.Stdio.Stream> = [];
-		if (stdout !== null) {
-			streams.push("stdout");
-		}
-		if (stderr !== null) {
-			streams.push("stderr");
-		}
-		if (streams.length > 0) {
-			reads[1] = { streams };
-		}
-		if (provideStdout) {
-			reads[Object.keys(reads).length + 1] = { streams: ["stdout"] };
-		}
-		if (provideStderr) {
-			reads[Object.keys(reads).length + 1] = { streams: ["stderr"] };
-		}
-	}
 	let spawnLocation = spawnArg.location ?? null;
 	delete spawnArg.location;
 	let opened = await Connection.open({
 		location: spawnLocation,
 		mode,
 		process: spawnArg,
-		reads,
 	});
 	let output = opened.output;
 	let connection = mode === "run" ? opened.connection : null;

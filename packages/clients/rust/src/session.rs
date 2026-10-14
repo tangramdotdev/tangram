@@ -38,10 +38,12 @@ impl Session {
 			token: self.context.token(),
 			http: self.client.http,
 			pool: self.client.pool_options,
+			process: self.client.process,
 			progress: self.client.progress,
 			reconnect: self.client.reconnect.clone(),
 			retry: self.client.retry.clone(),
 			sandbox: self.client.sandbox,
+			stream_retry: self.client.stream_retry.clone(),
 			sync: self.client.sync,
 			value: self.client.value,
 		}

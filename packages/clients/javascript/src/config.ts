@@ -1,8 +1,10 @@
 export type Config = {
 	http?: Http;
 	pool?: Pool;
+	process?: Process;
 	reconnect?: Retry;
 	retry?: Retry;
+	streamRetry?: Retry;
 	token?: string;
 	url?: string;
 	version?: string;
@@ -12,8 +14,10 @@ export namespace Config {
 		return {
 			http: Http.defaultValue(),
 			pool: Pool.defaultValue(),
+			process: Process.defaultValue(),
 			reconnect: Retry.defaultValue(),
 			retry: Retry.defaultValue(),
+			streamRetry: Retry.streamDefaultValue(),
 		};
 	}
 }
@@ -110,6 +114,27 @@ export namespace Pool {
 			throw new Error("invalid pool options");
 	}
 }
+export type Process = { connect: ProcessConnect };
+export namespace Process {
+	export function defaultValue(): Process {
+		return { connect: ProcessConnect.defaultValue() };
+	}
+	export function validate(config: Process): void {
+		ProcessConnect.validate(config.connect);
+	}
+}
+export type ProcessConnect = { maxMessages: number; maxRequests: number };
+export namespace ProcessConnect {
+	export function defaultValue(): ProcessConnect {
+		return { maxMessages: 128, maxRequests: 64 };
+	}
+	export function validate(config: ProcessConnect): void {
+		if (!Number.isSafeInteger(config.maxMessages) || config.maxMessages <= 0)
+			throw new Error("invalid process connect max messages");
+		if (!Number.isSafeInteger(config.maxRequests) || config.maxRequests <= 0)
+			throw new Error("invalid process connect max requests");
+	}
+}
 export type Retry = {
 	backoff: number;
 	jitter: number;
@@ -119,6 +144,14 @@ export type Retry = {
 export namespace Retry {
 	export function defaultValue(): Retry {
 		return { backoff: 0.01, jitter: 0.01, maxDelay: 1, maxRetries: 3 };
+	}
+	export function streamDefaultValue(): Retry {
+		return {
+			backoff: 0.01,
+			jitter: 0.01,
+			maxDelay: 1,
+			maxRetries: Number.MAX_SAFE_INTEGER,
+		};
 	}
 	export function validate(options: Retry): void {
 		for (let value of [options.backoff, options.jitter, options.maxDelay]) {

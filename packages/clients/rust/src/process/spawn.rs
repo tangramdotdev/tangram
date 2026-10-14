@@ -560,42 +560,12 @@ impl<O: 'static> tg::Process<O> {
 				},
 			}
 		}
-		let mut reads = BTreeMap::new();
-		if options.mode == tg::process::connect::Mode::Run {
-			let streams = [
-				stdout.as_ref().map(|_| tg::process::stdio::Stream::Stdout),
-				stderr.as_ref().map(|_| tg::process::stdio::Stream::Stderr),
-			]
-			.into_iter()
-			.flatten()
-			.collect::<Vec<_>>();
-			if !streams.is_empty() {
-				let arg = tg::process::stdio::read::Arg {
-					streams,
-					..Default::default()
-				};
-				reads.insert(1, arg);
-			}
-			for (provide, stream) in [
-				(provide_stdout, tg::process::stdio::Stream::Stdout),
-				(provide_stderr, tg::process::stdio::Stream::Stderr),
-			] {
-				if provide {
-					let arg = tg::process::stdio::read::Arg {
-						streams: vec![stream],
-						..Default::default()
-					};
-					reads.insert(reads.len() as u64 + 1, arg);
-				}
-			}
-		}
 		let arg = tg::process::connect::Arg {
-			command_sync: false,
 			lease: None,
 			location: arg.location.take(),
 			mode: options.mode,
 			process: tg::Either::Left(Box::new(arg)),
-			reads,
+			push: false,
 			tokens: tg::authorization::Tokens::default(),
 		};
 		let (connection, stream) = tg::process::connect::Connection::open(&instance, arg).await?;

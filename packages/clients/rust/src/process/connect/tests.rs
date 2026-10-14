@@ -1,25 +1,20 @@
 use {
 	super::*,
-	crate::process::stdio::{
-		self, End, Stream,
-		read::{self, Output},
-	},
+	crate::process::stdio::{self, End, Stream, read::Output},
 	futures::TryStreamExt as _,
-	std::{collections::BTreeMap, io::SeekFrom, time::Duration},
+	std::time::Duration,
 };
 
 struct MockConnection {
-	input: BoxStream<'static, tg::Result<ClientMessage>>,
+	arg: Arg,
+	// Hold the request body open for the lifetime of the connection.
+	_input: BoxStream<'static, tg::Result<ClientMessage>>,
 	output: async_channel::Sender<tg::Result<ServerMessage>>,
 }
 
 impl MockConnection {
 	async fn connect(&mut self, id: &tg::process::Id) -> Arg {
-		let request = self.request().await;
-		assert_eq!(request.id, 0);
-		let ClientRequestArg::Connect(arg) = request.arg else {
-			panic!("expected the opening request");
-		};
+		let arg = self.arg.clone();
 		let tg::Either::Right(process_id) = &arg.process else {
 			panic!("expected to connect to the existing process");
 		};
@@ -34,29 +29,45 @@ impl MockConnection {
 			process: tg::Either::Right(id.clone()),
 			tokens: tg::authorization::Tokens::default(),
 		};
-		self.respond(0, ServerResponseOutput::Connect(output)).await;
-		arg
-	}
-
-	async fn request(&mut self) -> ClientRequest {
-		loop {
-			if let ClientMessage::Request(request) = self.input.try_next().await.unwrap().unwrap() {
-				return request;
-			}
-		}
-	}
-
-	async fn respond(&mut self, id: u64, output: ServerResponseOutput) {
-		let response = ServerResponse {
-			error: None,
-			id,
-			output: Some(output),
-		};
 		self.output
-			.send(Ok(ServerMessage::Response(response)))
+			.send(Ok(ServerMessage::Notification(
+				ServerNotification::Progress(tg::progress::Event::Output(output)),
+			)))
 			.await
 			.unwrap();
+		arg
 	}
+}
+
+#[tokio::test]
+async fn header_does_not_wait_for_input_or_process_selection() {
+	let (client, connections, _server) = mock_server(http::StatusCode::OK).await;
+	let id = tg::process::Id::new();
+	let arg = Arg {
+		lease: Some("lease".repeat(2048)),
+		location: None,
+		mode: Mode::Run,
+		process: tg::Either::Right(id.clone()),
+		push: false,
+		tokens: tg::authorization::Tokens::default(),
+	};
+	let (_, mut output) = tokio::time::timeout(
+		Duration::from_secs(5),
+		client.get_process_connect_stream(arg, futures::stream::pending().boxed()),
+	)
+	.await
+	.unwrap()
+	.unwrap();
+	let mut connection = connections.recv().await.unwrap();
+	assert_eq!(
+		connection.arg.lease.as_deref(),
+		Some("lease".repeat(2048).as_str())
+	);
+	connection.connect(&id).await;
+	assert!(matches!(
+		output.try_next().await.unwrap().unwrap(),
+		ServerMessage::Notification(ServerNotification::Progress(tg::progress::Event::Output(_)))
+	));
 }
 
 #[tokio::test]
@@ -64,154 +75,36 @@ async fn handles_preserve_not_found() {
 	let (client, _, _server) = mock_server(http::StatusCode::NOT_FOUND).await;
 	let session = client.session(&client.context);
 	let handles = [tg::Either::Left(client), tg::Either::Right(session)];
-	let input = || {
-		let arg = Arg {
-			command_sync: false,
-			lease: None,
-			location: None,
-			mode: Mode::Run,
-			process: tg::Either::Right(tg::process::Id::new()),
-			reads: BTreeMap::new(),
-			tokens: tg::authorization::Tokens::default(),
-		};
-		let request = ClientRequest {
-			arg: ClientRequestArg::Connect(arg),
-			id: 0,
-		};
-		futures::stream::iter([Ok(ClientMessage::Request(request))]).boxed()
+	let arg = || Arg {
+		lease: None,
+		location: None,
+		mode: Mode::Run,
+		process: tg::Either::Right(tg::process::Id::new()),
+		push: false,
+		tokens: tg::authorization::Tokens::default(),
 	};
 	for instance in handles {
 		let instance = tg::instance::dynamic::Instance::new(instance);
 		let output = tokio::time::timeout(
 			Duration::from_secs(5),
-			instance.try_connect_process(input()),
+			instance.try_get_process_connect_stream(arg(), futures::stream::pending().boxed()),
 		)
 		.await
 		.unwrap()
 		.unwrap();
 		assert!(output.is_none());
-		let result =
-			tokio::time::timeout(Duration::from_secs(5), instance.connect_process(input()))
-				.await
-				.unwrap();
+		let result = tokio::time::timeout(
+			Duration::from_secs(5),
+			instance.get_process_connect_stream(arg(), futures::stream::pending().boxed()),
+		)
+		.await
+		.unwrap();
 		assert!(result.is_err());
 	}
 }
 
 #[tokio::test]
-async fn reconnect_preserves_the_process_and_read_cursor() {
-	tokio::time::timeout(Duration::from_secs(10), async {
-		let (client, connections, _server) = mock_server(http::StatusCode::OK).await;
-		let id = tg::process::Id::new();
-		let server_id = id.clone();
-		let driver = tokio::spawn(async move {
-			for attempt in 0..3 {
-				let mut connection = connections.recv().await.unwrap();
-				let arg = connection.connect(&server_id).await;
-				if attempt == 0 {
-					assert_eq!(arg.reads[&1].streams, [stdio::Stream::Stderr]);
-					let request = connection.request().await;
-					assert!(matches!(request.arg, ClientRequestArg::Close(1)));
-					connection
-						.respond(request.id, ServerResponseOutput::Close)
-						.await;
-				} else {
-					assert_eq!(arg.reads[&1].streams, [stdio::Stream::Stdout]);
-					assert_eq!(
-						arg.reads[&1].position.unwrap_or(SeekFrom::Start(0)),
-						SeekFrom::Start(attempt - 1)
-					);
-					let chunk = stdio::Chunk {
-						bytes: bytes::Bytes::from_static(if attempt == 1 { b"a" } else { b"b" }),
-						combined_position: attempt - 1,
-						stream: stdio::Stream::Stdout,
-						stream_position: attempt - 1,
-						timestamp: None,
-					};
-					let notification = ReadServerNotification {
-						event: read::Event::Chunk(chunk),
-						id: 1,
-					};
-					connection
-						.output
-						.send(Ok(ServerMessage::Notification(ServerNotification::Read(
-							notification,
-						))))
-						.await
-						.unwrap();
-					if attempt == 2 {
-						let end = stdio::End {
-							combined_position: 2,
-							stream_positions: [(stdio::Stream::Stdout, 2)].into(),
-						};
-						connection
-							.respond(1, ServerResponseOutput::Read(read::Output::End(end)))
-							.await;
-					}
-				}
-				let outcome = tg::process::outcome::Data {
-					checksum: None,
-					error: None,
-					exit: 0,
-					output: None,
-				};
-				connection
-					.output
-					.send(Ok(ServerMessage::Notification(
-						ServerNotification::Outcome(outcome),
-					)))
-					.await
-					.unwrap();
-
-				// Ending the response body closes this physical connection while preserving buffered messages.
-			}
-		});
-		let options = Options {
-			reads: vec![read::Options {
-				streams: vec![stdio::Stream::Stderr],
-				..Default::default()
-			}],
-			..Default::default()
-		};
-		let process = tg::Process::<tg::Value>::connect_with_instance(&client, id, options)
-			.await
-			.unwrap();
-		process.stderr().close().await.unwrap();
-		assert_eq!(
-			process
-				.wait_with_instance(&client, tg::process::wait::Options::default())
-				.await
-				.unwrap()
-				.exit,
-			0
-		);
-		let options = read::Options {
-			streams: vec![stdio::Stream::Stdout],
-			..Default::default()
-		};
-		let chunks = process
-			.try_read_stdio_with_instance(&client, options)
-			.await
-			.unwrap()
-			.unwrap()
-			.try_collect::<Vec<_>>()
-			.await
-			.unwrap();
-		assert_eq!(
-			chunks
-				.into_iter()
-				.flat_map(|chunk| chunk.bytes.to_vec())
-				.collect::<Vec<_>>(),
-			b"ab"
-		);
-		driver.await.unwrap();
-	})
-	.await
-	.unwrap();
-}
-
-#[tokio::test]
-async fn reconnect_resends_only_unconfirmed_writes() {
+async fn reconnect_preserves_the_process() {
 	tokio::time::timeout(Duration::from_secs(10), async {
 		let (client, connections, _server) = mock_server(http::StatusCode::OK).await;
 		let id = tg::process::Id::new();
@@ -220,58 +113,36 @@ async fn reconnect_resends_only_unconfirmed_writes() {
 			for attempt in 0..2 {
 				let mut connection = connections.recv().await.unwrap();
 				connection.connect(&server_id).await;
-				let request = connection.request().await;
-				let ClientRequestArg::Write(stdio::write::Arg {
-					data: stdio::write::Data::Chunk(chunk),
-					..
-				}) = request.arg
-				else {
-					panic!("expected the write request");
-				};
-				assert_eq!(chunk.bytes, b"abc".as_slice());
-				assert_eq!(chunk.stream_position, 0);
-				assert_eq!(chunk.combined_position, 0);
-				if attempt == 0 {
+				if attempt == 1 {
+					let outcome = tg::process::outcome::Data {
+						checksum: None,
+						error: None,
+						exit: 0,
+						output: None,
+					};
 					connection
 						.output
-						.send(Ok(ServerMessage::Ack(Ack { id: request.id })))
+						.send(Ok(ServerMessage::Notification(
+							ServerNotification::Outcome(outcome),
+						)))
 						.await
 						.unwrap();
-					continue;
 				}
-				let output = stdio::write::Output {
-					closed: false,
-					length: 3,
-				};
-				connection
-					.respond(request.id, ServerResponseOutput::Write(output))
-					.await;
-				let request = connection.request().await;
-				let ClientRequestArg::Write(stdio::write::Arg {
-					data: stdio::write::Data::End(end),
-					..
-				}) = request.arg
-				else {
-					panic!("expected the EOF request");
-				};
-				assert_eq!(end.combined_position, 3);
-				assert_eq!(end.stream_positions[&stdio::Stream::Stdin], 3);
-				let output = stdio::write::Output {
-					closed: true,
-					length: 0,
-				};
-				connection
-					.respond(request.id, ServerResponseOutput::Write(output))
-					.await;
+				// Ending the response body closes this physical connection while preserving buffered messages.
 			}
 		});
 		let process =
 			tg::Process::<tg::Value>::connect_with_instance(&client, id, Options::default())
 				.await
 				.unwrap();
-		let mut stdin = process.stdin();
-		assert_eq!(stdin.write_with_instance(&client, b"abc").await.unwrap(), 3);
-		stdin.close_with_instance(&client).await.unwrap();
+		assert_eq!(
+			process
+				.wait_with_instance(&client, tg::process::wait::Options::default())
+				.await
+				.unwrap()
+				.exit,
+			0
+		);
 		driver.await.unwrap();
 	})
 	.await
@@ -279,23 +150,14 @@ async fn reconnect_resends_only_unconfirmed_writes() {
 }
 
 #[test]
-fn opening_metadata_preserves_read_options() {
-	let read = tg::process::stdio::read::Arg {
-		length: Some(-7),
-		position: Some(SeekFrom::End(-3)),
-		size: Some(1024),
-		streams: vec![tg::process::stdio::Stream::Stdout],
-		timeout: Some(Duration::new(2, 1)),
-		..Default::default()
-	};
+fn opening_metadata_roundtrips() {
 	let id = tg::process::Id::new();
 	let arg = Arg {
-		command_sync: false,
 		lease: Some("lease".to_owned()),
 		location: Some("remote:test".parse().unwrap()),
 		mode: Mode::Run,
 		process: tg::Either::Right(id.clone()),
-		reads: BTreeMap::from([(1, read)]),
+		push: false,
 		tokens: tg::authorization::Tokens::default(),
 	};
 	let json = serde_json::to_value(&arg).unwrap();
@@ -304,16 +166,12 @@ fn opening_metadata_preserves_read_options() {
 	assert_eq!(json["lease"], "lease");
 	assert_eq!(json["location"], "remote:test");
 	assert!(json.get("target").is_none());
-	let request = ClientRequest {
-		arg: ClientRequestArg::Connect(arg),
-		id: 0,
-	};
-	let message = ClientMessage::Request(request);
-	assert_roundtrip(&message);
+	assert_roundtrip(&arg);
 }
 
-#[test]
-fn spawn_metadata_uses_native_types() {
+#[tokio::test]
+async fn spawn_metadata_uses_native_types() {
+	let (client, connections, _server) = mock_server(http::StatusCode::OK).await;
 	let arg = serde_json::json!({
 		"cache_location": "local",
 		"cached": false,
@@ -350,19 +208,27 @@ fn spawn_metadata_uses_native_types() {
 	let mut arg: tg::process::spawn::Arg = serde_json::from_value(arg).unwrap();
 	for mode in [Mode::Run, Mode::Spawn] {
 		let request = Arg {
-			command_sync: false,
 			lease: None,
 			location: Some("remote:test".parse().unwrap()),
 			mode,
 			process: tg::Either::Left(Box::new(arg.clone())),
-			reads: BTreeMap::new(),
+			push: false,
 			tokens: tg::authorization::Tokens::default(),
 		};
 		let json = serde_json::to_value(&request).unwrap();
 		assert_eq!(json["process"], serde_json::to_value(&arg).unwrap());
 		assert_eq!(json["mode"], serde_json::to_value(mode).unwrap());
 		assert!(json.get("target").is_none());
-		assert_roundtrip(&ClientRequestArg::Connect(request));
+		assert_roundtrip(&request);
+		let (_, _stream) = tokio::time::timeout(
+			Duration::from_secs(5),
+			client.get_process_connect_stream(request, futures::stream::pending().boxed()),
+		)
+		.await
+		.unwrap()
+		.unwrap();
+		let connection = connections.recv().await.unwrap();
+		assert_eq!(serde_json::to_value(&connection.arg).unwrap(), json);
 		arg.command.node = tg::Either::Right(tg::command::Id::new(b"command"));
 		arg.sandbox = Some(tg::Either::Right(tg::Referent::with_node(
 			tg::sandbox::Id::new(),
@@ -375,10 +241,8 @@ fn spawn_metadata_uses_native_types() {
 fn operation_payloads_are_native_structs() {
 	let args = [
 		serde_json::json!({"kind": "cancel", "value": {"lease": "lease", "location": "local"}}),
-		serde_json::json!({"kind": "read", "value": {"position": "current.5", "streams": "stdout,stderr"}}),
 		serde_json::json!({"kind": "signal", "value": {"signal": "TERM"}}),
 		serde_json::json!({"kind": "tty", "value": {"size": {"cols": 80, "rows": 24}}}),
-		serde_json::json!({"kind": "write", "value": {"data": {"kind": "end", "value": {"combined_position": 7, "stream_positions": {"stdin": 7}}}}}),
 	];
 	for arg in args {
 		let arg: ClientRequestArg = serde_json::from_value(arg).unwrap();
@@ -405,10 +269,10 @@ fn progress_preserves_variants() {
 		serde_json::json!({"kind": "log", "value": {"level": "info", "message": "info"}}),
 		serde_json::json!({"kind": "log", "value": {"level": "success", "message": "success"}}),
 		serde_json::json!({"kind": "log", "value": {"level": "warning", "message": "warning"}}),
-		serde_json::json!({"kind": "output", "value": null}),
 	];
 	for event in events {
-		let event: tg::progress::Event<()> = serde_json::from_value(event).unwrap();
+		let event: tg::progress::Event<tg::process::spawn::Output> =
+			serde_json::from_value(event).unwrap();
 		assert_roundtrip(&ServerNotification::Progress(event));
 	}
 }
@@ -446,49 +310,13 @@ fn responses_preserve_errors_and_optional_null_outputs() {
 				process: tg::Either::Right(tg::process::Id::new()),
 				tokens: tg::authorization::Tokens::default(),
 			};
-			assert_roundtrip(&ServerResponseOutput::Connect(output));
+			assert_roundtrip(&ServerNotification::Progress(tg::progress::Event::Output(
+				output,
+			)));
 		}
 	}
 	let output = tg::process::cancel::Output { released: true };
 	assert_roundtrip(&ServerResponseOutput::Cancel(output));
-}
-
-#[test]
-fn stdio_keeps_binary_bytes_and_eof_positions() {
-	let chunk = tg::process::stdio::Chunk {
-		bytes: bytes::Bytes::from_static(&[0, 255, 42]),
-		combined_position: 42,
-		stream: tg::process::stdio::Stream::Stdin,
-		stream_position: 42,
-		timestamp: None,
-	};
-	let messages = [
-		tg::process::stdio::write::Data::Chunk(chunk),
-		tg::process::stdio::write::Data::End(tg::process::stdio::End {
-			combined_position: 45,
-			stream_positions: [(tg::process::stdio::Stream::Stdin, 45)].into(),
-		}),
-	];
-	for message in messages {
-		let arg = tg::process::stdio::write::Arg {
-			data: message,
-			location: None,
-			tokens: tg::authorization::Tokens::default(),
-		};
-		let request = ClientRequest {
-			arg: ClientRequestArg::Write(arg),
-			id: 9,
-		};
-		let message = ClientMessage::Request(request);
-		assert_roundtrip(&message);
-	}
-}
-
-#[test]
-fn sync_frames_preserve_binary_bytes() {
-	let bytes = vec![0, 1, 127, 128, 255];
-	assert_roundtrip(&ClientMessage::Sync(bytes.clone()));
-	assert_roundtrip(&ServerMessage::Sync(bytes));
 }
 
 #[test]
@@ -557,11 +385,14 @@ async fn mock_server(
 		let mut tasks = tokio::task::JoinSet::new();
 		while let Ok((socket, _)) = listener.accept().await {
 			let sender = sender.clone();
-			let service =
-				hyper::service::service_fn(move |request: http::Request<hyper::body::Incoming>| {
+			let service = hyper::service::service_fn(
+				move |mut request: http::Request<hyper::body::Incoming>| {
 					let sender = sender.clone();
 					async move {
 						assert_eq!(request.uri().path(), "/processes/connect");
+						request
+							.extensions_mut()
+							.insert(tangram_http::body::arg::MaxLength::default());
 						if !status.is_success() {
 							let response = http::Response::builder()
 								.status(status)
@@ -569,19 +400,34 @@ async fn mock_server(
 								.unwrap();
 							return Ok(response);
 						}
+						let (arg, request) =
+							tangram_http::request::Ext::arg_with_tangram::<Arg>(request)
+								.await
+								.unwrap();
 						let body = tangram_http::body::Boxed::new(request.into_body());
 						let input = stdio::decode(body, 1024 * 1024).boxed();
 						let (output, receiver) = async_channel::unbounded();
-						let connection = MockConnection { input, output };
+						let connection = MockConnection {
+							_input: input,
+							arg: arg.unwrap(),
+							output,
+						};
 						sender.send(connection).await.unwrap();
 						let body = stdio::encode(receiver.boxed(), 1024 * 1024);
+						let body = tangram_http::body::header::set(
+							body,
+							&Header::default(),
+							tangram_http::body::encoding::Encoding::Tangram,
+						)
+						.unwrap();
 						let response = http::Response::builder()
 							.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
 							.body(body)
 							.unwrap();
 						Ok::<_, std::convert::Infallible>(response)
 					}
-				});
+				},
+			);
 			tasks.spawn(async move {
 				let io = hyper_util::rt::TokioIo::new(socket);
 				hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())

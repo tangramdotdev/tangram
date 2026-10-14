@@ -31,7 +31,6 @@ async def main():
                 "sandbox": {},
             },
             client=client,
-            reads=["stdout"],
         )
         async with process:
 

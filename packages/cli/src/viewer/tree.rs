@@ -297,7 +297,6 @@ impl Tree {
 						referent,
 						line_limit,
 						update_sender,
-						false,
 					)
 					.await;
 					drop(guard);
@@ -497,7 +496,6 @@ impl Tree {
 		if matches!(node.expanded, Some(true) | None) {
 			return;
 		}
-		let force_log = node.depth == 0 && node.options.attached;
 		let children_task = Task::spawn_local({
 			let counter = self.counter.clone();
 			let guard = counter.guard();
@@ -506,15 +504,7 @@ impl Tree {
 			let referent = referent.clone();
 			let line_limit = node.options.config.process_log_line_limit;
 			move |_| async move {
-				Self::expand_task(
-					&client,
-					counter,
-					referent,
-					line_limit,
-					update_sender,
-					force_log,
-				)
-				.await;
+				Self::expand_task(&client, counter, referent, line_limit, update_sender).await;
 				drop(guard);
 			}
 		});
@@ -1617,17 +1607,13 @@ impl Tree {
 		referent: tg::Referent<tg::Process>,
 		line_limit: usize,
 		update_sender: NodeUpdateSender,
-		force_log: bool,
 	) -> tg::Result<()> {
 		let process = referent.node.clone();
 
-		// Create the log task, but only if the process's stdio is logged or this is
-		// the attached root process. Reading a piped or tty stream of a descendant
-		// process would destructively consume it, stealing the data from the
-		// process that spawned it and is reading it through a pipe.
+		// Create the log task only if the process's stdio is logged, because a piped or tty stream has a single reader, which is the process or client that spawned it.
 		let streams = process.load_with_instance(client).await.map_or_else(
 			|_| Vec::new(),
-			|state| Self::process_log_streams(&state.stderr, &state.stdout, force_log),
+			|state| Self::process_log_streams(&state.stderr, &state.stdout),
 		);
 		if !streams.is_empty() {
 			let log_task = Task::spawn_local({
@@ -1887,7 +1873,6 @@ impl Tree {
 		referent: tg::Referent<Item>,
 		line_limit: usize,
 		update_sender: NodeUpdateSender,
-		force_log: bool,
 	) {
 		let result = match referent.node() {
 			Item::Group(group) => {
@@ -1918,7 +1903,6 @@ impl Tree {
 					referent,
 					line_limit,
 					update_sender.clone(),
-					force_log,
 				)
 				.await
 			},
@@ -2195,17 +2179,8 @@ impl Tree {
 			let referent = referent.clone();
 			let line_limit = options.config.process_log_line_limit;
 			let update_sender = update_sender.clone();
-			let force_log = options.attached;
 			let task: Task<()> = Task::spawn_local(move |_| async move {
-				Self::expand_task(
-					&client,
-					counter,
-					referent,
-					line_limit,
-					update_sender,
-					force_log,
-				)
-				.await;
+				Self::expand_task(&client, counter, referent, line_limit, update_sender).await;
 				drop(guard);
 			});
 			Some(task)
@@ -2399,26 +2374,14 @@ impl Tree {
 	fn process_log_streams(
 		stderr: &tg::process::Stdio,
 		stdout: &tg::process::Stdio,
-		force: bool,
 	) -> Vec<tg::process::stdio::Stream> {
-		let streams = [
+		[
 			(tg::process::stdio::Stream::Stderr, stderr),
 			(tg::process::stdio::Stream::Stdout, stdout),
-		];
-		let logged = streams
-			.iter()
-			.filter_map(|(stream, stdio)| stdio.is_log().then_some(*stream))
-			.collect::<Vec<_>>();
-		if !logged.is_empty() || !force {
-			return logged;
-		}
-		streams
-			.into_iter()
-			.filter_map(|(stream, stdio)| {
-				matches!(stdio, tg::process::Stdio::Pipe | tg::process::Stdio::Tty)
-					.then_some(stream)
-			})
-			.collect()
+		]
+		.into_iter()
+		.filter_map(|(stream, stdio)| stdio.is_log().then_some(stream))
+		.collect()
 	}
 
 	async fn process_title(
@@ -2760,7 +2723,7 @@ impl Tree {
 						});
 				if let Some(process) = process.clone()
 					&& let Ok(state) = process.load_with_instance(&client).await
-					&& let streams = Self::process_log_streams(&state.stderr, &state.stdout, false)
+					&& let streams = Self::process_log_streams(&state.stderr, &state.stdout)
 					&& !streams.is_empty()
 				{
 					let client = client.clone();
@@ -3248,20 +3211,12 @@ mod tests {
 	#[test]
 	fn process_log_streams_excludes_piped_streams_when_a_log_exists() {
 		assert_eq!(
-			Tree::process_log_streams(&Stdio::Log, &Stdio::Pipe, false),
+			Tree::process_log_streams(&Stdio::Log, &Stdio::Pipe),
 			vec![Stderr]
 		);
 		assert_eq!(
-			Tree::process_log_streams(&Stdio::Pipe, &Stdio::Log, false),
+			Tree::process_log_streams(&Stdio::Pipe, &Stdio::Log),
 			vec![Stdout]
-		);
-	}
-
-	#[test]
-	fn process_log_streams_includes_attached_streams_when_forced() {
-		assert_eq!(
-			Tree::process_log_streams(&Stdio::Tty, &Stdio::Pipe, true),
-			vec![Stderr, Stdout]
 		);
 	}
 

@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Closing a read and failing an input iterator leave the connection usable.
+# Closing reads and failing a stdin input iterator leave the process usable.
 let local = server spawn
 let path = artifact {
 	tangram.ts: '
@@ -25,9 +25,9 @@ let path = artifact {
 			}
 			let rejected = false;
 			try {
-				await process.connection!.write(
+				await tg.client.writeProcessStdio(
 					process.id,
-					{ streams: ["stdin"] },
+					{ location: process.location, streams: ["stdin"], tokens: process.tokens },
 					(async function* (): AsyncIterableIterator<tg.Process.Stdio.Chunk> {
 						throw new Error("the input failed");
 					})(),

@@ -55,7 +55,6 @@ from ..template import Template
 from ..value import Value
 from .command import ProcessCommandData
 from .connect import Connection
-from .connect.session import CHUNK_SIZE
 from .outcome import Outcome, ProcessOutcome
 from .stdio import ReadArgObject, Stdio, StdioChunk
 
@@ -221,8 +220,6 @@ class Process[O: ValueType]:
         self._owned = outcome is None and (
             stopper is not None if isinstance(id, int) else lease is not None
         )
-        self._write_position = 0
-        self._write_lock = asyncio.Lock()
         self.stdin = stdin if stdin is not None else Writer(self, "stdin")
         self.stdout = stdout if stdout is not None else Reader(self, "stdout")
         self.stderr = stderr if stderr is not None else Reader(self, "stderr")
@@ -237,13 +234,11 @@ class Process[O: ValueType]:
 
     @classmethod
     async def connect(
-        cls, process, *, client: Client | None = None, mode="run", reads=None, **options
+        cls, process, *, client: Client | None = None, mode="run", **options
     ) -> Self:
-        process, reads, options = await resolve([process, reads, options])
-        connection = await Connection.open(
-            process, client=client, mode=mode, reads=reads, **options
-        )
-        output = connection.initial.output
+        process, options = await resolve([process, options])
+        connection = await Connection.open(process, client=client, mode=mode, **options)
+        output = connection.output
         location = output.get("location")
         outcome = output.get("outcome")
         result = cls(
@@ -546,8 +541,6 @@ class Process[O: ValueType]:
         if arg.get("location") is None:
             arg["location"] = self.location
         arg["tokens"] = self.tokens
-        if self.connection is not None and not self.connection.closed:
-            return self.connection.read(arg)
         return await self.client.try_read_process_stdio(self.id, arg)
 
     async def read_stdio(
@@ -565,41 +558,16 @@ class Process[O: ValueType]:
 
     async def write(self, bytes_: bytes | bytearray | memoryview) -> int:
         bytes_ = await resolve(bytes_)
-        async with self._write_lock:
-            written = 0
-            while written < len(bytes_):
-                chunk = bytes_[written : written + CHUNK_SIZE]
-                data = {
-                    "kind": "chunk",
-                    "value": {
-                        "bytes": chunk,
-                        "stream": "stdin",
-                        "combined_position": self._write_position,
-                        "stream_position": self._write_position,
-                    },
-                }
-                if self.connection is None:
-                    raise ConnectionError("the process has no writable connection")
-                output = await self.connection.write(data)
-                self._write_position += output["length"]
-                written += output["length"]
-                if output["closed"]:
-                    return written
-            return written
+        written = 0
+        while written < len(bytes_):
+            count = await self.stdin.write(bytes_[written:])
+            if count == 0:
+                return written
+            written += count
+        return written
 
     async def end(self) -> None:
-        async with self._write_lock:
-            if self.connection is None:
-                raise ConnectionError("the process has no writable connection")
-            await self.connection.write(
-                {
-                    "kind": "end",
-                    "value": {
-                        "combined_position": self._write_position,
-                        "stream_positions": {"stdin": self._write_position},
-                    },
-                }
-            )
+        await self.stdin.close()
 
     async def wait(self) -> ProcessOutcome[O]:
         if self._wait_promise is None:

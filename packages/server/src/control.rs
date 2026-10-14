@@ -391,10 +391,6 @@ where
 		self.send_with_priority(message, Priority::High).await
 	}
 
-	pub(crate) async fn send_low(&self, message: O) -> tg::Result<()> {
-		self.send_with_priority(message, Priority::Low).await
-	}
-
 	async fn send_with_priority(&self, message: O, priority: Priority) -> tg::Result<()> {
 		self.insert(&message, priority);
 		self.send_inner(message, priority).await?;
@@ -488,6 +484,7 @@ where
 		removed
 	}
 
+	#[cfg(test)]
 	pub(crate) async fn wait_for_empty(&self) {
 		loop {
 			let notified = self.notify.notified();

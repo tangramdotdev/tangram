@@ -56,7 +56,6 @@ pub enum Item {
 
 #[derive(Clone, Debug)]
 pub struct Options {
-	pub attached: bool,
 	pub collapse_process_children: bool,
 	pub config: crate::config::Viewer,
 	pub depth: Option<u32>,

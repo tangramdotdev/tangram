@@ -23,10 +23,10 @@ mod writer;
 
 pub use self::{reader::Reader, writer::Writer};
 
-#[doc(hidden)]
-pub mod flow;
 pub mod read;
 pub mod write;
+
+pub const MAX_CHUNK_SIZE: usize = 32 * 1024;
 
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-stdio";
 
@@ -223,7 +223,7 @@ where
 	let header = tangram_http::body::header::get(
 		&mut reader,
 		max_header_length,
-		tangram_http::body::encoding::Encoding::Json,
+		tangram_http::body::encoding::Encoding::Tangram,
 	)
 	.await
 	.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
@@ -470,6 +470,7 @@ where
 	#[cfg(not(unix))]
 	let _ = raw;
 	let arg = tg::process::stdio::write::stream::Arg {
+		id: None,
 		location: location.map(Into::into),
 		streams: vec![tg::process::stdio::Stream::Stdin],
 		tokens,

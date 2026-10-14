@@ -1003,9 +1003,17 @@ pub struct Pagination {
 pub struct Process {
 	pub children_wakeup_interval: Duration,
 
+	pub connect: ProcessConnect,
+
+	pub control: tg::process::control::Config,
+
+	pub control_channel_capacity: usize,
+
 	pub default_children_page_size: u64,
 
 	pub default_log_read_size: u64,
+
+	pub local_control_channel_capacity: usize,
 
 	pub log_cache_partition_total: u64,
 
@@ -1021,13 +1029,51 @@ pub struct Process {
 
 	pub status_wakeup_interval: Duration,
 
+	pub stdio_log_batch: ProcessStdioLogBatch,
+
+	pub stdio_open_retry: Retry,
+
+	pub stdio_open_timeout: Duration,
+
+	pub stdio_relay: tangram_messenger::relay::Options,
+
+	pub stdio_relay_retry: Retry,
+
+	pub stdio_retire_timeout: Duration,
+
 	pub stdio_wakeup_interval: Duration,
+
+	pub sync_channel_capacity: usize,
 
 	pub time_to_index: Duration,
 
 	pub time_to_live: Duration,
 
 	pub time_to_touch: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcessConnect {
+	pub high_priority_channel_capacity: usize,
+
+	pub low_priority_channel_capacity: usize,
+
+	pub max_operations: usize,
+
+	pub max_pending_messages: usize,
+
+	pub max_unacknowledged_responses: usize,
+
+	pub spawn_channel_capacity: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcessStdioLogBatch {
+	pub channel_capacity: usize,
+
+	pub max_chunks: usize,
+
+	pub max_size: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1119,12 +1165,18 @@ pub struct Runner {
 
 	pub javascript: JavaScript,
 
+	pub log_buffer_size: usize,
+
+	pub log_channel_capacity: usize,
+
 	pub memory: Option<u64>,
 
 	pub memory_sampling_interval: Duration,
 
 	/// The maximum overcommit factor for each resource.
 	pub overcommit: tg::runner::Overcommit,
+
+	pub process_control_channel_capacity: usize,
 
 	pub process_control_connection_pool_refresh_interval: Duration,
 
@@ -1162,7 +1214,13 @@ pub struct Runner {
 
 	pub scheduler_ttl: Duration,
 
+	pub stdio_buffer_chunks: usize,
+
+	pub stdio_buffer_size: usize,
+
 	pub stdio_drain_timeout: Duration,
+
+	pub stdio_drained_ttl: Duration,
 
 	pub storage: Option<u64>,
 
@@ -2618,16 +2676,6 @@ impl Default for RocksdbCache {
 	}
 }
 
-impl Default for Pagination {
-	fn default() -> Self {
-		Self {
-			database_page_length: 256,
-			default_limit: 100,
-			max_limit: 1000,
-		}
-	}
-}
-
 impl Default for ScyllaCache {
 	fn default() -> Self {
 		Self {
@@ -2661,8 +2709,12 @@ impl Default for Process {
 	fn default() -> Self {
 		Self {
 			children_wakeup_interval: Duration::from_mins(1),
+			connect: ProcessConnect::default(),
+			control: tg::process::control::Config::default(),
+			control_channel_capacity: 512,
 			default_children_page_size: 256,
 			default_log_read_size: 4096,
+			local_control_channel_capacity: 256,
 			log_cache_partition_total: 1,
 			log_time_to_live: Duration::from_hours(1),
 			permission_time_to_live: default_process_permission_time_to_live(),
@@ -2673,10 +2725,67 @@ impl Default for Process {
 			},
 			spawn: Spawn::default(),
 			status_wakeup_interval: Duration::from_mins(1),
+			stdio_log_batch: ProcessStdioLogBatch::default(),
+			stdio_open_retry: Retry {
+				backoff: Duration::from_millis(10),
+				jitter: Duration::from_millis(10),
+				max_delay: Duration::from_secs(1),
+				max_retries: u64::MAX,
+			},
+			stdio_open_timeout: Duration::from_secs(10),
+			stdio_relay: tangram_messenger::relay::Options {
+				ack_delay: Duration::from_millis(100),
+				ack_threshold: 1024 * 1024,
+				max_retransmits: 10,
+				message_overhead: 512,
+				timeout: Duration::from_secs(1),
+				window: 2 * 1024 * 1024,
+			},
+			stdio_relay_retry: Retry {
+				backoff: Duration::from_millis(100),
+				jitter: Duration::from_millis(100),
+				max_delay: Duration::from_secs(1),
+				max_retries: 8,
+			},
+			stdio_retire_timeout: Duration::from_secs(10),
 			stdio_wakeup_interval: Duration::from_mins(1),
+			sync_channel_capacity: 1024,
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
+		}
+	}
+}
+
+impl Default for Pagination {
+	fn default() -> Self {
+		Self {
+			database_page_length: 256,
+			default_limit: 100,
+			max_limit: 1000,
+		}
+	}
+}
+
+impl Default for ProcessConnect {
+	fn default() -> Self {
+		Self {
+			high_priority_channel_capacity: 64,
+			low_priority_channel_capacity: 16,
+			max_operations: 64,
+			max_pending_messages: 64,
+			max_unacknowledged_responses: 196,
+			spawn_channel_capacity: 64,
+		}
+	}
+}
+
+impl Default for ProcessStdioLogBatch {
+	fn default() -> Self {
+		Self {
+			channel_capacity: 128,
+			max_chunks: 64,
+			max_size: 32 * 1024,
 		}
 	}
 }
@@ -2740,9 +2849,12 @@ impl Default for Runner {
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
 			javascript: JavaScript::default(),
+			log_buffer_size: 16 * 1024 * 1024,
+			log_channel_capacity: 256,
 			memory: None,
 			memory_sampling_interval: Duration::from_secs(1),
 			overcommit: tg::runner::Overcommit::default(),
+			process_control_channel_capacity: 256,
 			process_control_connection_pool_refresh_interval: Duration::from_millis(2500),
 			process_control_connection_pool_size: 1,
 			process_control_connection_pool_ttl: Duration::from_secs(5),
@@ -2761,7 +2873,10 @@ impl Default for Runner {
 			sandbox_pool_size: 1,
 			sandbox_state_ttl: Duration::from_mins(1),
 			scheduler_ttl: Duration::from_secs(10),
+			stdio_buffer_chunks: 16 * 1024,
+			stdio_buffer_size: 8 * 1024 * 1024,
 			stdio_drain_timeout: Duration::from_secs(1),
+			stdio_drained_ttl: Duration::from_secs(10),
 			storage: None,
 			swap: None,
 			token: None,

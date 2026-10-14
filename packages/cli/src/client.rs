@@ -177,6 +177,15 @@ impl Cli {
 				crate::config::resolve_client_pool,
 			);
 
+		// Get the process options.
+		let process = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.process)
+			.map(crate::config::resolve_client_process)
+			.unwrap_or_default();
+
 		// Get the progress options.
 		let progress = self.progress_config();
 
@@ -187,6 +196,26 @@ impl Cli {
 			.and_then(|config| config.client.as_ref())
 			.and_then(|client| client.sandbox)
 			.map(crate::config::resolve_client_sandbox)
+			.unwrap_or_default();
+
+		// Get the stream retry options.
+		let stream_retry = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.stream_retry)
+			.map_or_else(
+				|| tg::Arg::default().stream_retry,
+				crate::config::resolve_client_stream_retry,
+			);
+
+		// Get the sync options.
+		let sync = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.sync)
+			.map(crate::config::resolve_client_sync)
 			.unwrap_or_default();
 
 		// Get the value options.
@@ -204,11 +233,13 @@ impl Cli {
 			token,
 			http,
 			pool,
+			process,
 			progress,
 			reconnect,
 			retry,
 			sandbox,
-			sync: tg::sync::Config::default(),
+			stream_retry,
+			sync,
 			value,
 		};
 

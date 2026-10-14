@@ -1518,10 +1518,22 @@ pub struct Process {
 	pub children_wakeup_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connect: Option<ProcessConnect>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub control: Option<ClientProcessControl>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub control_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_children_page_size: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_log_read_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub local_control_channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log_cache_partition_total: Option<u64>,
@@ -1548,9 +1560,32 @@ pub struct Process {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub status_wakeup_interval: Option<Duration>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_log_batch: Option<ProcessStdioLogBatch>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_open_retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_open_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_relay: Option<StdioRelay>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_relay_retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_retire_timeout: Option<Duration>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdio_wakeup_interval: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync_channel_capacity: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
@@ -1563,6 +1598,41 @@ pub struct Process {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttt", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_touch: Option<Duration>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessConnect {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub high_priority_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub low_priority_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_operations: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_pending_messages: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_unacknowledged_responses: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub spawn_channel_capacity: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessStdioLogBatch {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_chunks: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_size: Option<usize>,
 }
 
 #[serde_as]
@@ -1578,6 +1648,31 @@ pub struct Spawn {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub host: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StdioRelay {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ack_delay: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ack_threshold: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_retransmits: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_overhead: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub window: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1725,6 +1820,12 @@ pub struct Runner {
 	pub javascript: Option<JavaScript>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub log_buffer_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub log_channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1734,6 +1835,9 @@ pub struct Runner {
 	/// The shared CPU capacity admitted per hardware thread.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub overcommit: Option<tg::runner::Overcommit>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_control_channel_capacity: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1800,9 +1904,19 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub scheduler_ttl: Option<Duration>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_buffer_chunks: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_buffer_size: Option<usize>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdio_drain_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_drained_ttl: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage: Option<u64>,
@@ -2727,6 +2841,10 @@ pub struct Client {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pool: Option<Pool>,
 
+	/// Configure process connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process: Option<ClientProcess>,
+
 	/// Configure progress rendering.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub progress: Option<ClientProgress>,
@@ -2742,6 +2860,14 @@ pub struct Client {
 	/// Configure sandboxes.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandbox: Option<ClientSandbox>,
+
+	/// Configure the retry options for reconnecting long-lived streams.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stream_retry: Option<Retry>,
+
+	/// Configure sync.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<ClientSync>,
 
 	/// Configure values.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2775,6 +2901,69 @@ pub struct ClientHttp {
 	pub request_timeout: Option<Duration>,
 }
 
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientProcess {
+	/// Configure process connect connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connect: Option<ClientProcessConnect>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientProcessConnect {
+	/// The capacity of the progress event channel.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub event_capacity: Option<usize>,
+
+	/// The capacity of the channel of messages sent to the server.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub input_capacity: Option<usize>,
+
+	/// The maximum number of queued high priority messages.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_messages: Option<usize>,
+
+	/// The maximum number of pending requests.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_requests: Option<usize>,
+
+	/// The capacity of the channel of messages sent to the connection task.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_capacity: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientProcessControl {
+	/// The capacity of the event channel.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub event_capacity: Option<usize>,
+
+	/// The time to remember an acknowledged incoming request, so that a redelivered request is acknowledged without being delivered again.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub inbox_ttl: Option<Duration>,
+
+	/// The maximum number of buffered events awaiting delivery.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_deliveries: Option<usize>,
+
+	/// The maximum number of queued untracked messages.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_untracked_messages: Option<usize>,
+
+	/// The capacity of the channel of messages sent to the connection task.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_capacity: Option<usize>,
+
+	/// The interval at which unacknowledged messages are resent.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub resend_interval: Option<Duration>,
+}
+
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -2793,6 +2982,14 @@ pub struct ClientSandbox {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ttl: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientSync {
+	/// The maximum size of a sync frame.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_frame_size: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -2977,7 +3174,6 @@ impl Config {
 			Format::Yaml => serde_yaml::from_str(config)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the config as YAML"))?,
 		};
-
 		config.validate()?;
 
 		Ok(config)
@@ -4020,6 +4216,74 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 	Ok(target)
 }
 
+pub(crate) fn resolve_client_process(source: ClientProcess) -> tg::process::Config {
+	let mut target = tg::process::Config::default();
+	if let Some(value) = source.connect {
+		target.connect = resolve_client_process_connect(value);
+	}
+	target
+}
+
+fn resolve_client_process_connect(source: ClientProcessConnect) -> tg::process::connect::Config {
+	let mut target = tg::process::connect::Config::default();
+	if let Some(value) = source.event_capacity {
+		target.event_capacity = value;
+	}
+	if let Some(value) = source.input_capacity {
+		target.input_capacity = value;
+	}
+	if let Some(value) = source.max_messages {
+		target.max_messages = value;
+	}
+	if let Some(value) = source.max_requests {
+		target.max_requests = value;
+	}
+	if let Some(value) = source.message_capacity {
+		target.message_capacity = value;
+	}
+	target
+}
+
+fn resolve_client_process_control(source: ClientProcessControl) -> tg::process::control::Config {
+	let mut target = tg::process::control::Config::default();
+	if let Some(value) = source.event_capacity {
+		target.event_capacity = value;
+	}
+	if let Some(value) = source.inbox_ttl {
+		target.inbox_ttl = value;
+	}
+	if let Some(value) = source.max_deliveries {
+		target.max_deliveries = value;
+	}
+	if let Some(value) = source.max_untracked_messages {
+		target.max_untracked_messages = value;
+	}
+	if let Some(value) = source.message_capacity {
+		target.message_capacity = value;
+	}
+	if let Some(value) = source.resend_interval {
+		target.resend_interval = value;
+	}
+	target
+}
+
+pub(crate) fn resolve_client_stream_retry(source: Retry) -> tangram_futures::retry::Options {
+	let mut target = tg::Arg::default().stream_retry;
+	if let Some(value) = source.backoff {
+		target.backoff = value;
+	}
+	if let Some(value) = source.jitter {
+		target.jitter = value;
+	}
+	if let Some(value) = source.max_delay {
+		target.max_delay = value;
+	}
+	if let Some(value) = source.max_retries {
+		target.max_retries = value;
+	}
+	target
+}
+
 pub(crate) fn resolve_client_pool(source: &Pool) -> tangram_pool::Options {
 	let mut target = tg::Arg::default().pool;
 	if let Some(value) = source.max {
@@ -4049,6 +4313,14 @@ pub(crate) fn resolve_client_sandbox(source: ClientSandbox) -> tg::sandbox::Conf
 	let mut target = tg::sandbox::Config::default();
 	if let Some(value) = source.ttl {
 		target.ttl = value;
+	}
+	target
+}
+
+pub(crate) fn resolve_client_sync(source: ClientSync) -> tg::sync::Config {
+	let mut target = tg::sync::Config::default();
+	if let Some(value) = source.max_frame_size {
+		target.max_frame_size = value;
 	}
 	target
 }
@@ -4270,7 +4542,6 @@ fn resolve_indexer_permission_capture(
 	if let Some(value) = source.poll_interval {
 		target.poll_interval = value;
 	}
-
 	if let Some(value) = source.retry_delay {
 		target.retry_delay = value;
 	}
@@ -4832,11 +5103,43 @@ fn resolve_process(source: Process) -> server::Process {
 	if let Some(value) = source.children_wakeup_interval {
 		target.children_wakeup_interval = value;
 	}
+	if let Some(value) = source.control_channel_capacity {
+		target.control_channel_capacity = value;
+	}
 	if let Some(value) = source.default_children_page_size {
 		target.default_children_page_size = value;
 	}
 	if let Some(value) = source.default_log_read_size {
 		target.default_log_read_size = value;
+	}
+	if let Some(value) = source.local_control_channel_capacity {
+		target.local_control_channel_capacity = value;
+	}
+	if let Some(value) = source.sync_channel_capacity {
+		target.sync_channel_capacity = value;
+	}
+	if let Some(source) = source.connect {
+		if let Some(value) = source.high_priority_channel_capacity {
+			target.connect.high_priority_channel_capacity = value;
+		}
+		if let Some(value) = source.low_priority_channel_capacity {
+			target.connect.low_priority_channel_capacity = value;
+		}
+		if let Some(value) = source.max_operations {
+			target.connect.max_operations = value;
+		}
+		if let Some(value) = source.spawn_channel_capacity {
+			target.connect.spawn_channel_capacity = value;
+		}
+		if let Some(value) = source.max_pending_messages {
+			target.connect.max_pending_messages = value;
+		}
+		if let Some(value) = source.max_unacknowledged_responses {
+			target.connect.max_unacknowledged_responses = value;
+		}
+	}
+	if let Some(source) = source.control {
+		target.control = resolve_client_process_control(source);
 	}
 	if let Some(value) = source.log_cache_partition_total {
 		target.log_cache_partition_total = value;
@@ -4858,6 +5161,49 @@ fn resolve_process(source: Process) -> server::Process {
 	}
 	if let Some(value) = source.status_wakeup_interval {
 		target.status_wakeup_interval = value;
+	}
+	if let Some(source) = source.stdio_log_batch {
+		if let Some(value) = source.channel_capacity {
+			target.stdio_log_batch.channel_capacity = value;
+		}
+		if let Some(value) = source.max_chunks {
+			target.stdio_log_batch.max_chunks = value;
+		}
+		if let Some(value) = source.max_size {
+			target.stdio_log_batch.max_size = value;
+		}
+	}
+	if let Some(source) = source.stdio_open_retry {
+		target.stdio_open_retry = resolve_retry_with_default(source, target.stdio_open_retry);
+	}
+	if let Some(value) = source.stdio_open_timeout {
+		target.stdio_open_timeout = value;
+	}
+	if let Some(source) = source.stdio_relay {
+		if let Some(value) = source.ack_delay {
+			target.stdio_relay.ack_delay = value;
+		}
+		if let Some(value) = source.ack_threshold {
+			target.stdio_relay.ack_threshold = value;
+		}
+		if let Some(value) = source.max_retransmits {
+			target.stdio_relay.max_retransmits = value;
+		}
+		if let Some(value) = source.message_overhead {
+			target.stdio_relay.message_overhead = value;
+		}
+		if let Some(value) = source.timeout {
+			target.stdio_relay.timeout = value;
+		}
+		if let Some(value) = source.window {
+			target.stdio_relay.window = value;
+		}
+	}
+	if let Some(source) = source.stdio_relay_retry {
+		target.stdio_relay_retry = resolve_retry_with_default(source, target.stdio_relay_retry);
+	}
+	if let Some(value) = source.stdio_retire_timeout {
+		target.stdio_retire_timeout = value;
 	}
 	if let Some(value) = source.stdio_wakeup_interval {
 		target.stdio_wakeup_interval = value;
@@ -5044,6 +5390,15 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.overcommit {
 		target.overcommit = value;
 	}
+	if let Some(value) = source.log_buffer_size {
+		target.log_buffer_size = value;
+	}
+	if let Some(value) = source.log_channel_capacity {
+		target.log_channel_capacity = value;
+	}
+	if let Some(value) = source.process_control_channel_capacity {
+		target.process_control_channel_capacity = value;
+	}
 	if let Some(value) = source.progress_channel_capacity {
 		target.progress_channel_capacity = value;
 	}
@@ -5111,8 +5466,17 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.scheduler_ttl {
 		target.scheduler_ttl = value;
 	}
+	if let Some(value) = source.stdio_buffer_chunks {
+		target.stdio_buffer_chunks = value;
+	}
+	if let Some(value) = source.stdio_buffer_size {
+		target.stdio_buffer_size = value;
+	}
 	if let Some(value) = source.stdio_drain_timeout {
 		target.stdio_drain_timeout = value;
+	}
+	if let Some(value) = source.stdio_drained_ttl {
+		target.stdio_drained_ttl = value;
 	}
 	if let Some(value) = source.cpus {
 		target.cpus = Some(value);
@@ -5233,14 +5597,11 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	if let Some(value) = source.request_concurrency {
 		target.request_concurrency = value;
 	}
-	if let Some(source) = source.enqueue_retry {
-		target.enqueue_retry = resolve_retry_with_default(source, target.enqueue_retry);
-	}
-	if let Some(value) = source.message_ack_timeout {
-		target.message_ack_timeout = value;
-	}
 	if let Some(source) = source.message_retry {
 		target.message_retry = resolve_retry_with_default(source, target.message_retry);
+	}
+	if let Some(source) = source.enqueue_retry {
+		target.enqueue_retry = resolve_retry_with_default(source, target.enqueue_retry);
 	}
 	if let Some(value) = source.restart_delay {
 		target.restart_delay = value;
@@ -5268,6 +5629,9 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	}
 	if let Some(value) = source.inbox_ttl {
 		target.inbox_ttl = value;
+	}
+	if let Some(value) = source.message_ack_timeout {
+		target.message_ack_timeout = value;
 	}
 	if let Some(value) = source.message_timeout {
 		target.message_timeout = value;

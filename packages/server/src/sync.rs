@@ -186,9 +186,14 @@ impl Session {
 		};
 
 		// Issue a fresh token for the sync, so that a new attempt of the sync holds an unexpired token.
+		let sync = self.refresh_sync(id)?;
+
+		Ok(sync)
+	}
+
+	pub(crate) fn refresh_sync(&self, id: tg::sync::Id) -> tg::Result<tg::Referent<tg::sync::Id>> {
 		let token = self.create_read_token(&id.clone().into())?;
 		let sync = tg::Referent::with_node_and_local_tokens(id, token);
-
 		Ok(sync)
 	}
 

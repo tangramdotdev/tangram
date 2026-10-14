@@ -4,6 +4,7 @@ import {
 	Config,
 	Http as HttpConfig,
 	Pool as PoolConfig,
+	Process as ProcessConfig,
 	Retry as RetryConfig,
 	compatibilityDate,
 	version as defaultVersion,
@@ -48,8 +49,10 @@ class RequestError {
 export class Client {
 	readonly http: HttpConfig;
 	readonly pool: PoolConfig;
+	readonly process: ProcessConfig;
 	readonly reconnect: RetryConfig;
 	readonly retry: RetryConfig;
+	readonly streamRetry: RetryConfig;
 	readonly version: string;
 
 	constructor(readonly options: Config = {}) {
@@ -57,10 +60,14 @@ export class Client {
 		PoolConfig.validate(this.pool);
 		this.http = options.http ?? HttpConfig.defaultValue();
 		HttpConfig.validate(this.http);
+		this.process = options.process ?? ProcessConfig.defaultValue();
+		ProcessConfig.validate(this.process);
 		this.reconnect = options.reconnect ?? RetryConfig.defaultValue();
 		this.retry = options.retry ?? RetryConfig.defaultValue();
+		this.streamRetry = options.streamRetry ?? RetryConfig.streamDefaultValue();
 		RetryConfig.validate(this.reconnect);
 		RetryConfig.validate(this.retry);
+		RetryConfig.validate(this.streamRetry);
 		this.version = options.version ?? defaultVersion;
 		this.#connections = new Connections(this.pool, () =>
 			retry(this.reconnect, () => this.#createSession(), isTransportError),
@@ -109,9 +116,15 @@ export class Client {
 	}
 
 	connectProcess(
+		arg: tg.Process.Connect.Arg,
 		input: AsyncIterable<tg.Process.Connect.ClientMessage>,
-	): Promise<AsyncIterableIterator<tg.Process.Connect.ServerMessage>> {
-		return connectProcess(this, input);
+	): Promise<
+		[
+			tg.Process.Connect.Header,
+			AsyncIterableIterator<tg.Process.Connect.ServerMessage>,
+		]
+	> {
+		return connectProcess(this, arg, input);
 	}
 
 	getObject(

@@ -23,20 +23,13 @@ mod watch;
 #[derive(Clone)]
 pub(crate) struct Session {
 	pub context: Context,
-	pub local_process_control: bool,
-	pub process_control_sync: Option<tokio::sync::watch::Sender<bool>>,
 	pub server: Server,
 }
 
 impl Session {
 	#[must_use]
 	pub(crate) fn new(server: Server, context: Context) -> Self {
-		Self {
-			context,
-			local_process_control: false,
-			process_control_sync: None,
-			server,
-		}
+		Self { context, server }
 	}
 
 	pub(crate) fn verify_request_from_host(&self) -> tg::Result<()> {

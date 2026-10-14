@@ -8,7 +8,7 @@ async fn decode_with_header_preserves_error_trailers() {
 	let body = tangram_http::body::header::set(
 		body,
 		&42_u64,
-		tangram_http::body::encoding::Encoding::Json,
+		tangram_http::body::encoding::Encoding::Tangram,
 	)
 	.unwrap();
 	let (header, mut stream) = decode_with_header::<u64, u64>(body, 1_048_576, 1024)
@@ -55,10 +55,13 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 				let sender = sender.clone();
 				let requests = requests.clone();
 				let service = hyper::service::service_fn(
-					move |request: http::Request<hyper::body::Incoming>| {
+					move |mut request: http::Request<hyper::body::Incoming>| {
 						let sender = sender.clone();
 						let requests = requests.clone();
 						async move {
+							request
+								.extensions_mut()
+								.insert(tangram_http::body::arg::MaxLength::default());
 							let (arg, request) = request.arg::<read::Arg>().await.unwrap();
 							let arg = arg.unwrap();
 							sender.try_send(arg).unwrap();
