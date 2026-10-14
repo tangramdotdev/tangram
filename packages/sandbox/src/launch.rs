@@ -339,7 +339,7 @@ pub(crate) async fn spawn(
 			.id()
 			.ok_or_else(|| tg::error!("no child pid available"))?;
 		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
-		network.start_netns(pid).await?;
+		network.start_netns(pid, cgroup).await?;
 	}
 	if let Some(veth) = veth.as_mut() {
 		drop(veth.guest_pipe.take());
@@ -372,7 +372,7 @@ pub(crate) fn spawn_command(
 	cgroup: &crate::cgroup::Cgroup,
 ) -> tg::Result<tokio::process::Child> {
 	let directory = cgroup.handle()?.open_fd()?;
-	crate::cgroup::enter_before_exec(command, directory.as_raw_fd());
+	crate::cgroup::enter_before_exec(command.as_std_mut(), directory.as_raw_fd());
 	let child = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox launcher"))?;

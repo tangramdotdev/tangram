@@ -83,7 +83,11 @@ impl Network {
 		drop(self.guest_pipe.take());
 	}
 
-	pub async fn start_netns(&mut self, pid: libc::pid_t) -> tg::Result<()> {
+	pub(crate) async fn start_netns(
+		&mut self,
+		pid: libc::pid_t,
+		cgroup: &crate::cgroup::Cgroup,
+	) -> tg::Result<()> {
 		let host_pipe = self
 			.host_pipe
 			.as_mut()
@@ -121,6 +125,8 @@ impl Network {
 			command.arg("-i").arg(interface);
 		}
 		command.arg(pid.to_string());
+		let directory = cgroup.handle()?.open_fd()?;
+		crate::cgroup::enter_before_exec(&mut command, directory.as_raw_fd());
 		let child = command
 			.spawn()
 			.map_err(|error| tg::error!(!error, "failed to spawn pasta"))?;

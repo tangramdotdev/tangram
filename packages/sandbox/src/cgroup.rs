@@ -81,7 +81,8 @@ pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
 	Ok(cgroup)
 }
 
-pub(crate) fn enter_before_exec(command: &mut tokio::process::Command, cgroup: libc::c_int) {
+pub(crate) fn enter_before_exec(command: &mut std::process::Command, cgroup: libc::c_int) {
+	use std::os::unix::process::CommandExt as _;
 	// SAFETY: The pre_exec closure only invokes async-signal-safe system calls.
 	unsafe {
 		command.pre_exec(move || {
