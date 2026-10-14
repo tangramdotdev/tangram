@@ -23,7 +23,7 @@ for platform in [systrap kvm] {
         linux: { uidMappings: [{ containerID: 0, hostID: 0, size: 1 }], gidMappings: [{ containerID: 0, hostID: 0, size: 1 }], namespaces: [{ type: user } { type: mount } { type: pid } { type: ipc } { type: uts }] },
     } | to json | save ($bundle | path join config.json)
     let state = $bundle | path join state
-    let output = "provided\n" | ^unshare --user --map-root-user --mount --pid --fork --mount-proc tangram sandbox run --backend gvisor --runtime-path $runtime -- $'--platform=($platform)' --rootless=false --network=none --ignore-cgroups=true --overlay2=none --root $state run --bundle $bundle sandbox | complete
+    let output = "provided\n" | ^unshare --user --map-root-user --mount --pid --fork --mount-proc $runtime $'--platform=($platform)' --rootless=false --network=none --ignore-cgroups=true --overlay2=none --root $state run --bundle $bundle sandbox | complete
     success $output $"($platform): native runsc arguments should launch the OCI workload"
     assert equal ($output.stdout | str trim) native
     assert equal (open --raw ($root | path join result) | str trim) written

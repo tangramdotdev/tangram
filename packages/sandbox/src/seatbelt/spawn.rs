@@ -72,17 +72,18 @@ pub(crate) fn spawn(
 			.collect(),
 		profile: Sandbox::host_profile_path_from_root(&arg.path),
 	};
-	let path = arg.path.join("launch.json");
-	crate::run::write_config(&path, &launch)?;
+	let launch = crate::run::Arg {
+		backend: crate::run::Backend::Seatbelt(launch),
+	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.envs(environment);
+	let config = arg.path.join("launch.json");
+	crate::run::write_config(&config, &launch)?;
 	command
 		.arg("sandbox")
 		.arg("run")
-		.arg("--backend")
-		.arg("seatbelt")
 		.arg("--config")
-		.arg(path);
+		.arg(config);
 	command
 		.kill_on_drop(true)
 		.process_group(0)

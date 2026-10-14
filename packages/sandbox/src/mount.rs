@@ -28,7 +28,7 @@ struct MountAttributes {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)]
-pub(crate) struct Arg {
+pub struct Arg {
 	pub binds: Vec<Bind>,
 	pub devs: Vec<PathBuf>,
 	pub filesystem_mount_fd: Option<RawFd>,
@@ -41,7 +41,7 @@ pub(crate) struct Arg {
 	pub tmpfs: Vec<PathBuf>,
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(crate) struct Bind {
+pub struct Bind {
 	#[serde(default)]
 	pub devices: bool,
 	#[serde(default)]
@@ -50,7 +50,7 @@ pub(crate) struct Bind {
 	pub target: PathBuf,
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(crate) struct Overlay {
+pub struct Overlay {
 	pub target: PathBuf,
 	pub upperdir: PathBuf,
 	pub workdir: PathBuf,

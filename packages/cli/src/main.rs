@@ -449,7 +449,6 @@ fn main() -> std::process::ExitCode {
 	if let Command::Sandbox(self::sandbox::Args { command }) = args.command.clone() {
 		let result = match command {
 			self::sandbox::Command::Run(args) => Some(Cli::command_sandbox_run(args)),
-			self::sandbox::Command::Setup(args) => Some(Cli::command_sandbox_setup(args)),
 			_ => None,
 		};
 		if let Some(result) = result {

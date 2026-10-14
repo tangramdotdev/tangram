@@ -250,7 +250,7 @@ pub(crate) async fn spawn(
 		.map(|argument: std::ffi::OsString| {
 			argument
 				.into_string()
-				.map_err(|_| tg::error!("sandbox setup arguments must be valid UTF-8"))
+				.map_err(|_| tg::error!("sandbox launch arguments must be valid UTF-8"))
 		})
 		.collect::<tg::Result<Vec<_>>>()?;
 	let environment = environment
@@ -258,10 +258,10 @@ pub(crate) async fn spawn(
 		.map(|(key, value): (std::ffi::OsString, std::ffi::OsString)| {
 			let key = key
 				.into_string()
-				.map_err(|_| tg::error!("sandbox setup environment names must be valid UTF-8"))?;
+				.map_err(|_| tg::error!("sandbox launch environment names must be valid UTF-8"))?;
 			let value = value
 				.into_string()
-				.map_err(|_| tg::error!("sandbox setup environment values must be valid UTF-8"))?;
+				.map_err(|_| tg::error!("sandbox launch environment values must be valid UTF-8"))?;
 			Ok((key, value))
 		})
 		.collect::<tg::Result<_>>()?;
@@ -272,7 +272,7 @@ pub(crate) async fn spawn(
 		hostname: arg.hostname.clone(),
 	};
 	let setup = crate::run::linux::Arg {
-		backend: arg.backend.clone(),
+		as_pid_1: true,
 		cgroup_readonly: isolation.cgroup_readonly || arg.cpu_pool.is_some(),
 		filesystem_fd: filesystem_sendfd
 			.as_ref()
@@ -294,12 +294,26 @@ pub(crate) async fn spawn(
 			.map(|(_, guest, _, _)| guest.as_raw_fd()),
 		..Default::default()
 	};
-	let config = arg.path.join("setup.json");
-	crate::run::write_config(&config, &setup)?;
+	let backend = match &arg.backend {
+		crate::Backend::Builtin => crate::run::Backend::Builtin(setup.clone()),
+		crate::Backend::Bubblewrap { path } => crate::run::Backend::Bubblewrap {
+			arg: setup.clone(),
+			path: path.clone(),
+		},
+		crate::Backend::Gvisor { path, platform } => crate::run::Backend::Gvisor {
+			arg: setup.clone(),
+			path: path.clone(),
+			platform: *platform,
+		},
+		crate::Backend::CloudHypervisor(_) | crate::Backend::Seatbelt => unreachable!(),
+	};
+	let launch = crate::run::Arg { backend };
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
+	let config = arg.path.join("launch.json");
+	crate::run::write_config(&config, &launch)?;
 	command
 		.arg("sandbox")
-		.arg("setup")
+		.arg("run")
 		.arg("--config")
 		.arg(config);
 	for fd in [setup.filesystem_fd, setup.fuse_fd, setup.user_namespace_fd]
@@ -309,7 +323,9 @@ pub(crate) async fn spawn(
 		inherit_fd(&mut command, fd);
 	}
 	match setup.network {
-		Some(crate::run::linux::Network::Pasta { fd } | crate::run::linux::Network::Veth { fd, .. }) => {
+		Some(
+			crate::run::linux::Network::Pasta { fd } | crate::run::linux::Network::Veth { fd, .. },
+		) => {
 			inherit_fd(&mut command, fd);
 		},
 		None | Some(crate::run::linux::Network::Host) => {},

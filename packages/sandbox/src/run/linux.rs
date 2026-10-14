@@ -13,10 +13,12 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default)]
+pub use crate::mount::{Arg as Mounts, Bind, Overlay};
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Arg {
-	pub backend: crate::Backend,
+	pub as_pid_1: bool,
 	pub cgroup: Option<Cgroup>,
 	pub cgroup_readonly: bool,
 	pub filesystem_fd: Option<i32>,
@@ -25,7 +27,8 @@ pub struct Arg {
 	pub fuse_path: Option<PathBuf>,
 	pub gid: u32,
 	pub index: u64,
-	pub(crate) mounts: mount::Arg,
+	pub isolate_root: bool,
+	pub mounts: mount::Arg,
 	pub network: Option<Network>,
 	pub nice: u8,
 	pub process: Process,
@@ -75,7 +78,12 @@ pub(crate) struct Prepared<'a> {
 	pub seccomp_fd: Option<i32>,
 }
 
-pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
+pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
+	if arg.seccomp.is_some() && matches!(backend, crate::Backend::Gvisor { .. }) {
+		return Err(tg::error!(
+			"a host seccomp policy requires the builtin or bubblewrap backend"
+		));
+	}
 	if arg.process.arguments.is_empty() {
 		return Err(tg::error!("a command is required"));
 	}
@@ -132,18 +140,25 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 	)?;
 	let _filesystem = prepare_filesystem(&mut arg, host_namespace.as_ref())?;
 	if let (Some(fd), Some(path)) = (arg.fuse_fd, &arg.fuse_path) {
-		if !matches!(arg.backend, crate::Backend::Builtin) {
+		if !matches!(backend, crate::Backend::Builtin) {
 			return Err(tg::error!(
 				"direct FUSE mounting requires the builtin backend"
 			));
 		}
 		crate::builtin::run::mount_fuse(fd, path)?;
 	}
-	let root = if arg
-		.mounts
-		.overlays
-		.iter()
-		.any(|overlay| overlay.target == Path::new("/"))
+	let root = if arg.isolate_root
+		|| arg
+			.mounts
+			.binds
+			.iter()
+			.chain(&arg.mounts.ro_binds)
+			.any(|bind| bind.target == Path::new("/"))
+		|| arg
+			.mounts
+			.overlays
+			.iter()
+			.any(|overlay| overlay.target == Path::new("/"))
 	{
 		let temp = tangram_util::fs::Temp::new()
 			.map_err(|error| tg::error!(!error, "failed to create the prepared root"))?;
@@ -156,7 +171,8 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 	let root_path = root.as_ref().map(|root| root.path().join("root"));
 	let child = linux::fork()?;
 	if child == 0 {
-		if let Err(error) = child_main(&arg, cgroup_handle.as_ref(), root_path.as_deref()) {
+		if let Err(error) = child_main(&arg, backend, cgroup_handle.as_ref(), root_path.as_deref())
+		{
 			eprintln!("{}", error.trace());
 			std::process::exit(105);
 		}
@@ -180,29 +196,6 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 	Ok(ExitCode::from(status))
 }
 
-impl Default for Arg {
-	fn default() -> Self {
-		Self {
-			backend: crate::Backend::Builtin,
-			cgroup: None,
-			cgroup_readonly: false,
-			filesystem_fd: None,
-			filesystem_path: None,
-			fuse_fd: None,
-			fuse_path: None,
-			gid: 0,
-			index: 0,
-			mounts: mount::Arg::default(),
-			network: None,
-			nice: 0,
-			process: Process::default(),
-			rlimit_nofile: None,
-			seccomp: None,
-			uid: 0,
-			user_namespace_fd: None,
-		}
-	}
-}
 impl Default for Process {
 	fn default() -> Self {
 		Self {
@@ -216,6 +209,7 @@ impl Default for Process {
 
 fn child_main(
 	arg: &Arg,
+	backend: &crate::Backend,
 	cgroup: Option<&crate::cgroup::Handle>,
 	root: Option<&Path>,
 ) -> tg::Result<()> {
@@ -241,6 +235,21 @@ fn child_main(
 		"failed to create the resource cgroup namespace",
 	)?;
 	linux::set_rlimit_nofile(arg.rlimit_nofile)?;
+	if let Some(root) = root
+		&& !arg
+			.mounts
+			.binds
+			.iter()
+			.chain(&arg.mounts.ro_binds)
+			.any(|bind| bind.target == Path::new("/"))
+		&& !arg
+			.mounts
+			.overlays
+			.iter()
+			.any(|overlay| overlay.target == Path::new("/"))
+	{
+		mount::mount_tmpfs(root)?;
+	}
 	mount::apply(&arg.mounts, root)?;
 	let cgroup_path = root.map_or_else(
 		|| PathBuf::from("/sys/fs/cgroup"),
@@ -249,7 +258,7 @@ fn child_main(
 	mount::mount_cgroup(&cgroup_path, arg.cgroup_readonly)?;
 	linux::close_non_std_fds()?;
 	let seccomp_fd = if matches!(
-		arg.backend,
+		backend,
 		crate::Backend::Builtin | crate::Backend::Bubblewrap { .. }
 	) {
 		arg.seccomp.map(crate::seccomp::descriptor).transpose()?
@@ -261,7 +270,7 @@ fn child_main(
 		root,
 		seccomp_fd,
 	};
-	match &arg.backend {
+	match backend {
 		crate::Backend::Builtin => {
 			let command = crate::bubblewrap::command(&prepared, Path::new("builtin"), true)?;
 			let arguments = command.get_args().map(OsString::from).collect();

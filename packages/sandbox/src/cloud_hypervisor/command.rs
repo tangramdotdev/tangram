@@ -77,16 +77,18 @@ pub(crate) fn command(
 		tangram_path: arg.tangram_path.clone(),
 		url: serve_arg.url.clone(),
 	};
-	let path = arg.path.join("launch.json");
-	crate::run::write_config(&path, &launch)?;
+	let launch = crate::run::Arg {
+		backend: crate::run::Backend::CloudHypervisor(launch),
+	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
+	let config = arg.path.join("launch.json");
+	crate::run::write_config(&config, &launch)?;
 	command
 		.arg("sandbox")
 		.arg("run")
-		.arg("--backend")
-		.arg("cloud-hypervisor")
 		.arg("--config")
-		.arg(path)
+		.arg(config);
+	command
 		.kill_on_drop(true)
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())

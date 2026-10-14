@@ -135,16 +135,17 @@ impl Assets {
 			tangram_path: server.tangram_path.clone(),
 			url: "http+vsock://2:6748".parse().unwrap(),
 		};
-		let path = temp.path().join("launch.json");
-		tangram_sandbox::run::write_config(&path, &launch)?;
+		let launch = tangram_sandbox::run::Arg {
+			backend: tangram_sandbox::run::Backend::CloudHypervisor(launch),
+		};
 		let mut command = tokio::process::Command::new(&server.tangram_path);
+		let config = temp.path().join("launch.json");
+		tangram_sandbox::run::write_config(&config, &launch)?;
 		command
 			.arg("sandbox")
 			.arg("run")
-			.arg("--backend")
-			.arg("cloud-hypervisor")
 			.arg("--config")
-			.arg(path);
+			.arg(config);
 		let status = command
 			.status()
 			.await

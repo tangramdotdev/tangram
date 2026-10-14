@@ -40,7 +40,6 @@ pub(crate) fn command(prepared: &Prepared, path: &Path, builtin: bool) -> tg::Re
 	command
 		.arg("--unshare-pid")
 		.arg("--unshare-ipc")
-		.arg("--as-pid-1")
 		.arg("--die-with-parent")
 		.arg("--new-session")
 		.arg("--uid")
@@ -52,6 +51,9 @@ pub(crate) fn command(prepared: &Prepared, path: &Path, builtin: bool) -> tg::Re
 		.arg("--chdir")
 		.arg(&arg.process.directory)
 		.arg("--clearenv");
+	if arg.as_pid_1 {
+		command.arg("--as-pid-1");
+	}
 	if let Some(hostname) = &arg.process.hostname {
 		command.arg("--unshare-uts").arg("--hostname").arg(hostname);
 	}

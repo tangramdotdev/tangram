@@ -27,10 +27,9 @@ for backend in [builtin bubblewrap] {
     failure $output
 }
 
-# A hostname requires a new UTS namespace before the launcher can change it.
+# Common launch configuration creates the UTS namespace needed for a hostname.
 for backend in [builtin bubblewrap] {
     if $backend == bubblewrap and (which bwrap | is-empty) { continue }
-    let output = ^tangram sandbox run --backend $backend --hostname tangram-test -- /bin/true | complete
-    failure $output
-    assert ($output.stderr | str contains '--hostname requires --unshare-uts')
+    let output = ^tangram sandbox run --backend $backend --hostname tangram-test -- /bin/sh -ec 'test "$(cat /proc/sys/kernel/hostname)" = tangram-test' | complete
+    success $output
 }

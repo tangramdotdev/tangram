@@ -6,11 +6,6 @@ let uid = ^id -u | str trim | into int
 let gid = ^id -g | str trim | into int
 let tangram = which tangram | first | get path
 
-# The builtin accepts no Tangram cgroup options.
-let output = ^tangram sandbox run --backend builtin --cgroup invalid -- /bin/true | complete
-failure $output
-assert ($output.stderr | str contains "unexpected argument '--cgroup'")
-
 for readonly in [false true] {
     let inner = $env.PWD | path join $'inner-($readonly).json'
     {
@@ -18,17 +13,17 @@ for readonly in [false true] {
         gid: $gid,
         process: { arguments: [/bin/true] },
         uid: $uid,
-    } | to json | save $inner
+    } | insert kind builtin | wrap backend | to json | save $inner
     let outer = $env.PWD | path join $'outer-($readonly).json'
     {
         cgroup: { name: $'tangram-test-(random uuid)' },
         cgroup_readonly: $readonly,
         gid: $gid,
         mounts: { tmpfs: [/sys] },
-        process: { arguments: [$tangram sandbox setup --config $inner] },
+        process: { arguments: [$tangram sandbox run --config $inner] },
         uid: $uid,
-    } | to json | save $outer
-    let output = ^tangram sandbox setup --config $outer | complete
+    } | insert kind builtin | wrap backend | to json | save $outer
+    let output = ^tangram sandbox run --config $outer | complete
     if $readonly {
         failure $output 'a nested sandbox should not create a cgroup through a read-only mount'
     } else {
