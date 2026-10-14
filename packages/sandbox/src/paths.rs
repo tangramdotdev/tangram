@@ -219,7 +219,6 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn guest_ssl_cert_dir() -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{

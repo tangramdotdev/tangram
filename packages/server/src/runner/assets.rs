@@ -56,6 +56,7 @@ impl Assets {
 		};
 		#[cfg(target_os = "macos")]
 		let (root, image, snapshot) = {
+			let _ = config;
 			let root = path.join("seatbelt/root");
 			let arg = tangram_sandbox::seatbelt::root::Arg {
 				path: root.clone(),

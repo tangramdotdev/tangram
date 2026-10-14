@@ -106,7 +106,7 @@ pub(super) fn start(fd: libc::c_int) -> tg::Result<()> {
 	let mut byte = [0];
 	loop {
 		match socket.read(&mut byte) {
-			Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+			Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {},
 			Ok(0) | Err(_) => break,
 			Ok(_) => {},
 		}
