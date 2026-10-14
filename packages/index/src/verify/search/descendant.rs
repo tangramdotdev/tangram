@@ -674,7 +674,7 @@ impl Search {
 				self.unresolved.remove(&key);
 			}
 			if self.unresolved.is_empty() {
-				return;
+				break;
 			}
 		}
 		self.queue_fallback(checks.depth, checks.fallback);
@@ -1567,6 +1567,61 @@ mod tests {
 
 		assert!(!search.exhausted);
 		assert!(matches!(reads.as_slice(), [Read::DescendantChecks(_)]));
+	}
+
+	#[test]
+	fn a_checks_shortcut_queues_the_fallback_for_later_targets() {
+		let config = crate::verify::SearchConfig::default();
+		let mut state = State::default();
+		let source = key(0);
+		let first = key(1);
+		let second = key(2);
+		state.verify_ancestor_or_descendant(source.clone());
+		let mut search = Search::new(
+			config,
+			&tg::Principal::Anonymous,
+			&mut state,
+			vec![first.clone()],
+			&[],
+		);
+		search.queues.entry(0).or_default().push_back(DescendantTask::Node {
+			depth: 0,
+			key: source.clone(),
+		});
+		let reads = search.take_reads(&mut state, 1);
+		let [read @ Read::DescendantChecks(_)] = reads.as_slice() else {
+			panic!("expected a checks read");
+		};
+		let output = ReadOutput::Bools(vec![true]);
+		search.apply(&mut state, read.clone(), output).unwrap();
+		assert!(state.is_verified(&first));
+
+		search.add_targets(config, vec![second.clone()]);
+		loop {
+			let reads = search.take_reads(&mut state, 1);
+			let Some(read) = reads.into_iter().next() else {
+				break;
+			};
+			let output = match &read {
+				Read::DescendantChecks(checks) => {
+					ReadOutput::Bools(vec![false; checks.candidates.len()])
+				},
+				Read::ObjectChildren { object, .. } if *object == self::object(&source) => {
+					ReadOutput::Ids {
+						after: None,
+						ids: vec![first.0.clone(), second.0.clone()],
+					}
+				},
+				Read::ObjectChildren { .. } => ReadOutput::Ids {
+					after: None,
+					ids: Vec::new(),
+				},
+				_ => panic!("unexpected read"),
+			};
+			search.apply(&mut state, read, output).unwrap();
+		}
+
+		assert!(state.is_verified(&second));
 	}
 
 	fn key(value: u8) -> Key {
