@@ -22,12 +22,10 @@ host, guest = socket.socketpair()
 host.settimeout(5)
 directory = tempfile.TemporaryDirectory()
 config = pathlib.Path(directory.name) / 'setup.json'
-config.write_text(json.dumps({'kind': 'builtin',
-    'cgroup': {'name': name},
-    'gid': os.getgid(),
-    'process': {'arguments': ['/bin/sleep', '30']},
-    'uid': os.getuid(),
-    'user_namespace_fd': guest.fileno(),
+config.write_text(json.dumps({
+    'backend': {'kind': 'builtin', 'gid': os.getgid(), 'uid': os.getuid()},
+    'command': {'args': ['/bin/sleep', '30']},
+    'options': {'cgroup': {'name': name}, 'user_namespace_fd': guest.fileno()},
 }))
 process = subprocess.Popen([
     sys.argv[1], 'sandbox', 'run', '--config', str(config),

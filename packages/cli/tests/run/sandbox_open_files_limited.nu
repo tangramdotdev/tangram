@@ -6,6 +6,6 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-{ rlimit_nofile: 32, process: { arguments: [/bin/sh -c 'test "$(ulimit -n)" = 32'] } } | insert kind builtin | to json | save setup.json
+{ backend: { kind: builtin }, command: { args: [/bin/sh -c 'test "$(ulimit -n)" = 32'] }, options: { rlimit_nofile: 32 } } | to json | save setup.json
 let output = ^tangram sandbox run --config setup.json | complete
 success $output
