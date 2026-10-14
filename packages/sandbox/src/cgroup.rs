@@ -406,9 +406,9 @@ impl Cgroup {
 }
 
 impl Handle {
-	/// Takes ownership of a cgroup directory descriptor inherited from the parent.
-	pub unsafe fn from_raw_fd(fd: libc::c_int) -> Self {
-		// SAFETY: The caller guarantees ownership of the inherited descriptor.
+	#[cfg(test)]
+	pub(crate) unsafe fn from_raw_fd(fd: libc::c_int) -> Self {
+		// SAFETY: The caller transfers ownership of a valid directory descriptor.
 		let directory = unsafe { OwnedFd::from_raw_fd(fd) };
 		Self { directory }
 	}

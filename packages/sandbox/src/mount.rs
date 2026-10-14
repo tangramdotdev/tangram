@@ -1,5 +1,4 @@
 use {
-	crate::run::linux::{Arg, Bind, Overlay},
 	bytes::Bytes,
 	std::{
 		ffi::{CString, OsStr},
@@ -27,6 +26,36 @@ struct MountAttributes {
 	readonly: bool,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default)]
+pub(crate) struct Arg {
+	pub binds: Vec<Bind>,
+	pub devs: Vec<PathBuf>,
+	pub filesystem_mount_fd: Option<RawFd>,
+	pub nodev: bool,
+	pub nosuid: bool,
+	pub overlay_sources: Vec<PathBuf>,
+	pub overlays: Vec<Overlay>,
+	pub procs: Vec<PathBuf>,
+	pub ro_binds: Vec<Bind>,
+	pub tmpfs: Vec<PathBuf>,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct Bind {
+	#[serde(default)]
+	pub devices: bool,
+	#[serde(default)]
+	pub fd: Option<RawFd>,
+	pub source: PathBuf,
+	pub target: PathBuf,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct Overlay {
+	pub target: PathBuf,
+	pub upperdir: PathBuf,
+	pub workdir: PathBuf,
+}
+
 pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 	make_mounts_private()?;
 	if let Some(root) = root {
@@ -46,6 +75,27 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 	{
 		let root = root.ok_or_else(|| tg::error!("an overlay to / requires a scratch path"))?;
 		mount_overlay(&arg.overlay_sources, overlay, root)?;
+	}
+	for (bind, readonly) in arg
+		.binds
+		.iter()
+		.map(|bind| (bind, false))
+		.chain(arg.ro_binds.iter().map(|bind| (bind, true)))
+		.filter(|(bind, _)| bind.target == Path::new("/"))
+	{
+		let mount_root = open_mount_root(root)?;
+		let attributes = MountAttributes {
+			nodev: !bind.devices,
+			nosuid: true,
+			readonly,
+		};
+		mount_bind(
+			bind,
+			arg.filesystem_mount_fd,
+			mount_root.as_raw_fd(),
+			root.unwrap_or(Path::new("/")),
+			attributes,
+		)?;
 	}
 	let mount_root = open_mount_root(root)?;
 
@@ -67,13 +117,6 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		mount_proc(&map_path_target(root, target)?)?;
 	}
 
-	if arg.cgroup.is_some() || arg.cgroup_fd.is_some() {
-		mount_cgroup(
-			&map_path_target(root, Path::new("/sys/fs/cgroup"))?,
-			arg.cgroup_readonly,
-		)?;
-	}
-
 	for overlay in overlays
 		.into_iter()
 		.filter(|overlay| overlay.target != Path::new("/"))
@@ -89,11 +132,14 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		.chain(arg.ro_binds.iter().map(|bind| (bind, true)))
 		.collect::<Vec<_>>();
 	binds.sort_unstable_by_key(|(bind, _)| path_depth(&bind.target));
-	for (bind, readonly) in binds {
+	for (bind, readonly) in binds
+		.into_iter()
+		.filter(|(bind, _)| bind.target != Path::new("/"))
+	{
 		let target = map_target(root, &bind.target)?;
 		let attributes = MountAttributes {
-			nodev: arg.unshare_all,
-			nosuid: arg.unshare_all,
+			nodev: arg.nodev && !bind.devices,
+			nosuid: arg.nosuid,
 			readonly,
 		};
 		mount_bind(
@@ -200,13 +246,19 @@ fn mount_bind(
 	target_path: &Path,
 	attributes: MountAttributes,
 ) -> tg::Result<()> {
-	let source = open_bind_source(&bind.source, filesystem).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %bind.source.display(),
-			"failed to securely open the bind source"
+	let source = bind
+		.fd
+		.map_or_else(
+			|| open_bind_source(&bind.source, filesystem),
+			open_bind_descriptor,
 		)
-	})?;
+		.map_err(|error| {
+			tg::error!(
+				!error,
+				path = %bind.source.display(),
+				"failed to securely open the bind source"
+			)
+		})?;
 	let directory = fd_is_directory(source.as_raw_fd()).map_err(|error| {
 		tg::error!(
 			!error,
@@ -215,7 +267,12 @@ fn mount_bind(
 		)
 	})?;
 	let target = bind.target.strip_prefix("/").unwrap();
-	let target_fd = create_mount_target(root, target, directory).map_err(|error| {
+	let target_fd = if target.as_os_str().is_empty() {
+		duplicate_fd(root)
+	} else {
+		create_mount_target(root, target, directory)
+	}
+	.map_err(|error| {
 		tg::error!(
 			!error,
 			path = %bind.target.display(),
@@ -237,6 +294,22 @@ fn mount_bind(
 		)
 	})?;
 	Ok(())
+}
+
+fn open_bind_descriptor(fd: RawFd) -> std::io::Result<OwnedFd> {
+	// Resolve the inherited descriptor in the current mount namespace before cloning its mount.
+	let path = std::fs::read_link(format!("/proc/self/fd/{fd}"))?;
+	let source = open_absolute_path(&path)?;
+	// SAFETY: The inherited descriptor is borrowed for the identity check and remains owned by the launcher.
+	let inherited = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
+	let inherited = rustix::fs::fstat(inherited)?;
+	let current = rustix::fs::fstat(&source)?;
+	if inherited.st_dev != current.st_dev || inherited.st_ino != current.st_ino {
+		return Err(std::io::Error::other(
+			"the inherited bind source changed while resolving its path",
+		));
+	}
+	Ok(source)
 }
 
 fn open_bind_source(path: &Path, filesystem: Option<RawFd>) -> std::io::Result<OwnedFd> {
@@ -616,7 +689,7 @@ fn mount_proc(target: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
+pub(crate) fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
 	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -653,7 +726,7 @@ fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
 	Ok(())
 }
 
-fn mount_tmpfs(target: &Path) -> tg::Result<()> {
+pub(crate) fn mount_tmpfs(target: &Path) -> tg::Result<()> {
 	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -749,6 +822,8 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		let source = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
 		let target = target.join(Path::new(path).file_name().unwrap());
 		let entry = Bind {
+			devices: true,
+			fd: None,
 			source,
 			target: target.clone(),
 		};

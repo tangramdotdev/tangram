@@ -63,6 +63,8 @@ pub mod run;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
+#[cfg(target_os = "linux")]
+pub mod setup;
 pub mod stdio;
 
 #[derive(Clone)]
@@ -212,19 +214,7 @@ pub struct IdMap {
 	pub host: u32,
 }
 
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	derive_more::Display,
-	derive_more::FromStr,
-	Eq,
-	PartialEq,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-#[display(rename_all = "snake_case")]
-#[from_str(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SeccompPolicy {
 	Default,

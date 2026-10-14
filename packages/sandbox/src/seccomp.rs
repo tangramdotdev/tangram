@@ -19,8 +19,37 @@ pub(crate) fn filter(policy: SeccompPolicy) -> tg::Result<Vec<libc::sock_filter>
 	}
 }
 
-pub fn install(policy: SeccompPolicy) -> tg::Result<()> {
-	let mut filter = filter(policy)?;
+pub(crate) fn descriptor(policy: SeccompPolicy) -> tg::Result<i32> {
+	use std::{
+		io::{Seek as _, Write as _},
+		os::fd::IntoRawFd as _,
+	};
+	let filter = filter(policy)?;
+	let fd = rustix::fs::memfd_create(c"tangram-seccomp", rustix::fs::MemfdFlags::empty())
+		.map_err(|error| tg::error!(!error, "failed to create the seccomp descriptor"))?;
+	let mut file = std::fs::File::from(fd);
+	// SAFETY: sock_filter is the initialized, padding-free Linux cBPF instruction ABI.
+	let bytes = unsafe {
+		std::slice::from_raw_parts(
+			filter.as_ptr().cast(),
+			std::mem::size_of_val(filter.as_slice()),
+		)
+	};
+	file.write_all(bytes)
+		.map_err(|error| tg::error!(!error, "failed to write the seccomp filter"))?;
+	file.rewind()
+		.map_err(|error| tg::error!(!error, "failed to rewind the seccomp filter"))?;
+	Ok(file.into_raw_fd())
+}
+
+#[cfg(test)]
+fn install(policy: SeccompPolicy) -> tg::Result<()> {
+	let filter = filter(policy)?;
+	install_filter(filter)?;
+	Ok(())
+}
+
+pub(crate) fn install_filter(mut filter: Vec<libc::sock_filter>) -> tg::Result<()> {
 	let length = filter
 		.len()
 		.try_into()

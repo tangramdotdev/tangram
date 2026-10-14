@@ -46,22 +46,6 @@ pub(crate) async fn spawn(
 	cgroup: &crate::cgroup::Cgroup,
 ) -> tg::Result<Output> {
 	let isolation = &arg.resources;
-	let network_arg = match network.as_deref() {
-		None => None,
-		Some(crate::network::Network::Host) => Some("host".to_owned()),
-		Some(crate::network::Network::Passt(_)) => {
-			return Err(tg::error!(
-				"container sandboxes do not support passt networking"
-			));
-		},
-		Some(crate::network::Network::Pasta(_)) => Some("pasta".to_owned()),
-		Some(crate::network::Network::Tap(_)) => {
-			return Err(tg::error!(
-				"container sandboxes do not support tap networking"
-			));
-		},
-		Some(crate::network::Network::Veth(_)) => Some("veth".to_owned()),
-	};
 	let mut veth = match network.as_deref() {
 		Some(crate::network::Network::Veth(network)) => {
 			let index = arg.index;
@@ -120,8 +104,6 @@ pub(crate) async fn spawn(
 	)?;
 	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
 	let user_namespace = prepare_user_namespace(isolation, &user)?;
-	let cgroup_handle = cgroup.handle()?;
-	let cgroup_fd = cgroup_handle.open_fd()?;
 
 	let (filesystem_sendfd, filesystem_recvfd) = if filesystem_separate {
 		let (sendfd, recvfd) = rustix::net::socketpair(
@@ -135,209 +117,202 @@ pub(crate) async fn spawn(
 	} else {
 		(None, None)
 	};
-	let stdio = matches!(serve_arg.url.scheme(), Some("http+stdio"));
-	let init_arg = crate::init::linux::Arg {
-		serve: serve_arg.clone(),
+	// Describe the prepared Tangram filesystem and workload independently of the launcher's CLI.
+	let mut mounts = crate::mount::Arg {
+		nodev: true,
+		nosuid: true,
+		overlay_sources: vec![arg.rootfs_path.clone()],
+		overlays: vec![crate::mount::Overlay {
+			target: "/".into(),
+			upperdir: Sandbox::host_upper_path_from_root(&filesystem_path),
+			workdir: Sandbox::host_work_path_from_root(&filesystem_path),
+		}],
+		..Default::default()
 	};
-	let mut command = tokio::process::Command::new(&arg.tangram_path);
-	command
-		.arg("sandbox")
-		.arg("run")
-		.arg("--backend")
-		.arg(arg.backend.kind().name());
-	match &arg.backend {
-		crate::Backend::Bubblewrap { path } => {
-			command.arg("--runtime-path").arg(path);
-		},
-		crate::Backend::Gvisor { path, platform } => {
-			command
-				.arg("--runtime-path")
-				.arg(path)
-				.arg("--platform")
-				.arg(platform.name());
-		},
-		crate::Backend::Builtin | crate::Backend::CloudHypervisor(_) | crate::Backend::Seatbelt => {
-		},
-	}
-	command
-		.arg("--index")
-		.arg(arg.index.to_string())
-		.arg("--unshare-all")
-		.arg("--as-pid-1")
-		.arg("--die-with-parent")
-		.arg("--new-session")
-		.arg("--uid")
-		.arg(user.uid.to_string())
-		.arg("--gid")
-		.arg(user.gid.to_string())
-		.arg("--nice")
-		.arg(arg.nice.to_string())
-		.arg("--chdir")
-		.arg("/")
-		.arg("--clearenv")
-		.arg("--overlay-src")
-		.arg(&arg.rootfs_path)
-		.arg("--overlay")
-		.arg(Sandbox::host_upper_path_from_root(&filesystem_path))
-		.arg(Sandbox::host_work_path_from_root(&filesystem_path))
-		.arg("/")
-		.arg("--dev")
-		.arg("/dev")
-		.arg("--proc")
-		.arg("/proc")
-		.arg("--bind")
-		.arg(Sandbox::host_tmp_path_from_root(&filesystem_path))
-		.arg(Sandbox::guest_tmp_path_from_root(&arg.path));
-	if let Some(filesystem_sendfd) = &filesystem_sendfd {
-		command
-			.arg("--filesystem-fd")
-			.arg(filesystem_sendfd.as_raw_fd().to_string())
-			.arg("--filesystem-path")
-			.arg(&filesystem_path);
-		if let Some(inodes) = filesystem_inodes {
-			command.arg("--filesystem-inodes").arg(inodes.to_string());
+	let mut add_mount = |source: PathBuf, target: PathBuf, readonly: bool| {
+		let mount = crate::mount::Bind {
+			devices: false,
+			fd: None,
+			source,
+			target,
+		};
+		if readonly {
+			mounts.ro_binds.push(mount);
+		} else {
+			mounts.binds.push(mount);
 		}
-		if let Some(size) = filesystem_size {
-			command.arg("--filesystem-size").arg(size.to_string());
-		}
-		inherit_fd(&mut command, filesystem_sendfd.as_raw_fd());
-	}
-	if let Some((_, guest, _, _)) = &user_namespace {
-		command
-			.arg("--user-namespace-fd")
-			.arg(guest.as_raw_fd().to_string());
-		inherit_fd(&mut command, guest.as_raw_fd());
-	}
-	if let Some(network_arg) = &network_arg {
-		command.arg("--network").arg(network_arg);
-	}
-	if let Some(crate::network::Network::Pasta(network)) = network.as_deref()
-		&& let Some(guest_pipe) = network.guest_pipe()
-	{
-		command
-			.arg("--network-fd")
-			.arg(guest_pipe.as_raw_fd().to_string());
-	}
-	if let Some(veth) = veth.as_ref() {
-		command
-			.arg("--network-fd")
-			.arg(veth.guest_pipe.as_ref().unwrap().as_raw_fd().to_string());
-	}
-	if let Some(crate::network::Network::Veth(network)) = network.as_deref() {
-		command
-			.arg("--gateway-ip")
-			.arg(network.gateway_ip().to_string());
-	}
-	if let Some(crate::network::Network::Veth(network)) = network.as_deref() {
-		command
-			.arg("--guest-ip")
-			.arg(network.guest_ip().to_string());
-	}
-	if let Some(fuse_fd) = &arg.fuse_fd {
-		command
-			.arg("--fuse-fd")
-			.arg(fuse_fd.as_raw_fd().to_string())
-			.arg("--fuse-path")
-			.arg(&arg.store_path);
-		inherit_fd(&mut command, fuse_fd.as_raw_fd());
-	}
-	if let Some(hostname) = &arg.hostname {
-		command.arg("--hostname").arg(hostname);
-	}
-
-	command
-		.arg("--setenv")
-		.arg("HOME")
-		.arg(&user.home)
-		.arg("--setenv")
-		.arg("SSL_CERT_DIR")
-		.arg(Sandbox::guest_ssl_cert_dir())
-		.arg("--ro-bind")
-		.arg(Sandbox::host_passwd_path_from_root(&arg.path))
-		.arg("/etc/passwd")
-		.arg("--ro-bind")
-		.arg(Sandbox::host_nsswitch_path_from_root(&arg.path))
-		.arg("/etc/nsswitch.conf")
-		.arg("--ro-bind")
-		.arg(&arg.store_path)
-		.arg(Sandbox::guest_store_path_from_host_store_path(
-			&arg.store_path,
-		))
-		.arg("--ro-bind")
-		.arg(&arg.tangram_path)
-		.arg(Sandbox::guest_libexec_tangram_path())
-		.arg("--bind")
-		.arg(
-			arg.tangram_socket_path
-				.as_ref()
-				.ok_or_else(|| tg::error!("missing the tangram socket path"))?,
-		)
-		.arg(Sandbox::guest_tangram_socket_path_from_root(&arg.path))
-		.arg("--bind")
-		.arg(Sandbox::host_output_path_from_root(&filesystem_path))
-		.arg(Sandbox::guest_output_path_from_root(&arg.path));
-	if !stdio {
-		command
-			.arg("--bind")
-			.arg(Sandbox::host_listen_path_from_root(&arg.path))
-			.arg(Sandbox::guest_listen_path_from_root(&arg.path));
+	};
+	add_mount(
+		Sandbox::host_tmp_path_from_root(&filesystem_path),
+		Sandbox::guest_tmp_path_from_root(&arg.path),
+		false,
+	);
+	add_mount(
+		Sandbox::host_passwd_path_from_root(&arg.path),
+		"/etc/passwd".into(),
+		true,
+	);
+	add_mount(
+		Sandbox::host_nsswitch_path_from_root(&arg.path),
+		"/etc/nsswitch.conf".into(),
+		true,
+	);
+	add_mount(
+		arg.store_path.clone(),
+		Sandbox::guest_store_path_from_host_store_path(&arg.store_path),
+		true,
+	);
+	add_mount(
+		arg.tangram_path.clone(),
+		Sandbox::guest_libexec_tangram_path(),
+		true,
+	);
+	add_mount(
+		arg.tangram_socket_path
+			.clone()
+			.ok_or_else(|| tg::error!("missing the tangram socket path"))?,
+		Sandbox::guest_tangram_socket_path_from_root(&arg.path),
+		false,
+	);
+	add_mount(
+		Sandbox::host_output_path_from_root(&filesystem_path),
+		Sandbox::guest_output_path_from_root(&arg.path),
+		false,
+	);
+	if !matches!(serve_arg.url.scheme(), Some("http+stdio")) {
+		add_mount(
+			Sandbox::host_listen_path_from_root(&arg.path),
+			Sandbox::guest_listen_path_from_root(&arg.path),
+			false,
+		);
 	}
 	let resolv_conf_path = Sandbox::host_resolv_conf_path_from_root(&arg.path);
 	if resolv_conf_path.exists() {
-		command
-			.arg("--ro-bind")
-			.arg(&resolv_conf_path)
-			.arg("/etc/resolv.conf");
+		add_mount(resolv_conf_path, "/etc/resolv.conf".into(), true);
 	}
 	for mount in &arg.mounts {
-		command
-			.arg(if mount.readonly {
-				"--ro-bind"
-			} else {
-				"--bind"
-			})
-			.arg(&mount.source)
-			.arg(&mount.target);
+		add_mount(mount.source.clone(), mount.target.clone(), mount.readonly);
 	}
-	{
-		let cgroup_fd = &cgroup_fd;
-		command
-			.arg("--cgroup-entered")
-			.arg("--cgroup-fd")
-			.arg(cgroup_fd.as_raw_fd().to_string());
-		inherit_fd(&mut command, cgroup_fd.as_raw_fd());
+	let network_arg = match network.as_deref() {
+		None => None,
+		Some(crate::network::Network::Host) => Some(crate::setup::Network::Host),
+		Some(crate::network::Network::Pasta(network)) => Some(crate::setup::Network::Pasta {
+			fd: network
+				.guest_pipe()
+				.ok_or_else(|| tg::error!("missing the pasta synchronization descriptor"))?
+				.as_raw_fd(),
+		}),
+		Some(crate::network::Network::Veth(network)) => Some(crate::setup::Network::Veth {
+			fd: veth
+				.as_ref()
+				.unwrap()
+				.guest_pipe
+				.as_ref()
+				.unwrap()
+				.as_raw_fd(),
+			gateway: network.gateway_ip(),
+			guest: network.guest_ip(),
+		}),
+		Some(crate::network::Network::Passt(_) | crate::network::Network::Tap(_)) => {
+			return Err(tg::error!("unsupported Linux setup network"));
+		},
+	};
+	let mut arguments = vec![
+		Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path).into_os_string(),
+		"sandbox".into(),
+		"init".into(),
+		"--backend".into(),
+		arg.backend.kind().name().into(),
+		"--output-path".into(),
+		serve_arg.output_path.clone().into_os_string(),
+		"--url".into(),
+		serve_arg.url.to_string().into(),
+		"--tangram-path".into(),
+		serve_arg.tangram_path.clone().into_os_string(),
+	];
+	arguments.extend(
+		crate::util::http2_args(&serve_arg.http2)
+			.into_iter()
+			.map(Into::into),
+	);
+	for path in &serve_arg.library_paths {
+		arguments.extend(["--library-path".into(), path.clone().into_os_string()]);
 	}
-
-	if isolation.cgroup_readonly || arg.cpu_pool.is_some() {
-		command.arg("--cgroup-readonly");
-	}
-	if let Some(max_open_files) = isolation.max_open_files {
-		command
-			.arg("--rlimit-nofile")
-			.arg(max_open_files.to_string());
-	}
-
-	if let Some(seccomp) = isolation.seccomp {
-		command.arg("--seccomp").arg(seccomp.to_string());
-	}
+	let environment = std::collections::BTreeMap::from([
+		("HOME".into(), user.home.clone().into_os_string()),
+		(
+			"SSL_CERT_DIR".into(),
+			Sandbox::guest_ssl_cert_dir().into_os_string(),
+		),
+	]);
+	let arguments = arguments
+		.into_iter()
+		.map(|argument: std::ffi::OsString| {
+			argument
+				.into_string()
+				.map_err(|_| tg::error!("sandbox setup arguments must be valid UTF-8"))
+		})
+		.collect::<tg::Result<Vec<_>>>()?;
+	let environment = environment
+		.into_iter()
+		.map(|(key, value): (std::ffi::OsString, std::ffi::OsString)| {
+			let key = key
+				.into_string()
+				.map_err(|_| tg::error!("sandbox setup environment names must be valid UTF-8"))?;
+			let value = value
+				.into_string()
+				.map_err(|_| tg::error!("sandbox setup environment values must be valid UTF-8"))?;
+			Ok((key, value))
+		})
+		.collect::<tg::Result<_>>()?;
+	let process = crate::setup::Process {
+		arguments,
+		directory: "/".into(),
+		environment,
+		hostname: arg.hostname.clone(),
+	};
+	let setup = crate::setup::Arg {
+		backend: arg.backend.clone(),
+		cgroup_readonly: isolation.cgroup_readonly || arg.cpu_pool.is_some(),
+		filesystem_fd: filesystem_sendfd
+			.as_ref()
+			.map(std::os::fd::AsRawFd::as_raw_fd),
+		filesystem_path: filesystem_separate.then_some(filesystem_path.clone()),
+		fuse_fd: arg.fuse_fd.as_ref().map(std::os::fd::AsRawFd::as_raw_fd),
+		fuse_path: arg.fuse_fd.as_ref().map(|_| arg.store_path.clone()),
+		gid: user.gid,
+		index: arg.index,
+		mounts,
+		network: network_arg,
+		nice: arg.nice,
+		process,
+		rlimit_nofile: isolation.max_open_files,
+		seccomp: isolation.seccomp,
+		uid: user.uid,
+		user_namespace_fd: user_namespace
+			.as_ref()
+			.map(|(_, guest, _, _)| guest.as_raw_fd()),
+		..Default::default()
+	};
+	let config = arg.path.join("setup.json");
+	crate::run::write_config(&config, &setup)?;
+	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command
-		.arg("--")
-		.arg(Sandbox::guest_tangram_path_from_host_tangram_path(
-			&arg.tangram_path,
-		))
 		.arg("sandbox")
-		.arg("init")
-		.arg("--backend")
-		.arg(arg.backend.kind().name())
-		.arg("--output-path")
-		.arg(&init_arg.serve.output_path)
-		.arg("--url")
-		.arg(init_arg.serve.url.to_string())
-		.arg("--tangram-path")
-		.arg(&init_arg.serve.tangram_path)
-		.args(crate::util::http2_args(&init_arg.serve.http2));
-	for path in &init_arg.serve.library_paths {
-		command.arg("--library-path").arg(path);
+		.arg("setup")
+		.arg("--config")
+		.arg(config);
+	for fd in [setup.filesystem_fd, setup.fuse_fd, setup.user_namespace_fd]
+		.into_iter()
+		.flatten()
+	{
+		inherit_fd(&mut command, fd);
+	}
+	match setup.network {
+		Some(crate::setup::Network::Pasta { fd } | crate::setup::Network::Veth { fd, .. }) => {
+			inherit_fd(&mut command, fd);
+		},
+		None | Some(crate::setup::Network::Host) => {},
 	}
 	// Keep the launcher outside the server's terminal process group during Ctrl-C shutdown.
 	command

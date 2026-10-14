@@ -1,5 +1,5 @@
 use {
-	crate::{Sandbox, cloud_hypervisor::virtiofs, mount, run},
+	crate::{Sandbox, cloud_hypervisor::virtiofs, mount},
 	std::{
 		collections::hash_map::DefaultHasher,
 		ffi::{CStr, CString, OsStr},
@@ -1037,117 +1037,100 @@ fn build_cloud_hypervisor_mount_arg(
 	arg: &Arg,
 	cloud_hypervisor_bin: &Path,
 	passt_bin: Option<&Path>,
-) -> run::linux::Arg {
+) -> mount::Arg {
 	let mut binds = vec![
-		run::linux::Bind {
+		mount::Bind {
+			devices: false,
+			fd: None,
 			source: host_vm_path_from_root(&arg.path),
 			target: VMM_ROOT_DIR.into(),
 		},
-		run::linux::Bind {
+		mount::Bind {
+			devices: false,
+			fd: None,
 			source: "/dev".into(),
 			target: "/dev".into(),
 		},
-		run::linux::Bind {
+		mount::Bind {
+			devices: false,
+			fd: None,
 			source: "/proc".into(),
 			target: "/proc".into(),
 		},
 	];
 	if arg.create_snapshot.is_some() {
-		binds.push(run::linux::Bind {
+		binds.push(mount::Bind {
+			devices: false,
+			fd: None,
 			source: host_snapshot_output_path_from_root(&arg.path),
 			target: VMM_SNAPSHOT_OUTPUT_DIR.into(),
 		});
 	} else {
-		binds.push(run::linux::Bind {
+		binds.push(mount::Bind {
+			devices: false,
+			fd: None,
 			source: arg.path.join(VFS_SOCKET_NAME),
 			target: VMM_VFS_SOCKET.into(),
 		});
 	}
-	binds.push(run::linux::Bind {
+	binds.push(mount::Bind {
+		devices: false,
+		fd: None,
 		source: arg.path.join(VFS_SOCKET_NAME),
 		target: VMM_VFS_SOCKET.into(),
 	});
 	let mut ro_binds = vec![
-		run::linux::Bind {
+		mount::Bind {
+			devices: false,
+			fd: None,
 			source: arg.rootfs_path.clone(),
 			target: "/".into(),
 		},
-		run::linux::Bind {
+		mount::Bind {
+			devices: false,
+			fd: None,
 			source: "/sys".into(),
 			target: "/sys".into(),
 		},
-		run::linux::Bind {
+		mount::Bind {
+			devices: false,
+			fd: None,
 			source: arg.kernel_path.clone(),
 			target: VMM_KERNEL_PATH.into(),
 		},
-		run::linux::Bind {
+		mount::Bind {
+			devices: false,
+			fd: None,
 			source: arg.image_path.clone(),
 			target: VMM_ROOTFS_IMAGE_PATH.into(),
 		},
-		run::linux::Bind {
+		mount::Bind {
+			devices: false,
+			fd: None,
 			source: cloud_hypervisor_bin.to_owned(),
 			target: VMM_CLOUD_HYPERVISOR_BIN.into(),
 		},
 	];
 	if let Some(passt_bin) = passt_bin {
-		ro_binds.push(run::linux::Bind {
+		ro_binds.push(mount::Bind {
+			devices: false,
+			fd: None,
 			source: passt_bin.to_owned(),
 			target: VMM_PASST_BIN.into(),
 		});
 	}
 	if let Some(snapshot) = &arg.snapshot {
-		ro_binds.push(run::linux::Bind {
+		ro_binds.push(mount::Bind {
+			devices: false,
+			fd: None,
 			source: snapshot.clone(),
 			target: VMM_SNAPSHOT_PATH.into(),
 		});
 	}
-	run::linux::Arg {
-		as_pid_1: false,
-		backend: crate::Kind::Builtin,
+	mount::Arg {
 		binds,
-		cgroup: None,
-		cgroup_cpu: None,
-		cgroup_entered: false,
-		cgroup_fd: None,
-		cgroup_memory: None,
-		cgroup_memory_oom_group: false,
-		cgroup_memory_swap: None,
-		cgroup_pids: None,
-		cgroup_readonly: false,
-		chdir: "/".into(),
-		clearenv: false,
-		command: Vec::new(),
-		devs: Vec::new(),
-		die_with_parent: false,
-		filesystem_fd: None,
-		filesystem_inodes: None,
-		filesystem_mount_fd: None,
-		filesystem_path: None,
-		filesystem_size: None,
-		fuse_fd: None,
-		fuse_path: None,
-		gateway_ip: None,
-		gid: 0,
-		guest_ip: None,
-		hostname: None,
-		index: arg.index,
-		network: None,
-		network_fd: None,
-		new_session: false,
-		nice: 0,
-		overlay_sources: Vec::new(),
-		overlays: Vec::new(),
-		platform: crate::Platform::Kvm,
-		procs: Vec::new(),
-		rlimit_nofile: None,
 		ro_binds,
-		runtime_path: None,
-		seccomp: None,
-		setenvs: Vec::new(),
-		tmpfs: Vec::new(),
-		uid: 0,
-		unshare_all: false,
-		user_namespace_fd: None,
+		..Default::default()
 	}
 }
 

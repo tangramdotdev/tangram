@@ -21,6 +21,7 @@ vsock = ["dep:tokio-vsock"]
 
 [dependencies]
 bytes = { workspace = true }
+clap = { workspace = true }
 dashmap = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }

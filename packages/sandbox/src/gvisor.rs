@@ -1,5 +1,5 @@
 use {
-	crate::run::linux::{Arg, Network},
+	crate::setup::{Network, Prepared},
 	rustix::thread::{
 		CapabilitySet, capabilities, configure_capability_in_ambient_set, set_capabilities,
 	},
@@ -10,7 +10,15 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
+pub(crate) fn exec(prepared: &Prepared, path: &Path, platform: crate::Platform) -> tg::Result<()> {
+	let arg = prepared.arg;
+	let root = prepared
+		.root
+		.ok_or_else(|| tg::error!("gvisor requires a prepared root"))?;
+	crate::linux::unshare(
+		libc::CLONE_NEWNS,
+		"failed to isolate the gvisor helper mounts",
+	)?;
 	// Mount proc for the launcher's PID and user namespaces before runsc reexecutes its helpers.
 	// SAFETY: The pointers reference valid, terminated strings and no data pointer is required.
 	if unsafe {
@@ -29,7 +37,10 @@ pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
 		));
 	}
 
-	if matches!(arg.network, Some(Network::Pasta | Network::Veth)) {
+	if matches!(
+		arg.network,
+		Some(Network::Pasta { .. } | Network::Veth { .. })
+	) {
 		retain_setup_capabilities()?;
 	}
 
@@ -37,14 +48,13 @@ pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
 	let bundle = root.parent().unwrap().join("gvisor");
 	std::fs::create_dir(&bundle)
 		.map_err(|error| tg::error!(!error, "failed to create the gvisor bundle"))?;
-	let spec = spec(arg, root)?;
+	let spec = spec(prepared)?;
 	crate::run::write_config(&bundle.join("config.json"), &spec)?;
 	let state = bundle.join("state");
-	let path = arg.runtime_path.as_deref().unwrap_or(Path::new("runsc"));
 	// Run the setup with capabilities scoped to the prepared user namespace.
 	let mut command = std::process::Command::new(path);
 	command
-		.arg(format!("--platform={}", arg.platform.name()))
+		.arg(format!("--platform={}", platform.name()))
 		.arg("--rootless=false")
 		.arg("--ignore-cgroups=true")
 		.arg("--host-uds=all")
@@ -54,7 +64,7 @@ pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
 	let network = match arg.network {
 		None => "none",
 		Some(Network::Host) => "host",
-		Some(Network::Pasta | Network::Veth) => "sandbox",
+		Some(Network::Pasta { .. } | Network::Veth { .. }) => "sandbox",
 	};
 	command
 		.arg(format!("--network={network}"))
@@ -66,28 +76,16 @@ pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
 	Err(tg::error!(!error, "failed to execute gvisor"))
 }
 
-fn spec(arg: &Arg, root: &Path) -> tg::Result<serde_json::Value> {
-	let args = arg
-		.command
+fn spec(prepared: &Prepared) -> tg::Result<serde_json::Value> {
+	let arg = prepared.arg;
+	let root = prepared.root.unwrap();
+	let args = &arg.process.arguments;
+	let env = arg
+		.process
+		.environment
 		.iter()
-		.map(|value| {
-			value
-				.to_str()
-				.ok_or_else(|| tg::error!("gvisor command arguments must be valid UTF-8"))
-		})
-		.collect::<tg::Result<Vec<_>>>()?;
-	let env = crate::run::linux::environment(arg)?
-		.into_iter()
-		.map(|(key, value)| {
-			let key = key
-				.to_str()
-				.ok_or_else(|| tg::error!("gvisor environment names must be valid UTF-8"))?;
-			let value = value
-				.to_str()
-				.ok_or_else(|| tg::error!("gvisor environment values must be valid UTF-8"))?;
-			Ok(format!("{key}={value}"))
-		})
-		.collect::<tg::Result<Vec<_>>>()?;
+		.map(|(key, value)| format!("{key}={value}"))
+		.collect::<Vec<_>>();
 	let mut mounts = vec![
 		serde_json::json!({ "destination": "/proc", "type": "proc", "source": "proc" }),
 		serde_json::json!({ "destination": "/dev", "type": "tmpfs", "source": "tmpfs" }),
@@ -96,10 +94,11 @@ fn spec(arg: &Arg, root: &Path) -> tg::Result<serde_json::Value> {
 		serde_json::json!({ "destination": "/sys", "type": "sysfs", "source": "sysfs", "options": ["ro"] }),
 	];
 	for (bind, readonly) in arg
+		.mounts
 		.binds
 		.iter()
 		.map(|bind| (bind, false))
-		.chain(arg.ro_binds.iter().map(|bind| (bind, true)))
+		.chain(arg.mounts.ro_binds.iter().map(|bind| (bind, true)))
 	{
 		if bind.target == Path::new("/") {
 			continue;
@@ -124,7 +123,7 @@ fn spec(arg: &Arg, root: &Path) -> tg::Result<serde_json::Value> {
 	}
 	mounts.sort_by_key(|mount| mount["destination"].as_str().unwrap().matches('/').count());
 	let mut process = serde_json::json!({
-		"args": args, "cwd": arg.chdir, "env": env, "noNewPrivileges": true, "terminal": false,
+		"args": args, "cwd": arg.process.directory, "env": env, "noNewPrivileges": true, "terminal": false,
 		"user": { "uid": arg.uid, "gid": arg.gid },
 		"capabilities": { "bounding": [], "effective": [], "inheritable": [], "permitted": [], "ambient": [] },
 	});
@@ -136,7 +135,7 @@ fn spec(arg: &Arg, root: &Path) -> tg::Result<serde_json::Value> {
 	let setup_uid = unsafe { libc::geteuid() };
 	let setup_gid = unsafe { libc::getegid() };
 	let spec = serde_json::json!({
-		"ociVersion": "1.2.0", "hostname": arg.hostname.clone().unwrap_or_else(|| "tangram".into()),
+		"ociVersion": "1.2.0", "hostname": arg.process.hostname.clone().unwrap_or_else(|| "tangram".into()),
 		"root": { "path": root, "readonly": false }, "process": process, "mounts": mounts,
 		"linux": {
 			"gidMappings": [{ "containerID": arg.gid, "hostID": setup_gid, "size": 1 }],

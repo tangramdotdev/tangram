@@ -446,17 +446,21 @@ fn main() -> std::process::ExitCode {
 	// Parse the args.
 	let matches = Args::command().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();
-	if let Command::Sandbox(self::sandbox::Args {
-		command: self::sandbox::Command::Run(args),
-	}) = args.command.clone()
-	{
-		return match Cli::command_sandbox_run(args) {
-			Ok(exit) => exit,
-			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_node(error), false);
-				std::process::ExitCode::FAILURE
-			},
+	if let Command::Sandbox(self::sandbox::Args { command }) = args.command.clone() {
+		let result = match command {
+			self::sandbox::Command::Run(args) => Some(Cli::command_sandbox_run(args)),
+			self::sandbox::Command::Setup(args) => Some(Cli::command_sandbox_setup(args)),
+			_ => None,
 		};
+		if let Some(result) = result {
+			return match result {
+				Ok(exit) => exit,
+				Err(error) => {
+					Cli::print_error_basic(tg::Referent::with_node(error), false);
+					std::process::ExitCode::FAILURE
+				},
+			};
+		}
 	}
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()

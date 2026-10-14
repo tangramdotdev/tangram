@@ -1,33 +1,48 @@
 use {
-	crate::run::linux::Arg,
-	std::{
-		io::Write as _,
-		os::{fd::AsRawFd as _, unix::process::CommandExt as _},
-		path::Path,
-	},
+	crate::setup::Prepared,
+	std::{os::fd::IntoRawFd as _, path::Path, process::Command},
 	tangram_client::prelude::*,
 };
 
-pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
-	// Launch the command in the prepared filesystem and network namespace.
-	let path = arg.runtime_path.as_deref().unwrap_or(Path::new("bwrap"));
-	let root_file = std::fs::File::open(root)
-		.map_err(|error| tg::error!(!error, "failed to open the prepared bubblewrap root"))?;
-	// SAFETY: The descriptor is live and must survive exec so bubblewrap can bind the prepared mount.
-	if unsafe { libc::fcntl(root_file.as_raw_fd(), libc::F_SETFD, 0) } < 0 {
-		return Err(tg::error!(
-			source = std::io::Error::last_os_error(),
-			"failed to inherit the bubblewrap root"
-		));
+pub(crate) fn command(prepared: &Prepared, path: &Path, builtin: bool) -> tg::Result<Command> {
+	let arg = prepared.arg;
+	let mut command = Command::new(path);
+	{
+		let root = prepared.root.unwrap_or(Path::new("/"));
+		let root = std::fs::File::open(root)
+			.map_err(|error| tg::error!(!error, "failed to open the prepared root"))?;
+		// Transfer the root descriptor to the native launcher's --bind-fd argument.
+		let fd = root.into_raw_fd();
+		// SAFETY: The descriptor is newly opened and exclusively owned by this launch.
+		if unsafe { libc::fcntl(fd, libc::F_SETFD, 0) } < 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to inherit the prepared root"
+			));
+		}
+		command
+			.arg("--bind-fd")
+			.arg(fd.to_string())
+			.arg("/")
+			.arg("--dev")
+			.arg("/dev")
+			.arg("--proc")
+			.arg("/proc");
 	}
-	let mut command = std::process::Command::new(path);
+	if builtin {
+		let namespace = std::fs::File::open("/proc/self/ns/user")
+			.map_err(|error| tg::error!(!error, "failed to open the prepared user namespace"))?;
+		let fd = namespace.into_raw_fd();
+		command.arg("--userns").arg(fd.to_string());
+	} else {
+		command.arg("--unshare-user");
+	}
 	command
-		.arg("--bind-fd")
-		.arg(root_file.as_raw_fd().to_string())
-		.arg("/")
-		.arg("--unshare-user")
 		.arg("--unshare-pid")
 		.arg("--unshare-ipc")
+		.arg("--as-pid-1")
+		.arg("--die-with-parent")
+		.arg("--new-session")
 		.arg("--uid")
 		.arg(arg.uid.to_string())
 		.arg("--gid")
@@ -35,70 +50,17 @@ pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
 		.arg("--cap-drop")
 		.arg("ALL")
 		.arg("--chdir")
-		.arg(&arg.chdir);
-	for target in &arg.devs {
-		let source = root.join(
-			target
-				.strip_prefix("/")
-				.map_err(|error| tg::error!(!error, "invalid bubblewrap device mount target"))?,
-		);
-		command.arg("--dev-bind").arg(source).arg(target);
-	}
-	for target in &arg.procs {
-		command.arg("--proc").arg(target);
-	}
-	if arg.as_pid_1 {
-		command.arg("--as-pid-1");
-	}
-	if arg.die_with_parent {
-		command.arg("--die-with-parent");
-	}
-	if let Some(hostname) = &arg.hostname {
+		.arg(&arg.process.directory)
+		.arg("--clearenv");
+	if let Some(hostname) = &arg.process.hostname {
 		command.arg("--unshare-uts").arg("--hostname").arg(hostname);
 	}
-	if arg.clearenv {
-		command.arg("--clearenv");
+	for (key, value) in &arg.process.environment {
+		command.arg("--setenv").arg(key).arg(value);
 	}
-	for entry in &arg.setenvs {
-		command.arg("--setenv").arg(&entry.key).arg(&entry.value);
+	if let Some(fd) = prepared.seccomp_fd {
+		command.arg("--seccomp").arg(fd.to_string());
 	}
-
-	// Pass the workload filter to bubblewrap before it drops setup privileges.
-	let mut filter_file = None;
-	if let Some(policy) = arg.seccomp {
-		let filter = crate::seccomp::filter(policy)?;
-		let path = root.parent().unwrap().join("seccomp.bpf");
-		let mut file = std::fs::OpenOptions::new()
-			.create_new(true)
-			.read(true)
-			.write(true)
-			.open(&path)
-			.map_err(|error| tg::error!(!error, "failed to create the bubblewrap seccomp file"))?;
-		// SAFETY: sock_filter is the initialized, padding-free Linux cBPF instruction ABI.
-		let bytes = unsafe {
-			std::slice::from_raw_parts(
-				filter.as_ptr().cast(),
-				std::mem::size_of_val(filter.as_slice()),
-			)
-		};
-		file.write_all(bytes)
-			.map_err(|error| tg::error!(!error, "failed to write the bubblewrap seccomp filter"))?;
-		use std::io::Seek as _;
-		file.rewind().map_err(|error| {
-			tg::error!(!error, "failed to rewind the bubblewrap seccomp filter")
-		})?;
-		// SAFETY: The descriptor is live and must survive exec so bubblewrap can read the filter.
-		if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, 0) } < 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to inherit the bubblewrap seccomp filter"
-			));
-		}
-		command.arg("--seccomp").arg(file.as_raw_fd().to_string());
-		filter_file = Some(file);
-	}
-	command.arg("--").args(&arg.command);
-	let error = command.exec();
-	drop(filter_file);
-	Err(tg::error!(!error, "failed to execute bubblewrap"))
+	command.arg("--").args(&arg.process.arguments);
+	Ok(command)
 }

@@ -7,6 +7,7 @@ pub mod init;
 pub mod list;
 pub mod run;
 pub mod serve;
+pub mod setup;
 pub mod wait;
 
 /// Manage sandboxes.
@@ -30,6 +31,8 @@ pub enum Command {
 	Run(self::run::Args),
 	#[command(hide = true)]
 	Serve(self::serve::Args),
+	#[command(hide = true)]
+	Setup(self::setup::Args),
 	Wait(self::wait::Args),
 }
 
@@ -466,6 +469,9 @@ impl Cli {
 			},
 			Command::Serve(args) => {
 				self.command_sandbox_serve(args).await?;
+			},
+			Command::Setup(args) => {
+				self.exit = Some(Self::command_sandbox_setup(args)?);
 			},
 			Command::Wait(args) => {
 				self.command_sandbox_wait(args).await?;

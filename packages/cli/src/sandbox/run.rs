@@ -1,35 +1,52 @@
-use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
-
-#[cfg(target_os = "linux")]
-mod linux;
+use {
+	crate::Cli,
+	std::{ffi::OsString, path::PathBuf},
+	tangram_client::prelude::*,
+};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+	pub arguments: Vec<OsString>,
 	#[arg(long, default_value = "builtin", value_parser = crate::sandbox::parse_backend)]
 	pub backend: tangram_sandbox::Kind,
 	#[arg(long)]
 	pub config: Option<PathBuf>,
-	#[cfg(target_os = "linux")]
-	#[command(flatten)]
-	pub linux: self::linux::Args,
+	#[arg(long)]
+	pub runtime_path: Option<PathBuf>,
 }
 
 impl Cli {
 	pub fn command_sandbox_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		match args.backend {
 			#[cfg(target_os = "linux")]
-			tangram_sandbox::Kind::Builtin
-			| tangram_sandbox::Kind::Bubblewrap
-			| tangram_sandbox::Kind::Gvisor => {
-				let arg = if args.config.is_some() {
-					let mut arg: tangram_sandbox::run::linux::Arg = read_config(args.config)?;
-					arg.backend = args.backend;
-					arg
-				} else {
-					args.linux.into_arg(args.backend)
-				};
-				tangram_sandbox::run::linux::run(arg)
+			tangram_sandbox::Kind::Builtin => {
+				if args.config.is_some() {
+					return Err(tg::error!(
+						"the builtin backend accepts native bubblewrap arguments"
+					));
+				}
+				let status = tangram_sandbox::builtin::run::run(args.arguments)?;
+				Ok(std::process::ExitCode::from(status))
+			},
+			#[cfg(target_os = "linux")]
+			tangram_sandbox::Kind::Bubblewrap | tangram_sandbox::Kind::Gvisor => {
+				if args.config.is_some() {
+					return Err(tg::error!(
+						"the backend accepts its native runtime arguments"
+					));
+				}
+				use std::os::unix::process::CommandExt as _;
+				let path = args.runtime_path.unwrap_or_else(|| {
+					if args.backend == tangram_sandbox::Kind::Bubblewrap {
+						"bwrap".into()
+					} else {
+						"runsc".into()
+					}
+				});
+				let error = std::process::Command::new(path).args(args.arguments).exec();
+				Err(tg::error!(!error, "failed to execute the sandbox backend"))
 			},
 			#[cfg(target_os = "linux")]
 			tangram_sandbox::Kind::CloudHypervisor => {
