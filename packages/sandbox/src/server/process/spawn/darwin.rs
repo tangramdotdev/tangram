@@ -55,7 +55,8 @@ fn command_resolves_to_path(command: &Command, target: &Path) -> bool {
 		let Some(path) = command.env.get("PATH") else {
 			return false;
 		};
-		let Some(resolved) = crate::util::which(Path::new(path), &command.executable) else {
+		let Some(resolved) = crate::util::which(Path::new(path), &command.executable, &command.cwd)
+		else {
 			return false;
 		};
 		resolved

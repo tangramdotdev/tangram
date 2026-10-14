@@ -5,10 +5,10 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub(crate) fn spawn(
+pub(crate) async fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
-) -> tg::Result<tokio::process::Child> {
+) -> tg::Result<(tokio::process::Child, super::Cleanup)> {
 	// Prepare the sandbox directories.
 	let tangram_socket_path = arg
 		.tangram_socket_path
@@ -68,6 +68,12 @@ pub(crate) fn spawn(
 		command.env("DYLD_LIBRARY_PATH", path);
 	}
 
+	// Create the descendant cleanup control socket.
+	let (host, guest) = std::os::unix::net::UnixStream::pair()
+		.map_err(|error| tg::error!(!error, "failed to create the cleanup socket"))?;
+	let cleanup = super::Cleanup::new(host);
+	let fd = std::os::fd::AsRawFd::as_raw_fd(&guest);
+
 	// Create the launch configuration.
 	let environment = command
 		.as_std()
@@ -76,6 +82,8 @@ pub(crate) fn spawn(
 		.collect::<Vec<_>>();
 	let command_arg = crate::run::Command::with_command(command.as_std())?;
 	let backend = crate::seatbelt::run::Arg {
+		cleanup_fd: Some(fd),
+
 		profile: Sandbox::host_profile_path_from_root(&arg.path),
 	};
 	let launch = crate::run::Arg {
@@ -87,6 +95,16 @@ pub(crate) fn spawn(
 	// Create the launcher command.
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.envs(environment);
+	// SAFETY: The closure only clears CLOEXEC on the retained cleanup descriptor.
+	unsafe {
+		command.pre_exec(move || {
+			if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			Ok(())
+		});
+	}
+
 	let config = crate::run::configure_command(&mut command, &launch)?;
 	command
 		.kill_on_drop(true)
@@ -98,11 +116,11 @@ pub(crate) fn spawn(
 	let process = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to spawn sandbox seatbelt"));
-	let configuration = config.finish();
 	let process = process?;
-	configuration?;
+	drop(guest);
+	config.finish().await?;
 
-	Ok(process)
+	Ok((process, cleanup))
 }
 
 fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {

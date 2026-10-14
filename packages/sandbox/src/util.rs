@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{os::unix::ffi::OsStrExt as _, path::Path};
 
 #[cfg(target_os = "linux")]
 use tangram_client::prelude::*;
@@ -28,17 +28,24 @@ macro_rules! abort_errno {
 #[expect(unused_imports)]
 pub use abort_errno;
 
-/// Resolve a non-absolute executable path by searching the given PATH value.
-pub fn which(path: &Path, executable: &std::path::Path) -> Option<std::path::PathBuf> {
-	if executable.is_absolute() {
-		return Some(executable.to_owned());
+/// Resolve an executable using PATH entries relative to the command working directory.
+pub fn which(path: &Path, executable: &std::path::Path, cwd: &Path) -> Option<std::path::PathBuf> {
+	if executable.is_absolute() || executable.components().count() > 1 {
+		return Some(cwd.join(executable));
 	}
 	for dir in std::env::split_paths(path) {
-		let candidate = dir.join(executable);
-		if candidate.is_file() {
+		let candidate = cwd.join(dir).join(executable);
+		let Ok(path) = std::ffi::CString::new(candidate.as_os_str().as_bytes()) else {
+			continue;
+		};
+
+		// SAFETY: The path is a valid, terminated string.
+		let executable = unsafe { libc::access(path.as_ptr(), libc::X_OK) } == 0;
+		if candidate.is_file() && executable {
 			return Some(candidate);
 		}
 	}
+
 	None
 }
 
@@ -90,4 +97,52 @@ pub(crate) fn set_parent_death_signal(signal: libc::c_int) -> tg::Result<()> {
 	}
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use {
+		super::which,
+		std::{os::unix::fs::PermissionsExt as _, path::Path},
+	};
+
+	#[test]
+	fn executable_search_uses_the_command_directory() {
+		// Create an executable beneath the command working directory.
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		let bin = temp.path().join("bin");
+		std::fs::create_dir_all(&bin).unwrap();
+		let executable = bin.join("tool");
+		std::fs::write(&executable, "").unwrap();
+		std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+		// Resolve relative and empty PATH entries without changing the server directory.
+		assert_eq!(
+			which(Path::new("bin"), Path::new("tool"), temp.path()),
+			Some(executable.clone())
+		);
+		assert_eq!(
+			which(Path::new(""), Path::new("tool"), &bin),
+			Some(executable)
+		);
+	}
+
+	#[test]
+	fn executable_search_skips_nonexecutable_files() {
+		// Place a nonexecutable file before the executable in PATH.
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		for (directory, mode) in [("first", 0o644), ("second", 0o755)] {
+			let directory = temp.path().join(directory);
+			std::fs::create_dir_all(&directory).unwrap();
+			let path = directory.join("tool");
+			std::fs::write(&path, "").unwrap();
+			std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+		}
+
+		// Continue searching after the first file fails the execution check.
+		assert_eq!(
+			which(Path::new("first:second"), Path::new("tool"), temp.path()),
+			Some(temp.path().join("second/tool"))
+		);
+	}
 }

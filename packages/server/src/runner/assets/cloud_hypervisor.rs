@@ -176,9 +176,8 @@ impl Assets {
 		let child = command
 			.spawn()
 			.map_err(|error| tg::error!(!error, "failed to spawn the snapshot process"));
-		let configuration = config.finish();
 		let mut child = child?;
-		configuration?;
+		config.finish().await?;
 
 		// Wait for the snapshot process.
 		let status = child

@@ -3,13 +3,9 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[cfg(target_os = "macos")]
-mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
 
-#[cfg(target_os = "macos")]
-pub(crate) use darwin::Source;
 #[cfg(target_os = "linux")]
 pub(crate) use linux::Source;
 

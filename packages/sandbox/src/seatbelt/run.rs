@@ -19,6 +19,9 @@ unsafe extern "C" {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Arg {
+	#[serde(default)]
+	pub cleanup_fd: Option<libc::c_int>,
+
 	pub profile: PathBuf,
 }
 
@@ -45,6 +48,11 @@ pub fn run(command: &crate::run::Command, arg: &Arg) -> tg::Result<u8> {
 		unsafe {
 			sandbox_free_error(errorbuf);
 		}
+	}
+
+	// Start the descendant cleanup helper inside the sandbox policy.
+	if let Some(fd) = arg.cleanup_fd {
+		super::cleanup::start(fd)?;
 	}
 
 	// Execute the command.

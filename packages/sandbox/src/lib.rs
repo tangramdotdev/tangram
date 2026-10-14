@@ -34,6 +34,7 @@ mod pty;
 #[cfg(target_os = "linux")]
 mod seccomp;
 mod server;
+#[cfg(target_os = "linux")]
 mod usage;
 mod util;
 
@@ -75,12 +76,16 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	_storage: Option<budget::Allocation>,
 
+	#[cfg(target_os = "linux")]
 	accounting: tokio::sync::Mutex<Option<usage::Accounting>>,
 
 	arg: Arg,
 
 	#[cfg(target_os = "linux")]
 	cgroup: tokio::sync::Mutex<Option<crate::cgroup::Cgroup>>,
+
+	#[cfg(target_os = "macos")]
+	cleanup: seatbelt::Cleanup,
 
 	client: Client,
 
@@ -98,6 +103,8 @@ pub struct State {
 	pid: u32,
 
 	process: tokio::sync::Mutex<tokio::process::Child>,
+
+	started: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone, Debug)]
@@ -449,13 +456,18 @@ impl Sandbox {
 			tangram_path: Self::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
 			url,
 		};
+		let deadline = tokio::time::Instant::now() + arg.connect_timeout;
 		#[cfg(target_os = "linux")]
 		let (mut process, network, filesystem, cgroup, storage) = match &arg.backend {
 			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 				let mut network = crate::network::linux::create(&arg)?;
 				let cgroup = self::cgroup::create(&arg)?;
-				let output =
-					self::launch::spawn(&arg, &serve_arg, network.as_mut(), &cgroup).await?;
+				let output = tokio::time::timeout_at(
+					deadline,
+					self::launch::spawn(&arg, &serve_arg, network.as_mut(), &cgroup),
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "timed out preparing the sandbox"))??;
 				(
 					output.process,
 					network,
@@ -480,10 +492,10 @@ impl Sandbox {
 				let cgroup = self::cgroup::create(&arg)?;
 				let (mut command, config) =
 					self::cloud_hypervisor::run::command(&arg, &serve_arg, network.as_ref())?;
-				let process = self::launch::spawn_command(&mut command, &cgroup);
-				let configuration = config.finish();
-				let process = process?;
-				configuration?;
+				let process = self::launch::spawn_command(&mut command, &cgroup)?;
+				tokio::time::timeout_at(deadline, config.finish())
+					.await
+					.map_err(|error| tg::error!(!error, "timed out configuring the sandbox"))??;
 				(process, network, None, Some(cgroup), None)
 			},
 		};
@@ -498,11 +510,15 @@ impl Sandbox {
 
 		// Connect to the sandbox server.
 		#[cfg(target_os = "macos")]
-		let mut process = match &arg.backend {
+		let (mut process, cleanup) = match &arg.backend {
 			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 				return Err(tg::error!("container isolation is not supported on macos"));
 			},
-			Backend::Seatbelt => self::seatbelt::spawn(&arg, &serve_arg)?,
+			Backend::Seatbelt => {
+				tokio::time::timeout_at(deadline, self::seatbelt::spawn(&arg, &serve_arg))
+					.await
+					.map_err(|error| tg::error!(!error, "timed out preparing the sandbox"))??
+			},
 			Backend::CloudHypervisor(_) => {
 				return Err(tg::error!("vm isolation is not supported on macos"));
 			},
@@ -529,7 +545,7 @@ impl Sandbox {
 			},
 		};
 
-		let client = match tokio::time::timeout(arg.connect_timeout, async {
+		let client = match tokio::time::timeout_at(deadline, async {
 			tokio::select! {
 				result = connect => result,
 				result = process.wait() => {
@@ -562,12 +578,16 @@ impl Sandbox {
 			#[cfg(target_os = "linux")]
 			_storage: storage,
 
+			#[cfg(target_os = "linux")]
 			accounting: tokio::sync::Mutex::new(None),
 
 			arg,
 
 			#[cfg(target_os = "linux")]
 			cgroup: tokio::sync::Mutex::new(cgroup),
+
+			#[cfg(target_os = "macos")]
+			cleanup,
 
 			client,
 
@@ -584,6 +604,8 @@ impl Sandbox {
 			pid,
 
 			process: tokio::sync::Mutex::new(process),
+
+			started: std::sync::atomic::AtomicBool::new(false),
 		}));
 
 		Ok(sandbox)
@@ -599,63 +621,55 @@ impl Sandbox {
 			.and_then(cgroup::Cgroup::cpu_lease)
 	}
 
-	/// Begin charging when the sandbox is assigned, before spawning workloads.
+	/// Activate the assigned sandbox before spawning workloads.
 	pub async fn start(&self) -> tg::Result<()> {
-		// Lock the sandbox accounting state.
+		// Serialize activation with sandbox destruction.
 		let _destroy = self.0.destroy.lock().await;
-		let mut accounting = self.0.accounting.lock().await;
-		if accounting.is_some() {
+		if self.0.started.load(Ordering::Relaxed) {
 			return Ok(());
 		}
 
-		// Select the usage source.
 		#[cfg(target_os = "linux")]
-		let source = {
-			let cgroup = self.0.cgroup.lock().await;
-			let cgroup = cgroup
-				.as_ref()
-				.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
-			let (path, project) = if self.0.arg.backend.uses_linux_namespaces() {
-				let container = &self.0.arg.resources;
-				let project = container.filesystem_project_id;
-				let path = if project.is_some() {
-					Self::host_filesystem_path_from_root(&self.0.arg.path)
+		{
+			// Select the usage source.
+			let source = {
+				let cgroup = self.0.cgroup.lock().await;
+				let cgroup = cgroup
+					.as_ref()
+					.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
+				let (path, project) = if self.0.arg.backend.uses_linux_namespaces() {
+					let container = &self.0.arg.resources;
+					let project = container.filesystem_project_id;
+					let path = if project.is_some() {
+						Self::host_filesystem_path_from_root(&self.0.arg.path)
+					} else {
+						self.0.arg.path.clone()
+					};
+					(path, project)
 				} else {
-					self.0.arg.path.clone()
+					(self.0.arg.path.clone(), None)
 				};
-				(path, project)
-			} else {
-				(self.0.arg.path.clone(), None)
+				usage::Source::new(cgroup.handle()?, &path, project)?
 			};
-			usage::Source::new(cgroup.handle()?, &path, project)?
-		};
-		#[cfg(target_os = "macos")]
-		let source = {
-			let process = self.0.process.lock().await;
-			let pid = process
-				.id()
-				.ok_or_else(|| tg::error!("the sandbox process has exited"))?
-				.try_into()
-				.map_err(|_| tg::error!("the sandbox process ID is too large"))?;
-			usage::Source::new(pid)
-		};
 
-		// Start charging for the assigned sandbox.
-		let resources = tg::runner::Capacity {
-			cpu: self
-				.0
-				.arg
-				.cpu
-				.unwrap_or(tg::sandbox::Amount::from_millis(u64::from(u32::MAX)).into()),
-			memory: self.0.arg.memory.unwrap_or(u64::MAX.into()),
-			storage: self.0.arg.storage.unwrap_or(u64::MAX.into()),
-			swap: self.0.arg.swap.unwrap_or(u64::MAX.into()),
-		};
-		*accounting = Some(usage::Accounting::new(
-			source,
-			resources,
-			self.0.arg.memory_sampling_interval,
-		)?);
+			// Start charging for the assigned sandbox.
+			let resources = tg::runner::Capacity {
+				cpu: self
+					.0
+					.arg
+					.cpu
+					.unwrap_or(tg::sandbox::Amount::from_millis(u64::from(u32::MAX)).into()),
+				memory: self.0.arg.memory.unwrap_or(u64::MAX.into()),
+				storage: self.0.arg.storage.unwrap_or(u64::MAX.into()),
+				swap: self.0.arg.swap.unwrap_or(u64::MAX.into()),
+			};
+			*self.0.accounting.lock().await = Some(usage::Accounting::new(
+				source,
+				resources,
+				self.0.arg.memory_sampling_interval,
+			)?);
+		}
+		self.0.started.store(true, Ordering::Relaxed);
 
 		// Schedule the duration limit.
 		if let Some(duration) = self.0.arg.resources.max_duration {
@@ -679,6 +693,7 @@ impl Sandbox {
 	}
 
 	/// Return the current sandbox resource usage without stopping accounting.
+	#[cfg(target_os = "linux")]
 	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
 		let mut accounting = self.0.accounting.lock().await;
 		let accounting = accounting
@@ -688,6 +703,7 @@ impl Sandbox {
 		Ok(usage)
 	}
 
+	#[cfg(target_os = "linux")]
 	async fn finish_accounting(&self) -> tg::Result<Option<tg::sandbox::Usage>> {
 		let mut accounting = self.0.accounting.lock().await;
 		let Some(accounting) = accounting.as_mut() else {
@@ -695,6 +711,21 @@ impl Sandbox {
 		};
 		let usage = accounting.finish().await?;
 		Ok(Some(usage))
+	}
+
+	#[cfg(target_os = "macos")]
+	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
+		Ok(tg::sandbox::Usage {
+			cpu: tg::sandbox::ResourceUsage::default(),
+			memory: tg::sandbox::ResourceUsage::default(),
+			storage: tg::sandbox::ResourceUsage::default(),
+			swap: tg::sandbox::ResourceUsage::default(),
+		})
+	}
+
+	#[cfg(target_os = "macos")]
+	async fn finish_accounting(&self) -> tg::Result<Option<tg::sandbox::Usage>> {
+		Ok(None)
 	}
 
 	#[must_use]
@@ -891,7 +922,7 @@ impl Sandbox {
 
 	async fn destroy_inner(&self) -> tg::Result<()> {
 		#[cfg(target_os = "macos")]
-		self.finish_accounting().await?;
+		self.0.cleanup.stop(self.0.arg.shutdown_timeout).await?;
 		let mut process = self.0.process.lock().await;
 		let status = process
 			.try_wait()

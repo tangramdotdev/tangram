@@ -4,7 +4,6 @@ use {
 	std::{
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
-		io::{Read as _, Write as _},
 		mem::MaybeUninit,
 		net::Ipv4Addr,
 		os::{
@@ -14,6 +13,7 @@ use {
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
+	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
 };
 
 const DEFAULT_USER_BUFFER_SIZE: usize = 16 * 1024;
@@ -375,19 +375,12 @@ pub(crate) async fn spawn(
 		.stderr(std::process::Stdio::inherit());
 
 	// Spawn the launcher and install the identity maps.
-	let user_namespace = user_namespace.map(|(host, guest, uid_map, gid_map)| {
-		let task = std::thread::spawn(move || configure_user_namespace(host, &uid_map, &gid_map));
-		(guest, task)
-	});
-	let child = spawn_command(&mut command, cgroup);
-	let configuration = config.finish();
-	if let Some((guest, task)) = user_namespace {
+	let child = spawn_command(&mut command, cgroup)?;
+	config.finish().await?;
+	if let Some((host, guest, uid_map, gid_map)) = user_namespace {
 		drop(guest);
-		task.join()
-			.map_err(|_| tg::error!("the user namespace mapping thread panicked"))??;
+		configure_user_namespace(host, &uid_map, &gid_map).await?;
 	}
-	let child = child.map_err(|error| tg::error!(!error, "failed to spawn sandbox container"))?;
-	configuration?;
 
 	// Complete the network setup.
 	drop(filesystem_sendfd);
@@ -560,14 +553,20 @@ fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
 	}
 }
 
-fn configure_user_namespace(
-	mut socket: UnixStream,
+async fn configure_user_namespace(
+	socket: UnixStream,
 	uid_map: &crate::IdMap,
 	gid_map: &crate::IdMap,
 ) -> tg::Result<()> {
+	socket
+		.set_nonblocking(true)
+		.map_err(|error| tg::error!(!error, "failed to configure the identity socket"))?;
+	let mut socket = tokio::net::UnixStream::from_std(socket)
+		.map_err(|error| tg::error!(!error, "failed to register the identity socket"))?;
 	let mut buffer = [0; std::mem::size_of::<libc::pid_t>()];
 	socket
 		.read_exact(&mut buffer)
+		.await
 		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace"))?;
 	let pid = libc::pid_t::from_ne_bytes(buffer);
 
@@ -580,11 +579,12 @@ fn configure_user_namespace(
 		write_id_map(pid, "uid_map", uid_map, setup_uid)?;
 		write_id_map(pid, "gid_map", gid_map, setup_gid)?;
 	} else {
-		run_id_map_helper(pid, uid_map, setup_uid, "uid")?;
-		run_id_map_helper(pid, gid_map, setup_gid, "gid")?;
+		run_id_map_helper(pid, uid_map, setup_uid, "uid").await?;
+		run_id_map_helper(pid, gid_map, setup_gid, "gid").await?;
 	}
 	socket
 		.write_all(&[0])
+		.await
 		.map_err(|error| tg::error!(!error, "failed to release the user namespace"))?;
 
 	Ok(())
@@ -599,13 +599,14 @@ fn write_id_map(pid: libc::pid_t, name: &str, map: &crate::IdMap, setup: u32) ->
 	Ok(())
 }
 
-fn run_id_map_helper(
+async fn run_id_map_helper(
 	pid: libc::pid_t,
 	map: &crate::IdMap,
 	setup: u32,
 	kind: &str,
 ) -> tg::Result<()> {
-	let output = std::process::Command::new(&map.helper)
+	let output = tokio::process::Command::new(&map.helper)
+		.kill_on_drop(true)
 		.arg(pid.to_string())
 		.arg("0")
 		.arg(map.host.to_string())
@@ -614,6 +615,7 @@ fn run_id_map_helper(
 		.arg(setup.to_string())
 		.arg("1")
 		.output()
+		.await
 		.map_err(|error| {
 			tg::error!(
 				!error,

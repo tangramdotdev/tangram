@@ -303,6 +303,8 @@ impl Options {
 			tangram_sandbox::Kind::Seatbelt => {
 				let command = self.command()?;
 				let backend = tangram_sandbox::seatbelt::run::Arg {
+					cleanup_fd: None,
+
 					profile: self
 						.profile
 						.ok_or_else(|| tg::error!("the seatbelt profile is required"))?,

@@ -71,6 +71,7 @@ impl Server {
 			let reader = match stream_ {
 				tg::process::stdio::Stream::Stdout => match stdout_mode {
 					Stdio::Null => Reader::Null(tokio::io::empty()),
+					Stdio::Pipe if stdout.is_none() => Reader::Null(tokio::io::empty()),
 					Stdio::Pipe => Reader::Stdout(
 						stdout
 							.clone()
@@ -78,6 +79,7 @@ impl Server {
 							.lock_owned()
 							.await,
 					),
+					Stdio::Tty if pty.is_none() => Reader::Null(tokio::io::empty()),
 					Stdio::Tty => {
 						Reader::Pty(pty.clone().ok_or_else(
 							|| tg::error!(process = %index, "stdout is not available"),
@@ -86,6 +88,7 @@ impl Server {
 				},
 				tg::process::stdio::Stream::Stderr => match stderr_mode {
 					Stdio::Null => Reader::Null(tokio::io::empty()),
+					Stdio::Pipe if stderr.is_none() => Reader::Null(tokio::io::empty()),
 					Stdio::Pipe => Reader::Stderr(
 						stderr
 							.clone()
@@ -93,6 +96,7 @@ impl Server {
 							.lock_owned()
 							.await,
 					),
+					Stdio::Tty if pty.is_none() => Reader::Null(tokio::io::empty()),
 					Stdio::Tty => {
 						Reader::Pty(pty.clone().ok_or_else(
 							|| tg::error!(process = %index, "stderr is not available"),
@@ -101,6 +105,29 @@ impl Server {
 				},
 				tg::process::stdio::Stream::Stdin => unreachable!(),
 			};
+			let server = self.clone();
+			let cleanup = stream::once(async move {
+				if let Some(mut process) = server.processes.get_mut(&index) {
+					match stream_ {
+						tg::process::stdio::Stream::Stdout => {
+							process.stdout.take();
+						},
+						tg::process::stdio::Stream::Stderr => {
+							process.stderr.take();
+						},
+						tg::process::stdio::Stream::Stdin => unreachable!(),
+					}
+					if matches!(
+						(stream_, stdout_mode, stderr_mode),
+						(tg::process::stdio::Stream::Stdout, Stdio::Tty, _)
+							| (tg::process::stdio::Stream::Stderr, _, Stdio::Tty)
+					) {
+						process.pty.take();
+					}
+				}
+				None
+			})
+			.filter_map(future::ready);
 			let stream =
 				ReaderStream::new(reader).map(move |result: std::io::Result<bytes::Bytes>| {
 					result
@@ -112,7 +139,7 @@ impl Server {
 						})
 						.map_err(|error| tg::error!(!error, "failed to read process stdio"))
 				});
-			outputs.push(stream);
+			outputs.push(stream.chain(cleanup).boxed());
 		}
 
 		let stream = stream::select_all(outputs)

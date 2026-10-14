@@ -299,10 +299,11 @@ pub fn write_config<T: serde::Serialize>(path: &Path, arg: &T) -> tg::Result<()>
 }
 
 impl Config {
-	pub fn finish(self) -> tg::Result<()> {
+	pub async fn finish(self) -> tg::Result<()> {
 		drop(self.reader);
-		self.task
-			.join()
+		tokio::task::spawn_blocking(move || self.task.join())
+			.await
+			.map_err(|error| tg::error!(!error, "the configuration task panicked"))?
 			.map_err(|_| tg::error!("the sandbox configuration writer panicked"))?
 			.map_err(|error| {
 				tg::error!(!error, "failed to write the sandbox launch configuration")
@@ -804,7 +805,7 @@ mod tests {
 		// Spawn the command and finish writing the configuration.
 		let config = configure_command(&mut command, &arg).unwrap();
 		let child = command.spawn().unwrap();
-		config.finish().unwrap();
+		config.finish().await.unwrap();
 
 		// Verify that the command received the complete configuration.
 		let output = child.wait_with_output().await.unwrap();

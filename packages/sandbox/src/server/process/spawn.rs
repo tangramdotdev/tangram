@@ -94,7 +94,8 @@ impl Server {
 		}
 
 		// Create the command.
-		let executable = resolve_executable(&arg.command.executable, &arg.command.env)?;
+		let executable =
+			resolve_executable(&arg.command.executable, &arg.command.env, &arg.command.cwd)?;
 		let mut command = tokio::process::Command::new(&executable);
 		command
 			.kill_on_drop(true)
@@ -232,9 +233,10 @@ impl Server {
 fn resolve_executable(
 	executable: &Path,
 	env: &std::collections::BTreeMap<String, String>,
+	cwd: &Path,
 ) -> tg::Result<std::path::PathBuf> {
 	if executable.is_absolute() || executable.components().count() > 1 {
-		return Ok(executable.to_owned());
+		return Ok(cwd.join(executable));
 	}
 	let path = env.get("PATH").ok_or_else(|| {
 		tg::error!(
@@ -242,7 +244,7 @@ fn resolve_executable(
 			"failed to find the executable in PATH"
 		)
 	})?;
-	crate::util::which(Path::new(path), executable).ok_or_else(|| {
+	crate::util::which(Path::new(path), executable, cwd).ok_or_else(|| {
 		tg::error!(
 			executable = %executable.display(),
 			"failed to find the executable in PATH"

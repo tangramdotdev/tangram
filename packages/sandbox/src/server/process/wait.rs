@@ -17,6 +17,10 @@ impl Server {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, process = %index, "the process task panicked"))??;
+		if let Some(mut process) = self.processes.get_mut(&index) {
+			process.stdin.take();
+		}
+
 		let outcome = crate::client::outcome::Outcome { status };
 		Ok(outcome)
 	}
