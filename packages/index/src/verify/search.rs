@@ -609,6 +609,16 @@ impl Budget {
 			.saturating_add(config.max_nodes.saturating_mul(root_total));
 	}
 
+	#[must_use]
+	fn has_edge_capacity(&self, edges: usize) -> bool {
+		self.edges.saturating_add(edges) <= self.config.max_edges
+	}
+
+	#[must_use]
+	fn has_node_capacity(&self, nodes: usize, depth: usize) -> bool {
+		depth <= self.config.max_depth && self.nodes.saturating_add(nodes) <= self.config.max_nodes
+	}
+
 	fn add_edge(&mut self) -> bool {
 		self.add(1, 0, 0)
 	}

@@ -708,12 +708,14 @@ impl Search {
 			if !value {
 				continue;
 			}
-			for _ in 1..candidate.edges {
-				if !self.budget.add_edge() {
-					self.incomplete.insert(checks.dependent);
+			let edges = candidate.edges.saturating_sub(1);
+			if !self.budget.has_edge_capacity(edges) {
+				self.incomplete.insert(checks.dependent);
 
-					return;
-				}
+				return;
+			}
+			for _ in 0..edges {
+				self.budget.add_edge();
 			}
 			debug_assert!(self.source_verifys(&candidate.dependency));
 			let expires_at = self.source_expiration(&candidate.dependency).unwrap();
@@ -1327,10 +1329,12 @@ impl Search {
 		{
 			return;
 		}
-		if !self.budget.add_edge() || !self.budget.add_node(depth) {
+		if !self.budget.has_edge_capacity(1) || !self.budget.has_node_capacity(1, depth) {
 			self.incomplete.insert(dependent.clone());
 			return;
 		}
+		self.budget.add_edge();
+		self.budget.add_node(depth);
 		if state.search_verified(dependent) {
 			return;
 		}
@@ -1652,10 +1656,12 @@ impl Search {
 		state.register_sync_scope(&first);
 		state.register_sync_scope(&second);
 		if !state.has_verification_conjunction(&first, &second, dependent) {
-			if !self.budget.add_edge() || !self.budget.add_edge() {
+			if !self.budget.has_edge_capacity(2) {
 				self.incomplete.insert(dependent.clone());
 				return false;
 			}
+			self.budget.add_edge();
+			self.budget.add_edge();
 			state.add_verification_conjunction(&first, &second, dependent);
 			self.add_live_dependency(state, dependent, &first);
 			self.add_live_dependency(state, dependent, &second);
