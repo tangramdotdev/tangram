@@ -385,6 +385,13 @@ impl Cgroup {
 		Ok(Handle { directory })
 	}
 
+	pub fn oom_kill(&self) -> tg::Result<u64> {
+		let contents = read_file_at(&self.cleanup.directory, c"memory.events")
+			.map_err(|error| tg::error!(!error, "failed to read the cgroup memory events"))?;
+		let count = parse_oom_kill(&contents)?;
+		Ok(count)
+	}
+
 	pub fn cleanup(mut self) -> tg::Result<()> {
 		self.stop()?;
 		self.stopped = true;
@@ -505,6 +512,18 @@ impl Drop for Cleanup {
 			tracing::error!(%error, name = %self.name, "failed to remove the cgroup");
 		}
 	}
+}
+
+fn parse_oom_kill(contents: &str) -> tg::Result<u64> {
+	let count = contents
+		.lines()
+		.filter_map(|line| line.split_once(' '))
+		.find(|(key, _)| *key == "oom_kill")
+		.ok_or_else(|| tg::error!("the cgroup memory events are missing the OOM kill count"))?
+		.1
+		.parse()
+		.map_err(|error| tg::error!(!error, "invalid cgroup OOM kill count"))?;
+	Ok(count)
 }
 
 fn parse_populated(contents: &str) -> tg::Result<bool> {
@@ -744,6 +763,14 @@ mod tests {
 		assert_eq!(resolve_parent(temp.path(), &leaf, &[]).unwrap(), leaf);
 		std::fs::write(temp.path().join("cgroup.subtree_control"), "cpu pids").unwrap();
 		assert!(resolve_parent(temp.path(), &leaf, &["memory"]).is_err());
+	}
+
+	#[test]
+	fn parse_oom_kill_value() {
+		assert_eq!(parse_oom_kill("oom 3\noom_kill 0\n").unwrap(), 0);
+		assert_eq!(parse_oom_kill("oom 3\noom_kill 4\n").unwrap(), 4);
+		assert!(parse_oom_kill("oom 3\n").is_err());
+		assert!(parse_oom_kill("oom_kill invalid\n").is_err());
 	}
 
 	#[test]

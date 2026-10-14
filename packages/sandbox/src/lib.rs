@@ -1081,13 +1081,45 @@ impl Sandbox {
 		&self,
 		process: &Process,
 	) -> tg::Result<impl Future<Output = tg::Result<u8>> + Send + 'static> {
-		let future = self.0.client.wait(process.index).await?;
+		let future = match self.0.client.wait(process.index).await {
+			Ok(future) => future,
+			Err(error) => return Err(self.termination_error(error).await),
+		};
+		let sandbox = self.clone();
 		Ok(async move {
-			let outcome = future
-				.await?
-				.ok_or_else(|| tg::error!("failed to wait for the process"))?;
-			Ok(outcome.status)
+			let result = future.await.and_then(|outcome| {
+				outcome.ok_or_else(|| tg::error!("failed to wait for the process"))
+			});
+			match result {
+				Ok(outcome) => Ok(outcome.status),
+				Err(error) => Err(sandbox.termination_error(error).await),
+			}
 		})
+	}
+
+	async fn termination_error(&self, error: tg::Error) -> tg::Error {
+		#[cfg(target_os = "linux")]
+		if let Some(cgroup) = self.0.cgroup.lock().await.as_ref() {
+			match cgroup.oom_kill() {
+				Err(source) => {
+					tracing::warn!(%source, "failed to read the sandbox OOM kill count");
+				},
+				Ok(0) => (),
+				Ok(_) => {
+					let memory_limit = self
+						.0
+						.arg
+						.memory
+						.map_or_else(|| "unlimited".to_owned(), |memory| memory.max.to_string());
+					return tg::error!(
+						!error,
+						%memory_limit,
+						"the sandbox was killed by the out-of-memory killer"
+					);
+				},
+			}
+		}
+		error
 	}
 
 	pub async fn try_get_process(
