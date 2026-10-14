@@ -1,8 +1,8 @@
 use std::net::Ipv4Addr;
 
-mod spawn;
+mod command;
 
-pub(crate) use self::spawn::spawn;
+pub(crate) use self::command::command;
 
 pub(crate) mod network;
 

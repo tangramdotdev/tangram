@@ -437,12 +437,9 @@ impl Sandbox {
 					ports,
 				)?;
 				let cgroup = self::cgroup::create(&arg)?;
-				let process = self::cloud_hypervisor::spawn(
-					&arg,
-					&serve_arg,
-					network.as_ref(),
-					&cgroup.handle()?,
-				)?;
+				let mut command =
+					self::cloud_hypervisor::command(&arg, &serve_arg, network.as_ref())?;
+				let process = self::launch::spawn_command(&mut command, &cgroup)?;
 				(process, network, None, Some(cgroup), None)
 			},
 		};

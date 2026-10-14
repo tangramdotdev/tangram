@@ -3,12 +3,11 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub(crate) fn spawn(
+pub(crate) fn command(
 	arg: &crate::Arg,
 	serve_arg: &serve::Arg,
 	network: Option<&crate::network::Network>,
-	cgroup: &crate::cgroup::Handle,
-) -> tg::Result<tokio::process::Child> {
+) -> tg::Result<tokio::process::Command> {
 	if !serve_arg.library_paths.is_empty() {
 		return Err(tg::error!(
 			"cloud-hypervisor does not support additional library paths"
@@ -80,9 +79,7 @@ pub(crate) fn spawn(
 	};
 	let path = arg.path.join("launch.json");
 	crate::run::write_config(&path, &launch)?;
-	let directory = cgroup.open_fd()?;
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
-	crate::cgroup::enter_before_exec(&mut command, std::os::fd::AsRawFd::as_raw_fd(&directory));
 	command
 		.arg("sandbox")
 		.arg("run")
@@ -94,8 +91,5 @@ pub(crate) fn spawn(
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
 		.stderr(std::process::Stdio::inherit());
-	let child = command
-		.spawn()
-		.map_err(|error| tg::error!(!error, "failed to spawn cloud-hypervisor"))?;
-	Ok(child)
+	Ok(command)
 }

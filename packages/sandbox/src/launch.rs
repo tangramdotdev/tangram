@@ -202,10 +202,6 @@ pub(crate) async fn spawn(
 		}
 		inherit_fd(&mut command, filesystem_sendfd.as_raw_fd());
 	}
-	{
-		let cgroup_fd = &cgroup_fd;
-		crate::cgroup::enter_before_exec(&mut command, cgroup_fd.as_raw_fd());
-	}
 	if let Some((_, guest, _, _)) = &user_namespace {
 		command
 			.arg("--user-namespace-fd")
@@ -354,7 +350,7 @@ pub(crate) async fn spawn(
 		let task = std::thread::spawn(move || configure_user_namespace(host, &uid_map, &gid_map));
 		(guest, task)
 	});
-	let child = command.spawn();
+	let child = spawn_command(&mut command, cgroup);
 	if let Some((guest, task)) = user_namespace {
 		drop(guest);
 		task.join()
@@ -394,6 +390,18 @@ pub(crate) async fn spawn(
 	};
 
 	Ok(output)
+}
+
+pub(crate) fn spawn_command(
+	command: &mut tokio::process::Command,
+	cgroup: &crate::cgroup::Cgroup,
+) -> tg::Result<tokio::process::Child> {
+	let directory = cgroup.handle()?.open_fd()?;
+	crate::cgroup::enter_before_exec(command, directory.as_raw_fd());
+	let child = command
+		.spawn()
+		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox launcher"))?;
+	Ok(child)
 }
 
 fn prepare_sandbox_directory(
