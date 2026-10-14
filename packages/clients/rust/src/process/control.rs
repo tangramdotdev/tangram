@@ -782,6 +782,7 @@ impl tg::Session {
 			.uri(uri)
 			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
 			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
+			.header(tangram_http::body::arg::HEADER, "true")
 			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();

@@ -47,7 +47,7 @@ def connect(arg, token=None, messages=()):
     value = {key: value for key, value in arg.items() if key not in ("id", "location")}
     mode = "start" if "data" in value else "resume"
     arg = {key: value for key, value in arg.items() if key in ("id", "location")}
-    arg["mode"] = {"kind": mode, "value": value}
+    arg["mode"] = {"kind": mode, **value}
     sock, response = open_stream("/processes/control", arg, token, messages)
     length, shift = 0, 0
     while True:
@@ -162,7 +162,7 @@ def early_finish():
                 checkpoint("wait", name, watches[name], 0)
             checkpoint("unwatch", "process.control.header", watches.pop("process.control.header"))
             sock, response, output = pending.result(timeout=10)
-            assert "sync" in output, output
+            assert "command_sync" in output, output
             receive(response, "ack", request_id)
             close(sock, response)
             # End the synthetic writer's empty log.
@@ -179,7 +179,7 @@ def early_finish():
         sock, response, reconnected = connect(arg, output["token"])
     finally:
         checkpoint("unwatch", "process.control.index.started", watch)
-    assert "sync" in reconnected, reconnected
+    assert "command_sync" in reconnected, reconnected
     request(sock, response, request_id, finish)
     close(sock, response)
     process = json.loads(subprocess.check_output(command + ["get", arg["id"]], timeout=10))
