@@ -15,6 +15,7 @@ pub enum Backend {
 pub enum Platform {
 	#[default]
 	Kvm,
+
 	Systrap,
 }
 
@@ -23,9 +24,13 @@ pub enum Platform {
 pub enum Kind {
 	#[default]
 	Builtin,
+
 	Bubblewrap,
+
 	CloudHypervisor,
+
 	Gvisor,
+
 	Seatbelt,
 }
 

@@ -183,12 +183,15 @@ impl Server {
 		storage: Option<tg::sandbox::Resource<u64>>,
 		swap: Option<tg::sandbox::Resource<u64>>,
 	) -> tg::Result<()> {
+		// Validate the resource bounds.
 		if let Some(cpu) = cpu {
 			cpu.total()?;
 		}
 		for resource in [memory, storage, swap].into_iter().flatten() {
 			resource.validate()?;
 		}
+
+		// Validate the backend resource support.
 		if !matches!(
 			isolation,
 			tangram_sandbox::Backend::Builtin
@@ -208,9 +211,13 @@ impl Server {
 				"resource minima and fractional CPUs require container isolation"
 			));
 		}
+
+		// Validate the memory limit.
 		if memory.is_some_and(|memory| memory.max == 0) {
 			return Err(tg::error!("sandbox memory must be greater than zero"));
 		}
+
+		// Validate the seatbelt options.
 		if matches!(isolation, tangram_sandbox::Backend::Seatbelt)
 			&& (cpu.is_some() || memory.is_some())
 		{
@@ -223,6 +230,7 @@ impl Server {
 				"setting a hostname is not supported with seatbelt isolation"
 			));
 		}
+
 		Ok(())
 	}
 }

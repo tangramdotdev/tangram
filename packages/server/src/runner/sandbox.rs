@@ -71,9 +71,13 @@ struct SandboxTaskArg {
 
 struct CreateSandboxOutput {
 	guest_url: tangram_uri::Uri,
+
 	sandbox: tangram_sandbox::Sandbox,
+
 	serve_task: Task<()>,
+
 	temp: Temp,
+
 	#[cfg(target_os = "linux")]
 	vfs: Option<crate::vfs::Server>,
 }
@@ -303,6 +307,7 @@ impl Session {
 				let control_data = control_data.clone();
 				let id = id.clone();
 				let location = location.clone();
+
 				async move {
 					let connection = connection_session
 						.get_sandbox_control_stream(
@@ -319,6 +324,7 @@ impl Session {
 				.boxed()
 			} else {
 				let server = self.server.clone();
+
 				async move {
 					crate::checkpoint!(server, "runner.sandbox.control.acquire").await;
 					let connection = server
@@ -402,6 +408,7 @@ impl Session {
 						Ok::<_, tg::Error>(())
 					}
 					.await;
+
 					if let Err(error) = result {
 						tracing::error!(error = %error.trace(), "failed to create the sandbox control connection");
 						sandbox_stopper.stop();
@@ -412,6 +419,7 @@ impl Session {
 			create_task.detach();
 			let identity = (connection_.id.clone(), connection_.token.clone());
 			connection = Some(SandboxControlConnectionKind::Pooled(connection_));
+
 			identity
 		};
 		tracing::Span::current().record("sandbox", tracing::field::display(&id));
@@ -444,22 +452,38 @@ impl Session {
 			crate::sandbox::control::local::Local::new(control_channel_capacity);
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
+
 			authorization_tokens: tg::authorization::Tokens::default(),
+
 			capacity,
+
 			changed: tokio::sync::watch::channel(()).0,
+
 			control_sender,
+
 			data: control_data,
+
 			id: id.clone(),
+
 			location: location.clone(),
+
 			process_ids: indexmap::IndexMap::default(),
+
 			processes: processes.clone(),
+
 			sandbox: Some(create_output.sandbox.clone()),
+
 			status: tg::sandbox::Status::Started,
+
 			token,
+
 			tokens: BTreeMap::new(),
+
 			usage: None,
+
 			#[cfg(target_os = "linux")]
 			vfs: create_output.vfs.as_ref().map(|vfs| vfs.provider().clone()),
+
 			#[cfg(not(target_os = "linux"))]
 			vfs: None,
 		};
@@ -645,6 +669,7 @@ impl Session {
 		}
 
 		tracing::debug!("creating a sandbox after a pool miss");
+
 		self.create_sandbox_inner(
 			arg,
 			#[cfg(target_os = "linux")]
@@ -819,6 +844,7 @@ impl Session {
 							.in_current_span()
 						}
 					});
+
 					(None, Some(vfs_task), Some(mount_path), Some(sendfd))
 				} else {
 					let mut options = self.server.config.vfs.clone().unwrap_or_default();
@@ -877,19 +903,28 @@ impl Session {
 		let config = &self.server.config.sandbox;
 		let arg = tangram_sandbox::Arg {
 			backend: isolation,
+
 			#[cfg(target_os = "linux")]
 			cgroup_cleanup_interval: config.cgroup_cleanup_interval,
+
 			#[cfg(target_os = "linux")]
 			cgroup_cleanup_timeout: config.cgroup_cleanup_timeout,
+
 			connect_timeout: config.connect_timeout,
+
 			cpu: arg.cpu,
+
 			#[cfg(target_os = "linux")]
 			cpu_affinity: self.server.config.runner.cpu_affinity,
+
 			#[cfg(target_os = "linux")]
 			cpu_parent,
+
 			#[cfg(target_os = "linux")]
 			cpu_pool: self.server.runner.state.cpu_pool.clone(),
+
 			dns: config.network.dns.clone(),
+
 			#[cfg(target_os = "linux")]
 			firewall: match config.network.firewall {
 				crate::config::SandboxNetworkFirewall::Iptables => {
@@ -897,34 +932,58 @@ impl Session {
 				},
 				crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
 			},
+
 			#[cfg(target_os = "linux")]
 			fuse_fd: fuse_sendfd.map(Arc::new),
+
 			hostname: arg.hostname,
+
 			http2: config.http2,
+
 			identity: self.server.path.clone(),
+
 			index,
+
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
+
 			memory: arg.memory,
+
 			memory_sampling_interval: self.server.config.runner.memory_sampling_interval,
+
 			mounts,
+
 			network,
+
 			#[cfg(target_os = "linux")]
 			network_startup_timeout: config.network.startup_timeout,
+
 			nice: config.nice,
+
 			path: temp.path().to_owned(),
+
 			request_timeout: config.request_timeout,
+
 			resources,
+
 			rootfs_path,
+
 			shutdown_timeout: config.shutdown_timeout,
+
 			storage: arg.storage,
+
 			#[cfg(target_os = "linux")]
 			storage_pool: Some(self.server.runner.state.storage_pool.clone()),
+
 			store_path: store_source,
+
 			swap: arg.swap,
+
 			#[cfg(target_os = "linux")]
 			swap_pool: Some(self.server.runner.state.swap_pool.clone()),
+
 			tangram_path: self.server.tangram_path.clone(),
+
 			tangram_socket_path,
 		};
 		tracing::debug!(sandbox_index = index, "creating the physical sandbox");
@@ -964,9 +1023,13 @@ impl Session {
 		});
 		let output = CreateSandboxOutput {
 			guest_url,
+
 			sandbox,
+
 			serve_task,
+
 			temp,
+
 			#[cfg(target_os = "linux")]
 			vfs,
 		};
@@ -1079,6 +1142,7 @@ impl Session {
 				|| future::pending().left_future(),
 				|timer_future| timer_future.as_mut().right_future(),
 			);
+
 			tokio::select! {
 				result = &mut ready_connection, if reusable && !ready => {
 					result?;
@@ -1293,6 +1357,7 @@ impl Session {
 					.take()
 					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox allocation"))?
 			};
+
 			// Stop the VFS while the sandbox still owns its mount namespace.
 			#[cfg(target_os = "linux")]
 			if let Some(vfs) = vfs.take() {
@@ -1306,6 +1371,7 @@ impl Session {
 			)?;
 
 			let usage = output.usage;
+
 			// Release the sandbox's capacity after its cgroup is stopped and accounted.
 			crate::checkpoint!(
 				self.server,
@@ -1399,6 +1465,7 @@ impl Session {
 			.await;
 			tracing::info!(sandbox = %id, "destroyed the sandbox");
 			event_sender.send(Ok(Event::Destroyed)).ok();
+
 			Ok::<_, tg::Error>(())
 		};
 		let mut destroy = destroy

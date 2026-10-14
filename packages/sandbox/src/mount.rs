@@ -44,9 +44,12 @@ pub struct Arg {
 pub struct Bind {
 	#[serde(default)]
 	pub devices: bool,
+
 	#[serde(default)]
 	pub fd: Option<RawFd>,
+
 	pub source: PathBuf,
+
 	pub target: PathBuf,
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -57,6 +60,7 @@ pub struct Overlay {
 }
 
 pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
+	// Make the mount tree private.
 	make_mounts_private()?;
 	if let Some(root) = root {
 		std::fs::create_dir_all(root).map_err(|error| {
@@ -67,6 +71,8 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 			)
 		})?;
 	}
+
+	// Prepare the root overlay.
 	let mut overlays = arg.overlays.iter().collect::<Vec<_>>();
 	overlays.sort_unstable_by_key(|overlay| path_depth(&overlay.target));
 	if let Some(overlay) = overlays
@@ -76,6 +82,8 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		let root = root.ok_or_else(|| tg::error!("an overlay to / requires a scratch path"))?;
 		mount_overlay(&arg.overlay_sources, overlay, root)?;
 	}
+
+	// Bind the root filesystem.
 	for (bind, readonly) in arg
 		.binds
 		.iter()
@@ -97,26 +105,32 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 			attributes,
 		)?;
 	}
+
+	// Open the mount root.
 	let mount_root = open_mount_root(root)?;
 
+	// Mount the temporary filesystems.
 	let mut tmpfs = arg.tmpfs.iter().collect::<Vec<_>>();
 	tmpfs.sort_unstable_by_key(|path| path_depth(path));
 	for target in tmpfs {
 		mount_tmpfs(&map_path_target(root, target)?)?;
 	}
 
+	// Mount the device filesystems.
 	let mut devs = arg.devs.iter().collect::<Vec<_>>();
 	devs.sort_unstable_by_key(|path| path_depth(path));
 	for target in devs {
 		mount_dev(&map_path_target(root, target)?)?;
 	}
 
+	// Mount the proc filesystems.
 	let mut procs = arg.procs.iter().collect::<Vec<_>>();
 	procs.sort_unstable_by_key(|path| path_depth(path));
 	for target in procs {
 		mount_proc(&map_path_target(root, target)?)?;
 	}
 
+	// Mount the remaining overlays.
 	for overlay in overlays
 		.into_iter()
 		.filter(|overlay| overlay.target != Path::new("/"))
@@ -125,6 +139,7 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		mount_overlay(&arg.overlay_sources, overlay, &target)?;
 	}
 
+	// Mount the remaining bind sources.
 	let mut binds = arg
 		.binds
 		.iter()
@@ -156,6 +171,7 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 
 pub fn pivot_root_into(root: &Path) -> tg::Result<()> {
 	change_directory(root)?;
+
 	// Stack the old root on the new root so a read-only bind does not need a staging directory.
 	// SAFETY: The terminated path strings remain live for the syscall.
 	if unsafe { libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".".as_ptr()) } != 0 {
@@ -163,6 +179,7 @@ pub fn pivot_root_into(root: &Path) -> tg::Result<()> {
 			tg::error!(source = std::io::Error::last_os_error(), root = %root.display(), "failed to pivot into the builtin root"),
 		);
 	}
+
 	// SAFETY: The terminated path names the stacked old root in this private mount namespace.
 	if unsafe { libc::umount2(c".".as_ptr(), libc::MNT_DETACH) } != 0 {
 		return Err(tg::error!(
@@ -171,6 +188,7 @@ pub fn pivot_root_into(root: &Path) -> tg::Result<()> {
 		));
 	}
 	change_directory(Path::new("/"))?;
+
 	Ok(())
 }
 
@@ -246,6 +264,7 @@ fn mount_bind(
 	target_path: &Path,
 	attributes: MountAttributes,
 ) -> tg::Result<()> {
+	// Open the bind source.
 	let source = bind
 		.fd
 		.map_or_else(
@@ -266,6 +285,8 @@ fn mount_bind(
 			"failed to inspect the bind source"
 		)
 	})?;
+
+	// Create the mount target.
 	let target = bind.target.strip_prefix("/").unwrap();
 	let target_fd = if target.as_os_str().is_empty() {
 		duplicate_fd(root)
@@ -279,6 +300,8 @@ fn mount_bind(
 			"failed to securely create the bind target"
 		)
 	})?;
+
+	// Attach the bind mount.
 	mount_bind_modern(
 		source.as_raw_fd(),
 		target_fd.as_raw_fd(),
@@ -293,6 +316,7 @@ fn mount_bind(
 			"failed to create the bind mount"
 		)
 	})?;
+
 	Ok(())
 }
 
@@ -300,6 +324,7 @@ fn open_bind_descriptor(fd: RawFd) -> std::io::Result<OwnedFd> {
 	// Resolve the inherited descriptor in the current mount namespace before cloning its mount.
 	let path = std::fs::read_link(format!("/proc/self/fd/{fd}"))?;
 	let source = open_absolute_path(&path)?;
+
 	// SAFETY: The inherited descriptor is borrowed for the identity check and remains owned by the launcher.
 	let inherited = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
 	let inherited = rustix::fs::fstat(inherited)?;
@@ -309,6 +334,7 @@ fn open_bind_descriptor(fd: RawFd) -> std::io::Result<OwnedFd> {
 			"the inherited bind source changed while resolving its path",
 		));
 	}
+
 	Ok(source)
 }
 
@@ -416,6 +442,7 @@ fn open_or_create_directory(parent: RawFd, name: &OsStr) -> std::io::Result<Owne
 		Ok(fd) => Ok(fd),
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 			let name_cstring = cstring(name);
+
 			// SAFETY: The parent descriptor and component string are valid for the syscall.
 			let result = unsafe { libc::mkdirat(parent, name_cstring.as_ptr(), 0o755) };
 			if result != 0 {
@@ -424,6 +451,7 @@ fn open_or_create_directory(parent: RawFd, name: &OsStr) -> std::io::Result<Owne
 					return Err(error);
 				}
 			}
+
 			openat2(
 				parent,
 				Path::new(name),
@@ -446,6 +474,7 @@ fn open_or_create_file(parent: RawFd, name: &OsStr) -> std::io::Result<OwnedFd> 
 		Ok(_) => Err(std::io::Error::from_raw_os_error(libc::EISDIR)),
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 			let name_cstring = cstring(name);
+
 			// SAFETY: The parent descriptor and component string are valid for the syscall.
 			let fd = unsafe {
 				libc::openat(
@@ -474,6 +503,7 @@ fn open_or_create_file(parent: RawFd, name: &OsStr) -> std::io::Result<OwnedFd> 
 			if fd_is_directory(fd.as_raw_fd())? {
 				return Err(std::io::Error::from_raw_os_error(libc::EISDIR));
 			}
+
 			Ok(fd)
 		},
 		Err(error) => Err(error),
@@ -487,10 +517,12 @@ fn openat2(
 	resolve: u64,
 ) -> std::io::Result<OwnedFd> {
 	let path = cstring(path);
+
 	// SAFETY: The open_how type is valid when zero initialized.
 	let mut how: libc::open_how = unsafe { std::mem::zeroed() };
 	how.flags = flags.try_into().unwrap();
 	how.resolve = resolve;
+
 	// SAFETY: The path and open_how pointers remain valid for the syscall.
 	let fd = unsafe {
 		libc::syscall(
@@ -504,6 +536,7 @@ fn openat2(
 	if fd < 0 {
 		return Err(std::io::Error::last_os_error());
 	}
+
 	// SAFETY: A nonnegative result from openat2 is a newly owned descriptor.
 	Ok(unsafe { OwnedFd::from_raw_fd(fd.try_into().unwrap()) })
 }
@@ -514,19 +547,23 @@ fn duplicate_fd(fd: RawFd) -> std::io::Result<OwnedFd> {
 	if fd < 0 {
 		return Err(std::io::Error::last_os_error());
 	}
+
 	// SAFETY: F_DUPFD_CLOEXEC returned a newly owned descriptor.
 	Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 fn fd_is_directory(fd: RawFd) -> std::io::Result<bool> {
 	let mut stat = std::mem::MaybeUninit::zeroed();
+
 	// SAFETY: The stat buffer is writable and valid for the syscall.
 	let result = unsafe { libc::fstat(fd, stat.as_mut_ptr()) };
 	if result != 0 {
 		return Err(std::io::Error::last_os_error());
 	}
+
 	// SAFETY: A successful fstat initialized the complete stat buffer.
 	let stat = unsafe { stat.assume_init() };
+
 	Ok(stat.st_mode & libc::S_IFMT == libc::S_IFDIR)
 }
 
@@ -539,6 +576,7 @@ fn mount_bind_modern(
 	let recursive_flag = if recursive { AT_RECURSIVE } else { 0 };
 	let flags = libc::OPEN_TREE_CLONE | libc::OPEN_TREE_CLOEXEC | libc::AT_EMPTY_PATH as u32;
 	let flags = flags | recursive_flag;
+
 	// SAFETY: The empty path selects the valid source descriptor for the syscall.
 	let mount = unsafe { libc::syscall(libc::SYS_open_tree, source, c"".as_ptr(), flags) };
 	if mount < 0 {
@@ -548,8 +586,10 @@ fn mount_bind_modern(
 			format!("open_tree failed: {error}"),
 		));
 	}
+
 	// SAFETY: A nonnegative result from open_tree is a newly owned descriptor.
 	let mount = unsafe { OwnedFd::from_raw_fd(mount.try_into().unwrap()) };
+
 	attach_mount(&mount, target, recursive, attributes)
 }
 
@@ -559,11 +599,13 @@ fn attach_mount(
 	recursive: bool,
 	attributes: MountAttributes,
 ) -> std::io::Result<()> {
+	// Apply the mount attributes.
 	let recursive_flag = if recursive { AT_RECURSIVE } else { 0 };
 	let attributes = mount_attributes(attributes);
 	if attributes != 0 {
 		let attributes = [attributes, 0, 0, 0];
 		let flags = libc::AT_EMPTY_PATH as u32 | recursive_flag;
+
 		// SAFETY: The attribute array remains valid for the syscall.
 		let result = unsafe {
 			libc::syscall(
@@ -575,6 +617,7 @@ fn attach_mount(
 				std::mem::size_of_val(&attributes),
 			)
 		};
+
 		if result != 0 {
 			let error = std::io::Error::last_os_error();
 			return Err(std::io::Error::new(
@@ -583,7 +626,10 @@ fn attach_mount(
 			));
 		}
 	}
+
+	// Attach the mount to its target.
 	let flags = libc::MOVE_MOUNT_F_EMPTY_PATH | libc::MOVE_MOUNT_T_EMPTY_PATH;
+
 	// SAFETY: The empty paths select the valid detached mount and target descriptors.
 	let result = unsafe {
 		libc::syscall(
@@ -602,6 +648,7 @@ fn attach_mount(
 			format!("move_mount failed: {error}"),
 		));
 	}
+
 	Ok(())
 }
 
@@ -620,11 +667,14 @@ fn mount_attributes(attributes: MountAttributes) -> u64 {
 }
 
 fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg::Result<()> {
+	// Validate the overlay sources.
 	if lowerdirs.is_empty() {
 		return Err(tg::error!(
 			"an overlay requires at least one overlay source"
 		));
 	}
+
+	// Create the overlay directories.
 	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -646,6 +696,8 @@ fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg:
 			"failed to create the overlay workdir"
 		)
 	})?;
+
+	// Mount the overlay filesystem.
 	let source = cstring("overlay");
 	let target = cstring(target);
 	let fstype = cstring("overlay");
@@ -664,6 +716,7 @@ fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg:
 			"failed to create the overlay mount"
 		)
 	})?;
+
 	Ok(())
 }
 
@@ -690,6 +743,7 @@ fn mount_proc(target: &Path) -> tg::Result<()> {
 }
 
 pub(crate) fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
+	// Create the mount target.
 	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -698,6 +752,7 @@ pub(crate) fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
 		)
 	})?;
 	let target = cstring(target);
+
 	// Mount a tmpfs first. An enclosing sandbox mounts cgroup2 at this path too, and the kernel refuses to mount a filesystem on its own mountpoint. That mount cannot be detached instead, because a mount inherited into an unprivileged mount namespace is locked.
 	let underlay_source = cstring("tmpfs");
 	let underlay_fstype = cstring("tmpfs");
@@ -709,6 +764,8 @@ pub(crate) fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
 		std::ptr::null_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the cgroup underlay mount"))?;
+
+	// Mount the cgroup filesystem.
 	let source = cstring("cgroup2");
 	let fstype = cstring("cgroup2");
 	let mut flags = libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID;
@@ -723,6 +780,7 @@ pub(crate) fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
 		std::ptr::null_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the cgroup mount"))?;
+
 	Ok(())
 }
 
@@ -750,6 +808,7 @@ pub(crate) fn mount_tmpfs(target: &Path) -> tg::Result<()> {
 }
 
 fn mount_dev(target: &Path) -> tg::Result<()> {
+	// Open the host device nodes.
 	let mut devices = Vec::new();
 	for path in [
 		"/dev/null",
@@ -767,6 +826,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		devices.push((path, file));
 	}
 
+	// Mount the device filesystem.
 	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -786,6 +846,8 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the dev mount"))?;
+
+	// Mount the terminal filesystem.
 	let pts = target.join("pts");
 	std::fs::create_dir_all(&pts)
 		.map_err(|error| tg::error!(!error, "failed to create the devpts mountpoint"))?;
@@ -802,6 +864,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the devpts mount"))?;
 
+	// Mount the shared memory filesystem.
 	let shm = target.join("shm");
 	std::fs::create_dir_all(&shm)
 		.map_err(|error| tg::error!(!error, "failed to create the shm mountpoint"))?;
@@ -818,6 +881,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the shm mount"))?;
 
+	// Attach the device nodes.
 	for (path, file) in &devices {
 		let source = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
 		let target = target.join(Path::new(path).file_name().unwrap());
@@ -920,6 +984,7 @@ fn overlay_mount_data(lowerdirs: &[PathBuf], upperdir: &Path, workdir: &Path) ->
 	data.extend_from_slice(b",workdir=");
 	data.extend_from_slice(workdir.as_os_str().as_bytes());
 	data.push(0);
+
 	data.into()
 }
 

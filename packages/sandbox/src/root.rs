@@ -84,6 +84,7 @@ pub fn create(arg: &Arg) -> tg::Result<()> {
 		attempts = %arg.build_attempts,
 		"the sandbox inputs did not stabilize while building the root"
 	);
+
 	Err(error)
 }
 
@@ -103,6 +104,7 @@ fn build(
 	libraries: &[libraries::Library],
 	vm: bool,
 ) -> tg::Result<()> {
+	// Extract and prepare the root filesystem.
 	std::fs::create_dir(path).map_err(|error| {
 		tg::error!(
 			!error,
@@ -117,12 +119,17 @@ fn build(
 	set_rootfs_permissions(path, &ROOTFS, &permissions)?;
 	restore_rootfs_symlinks(path)?;
 	create_rootfs_mountpoints(path)?;
+
+	// Create the guest-specific files.
 	if vm {
 		stage_tangram(path, tangram_path)?;
 	}
 
+	// Stage the shared libraries.
 	let lib_path = path.join("opt/tangram/lib");
 	libraries::stage(&lib_path, libraries)?;
+
+	// Sync the root filesystem and update its modification time.
 	tangram_util::fs::sync_recursive_sync(path).map_err(|error| {
 		tg::error!(
 			!error,
@@ -138,10 +145,12 @@ fn build(
 			"failed to set the sandbox directory modification time"
 		)
 	})?;
+
 	Ok(())
 }
 
 fn input_times(tangram_path: &Path, libraries: &[libraries::Library]) -> tg::Result<InputTimes> {
+	// Read the executable modification time.
 	let metadata = std::fs::metadata(tangram_path).map_err(|error| {
 		tg::error!(
 			!error,
@@ -156,6 +165,8 @@ fn input_times(tangram_path: &Path, libraries: &[libraries::Library]) -> tg::Res
 			"failed to get a sandbox input modification time"
 		)
 	})?;
+
+	// Read the library modification times.
 	let mut library_times = Vec::with_capacity(libraries.len());
 	for library in libraries {
 		let metadata = std::fs::metadata(&library.source).map_err(|error| {
@@ -174,6 +185,8 @@ fn input_times(tangram_path: &Path, libraries: &[libraries::Library]) -> tg::Res
 		})?;
 		library_times.push(modified);
 	}
+
+	// Create the input times.
 	let libraries = library_times;
 	let input_times = InputTimes { libraries, tangram };
 
@@ -181,6 +194,7 @@ fn input_times(tangram_path: &Path, libraries: &[libraries::Library]) -> tg::Res
 }
 
 fn install(temp_path: &Path, path: &Path, parent_path: &Path) -> tg::Result<()> {
+	// Install the prepared root filesystem.
 	let exists = match std::fs::symlink_metadata(path) {
 		Ok(_) => true,
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
@@ -211,12 +225,17 @@ fn install(temp_path: &Path, path: &Path, parent_path: &Path) -> tg::Result<()> 
 			)
 		})?;
 	}
+
+	// Sync the parent directory.
 	sync_file(parent_path)?;
+
+	// Remove the temporary root filesystem.
 	if let Err(error) = remove_path(temp_path) {
 		tracing::warn!(?error, path = %temp_path.display(), "failed to clean up the old sandbox directory");
 	} else {
 		sync_file(parent_path)?;
 	}
+
 	Ok(())
 }
 
@@ -233,6 +252,7 @@ fn remove_path(path: &Path) -> tg::Result<()> {
 }
 
 fn root_is_current(path: &Path, input_modified: SystemTime, vm: bool) -> tg::Result<bool> {
+	// Check the root filesystem path.
 	let metadata = match std::fs::symlink_metadata(path) {
 		Ok(metadata) => metadata,
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -247,6 +267,8 @@ fn root_is_current(path: &Path, input_modified: SystemTime, vm: bool) -> tg::Res
 	if !metadata.is_dir() {
 		return Ok(false);
 	}
+
+	// Check the guest-specific files.
 	if vm {
 		let tangram_path = path.join("opt/tangram/libexec/tangram");
 		let metadata = match std::fs::metadata(&tangram_path) {
@@ -264,6 +286,8 @@ fn root_is_current(path: &Path, input_modified: SystemTime, vm: bool) -> tg::Res
 			return Ok(false);
 		}
 	}
+
+	// Compare the root filesystem and input modification times.
 	let modified = metadata.modified().map_err(|error| {
 		tg::error!(
 			!error,
@@ -272,6 +296,7 @@ fn root_is_current(path: &Path, input_modified: SystemTime, vm: bool) -> tg::Res
 		)
 	})?;
 	let current = modified > input_modified;
+
 	Ok(current)
 }
 
@@ -370,6 +395,7 @@ fn set_rootfs_permissions(
 }
 
 fn create_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
+	// Create the directory mountpoints.
 	for path in [
 		"/dev",
 		"/dev/pts",
@@ -389,6 +415,8 @@ fn create_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 	] {
 		create_guest_directory(rootfs_path, Path::new(path))?;
 	}
+
+	// Create the file mountpoints.
 	for path in [
 		"/socket",
 		"/etc/passwd",
@@ -399,6 +427,7 @@ fn create_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 	] {
 		create_guest_file(rootfs_path, Path::new(path))?;
 	}
+
 	Ok(())
 }
 
@@ -415,7 +444,10 @@ fn create_guest_directory(root_path: &Path, guest_path: &Path) -> tg::Result<()>
 }
 
 fn create_guest_file(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
+	// Resolve the guest file path.
 	let path = map_guest_path(root_path, guest_path)?;
+
+	// Check the existing target.
 	if let Ok(metadata) = std::fs::metadata(&path) {
 		if metadata.is_dir() {
 			return Err(tg::error!(
@@ -425,6 +457,8 @@ fn create_guest_file(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
 		}
 		return Ok(());
 	}
+
+	// Create the guest file.
 	if let Some(parent) = path.parent() {
 		std::fs::create_dir_all(parent).map_err(|error| {
 			tg::error!(
@@ -446,6 +480,7 @@ fn create_guest_file(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
 				"failed to create a guest file"
 			)
 		})?;
+
 	Ok(())
 }
 

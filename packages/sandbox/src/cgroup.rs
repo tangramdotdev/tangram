@@ -83,6 +83,7 @@ pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
 
 pub(crate) fn enter_before_exec(command: &mut std::process::Command, cgroup: libc::c_int) {
 	use std::os::unix::process::CommandExt as _;
+
 	// SAFETY: The pre_exec closure only invokes async-signal-safe system calls.
 	unsafe {
 		command.pre_exec(move || {
@@ -109,9 +110,13 @@ pub(crate) fn enter_before_exec(command: &mut std::process::Command, cgroup: lib
 impl Cgroup {
 	pub fn new(name: &str, options: &Options) -> tg::Result<Self> {
 		use std::os::unix::fs::OpenOptionsExt as _;
+
+		// Lock the memory admission check.
 		let _memory = MEMORY
 			.lock()
 			.map_err(|error| tg::error!(%error, "the memory admission lock is poisoned"))?;
+
+		// Resolve the current cgroup.
 		let root = Path::new("/sys/fs/cgroup");
 		if !root.join("cgroup.controllers").exists() {
 			return Err(tg::error!("cgroup v2 is not available"));
@@ -125,6 +130,8 @@ impl Cgroup {
 				tg::error!("the process is not running in a unified cgroup v2 hierarchy")
 			})?;
 		let current = root.join(current.trim_start_matches('/'));
+
+		// Select the required resource controllers.
 		let mut controllers = Vec::new();
 		if options.cpu.is_some() {
 			controllers.push("cpu");
@@ -135,6 +142,8 @@ impl Cgroup {
 		if options.pids.is_some() {
 			controllers.push("pids");
 		}
+
+		// Allocate the CPU capacity.
 		let allocation = options
 			.cpu_pool
 			.as_ref()
@@ -149,6 +158,8 @@ impl Cgroup {
 		if allocation.is_some() || (options.cpu_affinity && options.cpu_request.is_some()) {
 			controllers.push("cpuset");
 		}
+
+		// Select the parent cgroup and check memory admission.
 		let current = if let Some(allocation) = &allocation {
 			allocation.parent().to_owned()
 		} else {
@@ -160,7 +171,9 @@ impl Cgroup {
 			validate_memory(root, &current, memory.min)?;
 		}
 
+		// Open the parent cgroup.
 		let name = sanitize_name(name);
+
 		// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
 		let parent = std::fs::OpenOptions::new()
 			.read(true)
@@ -175,6 +188,8 @@ impl Cgroup {
 			})?;
 		let parent = OwnedFd::from(parent);
 		let path = current.join(&name);
+
+		// Allocate the swap budget.
 		let swap = match (options.swap, &options.swap_pool) {
 			(Some(resource), Some(pool)) => Some(pool.allocate(resource)?),
 			(Some(resource), None) if resource.max > 0 => {
@@ -182,6 +197,8 @@ impl Cgroup {
 			},
 			_ => None,
 		};
+
+		// Create the sandbox cgroup and cleanup state.
 		std::fs::create_dir(&path).map_err(|error| {
 			tg::error!(
 				!error,
@@ -219,6 +236,7 @@ impl Cgroup {
 			swap_allocation: swap,
 		};
 
+		// Configure the CPU allocation and limits.
 		if let Some(allocation) = &cgroup.allocation {
 			let mems = std::fs::read_to_string(current.join("cpuset.mems.effective"))
 				.map_err(|error| tg::error!(!error, "failed to read the CPU pool memory nodes"))?;
@@ -271,6 +289,7 @@ impl Cgroup {
 			})?;
 		}
 
+		// Configure the memory and swap limits.
 		if let Some(memory) = options.memory {
 			let memory_max = path.join("memory.max");
 			write_file(&memory_max, format!("{}\n", memory.max).as_bytes()).map_err(|error| {
@@ -335,6 +354,7 @@ impl Cgroup {
 			swap.bind(control)?;
 		}
 
+		// Configure the process limit.
 		if let Some(pids) = options.pids {
 			let pids_max = path.join("pids.max");
 			write_file(&pids_max, format!("{pids}\n").as_bytes()).map_err(|error| {
@@ -368,9 +388,11 @@ impl Cgroup {
 	pub fn cleanup(mut self) -> tg::Result<()> {
 		self.stop()?;
 		self.stopped = true;
+
 		// Retained swap allocations keep the directory alive until their data is released.
 		drop(self.allocation.take());
 		drop(self.swap_allocation.take());
+
 		Ok(())
 	}
 
@@ -465,6 +487,7 @@ impl Drop for Cgroup {
 		}
 		if let Err(error) = self.stop() {
 			tracing::error!(%error, path = %self.path.display(), "failed to stop the cgroup");
+
 			// Retain the core reservation when processes could still be executing on it.
 			if let Some(allocation) = self.allocation.take() {
 				allocation.retain();
@@ -614,6 +637,7 @@ fn open_file_at(
 	if fd < 0 {
 		return Err(std::io::Error::last_os_error());
 	}
+
 	// SAFETY: The successful openat call returned a new owned file descriptor.
 	let file = unsafe { std::fs::File::from_raw_fd(fd) };
 
@@ -640,6 +664,8 @@ mod tests {
 	#[test]
 	fn retained_swap_keeps_its_directory_until_usage_is_zero() {
 		use std::sync::atomic::{AtomicU64, Ordering};
+
+		// Create the retained cgroup directory.
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		let path = temp.path().join("sandbox");
 		std::fs::create_dir_all(&path).unwrap();
@@ -651,6 +677,8 @@ mod tests {
 			parent,
 		};
 		let cleanup = Arc::new(cleanup);
+
+		// Allocate the swap budget.
 		let pool = crate::budget::Pool::new(100, 0, 1);
 		let allocation = pool.allocate(100.into()).unwrap();
 		let usage = Arc::new(AtomicU64::new(90));
@@ -665,10 +693,14 @@ mod tests {
 			}),
 		};
 		allocation.bind(control).unwrap();
+
+		// Release the allocation while swap remains in use.
 		drop(cleanup);
 		drop(allocation);
 		assert!(path.exists());
 		assert!(pool.allocate(tg::sandbox::Resource::new(20, 20)).is_err());
+
+		// Release the retained directory after swap usage reaches zero.
 		usage.store(0, Ordering::SeqCst);
 		assert!(pool.allocate(tg::sandbox::Resource::new(20, 20)).is_ok());
 		assert!(!path.exists());

@@ -160,22 +160,28 @@ fn child_main(
 			"the vhost-user daemon exited with an error"
 		));
 	}
+
 	Ok(())
 }
 
 fn enter_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
+	// Create the user namespace.
 	let host_uid = unsafe { libc::getuid() };
 	let host_gid = unsafe { libc::getgid() };
 	if unsafe { libc::unshare(libc::CLONE_NEWUSER) } != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to unshare the user namespace"));
 	}
+
+	// Install the identity maps.
 	std::fs::write("/proc/self/uid_map", format!("{uid} {host_uid} 1\n"))
 		.map_err(|error| tg::error!(!error, "failed to write the uid map"))?;
 	std::fs::write("/proc/self/setgroups", "deny")
 		.map_err(|error| tg::error!(!error, "failed to deny setgroups"))?;
 	std::fs::write("/proc/self/gid_map", format!("{gid} {host_gid} 1\n"))
 		.map_err(|error| tg::error!(!error, "failed to write the gid map"))?;
+
+	// Create a private mount namespace.
 	if unsafe { libc::unshare(libc::CLONE_NEWNS) } != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to unshare the mount namespace"));
@@ -197,5 +203,6 @@ fn enter_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
 			"failed to make the mount namespace private"
 		));
 	}
+
 	Ok(())
 }

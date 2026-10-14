@@ -24,9 +24,12 @@ pub struct Arg {
 }
 
 pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
+	// Validate the command.
 	if arg.command.is_empty() {
 		return Err(tg::error!("a command is required"));
 	}
+
+	// Read the sandbox profile.
 	let profile = std::fs::read(&arg.profile).map_err(|error| {
 		tg::error!(
 			!error,
@@ -36,6 +39,8 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	})?;
 	let profile = CString::new(profile)
 		.map_err(|error| tg::error!(!error, "failed to encode the sandbox profile"))?;
+
+	// Initialize the seatbelt sandbox.
 	let mut errorbuf = std::ptr::null();
 	let result = unsafe { sandbox_init(profile.as_ptr(), 0, &raw mut errorbuf) };
 	if result != 0 {
@@ -47,7 +52,10 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			sandbox_free_error(errorbuf);
 		}
 	}
+
+	// Execute the command.
 	exec_command(arg)?;
+
 	unreachable!()
 }
 

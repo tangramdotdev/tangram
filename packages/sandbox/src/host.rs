@@ -30,14 +30,19 @@ pub fn validate(filesystem_path: &Path) -> tg::Result<()> {
 fn validate_filesystem(root: &Path) -> tg::Result<()> {
 	const PROJECT: u32 = i32::MAX.cast_unsigned();
 
+	// Create the quota probe.
 	let name = format!("tangram-quota-probe-{:016x}", rand::random::<u64>());
 	let path = root.join(name);
 	let result = crate::filesystem::create(&path, PROJECT, Some(64 * 1024), Some(4));
+
+	// Check the quota enforcement.
 	let enforcement_result = if result.is_ok() {
 		probe_filesystem_enforcement(&path)
 	} else {
 		Ok(())
 	};
+
+	// Remove the probe files and quota.
 	let mut file_remove_result = Ok(());
 	for name in ["bytes", "inode-0", "inode-1", "inode-2", "inode-3"] {
 		if let Err(error) = remove_probe_file(&path.join(name))
@@ -56,6 +61,8 @@ fn validate_filesystem(root: &Path) -> tg::Result<()> {
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
 		Err(error) => Err(error),
 	};
+
+	// Report the probe and cleanup errors.
 	result.map_err(|error| {
 		tg::error!(
 			!error,
@@ -96,10 +103,12 @@ fn validate_filesystem(root: &Path) -> tg::Result<()> {
 }
 
 fn probe_filesystem_enforcement(path: &Path) -> tg::Result<()> {
+	// Probe the byte quota enforcement.
 	let byte_path = path.join("bytes");
 	let file = std::fs::File::create(&byte_path).map_err(|error| {
 		tg::error!(!error, path = %byte_path.display(), "failed to create the project byte quota probe")
 	})?;
+
 	// SAFETY: The descriptor is valid and the offset and length are nonnegative.
 	let result = unsafe { libc::fallocate(file.as_raw_fd(), 0, 0, 128 * 1024) };
 	if result == 0 {
@@ -114,11 +123,14 @@ fn probe_filesystem_enforcement(path: &Path) -> tg::Result<()> {
 			"the project byte quota probe failed with an unexpected error"
 		));
 	}
+
+	// Remove the byte quota probe file.
 	drop(file);
 	remove_probe_file(&byte_path).map_err(|error| {
 		tg::error!(!error, path = %byte_path.display(), "failed to remove the project byte quota probe")
 	})?;
 
+	// Probe the inode quota enforcement.
 	for index in 0..4 {
 		let path = path.join(format!("inode-{index}"));
 		match std::fs::File::create(&path) {
@@ -150,6 +162,7 @@ fn remove_probe_file(path: &Path) -> std::io::Result<()> {
 }
 
 fn validate_user_namespaces() -> tg::Result<()> {
+	// Check the user namespace limit.
 	let path = Path::new("/proc/sys/user/max_user_namespaces");
 	let value = std::fs::read_to_string(path).map_err(|error| {
 		tg::error!(
@@ -171,6 +184,8 @@ fn validate_user_namespaces() -> tg::Result<()> {
 			"user namespaces are disabled; set user.max_user_namespaces to a positive value"
 		));
 	}
+
+	// Check whether unprivileged user namespaces are enabled.
 	// SAFETY: geteuid has no arguments or memory safety requirements.
 	if unsafe { libc::geteuid() } != 0 {
 		let path = Path::new("/proc/sys/kernel/unprivileged_userns_clone");
@@ -192,6 +207,8 @@ fn validate_user_namespaces() -> tg::Result<()> {
 			},
 		}
 	}
+
+	// Probe the required namespace operations.
 	probe_container_namespaces().map_err(|error| {
 		let stage = namespace_probe_stage(error.stage);
 		tg::error!(
@@ -205,12 +222,16 @@ fn validate_user_namespaces() -> tg::Result<()> {
 }
 
 fn probe_container_namespaces() -> Result<(), NamespaceProbeError> {
+	// Encode the identity maps.
 	// SAFETY: getuid and getgid have no arguments or memory safety requirements.
 	let uid = unsafe { libc::getuid() };
 	let gid = unsafe { libc::getgid() };
 	let uid_map = CString::new(format!("0 {uid} 1\n")).unwrap();
 	let gid_map = CString::new(format!("0 {gid} 1\n")).unwrap();
+
+	// Create the probe result pipe.
 	let mut pipe = [0; 2];
+
 	// SAFETY: The pipe array is valid for both returned descriptors.
 	if unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
 		return Err(NamespaceProbeError {
@@ -218,10 +239,13 @@ fn probe_container_namespaces() -> Result<(), NamespaceProbeError> {
 			stage: 0,
 		});
 	}
+
+	// Fork the namespace probe.
 	// SAFETY: fork duplicates the process and returns in both branches.
 	let pid = unsafe { libc::fork() };
 	if pid < 0 {
 		let error = std::io::Error::last_os_error();
+
 		// SAFETY: Both descriptors were created by pipe2 and remain owned here.
 		unsafe {
 			libc::close(pipe[0]);
@@ -290,8 +314,11 @@ fn probe_container_namespaces() -> Result<(), NamespaceProbeError> {
 			libc::_exit(0);
 		}
 	}
+
+	// Read the probe result.
 	// SAFETY: The parent owns the read end and no longer needs the write end.
 	unsafe { libc::close(pipe[1]) };
+
 	// SAFETY: The read descriptor is uniquely owned by the parent.
 	let mut reader = unsafe { std::fs::File::from_raw_fd(pipe[0]) };
 	let mut bytes = [0; std::mem::size_of::<[libc::c_int; 2]>()];
@@ -304,6 +331,8 @@ fn probe_container_namespaces() -> Result<(), NamespaceProbeError> {
 			Err(error) => return Err(NamespaceProbeError { error, stage: 0 }),
 		}
 	}
+
+	// Wait for the probe process.
 	let mut status = 0;
 	loop {
 		// SAFETY: The pid identifies the child created above and status is writable.
@@ -316,6 +345,8 @@ fn probe_container_namespaces() -> Result<(), NamespaceProbeError> {
 			return Err(NamespaceProbeError { error, stage: 0 });
 		}
 	}
+
+	// Report the probe failure.
 	if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 {
 		return Ok(());
 	}
@@ -421,6 +452,7 @@ fn validate_cgroup_features(current: &Path) -> tg::Result<()> {
 
 fn validate_seccomp() -> tg::Result<()> {
 	let mut action = libc::SECCOMP_RET_ERRNO;
+
 	// SAFETY: The kernel only reads and may normalize the action value.
 	let result = unsafe {
 		libc::syscall(
@@ -448,13 +480,19 @@ fn validate_mount_syscalls() -> tg::Result<()> {
 }
 
 fn probe_openat2() -> tg::Result<()> {
+	// Encode the path resolution options.
 	let path = CString::new(".").unwrap();
+
 	// SAFETY: The open_how type is valid when zero initialized.
 	let mut how: libc::open_how = unsafe { std::mem::zeroed() };
 	how.flags = u64::try_from(libc::O_PATH | libc::O_CLOEXEC).unwrap();
 	how.resolve = 0x08 | 0x02 | 0x04;
+
+	// Open the probe root.
 	let root = std::fs::File::open("/")
 		.map_err(|error| tg::error!(!error, "failed to open the root for the openat2 probe"))?;
+
+	// Probe the constrained path lookup.
 	// SAFETY: The path and open_how pointers remain valid for the syscall.
 	let fd = unsafe {
 		libc::syscall(
@@ -472,6 +510,8 @@ fn probe_openat2() -> tg::Result<()> {
 			"openat2 is unavailable or blocked; hardened container mounts require openat2"
 		));
 	}
+
+	// Close the probe descriptor.
 	// SAFETY: The syscall returned a newly owned descriptor.
 	unsafe { libc::close(fd.try_into().unwrap()) };
 

@@ -5,6 +5,7 @@ import sys
 import threading
 
 
+# Create the configuration pipe.
 contents = pathlib.Path(sys.argv[2]).read_bytes()
 reader, writer = os.pipe()
 errors = []
@@ -18,6 +19,7 @@ def write_config():
         errors.append(error)
 
 
+# Start the writer and launcher.
 thread = threading.Thread(target=write_config)
 thread.start()
 try:
@@ -27,6 +29,8 @@ try:
     )
 finally:
     os.close(reader)
+
+# Wait for the launcher and verify the writer completed.
 status = process.wait(timeout=30)
 thread.join(timeout=5)
 assert not thread.is_alive(), 'the configuration writer did not complete'

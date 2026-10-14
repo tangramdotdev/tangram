@@ -20,16 +20,23 @@ pub struct Args {
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Create(self::create::Args),
+
 	Destroy(self::destroy::Args),
+
 	Get(self::get::Args),
+
 	#[command(hide = true)]
 	Init(self::init::Args),
+
 	#[command(alias = "ls")]
 	List(self::list::Args),
+
 	#[command(hide = true)]
 	Run(self::run::Args),
+
 	#[command(hide = true)]
 	Serve(self::serve::Args),
+
 	Wait(self::wait::Args),
 }
 
@@ -62,12 +69,16 @@ pub struct Options {
 
 	#[arg(action = clap::ArgAction::Append, id = "sandbox.ports", long = "port", num_args = 1, short = 'p')]
 	pub ports: Vec<tg::sandbox::Port>,
+
 	#[arg(alias = "storage-max", id = "sandbox.storage", long = "storage", value_parser = parse_bytes)]
 	pub storage: Option<u64>,
+
 	#[arg(id = "sandbox.storage_min", long = "storage-min", value_parser = parse_bytes)]
 	pub storage_min: Option<u64>,
+
 	#[arg(alias = "swap-max", id = "sandbox.swap", long = "swap", value_parser = parse_bytes)]
 	pub swap: Option<u64>,
+
 	#[arg(id = "sandbox.swap_min", long = "swap-min", value_parser = parse_bytes)]
 	pub swap_min: Option<u64>,
 }

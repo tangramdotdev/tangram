@@ -10,16 +10,27 @@ use {
 pub(super) struct Output {
 	#[debug(ignore)]
 	pub allocation: Option<crate::runner::capacity::Allocation>,
+
 	pub cached: bool,
+
 	pub data: tg::process::Data,
+
 	pub id: tg::process::Id,
+
 	pub lease: Option<String>,
+
 	pub parent: Option<tg::process::Id>,
+
 	pub parent_sandbox: Option<tg::sandbox::Id>,
+
 	pub process_token: Option<String>,
+
 	pub sandbox_arg: Option<tg::sandbox::create::Arg>,
+
 	pub sandbox_token: Option<String>,
+
 	pub scheduler: Option<tg::scheduler::Id>,
+
 	pub tokens: tg::authorization::Tokens,
 }
 
@@ -142,6 +153,7 @@ impl Session {
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
 		let overcommit = self.server.runner.state().capacity().get().overcommit;
+
 		loop {
 			let scheduler = self.server.runner.state().wait_for_scheduler().await;
 			if !self.server.runner.state().healthy()
@@ -149,6 +161,7 @@ impl Session {
 			{
 				return Ok(());
 			}
+
 			// Report potential capacity before waiting for an outstanding borrower to finish.
 			let notification = tg::process::control::BorrowableCapacityClientNotification {
 				available: false,
@@ -280,6 +293,7 @@ impl Session {
 			return Ok(());
 		}
 		output?.ok_or_else(|| tg::error!("failed to load the command"))?;
+
 		Ok(())
 	}
 
@@ -345,6 +359,7 @@ impl Session {
 		write_command_permissions: bool,
 		host: &str,
 	) -> tg::Result<Output> {
+		// Resolve the process owner.
 		let requested_owner = match &arg.sandbox {
 			Some(tg::Either::Left(sandbox)) => sandbox.owner.clone(),
 			Some(tg::Either::Right(sandbox)) => {
@@ -418,12 +433,15 @@ impl Session {
 			self.verify_billing(owner.as_ref()).await?;
 		}
 
+		// Create the process identity and tokens.
 		let id = tg::process::Id::new();
 		let now = self.server.clock.unix_timestamp()?;
 		let token = self.create_process_wait_token(&id, now)?;
 		let process_token = self
 			.server
 			.create_process_authentication_token(id.clone())?;
+
+		// Resolve the sandbox and terminal settings.
 		let (sandbox, sandbox_arg, sandbox_token) = match &arg.sandbox {
 			Some(tg::Either::Left(sandbox_arg)) => {
 				let mut sandbox_arg = Self::normalize_sandbox_create_arg(sandbox_arg.clone())?;
@@ -458,6 +476,8 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid tty"))
 			})
 			.transpose()?;
+
+		// Create the process data and response.
 		let checksum = tg::process::Checksum {
 			actual: None,
 			expected: arg.checksum.clone(),
@@ -498,6 +518,7 @@ impl Session {
 			scheduler: arg.scheduler.clone(),
 			tokens: tg::authorization::Tokens::with_authorization(token),
 		};
+
 		// Write the creator permissions independently of the sandbox and prepare command access.
 		let mut items = Vec::new();
 		if let Some(permission) = self.spawn_process_create_creator_permission_arg(&id, now)? {

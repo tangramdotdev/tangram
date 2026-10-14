@@ -86,8 +86,10 @@ pub struct Usage {
 	/// The integral of actual memory use in mebibyte-milliseconds.
 	#[tangram_serialize(id = 1)]
 	pub memory: ResourceUsage,
+
 	#[tangram_serialize(id = 2)]
 	pub storage: ResourceUsage,
+
 	#[tangram_serialize(id = 3)]
 	pub swap: ResourceUsage,
 }
@@ -108,6 +110,7 @@ pub struct Usage {
 pub struct ResourceUsage {
 	#[tangram_serialize(id = 0)]
 	pub consumption: u64,
+
 	#[tangram_serialize(id = 1)]
 	pub reservation: u64,
 }

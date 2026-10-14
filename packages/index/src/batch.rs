@@ -108,6 +108,7 @@ mod tests {
 
 	#[test]
 	fn serialization_roundtrip() {
+		// Create the batch items.
 		let group = tg::group::Id::new();
 		let organization = tg::organization::Id::new();
 		let sandbox = tg::sandbox::Id::new();
@@ -195,8 +196,12 @@ mod tests {
 				}),
 			],
 		};
+
+		// Serialize and deserialize the batch.
 		let bytes = arg.serialize().unwrap();
 		let arg = Arg::deserialize(&bytes).unwrap();
+
+		// Verify the deserialized items.
 		assert_eq!(arg.items.len(), 10);
 		let Item::PutPermission(permission_arg) = &arg.items[6] else {
 			panic!();

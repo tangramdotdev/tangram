@@ -162,6 +162,7 @@ async fn reconnect_preserves_the_process_and_read_cursor() {
 					)))
 					.await
 					.unwrap();
+
 				// Ending the response body closes this physical connection while preserving buffered messages.
 			}
 		});

@@ -267,6 +267,7 @@ export namespace Sandbox {
 
 	export namespace Arg {
 		export let toData = (arg: tg.Sandbox.Arg): tg.Sandbox.DataArg => {
+			// Convert the sandbox identity and location settings.
 			let output: tg.Sandbox.DataArg = {};
 			if (arg.cpu !== undefined) {
 				output.cpu = arg.cpu === null ? null : tg.Sandbox.Cpu.from(arg.cpu);
@@ -283,6 +284,8 @@ export namespace Sandbox {
 						? null
 						: tg.Location.Arg.toDataString(arg.location);
 			}
+
+			// Convert the resource settings.
 			if (arg.memory !== undefined) {
 				output.memory =
 					arg.memory === null ? null : tg.Sandbox.Resource.from(arg.memory);
@@ -293,6 +296,7 @@ export namespace Sandbox {
 					output[key] = value === null ? null : tg.Sandbox.Resource.from(value);
 			}
 
+			// Convert the mount and network settings.
 			if (arg.mounts !== undefined && arg.mounts !== null) {
 				output.mounts = arg.mounts.map(tg.Sandbox.Mount.toDataString);
 			}
@@ -300,12 +304,15 @@ export namespace Sandbox {
 			if (network !== undefined) {
 				output.network = network;
 			}
+
+			// Copy the owner and lifetime settings.
 			if (arg.owner !== undefined) {
 				output.owner = arg.owner;
 			}
 			if (arg.ttl !== undefined) {
 				output.ttl = arg.ttl;
 			}
+
 			return output;
 		};
 	}

@@ -56,18 +56,25 @@ impl Accounting {
 		resources: tg::runner::Capacity,
 		interval: Duration,
 	) -> tg::Result<Self> {
+		// Validate the sampling interval.
 		if interval.is_zero() {
 			return Err(tg::error!(
 				"the memory sampling interval must be greater than zero"
 			));
 		}
+
+		// Initialize the usage accumulator.
 		let initial = source()?;
 		let started_at = Instant::now();
 		let mut accumulator = Accumulator::new(resources, initial, started_at);
+
+		// Create the control channels.
 		let (requests, mut request_receiver) = tokio::sync::mpsc::channel::<
 			tokio::sync::oneshot::Sender<tg::Result<tg::sandbox::Usage>>,
 		>(1);
 		let (stop, mut receiver) = tokio::sync::watch::channel(false);
+
+		// Start the sampling task.
 		let task = tokio::spawn(async move {
 			let mut timer =
 				tokio::time::interval_at(tokio::time::Instant::now() + interval, interval);
@@ -88,6 +95,7 @@ impl Accounting {
 			let usage = accumulator.usage()?;
 			Ok(usage)
 		});
+
 		Ok(Self {
 			requests,
 			result: None,
@@ -152,12 +160,15 @@ impl Accumulator {
 	}
 
 	fn sample(&mut self, snapshot: Snapshot, at: Instant) -> tg::Result<()> {
+		// Sample the CPU consumption.
 		let duration = at.duration_since(self.previous_at).as_nanos();
 		let cpu = snapshot
 			.cpu
 			.checked_sub(self.previous.cpu)
 			.ok_or_else(|| tg::error!("the CPU counter decreased"))?;
 		self.sample_cpu(u128::from(cpu) * 1000, duration)?;
+
+		// Sample the memory, storage, and swap consumption.
 		for (accumulated, previous, current, minimum) in [
 			(
 				&mut self.memory,
@@ -184,8 +195,10 @@ impl Accumulator {
 				.ok_or_else(|| tg::error!("the resource consumption overflowed"))?;
 		}
 
+		// Update the previous usage snapshot.
 		self.previous = snapshot;
 		self.previous_at = at;
+
 		Ok(())
 	}
 
@@ -251,6 +264,7 @@ impl Accumulator {
 		let memory = byte_usage(self.memory, self.resources.memory.min, duration)?;
 		let storage = byte_usage(self.storage, self.resources.storage.min, duration)?;
 		let swap = byte_usage(self.swap, self.resources.swap.min, duration)?;
+
 		Ok(tg::sandbox::Usage {
 			cpu,
 			memory,
@@ -305,6 +319,7 @@ mod tests {
 
 	#[test]
 	fn charges_the_minimum_and_clips_each_consumption_interval() {
+		// Create the usage accumulator.
 		let started_at = Instant::now();
 		let cpu = tg::sandbox::Cpu::new(
 			tg::sandbox::Amount::from_millis(250),
@@ -315,6 +330,8 @@ mod tests {
 			..Default::default()
 		};
 		let mut accumulator = Accumulator::new(resources, Snapshot::default(), started_at);
+
+		// Sample the consumption intervals.
 		accumulator
 			.sample(
 				Snapshot {
@@ -333,6 +350,8 @@ mod tests {
 				started_at + Duration::from_secs(2),
 			)
 			.unwrap();
+
+		// Verify the charged usage.
 		let usage = accumulator.usage().unwrap();
 		assert_eq!(usage.cpu.reservation, 500);
 		assert_eq!(usage.cpu.consumption, 550);

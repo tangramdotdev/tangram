@@ -378,6 +378,7 @@ def normalize_network(value, ports=()):
 
 
 def arg_to_data(arg):
+    # Copy the scalar settings.
     output = {
         key: arg[key]
         for key in (
@@ -392,6 +393,8 @@ def arg_to_data(arg):
         )
         if key in arg
     }
+
+    # Convert the location, mount, and network settings.
     if "location" in arg:
         output["location"] = _location_data(arg["location"])
     if arg.get("mounts") is not None:
@@ -399,9 +402,12 @@ def arg_to_data(arg):
     network = normalize_network(arg.get("network"), arg.get("ports") or [])
     if network is not None:
         output["network"] = network
+
+    # Normalize the resource settings.
     for key in ("cpu", "memory", "storage", "swap"):
         if key in output and output[key] is not None:
             output[key] = normalize_resource(output[key], cpu=key == "cpu")
+
     return output
 
 

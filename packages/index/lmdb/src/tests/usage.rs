@@ -474,6 +474,7 @@ async fn aggregates_parent_periods_without_boundary_usage() {
 	aggregate(&index, now).await;
 
 	let transaction = index.env.write_txn().unwrap();
+
 	for period in [
 		tangram_index::usage::Period::day("1970-01-01").unwrap(),
 		tangram_index::usage::Period::month("1970-01").unwrap(),

@@ -44,6 +44,7 @@ impl Session {
 		&self,
 		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
+		// Authorize and normalize the sandbox request.
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
@@ -53,6 +54,8 @@ impl Session {
 		if arg.host.is_none() {
 			return Err(tg::error!("missing sandbox host"));
 		}
+
+		// Resolve the sandbox owner.
 		let creator = self.context.principal.clone();
 		let owner = arg
 			.owner
@@ -60,6 +63,8 @@ impl Session {
 			.or_else(|| (!matches!(creator, tg::Principal::Root)).then(|| creator.clone()));
 		arg.owner.clone_from(&owner);
 		self.verify_billing(owner.as_ref()).await?;
+
+		// Validate the backend and resources.
 		let isolation = self.server.resolve_sandbox_backend()?;
 		Server::validate_sandbox_resources(
 			&isolation,
@@ -70,6 +75,7 @@ impl Session {
 			arg.swap,
 		)?;
 
+		// Create the sandbox identity and control token.
 		let id = tg::sandbox::Id::new();
 		tracing::Span::current().record("sandbox", tracing::field::display(&id));
 		tracing::info!(sandbox = %id, "scheduling the sandbox");
@@ -77,6 +83,7 @@ impl Session {
 			.server
 			.create_sandbox_authentication_token(id.clone())?;
 
+		// Schedule the sandbox and wait for its connection.
 		let mut connection_future = self.subscribe_sandbox_connection(&id).await?;
 
 		let request = crate::scheduler::EnqueueSandboxRequestArg {

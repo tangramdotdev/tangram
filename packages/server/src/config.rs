@@ -588,6 +588,7 @@ pub struct FdbIndex {
 	pub usage_update_partition_total: u64,
 
 	pub verification: FdbIndexVerification,
+
 	pub write_operation_batch_size: usize,
 
 	pub write_transaction_concurrency: usize,
@@ -757,6 +758,7 @@ pub struct IndexerUsageExpiration {
 #[derive(Clone, Debug)]
 pub struct IndexerUpdates {
 	pub max_process_depth: usize,
+
 	pub permissions: IndexerUpdate,
 
 	pub poll_interval: Duration,
@@ -790,9 +792,11 @@ pub struct MemoryMessenger {
 #[derive(Clone, Debug)]
 pub struct NatsMessenger {
 	pub credentials: Option<PathBuf>,
+
 	pub password: Option<String>,
 
 	pub url: Uri,
+
 	pub username: Option<String>,
 }
 
@@ -1099,6 +1103,7 @@ pub struct RemoteCache {
 #[derive(Clone, Debug)]
 pub struct Runner {
 	pub backend: RunnerBackend,
+
 	pub control_channel_capacity: usize,
 
 	/// Whether to pin each sandbox without a CPU pool to as many hardware threads as its CPU maximum, which requires the cpuset cgroup controller.
@@ -1156,9 +1161,11 @@ pub struct Runner {
 	pub sandbox_state_ttl: Duration,
 
 	pub scheduler_ttl: Duration,
+
 	pub stdio_drain_timeout: Duration,
 
 	pub storage: Option<u64>,
+
 	pub swap: Option<u64>,
 
 	pub token: Option<String>,
@@ -1264,6 +1271,7 @@ impl RunnerBackend {
 
 	#[must_use]
 	pub fn resources(&self, common: &RunnerResources) -> tangram_sandbox::Resources {
+		// Resolve the backend resources.
 		let mut resources = match self {
 			Self::Builtin(config) => tangram_sandbox::Resources {
 				gid_map: config.gid_map.as_ref().map(Into::into),
@@ -1293,6 +1301,8 @@ impl RunnerBackend {
 				..Default::default()
 			},
 		};
+
+		// Apply the common resource settings.
 		let harden = self.harden();
 		resources.cgroup_readonly = harden;
 		resources.max_duration = common
@@ -1300,6 +1310,8 @@ impl RunnerBackend {
 			.or(harden.then_some(Duration::from_hours(1)));
 		resources.max_pids = common.max_pids.or(harden.then_some(1024));
 		resources.memory_swap = common.memory_swap.or(harden.then_some(0));
+
+		// Apply the hardened resource defaults.
 		if harden {
 			resources.max_filesystem_inodes.get_or_insert(262_144);
 			resources.max_filesystem_size.get_or_insert(1_073_741_824);
@@ -1345,6 +1357,7 @@ impl FilesystemProjectIds {
 		let end = self.start.checked_add(self.count).ok_or_else(|| {
 			tg::error!("the container filesystem project ID range exceeds the valid range")
 		})?;
+
 		// Reserve the highest supported project ID for the quota prerequisite probe.
 		if end > i32::MAX.cast_unsigned() {
 			return Err(tg::error!(
@@ -1383,6 +1396,7 @@ impl IdMap {
 				"the container {kind} map helper path must be absolute"
 			));
 		}
+
 		// SAFETY: This function has no preconditions.
 		if unsafe { libc::geteuid() } == 0 {
 			return Ok(());
@@ -1410,6 +1424,7 @@ impl IdMap {
 				));
 			}
 		}
+
 		Ok(())
 	}
 }
@@ -1753,6 +1768,7 @@ pub struct SyncPutResolve {
 #[derive(Clone, Debug)]
 pub struct SyncPutStore {
 	pub object_batch_size: usize,
+
 	pub object_batch_timeout: Duration,
 
 	pub object_concurrency: usize,

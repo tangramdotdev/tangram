@@ -1158,6 +1158,7 @@ pub struct IndexerUsageExpiration {
 pub struct IndexerUpdates {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_process_depth: Option<usize>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permissions: Option<IndexerUpdate>,
 
@@ -1802,8 +1803,10 @@ pub struct Runner {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdio_drain_timeout: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub swap: Option<u64>,
 
@@ -1826,18 +1829,25 @@ pub enum RunnerBackend {
 pub struct BuiltinBackend {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub gid_map: Option<IdMap>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub harden: Option<bool>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_filesystem_inodes: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_filesystem_size: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_open_files: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage_limits: Option<bool>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub uid_map: Option<IdMap>,
 }
@@ -1847,16 +1857,22 @@ pub struct BuiltinBackend {
 pub struct BubblewrapBackend {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub harden: Option<bool>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_filesystem_inodes: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_filesystem_size: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_open_files: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage_limits: Option<bool>,
 }
@@ -1866,16 +1882,22 @@ pub struct BubblewrapBackend {
 pub struct GvisorBackend {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub harden: Option<bool>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_filesystem_inodes: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_filesystem_size: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_open_files: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
+
 	#[serde(default)]
 	pub platform: tangram_sandbox::Platform,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage_limits: Option<bool>,
 }
@@ -2921,6 +2943,7 @@ pub struct Tracing {
 #[from_str(rename_all = "snake_case")]
 pub enum TracingFormat {
 	Json,
+
 	#[default]
 	Pretty,
 }
@@ -2929,6 +2952,7 @@ pub enum TracingFormat {
 #[serde(rename_all = "snake_case")]
 pub enum TracingOutput {
 	Otlp,
+
 	#[default]
 	Stderr,
 }
@@ -3232,8 +3256,11 @@ fn is_default_export(export: &String) -> bool {
 }
 
 fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
+	// Create the default server configuration.
 	let source = source.clone();
 	let mut target = server::Config::default();
+
+	// Apply the configured server settings.
 	if let Some(accounts) = source.accounts {
 		target.accounts = accounts;
 	}
@@ -4997,11 +5024,14 @@ fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {
 }
 
 fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
+	// Create the default runner configuration.
 	let mut target = server::Runner {
 		cpu_affinity: source.cpu_affinity.unwrap_or_default(),
 		cpu_pool: source.cpu_pool,
 		..Default::default()
 	};
+
+	// Apply the capacity and channel settings.
 	if let Some(value) = source.control_channel_capacity {
 		target.control_channel_capacity = value;
 	}
@@ -5023,6 +5053,8 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.memory_sampling_interval {
 		target.memory_sampling_interval = value;
 	}
+
+	// Resolve the backend and resource settings.
 	if let Some(source) = source.backend {
 		target.backend = resolve_runner_backend(source)?;
 	}
@@ -5032,6 +5064,8 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(source) = source.javascript {
 		target.javascript = resolve_javascript(source);
 	}
+
+	// Apply the runner lifecycle settings.
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
 	}
@@ -5095,6 +5129,7 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.token {
 		target.token = Some(value);
 	}
+
 	Ok(target)
 }
 
@@ -5253,7 +5288,10 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 }
 
 fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
+	// Create the default sandbox configuration.
 	let mut target = server::Sandbox::default();
+
+	// Apply the configured sandbox settings.
 	if let Some(value) = source.build_attempts {
 		target.build_attempts = value;
 	}
@@ -6300,6 +6338,7 @@ mod tests {
 
 	#[test]
 	fn runner_backend_settings_apply_only_to_supported_backends() {
+		// Verify the host seccomp settings.
 		for kind in ["builtin", "bubblewrap"] {
 			let source: Runner = serde_json::from_value(serde_json::json!({
 				"backend": { "kind": kind, "max_open_files": 512, "seccomp": "default" }
@@ -6313,6 +6352,8 @@ mod tests {
 				Some(tangram_sandbox::SeccompPolicy::Default)
 			);
 		}
+
+		// Verify the gVisor resource settings.
 		let source: Runner = serde_json::from_value(serde_json::json!({
 			"backend": { "kind": "gvisor", "max_open_files": 256, "harden": true }
 		}))
@@ -6322,6 +6363,8 @@ mod tests {
 		assert_eq!(resources.max_open_files, Some(256));
 		assert_eq!(resources.seccomp, None);
 		assert_eq!(resources.max_filesystem_size, Some(1_073_741_824));
+
+		// Reject seccomp settings for unsupported backends.
 		for kind in ["gvisor", "seatbelt", "cloud-hypervisor"] {
 			assert!(
 				serde_json::from_value::<Runner>(serde_json::json!({
@@ -6330,6 +6373,8 @@ mod tests {
 				.is_err()
 			);
 		}
+
+		// Reject subordinate identity maps for external runtimes.
 		for kind in ["bubblewrap", "gvisor"] {
 			assert!(
 				serde_json::from_value::<Runner>(serde_json::json!({
@@ -6348,6 +6393,7 @@ mod tests {
 
 	#[test]
 	fn parses_and_resolves_runner_resources() {
+		// Resolve the runner configuration.
 		let source: Runner = serde_json::from_value(serde_json::json!({
 			"backend": {
 				"kind": "builtin",
@@ -6368,6 +6414,7 @@ mod tests {
 		let target = resolve_runner(source).unwrap();
 		let container = target.backend.resources(&target.resources);
 
+		// Verify the resolved resource settings.
 		assert_eq!(target.resources.filesystem_project_ids.count, 10_000);
 		assert_eq!(target.resources.filesystem_project_ids.start, 20_000);
 		assert_eq!(container.gid_map.as_ref().unwrap().count, 65_536);

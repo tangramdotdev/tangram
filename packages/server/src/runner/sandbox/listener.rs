@@ -148,12 +148,14 @@ impl Server {
 					.parse::<tangram_uri::Uri>()
 					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
 			},
+
 			crate::http::Listener::Unix { .. } => tangram_uri::Uri::builder()
 				.scheme("http+unix")
 				.authority(guest_socket_path_string)
 				.path("")
 				.build()
 				.map_err(|error| tg::error!(!error, "failed to build the guest URL"))?,
+
 			#[cfg(feature = "vsock")]
 			crate::http::Listener::Vsock(vsock) => {
 				let addr = vsock
@@ -164,6 +166,7 @@ impl Server {
 					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
 			},
 		};
+
 		Ok((listener, guest_url, Some(host_socket_path)))
 	}
 }

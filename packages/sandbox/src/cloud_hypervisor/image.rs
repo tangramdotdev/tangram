@@ -14,10 +14,13 @@ pub struct Arg {
 }
 
 pub fn ensure(arg: &Arg) -> tg::Result<bool> {
+	// Check whether the image is current.
 	let mut root_modified = path_modified(&arg.path)?;
 	if !image_needs_create(&arg.image_path, root_modified)? {
 		return Ok(false);
 	}
+
+	// Build and install the image.
 	let temp_image_path = arg.image_path.with_extension("squashfs.tmp");
 	for _ in 0..arg.build_attempts {
 		let result = build_image(&arg.path, &temp_image_path);
@@ -44,11 +47,14 @@ pub fn ensure(arg: &Arg) -> tg::Result<bool> {
 		}
 		return Ok(true);
 	}
+
+	// Remove the temporary image after exhausting the build attempts.
 	std::fs::remove_file(&temp_image_path).ok();
 	let error = tg::error!(
 		attempts = %arg.build_attempts,
 		"the sandbox root did not stabilize while building the VM image"
 	);
+
 	Err(error)
 }
 
@@ -76,6 +82,7 @@ fn image_needs_create(image_path: &Path, input_modified: SystemTime) -> tg::Resu
 }
 
 fn build_image(rootfs_path: &Path, temp_image_path: &Path) -> tg::Result<()> {
+	// Prepare the temporary image path.
 	if let Some(parent) = temp_image_path.parent() {
 		std::fs::create_dir_all(parent).map_err(|error| {
 			tg::error!(!error, path = %parent.display(), "failed to create the image parent directory")
@@ -83,6 +90,7 @@ fn build_image(rootfs_path: &Path, temp_image_path: &Path) -> tg::Result<()> {
 	}
 	std::fs::remove_file(temp_image_path).ok();
 
+	// Build the squashfs image.
 	let status = std::process::Command::new("mksquashfs")
 		.arg(rootfs_path)
 		.arg(temp_image_path)
@@ -97,6 +105,8 @@ fn build_image(rootfs_path: &Path, temp_image_path: &Path) -> tg::Result<()> {
 	if !status.success() {
 		return Err(tg::error!(%status, "mksquashfs failed"));
 	}
+
+	// Set the image modification time.
 	let modified = SystemTime::now();
 	tangram_util::fs::set_modified_sync(temp_image_path, modified).map_err(|error| {
 		tg::error!(
@@ -105,6 +115,7 @@ fn build_image(rootfs_path: &Path, temp_image_path: &Path) -> tg::Result<()> {
 			"failed to set the VM image modification time"
 		)
 	})?;
+
 	Ok(())
 }
 

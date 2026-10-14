@@ -116,53 +116,100 @@ pub enum Shutdown {
 
 pub struct State {
 	archive: Option<Archive>,
+
 	archive_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
 	authentication_cache: Arc<self::authentication::cache::Cache>,
+
 	authentication_tokens: Tokens,
+
 	authorization_tokens: Tokens,
+
 	billing: Option<self::billing::Billing>,
+
 	cache: self::cache::Cache,
+
 	checkin_tasks: self::checkin::Tasks,
+
 	checkout_graph_tasks: self::checkout::internal::GraphTasks,
+
 	checkout_lock: self::checkout::Lock,
+
 	checkout_tasks: self::checkout::internal::Tasks,
+
 	checkout_xattr_value_size: Mutex<Option<usize>>,
+
 	checkpoints: Option<self::checkpoint::State>,
+
 	clock: self::clock::Clock,
+
 	config: Config,
+
 	context: Context,
+
 	database: Database,
+
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
+
 	index: Index,
+
 	index_changed: tokio::sync::Notify,
+
 	index_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
 	index_wait_sender: self::index::WaitSender,
+
 	indexers: self::indexer::Cache,
+
 	#[cfg(target_os = "linux")]
 	ip_pool: tangram_sandbox::network::ip::Pool,
+
 	library: Mutex<Option<Arc<Temp>>>,
+
 	lock: Mutex<Option<tokio::fs::File>>,
+
 	messenger: Messenger,
+
 	next_watch_id: AtomicU64,
+
 	notifications: self::notification::Notifications,
+
 	object_get_tasks: self::object::get::Tasks,
+
 	path: PathBuf,
+
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
+
 	remote_list_tasks: self::list::remote::Tasks,
+
 	remote_object_put_tasks: tangram_futures::task::Set<()>,
+
 	remote_process_put_tasks: tangram_futures::task::Set<()>,
+
 	runner: self::runner::Runner,
+
 	sandbox_assets: self::runner::assets::Assets,
+
 	sandbox_tasks: self::sandbox::Tasks,
+
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
+
 	sync_control_clients: self::sync::control::Clients,
+
 	sync_control_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
 	sync_index_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
 	tangram_path: PathBuf,
+
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	version: String,
+
 	vfs: Mutex<Option<self::vfs::Server>>,
+
 	watches: DashMap<self::watch::Key, Watch, fnv::FnvBuildHasher>,
 }
 
@@ -548,6 +595,7 @@ impl Server {
 		verification_search_config(&config.verification.permissions.final_)
 			.validate()
 			.map_err(|error| tg::error!(!error, "invalid final verification configuration"))?;
+
 		// Get or create the directory.
 		let directory = config.directory.clone().unwrap_or_else(|| {
 			let id = uuid::Uuid::now_v7();
@@ -862,6 +910,7 @@ impl Server {
 					"the indexer object cache partition range exceeds the partition total"
 				));
 			}
+
 			if indexer.request.archive_concurrency == 0
 				|| indexer.request.concurrency == 0
 				|| indexer.request.index_concurrency == 0
@@ -1289,10 +1338,12 @@ impl Server {
 					"the runner memory capacity must be greater than zero"
 				));
 			}
+
 			capacity
 		} else {
 			tg::runner::Capacity::default()
 		};
+
 		// Warm sandboxes would claim physical CPU slots before scheduler admission.
 		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner)
 			&& config.runner.cpu_pool.is_none()
@@ -1303,25 +1354,35 @@ impl Server {
 		};
 		let runner_config = self::runner::Config {
 			capacity,
+
 			#[cfg(target_os = "linux")]
 			cpu_pool,
+
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: config.runner.resources.filesystem_project_ids,
+
 			overcommit: config.runner.overcommit,
+
 			process_control_connection_pool_refresh_interval: config
 				.runner
 				.process_control_connection_pool_refresh_interval,
+
 			process_control_connection_pool_size: config
 				.runner
 				.process_control_connection_pool_size,
+
 			process_control_connection_pool_ttl: config.runner.process_control_connection_pool_ttl,
+
 			sandbox_control_connection_pool_refresh_interval: config
 				.runner
 				.sandbox_control_connection_pool_refresh_interval,
+
 			sandbox_control_connection_pool_size: config
 				.runner
 				.sandbox_control_connection_pool_size,
+
 			sandbox_control_connection_pool_ttl: config.runner.sandbox_control_connection_pool_ttl,
+
 			sandbox_pool_size,
 		};
 		let runner = self::runner::Runner::new(runner_config);
@@ -1735,53 +1796,100 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(State {
 			archive,
+
 			archive_tasks,
+
 			authentication_cache,
+
 			authentication_tokens,
+
 			authorization_tokens,
+
 			billing,
+
 			cache,
+
 			checkin_tasks,
+
 			checkout_graph_tasks,
+
 			checkout_lock,
+
 			checkout_tasks,
+
 			checkout_xattr_value_size: Mutex::new(None),
+
 			checkpoints,
+
 			clock,
+
 			config,
+
 			context,
+
 			database,
+
 			diagnostics,
+
 			index,
+
 			index_changed,
+
 			index_tasks,
+
 			index_wait_sender,
+
 			indexers,
+
 			#[cfg(target_os = "linux")]
 			ip_pool,
+
 			library,
+
 			lock,
+
 			messenger,
+
 			next_watch_id,
+
 			notifications,
+
 			object_get_tasks,
+
 			path,
+
 			regions,
+
 			remote_clients,
+
 			remote_list_tasks,
+
 			remote_object_put_tasks,
+
 			remote_process_put_tasks,
+
 			runner,
+
 			sandbox_assets,
+
 			sandbox_tasks,
+
 			shutdown,
+
 			sync_control_clients: self::sync::control::Clients::default(),
+
 			sync_control_tasks: tangram_futures::task::Set::default(),
+
 			sync_index_tasks: tangram_futures::task::Set::default(),
+
 			tangram_path,
+
 			temps,
+
 			version,
+
 			vfs,
+
 			watches,
 		}));
 
@@ -1905,6 +2013,7 @@ impl Server {
 								"failed to move the checkouts directory to the store path"
 							)
 						})?;
+
 					// Remove named checkout entries before exposing the physical store.
 					server
 						.remove_all_named_checkout_entries_with_lock(&checkout_guard)
@@ -2004,6 +2113,7 @@ impl Server {
 			} else {
 				config.listeners.clone()
 			};
+
 			// Add the socket shared with the macOS extension.
 			let group_socket = server
 				.config
@@ -2020,6 +2130,7 @@ impl Server {
 					.unwrap();
 				listeners.push(crate::config::HttpListener { url, tls: None });
 			}
+
 			listeners
 		} else {
 			Vec::new()
@@ -2127,6 +2238,7 @@ impl Server {
 
 		let shutdown = {
 			let server = server.clone();
+
 			async move {
 				tracing::trace!("started");
 

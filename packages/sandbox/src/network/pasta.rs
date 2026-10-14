@@ -38,9 +38,12 @@ pub struct Options {
 
 impl Network {
 	pub fn new(options: Options) -> tg::Result<Self> {
+		// Prepare the pid file.
 		let pid_file = temporary_pid_file();
 		remove_file_if_exists(&pid_file, "failed to remove the stale pid file")?;
 		create_empty_pid_file(&pid_file)?;
+
+		// Create the network synchronization socket.
 		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair()
 			.map_err(|error| tg::error!(!error, "failed to create the pasta sync socket pair"))?;
 		let guest_pipe = guest_pipe
@@ -49,6 +52,8 @@ impl Network {
 		guest_pipe
 			.set_nonblocking(false)
 			.map_err(|error| tg::error!(!error, "failed to set the guest pipe blocking"))?;
+
+		// Inherit the guest synchronization descriptor.
 		let raw = guest_pipe.as_raw_fd();
 		let flags = unsafe { libc::fcntl(raw, libc::F_GETFD) };
 		if flags < 0 {
@@ -62,6 +67,7 @@ impl Network {
 				"failed to clear FD_CLOEXEC on the guest pipe"
 			));
 		}
+
 		Ok(Self {
 			child: None,
 			dns: options.dns,
@@ -139,6 +145,7 @@ impl Network {
 			.write_u8(0)
 			.await
 			.map_err(|error| tg::error!(!error, "child process failed"))?;
+
 		Ok(())
 	}
 }

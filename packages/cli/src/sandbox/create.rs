@@ -28,6 +28,7 @@ pub struct Ttl {
 		overrides_with = "create.ttl.ttl"
 	)]
 	pub no_ttl: bool,
+
 	#[arg(id = "create.ttl.ttl", long = "ttl", overrides_with = "create.ttl.no_ttl", value_parser = humantime::parse_duration)]
 	pub ttl: Option<Duration>,
 }
@@ -44,12 +45,15 @@ impl Ttl {
 
 impl Cli {
 	pub async fn command_sandbox_create(&mut self, args: Args) -> tg::Result<()> {
+		// Resolve the sandbox settings.
 		let client = self.client().await?;
 		let cpu = crate::sandbox::cpu(&args.arg);
 		let ports = args.arg.ports;
 		let network = crate::sandbox::normalize_network(&args.arg.network, ports)?;
 		let owner = self.resolve_owner(&client, &args.arg.owner).await?;
 		let ttl = args.ttl.get(client.arg().sandbox.ttl);
+
+		// Create the sandbox.
 		let sandbox = tg::Sandbox::builder()
 			.cpu(cpu)
 			.host(args.host)
@@ -71,7 +75,10 @@ impl Cli {
 			.build_with_instance(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
+
+		// Print the sandbox referent.
 		Self::print_referent(&sandbox.to_referent(), &args.print);
+
 		Ok(())
 	}
 }

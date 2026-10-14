@@ -28,6 +28,7 @@ pub(crate) fn descriptor(policy: SeccompPolicy) -> tg::Result<i32> {
 	let fd = rustix::fs::memfd_create(c"tangram-seccomp", rustix::fs::MemfdFlags::empty())
 		.map_err(|error| tg::error!(!error, "failed to create the seccomp descriptor"))?;
 	let mut file = std::fs::File::from(fd);
+
 	// SAFETY: sock_filter is the initialized, padding-free Linux cBPF instruction ABI.
 	let bytes = unsafe {
 		std::slice::from_raw_parts(
@@ -39,6 +40,7 @@ pub(crate) fn descriptor(policy: SeccompPolicy) -> tg::Result<i32> {
 		.map_err(|error| tg::error!(!error, "failed to write the seccomp filter"))?;
 	file.rewind()
 		.map_err(|error| tg::error!(!error, "failed to rewind the seccomp filter"))?;
+
 	Ok(file.into_raw_fd())
 }
 
@@ -221,6 +223,7 @@ fn default_filter() -> tg::Result<Vec<libc::sock_filter>> {
 	target_arch = "x86_64"
 ))]
 fn allowed_syscalls() -> Vec<u32> {
+	// Collect the common syscall numbers.
 	let syscalls = [
 		libc::SYS_accept,
 		libc::SYS_accept4,
@@ -457,6 +460,8 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_writev,
 	];
 	let mut syscalls = syscalls.map(syscall_number).to_vec();
+
+	// Add the architecture-specific syscall numbers.
 	#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 	syscalls.extend(
 		[
@@ -509,6 +514,7 @@ fn allowed_syscalls() -> Vec<u32> {
 		]
 		.map(syscall_number),
 	);
+
 	syscalls
 }
 
@@ -563,6 +569,7 @@ mod tests {
 
 	#[test]
 	fn install_default_policy() {
+		// Run the syscall checks in the filtered child.
 		if std::env::var_os("TANGRAM_SECCOMP_TEST_CHILD").is_some() {
 			let result = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
 			assert_eq!(result, 0);
@@ -610,6 +617,7 @@ mod tests {
 			return;
 		}
 
+		// Spawn the filtered test child.
 		let executable = std::env::current_exe().unwrap();
 		let status = std::process::Command::new(executable)
 			.arg("--exact")
@@ -618,6 +626,8 @@ mod tests {
 			.env("TANGRAM_SECCOMP_TEST_CHILD", "1")
 			.status()
 			.unwrap();
+
+		// Verify the filtered child succeeded.
 		assert!(status.success());
 	}
 }

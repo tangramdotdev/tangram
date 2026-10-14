@@ -1025,6 +1025,7 @@ let normalizeSandbox = (
 		"cpu" | "memory" | "mounts" | "network" | "owner" | "ports" | "sandbox"
 	>,
 ): Exclude<tg.Process.Spawn.Arg["sandbox"], undefined> | undefined => {
+	// Collect the sandbox overrides.
 	let hasCpu = arg.cpu !== undefined && arg.cpu !== null;
 	let cpu = arg.cpu;
 	let hasMemory = arg.memory !== undefined && arg.memory !== null;
@@ -1045,6 +1046,8 @@ let normalizeSandbox = (
 		hasOwner ||
 		hasPorts;
 	let defaultTtl = typeof sandbox !== "string";
+
+	// Resolve the sandbox reference or creation request.
 	if (typeof sandbox === "string") {
 		if (hasSandboxFields) {
 			throw new Error(
@@ -1062,6 +1065,8 @@ let normalizeSandbox = (
 	if (sandbox === true) {
 		sandbox = {};
 	}
+
+	// Convert the sandbox settings.
 	let output: tg.Sandbox.DataArg = {};
 	let sandboxNetwork: boolean | tg.Sandbox.Network | null | undefined;
 	if (isSandboxArg(sandbox)) {
@@ -1104,6 +1109,8 @@ let normalizeSandbox = (
 			output.owner = sandbox.owner;
 		}
 	}
+
+	// Apply the process overrides.
 	if (cpu !== undefined && cpu !== null) {
 		output.cpu = tg.Sandbox.Cpu.from(cpu);
 	}
@@ -1128,6 +1135,7 @@ let normalizeSandbox = (
 	if (owner !== undefined && owner !== null) {
 		output.owner = owner;
 	}
+
 	return output;
 };
 

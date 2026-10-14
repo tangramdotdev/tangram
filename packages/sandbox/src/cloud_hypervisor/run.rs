@@ -159,6 +159,7 @@ impl Drop for ChildProcess {
 }
 
 pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
+	// Validate the resource settings.
 	if arg.cpu == Some(0) {
 		return Err(tg::error!("sandbox cpu must be greater than zero"));
 	}
@@ -203,11 +204,13 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		));
 	}
 
+	// Prepare the sandbox directory.
 	tracing::trace!("sandbox directory: {}", arg.path.display());
 	let user = resolve_user(None)?;
 	prepare_sandbox_directory(&arg.path)?;
 	prepare_etc_files(&arg.path, &user)?;
 
+	// Create the network.
 	let network = Network::new(arg)?;
 	let network_config = network.as_ref().map(|net| {
 		let dns_servers = match net {
@@ -221,12 +224,15 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			netmask: net.netmask(),
 		}
 	});
+
+	// Validate the snapshot settings.
 	if arg.create_snapshot.is_some() && arg.snapshot.is_some() {
 		return Err(tg::error!(
 			"--create-snapshot and --snapshot are mutually exclusive"
 		));
 	}
 
+	// Write the guest init configuration.
 	if arg.create_snapshot.is_none() {
 		let mounts = arg
 			.mounts
@@ -272,6 +278,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.map_err(|error| tg::error!(!error, "failed to write the init config"))?;
 	}
 
+	// Start the filesystem helpers.
 	let mut helpers: Vec<ChildProcess> = Vec::new();
 	{
 		let sandbox_socket_path =
@@ -314,6 +321,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		helpers.push(ChildProcess::new(sandbox_pid));
 	}
 
+	// Locate the helper binaries.
 	let cloud_hypervisor_bin = if let Some(path) = &arg.cloud_hypervisor_path {
 		path.clone()
 	} else {
@@ -336,6 +344,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		tracing::trace!("passt binary: {}", passt.display());
 	}
 
+	// Create the hypervisor arguments.
 	let net_arg = network.as_ref().map(|net| match net {
 		Network::Passt(passt) => {
 			format!(
@@ -391,6 +400,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		}
 	}
 
+	// Start the hypervisor.
 	tracing::trace!("cloud-hypervisor args: {:?}", cloud_hypervisor_args);
 	tracing::trace!("spawning cloud-hypervisor helper");
 	let cloud_hypervisor_pid = spawn_cloud_hypervisor_helper(
@@ -403,6 +413,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	tracing::trace!("cloud-hypervisor helper pid={cloud_hypervisor_pid}");
 	let mut cloud_hypervisor = ChildProcess::new(cloud_hypervisor_pid);
 
+	// Connect to the guest serial socket.
 	let serial_socket_path = host_vm_path_from_root(&arg.path).join(SERIAL_SOCKET_NAME);
 	let mut serial_stream = connect_serial_socket(
 		&serial_socket_path,
@@ -410,6 +421,8 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		arg.serial_connect_interval,
 	)?;
 	tracing::trace!("connected to guest serial socket; tailing to stderr");
+
+	// Read the guest serial output.
 	let serial_reader = serial_stream
 		.try_clone()
 		.map_err(|error| tg::error!(!error, "failed to clone the serial socket"))?;
@@ -462,6 +475,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		}
 	});
 
+	// Create the requested snapshot.
 	if let Some(snapshot_output) = arg.create_snapshot.as_ref() {
 		let api_socket = host_vm_path_from_root(&arg.path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME);
 		let ch_remote_bin = find_in_path("ch-remote")
@@ -525,6 +539,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		return Ok(ExitCode::SUCCESS);
 	}
 
+	// Restore the configured snapshot.
 	if arg.snapshot.is_some() {
 		let api_socket = host_vm_path_from_root(&arg.path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME);
 		let ch_remote_bin = find_in_path("ch-remote")
@@ -572,11 +587,14 @@ fn connect_serial_socket(
 	timeout: Duration,
 	interval: Duration,
 ) -> tg::Result<std::os::unix::net::UnixStream> {
+	// Watch the serial socket directory.
 	let parent = path.parent().ok_or_else(
 		|| tg::error!(path = %path.display(), "the serial socket path has no parent"),
 	)?;
 	let inotify = watch_directory(parent)?;
 	let deadline = Instant::now() + timeout;
+
+	// Wait for the serial socket to accept connections.
 	loop {
 		match std::os::unix::net::UnixStream::connect(path) {
 			Ok(stream) => return Ok(stream),
@@ -658,12 +676,15 @@ fn watch_directory(path: &Path) -> tg::Result<OwnedFd> {
 }
 
 fn wait_for_directory_event(inotify: &OwnedFd, deadline: Instant) -> tg::Result<()> {
+	// Compute the remaining timeout.
 	let now = Instant::now();
 	if now >= deadline {
 		return Err(tg::error!("timed out"));
 	}
 	let timeout = deadline.duration_since(now).as_millis();
 	let timeout = i32::try_from(timeout).unwrap_or(i32::MAX);
+
+	// Wait for a directory event.
 	let mut event = libc::pollfd {
 		fd: inotify.as_raw_fd(),
 		events: libc::POLLIN,
@@ -683,7 +704,10 @@ fn wait_for_directory_event(inotify: &OwnedFd, deadline: Instant) -> tg::Result<
 	if result == 0 {
 		return Err(tg::error!("timed out"));
 	}
+
+	// Drain the directory events.
 	let mut buffer = [0u8; 4096];
+
 	loop {
 		let result = unsafe {
 			libc::read(
@@ -803,6 +827,7 @@ fn memory_arg(arg: &Arg) -> String {
 }
 
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
+	// Create the sandbox directories.
 	for path in [
 		Sandbox::host_scratch_path_from_root(sandbox_path),
 		Sandbox::host_upper_path_from_root(sandbox_path),
@@ -821,6 +846,7 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 		)?;
 	}
 
+	// Create the output and temporary directory symlinks.
 	let host_output = Sandbox::host_output_path_from_root(sandbox_path);
 	std::fs::remove_file(&host_output).ok();
 	std::fs::remove_dir_all(&host_output).ok();
@@ -835,6 +861,7 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 		|error| tg::error!(!error, path = %host_tmp.display(), "failed to symlink the tmp dir"),
 	)?;
 
+	// Set the temporary directory permissions.
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
 	let share_tmp = host_share_tmp_path_from_root(sandbox_path);
@@ -845,6 +872,8 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 			"failed to set sandbox path permissions"
 		)
 	})?;
+
+	// Prepare the guest overlay directories.
 	let upper_path = Sandbox::host_upper_path_from_root(sandbox_path);
 	let tangram_path = upper_path.join("opt/tangram");
 	std::fs::create_dir_all(&tangram_path).map_err(|error| {
@@ -862,10 +891,12 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	] {
 		std::fs::remove_file(path).ok();
 	}
+
 	Ok(())
 }
 
 fn prepare_etc_files(sandbox_path: &Path, user: &User) -> tg::Result<()> {
+	// Write the passwd file.
 	let mut passwd = String::from(
 		"root:!:0:0:root:/root:/bin/false\nnobody:!:65534:65534:nobody:/nonexistent:/bin/false\n",
 	);
@@ -884,6 +915,8 @@ fn prepare_etc_files(sandbox_path: &Path, user: &User) -> tg::Result<()> {
 	}
 	std::fs::write(host_share_passwd_path_from_root(sandbox_path), passwd)
 		.map_err(|error| tg::error!(!error, "failed to write /etc/passwd"))?;
+
+	// Write the name service configuration.
 	let nsswitch = indoc::indoc!(
 		"
 			passwd: files compat
@@ -893,10 +926,12 @@ fn prepare_etc_files(sandbox_path: &Path, user: &User) -> tg::Result<()> {
 	);
 	std::fs::write(host_share_nsswitch_path_from_root(sandbox_path), nsswitch)
 		.map_err(|error| tg::error!(!error, "failed to write /etc/nsswitch.conf"))?;
+
 	Ok(())
 }
 
 fn resolve_user(name: Option<&str>) -> tg::Result<User> {
+	// Look up the passwd record.
 	let ptr = unsafe {
 		if let Some(name) = name {
 			let name = CString::new(OsStr::new(name).as_bytes())
@@ -909,6 +944,8 @@ fn resolve_user(name: Option<&str>) -> tg::Result<User> {
 	if ptr.is_null() {
 		return Err(tg::error!("failed to resolve the user"));
 	}
+
+	// Read the user name and home directory.
 	let passwd = unsafe { &*ptr };
 	let name = unsafe { CStr::from_ptr(passwd.pw_name) }
 		.to_string_lossy()
@@ -916,6 +953,7 @@ fn resolve_user(name: Option<&str>) -> tg::Result<User> {
 	let home = unsafe { CStr::from_ptr(passwd.pw_dir) }
 		.to_string_lossy()
 		.into_owned();
+
 	Ok(User {
 		gid: passwd.pw_gid,
 		home: PathBuf::from(home),
@@ -987,6 +1025,7 @@ fn cloud_hypervisor_child_main(
 	passt_bin: Option<&Path>,
 	command_args: &[std::ffi::OsString],
 ) -> tg::Result<()> {
+	// Create the helper namespaces.
 	crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	enter_user_namespace(user.uid, user.gid)?;
 	unshare(
@@ -994,6 +1033,7 @@ fn cloud_hypervisor_child_main(
 		"failed to unshare the cloud-hypervisor mount namespace",
 	)?;
 
+	// Prepare the helper root.
 	let chroot = host_vmm_chroot_path_from_root(&arg.path);
 	std::fs::remove_dir_all(&chroot).ok();
 	std::fs::create_dir_all(&chroot).map_err(
@@ -1005,11 +1045,16 @@ fn cloud_hypervisor_child_main(
 			tg::error!(!error, path = %snapshot_output.display(), "failed to create the snapshot output directory")
 		})?;
 	}
+
+	// Open the helper log files.
 	let (stdout, stderr) =
 		log_stdio(&host_vm_path_from_root(&arg.path).join("cloud-hypervisor.log"))?;
 
+	// Mount the helper filesystems.
 	let mount_arg = build_cloud_hypervisor_mount_arg(arg, cloud_hypervisor_bin, passt_bin);
 	mount::apply(&mount_arg, Some(&chroot))?;
+
+	// Enter the helper root and drop privileges.
 	set_no_new_privs()?;
 
 	mount::change_directory(&chroot)?;
@@ -1023,6 +1068,7 @@ fn cloud_hypervisor_child_main(
 	setresgid(user.gid)?;
 	setresuid(user.uid)?;
 
+	// Execute the hypervisor.
 	let mut command = std::process::Command::new(VMM_CLOUD_HYPERVISOR_BIN);
 	command
 		.args(command_args)
@@ -1030,6 +1076,7 @@ fn cloud_hypervisor_child_main(
 		.stdout(stdout)
 		.stderr(stderr);
 	let error = command.exec();
+
 	Err(tg::error!(!error, "failed to execute cloud-hypervisor"))
 }
 
@@ -1038,6 +1085,7 @@ fn build_cloud_hypervisor_mount_arg(
 	cloud_hypervisor_bin: &Path,
 	passt_bin: Option<&Path>,
 ) -> mount::Arg {
+	// Collect the writable bind mounts.
 	let mut binds = vec![
 		mount::Bind {
 			devices: false,
@@ -1079,6 +1127,8 @@ fn build_cloud_hypervisor_mount_arg(
 		source: arg.path.join(VFS_SOCKET_NAME),
 		target: VMM_VFS_SOCKET.into(),
 	});
+
+	// Collect the read-only bind mounts.
 	let mut ro_binds = vec![
 		mount::Bind {
 			devices: false,
@@ -1127,6 +1177,7 @@ fn build_cloud_hypervisor_mount_arg(
 			target: VMM_SNAPSHOT_PATH.into(),
 		});
 	}
+
 	mount::Arg {
 		binds,
 		ro_binds,

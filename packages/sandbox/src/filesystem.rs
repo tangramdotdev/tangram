@@ -108,7 +108,9 @@ fn configure_quota(
 	size: Option<u64>,
 	inodes: Option<u64>,
 ) -> tg::Result<()> {
+	// Check the filesystem type.
 	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
+
 	// SAFETY: The descriptor and output pointer are valid.
 	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
 		return Err(tg::error!(
@@ -116,6 +118,7 @@ fn configure_quota(
 			"failed to inspect the sandbox filesystem"
 		));
 	}
+
 	// SAFETY: fstatfs initialized the structure on success.
 	let statistics = unsafe { statistics.assume_init() };
 	if !matches!(statistics.f_type, EXT4_SUPER_MAGIC | XFS_SUPER_MAGIC) {
@@ -123,6 +126,8 @@ fn configure_quota(
 			tg::error!(filesystem = %statistics.f_type, "hardened filesystem limits require a disk-backed ext4 or XFS filesystem with project quotas enabled"),
 		);
 	}
+
+	// Set the project ID and inheritance flag.
 	let attributes = FsXAttr {
 		cowextsize: 0,
 		extsize: 0,
@@ -132,12 +137,15 @@ fn configure_quota(
 		xflags: FS_XFLAG_PROJINHERIT,
 	};
 	let request = ioctl_write_request(b'X', 32, std::mem::size_of::<FsXAttr>());
+
 	// SAFETY: The descriptor refers to the new directory and the attribute pointer is valid.
 	if unsafe { libc::ioctl(directory.as_raw_fd(), request, &raw const attributes) } != 0 {
 		return Err(
 			tg::error!(source = std::io::Error::last_os_error(), %project, "failed to assign the sandbox filesystem project; enable project quotas and grant CAP_SYS_ADMIN"),
 		);
 	}
+
+	// Set the project quota.
 	set_quota(directory, statistics.f_type, project, size, inodes)?;
 
 	Ok(())
@@ -148,6 +156,7 @@ pub(crate) fn clear(path: &Path, project: u32) -> tg::Result<()> {
 		tg::error!(!error, path = %path.display(), "failed to open the sandbox filesystem directory")
 	})?;
 	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
+
 	// SAFETY: The descriptor and output pointer are valid.
 	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
 		return Err(tg::error!(
@@ -155,8 +164,10 @@ pub(crate) fn clear(path: &Path, project: u32) -> tg::Result<()> {
 			"failed to inspect the sandbox filesystem"
 		));
 	}
+
 	// SAFETY: fstatfs initialized the structure on success.
 	let statistics = unsafe { statistics.assume_init() };
+
 	set_quota(&directory, statistics.f_type, project, Some(0), Some(0))
 }
 
@@ -182,8 +193,12 @@ pub fn host_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<OwnedFd>
 	// SAFETY: These functions have no preconditions.
 	let setup_uid = unsafe { libc::geteuid() };
 	let setup_gid = unsafe { libc::getegid() };
+
+	// Create the namespace synchronization socket.
 	let (mut host, guest) = UnixStream::pair()
 		.map_err(|error| tg::error!(!error, "failed to create the host mapping socket pair"))?;
+
+	// Fork the host namespace helper.
 	// SAFETY: The child only invokes async-signal-safe operations before exiting.
 	let pid = unsafe { libc::fork() };
 	if pid < 0 {
@@ -222,6 +237,8 @@ pub fn host_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<OwnedFd>
 			libc::_exit(0);
 		}
 	}
+
+	// Receive the host namespace descriptor.
 	drop(guest);
 	let result = (|| {
 		let mut status = [0; std::mem::size_of::<libc::c_int>()];
@@ -296,6 +313,7 @@ pub fn host_mount(filesystem: &OwnedFd, namespace: &OwnedFd) -> tg::Result<Owned
 
 pub fn prepare(fd: &OwnedFd, uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
 	let root = path(fd);
+
 	// Keep every parent directory owned by the workload so the host mapping can also create and remove entries.
 	for (name, mode) in [
 		("", 0o755),
@@ -517,6 +535,7 @@ fn raw_fd_arg(fd: &impl std::os::fd::AsRawFd) -> usize {
 fn syscall_fd(number: libc::c_long, args: &[usize]) -> std::io::Result<OwnedFd> {
 	let fd = syscall(number, args)?;
 	let fd = i32::try_from(fd).unwrap();
+
 	// SAFETY: A successful mount syscall returns a new owned descriptor.
 	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
@@ -528,8 +547,10 @@ pub(crate) fn usage(directory: &std::fs::File, project: u32) -> tg::Result<u64> 
 	let command = libc::QCMD(libc::Q_GETQUOTA, PRJQUOTA);
 	quota_control(directory, command, project, quota.as_mut_ptr().cast())
 		.map_err(|error| tg::error!(!error, "failed to read the filesystem project usage"))?;
+
 	// SAFETY: The quota syscall initialized the structure on success.
 	let quota = unsafe { quota.assume_init() };
+
 	Ok(quota.dqb_curspace)
 }
 
@@ -541,6 +562,7 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project"))?;
 	let directory = std::sync::Arc::new(directory);
 	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
+
 	// SAFETY: The descriptor and output pointer are valid.
 	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
 		return Err(tg::error!(
@@ -548,6 +570,7 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 			"failed to inspect the filesystem project"
 		));
 	}
+
 	// SAFETY: fstatfs initialized the structure on success.
 	let statistics = unsafe { statistics.assume_init() };
 	let usage = {
@@ -556,6 +579,7 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 	};
 	let limit =
 		Box::new(move |size| set_quota(&directory, statistics.f_type, project, Some(size), None));
+
 	Ok(crate::budget::Control { limit, usage })
 }
 
