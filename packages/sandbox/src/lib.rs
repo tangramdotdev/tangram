@@ -54,6 +54,8 @@ pub mod capacity;
 pub mod cloud_hypervisor;
 #[cfg(target_os = "linux")]
 pub mod cpu;
+#[cfg(target_os = "linux")]
+pub mod host;
 pub mod init;
 #[cfg(target_os = "linux")]
 pub mod network;

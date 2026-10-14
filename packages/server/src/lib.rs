@@ -624,7 +624,7 @@ impl Server {
 
 		#[cfg(target_os = "linux")]
 		if config.roles.contains(&self::config::Role::Runner) && config.runner.resources.harden {
-			tangram_sandbox::builtin::host::validate(&temp_path).map_err(|error| {
+			tangram_sandbox::host::validate(&temp_path).map_err(|error| {
 				tg::error!(
 					!error,
 					"the host does not satisfy the hardened container prerequisites"
