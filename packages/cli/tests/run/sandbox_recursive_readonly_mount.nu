@@ -16,11 +16,11 @@ let script = r#'
 	mount -t tmpfs -o mode=0777 tmpfs "$1/nested"
 	printf original > "$1/nested/file"
 	exec tangram sandbox run --backend builtin \
-		--index 0 \
 		--unshare-all \
 		--uid 0 \
 		--gid 0 \
 		--chdir / \
+		--bind / / \
 		--ro-bind "$1" "$2" \
 		-- /bin/sh -c '
 			if touch "$1/top" 2>/dev/null; then
