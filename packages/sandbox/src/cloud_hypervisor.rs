@@ -4,10 +4,9 @@ mod command;
 
 pub(crate) use self::command::command;
 
-pub(crate) mod network;
-
 pub mod image;
 pub mod init;
+pub(crate) mod network;
 pub mod run;
 pub mod virtiofs;
 

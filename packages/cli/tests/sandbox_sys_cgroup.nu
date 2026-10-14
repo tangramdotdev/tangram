@@ -13,7 +13,7 @@ for readonly in [false true] {
         gid: $gid,
         process: { arguments: [/bin/true] },
         uid: $uid,
-    } | insert kind builtin | wrap backend | to json | save $inner
+    } | insert kind builtin | to json | save $inner
     let outer = $env.PWD | path join $'outer-($readonly).json'
     {
         cgroup: { name: $'tangram-test-(random uuid)' },
@@ -22,7 +22,7 @@ for readonly in [false true] {
         mounts: { tmpfs: [/sys] },
         process: { arguments: [$tangram sandbox run --config $inner] },
         uid: $uid,
-    } | insert kind builtin | wrap backend | to json | save $outer
+    } | insert kind builtin | to json | save $outer
     let output = ^tangram sandbox run --config $outer | complete
     if $readonly {
         failure $output 'a nested sandbox should not create a cgroup through a read-only mount'

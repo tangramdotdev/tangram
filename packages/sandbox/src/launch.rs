@@ -28,8 +28,10 @@ struct User {
 
 enum UserQuery {
 	Name(CString),
+
 	#[cfg(test)]
 	Record(User),
+
 	Uid(libc::uid_t),
 }
 
@@ -45,6 +47,7 @@ pub(crate) async fn spawn(
 	network: Option<&mut crate::network::Network>,
 	cgroup: &crate::cgroup::Cgroup,
 ) -> tg::Result<Output> {
+	// Prepare the network pair.
 	let isolation = &arg.resources;
 	let mut veth = match network.as_deref() {
 		Some(crate::network::Network::Veth(network)) => {
@@ -60,6 +63,8 @@ pub(crate) async fn spawn(
 		},
 		_ => None,
 	};
+
+	// Allocate the filesystem resources.
 	let filesystem_inodes = isolation.max_filesystem_inodes;
 	let storage = match (arg.storage, &arg.storage_pool) {
 		(Some(resource), Some(pool)) => Some(pool.allocate(resource)?),
@@ -96,6 +101,7 @@ pub(crate) async fn spawn(
 		storage.bind(control)?;
 	}
 
+	// Prepare the sandbox directories and identity.
 	prepare_sandbox_directory(
 		&arg.path,
 		&filesystem_path,
@@ -105,6 +111,7 @@ pub(crate) async fn spawn(
 	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
 	let user_namespace = prepare_user_namespace(isolation, &user)?;
 
+	// Create the filesystem control socket.
 	let (filesystem_sendfd, filesystem_recvfd) = if filesystem_separate {
 		let (sendfd, recvfd) = rustix::net::socketpair(
 			rustix::net::AddressFamily::UNIX,
@@ -117,6 +124,7 @@ pub(crate) async fn spawn(
 	} else {
 		(None, None)
 	};
+
 	// Describe the prepared Tangram filesystem and workload independently of the launcher's CLI.
 	let mut mounts = crate::mount::Arg {
 		nodev: true,
@@ -186,6 +194,8 @@ pub(crate) async fn spawn(
 			false,
 		);
 	}
+
+	// Bind the resolver configuration and user mounts.
 	let resolv_conf_path = Sandbox::host_resolv_conf_path_from_root(&arg.path);
 	if resolv_conf_path.exists() {
 		add_mount(resolv_conf_path, "/etc/resolv.conf".into(), true);
@@ -193,16 +203,18 @@ pub(crate) async fn spawn(
 	for mount in &arg.mounts {
 		add_mount(mount.source.clone(), mount.target.clone(), mount.readonly);
 	}
+
+	// Create the network launch configuration.
 	let network_arg = match network.as_deref() {
 		None => None,
-		Some(crate::network::Network::Host) => Some(crate::run::linux::Network::Host),
-		Some(crate::network::Network::Pasta(network)) => Some(crate::run::linux::Network::Pasta {
+		Some(crate::network::Network::Host) => Some(crate::linux::run::Network::Host),
+		Some(crate::network::Network::Pasta(network)) => Some(crate::linux::run::Network::Pasta {
 			fd: network
 				.guest_pipe()
 				.ok_or_else(|| tg::error!("missing the pasta synchronization descriptor"))?
 				.as_raw_fd(),
 		}),
-		Some(crate::network::Network::Veth(network)) => Some(crate::run::linux::Network::Veth {
+		Some(crate::network::Network::Veth(network)) => Some(crate::linux::run::Network::Veth {
 			fd: veth
 				.as_ref()
 				.unwrap()
@@ -217,6 +229,8 @@ pub(crate) async fn spawn(
 			return Err(tg::error!("unsupported Linux setup network"));
 		},
 	};
+
+	// Create the sandbox init command.
 	let mut arguments = vec![
 		Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path).into_os_string(),
 		"sandbox".into(),
@@ -238,6 +252,8 @@ pub(crate) async fn spawn(
 	for path in &serve_arg.library_paths {
 		arguments.extend(["--library-path".into(), path.clone().into_os_string()]);
 	}
+
+	// Create the process environment.
 	let environment = std::collections::BTreeMap::from([
 		("HOME".into(), user.home.clone().into_os_string()),
 		(
@@ -245,6 +261,8 @@ pub(crate) async fn spawn(
 			Sandbox::guest_ssl_cert_dir().into_os_string(),
 		),
 	]);
+
+	// Encode the process launch configuration.
 	let arguments = arguments
 		.into_iter()
 		.map(|argument: std::ffi::OsString| {
@@ -265,13 +283,13 @@ pub(crate) async fn spawn(
 			Ok((key, value))
 		})
 		.collect::<tg::Result<_>>()?;
-	let process = crate::run::linux::Process {
+	let process = crate::linux::run::Process {
 		arguments,
 		directory: "/".into(),
 		environment,
 		hostname: arg.hostname.clone(),
 	};
-	let setup = crate::run::linux::Arg {
+	let setup = crate::linux::run::Arg {
 		as_pid_1: true,
 		cgroup_readonly: isolation.cgroup_readonly || arg.cpu_pool.is_some(),
 		filesystem_fd: filesystem_sendfd
@@ -294,20 +312,32 @@ pub(crate) async fn spawn(
 			.map(|(_, guest, _, _)| guest.as_raw_fd()),
 		..Default::default()
 	};
-	let backend = match &arg.backend {
-		crate::Backend::Builtin => crate::run::Backend::Builtin(setup.clone()),
-		crate::Backend::Bubblewrap { path } => crate::run::Backend::Bubblewrap {
-			arg: setup.clone(),
-			path: path.clone(),
+
+	// Select the backend launch configuration.
+	let launch = match &arg.backend {
+		crate::Backend::Builtin => crate::run::Arg::Builtin(crate::builtin::run::Arg {
+			linux: setup.clone(),
+		}),
+
+		crate::Backend::Bubblewrap { path } => {
+			crate::run::Arg::Bubblewrap(crate::bubblewrap::run::Arg {
+				linux: setup.clone(),
+				path: path.clone(),
+			})
 		},
-		crate::Backend::Gvisor { path, platform } => crate::run::Backend::Gvisor {
-			arg: setup.clone(),
-			path: path.clone(),
-			platform: *platform,
+
+		crate::Backend::Gvisor { path, platform } => {
+			crate::run::Arg::Gvisor(crate::gvisor::run::Arg {
+				linux: setup.clone(),
+				path: path.clone(),
+				platform: *platform,
+			})
 		},
+
 		crate::Backend::CloudHypervisor(_) | crate::Backend::Seatbelt => unreachable!(),
 	};
-	let launch = crate::run::Arg { backend };
+
+	// Create the launcher and inherit the control descriptors.
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	let config = crate::run::configure_command(&mut command, &launch)?;
 	for fd in [setup.filesystem_fd, setup.fuse_fd, setup.user_namespace_fd]
@@ -318,12 +348,13 @@ pub(crate) async fn spawn(
 	}
 	match setup.network {
 		Some(
-			crate::run::linux::Network::Pasta { fd } | crate::run::linux::Network::Veth { fd, .. },
+			crate::linux::run::Network::Pasta { fd } | crate::linux::run::Network::Veth { fd, .. },
 		) => {
 			inherit_fd(&mut command, fd);
 		},
-		None | Some(crate::run::linux::Network::Host) => {},
+		None | Some(crate::linux::run::Network::Host) => {},
 	}
+
 	// Keep the launcher outside the server's terminal process group during Ctrl-C shutdown.
 	command
 		.kill_on_drop(true)
@@ -331,6 +362,8 @@ pub(crate) async fn spawn(
 		.stdin(std::process::Stdio::piped())
 		.stdout(std::process::Stdio::piped())
 		.stderr(std::process::Stdio::inherit());
+
+	// Spawn the launcher and install the identity maps.
 	let user_namespace = user_namespace.map(|(host, guest, uid_map, gid_map)| {
 		let task = std::thread::spawn(move || configure_user_namespace(host, &uid_map, &gid_map));
 		(guest, task)
@@ -344,6 +377,8 @@ pub(crate) async fn spawn(
 	}
 	let child = child.map_err(|error| tg::error!(!error, "failed to spawn sandbox container"))?;
 	configuration?;
+
+	// Complete the network setup.
 	drop(filesystem_sendfd);
 	if let Some(crate::network::Network::Pasta(network)) = network {
 		network.take_guest_pipe();
@@ -361,6 +396,7 @@ pub(crate) async fn spawn(
 		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
 		veth.connect(pid).await?;
 	}
+
 	// The child prepares its filesystem only after the network handshake completes.
 	let filesystem = match filesystem_recvfd {
 		Some(fd) => Some(
@@ -370,6 +406,8 @@ pub(crate) async fn spawn(
 		),
 		None => None,
 	};
+
+	// Create the launch output.
 	let output = Output {
 		filesystem,
 		process: child,
@@ -397,6 +435,7 @@ fn prepare_sandbox_directory(
 	filesystem_separate: bool,
 	mapped_identity: bool,
 ) -> tg::Result<()> {
+	// Create the sandbox directories.
 	let mut paths = vec![Sandbox::host_etc_path_from_root(sandbox_path)];
 	if !filesystem_separate {
 		paths.extend([
@@ -412,6 +451,8 @@ fn prepare_sandbox_directory(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
+
+	// Set the filesystem directory permissions.
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
 	if !filesystem_separate {
@@ -452,6 +493,7 @@ fn prepare_sandbox_directory(
 			}
 		}
 	}
+
 	Ok(())
 }
 
@@ -459,6 +501,7 @@ fn prepare_user_namespace(
 	isolation: &crate::Resources,
 	user: &User,
 ) -> tg::Result<Option<(UnixStream, UnixStream, crate::IdMap, crate::IdMap)>> {
+	// Validate the subordinate identity maps.
 	let (Some(uid_map), Some(gid_map)) = (&isolation.uid_map, &isolation.gid_map) else {
 		if isolation.uid_map.is_some() || isolation.gid_map.is_some() {
 			return Err(tg::error!(
@@ -481,9 +524,12 @@ fn prepare_user_namespace(
 			"the container gid map does not contain the workload gid"
 		));
 	}
+
+	// Create the namespace synchronization socket.
 	let (host, guest) = UnixStream::pair()
 		.map_err(|error| tg::error!(!error, "failed to create a user namespace socket pair"))?;
 	let output = Some((host, guest, uid_map.clone(), gid_map.clone()));
+
 	Ok(output)
 }
 
@@ -513,8 +559,10 @@ fn configure_user_namespace(
 		.read_exact(&mut buffer)
 		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace"))?;
 	let pid = libc::pid_t::from_ne_bytes(buffer);
+
 	// SAFETY: This function has no preconditions.
 	let setup_uid = unsafe { libc::geteuid() };
+
 	// SAFETY: This function has no preconditions.
 	let setup_gid = unsafe { libc::getegid() };
 	if setup_uid == 0 {
@@ -527,6 +575,7 @@ fn configure_user_namespace(
 	socket
 		.write_all(&[0])
 		.map_err(|error| tg::error!(!error, "failed to release the user namespace"))?;
+
 	Ok(())
 }
 
@@ -577,10 +626,13 @@ fn prepare_etc_files(
 	network: Option<&crate::network::Network>,
 	dns: &[Ipv4Addr],
 ) -> tg::Result<User> {
+	// Write the passwd file.
 	let user = resolve_user(None)?;
 	let passwd = render_passwd(&user);
 	std::fs::write(Sandbox::host_passwd_path_from_root(sandbox_path), passwd)
 		.map_err(|error| tg::error!(!error, "failed to write /etc/passwd"))?;
+
+	// Write the name service configuration.
 	let nsswitch = indoc!(
 		"
 			passwd: files compat
@@ -593,6 +645,8 @@ fn prepare_etc_files(
 		nsswitch,
 	)
 	.map_err(|error| tg::error!(!error, "failed to write /etc/nsswitch.conf"))?;
+
+	// Write the resolver configuration.
 	match network {
 		Some(crate::network::Network::Host) if Path::new("/etc/resolv.conf").exists() => {
 			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
@@ -617,6 +671,7 @@ fn prepare_etc_files(
 		},
 		_ => (),
 	}
+
 	Ok(user)
 }
 
@@ -661,6 +716,7 @@ fn resolve_user_with_checkpoint(query: &UserQuery, checkpoint: impl FnOnce()) ->
 		.ok()
 		.filter(|size| *size > 0)
 		.unwrap_or(DEFAULT_USER_BUFFER_SIZE);
+
 	loop {
 		let mut buffer = vec![0u8; buffer_size];
 		let mut passwd = MaybeUninit::<libc::passwd>::uninit();
@@ -677,8 +733,10 @@ fn resolve_user_with_checkpoint(query: &UserQuery, checkpoint: impl FnOnce()) ->
 					buffer.len(),
 					&raw mut result,
 				),
+
 				#[cfg(test)]
 				UserQuery::Record(user) => tests::resolve_record(user, &mut passwd, &mut buffer, &mut result),
+
 				UserQuery::Uid(uid) => libc::getpwuid_r(
 					*uid,
 					passwd.as_mut_ptr(),
@@ -705,10 +763,12 @@ fn resolve_user_with_checkpoint(query: &UserQuery, checkpoint: impl FnOnce()) ->
 		// Copy the record while its buffer is live.
 		// SAFETY: A successful lookup with a non-null result initialized the passwd record.
 		let passwd = unsafe { passwd.assume_init() };
+
 		// SAFETY: A successful lookup returned a NUL-terminated string backed by the live buffer.
 		let name = unsafe { CStr::from_ptr(passwd.pw_name) }
 			.to_string_lossy()
 			.into_owned();
+
 		// SAFETY: A successful lookup returned a NUL-terminated string backed by the live buffer.
 		let home = unsafe { CStr::from_ptr(passwd.pw_dir) };
 		checkpoint();
@@ -730,6 +790,7 @@ mod tests {
 
 	#[test]
 	fn concurrent_user_resolution_owns_the_passwd_record() {
+		// Create the passwd records.
 		let expected = User {
 			gid: 0,
 			home: PathBuf::from("/root"),
@@ -748,6 +809,8 @@ mod tests {
 			name: "bin".to_owned(),
 			uid: 2,
 		});
+
+		// Resolve the records concurrently.
 		let checkpoint = Arc::new(std::sync::Barrier::new(2));
 		let task = {
 			let checkpoint = checkpoint.clone();
@@ -762,6 +825,8 @@ mod tests {
 		checkpoint.wait();
 		resolve_user_with_checkpoint(&bin, || {}).unwrap();
 		checkpoint.wait();
+
+		// Verify the first result retains its own record.
 		let user = task.join().unwrap();
 
 		assert_eq!(user, expected);

@@ -10,6 +10,7 @@ impl Assets {
 		server: &Server,
 		backend: &tangram_sandbox::Backend,
 	) -> tg::Result<()> {
+		// Resolve the snapshot settings.
 		let tangram_sandbox::Backend::CloudHypervisor(vm) = backend else {
 			return Ok(());
 		};
@@ -17,6 +18,7 @@ impl Assets {
 			return Ok(());
 		};
 
+		// Ensure the rootfs image exists.
 		let mut image_created = self.image_ready.lock().await;
 		if !*image_created {
 			let _file_lock = acquire_cloud_hypervisor_lock(&server.path).await?;
@@ -36,8 +38,11 @@ impl Assets {
 			}
 			*image_created = true;
 		}
+
+		// Ensure the snapshot exists.
 		self.ensure_cloud_hypervisor_snapshot(server, snapshot_path, &vm.kernel_path, vm)
 			.await?;
+
 		Ok(())
 	}
 
@@ -48,9 +53,12 @@ impl Assets {
 		kernel_path: &std::path::Path,
 		vm: &tangram_sandbox::CloudHypervisor,
 	) -> tg::Result<()> {
+		// Check for an existing snapshot.
 		if snapshot_path.exists() {
 			return Ok(());
 		}
+
+		// Lock the snapshot creation.
 		let _guard = self.snapshot_lock.lock().await;
 		if snapshot_path.exists() {
 			return Ok(());
@@ -59,6 +67,8 @@ impl Assets {
 		if snapshot_path.exists() {
 			return Ok(());
 		}
+
+		// Prepare the snapshot directories.
 		if let Some(parent) = snapshot_path.parent() {
 			tokio::fs::create_dir_all(parent).await.map_err(|error| {
 				tg::error!(!error, path = %parent.display(), "failed to create the vm snapshot parent directory")
@@ -70,10 +80,14 @@ impl Assets {
 			.map_err(|error| {
 				tg::error!(!error, "failed to create the vm snapshot temp directory")
 			})?;
+
+		// Prepare the virtual filesystem.
 		let _vfs = {
 			let socket = temp.path().join("vfs.sock");
+
 			// Run the shared VM snapshot mount as root; per-sandbox mounts enforce permissions after resume.
 			let principal = Some(tg::Principal::Root);
+
 			crate::vfs::Server::start_virtiofs(
 				server,
 				&socket,
@@ -84,6 +98,8 @@ impl Assets {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the store VFS"))?
 		};
+
+		// Create the snapshot launch configuration.
 		let image_path = self.image.as_ref().ok_or_else(|| {
 			tg::error!(
 				"cannot create the vm snapshot without an image; ensure vm isolation is configured"
@@ -135,9 +151,9 @@ impl Assets {
 			tangram_path: server.tangram_path.clone(),
 			url: "http+vsock://2:6748".parse().unwrap(),
 		};
-		let launch = tangram_sandbox::run::Arg {
-			backend: tangram_sandbox::run::Backend::CloudHypervisor(launch),
-		};
+		let launch = tangram_sandbox::run::Arg::CloudHypervisor(launch);
+
+		// Spawn the snapshot process.
 		let mut command = tokio::process::Command::new(&server.tangram_path);
 		command.kill_on_drop(true);
 		let config = tangram_sandbox::run::configure_command(&mut command, &launch)?;
@@ -147,6 +163,8 @@ impl Assets {
 		let configuration = config.finish();
 		let mut child = child?;
 		configuration?;
+
+		// Wait for the snapshot process.
 		let status = child
 			.wait()
 			.await
@@ -162,12 +180,14 @@ impl Assets {
 			snapshot = %snapshot_path.display(),
 			"vm snapshot created",
 		);
+
 		Ok(())
 	}
 }
 
 async fn acquire_cloud_hypervisor_lock(data_dir: &std::path::Path) -> tg::Result<std::fs::File> {
 	let lock_path = data_dir.join(".tangram/vm.lock");
+
 	tokio::task::spawn_blocking(move || -> tg::Result<std::fs::File> {
 		if let Some(parent) = lock_path.parent() {
 			std::fs::create_dir_all(parent).map_err(
@@ -183,12 +203,14 @@ async fn acquire_cloud_hypervisor_lock(data_dir: &std::path::Path) -> tg::Result
 			.map_err(
 				|error| tg::error!(!error, path = %lock_path.display(), "failed to open the vm lock"),
 			)?;
+
 		// SAFETY: The file descriptor remains valid for the duration of the call.
 		let ret = unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&lock), libc::LOCK_EX) };
 		if ret != 0 {
 			let error = std::io::Error::last_os_error();
 			return Err(tg::error!(!error, "failed to acquire the vm lock"));
 		}
+
 		Ok(lock)
 	})
 	.await

@@ -24,20 +24,33 @@ const ROOTVIEW_UPPER: &str = "/mnt/root/upper";
 const ROOTVIEW_WORK: &str = "/mnt/root/work";
 const ROOTVIEW_MERGED: &str = "/mnt/root/merged";
 
+#[derive(Clone, Debug, Default)]
+pub struct Arg;
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Config {
 	pub gid: u32,
+
 	pub hostname: Option<String>,
+
 	pub http2: tangram_http::http2::Config,
+
 	#[serde(default)]
 	pub library_paths: Vec<PathBuf>,
+
 	#[serde(default)]
 	pub mounts: Vec<MountConfig>,
+
 	pub network: Option<NetworkConfig>,
+
 	pub network_interface_timeout: Duration,
+
 	pub output_path: PathBuf,
+
 	pub tangram_path: PathBuf,
+
 	pub uid: u32,
+
 	pub url: String,
 }
 
@@ -57,7 +70,8 @@ pub struct NetworkConfig {
 	pub netmask: Ipv4Addr,
 }
 
-pub fn run() -> tg::Result<ExitCode> {
+pub fn run(_: &Arg) -> tg::Result<ExitCode> {
+	// Mount the kernel filesystems.
 	tracing::trace!("starting");
 
 	mount_proc(Path::new("/proc")).map_err(|error| tg::error!(!error, "failed to mount /proc"))?;
@@ -69,6 +83,7 @@ pub fn run() -> tg::Result<ExitCode> {
 	mount_dev(Path::new("/dev")).map_err(|error| tg::error!(!error, "failed to mount /dev"))?;
 	tracing::trace!("mounted /dev");
 
+	// Prepare the guest resources and wait for virtiofs.
 	configure_memory_hotplug();
 	online_cpus();
 
@@ -76,6 +91,7 @@ pub fn run() -> tg::Result<ExitCode> {
 		.map_err(|error| tg::error!(!error, "error waiting for virtiofs tags to connect"))?;
 	tracing::trace!("virtiofs tags ready");
 
+	// Signal readiness and wait for the host to resume the guest.
 	signal_ready();
 	let mut resume = [0u8; 1];
 	loop {
@@ -91,6 +107,7 @@ pub fn run() -> tg::Result<ExitCode> {
 	tracing::trace!("resumed");
 	online_cpus();
 
+	// Mount the shared filesystems.
 	mount_virtiofs(SANDBOX_FS_TAG, HOST_MOUNT_POINT, None)?;
 	tracing::trace!("mounted {HOST_MOUNT_POINT}");
 	let store_options = if dax_from_cmdline() {
@@ -112,6 +129,7 @@ pub fn run() -> tg::Result<ExitCode> {
 		}
 	}
 
+	// Read the guest init configuration.
 	let bytes = std::fs::read(HOST_INIT_CONFIG_PATH)
 		.map_err(|error| tg::error!(!error, "failed to read the init config"))?;
 	tracing::trace!("read {} bytes from {HOST_INIT_CONFIG_PATH}", bytes.len());
@@ -120,6 +138,7 @@ pub fn run() -> tg::Result<ExitCode> {
 		.map_err(|error| tg::error!(!error, "failed to parse the init config"))?;
 	tracing::trace!("parsed config: uid={} gid={}", config.uid, config.gid);
 
+	// Prepare and enter the guest root.
 	setup_rootfs(&config).map_err(|error| tg::error!(!error, "failed to setup rootfs"))?;
 	tracing::trace!("created rootfs");
 
@@ -129,6 +148,7 @@ pub fn run() -> tg::Result<ExitCode> {
 	chroot(ROOTVIEW_MERGED)?;
 	tracing::trace!("chrooted to new rootview");
 
+	// Configure the guest hostname and network.
 	let url = config
 		.url
 		.parse()
@@ -154,12 +174,14 @@ pub fn run() -> tg::Result<ExitCode> {
 		tracing::trace!("configured network guest_ip={}", network.guest_ip);
 	}
 
+	// Set the process identity.
 	let home = resolve_home(config.uid);
 
 	setresgid(config.gid).map_err(|error| tg::error!(!error, "failed to set gid"))?;
 	setresuid(config.uid).map_err(|error| tg::error!(!error, "failed to set uid"))?;
 	tracing::trace!("set uid={} gid={}", config.uid, config.gid);
 
+	// Start the sandbox server.
 	let serve = crate::serve::Arg {
 		http2: config.http2,
 		library_paths: config.library_paths,
@@ -172,11 +194,14 @@ pub fn run() -> tg::Result<ExitCode> {
 	let child = spawn_server(&serve, home.as_deref())
 		.map_err(|error| tg::error!(!error, "failed to spawn server"))?;
 	tracing::trace!("spawned sandbox server");
+
+	// Reap the guest processes.
 	let pid: libc::pid_t = child
 		.id()
 		.try_into()
 		.map_err(|_| tg::error!("failed to get the sandbox server pid"))?;
 	tracing::trace!("spawned pid={pid}; entering reap loop");
+
 	loop {
 		let (reaped_pid, status) = wait_for_child()?;
 		if reaped_pid == pid {
@@ -196,6 +221,7 @@ fn dax_from_cmdline() -> bool {
 }
 
 fn mount_virtiofs(tag: &str, target: &str, options: Option<&str>) -> tg::Result<()> {
+	// Create the mount target and encode the mount arguments.
 	std::fs::create_dir_all(target)
 		.map_err(|error| tg::error!(!error, %target, "failed to create the virtiofs target"))?;
 	let source = CString::new(tag)
@@ -212,6 +238,8 @@ fn mount_virtiofs(tag: &str, target: &str, options: Option<&str>) -> tg::Result<
 	let data_ptr = data
 		.as_ref()
 		.map_or(std::ptr::null(), |data| data.as_ptr().cast());
+
+	// Mount the virtiofs filesystem.
 	let result = unsafe {
 		libc::mount(
 			source.as_ptr(),
@@ -225,6 +253,7 @@ fn mount_virtiofs(tag: &str, target: &str, options: Option<&str>) -> tg::Result<
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, %tag, %target, "failed to mount virtiofs"));
 	}
+
 	Ok(())
 }
 
@@ -251,6 +280,7 @@ fn mount_tmpfs(target: &str) -> tg::Result<()> {
 }
 
 fn setup_rootfs(config: &Config) -> tg::Result<()> {
+	// Create the root overlay.
 	mount_tmpfs(ROOTVIEW_SCRATCH)?;
 	for path in [ROOTVIEW_UPPER, ROOTVIEW_WORK, ROOTVIEW_MERGED] {
 		std::fs::create_dir(path).map_err(
@@ -260,6 +290,7 @@ fn setup_rootfs(config: &Config) -> tg::Result<()> {
 
 	mount_overlay()?;
 
+	// Remove the init configuration from the guest root.
 	let init_json = Path::new(ROOTVIEW_MERGED).join("init.json");
 	if let Err(error) = std::fs::remove_file(&init_json)
 		&& error.kind() != std::io::ErrorKind::NotFound
@@ -271,6 +302,7 @@ fn setup_rootfs(config: &Config) -> tg::Result<()> {
 		));
 	}
 
+	// Mount the kernel filesystems in the guest root.
 	let merged_mnt = Path::new(ROOTVIEW_MERGED).join("mnt");
 	mount_tmpfs(
 		merged_mnt
@@ -284,6 +316,7 @@ fn setup_rootfs(config: &Config) -> tg::Result<()> {
 		rbind(&source, &target)?;
 	}
 
+	// Bind the output and temporary directories.
 	let output_source = Path::new(HOST_MOUNT_POINT).join("opt/tangram/output");
 	let output_target = Path::new(ROOTVIEW_MERGED).join("opt/tangram/output");
 	bind(&output_source, &output_target)?;
@@ -292,6 +325,7 @@ fn setup_rootfs(config: &Config) -> tg::Result<()> {
 	let tmp_target = Path::new(ROOTVIEW_MERGED).join("tmp");
 	bind(&tmp_source, &tmp_target)?;
 
+	// Bind the shared files and user mounts.
 	for (source, target, directory, readonly) in [
 		(
 			Path::new(HOST_MOUNT_POINT).join("etc/passwd"),
@@ -511,6 +545,8 @@ fn online_cpus() {
 
 fn wait_for_virtiofs() -> tg::Result<()> {
 	const NETLINK_KOBJECT_UEVENT: libc::c_int = 15;
+
+	// Open the kernel event socket.
 	let socket = unsafe {
 		libc::socket(
 			libc::AF_NETLINK,
@@ -522,6 +558,8 @@ fn wait_for_virtiofs() -> tg::Result<()> {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to open the uevent socket"));
 	}
+
+	// Subscribe to the kernel events.
 	let mut addr: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
 	addr.nl_family = libc::AF_NETLINK.try_into().unwrap();
 	addr.nl_groups = 1;
@@ -538,6 +576,7 @@ fn wait_for_virtiofs() -> tg::Result<()> {
 		return Err(tg::error!(!error, "failed to bind the uevent socket"));
 	}
 
+	// Collect the virtiofs tags that are still missing.
 	let mut pending: Vec<&str> = vec![SANDBOX_FS_TAG, STORE_FS_TAG];
 	if let Ok(entries) = std::fs::read_dir("/sys/fs/virtiofs") {
 		for entry in entries.flatten() {
@@ -553,6 +592,7 @@ fn wait_for_virtiofs() -> tg::Result<()> {
 		return Ok(());
 	}
 
+	// Wait for the missing virtiofs tags.
 	let mut buf = [0u8; 8192];
 	while !pending.is_empty() {
 		let n = unsafe { libc::recv(socket, buf.as_mut_ptr().cast(), buf.len(), 0) };
@@ -586,7 +626,10 @@ fn wait_for_virtiofs() -> tg::Result<()> {
 		};
 		pending.retain(|expected| *expected != tag);
 	}
+
+	// Close the event socket.
 	unsafe { libc::close(socket) };
+
 	Ok(())
 }
 
@@ -634,6 +677,7 @@ fn mount_sys(target: &Path) -> tg::Result<()> {
 }
 
 fn mount_dev(target: &Path) -> tg::Result<()> {
+	// Mount the device filesystem.
 	std::fs::create_dir_all(target).map_err(|error| tg::error!(!error, "failed to create /dev"))?;
 	let source = CString::new("devtmpfs").unwrap();
 	let target_cstring = CString::new(target.as_os_str().as_bytes()).unwrap();
@@ -655,6 +699,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		}
 	}
 
+	// Mount the terminal filesystem.
 	let pts = target.join("pts");
 	std::fs::create_dir_all(&pts)
 		.map_err(|error| tg::error!(!error, "failed to create /dev/pts"))?;
@@ -676,7 +721,9 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		return Err(tg::error!(!error, "failed to mount /dev/pts"));
 	}
 
+	// Configure the device symlinks.
 	configure_dev(target)?;
+
 	Ok(())
 }
 
@@ -1053,5 +1100,6 @@ fn write_resolv_conf(dns_servers: &[Ipv4Addr]) -> tg::Result<()> {
 		});
 	std::fs::write("/etc/resolv.conf", resolv_conf)
 		.map_err(|error| tg::error!(!error, "failed to write /etc/resolv.conf"))?;
+
 	Ok(())
 }

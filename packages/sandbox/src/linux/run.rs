@@ -79,6 +79,7 @@ pub(crate) struct Prepared<'a> {
 }
 
 pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
+	// Validate the launch configuration.
 	if arg.seccomp.is_some() && matches!(backend, crate::Backend::Gvisor { .. }) {
 		return Err(tg::error!(
 			"a host seccomp policy requires the builtin or bubblewrap backend"
@@ -103,7 +104,11 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 			"the FUSE descriptor and path must be provided together"
 		));
 	}
+
+	// Configure the parent death signal.
 	crate::util::set_parent_death_signal(libc::SIGKILL)?;
+
+	// Create the cgroup.
 	let cgroup = arg
 		.cgroup
 		.as_ref()
@@ -123,21 +128,29 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 		.as_ref()
 		.map(crate::cgroup::Cgroup::handle)
 		.transpose()?;
+
+	// Enter the user namespace.
 	if let Some(fd) = arg.user_namespace_fd {
 		linux::enter_user_namespace_with_parent(fd)?;
 	} else {
 		linux::enter_user_namespace(arg.uid, arg.gid)?;
 	}
+
+	// Prepare the host filesystem namespace.
 	let host_namespace = if arg.user_namespace_fd.is_some() && arg.filesystem_fd.is_some() {
 		Some(crate::filesystem::host_namespace(arg.uid, arg.gid)?)
 	} else {
 		None
 	};
+
+	// Prepare the network and mount namespaces.
 	setup_network(&arg)?;
 	linux::unshare(
 		libc::CLONE_NEWNS | libc::CLONE_NEWPID,
 		"failed to create the resource setup namespaces",
 	)?;
+
+	// Prepare the sandbox filesystem.
 	let _filesystem = prepare_filesystem(&mut arg, host_namespace.as_ref())?;
 	if let (Some(fd), Some(path)) = (arg.fuse_fd, &arg.fuse_path) {
 		if !matches!(backend, crate::Backend::Builtin) {
@@ -145,8 +158,10 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 				"direct FUSE mounting requires the builtin backend"
 			));
 		}
-		crate::builtin::run::mount_fuse(fd, path)?;
+		crate::builtin::native::mount_fuse(fd, path)?;
 	}
+
+	// Create the prepared root.
 	let root = if arg.isolate_root
 		|| arg
 			.mounts
@@ -169,6 +184,8 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 		None
 	};
 	let root_path = root.as_ref().map(|root| root.path().join("root"));
+
+	// Fork the backend launcher.
 	let child = linux::fork()?;
 	if child == 0 {
 		if let Err(error) = child_main(&arg, backend, cgroup_handle.as_ref(), root_path.as_deref())
@@ -178,10 +195,13 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 		}
 		std::process::exit(0);
 	}
+
+	// Wait for the backend and detach the root.
 	let status = linux::wait_for_child(child);
 	if let Some(root) = &root_path {
 		let root = CString::new(root.as_os_str().as_bytes())
 			.map_err(|error| tg::error!(!error, "failed to encode the prepared root"))?;
+
 		// SAFETY: The root is a live, terminated path in the setup mount namespace.
 		if unsafe { libc::umount2(root.as_ptr(), libc::MNT_DETACH) } != 0 {
 			let error = std::io::Error::last_os_error();
@@ -190,9 +210,12 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 			}
 		}
 	}
+
+	// Clean up the cgroup.
 	let cleanup = cgroup.map(crate::cgroup::Cgroup::cleanup).transpose();
 	let status = status?;
 	cleanup?;
+
 	Ok(ExitCode::from(status))
 }
 
@@ -213,11 +236,14 @@ fn child_main(
 	cgroup: Option<&crate::cgroup::Handle>,
 	root: Option<&Path>,
 ) -> tg::Result<()> {
+	// Configure the process lifetime and priority.
 	crate::util::set_parent_death_signal(libc::SIGKILL)?;
+
 	// SAFETY: nice takes a scalar priority adjustment and errno is thread local.
 	unsafe {
 		*libc::__errno_location() = 0;
 	}
+
 	// SAFETY: nice takes a scalar priority adjustment.
 	if unsafe { libc::nice(i32::from(arg.nice)) } == -1
 		&& std::io::Error::last_os_error().raw_os_error() != Some(0)
@@ -227,6 +253,8 @@ fn child_main(
 			"failed to lower the sandbox CPU priority"
 		));
 	}
+
+	// Enter the cgroup and configure the resource limits.
 	if let Some(cgroup) = cgroup {
 		cgroup.move_self()?;
 	}
@@ -235,6 +263,8 @@ fn child_main(
 		"failed to create the resource cgroup namespace",
 	)?;
 	linux::set_rlimit_nofile(arg.rlimit_nofile)?;
+
+	// Prepare the root filesystem.
 	if let Some(root) = root
 		&& !arg
 			.mounts
@@ -251,11 +281,15 @@ fn child_main(
 		mount::mount_tmpfs(root)?;
 	}
 	mount::apply(&arg.mounts, root)?;
+
+	// Mount the cgroup filesystem.
 	let cgroup_path = root.map_or_else(
 		|| PathBuf::from("/sys/fs/cgroup"),
 		|root| root.join("sys/fs/cgroup"),
 	);
 	mount::mount_cgroup(&cgroup_path, arg.cgroup_readonly)?;
+
+	// Close unused descriptors and prepare the seccomp filter.
 	linux::close_non_std_fds()?;
 	let seccomp_fd = if matches!(
 		backend,
@@ -265,16 +299,19 @@ fn child_main(
 	} else {
 		None
 	};
+
+	// Invoke the selected backend.
 	let prepared = Prepared {
 		arg,
 		root,
 		seccomp_fd,
 	};
+
 	match backend {
 		crate::Backend::Builtin => {
 			let command = crate::bubblewrap::command(&prepared, Path::new("builtin"), true)?;
 			let arguments = command.get_args().map(OsString::from).collect();
-			let status = crate::builtin::run::run(arguments)?;
+			let status = crate::builtin::native::run(arguments)?;
 			std::process::exit(i32::from(status));
 		},
 		crate::Backend::Bubblewrap { path } => {
@@ -309,6 +346,7 @@ fn setup_network(arg: &Arg) -> tg::Result<()> {
 					"the network requires a valid synchronization descriptor"
 				));
 			}
+
 			// SAFETY: The inherited synchronization descriptor is exclusively owned here.
 			let fd = unsafe { OwnedFd::from_raw_fd(*fd) };
 			use std::io::{Read as _, Write as _};
@@ -319,6 +357,7 @@ fn setup_network(arg: &Arg) -> tg::Result<()> {
 			socket
 				.read_exact(&mut [0])
 				.map_err(|error| tg::error!(!error, "failed to wait for network setup"))?;
+
 			if let Some(Network::Veth { gateway, guest, .. }) = &arg.network {
 				let suffix = format!("{:09}", arg.index % 1_000_000_000);
 				let name = format!("tg-vc-{suffix}");
@@ -336,6 +375,7 @@ fn setup_network(arg: &Arg) -> tg::Result<()> {
 			"failed to create the resource network namespace",
 		)?,
 	}
+
 	Ok(())
 }
 
@@ -343,11 +383,14 @@ fn prepare_filesystem(
 	arg: &mut Arg,
 	host_namespace: Option<&OwnedFd>,
 ) -> tg::Result<Option<OwnedFd>> {
+	// Open and prepare the sandbox filesystem.
 	let (Some(path), Some(socket)) = (arg.filesystem_path.clone(), arg.filesystem_fd) else {
 		return Ok(None);
 	};
 	let filesystem = crate::filesystem::open(&path)?;
 	crate::filesystem::prepare(&filesystem, arg.uid, arg.gid)?;
+
+	// Rewrite the mounts to use the prepared filesystem.
 	arg.mounts.filesystem_mount_fd = Some(filesystem.as_raw_fd());
 	let target = crate::filesystem::path(&filesystem);
 	for bind in arg.mounts.binds.iter_mut().chain(&mut arg.mounts.ro_binds) {
@@ -357,11 +400,14 @@ fn prepare_filesystem(
 		crate::filesystem::relocate(&mut overlay.upperdir, &path, &target);
 		crate::filesystem::relocate(&mut overlay.workdir, &path, &target);
 	}
+
+	// Send the filesystem descriptor to the parent.
 	// SAFETY: The inherited filesystem control descriptor is exclusively owned here.
 	let socket = unsafe { OwnedFd::from_raw_fd(socket) };
 	let host_filesystem = host_namespace
 		.map(|namespace| crate::filesystem::host_mount(&filesystem, namespace))
 		.transpose()?;
 	crate::filesystem::send(&socket, host_filesystem.as_ref().unwrap_or(&filesystem))?;
+
 	Ok(Some(filesystem))
 }

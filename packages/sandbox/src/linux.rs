@@ -10,6 +10,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+pub mod init;
+pub mod run;
+
 pub(crate) fn fork() -> tg::Result<libc::pid_t> {
 	let pid = unsafe { libc::fork() };
 	if pid < 0 {
@@ -28,8 +31,10 @@ pub(crate) fn open_pidfd() -> tg::Result<OwnedFd> {
 			"failed to open the launcher pidfd"
 		));
 	}
+
 	// SAFETY: The successful syscall returned a newly owned descriptor.
 	let fd = unsafe { OwnedFd::from_raw_fd(fd.try_into().unwrap()) };
+
 	Ok(fd)
 }
 
@@ -90,27 +95,38 @@ pub(crate) fn enter_user_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Re
 }
 
 pub(crate) fn enter_user_namespace_with_parent(fd: RawFd) -> tg::Result<()> {
+	// Validate the synchronization descriptor.
 	if fd < 0 {
 		return Err(tg::error!(fd = %fd, "the user namespace requires a valid sync fd"));
 	}
+
+	// Create the user namespace.
 	unshare(libc::CLONE_NEWUSER, "failed to unshare the user namespace")?;
+
+	// Send the process identity to the parent.
 	// SAFETY: The descriptor is inherited from the parent and is exclusively owned here.
 	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 	let mut socket = UnixStream::from(fd);
+
 	// SAFETY: This function has no preconditions.
 	let pid = unsafe { libc::getpid() };
 	socket
 		.write_all(&pid.to_ne_bytes())
 		.map_err(|error| tg::error!(!error, "failed to signal user namespace readiness"))?;
+
+	// Wait for the parent to install the identity maps.
 	let mut buffer = [0];
 	socket
 		.read_exact(&mut buffer)
 		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace mapping"))?;
+
+	// Clear the supplementary groups.
 	let result = unsafe { libc::setgroups(0, std::ptr::null()) };
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to clear supplementary groups"));
 	}
+
 	Ok(())
 }
 
@@ -178,6 +194,7 @@ pub(crate) fn set_securebits() -> tg::Result<()> {
 	const SECBIT_NO_CAP_AMBIENT_RAISE_LOCKED: libc::c_int = 1 << 7;
 	const PR_SET_SECUREBITS: libc::c_int = 28;
 
+	// Compute the securebits mask.
 	let securebits = SECBIT_NOROOT
 		| SECBIT_NOROOT_LOCKED
 		| SECBIT_NO_SETUID_FIXUP
@@ -185,11 +202,14 @@ pub(crate) fn set_securebits() -> tg::Result<()> {
 		| SECBIT_KEEP_CAPS_LOCKED
 		| SECBIT_NO_CAP_AMBIENT_RAISE
 		| SECBIT_NO_CAP_AMBIENT_RAISE_LOCKED;
+
+	// Lock the securebits.
 	let ret = unsafe { libc::prctl(PR_SET_SECUREBITS, securebits, 0, 0, 0) };
 	if ret != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to set securebits"));
 	}
+
 	Ok(())
 }
 
@@ -220,11 +240,14 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 	const PR_CAP_AMBIENT_CLEAR_ALL: libc::c_int = 4;
 	const PR_CAPBSET_DROP: libc::c_int = 24;
 
+	// Clear the ambient capabilities.
 	let ret = unsafe { libc::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) };
 	if ret != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to clear ambient capabilities"));
 	}
+
+	// Drop the capability bounding set.
 	for capability in 0..64 {
 		// SAFETY: prctl takes scalar arguments and the operation does not retain pointers.
 		if unsafe { libc::prctl(libc::PR_CAPBSET_READ, capability, 0, 0, 0) } < 0 {
@@ -237,6 +260,7 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 				"failed to read the capability bounding set"
 			));
 		}
+
 		// SAFETY: prctl takes scalar arguments and the operation does not retain pointers.
 		if unsafe { libc::prctl(PR_CAPBSET_DROP, capability, 0, 0, 0) } != 0 {
 			return Err(tg::error!(
@@ -246,6 +270,8 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 			));
 		}
 	}
+
+	// Clear the effective, permitted, and inheritable capabilities.
 	let mut header = CapUserHeader {
 		pid: 0,
 		version: CAPABILITY_VERSION_3,
@@ -266,6 +292,7 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to drop capabilities"));
 	}
+
 	Ok(())
 }
 

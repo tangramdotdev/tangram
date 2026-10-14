@@ -1,11 +1,10 @@
 pub(crate) mod host;
+pub mod ip;
 pub(crate) mod linux;
 pub(crate) mod passt;
 pub(crate) mod pasta;
 pub(crate) mod tap;
 pub(crate) mod veth;
-
-pub mod ip;
 
 pub(crate) enum Network {
 	Host,

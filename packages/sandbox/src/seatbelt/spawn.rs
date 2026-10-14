@@ -9,6 +9,7 @@ pub(crate) fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
 ) -> tg::Result<tokio::process::Child> {
+	// Prepare the sandbox directories.
 	let tangram_socket_path = arg
 		.tangram_socket_path
 		.as_ref()
@@ -26,6 +27,8 @@ pub(crate) fn spawn(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
+
+	// Write the seatbelt profile.
 	let profile = create_sandbox_profile(arg)
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox profile"))?;
 	std::fs::write(
@@ -33,15 +36,14 @@ pub(crate) fn spawn(
 		profile.as_bytes(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to write the sandbox profile"))?;
+
+	// Create the sandbox init command.
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command
 		.arg("sandbox")
-		.arg("serve")
-		.arg(if serve_arg.listen {
-			"--listen"
-		} else {
-			"--connect"
-		})
+		.arg("init")
+		.arg("--backend")
+		.arg("seatbelt")
 		.arg("--output-path")
 		.arg(&serve_arg.output_path)
 		.arg("--url")
@@ -49,6 +51,9 @@ pub(crate) fn spawn(
 		.arg("--tangram-path")
 		.arg(&serve_arg.tangram_path)
 		.args(crate::util::http2_args(&serve_arg.http2));
+	if serve_arg.listen {
+		command.arg("--listen");
+	}
 	for path in &serve_arg.library_paths {
 		command.arg("--library-path").arg(path);
 	}
@@ -61,6 +66,8 @@ pub(crate) fn spawn(
 			.map_err(|error| tg::error!(!error, "failed to build `DYLD_LIBRARY_PATH`"))?;
 		command.env("DYLD_LIBRARY_PATH", path);
 	}
+
+	// Create the launch configuration.
 	let environment = command
 		.as_std()
 		.get_envs()
@@ -72,9 +79,9 @@ pub(crate) fn spawn(
 			.collect(),
 		profile: Sandbox::host_profile_path_from_root(&arg.path),
 	};
-	let launch = crate::run::Arg {
-		backend: crate::run::Backend::Seatbelt(launch),
-	};
+	let launch = crate::run::Arg::Seatbelt(launch);
+
+	// Create the launcher command.
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.envs(environment);
 	let config = crate::run::configure_command(&mut command, &launch)?;
@@ -83,22 +90,28 @@ pub(crate) fn spawn(
 		.process_group(0)
 		.stdin(std::process::Stdio::piped())
 		.stdout(std::process::Stdio::piped());
+
+	// Spawn the launcher and finish writing its configuration.
 	let process = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to spawn sandbox seatbelt"));
 	let configuration = config.finish();
 	let process = process?;
 	configuration?;
+
 	Ok(process)
 }
 
 fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
+	// Resolve the host paths.
 	let tangram_parent = arg.tangram_path.parent();
 	let home_path = std::env::var_os("HOME").map(std::path::PathBuf::from);
 	let tangram_socket_path = arg
 		.tangram_socket_path
 		.as_ref()
 		.ok_or_else(|| tg::error!("missing the tangram socket path"))?;
+
+	// Create the base sandbox profile.
 	let mut profile = String::new();
 	writedoc!(
 		profile,
@@ -250,6 +263,7 @@ fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 	)
 	.unwrap();
 
+	// Allow access to the executable and home directories.
 	if let Some(tangram_parent) = tangram_parent {
 		writedoc!(
 			profile,
@@ -325,6 +339,7 @@ fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 		}
 	}
 
+	// Allow the configured network access.
 	if let Some(network) = &arg.network {
 		if network.is_bridge() {
 			return Err(tg::error!("seatbelt isolation requires host networking"));
@@ -363,6 +378,7 @@ fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 		.unwrap();
 	}
 
+	// Allow access to the root and user mounts.
 	let sandbox_root_mount = tg::sandbox::Mount {
 		source: arg.path.clone(),
 		target: arg.path.clone(),
@@ -419,9 +435,12 @@ fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 }
 
 fn escape(bytes: impl AsRef<[u8]>) -> String {
+	// Start the quoted string.
 	let bytes = bytes.as_ref();
 	let mut output = String::new();
 	output.push('"');
+
+	// Escape the string bytes.
 	for byte in bytes {
 		let byte = *byte;
 		match byte {
@@ -456,6 +475,9 @@ fn escape(bytes: impl AsRef<[u8]>) -> String {
 			},
 		}
 	}
+
+	// Close the quoted string.
 	output.push('"');
+
 	output
 }

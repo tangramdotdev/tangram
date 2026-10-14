@@ -17,19 +17,13 @@ use {
 
 mod backend;
 #[cfg(target_os = "linux")]
-mod bubblewrap;
-#[cfg(target_os = "linux")]
 mod cgroup;
 mod client;
 #[cfg(target_os = "linux")]
 mod filesystem;
 #[cfg(target_os = "linux")]
-mod gvisor;
-#[cfg(target_os = "linux")]
 mod launch;
 mod libraries;
-#[cfg(target_os = "linux")]
-mod linux;
 #[cfg(target_os = "linux")]
 mod mount;
 #[cfg(target_os = "linux")]
@@ -45,6 +39,8 @@ mod util;
 pub use self::backend::{Backend, Kind, Platform};
 
 #[cfg(target_os = "linux")]
+pub mod bubblewrap;
+#[cfg(target_os = "linux")]
 pub mod budget;
 #[cfg(target_os = "linux")]
 pub mod builtin;
@@ -55,8 +51,12 @@ pub mod cloud_hypervisor;
 #[cfg(target_os = "linux")]
 pub mod cpu;
 #[cfg(target_os = "linux")]
+pub mod gvisor;
+#[cfg(target_os = "linux")]
 pub mod host;
 pub mod init;
+#[cfg(target_os = "linux")]
+pub mod linux;
 #[cfg(target_os = "linux")]
 pub mod network;
 #[cfg(target_os = "linux")]
@@ -73,7 +73,9 @@ pub struct Sandbox(Arc<State>);
 pub struct State {
 	#[cfg(target_os = "linux")]
 	_storage: Option<budget::Allocation>,
+
 	accounting: tokio::sync::Mutex<Option<usage::Accounting>>,
+
 	arg: Arg,
 
 	#[cfg(target_os = "linux")]
@@ -111,49 +113,82 @@ pub struct SpawnArg {
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub backend: Backend,
+
 	#[cfg(target_os = "linux")]
 	pub cgroup_cleanup_interval: Duration,
+
 	#[cfg(target_os = "linux")]
 	pub cgroup_cleanup_timeout: Duration,
+
 	pub connect_timeout: Duration,
+
 	pub cpu: Option<tg::sandbox::Cpu>,
+
 	#[cfg(target_os = "linux")]
 	pub cpu_affinity: bool,
+
 	#[cfg(target_os = "linux")]
 	pub cpu_parent: Option<cpu::Lease>,
+
 	#[cfg(target_os = "linux")]
 	pub cpu_pool: Option<cpu::Pool>,
+
 	pub dns: Vec<Ipv4Addr>,
+
 	#[cfg(target_os = "linux")]
 	pub firewall: Firewall,
+
 	#[cfg(target_os = "linux")]
 	pub fuse_fd: Option<Arc<std::os::fd::OwnedFd>>,
+
 	pub hostname: Option<String>,
+
 	pub http2: tangram_http::http2::Config,
+
 	pub identity: PathBuf,
+
 	pub index: u64,
+
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
+
 	pub memory: Option<tg::sandbox::Resource<u64>>,
+
 	pub memory_sampling_interval: Duration,
+
 	pub mounts: Vec<tg::sandbox::Mount>,
+
 	pub network: Option<Network>,
+
 	#[cfg(target_os = "linux")]
 	pub network_startup_timeout: Duration,
+
 	pub nice: u8,
+
 	pub path: PathBuf,
+
 	pub request_timeout: Duration,
+
 	pub resources: Resources,
+
 	pub rootfs_path: PathBuf,
+
 	pub shutdown_timeout: Duration,
+
 	pub storage: Option<tg::sandbox::Resource<u64>>,
+
 	#[cfg(target_os = "linux")]
 	pub storage_pool: Option<budget::Pool>,
+
 	pub store_path: PathBuf,
+
 	pub swap: Option<tg::sandbox::Resource<u64>>,
+
 	#[cfg(target_os = "linux")]
 	pub swap_pool: Option<budget::Pool>,
+
 	pub tangram_path: PathBuf,
+
 	pub tangram_socket_path: Option<PathBuf>,
 }
 
@@ -177,6 +212,7 @@ pub struct Output {
 #[serde(rename_all = "snake_case")]
 pub enum Firewall {
 	Iptables,
+
 	#[default]
 	Nft,
 }
@@ -300,6 +336,7 @@ pub fn filesystem_project_usage(path: &Path, project: u32) -> tg::Result<u64> {
 impl Sandbox {
 	#[tracing::instrument(name = "sandbox.create_physical", level = "debug", skip_all, fields(sandbox_index = arg.index), err(level = "debug"))]
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
+		// Validate the sandbox resources and mount targets.
 		validate_resources(&arg.backend, arg.cpu, arg.memory)?;
 		for resource in [arg.memory, arg.storage, arg.swap].into_iter().flatten() {
 			resource.validate()?;
@@ -390,6 +427,8 @@ impl Sandbox {
 				(Some(listener), uri)
 			},
 		};
+
+		// Create the sandbox server configuration.
 		let serve_arg = self::serve::Arg {
 			http2: arg.http2,
 			library_paths,
@@ -444,6 +483,8 @@ impl Sandbox {
 			fuse_fd: None,
 			..arg
 		};
+
+		// Connect to the sandbox server.
 		#[cfg(target_os = "macos")]
 		let mut process = match &arg.backend {
 			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
@@ -501,20 +542,30 @@ impl Sandbox {
 			},
 		};
 
+		// Create the sandbox state.
 		let sandbox = Self(Arc::new(State {
 			#[cfg(target_os = "linux")]
 			_storage: storage,
+
 			accounting: tokio::sync::Mutex::new(None),
+
 			arg,
+
 			#[cfg(target_os = "linux")]
 			cgroup: tokio::sync::Mutex::new(cgroup),
+
 			client,
+
 			destroy: tokio::sync::Mutex::new(()),
+
 			#[cfg(target_os = "linux")]
 			filesystem,
+
 			#[cfg(target_os = "linux")]
 			network,
+
 			next_process_index: AtomicU64::new(1),
+
 			process: tokio::sync::Mutex::new(process),
 		}));
 
@@ -533,11 +584,14 @@ impl Sandbox {
 
 	/// Begin charging when the sandbox is assigned, before spawning workloads.
 	pub async fn start(&self) -> tg::Result<()> {
+		// Lock the sandbox accounting state.
 		let _destroy = self.0.destroy.lock().await;
 		let mut accounting = self.0.accounting.lock().await;
 		if accounting.is_some() {
 			return Ok(());
 		}
+
+		// Select the usage source.
 		#[cfg(target_os = "linux")]
 		let source = {
 			let cgroup = self.0.cgroup.lock().await;
@@ -568,6 +622,8 @@ impl Sandbox {
 				.map_err(|_| tg::error!("the sandbox process ID is too large"))?;
 			usage::Source::new(pid)
 		};
+
+		// Start charging for the assigned sandbox.
 		let resources = tg::runner::Capacity {
 			cpu: self
 				.0
@@ -583,6 +639,8 @@ impl Sandbox {
 			resources,
 			self.0.arg.memory_sampling_interval,
 		)?);
+
+		// Schedule the duration limit.
 		if let Some(duration) = self.0.arg.resources.max_duration {
 			let state = Arc::downgrade(&self.0);
 			tokio::spawn(async move {
@@ -599,6 +657,7 @@ impl Sandbox {
 				}
 			});
 		}
+
 		Ok(())
 	}
 
@@ -658,11 +717,13 @@ impl Sandbox {
 	}
 
 	async fn listen_unix(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
+		// Prepare the host socket directory.
 		let host_path = Self::host_listen_path_from_root(root_path);
 		tokio::fs::create_dir_all(host_path.parent().unwrap())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the host path"))?;
 
+		// Select the socket path for the platform.
 		let host_path_string = host_path
 			.to_str()
 			.ok_or_else(|| tg::error!("invalid path"))?;
@@ -756,6 +817,7 @@ impl Sandbox {
 	async fn listen_cloud_hypervisor(
 		root_path: &Path,
 	) -> tg::Result<(crate::server::Listener, Uri)> {
+		// Create the host socket directory.
 		let port = 6748;
 		let socket = format!(
 			"{}_{port}",
@@ -765,6 +827,8 @@ impl Sandbox {
 		tokio::fs::create_dir_all(path.parent().unwrap())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vm directory"))?;
+
+		// Create the host and guest URLs.
 		let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
 		let host_url = Uri::builder()
 			.scheme("http+unix")
@@ -778,7 +842,10 @@ impl Sandbox {
 		)
 		.parse()
 		.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
+
+		// Create the listener.
 		let listener = crate::server::Server::listen(&host_url).await?;
+
 		Ok((listener, guest_url))
 	}
 
@@ -876,6 +943,7 @@ impl Sandbox {
 			.await
 			.map_err(|error| tg::error!(!error, "the cgroup cleanup task panicked"))??;
 		usage?;
+
 		Ok(())
 	}
 

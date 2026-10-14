@@ -9,8 +9,10 @@ use {
 pub struct Args {
 	#[arg(long, conflicts_with_all = ["config_fd", "launch"])]
 	pub config: Option<PathBuf>,
+
 	#[arg(long, conflicts_with = "launch")]
 	pub config_fd: Option<i32>,
+
 	#[command(flatten)]
 	pub options: Options,
 }
@@ -20,146 +22,217 @@ pub struct Args {
 pub struct Options {
 	#[arg(long)]
 	pub as_pid_1: bool,
+
 	#[arg(long, value_parser = crate::sandbox::parse_backend)]
 	pub backend: Option<tangram_sandbox::Kind>,
+
 	#[arg(long = "bind", action = clap::ArgAction::Append, num_args = 2)]
 	pub binds: Vec<PathBuf>,
+
 	#[arg(long = "cap-drop", action = clap::ArgAction::Append)]
 	pub cap_drop: Vec<String>,
+
 	#[arg(long)]
 	pub cgroup: Option<String>,
+
 	#[arg(long)]
 	pub cgroup_cpu: Option<u64>,
+
 	#[arg(long)]
 	pub cgroup_memory: Option<u64>,
+
 	#[arg(long)]
 	pub cgroup_memory_oom_group: bool,
+
 	#[arg(long)]
 	pub cgroup_memory_swap: Option<u64>,
+
 	#[arg(long)]
 	pub cgroup_pids: Option<u64>,
+
 	#[arg(long)]
 	pub cgroup_readonly: bool,
+
 	#[arg(long)]
 	pub chdir: Option<PathBuf>,
+
 	#[arg(long)]
 	pub clearenv: bool,
+
 	#[arg(long)]
 	pub cloud_hypervisor_path: Option<PathBuf>,
+
 	#[arg(trailing_var_arg = true)]
 	pub command: Vec<OsString>,
+
 	#[arg(long)]
 	pub cpu: Option<u64>,
+
 	#[arg(long)]
 	pub create_snapshot: Option<PathBuf>,
+
 	#[arg(long)]
 	pub dax: Option<u64>,
+
 	#[arg(long = "dev", action = clap::ArgAction::Append, num_args = 1)]
 	pub devs: Vec<PathBuf>,
+
 	#[arg(long, action = clap::ArgAction::Append)]
 	pub dns: Vec<std::net::Ipv4Addr>,
+
 	#[arg(long)]
 	pub filesystem_fd: Option<i32>,
+
 	#[arg(long)]
 	pub filesystem_path: Option<PathBuf>,
+
 	#[arg(long)]
 	pub firewall: Option<tangram_sandbox::Firewall>,
+
 	#[arg(long)]
 	pub fuse_fd: Option<i32>,
+
 	#[arg(long)]
 	pub fuse_path: Option<PathBuf>,
+
 	#[arg(long)]
 	pub gateway_ip: Option<std::net::Ipv4Addr>,
+
 	#[arg(long)]
 	pub gid: Option<u32>,
+
 	#[arg(long)]
 	pub guest_ip: Option<std::net::Ipv4Addr>,
+
 	#[arg(long)]
 	pub host_ip: Option<std::net::Ipv4Addr>,
+
 	#[arg(long)]
 	pub hostname: Option<String>,
+
 	#[arg(long)]
 	pub http2_connection_window_size: Option<u32>,
+
 	#[arg(long)]
 	pub http2_max_concurrent_reset_streams: Option<usize>,
+
 	#[arg(long)]
 	pub http2_max_concurrent_streams: Option<u32>,
+
 	#[arg(long)]
 	pub http2_stream_window_size: Option<u32>,
+
 	#[arg(long)]
 	pub image_path: Option<PathBuf>,
+
 	#[arg(long)]
 	pub index: Option<u64>,
+
 	#[arg(long)]
 	pub kernel_path: Option<PathBuf>,
+
 	#[arg(long)]
 	pub max_cpu: Option<u64>,
+
 	#[arg(long)]
 	pub max_memory: Option<u64>,
+
 	#[arg(long)]
 	pub memory: Option<u64>,
+
 	#[arg(long = "mount", action = clap::ArgAction::Append)]
 	pub mounts: Vec<tg::sandbox::Mount>,
+
 	#[arg(long)]
 	pub network: Option<String>,
+
 	#[arg(long)]
 	pub network_fd: Option<i32>,
+
 	#[arg(long, value_parser = humantime::parse_duration)]
 	pub network_interface_timeout: Option<std::time::Duration>,
+
 	#[arg(long, value_parser = humantime::parse_duration)]
 	pub network_startup_timeout: Option<std::time::Duration>,
+
 	#[arg(long)]
 	pub nice: Option<u8>,
+
 	#[arg(long = "overlay-src", action = clap::ArgAction::Append, num_args = 1)]
 	pub overlay_sources: Vec<PathBuf>,
+
 	#[arg(long = "overlay", action = clap::ArgAction::Append, num_args = 3)]
 	pub overlays: Vec<PathBuf>,
+
 	#[arg(long)]
 	pub path: Option<PathBuf>,
+
 	#[arg(long, value_parser = parse_platform)]
 	pub platform: Option<tangram_sandbox::Platform>,
+
 	#[arg(long = "port", action = clap::ArgAction::Append)]
 	pub ports: Vec<tg::sandbox::Port>,
+
 	#[arg(long = "proc", action = clap::ArgAction::Append, num_args = 1)]
 	pub procs: Vec<PathBuf>,
+
 	#[arg(long)]
 	pub profile: Option<PathBuf>,
+
 	#[arg(long, value_parser = humantime::parse_duration)]
 	pub ready_timeout: Option<std::time::Duration>,
+
 	#[arg(long)]
 	pub rlimit_nofile: Option<u64>,
+
 	#[arg(long = "ro-bind", action = clap::ArgAction::Append, num_args = 2)]
 	pub ro_binds: Vec<PathBuf>,
+
 	#[arg(long)]
 	pub rootfs_path: Option<PathBuf>,
+
 	#[arg(long)]
 	pub runtime_path: Option<PathBuf>,
+
 	#[arg(long, value_parser = parse_seccomp)]
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
 	#[arg(long, value_parser = humantime::parse_duration)]
 	pub serial_connect_interval: Option<std::time::Duration>,
+
 	#[arg(long, value_parser = humantime::parse_duration)]
 	pub serial_connect_timeout: Option<std::time::Duration>,
+
 	#[arg(long = "setenv", action = clap::ArgAction::Append, num_args = 2)]
 	pub setenvs: Vec<String>,
+
 	#[arg(long)]
 	pub snapshot: Option<PathBuf>,
+
 	#[arg(long)]
 	pub snapshot_cpu: Option<u64>,
+
 	#[arg(long)]
 	pub snapshot_memory: Option<u64>,
+
 	#[arg(long)]
 	pub store_path: Option<PathBuf>,
+
 	#[arg(long)]
 	pub tangram_path: Option<PathBuf>,
+
 	#[arg(long = "tmpfs", action = clap::ArgAction::Append, num_args = 1)]
 	pub tmpfs: Vec<PathBuf>,
+
 	#[arg(long)]
 	pub uid: Option<u32>,
+
 	#[arg(long)]
 	pub unshare_all: bool,
+
 	#[arg(long)]
 	pub url: Option<tangram_uri::Uri>,
+
 	#[arg(long)]
 	pub user_namespace_fd: Option<i32>,
 }
@@ -175,6 +248,7 @@ impl Cli {
 					"the configuration descriptor must be greater than two"
 				));
 			}
+
 			// SAFETY: Duplicating the numeric descriptor validates it before taking ownership.
 			let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
 			if duplicate < 0 {
@@ -183,8 +257,10 @@ impl Cli {
 					"invalid sandbox configuration descriptor"
 				));
 			}
+
 			// SAFETY: A successful duplication returns a newly owned descriptor.
 			let mut file = unsafe { std::fs::File::from_raw_fd(duplicate) };
+
 			// SAFETY: The original descriptor was successfully validated and is transferred to this command.
 			drop(unsafe { std::fs::File::from_raw_fd(fd) });
 			let mut contents = Vec::new();
@@ -194,10 +270,12 @@ impl Cli {
 					"failed to read the sandbox configuration descriptor"
 				)
 			})?;
+
 			read_config(&contents)?
 		} else {
 			args.options.arg()?
 		};
+
 		tangram_sandbox::run::run(arg)
 	}
 }
@@ -212,15 +290,17 @@ impl Options {
 			}
 		});
 		self.validate(backend)?;
-		let backend = match backend {
+		let arg = match backend {
 			#[cfg(target_os = "linux")]
 			tangram_sandbox::Kind::Builtin
 			| tangram_sandbox::Kind::Bubblewrap
 			| tangram_sandbox::Kind::Gvisor => self.linux(backend)?,
+
 			#[cfg(target_os = "linux")]
 			tangram_sandbox::Kind::CloudHypervisor => {
-				tangram_sandbox::run::Backend::CloudHypervisor(self.cloud_hypervisor()?)
+				tangram_sandbox::run::Arg::CloudHypervisor(self.cloud_hypervisor()?)
 			},
+
 			#[cfg(target_os = "macos")]
 			tangram_sandbox::Kind::Seatbelt => {
 				let arg = tangram_sandbox::seatbelt::run::Arg {
@@ -229,21 +309,25 @@ impl Options {
 						.profile
 						.ok_or_else(|| tg::error!("the seatbelt profile is required"))?,
 				};
-				tangram_sandbox::run::Backend::Seatbelt(arg)
+				tangram_sandbox::run::Arg::Seatbelt(arg)
 			},
+
 			#[cfg(target_os = "linux")]
 			tangram_sandbox::Kind::Seatbelt => {
 				return Err(tg::error!("the seatbelt backend requires macos"));
 			},
+
 			#[cfg(target_os = "macos")]
 			_ => return Err(tg::error!("the selected backend requires linux")),
 		};
-		let arg = tangram_sandbox::run::Arg { backend };
+
 		Ok(arg)
 	}
 
 	fn validate(&self, backend: tangram_sandbox::Kind) -> tg::Result<()> {
 		use tangram_sandbox::Kind;
+
+		// Validate the Linux launch options.
 		let linux = matches!(backend, Kind::Builtin | Kind::Bubblewrap | Kind::Gvisor);
 		let linux_options = self.as_pid_1
 			|| !self.binds.is_empty()
@@ -280,6 +364,8 @@ impl Options {
 				"the selected backend does not support Linux launch options"
 			));
 		}
+
+		// Validate the cloud-hypervisor launch options.
 		let cloud_options = self.cloud_hypervisor_path.is_some()
 			|| self.cpu.is_some()
 			|| self.create_snapshot.is_some()
@@ -316,6 +402,8 @@ impl Options {
 				"the selected backend does not support cloud-hypervisor launch options"
 			));
 		}
+
+		// Validate the backend-specific options.
 		if self.platform.is_some() && backend != Kind::Gvisor {
 			return Err(tg::error!(
 				"the platform option requires the gvisor backend"
@@ -341,6 +429,8 @@ impl Options {
 				"cloud-hypervisor launches the configured guest init command"
 			));
 		}
+
+		// Validate the cgroup and network options.
 		if self.cgroup.is_none()
 			&& (self.cgroup_cpu.is_some()
 				|| self.cgroup_memory.is_some()
@@ -365,18 +455,23 @@ impl Options {
 				"the selected backend does not support Linux launch options"
 			));
 		}
+
 		Ok(())
 	}
 
 	#[cfg(target_os = "linux")]
-	fn linux(self, backend: tangram_sandbox::Kind) -> tg::Result<tangram_sandbox::run::Backend> {
-		use tangram_sandbox::run::linux::{Arg, Bind, Cgroup, Mounts, Network, Overlay, Process};
+	fn linux(self, backend: tangram_sandbox::Kind) -> tg::Result<tangram_sandbox::run::Arg> {
+		use tangram_sandbox::linux::run::{Arg, Bind, Cgroup, Mounts, Network, Overlay, Process};
+
+		// Validate the command.
 		if self.command.is_empty() {
 			return Err(tg::error!("a command is required"));
 		}
 		if self.cap_drop.iter().any(|capability| capability != "ALL") {
 			return Err(tg::error!("the launch supports --cap-drop ALL"));
 		}
+
+		// Create the mount configuration.
 		let binds = self
 			.binds
 			.as_chunks::<2>()
@@ -446,6 +541,8 @@ impl Options {
 			tmpfs: self.tmpfs,
 			..Default::default()
 		};
+
+		// Create the process configuration.
 		let mut environment = if self.clearenv {
 			std::collections::BTreeMap::new()
 		} else {
@@ -478,6 +575,8 @@ impl Options {
 			environment,
 			hostname: self.hostname,
 		};
+
+		// Create the network configuration.
 		let network = match self.network.as_deref() {
 			None | Some("none") => None,
 			Some("host") => Some(Network::Host),
@@ -499,6 +598,8 @@ impl Options {
 			}),
 			Some(kind) => return Err(tg::error!(%kind, "invalid Linux launch network")),
 		};
+
+		// Create the resource configuration.
 		let cgroup = self.cgroup.map(|name| Cgroup {
 			cpu: self.cgroup_cpu,
 			memory: self.cgroup_memory,
@@ -527,20 +628,34 @@ impl Options {
 			uid: self.uid.unwrap_or(0),
 			user_namespace_fd: self.user_namespace_fd,
 		};
-		let backend = match backend {
-			tangram_sandbox::Kind::Builtin => tangram_sandbox::run::Backend::Builtin(arg),
-			tangram_sandbox::Kind::Bubblewrap => tangram_sandbox::run::Backend::Bubblewrap {
-				arg,
-				path: self.runtime_path.unwrap_or_else(|| "bwrap".into()),
+
+		// Create the backend launch configuration.
+		let arg = match backend {
+			tangram_sandbox::Kind::Builtin => {
+				tangram_sandbox::run::Arg::Builtin(tangram_sandbox::builtin::run::Arg {
+					linux: arg,
+				})
 			},
-			tangram_sandbox::Kind::Gvisor => tangram_sandbox::run::Backend::Gvisor {
-				arg,
-				path: self.runtime_path.unwrap_or_else(|| "runsc".into()),
-				platform: self.platform.unwrap_or_default(),
+
+			tangram_sandbox::Kind::Bubblewrap => {
+				tangram_sandbox::run::Arg::Bubblewrap(tangram_sandbox::bubblewrap::run::Arg {
+					linux: arg,
+					path: self.runtime_path.unwrap_or_else(|| "bwrap".into()),
+				})
 			},
+
+			tangram_sandbox::Kind::Gvisor => {
+				tangram_sandbox::run::Arg::Gvisor(tangram_sandbox::gvisor::run::Arg {
+					linux: arg,
+					path: self.runtime_path.unwrap_or_else(|| "runsc".into()),
+					platform: self.platform.unwrap_or_default(),
+				})
+			},
+
 			_ => unreachable!(),
 		};
-		Ok(backend)
+
+		Ok(arg)
 	}
 
 	#[cfg(target_os = "linux")]

@@ -8,25 +8,7 @@ pub struct Arg {
 pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	// Prevent same-UID workloads from inspecting PID 1 through /proc.
 	crate::util::set_dumpable(false)?;
-	let mut command = std::process::Command::new(&arg.serve.tangram_path);
-	command
-		.arg("sandbox")
-		.arg("serve")
-		.arg(if arg.serve.listen {
-			"--listen"
-		} else {
-			"--connect"
-		})
-		.arg("--output-path")
-		.arg(&arg.serve.output_path)
-		.arg("--url")
-		.arg(arg.serve.url.to_string())
-		.arg("--tangram-path")
-		.arg(&arg.serve.tangram_path)
-		.args(crate::util::http2_args(&arg.serve.http2));
-	for path in &arg.serve.library_paths {
-		command.arg("--library-path").arg(path);
-	}
+	let mut command = crate::init::command(&arg.serve);
 	let child = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox server"))?;

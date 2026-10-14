@@ -1,5 +1,5 @@
 use {
-	crate::{cloud_hypervisor::run, serve},
+	crate::{cloud_hypervisor, serve},
 	tangram_client::prelude::*,
 };
 
@@ -8,6 +8,7 @@ pub(crate) fn command(
 	serve_arg: &serve::Arg,
 	network: Option<&crate::network::Network>,
 ) -> tg::Result<(tokio::process::Command, crate::run::Config)> {
+	// Validate the backend settings.
 	if !serve_arg.library_paths.is_empty() {
 		return Err(tg::error!(
 			"cloud-hypervisor does not support additional library paths"
@@ -16,15 +17,17 @@ pub(crate) fn command(
 	let crate::Backend::CloudHypervisor(config) = &arg.backend else {
 		unreachable!()
 	};
+
+	// Resolve the network settings.
 	let (network_kind, host_ip, guest_ip) = match network {
 		None => (None, None, None),
 		Some(crate::network::Network::Passt(network)) => (
-			Some(run::NetworkKind::Passt),
+			Some(cloud_hypervisor::run::NetworkKind::Passt),
 			Some(network.host_ip()),
 			Some(network.guest_ip()),
 		),
 		Some(crate::network::Network::Tap(network)) => (
-			Some(run::NetworkKind::Tap),
+			Some(cloud_hypervisor::run::NetworkKind::Tap),
 			Some(network.host_ip()),
 			Some(network.guest_ip()),
 		),
@@ -34,11 +37,13 @@ pub(crate) fn command(
 			| crate::network::Network::Veth(_),
 		) => return Err(tg::error!("unsupported cloud-hypervisor networking")),
 	};
+
+	// Create the launch configuration.
 	let cpu = arg
 		.cpu
 		.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
 		.transpose()?;
-	let launch = run::Arg {
+	let launch = cloud_hypervisor::run::Arg {
 		cloud_hypervisor_path: config.cloud_hypervisor_path.clone(),
 		create_snapshot: None,
 		cpu,
@@ -77,9 +82,9 @@ pub(crate) fn command(
 		tangram_path: arg.tangram_path.clone(),
 		url: serve_arg.url.clone(),
 	};
-	let launch = crate::run::Arg {
-		backend: crate::run::Backend::CloudHypervisor(launch),
-	};
+	let launch = crate::run::Arg::CloudHypervisor(launch);
+
+	// Create the launch command.
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	let config = crate::run::configure_command(&mut command, &launch)?;
 	command
@@ -87,5 +92,6 @@ pub(crate) fn command(
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
 		.stderr(std::process::Stdio::inherit());
+
 	Ok((command, config))
 }

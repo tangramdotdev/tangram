@@ -17,20 +17,18 @@ use {
 	tangram_futures::task::{Stopper, Task},
 };
 
-#[cfg(test)]
-mod tests;
-
 pub(crate) mod assets;
 pub(crate) mod capacity;
-pub(crate) mod process;
-#[cfg(target_os = "linux")]
-pub(crate) mod project;
-pub(crate) mod sandbox;
-
 pub mod control;
 pub mod create;
 pub mod delete;
 pub mod list;
+pub(crate) mod process;
+#[cfg(target_os = "linux")]
+pub(crate) mod project;
+pub(crate) mod sandbox;
+#[cfg(test)]
+mod tests;
 pub mod token;
 
 type RunnerSender =
@@ -42,17 +40,27 @@ type CreateControlConnection<T> = Arc<dyn Fn() -> BoxFuture<'static, tg::Result<
 #[cfg_attr(not(target_os = "linux"), derive(Copy))]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
+
 	#[cfg(target_os = "linux")]
 	pub cpu_pool: Option<tangram_sandbox::cpu::Pool>,
+
 	#[cfg(target_os = "linux")]
 	pub filesystem_project_ids: crate::config::FilesystemProjectIds,
+
 	pub overcommit: tg::runner::Overcommit,
+
 	pub process_control_connection_pool_refresh_interval: Duration,
+
 	pub process_control_connection_pool_size: usize,
+
 	pub process_control_connection_pool_ttl: Duration,
+
 	pub sandbox_control_connection_pool_refresh_interval: Duration,
+
 	pub sandbox_control_connection_pool_size: usize,
+
 	pub sandbox_control_connection_pool_ttl: Duration,
+
 	pub sandbox_pool_size: usize,
 }
 
@@ -81,20 +89,32 @@ pub struct Runner {
 pub struct State {
 	#[cfg(target_os = "linux")]
 	cpu_pool: Option<tangram_sandbox::cpu::Pool>,
+
 	capacity: self::capacity::Pool,
+
 	#[cfg(target_os = "linux")]
 	storage_pool: tangram_sandbox::budget::Pool,
+
 	#[cfg(target_os = "linux")]
 	swap_pool: tangram_sandbox::budget::Pool,
+
 	#[cfg(target_os = "linux")]
 	filesystem_project_ids: self::project::Pool,
+
 	heartbeat_index: AtomicU64,
+
 	id: Mutex<Option<tg::runner::Id>>,
+
 	next_sandbox_index: AtomicU64,
+
 	process_for_token: dashmap::DashMap<String, (u64, tg::process::Id)>,
+
 	processes: crate::process::Map,
+
 	reservations: self::capacity::Reservations,
+
 	sandboxes: crate::sandbox::Sandboxes,
+
 	scheduler: tokio::sync::watch::Sender<Option<tg::scheduler::Id>>,
 }
 
@@ -115,24 +135,36 @@ impl Runner {
 				config.overcommit,
 				threads_per_core,
 			),
+
 			#[cfg(target_os = "linux")]
 			cpu_pool: config.cpu_pool,
+
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: self::project::Pool::new(config.filesystem_project_ids),
+
 			heartbeat_index: AtomicU64::new(0),
+
 			id: Mutex::new(None),
+
 			next_sandbox_index: AtomicU64::new(1),
+
 			process_for_token: dashmap::DashMap::new(),
+
 			processes: crate::process::Map::default(),
+
 			reservations: self::capacity::Reservations::new(),
+
 			sandboxes: crate::sandbox::Sandboxes::default(),
+
 			scheduler,
+
 			#[cfg(target_os = "linux")]
 			storage_pool: tangram_sandbox::budget::Pool::new(
 				config.capacity.storage.min,
 				4096,
 				4096,
 			),
+
 			#[cfg(target_os = "linux")]
 			swap_pool: tangram_sandbox::budget::Pool::new(config.capacity.swap.min, 0, 4096),
 		};
@@ -152,6 +184,7 @@ impl Runner {
 			config.sandbox_control_connection_pool_ttl,
 		);
 		let sandbox_pool = self::sandbox::Pool::new(config.sandbox_pool_size);
+
 		Self {
 			process_control_connection_pool,
 			sandbox_control_connection_pool,
@@ -505,6 +538,7 @@ impl Session {
 			.collect::<FuturesUnordered<_>>()
 			.collect::<()>();
 		let (results, ()) = tokio::join!(wait_future, terminate_future);
+
 		for result in results {
 			if let Err(error) = result
 				&& !error.is_cancelled()
@@ -646,7 +680,9 @@ impl Session {
 			};
 			let request = match message {
 				tg::runner::control::ServerMessage::Ack(_) => unreachable!(),
+
 				tg::runner::control::ServerMessage::Request(request) => request,
+
 				// The control stream has already acknowledged duplicate responses.
 				tg::runner::control::ServerMessage::Response(_) => continue,
 			};
@@ -790,7 +826,9 @@ impl Session {
 
 			let message = match message {
 				tg::runner::control::ServerMessage::Ack(_) => unreachable!(),
+
 				tg::runner::control::ServerMessage::Request(message) => message,
+
 				// The control stream has already acknowledged duplicate responses.
 				tg::runner::control::ServerMessage::Response(_) => continue,
 			};
@@ -817,6 +855,7 @@ impl Session {
 				sender.send(message).await?;
 				continue;
 			};
+
 			// Spawn the sandbox task.
 			let sandbox = request.sandbox.clone();
 			let Some(token) = request.token else {

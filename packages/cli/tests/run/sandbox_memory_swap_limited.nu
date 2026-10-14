@@ -14,7 +14,7 @@ let script = r#'
 	cgroup="$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)"
 	test "$(cat "/sys/fs/cgroup${cgroup}/memory.swap.max")" = 0
 '#
-{ cgroup: { name: $cgroup, memory_swap: 0 }, process: { arguments: [/bin/sh -c $script] } } | insert kind builtin | wrap backend | to json | save setup.json
+{ cgroup: { name: $cgroup, memory_swap: 0 }, process: { arguments: [/bin/sh -c $script] } } | insert kind builtin | to json | save setup.json
 let output = ^tangram sandbox run --config setup.json | complete
 success $output
 assert not ($cgroup_parent | path join $cgroup | path exists) 'the sandbox cgroup should be removed'
