@@ -86,7 +86,6 @@ impl Pool {
 	fn matches(arg: &tg::sandbox::create::Arg) -> bool {
 		arg.cpu.is_none()
 			&& arg.hostname.is_none()
-			&& arg.isolation.is_none()
 			&& arg.memory.is_none()
 			&& arg.mounts.is_empty()
 			&& arg.network.is_none()

@@ -34,7 +34,7 @@ libc = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
 rand = { workspace = true }
-rustix = { workspace = true }
+rustix = { workspace = true, features = ["thread"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }

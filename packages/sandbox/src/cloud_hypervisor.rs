@@ -1,0 +1,19 @@
+use std::net::Ipv4Addr;
+
+pub mod image;
+pub mod init;
+pub(crate) mod network;
+pub mod run;
+pub mod virtiofs;
+
+#[derive(Clone, Debug)]
+pub struct Network {
+	pub dns_servers: Vec<Ipv4Addr>,
+	pub gateway_ip: Ipv4Addr,
+	pub guest_ip: Ipv4Addr,
+	pub netmask: Ipv4Addr,
+}
+
+pub const VMADDR_CID_HOST: u32 = 2;
+pub const VMADDR_CID_ANY: u32 = u32::MAX;
+pub const VMADDR_PORT_ANY: u32 = u32::MAX;

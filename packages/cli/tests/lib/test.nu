@@ -634,13 +634,7 @@ export def --env "server spawn" [
 			error make { msg: 'TANGRAM_TEST_VM is set but TANGRAM_TEST_KERNEL_PATH is empty' }
 		}
 		$default_config = $default_config | merge deep {
-			sandbox: {
-				isolation: {
-					vm: {
-						kernel_path: $kernel_path,
-					},
-				},
-			},
+			runner: { backend: { kind: 'cloud-hypervisor', kernel_path: $kernel_path } },
 		}
 	}
 

@@ -869,6 +869,7 @@ impl<O: 'static> tg::Process<O> {
 		process.stdin().set_process(Arc::downgrade(&process.0));
 		process.stdout().set_process(Arc::downgrade(&process.0));
 		process.stderr().set_process(Arc::downgrade(&process.0));
+
 		Ok(process)
 	}
 
@@ -924,6 +925,7 @@ impl<O: 'static> tg::Process<O> {
 
 			let error_bytes = tg::file::xattrs::read_error(&output_path)
 				.map_err(|error| tg::error!(!error, "failed to read the error xattr"))?;
+
 			if let Some(bytes) = error_bytes {
 				let error = if let Ok(error) =
 					serde_json::from_slice::<tg::Either<tg::error::Data, tg::error::Id>>(&bytes)
@@ -1325,6 +1327,7 @@ fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 fn normalize_sandbox(
 	arg: &tg::process::Arg,
 ) -> tg::Result<Option<tg::Either<tg::sandbox::create::Arg, tg::Referent<tg::sandbox::Id>>>> {
+	// Collect the sandbox settings.
 	let has_cpu = arg.cpu.is_some();
 	let cpu = arg.cpu;
 	let has_memory = arg.memory.is_some();
@@ -1334,9 +1337,14 @@ fn normalize_sandbox(
 	let has_network = arg.network.is_some();
 	let has_owner = arg.owner.is_some();
 	let has_ports = !ports.is_empty();
+
+	// Normalize the network settings.
 	let network = normalize_network(arg.network.clone(), ports.clone())?;
+
+	// Determine whether to create or reuse a sandbox.
 	let has_sandbox_fields =
 		has_cpu || has_memory || !mounts.is_empty() || has_network || has_owner || has_ports;
+
 	match arg.sandbox.clone() {
 		Some(tg::process::SandboxArg::Bool(true)) => {
 			let mut sandbox = tg::process::SandboxCreateArg::default();
@@ -1395,7 +1403,6 @@ fn normalize_sandbox(
 				cpu,
 				host: None,
 				hostname: None,
-				isolation: None,
 				location: None,
 				memory,
 				mounts,
@@ -1417,7 +1424,6 @@ fn normalize_sandbox_create_arg(
 		cpu: sandbox.cpu,
 		host: None,
 		hostname: sandbox.hostname,
-		isolation: sandbox.isolation,
 		location: sandbox.location,
 		memory: sandbox.memory,
 		mounts: sandbox.mounts,

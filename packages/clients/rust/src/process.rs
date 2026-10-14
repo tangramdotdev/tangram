@@ -98,7 +98,6 @@ pub enum SandboxArg {
 pub struct SandboxCreateArg {
 	pub cpu: Option<tg::sandbox::Cpu>,
 	pub hostname: Option<String>,
-	pub isolation: Option<tg::sandbox::Isolation>,
 	pub location: Option<tg::location::Arg>,
 	pub memory: Option<tg::sandbox::Resource<u64>>,
 	pub mounts: Vec<tg::sandbox::Mount>,

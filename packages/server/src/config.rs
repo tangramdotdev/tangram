@@ -588,6 +588,7 @@ pub struct FdbIndex {
 	pub usage_update_partition_total: u64,
 
 	pub verification: FdbIndexVerification,
+
 	pub write_operation_batch_size: usize,
 
 	pub write_transaction_concurrency: usize,
@@ -757,6 +758,7 @@ pub struct IndexerUsageExpiration {
 #[derive(Clone, Debug)]
 pub struct IndexerUpdates {
 	pub max_process_depth: usize,
+
 	pub permissions: IndexerUpdate,
 
 	pub poll_interval: Duration,
@@ -790,9 +792,11 @@ pub struct MemoryMessenger {
 #[derive(Clone, Debug)]
 pub struct NatsMessenger {
 	pub credentials: Option<PathBuf>,
+
 	pub password: Option<String>,
 
 	pub url: Uri,
+
 	pub username: Option<String>,
 }
 
@@ -1098,6 +1102,8 @@ pub struct RemoteCache {
 
 #[derive(Clone, Debug)]
 pub struct Runner {
+	pub backend: RunnerBackend,
+
 	pub control_channel_capacity: usize,
 
 	/// Whether to pin each sandbox without a CPU pool to as many hardware threads as its CPU maximum, which requires the cpuset cgroup controller.
@@ -1110,8 +1116,6 @@ pub struct Runner {
 	pub heartbeat_interval: Duration,
 
 	pub id: Option<tg::runner::Id>,
-
-	pub isolation: RunnerIsolation,
 
 	pub javascript: JavaScript,
 
@@ -1140,6 +1144,8 @@ pub struct Runner {
 
 	pub remote: Option<String>,
 
+	pub resources: RunnerResources,
+
 	pub restart_delay: Duration,
 
 	pub sandbox_channel_capacity: usize,
@@ -1155,61 +1161,84 @@ pub struct Runner {
 	pub sandbox_state_ttl: Duration,
 
 	pub scheduler_ttl: Duration,
+
 	pub stdio_drain_timeout: Duration,
 
 	pub storage: Option<u64>,
+
 	pub swap: Option<u64>,
 
 	pub token: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct RunnerIsolation {
-	pub container: ContainerRunnerIsolation,
+#[derive(Clone, Debug)]
+pub enum RunnerBackend {
+	Builtin(BuiltinBackend),
+	Bubblewrap(BubblewrapBackend),
+	CloudHypervisor(CloudHypervisorBackend),
+	Gvisor(GvisorBackend),
+	Seatbelt,
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct ContainerRunnerIsolation {
-	pub filesystem_project_ids: ContainerRunnerIsolationProjectIds,
-
-	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
-
+pub struct BuiltinBackend {
+	pub gid_map: Option<IdMap>,
 	pub harden: bool,
+	pub max_filesystem_inodes: Option<u64>,
+	pub max_filesystem_size: Option<u64>,
+	pub max_open_files: Option<u64>,
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+	pub storage_limits: bool,
+	pub uid_map: Option<IdMap>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BubblewrapBackend {
+	pub harden: bool,
+	pub max_filesystem_inodes: Option<u64>,
+	pub max_filesystem_size: Option<u64>,
+	pub max_open_files: Option<u64>,
+	pub path: PathBuf,
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+	pub storage_limits: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct GvisorBackend {
+	pub harden: bool,
+	pub max_filesystem_inodes: Option<u64>,
+	pub max_filesystem_size: Option<u64>,
+	pub max_open_files: Option<u64>,
+	pub path: PathBuf,
+	pub platform: tangram_sandbox::Platform,
+	pub storage_limits: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RunnerResources {
+	pub filesystem_project_ids: FilesystemProjectIds,
 
 	pub max_duration: Option<Duration>,
-
-	pub max_filesystem_inodes: Option<u64>,
-
-	pub max_filesystem_size: Option<u64>,
-
-	pub max_open_files: Option<u64>,
 
 	pub max_pids: Option<u64>,
 
 	pub memory_swap: Option<u64>,
-
-	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
-
-	/// Whether to enforce sandbox storage maximums as filesystem limits, which requires a disk-backed ext4 or XFS filesystem with project quotas enabled.
-	pub storage_limits: bool,
-
-	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
 }
 
 #[derive(Clone, Debug)]
-pub struct ContainerRunnerIsolationIdMap {
+pub struct IdMap {
 	pub count: u32,
 	pub helper: PathBuf,
 	pub host: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ContainerRunnerIsolationProjectIds {
+pub struct FilesystemProjectIds {
 	pub count: u32,
 	pub start: u32,
 }
 
-impl Default for ContainerRunnerIsolationProjectIds {
+impl Default for FilesystemProjectIds {
 	fn default() -> Self {
 		Self {
 			count: i32::MAX.cast_unsigned() - 1,
@@ -1218,55 +1247,93 @@ impl Default for ContainerRunnerIsolationProjectIds {
 	}
 }
 
-impl ContainerRunnerIsolation {
+impl RunnerBackend {
 	#[must_use]
-	pub fn max_duration(&self) -> Option<Duration> {
-		self.max_duration
-			.or(self.harden.then_some(Duration::from_hours(1)))
-	}
-
-	#[must_use]
-	pub fn max_filesystem_inodes(&self) -> Option<u64> {
-		self.max_filesystem_inodes
-			.or(self.harden.then_some(262_144))
-	}
-
-	#[must_use]
-	pub fn max_filesystem_size(&self) -> Option<u64> {
-		self.max_filesystem_size
-			.or(self.harden.then_some(1_073_741_824))
-	}
-
-	#[must_use]
-	pub fn max_open_files(&self) -> Option<u64> {
-		self.max_open_files.or(self.harden.then_some(4096))
-	}
-
-	#[must_use]
-	pub fn max_pids(&self) -> Option<u64> {
-		self.max_pids.or(self.harden.then_some(1024))
-	}
-
-	#[must_use]
-	pub fn memory_swap(&self) -> Option<u64> {
-		self.memory_swap.or(self.harden.then_some(0))
-	}
-
-	#[must_use]
-	pub fn seccomp(&self) -> Option<tangram_sandbox::SeccompPolicy> {
-		self.seccomp.or(self
-			.harden
-			.then_some(tangram_sandbox::SeccompPolicy::Default))
+	pub fn harden(&self) -> bool {
+		match self {
+			Self::Builtin(config) => config.harden,
+			Self::Bubblewrap(config) => config.harden,
+			Self::CloudHypervisor(_) | Self::Seatbelt => false,
+			Self::Gvisor(config) => config.harden,
+		}
 	}
 
 	#[must_use]
 	pub fn storage_limits(&self) -> bool {
-		self.storage_limits || self.harden
+		let enabled = match self {
+			Self::Builtin(config) => config.storage_limits,
+			Self::Bubblewrap(config) => config.storage_limits,
+			Self::CloudHypervisor(_) | Self::Seatbelt => false,
+			Self::Gvisor(config) => config.storage_limits,
+		};
+		enabled || self.harden()
+	}
+
+	#[must_use]
+	pub fn resources(&self, common: &RunnerResources) -> tangram_sandbox::Resources {
+		// Resolve the backend resources.
+		let mut resources = match self {
+			Self::Builtin(config) => tangram_sandbox::Resources {
+				gid_map: config.gid_map.as_ref().map(Into::into),
+				max_filesystem_inodes: config.max_filesystem_inodes,
+				max_filesystem_size: config.max_filesystem_size,
+				max_open_files: config.max_open_files,
+				seccomp: config.seccomp.or(config
+					.harden
+					.then_some(tangram_sandbox::SeccompPolicy::Default)),
+				uid_map: config.uid_map.as_ref().map(Into::into),
+				..Default::default()
+			},
+			Self::Bubblewrap(config) => tangram_sandbox::Resources {
+				max_filesystem_inodes: config.max_filesystem_inodes,
+				max_filesystem_size: config.max_filesystem_size,
+				max_open_files: config.max_open_files,
+				seccomp: config.seccomp.or(config
+					.harden
+					.then_some(tangram_sandbox::SeccompPolicy::Default)),
+				..Default::default()
+			},
+			Self::CloudHypervisor(_) | Self::Seatbelt => tangram_sandbox::Resources::default(),
+			Self::Gvisor(config) => tangram_sandbox::Resources {
+				max_filesystem_inodes: config.max_filesystem_inodes,
+				max_filesystem_size: config.max_filesystem_size,
+				max_open_files: config.max_open_files,
+				..Default::default()
+			},
+		};
+
+		// Apply the common resource settings.
+		let harden = self.harden();
+		resources.cgroup_readonly = harden;
+		resources.max_duration = common
+			.max_duration
+			.or(harden.then_some(Duration::from_hours(1)));
+		resources.max_pids = common.max_pids.or(harden.then_some(1024));
+		resources.memory_swap = common.memory_swap.or(harden.then_some(0));
+
+		// Apply the hardened resource defaults.
+		if harden {
+			resources.max_filesystem_inodes.get_or_insert(262_144);
+			resources.max_filesystem_size.get_or_insert(1_073_741_824);
+			resources.max_open_files.get_or_insert(4096);
+		}
+
+		resources
 	}
 }
 
-impl From<&ContainerRunnerIsolationIdMap> for tangram_sandbox::IdMap {
-	fn from(value: &ContainerRunnerIsolationIdMap) -> Self {
+impl Default for RunnerBackend {
+	fn default() -> Self {
+		if cfg!(target_os = "macos") {
+			Self::Seatbelt
+		} else {
+			Self::Builtin(BuiltinBackend::default())
+		}
+	}
+}
+
+impl From<&IdMap> for tangram_sandbox::IdMap {
+	fn from(value: &IdMap) -> Self {
 		Self {
 			count: value.count,
 			helper: value.helper.clone(),
@@ -1275,7 +1342,7 @@ impl From<&ContainerRunnerIsolationIdMap> for tangram_sandbox::IdMap {
 	}
 }
 
-impl ContainerRunnerIsolationProjectIds {
+impl FilesystemProjectIds {
 	pub(crate) fn validate(self) -> tg::Result<()> {
 		if self.count == 0 {
 			return Err(tg::error!(
@@ -1290,6 +1357,7 @@ impl ContainerRunnerIsolationProjectIds {
 		let end = self.start.checked_add(self.count).ok_or_else(|| {
 			tg::error!("the container filesystem project ID range exceeds the valid range")
 		})?;
+
 		// Reserve the highest supported project ID for the quota prerequisite probe.
 		if end > i32::MAX.cast_unsigned() {
 			return Err(tg::error!(
@@ -1301,7 +1369,7 @@ impl ContainerRunnerIsolationProjectIds {
 	}
 }
 
-impl ContainerRunnerIsolationIdMap {
+impl IdMap {
 	pub(crate) fn validate(&self, id: u32, kind: &str) -> tg::Result<()> {
 		if self.count == 0 {
 			return Err(tg::error!(
@@ -1328,6 +1396,7 @@ impl ContainerRunnerIsolationIdMap {
 				"the container {kind} map helper path must be absolute"
 			));
 		}
+
 		// SAFETY: This function has no preconditions.
 		if unsafe { libc::geteuid() } == 0 {
 			return Ok(());
@@ -1355,6 +1424,7 @@ impl ContainerRunnerIsolationIdMap {
 				));
 			}
 		}
+
 		Ok(())
 	}
 }
@@ -1431,8 +1501,6 @@ pub struct Sandbox {
 
 	pub http2: tangram_http::http2::Config,
 
-	pub isolation: SandboxIsolation,
-
 	pub network: SandboxNetwork,
 
 	pub nice: u8,
@@ -1453,31 +1521,7 @@ pub struct Sandbox {
 }
 
 #[derive(Clone, Debug)]
-pub struct SandboxIsolation {
-	pub container: Option<ContainerSandboxIsolation>,
-
-	pub default: Option<SandboxIsolationDefault>,
-
-	pub seatbelt: Option<SeatbeltSandboxIsolation>,
-
-	pub vm: Option<VmSandboxIsolation>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ContainerSandboxIsolation {}
-
-#[derive(Clone, Copy, Debug)]
-pub enum SandboxIsolationDefault {
-	Container,
-	Seatbelt,
-	Vm,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SeatbeltSandboxIsolation {}
-
-#[derive(Clone, Debug)]
-pub struct VmSandboxIsolation {
+pub struct CloudHypervisorBackend {
 	pub cloud_hypervisor_path: Option<PathBuf>,
 
 	pub dax: Option<Dax>,
@@ -1724,6 +1768,7 @@ pub struct SyncPutResolve {
 #[derive(Clone, Debug)]
 pub struct SyncPutStore {
 	pub object_batch_size: usize,
+
 	pub object_batch_timeout: Duration,
 
 	pub object_concurrency: usize,
@@ -2687,13 +2732,13 @@ impl Default for RemoteCache {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
+			backend: RunnerBackend::default(),
 			control_channel_capacity: 256,
 			cpu_affinity: false,
 			cpu_pool: None,
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
-			isolation: RunnerIsolation::default(),
 			javascript: JavaScript::default(),
 			memory: None,
 			memory_sampling_interval: Duration::from_secs(1),
@@ -2707,6 +2752,7 @@ impl Default for Runner {
 			progress_log_interval: Duration::from_secs(1),
 			progress_update_interval: Duration::from_millis(100),
 			remote: None,
+			resources: RunnerResources::default(),
 			restart_delay: Duration::from_secs(1),
 			sandbox_channel_capacity: 256,
 			sandbox_control_connection_pool_refresh_interval: Duration::from_millis(2500),
@@ -2759,7 +2805,6 @@ impl Default for Sandbox {
 			control_channel_capacity: 256,
 			default_processes_page_size: 256,
 			http2: tangram_http::http2::Config::default(),
-			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
 			process_permission_time_to_live: default_process_permission_time_to_live(),
@@ -2773,34 +2818,7 @@ impl Default for Sandbox {
 	}
 }
 
-impl Default for SandboxIsolation {
-	fn default() -> Self {
-		if cfg!(target_os = "linux") {
-			Self {
-				container: Some(ContainerSandboxIsolation::default()),
-				default: None,
-				seatbelt: None,
-				vm: None,
-			}
-		} else if cfg!(target_os = "macos") {
-			Self {
-				container: None,
-				default: None,
-				seatbelt: Some(SeatbeltSandboxIsolation {}),
-				vm: None,
-			}
-		} else {
-			Self {
-				container: None,
-				default: None,
-				seatbelt: None,
-				vm: None,
-			}
-		}
-	}
-}
-
-impl Default for VmSandboxIsolation {
+impl Default for CloudHypervisorBackend {
 	fn default() -> Self {
 		Self {
 			cloud_hypervisor_path: None,

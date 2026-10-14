@@ -1,30 +1,32 @@
 use lib/test.nu *
 
-# A container sandbox has cgroup v2 mounted at /sys/fs/cgroup. A server creates a cgroup for every sandbox it spawns, so a server running in a sandbox cannot spawn one without it.
+# Common setup exposes the sandbox cgroup independently of the builtin launcher.
+if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }
+let uid = ^id -u | str trim | into int
+let gid = ^id -g | str trim | into int
+let tangram = which tangram | first | get path
 
-if $nu.os-info.name != 'linux' {
-	skip_test 'this test requires linux'
+for readonly in [false true] {
+    let inner = $env.PWD | path join $'inner-($readonly).json'
+    {
+        backend: { kind: builtin, gid: $gid, uid: $uid },
+        command: { args: [/bin/true] },
+        options: { cgroup: { name: $'tangram-test-(random uuid)' } },
+    } | to json | save $inner
+    let outer = $env.PWD | path join $'outer-($readonly).json'
+    {
+        backend: { kind: builtin, gid: $gid, uid: $uid },
+        command: { args: [$tangram sandbox run --config $inner] },
+        options: {
+            cgroup: { name: $'tangram-test-(random uuid)' },
+            cgroup_readonly: $readonly,
+            mounts: { tmpfs: [/sys] },
+        },
+    } | to json | save $outer
+    let output = ^tangram sandbox run --config $outer | complete
+    if $readonly {
+        failure $output 'a nested sandbox should not create a cgroup through a read-only mount'
+    } else {
+        success $output 'a nested sandbox should create its cgroup through the common mount'
+    }
 }
-
-let uid = ^id -u | str trim
-let gid = ^id -g | str trim
-let outer_cgroup = $'tangram-test-(random uuid)'
-let nested_cgroup = $'tangram-test-(random uuid)'
-
-# A cgroup requires the mount namespace to be unshared.
-let output = ^tangram sandbox container run --cgroup $outer_cgroup --gid $gid --index 0 --uid $uid -- /bin/true | complete
-failure $output
-snapshot $output.stderr '
-	-> mount operations require --unshare-all
-
-'
-
-# Mask /sys with a tmpfs. A real sandbox overlays the rootfs onto /, where /sys is an empty directory, so without this the outer sandbox inherits the host's cgroup mount and the nested one succeeds for the wrong reason.
-let output = tg sandbox container run --cgroup $outer_cgroup --dev /dev --gid $gid --index 0 --tmpfs /sys --uid $uid --unshare-all -- tangram sandbox container run --cgroup $nested_cgroup --gid $gid --index 0 --uid $uid --unshare-all -- /bin/sh -c 'exit 0' | complete
-success $output 'a nested sandbox failed to create its cgroup'
-
-# A read-only cgroup mount prevents a nested container from creating a cgroup.
-let outer_cgroup = $'tangram-test-(random uuid)'
-let nested_cgroup = $'tangram-test-(random uuid)'
-let output = tg sandbox container run --cgroup $outer_cgroup --cgroup-readonly --dev /dev --gid $gid --index 0 --tmpfs /sys --uid $uid --unshare-all -- tangram sandbox container run --cgroup $nested_cgroup --gid $gid --index 0 --uid $uid --unshare-all -- /bin/sh -c 'exit 0' | complete
-failure $output 'a nested sandbox created a cgroup through a read-only mount'

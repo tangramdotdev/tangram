@@ -85,7 +85,6 @@ fn sandbox_arg(
 			creator: None,
 			hostname: None,
 			id: id.clone(),
-			isolation: None,
 			memory: None,
 			mounts: Vec::new(),
 			network: None,
@@ -723,6 +722,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.unwrap(),
 		processes[3998..]
 	);
+
 	// Both APIs return the ordered list, including processes that are not stored locally.
 	assert_eq!(
 		index
@@ -841,6 +841,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.unwrap(),
 		Some(0)
 	);
+
 	// An ordinary process write must not recreate either sandbox relationship.
 	let mut arg = process_arg(first.clone(), tg::process::Status::Started);
 	arg.sandbox = None;
@@ -1195,6 +1196,7 @@ async fn identical_sandbox_put_grants_permissions_after_comparison() {
 		subject: None,
 		tokens: Vec::new(),
 	};
+
 	for complete in [false, true] {
 		let mut submission = arg.clone();
 		if !complete {

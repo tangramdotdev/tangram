@@ -1,5 +1,5 @@
 use {
-	crate::{Isolation, Sandbox},
+	crate::Sandbox,
 	std::path::{Path, PathBuf},
 };
 
@@ -8,8 +8,8 @@ impl Sandbox {
 	pub fn host_path_for_guest_path(&self, path: &Path) -> Option<PathBuf> {
 		#[cfg(target_os = "macos")]
 		{
-			match self.0.arg.isolation {
-				Isolation::Seatbelt(_) => Some(path.to_owned()),
+			match self.0.arg.backend {
+				crate::Backend::Seatbelt => Some(path.to_owned()),
 				_ => unreachable!(),
 			}
 		}
@@ -23,7 +23,7 @@ impl Sandbox {
 				.iter()
 				.map(|mount| (mount.target.clone(), mount.source.clone()))
 				.collect::<Vec<_>>();
-			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
+			if self.0.arg.backend.uses_linux_namespaces() {
 				path_maps.push((
 					Self::guest_listen_path_from_root(&self.0.arg.path),
 					Self::host_listen_path_from_root(&self.0.arg.path),
@@ -43,7 +43,7 @@ impl Sandbox {
 				(self.guest_output_path(), self.host_output_path()),
 				(self.guest_store_path(), self.0.arg.store_path.clone()),
 			]);
-			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
+			if self.0.arg.backend.uses_linux_namespaces() {
 				path_maps.push((
 					PathBuf::from("/"),
 					Self::host_upper_path_from_root(&self.host_filesystem_path()),
@@ -77,8 +77,8 @@ impl Sandbox {
 	pub fn guest_path_for_host_path(&self, path: &Path) -> Option<PathBuf> {
 		#[cfg(target_os = "macos")]
 		{
-			match self.0.arg.isolation {
-				Isolation::Seatbelt(_) => Some(path.to_owned()),
+			match self.0.arg.backend {
+				crate::Backend::Seatbelt => Some(path.to_owned()),
 				_ => unreachable!(),
 			}
 		}
@@ -92,7 +92,7 @@ impl Sandbox {
 				.iter()
 				.map(|mount| (mount.source.clone(), mount.target.clone()))
 				.collect::<Vec<_>>();
-			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
+			if self.0.arg.backend.uses_linux_namespaces() {
 				path_maps.push((
 					Self::host_listen_path_from_root(&self.0.arg.path),
 					Self::guest_listen_path_from_root(&self.0.arg.path),
@@ -112,7 +112,7 @@ impl Sandbox {
 				(self.host_output_path(), self.guest_output_path()),
 				(self.0.arg.store_path.clone(), self.guest_store_path()),
 			]);
-			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
+			if self.0.arg.backend.uses_linux_namespaces() {
 				path_maps.push((
 					Self::host_upper_path_from_root(&self.host_filesystem_path()),
 					PathBuf::from("/"),
@@ -206,7 +206,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub(crate) fn guest_output_path_from_root(root_path: &Path) -> PathBuf {
+	pub fn guest_output_path_from_root(root_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{
 			Self::host_output_path_from_root(root_path)
@@ -245,7 +245,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub(crate) fn guest_tangram_path_from_host_tangram_path(tangram_path: &Path) -> PathBuf {
+	pub fn guest_tangram_path_from_host_tangram_path(tangram_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{
 			tangram_path.to_owned()

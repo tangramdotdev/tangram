@@ -16,10 +16,12 @@ for parent in [$current ($current | path dirname)] {
 }
 
 let unrestricted_cgroup = $'tangram-test-(random uuid)'
-let output = ^tangram sandbox container run --index 0 --unshare-all --uid 0 --gid 0 --chdir / --cgroup $unrestricted_cgroup -- /bin/true | complete
+{ backend: { kind: builtin }, command: { args: [/bin/true] }, options: { cgroup: { name: $unrestricted_cgroup } } } | to json | save unrestricted.json
+let output = ^tangram sandbox run --config unrestricted.json | complete
 success $output
 
 let restricted_cgroup = $'tangram-test-(random uuid)'
-let output = ^tangram sandbox container run --index 0 --unshare-all --uid 0 --gid 0 --chdir / --cgroup $restricted_cgroup --cgroup-pids 32 -- /bin/true | complete
+{ backend: { kind: builtin }, command: { args: [/bin/true] }, options: { cgroup: { name: $restricted_cgroup, pids: 32 } } } | to json | save restricted.json
+let output = ^tangram sandbox run --config restricted.json | complete
 failure $output
 assert ($output.stderr | str contains 'no writable cgroup parent has the required controllers enabled')

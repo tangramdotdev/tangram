@@ -1235,13 +1235,7 @@ def run_test [test: record, options: record] {
 	}
 	if $options.vm {
 		$config = $config | merge deep {
-			sandbox: {
-				isolation: {
-					vm : {
-						kernel_path: $options.kernel_path,
-					},
-				},
-			},
+			runner: { backend: { kind: 'cloud-hypervisor', kernel_path: $options.kernel_path } },
 		}
 	}
 	if not ($config | is-empty) {

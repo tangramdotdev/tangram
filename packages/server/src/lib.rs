@@ -116,59 +116,100 @@ pub enum Shutdown {
 
 pub struct State {
 	archive: Option<Archive>,
+
 	archive_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
 	authentication_cache: Arc<self::authentication::cache::Cache>,
+
 	authentication_tokens: Tokens,
+
 	authorization_tokens: Tokens,
+
 	billing: Option<self::billing::Billing>,
+
 	cache: self::cache::Cache,
+
 	checkin_tasks: self::checkin::Tasks,
+
 	checkout_graph_tasks: self::checkout::internal::GraphTasks,
+
 	checkout_lock: self::checkout::Lock,
+
 	checkout_tasks: self::checkout::internal::Tasks,
+
 	checkout_xattr_value_size: Mutex<Option<usize>>,
+
 	checkpoints: Option<self::checkpoint::State>,
+
 	clock: self::clock::Clock,
+
 	config: Config,
+
 	context: Context,
+
 	database: Database,
+
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
+
 	index: Index,
+
 	index_changed: tokio::sync::Notify,
+
 	index_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
 	index_wait_sender: self::index::WaitSender,
+
 	indexers: self::indexer::Cache,
+
 	#[cfg(target_os = "linux")]
 	ip_pool: tangram_sandbox::network::ip::Pool,
+
 	library: Mutex<Option<Arc<Temp>>>,
+
 	lock: Mutex<Option<tokio::fs::File>>,
+
 	messenger: Messenger,
+
 	next_watch_id: AtomicU64,
+
 	notifications: self::notification::Notifications,
+
 	object_get_tasks: self::object::get::Tasks,
+
 	path: PathBuf,
+
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
+
 	remote_list_tasks: self::list::remote::Tasks,
+
 	remote_object_put_tasks: tangram_futures::task::Set<()>,
+
 	remote_process_put_tasks: tangram_futures::task::Set<()>,
+
 	runner: self::runner::Runner,
-	sandbox_container_root: PathBuf,
-	sandbox_seatbelt_root: PathBuf,
+
+	sandbox_assets: self::runner::assets::Assets,
+
 	sandbox_tasks: self::sandbox::Tasks,
-	sandbox_vm_image: Option<PathBuf>,
-	#[cfg(target_os = "linux")]
-	sandbox_vm_image_lock: tokio::sync::Mutex<bool>,
-	#[cfg(target_os = "linux")]
-	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
+
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
+
 	sync_control_clients: self::sync::control::Clients,
+
 	sync_control_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
 	sync_index_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
 	tangram_path: PathBuf,
+
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
+
 	version: String,
+
 	vfs: Mutex<Option<self::vfs::Server>>,
+
 	watches: DashMap<self::watch::Key, Watch, fnv::FnvBuildHasher>,
 }
 
@@ -519,7 +560,7 @@ impl Server {
 			),
 			("vfs nfs lease time", vfs.nfs.lease_time),
 		];
-		if let Some(vm) = &sandbox.isolation.vm {
+		if let self::config::RunnerBackend::CloudHypervisor(vm) = &config.runner.backend {
 			durations.extend([
 				(
 					"sandbox vm network interface timeout",
@@ -554,6 +595,7 @@ impl Server {
 		verification_search_config(&config.verification.permissions.final_)
 			.validate()
 			.map_err(|error| tg::error!(!error, "invalid final verification configuration"))?;
+
 		// Get or create the directory.
 		let directory = config.directory.clone().unwrap_or_else(|| {
 			let id = uuid::Uuid::now_v7();
@@ -629,28 +671,26 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
 		#[cfg(target_os = "linux")]
-		if config.roles.contains(&self::config::Role::Runner)
-			&& config.runner.isolation.container.harden
-		{
-			tangram_sandbox::container::host::validate(&temp_path).map_err(|error| {
+		if config.roles.contains(&self::config::Role::Runner) && config.runner.backend.harden() {
+			tangram_sandbox::host::validate(&temp_path).map_err(|error| {
 				tg::error!(
 					!error,
 					"the host does not satisfy the hardened container prerequisites"
 				)
 			})?;
-			let container = &config.runner.isolation.container;
+			let container = config.runner.backend.resources(&config.runner.resources);
 			tracing::info!(
 				cpu = config.scheduler.default_cpu,
-				filesystem_inodes = ?container.max_filesystem_inodes(),
-				filesystem_size = ?container.max_filesystem_size(),
+				filesystem_inodes = ?container.max_filesystem_inodes,
+				filesystem_size = ?container.max_filesystem_size,
 				gid_map = ?container.gid_map.as_ref().map(|map| (map.host, map.count)),
 				harden = true,
-				max_duration = ?container.max_duration(),
-				max_open_files = ?container.max_open_files(),
-				max_pids = ?container.max_pids(),
+				max_duration = ?container.max_duration,
+				max_open_files = ?container.max_open_files,
+				max_pids = ?container.max_pids,
 				memory = config.scheduler.default_memory,
-				memory_swap = ?container.memory_swap(),
-				seccomp = ?container.seccomp(),
+				memory_swap = ?container.memory_swap,
+				seccomp = ?container.seccomp,
 				uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
 				"validated the hardened container isolation profile"
 			);
@@ -870,6 +910,7 @@ impl Server {
 					"the indexer object cache partition range exceeds the partition total"
 				));
 			}
+
 			if indexer.request.archive_concurrency == 0
 				|| indexer.request.concurrency == 0
 				|| indexer.request.index_concurrency == 0
@@ -1067,8 +1108,8 @@ impl Server {
 				));
 			}
 		}
-		let container = &config.runner.isolation.container;
-		container.filesystem_project_ids.validate()?;
+		let container = config.runner.backend.resources(&config.runner.resources);
+		config.runner.resources.filesystem_project_ids.validate()?;
 		if container.max_open_files == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox open files must be greater than zero"
@@ -1084,41 +1125,43 @@ impl Server {
 				"the maximum number of container sandbox pids must be greater than zero"
 			));
 		}
-		if config.runner.isolation.container.max_filesystem_inodes == Some(0) {
+		if container.max_filesystem_inodes == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox filesystem inodes must be greater than zero"
 			));
 		}
-		if config.runner.isolation.container.max_filesystem_size == Some(0) {
+		if container.max_filesystem_size == Some(0) {
 			return Err(tg::error!(
 				"the maximum container sandbox filesystem size must be greater than zero"
 			));
 		}
 		if config.advanced.preserve_temp_directories
-			&& (container.max_filesystem_inodes().is_some()
-				|| container.max_filesystem_size().is_some())
+			&& (container.max_filesystem_inodes.is_some()
+				|| container.max_filesystem_size.is_some())
 		{
 			return Err(tg::error!(
 				"container filesystem limits are incompatible with preserving temp directories"
 			));
 		}
-		if container.harden && (container.uid_map.is_none() || container.gid_map.is_none()) {
-			return Err(tg::error!(
-				"container uid and gid maps are required when container hardening is enabled"
-			));
-		}
-		if container.uid_map.is_some() != container.gid_map.is_some() {
-			return Err(tg::error!(
-				"container uid and gid maps must be configured together"
-			));
-		}
-		if let Some(map) = &container.uid_map {
-			// SAFETY: This function has no preconditions.
-			map.validate(unsafe { libc::getuid() }, "uid")?;
-		}
-		if let Some(map) = &container.gid_map {
-			// SAFETY: This function has no preconditions.
-			map.validate(unsafe { libc::getgid() }, "gid")?;
+		if let config::RunnerBackend::Builtin(backend) = &config.runner.backend {
+			if backend.harden && (backend.uid_map.is_none() || backend.gid_map.is_none()) {
+				return Err(tg::error!(
+					"hardened builtin isolation requires subordinate identity maps"
+				));
+			}
+			if backend.uid_map.is_some() != backend.gid_map.is_some() {
+				return Err(tg::error!(
+					"builtin uid and gid maps must be configured together"
+				));
+			}
+			if let Some(map) = &backend.uid_map {
+				// SAFETY: This function has no preconditions.
+				map.validate(unsafe { libc::getuid() }, "uid")?;
+			}
+			if let Some(map) = &backend.gid_map {
+				// SAFETY: This function has no preconditions.
+				map.validate(unsafe { libc::getgid() }, "gid")?;
+			}
 		}
 
 		// Validate the regions.
@@ -1295,10 +1338,12 @@ impl Server {
 					"the runner memory capacity must be greater than zero"
 				));
 			}
+
 			capacity
 		} else {
 			tg::runner::Capacity::default()
 		};
+
 		// Warm sandboxes would claim physical CPU slots before scheduler admission.
 		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner)
 			&& config.runner.cpu_pool.is_none()
@@ -1309,25 +1354,35 @@ impl Server {
 		};
 		let runner_config = self::runner::Config {
 			capacity,
+
 			#[cfg(target_os = "linux")]
 			cpu_pool,
+
 			#[cfg(target_os = "linux")]
-			filesystem_project_ids: config.runner.isolation.container.filesystem_project_ids,
+			filesystem_project_ids: config.runner.resources.filesystem_project_ids,
+
 			overcommit: config.runner.overcommit,
+
 			process_control_connection_pool_refresh_interval: config
 				.runner
 				.process_control_connection_pool_refresh_interval,
+
 			process_control_connection_pool_size: config
 				.runner
 				.process_control_connection_pool_size,
+
 			process_control_connection_pool_ttl: config.runner.process_control_connection_pool_ttl,
+
 			sandbox_control_connection_pool_refresh_interval: config
 				.runner
 				.sandbox_control_connection_pool_refresh_interval,
+
 			sandbox_control_connection_pool_size: config
 				.runner
 				.sandbox_control_connection_pool_size,
+
 			sandbox_control_connection_pool_ttl: config.runner.sandbox_control_connection_pool_ttl,
+
 			sandbox_pool_size,
 		};
 		let runner = self::runner::Runner::new(runner_config);
@@ -1625,31 +1680,10 @@ impl Server {
 		// Create the remote list tasks.
 		let remote_list_tasks = tangram_futures::task::Map::default();
 
-		// Create the sandbox container root.
-		let sandbox_container_root_path = path.join("container/root");
-		let sandbox_seatbelt_root_path = path.join("seatbelt/root");
+		// Prepare the runner's reusable sandbox assets.
 		let tangram_path = tangram_util::env::current_exe()
 			.map_err(|error| tg::error!(!error, "failed to get the tangram executable path"))?;
-		let sandbox_container_root = sandbox_container_root_path.clone();
-		let sandbox_seatbelt_root = sandbox_seatbelt_root_path.clone();
-		let sandbox_vm_image = config
-			.sandbox
-			.isolation
-			.vm
-			.as_ref()
-			.map(|_| path.join("vm/image.squashfs"));
-		#[cfg(target_os = "linux")]
-		tangram_sandbox::container::root::create(&tangram_sandbox::container::root::Arg {
-			build_attempts: config.sandbox.build_attempts,
-			path: sandbox_container_root.clone(),
-			tangram_path: tangram_path.clone(),
-			vm: sandbox_vm_image.is_some(),
-		})?;
-		#[cfg(target_os = "macos")]
-		tangram_sandbox::seatbelt::root::create(&tangram_sandbox::seatbelt::root::Arg {
-			path: sandbox_seatbelt_root.clone(),
-			tangram_path: tangram_path.clone(),
-		})?;
+		let sandbox_assets = self::runner::assets::Assets::new(&path, &tangram_path, &config)?;
 
 		// Create the cache.
 		let cache = match &config.cache {
@@ -1762,59 +1796,100 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(State {
 			archive,
+
 			archive_tasks,
+
 			authentication_cache,
+
 			authentication_tokens,
+
 			authorization_tokens,
+
 			billing,
+
 			cache,
+
 			checkin_tasks,
+
 			checkout_graph_tasks,
+
 			checkout_lock,
+
 			checkout_tasks,
+
 			checkout_xattr_value_size: Mutex::new(None),
+
 			checkpoints,
+
 			clock,
+
 			config,
+
 			context,
+
 			database,
+
 			diagnostics,
+
 			index,
+
 			index_changed,
+
 			index_tasks,
+
 			index_wait_sender,
+
 			indexers,
+
 			#[cfg(target_os = "linux")]
 			ip_pool,
+
 			library,
+
 			lock,
+
 			messenger,
+
 			next_watch_id,
+
 			notifications,
+
 			object_get_tasks,
+
 			path,
+
 			regions,
+
 			remote_clients,
+
 			remote_list_tasks,
+
 			remote_object_put_tasks,
+
 			remote_process_put_tasks,
+
 			runner,
-			sandbox_container_root,
-			sandbox_seatbelt_root,
+
+			sandbox_assets,
+
 			sandbox_tasks,
-			sandbox_vm_image,
-			#[cfg(target_os = "linux")]
-			sandbox_vm_image_lock: tokio::sync::Mutex::new(false),
-			#[cfg(target_os = "linux")]
-			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
+
 			shutdown,
+
 			sync_control_clients: self::sync::control::Clients::default(),
+
 			sync_control_tasks: tangram_futures::task::Set::default(),
+
 			sync_index_tasks: tangram_futures::task::Set::default(),
+
 			tangram_path,
+
 			temps,
+
 			version,
+
 			vfs,
+
 			watches,
 		}));
 
@@ -1938,6 +2013,7 @@ impl Server {
 								"failed to move the checkouts directory to the store path"
 							)
 						})?;
+
 					// Remove named checkout entries before exposing the physical store.
 					server
 						.remove_all_named_checkout_entries_with_lock(&checkout_guard)
@@ -2037,6 +2113,7 @@ impl Server {
 			} else {
 				config.listeners.clone()
 			};
+
 			// Add the socket shared with the macOS extension.
 			let group_socket = server
 				.config
@@ -2053,6 +2130,7 @@ impl Server {
 					.unwrap();
 				listeners.push(crate::config::HttpListener { url, tls: None });
 			}
+
 			listeners
 		} else {
 			Vec::new()
@@ -2160,6 +2238,7 @@ impl Server {
 
 		let shutdown = {
 			let server = server.clone();
+
 			async move {
 				tracing::trace!("started");
 
@@ -2537,11 +2616,6 @@ impl Server {
 	#[must_use]
 	fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
-	}
-
-	#[must_use]
-	pub fn vm_snapshot_path(&self) -> PathBuf {
-		self.path.join("vm/snapshot")
 	}
 }
 

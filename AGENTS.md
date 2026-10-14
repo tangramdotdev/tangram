@@ -43,11 +43,14 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - Order inherent impls according to the order of their struct declarations.
 - Always alphabetize imports.
 - Always alphabetize module declarations.
+- Keep consecutive module declarations compact, without blank lines between them, even when they have attributes or comments. Keep each declaration's attributes and comments directly above it. Separate private module declarations, reexports, and public module declarations into their respective groups.
 - Always alphabetize derive traits.
 - Always alphabetize struct fields in definitions, literals, and destructuring patterns.
 - Always alphabetize enum variants in definitions.
 - Alphabetize enum variants in match arms unless guards, overlapping patterns, or catch-all patterns make order affect behavior or reachability.
 - Import extension traits with `as _`.
+- Separate fields, enum variants, and match arms with a blank line when any member of the group has attributes or comments. Keep each member's attributes and comments immediately above that member.
+- Use consistent spacing in lists of fields, enum variants, or match arms: if any members are separated by a blank line, separate every member in that list with a blank line. Otherwise, keep the entire list compact. This applies to definitions, literals, and destructuring patterns.
 
 ### Naming
 
@@ -74,10 +77,10 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - Prefer binding computed field values to local variables before constructing a struct.
 - Bind struct literal arguments to local variables before function or method calls, keeping the binding in the call's parent scope and using a short name such as `entry` when no more specific name is needed. Do not introduce a temporary block solely for this binding. This does not apply to enum variant construction or struct literals passed as enum variant arguments.
 - Use field-init shorthand in struct expressions.
-- Structure complex bodies as a sequence of logical phases.
+- Structure large or complex function and closure bodies as a sequence of logical phases.
 - Introduce each phase with a short, active comment such as `// Parse the arg.` or `// Create the response.`.
-- Separate phases with blank lines.
-- Leave a blank line before the final return expression in a complex body.
+- Separate phases with blank lines. Leave a blank line before each commented block unless it is the first block in the body; keep the comment directly adjacent to the code or attributes it describes.
+- When a function or closure body contains blank lines, leave a blank line before its final return expression unless that expression is the only statement in the body.
 - Prefer simple return expressions such as `Ok(output)`.
 - In functions returning `Result<()>`, propagate a final fallible operation with `?` and end with `Ok(())` instead of returning the operation's result directly.
 - Bind computed return values to local variables before returning them.

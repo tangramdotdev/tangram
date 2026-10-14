@@ -21,8 +21,6 @@ use {
 };
 
 mod control;
-#[cfg(target_os = "linux")]
-mod linux;
 mod listener;
 mod pool;
 
@@ -73,9 +71,13 @@ struct SandboxTaskArg {
 
 struct CreateSandboxOutput {
 	guest_url: tangram_uri::Uri,
+
 	sandbox: tangram_sandbox::Sandbox,
+
 	serve_task: Task<()>,
+
 	temp: Temp,
+
 	#[cfg(target_os = "linux")]
 	vfs: Option<crate::vfs::Server>,
 }
@@ -305,6 +307,7 @@ impl Session {
 				let control_data = control_data.clone();
 				let id = id.clone();
 				let location = location.clone();
+
 				async move {
 					let connection = connection_session
 						.get_sandbox_control_stream(
@@ -321,6 +324,7 @@ impl Session {
 				.boxed()
 			} else {
 				let server = self.server.clone();
+
 				async move {
 					crate::checkpoint!(server, "runner.sandbox.control.acquire").await;
 					let connection = server
@@ -404,6 +408,7 @@ impl Session {
 						Ok::<_, tg::Error>(())
 					}
 					.await;
+
 					if let Err(error) = result {
 						tracing::error!(error = %error.trace(), "failed to create the sandbox control connection");
 						sandbox_stopper.stop();
@@ -414,6 +419,7 @@ impl Session {
 			create_task.detach();
 			let identity = (connection_.id.clone(), connection_.token.clone());
 			connection = Some(SandboxControlConnectionKind::Pooled(connection_));
+
 			identity
 		};
 		tracing::Span::current().record("sandbox", tracing::field::display(&id));
@@ -446,22 +452,38 @@ impl Session {
 			crate::sandbox::control::local::Local::new(control_channel_capacity);
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
+
 			authorization_tokens: tg::authorization::Tokens::default(),
+
 			capacity,
+
 			changed: tokio::sync::watch::channel(()).0,
+
 			control_sender,
+
 			data: control_data,
+
 			id: id.clone(),
+
 			location: location.clone(),
+
 			process_ids: indexmap::IndexMap::default(),
+
 			processes: processes.clone(),
+
 			sandbox: Some(create_output.sandbox.clone()),
+
 			status: tg::sandbox::Status::Started,
+
 			token,
+
 			tokens: BTreeMap::new(),
+
 			usage: None,
+
 			#[cfg(target_os = "linux")]
 			vfs: create_output.vfs.as_ref().map(|vfs| vfs.provider().clone()),
+
 			#[cfg(not(target_os = "linux"))]
 			vfs: None,
 		};
@@ -622,6 +644,7 @@ impl Session {
 						"runner.sandbox.pool.take",
 						index = output.sandbox.index(),
 						path = %output.temp.path().display(),
+						pid = output.sandbox.pid(),
 					)
 					.await;
 					tracing::debug!(
@@ -647,6 +670,7 @@ impl Session {
 		}
 
 		tracing::debug!("creating a sandbox after a pool miss");
+
 		self.create_sandbox_inner(
 			arg,
 			#[cfg(target_os = "linux")]
@@ -666,82 +690,14 @@ impl Session {
 		mut arg: tg::sandbox::create::Arg,
 		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
-		let allocated_at = std::time::Instant::now();
-		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
-		let mut isolation = match &arg.isolation {
-			Some(tg::sandbox::Isolation::Container) => {
-				self.server
-					.config()
-					.sandbox
-					.isolation
-					.container
-					.as_ref()
-					.ok_or_else(|| tg::error!("container isolation is not configured"))?;
-				let container = &self.server.config().runner.isolation.container;
-				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {
-					cgroup_readonly: container.harden,
-					filesystem_project_id: None,
-					gid_map: container.gid_map.as_ref().map(Into::into),
-					max_duration: container.max_duration(),
-					max_filesystem_inodes: container.max_filesystem_inodes(),
-					max_filesystem_size: container.max_filesystem_size(),
-					max_open_files: container.max_open_files(),
-					max_pids: container.max_pids(),
-					memory_swap: container.memory_swap(),
-					seccomp: container.seccomp(),
-					uid_map: container.uid_map.as_ref().map(Into::into),
-				})
-			},
-			Some(tg::sandbox::Isolation::Seatbelt) => {
-				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
-			},
-			Some(tg::sandbox::Isolation::Vm) => {
-				#[cfg(target_os = "linux")]
-				{
-					let vm = self
-						.server
-						.config()
-						.sandbox
-						.isolation
-						.vm
-						.as_ref()
-						.ok_or_else(|| tg::error!("missing vm configuration"))?;
-					let kernel_path = vm.kernel_path.clone();
-					let image_path = self.server.sandbox_vm_image.clone().ok_or_else(|| {
-						tg::error!(
-							"vm isolation requested but no image path was configured; check the server config"
-						)
-					})?;
-					let snapshot = Some(
-						vm.snapshot
-							.clone()
-							.unwrap_or_else(|| self.server.vm_snapshot_path()),
-					);
-					tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
-						cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
-						dax: vm.dax.map(|dax| dax.window_size as u64),
-						image_path,
-						kernel_path,
-						max_cpu: vm.max_cpu,
-						max_memory: vm.max_memory,
-						network_interface_timeout: vm.network_interface_timeout,
-						ready_timeout: vm.ready_timeout,
-						serial_connect_interval: vm.serial_connect_interval,
-						serial_connect_timeout: vm.serial_connect_timeout,
-						snapshot,
-						snapshot_cpu: vm.snapshot_cpu,
-						snapshot_memory: vm.snapshot_memory,
-					})
-				}
-				#[cfg(target_os = "macos")]
-				{
-					return Err(tg::error!("vm isolation is not supported on macos"));
-				}
-			},
-			None => self.server.resolve_sandbox_isolation()?,
-		};
-		if matches!(&isolation, tangram_sandbox::Isolation::Container(_))
-			&& self.server.config().runner.isolation.container.harden
+		let isolation = self.server.resolve_sandbox_backend()?;
+		let mut resources = self.server.sandbox_resources();
+		if matches!(
+			&isolation,
+			tangram_sandbox::Backend::Builtin
+				| tangram_sandbox::Backend::Bubblewrap { .. }
+				| tangram_sandbox::Backend::Gvisor { .. }
+		) && self.server.config().runner.backend.harden()
 		{
 			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
 				return Err(tg::error!(
@@ -764,17 +720,20 @@ impl Session {
 			.get_or_insert(self.server.config.scheduler.default_cpu.into());
 
 		#[cfg(target_os = "linux")]
-		self.ensure_vm_isolation(&isolation).await?;
+		self.server
+			.sandbox_assets
+			.ensure_cloud_hypervisor(&self.server, &isolation)
+			.await?;
 
-		let rootfs_path = match &isolation {
-			tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Vm(_) => {
-				self.server.sandbox_container_root.clone()
-			},
-			tangram_sandbox::Isolation::Seatbelt(_) => self.server.sandbox_seatbelt_root.clone(),
-		};
+		let rootfs_path = self.server.sandbox_assets.root.clone();
 
 		#[cfg(target_os = "linux")]
-		if matches!(isolation, tangram_sandbox::Isolation::Container(_)) {
+		if matches!(
+			isolation,
+			tangram_sandbox::Backend::Builtin
+				| tangram_sandbox::Backend::Bubblewrap { .. }
+				| tangram_sandbox::Backend::Gvisor { .. }
+		) {
 			arg.memory
 				.get_or_insert(self.server.config.scheduler.default_memory.into());
 			if let Some(storage) = self.server.config.scheduler.default_storage {
@@ -784,35 +743,29 @@ impl Session {
 		}
 
 		// Enforce the sandbox storage maximum only when storage limits are enabled, because enforcement requires a filesystem with project quotas.
-		if !self
-			.server
-			.config
-			.runner
-			.isolation
-			.container
-			.storage_limits()
-		{
+		if !self.server.config.runner.backend.storage_limits() {
 			arg.storage = None;
 		}
 
 		// Apply the sandbox storage maximum.
 		if let Some(storage) = arg.storage {
 			storage.validate()?;
-			let tangram_sandbox::Isolation::Container(container) = &mut isolation else {
+			if !isolation.uses_linux_namespaces() {
 				return Err(tg::error!("storage bounds require container isolation"));
-			};
-			container.max_filesystem_size = Some(storage.max);
+			}
+			resources.max_filesystem_size = Some(storage.max);
 		}
 
 		// Allocate the filesystem project ID.
 		#[cfg(target_os = "linux")]
-		let filesystem_project_id = match &mut isolation {
-			tangram_sandbox::Isolation::Container(container)
-				if container.max_filesystem_inodes.is_some()
-					|| container.max_filesystem_size.is_some() =>
+		let filesystem_project_id = match &isolation {
+			backend
+				if backend.uses_linux_namespaces()
+					&& (resources.max_filesystem_inodes.is_some()
+						|| resources.max_filesystem_size.is_some()) =>
 			{
 				let project_id = self.server.runner.state.create_filesystem_project_id()?;
-				container.filesystem_project_id = Some(project_id.value());
+				resources.filesystem_project_id = Some(project_id.value());
 				Some(project_id)
 			},
 			_ => None,
@@ -835,7 +788,7 @@ impl Session {
 		// Start an unbound per-sandbox VFS that denies access until its principal is set.
 		#[cfg(target_os = "linux")]
 		let (vfs, vfs_task, vfs_mount, fuse_sendfd) = match &isolation {
-			tangram_sandbox::Isolation::Vm(vm) => {
+			tangram_sandbox::Backend::CloudHypervisor(vm) => {
 				let socket = temp.path().join("vfs.sock");
 				let vfs = crate::vfs::Server::start_virtiofs(
 					&self.server,
@@ -848,7 +801,9 @@ impl Session {
 				.map_err(|error| tg::error!(!error, %index, "failed to start the store VFS"))?;
 				(Some(vfs), None, None, None)
 			},
-			tangram_sandbox::Isolation::Container(_)
+			tangram_sandbox::Backend::Builtin
+			| tangram_sandbox::Backend::Bubblewrap { .. }
+			| tangram_sandbox::Backend::Gvisor { .. }
 				if self.server.checkouts_enabled() && self.server.config.vfs.is_some() =>
 			{
 				let mount_path = temp.path().join("store");
@@ -858,53 +813,67 @@ impl Session {
 						tg::error!(!error, "failed to create the store mount directory")
 					})?;
 
-				// Create the socket pair over which the sandbox sends the mounted FUSE descriptor.
-				let (sendfd, recvfd) = rustix::net::socketpair(
-					rustix::net::AddressFamily::UNIX,
-					rustix::net::SocketType::STREAM,
-					rustix::net::SocketFlags::CLOEXEC,
-					None,
-				)
-				.map_err(|error| tg::error!(!error, "failed to create the FUSE socket pair"))?;
+				if matches!(isolation, tangram_sandbox::Backend::Builtin) {
+					// Create the socket pair over which the sandbox sends the mounted FUSE descriptor.
+					let (sendfd, recvfd) = rustix::net::socketpair(
+						rustix::net::AddressFamily::UNIX,
+						rustix::net::SocketType::STREAM,
+						rustix::net::SocketFlags::CLOEXEC,
+						None,
+					)
+					.map_err(|error| tg::error!(!error, "failed to create the FUSE socket pair"))?;
 
-				// Start the VFS concurrently, because it blocks until the sandbox mounts the filesystem and sends the descriptor.
-				let mut options = self.server.config.vfs.clone().unwrap_or_default();
-				options.sqpoll = false;
-				let vfs_task = Task::spawn({
-					let server = self.server.clone();
-					let mount_path = mount_path.clone();
-					move |_| {
-						async move {
-							crate::vfs::Server::start(
-								&server,
-								crate::vfs::Kind::Fuse,
-								&mount_path,
-								options,
-								Origin::Sandbox(index),
-								None,
-								Some(recvfd),
-							)
-							.await
+					// Start the VFS concurrently, because it blocks until the sandbox mounts the filesystem and sends the descriptor.
+					let mut options = self.server.config.vfs.clone().unwrap_or_default();
+					options.sqpoll = false;
+					let vfs_task = Task::spawn({
+						let server = self.server.clone();
+						let mount_path = mount_path.clone();
+						move |_| {
+							async move {
+								crate::vfs::Server::start(
+									&server,
+									crate::vfs::Kind::Fuse,
+									&mount_path,
+									options,
+									Origin::Sandbox(index),
+									None,
+									Some(recvfd),
+								)
+								.await
+							}
+							.in_current_span()
 						}
-						.in_current_span()
-					}
-				});
-				(None, Some(vfs_task), Some(mount_path), Some(sendfd))
+					});
+
+					(None, Some(vfs_task), Some(mount_path), Some(sendfd))
+				} else {
+					let mut options = self.server.config.vfs.clone().unwrap_or_default();
+					options.sqpoll = false;
+					let vfs = crate::vfs::Server::start(
+						&self.server,
+						crate::vfs::Kind::Fuse,
+						&mount_path,
+						options,
+						Origin::Sandbox(index),
+						None,
+						None,
+					)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to start the store VFS"))?;
+					(Some(vfs), None, Some(mount_path), None)
+				}
 			},
 			_ => (None, None, None, None),
 		};
 
 		// Create the listener.
-		let listener_port = self
-			.server
-			.config
-			.sandbox
-			.isolation
-			.vm
-			.as_ref()
-			.map(|vm| vm.listener_port);
+		let listener_port = match &self.server.config.runner.backend {
+			crate::config::RunnerBackend::CloudHypervisor(config) => Some(config.listener_port),
+			_ => None,
+		};
 		let (listener, guest_url, tangram_socket_path) =
-			Server::run_create_listener(temp.path(), &isolation, listener_port)
+			Server::run_create_listener(temp.path(), &isolation, &resources, listener_port)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %index, "failed to create the sandbox listener"),
@@ -934,20 +903,29 @@ impl Session {
 		};
 		let config = &self.server.config.sandbox;
 		let arg = tangram_sandbox::Arg {
-			allocated_at,
+			backend: isolation,
+
 			#[cfg(target_os = "linux")]
 			cgroup_cleanup_interval: config.cgroup_cleanup_interval,
+
 			#[cfg(target_os = "linux")]
 			cgroup_cleanup_timeout: config.cgroup_cleanup_timeout,
+
 			connect_timeout: config.connect_timeout,
+
 			cpu: arg.cpu,
+
 			#[cfg(target_os = "linux")]
 			cpu_affinity: self.server.config.runner.cpu_affinity,
+
 			#[cfg(target_os = "linux")]
 			cpu_parent,
+
 			#[cfg(target_os = "linux")]
 			cpu_pool: self.server.runner.state.cpu_pool.clone(),
+
 			dns: config.network.dns.clone(),
+
 			#[cfg(target_os = "linux")]
 			firewall: match config.network.firewall {
 				crate::config::SandboxNetworkFirewall::Iptables => {
@@ -955,34 +933,58 @@ impl Session {
 				},
 				crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
 			},
+
 			#[cfg(target_os = "linux")]
 			fuse_fd: fuse_sendfd.map(Arc::new),
+
 			hostname: arg.hostname,
+
 			http2: config.http2,
+
 			identity: self.server.path.clone(),
+
 			index,
+
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
-			isolation,
+
 			memory: arg.memory,
+
 			memory_sampling_interval: self.server.config.runner.memory_sampling_interval,
+
 			mounts,
+
 			network,
+
 			#[cfg(target_os = "linux")]
 			network_startup_timeout: config.network.startup_timeout,
+
 			nice: config.nice,
+
 			path: temp.path().to_owned(),
+
 			request_timeout: config.request_timeout,
+
+			resources,
+
 			rootfs_path,
+
 			shutdown_timeout: config.shutdown_timeout,
+
 			storage: arg.storage,
+
 			#[cfg(target_os = "linux")]
 			storage_pool: Some(self.server.runner.state.storage_pool.clone()),
+
 			store_path: store_source,
+
 			swap: arg.swap,
+
 			#[cfg(target_os = "linux")]
 			swap_pool: Some(self.server.runner.state.swap_pool.clone()),
+
 			tangram_path: self.server.tangram_path.clone(),
+
 			tangram_socket_path,
 		};
 		tracing::debug!(sandbox_index = index, "creating the physical sandbox");
@@ -1022,9 +1024,13 @@ impl Session {
 		});
 		let output = CreateSandboxOutput {
 			guest_url,
+
 			sandbox,
+
 			serve_task,
+
 			temp,
+
 			#[cfg(target_os = "linux")]
 			vfs,
 		};
@@ -1137,6 +1143,7 @@ impl Session {
 				|| future::pending().left_future(),
 				|timer_future| timer_future.as_mut().right_future(),
 			);
+
 			tokio::select! {
 				result = &mut ready_connection, if reusable && !ready => {
 					result?;
@@ -1351,6 +1358,7 @@ impl Session {
 					.take()
 					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox allocation"))?
 			};
+
 			// Stop the VFS while the sandbox still owns its mount namespace.
 			#[cfg(target_os = "linux")]
 			if let Some(vfs) = vfs.take() {
@@ -1364,6 +1372,7 @@ impl Session {
 			)?;
 
 			let usage = output.usage;
+
 			// Release the sandbox's capacity after its cgroup is stopped and accounted.
 			crate::checkpoint!(
 				self.server,
@@ -1457,6 +1466,7 @@ impl Session {
 			.await;
 			tracing::info!(sandbox = %id, "destroyed the sandbox");
 			event_sender.send(Ok(Event::Destroyed)).ok();
+
 			Ok::<_, tg::Error>(())
 		};
 		let mut destroy = destroy

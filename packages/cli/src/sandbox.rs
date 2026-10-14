@@ -1,16 +1,12 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-#[cfg(target_os = "linux")]
-pub mod container;
 pub mod create;
 pub mod destroy;
 pub mod get;
+pub mod init;
 pub mod list;
-#[cfg(target_os = "macos")]
-pub mod seatbelt;
+pub mod run;
 pub mod serve;
-#[cfg(target_os = "linux")]
-pub mod vm;
 pub mod wait;
 
 /// Manage sandboxes.
@@ -23,22 +19,24 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
-	#[cfg(target_os = "linux")]
-	#[command(hide = true)]
-	Container(self::container::Args),
 	Create(self::create::Args),
+
 	Destroy(self::destroy::Args),
+
 	Get(self::get::Args),
+
+	#[command(hide = true)]
+	Init(self::init::Args),
+
 	#[command(alias = "ls")]
 	List(self::list::Args),
-	#[cfg(target_os = "macos")]
+
 	#[command(hide = true)]
-	Seatbelt(self::seatbelt::Args),
+	Run(self::run::Args),
+
 	#[command(hide = true)]
 	Serve(self::serve::Args),
-	#[cfg(target_os = "linux")]
-	#[command(hide = true)]
-	Vm(self::vm::Args),
+
 	Wait(self::wait::Args),
 }
 
@@ -53,9 +51,6 @@ pub struct Options {
 
 	#[arg(id = "sandbox.hostname", long = "hostname")]
 	pub hostname: Option<String>,
-
-	#[arg(id = "sandbox.isolation", long = "isolation")]
-	pub isolation: Option<tg::sandbox::Isolation>,
 
 	#[arg(alias = "memory-max", id = "sandbox.memory", long = "memory", value_parser = parse_bytes)]
 	pub memory: Option<u64>,
@@ -74,12 +69,16 @@ pub struct Options {
 
 	#[arg(action = clap::ArgAction::Append, id = "sandbox.ports", long = "port", num_args = 1, short = 'p')]
 	pub ports: Vec<tg::sandbox::Port>,
+
 	#[arg(alias = "storage-max", id = "sandbox.storage", long = "storage", value_parser = parse_bytes)]
 	pub storage: Option<u64>,
+
 	#[arg(id = "sandbox.storage_min", long = "storage-min", value_parser = parse_bytes)]
 	pub storage_min: Option<u64>,
+
 	#[arg(alias = "swap-max", id = "sandbox.swap", long = "swap", value_parser = parse_bytes)]
 	pub swap: Option<u64>,
+
 	#[arg(id = "sandbox.swap_min", long = "swap-min", value_parser = parse_bytes)]
 	pub swap_min: Option<u64>,
 }
@@ -180,15 +179,9 @@ impl Network {
 	}
 }
 
-/// Parse a duration from fractional seconds.
-#[cfg(target_os = "linux")]
-pub fn parse_duration(value: &str) -> tg::Result<std::time::Duration> {
-	let seconds = value
-		.parse::<f64>()
-		.map_err(|error| tg::error!(!error, %value, "invalid duration"))?;
-	let duration = std::time::Duration::try_from_secs_f64(seconds)
-		.map_err(|error| tg::error!(!error, %value, "invalid duration"))?;
-	Ok(duration)
+pub(crate) fn parse_backend(value: &str) -> tg::Result<tangram_sandbox::Kind> {
+	serde_json::from_value(serde_json::Value::String(value.to_owned()))
+		.map_err(|error| tg::error!(!error, %value, "invalid sandbox backend"))
 }
 
 fn parse_network(s: &str) -> tg::Result<tg::sandbox::Network> {
@@ -204,7 +197,6 @@ impl Options {
 	pub fn is_empty(&self) -> bool {
 		self.cpu.is_none()
 			&& self.hostname.is_none()
-			&& self.isolation.is_none()
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.get().is_none()
@@ -465,10 +457,6 @@ impl Cli {
 
 	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
-			#[cfg(target_os = "linux")]
-			Command::Container(args) => {
-				self.command_sandbox_container(args).await?;
-			},
 			Command::Create(args) => {
 				self.command_sandbox_create(args).await?;
 			},
@@ -478,19 +466,17 @@ impl Cli {
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;
 			},
+			Command::Init(args) => {
+				self.exit = Some(Self::command_sandbox_init(args)?);
+			},
 			Command::List(args) => {
 				self.command_sandbox_list(args).await?;
 			},
-			#[cfg(target_os = "macos")]
-			Command::Seatbelt(args) => {
-				self.command_sandbox_seatbelt(args).await?;
+			Command::Run(args) => {
+				self.exit = Some(Self::command_sandbox_run(args)?);
 			},
 			Command::Serve(args) => {
 				self.command_sandbox_serve(args).await?;
-			},
-			#[cfg(target_os = "linux")]
-			Command::Vm(args) => {
-				self.command_sandbox_vm(args).await?;
 			},
 			Command::Wait(args) => {
 				self.command_sandbox_wait(args).await?;

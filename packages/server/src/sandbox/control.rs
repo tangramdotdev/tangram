@@ -10,7 +10,6 @@ use {
 };
 
 mod destroy;
-
 pub(crate) mod local;
 
 #[derive(Clone)]
@@ -366,6 +365,7 @@ impl Session {
 		mut stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>> {
 		let session = self.clone();
+
 		futures::stream::once(async move {
 			let mut buffered = Vec::new();
 			let request = loop {
@@ -449,7 +449,6 @@ impl Session {
 				creator: data.creator,
 				hostname: data.arg.hostname,
 				id: id.clone(),
-				isolation: data.arg.isolation,
 				memory: data.arg.memory,
 				mounts: data.arg.mounts,
 				network: data.arg.network,

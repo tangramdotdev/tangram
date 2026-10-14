@@ -12,13 +12,7 @@ if (($env.TANGRAM_TEST_VM? | default "") | str length) == 0 {
 
 for dax in [true false] {
 	let local = server spawn --busybox --config {
-		sandbox: {
-			isolation: {
-				vm: {
-					dax: $dax,
-				},
-			},
-		},
+		runner: { backend: { kind: 'cloud-hypervisor', dax: $dax } },
 	}
 
 	let mount = mktemp -d | str trim

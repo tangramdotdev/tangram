@@ -268,6 +268,7 @@ fn version() -> String {
 enum Mode {
 	#[default]
 	Auto,
+
 	Client,
 }
 
@@ -446,22 +447,20 @@ fn main() -> std::process::ExitCode {
 	// Parse the args.
 	let matches = Args::command().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();
-	#[cfg(target_os = "linux")]
-	if let Command::Sandbox(self::sandbox::Args {
-		command:
-			self::sandbox::Command::Container(self::sandbox::container::Args {
-				command: self::sandbox::container::Command::Run(args),
-			}),
-		..
-	}) = args.command.clone()
-	{
-		return match Cli::command_sandbox_container_run(args) {
-			Ok(exit) => exit,
-			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_node(error), false);
-				std::process::ExitCode::FAILURE
-			},
+	if let Command::Sandbox(self::sandbox::Args { command }) = args.command.clone() {
+		let result = match command {
+			self::sandbox::Command::Run(args) => Some(Cli::command_sandbox_run(args)),
+			_ => None,
 		};
+		if let Some(result) = result {
+			return match result {
+				Ok(exit) => exit,
+				Err(error) => {
+					Cli::print_error_basic(tg::Referent::with_node(error), false);
+					std::process::ExitCode::FAILURE
+				},
+			};
+		}
 	}
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
@@ -507,33 +506,13 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 			Some(result)
 		},
 
-		#[cfg(target_os = "linux")]
 		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Container(command_args),
-			..
+			command: self::sandbox::Command::Init(command_args),
 		}) => {
 			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
-			let result = cli.command_sandbox_container(command_args).await;
-			Some(result)
-		},
-
-		#[cfg(target_os = "macos")]
-		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Seatbelt(command_args),
-			..
-		}) => {
-			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
-			let result = cli.command_sandbox_seatbelt(command_args).await;
-			Some(result)
-		},
-
-		#[cfg(target_os = "linux")]
-		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Vm(command_args),
-			..
-		}) => {
-			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
-			let result = cli.command_sandbox_vm(command_args).await;
+			let result = Cli::command_sandbox_init(command_args).map(|exit| {
+				cli.exit = Some(exit);
+			});
 			Some(result)
 		},
 
@@ -693,79 +672,150 @@ impl Cli {
 	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Archive(args) => self.command_archive(args).boxed_local(),
+
 			Command::Availability(args) => self.command_availability(args).boxed_local(),
+
 			Command::Build(args) => self.command_build(args).boxed_local(),
+
 			Command::Builtin(args) => self.command_builtin(args).boxed_local(),
+
 			Command::Bundle(args) => self.command_bundle(args).boxed_local(),
+
 			Command::Cancel(args) => self.command_process_cancel(args).boxed_local(),
+
 			Command::Check(args) => self.command_check(args).boxed_local(),
+
 			Command::Checkpoint(args) => self.command_checkpoint(args).boxed_local(),
+
 			Command::Checkin(args) => self.command_checkin(args).boxed_local(),
+
 			Command::Checkout(args) => self.command_checkout(args).boxed_local(),
+
 			Command::Checksum(args) => self.command_checksum(args).boxed_local(),
+
 			Command::Children(args) => self.command_children(args).boxed_local(),
+
 			Command::Clean(args) => self.command_clean(args).boxed_local(),
+
 			Command::Compress(args) => self.command_compress(args).boxed_local(),
+
 			Command::Decompress(args) => self.command_decompress(args).boxed_local(),
+
 			Command::Document(args) => self.command_document(args).boxed_local(),
+
 			Command::Download(args) => self.command_download(args).boxed_local(),
+
 			Command::Exec(args) => self.command_process_exec(args).boxed_local(),
+
 			Command::Extract(args) => self.command_extract(args).boxed_local(),
+
 			Command::Format(args) => self.command_format(args).boxed_local(),
+
 			Command::Get(args) => self.command_get(args).boxed_local(),
+
 			Command::Grant(args) => self.command_grants_create(args).boxed_local(),
+
 			Command::Grants(args) => self.command_grants(args).boxed_local(),
+
 			Command::Group(args) => self.command_group(args).boxed_local(),
+
 			Command::Health(args) => self.command_health(args).boxed_local(),
+
 			Command::Id(args) => self.command_id(args).boxed_local(),
+
 			Command::Index(args) => self.command_index(args).boxed_local(),
+
 			Command::Init(args) => self.command_init(args).boxed_local(),
+
 			#[cfg(feature = "javascript")]
 			Command::JavaScript(args) => self.command_javascript(args).boxed_local(),
+
 			Command::List(args) => self.command_list(args).boxed_local(),
+
 			Command::Login(args) => self.command_user_login(args).boxed_local(),
+
 			Command::Log(args) => self.command_process_stdio_read(args).boxed_local(),
+
 			Command::Logout(args) => self.command_user_logout(args).boxed_local(),
+
 			Command::Lsp(args) => self.command_lsp(args).boxed_local(),
+
 			Command::Match(args) => self.command_match(args).boxed_local(),
+
 			Command::Metadata(args) => self.command_metadata(args).boxed_local(),
+
 			Command::New(args) => self.command_new(args).boxed_local(),
+
 			Command::Object(args) => self.command_object(args).boxed_local(),
+
 			Command::Organization(args) => self.command_organization(args).boxed_local(),
+
 			Command::Outdated(args) => self.command_outdated(args).boxed_local(),
+
 			Command::Output(args) => self.command_process_output(args).boxed_local(),
+
 			Command::Process(args) => self.command_process(args).boxed_local(),
+
 			Command::Ps(args) => self.command_sandbox_list(args).boxed_local(),
+
 			Command::Publish(args) => self.command_publish(args).boxed_local(),
+
 			Command::Pull(args) => self.command_pull(args).boxed_local(),
+
 			Command::Push(args) => self.command_push(args).boxed_local(),
+
 			#[cfg(feature = "python")]
 			Command::Python(args) => self.command_python(args).boxed_local(),
+
 			Command::Put(args) => self.command_put(args).boxed_local(),
+
 			Command::Read(args) => self.command_read(args).boxed_local(),
+
 			Command::Remote(args) => self.command_remote(args).boxed_local(),
+
 			Command::Revoke(args) => self.command_grants_delete(args).boxed_local(),
+
 			#[cfg(feature = "javascript")]
 			Command::Repl(args) => self.command_repl(args).boxed_local(),
+
 			Command::Run(args) => self.command_run(args).boxed_local(),
+
 			Command::Runner(args) => self.command_runner(args).boxed_local(),
+
 			Command::Sandbox(args) => self.command_sandbox(args).boxed_local(),
+
 			Command::Self_(args) => self.command_tangram(args).boxed_local(),
+
 			Command::Shell(args) => self.command_shell(args).boxed_local(),
+
 			Command::Serve(args) => self.command_server_run(args).boxed_local(),
+
 			Command::Server(args) => self.command_server(args).boxed_local(),
+
 			Command::Signal(args) => self.command_process_signal(args).boxed_local(),
+
 			Command::Spawn(args) => self.command_process_spawn(args).boxed_local(),
+
 			Command::Tag(args) => self.command_tag(args).boxed_local(),
+
 			Command::Touch(args) => self.command_touch(args).boxed_local(),
+
 			Command::Tree(args) => self.command_tree(args).boxed_local(),
+
 			Command::Update(args) => self.command_update(args).boxed_local(),
+
 			Command::User(args) => self.command_user(args).boxed_local(),
+
 			Command::Usage(args) => self.command_usage(args).boxed_local(),
+
 			Command::View(args) => self.command_view(args).boxed_local(),
+
 			Command::Wait(args) => self.command_wait(args).boxed_local(),
+
 			Command::Watch(args) => self.command_watch(args).boxed_local(),
+
 			Command::Whoami(args) => self.command_user_whoami(args).boxed_local(),
+
 			Command::Write(args) => self.command_write(args).boxed_local(),
 		}
 		.await

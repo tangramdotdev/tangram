@@ -37,11 +37,9 @@ for kind in [sandbox process] {
 	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete)
 	tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 	let claimed = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 1 | from json
-	let sandbox_path = $claimed.params.path
-	# The sandbox can still be replacing its launcher when the process list is read.
-	wait_until { ps --long | any { |process| $process.command | str contains $sandbox_path } } "the claimed physical sandbox should be running"
-	let pids = ps --long | where { |process| $process.command | str contains $sandbox_path } | get pid
-	assert ($pids | is-not-empty) "the claimed physical sandbox should be running"
+	# Track the physical sandbox by its launcher PID independently of its command arguments.
+	let sandbox_pid = $claimed.params.pid | into int
+	assert (ps | any { |process| $process.pid == $sandbox_pid }) "the claimed physical sandbox should be running"
 	tg --url $runner.url checkpoint unwatch runner.sandbox.pool.take $pool_watch
 	success (timeout 30s tg --url $runner.url checkpoint wait $checkpoint $control_watch 0 | complete)
 	let started = timeout 1s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | complete
@@ -51,7 +49,7 @@ for kind in [sandbox process] {
 	let pid = open ($runner.directory | path join lock) | into int
 	kill --signal 15 $pid
 	wait_until --timeout 20sec { ps | where pid == $pid | is-empty } "the runner should exit without waiting for shortcut identity acquisition"
-	wait_until --timeout 10sec { ps | where pid in $pids | is-empty } "the unstarted child's physical sandbox should exit with the runner"
+	wait_until --timeout 10sec { ps | where pid == $sandbox_pid | is-empty } "the unstarted child's physical sandbox should exit with the runner"
 	job kill $build
 	server stop $local
 	server stop $remote

@@ -1,0 +1,1465 @@
+use {
+	crate::{Sandbox, cloud_hypervisor::virtiofs, mount},
+	std::{
+		collections::hash_map::DefaultHasher,
+		ffi::{CStr, CString, OsStr},
+		fmt::Write as _,
+		hash::{Hash as _, Hasher as _},
+		io::Write as _,
+		net::Ipv4Addr,
+		os::{
+			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+			unix::{ffi::OsStrExt as _, process::CommandExt as _},
+		},
+		path::{Path, PathBuf},
+		sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		},
+		time::{Duration, Instant},
+	},
+	tangram_client::prelude::*,
+};
+
+pub const CLOUD_HYPERVISOR_API_SOCKET_NAME: &str = "cloud-hypervisor-api.sock";
+pub const CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME: &str = "cloud-hypervisor-vsock.sock";
+
+const SANDBOX_FS_TAG: &str = "sandbox";
+const STORE_FS_TAG: &str = "store";
+
+const HOST_MOUNT_POINT: &str = "/mnt/host";
+const SERIAL_SOCKET_NAME: &str = "serial.sock";
+const VIRTIOFSD_SANDBOX_SOCKET_NAME: &str = "virtiofsd-sandbox.sock";
+const VFS_SOCKET_NAME: &str = "vfs.sock";
+
+const VMM_ROOT_DIR: &str = "/run/vmm";
+const VMM_VIRTIOFSD_SANDBOX_SOCKET: &str = "/run/vmm/virtiofsd-sandbox.sock";
+const VMM_VFS_SOCKET: &str = "/run/vmm/vfs.sock";
+const VMM_API_SOCKET: &str = "/run/vmm/cloud-hypervisor-api.sock";
+const VMM_VSOCK_SOCKET: &str = "/run/vmm/cloud-hypervisor-vsock.sock";
+const VMM_SERIAL_SOCKET: &str = "/run/vmm/serial.sock";
+const VMM_PASST_SOCKET: &str = "/run/vmm/passt.sock";
+const VMM_KERNEL_PATH: &str = "/run/vmm/kernel";
+const VMM_ROOTFS_IMAGE_PATH: &str = "/run/vmm/rootfs.img";
+const VMM_SNAPSHOT_PATH: &str = "/run/vmm/snapshot";
+const VMM_CLOUD_HYPERVISOR_BIN: &str = "/run/vmm/cloud-hypervisor";
+const VMM_CLOUD_HYPERVISOR_LOG: &str = "/run/vmm/cloud-hypervisor.log";
+const VMM_PASST_BIN: &str = "/run/vmm/passt";
+const VMM_SNAPSHOT_OUTPUT_DIR: &str = "/snapshot";
+
+const VMM_GUEST_CID: u32 = 3;
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Arg {
+	pub cloud_hypervisor_path: Option<PathBuf>,
+	pub create_snapshot: Option<PathBuf>,
+	pub cpu: Option<u64>,
+	pub dax: Option<u64>,
+	pub dns: Vec<Ipv4Addr>,
+	pub firewall: crate::Firewall,
+	pub guest_ip: Option<Ipv4Addr>,
+	pub host_ip: Option<Ipv4Addr>,
+	pub hostname: Option<String>,
+	pub image_path: PathBuf,
+	pub index: u64,
+	pub kernel_path: PathBuf,
+	pub max_cpu: u64,
+	pub max_memory: u64,
+	pub memory: Option<u64>,
+	pub mounts: Vec<tg::sandbox::Mount>,
+	pub network: Option<NetworkKind>,
+	pub network_interface_timeout: Duration,
+	pub network_startup_timeout: Duration,
+	pub path: PathBuf,
+	pub ports: Vec<tg::sandbox::Port>,
+	pub ready_timeout: Duration,
+	pub rootfs_path: PathBuf,
+	pub serial_connect_interval: Duration,
+	pub serial_connect_timeout: Duration,
+	pub snapshot: Option<PathBuf>,
+	pub snapshot_cpu: u64,
+	pub snapshot_memory: u64,
+	pub store_path: PathBuf,
+	pub tangram_path: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub enum NetworkKind {
+	Passt,
+	Tap,
+}
+
+impl std::str::FromStr for NetworkKind {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"passt" => Ok(Self::Passt),
+			"tap" => Ok(Self::Tap),
+			s => Err(tg::error!(option = %s, "invalid vm network option")),
+		}
+	}
+}
+
+struct User {
+	gid: libc::gid_t,
+	home: PathBuf,
+	name: String,
+	uid: libc::uid_t,
+}
+
+enum Network {
+	Passt(crate::network::passt::Device),
+	Tap(crate::network::tap::Device),
+}
+
+struct ChildProcess {
+	pid: Option<libc::pid_t>,
+}
+
+impl ChildProcess {
+	fn new(pid: libc::pid_t) -> Self {
+		Self { pid: Some(pid) }
+	}
+
+	fn take_if_pid(&mut self, pid: libc::pid_t) -> bool {
+		if self.pid == Some(pid) {
+			self.pid = None;
+			true
+		} else {
+			false
+		}
+	}
+
+	fn wait(mut self) {
+		let Some(pid) = self.pid.take() else {
+			return;
+		};
+		let mut status = 0;
+		unsafe {
+			libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0);
+		}
+	}
+}
+
+impl Drop for ChildProcess {
+	fn drop(&mut self) {
+		let Some(pid) = self.pid.take() else {
+			return;
+		};
+		unsafe {
+			libc::kill(pid, libc::SIGKILL);
+			let mut status = 0;
+			libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0);
+		}
+	}
+}
+
+pub(crate) fn command(
+	arg: &crate::Arg,
+	serve_arg: &crate::serve::Arg,
+	network: Option<&crate::network::Network>,
+) -> tg::Result<(tokio::process::Command, crate::run::Config)> {
+	// Validate the backend settings.
+	if !serve_arg.library_paths.is_empty() {
+		return Err(tg::error!(
+			"cloud-hypervisor does not support additional library paths"
+		));
+	}
+	let crate::Backend::CloudHypervisor(config) = &arg.backend else {
+		unreachable!()
+	};
+
+	// Resolve the network settings.
+	let (network_kind, host_ip, guest_ip) = match network {
+		None => (None, None, None),
+		Some(crate::network::Network::Passt(network)) => (
+			Some(NetworkKind::Passt),
+			Some(network.host_ip()),
+			Some(network.guest_ip()),
+		),
+		Some(crate::network::Network::Tap(network)) => (
+			Some(NetworkKind::Tap),
+			Some(network.host_ip()),
+			Some(network.guest_ip()),
+		),
+		Some(
+			crate::network::Network::Host
+			| crate::network::Network::Pasta(_)
+			| crate::network::Network::Veth(_),
+		) => return Err(tg::error!("unsupported cloud-hypervisor networking")),
+	};
+
+	// Create the launch configuration.
+	let cpu = arg
+		.cpu
+		.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
+		.transpose()?;
+	let launch = Arg {
+		cloud_hypervisor_path: config.cloud_hypervisor_path.clone(),
+		create_snapshot: None,
+		cpu,
+		dax: config.dax,
+		dns: arg.dns.clone(),
+		firewall: arg.firewall,
+		guest_ip,
+		host_ip,
+		hostname: arg.hostname.clone(),
+		image_path: config.image_path.clone(),
+		index: arg.index,
+		kernel_path: config.kernel_path.clone(),
+		max_cpu: config.max_cpu,
+		max_memory: config.max_memory,
+		memory: arg.memory.map(|memory| memory.max),
+		mounts: arg.mounts.clone(),
+		network: network_kind,
+		network_interface_timeout: config.network_interface_timeout,
+		network_startup_timeout: arg.network_startup_timeout,
+		path: arg.path.clone(),
+		ports: arg
+			.network
+			.as_ref()
+			.map(crate::Network::ports)
+			.unwrap_or_default()
+			.to_owned(),
+		ready_timeout: config.ready_timeout,
+		rootfs_path: arg.rootfs_path.clone(),
+		serial_connect_interval: config.serial_connect_interval,
+		serial_connect_timeout: config.serial_connect_timeout,
+		snapshot: config.snapshot.clone(),
+		snapshot_cpu: config.snapshot_cpu,
+		snapshot_memory: config.snapshot_memory,
+		store_path: arg.store_path.clone(),
+		tangram_path: arg.tangram_path.clone(),
+	};
+	let command_arg = crate::run::Command::with_command(&crate::init::command(serve_arg))?;
+	let launch = crate::run::Arg {
+		backend: crate::run::Backend::CloudHypervisor(launch),
+		command: command_arg,
+		options: crate::run::Options::default(),
+	};
+
+	// Create the launch command.
+	let mut command = tokio::process::Command::new(&arg.tangram_path);
+	let config = crate::run::configure_command(&mut command, &launch)?;
+	command
+		.kill_on_drop(true)
+		.stdin(std::process::Stdio::null())
+		.stdout(std::process::Stdio::inherit())
+		.stderr(std::process::Stdio::inherit());
+
+	Ok((command, config))
+}
+
+pub fn run(command: &crate::run::Command, arg: &Arg) -> tg::Result<u8> {
+	// Validate the resource settings.
+	if arg.cpu == Some(0) {
+		return Err(tg::error!("sandbox cpu must be greater than zero"));
+	}
+	if arg.memory == Some(0) {
+		return Err(tg::error!("sandbox memory must be greater than zero"));
+	}
+	if arg.snapshot_cpu == 0 {
+		return Err(tg::error!("vm snapshot cpu must be greater than zero"));
+	}
+	if arg.snapshot_memory == 0 {
+		return Err(tg::error!("vm snapshot memory must be greater than zero"));
+	}
+	if arg.max_cpu < arg.snapshot_cpu {
+		return Err(tg::error!(
+			"vm max cpu must be greater than or equal to the snapshot cpu"
+		));
+	}
+	if arg.max_memory < arg.snapshot_memory {
+		return Err(tg::error!(
+			"vm max memory must be greater than or equal to the snapshot memory"
+		));
+	}
+	let requested_cpu = arg.cpu.unwrap_or(arg.snapshot_cpu);
+	if requested_cpu < arg.snapshot_cpu || requested_cpu > arg.max_cpu {
+		return Err(tg::error!(
+			"requested vm cpu must be within the configured snapshot resize envelope"
+		));
+	}
+	let requested_memory = arg.memory.unwrap_or(arg.max_memory);
+	if requested_memory < arg.snapshot_memory || requested_memory > arg.max_memory {
+		return Err(tg::error!(
+			"requested vm memory must be within the configured snapshot resize envelope"
+		));
+	}
+
+	if let Some(hostname) = &arg.hostname
+		&& hostname.chars().any(char::is_whitespace)
+	{
+		return Err(tg::error!(
+			%hostname,
+			"hostname may not contain whitespace"
+		));
+	}
+
+	// Prepare the sandbox directory.
+	tracing::trace!("sandbox directory: {}", arg.path.display());
+	let user = resolve_user(None)?;
+	prepare_sandbox_directory(&arg.path)?;
+	prepare_etc_files(&arg.path, &user)?;
+
+	// Create the network.
+	let network = Network::new(arg)?;
+	let network_config = network.as_ref().map(|net| {
+		let dns_servers = match net {
+			Network::Passt(passt) => vec![passt.host_ip()],
+			Network::Tap(_) => arg.dns.clone(),
+		};
+		crate::cloud_hypervisor::init::NetworkConfig {
+			dns_servers,
+			gateway_ip: net.host_ip(),
+			guest_ip: net.guest_ip(),
+			netmask: net.netmask(),
+		}
+	});
+
+	// Validate the snapshot settings.
+	if arg.create_snapshot.is_some() && arg.snapshot.is_some() {
+		return Err(tg::error!(
+			"--create-snapshot and --snapshot are mutually exclusive"
+		));
+	}
+
+	// Write the guest init configuration.
+	if arg.create_snapshot.is_none() {
+		let mounts = arg
+			.mounts
+			.iter()
+			.enumerate()
+			.map(|(index, mount)| {
+				let metadata = std::fs::metadata(&mount.source).map_err(|error| {
+					tg::error!(
+						!error,
+						source = %mount.source.display(),
+						"failed to stat the user mount source",
+					)
+				})?;
+				Ok(crate::cloud_hypervisor::init::MountConfig {
+					directory: metadata.is_dir(),
+					readonly: mount.readonly,
+					source: Path::new(HOST_MOUNT_POINT)
+						.join("mounts")
+						.join(index.to_string()),
+					target: mount.target.clone(),
+				})
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let init_config = crate::cloud_hypervisor::init::Config {
+			command: command.clone(),
+			gid: user.gid,
+			hostname: arg.hostname.clone(),
+			mounts,
+			network: network_config,
+			network_interface_timeout: arg.network_interface_timeout,
+			uid: user.uid,
+		};
+		let init_config_bytes = serde_json::to_vec(&init_config)
+			.map_err(|error| tg::error!(!error, "failed to serialize the init config"))?;
+		std::fs::write(
+			host_share_init_config_path_from_root(&arg.path),
+			init_config_bytes,
+		)
+		.map_err(|error| tg::error!(!error, "failed to write the init config"))?;
+	}
+
+	// Start the filesystem helpers.
+	let mut helpers: Vec<ChildProcess> = Vec::new();
+	{
+		let sandbox_socket_path =
+			host_vm_path_from_root(&arg.path).join(VIRTIOFSD_SANDBOX_SOCKET_NAME);
+		tracing::trace!(
+			"preparing sandbox virtiofsd socket at {}",
+			sandbox_socket_path.display()
+		);
+		let sandbox_shared_dir = host_share_path_from_root(&arg.path);
+
+		let mut sandbox_binds = Vec::new();
+		for (index, mount) in arg.mounts.iter().enumerate() {
+			let target = host_share_mounts_path_from_root(&arg.path).join(index.to_string());
+			if mount.source.is_dir() {
+				std::fs::create_dir_all(&target).map_err(|error| {
+					tg::error!(!error, path = %target.display(), "failed to create the user mount share target")
+				})?;
+			} else if !target.exists() {
+				std::fs::File::create(&target).map_err(|error| {
+					tg::error!(!error, path = %target.display(), "failed to create the user mount share target file")
+				})?;
+			}
+			sandbox_binds.push(virtiofs::Bind {
+				source: mount.source.clone(),
+				target,
+			});
+		}
+
+		let sandbox_log_path = host_vm_path_from_root(&arg.path).join("virtiofsd-sandbox.log");
+		tracing::trace!("spawning sandbox virtiofsd helper");
+		let sandbox_pid = virtiofs::spawn(
+			user.uid,
+			user.gid,
+			&sandbox_shared_dir,
+			&sandbox_socket_path,
+			&sandbox_binds,
+			&sandbox_log_path,
+		)?;
+		tracing::trace!("sandbox virtiofsd helper pid={sandbox_pid}");
+		helpers.push(ChildProcess::new(sandbox_pid));
+	}
+
+	// Locate the helper binaries.
+	let cloud_hypervisor_bin = if let Some(path) = &arg.cloud_hypervisor_path {
+		path.clone()
+	} else {
+		find_in_path("cloud-hypervisor")
+			.map_err(|error| tg::error!(!error, "failed to locate cloud-hypervisor on PATH"))?
+	};
+	tracing::trace!(
+		"cloud-hypervisor binary: {}",
+		cloud_hypervisor_bin.display()
+	);
+	let passt_bin = if matches!(arg.network, Some(NetworkKind::Passt)) {
+		Some(
+			find_in_path("passt")
+				.map_err(|error| tg::error!(!error, "failed to locate passt on PATH"))?,
+		)
+	} else {
+		None
+	};
+	if let Some(passt) = &passt_bin {
+		tracing::trace!("passt binary: {}", passt.display());
+	}
+
+	// Create the hypervisor arguments.
+	let net_arg = network.as_ref().map(|net| match net {
+		Network::Passt(passt) => {
+			format!(
+				"vhost_user=true,socket={VMM_PASST_SOCKET},mac={}",
+				passt.mac()
+			)
+		},
+		Network::Tap(tap) => tap.cloud_hypervisor_arg(),
+	});
+
+	let mut cloud_hypervisor_args: Vec<std::ffi::OsString> = vec![
+		"--api-socket".into(),
+		VMM_API_SOCKET.into(),
+		"--log-file".into(),
+		VMM_CLOUD_HYPERVISOR_LOG.into(),
+	];
+	if arg.snapshot.is_some() {
+		cloud_hypervisor_args.push("--restore".into());
+		cloud_hypervisor_args
+			.push(format!("source_url=file://{VMM_SNAPSHOT_PATH},resume=true").into());
+	} else {
+		cloud_hypervisor_args.push("--kernel".into());
+		cloud_hypervisor_args.push(VMM_KERNEL_PATH.into());
+		cloud_hypervisor_args.push("--cpus".into());
+		cloud_hypervisor_args.push(format!("boot={},max={}", arg.snapshot_cpu, arg.max_cpu).into());
+		cloud_hypervisor_args.push("--memory".into());
+		cloud_hypervisor_args.push(memory_arg(arg).into());
+		cloud_hypervisor_args.push("--cmdline".into());
+		cloud_hypervisor_args.push(kernel_cmdline(arg, command)?.into());
+		cloud_hypervisor_args.push("--disk".into());
+		cloud_hypervisor_args.push(
+			format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on,sparse=off,image_type=raw").into(),
+		);
+		cloud_hypervisor_args.push("--fs".into());
+		let store_fs = if let Some(window_size) = arg.dax {
+			format!("tag={STORE_FS_TAG},socket={VMM_VFS_SOCKET},dax=true,shm_size={window_size}")
+		} else {
+			format!("tag={STORE_FS_TAG},socket={VMM_VFS_SOCKET}")
+		};
+		cloud_hypervisor_args.push(store_fs.into());
+		cloud_hypervisor_args.push("--fs".into());
+		cloud_hypervisor_args
+			.push(format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into());
+		cloud_hypervisor_args.push("--vsock".into());
+		cloud_hypervisor_args.push(format!("cid={VMM_GUEST_CID},socket={VMM_VSOCK_SOCKET}").into());
+		cloud_hypervisor_args.push("--console".into());
+		cloud_hypervisor_args.push("off".into());
+		cloud_hypervisor_args.push("--serial".into());
+		cloud_hypervisor_args.push(format!("socket={VMM_SERIAL_SOCKET}").into());
+		if let Some(net) = &net_arg {
+			cloud_hypervisor_args.push("--net".into());
+			cloud_hypervisor_args.push(net.clone().into());
+		}
+	}
+
+	// Start the hypervisor.
+	tracing::trace!("cloud-hypervisor args: {:?}", cloud_hypervisor_args);
+	tracing::trace!("spawning cloud-hypervisor helper");
+	let cloud_hypervisor_pid = spawn_cloud_hypervisor_helper(
+		arg,
+		&user,
+		&cloud_hypervisor_bin,
+		passt_bin.as_deref(),
+		&cloud_hypervisor_args,
+	)?;
+	tracing::trace!("cloud-hypervisor helper pid={cloud_hypervisor_pid}");
+	let mut cloud_hypervisor = ChildProcess::new(cloud_hypervisor_pid);
+
+	// Connect to the guest serial socket.
+	let serial_socket_path = host_vm_path_from_root(&arg.path).join(SERIAL_SOCKET_NAME);
+	let mut serial_stream = connect_serial_socket(
+		&serial_socket_path,
+		arg.serial_connect_timeout,
+		arg.serial_connect_interval,
+	)?;
+	tracing::trace!("connected to guest serial socket; tailing to stderr");
+
+	// Read the guest serial output.
+	let serial_reader = serial_stream
+		.try_clone()
+		.map_err(|error| tg::error!(!error, "failed to clone the serial socket"))?;
+	let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
+	let suppress_resume_echo = Arc::new(AtomicBool::new(false));
+	let suppress_resume_echo_ = suppress_resume_echo.clone();
+	std::thread::spawn(move || {
+		let mut stream = serial_reader;
+		let mut buf = [0u8; 4096];
+		let mut signaled = false;
+		let stderr = std::io::stderr();
+		let suppress_resume_echo = suppress_resume_echo_;
+		loop {
+			match std::io::Read::read(&mut stream, &mut buf) {
+				Ok(0) | Err(_) => return,
+				Ok(n) => {
+					let chunk = &buf[..n];
+					{
+						let mut handle = stderr.lock();
+						let output = chunk
+							.iter()
+							.copied()
+							.filter(|byte| {
+								if *byte == 0 {
+									return false;
+								}
+								if suppress_resume_echo.load(Ordering::Relaxed) {
+									if matches!(*byte, b'\r' | b'\n') {
+										if *byte == b'\n' {
+											suppress_resume_echo.store(false, Ordering::Relaxed);
+										}
+										return false;
+									}
+									suppress_resume_echo.store(false, Ordering::Relaxed);
+								}
+								true
+							})
+							.collect::<Vec<_>>();
+						if !output.is_empty() {
+							let _ = std::io::Write::write_all(&mut handle, &output);
+							let _ = std::io::Write::flush(&mut handle);
+						}
+					}
+					if !signaled && chunk.contains(&0u8) {
+						let _ = ready_tx.try_send(());
+						signaled = true;
+					}
+				},
+			}
+		}
+	});
+
+	// Create the requested snapshot.
+	if let Some(snapshot_output) = arg.create_snapshot.as_ref() {
+		let api_socket = host_vm_path_from_root(&arg.path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME);
+		let ch_remote_bin = find_in_path("ch-remote")
+			.map_err(|error| tg::error!(!error, "failed to locate ch-remote on PATH"))?;
+
+		if ready_rx.recv_timeout(arg.ready_timeout).is_err() {
+			return Err(tg::error!("timed out waiting for the guest ready signal"));
+		}
+
+		let ch_remote_log = host_vm_path_from_root(&arg.path).join("ch-remote.log");
+		ch_remote_run(&ch_remote_bin, &api_socket, &ch_remote_log, &["pause"])?;
+		ch_remote_run(
+			&ch_remote_bin,
+			&api_socket,
+			&ch_remote_log,
+			&["snapshot", "file:///snapshot"],
+		)?;
+		ch_remote_run(
+			&ch_remote_bin,
+			&api_socket,
+			&ch_remote_log,
+			&["shutdown-vmm"],
+		)?;
+		cloud_hypervisor.wait();
+
+		let snapshot_dir = host_snapshot_output_path_from_root(&arg.path);
+		if let Some(parent) = snapshot_output.parent()
+			&& !parent.as_os_str().is_empty()
+		{
+			std::fs::create_dir_all(parent).map_err(|error| {
+				tg::error!(
+					!error,
+					path = %parent.display(),
+					"failed to create the snapshot parent directory",
+				)
+			})?;
+		}
+		std::fs::remove_dir_all(snapshot_output).ok();
+		std::fs::remove_file(snapshot_output).ok();
+		match std::fs::rename(&snapshot_dir, snapshot_output) {
+			Ok(()) => {},
+			Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
+				copy_directory(&snapshot_dir, snapshot_output)?;
+				std::fs::remove_dir_all(&snapshot_dir).map_err(|error| {
+					tg::error!(
+						!error,
+						path = %snapshot_dir.display(),
+						"failed to remove the snapshot directory",
+					)
+				})?;
+			},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					src = %snapshot_dir.display(),
+					dst = %snapshot_output.display(),
+					"failed to move the snapshot",
+				));
+			},
+		}
+		return Ok(0);
+	}
+
+	// Restore the configured snapshot.
+	if arg.snapshot.is_some() {
+		let api_socket = host_vm_path_from_root(&arg.path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME);
+		let ch_remote_bin = find_in_path("ch-remote")
+			.map_err(|error| tg::error!(!error, "failed to locate ch-remote on PATH"))?;
+		if requested_cpu != arg.snapshot_cpu {
+			let requested_cpu = requested_cpu.to_string();
+			ch_remote_run(
+				&ch_remote_bin,
+				&api_socket,
+				&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
+				&["resize", "--cpus", &requested_cpu],
+			)?;
+		}
+		if requested_memory != arg.snapshot_memory {
+			let requested_memory = requested_memory.to_string();
+			ch_remote_run(
+				&ch_remote_bin,
+				&api_socket,
+				&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
+				&["resize", "--memory", &requested_memory],
+			)?;
+		}
+		if let Some(net) = &net_arg {
+			ch_remote_run(
+				&ch_remote_bin,
+				&api_socket,
+				&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
+				&["add-net", net],
+			)?;
+		}
+		suppress_resume_echo.store(true, Ordering::Relaxed);
+		serial_stream
+			.write_all(b"\n")
+			.map_err(|error| tg::error!(!error, "failed to write the resume signal"))?;
+		serial_stream
+			.flush()
+			.map_err(|error| tg::error!(!error, "failed to flush the resume signal"))?;
+	}
+
+	wait_for_cloud_hypervisor(&mut cloud_hypervisor, &mut helpers)
+}
+
+fn connect_serial_socket(
+	path: &Path,
+	timeout: Duration,
+	interval: Duration,
+) -> tg::Result<std::os::unix::net::UnixStream> {
+	// Watch the serial socket directory.
+	let parent = path.parent().ok_or_else(
+		|| tg::error!(path = %path.display(), "the serial socket path has no parent"),
+	)?;
+	let inotify = watch_directory(parent)?;
+	let deadline = Instant::now() + timeout;
+
+	// Wait for the serial socket to accept connections.
+	loop {
+		match std::os::unix::net::UnixStream::connect(path) {
+			Ok(stream) => return Ok(stream),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				wait_for_directory_event(&inotify, deadline).map_err(|wait_error| {
+					tg::error!(
+						source = wait_error,
+						!error,
+						path = %path.display(),
+						"timed out waiting for the cloud-hypervisor serial socket",
+					)
+				})?;
+			},
+			Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+				if Instant::now() >= deadline {
+					return Err(tg::error!(
+						!error,
+						path = %path.display(),
+						"timed out connecting to the guest serial socket",
+					));
+				}
+				std::thread::sleep(interval);
+			},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					path = %path.display(),
+					"failed to connect to the guest serial socket",
+				));
+			},
+		}
+	}
+}
+
+fn wait_for_cloud_hypervisor(
+	cloud_hypervisor: &mut ChildProcess,
+	helpers: &mut [ChildProcess],
+) -> tg::Result<u8> {
+	loop {
+		let mut status = 0;
+		let pid = unsafe { libc::waitpid(-1, std::ptr::addr_of_mut!(status), 0) };
+		if pid < 0 {
+			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::EINTR) {
+				continue;
+			}
+			return Err(tg::error!(!error, "failed to wait for a child process"));
+		}
+		if cloud_hypervisor.take_if_pid(pid) {
+			return Ok(exit_code_from_status(status));
+		}
+		for helper in helpers.iter_mut() {
+			if helper.take_if_pid(pid) {
+				return Err(tg::error!(
+					helper_status = %exit_code_from_status(status),
+					"the virtiofsd helper exited unexpectedly"
+				));
+			}
+		}
+	}
+}
+
+fn watch_directory(path: &Path) -> tg::Result<OwnedFd> {
+	let fd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC | libc::IN_NONBLOCK) };
+	if fd < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to create the directory watcher"));
+	}
+	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+	let path = CString::new(path.as_os_str().as_bytes())
+		.map_err(|error| tg::error!(!error, "failed to encode the directory path"))?;
+	let mask = libc::IN_CREATE | libc::IN_MOVED_TO | libc::IN_ATTRIB;
+	let result = unsafe { libc::inotify_add_watch(fd.as_raw_fd(), path.as_ptr(), mask) };
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to watch the directory"));
+	}
+	Ok(fd)
+}
+
+fn wait_for_directory_event(inotify: &OwnedFd, deadline: Instant) -> tg::Result<()> {
+	// Compute the remaining timeout.
+	let now = Instant::now();
+	if now >= deadline {
+		return Err(tg::error!("timed out"));
+	}
+	let timeout = deadline.duration_since(now).as_millis();
+	let timeout = i32::try_from(timeout).unwrap_or(i32::MAX);
+
+	// Wait for a directory event.
+	let mut event = libc::pollfd {
+		fd: inotify.as_raw_fd(),
+		events: libc::POLLIN,
+		revents: 0,
+	};
+	let result = unsafe { libc::poll(std::ptr::addr_of_mut!(event), 1, timeout) };
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::EINTR) {
+			return Ok(());
+		}
+		return Err(tg::error!(
+			!error,
+			"failed to wait for the directory watcher"
+		));
+	}
+	if result == 0 {
+		return Err(tg::error!("timed out"));
+	}
+
+	// Drain the directory events.
+	let mut buffer = [0u8; 4096];
+
+	loop {
+		let result = unsafe {
+			libc::read(
+				inotify.as_raw_fd(),
+				buffer.as_mut_ptr().cast(),
+				buffer.len(),
+			)
+		};
+		if result > 0 {
+			continue;
+		}
+		if result == 0 {
+			return Ok(());
+		}
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::EAGAIN) {
+			return Ok(());
+		}
+		if error.raw_os_error() == Some(libc::EINTR) {
+			continue;
+		}
+		return Err(tg::error!(
+			!error,
+			"failed to read from the directory watcher"
+		));
+	}
+}
+
+fn enter_user_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
+	let host_uid = unsafe { libc::getuid() };
+	let host_gid = unsafe { libc::getgid() };
+	unshare(libc::CLONE_NEWUSER, "failed to unshare the user namespace")?;
+	std::fs::write("/proc/self/uid_map", format!("{uid} {host_uid} 1\n"))
+		.map_err(|error| tg::error!(!error, "failed to write the uid map"))?;
+	std::fs::write("/proc/self/setgroups", "deny")
+		.map_err(|error| tg::error!(!error, "failed to deny setgroups"))?;
+	std::fs::write("/proc/self/gid_map", format!("{gid} {host_gid} 1\n"))
+		.map_err(|error| tg::error!(!error, "failed to write the gid map"))?;
+	Ok(())
+}
+
+fn host_vm_path_from_root(root_path: &Path) -> PathBuf {
+	root_path.join("vm")
+}
+
+fn host_share_path_from_root(root_path: &Path) -> PathBuf {
+	root_path.join("host")
+}
+
+fn host_share_init_config_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_path_from_root(root_path).join("init.json")
+}
+
+fn host_share_etc_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_path_from_root(root_path).join("etc")
+}
+
+fn host_share_passwd_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_etc_path_from_root(root_path).join("passwd")
+}
+
+fn host_share_nsswitch_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_etc_path_from_root(root_path).join("nsswitch.conf")
+}
+
+fn host_share_opt_tangram_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_path_from_root(root_path).join("opt/tangram")
+}
+
+fn host_share_store_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_opt_tangram_path_from_root(root_path).join("store")
+}
+
+fn host_share_output_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_opt_tangram_path_from_root(root_path).join("output")
+}
+
+fn host_share_tmp_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_path_from_root(root_path).join("tmp")
+}
+
+fn host_share_mounts_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_path_from_root(root_path).join("mounts")
+}
+
+fn kernel_cmdline(arg: &Arg, command: &crate::run::Command) -> tg::Result<String> {
+	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
+	let mut cmdline =
+		String::from("console=ttyS0 quiet loglevel=0 root=/dev/vda rootfstype=squashfs ro");
+	if arg.dax.is_some() {
+		cmdline.push_str(" tangram.dax=1");
+	}
+
+	// Boot the bootstrap init, or the snapshot creation command.
+	if arg.create_snapshot.is_some() {
+		if command
+			.args
+			.iter()
+			.any(|arg| arg.is_empty() || arg.chars().any(char::is_whitespace) || arg.contains('"'))
+			|| command.cwd != Path::new("/")
+			|| !command.env.is_empty()
+		{
+			return Err(tg::error!(
+				"the snapshot bootstrap command must have simple kernel arguments, the root working directory, and an empty environment"
+			));
+		}
+		write!(
+			&mut cmdline,
+			" init={} -- {}",
+			command.args[0],
+			command.args[1..].join(" ")
+		)
+		.unwrap();
+	} else {
+		write!(
+			&mut cmdline,
+			" init={} -- sandbox init --backend cloud-hypervisor",
+			tangram_path.display(),
+		)
+		.unwrap();
+	}
+
+	Ok(cmdline)
+}
+
+fn memory_arg(arg: &Arg) -> String {
+	if arg.create_snapshot.is_some() {
+		let mut memory = format!("size={},shared=on", arg.snapshot_memory);
+		let hotplug_size = arg.max_memory - arg.snapshot_memory;
+		if hotplug_size > 0 {
+			write!(
+				&mut memory,
+				",hotplug_method=virtio-mem,hotplug_size={hotplug_size}"
+			)
+			.unwrap();
+		}
+		memory
+	} else {
+		format!("size={},shared=on", arg.max_memory)
+	}
+}
+
+fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
+	// Create the sandbox directories.
+	for path in [
+		Sandbox::host_scratch_path_from_root(sandbox_path),
+		Sandbox::host_upper_path_from_root(sandbox_path),
+		Sandbox::host_work_path_from_root(sandbox_path),
+		host_vm_path_from_root(sandbox_path),
+		host_share_path_from_root(sandbox_path),
+		host_share_etc_path_from_root(sandbox_path),
+		host_share_opt_tangram_path_from_root(sandbox_path),
+		host_share_output_path_from_root(sandbox_path),
+		host_share_store_path_from_root(sandbox_path),
+		host_share_tmp_path_from_root(sandbox_path),
+		host_share_mounts_path_from_root(sandbox_path),
+	] {
+		std::fs::create_dir_all(&path).map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),
+		)?;
+	}
+
+	// Create the output and temporary directory symlinks.
+	let host_output = Sandbox::host_output_path_from_root(sandbox_path);
+	std::fs::remove_file(&host_output).ok();
+	std::fs::remove_dir_all(&host_output).ok();
+	std::os::unix::fs::symlink("host/opt/tangram/output", &host_output).map_err(
+		|error| tg::error!(!error, path = %host_output.display(), "failed to symlink the output dir"),
+	)?;
+
+	let host_tmp = Sandbox::host_tmp_path_from_root(sandbox_path);
+	std::fs::remove_file(&host_tmp).ok();
+	std::fs::remove_dir_all(&host_tmp).ok();
+	std::os::unix::fs::symlink("host/tmp", &host_tmp).map_err(
+		|error| tg::error!(!error, path = %host_tmp.display(), "failed to symlink the tmp dir"),
+	)?;
+
+	// Set the temporary directory permissions.
+	let permissions =
+		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
+	let share_tmp = host_share_tmp_path_from_root(sandbox_path);
+	std::fs::set_permissions(&share_tmp, permissions).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %share_tmp.display(),
+			"failed to set sandbox path permissions"
+		)
+	})?;
+
+	// Prepare the guest overlay directories.
+	let upper_path = Sandbox::host_upper_path_from_root(sandbox_path);
+	let tangram_path = upper_path.join("opt/tangram");
+	std::fs::create_dir_all(&tangram_path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %tangram_path.display(),
+			"failed to create the sandbox path"
+		)
+	})?;
+	for path in [
+		host_vm_path_from_root(sandbox_path).join(VIRTIOFSD_SANDBOX_SOCKET_NAME),
+		host_vm_path_from_root(sandbox_path).join(CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME),
+		host_vm_path_from_root(sandbox_path).join(SERIAL_SOCKET_NAME),
+		host_vm_path_from_root(sandbox_path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME),
+	] {
+		std::fs::remove_file(path).ok();
+	}
+
+	Ok(())
+}
+
+fn prepare_etc_files(sandbox_path: &Path, user: &User) -> tg::Result<()> {
+	// Write the passwd file.
+	let mut passwd = String::from(
+		"root:!:0:0:root:/root:/bin/false\nnobody:!:65534:65534:nobody:/nonexistent:/bin/false\n",
+	);
+	if user.uid != 0 && user.uid != 65534 {
+		use std::fmt::Write as _;
+		writeln!(
+			passwd,
+			"{}:!:{}:{}:{}:{}:/bin/false",
+			user.name,
+			user.uid,
+			user.gid,
+			user.name,
+			user.home.display(),
+		)
+		.unwrap();
+	}
+	std::fs::write(host_share_passwd_path_from_root(sandbox_path), passwd)
+		.map_err(|error| tg::error!(!error, "failed to write /etc/passwd"))?;
+
+	// Write the name service configuration.
+	let nsswitch = indoc::indoc!(
+		"
+			passwd: files compat
+			shadow: files compat
+			hosts: files dns compat
+		"
+	);
+	std::fs::write(host_share_nsswitch_path_from_root(sandbox_path), nsswitch)
+		.map_err(|error| tg::error!(!error, "failed to write /etc/nsswitch.conf"))?;
+
+	Ok(())
+}
+
+fn resolve_user(name: Option<&str>) -> tg::Result<User> {
+	// Look up the passwd record.
+	let ptr = unsafe {
+		if let Some(name) = name {
+			let name = CString::new(OsStr::new(name).as_bytes())
+				.map_err(|error| tg::error!(!error, "failed to encode the user name"))?;
+			libc::getpwnam(name.as_ptr())
+		} else {
+			libc::getpwuid(libc::getuid())
+		}
+	};
+	if ptr.is_null() {
+		return Err(tg::error!("failed to resolve the user"));
+	}
+
+	// Read the user name and home directory.
+	let passwd = unsafe { &*ptr };
+	let name = unsafe { CStr::from_ptr(passwd.pw_name) }
+		.to_string_lossy()
+		.into_owned();
+	let home = unsafe { CStr::from_ptr(passwd.pw_dir) }
+		.to_string_lossy()
+		.into_owned();
+
+	Ok(User {
+		gid: passwd.pw_gid,
+		home: PathBuf::from(home),
+		name,
+		uid: passwd.pw_uid,
+	})
+}
+
+fn set_no_new_privs() -> tg::Result<()> {
+	let result = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set no_new_privs"));
+	}
+	Ok(())
+}
+
+fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
+	let result = unsafe { libc::setresgid(gid, gid, gid) };
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the gid"));
+	}
+	Ok(())
+}
+
+fn setresuid(uid: libc::uid_t) -> tg::Result<()> {
+	let result = unsafe { libc::setresuid(uid, uid, uid) };
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the uid"));
+	}
+	Ok(())
+}
+
+fn spawn_cloud_hypervisor_helper(
+	arg: &Arg,
+	user: &User,
+	cloud_hypervisor_bin: &Path,
+	passt_bin: Option<&Path>,
+	command_args: &[std::ffi::OsString],
+) -> tg::Result<libc::pid_t> {
+	let child = unsafe { libc::fork() };
+	if child < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(
+			!error,
+			"failed to fork the cloud-hypervisor helper"
+		));
+	}
+	if child == 0 {
+		match cloud_hypervisor_child_main(arg, user, cloud_hypervisor_bin, passt_bin, command_args)
+		{
+			Ok(()) => std::process::exit(0),
+			Err(error) => {
+				eprintln!("{error}");
+				eprintln!("{}", error.trace());
+				std::process::exit(105);
+			},
+		}
+	}
+	Ok(child)
+}
+
+fn cloud_hypervisor_child_main(
+	arg: &Arg,
+	user: &User,
+	cloud_hypervisor_bin: &Path,
+	passt_bin: Option<&Path>,
+	command_args: &[std::ffi::OsString],
+) -> tg::Result<()> {
+	// Create the helper namespaces.
+	crate::util::set_parent_death_signal(libc::SIGKILL)?;
+	enter_user_namespace(user.uid, user.gid)?;
+	unshare(
+		libc::CLONE_NEWNS,
+		"failed to unshare the cloud-hypervisor mount namespace",
+	)?;
+
+	// Prepare the helper root.
+	let chroot = host_vmm_chroot_path_from_root(&arg.path);
+	std::fs::remove_dir_all(&chroot).ok();
+	std::fs::create_dir_all(&chroot).map_err(
+		|error| tg::error!(!error, path = %chroot.display(), "failed to create the chroot path"),
+	)?;
+	if arg.create_snapshot.is_some() {
+		let snapshot_output = host_snapshot_output_path_from_root(&arg.path);
+		std::fs::create_dir_all(&snapshot_output).map_err(|error| {
+			tg::error!(!error, path = %snapshot_output.display(), "failed to create the snapshot output directory")
+		})?;
+	}
+
+	// Open the helper log files.
+	let (stdout, stderr) =
+		log_stdio(&host_vm_path_from_root(&arg.path).join("cloud-hypervisor.log"))?;
+
+	// Mount the helper filesystems.
+	let mount_arg = build_cloud_hypervisor_mount_arg(arg, cloud_hypervisor_bin, passt_bin);
+	mount::apply(&mount_arg, Some(&chroot))?;
+
+	// Enter the helper root and drop privileges.
+	set_no_new_privs()?;
+
+	mount::change_directory(&chroot)?;
+	let result = unsafe { libc::chroot(c".".as_ptr()) };
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "chroot failed"));
+	}
+	mount::change_directory(Path::new("/"))?;
+
+	setresgid(user.gid)?;
+	setresuid(user.uid)?;
+
+	// Execute the hypervisor.
+	let mut command = std::process::Command::new(VMM_CLOUD_HYPERVISOR_BIN);
+	command
+		.args(command_args)
+		.stdin(std::process::Stdio::null())
+		.stdout(stdout)
+		.stderr(stderr);
+	let error = command.exec();
+
+	Err(tg::error!(!error, "failed to execute cloud-hypervisor"))
+}
+
+fn build_cloud_hypervisor_mount_arg(
+	arg: &Arg,
+	cloud_hypervisor_bin: &Path,
+	passt_bin: Option<&Path>,
+) -> mount::Arg {
+	// Collect the writable bind mounts.
+	let mut binds = vec![
+		mount::Bind {
+			devices: false,
+			fd: None,
+			source: host_vm_path_from_root(&arg.path),
+			target: VMM_ROOT_DIR.into(),
+		},
+		mount::Bind {
+			devices: false,
+			fd: None,
+			source: "/dev".into(),
+			target: "/dev".into(),
+		},
+		mount::Bind {
+			devices: false,
+			fd: None,
+			source: "/proc".into(),
+			target: "/proc".into(),
+		},
+	];
+	if arg.create_snapshot.is_some() {
+		binds.push(mount::Bind {
+			devices: false,
+			fd: None,
+			source: host_snapshot_output_path_from_root(&arg.path),
+			target: VMM_SNAPSHOT_OUTPUT_DIR.into(),
+		});
+	} else {
+		binds.push(mount::Bind {
+			devices: false,
+			fd: None,
+			source: arg.path.join(VFS_SOCKET_NAME),
+			target: VMM_VFS_SOCKET.into(),
+		});
+	}
+	binds.push(mount::Bind {
+		devices: false,
+		fd: None,
+		source: arg.path.join(VFS_SOCKET_NAME),
+		target: VMM_VFS_SOCKET.into(),
+	});
+
+	// Collect the read-only bind mounts.
+	let mut ro_binds = vec![
+		mount::Bind {
+			devices: false,
+			fd: None,
+			source: arg.rootfs_path.clone(),
+			target: "/".into(),
+		},
+		mount::Bind {
+			devices: false,
+			fd: None,
+			source: "/sys".into(),
+			target: "/sys".into(),
+		},
+		mount::Bind {
+			devices: false,
+			fd: None,
+			source: arg.kernel_path.clone(),
+			target: VMM_KERNEL_PATH.into(),
+		},
+		mount::Bind {
+			devices: false,
+			fd: None,
+			source: arg.image_path.clone(),
+			target: VMM_ROOTFS_IMAGE_PATH.into(),
+		},
+		mount::Bind {
+			devices: false,
+			fd: None,
+			source: cloud_hypervisor_bin.to_owned(),
+			target: VMM_CLOUD_HYPERVISOR_BIN.into(),
+		},
+	];
+	if let Some(passt_bin) = passt_bin {
+		ro_binds.push(mount::Bind {
+			devices: false,
+			fd: None,
+			source: passt_bin.to_owned(),
+			target: VMM_PASST_BIN.into(),
+		});
+	}
+	if let Some(snapshot) = &arg.snapshot {
+		ro_binds.push(mount::Bind {
+			devices: false,
+			fd: None,
+			source: snapshot.clone(),
+			target: VMM_SNAPSHOT_PATH.into(),
+		});
+	}
+
+	mount::Arg {
+		binds,
+		ro_binds,
+		..Default::default()
+	}
+}
+
+fn ch_remote_run(bin: &Path, api_socket: &Path, log_path: &Path, args: &[&str]) -> tg::Result<()> {
+	let socket_arg = format!("--api-socket={}", api_socket.display());
+	let (stdout, stderr) = log_stdio(log_path)?;
+	let status = std::process::Command::new(bin)
+		.arg(&socket_arg)
+		.args(args)
+		.stdin(std::process::Stdio::null())
+		.stdout(stdout)
+		.stderr(stderr)
+		.status()
+		.map_err(|error| tg::error!(!error, "failed to invoke ch-remote"))?;
+	if !status.success() {
+		return Err(tg::error!(
+			%status,
+			command = ?args,
+			"ch-remote command failed",
+		));
+	}
+	Ok(())
+}
+
+fn log_stdio(log_path: &Path) -> tg::Result<(std::process::Stdio, std::process::Stdio)> {
+	let file = std::fs::OpenOptions::new()
+		.create(true)
+		.append(true)
+		.open(log_path)
+		.map_err(
+			|error| tg::error!(!error, path = %log_path.display(), "failed to open the log file"),
+		)?;
+	let stderr = file.try_clone().map_err(
+		|error| tg::error!(!error, path = %log_path.display(), "failed to clone the log file"),
+	)?;
+	Ok((file.into(), stderr.into()))
+}
+
+fn copy_directory(src: &Path, dst: &Path) -> tg::Result<()> {
+	std::fs::create_dir_all(dst).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %dst.display(),
+			"failed to create the destination directory",
+		)
+	})?;
+	for entry in std::fs::read_dir(src).map_err(
+		|error| tg::error!(!error, path = %src.display(), "failed to read the source directory"),
+	)? {
+		let entry =
+			entry.map_err(|error| tg::error!(!error, "failed to read a directory entry"))?;
+		let file_type = entry
+			.file_type()
+			.map_err(|error| tg::error!(!error, "failed to read a directory entry type"))?;
+		let from = entry.path();
+		let to = dst.join(entry.file_name());
+		if file_type.is_dir() {
+			copy_directory(&from, &to)?;
+		} else {
+			std::fs::copy(&from, &to).map_err(
+				|error| tg::error!(!error, src = %from.display(), dst = %to.display(), "failed to copy a file"),
+			)?;
+		}
+	}
+	Ok(())
+}
+
+fn find_in_path(name: &str) -> tg::Result<PathBuf> {
+	let path = std::env::var_os("PATH")
+		.ok_or_else(|| tg::error!("PATH environment variable is not set"))?;
+	for dir in std::env::split_paths(&path) {
+		let candidate = dir.join(name);
+		if let Ok(meta) = std::fs::metadata(&candidate)
+			&& meta.is_file()
+		{
+			return Ok(candidate);
+		}
+	}
+	Err(tg::error!(%name, "executable not found on PATH"))
+}
+
+fn host_snapshot_output_path_from_root(root_path: &Path) -> PathBuf {
+	root_path.join("snapshot")
+}
+
+fn host_vmm_chroot_path_from_root(root_path: &Path) -> PathBuf {
+	root_path.join("vmm-chroot/root")
+}
+
+fn unshare(flags: libc::c_int, message: &'static str) -> tg::Result<()> {
+	let result = unsafe { libc::unshare(flags) };
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "{}", message));
+	}
+	Ok(())
+}
+
+fn exit_code_from_status(status: libc::c_int) -> u8 {
+	if libc::WIFEXITED(status) {
+		return u8::try_from(libc::WEXITSTATUS(status).min(255)).unwrap_or(u8::MAX);
+	}
+	if libc::WIFSIGNALED(status) {
+		let signal = libc::WTERMSIG(status);
+		return u8::try_from((128 + signal).min(255)).unwrap_or(u8::MAX);
+	}
+	1
+}
+
+impl Network {
+	fn new(arg: &Arg) -> tg::Result<Option<Self>> {
+		match &arg.network {
+			Some(NetworkKind::Passt) => {
+				let host_ip = arg
+					.host_ip
+					.ok_or_else(|| tg::error!("--host-ip is required when --network is set"))?;
+				let guest_ip = arg
+					.guest_ip
+					.ok_or_else(|| tg::error!("--guest-ip is required when --network is set"))?;
+				let passt = crate::network::passt::Device::new(
+					&host_vm_path_from_root(&arg.path),
+					&arg.dns,
+					host_ip,
+					guest_ip,
+					&arg.ports,
+					arg.network_startup_timeout,
+				)?;
+				Ok(Some(Network::Passt(passt)))
+			},
+			Some(NetworkKind::Tap) => {
+				let host_ip = arg
+					.host_ip
+					.ok_or_else(|| tg::error!("--host-ip is required when --network is set"))?;
+				let guest_ip = arg
+					.guest_ip
+					.ok_or_else(|| tg::error!("--guest-ip is required when --network is set"))?;
+				let mut hasher = DefaultHasher::new();
+				arg.path.hash(&mut hasher);
+				let id = format!("{:x}", hasher.finish());
+				let tap = crate::network::tap::Device::new(&id, arg.firewall, host_ip, guest_ip)?;
+				Ok(Some(Network::Tap(tap)))
+			},
+			None => Ok(None),
+		}
+	}
+
+	fn host_ip(&self) -> Ipv4Addr {
+		match self {
+			Self::Passt(passt) => passt.host_ip(),
+			Self::Tap(tap) => tap.host_ip(),
+		}
+	}
+
+	fn guest_ip(&self) -> Ipv4Addr {
+		match self {
+			Self::Passt(passt) => passt.guest_ip(),
+			Self::Tap(tap) => tap.guest_ip(),
+		}
+	}
+
+	fn netmask(&self) -> Ipv4Addr {
+		match self {
+			Self::Passt(passt) => passt.netmask(),
+			Self::Tap(tap) => tap.netmask(),
+		}
+	}
+}

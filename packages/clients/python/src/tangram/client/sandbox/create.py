@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 
 if TYPE_CHECKING:
     from tangram.client import Client
@@ -17,7 +17,6 @@ class DataArgObject(TypedDict, total=False):
     cpu: Cpu | None
     host: str | None
     hostname: str | None
-    isolation: dict[str, Literal["container", "seatbelt", "vm"]] | None
     location: str | None
     memory: int | float | None
     mounts: list[dict[str, Any]]

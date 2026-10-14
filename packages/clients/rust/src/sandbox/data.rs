@@ -30,10 +30,6 @@ pub struct Data {
 	pub id: tg::sandbox::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
-	pub isolation: Option<tg::sandbox::Isolation>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<tg::sandbox::Resource<u64>>,
 
@@ -90,8 +86,10 @@ pub struct Usage {
 	/// The integral of actual memory use in mebibyte-milliseconds.
 	#[tangram_serialize(id = 1)]
 	pub memory: ResourceUsage,
+
 	#[tangram_serialize(id = 2)]
 	pub storage: ResourceUsage,
+
 	#[tangram_serialize(id = 3)]
 	pub swap: ResourceUsage,
 }
@@ -112,6 +110,7 @@ pub struct Usage {
 pub struct ResourceUsage {
 	#[tangram_serialize(id = 0)]
 	pub consumption: u64,
+
 	#[tangram_serialize(id = 1)]
 	pub reservation: u64,
 }

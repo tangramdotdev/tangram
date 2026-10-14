@@ -162,6 +162,7 @@ async fn reconnect_preserves_the_process_and_read_cursor() {
 					)))
 					.await
 					.unwrap();
+
 				// Ending the response body closes this physical connection while preserving buffered messages.
 			}
 		});
@@ -336,7 +337,6 @@ fn spawn_metadata_uses_native_types() {
 			"cpu": {"max": 2, "min": 0},
 			"host": "aarch64-darwin",
 			"hostname": "test",
-			"isolation": {"kind": "seatbelt"},
 			"location": "local",
 			"memory": 1_048_576,
 			"network": {"kind": "host"},

@@ -15,32 +15,57 @@ use {
 	tangram_uri::Uri,
 };
 
+mod backend;
+#[cfg(target_os = "linux")]
+mod cgroup;
 mod client;
+mod command;
+#[cfg(target_os = "linux")]
+mod filesystem;
 mod libraries;
+#[cfg(target_os = "linux")]
+mod mount;
 #[cfg(target_os = "linux")]
 mod netlink;
 mod paths;
 mod pty;
+#[cfg(target_os = "linux")]
+mod seccomp;
 mod server;
+#[cfg(target_os = "linux")]
 mod usage;
 mod util;
 
+pub use self::backend::{Backend, Kind, Platform};
+
+#[cfg(target_os = "linux")]
+pub mod bubblewrap;
 #[cfg(target_os = "linux")]
 pub mod budget;
 #[cfg(target_os = "linux")]
+pub mod builtin;
+#[cfg(target_os = "linux")]
 pub mod capacity;
 #[cfg(target_os = "linux")]
-pub mod container;
+pub mod cloud_hypervisor;
 #[cfg(target_os = "linux")]
 pub mod cpu;
 #[cfg(target_os = "linux")]
+pub mod gvisor;
+#[cfg(target_os = "linux")]
+pub mod host;
+pub mod init;
+#[cfg(target_os = "linux")]
+pub mod linux;
+#[cfg(target_os = "linux")]
 pub mod network;
+#[cfg(target_os = "linux")]
+pub mod root;
+pub mod run;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
 pub mod stdio;
-#[cfg(target_os = "linux")]
-pub mod vm;
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -48,18 +73,24 @@ pub struct Sandbox(Arc<State>);
 pub struct State {
 	#[cfg(target_os = "linux")]
 	_storage: Option<budget::Allocation>,
+
+	#[cfg(target_os = "linux")]
 	accounting: tokio::sync::Mutex<Option<usage::Accounting>>,
+
 	arg: Arg,
 
 	#[cfg(target_os = "linux")]
-	cgroup: tokio::sync::Mutex<Option<crate::container::cgroup::Cgroup>>,
+	cgroup: tokio::sync::Mutex<Option<crate::cgroup::Cgroup>>,
+
+	#[cfg(target_os = "macos")]
+	cleanup: seatbelt::Cleanup,
 
 	client: Client,
 
 	destroy: tokio::sync::Mutex<()>,
 
 	#[cfg(target_os = "linux")]
-	filesystem: Option<crate::container::filesystem::Filesystem>,
+	filesystem: Option<crate::filesystem::Filesystem>,
 
 	#[cfg(target_os = "linux")]
 	#[expect(dead_code)]
@@ -67,7 +98,11 @@ pub struct State {
 
 	next_process_index: AtomicU64,
 
+	pid: u32,
+
 	process: tokio::sync::Mutex<tokio::process::Child>,
+
+	started: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone, Debug)]
@@ -85,50 +120,83 @@ pub struct SpawnArg {
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub allocated_at: std::time::Instant,
+	pub backend: Backend,
+
 	#[cfg(target_os = "linux")]
 	pub cgroup_cleanup_interval: Duration,
+
 	#[cfg(target_os = "linux")]
 	pub cgroup_cleanup_timeout: Duration,
+
 	pub connect_timeout: Duration,
+
 	pub cpu: Option<tg::sandbox::Cpu>,
+
 	#[cfg(target_os = "linux")]
 	pub cpu_affinity: bool,
+
 	#[cfg(target_os = "linux")]
 	pub cpu_parent: Option<cpu::Lease>,
+
 	#[cfg(target_os = "linux")]
 	pub cpu_pool: Option<cpu::Pool>,
+
 	pub dns: Vec<Ipv4Addr>,
+
 	#[cfg(target_os = "linux")]
 	pub firewall: Firewall,
+
 	#[cfg(target_os = "linux")]
 	pub fuse_fd: Option<Arc<std::os::fd::OwnedFd>>,
+
 	pub hostname: Option<String>,
+
 	pub http2: tangram_http::http2::Config,
+
 	pub identity: PathBuf,
+
 	pub index: u64,
+
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
-	pub isolation: Isolation,
+
 	pub memory: Option<tg::sandbox::Resource<u64>>,
+
 	pub memory_sampling_interval: Duration,
+
 	pub mounts: Vec<tg::sandbox::Mount>,
+
 	pub network: Option<Network>,
+
 	#[cfg(target_os = "linux")]
 	pub network_startup_timeout: Duration,
+
 	pub nice: u8,
+
 	pub path: PathBuf,
+
 	pub request_timeout: Duration,
+
+	pub resources: Resources,
+
 	pub rootfs_path: PathBuf,
+
 	pub shutdown_timeout: Duration,
+
 	pub storage: Option<tg::sandbox::Resource<u64>>,
+
 	#[cfg(target_os = "linux")]
 	pub storage_pool: Option<budget::Pool>,
+
 	pub store_path: PathBuf,
+
 	pub swap: Option<tg::sandbox::Resource<u64>>,
+
 	#[cfg(target_os = "linux")]
 	pub swap_pool: Option<budget::Pool>,
+
 	pub tangram_path: PathBuf,
+
 	pub tangram_socket_path: Option<PathBuf>,
 }
 
@@ -137,11 +205,22 @@ pub struct Output {
 	pub usage: tg::sandbox::Usage,
 }
 
-#[derive(Clone, Copy, Debug, Default, derive_more::Display, derive_more::FromStr)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde::Deserialize,
+	serde::Serialize,
+)]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Firewall {
 	Iptables,
+
 	#[default]
 	Nft,
 }
@@ -157,16 +236,8 @@ pub struct Command {
 	pub stdout: Stdio,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
-pub enum Isolation {
-	Container(ContainerIsolation),
-	Seatbelt(SeatbeltIsolation),
-	Vm(VmIsolation),
-}
-
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct ContainerIsolation {
+pub struct Resources {
 	pub cgroup_readonly: bool,
 	pub filesystem_project_id: Option<u32>,
 	pub gid_map: Option<IdMap>,
@@ -187,29 +258,14 @@ pub struct IdMap {
 	pub host: u32,
 }
 
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	derive_more::Display,
-	derive_more::FromStr,
-	Eq,
-	PartialEq,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-#[display(rename_all = "snake_case")]
-#[from_str(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SeccompPolicy {
 	Default,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct SeatbeltIsolation {}
-
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct VmIsolation {
+pub struct CloudHypervisor {
 	pub cloud_hypervisor_path: Option<PathBuf>,
 	pub dax: Option<u64>,
 	pub image_path: PathBuf,
@@ -282,18 +338,21 @@ pub enum Stdio {
 pub fn filesystem_project_usage(path: &Path, project: u32) -> tg::Result<u64> {
 	let directory = std::fs::File::open(path)
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project meter"))?;
-	container::filesystem::usage(&directory, project)
+	filesystem::usage(&directory, project)
 }
 
 impl Sandbox {
 	#[tracing::instrument(name = "sandbox.create_physical", level = "debug", skip_all, fields(sandbox_index = arg.index), err(level = "debug"))]
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
-		validate_resources(&arg.isolation, arg.cpu, arg.memory)?;
+		// Validate the sandbox resources and mount targets.
+		validate_resources(&arg.backend, arg.cpu, arg.memory)?;
 		for resource in [arg.memory, arg.storage, arg.swap].into_iter().flatten() {
 			resource.validate()?;
 		}
-		if !matches!(arg.isolation, Isolation::Container(_))
-			&& (arg.storage.is_some() || arg.swap.is_some())
+		if !matches!(
+			arg.backend,
+			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. }
+		) && (arg.storage.is_some() || arg.swap.is_some())
 		{
 			return Err(tg::error!(
 				"storage and swap bounds require container isolation"
@@ -338,6 +397,15 @@ impl Sandbox {
 					"sandbox mount targets may not contain parent directory components"
 				));
 			}
+			if ["/dev", "/proc", "/sys"]
+				.iter()
+				.any(|path| mount.target.starts_with(path))
+			{
+				return Err(tg::error!(
+					target = %mount.target.display(),
+					"sandbox mounts at or beneath /dev, /proc, and /sys are not supported"
+				));
+			}
 			if !targets.insert(mount.target.clone()) {
 				return Err(tg::error!(
 					target = %mount.target.display(),
@@ -359,8 +427,11 @@ impl Sandbox {
 			}
 		};
 
-		let (listener, url) = match arg.isolation {
-			Isolation::Container(_) | Isolation::Seatbelt(_) => {
+		let (listener, url) = match arg.backend {
+			Backend::Builtin
+			| Backend::Bubblewrap { .. }
+			| Backend::Gvisor { .. }
+			| Backend::Seatbelt => {
 				let uri = Uri::builder()
 					.scheme("http+stdio")
 					.path("")
@@ -368,11 +439,13 @@ impl Sandbox {
 					.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
 				(None, uri)
 			},
-			Isolation::Vm(_) => {
-				let (listener, uri) = Self::listen(&arg.isolation, &arg.path).await?;
+			Backend::CloudHypervisor(_) => {
+				let (listener, uri) = Self::listen(&arg.backend, &arg.path).await?;
 				(Some(listener), uri)
 			},
 		};
+
+		// Create the sandbox server configuration.
 		let serve_arg = self::serve::Arg {
 			http2: arg.http2,
 			library_paths,
@@ -381,26 +454,32 @@ impl Sandbox {
 			tangram_path: Self::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
 			url,
 		};
+		let deadline = tokio::time::Instant::now() + arg.connect_timeout;
 		#[cfg(target_os = "linux")]
-		let (mut process, network, filesystem, cgroup, storage, accounting) = match &arg.isolation {
-			Isolation::Container(_) => {
-				let mut network = crate::container::network::create(&arg)?;
-				let output = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
+		let (mut process, network, filesystem, cgroup, storage) = match &arg.backend {
+			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
+				let mut network = crate::network::linux::create(&arg)?;
+				let cgroup = self::cgroup::create(&arg)?;
+				let output = tokio::time::timeout_at(
+					deadline,
+					self::run::spawn(&arg, &serve_arg, network.as_mut(), &cgroup),
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "timed out preparing the sandbox"))??;
 				(
 					output.process,
 					network,
 					output.filesystem,
-					output.cgroup,
+					Some(cgroup),
 					output.storage,
-					Some(output.accounting),
 				)
 			},
-			Isolation::Seatbelt(_) => {
+			Backend::Seatbelt => {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
 			},
-			Isolation::Vm(_) => {
+			Backend::CloudHypervisor(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
-				let network = crate::vm::network::create(
+				let network = crate::cloud_hypervisor::network::create(
 					arg.index,
 					&arg.identity,
 					arg.firewall,
@@ -408,25 +487,14 @@ impl Sandbox {
 					&arg.ip_pool,
 					ports,
 				)?;
-				let options = crate::container::cgroup::Options {
-					cleanup_interval: arg.cgroup_cleanup_interval,
-					cleanup_timeout: arg.cgroup_cleanup_timeout,
-					cpu: arg
-						.cpu
-						.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
-						.transpose()?,
-					cpu_affinity: arg.cpu_affinity,
-					cpu_parent: arg.cpu_parent.clone(),
-					cpu_pool: arg.cpu_pool.clone(),
-					cpu_request: arg.cpu,
-					memory_oom_group: true,
-					..Default::default()
-				};
-				let name = format!("sandbox-vm-{}-{:016x}", arg.index, rand::random::<u64>());
-				let cgroup = crate::container::cgroup::Cgroup::new(&name, &options)?;
-				let process =
-					self::vm::spawn(&arg, &serve_arg, network.as_ref(), &cgroup.handle()?)?;
-				(process, network, None, Some(cgroup), None, None)
+				let cgroup = self::cgroup::create(&arg)?;
+				let (mut command, config) =
+					self::cloud_hypervisor::run::command(&arg, &serve_arg, network.as_ref())?;
+				let process = self::run::spawn_command(&mut command, &cgroup)?;
+				tokio::time::timeout_at(deadline, config.finish())
+					.await
+					.map_err(|error| tg::error!(!error, "timed out configuring the sandbox"))??;
+				(process, network, None, Some(cgroup), None)
 			},
 		};
 
@@ -437,17 +505,26 @@ impl Sandbox {
 			fuse_fd: None,
 			..arg
 		};
+
+		// Connect to the sandbox server.
 		#[cfg(target_os = "macos")]
-		let mut process = match &arg.isolation {
-			Isolation::Container(_) => {
+		let (mut process, cleanup) = match &arg.backend {
+			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 				return Err(tg::error!("container isolation is not supported on macos"));
 			},
-			Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
-			Isolation::Vm(_) => {
+			Backend::Seatbelt => {
+				tokio::time::timeout_at(deadline, self::seatbelt::spawn(&arg, &serve_arg))
+					.await
+					.map_err(|error| tg::error!(!error, "timed out preparing the sandbox"))??
+			},
+			Backend::CloudHypervisor(_) => {
 				return Err(tg::error!("vm isolation is not supported on macos"));
 			},
 		};
 
+		let pid = process
+			.id()
+			.ok_or_else(|| tg::error!("the sandbox process has exited"))?;
 		let connect = match listener.as_ref() {
 			None => {
 				let stdin = process
@@ -466,7 +543,7 @@ impl Sandbox {
 			},
 		};
 
-		let client = match tokio::time::timeout(arg.connect_timeout, async {
+		let client = match tokio::time::timeout_at(deadline, async {
 			tokio::select! {
 				result = connect => result,
 				result = process.wait() => {
@@ -494,49 +571,40 @@ impl Sandbox {
 			},
 		};
 
+		// Create the sandbox state.
 		let sandbox = Self(Arc::new(State {
 			#[cfg(target_os = "linux")]
 			_storage: storage,
-			accounting: tokio::sync::Mutex::new({
-				#[cfg(target_os = "linux")]
-				{
-					accounting
-				}
-				#[cfg(target_os = "macos")]
-				{
-					None
-				}
-			}),
+
+			#[cfg(target_os = "linux")]
+			accounting: tokio::sync::Mutex::new(None),
+
 			arg,
+
 			#[cfg(target_os = "linux")]
 			cgroup: tokio::sync::Mutex::new(cgroup),
+
+			#[cfg(target_os = "macos")]
+			cleanup,
+
 			client,
+
 			destroy: tokio::sync::Mutex::new(()),
+
 			#[cfg(target_os = "linux")]
 			filesystem,
+
 			#[cfg(target_os = "linux")]
 			network,
+
 			next_process_index: AtomicU64::new(1),
+
+			pid,
+
 			process: tokio::sync::Mutex::new(process),
+
+			started: std::sync::atomic::AtomicBool::new(false),
 		}));
-		if let Isolation::Container(isolation) = &sandbox.0.arg.isolation
-			&& let Some(duration) = isolation.max_duration
-		{
-			let state = Arc::downgrade(&sandbox.0);
-			tokio::spawn(async move {
-				tokio::time::sleep(duration).await;
-				let Some(state) = state.upgrade() else {
-					return;
-				};
-				let sandbox = Sandbox(state);
-				if let Err(error) = sandbox.destroy().await {
-					tracing::warn!(
-						error = %error,
-						"failed to destroy a container sandbox after its maximum duration"
-					);
-				}
-			});
-		}
 
 		Ok(sandbox)
 	}
@@ -548,66 +616,82 @@ impl Sandbox {
 			.lock()
 			.await
 			.as_ref()
-			.and_then(container::cgroup::Cgroup::cpu_lease)
+			.and_then(cgroup::Cgroup::cpu_lease)
 	}
 
-	/// Ensure accounting has started before spawning workloads.
+	/// Activate the assigned sandbox before spawning workloads.
 	pub async fn start(&self) -> tg::Result<()> {
+		// Serialize activation with sandbox destruction.
 		let _destroy = self.0.destroy.lock().await;
-		let mut accounting = self.0.accounting.lock().await;
-		if accounting.is_some() {
+		if self.0.started.load(Ordering::Relaxed) {
 			return Ok(());
 		}
+
 		#[cfg(target_os = "linux")]
-		let (source, allocated_at) = {
-			let cgroup = self.0.cgroup.lock().await;
-			let cgroup = cgroup
-				.as_ref()
-				.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
-			let (path, project) = if let Isolation::Container(container) = &self.0.arg.isolation {
-				let project = container.filesystem_project_id;
-				let path = if project.is_some() {
-					Self::host_filesystem_path_from_root(&self.0.arg.path)
+		{
+			// Select the usage source.
+			let source = {
+				let cgroup = self.0.cgroup.lock().await;
+				let cgroup = cgroup
+					.as_ref()
+					.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
+				let (path, project) = if self.0.arg.backend.uses_linux_namespaces() {
+					let container = &self.0.arg.resources;
+					let project = container.filesystem_project_id;
+					let path = if project.is_some() {
+						Self::host_filesystem_path_from_root(&self.0.arg.path)
+					} else {
+						self.0.arg.path.clone()
+					};
+					(path, project)
 				} else {
-					self.0.arg.path.clone()
+					(self.0.arg.path.clone(), None)
 				};
-				(path, project)
-			} else {
-				(self.0.arg.path.clone(), None)
+				usage::Source::new(cgroup.handle()?, &path, project)?
 			};
-			let source = usage::Source::new(cgroup.handle()?, &path, project)?;
-			(source, self.0.arg.allocated_at)
-		};
-		#[cfg(target_os = "macos")]
-		let (source, allocated_at) = {
-			let process = self.0.process.lock().await;
-			let pid = process
-				.id()
-				.ok_or_else(|| tg::error!("the sandbox process has exited"))?
-				.try_into()
-				.map_err(|_| tg::error!("the sandbox process ID is too large"))?;
-			(usage::Source::new(pid), self.0.arg.allocated_at)
-		};
-		let resources = tg::runner::Capacity {
-			cpu: self
-				.0
-				.arg
-				.cpu
-				.unwrap_or(tg::sandbox::Amount::from_millis(u64::from(u32::MAX)).into()),
-			memory: self.0.arg.memory.unwrap_or(u64::MAX.into()),
-			storage: self.0.arg.storage.unwrap_or(u64::MAX.into()),
-			swap: self.0.arg.swap.unwrap_or(u64::MAX.into()),
-		};
-		*accounting = Some(usage::Accounting::new(
-			source,
-			resources,
-			self.0.arg.memory_sampling_interval,
-			allocated_at,
-		)?);
+
+			// Start charging for the assigned sandbox.
+			let resources = tg::runner::Capacity {
+				cpu: self
+					.0
+					.arg
+					.cpu
+					.unwrap_or(tg::sandbox::Amount::from_millis(u64::from(u32::MAX)).into()),
+				memory: self.0.arg.memory.unwrap_or(u64::MAX.into()),
+				storage: self.0.arg.storage.unwrap_or(u64::MAX.into()),
+				swap: self.0.arg.swap.unwrap_or(u64::MAX.into()),
+			};
+			*self.0.accounting.lock().await = Some(usage::Accounting::new(
+				source,
+				resources,
+				self.0.arg.memory_sampling_interval,
+			)?);
+		}
+		self.0.started.store(true, Ordering::Relaxed);
+
+		// Schedule the duration limit.
+		if let Some(duration) = self.0.arg.resources.max_duration {
+			let state = Arc::downgrade(&self.0);
+			tokio::spawn(async move {
+				tokio::time::sleep(duration).await;
+				let Some(state) = state.upgrade() else {
+					return;
+				};
+				let sandbox = Sandbox(state);
+				if let Err(error) = sandbox.destroy().await {
+					tracing::warn!(
+						error = %error,
+						"failed to destroy a sandbox after its maximum duration"
+					);
+				}
+			});
+		}
+
 		Ok(())
 	}
 
 	/// Return the current sandbox resource usage without stopping accounting.
+	#[cfg(target_os = "linux")]
 	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
 		let mut accounting = self.0.accounting.lock().await;
 		let accounting = accounting
@@ -617,6 +701,7 @@ impl Sandbox {
 		Ok(usage)
 	}
 
+	#[cfg(target_os = "linux")]
 	async fn finish_accounting(&self) -> tg::Result<Option<tg::sandbox::Usage>> {
 		let mut accounting = self.0.accounting.lock().await;
 		let Some(accounting) = accounting.as_mut() else {
@@ -626,44 +711,71 @@ impl Sandbox {
 		Ok(Some(usage))
 	}
 
+	#[cfg(target_os = "macos")]
+	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
+		Ok(tg::sandbox::Usage {
+			cpu: tg::sandbox::ResourceUsage::default(),
+			memory: tg::sandbox::ResourceUsage::default(),
+			storage: tg::sandbox::ResourceUsage::default(),
+			swap: tg::sandbox::ResourceUsage::default(),
+		})
+	}
+
+	#[cfg(target_os = "macos")]
+	async fn finish_accounting(&self) -> tg::Result<Option<tg::sandbox::Usage>> {
+		Ok(None)
+	}
+
 	#[must_use]
 	pub fn index(&self) -> u64 {
 		self.0.arg.index
 	}
 
+	/// Return the host process ID of the sandbox launcher.
+	#[must_use]
+	pub fn pid(&self) -> u32 {
+		self.0.pid
+	}
+
 	async fn listen(
-		isolation: &Isolation,
+		backend: &Backend,
 		root_path: &Path,
 	) -> tg::Result<(crate::server::Listener, Uri)> {
 		#[cfg(target_os = "linux")]
 		{
-			match isolation {
-				Isolation::Container(_) => Self::listen_unix(root_path).await,
-				Isolation::Seatbelt(_) => {
+			match backend {
+				Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
+					Self::listen_unix(root_path).await
+				},
+				Backend::Seatbelt => {
 					Err(tg::error!("seatbelt isolation is not supported on linux"))
 				},
-				Isolation::Vm(_) => Self::listen_cloud_hypervisor(root_path).await,
+				Backend::CloudHypervisor(_) => Self::listen_cloud_hypervisor(root_path).await,
 			}
 		}
 
 		#[cfg(not(target_os = "linux"))]
 		{
-			match isolation {
-				Isolation::Container(_) => {
+			match backend {
+				Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
 					Err(tg::error!("container isolation is not supported on macos"))
 				},
-				Isolation::Seatbelt(_) => Self::listen_unix(root_path).await,
-				Isolation::Vm(_) => Err(tg::error!("vm isolation is not supported on macos")),
+				Backend::Seatbelt => Self::listen_unix(root_path).await,
+				Backend::CloudHypervisor(_) => {
+					Err(tg::error!("vm isolation is not supported on macos"))
+				},
 			}
 		}
 	}
 
 	async fn listen_unix(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
+		// Prepare the host socket directory.
 		let host_path = Self::host_listen_path_from_root(root_path);
 		tokio::fs::create_dir_all(host_path.parent().unwrap())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the host path"))?;
 
+		// Select the socket path for the platform.
 		let host_path_string = host_path
 			.to_str()
 			.ok_or_else(|| tg::error!("invalid path"))?;
@@ -736,12 +848,18 @@ impl Sandbox {
 		#[cfg(target_os = "linux")]
 		{
 			let port = 6748;
-			let host_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
-				.parse()
-				.map_err(|_| tg::error!("failed to parse host url"))?;
-			let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
-				.parse()
-				.map_err(|_| tg::error!("failed to parse guest url"))?;
+			let host_url = format!(
+				"http+vsock://{}:{port}",
+				self::cloud_hypervisor::VMADDR_CID_ANY
+			)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse host url"))?;
+			let guest_url = format!(
+				"http+vsock://{}:{port}",
+				self::cloud_hypervisor::VMADDR_CID_ANY
+			)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse guest url"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
 			Ok((listener, guest_url))
 		}
@@ -751,12 +869,18 @@ impl Sandbox {
 	async fn listen_cloud_hypervisor(
 		root_path: &Path,
 	) -> tg::Result<(crate::server::Listener, Uri)> {
+		// Create the host socket directory.
 		let port = 6748;
-		let socket = format!("{}_{port}", vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
+		let socket = format!(
+			"{}_{port}",
+			cloud_hypervisor::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME
+		);
 		let path = root_path.join("vm").join(socket);
 		tokio::fs::create_dir_all(path.parent().unwrap())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vm directory"))?;
+
+		// Create the host and guest URLs.
 		let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
 		let host_url = Uri::builder()
 			.scheme("http+unix")
@@ -764,10 +888,16 @@ impl Sandbox {
 			.path("")
 			.build()
 			.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
-		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_HOST)
-			.parse()
-			.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
+		let guest_url = format!(
+			"http+vsock://{}:{port}",
+			self::cloud_hypervisor::VMADDR_CID_HOST
+		)
+		.parse()
+		.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
+
+		// Create the listener.
 		let listener = crate::server::Server::listen(&host_url).await?;
+
 		Ok((listener, guest_url))
 	}
 
@@ -790,7 +920,7 @@ impl Sandbox {
 
 	async fn destroy_inner(&self) -> tg::Result<()> {
 		#[cfg(target_os = "macos")]
-		self.finish_accounting().await?;
+		self.0.cleanup.stop(self.0.arg.shutdown_timeout).await?;
 		let mut process = self.0.process.lock().await;
 		let status = process
 			.try_wait()
@@ -865,6 +995,7 @@ impl Sandbox {
 			.await
 			.map_err(|error| tg::error!(!error, "the cgroup cleanup task panicked"))??;
 		usage?;
+
 		Ok(())
 	}
 
@@ -975,20 +1106,20 @@ impl Process {
 }
 
 fn validate_resources(
-	isolation: &Isolation,
+	backend: &Backend,
 	cpu: Option<tg::sandbox::Cpu>,
 	memory: Option<tg::sandbox::Resource<u64>>,
 ) -> tg::Result<()> {
 	if let Some(cpu) = cpu {
 		cpu.total()?;
 	}
-	if matches!(isolation, Isolation::Vm(_)) {
+	if matches!(backend, Backend::CloudHypervisor(_)) {
 		validate_vm_resources(cpu, memory)?;
 	}
 	if memory.is_some_and(|memory| memory.max == 0) {
 		return Err(tg::error!("sandbox memory must be greater than zero"));
 	}
-	if matches!(isolation, Isolation::Seatbelt(_)) && (cpu.is_some() || memory.is_some()) {
+	if matches!(backend, Backend::Seatbelt) && (cpu.is_some() || memory.is_some()) {
 		return Err(tg::error!(
 			"sandbox cpu and memory are not supported with seatbelt isolation"
 		));
@@ -1011,21 +1142,17 @@ fn validate_vm_resources(
 }
 
 fn validate_options(arg: &Arg) -> tg::Result<()> {
-	if let Isolation::Container(container) = &arg.isolation
-		&& container.max_open_files == Some(0)
-	{
+	if arg.resources.max_open_files == Some(0) {
 		return Err(tg::error!(
 			"the maximum number of container sandbox open files must be greater than zero"
 		));
 	}
-	if let Isolation::Container(container) = &arg.isolation
-		&& container.max_pids == Some(0)
-	{
+	if arg.resources.max_pids == Some(0) {
 		return Err(tg::error!(
 			"the maximum number of container sandbox pids must be greater than zero"
 		));
 	}
-	if matches!(arg.isolation, Isolation::Seatbelt(_)) && arg.hostname.is_some() {
+	if matches!(arg.backend, Backend::Seatbelt) && arg.hostname.is_some() {
 		return Err(tg::error!(
 			"setting a hostname is not supported with seatbelt isolation"
 		));

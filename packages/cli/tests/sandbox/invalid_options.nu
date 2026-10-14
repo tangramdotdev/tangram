@@ -13,11 +13,7 @@ snapshot --normalize $output.stderr r#'
 
 '#
 
+# Backend selection is internal and cannot be requested through sandbox creation.
 let output = tg sandbox create --no-tokens --isolation warp | complete
 failure $output
-snapshot --normalize $output.stderr r#'
-	error: invalid value 'warp' for '--isolation <sandbox.isolation>': invalid isolation
-
-	For more information, try '--help'.
-
-'#
+assert ($output.stderr | str contains "unexpected argument '--isolation'")

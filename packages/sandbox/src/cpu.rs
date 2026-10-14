@@ -1,5 +1,5 @@
 use {
-	crate::container::cgroup::Handle,
+	crate::cgroup::Handle,
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::{Path, PathBuf},
@@ -56,9 +56,11 @@ pub(crate) fn threads(cpu: tg::sandbox::Cpu, _pool: Option<&Pool>) -> tg::Result
 
 impl Pool {
 	pub fn new(parent: PathBuf, cpu_overcommit: u64) -> tg::Result<Self> {
+		// Validate the overcommit setting and parent partition.
 		if cpu_overcommit == 0 {
 			return Err(tg::error!("the CPU overcommit must be greater than zero"));
 		}
+
 		// Validate the partition before assigning any cores.
 		let partition = read(&parent.join("cpuset.cpus.partition"))?;
 		if !matches!(partition.trim(), "root" | "isolated") {
@@ -86,6 +88,8 @@ impl Pool {
 				));
 			}
 		}
+
+		// Validate the exclusive CPU set.
 		let cpus = parse_list(&read(&parent.join("cpuset.cpus.effective"))?)?;
 		let exclusive = parse_list(&read(&parent.join("cpuset.cpus.exclusive.effective"))?)?;
 		if cpus.is_empty() || cpus != exclusive {
@@ -93,6 +97,8 @@ impl Pool {
 				"the sandbox CPU pool must contain only exclusive CPUs"
 			));
 		}
+
+		// Validate the resource controllers and parent quota.
 		let controllers = read(&parent.join("cgroup.subtree_control"))?;
 		for controller in ["cpu", "cpuset", "memory", "pids"] {
 			if !controllers
@@ -133,6 +139,7 @@ impl Pool {
 			}
 		}
 
+		// Collect the CPU topology.
 		let mut cores = BTreeMap::new();
 		for cpu in &cpus {
 			let path = PathBuf::from(format!(
@@ -149,6 +156,8 @@ impl Pool {
 				.ok_or_else(|| tg::error!("the CPU has no SMT siblings"))?;
 			cores.insert(core, siblings);
 		}
+
+		// Validate the thread counts and capacity.
 		let threads_per_core = u64::try_from(cores.values().next().unwrap().len()).unwrap();
 		if cores
 			.values()
@@ -164,6 +173,8 @@ impl Pool {
 			.and_then(|capacity| capacity.checked_mul(1000))
 			.filter(|capacity| u32::try_from(*capacity).is_ok())
 			.ok_or_else(|| tg::error!("the CPU capacity is too large"))?;
+
+		// Create the CPU pool state.
 		let state = State {
 			allocations: Mutex::new(Allocations::default()),
 			cores,
@@ -171,6 +182,7 @@ impl Pool {
 			parent,
 			threads_per_core,
 		};
+
 		Ok(Self(Arc::new(state)))
 	}
 
@@ -239,6 +251,7 @@ impl Pool {
 	}
 
 	pub(crate) fn allocate(&self, cpu: tg::sandbox::Cpu) -> tg::Result<Allocation> {
+		// Validate the CPU request and lock the allocations.
 		cpu.total()?;
 		let mut allocations = self.0.allocations.lock().unwrap();
 		if allocations.poisoned {
@@ -246,6 +259,8 @@ impl Pool {
 				"the CPU pool is unavailable after a failed update"
 			));
 		}
+
+		// Collect the occupied CPU domains.
 		let width = usize::try_from(cpu.max.threads())
 			.map_err(|_| tg::error!("the CPU request is too large"))?;
 		let mut domains = BTreeSet::new();
@@ -260,6 +275,8 @@ impl Pool {
 				domains.insert(entry.cpus.clone());
 			}
 		}
+
+		// Select the available CPUs.
 		let free: BTreeSet<_> = self
 			.0
 			.cores
@@ -272,6 +289,8 @@ impl Pool {
 		if free.len() == width {
 			domains.insert(free);
 		}
+
+		// Select a shared CPU domain when no free domain is available.
 		let cpus = domains
 			.into_iter()
 			.find(|cpus| {
@@ -302,6 +321,7 @@ impl Pool {
 				min <= capacity && excess <= (capacity - min) * u128::from(self.0.cpu_overcommit)
 			})
 			.ok_or_else(|| tg::error!("there is no available CPU affinity domain"))?;
+
 		self.insert(&mut allocations, cpu, cpus, None)
 	}
 
@@ -572,6 +592,7 @@ mod tests {
 			std::fs::write(path.join("cpu.weight"), "").unwrap();
 			std::fs::write(path.join("cpuset.cpus"), "").unwrap();
 			let directory = std::fs::File::open(&path).unwrap().into_raw_fd();
+
 			// SAFETY: The file descriptor is owned and refers to the test directory.
 			let handle = unsafe { Handle::from_raw_fd(directory) };
 			allocation.bind(handle).unwrap();

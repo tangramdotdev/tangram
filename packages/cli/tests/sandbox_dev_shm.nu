@@ -9,10 +9,9 @@ if $nu.os-info.name != 'linux' {
 let directory = mktemp --directory
 let uid = ^id -u | str trim
 let gid = ^id -g | str trim
-let output = tg sandbox container run --dev /dev --gid $gid --index 0 --uid $uid --unshare-all -- tangram --directory $directory --no-remotes server start | complete
+let script = $'tangram --directory "($directory)" --no-remotes server start; tangram --directory "($directory)" server stop'
+let output = tg sandbox run --backend builtin --bind / / --dev /dev --gid $gid --uid $uid --unshare-all -- /bin/sh -ec $script | complete
 
 # The server reports why it failed to start in its log rather than to the client.
 let log = try { open --raw ($directory | path join 'log') } catch { '' }
 success $output $"the server failed to start in the sandbox: ($log)"
-
-tg --directory $directory server stop

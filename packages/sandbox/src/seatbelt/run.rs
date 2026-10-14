@@ -1,9 +1,8 @@
 use {
 	std::{
-		ffi::{CStr, CString, OsString},
-		os::unix::ffi::OsStrExt as _,
+		ffi::{CStr, CString},
+		os::unix::process::CommandExt as _,
 		path::PathBuf,
-		process::ExitCode,
 	},
 	tangram_client::prelude::*,
 };
@@ -17,16 +16,17 @@ unsafe extern "C" {
 	fn sandbox_free_error(errorbuf: *const libc::c_char);
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Arg {
-	pub command: Vec<OsString>,
+	#[serde(default)]
+	pub cleanup_fd: Option<libc::c_int>,
+
 	pub profile: PathBuf,
 }
 
-pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
-	if arg.command.is_empty() {
-		return Err(tg::error!("a command is required"));
-	}
+pub fn run(command: &crate::run::Command, arg: &Arg) -> tg::Result<u8> {
+	// Read the sandbox profile.
 	let profile = std::fs::read(&arg.profile).map_err(|error| {
 		tg::error!(
 			!error,
@@ -36,6 +36,8 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	})?;
 	let profile = CString::new(profile)
 		.map_err(|error| tg::error!(!error, "failed to encode the sandbox profile"))?;
+
+	// Initialize the seatbelt sandbox.
 	let mut errorbuf = std::ptr::null();
 	let result = unsafe { sandbox_init(profile.as_ptr(), 0, &raw mut errorbuf) };
 	if result != 0 {
@@ -47,27 +49,16 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			sandbox_free_error(errorbuf);
 		}
 	}
-	exec_command(arg)?;
-	unreachable!()
-}
 
-fn exec_command(arg: &Arg) -> tg::Result<()> {
-	let executable = CString::new(arg.command[0].as_os_str().as_bytes())
-		.map_err(|error| tg::error!(!error, "failed to encode the executable"))?;
-	let argv = arg
-		.command
-		.iter()
-		.map(|arg| {
-			CString::new(arg.as_os_str().as_bytes())
-				.map_err(|error| tg::error!(!error, "failed to encode an argument"))
-		})
-		.collect::<Result<Vec<_>, _>>()?;
-	let mut argv = argv.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
-	argv.push(std::ptr::null());
-	unsafe {
-		libc::execvp(executable.as_ptr(), argv.as_ptr());
+	// Start the descendant cleanup helper inside the sandbox policy.
+	if let Some(fd) = arg.cleanup_fd {
+		super::cleanup::start(fd)?;
 	}
-	let error = std::io::Error::last_os_error();
+
+	// Execute the command.
+	let mut command = command.command()?;
+	let error = command.exec();
+
 	Err(tg::error!(!error, "failed to execute the command"))
 }
 

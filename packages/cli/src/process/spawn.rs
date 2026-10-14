@@ -151,6 +151,7 @@ pub struct Debug {
 		long = "debug-addr"
 	)]
 	addr: Option<std::net::SocketAddr>,
+
 	#[arg(
 		env = "TANGRAM_JAVASCRIPT_DEBUG",
 		id = "spawn.debug.enabled",
@@ -300,6 +301,7 @@ pub struct Ttl {
 		overrides_with = "spawn.sandbox.ttl.ttl"
 	)]
 	pub no_ttl: bool,
+
 	#[arg(id = "spawn.sandbox.ttl.ttl", long = "ttl", overrides_with = "spawn.sandbox.ttl.no_ttl", value_parser = humantime::parse_duration)]
 	pub ttl: Option<Duration>,
 }
@@ -669,6 +671,7 @@ impl Cli {
 		let mut command_options = None;
 		let mut command = match referent.node.clone() {
 			tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
+
 			tg::graph::Edge::Object(tg::Object::Command(_)) if executable_path.is_some() => {
 				return Err(tg::error!("expected an artifact for the executable path"));
 			},
@@ -941,7 +944,6 @@ impl Cli {
 					tg::process::SandboxCreateArg {
 						cpu: crate::sandbox::cpu(&options.sandbox.arg),
 						hostname: options.sandbox.arg.hostname.clone(),
-						isolation: options.sandbox.arg.isolation,
 						location: None,
 						memory: crate::sandbox::resource(
 							options.sandbox.arg.memory_min,
@@ -1010,6 +1012,7 @@ impl Cli {
 			tty,
 			..Default::default()
 		};
+
 		Ok(InnerOutput {
 			arg,
 			client,

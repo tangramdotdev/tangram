@@ -3,13 +3,9 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[cfg(target_os = "macos")]
-mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
 
-#[cfg(target_os = "macos")]
-pub(crate) use darwin::Source;
 #[cfg(target_os = "linux")]
 pub(crate) use linux::Source;
 
@@ -47,30 +43,34 @@ impl Accounting {
 		source: Source,
 		resources: tg::runner::Capacity,
 		interval: Duration,
-		allocated_at: Instant,
 	) -> tg::Result<Self> {
-		Self::with_source(move || source.snapshot(), resources, interval, allocated_at)
+		Self::with_source(move || source.snapshot(), resources, interval)
 	}
 
 	fn with_source(
 		source: impl Fn() -> tg::Result<Snapshot> + Send + 'static,
 		resources: tg::runner::Capacity,
 		interval: Duration,
-		allocated_at: Instant,
 	) -> tg::Result<Self> {
+		// Validate the sampling interval.
 		if interval.is_zero() {
 			return Err(tg::error!(
 				"the memory sampling interval must be greater than zero"
 			));
 		}
+
+		// Initialize the usage accumulator.
 		let initial = source()?;
 		let started_at = Instant::now();
-		let mut accumulator = Accumulator::new(resources, Snapshot::default(), allocated_at);
-		accumulator.sample(initial, started_at)?;
+		let mut accumulator = Accumulator::new(resources, initial, started_at);
+
+		// Create the control channels.
 		let (requests, mut request_receiver) = tokio::sync::mpsc::channel::<
 			tokio::sync::oneshot::Sender<tg::Result<tg::sandbox::Usage>>,
 		>(1);
 		let (stop, mut receiver) = tokio::sync::watch::channel(false);
+
+		// Start the sampling task.
 		let task = tokio::spawn(async move {
 			let mut timer =
 				tokio::time::interval_at(tokio::time::Instant::now() + interval, interval);
@@ -91,6 +91,7 @@ impl Accounting {
 			let usage = accumulator.usage()?;
 			Ok(usage)
 		});
+
 		Ok(Self {
 			requests,
 			result: None,
@@ -155,12 +156,15 @@ impl Accumulator {
 	}
 
 	fn sample(&mut self, snapshot: Snapshot, at: Instant) -> tg::Result<()> {
+		// Sample the CPU consumption.
 		let duration = at.duration_since(self.previous_at).as_nanos();
 		let cpu = snapshot
 			.cpu
 			.checked_sub(self.previous.cpu)
 			.ok_or_else(|| tg::error!("the CPU counter decreased"))?;
 		self.sample_cpu(u128::from(cpu) * 1000, duration)?;
+
+		// Sample the memory, storage, and swap consumption.
 		for (accumulated, previous, current, minimum) in [
 			(
 				&mut self.memory,
@@ -187,8 +191,10 @@ impl Accumulator {
 				.ok_or_else(|| tg::error!("the resource consumption overflowed"))?;
 		}
 
+		// Update the previous usage snapshot.
 		self.previous = snapshot;
 		self.previous_at = at;
+
 		Ok(())
 	}
 
@@ -254,6 +260,7 @@ impl Accumulator {
 		let memory = byte_usage(self.memory, self.resources.memory.min, duration)?;
 		let storage = byte_usage(self.storage, self.resources.storage.min, duration)?;
 		let swap = byte_usage(self.swap, self.resources.swap.min, duration)?;
+
 		Ok(tg::sandbox::Usage {
 			cpu,
 			memory,
@@ -308,8 +315,8 @@ mod tests {
 
 	#[test]
 	fn charges_the_minimum_and_clips_each_consumption_interval() {
-		let allocated_at = Instant::now();
-		let started_at = allocated_at + Duration::from_secs(2);
+		// Create the usage accumulator.
+		let started_at = Instant::now();
 		let cpu = tg::sandbox::Cpu::new(
 			tg::sandbox::Amount::from_millis(250),
 			tg::sandbox::Amount::from_millis(1000),
@@ -319,7 +326,8 @@ mod tests {
 			..Default::default()
 		};
 		let mut accumulator = Accumulator::new(resources, Snapshot::default(), started_at);
-		accumulator.allocated_at = allocated_at;
+
+		// Sample the consumption intervals.
 		accumulator
 			.sample(
 				Snapshot {
@@ -338,9 +346,35 @@ mod tests {
 				started_at + Duration::from_secs(2),
 			)
 			.unwrap();
+
+		// Verify the charged usage.
 		let usage = accumulator.usage().unwrap();
-		assert_eq!(usage.cpu.reservation, 1000);
+		assert_eq!(usage.cpu.reservation, 500);
 		assert_eq!(usage.cpu.consumption, 550);
+	}
+
+	#[test]
+	fn excludes_cpu_consumed_before_assignment() {
+		let started_at = Instant::now();
+		let resources = tg::runner::Capacity {
+			cpu: tg::sandbox::Amount::from_millis(1000).into(),
+			..Default::default()
+		};
+		let initial = Snapshot {
+			cpu: 10_000_000_000,
+			..Default::default()
+		};
+		let snapshot = Snapshot {
+			cpu: initial.cpu + 100_000_000,
+			..Default::default()
+		};
+		let mut accumulator = Accumulator::new(resources, initial, started_at);
+		accumulator
+			.sample(snapshot, started_at + Duration::from_secs(1))
+			.unwrap();
+		let usage = accumulator.usage().unwrap();
+		assert_eq!(usage.cpu.consumption, 100);
+		assert_eq!(usage.cpu.reservation, 0);
 	}
 
 	#[test]
