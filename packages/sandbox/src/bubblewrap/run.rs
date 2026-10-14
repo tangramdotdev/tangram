@@ -7,7 +7,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Arg {
 	pub as_pid_1: bool,
@@ -23,6 +23,20 @@ pub fn run(command_arg: &crate::run::Command, arg: &Arg) -> tg::Result<u8> {
 	let mut command = command(command_arg, arg)?;
 	let error = command.exec();
 	Err(tg::error!(!error, "failed to execute bubblewrap"))
+}
+
+impl Default for Arg {
+	fn default() -> Self {
+		Self {
+			as_pid_1: false,
+			gid: 0,
+			hostname: None,
+			path: "bwrap".into(),
+			root: None,
+			seccomp: None,
+			uid: 0,
+		}
+	}
 }
 
 fn command(command_arg: &crate::run::Command, arg: &Arg) -> tg::Result<Command> {

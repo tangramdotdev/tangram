@@ -23,7 +23,7 @@ impl Sandbox {
 				.iter()
 				.map(|mount| (mount.target.clone(), mount.source.clone()))
 				.collect::<Vec<_>>();
-			if self.0.arg.backend.is_linux() {
+			if self.0.arg.backend.uses_linux_namespaces() {
 				path_maps.push((
 					Self::guest_listen_path_from_root(&self.0.arg.path),
 					Self::host_listen_path_from_root(&self.0.arg.path),
@@ -43,7 +43,7 @@ impl Sandbox {
 				(self.guest_output_path(), self.host_output_path()),
 				(self.guest_store_path(), self.0.arg.store_path.clone()),
 			]);
-			if self.0.arg.backend.is_linux() {
+			if self.0.arg.backend.uses_linux_namespaces() {
 				path_maps.push((
 					PathBuf::from("/"),
 					Self::host_upper_path_from_root(&self.host_filesystem_path()),
@@ -92,7 +92,7 @@ impl Sandbox {
 				.iter()
 				.map(|mount| (mount.source.clone(), mount.target.clone()))
 				.collect::<Vec<_>>();
-			if self.0.arg.backend.is_linux() {
+			if self.0.arg.backend.uses_linux_namespaces() {
 				path_maps.push((
 					Self::host_listen_path_from_root(&self.0.arg.path),
 					Self::guest_listen_path_from_root(&self.0.arg.path),
@@ -112,7 +112,7 @@ impl Sandbox {
 				(self.host_output_path(), self.guest_output_path()),
 				(self.0.arg.store_path.clone(), self.guest_store_path()),
 			]);
-			if self.0.arg.backend.is_linux() {
+			if self.0.arg.backend.uses_linux_namespaces() {
 				path_maps.push((
 					Self::host_upper_path_from_root(&self.host_filesystem_path()),
 					PathBuf::from("/"),

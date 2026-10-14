@@ -750,7 +750,7 @@ impl Session {
 		// Apply the sandbox storage maximum.
 		if let Some(storage) = arg.storage {
 			storage.validate()?;
-			if !isolation.is_linux() {
+			if !isolation.uses_linux_namespaces() {
 				return Err(tg::error!("storage bounds require container isolation"));
 			}
 			resources.max_filesystem_size = Some(storage.max);
@@ -760,7 +760,7 @@ impl Session {
 		#[cfg(target_os = "linux")]
 		let filesystem_project_id = match &isolation {
 			backend
-				if backend.is_linux()
+				if backend.uses_linux_namespaces()
 					&& (resources.max_filesystem_inodes.is_some()
 						|| resources.max_filesystem_size.is_some()) =>
 			{

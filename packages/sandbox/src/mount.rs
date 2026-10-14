@@ -27,7 +27,7 @@ struct MountAttributes {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Arg {
 	pub binds: Vec<Bind>,
 	pub devs: Vec<PathBuf>,
@@ -40,7 +40,9 @@ pub struct Arg {
 	pub ro_binds: Vec<Bind>,
 	pub tmpfs: Vec<PathBuf>,
 }
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Bind {
 	#[serde(default)]
 	pub devices: bool,
@@ -52,11 +54,74 @@ pub struct Bind {
 
 	pub target: PathBuf,
 }
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Overlay {
 	pub target: PathBuf,
 	pub upperdir: PathBuf,
 	pub workdir: PathBuf,
+}
+
+pub(crate) fn validate(arg: &Arg) -> tg::Result<()> {
+	// Validate the sources and inherited descriptors.
+	if let Some(fd) = arg.filesystem_mount_fd {
+		crate::linux::validate_descriptor(fd)?;
+	}
+	for bind in arg.binds.iter().chain(&arg.ro_binds) {
+		if let Some(fd) = bind.fd {
+			crate::linux::validate_descriptor(fd)?;
+		} else {
+			validate_path(&bind.source, false)?;
+		}
+	}
+	if !arg.overlays.is_empty() && arg.overlay_sources.is_empty() {
+		return Err(tg::error!(
+			"an overlay requires at least one overlay source"
+		));
+	}
+	for path in &arg.overlay_sources {
+		validate_path(path, false)?;
+	}
+	for overlay in &arg.overlays {
+		validate_path(&overlay.upperdir, false)?;
+		validate_path(&overlay.workdir, false)?;
+		if overlay.upperdir == overlay.workdir {
+			return Err(tg::error!(
+				"the overlay upper and work directories must differ"
+			));
+		}
+	}
+
+	// Validate the targets before performing any mount operations.
+	let mut targets = std::collections::BTreeSet::new();
+	for target in arg
+		.binds
+		.iter()
+		.chain(&arg.ro_binds)
+		.map(|bind| &bind.target)
+		.chain(arg.overlays.iter().map(|overlay| &overlay.target))
+		.chain(&arg.devs)
+		.chain(&arg.procs)
+		.chain(&arg.tmpfs)
+	{
+		validate_path(target, true)?;
+		if !targets.insert(target) {
+			return Err(
+				tg::error!(target = %target.display(), "duplicate mount targets are not supported"),
+			);
+		}
+	}
+	if arg
+		.devs
+		.iter()
+		.chain(&arg.procs)
+		.any(|path| path == Path::new("/"))
+	{
+		return Err(tg::error!("device and proc mounts cannot replace the root"));
+	}
+
+	Ok(())
 }
 
 pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
@@ -201,6 +266,24 @@ pub fn change_directory(path: &Path) -> tg::Result<()> {
 			path = %path.display(),
 			"failed to change directories"
 		));
+	}
+	Ok(())
+}
+
+fn validate_path(path: &Path, target: bool) -> tg::Result<()> {
+	if !path.is_absolute() || path.as_os_str().as_encoded_bytes().contains(&0) {
+		return Err(
+			tg::error!(path = %path.display(), "mount paths must be absolute and contain no null bytes"),
+		);
+	}
+	if target
+		&& path
+			.components()
+			.any(|component| component == std::path::Component::ParentDir)
+	{
+		return Err(
+			tg::error!(path = %path.display(), "mount targets must not contain parent directory components"),
+		);
 	}
 	Ok(())
 }

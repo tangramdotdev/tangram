@@ -26,6 +26,34 @@ impl Command {
 		Ok(command)
 	}
 
+	pub(crate) fn validate(&self) -> tg::Result<()> {
+		// Validate the executable and arguments.
+		if self.args.first().is_none_or(String::is_empty) {
+			return Err(tg::error!("a nonempty command is required"));
+		}
+		if self.args.iter().any(|arg| arg.contains('\0')) {
+			return Err(tg::error!("command arguments must not contain null bytes"));
+		}
+
+		// Validate the working directory.
+		if !self.cwd.is_absolute() || self.cwd.as_os_str().as_encoded_bytes().contains(&0) {
+			return Err(tg::error!(
+				"the working directory must be an absolute path without null bytes"
+			));
+		}
+
+		// Validate the environment entries.
+		for (key, value) in &self.env {
+			if key.is_empty() || key.contains(['=', '\0']) || value.contains('\0') {
+				return Err(tg::error!(
+					"the command environment contains an invalid entry"
+				));
+			}
+		}
+
+		Ok(())
+	}
+
 	/// Capture the explicit command settings, defaulting to an empty environment and the root working directory.
 	pub fn with_command(command: &std::process::Command) -> tg::Result<Self> {
 		// Encode the arguments.

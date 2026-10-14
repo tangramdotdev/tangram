@@ -9,7 +9,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Arg {
 	pub gid: u32,
@@ -98,6 +98,20 @@ pub fn run(command_arg: &crate::run::Command, arg: &Arg, prepared: &Prepared) ->
 	let error = command.exec();
 
 	Err(tg::error!(!error, "failed to execute gvisor"))
+}
+
+impl Default for Arg {
+	fn default() -> Self {
+		Self {
+			gid: 0,
+			hostname: None,
+			mounts: Vec::new(),
+			path: "runsc".into(),
+			platform: crate::Platform::default(),
+			root: None,
+			uid: 0,
+		}
+	}
 }
 
 fn spec(

@@ -47,7 +47,7 @@ impl Backend {
 	}
 
 	#[must_use]
-	pub fn is_linux(&self) -> bool {
+	pub fn uses_linux_namespaces(&self) -> bool {
 		matches!(
 			self,
 			Self::Builtin | Self::Bubblewrap { .. } | Self::Gvisor { .. }

@@ -626,7 +626,9 @@ impl Options {
 					as_pid_1: self.as_pid_1,
 					gid: self.gid.unwrap_or(0),
 					hostname: self.hostname,
-					path: self.runtime_path.unwrap_or_else(|| "bwrap".into()),
+					path: self
+						.runtime_path
+						.unwrap_or_else(|| tangram_sandbox::bubblewrap::run::Arg::default().path),
 					root: None,
 					seccomp: self.seccomp,
 					uid: self.uid.unwrap_or(0),
@@ -636,7 +638,9 @@ impl Options {
 				tangram_sandbox::run::Backend::Gvisor(tangram_sandbox::gvisor::run::Arg {
 					gid: self.gid.unwrap_or(0),
 					hostname: self.hostname,
-					path: self.runtime_path.unwrap_or_else(|| "runsc".into()),
+					path: self
+						.runtime_path
+						.unwrap_or_else(|| tangram_sandbox::gvisor::run::Arg::default().path),
 					platform: self.platform.unwrap_or_default(),
 					uid: self.uid.unwrap_or(0),
 					..Default::default()

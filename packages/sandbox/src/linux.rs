@@ -19,6 +19,19 @@ pub(crate) fn fork() -> tg::Result<libc::pid_t> {
 	Ok(pid)
 }
 
+pub(crate) fn validate_descriptor(fd: RawFd) -> tg::Result<()> {
+	// Check the descriptor without taking ownership of it.
+	// SAFETY: fcntl accepts a numeric descriptor and does not retain any pointers.
+	if unsafe { libc::fcntl(fd, libc::F_GETFD) } < 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			%fd,
+			"the launch descriptor is not open"
+		));
+	}
+	Ok(())
+}
+
 pub(crate) fn open_pidfd() -> tg::Result<OwnedFd> {
 	// SAFETY: Both system calls take only scalar arguments.
 	let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getpid(), 0) };

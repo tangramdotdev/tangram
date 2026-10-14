@@ -136,9 +136,7 @@ struct Prepared {
 
 pub fn run(arg: Arg) -> tg::Result<ExitCode> {
 	// Validate the command before preparing the sandbox.
-	if arg.command.args.is_empty() {
-		return Err(tg::error!("a command is required"));
-	}
+	arg.command.validate()?;
 
 	#[cfg(target_os = "linux")]
 	{
@@ -333,6 +331,55 @@ fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Prepared> {
 		));
 	}
 
+	// Validate the common resource limits.
+	if let Some(cgroup) = &arg.cgroup {
+		if cgroup.name.is_empty() {
+			return Err(tg::error!("a nonempty cgroup name is required"));
+		}
+		if cgroup.cpu == Some(0) || cgroup.memory == Some(0) || cgroup.pids == Some(0) {
+			return Err(tg::error!(
+				"the cgroup CPU, memory, and process limits must be greater than zero"
+			));
+		}
+	}
+
+	// Validate the transferred descriptors before taking ownership of them.
+	let network_fd = match &arg.network {
+		Some(Network::Pasta { fd } | Network::Veth { fd, .. }) => Some(*fd),
+		None | Some(Network::Host) => None,
+	};
+	let mut descriptors = std::collections::BTreeSet::new();
+	for fd in [
+		arg.filesystem_fd,
+		arg.fuse_fd,
+		arg.user_namespace_fd,
+		network_fd,
+	]
+	.into_iter()
+	.flatten()
+	{
+		if fd < 3 {
+			return Err(tg::error!(%fd, "control descriptors must be greater than two"));
+		}
+		crate::linux::validate_descriptor(fd)?;
+		if !descriptors.insert(fd) {
+			return Err(tg::error!(%fd, "control descriptors must be distinct"));
+		}
+	}
+
+	// Validate the filesystem paths and mount configuration.
+	for path in [arg.filesystem_path.as_ref(), arg.fuse_path.as_ref()]
+		.into_iter()
+		.flatten()
+	{
+		if !path.is_absolute() || path.as_os_str().as_encoded_bytes().contains(&0) {
+			return Err(
+				tg::error!(path = %path.display(), "filesystem paths must be absolute and contain no null bytes"),
+			);
+		}
+	}
+	crate::mount::validate(&arg.mounts)?;
+
 	// Validate the namespace preparation options.
 	if matches!(backend, Backend::CloudHypervisor(_))
 		&& (arg.filesystem_fd.is_some()
@@ -390,7 +437,6 @@ fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Prepared> {
 	let (uid, gid) = match backend {
 		Backend::Builtin(arg) => (arg.uid, arg.gid),
 		Backend::Bubblewrap(arg) => (arg.uid, arg.gid),
-		Backend::Gvisor(arg) => (arg.uid, arg.gid),
 		Backend::CloudHypervisor(_) => {
 			return Ok(Prepared {
 				_filesystem: None,
@@ -400,6 +446,7 @@ fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Prepared> {
 				root_path: None,
 			});
 		},
+		Backend::Gvisor(arg) => (arg.uid, arg.gid),
 	};
 
 	// Enter the user namespace.

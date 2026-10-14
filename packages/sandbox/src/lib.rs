@@ -392,6 +392,15 @@ impl Sandbox {
 					"sandbox mount targets may not contain parent directory components"
 				));
 			}
+			if ["/dev", "/proc", "/sys"]
+				.iter()
+				.any(|path| mount.target.starts_with(path))
+			{
+				return Err(tg::error!(
+					target = %mount.target.display(),
+					"sandbox mounts at or beneath /dev, /proc, and /sys are not supported"
+				));
+			}
 			if !targets.insert(mount.target.clone()) {
 				return Err(tg::error!(
 					target = %mount.target.display(),
@@ -606,7 +615,7 @@ impl Sandbox {
 			let cgroup = cgroup
 				.as_ref()
 				.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
-			let (path, project) = if self.0.arg.backend.is_linux() {
+			let (path, project) = if self.0.arg.backend.uses_linux_namespaces() {
 				let container = &self.0.arg.resources;
 				let project = container.filesystem_project_id;
 				let path = if project.is_some() {

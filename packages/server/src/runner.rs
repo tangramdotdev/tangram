@@ -17,6 +17,9 @@ use {
 	tangram_futures::task::{Stopper, Task},
 };
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) mod assets;
 pub(crate) mod capacity;
 pub mod control;
@@ -27,8 +30,6 @@ pub(crate) mod process;
 #[cfg(target_os = "linux")]
 pub(crate) mod project;
 pub(crate) mod sandbox;
-#[cfg(test)]
-mod tests;
 pub mod token;
 
 type RunnerSender =
