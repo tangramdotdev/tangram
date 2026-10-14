@@ -66,7 +66,7 @@ pub(crate) fn exec(arg: &Arg, root: &Path) -> tg::Result<()> {
 	// Pass the workload filter to bubblewrap before it drops setup privileges.
 	let mut filter_file = None;
 	if let Some(policy) = arg.seccomp {
-		let filter = crate::builtin::seccomp::filter(policy)?;
+		let filter = crate::seccomp::filter(policy)?;
 		let path = root.parent().unwrap().join("seccomp.bpf");
 		let mut file = std::fs::OpenOptions::new()
 			.create_new(true)

@@ -1,5 +1,5 @@
 use {
-	crate::{Sandbox, builtin, cloud_hypervisor::virtiofs, run},
+	crate::{Sandbox, cloud_hypervisor::virtiofs, mount, run},
 	std::{
 		collections::hash_map::DefaultHasher,
 		ffi::{CStr, CString, OsStr},
@@ -1009,16 +1009,16 @@ fn cloud_hypervisor_child_main(
 		log_stdio(&host_vm_path_from_root(&arg.path).join("cloud-hypervisor.log"))?;
 
 	let mount_arg = build_cloud_hypervisor_mount_arg(arg, cloud_hypervisor_bin, passt_bin);
-	builtin::mount::apply(&mount_arg, Some(&chroot))?;
+	mount::apply(&mount_arg, Some(&chroot))?;
 	set_no_new_privs()?;
 
-	builtin::mount::change_directory(&chroot)?;
+	mount::change_directory(&chroot)?;
 	let result = unsafe { libc::chroot(c".".as_ptr()) };
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "chroot failed"));
 	}
-	builtin::mount::change_directory(Path::new("/"))?;
+	mount::change_directory(Path::new("/"))?;
 
 	setresgid(user.gid)?;
 	setresuid(user.uid)?;

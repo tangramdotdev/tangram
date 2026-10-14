@@ -29,9 +29,15 @@ mod gvisor;
 mod launch;
 mod libraries;
 #[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+mod mount;
+#[cfg(target_os = "linux")]
 mod netlink;
 mod paths;
 mod pty;
+#[cfg(target_os = "linux")]
+mod seccomp;
 mod server;
 mod usage;
 mod util;
