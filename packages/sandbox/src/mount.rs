@@ -109,29 +109,22 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 }
 
 pub fn pivot_root_into(root: &Path) -> tg::Result<()> {
-	let put_old = root.join(".pivot_root");
-	std::fs::create_dir_all(&put_old).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %put_old.display(),
-			"failed to create the pivot_root staging directory"
-		)
-	})?;
 	change_directory(root)?;
-	let result =
-		unsafe { libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".pivot_root".as_ptr()) };
-	if result != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, root = %root.display(), "pivot_root failed"));
+	// Stack the old root on the new root so a read-only bind does not need a staging directory.
+	// SAFETY: The terminated path strings remain live for the syscall.
+	if unsafe { libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".".as_ptr()) } != 0 {
+		return Err(
+			tg::error!(source = std::io::Error::last_os_error(), root = %root.display(), "failed to pivot into the builtin root"),
+		);
+	}
+	// SAFETY: The terminated path names the stacked old root in this private mount namespace.
+	if unsafe { libc::umount2(c".".as_ptr(), libc::MNT_DETACH) } != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to unmount the old root"
+		));
 	}
 	change_directory(Path::new("/"))?;
-	let result = unsafe { libc::umount2(c"/.pivot_root".as_ptr(), libc::MNT_DETACH) };
-	if result != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to unmount the old root"));
-	}
-	std::fs::remove_dir("/.pivot_root")
-		.map_err(|error| tg::error!(!error, "failed to remove the old root mountpoint"))?;
 	Ok(())
 }
 

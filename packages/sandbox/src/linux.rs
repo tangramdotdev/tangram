@@ -225,16 +225,22 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to clear ambient capabilities"));
 	}
-	let max = std::fs::read_to_string("/proc/sys/kernel/cap_last_cap")
-		.ok()
-		.and_then(|contents| contents.trim().parse::<u32>().ok())
-		.unwrap_or(63);
-	for capability in 0..=max {
-		let ret = unsafe { libc::prctl(PR_CAPBSET_DROP, capability, 0, 0, 0) };
-		if ret != 0 {
+	for capability in 0..64 {
+		// SAFETY: prctl takes scalar arguments and the operation does not retain pointers.
+		if unsafe { libc::prctl(libc::PR_CAPBSET_READ, capability, 0, 0, 0) } < 0 {
 			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::EINVAL) {
+				break;
+			}
 			return Err(tg::error!(
 				!error,
+				"failed to read the capability bounding set"
+			));
+		}
+		// SAFETY: prctl takes scalar arguments and the operation does not retain pointers.
+		if unsafe { libc::prctl(PR_CAPBSET_DROP, capability, 0, 0, 0) } != 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
 				capability = %capability,
 				"failed to drop a capability from the bounding set"
 			));
