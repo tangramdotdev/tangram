@@ -11,6 +11,11 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(target_os = "linux")]
+mod spawn;
+
+#[cfg(target_os = "linux")]
+pub(crate) use self::spawn::{spawn, spawn_command};
 pub use crate::command::Command;
 
 #[cfg(target_os = "linux")]

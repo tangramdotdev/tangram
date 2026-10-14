@@ -22,8 +22,6 @@ mod client;
 mod command;
 #[cfg(target_os = "linux")]
 mod filesystem;
-#[cfg(target_os = "linux")]
-mod launch;
 mod libraries;
 #[cfg(target_os = "linux")]
 mod mount;
@@ -464,7 +462,7 @@ impl Sandbox {
 				let cgroup = self::cgroup::create(&arg)?;
 				let output = tokio::time::timeout_at(
 					deadline,
-					self::launch::spawn(&arg, &serve_arg, network.as_mut(), &cgroup),
+					self::run::spawn(&arg, &serve_arg, network.as_mut(), &cgroup),
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "timed out preparing the sandbox"))??;
@@ -492,7 +490,7 @@ impl Sandbox {
 				let cgroup = self::cgroup::create(&arg)?;
 				let (mut command, config) =
 					self::cloud_hypervisor::run::command(&arg, &serve_arg, network.as_ref())?;
-				let process = self::launch::spawn_command(&mut command, &cgroup)?;
+				let process = self::run::spawn_command(&mut command, &cgroup)?;
 				tokio::time::timeout_at(deadline, config.finish())
 					.await
 					.map_err(|error| tg::error!(!error, "timed out configuring the sandbox"))??;
