@@ -206,7 +206,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub(crate) fn guest_output_path_from_root(root_path: &Path) -> PathBuf {
+	pub fn guest_output_path_from_root(root_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{
 			Self::host_output_path_from_root(root_path)
@@ -245,7 +245,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub(crate) fn guest_tangram_path_from_host_tangram_path(tangram_path: &Path) -> PathBuf {
+	pub fn guest_tangram_path_from_host_tangram_path(tangram_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{
 			tangram_path.to_owned()

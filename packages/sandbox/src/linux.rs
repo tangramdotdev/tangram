@@ -10,9 +10,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub mod init;
-pub mod run;
-
 pub(crate) fn fork() -> tg::Result<libc::pid_t> {
 	let pid = unsafe { libc::fork() };
 	if pid < 0 {

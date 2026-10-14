@@ -1,9 +1,5 @@
 use std::net::Ipv4Addr;
 
-mod command;
-
-pub(crate) use self::command::command;
-
 pub mod image;
 pub mod init;
 pub(crate) mod network;

@@ -40,6 +40,7 @@ pub(crate) fn spawn(
 	// Create the sandbox init command.
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command
+		.envs(std::env::vars_os())
 		.arg("sandbox")
 		.arg("init")
 		.arg("--backend")
@@ -73,13 +74,15 @@ pub(crate) fn spawn(
 		.get_envs()
 		.filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
 		.collect::<Vec<_>>();
-	let launch = crate::seatbelt::run::Arg {
-		command: std::iter::once(arg.tangram_path.as_os_str().to_owned())
-			.chain(command.as_std().get_args().map(std::ffi::OsStr::to_owned))
-			.collect(),
+	let command_arg = crate::run::Command::with_command(command.as_std())?;
+	let backend = crate::seatbelt::run::Arg {
 		profile: Sandbox::host_profile_path_from_root(&arg.path),
 	};
-	let launch = crate::run::Arg::Seatbelt(launch);
+	let launch = crate::run::Arg {
+		backend: crate::run::Backend::Seatbelt(backend),
+		command: command_arg,
+		options: crate::run::Options::default(),
+	};
 
 	// Create the launcher command.
 	let mut command = tokio::process::Command::new(&arg.tangram_path);

@@ -1,7 +1,7 @@
 use {
-	crate::{Sandbox, cloud_hypervisor::Network},
+	crate::cloud_hypervisor::Network,
 	std::{
-		ffi::{CStr, CString},
+		ffi::CString,
 		net::Ipv4Addr,
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
@@ -29,14 +29,11 @@ pub struct Arg;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Config {
+	pub command: crate::run::Command,
+
 	pub gid: u32,
 
 	pub hostname: Option<String>,
-
-	pub http2: tangram_http::http2::Config,
-
-	#[serde(default)]
-	pub library_paths: Vec<PathBuf>,
 
 	#[serde(default)]
 	pub mounts: Vec<MountConfig>,
@@ -45,13 +42,7 @@ pub struct Config {
 
 	pub network_interface_timeout: Duration,
 
-	pub output_path: PathBuf,
-
-	pub tangram_path: PathBuf,
-
 	pub uid: u32,
-
-	pub url: String,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -149,10 +140,6 @@ pub fn run(_: &Arg) -> tg::Result<ExitCode> {
 	tracing::trace!("chrooted to new rootview");
 
 	// Configure the guest hostname and network.
-	let url = config
-		.url
-		.parse()
-		.map_err(|error| tg::error!(!error, "failed to parse the init config url"))?;
 	let network = config.network.map(|n| Network {
 		dns_servers: n.dns_servers,
 		gateway_ip: n.gateway_ip,
@@ -175,31 +162,20 @@ pub fn run(_: &Arg) -> tg::Result<ExitCode> {
 	}
 
 	// Set the process identity.
-	let home = resolve_home(config.uid);
-
 	setresgid(config.gid).map_err(|error| tg::error!(!error, "failed to set gid"))?;
 	setresuid(config.uid).map_err(|error| tg::error!(!error, "failed to set uid"))?;
 	tracing::trace!("set uid={} gid={}", config.uid, config.gid);
 
-	// Start the sandbox server.
-	let serve = crate::serve::Arg {
-		http2: config.http2,
-		library_paths: config.library_paths,
-		listen: false,
-		output_path: config.output_path,
-		tangram_path: config.tangram_path,
-		url,
-	};
-
-	let child = spawn_server(&serve, home.as_deref())
-		.map_err(|error| tg::error!(!error, "failed to spawn server"))?;
-	tracing::trace!("spawned sandbox server");
+	// Start the guest command.
+	let child = spawn_command(&config.command)
+		.map_err(|error| tg::error!(!error, "failed to spawn the guest command"))?;
+	tracing::trace!("spawned the guest command");
 
 	// Reap the guest processes.
 	let pid: libc::pid_t = child
 		.id()
 		.try_into()
-		.map_err(|_| tg::error!("failed to get the sandbox server pid"))?;
+		.map_err(|_| tg::error!("failed to get the guest command pid"))?;
 	tracing::trace!("spawned pid={pid}; entering reap loop");
 
 	loop {
@@ -827,18 +803,6 @@ fn prime_network(network: &Network) {
 	let _ = socket.send_to(&[0], (network.gateway_ip, 9));
 }
 
-fn resolve_home(uid: libc::uid_t) -> Option<PathBuf> {
-	let ptr = unsafe { libc::getpwuid(uid) };
-	if ptr.is_null() {
-		return None;
-	}
-	let passwd = unsafe { &*ptr };
-	let home = unsafe { CStr::from_ptr(passwd.pw_dir) }
-		.to_string_lossy()
-		.into_owned();
-	Some(home.into())
-}
-
 fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
 	let result = unsafe { libc::setresgid(gid, gid, gid) };
 	if result != 0 {
@@ -929,32 +893,20 @@ fn sockaddr_from_ipv4(address: Ipv4Addr) -> libc::sockaddr {
 	unsafe { std::mem::transmute(sockaddr) }
 }
 
-fn spawn_server(arg: &crate::serve::Arg, home: Option<&Path>) -> tg::Result<std::process::Child> {
-	let mut command = std::process::Command::new(&arg.tangram_path);
+fn spawn_command(arg: &crate::run::Command) -> tg::Result<std::process::Child> {
+	// Configure the guest command and its standard streams.
+	let mut command = arg.command()?;
 	command
-		.arg("sandbox")
-		.arg("serve")
-		.arg(if arg.listen { "--listen" } else { "--connect" })
-		.arg("--output-path")
-		.arg(&arg.output_path)
-		.arg("--url")
-		.arg(arg.url.to_string())
-		.arg("--tangram-path")
-		.arg(&arg.tangram_path)
-		.args(crate::util::http2_args(&arg.http2))
-		.env("SSL_CERT_DIR", Sandbox::guest_ssl_cert_dir())
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
 		.stderr(std::process::Stdio::inherit());
-	for path in &arg.library_paths {
-		command.arg("--library-path").arg(path);
-	}
-	if let Some(home) = home {
-		command.env("HOME", home);
-	}
-	command
+
+	// Spawn the command after the guest is initialized.
+	let child = command
 		.spawn()
-		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox server"))
+		.map_err(|error| tg::error!(!error, "failed to spawn the guest command"))?;
+
+	Ok(child)
 }
 
 fn wait_for_network_interface(timeout: Duration) -> tg::Result<String> {

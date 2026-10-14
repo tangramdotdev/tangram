@@ -9953,7 +9953,6 @@ name = "tangram_sandbox"
 version = "0.0.0"
 dependencies = [
  "bytes",
- "clap",
  "dashmap",
  "derive_more",
  "env_logger 0.11.11",

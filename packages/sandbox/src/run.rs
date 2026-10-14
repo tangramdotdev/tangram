@@ -11,9 +11,29 @@ use {
 	tangram_client::prelude::*,
 };
 
+pub use crate::command::Command;
+
+#[cfg(target_os = "linux")]
+pub type Bind = crate::mount::Bind;
+#[cfg(target_os = "linux")]
+pub type Mounts = crate::mount::Arg;
+#[cfg(target_os = "linux")]
+pub type Overlay = crate::mount::Overlay;
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Arg {
+	pub backend: Backend,
+
+	pub command: Command,
+
+	#[serde(default)]
+	pub options: Options,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case", tag = "kind", deny_unknown_fields)]
-pub enum Arg {
+pub enum Backend {
 	#[cfg(target_os = "linux")]
 	Builtin(crate::builtin::run::Arg),
 
@@ -30,27 +50,102 @@ pub enum Arg {
 	Seatbelt(crate::seatbelt::run::Arg),
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Options {
+	#[cfg(target_os = "linux")]
+	pub cgroup: Option<Cgroup>,
+
+	#[cfg(target_os = "linux")]
+	pub cgroup_readonly: bool,
+
+	#[cfg(target_os = "linux")]
+	pub filesystem_fd: Option<i32>,
+
+	#[cfg(target_os = "linux")]
+	pub filesystem_path: Option<std::path::PathBuf>,
+
+	#[cfg(target_os = "linux")]
+	pub fuse_fd: Option<i32>,
+
+	#[cfg(target_os = "linux")]
+	pub fuse_path: Option<std::path::PathBuf>,
+
+	#[cfg(target_os = "linux")]
+	pub index: u64,
+
+	#[cfg(target_os = "linux")]
+	pub isolate_root: bool,
+
+	#[cfg(target_os = "linux")]
+	pub mounts: Mounts,
+
+	#[cfg(target_os = "linux")]
+	pub network: Option<Network>,
+
+	#[cfg(target_os = "linux")]
+	pub nice: u8,
+
+	#[cfg(target_os = "linux")]
+	pub rlimit_nofile: Option<u64>,
+
+	#[cfg(target_os = "linux")]
+	pub user_namespace_fd: Option<i32>,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Cgroup {
+	pub cpu: Option<u64>,
+	pub memory: Option<u64>,
+	pub memory_oom_group: bool,
+	pub memory_swap: Option<u64>,
+	pub name: String,
+	pub pids: Option<u64>,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Network {
+	Host,
+	Pasta {
+		fd: i32,
+	},
+	Veth {
+		fd: i32,
+		gateway: std::net::Ipv4Addr,
+		guest: std::net::Ipv4Addr,
+	},
+}
+
 pub struct Config {
 	reader: OwnedFd,
 	task: std::thread::JoinHandle<std::io::Result<()>>,
 }
 
 pub fn run(arg: Arg) -> tg::Result<ExitCode> {
-	match arg {
-		#[cfg(target_os = "linux")]
-		Arg::Builtin(arg) => crate::builtin::run::run(arg),
+	// Validate the command before preparing the sandbox.
+	if arg.command.args.is_empty() {
+		return Err(tg::error!("a command is required"));
+	}
 
-		#[cfg(target_os = "linux")]
-		Arg::Bubblewrap(arg) => crate::bubblewrap::run::run(arg),
+	#[cfg(target_os = "linux")]
+	{
+		let mut options = arg.options;
+		let prepared = crate::prepare::prepare(&mut options, &arg.backend)?;
+		let output = crate::prepare::run(&arg.command, &options, arg.backend, prepared)?;
 
-		#[cfg(target_os = "linux")]
-		Arg::CloudHypervisor(arg) => crate::cloud_hypervisor::run::run(&arg),
+		Ok(output)
+	}
 
-		#[cfg(target_os = "linux")]
-		Arg::Gvisor(arg) => crate::gvisor::run::run(arg),
+	#[cfg(target_os = "macos")]
+	{
+		let Backend::Seatbelt(backend) = arg.backend;
+		let output = crate::seatbelt::run::run(&arg.command, &backend)?;
 
-		#[cfg(target_os = "macos")]
-		Arg::Seatbelt(arg) => crate::seatbelt::run::run(&arg),
+		Ok(ExitCode::from(output))
 	}
 }
 
@@ -177,18 +272,23 @@ mod tests {
 
 	#[test]
 	fn configuration_round_trip() {
-		for arg in [
-			Arg::Builtin(crate::builtin::run::Arg::default()),
-			Arg::Bubblewrap(crate::bubblewrap::run::Arg {
-				linux: crate::linux::run::Arg::default(),
+		for backend in [
+			Backend::Builtin(crate::builtin::run::Arg::default()),
+			Backend::Bubblewrap(crate::bubblewrap::run::Arg {
 				path: "bwrap".into(),
+				..Default::default()
 			}),
-			Arg::Gvisor(crate::gvisor::run::Arg {
-				linux: crate::linux::run::Arg::default(),
+			Backend::Gvisor(crate::gvisor::run::Arg {
 				path: "runsc".into(),
 				platform: crate::Platform::Kvm,
+				..Default::default()
 			}),
 		] {
+			let arg = Arg {
+				backend,
+				command: Command::default(),
+				options: Options::default(),
+			};
 			let value = serde_json::to_value(&arg).unwrap();
 			let decoded: Arg = serde_json::from_value(value.clone()).unwrap();
 			assert_eq!(serde_json::to_value(decoded).unwrap(), value);
@@ -198,14 +298,17 @@ mod tests {
 	#[tokio::test]
 	async fn large_configuration_pipe() {
 		// Create a configuration larger than the pipe buffer.
-		let mut launch = crate::linux::run::Arg::default();
+		let mut command_arg = Command::default();
 		for index in 0..64 {
-			launch
-				.process
-				.environment
+			command_arg
+				.env
 				.insert(format!("KEY_{index}"), "x".repeat(4096));
 		}
-		let arg = Arg::Builtin(crate::builtin::run::Arg { linux: launch });
+		let arg = Arg {
+			backend: Backend::Builtin(crate::builtin::run::Arg::default()),
+			command: command_arg,
+			options: Options::default(),
+		};
 		let contents = serde_json::to_vec(&arg).unwrap();
 
 		// Create a command that counts the configuration bytes.

@@ -12,7 +12,6 @@ use {
 			unix::{ffi::OsStrExt as _, process::CommandExt as _},
 		},
 		path::{Path, PathBuf},
-		process::ExitCode,
 		sync::{
 			Arc,
 			atomic::{AtomicBool, Ordering},
@@ -51,6 +50,7 @@ const VMM_SNAPSHOT_OUTPUT_DIR: &str = "/snapshot";
 const VMM_GUEST_CID: u32 = 3;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Arg {
 	pub cloud_hypervisor_path: Option<PathBuf>,
 	pub create_snapshot: Option<PathBuf>,
@@ -61,7 +61,6 @@ pub struct Arg {
 	pub guest_ip: Option<Ipv4Addr>,
 	pub host_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
-	pub http2: tangram_http::http2::Config,
 	pub image_path: PathBuf,
 	pub index: u64,
 	pub kernel_path: PathBuf,
@@ -83,7 +82,6 @@ pub struct Arg {
 	pub snapshot_memory: u64,
 	pub store_path: PathBuf,
 	pub tangram_path: PathBuf,
-	pub url: tangram_uri::Uri,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -158,7 +156,103 @@ impl Drop for ChildProcess {
 	}
 }
 
-pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
+pub(crate) fn command(
+	arg: &crate::Arg,
+	serve_arg: &crate::serve::Arg,
+	network: Option<&crate::network::Network>,
+) -> tg::Result<(tokio::process::Command, crate::run::Config)> {
+	// Validate the backend settings.
+	if !serve_arg.library_paths.is_empty() {
+		return Err(tg::error!(
+			"cloud-hypervisor does not support additional library paths"
+		));
+	}
+	let crate::Backend::CloudHypervisor(config) = &arg.backend else {
+		unreachable!()
+	};
+
+	// Resolve the network settings.
+	let (network_kind, host_ip, guest_ip) = match network {
+		None => (None, None, None),
+		Some(crate::network::Network::Passt(network)) => (
+			Some(NetworkKind::Passt),
+			Some(network.host_ip()),
+			Some(network.guest_ip()),
+		),
+		Some(crate::network::Network::Tap(network)) => (
+			Some(NetworkKind::Tap),
+			Some(network.host_ip()),
+			Some(network.guest_ip()),
+		),
+		Some(
+			crate::network::Network::Host
+			| crate::network::Network::Pasta(_)
+			| crate::network::Network::Veth(_),
+		) => return Err(tg::error!("unsupported cloud-hypervisor networking")),
+	};
+
+	// Create the launch configuration.
+	let cpu = arg
+		.cpu
+		.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
+		.transpose()?;
+	let launch = Arg {
+		cloud_hypervisor_path: config.cloud_hypervisor_path.clone(),
+		create_snapshot: None,
+		cpu,
+		dax: config.dax,
+		dns: arg.dns.clone(),
+		firewall: arg.firewall,
+		guest_ip,
+		host_ip,
+		hostname: arg.hostname.clone(),
+		image_path: config.image_path.clone(),
+		index: arg.index,
+		kernel_path: config.kernel_path.clone(),
+		max_cpu: config.max_cpu,
+		max_memory: config.max_memory,
+		memory: arg.memory.map(|memory| memory.max),
+		mounts: arg.mounts.clone(),
+		network: network_kind,
+		network_interface_timeout: config.network_interface_timeout,
+		network_startup_timeout: arg.network_startup_timeout,
+		path: arg.path.clone(),
+		ports: arg
+			.network
+			.as_ref()
+			.map(crate::Network::ports)
+			.unwrap_or_default()
+			.to_owned(),
+		ready_timeout: config.ready_timeout,
+		rootfs_path: arg.rootfs_path.clone(),
+		serial_connect_interval: config.serial_connect_interval,
+		serial_connect_timeout: config.serial_connect_timeout,
+		snapshot: config.snapshot.clone(),
+		snapshot_cpu: config.snapshot_cpu,
+		snapshot_memory: config.snapshot_memory,
+		store_path: arg.store_path.clone(),
+		tangram_path: arg.tangram_path.clone(),
+	};
+	let command_arg = crate::run::Command::with_command(&crate::init::command(serve_arg))?;
+	let launch = crate::run::Arg {
+		backend: crate::run::Backend::CloudHypervisor(launch),
+		command: command_arg,
+		options: crate::run::Options::default(),
+	};
+
+	// Create the launch command.
+	let mut command = tokio::process::Command::new(&arg.tangram_path);
+	let config = crate::run::configure_command(&mut command, &launch)?;
+	command
+		.kill_on_drop(true)
+		.stdin(std::process::Stdio::null())
+		.stdout(std::process::Stdio::inherit())
+		.stderr(std::process::Stdio::inherit());
+
+	Ok((command, config))
+}
+
+pub fn run(command: &crate::run::Command, arg: &Arg) -> tg::Result<u8> {
 	// Validate the resource settings.
 	if arg.cpu == Some(0) {
 		return Err(tg::error!("sandbox cpu must be greater than zero"));
@@ -257,17 +351,13 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		let init_config = crate::cloud_hypervisor::init::Config {
+			command: command.clone(),
 			gid: user.gid,
 			hostname: arg.hostname.clone(),
-			http2: arg.http2,
-			library_paths: Vec::new(),
 			mounts,
 			network: network_config,
 			network_interface_timeout: arg.network_interface_timeout,
-			output_path: Sandbox::guest_output_path_from_root(&arg.path),
-			tangram_path: Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
 			uid: user.uid,
-			url: arg.url.to_string(),
 		};
 		let init_config_bytes = serde_json::to_vec(&init_config)
 			.map_err(|error| tg::error!(!error, "failed to serialize the init config"))?;
@@ -373,7 +463,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		cloud_hypervisor_args.push("--memory".into());
 		cloud_hypervisor_args.push(memory_arg(arg).into());
 		cloud_hypervisor_args.push("--cmdline".into());
-		cloud_hypervisor_args.push(kernel_cmdline(arg).into());
+		cloud_hypervisor_args.push(kernel_cmdline(arg, command)?.into());
 		cloud_hypervisor_args.push("--disk".into());
 		cloud_hypervisor_args.push(
 			format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on,sparse=off,image_type=raw").into(),
@@ -536,7 +626,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				));
 			},
 		}
-		return Ok(ExitCode::SUCCESS);
+		return Ok(0);
 	}
 
 	// Restore the configured snapshot.
@@ -632,7 +722,7 @@ fn connect_serial_socket(
 fn wait_for_cloud_hypervisor(
 	cloud_hypervisor: &mut ChildProcess,
 	helpers: &mut [ChildProcess],
-) -> tg::Result<ExitCode> {
+) -> tg::Result<u8> {
 	loop {
 		let mut status = 0;
 		let pid = unsafe { libc::waitpid(-1, std::ptr::addr_of_mut!(status), 0) };
@@ -644,7 +734,7 @@ fn wait_for_cloud_hypervisor(
 			return Err(tg::error!(!error, "failed to wait for a child process"));
 		}
 		if cloud_hypervisor.take_if_pid(pid) {
-			return Ok(ExitCode::from(exit_code_from_status(status)));
+			return Ok(exit_code_from_status(status));
 		}
 		for helper in helpers.iter_mut() {
 			if helper.take_if_pid(pid) {
@@ -793,20 +883,44 @@ fn host_share_mounts_path_from_root(root_path: &Path) -> PathBuf {
 	host_share_path_from_root(root_path).join("mounts")
 }
 
-fn kernel_cmdline(arg: &Arg) -> String {
+fn kernel_cmdline(arg: &Arg, command: &crate::run::Command) -> tg::Result<String> {
 	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
 	let mut cmdline =
 		String::from("console=ttyS0 quiet loglevel=0 root=/dev/vda rootfstype=squashfs ro");
 	if arg.dax.is_some() {
 		cmdline.push_str(" tangram.dax=1");
 	}
-	write!(
-		&mut cmdline,
-		" init={} -- sandbox init --backend cloud-hypervisor",
-		tangram_path.display(),
-	)
-	.unwrap();
-	cmdline
+
+	// Boot the bootstrap init, or the snapshot creation command.
+	if arg.create_snapshot.is_some() {
+		if command
+			.args
+			.iter()
+			.any(|arg| arg.is_empty() || arg.chars().any(char::is_whitespace) || arg.contains('"'))
+			|| command.cwd != Path::new("/")
+			|| !command.env.is_empty()
+		{
+			return Err(tg::error!(
+				"the snapshot bootstrap command must have simple kernel arguments, the root working directory, and an empty environment"
+			));
+		}
+		write!(
+			&mut cmdline,
+			" init={} -- {}",
+			command.args[0],
+			command.args[1..].join(" ")
+		)
+		.unwrap();
+	} else {
+		write!(
+			&mut cmdline,
+			" init={} -- sandbox init --backend cloud-hypervisor",
+			tangram_path.display(),
+		)
+		.unwrap();
+	}
+
+	Ok(cmdline)
 }
 
 fn memory_arg(arg: &Arg) -> String {

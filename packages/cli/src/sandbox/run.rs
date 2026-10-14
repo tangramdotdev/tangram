@@ -297,19 +297,21 @@ impl Options {
 			| tangram_sandbox::Kind::Gvisor => self.linux(backend)?,
 
 			#[cfg(target_os = "linux")]
-			tangram_sandbox::Kind::CloudHypervisor => {
-				tangram_sandbox::run::Arg::CloudHypervisor(self.cloud_hypervisor()?)
-			},
+			tangram_sandbox::Kind::CloudHypervisor => self.cloud_hypervisor()?,
 
 			#[cfg(target_os = "macos")]
 			tangram_sandbox::Kind::Seatbelt => {
-				let arg = tangram_sandbox::seatbelt::run::Arg {
-					command: self.command,
+				let command = self.command()?;
+				let backend = tangram_sandbox::seatbelt::run::Arg {
 					profile: self
 						.profile
 						.ok_or_else(|| tg::error!("the seatbelt profile is required"))?,
 				};
-				tangram_sandbox::run::Arg::Seatbelt(arg)
+				tangram_sandbox::run::Arg {
+					backend: tangram_sandbox::run::Backend::Seatbelt(backend),
+					command,
+					options: tangram_sandbox::run::Options::default(),
+				}
 			},
 
 			#[cfg(target_os = "linux")]
@@ -332,15 +334,7 @@ impl Options {
 		let linux_options = self.as_pid_1
 			|| !self.binds.is_empty()
 			|| !self.cap_drop.is_empty()
-			|| self.cgroup.is_some()
-			|| self.cgroup_cpu.is_some()
-			|| self.cgroup_memory.is_some()
-			|| self.cgroup_memory_oom_group
-			|| self.cgroup_memory_swap.is_some()
-			|| self.cgroup_pids.is_some()
 			|| self.cgroup_readonly
-			|| self.chdir.is_some()
-			|| self.clearenv
 			|| !self.devs.is_empty()
 			|| self.filesystem_fd.is_some()
 			|| self.filesystem_path.is_some()
@@ -348,13 +342,10 @@ impl Options {
 			|| self.fuse_path.is_some()
 			|| self.gid.is_some()
 			|| self.network_fd.is_some()
-			|| self.nice.is_some()
 			|| !self.overlay_sources.is_empty()
 			|| !self.overlays.is_empty()
 			|| !self.procs.is_empty()
 			|| !self.ro_binds.is_empty()
-			|| self.rlimit_nofile.is_some()
-			|| !self.setenvs.is_empty()
 			|| !self.tmpfs.is_empty()
 			|| self.uid.is_some()
 			|| self.unshare_all
@@ -414,6 +405,12 @@ impl Options {
 				"the runtime path requires the bubblewrap or gvisor backend"
 			));
 		}
+		if self.as_pid_1 && !matches!(backend, Kind::Builtin | Kind::Bubblewrap) {
+			return Err(tg::error!(
+				"the PID 1 option requires the builtin or bubblewrap backend"
+			));
+		}
+
 		if self.seccomp.is_some() && !matches!(backend, Kind::Builtin | Kind::Bubblewrap) {
 			return Err(tg::error!(
 				"a host seccomp policy requires the builtin or bubblewrap backend"
@@ -424,13 +421,32 @@ impl Options {
 				"the profile option requires the seatbelt backend"
 			));
 		}
-		if backend == Kind::CloudHypervisor && !self.command.is_empty() {
+		if backend == Kind::CloudHypervisor
+			&& !self.command.is_empty()
+			&& (self.url.is_some()
+				|| self.http2_connection_window_size.is_some()
+				|| self.http2_max_concurrent_reset_streams.is_some()
+				|| self.http2_max_concurrent_streams.is_some()
+				|| self.http2_stream_window_size.is_some())
+		{
 			return Err(tg::error!(
-				"cloud-hypervisor launches the configured guest init command"
+				"an explicit guest command cannot be combined with sandbox server options"
 			));
 		}
 
-		// Validate the cgroup and network options.
+		// Validate the common resource and network options.
+		if !cfg!(target_os = "linux")
+			&& (self.cgroup.is_some()
+				|| self.cgroup_cpu.is_some()
+				|| self.cgroup_memory.is_some()
+				|| self.cgroup_memory_oom_group
+				|| self.cgroup_memory_swap.is_some()
+				|| self.cgroup_pids.is_some()
+				|| self.nice.is_some()
+				|| self.rlimit_nofile.is_some())
+		{
+			return Err(tg::error!("the resource options require linux"));
+		}
 		if self.cgroup.is_none()
 			&& (self.cgroup_cpu.is_some()
 				|| self.cgroup_memory.is_some()
@@ -461,7 +477,7 @@ impl Options {
 
 	#[cfg(target_os = "linux")]
 	fn linux(self, backend: tangram_sandbox::Kind) -> tg::Result<tangram_sandbox::run::Arg> {
-		use tangram_sandbox::linux::run::{Arg, Bind, Cgroup, Mounts, Network, Overlay, Process};
+		use tangram_sandbox::run::{Bind, Cgroup, Mounts, Network, Options, Overlay};
 
 		// Validate the command.
 		if self.command.is_empty() {
@@ -470,6 +486,9 @@ impl Options {
 		if self.cap_drop.iter().any(|capability| capability != "ALL") {
 			return Err(tg::error!("the launch supports --cap-drop ALL"));
 		}
+
+		// Create the command description.
+		let command = self.command()?;
 
 		// Create the mount configuration.
 		let binds = self
@@ -542,40 +561,6 @@ impl Options {
 			..Default::default()
 		};
 
-		// Create the process configuration.
-		let mut environment = if self.clearenv {
-			std::collections::BTreeMap::new()
-		} else {
-			std::env::vars_os()
-				.map(|(key, value)| {
-					let key = key
-						.into_string()
-						.map_err(|_| tg::error!("environment names must be valid UTF-8"))?;
-					let value = value
-						.into_string()
-						.map_err(|_| tg::error!("environment values must be valid UTF-8"))?;
-					Ok((key, value))
-				})
-				.collect::<tg::Result<_>>()?
-		};
-		for pair in self.setenvs.as_chunks::<2>().0 {
-			environment.insert(pair[0].clone(), pair[1].clone());
-		}
-		let arguments = self
-			.command
-			.into_iter()
-			.map(|arg| {
-				arg.into_string()
-					.map_err(|_| tg::error!("launch arguments must be valid UTF-8"))
-			})
-			.collect::<tg::Result<_>>()?;
-		let process = Process {
-			arguments,
-			directory: self.chdir.unwrap_or_else(|| "/".into()),
-			environment,
-			hostname: self.hostname,
-		};
-
 		// Create the network configuration.
 		let network = match self.network.as_deref() {
 			None | Some("none") => None,
@@ -608,59 +593,136 @@ impl Options {
 			name,
 			pids: self.cgroup_pids,
 		});
-		let arg = Arg {
-			as_pid_1: self.as_pid_1,
+		let options = Options {
 			cgroup,
 			cgroup_readonly: self.cgroup_readonly,
 			filesystem_fd: self.filesystem_fd,
 			filesystem_path: self.filesystem_path,
 			fuse_fd: self.fuse_fd,
 			fuse_path: self.fuse_path,
-			gid: self.gid.unwrap_or(0),
 			index: self.index.unwrap_or(0),
 			isolate_root: self.unshare_all,
 			mounts,
 			network,
 			nice: self.nice.unwrap_or(0),
-			process,
 			rlimit_nofile: self.rlimit_nofile,
-			seccomp: self.seccomp,
-			uid: self.uid.unwrap_or(0),
 			user_namespace_fd: self.user_namespace_fd,
 		};
 
-		// Create the backend launch configuration.
-		let arg = match backend {
+		// Create the backend isolation inputs.
+		let backend = match backend {
 			tangram_sandbox::Kind::Builtin => {
-				tangram_sandbox::run::Arg::Builtin(tangram_sandbox::builtin::run::Arg {
-					linux: arg,
+				tangram_sandbox::run::Backend::Builtin(tangram_sandbox::builtin::run::Arg {
+					as_pid_1: self.as_pid_1,
+					gid: self.gid.unwrap_or(0),
+					hostname: self.hostname,
+					root: None,
+					seccomp: self.seccomp,
+					uid: self.uid.unwrap_or(0),
 				})
 			},
-
 			tangram_sandbox::Kind::Bubblewrap => {
-				tangram_sandbox::run::Arg::Bubblewrap(tangram_sandbox::bubblewrap::run::Arg {
-					linux: arg,
+				tangram_sandbox::run::Backend::Bubblewrap(tangram_sandbox::bubblewrap::run::Arg {
+					as_pid_1: self.as_pid_1,
+					gid: self.gid.unwrap_or(0),
+					hostname: self.hostname,
 					path: self.runtime_path.unwrap_or_else(|| "bwrap".into()),
+					root: None,
+					seccomp: self.seccomp,
+					uid: self.uid.unwrap_or(0),
 				})
 			},
-
 			tangram_sandbox::Kind::Gvisor => {
-				tangram_sandbox::run::Arg::Gvisor(tangram_sandbox::gvisor::run::Arg {
-					linux: arg,
+				tangram_sandbox::run::Backend::Gvisor(tangram_sandbox::gvisor::run::Arg {
+					gid: self.gid.unwrap_or(0),
+					hostname: self.hostname,
 					path: self.runtime_path.unwrap_or_else(|| "runsc".into()),
 					platform: self.platform.unwrap_or_default(),
+					uid: self.uid.unwrap_or(0),
+					..Default::default()
 				})
 			},
-
 			_ => unreachable!(),
+		};
+		let arg = tangram_sandbox::run::Arg {
+			backend,
+			command,
+			options,
 		};
 
 		Ok(arg)
 	}
 
+	fn command(&self) -> tg::Result<tangram_sandbox::run::Command> {
+		// Collect the environment.
+		let mut environment = if self.clearenv {
+			std::collections::BTreeMap::new()
+		} else {
+			std::env::vars_os()
+				.map(|(key, value)| {
+					let key = key
+						.into_string()
+						.map_err(|_| tg::error!("environment names must be valid UTF-8"))?;
+					let value = value
+						.into_string()
+						.map_err(|_| tg::error!("environment values must be valid UTF-8"))?;
+					Ok((key, value))
+				})
+				.collect::<tg::Result<_>>()?
+		};
+		for pair in self.setenvs.as_chunks::<2>().0 {
+			environment.insert(pair[0].clone(), pair[1].clone());
+		}
+
+		// Encode the arguments.
+		let arguments = self
+			.command
+			.iter()
+			.cloned()
+			.map(|arg| {
+				arg.into_string()
+					.map_err(|_| tg::error!("launch arguments must be valid UTF-8"))
+			})
+			.collect::<tg::Result<_>>()?;
+
+		// Create the command description.
+		let command = tangram_sandbox::run::Command {
+			args: arguments,
+			cwd: self.chdir.clone().unwrap_or_else(|| "/".into()),
+			env: environment,
+		};
+
+		Ok(command)
+	}
+
 	#[cfg(target_os = "linux")]
-	fn cloud_hypervisor(self) -> tg::Result<tangram_sandbox::cloud_hypervisor::run::Arg> {
+	fn cloud_hypervisor(self) -> tg::Result<tangram_sandbox::run::Arg> {
+		// Create the guest command settings.
 		let http2 = self.http2();
+		let clearenv = self.clearenv;
+		let cwd = self.chdir.clone();
+		let env = self.setenvs.clone();
+		let explicit_command = !self.command.is_empty();
+		let command = if explicit_command {
+			Some(self.command()?)
+		} else {
+			None
+		};
+		let url = self.url;
+		let cgroup = self.cgroup.map(|name| tangram_sandbox::run::Cgroup {
+			cpu: self.cgroup_cpu,
+			memory: self.cgroup_memory,
+			memory_oom_group: self.cgroup_memory_oom_group,
+			memory_swap: self.cgroup_memory_swap,
+			name,
+			pids: self.cgroup_pids,
+		});
+		let options = tangram_sandbox::run::Options {
+			cgroup,
+			nice: self.nice.unwrap_or(0),
+			rlimit_nofile: self.rlimit_nofile,
+			..Default::default()
+		};
 		let network = match self.network.as_deref() {
 			None | Some("none") => None,
 			Some("passt") => Some(tangram_sandbox::cloud_hypervisor::run::NetworkKind::Passt),
@@ -677,7 +739,6 @@ impl Options {
 			guest_ip: self.guest_ip,
 			host_ip: self.host_ip,
 			hostname: self.hostname,
-			http2,
 			image_path: self
 				.image_path
 				.ok_or_else(|| tg::error!("the image path is required"))?,
@@ -721,8 +782,61 @@ impl Options {
 			tangram_path: self
 				.tangram_path
 				.ok_or_else(|| tg::error!("the tangram path is required"))?,
-			url: self.url.ok_or_else(|| tg::error!("the url is required"))?,
 		};
+
+		// Use the explicit guest command or construct the sandbox server command.
+		let mut command = if let Some(command) = command {
+			command
+		} else {
+			let tangram_path = tangram_sandbox::Sandbox::guest_tangram_path_from_host_tangram_path(
+				&arg.tangram_path,
+			);
+			if arg.create_snapshot.is_some() {
+				tangram_sandbox::run::Command {
+					args: vec![
+						tangram_path.to_string_lossy().into_owned(),
+						"sandbox".into(),
+						"init".into(),
+						"--backend".into(),
+						"cloud-hypervisor".into(),
+					],
+					..Default::default()
+				}
+			} else {
+				let serve = tangram_sandbox::serve::Arg {
+					http2,
+					library_paths: Vec::new(),
+					listen: false,
+					output_path: tangram_sandbox::Sandbox::guest_output_path_from_root(&arg.path),
+					tangram_path,
+					url: url.ok_or_else(|| tg::error!("the url is required"))?,
+				};
+				tangram_sandbox::run::Command::with_command(&tangram_sandbox::init::command(
+					&serve,
+				))?
+			}
+		};
+
+		// Apply the CLI overrides to the default guest command.
+		if !explicit_command {
+			if clearenv {
+				command.env.clear();
+			}
+			if let Some(cwd) = cwd {
+				command.cwd = cwd;
+			}
+			for pair in env.as_chunks::<2>().0 {
+				command.env.insert(pair[0].clone(), pair[1].clone());
+			}
+		}
+
+		// Create the complete launch configuration.
+		let arg = tangram_sandbox::run::Arg {
+			backend: tangram_sandbox::run::Backend::CloudHypervisor(arg),
+			command,
+			options,
+		};
+
 		Ok(arg)
 	}
 

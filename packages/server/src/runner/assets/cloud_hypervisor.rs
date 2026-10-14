@@ -127,7 +127,6 @@ impl Assets {
 			guest_ip: None,
 			host_ip: None,
 			hostname: None,
-			http2: config.http2,
 			image_path: image_path.clone(),
 			index,
 			kernel_path: kernel_path.to_owned(),
@@ -149,9 +148,26 @@ impl Assets {
 			snapshot_memory: vm.snapshot_memory,
 			store_path: server.store_path(),
 			tangram_path: server.tangram_path.clone(),
-			url: "http+vsock://2:6748".parse().unwrap(),
 		};
-		let launch = tangram_sandbox::run::Arg::CloudHypervisor(launch);
+		let command_arg = tangram_sandbox::run::Command {
+			args: vec![
+				tangram_sandbox::Sandbox::guest_tangram_path_from_host_tangram_path(
+					&server.tangram_path,
+				)
+				.to_string_lossy()
+				.into_owned(),
+				"sandbox".into(),
+				"init".into(),
+				"--backend".into(),
+				"cloud-hypervisor".into(),
+			],
+			..Default::default()
+		};
+		let launch = tangram_sandbox::run::Arg {
+			backend: tangram_sandbox::run::Backend::CloudHypervisor(launch),
+			command: command_arg,
+			options: tangram_sandbox::run::Options::default(),
+		};
 
 		// Spawn the snapshot process.
 		let mut command = tokio::process::Command::new(&server.tangram_path);

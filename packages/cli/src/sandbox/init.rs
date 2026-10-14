@@ -55,21 +55,19 @@ impl Args {
 			tangram_sandbox::Kind::Builtin
 			| tangram_sandbox::Kind::Bubblewrap
 			| tangram_sandbox::Kind::Gvisor => {
-				let linux = tangram_sandbox::linux::init::Arg {
-					serve: self.options.serve()?,
-				};
+				let serve = self.options.serve()?;
 				match self.backend {
 					tangram_sandbox::Kind::Builtin => {
 						tangram_sandbox::init::Arg::Builtin(tangram_sandbox::builtin::init::Arg {
-							linux,
+							serve,
 						})
 					},
 					tangram_sandbox::Kind::Bubblewrap => tangram_sandbox::init::Arg::Bubblewrap(
-						tangram_sandbox::bubblewrap::init::Arg { linux },
+						tangram_sandbox::bubblewrap::init::Arg { serve },
 					),
 					tangram_sandbox::Kind::Gvisor => {
 						tangram_sandbox::init::Arg::Gvisor(tangram_sandbox::gvisor::init::Arg {
-							linux,
+							serve,
 						})
 					},
 					_ => unreachable!(),
@@ -190,12 +188,12 @@ mod tests {
 
 			// Resolve the backend init configuration.
 			let (kind, serve) = match args.arg().unwrap() {
-				tangram_sandbox::init::Arg::Builtin(arg) => ("builtin", arg.linux.serve),
-				tangram_sandbox::init::Arg::Bubblewrap(arg) => ("bubblewrap", arg.linux.serve),
+				tangram_sandbox::init::Arg::Builtin(arg) => ("builtin", arg.serve),
+				tangram_sandbox::init::Arg::Bubblewrap(arg) => ("bubblewrap", arg.serve),
 				tangram_sandbox::init::Arg::CloudHypervisor(_) => {
 					panic!("expected a Linux init configuration")
 				},
-				tangram_sandbox::init::Arg::Gvisor(arg) => ("gvisor", arg.linux.serve),
+				tangram_sandbox::init::Arg::Gvisor(arg) => ("gvisor", arg.serve),
 			};
 
 			// Verify the server settings.

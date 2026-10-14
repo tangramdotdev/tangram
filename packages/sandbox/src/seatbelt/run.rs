@@ -1,9 +1,8 @@
 use {
 	std::{
-		ffi::{CStr, CString, OsString},
-		os::unix::ffi::OsStrExt as _,
+		ffi::{CStr, CString},
+		os::unix::process::CommandExt as _,
 		path::PathBuf,
-		process::ExitCode,
 	},
 	tangram_client::prelude::*,
 };
@@ -18,17 +17,12 @@ unsafe extern "C" {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Arg {
-	pub command: Vec<OsString>,
 	pub profile: PathBuf,
 }
 
-pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
-	// Validate the command.
-	if arg.command.is_empty() {
-		return Err(tg::error!("a command is required"));
-	}
-
+pub fn run(command: &crate::run::Command, arg: &Arg) -> tg::Result<u8> {
 	// Read the sandbox profile.
 	let profile = std::fs::read(&arg.profile).map_err(|error| {
 		tg::error!(
@@ -54,28 +48,9 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	}
 
 	// Execute the command.
-	exec_command(arg)?;
+	let mut command = command.command()?;
+	let error = command.exec();
 
-	unreachable!()
-}
-
-fn exec_command(arg: &Arg) -> tg::Result<()> {
-	let executable = CString::new(arg.command[0].as_os_str().as_bytes())
-		.map_err(|error| tg::error!(!error, "failed to encode the executable"))?;
-	let argv = arg
-		.command
-		.iter()
-		.map(|arg| {
-			CString::new(arg.as_os_str().as_bytes())
-				.map_err(|error| tg::error!(!error, "failed to encode an argument"))
-		})
-		.collect::<Result<Vec<_>, _>>()?;
-	let mut argv = argv.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
-	argv.push(std::ptr::null());
-	unsafe {
-		libc::execvp(executable.as_ptr(), argv.as_ptr());
-	}
-	let error = std::io::Error::last_os_error();
 	Err(tg::error!(!error, "failed to execute the command"))
 }
 

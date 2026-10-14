@@ -207,14 +207,14 @@ pub(crate) async fn spawn(
 	// Create the network launch configuration.
 	let network_arg = match network.as_deref() {
 		None => None,
-		Some(crate::network::Network::Host) => Some(crate::linux::run::Network::Host),
-		Some(crate::network::Network::Pasta(network)) => Some(crate::linux::run::Network::Pasta {
+		Some(crate::network::Network::Host) => Some(crate::run::Network::Host),
+		Some(crate::network::Network::Pasta(network)) => Some(crate::run::Network::Pasta {
 			fd: network
 				.guest_pipe()
 				.ok_or_else(|| tg::error!("missing the pasta synchronization descriptor"))?
 				.as_raw_fd(),
 		}),
-		Some(crate::network::Network::Veth(network)) => Some(crate::linux::run::Network::Veth {
+		Some(crate::network::Network::Veth(network)) => Some(crate::run::Network::Veth {
 			fd: veth
 				.as_ref()
 				.unwrap()
@@ -283,14 +283,12 @@ pub(crate) async fn spawn(
 			Ok((key, value))
 		})
 		.collect::<tg::Result<_>>()?;
-	let process = crate::linux::run::Process {
-		arguments,
-		directory: "/".into(),
-		environment,
-		hostname: arg.hostname.clone(),
+	let command_arg = crate::run::Command {
+		args: arguments,
+		cwd: "/".into(),
+		env: environment,
 	};
-	let setup = crate::linux::run::Arg {
-		as_pid_1: true,
+	let options = crate::run::Options {
 		cgroup_readonly: isolation.cgroup_readonly || arg.cpu_pool.is_some(),
 		filesystem_fd: filesystem_sendfd
 			.as_ref()
@@ -298,61 +296,74 @@ pub(crate) async fn spawn(
 		filesystem_path: filesystem_separate.then_some(filesystem_path.clone()),
 		fuse_fd: arg.fuse_fd.as_ref().map(std::os::fd::AsRawFd::as_raw_fd),
 		fuse_path: arg.fuse_fd.as_ref().map(|_| arg.store_path.clone()),
-		gid: user.gid,
 		index: arg.index,
 		mounts,
 		network: network_arg,
 		nice: arg.nice,
-		process,
 		rlimit_nofile: isolation.max_open_files,
-		seccomp: isolation.seccomp,
-		uid: user.uid,
 		user_namespace_fd: user_namespace
 			.as_ref()
 			.map(|(_, guest, _, _)| guest.as_raw_fd()),
 		..Default::default()
 	};
 
-	// Select the backend launch configuration.
-	let launch = match &arg.backend {
-		crate::Backend::Builtin => crate::run::Arg::Builtin(crate::builtin::run::Arg {
-			linux: setup.clone(),
+	// Select the backend isolation inputs.
+	let backend = match &arg.backend {
+		crate::Backend::Builtin => crate::run::Backend::Builtin(crate::builtin::run::Arg {
+			as_pid_1: true,
+			gid: user.gid,
+			hostname: arg.hostname.clone(),
+			root: None,
+			seccomp: isolation.seccomp,
+			uid: user.uid,
 		}),
-
 		crate::Backend::Bubblewrap { path } => {
-			crate::run::Arg::Bubblewrap(crate::bubblewrap::run::Arg {
-				linux: setup.clone(),
+			crate::run::Backend::Bubblewrap(crate::bubblewrap::run::Arg {
+				as_pid_1: true,
+				gid: user.gid,
+				hostname: arg.hostname.clone(),
 				path: path.clone(),
+				root: None,
+				seccomp: isolation.seccomp,
+				uid: user.uid,
 			})
 		},
-
 		crate::Backend::Gvisor { path, platform } => {
-			crate::run::Arg::Gvisor(crate::gvisor::run::Arg {
-				linux: setup.clone(),
+			crate::run::Backend::Gvisor(crate::gvisor::run::Arg {
+				gid: user.gid,
+				hostname: arg.hostname.clone(),
 				path: path.clone(),
 				platform: *platform,
+				uid: user.uid,
+				..Default::default()
 			})
 		},
-
 		crate::Backend::CloudHypervisor(_) | crate::Backend::Seatbelt => unreachable!(),
+	};
+	let launch = crate::run::Arg {
+		backend,
+		command: command_arg,
+		options,
 	};
 
 	// Create the launcher and inherit the control descriptors.
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	let config = crate::run::configure_command(&mut command, &launch)?;
-	for fd in [setup.filesystem_fd, setup.fuse_fd, setup.user_namespace_fd]
-		.into_iter()
-		.flatten()
+	for fd in [
+		launch.options.filesystem_fd,
+		launch.options.fuse_fd,
+		launch.options.user_namespace_fd,
+	]
+	.into_iter()
+	.flatten()
 	{
 		inherit_fd(&mut command, fd);
 	}
-	match setup.network {
-		Some(
-			crate::linux::run::Network::Pasta { fd } | crate::linux::run::Network::Veth { fd, .. },
-		) => {
+	match launch.options.network {
+		Some(crate::run::Network::Pasta { fd } | crate::run::Network::Veth { fd, .. }) => {
 			inherit_fd(&mut command, fd);
 		},
-		None | Some(crate::linux::run::Network::Host) => {},
+		None | Some(crate::run::Network::Host) => {},
 	}
 
 	// Keep the launcher outside the server's terminal process group during Ctrl-C shutdown.

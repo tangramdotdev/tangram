@@ -6,8 +6,8 @@ let tangram = which tangram | first | get path
 const helper = path self ../lib/run_config.py
 let script = 'read line; test "$line" = provided; test "$TEST" = "value with spaces"; printf "output\n"; printf "error\n" >&2; exit 7'
 {
-    kind: builtin,
-    process: { arguments: [/bin/sh -ec $script], environment: { TEST: 'value with spaces' } },
+    backend: { kind: builtin },
+    command: { args: [/bin/sh -ec $script], env: { TEST: 'value with spaces' } },
 } | to json | save config.json
 let outputs = [
     ("provided\n" | ^tangram sandbox run --backend builtin --clearenv --setenv TEST 'value with spaces' -- /bin/sh -ec $script | complete),
@@ -31,10 +31,10 @@ for fd in [0 1 2 999999] {
 }
 '{invalid' | save invalid.json
 failure (^tangram sandbox run --config invalid.json | complete)
-{ kind: builtin, unknown: true, process: { arguments: [/bin/true] } } | to json | save unknown.json
+{ backend: { kind: builtin }, unknown: true, command: { args: [/bin/true] } } | to json | save unknown.json
 failure (^tangram sandbox run --config unknown.json | complete)
 
 # Reading a configuration larger than a pipe buffer does not block launch.
 let environment = 0..63 | each { |index| { key: $'KEY_($index)', value: ('' | fill --width 4096 --character x) } } | transpose -r -d
-{ kind: builtin, process: { arguments: [/bin/true], environment: $environment } } | to json | save large.json
+{ backend: { kind: builtin }, command: { args: [/bin/true], env: $environment } } | to json | save large.json
 success (^python3 $helper $tangram large.json | complete)

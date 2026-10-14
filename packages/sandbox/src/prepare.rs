@@ -1,8 +1,10 @@
 use {
-	crate::{linux, mount},
+	crate::{
+		linux, mount,
+		run::{Backend, Command, Network, Options},
+	},
 	std::{
-		collections::BTreeMap,
-		ffi::{CString, OsString},
+		ffi::CString,
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 			unix::ffi::OsStrExt as _,
@@ -13,81 +15,16 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub use crate::mount::{Arg as Mounts, Bind, Overlay};
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Arg {
-	pub as_pid_1: bool,
-	pub cgroup: Option<Cgroup>,
-	pub cgroup_readonly: bool,
-	pub filesystem_fd: Option<i32>,
-	pub filesystem_path: Option<PathBuf>,
-	pub fuse_fd: Option<i32>,
-	pub fuse_path: Option<PathBuf>,
-	pub gid: u32,
-	pub index: u64,
-	pub isolate_root: bool,
-	pub mounts: mount::Arg,
-	pub network: Option<Network>,
-	pub nice: u8,
-	pub process: Process,
-	pub rlimit_nofile: Option<u64>,
-	pub seccomp: Option<crate::SeccompPolicy>,
-	pub uid: u32,
-	pub user_namespace_fd: Option<i32>,
+pub(crate) struct Output {
+	_filesystem: Option<OwnedFd>,
+	cgroup: Option<crate::cgroup::Cgroup>,
+	cgroup_handle: Option<crate::cgroup::Handle>,
+	root: Option<tangram_util::fs::Temp>,
+	root_path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default)]
-pub struct Cgroup {
-	pub cpu: Option<u64>,
-	pub memory: Option<u64>,
-	pub memory_oom_group: bool,
-	pub memory_swap: Option<u64>,
-	pub name: String,
-	pub pids: Option<u64>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Network {
-	Host,
-	Pasta {
-		fd: i32,
-	},
-	Veth {
-		fd: i32,
-		gateway: std::net::Ipv4Addr,
-		guest: std::net::Ipv4Addr,
-	},
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default)]
-pub struct Process {
-	pub arguments: Vec<String>,
-	pub directory: PathBuf,
-	pub environment: BTreeMap<String, String>,
-	pub hostname: Option<String>,
-}
-
-pub(crate) struct Prepared<'a> {
-	pub arg: &'a Arg,
-	pub root: Option<&'a Path>,
-	pub seccomp_fd: Option<i32>,
-}
-
-pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
+pub(crate) fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Output> {
 	// Validate the launch configuration.
-	if arg.seccomp.is_some() && matches!(backend, crate::Backend::Gvisor { .. }) {
-		return Err(tg::error!(
-			"a host seccomp policy requires the builtin or bubblewrap backend"
-		));
-	}
-	if arg.process.arguments.is_empty() {
-		return Err(tg::error!("a command is required"));
-	}
 	if arg.nice > 19 {
 		return Err(tg::error!("the CPU priority must be between zero and 19"));
 	}
@@ -102,6 +39,35 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 	if arg.fuse_fd.is_some() != arg.fuse_path.is_some() {
 		return Err(tg::error!(
 			"the FUSE descriptor and path must be provided together"
+		));
+	}
+
+	// Validate the namespace preparation options.
+	if matches!(backend, Backend::CloudHypervisor(_))
+		&& (arg.filesystem_fd.is_some()
+			|| arg.fuse_fd.is_some()
+			|| arg.user_namespace_fd.is_some()
+			|| arg.isolate_root
+			|| arg.cgroup_readonly
+			|| arg.network.is_some()
+			|| !arg.mounts.binds.is_empty()
+			|| !arg.mounts.ro_binds.is_empty()
+			|| !arg.mounts.overlays.is_empty()
+			|| !arg.mounts.overlay_sources.is_empty()
+			|| !arg.mounts.devs.is_empty()
+			|| !arg.mounts.procs.is_empty()
+			|| !arg.mounts.tmpfs.is_empty()
+			|| arg.mounts.filesystem_mount_fd.is_some()
+			|| arg.mounts.nodev
+			|| arg.mounts.nosuid)
+	{
+		return Err(tg::error!(
+			"cloud-hypervisor does not support namespace preparation options"
+		));
+	}
+	if arg.fuse_fd.is_some() && !matches!(backend, Backend::Builtin(_)) {
+		return Err(tg::error!(
+			"direct FUSE mounting requires the builtin backend"
 		));
 	}
 
@@ -129,36 +95,47 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 		.map(crate::cgroup::Cgroup::handle)
 		.transpose()?;
 
+	// Resolve the identity used to prepare the filesystem.
+	let (uid, gid) = match backend {
+		Backend::Builtin(arg) => (arg.uid, arg.gid),
+		Backend::Bubblewrap(arg) => (arg.uid, arg.gid),
+		Backend::Gvisor(arg) => (arg.uid, arg.gid),
+		Backend::CloudHypervisor(_) => {
+			return Ok(Output {
+				_filesystem: None,
+				cgroup,
+				cgroup_handle,
+				root: None,
+				root_path: None,
+			});
+		},
+	};
+
 	// Enter the user namespace.
 	if let Some(fd) = arg.user_namespace_fd {
 		linux::enter_user_namespace_with_parent(fd)?;
 	} else {
-		linux::enter_user_namespace(arg.uid, arg.gid)?;
+		linux::enter_user_namespace(uid, gid)?;
 	}
 
 	// Prepare the host filesystem namespace.
 	let host_namespace = if arg.user_namespace_fd.is_some() && arg.filesystem_fd.is_some() {
-		Some(crate::filesystem::host_namespace(arg.uid, arg.gid)?)
+		Some(crate::filesystem::host_namespace(uid, gid)?)
 	} else {
 		None
 	};
 
 	// Prepare the network and mount namespaces.
-	setup_network(&arg)?;
+	setup_network(arg)?;
 	linux::unshare(
 		libc::CLONE_NEWNS | libc::CLONE_NEWPID,
 		"failed to create the resource setup namespaces",
 	)?;
 
 	// Prepare the sandbox filesystem.
-	let _filesystem = prepare_filesystem(&mut arg, host_namespace.as_ref())?;
+	let filesystem = prepare_filesystem(arg, host_namespace.as_ref(), uid, gid)?;
 	if let (Some(fd), Some(path)) = (arg.fuse_fd, &arg.fuse_path) {
-		if !matches!(backend, crate::Backend::Builtin) {
-			return Err(tg::error!(
-				"direct FUSE mounting requires the builtin backend"
-			));
-		}
-		crate::builtin::native::mount_fuse(fd, path)?;
+		crate::builtin::run::mount_fuse(fd, path)?;
 	}
 
 	// Create the prepared root.
@@ -183,13 +160,37 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 	} else {
 		None
 	};
-	let root_path = root.as_ref().map(|root| root.path().join("root"));
+	let root_path = root
+		.as_ref()
+		.map(|root| root.path().join("root"))
+		.or_else(|| match backend {
+			Backend::Builtin(arg) => arg.root.clone(),
+			Backend::Bubblewrap(arg) => arg.root.clone(),
+			Backend::Gvisor(arg) => arg.root.clone(),
+			Backend::CloudHypervisor(_) => None,
+		});
 
-	// Fork the backend launcher.
+	let output = Output {
+		_filesystem: filesystem,
+		cgroup,
+		cgroup_handle,
+		root,
+		root_path,
+	};
+
+	Ok(output)
+}
+
+pub(crate) fn run(
+	command: &Command,
+	options: &Options,
+	backend: Backend,
+	prepared: Output,
+) -> tg::Result<ExitCode> {
+	// Fork the backend while retaining ownership of its resources.
 	let child = linux::fork()?;
 	if child == 0 {
-		if let Err(error) = child_main(&arg, backend, cgroup_handle.as_ref(), root_path.as_deref())
-		{
+		if let Err(error) = child_main(command, options, backend, &prepared) {
 			eprintln!("{}", error.trace());
 			std::process::exit(105);
 		}
@@ -198,11 +199,13 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 
 	// Wait for the backend and detach the root.
 	let status = linux::wait_for_child(child);
-	if let Some(root) = &root_path {
+	if prepared.root.is_some()
+		&& let Some(root) = &prepared.root_path
+	{
 		let root = CString::new(root.as_os_str().as_bytes())
 			.map_err(|error| tg::error!(!error, "failed to encode the prepared root"))?;
 
-		// SAFETY: The root is a live, terminated path in the setup mount namespace.
+		// SAFETY: The root is a live, terminated path in the preparation mount namespace.
 		if unsafe { libc::umount2(root.as_ptr(), libc::MNT_DETACH) } != 0 {
 			let error = std::io::Error::last_os_error();
 			if !matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOENT)) {
@@ -211,31 +214,28 @@ pub fn run(mut arg: Arg, backend: &crate::Backend) -> tg::Result<ExitCode> {
 		}
 	}
 
-	// Clean up the cgroup.
-	let cleanup = cgroup.map(crate::cgroup::Cgroup::cleanup).transpose();
+	// Clean up the cgroup after the backend exits.
+	drop(prepared.cgroup_handle);
+	let cleanup = prepared
+		.cgroup
+		.map(crate::cgroup::Cgroup::cleanup)
+		.transpose();
 	let status = status?;
 	cleanup?;
 
 	Ok(ExitCode::from(status))
 }
 
-impl Default for Process {
-	fn default() -> Self {
-		Self {
-			arguments: Vec::new(),
-			directory: PathBuf::from("/"),
-			environment: BTreeMap::new(),
-			hostname: None,
-		}
-	}
-}
-
 fn child_main(
-	arg: &Arg,
-	backend: &crate::Backend,
-	cgroup: Option<&crate::cgroup::Handle>,
-	root: Option<&Path>,
+	command: &Command,
+	arg: &Options,
+	backend: Backend,
+	prepared: &Output,
 ) -> tg::Result<()> {
+	// Resolve the prepared resources.
+	let root = prepared.root_path.as_deref();
+	let cgroup = prepared.cgroup_handle.as_ref();
+
 	// Configure the process lifetime and priority.
 	crate::util::set_parent_death_signal(libc::SIGKILL)?;
 
@@ -258,14 +258,26 @@ fn child_main(
 	if let Some(cgroup) = cgroup {
 		cgroup.move_self()?;
 	}
-	linux::unshare(
-		libc::CLONE_NEWCGROUP,
-		"failed to create the resource cgroup namespace",
-	)?;
+	if !matches!(backend, Backend::CloudHypervisor(_)) {
+		linux::unshare(
+			libc::CLONE_NEWCGROUP,
+			"failed to create the resource cgroup namespace",
+		)?;
+	}
 	linux::set_rlimit_nofile(arg.rlimit_nofile)?;
 
+	// Run the VM with the common resource settings applied.
+	let backend = match backend {
+		Backend::CloudHypervisor(arg) => {
+			let status = crate::cloud_hypervisor::run::run(command, &arg)?;
+			std::process::exit(i32::from(status));
+		},
+		backend => backend,
+	};
+
 	// Prepare the root filesystem.
-	if let Some(root) = root
+	if prepared.root.is_some()
+		&& let Some(root) = root
 		&& !arg
 			.mounts
 			.binds
@@ -289,51 +301,77 @@ fn child_main(
 	);
 	mount::mount_cgroup(&cgroup_path, arg.cgroup_readonly)?;
 
-	// Close unused descriptors and prepare the seccomp filter.
+	// Close preparation descriptors before invoking the backend.
 	linux::close_non_std_fds()?;
-	let seccomp_fd = if matches!(
-		backend,
-		crate::Backend::Builtin | crate::Backend::Bubblewrap { .. }
-	) {
-		arg.seccomp.map(crate::seccomp::descriptor).transpose()?
-	} else {
-		None
-	};
 
-	// Invoke the selected backend.
-	let prepared = Prepared {
-		arg,
-		root,
-		seccomp_fd,
-	};
-
+	// Pass only the prepared isolation inputs to the backend.
 	match backend {
-		crate::Backend::Builtin => {
-			let command = crate::bubblewrap::command(&prepared, Path::new("builtin"), true)?;
-			let arguments = command.get_args().map(OsString::from).collect();
-			let status = crate::builtin::native::run(arguments)?;
+		Backend::Builtin(mut arg) => {
+			if let Some(root) = root {
+				arg.root = Some(root.to_owned());
+			}
+			let status = crate::builtin::run::run(command, &arg)?;
 			std::process::exit(i32::from(status));
 		},
-		crate::Backend::Bubblewrap { path } => {
-			let command = crate::bubblewrap::command(&prepared, path, false)?;
-			execute(command)
+		Backend::Bubblewrap(mut arg) => {
+			if let Some(root) = root {
+				arg.root = Some(root.to_owned());
+			}
+			let status = crate::bubblewrap::run::run(command, &arg)?;
+			std::process::exit(i32::from(status));
 		},
-		crate::Backend::Gvisor { path, platform } => {
-			crate::gvisor::exec(&prepared, path, *platform)
+		Backend::Gvisor(backend_arg) => {
+			// Resolve the prepared root and mounts.
+			let root = root
+				.or(backend_arg.root.as_deref())
+				.ok_or_else(|| tg::error!("gvisor requires a prepared root"))?;
+			let mut mounts = backend_arg.mounts.clone();
+			for (bind, readonly) in arg
+				.mounts
+				.binds
+				.iter()
+				.map(|bind| (bind, false))
+				.chain(arg.mounts.ro_binds.iter().map(|bind| (bind, true)))
+			{
+				if bind.target == Path::new("/") {
+					continue;
+				}
+				let target = bind
+					.target
+					.strip_prefix("/")
+					.map_err(|error| tg::error!(!error, "invalid gvisor mount target"))?;
+				let mount = tg::sandbox::Mount {
+					readonly,
+					source: root.join(target),
+					target: bind.target.clone(),
+				};
+				mounts.push(mount);
+			}
+
+			// Describe the prepared execution inputs.
+			let network = match arg.network {
+				None => None,
+				Some(Network::Host) => Some(crate::gvisor::run::Network::Host),
+				Some(Network::Pasta { .. } | Network::Veth { .. }) => {
+					Some(crate::gvisor::run::Network::Sandbox)
+				},
+			};
+			let prepared = crate::gvisor::run::Prepared {
+				mounts,
+				network,
+				rlimit_nofile: arg.rlimit_nofile,
+				root: root.to_owned(),
+			};
+
+			// Invoke the backend with its configuration and prepared inputs.
+			let status = crate::gvisor::run::run(command, &backend_arg, &prepared)?;
+			std::process::exit(i32::from(status));
 		},
-		crate::Backend::CloudHypervisor(_) | crate::Backend::Seatbelt => {
-			Err(tg::error!("the backend does not use Linux resource setup"))
-		},
+		Backend::CloudHypervisor(_) => unreachable!(),
 	}
 }
 
-fn execute(mut command: std::process::Command) -> tg::Result<()> {
-	use std::os::unix::process::CommandExt as _;
-	let error = command.exec();
-	Err(tg::error!(!error, "failed to execute the sandbox backend"))
-}
-
-fn setup_network(arg: &Arg) -> tg::Result<()> {
+fn setup_network(arg: &Options) -> tg::Result<()> {
 	match &arg.network {
 		Some(Network::Host) => {},
 		Some(Network::Pasta { fd } | Network::Veth { fd, .. }) => {
@@ -380,15 +418,17 @@ fn setup_network(arg: &Arg) -> tg::Result<()> {
 }
 
 fn prepare_filesystem(
-	arg: &mut Arg,
+	arg: &mut Options,
 	host_namespace: Option<&OwnedFd>,
+	uid: u32,
+	gid: u32,
 ) -> tg::Result<Option<OwnedFd>> {
 	// Open and prepare the sandbox filesystem.
 	let (Some(path), Some(socket)) = (arg.filesystem_path.clone(), arg.filesystem_fd) else {
 		return Ok(None);
 	};
 	let filesystem = crate::filesystem::open(&path)?;
-	crate::filesystem::prepare(&filesystem, arg.uid, arg.gid)?;
+	crate::filesystem::prepare(&filesystem, uid, gid)?;
 
 	// Rewrite the mounts to use the prepared filesystem.
 	arg.mounts.filesystem_mount_fd = Some(filesystem.as_raw_fd());
