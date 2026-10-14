@@ -615,7 +615,7 @@ impl Search {
 			} else {
 				state.verify_ancestor_or_descendant(key.clone());
 			}
-			if self.visited.contains(&key) {
+			if self.visited.contains(&key) || next_depth > self.budget.config.max_depth {
 				continue;
 			}
 			if !self.budget.add(1, 1, next_depth) {
@@ -650,7 +650,7 @@ impl Search {
 				continue;
 			}
 			let neighbor = candidate.neighbor.clone();
-			if !self.visited.contains(&neighbor) {
+			if !self.visited.contains(&neighbor) && checks.depth < self.budget.config.max_depth {
 				if !self.budget.add(candidate.edges, 1, checks.depth + 1) {
 					self.exhausted = true;
 					self.queues
@@ -815,7 +815,7 @@ impl Search {
 				container.clone(),
 				self.token_subject.as_ref(),
 			);
-			if self.visited_subjects.contains(&container) {
+			if self.visited_subjects.contains(&container) || next_depth > self.budget.config.max_depth {
 				continue;
 			}
 			if !self.budget.add_node(next_depth) {
@@ -886,7 +886,9 @@ impl Search {
 			return;
 		}
 		let (resource, permission, _) = key.clone();
-		if !matches!(permission, tg::authorization::Permission::Object(_)) {
+		if !matches!(permission, tg::authorization::Permission::Object(_))
+			&& depth < self.budget.config.max_depth
+		{
 			self.queues
 				.entry(depth + 1)
 				.or_default()
@@ -1163,6 +1165,9 @@ impl Search {
 			.visited_process_objects
 			.insert((source.clone(), object.clone()))
 		{
+			return;
+		}
+		if depth > self.budget.config.max_depth {
 			return;
 		}
 		if !self.budget.add(1, 1, depth) {
@@ -1506,5 +1511,77 @@ fn principal_for_resource(resource: &tg::Id) -> Option<tg::Principal> {
 			.ok()
 			.map(tg::Principal::User),
 		_ => None,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn exceeding_the_depth_limit_does_not_exhaust_the_search() {
+		let config = crate::verify::SearchConfig {
+			max_depth: 1,
+			..Default::default()
+		};
+		let mut state = State::default();
+		let target = key(0);
+		let mut search = Search::new(
+			config,
+			&tg::Principal::Anonymous,
+			&mut state,
+			vec![target],
+			&[],
+		);
+		let deep_parent = key(1);
+		let deep_child = key(2);
+		let read = Read::ObjectChildren {
+			after: None,
+			depth: 1,
+			limit: 1,
+			object: object(&deep_parent),
+		};
+		let output = ReadOutput::Ids {
+			after: None,
+			ids: vec![deep_child.0],
+		};
+		search.apply(&mut state, read, output).unwrap();
+		assert!(!search.exhausted);
+		assert_eq!(search.budget.nodes, 0);
+
+		let shallow_parent = key(3);
+		let shallow_child = key(4);
+		state.verify_ancestor_or_descendant(shallow_parent.clone());
+		let read = Read::ObjectChildren {
+			after: None,
+			depth: 0,
+			limit: 1,
+			object: object(&shallow_parent),
+		};
+		let output = ReadOutput::Ids {
+			after: None,
+			ids: vec![shallow_child.0],
+		};
+		search.apply(&mut state, read, output).unwrap();
+		let reads = search.take_reads(&mut state, 1);
+
+		assert!(!search.exhausted);
+		assert!(matches!(reads.as_slice(), [Read::DescendantChecks(_)]));
+	}
+
+	fn key(value: u8) -> Key {
+		let resource = tg::Id::from(tg::object::Id::new(
+			tg::object::Kind::Blob,
+			&vec![value].into(),
+		));
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+
+		(resource, permission, None)
+	}
+
+	fn object(key: &Key) -> tg::object::Id {
+		tg::object::Id::try_from(key.0.clone()).unwrap()
 	}
 }
