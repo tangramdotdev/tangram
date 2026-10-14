@@ -11,10 +11,10 @@ def main [--fdb-cluster: path] {
 		'docker:docker@127.0.0.1:4500'
 	}
 
-	cargo build --all-features --package tangram_cli --package tangram_scylla_client
+	cargo build --release --all-features --package tangram_cli --package tangram_scylla_client
 	let target = cargo metadata --format-version 1 --no-deps | from json | get target_directory
-	let scylla = $target | path join debug tangram_scylla_client
-	let tangram = $target | path join debug tangram
+	let scylla = $target | path join release tangram_scylla_client
+	let tangram = $target | path join release tangram
 
 	let directory = '.tangram/cloud'
 	mkdir $directory
