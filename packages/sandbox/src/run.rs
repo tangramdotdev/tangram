@@ -155,3 +155,63 @@ impl Config {
 		Ok(())
 	}
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn configuration_round_trip() {
+		for backend in [
+			Backend::Builtin(linux::Arg::default()),
+			Backend::Bubblewrap {
+				arg: linux::Arg::default(),
+				path: "bwrap".into(),
+			},
+			Backend::Gvisor {
+				arg: linux::Arg::default(),
+				path: "runsc".into(),
+				platform: crate::Platform::Kvm,
+			},
+		] {
+			let arg = Arg { backend };
+			let value = serde_json::to_value(&arg).unwrap();
+			let decoded: Arg = serde_json::from_value(value.clone()).unwrap();
+			assert_eq!(serde_json::to_value(decoded).unwrap(), value);
+		}
+	}
+
+	#[tokio::test]
+	async fn large_configuration_pipe() {
+		let mut launch = linux::Arg::default();
+		for index in 0..64 {
+			launch
+				.process
+				.environment
+				.insert(format!("KEY_{index}"), "x".repeat(4096));
+		}
+		let arg = Arg {
+			backend: Backend::Builtin(launch),
+		};
+		let contents = serde_json::to_vec(&arg).unwrap();
+		let mut command = tokio::process::Command::new("/bin/sh");
+		command
+			.arg("-c")
+			.arg("for arg; do fd=$arg; done; eval \"wc -c <&$fd\"")
+			.arg("transport-test");
+		command.stdout(std::process::Stdio::piped());
+		let config = configure_command(&mut command, &arg).unwrap();
+		let child = command.spawn().unwrap();
+		config.finish().unwrap();
+		let output = child.wait_with_output().await.unwrap();
+		assert!(output.status.success());
+		assert_eq!(
+			String::from_utf8(output.stdout)
+				.unwrap()
+				.trim()
+				.parse::<usize>()
+				.unwrap(),
+			contents.len()
+		);
+	}
+}

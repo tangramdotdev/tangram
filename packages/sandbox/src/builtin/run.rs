@@ -453,3 +453,37 @@ fn envstring(key: &OsStr, value: &OsStr) -> tg::Result<CString> {
 		.map_err(|error| tg::error!(!error, "failed to encode an environment entry"))?;
 	Ok(value)
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn hostname_requires_uts_namespace() {
+		let arguments = ["--hostname", "tangram-test", "--", "/bin/true"]
+			.map(OsString::from)
+			.to_vec();
+		let error = run(arguments).unwrap_err();
+		assert!(
+			error
+				.trace()
+				.to_string()
+				.contains("--hostname requires --unshare-uts")
+		);
+	}
+
+	#[test]
+	fn tangram_resource_options_are_not_native() {
+		for option in [
+			"--cgroup",
+			"--cgroup-fd",
+			"--filesystem-fd",
+			"--network-fd",
+			"--nice",
+			"--rlimit-nofile",
+			"--index",
+		] {
+			assert!(Arg::try_parse_from(["builtin", option, "0", "--", "/bin/true"]).is_err());
+		}
+	}
+}
