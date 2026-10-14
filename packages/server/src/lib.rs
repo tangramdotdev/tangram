@@ -623,26 +623,26 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
 		#[cfg(target_os = "linux")]
-		if config.roles.contains(&self::config::Role::Runner) && config.runner.resources.harden {
+		if config.roles.contains(&self::config::Role::Runner) && config.runner.backend.harden() {
 			tangram_sandbox::host::validate(&temp_path).map_err(|error| {
 				tg::error!(
 					!error,
 					"the host does not satisfy the hardened container prerequisites"
 				)
 			})?;
-			let container = &config.runner.resources;
+			let container = config.runner.backend.resources(&config.runner.resources);
 			tracing::info!(
 				cpu = config.scheduler.default_cpu,
-				filesystem_inodes = ?container.max_filesystem_inodes(),
-				filesystem_size = ?container.max_filesystem_size(),
+				filesystem_inodes = ?container.max_filesystem_inodes,
+				filesystem_size = ?container.max_filesystem_size,
 				gid_map = ?container.gid_map.as_ref().map(|map| (map.host, map.count)),
 				harden = true,
-				max_duration = ?container.max_duration(),
-				max_open_files = ?container.max_open_files(),
-				max_pids = ?container.max_pids(),
+				max_duration = ?container.max_duration,
+				max_open_files = ?container.max_open_files,
+				max_pids = ?container.max_pids,
 				memory = config.scheduler.default_memory,
-				memory_swap = ?container.memory_swap(),
-				seccomp = ?container.seccomp(),
+				memory_swap = ?container.memory_swap,
+				seccomp = ?container.seccomp,
 				uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
 				"validated the hardened container isolation profile"
 			);
@@ -1059,15 +1059,8 @@ impl Server {
 				));
 			}
 		}
-		let container = &config.runner.resources;
-		if !matches!(config.runner.backend, config::RunnerBackend::Builtin)
-			&& (container.uid_map.is_some() || container.gid_map.is_some())
-		{
-			return Err(tg::error!(
-				"subordinate identity maps require the builtin backend"
-			));
-		}
-		container.filesystem_project_ids.validate()?;
+		let container = config.runner.backend.resources(&config.runner.resources);
+		config.runner.resources.filesystem_project_ids.validate()?;
 		if container.max_open_files == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox open files must be greater than zero"
@@ -1083,41 +1076,43 @@ impl Server {
 				"the maximum number of container sandbox pids must be greater than zero"
 			));
 		}
-		if config.runner.resources.max_filesystem_inodes == Some(0) {
+		if container.max_filesystem_inodes == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox filesystem inodes must be greater than zero"
 			));
 		}
-		if config.runner.resources.max_filesystem_size == Some(0) {
+		if container.max_filesystem_size == Some(0) {
 			return Err(tg::error!(
 				"the maximum container sandbox filesystem size must be greater than zero"
 			));
 		}
 		if config.advanced.preserve_temp_directories
-			&& (container.max_filesystem_inodes().is_some()
-				|| container.max_filesystem_size().is_some())
+			&& (container.max_filesystem_inodes.is_some()
+				|| container.max_filesystem_size.is_some())
 		{
 			return Err(tg::error!(
 				"container filesystem limits are incompatible with preserving temp directories"
 			));
 		}
-		if container.harden && (container.uid_map.is_none() || container.gid_map.is_none()) {
-			return Err(tg::error!(
-				"container uid and gid maps are required when container hardening is enabled"
-			));
-		}
-		if container.uid_map.is_some() != container.gid_map.is_some() {
-			return Err(tg::error!(
-				"container uid and gid maps must be configured together"
-			));
-		}
-		if let Some(map) = &container.uid_map {
-			// SAFETY: This function has no preconditions.
-			map.validate(unsafe { libc::getuid() }, "uid")?;
-		}
-		if let Some(map) = &container.gid_map {
-			// SAFETY: This function has no preconditions.
-			map.validate(unsafe { libc::getgid() }, "gid")?;
+		if let config::RunnerBackend::Builtin(backend) = &config.runner.backend {
+			if backend.harden && (backend.uid_map.is_none() || backend.gid_map.is_none()) {
+				return Err(tg::error!(
+					"hardened builtin isolation requires subordinate identity maps"
+				));
+			}
+			if backend.uid_map.is_some() != backend.gid_map.is_some() {
+				return Err(tg::error!(
+					"builtin uid and gid maps must be configured together"
+				));
+			}
+			if let Some(map) = &backend.uid_map {
+				// SAFETY: This function has no preconditions.
+				map.validate(unsafe { libc::getuid() }, "uid")?;
+			}
+			if let Some(map) = &backend.gid_map {
+				// SAFETY: This function has no preconditions.
+				map.validate(unsafe { libc::getgid() }, "gid")?;
+			}
 		}
 
 		// Validate the regions.

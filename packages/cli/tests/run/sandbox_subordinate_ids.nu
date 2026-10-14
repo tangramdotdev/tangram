@@ -12,7 +12,7 @@ if not (container_id_mapped_mount_supported) {
 let maps = container_id_maps
 let local = server spawn --busybox --config {
 	runner: {
-		resources: $maps,
+		backend: ({ kind: builtin } | merge $maps),
 	},
 }
 

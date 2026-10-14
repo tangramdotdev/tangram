@@ -673,7 +673,7 @@ impl Session {
 			tangram_sandbox::Backend::Builtin
 				| tangram_sandbox::Backend::Bubblewrap { .. }
 				| tangram_sandbox::Backend::Gvisor { .. }
-		) && self.server.config().runner.resources.harden
+		) && self.server.config().runner.backend.harden()
 		{
 			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
 				return Err(tg::error!(
@@ -716,7 +716,7 @@ impl Session {
 		}
 
 		// Enforce the sandbox storage maximum only when storage limits are enabled, because enforcement requires a filesystem with project quotas.
-		if !self.server.config.runner.resources.storage_limits() {
+		if !self.server.config.runner.backend.storage_limits() {
 			arg.storage = None;
 		}
 

@@ -16,13 +16,15 @@ for kind in [builtin bubblewrap gvisor-systrap gvisor-kvm] {
             { kind: gvisor, path: (which runsc | first | get path), platform: $platform }
         },
     }
+    let backend = $backend | merge { max_open_files: 512 }
+    let backend = if $kind in [builtin bubblewrap] { $backend | merge { seccomp: default } } else { $backend }
     let directory = mktemp --directory
     let local = server spawn --directory $directory --config { runner: { backend: $backend } }
     let path = artifact {
         tangram.ts: '
             export default async function () {
                 await using sandbox = await tg.Sandbox.create().cpu(1).network(true);
-                await sandbox.run`sh -c "i=0; while [ $i -lt 10000 ]; do i=$((i+1)); done"`;
+                await sandbox.run`sh -c "test $(ulimit -n) -eq 512; i=0; while [ $i -lt 10000 ]; do i=$((i+1)); done"`;
                 console.log(sandbox.id);
             }
         ',
@@ -39,10 +41,9 @@ for kind in [builtin bubblewrap gvisor-systrap gvisor-kvm] {
 # External launchers reject subordinate ranges before starting a runner.
 {
     runner: {
-        backend: { kind: gvisor },
-        resources: { uid_map: { host: 100000, count: 65536 }, gid_map: { host: 100000, count: 65536 } },
+        backend: { kind: gvisor, uid_map: { host: 100000, count: 65536 }, gid_map: { host: 100000, count: 65536 } },
     },
 } | to json | save invalid.json
 let output = tg -c invalid.json --directory invalid server run | complete
 failure $output
-assert ($output.stderr | str contains 'subordinate identity maps require the builtin backend')
+assert ($output.stderr | str contains 'unknown field')

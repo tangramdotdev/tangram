@@ -1814,19 +1814,70 @@ pub struct Runner {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case", tag = "kind", deny_unknown_fields)]
 pub enum RunnerBackend {
-	Builtin,
-	Bubblewrap {
-		#[serde(default)]
-		path: Option<PathBuf>,
-	},
+	Builtin(BuiltinBackend),
+	Bubblewrap(BubblewrapBackend),
 	CloudHypervisor(CloudHypervisorBackend),
-	Gvisor {
-		#[serde(default)]
-		path: Option<PathBuf>,
-		#[serde(default)]
-		platform: tangram_sandbox::Platform,
-	},
-	Seatbelt,
+	Gvisor(GvisorBackend),
+	Seatbelt {},
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuiltinBackend {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub gid_map: Option<IdMap>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub harden: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_inodes: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_size: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_open_files: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage_limits: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub uid_map: Option<IdMap>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BubblewrapBackend {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub harden: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_inodes: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_size: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_open_files: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage_limits: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GvisorBackend {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub harden: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_inodes: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_size: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_open_files: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+	#[serde(default)]
+	pub platform: tangram_sandbox::Platform,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage_limits: Option<bool>,
 }
 
 #[serde_as]
@@ -1836,39 +1887,15 @@ pub struct RunnerResources {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub filesystem_project_ids: Option<FilesystemProjectIds>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub gid_map: Option<IdMap>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub harden: Option<bool>,
-
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_duration: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_filesystem_inodes: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_filesystem_size: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_open_files: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_pids: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory_swap: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub storage_limits: Option<bool>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub uid_map: Option<IdMap>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -5000,7 +5027,7 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 		target.backend = resolve_runner_backend(source)?;
 	}
 	if let Some(source) = source.resources {
-		target.resources = resolve_runner_resources(source);
+		target.resources = resolve_runner_resources(&source);
 	}
 	if let Some(source) = source.javascript {
 		target.javascript = resolve_javascript(source);
@@ -5073,42 +5100,63 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 
 fn resolve_runner_backend(source: RunnerBackend) -> tg::Result<server::RunnerBackend> {
 	let backend = match source {
-		RunnerBackend::Builtin => server::RunnerBackend::Builtin,
-		RunnerBackend::Bubblewrap { path } => server::RunnerBackend::Bubblewrap {
-			path: path.unwrap_or_else(|| "bwrap".into()),
+		RunnerBackend::Builtin(source) => {
+			let config = server::BuiltinBackend {
+				gid_map: source
+					.gid_map
+					.map(|map| resolve_runner_id_map(map, "/usr/bin/newgidmap")),
+				harden: source.harden.unwrap_or_default(),
+				max_filesystem_inodes: source.max_filesystem_inodes,
+				max_filesystem_size: source.max_filesystem_size,
+				max_open_files: source.max_open_files,
+				seccomp: source.seccomp,
+				storage_limits: source.storage_limits.unwrap_or_default(),
+				uid_map: source
+					.uid_map
+					.map(|map| resolve_runner_id_map(map, "/usr/bin/newuidmap")),
+			};
+			server::RunnerBackend::Builtin(config)
+		},
+		RunnerBackend::Bubblewrap(source) => {
+			let config = server::BubblewrapBackend {
+				harden: source.harden.unwrap_or_default(),
+				max_filesystem_inodes: source.max_filesystem_inodes,
+				max_filesystem_size: source.max_filesystem_size,
+				max_open_files: source.max_open_files,
+				path: source.path.unwrap_or_else(|| "bwrap".into()),
+				seccomp: source.seccomp,
+				storage_limits: source.storage_limits.unwrap_or_default(),
+			};
+			server::RunnerBackend::Bubblewrap(config)
 		},
 		RunnerBackend::CloudHypervisor(source) => {
 			server::RunnerBackend::CloudHypervisor(resolve_cloud_hypervisor_backend(source)?)
 		},
-		RunnerBackend::Gvisor { path, platform } => server::RunnerBackend::Gvisor {
-			path: path.unwrap_or_else(|| "runsc".into()),
-			platform,
+		RunnerBackend::Gvisor(source) => {
+			let config = server::GvisorBackend {
+				harden: source.harden.unwrap_or_default(),
+				max_filesystem_inodes: source.max_filesystem_inodes,
+				max_filesystem_size: source.max_filesystem_size,
+				max_open_files: source.max_open_files,
+				path: source.path.unwrap_or_else(|| "runsc".into()),
+				platform: source.platform,
+				storage_limits: source.storage_limits.unwrap_or_default(),
+			};
+			server::RunnerBackend::Gvisor(config)
 		},
-		RunnerBackend::Seatbelt => server::RunnerBackend::Seatbelt,
+		RunnerBackend::Seatbelt {} => server::RunnerBackend::Seatbelt,
 	};
 	Ok(backend)
 }
 
-fn resolve_runner_resources(source: RunnerResources) -> server::RunnerResources {
+fn resolve_runner_resources(source: &RunnerResources) -> server::RunnerResources {
 	server::RunnerResources {
 		filesystem_project_ids: source
 			.filesystem_project_ids
 			.map_or_else(Default::default, Into::into),
-		gid_map: source
-			.gid_map
-			.map(|map| resolve_runner_id_map(map, "/usr/bin/newgidmap")),
-		harden: source.harden.unwrap_or_default(),
 		max_duration: source.max_duration,
-		max_filesystem_inodes: source.max_filesystem_inodes,
-		max_filesystem_size: source.max_filesystem_size,
-		max_open_files: source.max_open_files,
 		max_pids: source.max_pids,
 		memory_swap: source.memory_swap,
-		seccomp: source.seccomp,
-		storage_limits: source.storage_limits.unwrap_or_default(),
-		uid_map: source
-			.uid_map
-			.map(|map| resolve_runner_id_map(map, "/usr/bin/newuidmap")),
 	}
 }
 
@@ -6236,15 +6284,11 @@ mod tests {
 			)
 			.unwrap();
 			let target = resolve_runner(source).unwrap();
-			let server::RunnerBackend::Gvisor {
-				path,
-				platform: selected,
-			} = target.backend
-			else {
+			let server::RunnerBackend::Gvisor(config) = target.backend else {
 				panic!("expected gvisor");
 			};
-			assert_eq!(path, Path::new("runsc"));
-			assert_eq!(selected.name(), platform);
+			assert_eq!(config.path, Path::new("runsc"));
+			assert_eq!(config.platform.name(), platform);
 		}
 		assert!(
 			serde_json::from_value::<Runner>(
@@ -6255,33 +6299,84 @@ mod tests {
 	}
 
 	#[test]
+	fn runner_backend_settings_apply_only_to_supported_backends() {
+		for kind in ["builtin", "bubblewrap"] {
+			let source: Runner = serde_json::from_value(serde_json::json!({
+				"backend": { "kind": kind, "max_open_files": 512, "seccomp": "default" }
+			}))
+			.unwrap();
+			let target = resolve_runner(source).unwrap();
+			let resources = target.backend.resources(&target.resources);
+			assert_eq!(resources.max_open_files, Some(512));
+			assert_eq!(
+				resources.seccomp,
+				Some(tangram_sandbox::SeccompPolicy::Default)
+			);
+		}
+		let source: Runner = serde_json::from_value(serde_json::json!({
+			"backend": { "kind": "gvisor", "max_open_files": 256, "harden": true }
+		}))
+		.unwrap();
+		let target = resolve_runner(source).unwrap();
+		let resources = target.backend.resources(&target.resources);
+		assert_eq!(resources.max_open_files, Some(256));
+		assert_eq!(resources.seccomp, None);
+		assert_eq!(resources.max_filesystem_size, Some(1_073_741_824));
+		for kind in ["gvisor", "seatbelt", "cloud-hypervisor"] {
+			assert!(
+				serde_json::from_value::<Runner>(serde_json::json!({
+					"backend": { "kind": kind, "seccomp": "default" }
+				}))
+				.is_err()
+			);
+		}
+		for kind in ["bubblewrap", "gvisor"] {
+			assert!(
+				serde_json::from_value::<Runner>(serde_json::json!({
+					"backend": { "kind": kind, "uid_map": { "host": 100_000 } }
+				}))
+				.is_err()
+			);
+		}
+		assert!(
+			serde_json::from_value::<Runner>(serde_json::json!({
+				"resources": { "seccomp": "default" }
+			}))
+			.is_err()
+		);
+	}
+
+	#[test]
 	fn parses_and_resolves_runner_resources() {
 		let source: Runner = serde_json::from_value(serde_json::json!({
+			"backend": {
+				"kind": "builtin",
+				"gid_map": { "host": 200_000 },
+				"harden": true,
+				"max_open_files": 2048,
+				"seccomp": "default",
+				"uid_map": { "count": 1000, "helper": "/opt/newuidmap", "host": 100_000 }
+			},
 			"resources": {
-					"filesystem_project_ids": { "count": 10_000, "start": 20_000 },
-					"gid_map": { "host": 200_000 },
-					"harden": true,
-					"max_duration": 123.5,
-					"max_open_files": 2048,
-					"max_pids": 1234,
-					"memory_swap": 0,
-					"seccomp": "default",
-					"uid_map": { "count": 1000, "helper": "/opt/newuidmap", "host": 100_000 }
+				"filesystem_project_ids": { "count": 10_000, "start": 20_000 },
+				"max_duration": 123.5,
+				"max_pids": 1234,
+				"memory_swap": 0
 			},
 		}))
 		.unwrap();
 		let target = resolve_runner(source).unwrap();
-		let container = target.resources;
+		let container = target.backend.resources(&target.resources);
 
-		assert_eq!(container.filesystem_project_ids.count, 10_000);
-		assert_eq!(container.filesystem_project_ids.start, 20_000);
+		assert_eq!(target.resources.filesystem_project_ids.count, 10_000);
+		assert_eq!(target.resources.filesystem_project_ids.start, 20_000);
 		assert_eq!(container.gid_map.as_ref().unwrap().count, 65_536);
 		assert_eq!(
 			container.gid_map.as_ref().unwrap().helper,
 			Path::new("/usr/bin/newgidmap")
 		);
 		assert_eq!(container.gid_map.as_ref().unwrap().host, 200_000);
-		assert!(container.harden);
+		assert!(target.backend.harden());
 		assert_eq!(container.max_duration, Some(Duration::from_millis(123_500)));
 		assert_eq!(container.max_open_files, Some(2048));
 		assert_eq!(container.max_pids, Some(1234));
@@ -6305,14 +6400,14 @@ mod tests {
 		}))
 		.unwrap();
 		let target = resolve_runner(source).unwrap();
-		let container = target.resources;
+		let container = target.backend.resources(&target.resources);
 
-		assert!(!container.harden);
+		assert!(!target.backend.harden());
 		assert_eq!(
-			container.filesystem_project_ids.count,
+			target.resources.filesystem_project_ids.count,
 			i32::MAX.cast_unsigned() - 1
 		);
-		assert_eq!(container.filesystem_project_ids.start, 1);
+		assert_eq!(target.resources.filesystem_project_ids.start, 1);
 		assert!(container.gid_map.is_none());
 		assert_eq!(container.max_pids, None);
 		assert!(container.uid_map.is_none());

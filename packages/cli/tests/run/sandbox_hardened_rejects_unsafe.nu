@@ -16,7 +16,7 @@ let cgroup_parent = container_cgroup_parent [cpu memory pids]
 
 let local = server spawn --directory $directory --config {
 	runner: {
-		resources: ({ harden: true } | merge (container_id_maps)),
+		backend: ({ kind: builtin, harden: true } | merge (container_id_maps)),
 	},
 }
 

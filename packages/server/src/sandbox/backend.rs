@@ -6,9 +6,9 @@ use {
 impl Server {
 	pub(crate) fn resolve_sandbox_backend(&self) -> tg::Result<tangram_sandbox::Backend> {
 		let backend = match &self.config.runner.backend {
-			RunnerBackend::Builtin => tangram_sandbox::Backend::Builtin,
-			RunnerBackend::Bubblewrap { path } => {
-				tangram_sandbox::Backend::Bubblewrap { path: path.clone() }
+			RunnerBackend::Builtin(_) => tangram_sandbox::Backend::Builtin,
+			RunnerBackend::Bubblewrap(config) => tangram_sandbox::Backend::Bubblewrap {
+				path: config.path.clone(),
 			},
 			RunnerBackend::CloudHypervisor(config) => {
 				let image_path = self
@@ -33,9 +33,9 @@ impl Server {
 					snapshot_memory: config.snapshot_memory,
 				})
 			},
-			RunnerBackend::Gvisor { path, platform } => tangram_sandbox::Backend::Gvisor {
-				path: path.clone(),
-				platform: *platform,
+			RunnerBackend::Gvisor(config) => tangram_sandbox::Backend::Gvisor {
+				path: config.path.clone(),
+				platform: config.platform,
 			},
 			RunnerBackend::Seatbelt => tangram_sandbox::Backend::Seatbelt,
 		};
@@ -49,19 +49,9 @@ impl Server {
 	}
 
 	pub(crate) fn sandbox_resources(&self) -> tangram_sandbox::Resources {
-		let config = &self.config.runner.resources;
-		tangram_sandbox::Resources {
-			cgroup_readonly: config.harden,
-			filesystem_project_id: None,
-			gid_map: config.gid_map.as_ref().map(Into::into),
-			max_duration: config.max_duration(),
-			max_filesystem_inodes: config.max_filesystem_inodes(),
-			max_filesystem_size: config.max_filesystem_size(),
-			max_open_files: config.max_open_files(),
-			max_pids: config.max_pids(),
-			memory_swap: config.memory_swap(),
-			seccomp: config.seccomp(),
-			uid_map: config.uid_map.as_ref().map(Into::into),
-		}
+		self.config
+			.runner
+			.backend
+			.resources(&self.config.runner.resources)
 	}
 }

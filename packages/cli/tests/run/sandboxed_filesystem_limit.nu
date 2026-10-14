@@ -14,7 +14,8 @@ let directory = mktemp --directory --tmpdir-path $root
 
 let local = server spawn --busybox --directory $directory --config {
 	runner: {
-		resources: {
+		backend: {
+			kind: builtin,
 				max_filesystem_inodes: 4096,
 				max_filesystem_size: 16777216,
 		},

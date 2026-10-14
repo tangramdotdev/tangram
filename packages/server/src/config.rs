@@ -1166,54 +1166,56 @@ pub struct Runner {
 
 #[derive(Clone, Debug)]
 pub enum RunnerBackend {
-	Builtin,
-	Bubblewrap {
-		path: PathBuf,
-	},
+	Builtin(BuiltinBackend),
+	Bubblewrap(BubblewrapBackend),
 	CloudHypervisor(CloudHypervisorBackend),
-	Gvisor {
-		path: PathBuf,
-		platform: tangram_sandbox::Platform,
-	},
+	Gvisor(GvisorBackend),
 	Seatbelt,
 }
 
-impl Default for RunnerBackend {
-	fn default() -> Self {
-		if cfg!(target_os = "macos") {
-			Self::Seatbelt
-		} else {
-			Self::Builtin
-		}
-	}
+#[derive(Clone, Debug, Default)]
+pub struct BuiltinBackend {
+	pub gid_map: Option<IdMap>,
+	pub harden: bool,
+	pub max_filesystem_inodes: Option<u64>,
+	pub max_filesystem_size: Option<u64>,
+	pub max_open_files: Option<u64>,
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+	pub storage_limits: bool,
+	pub uid_map: Option<IdMap>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BubblewrapBackend {
+	pub harden: bool,
+	pub max_filesystem_inodes: Option<u64>,
+	pub max_filesystem_size: Option<u64>,
+	pub max_open_files: Option<u64>,
+	pub path: PathBuf,
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+	pub storage_limits: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct GvisorBackend {
+	pub harden: bool,
+	pub max_filesystem_inodes: Option<u64>,
+	pub max_filesystem_size: Option<u64>,
+	pub max_open_files: Option<u64>,
+	pub path: PathBuf,
+	pub platform: tangram_sandbox::Platform,
+	pub storage_limits: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct RunnerResources {
 	pub filesystem_project_ids: FilesystemProjectIds,
 
-	pub gid_map: Option<IdMap>,
-
-	pub harden: bool,
-
 	pub max_duration: Option<Duration>,
-
-	pub max_filesystem_inodes: Option<u64>,
-
-	pub max_filesystem_size: Option<u64>,
-
-	pub max_open_files: Option<u64>,
 
 	pub max_pids: Option<u64>,
 
 	pub memory_swap: Option<u64>,
-
-	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
-
-	/// Whether to enforce sandbox storage maximums as filesystem limits, which requires a disk-backed ext4 or XFS filesystem with project quotas enabled.
-	pub storage_limits: bool,
-
-	pub uid_map: Option<IdMap>,
 }
 
 #[derive(Clone, Debug)]
@@ -1238,50 +1240,83 @@ impl Default for FilesystemProjectIds {
 	}
 }
 
-impl RunnerResources {
+impl RunnerBackend {
 	#[must_use]
-	pub fn max_duration(&self) -> Option<Duration> {
-		self.max_duration
-			.or(self.harden.then_some(Duration::from_hours(1)))
-	}
-
-	#[must_use]
-	pub fn max_filesystem_inodes(&self) -> Option<u64> {
-		self.max_filesystem_inodes
-			.or(self.harden.then_some(262_144))
-	}
-
-	#[must_use]
-	pub fn max_filesystem_size(&self) -> Option<u64> {
-		self.max_filesystem_size
-			.or(self.harden.then_some(1_073_741_824))
-	}
-
-	#[must_use]
-	pub fn max_open_files(&self) -> Option<u64> {
-		self.max_open_files.or(self.harden.then_some(4096))
-	}
-
-	#[must_use]
-	pub fn max_pids(&self) -> Option<u64> {
-		self.max_pids.or(self.harden.then_some(1024))
-	}
-
-	#[must_use]
-	pub fn memory_swap(&self) -> Option<u64> {
-		self.memory_swap.or(self.harden.then_some(0))
-	}
-
-	#[must_use]
-	pub fn seccomp(&self) -> Option<tangram_sandbox::SeccompPolicy> {
-		self.seccomp.or(self
-			.harden
-			.then_some(tangram_sandbox::SeccompPolicy::Default))
+	pub fn harden(&self) -> bool {
+		match self {
+			Self::Builtin(config) => config.harden,
+			Self::Bubblewrap(config) => config.harden,
+			Self::CloudHypervisor(_) | Self::Seatbelt => false,
+			Self::Gvisor(config) => config.harden,
+		}
 	}
 
 	#[must_use]
 	pub fn storage_limits(&self) -> bool {
-		self.storage_limits || self.harden
+		let enabled = match self {
+			Self::Builtin(config) => config.storage_limits,
+			Self::Bubblewrap(config) => config.storage_limits,
+			Self::CloudHypervisor(_) | Self::Seatbelt => false,
+			Self::Gvisor(config) => config.storage_limits,
+		};
+		enabled || self.harden()
+	}
+
+	#[must_use]
+	pub fn resources(&self, common: &RunnerResources) -> tangram_sandbox::Resources {
+		let mut resources = match self {
+			Self::Builtin(config) => tangram_sandbox::Resources {
+				gid_map: config.gid_map.as_ref().map(Into::into),
+				max_filesystem_inodes: config.max_filesystem_inodes,
+				max_filesystem_size: config.max_filesystem_size,
+				max_open_files: config.max_open_files,
+				seccomp: config.seccomp.or(config
+					.harden
+					.then_some(tangram_sandbox::SeccompPolicy::Default)),
+				uid_map: config.uid_map.as_ref().map(Into::into),
+				..Default::default()
+			},
+			Self::Bubblewrap(config) => tangram_sandbox::Resources {
+				max_filesystem_inodes: config.max_filesystem_inodes,
+				max_filesystem_size: config.max_filesystem_size,
+				max_open_files: config.max_open_files,
+				seccomp: config.seccomp.or(config
+					.harden
+					.then_some(tangram_sandbox::SeccompPolicy::Default)),
+				..Default::default()
+			},
+			Self::CloudHypervisor(_) | Self::Seatbelt => tangram_sandbox::Resources::default(),
+			Self::Gvisor(config) => tangram_sandbox::Resources {
+				max_filesystem_inodes: config.max_filesystem_inodes,
+				max_filesystem_size: config.max_filesystem_size,
+				max_open_files: config.max_open_files,
+				..Default::default()
+			},
+		};
+		let harden = self.harden();
+		resources.cgroup_readonly = harden;
+		resources.max_duration = common
+			.max_duration
+			.or(harden.then_some(Duration::from_hours(1)));
+		resources.max_pids = common.max_pids.or(harden.then_some(1024));
+		resources.memory_swap = common.memory_swap.or(harden.then_some(0));
+		if harden {
+			resources.max_filesystem_inodes.get_or_insert(262_144);
+			resources.max_filesystem_size.get_or_insert(1_073_741_824);
+			resources.max_open_files.get_or_insert(4096);
+		}
+
+		resources
+	}
+}
+
+impl Default for RunnerBackend {
+	fn default() -> Self {
+		if cfg!(target_os = "macos") {
+			Self::Seatbelt
+		} else {
+			Self::Builtin(BuiltinBackend::default())
+		}
 	}
 }
 

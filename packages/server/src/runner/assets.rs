@@ -40,9 +40,9 @@ impl Assets {
 						.unwrap_or_else(|| path.join("vm/snapshot"));
 					(Some(image), Some(snapshot))
 				},
-				crate::config::RunnerBackend::Builtin
-				| crate::config::RunnerBackend::Bubblewrap { .. }
-				| crate::config::RunnerBackend::Gvisor { .. }
+				crate::config::RunnerBackend::Builtin(_)
+				| crate::config::RunnerBackend::Bubblewrap(_)
+				| crate::config::RunnerBackend::Gvisor(_)
 				| crate::config::RunnerBackend::Seatbelt => (None, None),
 			};
 			(root, image, snapshot)
