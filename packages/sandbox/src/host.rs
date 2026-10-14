@@ -2,7 +2,10 @@ use {
 	std::{
 		ffi::CString,
 		io::Read as _,
-		os::fd::{AsRawFd as _, FromRawFd as _},
+		os::{
+			fd::{AsRawFd as _, FromRawFd as _},
+			unix::net::UnixStream,
+		},
 		path::Path,
 	},
 	tangram_client::prelude::*,
@@ -23,6 +26,83 @@ pub fn validate(filesystem_path: &Path) -> tg::Result<()> {
 	validate_seccomp()?;
 	validate_mount_syscalls()?;
 	validate_filesystem(filesystem_path)?;
+
+	Ok(())
+}
+
+pub fn probe_id_mapped_mount(path: &Path) -> tg::Result<()> {
+	// Encode the identity maps before forking the child.
+	// SAFETY: These functions have no preconditions.
+	let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+	let uid_map = CString::new(format!("0 {uid} 1\n")).unwrap();
+	let gid_map = CString::new(format!("0 {gid} 1\n")).unwrap();
+
+	// Create a user namespace in a child while retaining the parent's filesystem privileges.
+	let (mut parent, child) = UnixStream::pair()
+		.map_err(|error| tg::error!(!error, "failed to create the mount probe socket pair"))?;
+	let pid = crate::linux::fork()?;
+	if pid == 0 {
+		// SAFETY: The child only calls async-signal-safe functions with live descriptors and valid buffers before exiting without running destructors.
+		unsafe {
+			libc::close(parent.as_raw_fd());
+
+			// Make the child's mapping files writable after an executable with file capabilities disables dumpability.
+			let error = if libc::unshare(libc::CLONE_NEWUSER) == 0
+				&& libc::prctl(libc::PR_SET_DUMPABLE, 1, 0, 0, 0) == 0
+				&& write_probe_file(c"/proc/self/uid_map", uid_map.as_bytes_with_nul()) == 0
+				&& write_probe_file(c"/proc/self/setgroups", b"deny\0") == 0
+				&& write_probe_file(c"/proc/self/gid_map", gid_map.as_bytes_with_nul()) == 0
+			{
+				0
+			} else {
+				*libc::__errno_location()
+			};
+			if libc::write(
+				child.as_raw_fd(),
+				(&raw const error).cast(),
+				std::mem::size_of_val(&error),
+			) != std::mem::size_of_val(&error).cast_signed()
+			{
+				libc::_exit(1);
+			}
+			let mut byte = 0u8;
+			while libc::read(child.as_raw_fd(), (&raw mut byte).cast(), 1) < 0 {
+				if *libc::__errno_location() != libc::EINTR {
+					break;
+				}
+			}
+			libc::_exit(0);
+		}
+	}
+
+	// Probe the backing filesystem without attaching a mount to the host namespace.
+	drop(child);
+	let result = (|| {
+		let mut bytes = [0; std::mem::size_of::<libc::c_int>()];
+		parent
+			.read_exact(&mut bytes)
+			.map_err(|error| tg::error!(!error, "failed to wait for the mount probe namespace"))?;
+		let error = libc::c_int::from_ne_bytes(bytes);
+		if error != 0 {
+			return Err(tg::error!(
+				source = std::io::Error::from_raw_os_error(error),
+				"failed to create the mount probe namespace"
+			));
+		}
+		let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
+			.map_err(|error| tg::error!(!error, "failed to open the mount probe namespace"))?
+			.into();
+		crate::filesystem::open_mapped(path, &namespace)?;
+		Ok(())
+	})();
+
+	// Release and reap the child even if the probe failed.
+	drop(parent);
+	let status = crate::linux::wait_for_child(pid)?;
+	result?;
+	if status != 0 {
+		return Err(tg::error!(%status, "the mount probe child failed"));
+	}
 
 	Ok(())
 }

@@ -5,8 +5,8 @@ use ../lib/test.nu *
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
-if ($env.TANGRAM_TEST_ID_MAPPED_MOUNTS? | default '') != '1' {
-	skip_test 'set TANGRAM_TEST_ID_MAPPED_MOUNTS=1 with CAP_SYS_ADMIN on tangram and an ID-mapped backing filesystem'
+if not (container_id_mapped_mount_supported) {
+	skip_test 'this test requires CAP_SYS_ADMIN on tangram and ID-mapped mount support from the backing filesystem'
 }
 
 let maps = container_id_maps

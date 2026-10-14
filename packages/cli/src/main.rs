@@ -449,7 +449,13 @@ fn main() -> std::process::ExitCode {
 	let args = Args::from_arg_matches(&matches).unwrap();
 	if let Command::Sandbox(self::sandbox::Args { command }) = args.command.clone() {
 		let result = match command {
+			#[cfg(target_os = "linux")]
+			self::sandbox::Command::ProbeIdMappedMount(args) => {
+				Some(Cli::command_sandbox_probe_id_mapped_mount(&args))
+			},
+
 			self::sandbox::Command::Run(args) => Some(Cli::command_sandbox_run(args)),
+
 			_ => None,
 		};
 		if let Some(result) = result {
