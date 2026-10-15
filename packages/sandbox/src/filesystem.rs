@@ -119,6 +119,7 @@ fn configure_quota(
 	size: Option<u64>,
 	inodes: Option<u64>,
 ) -> tg::Result<()> {
+	// Check the filesystem type.
 	let filesystem = kind(directory)?;
 	if !matches!(filesystem, EXT4_SUPER_MAGIC | XFS_SUPER_MAGIC) {
 		return Err(
@@ -143,6 +144,8 @@ fn configure_quota(
 			tg::error!(source = std::io::Error::last_os_error(), %project, "failed to assign the sandbox filesystem project; enable project quotas and grant CAP_SYS_ADMIN"),
 		);
 	}
+
+	// Set the project quota.
 	set_quota(directory, filesystem, project, size, inodes)?;
 
 	Ok(())
@@ -559,11 +562,13 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 		Box::new(move || usage(&directory, project))
 	};
 	let limit = Box::new(move |size| set_quota(&directory, filesystem, project, Some(size), None));
+
 	Ok(crate::budget::Control { limit, usage })
 }
 
 fn kind(directory: &std::fs::File) -> tg::Result<libc::c_long> {
 	let mut statistics = MaybeUninit::<libc::statfs>::uninit();
+
 	// SAFETY: The descriptor and output pointer are valid.
 	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
 		return Err(tg::error!(
@@ -571,8 +576,10 @@ fn kind(directory: &std::fs::File) -> tg::Result<libc::c_long> {
 			"failed to inspect the sandbox filesystem"
 		));
 	}
+
 	// SAFETY: fstatfs initialized the structure on success.
 	let statistics = unsafe { statistics.assume_init() };
+
 	Ok(statistics.f_type)
 }
 
