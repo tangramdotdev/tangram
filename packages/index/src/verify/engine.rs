@@ -143,7 +143,10 @@ impl Batch {
 		batch.run(client).await
 	}
 
-	/// Run the batch, keeping its progress on `Continue` so that a later run continues it.
+	/// Run the batch, retaining completed search progress on `Continue` for the next attempt.
+	/// A later attempt may use a different transaction, combining retained observations with newer facts.
+	/// Reads in an interrupted group are replayed, including any reads in that group that already succeeded.
+	/// Resume only after `Continue`; an error or cancellation may leave the batch incomplete.
 	pub async fn run<E>(
 		&mut self,
 		client: facts::Client<E>,
@@ -183,8 +186,7 @@ impl Batch {
 					std::iter::zip(std::iter::zip(&self.args, &mut results), stored)
 				{
 					result.storage = *storage;
-					if !storage.contains(arg.storage)
-						&& result.outcome == super::Outcome::Satisfied
+					if !storage.contains(arg.storage) && result.outcome == super::Outcome::Satisfied
 					{
 						result.outcome = super::Outcome::Unsatisfied;
 					}
@@ -1928,6 +1930,8 @@ mod tests {
 		tokio::sync::Barrier,
 	};
 
+	mod resume;
+
 	#[test]
 	fn a_direct_permission_is_evaluated_by_the_shared_policy() {
 		let object = object(0);
@@ -2263,102 +2267,6 @@ mod tests {
 				.all(|outcome| matches!(outcome, super::super::Outcome::Unsatisfied))
 		);
 		assert_eq!(maximum.load(Ordering::SeqCst), 2);
-	}
-
-	#[tokio::test]
-	async fn an_interrupted_batch_resumes_without_repeating_its_reads() {
-		#[derive(Clone, Debug)]
-		struct Interrupt;
-
-		let args = [
-			arg(object(0).into(), Some(empty_token(object(2)))),
-			arg(object(1).into(), Some(empty_token(object(3)))),
-		];
-		let answer = |request: facts::Request| match request {
-			facts::Request::Id { id } => facts::Output::Id(Some(id)),
-			facts::Request::Delegations { .. } => facts::Output::Delegations {
-				after: None,
-				delegations: Vec::new(),
-			},
-			facts::Request::ObjectParents { .. } => facts::Output::Ids {
-				after: None,
-				ids: Vec::new(),
-			},
-			facts::Request::ObjectProcesses { .. } => facts::Output::ObjectProcesses {
-				after: None,
-				processes: Vec::new(),
-			},
-			facts::Request::ResourcePermissions { .. }
-			| facts::Request::SubjectPermissions { .. } => facts::Output::Permissions {
-				after: None,
-				permissions: Vec::new(),
-			},
-			facts::Request::TargetTags { .. } => facts::Output::Tags {
-				after: None,
-				tags: Vec::new(),
-			},
-			request => panic!("received an unexpected fact request: {request:?}"),
-		};
-		let serve = |interrupt_at: Option<usize>, answered: Arc<AtomicUsize>| {
-			let (client, receiver) = facts::channel::<Interrupt>(1);
-			let provide = facts::serve(receiver, 1, move |request| {
-				let answered = answered.clone();
-				async move {
-					let index = answered.load(Ordering::SeqCst);
-					if interrupt_at == Some(index) {
-						return Ok(ControlFlow::Continue(Interrupt));
-					}
-					answered.fetch_add(1, Ordering::SeqCst);
-					Ok(ControlFlow::Break(answer(request)))
-				}
-			});
-			(client, provide)
-		};
-
-		// Count the reads of an uninterrupted verification.
-		let complete = Arc::new(AtomicUsize::new(0));
-		let (client, provide) = serve(None, complete.clone());
-		let verify = Batch::verify(
-			&args,
-			client,
-			super::super::Config::default(),
-			&tg::Principal::Anonymous,
-		);
-		let (outcome, ()) = futures::future::join(verify, provide).await;
-		let ControlFlow::Break(expected) = outcome.unwrap() else {
-			panic!("expected the verification to complete");
-		};
-		let complete = complete.load(Ordering::SeqCst);
-		assert!(complete > 2);
-
-		// Interrupt the verification partway through its search, then resume it.
-		let mut batch = Batch::new(
-			&args,
-			super::super::Config::default(),
-			&tg::Principal::Anonymous,
-		)
-		.unwrap();
-		let first = Arc::new(AtomicUsize::new(0));
-		let (client, provide) = serve(Some(complete / 2), first.clone());
-		let (outcome, ()) = futures::future::join(batch.run(client), provide).await;
-		assert!(matches!(outcome.unwrap(), ControlFlow::Continue(Interrupt)));
-		let first = first.load(Ordering::SeqCst);
-		assert_eq!(first, complete / 2);
-
-		let second = Arc::new(AtomicUsize::new(0));
-		let (client, provide) = serve(None, second.clone());
-		let (outcome, ()) = futures::future::join(batch.run(client), provide).await;
-		let ControlFlow::Break(resumed) = outcome.unwrap() else {
-			panic!("expected the resumed verification to complete");
-		};
-		let second = second.load(Ordering::SeqCst);
-
-		assert_eq!(
-			resumed.iter().map(|output| output.outcome).collect::<Vec<_>>(),
-			expected.iter().map(|output| output.outcome).collect::<Vec<_>>(),
-		);
-		assert!(second < complete);
-		assert_eq!(first + second, complete);
 	}
 
 	#[test]

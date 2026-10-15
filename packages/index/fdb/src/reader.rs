@@ -282,9 +282,9 @@ impl Index {
 			} => {
 				let batch = match batch {
 					Some(batch) => batch,
-					None => batch.insert(tangram_index::verify::Batch::new(
-						args, *config, principal,
-					)?),
+					None => {
+						batch.insert(tangram_index::verify::Batch::new(args, *config, principal)?)
+					},
 				};
 				let result = Self::verify_batch_with_transaction(
 					verification_fact_cache,
