@@ -1,12 +1,11 @@
 import * as tg from "../../index.ts";
-import { Request } from "../../http.ts";
+import { Request, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export namespace Wait {
 	export type Arg = {
 		lease?: string | null;
 		location?: tg.Location.Arg | null;
-		process: tg.Process.Id;
 		source?: tg.Process.Source;
 		tokens?: tg.Authorization.Tokens | null;
 	};
@@ -14,9 +13,10 @@ export namespace Wait {
 
 export async function waitProcess(
 	client: Client,
+	id: tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<tg.Process.Outcome> {
-	let promise = await waitProcessPromise(client, arg);
+	let promise = await waitProcessPromise(client, id, arg);
 	let outcome = await promise();
 	if (outcome === null) {
 		throw new Error("failed to find the process");
@@ -26,9 +26,10 @@ export async function waitProcess(
 
 export async function waitProcessPromise(
 	client: Client,
+	id: tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<() => Promise<tg.Process.Outcome | null>> {
-	let promise = await tryWaitProcessPromise(client, arg);
+	let promise = await tryWaitProcessPromise(client, id, arg);
 	if (promise === null) {
 		throw new Error("failed to find the process");
 	}
@@ -37,19 +38,21 @@ export async function waitProcessPromise(
 
 export async function tryWaitProcessPromise(
 	client: Client,
+	id: tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<(() => Promise<tg.Process.Outcome | null>) | null> {
 	return async () => {
-		return await waitProcessLoop(client, arg);
+		return await waitProcessLoop(client, id, arg);
 	};
 }
 
 async function waitProcessLoop(
 	client: Client,
+	id: tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<tg.Process.Outcome | null> {
 	while (true) {
-		let outcome = await waitProcessOnce(client, arg);
+		let outcome = await waitProcessOnce(client, id, arg);
 		if (outcome !== null) {
 			return outcome;
 		}
@@ -58,10 +61,11 @@ async function waitProcessLoop(
 
 async function waitProcessOnce(
 	client: Client,
+	id: tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<tg.Process.Outcome | null> {
 	let method = "POST";
-	let uri = "/processes/wait";
+	let uri = `/processes/${percentEncode(id)}/wait`;
 	let headers = {
 		accept: "text/event-stream",
 	};

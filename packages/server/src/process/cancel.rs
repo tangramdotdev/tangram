@@ -11,13 +11,9 @@ use {
 impl Session {
 	pub async fn try_cancel_process(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		let id = arg
-			.process
-			.clone()
-			.ok_or_else(|| tg::error!(argument, "missing the process"))?;
-		let id = &id;
 		if let Some(output) = self.try_cancel_process_runner(id, &arg).await? {
 			return Ok(Some(output));
 		}
@@ -240,7 +236,7 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		let Some(output) = client.try_cancel_process(arg).await.map_err(
+		let Some(output) = client.try_cancel_process(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to cancel the process"),
 		)?
 		else {
@@ -298,7 +294,7 @@ impl Session {
 			])),
 			..arg
 		};
-		let Some(output) = client.try_cancel_process(arg).await.map_err(
+		let Some(output) = client.try_cancel_process(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to cancel the process"),
 		)?
 		else {
@@ -310,12 +306,18 @@ impl Session {
 	pub(crate) async fn try_cancel_process_request(
 		&self,
 		request: http::Request<BoxBody>,
+		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
+
+		// Parse the ID.
+		let id = id
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 
 		// Parse the arg.
 		let (arg, _) = request
@@ -325,9 +327,9 @@ impl Session {
 		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
 
 		let Some(output) = self
-			.try_cancel_process(arg)
+			.try_cancel_process(&id, arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to cancel the process"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

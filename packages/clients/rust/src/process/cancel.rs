@@ -19,10 +19,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub process: Option<tg::process::Id>,
 }
 
 #[derive(
@@ -83,12 +79,8 @@ impl<O> tg::Process<O> {
 		let lease = lease
 			.or_else(|| self.lease().copied())
 			.ok_or_else(|| tg::error!("missing lease"))?;
-		let arg = Arg {
-			lease,
-			location,
-			process: Some(id.clone()),
-		};
-		instance.cancel_process(arg).await?;
+		let arg = Arg { lease, location };
+		instance.cancel_process(id, arg).await?;
 		self.disarm();
 
 		Ok(())
@@ -98,11 +90,12 @@ impl<O> tg::Process<O> {
 impl tg::Session {
 	pub async fn try_cancel_process(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let method = http::Method::POST;
-		let path = "/processes/cancel";
-		let uri = Uri::builder().path(path).build().unwrap();
+		let path = format!("/processes/{id}/cancel");
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

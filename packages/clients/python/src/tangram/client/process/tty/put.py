@@ -10,30 +10,31 @@ if TYPE_CHECKING:
 
 from tangram.client.process.connect import TtySize
 from tangram.error import Error, ErrorData
-from tangram.http import Body, Request
+from tangram.http import Body, Request, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
 
 
 class KeywordOptions(TypedDict, total=False):
     location: LocationArgObject | None
-    process: str | None
     size: TtySize
     tokens: dict[str, list[str]] | None
 
 
 async def set_process_tty_size(
     client: Client,
+    id: str,
     arg: TtyArg | None = None,
     **options: Unpack[KeywordOptions],
 ) -> None:
-    found = await try_set_process_tty_size(client, arg, **options)
+    found = await try_set_process_tty_size(client, id, arg, **options)
     if not found:
         raise ValueError("failed to find the process")
 
 
 async def try_set_process_tty_size(
     client: Client,
+    id: str,
     arg: TtyArg | None = None,
     **options: Unpack[KeywordOptions],
 ) -> bool | None:
@@ -49,7 +50,7 @@ async def try_set_process_tty_size(
     )
     request = Request(
         "PUT",
-        "/processes/tty/size",
+        f"/processes/{percent_encode(id)}/tty/size",
         {"content-type": "application/json"},
         body,
     )

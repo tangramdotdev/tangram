@@ -31,6 +31,7 @@ where
 
 	fn try_get_sandbox_processes_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -43,11 +44,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_get_sandbox_processes_stream(arg.clone())
+				.try_get_sandbox_processes_stream(id, arg.clone())
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_get_sandbox_processes_stream(arg)
+				.try_get_sandbox_processes_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -65,16 +66,18 @@ where
 
 	fn try_destroy_sandbox(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		match self {
-			tg::Either::Left(s) => s.try_destroy_sandbox(arg).left_future(),
-			tg::Either::Right(s) => s.try_destroy_sandbox(arg).right_future(),
+			tg::Either::Left(s) => s.try_destroy_sandbox(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_destroy_sandbox(id, arg).right_future(),
 		}
 	}
 
 	fn try_get_sandbox_status_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -85,11 +88,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_get_sandbox_status_stream(arg.clone())
+				.try_get_sandbox_status_stream(id, arg.clone())
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_get_sandbox_status_stream(arg)
+				.try_get_sandbox_status_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}

@@ -220,10 +220,10 @@ class Sandbox:
 
     async def destroy(self, client: Client | None = None) -> None:
         client = client or self.client
-        arg: SandboxDestroyArg = {"sandbox": self.id}
+        arg: SandboxDestroyArg = {}
         if self.location is not None:
             arg["location"] = self.location
-        await client.destroy_sandbox(**arg)
+        await client.destroy_sandbox(self.id, **arg)
         self.detach()
 
     def detach(self) -> None:
@@ -239,10 +239,10 @@ class Sandbox:
 
     async def close(self) -> None:
         if self.owned:
-            arg: SandboxDestroyArg = {"sandbox": self.id}
+            arg: SandboxDestroyArg = {}
             if self.location is not None:
                 arg["location"] = self.location
-            await self.client.try_destroy_sandbox(**arg)
+            await self.client.try_destroy_sandbox(self.id, **arg)
             self.detach()
 
     async def __aenter__(self) -> Self:

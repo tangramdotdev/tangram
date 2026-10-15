@@ -70,10 +70,10 @@ impl Session {
 		// Read the ordered relationships even when the process records are not being sent.
 		let arg = tg::sandbox::processes::get::Arg {
 			tokens: tg::authorization::Tokens::with_local_entry(node.tokens.clone()),
-			..tg::sandbox::processes::get::Arg::new(node.id.clone())
+			..Default::default()
 		};
 		let processes = self
-			.get_sandbox_processes(arg)
+			.get_sandbox_processes(&node.id, arg)
 			.await?
 			.try_fold(Vec::new(), |mut processes, chunk| async move {
 				processes.extend(chunk.data);

@@ -8,20 +8,19 @@ if TYPE_CHECKING:
     from tangram.client import Client
 
 from tangram.error import Error, ErrorData
-from tangram.http import Body, Request
+from tangram.http import Body, Request, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
 
 
 class ArgObject(TypedDict, total=False):
     location: LocationArgObject | None
-    sandbox: str
 
 
 async def destroy_sandbox(
-    client: Client, arg: ArgObject | None = None, **options
+    client: Client, id: str, arg: ArgObject | None = None, **options
 ) -> None:
-    destroyed = await try_destroy_sandbox(client, arg, **options)
+    destroyed = await try_destroy_sandbox(client, id, arg, **options)
     if destroyed is None:
         raise ValueError("failed to find the sandbox")
     elif not destroyed:
@@ -29,7 +28,7 @@ async def destroy_sandbox(
 
 
 async def try_destroy_sandbox(
-    client: Client, arg: ArgObject | None = None, **options
+    client: Client, id: str, arg: ArgObject | None = None, **options
 ) -> bool | None:
     options = {**(arg or {}), **options}
     body = Body.json(
@@ -37,12 +36,11 @@ async def try_destroy_sandbox(
             "location": None
             if options.get("location") is None
             else LocationArg.to_data_string(options["location"]),
-            "sandbox": options["sandbox"],
         }
     )
     request = Request(
         "POST",
-        "/sandboxes/destroy",
+        f"/sandboxes/{percent_encode(id)}/destroy",
         {"content-type": "application/json"},
         body,
     )

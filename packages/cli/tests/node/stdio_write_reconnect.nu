@@ -81,7 +81,7 @@ let output = timeout 10 node --input-type=module -e '
 			streamPosition: 6,
 		};
 	};
-	await client.writeProcessStdio({ process: "pcs_010000000000000000000000000000000000000000000000000000", streams: ["stdin"] }, input());
+	await client.writeProcessStdio("pcs_010000000000000000000000000000000000000000000000000000", { streams: ["stdin"] }, input());
 	assert.equal(connections, 3);
 ' | complete
 success $output

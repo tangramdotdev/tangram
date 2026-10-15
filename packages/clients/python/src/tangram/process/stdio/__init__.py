@@ -72,7 +72,6 @@ class ReadArgObject(TypedDict):
     length: NotRequired[int | None]
     location: NotRequired[LocationArgObject | None]
     position: NotRequired[int | str | None]
-    process: NotRequired[str]
     size: NotRequired[int | None]
     timeout: NotRequired[int | float | None]
     tokens: NotRequired[dict[str, list[str]] | None]
@@ -325,17 +324,14 @@ class Writer:
             if process.connection is not None
             else default_client
         )
-        arg: WriteOptions = {
-            "process": process.id,
-            "streams": [self.stream],
-            "tokens": process.tokens,
-        }
+        arg: WriteOptions = {"streams": [self.stream], "tokens": process.tokens}
         if location is not None:
             arg["location"] = location
 
         async def run():
             try:
                 await client.write_process_stdio(
+                    process.id,
                     write_chunks(queue, self.stream),
                     complete=queue.complete,
                     **arg,
@@ -548,14 +544,10 @@ async def stdin_task(id, location, tokens, stdin, stopper, client) -> None:
                 }
                 position += len(bytes_)
 
-        arg = {
-            "process": id,
-            "streams": ["stdin"],
-            "tokens": tokens,
-        }
+        arg = {"streams": ["stdin"], "tokens": tokens}
         if location is not None:
             arg["location"] = location
-        await client.write_process_stdio(input(), **arg)
+        await client.write_process_stdio(id, input(), **arg)
     except Exception as caught:
         error = caught
     finally:
@@ -579,10 +571,10 @@ async def stdout_stderr_task(id, location, tokens, stdout, stderr, client) -> No
     ]
     if not streams:
         return
-    arg = {"process": id, "streams": streams, "tokens": tokens}
+    arg = {"streams": streams, "tokens": tokens}
     if location is not None:
         arg["location"] = location
-    iterator = await client.try_read_process_stdio(arg)
+    iterator = await client.try_read_process_stdio(id, arg)
     if iterator is None:
         return
     try:
@@ -600,10 +592,10 @@ async def sigwinch_task(id, location, tokens, listener, client) -> None:
         size = host.get_tty_size()
         if size is None:
             continue
-        arg = {"process": id, "size": size, "tokens": tokens}
+        arg = {"size": size, "tokens": tokens}
         if location is not None:
             arg["location"] = location
-        await client.set_process_tty_size(arg)
+        await client.set_process_tty_size(id, arg)
 
 
 class Stdio:

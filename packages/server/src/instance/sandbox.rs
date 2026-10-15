@@ -25,12 +25,13 @@ impl tg::instance::Sandbox for Server {
 
 	async fn try_get_sandbox_processes_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::sandbox::processes::get::Event>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_get_sandbox_processes_stream(arg)
+			.try_get_sandbox_processes_stream(id, arg)
 			.await
 	}
 
@@ -43,22 +44,24 @@ impl tg::instance::Sandbox for Server {
 
 	async fn try_destroy_sandbox(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
 		self.session(&self.context)
-			.try_destroy_sandbox(arg)
+			.try_destroy_sandbox(id, arg)
 			.boxed()
 			.await
 	}
 
 	async fn try_get_sandbox_status_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_get_sandbox_status_stream(arg)
+			.try_get_sandbox_status_stream(id, arg)
 			.await
 	}
 

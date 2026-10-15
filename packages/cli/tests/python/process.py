@@ -63,9 +63,7 @@ async def main():
             "tokens": output.get("tokens") or {},
         }
         chunks = await client.try_read_process_stdio(
-            process=output["process"],
-            streams=["stdout"],
-            **options,
+            output["process"], streams=["stdout"], **options
         )
 
         async def receive_stdio():
@@ -82,17 +80,12 @@ async def main():
 
         reader = asyncio.create_task(receive_stdio())
         await client.write_process_stdio(
-            input_chunks(),
-            process=output["process"],
-            streams=["stdin"],
-            **options,
+            output["process"], input_chunks(), streams=["stdin"], **options
         )
         assert await reader == data
         assert (
             await client.wait_process(
-                lease=output.get("lease"),
-                process=output["process"],
-                **options,
+                output["process"], lease=output.get("lease"), **options
             )
         )["exit"] == 0
     print("duplex process completed")

@@ -28,7 +28,7 @@ let path = artifact {
 			tg.assert(outcome.exit === 0);
 			tg.assert((await process.wait()).exit === 0);
 			tg.assert(requests.filter((path) => path === "/processes/connect").length === 1);
-			tg.assert(requests.every((path) => path === "/processes/connect" || /^\/processes\/stdio\/(read|write)$/.test(path)));
+			tg.assert(requests.every((path) => path === "/processes/connect" || /^\/processes\/[^/]+\/stdio\/(read|write)$/.test(path)));
 			return "ok";
 		}
 	'

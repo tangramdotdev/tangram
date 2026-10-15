@@ -12,6 +12,7 @@ use {
 #[derive(
 	Clone,
 	Debug,
+	Default,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
@@ -25,9 +26,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
-
-	#[tangram_serialize(id = 4)]
-	pub process: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "tg::process::Source::is_auto")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "tg::process::Source::is_auto")]
@@ -51,20 +49,6 @@ pub enum Event {
 pub struct Options {
 	pub location: Option<tg::location::Arg>,
 	pub source: tg::process::Source,
-}
-
-impl Arg {
-	/// Create an arg to wait for the process with the server's defaults.
-	#[must_use]
-	pub fn new(process: tg::process::Id) -> Self {
-		Self {
-			lease: None,
-			location: None,
-			process,
-			source: tg::process::Source::default(),
-			tokens: tg::authorization::Tokens::default(),
-		}
-	}
 }
 
 impl<O> tg::Process<O> {
@@ -125,17 +109,16 @@ impl<O> tg::Process<O> {
 		let arg = tg::process::wait::Arg {
 			lease: self.lease().copied(),
 			location: location.clone(),
-			process: id.clone(),
 			source: options.source,
 			tokens: self.tokens(),
 		};
-		let mut future = instance.wait_process_future(arg.clone()).await?;
+		let mut future = instance.wait_process_future(id, arg.clone()).await?;
 		self.wait_stdio().await?;
 		let data = loop {
 			if let Some(data) = future.await? {
 				break data;
 			}
-			future = instance.wait_process_future(arg.clone()).await?;
+			future = instance.wait_process_future(id, arg.clone()).await?;
 		};
 		let outcome: tg::process::Outcome = data.try_into()?;
 		let location = location.and_then(|location| location.to_location());
@@ -171,11 +154,12 @@ impl<O> tg::Process<O> {
 impl tg::Session {
 	pub async fn try_wait_process_future(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		let method = http::Method::POST;
-		let path = "/processes/wait";
-		let uri = Uri::builder().path(path).build().unwrap();
+		let path = format!("/processes/{id}/wait");
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

@@ -7,7 +7,7 @@ const [socketPath, port, kind, threshold, log, ready] = process.argv.slice(2);
 const upstream = http2.connect("http://localhost", {
 	createConnection: () => net.connect(socketPath),
 });
-const pattern = new RegExp(`^/processes/stdio/${kind}[?]`);
+const pattern = new RegExp(`^/processes/[^/?]+/stdio/${kind}[?]`);
 let reset = false;
 const server = http2.createServer();
 server.on("stream", (stream, headers) => {

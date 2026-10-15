@@ -200,10 +200,10 @@ impl Session {
 		if let Some(id) = id {
 			let arg = tg::process::wait::Arg {
 				tokens,
-				..tg::process::wait::Arg::new(id.clone())
+				..Default::default()
 			};
 			let outcome = self
-				.wait_process(arg)
+				.wait_process(&id, arg)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
 			Ok(Some(outcome))
@@ -305,7 +305,7 @@ impl Session {
 				return;
 			}
 
-			let arg = process_candidate_sandbox_destroy_arg(&sandbox);
+			let arg = process_candidate_sandbox_destroy_arg();
 			let session = session.server.session(&session.server.context);
 			session
 				.destroy_sandbox_when_available(&sandbox, arg, connection_future)
@@ -323,10 +323,10 @@ impl Session {
 	}
 
 	async fn destroy_process_candidate_sandbox(&self, sandbox: &tg::sandbox::Id) -> tg::Result<()> {
-		let arg = process_candidate_sandbox_destroy_arg(sandbox);
+		let arg = process_candidate_sandbox_destroy_arg();
 		let session = self.server.session(&self.server.context);
 		let output = session
-			.try_destroy_sandbox(arg)
+			.try_destroy_sandbox(sandbox, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %sandbox, "failed to destroy the sandbox"))?;
 		if output.is_none() {
@@ -349,13 +349,9 @@ impl Session {
 		)
 		.await;
 		let lease = lease.ok_or_else(|| tg::error!("missing the process lease"))?;
-		let arg = tg::process::cancel::Arg {
-			lease,
-			location,
-			process: Some(id.clone()),
-		};
+		let arg = tg::process::cancel::Arg { lease, location };
 		// The candidate may belong to a remote even when it ran here.
-		self.try_cancel_process(arg)
+		self.try_cancel_process(&id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, process = %id, "failed to cancel the process"))?
 			.ok_or_else(|| tg::error!(process = %id, "failed to find the process"))?;
@@ -427,7 +423,7 @@ impl Session {
 	}
 }
 
-fn process_candidate_sandbox_destroy_arg(sandbox: &tg::sandbox::Id) -> tg::sandbox::destroy::Arg {
+fn process_candidate_sandbox_destroy_arg() -> tg::sandbox::destroy::Arg {
 	let error = tg::error::Data {
 		code: Some(tg::error::Code::Cancellation),
 		message: Some("a cached process was found".into()),
@@ -436,7 +432,6 @@ fn process_candidate_sandbox_destroy_arg(sandbox: &tg::sandbox::Id) -> tg::sandb
 	tg::sandbox::destroy::Arg {
 		error: Some(tg::Either::Left(error)),
 		location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-		sandbox: sandbox.clone(),
 		tokens: tg::authorization::Tokens::default(),
 	}
 }

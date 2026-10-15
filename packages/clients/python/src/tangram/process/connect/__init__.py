@@ -105,13 +105,13 @@ class Connection:
     def stdio_client(self):
         client = self.session.client
 
-        async def read(arg=None, **options):
-            stream = await client.try_read_process_stdio(arg, **options)
+        async def read(id, arg=None, **options):
+            stream = await client.try_read_process_stdio(id, arg, **options)
             if stream is None:
                 return None
             return BoundStream(stream, self._closing)
 
-        async def tty(options=None, **arg):
+        async def tty(id, options=None, **arg):
             await self.tty({**(options or {}), **arg})
 
         return SimpleNamespace(

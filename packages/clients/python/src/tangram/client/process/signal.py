@@ -8,14 +8,13 @@ if TYPE_CHECKING:
 from typing import Any, NotRequired
 
 from tangram.error import Error, ErrorData
-from tangram.http import Body, Request
+from tangram.http import Body, Request, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
 
 
 class KeywordOptions(TypedDict, total=False):
     location: LocationArgObject | None
-    process: str | None
     signal: str
     tokens: dict[str, list[str]] | None
 
@@ -23,23 +22,24 @@ class KeywordOptions(TypedDict, total=False):
 class Signal:
     class Arg(TypedDict):
         location: NotRequired[LocationArgObject | None]
-        process: NotRequired[str | None]
         signal: str
         tokens: NotRequired[dict[str, list[str]] | None]
 
 
 async def signal_process(
     client: "Client",
+    id: str,
     arg: Signal.Arg | None = None,
     **options: Unpack[KeywordOptions],
 ) -> None:
-    found = await try_signal_process(client, arg, **options)
+    found = await try_signal_process(client, id, arg, **options)
     if not found:
         raise ValueError("failed to find the process")
 
 
 async def try_signal_process(
     client: "Client",
+    id: str,
     arg: Signal.Arg | None = None,
     **options: Unpack[KeywordOptions],
 ) -> bool | None:
@@ -54,7 +54,7 @@ async def try_signal_process(
     )
     request = Request(
         "POST",
-        "/processes/signal",
+        f"/processes/{percent_encode(id)}/signal",
         {"content-type": "application/json"},
         body,
     )

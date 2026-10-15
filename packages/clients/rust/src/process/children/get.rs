@@ -9,7 +9,7 @@ use {
 };
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
@@ -20,8 +20,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	pub position: Option<std::io::SeekFrom>,
-
-	pub process: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
@@ -57,23 +55,6 @@ pub struct Options {
 pub struct Chunk {
 	pub position: u64,
 	pub data: Vec<tg::process::data::Child>,
-}
-
-impl Arg {
-	/// Create an arg to get the process's children from the start with the server's defaults.
-	#[must_use]
-	pub fn new(process: tg::process::Id) -> Self {
-		Self {
-			length: None,
-			location: None,
-			position: None,
-			process,
-			size: None,
-			source: tg::process::Source::default(),
-			timeout: None,
-			tokens: tg::authorization::Tokens::default(),
-		}
-	}
 }
 
 impl<O> tg::Process<O> {
@@ -120,23 +101,22 @@ impl<O> tg::Process<O> {
 	{
 		let location = options.location.or_else(|| self.location());
 		let tokens = self.tokens();
-		let Some(id) = self.id().right() else {
-			return Err(tg::error!(
-				"getting the process children is not supported for unsandboxed processes"
-			));
-		};
 		let arg = tg::process::children::get::Arg {
 			length: options.length,
 			location: location.clone(),
 			position: options.position,
-			process: id.clone(),
 			size: options.size,
 			source: options.source,
 			timeout: options.timeout,
 			tokens: tokens.clone(),
 		};
+		let Some(id) = self.id().right() else {
+			return Err(tg::error!(
+				"getting the process children is not supported for unsandboxed processes"
+			));
+		};
 		Ok(instance
-			.try_get_process_children(arg)
+			.try_get_process_children(id, arg)
 			.await?
 			.map(move |stream| {
 				stream
@@ -159,6 +139,7 @@ impl<O> tg::Process<O> {
 impl tg::Session {
 	pub async fn try_get_process_children_stream(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<
 		Option<
@@ -166,8 +147,8 @@ impl tg::Session {
 		>,
 	> {
 		let method = http::Method::GET;
-		let path = "/processes/children";
-		let uri = Uri::builder().path(path).build().unwrap();
+		let path = format!("/processes/{id}/children");
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

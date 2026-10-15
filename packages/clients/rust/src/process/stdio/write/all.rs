@@ -19,6 +19,7 @@ struct Pending {
 
 pub(crate) async fn all<I: tg::Instance>(
 	instance: &I,
+	id: &tg::process::Id,
 	arg: Arg,
 	mut input: BoxStream<'static, tg::Result<Input>>,
 ) -> tg::Result<()> {
@@ -58,11 +59,12 @@ pub(crate) async fn all<I: tg::Instance>(
 				pending.sent = false;
 			}
 			let instance = instance.clone();
+			let id = id.clone();
 			let arg = arg.clone();
 			connecting = Some(
 				async move {
 					let output = instance
-						.try_write_process_stdio(arg, ReceiverStream::new(receiver).boxed())
+						.try_write_process_stdio(&id, arg, ReceiverStream::new(receiver).boxed())
 						.await?
 						.map(futures::StreamExt::boxed);
 					Ok(output)

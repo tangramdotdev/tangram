@@ -7,13 +7,10 @@ use {
 impl Instance {
 	async fn try_cancel_process_inner(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		if let Some(connection) = arg
-			.process
-			.as_ref()
-			.and_then(|process| self.try_connection(process))
-		{
+		if let Some(connection) = self.try_connection(id) {
 			let output = connection
 				.request(tg::process::connect::ClientRequestArg::Cancel(arg))
 				.await?;
@@ -22,18 +19,15 @@ impl Instance {
 			};
 			return Ok(Some(output));
 		}
-		self.0.try_cancel_process(arg).await
+		self.0.try_cancel_process(id, arg).await
 	}
 
 	async fn try_signal_process_inner(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
-		if let Some(connection) = arg
-			.process
-			.as_ref()
-			.and_then(|process| self.try_connection(process))
-		{
+		if let Some(connection) = self.try_connection(id) {
 			let output = connection
 				.request(tg::process::connect::ClientRequestArg::Signal(arg))
 				.await?;
@@ -42,18 +36,15 @@ impl Instance {
 			}
 			return Ok(Some(()));
 		}
-		self.0.try_signal_process(arg).await
+		self.0.try_signal_process(id, arg).await
 	}
 
 	async fn try_set_process_tty_size_inner(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> tg::Result<Option<()>> {
-		if let Some(connection) = arg
-			.process
-			.as_ref()
-			.and_then(|process| self.try_connection(process))
-		{
+		if let Some(connection) = self.try_connection(id) {
 			let output = connection
 				.request(tg::process::connect::ClientRequestArg::Tty(arg))
 				.await?;
@@ -62,36 +53,39 @@ impl Instance {
 			}
 			return Ok(Some(()));
 		}
-		self.0.try_set_process_tty_size(arg).await
+		self.0.try_set_process_tty_size(id, arg).await
 	}
 
 	async fn try_read_process_stdio_inner(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
-		self.0.try_read_process_stdio(arg, input).await
+		self.0.try_read_process_stdio(id, arg, input).await
 	}
 
 	async fn try_write_process_stdio_inner(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
-		self.0.try_write_process_stdio(arg, input).await
+		self.0.try_write_process_stdio(id, arg, input).await
 	}
 
 	async fn try_wait_process_future_inner(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
-		if let Some(connection) = self.try_connection(&arg.process) {
+		if let Some(connection) = self.try_connection(id) {
 			let connection = connection.clone();
 			let future = async move { connection.wait().await.map(Some) }.boxed();
 			return Ok(Some(future));
 		}
-		self.0.try_wait_process_future(arg).await
+		self.0.try_wait_process_future(id, arg).await
 	}
 }
 
@@ -162,9 +156,10 @@ impl tg::instance::Process for Instance {
 
 	fn try_cancel_process(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::cancel::Output>>> {
-		self.try_cancel_process_inner(arg)
+		self.try_cancel_process_inner(id, arg)
 	}
 
 	fn try_get_process_control_stream(
@@ -188,13 +183,15 @@ impl tg::instance::Process for Instance {
 
 	fn try_signal_process(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.try_signal_process_inner(arg)
+		self.try_signal_process_inner(id, arg)
 	}
 
 	fn try_get_process_status_stream(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -203,13 +200,14 @@ impl tg::instance::Process for Instance {
 	> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_get_process_status_stream(arg),
+				self.0.try_get_process_status_stream(id, arg),
 			)
 		}
 	}
 
 	fn try_get_process_children_stream(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -220,20 +218,22 @@ impl tg::instance::Process for Instance {
 	> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_get_process_children_stream(arg),
+				self.0.try_get_process_children_stream(id, arg),
 			)
 		}
 	}
 
 	fn try_set_process_tty_size(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.try_set_process_tty_size_inner(arg)
+		self.try_set_process_tty_size_inner(id, arg)
 	}
 
 	fn try_read_process_stdio(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
@@ -243,11 +243,12 @@ impl tg::instance::Process for Instance {
 			>,
 		>,
 	> {
-		self.try_read_process_stdio_inner(arg, input)
+		self.try_read_process_stdio_inner(id, arg, input)
 	}
 
 	fn try_write_process_stdio(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
@@ -257,7 +258,7 @@ impl tg::instance::Process for Instance {
 			>,
 		>,
 	> {
-		self.try_write_process_stdio_inner(arg, input)
+		self.try_write_process_stdio_inner(id, arg, input)
 	}
 
 	fn try_touch_process(
@@ -270,6 +271,7 @@ impl tg::instance::Process for Instance {
 
 	fn try_wait_process_future(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -278,6 +280,6 @@ impl tg::instance::Process for Instance {
 			>,
 		>,
 	> {
-		self.try_wait_process_future_inner(arg)
+		self.try_wait_process_future_inner(id, arg)
 	}
 }

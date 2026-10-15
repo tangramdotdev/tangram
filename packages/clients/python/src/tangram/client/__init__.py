@@ -446,74 +446,78 @@ class Client:
 
     async def try_cancel_process(
         self,
+        id: str,
         arg: Cancel.Arg | None = None,
         **options: Unpack[CancelKeywordOptions],
     ) -> Cancel.Output | None:
         from .process.cancel import try_cancel_process
 
-        return await try_cancel_process(self, **_options(arg, options))
+        return await try_cancel_process(self, id, **_options(arg, options))
 
     async def cancel_process(
         self,
+        id: str,
         arg: Cancel.Arg | None = None,
         **options: Unpack[CancelKeywordOptions],
     ) -> Cancel.Output:
         from .process.cancel import cancel_process
 
-        return await cancel_process(self, **_options(arg, options))
+        return await cancel_process(self, id, **_options(arg, options))
 
     async def try_signal_process(
         self,
+        id: str,
         arg: Signal.Arg | None = None,
         **options: Unpack[SignalKeywordOptions],
     ) -> bool | None:
         from .process.signal import try_signal_process
 
-        return await try_signal_process(self, **_options(arg, options))
+        return await try_signal_process(self, id, **_options(arg, options))
 
     async def signal_process(
         self,
+        id: str,
         arg: Signal.Arg | None = None,
         **options: Unpack[SignalKeywordOptions],
     ) -> None:
         from .process.signal import signal_process
 
-        return await signal_process(self, **_options(arg, options))
+        return await signal_process(self, id, **_options(arg, options))
 
     async def try_set_process_tty_size(
-        self, arg: TtyArg | None = None, **options: Unpack[TtyKeywordOptions]
+        self, id: str, arg: TtyArg | None = None, **options: Unpack[TtyKeywordOptions]
     ) -> bool | None:
         from .process.tty.put import try_set_process_tty_size
 
-        return await try_set_process_tty_size(self, **_options(arg, options))
+        return await try_set_process_tty_size(self, id, **_options(arg, options))
 
     async def set_process_tty_size(
-        self, arg: TtyArg | None = None, **options: Unpack[TtyKeywordOptions]
+        self, id: str, arg: TtyArg | None = None, **options: Unpack[TtyKeywordOptions]
     ) -> None:
         from .process.tty.put import set_process_tty_size
 
-        return await set_process_tty_size(self, **_options(arg, options))
+        return await set_process_tty_size(self, id, **_options(arg, options))
 
     async def try_wait_process_promise(
-        self, arg: Wait.Arg | None = None, **options: Unpack[Wait.Arg]
+        self, id: str, arg: Wait.Arg | None = None, **options: Unpack[Wait.Arg]
     ) -> Callable[[], Awaitable[ProcessOutcome[ValueType]]] | None:
         from .process.wait import try_wait_process_promise
 
-        return await try_wait_process_promise(self, **_options(arg, options))
+        return await try_wait_process_promise(self, id, **_options(arg, options))
 
     async def wait_process_promise(
-        self, arg: Wait.Arg | None = None, **options: Unpack[Wait.Arg]
+        self, id: str, arg: Wait.Arg | None = None, **options: Unpack[Wait.Arg]
     ) -> Callable[[], Awaitable[ProcessOutcome[ValueType]]]:
         from .process.wait import wait_process_promise
 
-        return await wait_process_promise(self, **_options(arg, options))
+        return await wait_process_promise(self, id, **_options(arg, options))
 
     async def wait_process(
-        self, arg: Wait.Arg | None = None, **options: Unpack[Wait.Arg]
+        self, id: str, arg: Wait.Arg | None = None, **options: Unpack[Wait.Arg]
     ) -> ProcessOutcome[ValueType]:
         from .process.wait import wait_process
 
-        return await wait_process(self, **_options(arg, options))
+        return await wait_process(self, id, **_options(arg, options))
 
     async def connect_process(
         self, arg: ConnectArgObject, input: AsyncIterable[ClientMessage]
@@ -524,15 +528,17 @@ class Client:
 
     async def try_read_process_stdio(
         self,
+        id: str,
         arg: ReadArgObject | None = None,
         **options: Unpack[StdioReadKeywordOptions],
     ) -> Stream[StdioChunk] | None:
         from .process.stdio.read import try_read_process_stdio
 
-        return await try_read_process_stdio(self, **_options(arg, options))
+        return await try_read_process_stdio(self, id, **_options(arg, options))
 
     async def try_write_process_stdio(
         self,
+        id: str,
         arg: StdioWriteKeywordOptions | AsyncIterable[StdioChunk],
         input: AsyncIterable[StdioChunk] | None = None,
         complete: Callable[[StdioChunk], None] | None = None,
@@ -547,10 +553,11 @@ class Client:
             input = cast("AsyncIterable[StdioChunk]", arg)
         if complete is not None:
             resolved_options["complete"] = complete
-        return await try_write_process_stdio(self, input, **resolved_options)
+        return await try_write_process_stdio(self, id, input, **resolved_options)
 
     async def write_process_stdio(
         self,
+        id: str,
         arg: StdioWriteKeywordOptions | AsyncIterable[StdioChunk],
         input: AsyncIterable[StdioChunk] | None = None,
         complete: Callable[[StdioChunk], None] | None = None,
@@ -565,7 +572,7 @@ class Client:
             input = cast("AsyncIterable[StdioChunk]", arg)
         if complete is not None:
             resolved_options["complete"] = complete
-        return await write_process_stdio(self, input, **resolved_options)
+        return await write_process_stdio(self, id, input, **resolved_options)
 
     async def create_sandbox(self, arg: SandboxCreateArg) -> SandboxOutput:
         from .sandbox.create import create_sandbox
@@ -594,21 +601,23 @@ class Client:
 
     async def try_destroy_sandbox(
         self,
+        id: str,
         arg: SandboxDestroyArg | None = None,
         **options: Unpack[SandboxDestroyArg],
     ) -> bool | None:
         from .sandbox.destroy import try_destroy_sandbox
 
-        return await try_destroy_sandbox(self, **_options(arg, options))
+        return await try_destroy_sandbox(self, id, **_options(arg, options))
 
     async def destroy_sandbox(
         self,
+        id: str,
         arg: SandboxDestroyArg | None = None,
         **options: Unpack[SandboxDestroyArg],
     ) -> None:
         from .sandbox.destroy import destroy_sandbox
 
-        return await destroy_sandbox(self, **_options(arg, options))
+        return await destroy_sandbox(self, id, **_options(arg, options))
 
 
 def _options(arg, options):

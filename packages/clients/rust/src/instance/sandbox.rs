@@ -29,6 +29,7 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_get_sandbox_processes_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -62,10 +63,11 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 
 	fn destroy_sandbox(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			match self.try_destroy_sandbox(arg).await? {
+			match self.try_destroy_sandbox(id, arg).await? {
 				Some(true) => Ok(()),
 				Some(false) => Err(tg::error!("the sandbox was already destroyed")),
 				None => Err(tg::error!("failed to find the sandbox")),
@@ -75,11 +77,13 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_destroy_sandbox(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
 	fn try_get_sandbox_status_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -117,12 +121,13 @@ impl tg::instance::Sandbox for tg::Client {
 
 	async fn try_get_sandbox_processes_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::sandbox::processes::get::Event>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_get_sandbox_processes_stream(arg)
+			.try_get_sandbox_processes_stream(id, arg)
 			.await
 	}
 
@@ -135,19 +140,23 @@ impl tg::instance::Sandbox for tg::Client {
 
 	async fn try_destroy_sandbox(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
-		self.session(&self.context).try_destroy_sandbox(arg).await
+		self.session(&self.context)
+			.try_destroy_sandbox(id, arg)
+			.await
 	}
 
 	async fn try_get_sandbox_status_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_get_sandbox_status_stream(arg)
+			.try_get_sandbox_status_stream(id, arg)
 			.await
 	}
 

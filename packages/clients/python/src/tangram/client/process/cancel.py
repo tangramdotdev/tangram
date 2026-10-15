@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 from typing import Any, NotRequired
 
 from tangram.error import Error, ErrorData
-from tangram.http import Request
+from tangram.http import Request, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
 
@@ -16,14 +16,12 @@ from tangram.location import ArgObject as LocationArgObject
 class KeywordOptions(TypedDict, total=False):
     lease: str
     location: LocationArgObject | None
-    process: str | None
 
 
 class Cancel:
     class Arg(TypedDict):
         lease: str
         location: NotRequired[LocationArgObject | None]
-        process: NotRequired[str | None]
 
     class Output(TypedDict):
         released: bool
@@ -31,10 +29,11 @@ class Cancel:
 
 async def cancel_process(
     client: "Client",
+    id: str,
     arg: Cancel.Arg | None = None,
     **options: Unpack[KeywordOptions],
 ) -> Cancel.Output:
-    output = await try_cancel_process(client, arg, **options)
+    output = await try_cancel_process(client, id, arg, **options)
     if output is None:
         raise ValueError("failed to find the process")
     return output
@@ -42,17 +41,17 @@ async def cancel_process(
 
 async def try_cancel_process(
     client: "Client",
+    id: str,
     arg: Cancel.Arg | None = None,
     **options: Unpack[KeywordOptions],
 ) -> Cancel.Output | None:
     arg_: dict[str, Any] = {**(arg or {}), **options}
-    request = Request("POST", "/processes/cancel").arg(
+    request = Request("POST", f"/processes/{percent_encode(id)}/cancel").arg(
         {
             "lease": arg_["lease"],
             "location": None
             if arg_.get("location") is None
             else LocationArg.to_data_string(arg_["location"]),
-            "process": arg_.get("process"),
         }
     )
     response = await client.send_with_retry(request)

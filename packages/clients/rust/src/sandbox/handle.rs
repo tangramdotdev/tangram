@@ -165,10 +165,9 @@ impl Drop for Inner {
 			let arg = tg::sandbox::destroy::Arg {
 				error: None,
 				location,
-				sandbox: id,
 				tokens,
 			};
-			instance.try_destroy_sandbox(arg).await.ok();
+			instance.try_destroy_sandbox(&id, arg).await.ok();
 		});
 	}
 }

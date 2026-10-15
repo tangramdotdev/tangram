@@ -31,12 +31,11 @@ enum Source {
 impl Session {
 	pub async fn try_read_process_stdio(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
-		let id = arg.process.clone();
-		let id = &id;
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
@@ -129,7 +128,7 @@ impl Session {
 				return Ok(Some(stream));
 			}
 			if let Some(stream) = self
-				.try_read_process_stdio_regions(arg.clone(), &local.regions, acks)
+				.try_read_process_stdio_regions(id, arg.clone(), &local.regions, acks)
 				.await
 				.map_err(|error| {
 					tg::error!(!error, "failed to read process stdio from another region")
@@ -138,7 +137,7 @@ impl Session {
 			}
 		}
 		if let Some(stream) = self
-			.try_read_process_stdio_remotes(arg, &locations.remotes, acks)
+			.try_read_process_stdio_remotes(id, arg, &locations.remotes, acks)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read process stdio from a remote"))?
 		{
@@ -776,6 +775,7 @@ impl Session {
 
 	async fn try_read_process_stdio_regions(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		regions: &[String],
 		acks: &Acks,
@@ -783,7 +783,7 @@ impl Session {
 	{
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_read_process_stdio_region(arg.clone(), region, acks))
+			.map(|region| self.try_read_process_stdio_region(id, arg.clone(), region, acks))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -802,6 +802,7 @@ impl Session {
 
 	async fn try_read_process_stdio_region(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		region: &str,
 		acks: &Acks,
@@ -821,7 +822,7 @@ impl Session {
 		};
 		let acks = read_process_stdio_acks(acks);
 		let stream = client
-			.try_read_process_stdio_all_inner(arg, Some(acks))
+			.try_read_process_stdio_all_inner(id, arg, Some(acks))
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to read the process stdio"),
@@ -833,6 +834,7 @@ impl Session {
 
 	async fn try_read_process_stdio_remotes(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		remotes: &[crate::location::Remote],
 		acks: &Acks,
@@ -840,7 +842,7 @@ impl Session {
 	{
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_read_process_stdio_remote(arg.clone(), remote, acks))
+			.map(|remote| self.try_read_process_stdio_remote(id, arg.clone(), remote, acks))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -859,6 +861,7 @@ impl Session {
 
 	async fn try_read_process_stdio_remote(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		remote: &crate::location::Remote,
 		acks: &Acks,
@@ -886,7 +889,7 @@ impl Session {
 		};
 		let acks = read_process_stdio_acks(acks);
 		let stream = client
-			.try_read_process_stdio_all_inner(arg, Some(acks))
+			.try_read_process_stdio_all_inner(id, arg, Some(acks))
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to read the process stdio"),
@@ -956,6 +959,7 @@ impl Session {
 	pub(crate) async fn try_read_process_stdio_request(
 		&self,
 		request: http::Request<BoxBody>,
+		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -978,14 +982,17 @@ impl Session {
 			tangram_content_type,
 		)
 		.map_err(|error| tg::error!(argument, !error, "invalid content type"))?;
+		let id = id
+			.parse::<tg::process::Id>()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 		let (arg, request) = request
 			.arg_with_tangram::<tg::process::stdio::read::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
-		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
+		let arg = arg.unwrap_or_default();
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let input = super::decode(request, input_encoding, max_frame_size);
-		let Some(output) = self.try_read_process_stdio(arg, input).await? else {
+		let Some(output) = self.try_read_process_stdio(&id, arg, input).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

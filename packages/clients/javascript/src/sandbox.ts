@@ -76,13 +76,11 @@ export class Sandbox {
 
 	/** Destroy this sandbox. */
 	async destroy(client = tg.client): Promise<void> {
-		let arg: tg.Sandbox.Destroy.Arg = {
-			sandbox: this.#id,
-		};
+		let arg: tg.Sandbox.Destroy.Arg = {};
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
-		await client.destroySandbox(arg);
+		await client.destroySandbox(this.#id, arg);
 		this.detach();
 	}
 
@@ -98,13 +96,11 @@ export class Sandbox {
 		if (!this.#owned) {
 			return;
 		}
-		let arg: tg.Sandbox.Destroy.Arg = {
-			sandbox: this.#id,
-		};
+		let arg: tg.Sandbox.Destroy.Arg = {};
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
-		await tg.client.tryDestroySandbox(arg);
+		await tg.client.tryDestroySandbox(this.#id, arg);
 		this.detach();
 	}
 
@@ -496,7 +492,6 @@ export namespace Sandbox {
 	export namespace Destroy {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
-			sandbox: tg.Sandbox.Id;
 		};
 	}
 

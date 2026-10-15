@@ -9,7 +9,7 @@ use {
 };
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
@@ -20,8 +20,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	pub position: Option<std::io::SeekFrom>,
-
-	pub sandbox: tg::sandbox::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
@@ -56,23 +54,6 @@ pub struct Options {
 	pub size: Option<u64>,
 	pub source: tg::sandbox::Source,
 	pub timeout: Option<Duration>,
-}
-
-impl Arg {
-	/// Create an arg to get the sandbox's processes from the start with the server's defaults.
-	#[must_use]
-	pub fn new(sandbox: tg::sandbox::Id) -> Self {
-		Self {
-			length: None,
-			location: None,
-			position: None,
-			sandbox,
-			size: None,
-			source: tg::sandbox::Source::default(),
-			timeout: None,
-			tokens: tg::authorization::Tokens::default(),
-		}
-	}
 }
 
 impl tg::Sandbox {
@@ -123,13 +104,12 @@ impl tg::Sandbox {
 			length: options.length,
 			location: location.clone(),
 			position: options.position,
-			sandbox: self.id().clone(),
 			size: options.size,
 			source: options.source,
 			timeout: options.timeout,
 			tokens: tokens.clone(),
 		};
-		let Some(stream) = instance.try_get_sandbox_processes(arg).await? else {
+		let Some(stream) = instance.try_get_sandbox_processes(self.id(), arg).await? else {
 			return Ok(None);
 		};
 		let stream = stream
@@ -154,6 +134,7 @@ impl tg::Sandbox {
 impl tg::Session {
 	pub async fn try_get_sandbox_processes_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> tg::Result<
 		Option<
@@ -161,8 +142,8 @@ impl tg::Session {
 		>,
 	> {
 		let method = http::Method::GET;
-		let path = "/sandboxes/processes";
-		let uri = Uri::builder().path(path).build().unwrap();
+		let path = format!("/sandboxes/{id}/processes");
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

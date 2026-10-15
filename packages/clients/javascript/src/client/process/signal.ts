@@ -1,11 +1,10 @@
 import * as tg from "../../index.ts";
-import { Body, Request } from "../../http.ts";
+import { Body, Request, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export namespace Signal {
 	export type Arg = {
 		location?: tg.Location.Arg | null;
-		process?: tg.Process.Id | null;
 		signal: tg.Process.Signal;
 		tokens?: tg.Authorization.Tokens | null;
 	};
@@ -13,9 +12,10 @@ export namespace Signal {
 
 export async function signalProcess(
 	client: Client,
+	id: tg.Process.Id,
 	arg: tg.Signal.Arg,
 ): Promise<void> {
-	let found = await trySignalProcess(client, arg);
+	let found = await trySignalProcess(client, id, arg);
 	if (!found) {
 		throw new Error("failed to find the process");
 	}
@@ -23,10 +23,11 @@ export async function signalProcess(
 
 export async function trySignalProcess(
 	client: Client,
+	id: tg.Process.Id,
 	arg: tg.Signal.Arg,
 ): Promise<true | null> {
 	let method = "POST";
-	let uri = "/processes/signal";
+	let uri = `/processes/${percentEncode(id)}/signal`;
 	let headers = {
 		"content-type": "application/json",
 	};

@@ -540,9 +540,8 @@ class Process[O: ValueType]:
         arg: ReadArgObject = {"streams": ["stdout"], **(options or {}), **kwargs}
         if arg.get("location") is None:
             arg["location"] = self.location
-        arg["process"] = self.id
         arg["tokens"] = self.tokens
-        return await self.client.try_read_process_stdio(arg)
+        return await self.client.try_read_process_stdio(self.id, arg)
 
     async def read_stdio(
         self, options=None, **kwargs
@@ -592,9 +591,9 @@ class Process[O: ValueType]:
                 if isinstance(self.id, int):
                     raise ValueError("missing an unsandboxed process outcome")
                 self._wait_result = await self.client.wait_process(
+                    self.id,
                     lease=self.lease,
                     location=self.location,
-                    process=self.id,
                     tokens=self.tokens,
                 )
         if self._wait_result is None:
@@ -642,15 +641,14 @@ class Process[O: ValueType]:
         if self.location is None and self.connection is None:
             await self.load()
         arg: _Signal.Arg = {
-            "location": self.location,
-            "process": self.id,
             "signal": signal,
+            "location": self.location,
             "tokens": self.tokens,
         }
         if self.connection is not None and not self.connection.closed:
             await self.connection.request("signal", arg)
         else:
-            await self.client.signal_process(arg)
+            await self.client.signal_process(self.id, arg)
 
     async def cancel(self) -> None:
         if isinstance(self.id, int):
@@ -665,15 +663,11 @@ class Process[O: ValueType]:
             return
         if self.lease is None:
             raise ValueError("missing lease")
-        arg: _Cancel.Arg = {
-            "lease": self.lease,
-            "location": self.location,
-            "process": self.id,
-        }
+        arg: _Cancel.Arg = {"lease": self.lease, "location": self.location}
         if self.connection is not None and not self.connection.closed:
             await self.connection.request("cancel", arg)
         else:
-            await self.client.cancel_process(arg)
+            await self.client.cancel_process(self.id, arg)
         self._owned = False
 
     @overload
@@ -688,15 +682,14 @@ class Process[O: ValueType]:
         if self.location is None and self.connection is None:
             await self.load()
         arg: TtyArg = {
-            "location": self.location,
-            "process": self.id,
             "size": size if size is not None else cast("Tty.Size", kwargs),
+            "location": self.location,
             "tokens": self.tokens,
         }
         if self.connection is not None and not self.connection.closed:
             await self.connection.request("tty", arg)
         else:
-            await self.client.set_process_tty_size(arg)
+            await self.client.set_process_tty_size(self.id, arg)
 
     async def detach(self) -> None:
         if self.connection is not None:

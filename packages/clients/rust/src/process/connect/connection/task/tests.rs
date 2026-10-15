@@ -38,7 +38,6 @@ async fn requests_do_not_wait_for_receipt_acknowledgments() {
 	let arg = tg::process::cancel::Arg {
 		lease: tg::process::Lease::new(),
 		location: None,
-		process: None,
 	};
 	responses.push(
 		fixture
@@ -252,7 +251,6 @@ async fn next_request(fixture: &mut Fixture) -> ClientRequest {
 fn signal() -> ClientRequestArg {
 	let arg = tg::process::signal::post::Arg {
 		location: None,
-		process: None,
 		signal: tg::process::Signal::SIGTERM,
 		tokens: tg::authorization::Tokens::default(),
 	};

@@ -412,10 +412,10 @@ impl Session {
 				let arg = tg::process::children::get::Arg {
 					location: output.location.clone().map(Into::into),
 					tokens: tg::authorization::Tokens::with_local_entry(node.tokens.clone()),
-					..tg::process::children::get::Arg::new(node.id.clone())
+					..Default::default()
 				};
 				let children = self
-					.try_get_process_children(arg)
+					.try_get_process_children(&node.id, arg)
 					.await?
 					.ok_or_else(
 						|| tg::error!(process = %node.id, "failed to get the process children"),

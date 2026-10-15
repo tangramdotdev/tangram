@@ -61,8 +61,7 @@ test("a stdio read fails once consecutive reconnects exhaust the stream retry op
 			sends++;
 			return response([]);
 		};
-		let output = await client.tryReadProcessStdio({
-			process: id,
+		let output = await client.tryReadProcessStdio(id, {
 			streams: ["stdout"],
 		});
 		assert.notEqual(output, null);
@@ -80,8 +79,7 @@ test("a stdio read resets its reconnect attempts when a stream delivers a chunk"
 		let responses = [[0], [], [1], [], []];
 		let sends = 0;
 		client.send = async () => response(responses[sends++] ?? []);
-		let output = await client.tryReadProcessStdio({
-			process: id,
+		let output = await client.tryReadProcessStdio(id, {
 			streams: ["stdout"],
 		});
 		assert.notEqual(output, null);
@@ -111,7 +109,7 @@ test("a stdio write fails once consecutive reconnects exhaust the stream retry o
 		let input =
 			(async function* (): AsyncGenerator<tg.Process.Stdio.Chunk> {})();
 		await assert.rejects(
-			client.tryWriteProcessStdio({ process: id, streams: ["stdin"] }, input),
+			client.tryWriteProcessStdio(id, { streams: ["stdin"] }, input),
 			/the process stdio stream ended before completion/,
 		);
 		assert.equal(sends, 1 + streamRetry.maxRetries);

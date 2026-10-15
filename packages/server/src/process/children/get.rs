@@ -26,9 +26,9 @@ struct LocalChildren {
 impl Session {
 	pub async fn try_get_process_children_stream(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		let id = &arg.process;
 		if !arg.source.is_index()
 			&& let Some(stream) = self.try_get_process_children_runner(id, &arg).await?
 		{
@@ -54,7 +54,7 @@ impl Session {
 			}
 
 			if let Some(stream) = self
-				.try_get_process_children_regions(arg.clone(), &local.regions)
+				.try_get_process_children_regions(id, arg.clone(), &local.regions)
 				.await
 				.map_err(|error| {
 					tg::error!(
@@ -67,7 +67,7 @@ impl Session {
 		}
 
 		if let Some(stream) = self
-			.try_get_process_children_remotes(arg, &locations.remotes)
+			.try_get_process_children_remotes(id, arg, &locations.remotes)
 			.await
 			.map_err(|error| {
 				tg::error!(!error, "failed to get the process children from a remote")
@@ -177,7 +177,7 @@ impl Session {
 					arg.position = Some(position);
 					arg.length = arg.length.map(|length| length - read);
 					let mut stream = self
-						.try_get_process_children_stream(arg)
+						.try_get_process_children_stream(id, arg)
 						.boxed()
 						.await?
 						.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
@@ -543,12 +543,13 @@ impl Session {
 
 	async fn try_get_process_children_regions(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 		regions: &[String],
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_children_region(arg.clone(), region))
+			.map(|region| self.try_get_process_children_region(id, arg.clone(), region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -571,6 +572,7 @@ impl Session {
 
 	async fn try_get_process_children_region(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 		region: &str,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
@@ -586,9 +588,12 @@ impl Session {
 			tokens,
 			..arg
 		};
-		let Some(stream) = client.try_get_process_children_stream(arg).await.map_err(
-			|error| tg::error!(!error, region = %region, "failed to get the process children"),
-		)?
+		let Some(stream) = client
+			.try_get_process_children_stream(id, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, "failed to get the process children"),
+			)?
 		else {
 			return Ok(None);
 		};
@@ -602,12 +607,13 @@ impl Session {
 
 	async fn try_get_process_children_remotes(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_children_remote(arg.clone(), remote))
+			.map(|remote| self.try_get_process_children_remote(id, arg.clone(), remote))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -630,6 +636,7 @@ impl Session {
 
 	async fn try_get_process_children_remote(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
@@ -654,9 +661,12 @@ impl Session {
 			tokens,
 			..arg
 		};
-		let Some(stream) = client.try_get_process_children_stream(arg).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the process children"),
-		)?
+		let Some(stream) = client
+			.try_get_process_children_stream(id, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the process children"),
+			)?
 		else {
 			return Ok(None);
 		};
@@ -694,13 +704,19 @@ impl Session {
 	pub(crate) async fn try_get_process_children_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
+		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
+		// Parse the ID.
+		let id = id
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
+
 		// Get the query.
 		let (arg, request) = request
 			.arg()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
-		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
+		let arg = arg.unwrap_or_default();
 
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request
@@ -709,7 +725,7 @@ impl Session {
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self.try_get_process_children_stream(arg).await? else {
+		let Some(stream) = self.try_get_process_children_stream(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

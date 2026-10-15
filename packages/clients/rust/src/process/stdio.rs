@@ -472,7 +472,6 @@ where
 	let arg = tg::process::stdio::write::stream::Arg {
 		id: None,
 		location: location.map(Into::into),
-		process: id,
 		streams: vec![tg::process::stdio::Stream::Stdin],
 		tokens,
 	};
@@ -505,7 +504,7 @@ where
 			future::ready(Some(result))
 		})
 		.boxed();
-	instance.write_process_stdio_all(arg, input).await
+	instance.write_process_stdio_all(&id, arg, input).await
 }
 
 async fn stdout_stderr_task<I>(
@@ -537,9 +536,9 @@ where
 		location: location.map(Into::into),
 		streams,
 		tokens,
-		..tg::process::stdio::read::Arg::new(id)
+		..Default::default()
 	};
-	let Some(stream) = instance.try_read_process_stdio_all(arg).await? else {
+	let Some(stream) = instance.try_read_process_stdio_all(&id, arg).await? else {
 		return Ok(());
 	};
 	let mut stdout_writer = tokio::io::BufWriter::new(tokio::io::stdout());
@@ -600,12 +599,11 @@ where
 		};
 		let arg = tg::process::tty::size::put::Arg {
 			location: location.clone().map(Into::into),
-			process: Some(id.clone()),
 			size,
 			tokens: tokens.clone(),
 		};
 		instance
-			.set_process_tty_size(arg)
+			.set_process_tty_size(&id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the tty"))?;
 	}

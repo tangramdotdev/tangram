@@ -105,7 +105,7 @@ let output = timeout 15 node --input-type=module -e '
 	let out = await process.readStdio({ streams: ["stdout"] });
 	let reading = out.next();
 	let read = await stdio.next();
-	assert.equal(read.path, "/processes/stdio/read");
+	assert.equal(read.path, `/processes/${id}/stdio/read`);
 	chunk(read, 0, "a");
 	assert.equal(Buffer.from((await reading).value.bytes).toString(), "a");
 	reading = out.next();
@@ -131,7 +131,7 @@ let output = timeout 15 node --input-type=module -e '
 	// A write completes only once its position is reported; reconnect resends its unreported bytes.
 	let writing = process.stdin.write(new TextEncoder().encode("abc"));
 	let writer = await stdio.next();
-	assert.equal(writer.path, "/processes/stdio/write");
+	assert.equal(writer.path, `/processes/${id}/stdio/write`);
 	let write = await writer.next();
 	assert.equal(write.kind, "chunk");
 	writer.end(new Error("transport failed"));

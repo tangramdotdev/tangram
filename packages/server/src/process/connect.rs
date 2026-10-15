@@ -310,7 +310,6 @@ impl Session {
 			let wait_arg = tg::process::wait::Arg {
 				lease: None,
 				location: arg.location.clone(),
-				process: process.clone(),
 				source: tg::process::Source::Auto,
 				tokens: arg.tokens.clone(),
 			};

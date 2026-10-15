@@ -121,9 +121,9 @@ impl Reader {
 				location,
 				streams: vec![stream],
 				tokens,
-				..tg::process::stdio::read::Arg::new(process)
+				..Default::default()
 			};
-			let Some(input) = instance.try_read_process_stdio_all(arg).await? else {
+			let Some(input) = instance.try_read_process_stdio_all(&process, arg).await? else {
 				return Err(tg::error!("{} is not available", stream));
 			};
 			state.input = Some(input.boxed());

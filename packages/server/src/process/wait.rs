@@ -19,10 +19,9 @@ use {
 impl Session {
 	pub async fn try_wait_process_future(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
-		let id = arg.process.clone();
-		let id = &id;
 		// A leased wait must survive graceful shutdown until completion or client disconnect.
 		let mut session = self.clone();
 		if arg.lease.is_some() {
@@ -100,11 +99,12 @@ impl Session {
 
 	async fn try_wait_process_stream(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<impl futures::Stream<Item = tg::Result<tg::process::wait::Event>> + Send + use<>>,
 	> {
-		let Some(future) = self.try_wait_process_future(arg).await? else {
+		let Some(future) = self.try_wait_process_future(id, arg).await? else {
 			return Ok(None);
 		};
 		let stream = stream::once(future).filter_map(|result| async move {
@@ -261,7 +261,7 @@ impl Session {
 					.transpose()?;
 				let Some(outcome) = outcome else {
 					arg.location = Some(runner.location_arg);
-					let Some(future) = self.try_wait_process_future(arg).boxed().await? else {
+					let Some(future) = self.try_wait_process_future(id, arg).boxed().await? else {
 						return Ok(None);
 					};
 					return future.await;
@@ -566,11 +566,10 @@ impl Session {
 		let arg = tg::process::wait::Arg {
 			lease,
 			location: Some(location.clone().into()),
-			process: id.clone(),
 			source,
 			tokens,
 		};
-		let Some(future) = client.try_wait_process_future(arg).await.map_err(
+		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to wait for the process"),
 		)?
 		else {
@@ -649,11 +648,10 @@ impl Session {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			process: id.clone(),
 			source,
 			tokens,
 		};
-		let Some(future) = client.try_wait_process_future(arg).await.map_err(
+		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to wait for the process"),
 		)?
 		else {
@@ -758,12 +756,11 @@ impl Session {
 			let guard = scopeguard::guard((), move |()| {
 				if cancel.load(Ordering::SeqCst) {
 					let arg = tg::process::cancel::Arg {
-						lease,
 						location: location.clone(),
-						process: Some(id),
+						lease,
 					};
 					tokio::spawn(async move {
-						session.cancel_process(arg).await.ok();
+						session.cancel_process(&id, arg).await.ok();
 					});
 				}
 			});
@@ -799,13 +796,19 @@ impl Session {
 	pub(crate) async fn try_wait_process_future_request(
 		&self,
 		request: http::Request<BoxBody>,
+		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
+		// Parse the ID.
+		let id = id
+			.parse::<tg::process::Id>()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
+
 		// Parse the arg.
 		let (arg, request) = request
 			.arg::<tg::process::wait::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
-		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
+		let arg = arg.unwrap_or_default();
 
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request
@@ -814,7 +817,7 @@ impl Session {
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self.try_wait_process_stream(arg).await? else {
+		let Some(stream) = self.try_wait_process_stream(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

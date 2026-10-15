@@ -181,7 +181,6 @@ impl Writer {
 		let arg = tg::process::stdio::write::stream::Arg {
 			id: None,
 			location,
-			process,
 			streams: vec![state.stream],
 			tokens,
 		};
@@ -189,7 +188,7 @@ impl Writer {
 		let input = receiver.map(Ok).boxed();
 		let instance = instance.clone();
 		let task = Task::spawn(move |_| async move {
-			tg::process::stdio::write::all(&instance, arg, input).await
+			tg::process::stdio::write::all(&instance, &process, arg, input).await
 		});
 		state.input = Some(sender);
 		state.task = Some(task);

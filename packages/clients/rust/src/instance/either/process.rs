@@ -94,11 +94,12 @@ where
 
 	fn try_cancel_process(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::cancel::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.try_cancel_process(arg).left_future(),
-			tg::Either::Right(s) => s.try_cancel_process(arg).right_future(),
+			tg::Either::Left(s) => s.try_cancel_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_cancel_process(id, arg).right_future(),
 		}
 	}
 
@@ -128,16 +129,18 @@ where
 
 	fn try_signal_process(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.try_signal_process(arg).left_future(),
-			tg::Either::Right(s) => s.try_signal_process(arg).right_future(),
+			tg::Either::Left(s) => s.try_signal_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_signal_process(id, arg).right_future(),
 		}
 	}
 
 	fn try_get_process_status_stream(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -146,11 +149,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_get_process_status_stream(arg.clone())
+				.try_get_process_status_stream(id, arg.clone())
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_get_process_status_stream(arg)
+				.try_get_process_status_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -158,6 +161,7 @@ where
 
 	fn try_get_process_children_stream(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -168,11 +172,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_get_process_children_stream(arg)
+				.try_get_process_children_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_get_process_children_stream(arg)
+				.try_get_process_children_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -180,16 +184,18 @@ where
 
 	fn try_set_process_tty_size(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.try_set_process_tty_size(arg).left_future(),
-			tg::Either::Right(s) => s.try_set_process_tty_size(arg).right_future(),
+			tg::Either::Left(s) => s.try_set_process_tty_size(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_set_process_tty_size(id, arg).right_future(),
 		}
 	}
 
 	fn try_read_process_stdio(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
@@ -201,11 +207,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_read_process_stdio(arg, input)
+				.try_read_process_stdio(id, arg, input)
 				.map_ok(|option| option.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_read_process_stdio(arg, input)
+				.try_read_process_stdio(id, arg, input)
 				.map_ok(|option| option.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}
@@ -213,6 +219,7 @@ where
 
 	fn try_write_process_stdio(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
@@ -224,11 +231,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_write_process_stdio(arg, input)
+				.try_write_process_stdio(id, arg, input)
 				.map_ok(|option| option.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_write_process_stdio(arg, input)
+				.try_write_process_stdio(id, arg, input)
 				.map_ok(|option| option.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}
@@ -247,6 +254,7 @@ where
 
 	fn try_wait_process_future(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -257,11 +265,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_wait_process_future(arg.clone())
+				.try_wait_process_future(id, arg.clone())
 				.map_ok(|option| option.map(futures::FutureExt::left_future))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_wait_process_future(arg)
+				.try_wait_process_future(id, arg)
 				.map_ok(|option| option.map(futures::FutureExt::right_future))
 				.right_future(),
 		}

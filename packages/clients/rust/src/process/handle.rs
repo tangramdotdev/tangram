@@ -406,14 +406,13 @@ impl<O> Process<O> {
 		{
 			self.ensure_location_with_instance(instance).await?;
 		}
-		let id = self.id().unwrap_right();
 		let arg = tg::process::signal::post::Arg {
 			location: options.location.or_else(|| self.location()),
-			process: Some(id.clone()),
 			signal,
 			tokens: self.tokens(),
 		};
-		instance.signal_process(arg).await?;
+		let id = self.id().unwrap_right();
+		instance.signal_process(id, arg).await?;
 
 		Ok(())
 	}
@@ -471,12 +470,8 @@ impl Drop for Inner {
 			return;
 		};
 		runtime.spawn(async move {
-			let arg = tg::process::cancel::Arg {
-				lease,
-				location,
-				process: Some(id),
-			};
-			instance.try_cancel_process(arg).await.ok();
+			let arg = tg::process::cancel::Arg { lease, location };
+			instance.try_cancel_process(&id, arg).await.ok();
 		});
 	}
 }

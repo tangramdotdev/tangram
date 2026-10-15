@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tangram.error import Error
-from tangram.http import Body, Request, Stream
+from tangram.http import Body, Request, Stream, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
 
@@ -30,7 +30,6 @@ class KeywordOptions(TypedDict, total=False):
     length: int | None
     location: LocationArgObject | None
     position: int | str | None
-    process: str
     size: int | None
     streams: list[StdioStream]
     timeout: int | float | None
@@ -77,24 +76,25 @@ class Acks:
 
 async def try_read_process_stdio(
     client: Client,
+    id: str,
     arg: ReadArgObject | None = None,
     **options: Unpack[KeywordOptions],
 ) -> Stream[StdioChunk] | None:
     options = {**(arg or {}), **options}
     position = options.get("position")
     acks = Acks(position if isinstance(position, int) else 0)
-    connection = await connect(client, options, acks)
+    connection = await connect(client, id, options, acks)
     if connection is None:
         acks.close()
         return None
-    return read_process_stdio_all(client, options, connection, acks)
+    return read_process_stdio_all(client, id, options, connection, acks)
 
 
 def read_process_stdio_all(
-    client: Client, arg, connection: Connection, acks: Acks
+    client: Client, id: str, arg, connection: Connection, acks: Acks
 ) -> Stream[StdioChunk]:
     state: dict[str, Any] = {"canceled": False, "connection": connection}
-    output = read_process_stdio_all_inner(client, arg, state, acks)
+    output = read_process_stdio_all_inner(client, id, arg, state, acks)
 
     async def close():
         state["canceled"] = True
@@ -104,7 +104,7 @@ def read_process_stdio_all(
     return Stream(output, close)
 
 
-async def read_process_stdio_all_inner(client: Client, arg, state, acks: Acks):
+async def read_process_stdio_all_inner(client: Client, id, arg, state, acks: Acks):
     from tangram.process.stdio import Read
 
     connection = state["connection"]
@@ -133,7 +133,7 @@ async def read_process_stdio_all_inner(client: Client, arg, state, acks: Acks):
                 return
             if message is None:
                 connection, reconnects = await reconnect(
-                    client, next_arg, connection, acks, reconnects, error
+                    client, id, next_arg, connection, acks, reconnects, error
                 )
                 state["connection"] = connection
                 continue
@@ -198,18 +198,18 @@ async def read_process_stdio_all_inner(client: Client, arg, state, acks: Acks):
         await close_output(connection.output)
 
 
-async def connect(client: Client, arg, acks: Acks) -> Connection | None:
+async def connect(client: Client, id: str, arg, acks: Acks) -> Connection | None:
     from tangram.client import retry
 
     return await retry(
         client.stream_retry,
-        lambda: read_process_stdio_once(client, arg, acks),
+        lambda: read_process_stdio_once(client, id, arg, acks),
         is_retryable_error,
     )
 
 
 async def reconnect(
-    client: Client, arg, connection, acks: Acks, attempt: int, error
+    client: Client, id, arg, connection, acks: Acks, attempt: int, error
 ) -> tuple[Connection, int]:
     """Reconnect after the given number of consecutive failed attempts.
 
@@ -232,7 +232,7 @@ async def reconnect(
 
         # Connect.
         try:
-            next_ = await read_process_stdio_once(client, arg, acks)
+            next_ = await read_process_stdio_once(client, id, arg, acks)
         except Exception as error_:
             if not is_retryable_error(error_):
                 raise
@@ -244,10 +244,10 @@ async def reconnect(
         return next_, attempt
 
 
-async def read_process_stdio_once(client: Client, arg, acks: Acks):
+async def read_process_stdio_once(client: Client, id, arg, acks: Acks):
     request = Request(
         "POST",
-        "/processes/stdio/read",
+        f"/processes/{percent_encode(id)}/stdio/read",
         {"accept": "text/event-stream", "content-type": "text/event-stream"},
         Body.sse(acks.events()),
     ).arg(

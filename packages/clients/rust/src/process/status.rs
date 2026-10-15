@@ -34,12 +34,10 @@ pub enum Status {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
-
-	pub process: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "tg::process::Source::is_auto")]
 	pub source: tg::process::Source,
@@ -63,20 +61,6 @@ pub struct Options {
 	pub location: Option<tg::location::Arg>,
 	pub source: tg::process::Source,
 	pub timeout: Option<Duration>,
-}
-
-impl Arg {
-	/// Create an arg to get the process's status with the server's defaults.
-	#[must_use]
-	pub fn new(process: tg::process::Id) -> Self {
-		Self {
-			location: None,
-			process,
-			source: tg::process::Source::default(),
-			timeout: None,
-			tokens: tg::authorization::Tokens::default(),
-		}
-	}
 }
 
 impl<O> tg::Process<O> {
@@ -117,20 +101,19 @@ impl<O> tg::Process<O> {
 	where
 		I: tg::Instance,
 	{
+		let arg = tg::process::status::Arg {
+			location: options.location.or_else(|| self.location()),
+			source: options.source,
+			timeout: options.timeout,
+			tokens: self.tokens(),
+		};
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
 				"getting the process status is not supported for unsandboxed processes"
 			));
 		};
-		let arg = tg::process::status::Arg {
-			location: options.location.or_else(|| self.location()),
-			process: id.clone(),
-			source: options.source,
-			timeout: options.timeout,
-			tokens: self.tokens(),
-		};
 		instance
-			.try_get_process_status(arg)
+			.try_get_process_status(id, arg)
 			.await
 			.map(|option| option.map(futures::StreamExt::boxed))
 	}
@@ -139,13 +122,14 @@ impl<O> tg::Process<O> {
 impl tg::Session {
 	pub async fn try_get_process_status_stream(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
 	> {
 		let method = http::Method::GET;
-		let path = "/processes/status";
-		let uri = Uri::builder().path(path).build().unwrap();
+		let path = format!("/processes/{id}/status");
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

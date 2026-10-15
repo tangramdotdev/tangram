@@ -21,9 +21,9 @@ use {
 impl Session {
 	pub async fn try_get_sandbox_status_stream(
 		&self,
+		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
-		let id = &arg.sandbox;
 		if !arg.source.is_index()
 			&& let Some(stream) = self.try_get_sandbox_status_stream_runner(id, &arg).await?
 		{
@@ -163,7 +163,7 @@ impl Session {
 					// Resume at the owning location when the runner releases its state.
 					arg.location = Some(runner.location_arg);
 					let mut stream = self
-						.try_get_sandbox_status_stream(arg)
+						.try_get_sandbox_status_stream(id, arg)
 						.boxed()
 						.await?
 						.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
@@ -441,14 +441,16 @@ impl Session {
 		});
 		let arg = tg::sandbox::status::Arg {
 			location: Some(location.clone().into()),
-			sandbox: id.clone(),
 			source,
 			timeout,
 			tokens: tokens.for_location(&location),
 		};
-		let Some(stream) = client.try_get_sandbox_status_stream(arg).await.map_err(
-			|error| tg::error!(!error, region = %region, "failed to get the sandbox status"),
-		)?
+		let Some(stream) = client
+			.try_get_sandbox_status_stream(id, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, "failed to get the sandbox status"),
+			)?
 		else {
 			return Ok(None);
 		};
@@ -509,14 +511,16 @@ impl Session {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			sandbox: id.clone(),
 			source,
 			timeout,
 			tokens: tokens.for_location(&location),
 		};
-		let Some(stream) = client.try_get_sandbox_status_stream(arg).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the sandbox status"),
-		)?
+		let Some(stream) = client
+			.try_get_sandbox_status_stream(id, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the sandbox status"),
+			)?
 		else {
 			return Ok(None);
 		};
@@ -526,13 +530,19 @@ impl Session {
 	pub(crate) async fn try_get_sandbox_status_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
+		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
+		// Parse the ID.
+		let id = id
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the sandbox id"))?;
+
 		// Parse the arg.
 		let (arg, request) = request
 			.arg()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
-		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
+		let arg = arg.unwrap_or_default();
 
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request
@@ -541,7 +551,7 @@ impl Session {
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self.try_get_sandbox_status_stream(arg).await? else {
+		let Some(stream) = self.try_get_sandbox_status_stream(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

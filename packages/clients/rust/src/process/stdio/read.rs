@@ -18,6 +18,7 @@ use {
 #[derive(
 	Clone,
 	Debug,
+	Default,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
@@ -41,9 +42,6 @@ pub struct Arg {
 	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub position: Option<std::io::SeekFrom>,
-
-	#[tangram_serialize(id = 9)]
-	pub process: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
@@ -158,24 +156,6 @@ pub enum Output {
 		#[tangram_serialize(id = 0)]
 		position: u64,
 	},
-}
-
-impl Arg {
-	/// Create an arg that reads the process's stdio from the start with the server's defaults.
-	#[must_use]
-	pub fn new(process: tg::process::Id) -> Self {
-		Self {
-			id: None,
-			length: None,
-			location: None,
-			position: None,
-			process,
-			size: None,
-			streams: Vec::new(),
-			timeout: None,
-			tokens: tg::authorization::Tokens::default(),
-		}
-	}
 }
 
 impl Output {
@@ -309,13 +289,12 @@ impl<O> tg::Process<O> {
 			length: options.length,
 			location: options.location.or_else(|| self.location()),
 			position: options.position,
-			process: id.clone(),
 			size: options.size,
 			streams: options.streams,
 			timeout: options.timeout,
 			tokens: self.tokens(),
 		};
-		let Some(stream) = instance.try_read_process_stdio_all(arg).await? else {
+		let Some(stream) = instance.try_read_process_stdio_all(id, arg).await? else {
 			return Ok(None);
 		};
 
@@ -326,6 +305,7 @@ impl<O> tg::Process<O> {
 impl tg::Session {
 	pub async fn try_read_process_stdio(
 		&self,
+		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<
@@ -340,8 +320,8 @@ impl tg::Session {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 		let max_frame_size = self.client().sync.max_frame_size;
-		let path = "/processes/stdio/read";
-		let uri = Uri::builder().path(path).build().unwrap();
+		let path = format!("/processes/{id}/stdio/read");
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let body = super::encode(input, max_frame_size);
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)

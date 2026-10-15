@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from typing import NotRequired, TypedDict
 
 from tangram.error import Error, ErrorData
-from tangram.http import Request
+from tangram.http import Request, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
 from tangram.process.outcome import Outcome, ProcessOutcome
@@ -21,15 +21,14 @@ class Wait:
     class Arg(TypedDict):
         lease: NotRequired[str | None]
         location: NotRequired[LocationArgObject | None]
-        process: str
         source: NotRequired[str]
         tokens: NotRequired[dict[str, list[str]] | None]
 
 
 async def wait_process(
-    client: "Client", arg=None, **options
+    client: "Client", id: str, arg=None, **options
 ) -> ProcessOutcome[ValueType]:
-    promise = await wait_process_promise(client, arg, **options)
+    promise = await wait_process_promise(client, id, arg, **options)
     outcome = await promise()
     if outcome is None:
         raise ValueError("failed to find the process")
@@ -37,36 +36,36 @@ async def wait_process(
 
 
 async def wait_process_promise(
-    client: "Client", arg=None, **options
+    client: "Client", id: str, arg=None, **options
 ) -> Callable[[], Awaitable[ProcessOutcome[ValueType]]]:
-    promise = await try_wait_process_promise(client, arg, **options)
+    promise = await try_wait_process_promise(client, id, arg, **options)
     if promise is None:
         raise ValueError("failed to find the process")
     return promise
 
 
 async def try_wait_process_promise(
-    client: "Client", arg=None, **options
+    client: "Client", id: str, arg=None, **options
 ) -> Callable[[], Awaitable[ProcessOutcome[ValueType]]] | None:
     arg = {**(arg or {}), **options}
 
     async def wait():
-        return await wait_process_loop(client, arg)
+        return await wait_process_loop(client, id, arg)
 
     return wait
 
 
-async def wait_process_loop(client: "Client", arg):
+async def wait_process_loop(client: "Client", id, arg):
     while True:
-        outcome = await wait_process_once(client, arg)
+        outcome = await wait_process_once(client, id, arg)
         if outcome is not None:
             return outcome
 
 
-async def wait_process_once(client: "Client", arg):
+async def wait_process_once(client: "Client", id, arg):
     request = Request(
         "POST",
-        "/processes/wait",
+        f"/processes/{percent_encode(id)}/wait",
         {"accept": "text/event-stream"},
     ).arg(
         {
