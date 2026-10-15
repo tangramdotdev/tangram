@@ -149,8 +149,8 @@ impl Cli {
 		};
 
 		// Spawn the process.
-		let process =
-			Box::pin(self.spawn(options.spawn, reference, trailing, !options.detach, mode)).await?;
+		let print = (!options.detach).then(|| options.print.clone());
+		let process = Box::pin(self.spawn(options.spawn, reference, trailing, print, mode)).await?;
 
 		// If the detach flag is set, then return the process referent.
 		if options.detach {

@@ -403,7 +403,7 @@ impl Cli {
 				args.options,
 				args.reference,
 				args.trailing,
-				false,
+				None,
 				tg::process::connect::Mode::Spawn,
 			)
 			.boxed()
@@ -437,7 +437,7 @@ impl Cli {
 		options: Options,
 		reference: Option<tg::Reference>,
 		trailing: Vec<String>,
-		print: bool,
+		print: Option<crate::print::Options>,
 		mode: tg::process::connect::Mode,
 	) -> tg::Result<tg::Referent<tg::Process>> {
 		let InnerOutput {
@@ -453,8 +453,17 @@ impl Cli {
 		let process =
 			tg::Process::spawn_with_progress_with_instance(&client, arg, options, |stream| {
 				self.render_progress_stream_with_output(stream, |cli, output| {
-					if print && sandboxed {
-						let mut message = output.process.to_string();
+					if let Some(print) = &print
+						&& sandboxed
+					{
+						let options = tg::referent::Options {
+							location: output.location.clone(),
+							tokens: output.tokens.clone(),
+							..Default::default()
+						};
+						let referent = tg::Referent::new(output.process.clone(), options);
+						let mut message =
+							Self::format_referent(&referent, false, print.tokens.get());
 						if let Some(lease) = &output.lease {
 							write!(message, " {lease}").unwrap();
 						}
