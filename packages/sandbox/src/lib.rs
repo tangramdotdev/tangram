@@ -490,7 +490,7 @@ impl Sandbox {
 				let cgroup = self::cgroup::create(&arg)?;
 				let (mut command, config) =
 					self::cloud_hypervisor::run::command(&arg, &serve_arg, network.as_ref())?;
-				let process = self::run::spawn_command(&mut command, &cgroup)?;
+				let process = self::run::spawn_command(&mut command, &cgroup.handle()?)?;
 				tokio::time::timeout_at(deadline, config.finish())
 					.await
 					.map_err(|error| tg::error!(!error, "timed out configuring the sandbox"))??;

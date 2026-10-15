@@ -62,6 +62,9 @@ pub struct Options {
 	pub cgroup: Option<Cgroup>,
 
 	#[cfg(target_os = "linux")]
+	pub cgroup_delegate: bool,
+
+	#[cfg(target_os = "linux")]
 	pub cgroup_readonly: bool,
 
 	#[cfg(target_os = "linux")]
@@ -348,6 +351,11 @@ fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Prepared> {
 			));
 		}
 	}
+	if arg.cgroup_delegate && (arg.cgroup.is_some() || arg.cgroup_readonly) {
+		return Err(tg::error!(
+			"cgroup delegation cannot be combined with a cgroup or a read-only cgroup mount"
+		));
+	}
 
 	// Validate the transferred descriptors before taking ownership of them.
 	let network_fd = match &arg.network {
@@ -392,6 +400,7 @@ fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Prepared> {
 			|| arg.fuse_fd.is_some()
 			|| arg.user_namespace_fd.is_some()
 			|| arg.isolate_root
+			|| arg.cgroup_delegate
 			|| arg.cgroup_readonly
 			|| arg.network.is_some()
 			|| !arg.mounts.binds.is_empty()
@@ -460,6 +469,16 @@ fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Prepared> {
 		crate::linux::enter_user_namespace_with_parent(fd)?;
 	} else {
 		crate::linux::enter_user_namespace(uid, gid)?;
+	}
+
+	// Make the current cgroup the cgroup namespace root and delegate its controllers.
+	if arg.cgroup_delegate {
+		let cgroup = crate::cgroup::Handle::current()?;
+		crate::linux::unshare(
+			libc::CLONE_NEWCGROUP,
+			"failed to create the resource cgroup namespace",
+		)?;
+		cgroup.delegate()?;
 	}
 
 	// Prepare the host filesystem namespace.
@@ -558,7 +577,7 @@ fn child_main(
 	if let Some(cgroup) = cgroup {
 		cgroup.move_self()?;
 	}
-	if !matches!(backend, Backend::CloudHypervisor(_)) {
+	if !matches!(backend, Backend::CloudHypervisor(_)) && !arg.cgroup_delegate {
 		crate::linux::unshare(
 			libc::CLONE_NEWCGROUP,
 			"failed to create the resource cgroup namespace",

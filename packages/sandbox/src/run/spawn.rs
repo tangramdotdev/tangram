@@ -288,8 +288,10 @@ pub(crate) async fn spawn(
 		cwd: "/".into(),
 		env: environment,
 	};
+	let cgroup_readonly = isolation.cgroup_readonly || arg.cpu_pool.is_some();
 	let options = crate::run::Options {
-		cgroup_readonly: isolation.cgroup_readonly || arg.cpu_pool.is_some(),
+		cgroup_delegate: !cgroup_readonly,
+		cgroup_readonly,
 		filesystem_fd: filesystem_sendfd
 			.as_ref()
 			.map(std::os::fd::AsRawFd::as_raw_fd),
@@ -346,6 +348,15 @@ pub(crate) async fn spawn(
 		options,
 	};
 
+	// Select the launcher cgroup, creating a guest cgroup with the enabled controllers when the guest can create cgroups.
+	let launcher_cgroup = if launch.options.cgroup_delegate {
+		let handle = cgroup.handle()?;
+		handle.enable_controllers()?;
+		cgroup.child(crate::cgroup::GUEST)?
+	} else {
+		cgroup.handle()?
+	};
+
 	// Create the launcher and inherit the control descriptors.
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	let config = crate::run::configure_command(&mut command, &launch)?;
@@ -375,7 +386,7 @@ pub(crate) async fn spawn(
 		.stderr(std::process::Stdio::inherit());
 
 	// Spawn the launcher and install the identity maps.
-	let child = spawn_command(&mut command, cgroup)?;
+	let child = spawn_command(&mut command, &launcher_cgroup)?;
 	config.finish().await?;
 	if let Some((host, guest, uid_map, gid_map)) = user_namespace {
 		drop(guest);
@@ -390,7 +401,12 @@ pub(crate) async fn spawn(
 			.id()
 			.ok_or_else(|| tg::error!("no child pid available"))?;
 		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
-		network.start_netns(pid, cgroup).await?;
+		let pasta_cgroup = if launch.options.cgroup_delegate {
+			cgroup.child(crate::cgroup::SIDECARS)?
+		} else {
+			cgroup.handle()?
+		};
+		network.start_netns(pid, &pasta_cgroup).await?;
 	}
 	if let Some(veth) = veth.as_mut() {
 		drop(veth.guest_pipe.take());
@@ -423,9 +439,9 @@ pub(crate) async fn spawn(
 
 pub(crate) fn spawn_command(
 	command: &mut tokio::process::Command,
-	cgroup: &crate::cgroup::Cgroup,
+	cgroup: &crate::cgroup::Handle,
 ) -> tg::Result<tokio::process::Child> {
-	let directory = cgroup.handle()?.open_fd()?;
+	let directory = cgroup.open_fd()?;
 	crate::cgroup::enter_before_exec(command.as_std_mut(), directory.as_raw_fd());
 	let child = command
 		.spawn()
