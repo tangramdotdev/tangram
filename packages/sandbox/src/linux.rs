@@ -249,7 +249,7 @@ pub(crate) fn set_securebits() -> tg::Result<()> {
 	Ok(())
 }
 
-pub(crate) fn drop_capabilities() -> tg::Result<()> {
+fn capset(effective: u64, permitted: u64, inheritable: u64) -> tg::Result<()> {
 	#[repr(C)]
 	struct CapUserHeader {
 		version: u32,
@@ -272,9 +272,58 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 	};
 
 	const CAPABILITY_VERSION_3: u32 = 0x2008_0522;
+
+	let mut header = CapUserHeader {
+		pid: 0,
+		version: CAPABILITY_VERSION_3,
+	};
+	let mut data = [
+		CapUserData {
+			effective: (effective & 0xffff_ffff) as u32,
+			inheritable: (inheritable & 0xffff_ffff) as u32,
+			permitted: (permitted & 0xffff_ffff) as u32,
+		},
+		CapUserData {
+			effective: (effective >> 32) as u32,
+			inheritable: (inheritable >> 32) as u32,
+			permitted: (permitted >> 32) as u32,
+		},
+	];
+	let ret = unsafe {
+		libc::syscall(
+			libc::SYS_capset,
+			std::ptr::addr_of_mut!(header),
+			data.as_mut_ptr(),
+		)
+	};
+	if ret != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set capabilities"));
+	}
+	Ok(())
+}
+
+fn capability_mask(capabilities: &[crate::Capability]) -> u64 {
+	capabilities
+		.iter()
+		.fold(0u64, |mask, capability| mask | (1 << capability.number()))
+}
+
+pub(crate) fn restrict_capabilities(capabilities: &[crate::Capability]) -> tg::Result<()> {
+	let keep = capability_mask(capabilities);
+	capset(keep, keep, keep)
+}
+
+pub(crate) fn set_capabilities(
+	capabilities: &[crate::Capability],
+	ambient: bool,
+) -> tg::Result<()> {
 	const PR_CAP_AMBIENT: libc::c_int = 47;
+	const PR_CAP_AMBIENT_RAISE: libc::c_int = 2;
 	const PR_CAP_AMBIENT_CLEAR_ALL: libc::c_int = 4;
 	const PR_CAPBSET_DROP: libc::c_int = 24;
+
+	let keep = capability_mask(capabilities);
 
 	// Clear the ambient capabilities.
 	let ret = unsafe { libc::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) };
@@ -283,7 +332,7 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 		return Err(tg::error!(!error, "failed to clear ambient capabilities"));
 	}
 
-	// Drop the capability bounding set.
+	// Drop every other capability from the bounding set.
 	for capability in 0..64 {
 		// SAFETY: prctl takes scalar arguments and the operation does not retain pointers.
 		if unsafe { libc::prctl(libc::PR_CAPBSET_READ, capability, 0, 0, 0) } < 0 {
@@ -296,6 +345,9 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 				"failed to read the capability bounding set"
 			));
 		}
+		if keep & (1 << capability) != 0 {
+			continue;
+		}
 
 		// SAFETY: prctl takes scalar arguments and the operation does not retain pointers.
 		if unsafe { libc::prctl(PR_CAPBSET_DROP, capability, 0, 0, 0) } != 0 {
@@ -307,26 +359,30 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 		}
 	}
 
-	// Clear the effective, permitted, and inheritable capabilities.
-	let mut header = CapUserHeader {
-		pid: 0,
-		version: CAPABILITY_VERSION_3,
-	};
-	let mut data = [CapUserData {
-		effective: 0,
-		inheritable: 0,
-		permitted: 0,
-	}; 2];
-	let ret = unsafe {
-		libc::syscall(
-			libc::SYS_capset,
-			std::ptr::addr_of_mut!(header),
-			data.as_mut_ptr(),
-		)
-	};
-	if ret != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to drop capabilities"));
+	// Set the capabilities, keeping CAP_SETPCAP in the effective set until the securebits are locked.
+	let setpcap = 1 << crate::Capability::Setpcap.number();
+	capset(keep | setpcap, keep | setpcap, keep)?;
+
+	// Raise the ambient capabilities so that they survive execve.
+	if ambient {
+		for capability in capabilities {
+			let ret = unsafe {
+				libc::prctl(
+					PR_CAP_AMBIENT,
+					PR_CAP_AMBIENT_RAISE,
+					capability.number(),
+					0,
+					0,
+				)
+			};
+			if ret != 0 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					capability = ?capability,
+					"failed to raise an ambient capability"
+				));
+			}
+		}
 	}
 
 	Ok(())

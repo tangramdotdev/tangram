@@ -238,6 +238,7 @@ pub struct Command {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Resources {
+	pub capabilities: Option<Vec<Capability>>,
 	pub cgroup_readonly: bool,
 	pub filesystem_project_id: Option<u32>,
 	pub gid_map: Option<IdMap>,
@@ -262,6 +263,82 @@ pub struct IdMap {
 #[serde(rename_all = "snake_case")]
 pub enum SeccompPolicy {
 	Default,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Capability {
+	AuditWrite,
+	Chown,
+	DacOverride,
+	DacReadSearch,
+	Fowner,
+	Fsetid,
+	Kill,
+	Mknod,
+	NetBindService,
+	NetRaw,
+	Setfcap,
+	Setgid,
+	Setpcap,
+	Setuid,
+	SysChroot,
+}
+
+impl Capability {
+	#[must_use]
+	pub fn number(self) -> u32 {
+		match self {
+			Self::Chown => 0,
+			Self::DacOverride => 1,
+			Self::DacReadSearch => 2,
+			Self::Fowner => 3,
+			Self::Fsetid => 4,
+			Self::Kill => 5,
+			Self::Setgid => 6,
+			Self::Setuid => 7,
+			Self::Setpcap => 8,
+			Self::NetBindService => 10,
+			Self::NetRaw => 13,
+			Self::SysChroot => 18,
+			Self::Mknod => 27,
+			Self::AuditWrite => 29,
+			Self::Setfcap => 31,
+		}
+	}
+}
+
+/// The capabilities a root command keeps. Inside a user namespace the kernel scopes them to the namespace's own ids, so the full set is safe. Without one they apply to the host's files and devices, so only the ownership and identity capabilities most software expects of root are kept.
+#[must_use]
+pub fn default_capabilities(user_namespace: bool) -> &'static [Capability] {
+	if user_namespace {
+		&[
+			Capability::AuditWrite,
+			Capability::Chown,
+			Capability::DacOverride,
+			Capability::Fowner,
+			Capability::Fsetid,
+			Capability::Kill,
+			Capability::Mknod,
+			Capability::NetBindService,
+			Capability::NetRaw,
+			Capability::Setfcap,
+			Capability::Setgid,
+			Capability::Setpcap,
+			Capability::Setuid,
+			Capability::SysChroot,
+		]
+	} else {
+		&[
+			Capability::Chown,
+			Capability::DacOverride,
+			Capability::Fowner,
+			Capability::Fsetid,
+			Capability::Kill,
+			Capability::Setgid,
+			Capability::Setuid,
+		]
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]

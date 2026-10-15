@@ -325,6 +325,9 @@ pub(crate) async fn spawn(
 	let backend = match &arg.backend {
 		crate::Backend::Builtin => crate::run::Backend::Builtin(crate::builtin::run::Arg {
 			as_pid_1: true,
+			capabilities: isolation.capabilities.clone().unwrap_or_else(|| {
+				crate::default_capabilities(user_namespace.is_some()).to_vec()
+			}),
 			gid: user.gid,
 			hostname: arg.hostname.clone(),
 			root: None,

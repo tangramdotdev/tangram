@@ -621,6 +621,10 @@ impl Options {
 			tangram_sandbox::Kind::Builtin => {
 				tangram_sandbox::run::Backend::Builtin(tangram_sandbox::builtin::run::Arg {
 					as_pid_1: self.as_pid_1,
+					capabilities: tangram_sandbox::default_capabilities(
+						self.user_namespace_fd.is_some(),
+					)
+					.to_vec(),
 					gid: self.gid.unwrap_or(0),
 					hostname: self.hostname,
 					root: None,

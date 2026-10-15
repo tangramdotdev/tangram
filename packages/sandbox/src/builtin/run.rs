@@ -12,6 +12,7 @@ use {
 #[serde(default, deny_unknown_fields)]
 pub struct Arg {
 	pub as_pid_1: bool,
+	pub capabilities: Vec<crate::Capability>,
 	pub gid: u32,
 	pub hostname: Option<String>,
 	pub root: Option<PathBuf>,
@@ -177,13 +178,14 @@ fn child_main(
 	let filter = arg.seccomp.map(crate::seccomp::filter).transpose()?;
 
 	// Drop privileges and close the inherited descriptors.
+	linux::set_capabilities(&arg.capabilities, arg.uid == 0)?;
 	linux::set_securebits()?;
+	linux::restrict_capabilities(&arg.capabilities)?;
 	linux::setresgid(arg.gid)?;
 	linux::setresuid(arg.uid)?;
 	crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	linux::validate_parent(parent)?;
 	linux::set_no_new_privs()?;
-	linux::drop_capabilities()?;
 	linux::close_non_std_fds()?;
 
 	// Install the seccomp filter.
