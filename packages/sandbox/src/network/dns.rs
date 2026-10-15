@@ -1,13 +1,20 @@
 use {std::net::Ipv4Addr, tangram_client::prelude::*};
 
 pub(super) fn resolve(configured: &[Ipv4Addr]) -> tg::Result<Vec<Ipv4Addr>> {
+	resolve_with(configured, |path| std::fs::read_to_string(path))
+}
+
+fn resolve_with(
+	configured: &[Ipv4Addr],
+	read: impl Fn(&str) -> std::io::Result<String>,
+) -> tg::Result<Vec<Ipv4Addr>> {
 	if !configured.is_empty() {
 		return Ok(configured.to_vec());
 	}
 
 	// Discover upstream servers that are reachable outside the host network namespace.
 	for path in ["/etc/resolv.conf", "/run/systemd/resolve/resolv.conf"] {
-		let contents = match std::fs::read_to_string(path) {
+		let contents = match read(path) {
 			Ok(contents) => contents,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
 			Err(error) => {
@@ -20,9 +27,7 @@ pub(super) fn resolve(configured: &[Ipv4Addr]) -> tg::Result<Vec<Ipv4Addr>> {
 		}
 	}
 
-	Err(tg::error!(
-		"failed to discover an upstream IPv4 DNS server; configure sandbox.network.dns for bridge networking"
-	))
+	Ok(Vec::new())
 }
 
 fn parse(contents: &str) -> Vec<Ipv4Addr> {
@@ -51,7 +56,39 @@ mod tests {
 	#[test]
 	fn configured_servers_take_precedence() {
 		let servers = [Ipv4Addr::new(192, 0, 2, 53)];
-		assert_eq!(resolve(&servers).unwrap(), servers);
+		assert_eq!(
+			resolve_with(&servers, |_| panic!("unexpected DNS discovery")).unwrap(),
+			servers
+		);
+	}
+
+	#[test]
+	fn falls_back_to_systemd_upstream_servers() {
+		let servers = resolve_with(&[], |path| {
+			Ok(match path {
+				"/etc/resolv.conf" => "nameserver 127.0.0.53\n",
+				"/run/systemd/resolve/resolv.conf" => "nameserver 192.0.2.53\n",
+				_ => unreachable!(),
+			}
+			.to_owned())
+		})
+		.unwrap();
+		assert_eq!(servers, [Ipv4Addr::new(192, 0, 2, 53)]);
+	}
+
+	#[test]
+	fn permits_missing_resolver_configuration() {
+		let servers = resolve_with(&[], |_| Err(std::io::ErrorKind::NotFound.into())).unwrap();
+		assert_eq!(servers, [] as [Ipv4Addr; 0]);
+	}
+
+	#[test]
+	fn permits_configuration_without_upstream_ipv4_servers() {
+		let servers = resolve_with(&[], |_| {
+			Ok("nameserver 127.0.0.53\nnameserver ::1\n".to_owned())
+		})
+		.unwrap();
+		assert_eq!(servers, [] as [Ipv4Addr; 0]);
 	}
 
 	#[test]

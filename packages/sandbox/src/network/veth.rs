@@ -136,10 +136,15 @@ impl Pair {
 	}
 }
 
-pub(crate) fn setup(firewall: crate::Firewall, dns: &[Ipv4Addr]) -> tg::Result<()> {
-	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
+pub(crate) fn setup(firewall: crate::Firewall, dns: &[Ipv4Addr]) -> tg::Result<Vec<Ipv4Addr>> {
+	// Keep the resolver configuration consistent with the firewall for the runner's lifetime.
+	static SETUP: std::sync::OnceLock<tg::Result<Vec<Ipv4Addr>>> = std::sync::OnceLock::new();
 	SETUP
-		.get_or_init(|| create_bridge(firewall, BRIDGE_NAME, gateway_ip(), dns))
+		.get_or_init(|| {
+			let dns = crate::network::dns::resolve(dns)?;
+			create_bridge(firewall, BRIDGE_NAME, gateway_ip(), &dns)?;
+			Ok(dns)
+		})
 		.clone()
 }
 
