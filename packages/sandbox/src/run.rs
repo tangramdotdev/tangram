@@ -464,44 +464,7 @@ fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Prepared> {
 		Backend::Gvisor(arg) => (arg.uid, arg.gid),
 	};
 
-	// Enter the user namespace.
-	if let Some(fd) = arg.user_namespace_fd {
-		crate::linux::enter_user_namespace_with_parent(fd)?;
-	} else {
-		crate::linux::enter_user_namespace(uid, gid)?;
-	}
-
-	// Make the current cgroup the cgroup namespace root and delegate its controllers.
-	if arg.cgroup_delegate {
-		let cgroup = crate::cgroup::Handle::current()?;
-		crate::linux::unshare(
-			libc::CLONE_NEWCGROUP,
-			"failed to create the resource cgroup namespace",
-		)?;
-		cgroup.delegate()?;
-	}
-
-	// Prepare the host filesystem namespace.
-	let host_namespace = if arg.user_namespace_fd.is_some() && arg.filesystem_fd.is_some() {
-		Some(crate::filesystem::host_namespace(uid, gid)?)
-	} else {
-		None
-	};
-
-	// Prepare the network and mount namespaces.
-	setup_network(arg)?;
-	crate::linux::unshare(
-		libc::CLONE_NEWNS | libc::CLONE_NEWPID,
-		"failed to create the resource setup namespaces",
-	)?;
-
-	// Prepare the sandbox filesystem.
-	let filesystem = prepare_filesystem(arg, host_namespace.as_ref(), uid, gid)?;
-	if let (Some(fd), Some(path)) = (arg.fuse_fd, &arg.fuse_path) {
-		crate::builtin::run::mount_fuse(fd, path)?;
-	}
-
-	// Create the prepared root.
+	// Create the prepared root before entering the user namespace, so that the runner owns it.
 	let root = if arg.isolate_root
 		|| arg
 			.mounts
@@ -532,6 +495,42 @@ fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Prepared> {
 			Backend::Gvisor(arg) => arg.root.clone(),
 			Backend::CloudHypervisor(_) => None,
 		});
+
+	// Enter the user namespace.
+	let filesystems = if let Some(fd) = arg.user_namespace_fd {
+		let count = if arg.filesystem_fd.is_some() {
+			1 + arg.mounts.overlay_sources.len()
+		} else {
+			0
+		};
+		crate::linux::enter_user_namespace_with_parent(fd, count)?
+	} else {
+		crate::linux::enter_user_namespace(uid, gid)?;
+		Vec::new()
+	};
+
+	// Make the current cgroup the cgroup namespace root and delegate its controllers.
+	if arg.cgroup_delegate {
+		let cgroup = crate::cgroup::Handle::current()?;
+		crate::linux::unshare(
+			libc::CLONE_NEWCGROUP,
+			"failed to create the resource cgroup namespace",
+		)?;
+		cgroup.delegate()?;
+	}
+
+	// Prepare the network and mount namespaces.
+	setup_network(arg)?;
+	crate::linux::unshare(
+		libc::CLONE_NEWNS | libc::CLONE_NEWPID,
+		"failed to create the resource setup namespaces",
+	)?;
+
+	// Prepare the sandbox filesystem.
+	let filesystem = prepare_filesystem(arg, filesystems, uid, gid)?;
+	if let (Some(fd), Some(path)) = (arg.fuse_fd, &arg.fuse_path) {
+		crate::builtin::run::mount_fuse(fd, path)?;
+	}
 
 	let output = Prepared {
 		_filesystem: filesystem,
@@ -740,7 +739,7 @@ fn setup_network(arg: &Options) -> tg::Result<()> {
 #[cfg(target_os = "linux")]
 fn prepare_filesystem(
 	arg: &mut Options,
-	host_namespace: Option<&OwnedFd>,
+	filesystems: Vec<OwnedFd>,
 	uid: u32,
 	gid: u32,
 ) -> tg::Result<Option<OwnedFd>> {
@@ -748,7 +747,22 @@ fn prepare_filesystem(
 	let (Some(path), Some(socket)) = (arg.filesystem_path.clone(), arg.filesystem_fd) else {
 		return Ok(None);
 	};
-	let filesystem = crate::filesystem::open(&path)?;
+	let mut filesystems = filesystems.into_iter();
+	let filesystem = if let Some(filesystem) = filesystems.next() {
+		// Attach the ID-mapped mounts only in the private sandbox mount namespace, so that overlayfs can clone its layers.
+		crate::mount::make_mounts_private()?;
+		crate::filesystem::attach(&filesystem, &path)?;
+		for (filesystem, path) in filesystems.zip(&arg.mounts.overlay_sources) {
+			crate::filesystem::attach(&filesystem, path)?;
+		}
+
+		// Create files as the workload, so that the mapped mounts preserve the runner's on-disk ownership.
+		crate::linux::set_filesystem_ids(uid, gid)?;
+
+		filesystem
+	} else {
+		crate::filesystem::open(&path)?
+	};
 	crate::filesystem::prepare(&filesystem, uid, gid)?;
 
 	// Rewrite the mounts to use the prepared filesystem.
@@ -765,10 +779,7 @@ fn prepare_filesystem(
 	// Send the filesystem descriptor to the parent.
 	// SAFETY: The inherited filesystem control descriptor is exclusively owned here.
 	let socket = unsafe { OwnedFd::from_raw_fd(socket) };
-	let host_filesystem = host_namespace
-		.map(|namespace| crate::filesystem::host_mount(&filesystem, namespace))
-		.transpose()?;
-	crate::filesystem::send(&socket, host_filesystem.as_ref().unwrap_or(&filesystem))?;
+	crate::filesystem::send(&socket, &filesystem)?;
 
 	Ok(Some(filesystem))
 }

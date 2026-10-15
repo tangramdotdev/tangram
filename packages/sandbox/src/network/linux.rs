@@ -8,12 +8,13 @@ pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Option<crate::network::Netw
 	match network {
 		crate::Network::Bridge(_) | crate::Network::Default => {
 			if crate::network::root() {
-				crate::network::veth::setup(arg.firewall, &arg.dns)?;
+				let dns = crate::network::veth::setup(arg.firewall, &arg.dns)?;
 				let guest = reserve_veth_guest(&arg.ip_pool)?;
 				let network = crate::network::veth::Network::new(
 					arg.index,
 					&arg.identity,
 					arg.firewall,
+					dns,
 					guest,
 					ports,
 				)?;

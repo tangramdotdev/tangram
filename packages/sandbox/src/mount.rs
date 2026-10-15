@@ -980,7 +980,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 	configure_dev(target)
 }
 
-fn make_mounts_private() -> tg::Result<()> {
+pub fn make_mounts_private() -> tg::Result<()> {
 	let result = unsafe {
 		libc::mount(
 			std::ptr::null(),

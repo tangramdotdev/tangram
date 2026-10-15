@@ -5,7 +5,6 @@ use {
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
 		mem::MaybeUninit,
-		net::Ipv4Addr,
 		os::{
 			fd::AsRawFd as _,
 			unix::{ffi::OsStrExt as _, net::UnixStream},
@@ -13,7 +12,7 @@ use {
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
-	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
+	tokio::io::AsyncReadExt as _,
 };
 
 const DEFAULT_USER_BUFFER_SIZE: usize = 16 * 1024;
@@ -108,8 +107,21 @@ pub(crate) async fn spawn(
 		filesystem_separate,
 		isolation.uid_map.is_some(),
 	)?;
-	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
+	let user = prepare_etc_files(&arg.path, network.as_deref())?;
 	let user_namespace = prepare_user_namespace(isolation, &user)?;
+
+	// Open the runner's view, so that its files keep their host ownership during cleanup.
+	let host_filesystem = if user_namespace.is_some() {
+		let fd = crate::filesystem::open(&filesystem_path).map_err(|error| {
+			tg::error!(
+				!error,
+				"subordinate identities require CAP_SYS_ADMIN in the backing filesystem's user namespace"
+			)
+		})?;
+		Some(crate::filesystem::Filesystem::new(fd))
+	} else {
+		None
+	};
 
 	// Create the filesystem control socket.
 	let (filesystem_sendfd, filesystem_recvfd) = if filesystem_separate {
@@ -390,7 +402,12 @@ pub(crate) async fn spawn(
 	config.finish().await?;
 	if let Some((host, guest, uid_map, gid_map)) = user_namespace {
 		drop(guest);
-		configure_user_namespace(host, &uid_map, &gid_map).await?;
+
+		// Map the overlay lower layers too, so that copy-up preserves the runner's on-disk ownership.
+		let paths = std::iter::once(&filesystem_path)
+			.chain(&launch.options.mounts.overlay_sources)
+			.collect::<Vec<_>>();
+		configure_user_namespace(host, &uid_map, &gid_map, &paths).await?;
 	}
 
 	// Complete the network setup.
@@ -419,13 +436,14 @@ pub(crate) async fn spawn(
 
 	// The child prepares its filesystem only after the network handshake completes.
 	let filesystem = match filesystem_recvfd {
-		Some(fd) => Some(
+		Some(fd) => Some(crate::filesystem::Filesystem::new(
 			tokio::task::spawn_blocking(move || crate::filesystem::receive(&fd))
 				.await
 				.map_err(|error| tg::error!(!error, "the filesystem task panicked"))??,
-		),
+		)),
 		None => None,
 	};
+	let filesystem = host_filesystem.or(filesystem);
 
 	// Create the launch output.
 	let output = Output {
@@ -573,6 +591,7 @@ async fn configure_user_namespace(
 	socket: UnixStream,
 	uid_map: &crate::IdMap,
 	gid_map: &crate::IdMap,
+	paths: &[&PathBuf],
 ) -> tg::Result<()> {
 	socket
 		.set_nonblocking(true)
@@ -598,10 +617,22 @@ async fn configure_user_namespace(
 		run_id_map_helper(pid, uid_map, setup_uid, "uid").await?;
 		run_id_map_helper(pid, gid_map, setup_gid, "gid").await?;
 	}
+
+	// Send the ID-mapped mounts, which also releases the user namespace.
+	let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
+		.map_err(|error| tg::error!(!error, "failed to open the workload user namespace"))?
+		.into();
+	let socket = socket
+		.into_std()
+		.map_err(|error| tg::error!(!error, "failed to deregister the identity socket"))?;
 	socket
-		.write_all(&[0])
-		.await
-		.map_err(|error| tg::error!(!error, "failed to release the user namespace"))?;
+		.set_nonblocking(false)
+		.map_err(|error| tg::error!(!error, "failed to configure the identity socket"))?;
+	let socket = socket.into();
+	for path in paths {
+		let filesystem = crate::filesystem::open_mapped(path, &namespace)?;
+		crate::filesystem::send(&socket, &filesystem)?;
+	}
 
 	Ok(())
 }
@@ -653,7 +684,6 @@ async fn run_id_map_helper(
 fn prepare_etc_files(
 	sandbox_path: &Path,
 	network: Option<&crate::network::Network>,
-	dns: &[Ipv4Addr],
 ) -> tg::Result<User> {
 	// Write the passwd file.
 	let user = resolve_user(None)?;
@@ -688,9 +718,9 @@ fn prepare_etc_files(
 			std::fs::write(path, contents)
 				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
-		Some(crate::network::Network::Veth(_)) => {
+		Some(crate::network::Network::Veth(network)) => {
 			let mut contents = String::new();
-			for server in dns {
+			for server in network.dns() {
 				use std::fmt::Write as _;
 				writeln!(&mut contents, "nameserver {server}").unwrap();
 			}

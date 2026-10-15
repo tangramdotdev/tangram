@@ -104,7 +104,10 @@ pub(crate) fn enter_user_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Re
 	Ok(())
 }
 
-pub(crate) fn enter_user_namespace_with_parent(fd: RawFd) -> tg::Result<()> {
+pub(crate) fn enter_user_namespace_with_parent(
+	fd: RawFd,
+	count: usize,
+) -> tg::Result<Vec<OwnedFd>> {
 	// Validate the synchronization descriptor.
 	if fd < 0 {
 		return Err(tg::error!(fd = %fd, "the user namespace requires a valid sync fd"));
@@ -124,11 +127,19 @@ pub(crate) fn enter_user_namespace_with_parent(fd: RawFd) -> tg::Result<()> {
 		.write_all(&pid.to_ne_bytes())
 		.map_err(|error| tg::error!(!error, "failed to signal user namespace readiness"))?;
 
-	// Wait for the parent to install the identity maps.
-	let mut buffer = [0];
-	socket
-		.read_exact(&mut buffer)
-		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace mapping"))?;
+	// Wait for the parent to install the identity maps and send the ID-mapped mounts.
+	let filesystems = if count == 0 {
+		let mut buffer = [0];
+		socket
+			.read_exact(&mut buffer)
+			.map_err(|error| tg::error!(!error, "failed to wait for the user namespace mapping"))?;
+		Vec::new()
+	} else {
+		let socket = socket.into();
+		(0..count)
+			.map(|_| crate::filesystem::receive(&socket))
+			.collect::<tg::Result<Vec<_>>>()?
+	};
 
 	// Clear the supplementary groups.
 	let result = unsafe { libc::setgroups(0, std::ptr::null()) };
@@ -137,7 +148,7 @@ pub(crate) fn enter_user_namespace_with_parent(fd: RawFd) -> tg::Result<()> {
 		return Err(tg::error!(!error, "failed to clear supplementary groups"));
 	}
 
-	Ok(())
+	Ok(filesystems)
 }
 
 pub(crate) fn unshare(flags: libc::c_int, message: &'static str) -> tg::Result<()> {
@@ -181,6 +192,21 @@ pub(crate) fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
 	if ret != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, gid = %gid, "failed to set the gid"));
+	}
+	Ok(())
+}
+
+pub(crate) fn set_filesystem_ids(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
+	// SAFETY: These calls change only this process's filesystem credentials, and the all-ones ID queries them without changing them.
+	unsafe {
+		libc::setfsgid(gid);
+		if libc::setfsgid(libc::gid_t::MAX).cast_unsigned() != gid {
+			return Err(tg::error!(%gid, "failed to set the filesystem gid"));
+		}
+		libc::setfsuid(uid);
+		if libc::setfsuid(libc::uid_t::MAX).cast_unsigned() != uid {
+			return Err(tg::error!(%uid, "failed to set the filesystem uid"));
+		}
 	}
 	Ok(())
 }

@@ -188,19 +188,6 @@ export def container_id_maps [] {
 	}
 }
 
-export def container_id_mapped_mount_supported [] {
-	if (which unshare | is-empty) or (which mount | is-empty) {
-		return false
-	}
-	let root = mktemp -d
-	mkdir ($root | path join source) ($root | path join target)
-	let script = 'mount --bind "$1/source" "$1/target" && mount --map-users 0:0:1 --map-groups 0:0:1 --bind "$1/target" "$1/target"'
-	let output = ^unshare --user --map-root-user --mount sh -c $script _ $root | complete
-	rm -rf $root
-
-	$output.exit_code == 0
-}
-
 export def artifact [artifact] {
 	def inner [artifact: any, path: string] {
 		let artifact = if ($artifact | describe) == 'string' {

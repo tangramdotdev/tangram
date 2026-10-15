@@ -12,6 +12,7 @@ pub(crate) const BRIDGE_NAME: &str = "tangram0";
 
 pub(crate) struct Network {
 	bridge_name: String,
+	dns: Vec<Ipv4Addr>,
 	gateway_ip: Ipv4Addr,
 	guest: ip::Lease,
 	_port_forwarding_rules: Vec<host::FirewallRuleGuard>,
@@ -30,6 +31,7 @@ impl Network {
 		index: u64,
 		identity: &Path,
 		firewall: crate::Firewall,
+		dns: Vec<Ipv4Addr>,
 		guest: ip::Lease,
 		ports: &[tg::sandbox::Port],
 	) -> tg::Result<Self> {
@@ -46,6 +48,7 @@ impl Network {
 		Ok(Self {
 			_port_forwarding_rules: port_forwarding_rules,
 			bridge_name,
+			dns,
 			gateway_ip: gateway_ip(),
 			guest,
 		})
@@ -53,6 +56,11 @@ impl Network {
 
 	pub(crate) fn bridge_name(&self) -> &str {
 		&self.bridge_name
+	}
+
+	#[must_use]
+	pub(crate) fn dns(&self) -> &[Ipv4Addr] {
+		&self.dns
 	}
 
 	pub(crate) fn gateway_ip(&self) -> Ipv4Addr {
@@ -128,10 +136,15 @@ impl Pair {
 	}
 }
 
-pub(crate) fn setup(firewall: crate::Firewall, dns: &[Ipv4Addr]) -> tg::Result<()> {
-	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
+pub(crate) fn setup(firewall: crate::Firewall, dns: &[Ipv4Addr]) -> tg::Result<Vec<Ipv4Addr>> {
+	// Keep the resolver configuration consistent with the firewall for the runner's lifetime.
+	static SETUP: std::sync::OnceLock<tg::Result<Vec<Ipv4Addr>>> = std::sync::OnceLock::new();
 	SETUP
-		.get_or_init(|| create_bridge(firewall, BRIDGE_NAME, gateway_ip(), dns))
+		.get_or_init(|| {
+			let dns = crate::network::dns::resolve(dns)?;
+			create_bridge(firewall, BRIDGE_NAME, gateway_ip(), &dns)?;
+			Ok(dns)
+		})
 		.clone()
 }
 
