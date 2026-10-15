@@ -870,8 +870,12 @@ pub struct FdbIndex {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_request_batch_size: Option<usize>,
 
+	/// The maximum number of concurrent read transactions per reader task.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub read_transaction_concurrency: Option<usize>,
+	pub read_task_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_task_count: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage_and_metadata_update_partition_total: Option<u64>,
@@ -4408,8 +4412,11 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.read_request_batch_size {
 		target.read_request_batch_size = value;
 	}
-	if let Some(value) = source.read_transaction_concurrency {
-		target.read_transaction_concurrency = value;
+	if let Some(value) = source.read_task_count {
+		target.read_task_count = value;
+	}
+	if let Some(value) = source.read_task_concurrency {
+		target.read_task_concurrency = value;
 	}
 	if let Some(value) = source.storage_relation_batch_size {
 		target.storage_relation_batch_size = value;
@@ -7399,6 +7406,19 @@ mod tests {
 		};
 		let target = resolve_indexer(&source);
 		assert!(!target.usage.expiration.enabled);
+	}
+
+	#[test]
+	fn resolves_fdb_read_concurrency() {
+		let source = FdbIndex {
+			read_task_concurrency: Some(7),
+			read_task_count: Some(3),
+			..FdbIndex::default()
+		};
+		let target = resolve_fdb_index(source);
+
+		assert_eq!(target.read_task_concurrency, 7);
+		assert_eq!(target.read_task_count, 3);
 	}
 
 	#[test]

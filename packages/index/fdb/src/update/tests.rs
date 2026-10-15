@@ -1,15 +1,13 @@
 use {
 	super::{Index, Key, Kind},
+	crate::tests::{directory, put},
 	foundationdb as fdb,
-	futures::FutureExt as _,
-	std::{collections::BTreeMap, ops::ControlFlow, panic::AssertUnwindSafe, sync::OnceLock},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
 mod clean;
 mod storage;
-
-static NETWORK: OnceLock<fdb::api::NetworkAutoStop> = OnceLock::new();
 
 #[tokio::test]
 #[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
@@ -38,10 +36,6 @@ async fn run_with_partition_totals(
 	partition_totals: crate::PartitionTotals,
 	test: impl AsyncFnOnce(&Index),
 ) {
-	NETWORK.get_or_init(|| {
-		// SAFETY: The network is initialized once and outlives every test database and runtime.
-		unsafe { fdb::boot() }
-	});
 	let options = crate::Options {
 		verification: crate::VerificationConfig { concurrency: 1 },
 		cleaning_partition_total: partition_totals.cleaning,
@@ -57,7 +51,8 @@ async fn run_with_partition_totals(
 		storage_and_metadata_update_partition_total: partition_totals.storage_and_metadata_update,
 		read_channel_capacity: 256,
 		read_request_batch_size: 1,
-		read_transaction_concurrency: 1,
+		read_task_concurrency: 1,
+		read_task_count: 4,
 		storage_relation_batch_size: 8,
 		usage_update_partition_total: partition_totals.usage_update,
 		usage_partition_total: partition_totals.usage,
@@ -65,20 +60,7 @@ async fn run_with_partition_totals(
 		write_operation_batch_size: 1024,
 		write_transaction_concurrency: 1,
 	};
-	let index = Index::new(&options).unwrap();
-	let result = AssertUnwindSafe(test(&index)).catch_unwind().await;
-	crate::run(&index.database, |txn| {
-		let (begin, end) = index.subspace.range();
-		async move {
-			txn.clear_range(&begin, &end);
-			Ok(ControlFlow::Break(()))
-		}
-	})
-	.await
-	.unwrap();
-	if let Err(error) = result {
-		std::panic::resume_unwind(error);
-	}
+	crate::tests::run(&options, test).await;
 }
 
 async fn reproduce(index: &Index, late: bool) {
@@ -213,35 +195,6 @@ async fn reproduce(index: &Index, late: bool) {
 	.unwrap();
 }
 
-fn directory(children: &[(&str, tg::object::Id)]) -> tangram_index::object::put::Arg {
-	let entries = children
-		.iter()
-		.map(|(name, id)| ((*name).to_owned(), id.to_string()))
-		.collect::<BTreeMap<_, _>>();
-	let data: tg::directory::Data =
-		serde_json::from_value(serde_json::json!({ "entries": entries })).unwrap();
-	let bytes = data.serialize().unwrap();
-	let id = tg::object::Id::new(tg::object::Kind::Directory, &bytes);
-	let metadata = tg::object::Metadata {
-		node: tg::object::metadata::Node {
-			size: bytes.len() as u64,
-			solvable: false,
-			solved: true,
-		},
-		subtree: tg::object::metadata::Subtree::default(),
-	};
-	tangram_index::object::put::Arg {
-		checkout: None,
-		children: children.iter().map(|(_, id)| id.clone()).collect(),
-		id,
-		metadata,
-		put: [1; 16],
-		storage: tg::object::storage::Set::NODE,
-		time_to_touch: std::time::Duration::ZERO,
-		touched_at: 0,
-	}
-}
-
 async fn count(index: &Index, id: &tg::object::Id) -> Option<u64> {
 	index
 		.try_get_objects(std::slice::from_ref(id))
@@ -252,15 +205,6 @@ async fn count(index: &Index, id: &tg::object::Id) -> Option<u64> {
 		.metadata
 		.subtree
 		.count
-}
-
-async fn put(index: &Index, objects: Vec<tangram_index::object::put::Arg>) {
-	let items = objects
-		.into_iter()
-		.map(tangram_index::batch::Item::PutObject)
-		.collect();
-	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap().unwrap();
 }
 
 async fn drain(index: &Index) {
