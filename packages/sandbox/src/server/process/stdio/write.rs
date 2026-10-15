@@ -40,22 +40,20 @@ impl Server {
 		let pty = process.pty.clone();
 		drop(process);
 
+		// Get the writer. A piped stdin that was already closed, or whose process exited, has no writer, so a write to it is treated as a write to a closed stdin.
 		let writer = match stdin_mode {
 			Stdio::Null => {
 				let writer = tokio::io::sink();
-				Writer::Null(writer)
+				Some(Writer::Null(writer))
 			},
-			Stdio::Pipe => {
-				let writer = stdin
-					.ok_or_else(|| tg::error!(process = %index, "stdin is not available"))?
-					.lock_owned()
-					.await;
-				Writer::Stdin(writer)
+			Stdio::Pipe => match stdin {
+				Some(stdin) => Some(Writer::Stdin(stdin.lock_owned().await)),
+				None => None,
 			},
 			Stdio::Tty => {
 				let writer =
 					pty.ok_or_else(|| tg::error!(process = %index, "stdin is not available"))?;
-				Writer::Pty(writer)
+				Some(Writer::Pty(writer))
 			},
 		};
 
@@ -63,7 +61,7 @@ impl Server {
 		let server = self.clone();
 		let stream = stream.boxed();
 		let output = stream::try_unfold(
-			(stream, Some(writer), false),
+			(stream, writer, false),
 			move |(mut stream, mut writer, done)| {
 				let server = server.clone();
 				let index = index;
@@ -85,11 +83,11 @@ impl Server {
 								if chunk.bytes.is_empty() {
 									continue;
 								}
-								let result = writer
-									.as_mut()
-									.ok_or_else(|| tg::error!("stdin was closed"))?
-									.write_all(&chunk.bytes)
-									.await;
+								let Some(w) = writer.as_mut() else {
+									let event = crate::stdio::write::Event::End;
+									return Ok(Some((event, (stream, writer, true))));
+								};
+								let result = w.write_all(&chunk.bytes).await;
 								match result {
 									Ok(()) => {
 										let event =

@@ -1171,6 +1171,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "the process task panicked"))?;
 
 		// The sandbox's connection is closed once the process exits, so stdin can no longer be written to.
+		crate::checkpoint!(self.server, "runner.process.exited", process = %id).await;
 		exited.stop();
 
 		let finish = processes
