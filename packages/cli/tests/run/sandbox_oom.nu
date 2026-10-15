@@ -7,7 +7,9 @@ if $nu.os-info.name != 'linux' {
 }
 
 let cgroup_parent = container_cgroup_parent [cpu memory]
-let local = server spawn
+let local = server spawn --config {
+	runner: { backend: { kind: builtin } },
+}
 let memory = 134_217_728
 let script = 'value=x; while :; do value="$value$value"; done'
 let process = tg spawn --sandbox --memory $memory --swap 0 --verbose --executable /bin/sh -- -c $script | from json | get process

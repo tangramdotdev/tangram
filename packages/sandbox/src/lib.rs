@@ -1090,6 +1090,7 @@ impl Sandbox {
 			let result = future.await.and_then(|outcome| {
 				outcome.ok_or_else(|| tg::error!("failed to wait for the process"))
 			});
+
 			match result {
 				Ok(outcome) => Ok(outcome.status),
 				Err(error) => Err(sandbox.termination_error(error).await),
@@ -1119,6 +1120,7 @@ impl Sandbox {
 				},
 			}
 		}
+
 		error
 	}
 
