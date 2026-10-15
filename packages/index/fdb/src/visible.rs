@@ -7,15 +7,15 @@ use {
 };
 
 impl Index {
-	pub async fn get_requester_subjects(
+	pub async fn get_subjects_for_principal(
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::authorization::Subject>> {
-		let request = tangram_index::read::Request::GetRequesterSubjects {
+		let request = tangram_index::read::Request::GetSubjectsForPrincipal {
 			principal: principal.clone(),
 		};
 		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::GetRequesterSubjects(output) = response else {
+		let tangram_index::read::Response::GetSubjectsForPrincipal(output) = response else {
 			return Err(tg::error!("unexpected read response"));
 		};
 
@@ -52,7 +52,7 @@ impl Index {
 			return Ok(ControlFlow::Break(vec![true; ids.len()]));
 		}
 		let subjects = crate::propagate!(
-			Self::requester_subjects_with_transaction(txn, subspace, principal).await
+			Self::get_subjects_for_principal_with_transaction(txn, subspace, principal).await
 		);
 		let output = {
 			let results = futures::future::try_join_all(ids.iter().cloned().map(|id| {
@@ -88,7 +88,7 @@ impl Index {
 		Ok(ControlFlow::Break(output))
 	}
 
-	pub(crate) async fn requester_subjects_with_transaction(
+	pub(crate) async fn get_subjects_for_principal_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
 		principal: &tg::Principal,

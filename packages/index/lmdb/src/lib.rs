@@ -306,11 +306,11 @@ impl tangram_index::Index for Index {
 		self.try_get_ids_for_specifiers(specifiers).await
 	}
 
-	async fn get_requester_subjects(
+	async fn get_subjects_for_principal(
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::authorization::Subject>> {
-		self.get_requester_subjects(principal).await
+		self.get_subjects_for_principal(principal).await
 	}
 
 	async fn try_get_specifiers_for_ids(

@@ -10,11 +10,11 @@ pub enum Request {
 	},
 
 	GetIndexers,
-	GetRequesterSubjects {
-		principal: tg::Principal,
-	},
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
+	},
+	GetSubjectsForPrincipal {
+		principal: tg::Principal,
 	},
 
 	GetTransactionId,
@@ -110,8 +110,8 @@ pub enum Request {
 pub enum Response {
 	ContainsIds(Vec<bool>),
 	GetIndexers(Vec<crate::indexer::Indexer>),
-	GetRequesterSubjects(Vec<tg::authorization::Subject>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
+	GetSubjectsForPrincipal(Vec<tg::authorization::Subject>),
 	GetTransactionId(u64),
 	ListSandboxes(Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>),
 	ProcessHasAncestor(bool),

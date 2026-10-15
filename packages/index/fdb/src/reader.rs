@@ -392,19 +392,22 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::TryGetProcessChildrenAndObjects(output)
 			},
-			tangram_index::read::Request::GetRequesterSubjects { principal } => {
-				let result =
-					Self::requester_subjects_with_transaction(transaction, subspace, principal)
-						.await;
-				let output = crate::propagate!(result);
-				tangram_index::read::Response::GetRequesterSubjects(output)
-			},
 			tangram_index::read::Request::GetRunnerSandboxes { runner } => {
 				let result =
 					Self::get_runner_sandboxes_with_transaction(transaction, subspace, runner)
 						.await;
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::GetRunnerSandboxes(output)
+			},
+			tangram_index::read::Request::GetSubjectsForPrincipal { principal } => {
+				let result = Self::get_subjects_for_principal_with_transaction(
+					transaction,
+					subspace,
+					principal,
+				)
+				.await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::GetSubjectsForPrincipal(output)
 			},
 
 			tangram_index::read::Request::GetTransactionId => {

@@ -6,15 +6,15 @@ use {
 };
 
 impl Index {
-	pub async fn get_requester_subjects(
+	pub async fn get_subjects_for_principal(
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::authorization::Subject>> {
-		let request = tangram_index::read::Request::GetRequesterSubjects {
+		let request = tangram_index::read::Request::GetSubjectsForPrincipal {
 			principal: principal.clone(),
 		};
 		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::GetRequesterSubjects(output) = response else {
+		let tangram_index::read::Response::GetSubjectsForPrincipal(output) = response else {
 			return Err(tg::error!("unexpected read response"));
 		};
 
@@ -51,8 +51,12 @@ impl Index {
 		if matches!(principal, tg::Principal::Root) {
 			return Ok(vec![true; ids.len()]);
 		}
-		let subjects =
-			Self::requester_subjects_with_transaction(db, subspace, transaction, principal)?;
+		let subjects = Self::get_subjects_for_principal_with_transaction(
+			db,
+			subspace,
+			transaction,
+			principal,
+		)?;
 		let mut output = Vec::with_capacity(ids.len());
 		for id in ids {
 			let mut visible = false;
@@ -74,7 +78,7 @@ impl Index {
 		Ok(output)
 	}
 
-	pub(crate) fn requester_subjects_with_transaction(
+	pub(crate) fn get_subjects_for_principal_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,

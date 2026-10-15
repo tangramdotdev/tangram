@@ -86,7 +86,7 @@ fn put_permission(
 //
 //     p1 ... p1088        the decoy's parents, more numerous than the edge budget
 //        \   |   /
-//         decoy   proof   the proof carries a permission for the requester
+//         decoy   proof   the proof carries a permission for the principal
 //             \   /
 //             target      the resource being verified
 //

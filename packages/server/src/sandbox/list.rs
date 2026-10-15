@@ -114,10 +114,10 @@ impl Session {
 			let subjects = self
 				.server
 				.index
-				.get_requester_subjects(creator)
+				.get_subjects_for_principal(creator)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %creator, "failed to get the requester subjects"),
+					|error| tg::error!(!error, %creator, "failed to get the subjects for the creator"),
 				)?;
 			for owner in subjects
 				.into_iter()

@@ -110,7 +110,7 @@ pub trait Index:
 		specifiers: &[tg::Specifier],
 	) -> impl Future<Output = tg::Result<Vec<Option<tg::Id>>>> + Send;
 
-	fn get_requester_subjects(
+	fn get_subjects_for_principal(
 		&self,
 		principal: &tg::Principal,
 	) -> impl Future<Output = tg::Result<Vec<tg::authorization::Subject>>> + Send;

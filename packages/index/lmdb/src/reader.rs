@@ -224,15 +224,6 @@ impl Index {
 				)?;
 				tangram_index::read::Response::TryGetProcessChildrenAndObjects(output)
 			},
-			tangram_index::read::Request::GetRequesterSubjects { principal } => {
-				let output = Self::requester_subjects_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&principal,
-				)?;
-				tangram_index::read::Response::GetRequesterSubjects(output)
-			},
 			tangram_index::read::Request::GetRunnerSandboxes { runner } => {
 				let output = Self::get_runner_sandboxes_with_transaction(
 					db,
@@ -241,6 +232,15 @@ impl Index {
 					&runner,
 				)?;
 				tangram_index::read::Response::GetRunnerSandboxes(output)
+			},
+			tangram_index::read::Request::GetSubjectsForPrincipal { principal } => {
+				let output = Self::get_subjects_for_principal_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&principal,
+				)?;
+				tangram_index::read::Response::GetSubjectsForPrincipal(output)
 			},
 
 			tangram_index::read::Request::GetTransactionId => {
