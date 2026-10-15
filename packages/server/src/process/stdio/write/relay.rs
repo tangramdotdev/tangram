@@ -34,7 +34,7 @@ impl Session {
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<Data>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<Output>>>> {
-		// The relay subject is scoped to the process, so only the process may feed its own reads.
+		// The relay subjects are scoped to the process, so only the process may feed its own reads.
 		match &self.context.principal {
 			tg::Principal::Process(process) if process == id => (),
 			_ => return Err(tg::error!("unauthorized")),
@@ -137,15 +137,21 @@ impl Session {
 		sender: &tokio::sync::mpsc::Sender<tg::Result<Output>>,
 	) -> tg::Result<()> {
 		// Open the relay, which sends the data while its window allows and receives the reader's acknowledgments.
+		let send_subject = super::super::relay::data_subject(id, open);
+		let receive_subject = super::super::relay::ack_subject(id, open);
 		let options = self.server.config().process.stdio_relay;
-		let (relay_sender, receiver) =
-			tangram_messenger::relay::accept::<super::super::relay::Output, _>(
-				&self.server.messenger,
-				super::super::relay::subject(id, open),
-				options,
-			)
-			.await
-			.map_err(super::super::relay::error)?;
+		let (relay_sender, receiver) = tangram_messenger::relay::open::<
+			super::super::relay::Data,
+			super::super::relay::Ack,
+			_,
+		>(
+			&self.server.messenger,
+			send_subject,
+			receive_subject,
+			options,
+		)
+		.await
+		.map_err(super::super::relay::error)?;
 		let mut acks = receiver;
 		let mut relay = AbortOnDropHandle::new(tokio::spawn(relay_sender.send_all(items)));
 		let mut relayed = false;
@@ -286,15 +292,21 @@ impl Session {
 	) -> tg::Result<()> {
 		// Open the relay, which sends the data and receives the runner's acknowledgments.
 		let open = crate::control::id();
+		let send_subject = super::super::relay::data_subject(id, &open);
+		let receive_subject = super::super::relay::ack_subject(id, &open);
 		let options = self.server.config().process.stdio_relay;
-		let (relay_sender, receiver) =
-			tangram_messenger::relay::connect::<super::super::relay::Input, _>(
-				&self.server.messenger,
-				super::super::relay::subject(id, &open),
-				options,
-			)
-			.await
-			.map_err(super::super::relay::error)?;
+		let (relay_sender, receiver) = tangram_messenger::relay::open::<
+			super::super::relay::Data,
+			super::super::relay::Ack,
+			_,
+		>(
+			&self.server.messenger,
+			send_subject,
+			receive_subject,
+			options,
+		)
+		.await
+		.map_err(super::super::relay::error)?;
 		let mut acks = receiver;
 		let (items_sender, items_receiver) = tokio::sync::mpsc::channel(1);
 		let items = ReceiverStream::new(items_receiver);

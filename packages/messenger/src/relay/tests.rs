@@ -119,13 +119,6 @@ impl crate::Messenger for TestMessenger {
 	}
 }
 
-struct Test;
-
-impl Protocol for Test {
-	type Accept = Bytes;
-	type Connect = Bytes;
-}
-
 fn options() -> Options {
 	Options {
 		ack_delay: Duration::from_millis(2),
@@ -146,13 +139,13 @@ fn items(count: usize, size: usize) -> Vec<Bytes> {
 type Half = (Sender<Bytes>, Receiver<Bytes>);
 
 async fn pair(messenger: &TestMessenger) -> (Half, Half) {
-	let accept = accept::<Test, _>(messenger, "relay", options())
+	let second = open(messenger, "relay.b", "relay.a", options())
 		.await
 		.unwrap();
-	let connect = connect::<Test, _>(messenger, "relay", options())
+	let first = open(messenger, "relay.a", "relay.b", options())
 		.await
 		.unwrap();
-	(connect, accept)
+	(first, second)
 }
 
 async fn drain(receiver: Receiver<Bytes>) -> Vec<Bytes> {
@@ -170,70 +163,69 @@ async fn finished<T>(task: tokio::task::JoinHandle<Result<T, Error>>) -> T {
 #[tokio::test]
 async fn delivers_in_order_including_items_larger_than_the_window() {
 	let messenger = TestMessenger::default();
-	let ((sender, connect_receiver), (accept_sender, receiver)) = pair(&messenger).await;
+	let ((sender, first_receiver), (second_sender, receiver)) = pair(&messenger).await;
 	let mut expected = items(50, 40);
 	expected.extend(items(3, 1024));
 	let input = futures::stream::iter(expected.clone().into_iter().map(Ok::<_, Bytes>));
 	let sender = tokio::spawn(sender.send_all(input));
-	let accept_sender = tokio::spawn(accept_sender.finish());
-	let connect_receiver = tokio::spawn(drain(connect_receiver));
+	let second_sender = tokio::spawn(second_sender.finish());
+	let first_receiver = tokio::spawn(drain(first_receiver));
 	assert_eq!(drain(receiver).await, expected);
 	finished(sender).await;
-	finished(accept_sender).await;
-	assert_eq!(connect_receiver.await.unwrap(), Vec::<Bytes>::new());
+	finished(second_sender).await;
+	assert_eq!(first_receiver.await.unwrap(), Vec::<Bytes>::new());
 }
 
 #[tokio::test]
 async fn both_directions_deliver_in_order_under_loss_duplication_and_reordering() {
 	let messenger = TestMessenger::with_faults(7, 5, 11);
-	let ((connect_sender, connect_receiver), (accept_sender, accept_receiver)) =
-		pair(&messenger).await;
+	let ((first_sender, first_receiver), (second_sender, second_receiver)) = pair(&messenger).await;
 	let forward = items(150, 30);
 	let backward = items(100, 20);
-	let connect_sender = tokio::spawn(
-		connect_sender.send_all(futures::stream::iter(forward.clone().into_iter().map(Ok))),
+	let first_sender = tokio::spawn(
+		first_sender.send_all(futures::stream::iter(forward.clone().into_iter().map(Ok))),
 	);
-	let accept_sender = tokio::spawn(
-		accept_sender.send_all(futures::stream::iter(backward.clone().into_iter().map(Ok))),
+	let second_sender = tokio::spawn(
+		second_sender.send_all(futures::stream::iter(backward.clone().into_iter().map(Ok))),
 	);
 	let (received_forward, received_backward) = tokio::time::timeout(
 		Duration::from_secs(20),
-		futures::future::join(drain(accept_receiver), drain(connect_receiver)),
+		futures::future::join(drain(second_receiver), drain(first_receiver)),
 	)
 	.await
 	.unwrap();
 	assert_eq!(received_forward, forward);
 	assert_eq!(received_backward, backward);
-	finished(connect_sender).await;
-	finished(accept_sender).await;
+	finished(first_sender).await;
+	finished(second_sender).await;
 }
 
 #[tokio::test]
 async fn the_sender_finishes_once_the_stream_is_polled_to_its_end() {
 	let messenger = TestMessenger::default();
-	let ((sender, connect_receiver), (accept_sender, mut receiver)) = pair(&messenger).await;
+	let ((sender, first_receiver), (second_sender, mut receiver)) = pair(&messenger).await;
 	let input = futures::stream::iter(items(2, 4).into_iter().map(Ok::<_, Bytes>));
 	let sender = tokio::spawn(sender.send_all(input));
-	let accept_sender = tokio::spawn(accept_sender.finish());
-	let connect_receiver = tokio::spawn(drain(connect_receiver));
+	let second_sender = tokio::spawn(second_sender.finish());
+	let first_receiver = tokio::spawn(drain(first_receiver));
 	receiver.next().await.unwrap().unwrap();
 	receiver.next().await.unwrap().unwrap();
 	tokio::time::sleep(options().timeout * 2).await;
 	assert!(!sender.is_finished());
 	assert!(receiver.next().await.is_none());
 	finished(sender).await;
-	finished(accept_sender).await;
-	connect_receiver.await.unwrap();
+	finished(second_sender).await;
+	first_receiver.await.unwrap();
 }
 
 #[tokio::test]
 async fn an_unpolled_receiver_holds_back_the_window_and_keeps_the_sender_alive() {
 	let messenger = TestMessenger::default();
-	let ((sender, connect_receiver), (accept_sender, mut receiver)) = pair(&messenger).await;
+	let ((sender, first_receiver), (second_sender, mut receiver)) = pair(&messenger).await;
 	let input = futures::stream::iter(items(20, 40).into_iter().map(Ok::<_, Bytes>));
 	let sender = tokio::spawn(sender.send_all(input));
-	let accept_sender = tokio::spawn(accept_sender.finish());
-	let connect_receiver = tokio::spawn(drain(connect_receiver));
+	let second_sender = tokio::spawn(second_sender.finish());
+	let first_receiver = tokio::spawn(drain(first_receiver));
 
 	// Poll one item and then stop, so that the window fills, and stall well past the peer timeout.
 	let mut received = vec![receiver.next().await.unwrap().unwrap()];
@@ -244,8 +236,8 @@ async fn an_unpolled_receiver_holds_back_the_window_and_keeps_the_sender_alive()
 	received.extend(drain(receiver).await);
 	assert_eq!(received.len(), 20);
 	finished(sender).await;
-	finished(accept_sender).await;
-	connect_receiver.await.unwrap();
+	finished(second_sender).await;
+	first_receiver.await.unwrap();
 }
 
 #[tokio::test]
@@ -262,9 +254,9 @@ async fn abort_delivers_its_payload_with_and_without_loss() {
 	for (item, drop_every) in cases {
 		let messenger = TestMessenger::default();
 		messenger.state.lock().unwrap().drop_every = drop_every;
-		let ((sender, connect_receiver), (accept_sender, mut receiver)) = pair(&messenger).await;
-		let accept_sender = tokio::spawn(accept_sender.finish());
-		let connect_receiver = tokio::spawn(drain(connect_receiver));
+		let ((sender, first_receiver), (second_sender, mut receiver)) = pair(&messenger).await;
+		let second_sender = tokio::spawn(second_sender.finish());
+		let first_receiver = tokio::spawn(drain(first_receiver));
 		let mut input = Vec::new();
 		if item {
 			input.push(Ok(Bytes::from_static(b"a")));
@@ -281,17 +273,17 @@ async fn abort_delivers_its_payload_with_and_without_loss() {
 		assert_eq!(payload, Bytes::from_static(b"failed"));
 		finished(sender).await;
 		drop(receiver);
-		finished(accept_sender).await;
-		connect_receiver.await.unwrap();
+		finished(second_sender).await;
+		first_receiver.await.unwrap();
 	}
 }
 
 #[tokio::test]
 async fn an_idle_sender_keeps_the_receiver_alive() {
 	let messenger = TestMessenger::default();
-	let ((mut sender, connect_receiver), (accept_sender, mut receiver)) = pair(&messenger).await;
-	let accept_sender = tokio::spawn(accept_sender.finish());
-	let connect_receiver = tokio::spawn(drain(connect_receiver));
+	let ((mut sender, first_receiver), (second_sender, mut receiver)) = pair(&messenger).await;
+	let second_sender = tokio::spawn(second_sender.finish());
+	let first_receiver = tokio::spawn(drain(first_receiver));
 
 	// Stay idle well past the peer timeout before sending anything.
 	tokio::time::sleep(options().peer_timeout() + options().timeout * 10).await;
@@ -301,20 +293,20 @@ async fn an_idle_sender_keeps_the_receiver_alive() {
 	assert_eq!(item, Bytes::from_static(b"a"));
 	assert!(receiver.next().await.is_none());
 	finished(sender).await;
-	finished(accept_sender).await;
-	connect_receiver.await.unwrap();
+	finished(second_sender).await;
+	first_receiver.await.unwrap();
 }
 
 #[tokio::test]
 async fn dropping_a_sender_resets_the_connection() {
 	let messenger = TestMessenger::default();
-	let ((sender, _connect_receiver), (accept_sender, mut receiver)) = pair(&messenger).await;
+	let ((sender, _first_receiver), (second_sender, mut receiver)) = pair(&messenger).await;
 	drop(sender);
 	let result = tokio::time::timeout(Duration::from_secs(10), receiver.next())
 		.await
 		.unwrap();
 	assert!(matches!(result, Some(Err(Error::Reset))));
-	let result = tokio::time::timeout(Duration::from_secs(10), accept_sender.finish())
+	let result = tokio::time::timeout(Duration::from_secs(10), second_sender.finish())
 		.await
 		.unwrap();
 	assert!(matches!(result, Err(Error::Reset)));
@@ -324,7 +316,7 @@ async fn dropping_a_sender_resets_the_connection() {
 async fn dropping_a_receiver_resets_the_connection_before_the_end_and_acknowledges_after_it() {
 	// Drop a receiver before the end, which resets the sender.
 	let messenger = TestMessenger::default();
-	let ((mut sender, _connect_receiver), (_accept_sender, receiver)) = pair(&messenger).await;
+	let ((mut sender, _first_receiver), (_second_sender, receiver)) = pair(&messenger).await;
 	drop(receiver);
 	let error = tokio::time::timeout(Duration::from_secs(10), async {
 		loop {
@@ -339,25 +331,26 @@ async fn dropping_a_receiver_resets_the_connection_before_the_end_and_acknowledg
 
 	// Drop a receiver with unpolled items after the end arrives, which lets the sender finish.
 	let messenger = TestMessenger::default();
-	let ((sender, connect_receiver), (accept_sender, mut receiver)) = pair(&messenger).await;
+	let ((sender, first_receiver), (second_sender, mut receiver)) = pair(&messenger).await;
 	let input = futures::stream::iter(items(3, 4).into_iter().map(Ok::<_, Bytes>));
 	let sender = tokio::spawn(sender.send_all(input));
-	let accept_sender = tokio::spawn(accept_sender.finish());
-	let connect_receiver = tokio::spawn(drain(connect_receiver));
+	let second_sender = tokio::spawn(second_sender.finish());
+	let first_receiver = tokio::spawn(drain(first_receiver));
 	receiver.next().await.unwrap().unwrap();
 	tokio::time::sleep(options().timeout * 2).await;
 	drop(receiver);
 	finished(sender).await;
-	finished(accept_sender).await;
-	connect_receiver.await.unwrap();
+	finished(second_sender).await;
+	first_receiver.await.unwrap();
 }
 
 #[tokio::test]
 async fn both_halves_time_out_without_a_peer() {
 	let messenger = TestMessenger::default();
-	let (sender, mut receiver) = accept::<Test, _>(&messenger, "relay", options())
-		.await
-		.unwrap();
+	let (sender, mut receiver) =
+		open::<Bytes, Bytes, _>(&messenger, "relay.a", "relay.b", options())
+			.await
+			.unwrap();
 	let input = futures::stream::iter([Ok::<_, Bytes>(Bytes::from_static(b"a"))]);
 	let (sent, received) = tokio::time::timeout(
 		Duration::from_secs(10),
@@ -391,7 +384,8 @@ async fn invalid_options_are_rejected() {
 	];
 	for options in invalid {
 		assert!(matches!(options.validate(), Err(Error::Options(_))));
-		let result = accept::<Test, _>(&TestMessenger::default(), "relay", options).await;
+		let result =
+			open::<Bytes, Bytes, _>(&TestMessenger::default(), "relay.a", "relay.b", options).await;
 		assert!(matches!(result, Err(Error::Options(_))));
 	}
 	options().validate().unwrap();

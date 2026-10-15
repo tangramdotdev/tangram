@@ -80,7 +80,7 @@ impl Session {
 		open: String,
 		input: BoxStream<'static, tg::Result<ClientMessage>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<ServerMessage>>> {
-		// The relay subject is scoped to the process, so only the process may read its own stdin.
+		// The relay subjects are scoped to the process, so only the process may read its own stdin.
 		match &self.context.principal {
 			tg::Principal::Process(process) if process == id => (),
 			_ => return Err(tg::error!("unauthorized")),
@@ -112,12 +112,19 @@ impl Session {
 		sender: &tokio::sync::mpsc::Sender<tg::Result<ServerMessage>>,
 	) -> tg::Result<()> {
 		// Open the relay, which receives the writer's data and sends the runner's acknowledgments back, finishing once the runner's read completes after closing stdin.
-		let subject = super::super::relay::subject(id, open);
+		let send_subject = super::super::relay::ack_subject(id, open);
+		let receive_subject = super::super::relay::data_subject(id, open);
 		let options = self.server.config().process.stdio_relay;
-		let (relay_sender, receiver) = tangram_messenger::relay::accept::<
-			super::super::relay::Input,
+		let (relay_sender, receiver) = tangram_messenger::relay::open::<
+			super::super::relay::Ack,
+			super::super::relay::Data,
 			_,
-		>(&self.server.messenger, subject, options)
+		>(
+			&self.server.messenger,
+			send_subject,
+			receive_subject,
+			options,
+		)
 		.await
 		.map_err(super::super::relay::error)?;
 		let mut items = receiver;

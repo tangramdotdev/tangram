@@ -6,14 +6,14 @@ pub(super) struct Ack(pub(super) tg::process::stdio::read::ClientMessage);
 /// The stdio data carried on a relay.
 pub(super) struct Data(pub(super) tg::process::stdio::write::Data);
 
-/// The relay that carries a process's stdout and stderr from the runner, which accepts, to a reader, which connects.
-pub(super) struct Output;
+/// Get the subject on which the side that writes the stdio data sends it.
+pub(super) fn data_subject(process: &tg::process::Id, id: &str) -> String {
+	format!("processes.{process}.stdio.{id}.data")
+}
 
-/// The relay that carries a process's stdin from a writer, which connects, to the runner, which accepts.
-pub(super) struct Input;
-
-pub(super) fn subject(process: &tg::process::Id, id: &str) -> String {
-	format!("processes.{process}.stdio.{id}")
+/// Get the subject on which the side that reads the stdio data sends its acknowledgments.
+pub(super) fn ack_subject(process: &tg::process::Id, id: &str) -> String {
+	format!("processes.{process}.stdio.{id}.ack")
 }
 
 pub(super) fn abort(error: &tg::Error) -> Bytes {
@@ -72,14 +72,4 @@ impl tangram_messenger::Payload for Data {
 			.map_err(tangram_messenger::Error::deserialization)?;
 		Ok(Self(data))
 	}
-}
-
-impl relay::Protocol for Output {
-	type Accept = Data;
-	type Connect = Ack;
-}
-
-impl relay::Protocol for Input {
-	type Accept = Ack;
-	type Connect = Data;
 }

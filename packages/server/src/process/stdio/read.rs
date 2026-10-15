@@ -586,12 +586,14 @@ impl Session {
 		// Open the relay before the read, so the runner's first bytes are not missed.
 		let timeout = arg.timeout;
 		let request_id = crate::control::id();
-		let subject = super::relay::subject(id, &request_id);
+		let send_subject = super::relay::ack_subject(id, &request_id);
+		let receive_subject = super::relay::data_subject(id, &request_id);
 		let options = self.server.config().process.stdio_relay;
 		let (relay_sender, receiver) =
-			tangram_messenger::relay::connect::<super::relay::Output, _>(
+			tangram_messenger::relay::open::<super::relay::Ack, super::relay::Data, _>(
 				&self.server.messenger,
-				subject,
+				send_subject,
+				receive_subject,
 				options,
 			)
 			.await

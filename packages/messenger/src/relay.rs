@@ -19,12 +19,6 @@ use {
 #[cfg(test)]
 mod tests;
 
-/// The item types of a connection: the items that the accepting end sends, and the items that the connecting end sends.
-pub trait Protocol {
-	type Accept: Payload;
-	type Connect: Payload;
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
 	/// How long a receiver waits after its consumer drains before it acknowledges fewer than `ack_threshold` bytes.
@@ -69,13 +63,6 @@ pub struct Receiver<T> {
 	acks: mpsc::UnboundedSender<u64>,
 	events: mpsc::UnboundedReceiver<Result<(u64, T), Error>>,
 	last: Option<u64>,
-}
-
-/// Which end of the connection this is, which selects the subject that each direction uses.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Side {
-	Accept,
-	Connect,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -159,84 +146,26 @@ struct Incoming<T> {
 	unacknowledged: u64,
 }
 
-/// Accept a connection on a subject. There is no handshake: this end does not wait for a peer, and a peer that never connects is reported as `Error::Timeout`. The subject identifies the connection, so each connection must use a new subject.
-pub async fn accept<P, M>(
+/// Open one end of a relay, a duplex stream between two equal ends, sending on one subject and receiving on the other. The peer opens the other end with the same two subjects swapped. There is no handshake: the peer may open before or after this end, and a peer that never opens is reported as `Error::Timeout`. The subjects identify the connection, so each connection must use new subjects.
+pub async fn open<S, R, M>(
 	messenger: &M,
-	subject: impl Into<String>,
-	options: Options,
-) -> Result<(Sender<P::Accept>, Receiver<P::Connect>), Error>
-where
-	P: Protocol,
-	M: Messenger + Clone + Send + Sync + 'static,
-{
-	open(messenger, subject.into(), Side::Accept, options).await
-}
-
-/// Connect to a subject. There is no handshake: the peer may accept before or after this end connects, and a peer that never accepts is reported as `Error::Timeout`. The subject identifies the connection, so each connection must use a new subject.
-pub async fn connect<P, M>(
-	messenger: &M,
-	subject: impl Into<String>,
-	options: Options,
-) -> Result<(Sender<P::Connect>, Receiver<P::Accept>), Error>
-where
-	P: Protocol,
-	M: Messenger + Clone + Send + Sync + 'static,
-{
-	open(messenger, subject.into(), Side::Connect, options).await
-}
-
-impl Options {
-	/// Get the duration after which an end that has not heard from its peer stops.
-	#[must_use]
-	pub fn peer_timeout(&self) -> Duration {
-		self.timeout * self.max_retransmits
-	}
-
-	pub fn validate(&self) -> Result<(), Error> {
-		if self.timeout.is_zero()
-			|| self.window == 0
-			|| self.ack_threshold == 0
-			|| self.max_retransmits == 0
-		{
-			return Err(Error::Options(
-				"the timeout, window, ack threshold, and max retransmits must be greater than zero",
-			));
-		}
-		if self.ack_threshold > self.window {
-			return Err(Error::Options(
-				"the ack threshold must not exceed the window",
-			));
-		}
-		if self.ack_delay >= self.timeout {
-			return Err(Error::Options(
-				"the ack delay must be less than the timeout",
-			));
-		}
-		Ok(())
-	}
-}
-
-async fn open<M, S, R>(
-	messenger: &M,
-	subject: String,
-	side: Side,
+	send_subject: impl Into<String>,
+	receive_subject: impl Into<String>,
 	options: Options,
 ) -> Result<(Sender<S>, Receiver<R>), Error>
 where
-	M: Messenger + Clone + Send + Sync + 'static,
 	S: Payload,
 	R: Payload,
+	M: Messenger + Clone + Send + Sync + 'static,
 {
 	// Validate the options.
 	options.validate()?;
 
 	// Subscribe to the peer's subject before publishing, so that no message from the peer is missed.
-	let (outgoing, incoming) = match side {
-		Side::Accept => (format!("{subject}.accept"), format!("{subject}.connect")),
-		Side::Connect => (format!("{subject}.connect"), format!("{subject}.accept")),
-	};
+	let send_subject = send_subject.into();
+	let receive_subject = receive_subject.into();
 	let incoming = messenger
-		.subscribe::<Message>(incoming)
+		.subscribe::<Message>(receive_subject)
 		.await
 		.map_err(Error::messenger)?
 		.boxed();
@@ -297,11 +226,42 @@ where
 		receive,
 		reset: false,
 		send,
-		subject: outgoing,
+		subject: send_subject,
 	};
 	tokio::spawn(connection.run(incoming));
 
 	Ok((sender, receiver))
+}
+
+impl Options {
+	/// Get the duration after which an end that has not heard from its peer stops.
+	#[must_use]
+	pub fn peer_timeout(&self) -> Duration {
+		self.timeout * self.max_retransmits
+	}
+
+	pub fn validate(&self) -> Result<(), Error> {
+		if self.timeout.is_zero()
+			|| self.window == 0
+			|| self.ack_threshold == 0
+			|| self.max_retransmits == 0
+		{
+			return Err(Error::Options(
+				"the timeout, window, ack threshold, and max retransmits must be greater than zero",
+			));
+		}
+		if self.ack_threshold > self.window {
+			return Err(Error::Options(
+				"the ack threshold must not exceed the window",
+			));
+		}
+		if self.ack_delay >= self.timeout {
+			return Err(Error::Options(
+				"the ack delay must be less than the timeout",
+			));
+		}
+		Ok(())
+	}
 }
 
 impl<T> Sender<T>
