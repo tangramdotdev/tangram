@@ -860,7 +860,12 @@ impl Index {
 
 		let mut expected = BTreeSet::new();
 
-		if input.set.command_objects {
+		let anchored = input
+			.entries
+			.iter()
+			.any(|entry| entry.grant || entry.direct.is_some());
+
+		if anchored && input.set.command_objects {
 			let command_object_entries = input
 				.command_object_entries
 				.iter()
@@ -875,7 +880,7 @@ impl Index {
 				node_command_objects,
 			);
 		}
-		if input.set.error_objects {
+		if anchored && input.set.error_objects {
 			let error_object_entries = input
 				.error_object_entries
 				.iter()
@@ -890,7 +895,7 @@ impl Index {
 				node_error_objects,
 			);
 		}
-		if input.set.log_objects {
+		if anchored && input.set.log_objects {
 			let log_object_entries = input
 				.log_object_entries
 				.iter()
@@ -905,7 +910,7 @@ impl Index {
 				node_log_objects,
 			);
 		}
-		if input.set.output_objects {
+		if anchored && input.set.output_objects {
 			let output_object_entries = input
 				.output_object_entries
 				.iter()
@@ -2188,6 +2193,16 @@ impl Index {
 				let process_parents =
 					Self::get_object_processes_with_transaction(db, subspace, transaction, id)?;
 				for (process, _kind) in process_parents {
+					if let Kind::Permission(subject) = kind
+						&& !Self::has_process_permissions_for_subject(
+							db,
+							subspace,
+							transaction,
+							&process,
+							subject,
+						)? {
+						continue;
+					}
 					Self::enqueue_update_with_kind(
 						db,
 						subspace,
@@ -2203,6 +2218,16 @@ impl Index {
 				let parents =
 					Self::get_process_parents_with_transaction(db, subspace, transaction, id)?;
 				for parent in parents {
+					if let Kind::Permission(subject) = kind
+						&& !Self::has_process_permissions_for_subject(
+							db,
+							subspace,
+							transaction,
+							&parent,
+							subject,
+						)? {
+						continue;
+					}
 					Self::enqueue_update_with_kind(
 						db,
 						subspace,
@@ -2216,6 +2241,25 @@ impl Index {
 			},
 		}
 		Ok(())
+	}
+
+	fn has_process_permissions_for_subject(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		process: &tg::process::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<bool> {
+		let resource = tg::Id::from(process.clone());
+		let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			subject,
+		)?;
+		let output = !entries.is_empty();
+		Ok(output)
 	}
 
 	pub(super) fn enqueue_update(

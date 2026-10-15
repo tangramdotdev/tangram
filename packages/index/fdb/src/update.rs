@@ -1938,7 +1938,12 @@ impl Index {
 
 		let mut expected = BTreeSet::new();
 
-		if input.set.command_objects {
+		let anchored = input
+			.entries
+			.iter()
+			.any(|entry| entry.grant || entry.direct.is_some());
+
+		if anchored && input.set.command_objects {
 			let command_object_entries = input
 				.command_object_entries
 				.iter()
@@ -1953,7 +1958,7 @@ impl Index {
 				node_command_objects,
 			);
 		}
-		if input.set.error_objects {
+		if anchored && input.set.error_objects {
 			let error_object_entries = input
 				.error_object_entries
 				.iter()
@@ -1968,7 +1973,7 @@ impl Index {
 				node_error_objects,
 			);
 		}
-		if input.set.log_objects {
+		if anchored && input.set.log_objects {
 			let log_object_entries = input
 				.log_object_entries
 				.iter()
@@ -1983,7 +1988,7 @@ impl Index {
 				node_log_objects,
 			);
 		}
-		if input.set.output_objects {
+		if anchored && input.set.output_objects {
 			let output_object_entries = input
 				.output_object_entries
 				.iter()
@@ -3357,6 +3362,15 @@ impl Index {
 					Self::get_object_processes_with_transaction(txn, subspace, id).await
 				);
 				for (process, _kind) in process_parents {
+					if let Kind::Permission(subject) = kind
+						&& !crate::propagate!(
+							Self::has_process_permissions_for_subject(
+								txn, subspace, &process, subject,
+							)
+							.await
+						) {
+						continue;
+					}
 					crate::propagate!(
 						Self::enqueue_update_propagate(
 							txn,
@@ -3375,6 +3389,15 @@ impl Index {
 					Self::get_process_parents_with_transaction(txn, subspace, id).await
 				);
 				for parent in parents {
+					if let Kind::Permission(subject) = kind
+						&& !crate::propagate!(
+							Self::has_process_permissions_for_subject(
+								txn, subspace, &parent, subject,
+							)
+							.await
+						) {
+						continue;
+					}
 					crate::propagate!(
 						Self::enqueue_update_propagate(
 							txn,
@@ -3390,6 +3413,23 @@ impl Index {
 			},
 		}
 		Ok(ControlFlow::Break(()))
+	}
+
+	async fn has_process_permissions_for_subject(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		process: &tg::process::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let resource = tg::Id::from(process.clone());
+		let entries = crate::propagate!(
+			Self::get_resource_permission_entries_for_subject_with_transaction(
+				txn, subspace, &resource, subject,
+			)
+			.await
+		);
+		let output = !entries.is_empty();
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn enqueue_update_propagate(
