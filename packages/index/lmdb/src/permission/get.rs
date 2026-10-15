@@ -80,6 +80,70 @@ impl Index {
 		Ok(permissions)
 	}
 
+	pub(crate) fn get_resource_sync_permission_entries_for_subject_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<Vec<crate::permission::PermissionEntry>> {
+		let read = tg::authorization::Permission::Sync(
+			tg::authorization::permission::sync::Permission::Read,
+		);
+		let subjects =
+			Self::get_resource_permission_subjects_with_transaction(db, subspace, transaction, resource)?;
+		let mut permissions = Vec::new();
+		for sync_subject in subjects {
+			let tg::authorization::Subject::Sync(sync) = &sync_subject else {
+				continue;
+			};
+			let sync_resource = tg::Id::from(sync.clone());
+			let read_entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&sync_resource,
+				subject,
+			)?;
+			let Some(read_expires_at) = read_entries
+				.iter()
+				.filter(|entry| entry.permission == read)
+				.filter_map(|entry| entry.effective_expires_at())
+				.reduce(crate::permission::max_expires_at)
+			else {
+				continue;
+			};
+			let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+				db,
+				subspace,
+				transaction,
+				resource,
+				&sync_subject,
+			)?;
+			for entry in entries {
+				if !entry.permission.is_read_like() {
+					continue;
+				}
+				let Some(expires_at) = entry.effective_expires_at() else {
+					continue;
+				};
+				let expires_at = match (expires_at, read_expires_at) {
+					(None, expires_at) | (expires_at, None) => expires_at,
+					(Some(left), Some(right)) => Some(left.min(right)),
+				};
+				permissions.push(crate::permission::PermissionEntry {
+					creator: None,
+					grant: false,
+					direct: Some(expires_at),
+					materialized: None,
+					permission: entry.permission,
+					subject: subject.clone(),
+				});
+			}
+		}
+		Ok(permissions)
+	}
+
 	pub(crate) fn try_get_visibility_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

@@ -323,6 +323,128 @@ async fn node_requests_resolve_delegated_subtree_derivation() {
 	}
 }
 
+#[tokio::test]
+async fn tag_creator_sync_permissions_promote_tag_permissions_on_object_target() {
+	let (_dir, index) = super::new_index();
+	let root = object(0);
+	let tag_id = tg::tag::Id::new();
+	let subject = tg::authorization::Subject::Tag(tag_id.clone());
+	let alice = tg::authorization::Subject::User(tg::user::Id::new());
+	let sync_id = tg::sync::Id::new();
+	let sync = tg::authorization::Subject::Sync(sync_id.clone());
+	let arg = tangram_index::batch::Arg {
+		items: vec![
+			put_object(&root, BTreeSet::new()),
+			tag(&tag_id, &tg::Either::Left(root.clone()), &alice, "v1"),
+		],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+	drain(&index).await;
+	assert!(direct(&index, &root.clone().into(), &subject).is_empty());
+
+	// Push the object as Alice, which gives the sync node and subtree and Alice read on the sync.
+	let arg = tangram_index::batch::Arg {
+		items: vec![
+			permission(&root, &sync, false),
+			permission(&root, &sync, true),
+			sync_read(&sync_id, &alice),
+		],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+	drain(&index).await;
+	let node = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Node,
+	);
+	let subtree = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	assert_eq!(
+		direct(&index, &root.clone().into(), &subject),
+		BTreeSet::from([(node, None), (subtree, None)])
+	);
+
+	// Expire the sync permissions and keep the tag permissions.
+	clean(&index).await;
+	assert_eq!(
+		direct(&index, &root.clone().into(), &subject),
+		BTreeSet::from([(node, None), (subtree, None)])
+	);
+
+	// Retarget the tag and lose the permissions.
+	let arg = tangram_index::batch::Arg {
+		items: vec![tag(
+			&tag_id,
+			&tg::Either::Left(object(1)),
+			&alice,
+			"v2",
+		)],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+	drain(&index).await;
+	assert!(direct(&index, &root.clone().into(), &subject).is_empty());
+}
+
+#[tokio::test]
+async fn other_user_sync_permissions_do_not_promote_tag_permissions() {
+	let (_dir, index) = super::new_index();
+	let root = object(0);
+	let tag_id = tg::tag::Id::new();
+	let subject = tg::authorization::Subject::Tag(tag_id.clone());
+	let alice = tg::authorization::Subject::User(tg::user::Id::new());
+	let bob = tg::authorization::Subject::User(tg::user::Id::new());
+	let sync_id = tg::sync::Id::new();
+	let sync = tg::authorization::Subject::Sync(sync_id.clone());
+	let arg = tangram_index::batch::Arg {
+		items: vec![
+			put_object(&root, BTreeSet::new()),
+			tag(&tag_id, &tg::Either::Left(root.clone()), &alice, "v1"),
+			permission(&root, &sync, true),
+			sync_read(&sync_id, &bob),
+		],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+	drain(&index).await;
+	assert!(direct(&index, &root.clone().into(), &subject).is_empty());
+}
+
+#[tokio::test]
+async fn tag_creator_sync_permissions_promote_tag_permissions_on_process_target() {
+	let (_dir, index) = super::new_index();
+	let root = object(0);
+	let process = tg::process::Id::new();
+	let tag_id = tg::tag::Id::new();
+	let subject = tg::authorization::Subject::Tag(tag_id.clone());
+	let alice = tg::authorization::Subject::User(tg::user::Id::new());
+	let sync_id = tg::sync::Id::new();
+	let sync = tg::authorization::Subject::Sync(sync_id.clone());
+	let node = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Node,
+	);
+	let subtree = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Subtree,
+	);
+	let arg = tangram_index::batch::Arg {
+		items: vec![
+			put_object(&root, BTreeSet::new()),
+			process_object(&process, &root),
+			tag(&tag_id, &tg::Either::Right(process.clone()), &alice, "v1"),
+			process_permission(&process, &sync, node),
+			sync_read(&sync_id, &alice),
+		],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+	drain(&index).await;
+	assert_eq!(
+		direct(&index, &process.clone().into(), &subject),
+		BTreeSet::from([(node, None), (subtree, None)])
+	);
+	clean(&index).await;
+	assert_eq!(
+		direct(&index, &process.clone().into(), &subject),
+		BTreeSet::from([(node, None), (subtree, None)])
+	);
+}
+
 fn process_object(process: &tg::process::Id, root: &tg::object::Id) -> tangram_index::batch::Item {
 	let arg = tangram_index::process::put::Arg {
 		cached: false,
@@ -420,6 +542,84 @@ fn permission(
 		version: None,
 	};
 	tangram_index::batch::Item::PutPermission(arg)
+}
+
+fn process_permission(
+	resource: &tg::process::Id,
+	subject: &tg::authorization::Subject,
+	permission: tg::authorization::Permission,
+) -> tangram_index::batch::Item {
+	let arg = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: None,
+		permissions: permission.into(),
+		resource: resource.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(200),
+		},
+		subject: subject.clone(),
+		time_to_touch: None,
+		version: None,
+	};
+	tangram_index::batch::Item::PutPermission(arg)
+}
+
+fn sync_read(sync: &tg::sync::Id, subject: &tg::authorization::Subject) -> tangram_index::batch::Item {
+	let permission = tg::authorization::Permission::Sync(
+		tg::authorization::permission::sync::Permission::Read,
+	);
+	let arg = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: None,
+		permissions: permission.into(),
+		resource: sync.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(200),
+		},
+		subject: subject.clone(),
+		time_to_touch: None,
+		version: None,
+	};
+	tangram_index::batch::Item::PutPermission(arg)
+}
+
+fn tag(
+	id: &tg::tag::Id,
+	target: &tg::Either<tg::object::Id, tg::process::Id>,
+	creator: &tg::authorization::Subject,
+	version: &str,
+) -> tangram_index::batch::Item {
+	let arg = tangram_index::tag::put::Arg {
+		account: None,
+		creator: creator.clone(),
+		id: id.clone(),
+		name: "foo".into(),
+		parent: None,
+		specifier: "foo".parse().unwrap(),
+		target: target.clone(),
+		touched_at: 0,
+		version: version.into(),
+	};
+	tangram_index::batch::Item::PutTag(arg)
+}
+
+fn direct(
+	index: &Index,
+	resource: &tg::Id,
+	subject: &tg::authorization::Subject,
+) -> BTreeSet<(tg::authorization::Permission, Option<i64>)> {
+	let transaction = index.env.read_txn().unwrap();
+	Index::get_resource_permission_entries_for_subject_with_transaction(
+		&index.db,
+		&index.subspace,
+		&transaction,
+		resource,
+		subject,
+	)
+	.unwrap()
+	.into_iter()
+	.filter_map(|entry| entry.direct.map(|expires_at| (entry.permission, expires_at)))
+	.collect()
 }
 
 async fn verified(

@@ -10,6 +10,7 @@ async fn target_versions_clear_subject_permissions() {
 	let mut tag = tangram_index::tag::put::Arg {
 		touched_at: 0,
 		account: None,
+		creator: tg::authorization::Subject::Root,
 		id: id.clone(),
 		name: "test".into(),
 		parent: None,
