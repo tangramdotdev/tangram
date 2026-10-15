@@ -1,3 +1,5 @@
+mod dns;
+
 pub(crate) mod host;
 pub mod ip;
 pub(crate) mod linux;

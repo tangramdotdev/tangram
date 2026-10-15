@@ -5,7 +5,6 @@ use {
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
 		mem::MaybeUninit,
-		net::Ipv4Addr,
 		os::{
 			fd::AsRawFd as _,
 			unix::{ffi::OsStrExt as _, net::UnixStream},
@@ -108,7 +107,7 @@ pub(crate) async fn spawn(
 		filesystem_separate,
 		isolation.uid_map.is_some(),
 	)?;
-	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
+	let user = prepare_etc_files(&arg.path, network.as_deref())?;
 	let user_namespace = prepare_user_namespace(isolation, &user)?;
 
 	// Open the runner's view, so that its files keep their host ownership during cleanup.
@@ -685,7 +684,6 @@ async fn run_id_map_helper(
 fn prepare_etc_files(
 	sandbox_path: &Path,
 	network: Option<&crate::network::Network>,
-	dns: &[Ipv4Addr],
 ) -> tg::Result<User> {
 	// Write the passwd file.
 	let user = resolve_user(None)?;
@@ -720,9 +718,9 @@ fn prepare_etc_files(
 			std::fs::write(path, contents)
 				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
-		Some(crate::network::Network::Veth(_)) => {
+		Some(crate::network::Network::Veth(network)) => {
 			let mut contents = String::new();
-			for server in dns {
+			for server in network.dns() {
 				use std::fmt::Write as _;
 				writeln!(&mut contents, "nameserver {server}").unwrap();
 			}
