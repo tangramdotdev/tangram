@@ -445,13 +445,22 @@ class Peer:
         return f"{self.subject}.client.{name}"
 
     def request(self, heartbeat=False, attempt=None, timeout=10):
-        return self.messenger.receive(lambda path, message:
+        request = self.messenger.receive(lambda path, message:
             path.startswith(self.subject + ".") and path.endswith(".server") and message.id == 1
             and (message.value[0].id == 0) == heartbeat
             and (attempt is None or message.value[3] == attempt), timeout)
+        return request if heartbeat else self.establish(request)
+
+    def establish(self, request):
+        # A request without an attempt joins its client's current attempt, which the server creates if the client has none.
+        if request[3] is not None:
+            return request
+        if self.attempt is None:
+            self.attempt = "attempt"
+        return {**request, 3: self.attempt}
 
     def ack(self, request):
-        self.reply(request, Variant(0, {0: request[2], 1: request[3] or self.attempt}))
+        self.reply(request, Variant(0, {0: request[2], 1: self.establish(request)[3]}))
 
     def reply(self, request, message):
         # A client is identified by the subject that its responses are published to.
@@ -466,17 +475,19 @@ class Peer:
         storage = [Variant(0), Variant(1 if kind == 0 else 5)] if stored else []
         permissions = [Variant(0), Variant(1)] if stored else []
         output = None if error else Variant(1, verification_output(request[0].value[0], storage, permissions) if stored else None)
-        self.reply(request, Variant(1, {0: {3: error} if error else None, 1: request[2], 2: request[3] or self.attempt, 3: output}))
+        self.reply(request, Variant(1, {0: {3: error} if error else None, 1: request[2], 2: self.establish(request)[3], 3: output}))
 
     def cancel(self, id, attempt, client="client"):
         self.messenger.publish(f"{self.subject}.server", Variant(2, {0: id, 1: attempt}), self.client(client))
 
     def cancelled(self, request):
+        # A request first sent without an attempt may be cancelled without one, which the server applies to its client's current attempt.
         return self.messenger.receive(lambda path, message:
             path == f"{self.subject}.server"
-            and message == Variant(2, {0: request[2], 1: request[3]}))
+            and message in (Variant(2, {0: request[2], 1: request[3]}), Variant(2, {0: request[2], 1: None})))
 
     def acknowledged(self, id, attempt):
+        attempt = attempt or self.attempt
         return self.messenger.receive(lambda path, message:
             path == f"{self.subject}.server" and message == Variant(0, {0: id, 1: attempt}))
 
@@ -1071,6 +1082,8 @@ def test_shared_heartbeat(messenger):
         if request[0].id == 0:
             peer.heartbeat(request, "shared")
         else:
+            peer.attempt = peer.attempt or "shared"
+            request = peer.establish(request)
             requests[request[2]] = request
             peer.ack(request)
     assert len(clients) == 1, f"1024 outstanding requests started {len(clients)} heartbeat tasks"
