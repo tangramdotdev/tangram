@@ -5,6 +5,8 @@ use ../lib/test.nu *
 let local = server spawn --config {
 	runner: { cpus: 1, overcommit: { cpu: 1 } },
 	scheduler: {
+		default_cpu: 1,
+		default_memory: 1_073_741_824,
 		heartbeat_interval: 30,
 		heartbeat_ttl: 3,
 	},

@@ -723,8 +723,8 @@ impl Scheduler {
 			create_sandbox_queue_capacity: config.create_sandbox_queue_capacity,
 			create_sandbox_timeout: config.create_sandbox_timeout,
 			default_capacity: tg::runner::Capacity {
-				cpu: config.default_cpu.into(),
-				memory: config.default_memory.into(),
+				cpu: config.default_cpu.unwrap_or_default().into(),
+				memory: config.default_memory.unwrap_or_default().into(),
 				storage: config.default_storage.unwrap_or_default().into(),
 				swap: 0.into(),
 			},

@@ -401,10 +401,10 @@ impl State {
 				.swap
 				.unwrap_or(scheduler.config.default_capacity.swap),
 		};
-		if capacity.cpu.max.millis() == 0 {
+		if request.arg.cpu.is_some_and(|cpu| cpu.max.millis() == 0) {
 			return Err(tg::error!("the sandbox CPU must be greater than zero"));
 		}
-		if capacity.memory.max == 0 {
+		if request.arg.memory.is_some_and(|memory| memory.max == 0) {
 			return Err(tg::error!("the sandbox memory must be greater than zero"));
 		}
 		let id = request.sandbox.clone();

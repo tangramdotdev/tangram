@@ -2,7 +2,9 @@ use ../lib/test.nu *
 
 # The processes health reflects a started process in the started count and the available capacity.
 
-let local = server spawn
+let local = server spawn --config {
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
+}
 
 let idle = tg health --fields processes | from json | get processes
 

@@ -5,6 +5,7 @@ use ../lib/test.nu *
 # to borrow the parent's capacity.
 
 let local = server spawn --config {
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 	runner: {
 		cpus: 1,
 		overcommit: { cpu: 1 },

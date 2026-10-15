@@ -736,7 +736,7 @@ impl Server {
 			})?;
 			if options.harden {
 				tracing::info!(
-					cpu = config.scheduler.default_cpu,
+					cpu = ?config.scheduler.default_cpu,
 					filesystem_inodes = ?container.max_filesystem_inodes,
 					filesystem_size = ?container.max_filesystem_size,
 					gid_map = ?container.gid_map.as_ref().map(|map| (map.host, map.count)),
@@ -744,7 +744,7 @@ impl Server {
 					max_duration = ?container.max_duration,
 					max_open_files = ?container.max_open_files,
 					max_pids = ?container.max_pids,
-					memory = config.scheduler.default_memory,
+					memory = ?config.scheduler.default_memory,
 					memory_swap = ?container.memory_swap,
 					seccomp = ?container.seccomp,
 					uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
@@ -1262,12 +1262,12 @@ impl Server {
 					"the scheduler create sandbox queue capacity must be greater than zero"
 				));
 			}
-			if scheduler.default_cpu == 0 {
+			if scheduler.default_cpu == Some(0) {
 				return Err(tg::error!(
 					"the default sandbox CPU must be greater than zero"
 				));
 			}
-			if scheduler.default_memory == 0 {
+			if scheduler.default_memory == Some(0) {
 				return Err(tg::error!(
 					"the default sandbox memory must be greater than zero"
 				));
@@ -1329,7 +1329,7 @@ impl Server {
 				tangram_sandbox::capacity::detect(&path, runner.cpu_pool.as_deref())?;
 			#[cfg(not(target_os = "linux"))]
 			let (physical_memory, physical_storage, physical_swap) =
-				(config.scheduler.default_memory.saturating_mul(cpus), 0, 0);
+				(1_073_741_824_u64.saturating_mul(cpus), 0, 0);
 			let memory = runner.memory.unwrap_or(physical_memory * 3 / 4);
 			let storage = runner.storage.unwrap_or(physical_storage * 3 / 4);
 			let swap = runner.swap.unwrap_or(physical_swap);

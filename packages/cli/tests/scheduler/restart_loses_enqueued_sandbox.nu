@@ -11,6 +11,8 @@ let config = {
 	indexer: { id: 'idx_0000000000000000000000000000' },
 	roles: [api indexer scheduler],
 	scheduler: {
+		default_cpu: 1,
+		default_memory: 1_073_741_824,
 		heartbeat_ttl: 3,
 	},
 }
@@ -33,6 +35,8 @@ let runner = server spawn --name runner --config {
 		token: $created.token.token
 	},
 	scheduler: {
+		default_cpu: 1,
+		default_memory: 1_073_741_824,
 		heartbeat_ttl: 3,
 	},
 }
@@ -45,6 +49,8 @@ let local = server spawn --name local --config {
 		},
 	},
 	scheduler: {
+		default_cpu: 1,
+		default_memory: 1_073_741_824,
 		heartbeat_ttl: 3,
 	},
 }
@@ -85,6 +91,7 @@ if $nu.os-info.name == "linux" {
 
 let remote = server start $remote
 let runner_replacement = server spawn --name runner-replacement --config {
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 	remotes: {
 		default: {
 			token: $replacement_created.token.token

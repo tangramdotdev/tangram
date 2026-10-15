@@ -10,6 +10,7 @@ let config = {
 	authentication: { root: { token: $root_token } },
 	indexer: { id: 'idx_0000000000000000000000000000' },
 	roles: [api indexer scheduler],
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 }
 let remote = server spawn --name remote --preserve-keys --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
@@ -24,6 +25,7 @@ let runner = server spawn --name runner --config {
 			url: $remote.url,
 		},
 	},
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 	runner: {
 		cpus: 1,
 		overcommit: { cpu: 1 },

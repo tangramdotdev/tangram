@@ -142,12 +142,10 @@ impl Cgroup {
 		let allocation = options
 			.cpu_pool
 			.as_ref()
-			.map(|pool| {
-				let cpu = options.cpu_request.unwrap_or(1.into());
-				match &options.cpu_parent {
-					Some(parent) => pool.borrow(parent, cpu),
-					None => pool.allocate(cpu),
-				}
+			.zip(options.cpu_request)
+			.map(|(pool, cpu)| match &options.cpu_parent {
+				Some(parent) => pool.borrow(parent, cpu),
+				None => pool.allocate(cpu),
 			})
 			.transpose()?;
 		if allocation.is_some() || (options.cpu_affinity && options.cpu_request.is_some()) {

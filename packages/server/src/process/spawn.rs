@@ -215,8 +215,12 @@ impl Session {
 			if runner_matches_location && let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
 				let scheduler = &self.server.config.scheduler;
 				Some(tg::runner::Capacity {
-					cpu: sandbox.cpu.unwrap_or(scheduler.default_cpu.into()),
-					memory: sandbox.memory.unwrap_or(scheduler.default_memory.into()),
+					cpu: sandbox
+						.cpu
+						.unwrap_or(scheduler.default_cpu.unwrap_or_default().into()),
+					memory: sandbox
+						.memory
+						.unwrap_or(scheduler.default_memory.unwrap_or_default().into()),
 					storage: sandbox.storage.unwrap_or_else(|| {
 						if cfg!(target_os = "macos") {
 							0.into()
@@ -339,8 +343,12 @@ impl Session {
 		}
 		let scheduler = &self.server.config.scheduler;
 		let requested = tg::runner::Capacity {
-			cpu: sandbox.cpu.unwrap_or(scheduler.default_cpu.into()),
-			memory: sandbox.memory.unwrap_or(scheduler.default_memory.into()),
+			cpu: sandbox
+				.cpu
+				.unwrap_or(scheduler.default_cpu.unwrap_or_default().into()),
+			memory: sandbox
+				.memory
+				.unwrap_or(scheduler.default_memory.unwrap_or_default().into()),
 			storage: sandbox.storage.unwrap_or_else(|| {
 				if cfg!(target_os = "macos") {
 					0.into()

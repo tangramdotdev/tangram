@@ -10,6 +10,7 @@ let root_token = random chars
 let config = {
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 }
 let remote = server spawn --name remote --cloud --config $config
 
@@ -28,6 +29,7 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 				url: $remote.url
 			}
 		},
+		scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 		runner: {
 			cpus: 1,
 			overcommit: { cpu: 1 },

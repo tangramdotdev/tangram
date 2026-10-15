@@ -3,6 +3,7 @@ use ../lib/test.nu *
 # A queued sandbox connects after a runner becomes available.
 
 let local = server spawn --config {
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 	runner: { cpus: 1, overcommit: { cpu: 1 } },
 }
 

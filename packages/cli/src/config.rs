@@ -1804,6 +1804,7 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub control_channel_capacity: Option<usize>,
 
+	/// Whether to pin sandboxes with a CPU maximum to that many hardware threads. Enabled by default and requires the cpuset controller.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpu_affinity: Option<bool>,
 
@@ -2087,12 +2088,15 @@ pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub create_sandbox_timeout: Option<Duration>,
 
+	/// The CPU maximum for a sandbox that does not request one, where none means unlimited.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_cpu: Option<u64>,
 
+	/// The memory maximum for a sandbox that does not request one, where none means unlimited.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_memory: Option<u64>,
 
+	/// The storage maximum for a sandbox that does not request one, where none means unlimited.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_storage: Option<u64>,
 
@@ -5405,12 +5409,14 @@ fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {
 fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	// Create the default runner configuration.
 	let mut target = server::Runner {
-		cpu_affinity: source.cpu_affinity.unwrap_or_default(),
 		cpu_pool: source.cpu_pool,
 		..Default::default()
 	};
 
 	// Apply the capacity and channel settings.
+	if let Some(value) = source.cpu_affinity {
+		target.cpu_affinity = value;
+	}
 	if let Some(value) = source.control_channel_capacity {
 		target.control_channel_capacity = value;
 	}
@@ -5646,10 +5652,10 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 		target.create_sandbox_timeout = value;
 	}
 	if let Some(value) = source.default_cpu {
-		target.default_cpu = value;
+		target.default_cpu = Some(value);
 	}
 	if let Some(value) = source.default_memory {
-		target.default_memory = value;
+		target.default_memory = Some(value);
 	}
 	if let Some(value) = source.default_storage {
 		target.default_storage = Some(value);

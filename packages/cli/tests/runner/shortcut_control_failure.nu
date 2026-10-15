@@ -8,12 +8,14 @@ for kind in [sandbox process] {
 		advanced: { single_process: false },
 		authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 		roles: [api indexer scheduler],
+		scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 	}
 	let created = tg --url $remote.url --token $root_token runner create | from json
 	let runner = server spawn --name $'runner-($kind)' --config {
 		advanced: { checkpoints: true },
 		remotes: { default: { token: $created.token.token, url: $remote.url } },
 		roles: [api indexer runner],
+		scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 		runner: { cpus: 1, overcommit: { cpu: 1 }, id: $created.data.id, process_control_connection_pool_size: 0, remote: default, sandbox_control_connection_pool_size: 0, sandbox_pool_size: 1, token: $created.token.token },
 	}
 	let alice = tg --url $remote.url login --verbose --name alice | from json

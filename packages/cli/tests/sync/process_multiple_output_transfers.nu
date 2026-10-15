@@ -7,6 +7,7 @@ let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 	sync: { get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
 }
 let runners = 1..3 | each {
@@ -16,6 +17,7 @@ let runners = 1..3 | each {
 		remotes: { default: { token: $created.token.token, url: $remote.url } },
 		roles: [api indexer runner],
 
+		scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 		runner: { cpus: 1, overcommit: { cpu: 1 }, id: $created.data.id, remote: 'default', token: $created.token.token },
 	}
 }

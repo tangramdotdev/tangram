@@ -1375,7 +1375,6 @@ impl RunnerBackend {
 		// Apply the hardened resource defaults.
 		if harden {
 			resources.max_filesystem_inodes.get_or_insert(262_144);
-			resources.max_filesystem_size.get_or_insert(1_073_741_824);
 			resources.max_open_files.get_or_insert(4096);
 		}
 
@@ -1511,9 +1510,11 @@ pub struct Scheduler {
 
 	pub create_sandbox_timeout: Duration,
 
-	pub default_cpu: u64,
+	/// The CPU maximum for a sandbox that does not request one, where none means unlimited.
+	pub default_cpu: Option<u64>,
 
-	pub default_memory: u64,
+	/// The memory maximum for a sandbox that does not request one, where none means unlimited.
+	pub default_memory: Option<u64>,
 
 	/// The storage maximum for a sandbox that does not request one, where none means unlimited.
 	pub default_storage: Option<u64>,
@@ -2832,7 +2833,7 @@ impl Default for Runner {
 		Self {
 			backend: RunnerBackend::default(),
 			control_channel_capacity: 256,
-			cpu_affinity: false,
+			cpu_affinity: true,
 			cpu_pool: None,
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
@@ -2878,8 +2879,8 @@ impl Default for Scheduler {
 		Self {
 			create_sandbox_queue_capacity: default_scheduler_create_sandbox_queue_capacity(),
 			create_sandbox_timeout: Duration::from_secs(10),
-			default_cpu: default_scheduler_cpu(),
-			default_memory: default_scheduler_memory(),
+			default_cpu: None,
+			default_memory: None,
 			default_storage: None,
 			enqueue_retry: message_retry_default(),
 			heartbeat_interval: Duration::from_secs(1),
@@ -3483,10 +3484,6 @@ fn default_roles() -> BTreeSet<Role> {
 		.collect()
 }
 
-fn default_scheduler_cpu() -> u64 {
-	1
-}
-
 fn default_scheduler_create_sandbox_queue_capacity() -> usize {
 	1024
 }
@@ -3503,6 +3500,21 @@ fn default_scheduler_max_create_sandbox_requests_per_runner() -> usize {
 	16
 }
 
-fn default_scheduler_memory() -> u64 {
-	1_073_741_824
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn hardening_preserves_optional_storage_limits() {
+		for maximum in [None, Some(2_147_483_648)] {
+			let config = BuiltinBackend {
+				harden: true,
+				max_filesystem_size: maximum,
+				..Default::default()
+			};
+			let backend = RunnerBackend::Builtin(config);
+			let resources = backend.resources(&RunnerResources::default());
+			assert_eq!(resources.max_filesystem_size, maximum);
+		}
+	}
 }

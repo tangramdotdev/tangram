@@ -710,15 +710,15 @@ impl Session {
 					"writable mounts are not allowed for hardened container isolation"
 				));
 			}
-			arg.cpu
-				.get_or_insert(self.server.config().scheduler.default_cpu.into());
-			arg.memory
-				.get_or_insert(self.server.config().scheduler.default_memory.into());
 		}
 
+		// Apply the configured sandbox defaults.
 		#[cfg(target_os = "linux")]
-		arg.cpu
-			.get_or_insert(self.server.config.scheduler.default_cpu.into());
+		{
+			let scheduler = &self.server.config.scheduler;
+			arg.cpu = arg.cpu.or(scheduler.default_cpu.map(Into::into));
+			arg.memory = arg.memory.or(scheduler.default_memory.map(Into::into));
+		}
 
 		#[cfg(target_os = "linux")]
 		self.server
@@ -735,8 +735,6 @@ impl Session {
 				| tangram_sandbox::Backend::Bubblewrap { .. }
 				| tangram_sandbox::Backend::Gvisor { .. }
 		) {
-			arg.memory
-				.get_or_insert(self.server.config.scheduler.default_memory.into());
 			if let Some(storage) = self.server.config.scheduler.default_storage {
 				arg.storage.get_or_insert(storage.into());
 			}
