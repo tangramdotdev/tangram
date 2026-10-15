@@ -1946,6 +1946,9 @@ pub enum RunnerBackend {
 #[serde(deny_unknown_fields)]
 pub struct BuiltinBackend {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub capabilities: Option<Vec<tangram_sandbox::Capability>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub gid_map: Option<IdMap>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5534,6 +5537,7 @@ fn resolve_runner_backend(source: RunnerBackend) -> tg::Result<server::RunnerBac
 	let backend = match source {
 		RunnerBackend::Builtin(source) => {
 			let config = server::BuiltinBackend {
+				capabilities: source.capabilities,
 				gid_map: source
 					.gid_map
 					.map(|map| resolve_runner_id_map(map, "/usr/bin/newgidmap")),

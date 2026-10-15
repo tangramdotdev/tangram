@@ -1243,6 +1243,7 @@ pub enum RunnerBackend {
 
 #[derive(Clone, Debug, Default)]
 pub struct BuiltinBackend {
+	pub capabilities: Option<Vec<tangram_sandbox::Capability>>,
 	pub gid_map: Option<IdMap>,
 	pub harden: bool,
 	pub max_filesystem_inodes: Option<u64>,
@@ -1335,6 +1336,7 @@ impl RunnerBackend {
 		// Resolve the backend resources.
 		let mut resources = match self {
 			Self::Builtin(config) => tangram_sandbox::Resources {
+				capabilities: config.capabilities.clone(),
 				gid_map: config.gid_map.as_ref().map(Into::into),
 				max_filesystem_inodes: config.max_filesystem_inodes,
 				max_filesystem_size: config.max_filesystem_size,
