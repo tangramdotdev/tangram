@@ -9764,6 +9764,7 @@ dependencies = [
 name = "tangram_index_fdb"
 version = "0.0.0"
 dependencies = [
+ "async-channel",
  "foundationdb",
  "foundationdb-tuple",
  "futures",

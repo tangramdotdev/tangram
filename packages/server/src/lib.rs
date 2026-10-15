@@ -1563,7 +1563,8 @@ impl Server {
 							.permission_update_partition_total,
 						read_channel_capacity: options.read_channel_capacity,
 						read_request_batch_size: options.read_request_batch_size,
-						read_transaction_concurrency: options.read_transaction_concurrency,
+						read_task_concurrency: options.read_task_concurrency,
+						read_task_count: options.read_task_count,
 						storage_and_metadata_update_partition_total: options
 							.storage_and_metadata_update_partition_total,
 						storage_relation_batch_size: options.storage_relation_batch_size,

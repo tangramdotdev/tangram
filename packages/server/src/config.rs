@@ -577,7 +577,10 @@ pub struct FdbIndex {
 
 	pub read_request_batch_size: usize,
 
-	pub read_transaction_concurrency: usize,
+	/// The maximum number of concurrent read transactions per reader task.
+	pub read_task_concurrency: usize,
+
+	pub read_task_count: usize,
 
 	pub storage_and_metadata_update_partition_total: u64,
 
@@ -2349,7 +2352,8 @@ impl Default for FdbIndex {
 			permission_update_partition_total: 1,
 			read_channel_capacity: 256,
 			read_request_batch_size: 64,
-			read_transaction_concurrency: 64,
+			read_task_concurrency: 16,
+			read_task_count: 4,
 			storage_and_metadata_update_partition_total: 1,
 			storage_relation_batch_size: 8,
 			usage_partition_total: 1,

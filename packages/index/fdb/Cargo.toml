@@ -20,6 +20,7 @@ workspace = true
 doctest = false
 
 [dependencies]
+async-channel = { workspace = true }
 foundationdb = { workspace = true }
 foundationdb-tuple = { workspace = true }
 futures = { workspace = true }

@@ -1,36 +1,104 @@
 use {
 	super::Index,
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::{StreamExt as _, stream},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
 	tokio::task::JoinSet,
 };
 
+#[cfg(test)]
+mod tests;
+
+type Batch = Vec<(
+	tangram_index::read::Request,
+	tangram_index::read::ResponseSender,
+)>;
+
 pub(super) struct Arg {
-	pub verification_concurrency: usize,
 	pub database: Arc<fdb::Database>,
 	pub partition_totals: crate::PartitionTotals,
 	pub read_request_batch_size: usize,
-	pub read_transaction_concurrency: usize,
+	pub read_task_concurrency: usize,
+	pub read_task_count: usize,
 	pub receiver: tangram_index::read::Receiver,
 	pub subspace: fdbt::Subspace,
+	pub verification_concurrency: usize,
 }
 
 impl Index {
 	pub(super) async fn reader_task(arg: Arg) {
 		let Arg {
-			verification_concurrency,
 			database,
 			partition_totals,
 			read_request_batch_size,
-			read_transaction_concurrency,
+			read_task_concurrency,
+			read_task_count,
 			receiver,
 			subspace,
+			verification_concurrency,
 		} = arg;
-		stream::unfold(receiver, |mut receiver| async move {
+
+		// Spawn the readers with a shared batch channel.
+		let (sender, batches) = async_channel::bounded(read_task_count);
+		let mut tasks = JoinSet::new();
+		for _ in 0..read_task_count {
+			let database = database.clone();
+			let receiver = batches.clone();
+			let subspace = subspace.clone();
+			tasks.spawn(async move {
+				Self::reader_worker_task(
+					database,
+					partition_totals,
+					read_task_concurrency,
+					receiver,
+					subspace,
+					verification_concurrency,
+				)
+				.await;
+			});
+		}
+		drop(batches);
+
+		// Produce the batches and close the channel when the requests end.
+		Self::reader_batch_task(receiver, sender, read_request_batch_size).await;
+
+		// Drain the readers before exiting.
+		while let Some(result) = tasks.join_next().await {
+			if let Err(error) = result {
+				tracing::error!(%error, "an index reader task failed");
+			}
+		}
+	}
+
+	async fn reader_worker_task(
+		database: Arc<fdb::Database>,
+		partition_totals: crate::PartitionTotals,
+		read_task_concurrency: usize,
+		receiver: async_channel::Receiver<Batch>,
+		subspace: fdbt::Subspace,
+		verification_concurrency: usize,
+	) {
+		receiver
+			.for_each_concurrent(read_task_concurrency, |requests| {
+				Self::execute_read_batch(
+					verification_concurrency,
+					&database,
+					partition_totals,
+					&subspace,
+					requests,
+				)
+			})
+			.await;
+	}
+
+	async fn reader_batch_task(
+		mut receiver: tangram_index::read::Receiver,
+		sender: async_channel::Sender<Batch>,
+		read_request_batch_size: usize,
+	) {
+		while let Some(request) = receiver.recv().await {
 			// Freeze the batch before opening its transaction.
-			let request = receiver.recv().await?;
 			let mut requests = Vec::with_capacity(read_request_batch_size);
 			requests.push(request);
 			while requests.len() < read_request_batch_size {
@@ -39,19 +107,10 @@ impl Index {
 				};
 				requests.push(request);
 			}
-
-			Some((requests, receiver))
-		})
-		.for_each_concurrent(read_transaction_concurrency, |requests| {
-			Self::execute_read_batch(
-				verification_concurrency,
-				&database,
-				partition_totals,
-				&subspace,
-				requests,
-			)
-		})
-		.await;
+			if sender.send(requests).await.is_err() {
+				return;
+			}
+		}
 	}
 
 	pub(super) async fn send_read_request(
@@ -108,39 +167,33 @@ impl Index {
 			tracing::debug!(request_count, "starting an index read transaction");
 			let verification_fact_cache = tangram_index::verify::facts::Cache::new();
 			let (retry_error, mut retry_requests) = {
-				// Execute each pending request on its own task, so that verification can use multiple runtime workers.
+				// Execute the pending requests concurrently.
+				let transaction = &transaction;
 				let request_count = requests.len();
-				let mut tasks = JoinSet::new();
-				for (request, sender) in requests {
-					let subspace = subspace.clone();
-					let transaction = transaction.clone();
-					let verification_fact_cache = verification_fact_cache.clone();
-					tasks.spawn(async move {
-						let result = Self::execute_read_request(
-							verification_fact_cache,
-							verification_concurrency,
-							partition_totals,
-							&transaction,
-							&subspace,
-							&request,
-						)
-						.await;
+				let mut futures = requests
+					.into_iter()
+					.map(|(request, sender)| {
+						let verification_fact_cache = verification_fact_cache.clone();
+						async move {
+							let result = Self::execute_read_request(
+								verification_fact_cache,
+								verification_concurrency,
+								partition_totals,
+								transaction,
+								subspace,
+								&request,
+							)
+							.await;
 
-						(result, request, sender)
-					});
-				}
+							(result, request, sender)
+						}
+					})
+					.collect::<FuturesUnordered<_>>();
 
 				// Send each completed response and collect the retryable requests.
 				let mut retry_error = None;
 				let mut retry_requests = Vec::with_capacity(request_count);
-				while let Some(output) = tasks.join_next().await {
-					let (result, request, sender) = match output {
-						Ok(output) => output,
-						Err(error) => {
-							tracing::error!(%error, "a read request task panicked");
-							continue;
-						},
-					};
+				while let Some((result, request, sender)) = futures.next().await {
 					match result {
 						Err(error) => {
 							sender.send(Err(error)).ok();

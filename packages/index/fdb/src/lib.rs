@@ -64,7 +64,9 @@ pub struct Options {
 	pub storage_and_metadata_update_partition_total: u64,
 	pub read_channel_capacity: usize,
 	pub read_request_batch_size: usize,
-	pub read_transaction_concurrency: usize,
+	/// The maximum number of concurrent read transactions per reader task.
+	pub read_task_concurrency: usize,
+	pub read_task_count: usize,
 	pub storage_relation_batch_size: usize,
 	pub usage_update_partition_total: u64,
 	pub usage_partition_total: u64,
@@ -134,18 +136,20 @@ impl Index {
 			let subspace = subspace.clone();
 			let verification_concurrency = options.verification.concurrency;
 			let read_request_batch_size = options.read_request_batch_size;
-			let read_transaction_concurrency = options.read_transaction_concurrency;
+			let read_task_concurrency = options.read_task_concurrency;
+			let read_task_count = options.read_task_count;
 			async move {
-				Self::reader_task(reader::Arg {
-					verification_concurrency,
+				let arg = reader::Arg {
 					database,
 					partition_totals,
 					read_request_batch_size,
-					read_transaction_concurrency,
+					read_task_concurrency,
+					read_task_count,
 					receiver: reader_receiver,
 					subspace,
-				})
-				.await;
+					verification_concurrency,
+				};
+				Self::reader_task(arg).await;
 			}
 		});
 
@@ -231,9 +235,14 @@ impl Index {
 				"the FDB index storage relation batch size must be greater than zero"
 			));
 		}
-		if options.read_transaction_concurrency == 0 {
+		if options.read_task_count == 0 {
 			return Err(tg::error!(
-				"the FDB index read transaction concurrency must be greater than zero"
+				"the FDB index read task count must be greater than zero"
+			));
+		}
+		if options.read_task_concurrency == 0 {
+			return Err(tg::error!(
+				"the FDB index read task concurrency must be greater than zero"
 			));
 		}
 		if options.max_write_operation_batch_size == 0 {
