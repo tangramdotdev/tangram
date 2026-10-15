@@ -156,7 +156,7 @@ pub struct SpawnProcessServerRequestArg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SpawnProcessClientResponseOutput {
-	pub lease: String,
+	pub lease: tg::process::Lease,
 
 	pub process: tg::Referent<tg::process::Id>,
 }

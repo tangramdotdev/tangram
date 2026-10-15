@@ -174,7 +174,7 @@ impl Sender {
 	async fn attach(
 		&self,
 	) -> tg::Result<(
-		Option<String>,
+		Option<tg::process::Lease>,
 		BoxStream<'static, tg::Result<ClientMessage>>,
 	)> {
 		let (high, high_receiver) = mpsc::channel(1);

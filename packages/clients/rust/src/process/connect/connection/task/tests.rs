@@ -36,7 +36,7 @@ async fn requests_do_not_wait_for_receipt_acknowledgments() {
 		next_request(&mut fixture).await;
 	}
 	let arg = tg::process::cancel::Arg {
-		lease: "lease".into(),
+		lease: tg::process::Lease::new(),
 		location: None,
 		process: None,
 	};

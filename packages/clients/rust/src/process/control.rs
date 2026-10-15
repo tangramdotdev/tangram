@@ -59,7 +59,7 @@ pub enum Mode {
 	#[tangram_serialize(id = 0)]
 	Resume {
 		#[tangram_serialize(id = 0)]
-		lease: String,
+		lease: tg::process::Lease,
 	},
 	#[tangram_serialize(id = 1)]
 	Start(StartClientRequestArg),
@@ -235,7 +235,7 @@ pub struct StartClientRequestArg {
 	pub data: tg::process::Data,
 
 	#[tangram_serialize(id = 1)]
-	pub lease: String,
+	pub lease: tg::process::Lease,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
@@ -340,7 +340,7 @@ pub struct AcquireLeaseClientResponseOutput {
 	pub data: tg::process::Data,
 
 	#[tangram_serialize(id = 1)]
-	pub lease: Option<String>,
+	pub lease: Option<tg::process::Lease>,
 }
 
 #[derive(
@@ -626,7 +626,7 @@ pub struct OpenServerRequestArg {
 )]
 pub struct ReleaseLeaseServerRequestArg {
 	#[tangram_serialize(id = 0)]
-	pub lease: String,
+	pub lease: tg::process::Lease,
 }
 
 #[derive(

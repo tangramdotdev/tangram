@@ -106,7 +106,7 @@ impl Session {
 			let output = output.as_ref().unwrap();
 			self.spawn_process_cancel_candidate(
 				output.id.clone(),
-				output.lease.clone(),
+				output.lease,
 				arg.location.clone(),
 			)
 			.await?;
@@ -167,7 +167,7 @@ impl Session {
 					{
 						self.spawn_process_cancel_candidate(
 							output.id.clone(),
-							output.lease.clone(),
+							output.lease,
 							arg.location.clone(),
 						)
 						.await?;
@@ -339,7 +339,7 @@ impl Session {
 	async fn spawn_process_cancel_candidate(
 		&self,
 		id: tg::process::Id,
-		lease: Option<String>,
+		lease: Option<tg::process::Lease>,
 		location: Option<tg::location::Arg>,
 	) -> tg::Result<()> {
 		crate::checkpoint!(

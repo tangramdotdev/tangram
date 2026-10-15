@@ -230,7 +230,7 @@ impl Session {
 			.cloned()
 			.ok_or_else(|| tg::error!("expected a sandboxed process"))?;
 		Ok(Arg {
-			lease: output.lease.clone(),
+			lease: output.lease,
 			location: output.location.clone().map(Into::into),
 			mode: Mode::Run,
 			process: tg::Either::Right(id),

@@ -29,7 +29,7 @@ pub(crate) struct ServerMessage(pub(crate) tg::process::control::ServerMessage);
 #[derive(Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) struct Connected {
 	#[tangram_serialize(id = 0)]
-	pub lease: String,
+	pub lease: tg::process::Lease,
 }
 
 /// The syncs that push a process's command objects and outcome objects, so that each push is a transfer of its own.

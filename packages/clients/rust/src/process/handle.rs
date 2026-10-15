@@ -23,7 +23,7 @@ pub(super) struct Inner {
 	pub(super) id: tg::Either<u32, Id>,
 	#[debug(ignore)]
 	pub(super) instance: Option<tg::instance::dynamic::Instance>,
-	pub(super) lease: Option<String>,
+	pub(super) lease: Option<tg::process::Lease>,
 	pub(super) location: Arc<RwLock<Option<tg::location::Arg>>>,
 	pub(super) outcome: Mutex<Option<Outcome>>,
 	pub(super) owned: AtomicBool,
@@ -41,7 +41,7 @@ pub(super) struct Inner {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub cached: Option<bool>,
-	pub lease: Option<String>,
+	pub lease: Option<tg::process::Lease>,
 	pub location: Option<tg::location::Arg>,
 	pub state: Option<State>,
 	pub tokens: tg::authorization::Tokens,
@@ -186,7 +186,7 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn lease(&self) -> Option<&String> {
+	pub fn lease(&self) -> Option<&tg::process::Lease> {
 		self.0.lease.as_ref()
 	}
 
@@ -462,7 +462,7 @@ impl Drop for Inner {
 		let Some(instance) = self.instance.take() else {
 			return;
 		};
-		let Some(lease) = self.lease.clone() else {
+		let Some(lease) = self.lease else {
 			return;
 		};
 		let id = self.id.as_ref().unwrap_right().clone();

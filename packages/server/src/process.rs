@@ -33,7 +33,7 @@ pub type Processes = DashMap<tg::process::Id, State, tg::id::BuildHasher>;
 
 pub struct Child {
 	pub data: tg::process::data::Child,
-	pub lease: Option<String>,
+	pub lease: Option<tg::process::Lease>,
 	pub location: Option<tg::location::Arg>,
 }
 
@@ -46,7 +46,7 @@ pub struct State {
 	pub finish: Option<tg::process::control::FinishServerRequestArg>,
 	pub index_task: IndexTask,
 	pub inner_token: String,
-	pub leases: BTreeSet<String>,
+	pub leases: BTreeSet<tg::process::Lease>,
 	pub process: Option<tangram_sandbox::Process>,
 	pub stopper: tangram_futures::task::Stopper,
 }

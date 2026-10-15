@@ -17,7 +17,7 @@ pub(super) struct State {
 	high: Option<mpsc::Sender<ClientMessage>>,
 	inbox: BTreeMap<String, Option<Instant>>,
 	input: BoxStream<'static, tg::Result<tg::control::Event<ServerMessage>>>,
-	lease: Option<String>,
+	lease: Option<tg::process::Lease>,
 	low: Option<mpsc::Sender<ClientMessage>>,
 	outcome_sync: watch::Sender<Option<tg::Referent<tg::sync::Id>>>,
 	pending: IndexMap<String, Pending>,
@@ -43,7 +43,7 @@ pub(super) enum Update {
 	Attach {
 		high: mpsc::Sender<ClientMessage>,
 		low: mpsc::Sender<ClientMessage>,
-		sender: oneshot::Sender<Option<String>>,
+		sender: oneshot::Sender<Option<tg::process::Lease>>,
 	},
 	OutcomeSync(tg::Referent<tg::sync::Id>),
 	Remove(String),
@@ -338,7 +338,7 @@ impl State {
 					self.untracked
 						.push_front((ClientMessage::Request(start.clone()), Priority::High));
 				}
-				sender.send(self.lease.clone()).ok();
+				sender.send(self.lease).ok();
 			},
 			Update::OutcomeSync(sync) => {
 				self.outcome_sync.send_replace(Some(sync));
@@ -400,7 +400,7 @@ impl State {
 						let ClientRequestArg::Start(start) = &start.arg else {
 							unreachable!()
 						};
-						self.lease = Some(start.lease.clone());
+						self.lease = Some(start.lease);
 					} else {
 						rejected = Some(response.error.clone());
 					}

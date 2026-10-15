@@ -4,7 +4,7 @@ pub(super) struct AddProcessChildArg<'a> {
 	pub cached: bool,
 	pub child: &'a tg::process::Id,
 	pub command: &'a tg::command::Id,
-	pub lease: Option<&'a str>,
+	pub lease: Option<&'a tg::process::Lease>,
 	pub location: Option<&'a tg::Location>,
 	pub options: &'a tg::referent::Options,
 	pub outcome: Option<&'a tg::process::outcome::Data>,
@@ -45,7 +45,7 @@ impl Session {
 			return Err(tg::error!("the parent process was finished"));
 		}
 		if parent_process.children.contains_key(&child) {
-			let lease = arg.lease.map(ToOwned::to_owned);
+			let lease = arg.lease.copied();
 			let location = arg.location.cloned().map(Into::into);
 			drop(parent_process);
 			drop(parent_sandbox);
@@ -64,7 +64,7 @@ impl Session {
 		}
 		let child_state = crate::process::Child {
 			data: data.clone(),
-			lease: arg.lease.map(ToOwned::to_owned),
+			lease: arg.lease.copied(),
 			location: arg.location.cloned().map(Into::into),
 		};
 		parent_process.children.insert(child.clone(), child_state);

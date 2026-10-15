@@ -129,7 +129,7 @@ impl Session {
 				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
 			) {
 			let arg = tg::process::connect::Arg {
-				lease: output.lease.clone(),
+				lease: output.lease,
 				location,
 				mode,
 				process: tg::Either::Right(output.process.as_ref().unwrap_right().clone()),
@@ -183,7 +183,7 @@ impl Session {
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))?
 			};
-			wait_arg.lease = output.lease.clone();
+			wait_arg.lease = output.lease;
 			self.attach_wait_process_guard(&id, &wait_arg, location.clone(), cancel.clone(), future)
 		};
 		if let Some(guard) = &mut lease_guard {

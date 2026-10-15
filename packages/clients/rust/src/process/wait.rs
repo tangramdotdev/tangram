@@ -20,7 +20,7 @@ use {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub lease: Option<String>,
+	pub lease: Option<tg::process::Lease>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
@@ -123,7 +123,7 @@ impl<O> tg::Process<O> {
 		};
 		let location = options.location.or_else(|| self.location());
 		let arg = tg::process::wait::Arg {
-			lease: self.lease().cloned(),
+			lease: self.lease().copied(),
 			location: location.clone(),
 			process: id.clone(),
 			source: options.source,

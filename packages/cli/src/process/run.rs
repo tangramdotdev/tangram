@@ -159,7 +159,7 @@ impl Cli {
 				let output = tg::process::spawn::Output {
 					cached: process.node().cached().unwrap_or(false),
 					command: None,
-					lease: process.node().lease().cloned(),
+					lease: process.node().lease().copied(),
 					location: process
 						.node()
 						.location()

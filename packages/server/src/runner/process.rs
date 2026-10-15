@@ -148,7 +148,7 @@ pub(super) enum Event {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ConnectedEvent {
-	pub lease: String,
+	pub lease: tg::process::Lease,
 	pub process: tg::Referent<tg::process::Id>,
 }
 
@@ -236,14 +236,6 @@ impl LogSender {
 }
 
 impl Session {
-	#[must_use]
-	pub(super) fn create_process_lease() -> String {
-		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
-			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
-		};
-		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
-	}
-
 	pub(super) fn spawn_process_task(
 		&self,
 		arg: SpawnProcessTaskArg<'_>,
@@ -343,7 +335,7 @@ impl Session {
 		}
 		state.command.options = command_options;
 		let process_stopper = Stopper::new();
-		let lease = Self::create_process_lease();
+		let lease = tg::process::Lease::new();
 		let (requests_sender, requests_receiver) = tokio::sync::oneshot::channel::<
 			futures::stream::BoxStream<
 				'static,
@@ -395,7 +387,7 @@ impl Session {
 					)?;
 				let start = tg::process::control::StartClientRequestArg {
 					data: state.to_data(),
-					lease: lease.clone(),
+					lease,
 					options: options.clone(),
 					parent: Some(parent.clone()),
 					sandbox: sandbox_initialization,
@@ -512,7 +504,7 @@ impl Session {
 			finish: None,
 			index_task: index_task.clone(),
 			inner_token: inner_token.clone(),
-			leases: BTreeSet::from([lease.clone()]),
+			leases: BTreeSet::from([lease]),
 			process: None,
 			stopper: process_stopper.clone(),
 		};
@@ -909,7 +901,7 @@ impl Session {
 		} else {
 			let start = tg::process::control::StartClientRequestArg {
 				data: data.clone(),
-				lease: lease.clone(),
+				lease,
 				options: options.clone(),
 				parent: parent.clone(),
 				sandbox: None,
@@ -973,9 +965,7 @@ impl Session {
 		index_sender.send(()).ok();
 
 		if location.is_remote() {
-			let entry = crate::process::control::Connected {
-				lease: lease.clone(),
-			};
+			let entry = crate::process::control::Connected { lease };
 			let result = session
 				.server
 				.messenger
@@ -993,7 +983,7 @@ impl Session {
 		}
 		event_sender
 			.send(Ok(Event::Connected(ConnectedEvent {
-				lease: lease.clone(),
+				lease,
 				process: header.process,
 			})))
 			.ok();

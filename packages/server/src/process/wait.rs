@@ -159,7 +159,7 @@ impl Session {
 			if let Some((future, region)) = self
 				.try_wait_process_regions(
 					id,
-					arg.lease.clone(),
+					arg.lease,
 					arg.tokens.clone(),
 					&local.regions,
 					arg.source,
@@ -178,7 +178,7 @@ impl Session {
 		let Some((future, remote)) = self
 			.try_wait_process_remotes(
 				id,
-				arg.lease.clone(),
+				arg.lease,
 				arg.tokens.clone(),
 				&locations.remotes,
 				arg.source,
@@ -510,7 +510,7 @@ impl Session {
 	async fn try_wait_process_regions(
 		&self,
 		id: &tg::process::Id,
-		lease: Option<String>,
+		lease: Option<tg::process::Lease>,
 		tokens: tg::authorization::Tokens,
 		regions: &[String],
 		source: tg::process::Source,
@@ -522,9 +522,7 @@ impl Session {
 	> {
 		let mut futures = regions
 			.iter()
-			.map(|region| {
-				self.try_wait_process_region(id, lease.clone(), tokens.clone(), region, source)
-			})
+			.map(|region| self.try_wait_process_region(id, lease, tokens.clone(), region, source))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -548,7 +546,7 @@ impl Session {
 	async fn try_wait_process_region(
 		&self,
 		id: &tg::process::Id,
-		lease: Option<String>,
+		lease: Option<tg::process::Lease>,
 		tokens: tg::authorization::Tokens,
 		region: &str,
 		source: tg::process::Source,
@@ -586,7 +584,7 @@ impl Session {
 	async fn try_wait_process_remotes(
 		&self,
 		id: &tg::process::Id,
-		lease: Option<String>,
+		lease: Option<tg::process::Lease>,
 		tokens: tg::authorization::Tokens,
 		remotes: &[crate::location::Remote],
 		source: tg::process::Source,
@@ -598,9 +596,7 @@ impl Session {
 	> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| {
-				self.try_wait_process_remote(id, lease.clone(), tokens.clone(), remote, source)
-			})
+			.map(|remote| self.try_wait_process_remote(id, lease, tokens.clone(), remote, source))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -624,7 +620,7 @@ impl Session {
 	async fn try_wait_process_remote(
 		&self,
 		id: &tg::process::Id,
-		lease: Option<String>,
+		lease: Option<tg::process::Lease>,
 		tokens: tg::authorization::Tokens,
 		remote: &crate::location::Remote,
 		source: tg::process::Source,
@@ -737,7 +733,7 @@ impl Session {
 		};
 
 		// If a lease is provided, attach a cancellation guard.
-		if let Some(lease) = arg.lease.clone() {
+		if let Some(lease) = arg.lease {
 			let future = {
 				let cancel = cancel.clone();
 				let stopper = self.context.stopper.clone();

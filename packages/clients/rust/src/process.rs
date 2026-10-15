@@ -14,6 +14,7 @@ pub use self::{
 	exec::{exec, exec_with_instance},
 	handle::{Options, Process as Handle},
 	id::Id,
+	lease::Lease,
 	metadata::Metadata,
 	outcome::Outcome,
 	run::{run, run_with_instance},
@@ -41,6 +42,7 @@ pub mod exec;
 pub mod get;
 pub mod handle;
 pub mod id;
+pub mod lease;
 pub mod log;
 pub mod metadata;
 pub mod outcome;

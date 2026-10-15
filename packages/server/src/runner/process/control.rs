@@ -85,8 +85,8 @@ impl Session {
 				let lease = if process.data.status.is_finished() || process.stopper.stopped() {
 					None
 				} else {
-					let lease = Self::create_process_lease();
-					process.leases.insert(lease.clone());
+					let lease = tg::process::Lease::new();
+					process.leases.insert(lease);
 					Some(lease)
 				};
 				tg::process::control::AcquireLeaseClientResponseOutput {

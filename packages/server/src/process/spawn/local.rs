@@ -17,7 +17,7 @@ pub(super) struct Output {
 
 	pub id: tg::process::Id,
 
-	pub lease: Option<String>,
+	pub lease: Option<tg::process::Lease>,
 
 	pub parent: Option<tg::process::Id>,
 
@@ -594,7 +594,7 @@ impl Session {
 			cached: output.cached,
 			child,
 			command,
-			lease: output.lease.as_deref(),
+			lease: output.lease.as_ref(),
 			location: output.location.as_ref(),
 			options: &arg.command.options,
 			outcome: output.outcome.as_ref(),

@@ -112,9 +112,10 @@ async fn start_requires_a_successful_response_before_resume() {
 			"host": "test",
 			"status": "started",
 		});
+		let lease = tg::process::Lease::new();
 		let start = StartClientRequestArg {
 			data: serde_json::from_value(value).unwrap(),
-			lease: "lease".into(),
+			lease,
 			options: tg::referent::Options::default(),
 			parent: Some(tg::process::Id::new()),
 			sandbox: None,
@@ -136,8 +137,7 @@ async fn start_requires_a_successful_response_before_resume() {
 			.unwrap();
 
 		// Verify that an acknowledged Start is replayed on reconnect.
-		let lease = attach(&mut state);
-		assert!(lease.is_none());
+		assert!(attach(&mut state).is_none());
 		assert!(matches!(
 			state.take_message(Priority::High),
 			Some(ClientMessage::Request(ClientRequest { arg: ClientRequestArg::Start(_), id }))
@@ -159,8 +159,7 @@ async fn start_requires_a_successful_response_before_resume() {
 			continue;
 		}
 		result.unwrap();
-		let lease = attach(&mut state);
-		assert_eq!(lease.as_deref(), Some("lease"));
+		assert_eq!(attach(&mut state), Some(lease));
 		assert!(state.take_message(Priority::High).is_none());
 	}
 }
@@ -179,7 +178,7 @@ async fn a_rejected_start_ends_the_connection_and_fails_pending_requests() {
 	});
 	let start = StartClientRequestArg {
 		data: serde_json::from_value(value).unwrap(),
-		lease: "lease".into(),
+		lease: tg::process::Lease::new(),
 		options: tg::referent::Options::default(),
 		parent: Some(tg::process::Id::new()),
 		sandbox: None,
@@ -228,7 +227,7 @@ async fn a_rejected_start_ends_the_connection_and_fails_pending_requests() {
 	assert!(result.is_err());
 }
 
-fn attach(state: &mut State) -> Option<String> {
+fn attach(state: &mut State) -> Option<tg::process::Lease> {
 	let (high, _high) = mpsc::channel(1);
 	let (low, _low) = mpsc::channel(1);
 	let (sender, mut receiver) = oneshot::channel();

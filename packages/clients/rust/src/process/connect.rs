@@ -25,7 +25,7 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-connect"
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub lease: Option<String>,
+	pub lease: Option<tg::process::Lease>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
@@ -257,7 +257,7 @@ pub enum ServerResponseOutput {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
-	pub lease: Option<String>,
+	pub lease: Option<tg::process::Lease>,
 	pub location: Option<tg::location::Arg>,
 	pub tokens: tg::authorization::Tokens,
 }

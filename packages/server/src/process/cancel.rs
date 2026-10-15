@@ -71,7 +71,7 @@ impl Session {
 			return Ok(Some(output));
 		}
 		crate::checkpoint!(self.server, "process.cancel.runner", process = %id).await;
-		self.cancel_process_with_control(id, arg.lease.clone(), Some(control.control_sender))
+		self.cancel_process_with_control(id, arg.lease, Some(control.control_sender))
 			.boxed()
 			.await
 	}
@@ -89,7 +89,7 @@ impl Session {
 	async fn cancel_process_with_control(
 		&self,
 		id: &tg::process::Id,
-		lease: String,
+		lease: tg::process::Lease,
 		control_sender: Option<super::control::local::Local>,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let request = tg::process::control::ServerRequestArg::ReleaseLease(

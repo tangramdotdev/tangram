@@ -43,8 +43,9 @@ impl MockConnection {
 async fn header_does_not_wait_for_input_or_process_selection() {
 	let (client, connections, _server) = mock_server(http::StatusCode::OK).await;
 	let id = tg::process::Id::new();
+	let lease = tg::process::Lease::new();
 	let arg = Arg {
-		lease: Some("lease".repeat(2048)),
+		lease: Some(lease),
 		location: None,
 		mode: Mode::Run,
 		process: tg::Either::Right(id.clone()),
@@ -59,10 +60,7 @@ async fn header_does_not_wait_for_input_or_process_selection() {
 	.unwrap()
 	.unwrap();
 	let mut connection = connections.recv().await.unwrap();
-	assert_eq!(
-		connection.arg.lease.as_deref(),
-		Some("lease".repeat(2048).as_str())
-	);
+	assert_eq!(connection.arg.lease, Some(lease));
 	connection.connect(&id).await;
 	assert!(matches!(
 		output.try_next().await.unwrap().unwrap(),
@@ -152,8 +150,9 @@ async fn reconnect_preserves_the_process() {
 #[test]
 fn opening_metadata_roundtrips() {
 	let id = tg::process::Id::new();
+	let lease = tg::process::Lease::new();
 	let arg = Arg {
-		lease: Some("lease".to_owned()),
+		lease: Some(lease),
 		location: Some("remote:test".parse().unwrap()),
 		mode: Mode::Run,
 		process: tg::Either::Right(id.clone()),
@@ -163,7 +162,7 @@ fn opening_metadata_roundtrips() {
 	let json = serde_json::to_value(&arg).unwrap();
 	assert_eq!(json["process"], id.to_string());
 	assert_eq!(json["mode"], "run");
-	assert_eq!(json["lease"], "lease");
+	assert_eq!(json["lease"], lease.to_string());
 	assert_eq!(json["location"], "remote:test");
 	assert!(json.get("target").is_none());
 	assert_roundtrip(&arg);
@@ -240,7 +239,7 @@ async fn spawn_metadata_uses_native_types() {
 #[test]
 fn operation_payloads_are_native_structs() {
 	let args = [
-		serde_json::json!({"kind": "cancel", "value": {"lease": "lease", "location": "local"}}),
+		serde_json::json!({"kind": "cancel", "value": {"lease": "06d0000001r010000000000000", "location": "local"}}),
 		serde_json::json!({"kind": "signal", "value": {"signal": "TERM"}}),
 		serde_json::json!({"kind": "tty", "value": {"size": {"cols": 80, "rows": 24}}}),
 	];
@@ -304,7 +303,7 @@ fn responses_preserve_errors_and_optional_null_outputs() {
 			let output = tg::process::spawn::Output {
 				cached: true,
 				command: None,
-				lease: Some("lease".to_owned()),
+				lease: Some(tg::process::Lease::new()),
 				location: Some("remote:test".parse().unwrap()),
 				outcome: Some(outcome),
 				process: tg::Either::Right(tg::process::Id::new()),
