@@ -374,20 +374,22 @@ impl tg::Client {
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let http2 = http.http2;
-		let (mut sender, connection) = hyper::client::conn::http2::Builder::new(executor)
+		let mut builder = hyper::client::conn::http2::Builder::new(executor);
+		builder
 			.timer(hyper_util::rt::TokioTimer::new())
 			.initial_connection_window_size(http2.connection_window_size)
 			.initial_stream_window_size(http2.stream_window_size)
 			.max_concurrent_streams(http2.max_concurrent_streams)
-			.max_concurrent_reset_streams(http2.max_concurrent_reset_streams)
-			.keep_alive_interval(http.keep_alive_interval)
-			.keep_alive_timeout(http.keep_alive_timeout)
-			.keep_alive_while_idle(true)
-			.handshake(io)
-			.await
-			.map_err(|error| {
-				tg::error!(unavailable, !error, "failed to perform the HTTP handshake")
-			})?;
+			.max_concurrent_reset_streams(http2.max_concurrent_reset_streams);
+		if let Some(interval) = http.keep_alive_interval {
+			builder.keep_alive_interval(interval);
+		}
+		if let Some(timeout) = http.keep_alive_timeout {
+			builder.keep_alive_timeout(timeout);
+		}
+		let (mut sender, connection) = builder.handshake(io).await.map_err(|error| {
+			tg::error!(unavailable, !error, "failed to perform the HTTP handshake")
+		})?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {

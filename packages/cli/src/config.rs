@@ -2891,7 +2891,7 @@ pub struct ClientHttp {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub http2: Option<tangram_http::http2::Config>,
 
-	/// The interval between HTTP/2 keep alive pings on an idle connection.
+	/// The interval between HTTP/2 keep alive pings.
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub keep_alive_interval: Option<Duration>,
@@ -4223,7 +4223,7 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 				"expected client.http.keep_alive_interval to be greater than zero"
 			));
 		}
-		target.keep_alive_interval = value;
+		target.keep_alive_interval = Some(value);
 	}
 	if let Some(value) = source.keep_alive_timeout {
 		if value.is_zero() {
@@ -4231,7 +4231,7 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 				"expected client.http.keep_alive_timeout to be greater than zero"
 			));
 		}
-		target.keep_alive_timeout = value;
+		target.keep_alive_timeout = Some(value);
 	}
 	if let Some(value) = source.max_header_length {
 		target.max_header_length = value;
