@@ -335,10 +335,10 @@ pub enum Stdio {
 }
 
 #[cfg(target_os = "linux")]
-pub fn filesystem_project_usage(path: &Path, project: u32) -> tg::Result<u64> {
+pub fn filesystem_project_ready(path: &Path, project: u32) -> tg::Result<bool> {
 	let directory = std::fs::File::open(path)
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project meter"))?;
-	filesystem::usage(&directory, project)
+	filesystem::ready(&directory, project)
 }
 
 impl Sandbox {

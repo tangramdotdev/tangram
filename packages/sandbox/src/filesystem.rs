@@ -371,6 +371,14 @@ pub(crate) fn usage(directory: &std::fs::File, project: u32) -> tg::Result<u64> 
 	Ok(usage)
 }
 
+pub(crate) fn ready(directory: &std::fs::File, project: u32) -> tg::Result<bool> {
+	if kind(directory)? == BTRFS_SUPER_MAGIC {
+		return btrfs::ready(directory, project);
+	}
+	let ready = project::usage(directory, project)? == 0;
+	Ok(ready)
+}
+
 pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Control> {
 	let parent = path
 		.parent()
@@ -379,6 +387,9 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project"))?;
 	let directory = std::sync::Arc::new(directory);
 	let filesystem = kind(&directory)?;
+	if filesystem == BTRFS_SUPER_MAGIC {
+		return btrfs::control(directory, path, project);
+	}
 	let usage = {
 		let directory = directory.clone();
 		Box::new(move || usage(&directory, project))

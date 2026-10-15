@@ -53,7 +53,12 @@ configure distinct `runner.resources.filesystem_project_ids` ranges for runners
 sharing a filesystem. Empty level-one groups are retained for reuse within that
 range; remove them with `btrfs qgroup destroy` when retiring a runner, after its
 subvolumes and retained data have been deleted. Byte limits
-include pending data and metadata allocations. Btrfs does not support inode limits,
+include pending data and metadata allocations. Usage reporting is approximate because
+the kernel exposes these counters separately. The runner reserves each Btrfs
+sandbox’s entire granted storage limit until its subvolume and retained extents
+have been reclaimed; unused capacity within that grant is not lent to other
+sandboxes. Project IDs are also held until reclamation, even if usage temporarily
+reads zero. Btrfs does not support inode limits,
 so hardened isolation, which requires an inode limit, still requires ext4 or XFS.
 
 ```json

@@ -59,12 +59,12 @@ impl Temp {
 	#[cfg(target_os = "linux")]
 	async fn release_filesystem_project_id(path: PathBuf, project_id: crate::runner::project::Id) {
 		loop {
-			match tangram_sandbox::filesystem_project_usage(&path, project_id.value()) {
-				Ok(0) => {
+			match tangram_sandbox::filesystem_project_ready(&path, project_id.value()) {
+				Ok(true) => {
 					project_id.release();
 					return;
 				},
-				Ok(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+				Ok(false) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
 				Err(error) => {
 					tracing::error!(%error, "failed to release the filesystem project ID");
 					return;
