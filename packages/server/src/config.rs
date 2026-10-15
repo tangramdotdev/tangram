@@ -2860,7 +2860,7 @@ impl Default for Runner {
 			overcommit: tg::runner::Overcommit::default(),
 			process_control_channel_capacity: 256,
 			process_control_connection_pool_refresh_interval: Duration::from_millis(2500),
-			process_control_connection_pool_size: 1,
+			process_control_connection_pool_size: 8,
 			process_control_connection_pool_ttl: Duration::from_secs(5),
 			process_state_ttl: Duration::from_mins(1),
 			progress_channel_capacity: 16,
