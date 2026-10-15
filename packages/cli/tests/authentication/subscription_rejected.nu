@@ -1,25 +1,27 @@
 use ../lib/test.nu *
 use ../lib/nats.nu *
 
+skip_if_no_cloud
+
 # A rejected invalidation subscription keeps authentication on the database path.
 let nats = spawn_nats --config {
 	authorization: {
 		users: [{
 			user: test,
 			password: test,
-			permissions: { publish: '>', subscribe: { deny: [authentication.invalidate] } },
+			permissions: { publish: '>', subscribe: { deny: ['*.authentication.invalidate'] } },
 		}],
 	},
 }
 let root = random chars
 let common = {
 	authentication: { cache: { ttl: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
-	database: { kind: sqlite, index_queue: { wakeup_interval: 0.01 }, path: (mktemp -d | path join database.sqlite3) },
+	database: { index_queue: { wakeup_interval: 0.01 } },
 	messenger: { kind: nats, password: test, url: $nats.url, username: test },
 }
-let instance = instance --primary-region a --regions [{ name: a }, { name: b }] --config $common
-let a = server spawn --instance $instance --region a --name a --directory (mktemp -d) --url (instance region url $instance a)
-let b = server spawn --instance $instance --region b --name b --directory (mktemp -d) --url (instance region url $instance b)
+let instance = instance --cloud --primary-region a --regions [{ name: a }, { name: b }] --config $common
+let a = server spawn --instance $instance --region a --name a --url (instance region url $instance a)
+let b = server spawn --instance $instance --region b --name b --url (instance region url $instance b)
 wait_until { open --raw $b.log | str contains 'disabling authentication caching' } 'the subscription rejection was not handled'
 let runner = tg --url $a.url --token $root runner create | from json
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
@@ -32,7 +34,7 @@ reload_nats $nats { authorization: { users: [{ user: test, password: test, permi
 wait_until {
 	try {
 		(http get $'($nats.monitor_url)/subsz?subs=1').subscriptions_list
-		| where subject == 'authentication.invalidate'
+		| where subject == $'($instance.id).authentication.invalidate'
 		| length
 		| $in == 2
 	} catch { false }

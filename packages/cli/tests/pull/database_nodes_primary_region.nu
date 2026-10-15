@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+skip_if_no_cloud
+
 # Pulling through a secondary region writes database nodes in the primary region while keeping
 # objects, processes, and sandboxes in the secondary region.
 
@@ -16,26 +18,17 @@ tg --url $local_source.url index
 tg --url $local_source.url tag put -p routed/process $process
 let tag = tg --url $local_source.url tag get routed/process | from json
 
-let database_directory = mktemp -d
-let database_path = $database_directory | path join 'database'
-let primary_directory = mktemp -d
-let secondary_directory = mktemp -d
 let regions = [
 	{ name: 'primary' },
 	{ name: 'secondary' },
 ]
 let common = {
-	advanced: {
-		checkpoints: true,
-		single_directory: false,
-		single_process: false,
-	},
+	advanced: { checkpoints: true },
 	checkouts: false,
-	database: { kind: 'sqlite', path: $database_path },
 }
-let instance = instance --primary-region primary --regions $regions --config $common
-let remote_primary = server spawn --instance $instance --region primary --preserve-keys --name remote-primary --directory $primary_directory --url (instance region url $instance primary)
-let remote_secondary = server spawn --instance $instance --region secondary --preserve-keys --name remote-secondary --directory $secondary_directory --url (instance region url $instance secondary)
+let instance = instance --cloud --primary-region primary --regions $regions --config $common
+let remote_primary = server spawn --instance $instance --region primary --preserve-keys --name remote-primary --url (instance region url $instance primary)
+let remote_secondary = server spawn --instance $instance --region secondary --preserve-keys --name remote-secondary --url (instance region url $instance secondary)
 tg --url $remote_secondary.url remote put default $local_source.url
 tg --url $remote_secondary.url pull $sandbox
 

@@ -1,23 +1,22 @@
 use ../lib/test.nu *
 
+skip_if_no_cloud
+
 # A cross-region cache hit should touch the child without retaining it through a foreign parent.
 
 # Create isolated regions with shared tag metadata and separate object stores.
 let common = {
-	advanced: { checkpoints: true, single_directory: true, single_process: false },
+	advanced: { checkpoints: true, single_directory: true },
+	cache: { kind: lmdb, map_size: 10_485_760 },
 	checkouts: true,
 	database: { index_queue: { wakeup_interval: 0.01 } },
+	index: { kind: lmdb, map_size: 10_485_760 },
 	indexer: { cleaning: { poll_interval: 0.01 } },
 	roles: [api indexer scheduler runner],
 }
-let common = if ($env.TANGRAM_TEST_CLOUD? | default '' | is-empty) {
-	$common | merge deep { database: { kind: sqlite, path: ((mktemp -d) | path join database) } }
-} else {
-	$common
-}
 let instance = instance --cloud --primary-region primary --regions [{ name: primary }, { name: secondary }] --config $common
-let primary = server spawn --instance $instance --region primary --directory (mktemp -d) --preserve-keys --name primary --now '2026-01-01T00:00:00Z' --url (instance region url $instance primary)
-let secondary = server spawn --instance $instance --region secondary --directory (mktemp -d) --preserve-keys --name secondary --now '2026-01-01T00:00:00Z' --url (instance region url $instance secondary)
+let primary = server spawn --instance $instance --region primary --preserve-keys --name primary --now '2026-01-01T00:00:00Z' --url (instance region url $instance primary)
+let secondary = server spawn --instance $instance --region secondary --preserve-keys --name secondary --now '2026-01-01T00:00:00Z' --url (instance region url $instance secondary)
 
 # Populate only the secondary region with the child process and its output.
 let path = artifact {

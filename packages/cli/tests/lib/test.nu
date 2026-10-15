@@ -742,6 +742,12 @@ export def --env "server spawn" [
 		$default_config = $default_config | upsert cache { kind: $cache_kind }
 	}
 
+	# Replace the backend defaults when selecting another index backend.
+	let index_kind = $server_config.index?.kind? | default $instance.config.index?.kind?
+	if $index_kind != null and $index_kind != $default_config.index.kind {
+		$default_config = $default_config | upsert index { kind: $index_kind }
+	}
+
 	# Write the config.
 	let config = $default_config
 		| merge deep --strategy append $instance.config

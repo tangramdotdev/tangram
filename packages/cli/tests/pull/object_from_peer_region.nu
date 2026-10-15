@@ -1,21 +1,16 @@
 use ../lib/test.nu *
 
+skip_if_no_cloud
+
 # Pulling an object through a remote region fetches it from a peer region when it is absent in the region serving the request.
 
-let region_a_directory = mktemp -d
-let region_b_directory = mktemp -d
-let database_directory = mktemp -d
-let database_path = $database_directory | path join 'database'
 let regions = [
 	{ name: 'a' },
 	{ name: 'b' },
 ]
-let common = {
-	database: { kind: 'sqlite', path: $database_path },
-}
-let instance = instance --primary-region a --regions $regions --config $common
-let remote_region_a = server spawn --instance $instance --region a --name remote-region-a --directory $region_a_directory --url (instance region url $instance a)
-let remote_region_b = server spawn --instance $instance --region b --name remote-region-b --directory $region_b_directory --url (instance region url $instance b)
+let instance = instance --cloud --primary-region a --regions $regions
+let remote_region_a = server spawn --instance $instance --region a --name remote-region-a --url (instance region url $instance a)
+let remote_region_b = server spawn --instance $instance --region b --name remote-region-b --url (instance region url $instance b)
 let local = server spawn --name local --config {
 	remotes: {
 		default: {

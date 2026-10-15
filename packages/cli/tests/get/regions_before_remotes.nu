@@ -1,15 +1,14 @@
 use ../lib/test.nu *
 
+skip_if_no_cloud
+
 # A remote lookup cannot begin until the region lookup has returned no result.
-let database_directory = mktemp -d
-let database_path = $database_directory | path join database
-let instance = instance --primary-region a --regions [{ name: a }, { name: b }] --config {
+let instance = instance --cloud --primary-region a --regions [{ name: a }, { name: b }] --config {
 	advanced: { checkpoints: true },
-	database: { kind: sqlite, path: $database_path },
 	roles: [api indexer],
 }
-let region_a = server spawn --instance $instance --region a --name region-a --directory (mktemp -d) --url (instance region url $instance a)
-let region_b = server spawn --instance $instance --region b --name region-b --directory (mktemp -d) --url (instance region url $instance b)
+let region_a = server spawn --instance $instance --region a --name region-a --url (instance region url $instance a)
+let region_b = server spawn --instance $instance --region b --name region-b --url (instance region url $instance b)
 let remote = server spawn --name remote --config { advanced: { checkpoints: true } }
 tg --url $region_a.url remote put default $remote.url
 let path = artifact { tangram.ts: 'export default () => "done";' }

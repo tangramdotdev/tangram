@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+skip_if_no_cloud
+
 # A tag charges storage only in regions where its target is present, including
 # when the target arrives after the tag.
 
@@ -10,25 +12,18 @@ def target_permissions [url: string, token: string, tag: string] {
 	} | flatten
 }
 
-let region_a_directory = mktemp -d
-let region_b_directory = mktemp -d
-let database_path = mktemp -d | path join database
 let regions = [
 	{ name: a },
 	{ name: b },
 ]
 let common = {
 	authentication: { users: { providers: { insecure: true } } },
-	database: {
-		kind: sqlite,
-		index_queue: { wakeup_interval: 0.01 },
-		path: $database_path,
-	},
+	database: { index_queue: { wakeup_interval: 0.01 } },
 	usage: true,
 }
-let instance = instance --primary-region a --regions $regions --config $common
-let remote_region_a = server spawn --instance $instance --region a --preserve-keys --name remote-region-a --directory $region_a_directory --url (instance region url $instance a)
-let remote_region_b = server spawn --instance $instance --region b --preserve-keys --name remote-region-b --directory $region_b_directory --url (instance region url $instance b)
+let instance = instance --cloud --primary-region a --regions $regions --config $common
+let remote_region_a = server spawn --instance $instance --region a --preserve-keys --name remote-region-a --url (instance region url $instance a)
+let remote_region_b = server spawn --instance $instance --region b --preserve-keys --name remote-region-b --url (instance region url $instance b)
 let alice = tg --url $remote_region_a.url login --verbose --name alice | from json
 let bob = tg --url $remote_region_a.url login --verbose --name bob | from json
 let local = server spawn --name local --config {

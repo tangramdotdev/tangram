@@ -1,21 +1,20 @@
 use ../lib/test.nu *
-use ../lib/nats.nu *
 use ../lib/stripe.nu *
 
+skip_if_no_cloud
+
 # All named-node replacement paths revoke cached user tokens after committing.
-let nats = spawn_nats
 let stripe = spawn_stripe
 let root = random chars
 let secret = 'whsec_mock'
 let common = {
 	authentication: { cache: { ttl: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: $secret } },
-	database: { kind: sqlite, index_queue: { wakeup_interval: 0.01 }, path: (mktemp -d | path join database.sqlite3) },
-	messenger: { kind: nats, url: $nats.url },
+	database: { index_queue: { wakeup_interval: 0.01 } },
 }
-let instance = instance --primary-region a --regions [{ name: a }, { name: b }] --config $common
-let a = server spawn --instance $instance --region a --name a --directory (mktemp -d) --url (instance region url $instance a)
-let b = server spawn --instance $instance --region b --name b --directory (mktemp -d) --url (instance region url $instance b)
+let instance = instance --cloud --primary-region a --regions [{ name: a }, { name: b }] --config $common
+let a = server spawn --instance $instance --region a --name a --url (instance region url $instance a)
+let b = server spawn --instance $instance --region b --name b --url (instance region url $instance b)
 let source = server spawn --name source --config { remotes: { default: { token: $root, url: $a.url } } }
 let target = tg --url $a.url --token $root put --no-tokens 'tg.file("replacement")' | referent node
 
@@ -45,4 +44,3 @@ for mode in [single batch sync] {
 	}
 }
 stop_stripe $stripe
-stop_nats $nats

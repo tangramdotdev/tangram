@@ -1,35 +1,17 @@
 use ../lib/test.nu *
 
+skip_if_no_cloud
+
 # A departing indexer leaves shared work for a fresh wait, even if the replacement already responded.
-if (which nats-server | is-empty) {
-	skip_test 'this test requires nats-server'
-}
-let port = port
-let log = mktemp
-let messenger = job spawn {
-	^nats-server --addr 127.0.0.1 --port $port out+err> $log
-}
-wait_until { open --raw $log | str contains 'Server is ready' } 'NATS must start'
-let directory = mktemp -d
-let config = {
-	advanced: { checkpoints: true, single_directory: false, single_process: false },
-	database: { kind: 'sqlite', path: ($directory | path join database.sqlite3) },
-	index: { kind: 'lmdb', map_size: 268_435_456, path: ($directory | path join index) },
+let instance = instance --cloud --config {
+	advanced: { checkpoints: true },
 	indexer: {
 		cache: { poll_interval: 0.01 },
 		cleaning: false,
 		updates: { storage_and_metadata: { batch_size: 1 } },
 	},
-	messenger: { kind: 'nats', url: $'nats://127.0.0.1:($port)' },
-	roles: [api indexer],
-	cache: {
-		kind: 'lmdb',
-		map_size: 268_435_456,
-		path: ($directory | path join store),
-		posix_sem_prefix: $'/tg-((random chars) | str lowercase | str substring 0..7)',
-	},
 }
-let local_a = server spawn --name local-a --config ($config | merge deep {
+let local_a = server spawn --instance $instance --name local-a --config {
 	indexer: {
 		updates: {
 			permissions: { partitions: { start: 0, end: 0 } },
@@ -37,17 +19,18 @@ let local_a = server spawn --name local-a --config ($config | merge deep {
 			usage: { partitions: { start: 0, end: 0 } },
 		},
 	},
-})
+	roles: [api indexer],
+}
 let batch_watch = tg --url $local_a.url checkpoint watch index.batch | from json | get watch
 let a_wait_watch = tg --url $local_a.url checkpoint watch indexer.request.receive | from json | get watch
 
 # Only A exists when the batch is submitted, so its private queue owns the work.
 let object = tg --url $local_a.url put --no-tokens 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | referent node
 tg --url $local_a.url checkpoint wait index.batch $batch_watch 0 | ignore
-let local_b = server spawn --name local-b --config $config
+let local_b = server spawn --instance $instance --name local-b --config { roles: [api indexer] }
 let update_watch = tg --url $local_b.url checkpoint watch indexer.update.storage_and_metadata.batch | from json | get watch
 tg --url $local_b.url checkpoint wait indexer.update.storage_and_metadata.batch $update_watch 0 | ignore
-let local_api = server spawn --name local-api --config ($config | upsert roles [api])
+let local_api = server spawn --instance $instance --name local-api --config { roles: [api] }
 let params = { indexer: $local_b.config.indexer.id } | to json --raw
 let complete_watch = tg --url $local_api.url checkpoint watch indexer.wait.complete --params $params | from json | get watch
 let url = $local_api.url
@@ -109,9 +92,10 @@ snapshot --normalize $output.stderr '
 '
 
 # Losing the last indexer after its local wait finishes must fail the pending shared wait.
-let local_c = server spawn --name local-c --config ($config | merge deep {
+let local_c = server spawn --instance $instance --name local-c --config {
 	indexer: { updates: { storage_and_metadata: { partitions: { start: 0, end: 0 } } } },
-})
+	roles: [api indexer],
+}
 tg --url $local_api.url put --no-tokens 'tg.directory({ "x.txt": tg.file("xxx"), "y.txt": tg.file("yyy") })' | ignore
 let shared_watch = tg --url $local_api.url checkpoint watch index.wait.updates | from json | get watch
 let request = job spawn {
@@ -129,4 +113,3 @@ failure $output 'shared work must not be abandoned when the last indexer disappe
 assert ($output.stderr | str contains 'no indexers are available')
 
 server stop $local_api
-job kill $messenger

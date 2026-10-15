@@ -1,17 +1,16 @@
 use ../lib/test.nu *
 
+skip_if_no_cloud
+
 # Explicit region selection reads that region's usage through local and remote routing.
-let region_a_directory = mktemp -d
-let region_b_directory = mktemp -d
-let database_path = mktemp -d | path join database
 let common = {
 	authentication: { users: { providers: { insecure: true } } },
-	database: { kind: sqlite, index_queue: { wakeup_interval: 0.01 }, path: $database_path },
+	database: { index_queue: { wakeup_interval: 0.01 } },
 	usage: true,
 }
-let instance = instance --primary-region a --regions [{ name: a }, { name: b }] --config $common
-let region_a = server spawn --preserve-keys --instance $instance --region a --name region-a --directory $region_a_directory --url (instance region url $instance a) --config { usage: false }
-let region_b = server spawn --preserve-keys --instance $instance --region b --name region-b --directory $region_b_directory --url (instance region url $instance b)
+let instance = instance --cloud --primary-region a --regions [{ name: a }, { name: b }] --config $common
+let region_a = server spawn --preserve-keys --instance $instance --region a --name region-a --url (instance region url $instance a) --config { usage: false }
+let region_b = server spawn --preserve-keys --instance $instance --region b --name region-b --url (instance region url $instance b)
 let alice = tg --url $region_a.url login --verbose --name alice | from json
 let organization = tg --url $region_a.url --token $alice.token organization create acme | from json
 let user_usage = tg --url $region_b.url --token $alice.token usage --location='local(b)' | from json

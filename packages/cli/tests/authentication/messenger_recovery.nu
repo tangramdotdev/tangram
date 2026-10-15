@@ -1,17 +1,19 @@
 use ../lib/test.nu *
 use ../lib/nats.nu *
 
+skip_if_no_cloud
+
 # A messenger outage clears cached authentication and does not make a committed deletion fail.
 let nats = spawn_nats
 let root = random chars
 let common = {
 	authentication: { cache: { ttl: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
-	database: { kind: sqlite, index_queue: { wakeup_interval: 0.01 }, path: (mktemp -d | path join database.sqlite3) },
+	database: { index_queue: { wakeup_interval: 0.01 } },
 	messenger: { kind: nats, url: $nats.url },
 }
-let instance = instance --primary-region a --regions [{ name: a }, { name: b }] --config $common
-let a = server spawn --instance $instance --region a --name a --directory (mktemp -d) --url (instance region url $instance a)
-let b = server spawn --instance $instance --region b --name b --directory (mktemp -d) --url (instance region url $instance b)
+let instance = instance --cloud --primary-region a --regions [{ name: a }, { name: b }] --config $common
+let a = server spawn --instance $instance --region a --name a --url (instance region url $instance a)
+let b = server spawn --instance $instance --region b --name b --url (instance region url $instance b)
 let runner = tg --url $a.url --token $root runner create | from json
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
 success (tg --url $b.url --token $token.token remote list | complete)
@@ -24,7 +26,7 @@ let restarted = spawn_nats --listen-port $nats.port
 wait_until {
 	try {
 		let subscriptions = http get $'($restarted.monitor_url)/subsz?subs=1'
-		($subscriptions.subscriptions_list | where subject == 'authentication.invalidate' | length) == 2
+		($subscriptions.subscriptions_list | where subject == $'($instance.id).authentication.invalidate' | length) == 2
 	} catch { false }
 } 'authentication subscriptions did not recover'
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
