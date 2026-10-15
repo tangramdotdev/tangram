@@ -5,8 +5,15 @@ use ../lib/test.nu *
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
-if not (container_id_mapped_mount_supported) {
-	skip_test 'this test requires CAP_SYS_ADMIN on tangram and ID-mapped mount support from the backing filesystem'
+if (id -u | into int) != 0 {
+	if (which getcap | is-empty) {
+		skip_test 'this test requires getcap to check the Tangram binary privileges'
+	}
+	let tangram = which tangram | where type == external | get path | first
+	let capabilities = ^getcap $tangram | complete
+	if not ($capabilities.stdout | str contains 'cap_sys_admin') {
+		skip_test 'this test requires root or CAP_SYS_ADMIN on tangram'
+	}
 }
 
 let maps = container_id_maps

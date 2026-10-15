@@ -14,23 +14,34 @@ use {
 const AT_RECURSIVE: libc::c_uint = 0x8000;
 const MOUNT_ATTR_NODEV: u64 = 0x0000_0004;
 
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+	pub harden: bool,
+	pub id_mapped_mounts: bool,
+}
+
 #[derive(Debug)]
 struct NamespaceProbeError {
 	error: std::io::Error,
 	stage: libc::c_int,
 }
 
-pub fn validate(filesystem_path: &Path) -> tg::Result<()> {
-	validate_user_namespaces()?;
-	validate_cgroup_v2()?;
-	validate_seccomp()?;
-	validate_mount_syscalls()?;
-	validate_filesystem(filesystem_path)?;
+pub fn validate(filesystem_path: &Path, options: &Options) -> tg::Result<()> {
+	if options.harden {
+		validate_user_namespaces()?;
+		validate_cgroup_v2()?;
+		validate_seccomp()?;
+		validate_mount_syscalls()?;
+		validate_filesystem(filesystem_path)?;
+	}
+	if options.id_mapped_mounts {
+		validate_id_mapped_mount(filesystem_path)?;
+	}
 
 	Ok(())
 }
 
-pub fn probe_id_mapped_mount(path: &Path) -> tg::Result<()> {
+fn validate_id_mapped_mount(path: &Path) -> tg::Result<()> {
 	// Encode the identity maps before forking the child.
 	// SAFETY: These functions have no preconditions.
 	let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };

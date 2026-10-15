@@ -718,29 +718,35 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
 		#[cfg(target_os = "linux")]
-		if config.roles.contains(&self::config::Role::Runner) && config.runner.backend.harden() {
-			tangram_sandbox::host::validate(&temp_path).map_err(|error| {
+		if config.roles.contains(&self::config::Role::Runner) {
+			let container = config.runner.backend.resources(&config.runner.resources);
+			let options = tangram_sandbox::host::Options {
+				harden: config.runner.backend.harden(),
+				id_mapped_mounts: container.uid_map.is_some() || container.gid_map.is_some(),
+			};
+			tangram_sandbox::host::validate(&temp_path, &options).map_err(|error| {
 				tg::error!(
 					!error,
-					"the host does not satisfy the hardened container prerequisites"
+					"the host does not satisfy the container prerequisites"
 				)
 			})?;
-			let container = config.runner.backend.resources(&config.runner.resources);
-			tracing::info!(
-				cpu = config.scheduler.default_cpu,
-				filesystem_inodes = ?container.max_filesystem_inodes,
-				filesystem_size = ?container.max_filesystem_size,
-				gid_map = ?container.gid_map.as_ref().map(|map| (map.host, map.count)),
-				harden = true,
-				max_duration = ?container.max_duration,
-				max_open_files = ?container.max_open_files,
-				max_pids = ?container.max_pids,
-				memory = config.scheduler.default_memory,
-				memory_swap = ?container.memory_swap,
-				seccomp = ?container.seccomp,
-				uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
-				"validated the hardened container isolation profile"
-			);
+			if options.harden {
+				tracing::info!(
+					cpu = config.scheduler.default_cpu,
+					filesystem_inodes = ?container.max_filesystem_inodes,
+					filesystem_size = ?container.max_filesystem_size,
+					gid_map = ?container.gid_map.as_ref().map(|map| (map.host, map.count)),
+					harden = true,
+					max_duration = ?container.max_duration,
+					max_open_files = ?container.max_open_files,
+					max_pids = ?container.max_pids,
+					memory = config.scheduler.default_memory,
+					memory_swap = ?container.memory_swap,
+					seccomp = ?container.seccomp,
+					uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
+					"validated the hardened container isolation profile"
+				);
+			}
 		}
 
 		// Get the available parallelism.

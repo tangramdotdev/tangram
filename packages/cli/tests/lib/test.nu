@@ -188,14 +188,6 @@ export def container_id_maps [] {
 	}
 }
 
-export def container_id_mapped_mount_supported [] {
-	let root = mktemp -d
-	let output = ^tangram sandbox probe-id-mapped-mount $root | complete
-	rm -rf $root
-
-	$output.exit_code == 0
-}
-
 export def artifact [artifact] {
 	def inner [artifact: any, path: string] {
 		let artifact = if ($artifact | describe) == 'string' {

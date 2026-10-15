@@ -5,8 +5,6 @@ pub mod destroy;
 pub mod get;
 pub mod init;
 pub mod list;
-#[cfg(target_os = "linux")]
-pub mod probe;
 pub mod run;
 pub mod serve;
 pub mod wait;
@@ -32,10 +30,6 @@ pub enum Command {
 
 	#[command(alias = "ls")]
 	List(self::list::Args),
-
-	#[cfg(target_os = "linux")]
-	#[command(hide = true)]
-	ProbeIdMappedMount(self::probe::Args),
 
 	#[command(hide = true)]
 	Run(self::run::Args),
@@ -466,36 +460,24 @@ impl Cli {
 			Command::Create(args) => {
 				self.command_sandbox_create(args).await?;
 			},
-
 			Command::Destroy(args) => {
 				self.command_sandbox_destroy(args).await?;
 			},
-
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;
 			},
-
 			Command::Init(args) => {
 				self.exit = Some(Self::command_sandbox_init(args)?);
 			},
-
 			Command::List(args) => {
 				self.command_sandbox_list(args).await?;
 			},
-
-			#[cfg(target_os = "linux")]
-			Command::ProbeIdMappedMount(args) => {
-				self.exit = Some(Self::command_sandbox_probe_id_mapped_mount(&args)?);
-			},
-
 			Command::Run(args) => {
 				self.exit = Some(Self::command_sandbox_run(args)?);
 			},
-
 			Command::Serve(args) => {
 				self.command_sandbox_serve(args).await?;
 			},
-
 			Command::Wait(args) => {
 				self.command_sandbox_wait(args).await?;
 			},
