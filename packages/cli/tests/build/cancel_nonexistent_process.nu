@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let output = tg cancel pcs_0000000000000000000000000000 somelease | complete
+let output = tg cancel pcs_0000000000000000000000000000 06d0000001r010000000000000 | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
