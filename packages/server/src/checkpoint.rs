@@ -180,7 +180,7 @@ impl Session {
 		if !matches!(self.context.principal, tg::Principal::Root) {
 			return Err(tg::error!("unauthorized"));
 		}
-		Ok(self.server.checkpoints.as_ref())
+		Ok(self.server.checkpoints.as_deref())
 	}
 }
 

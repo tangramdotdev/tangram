@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-const helper = path self sync_control.py
+const helper = path self sync_service.py
 
 export def test [case: string] {
 	if (which nats-server | is-empty) {
@@ -19,7 +19,7 @@ export def test [case: string] {
 		authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 		messenger: { kind: 'nats', url: $'nats://127.0.0.1:($port)' },
 		sync: {
-			control: {
+			service: {
 				heartbeat_interval: 0.1,
 				attempt_ttl: 2,
 				idle_timeout: (if $case == 'shared_heartbeat' { 1 } else { 60 }),
@@ -43,5 +43,5 @@ export def test [case: string] {
 	server stop $local_source
 	server stop $local
 	job kill $messenger
-	success $output $'the sync control ($case) case should pass'
+	success $output $'the sync service ($case) case should pass'
 }

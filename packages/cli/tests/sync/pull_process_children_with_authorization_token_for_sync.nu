@@ -5,7 +5,7 @@ let root_token = random chars
 let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: { control: { request_timeout: 120 } },
+	sync: { service: { request_timeout: 120 } },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json

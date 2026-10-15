@@ -17,7 +17,7 @@ case, socket_path, tangram, url, port, source_url, directory, root_token = sys.a
 TTL = 2
 
 
-# The control and sync protocols use Tangram serialization, including numeric enum and field IDs.
+# The sync protocol and the service payloads use Tangram serialization, including numeric enum and field IDs.
 @dataclasses.dataclass
 class Variant:
     id: int
@@ -180,7 +180,7 @@ def missing_id(index=0):
 def subject(token):
     body = token.split(".")[1]
     body = json.loads(base64.b64decode(body + "=" * (-len(body) % 4)))
-    return f"syncs.{body['resource']}.control"
+    return f"syncs.{body['resource']}.service"
 
 
 def command(*args, token=None):
@@ -205,6 +205,78 @@ def reached(name, watch, index=0):
 
 def release(name, watch):
     command("checkpoint", "unwatch", name, watch)
+
+
+# The service's envelope is binary: a kind byte, then length-prefixed strings, then a Tangram-serialized payload. These translate it to and from the message shapes that the cases use, which keep the fields of each message by index.
+ACK, ANNOUNCE, CANCEL, HEARTBEAT, HEARTBEAT_RESPONSE, REQUEST, REQUEST_ACK, RESPONSE = range(8)
+
+
+def put_string(value):
+    data = value.encode()
+    return len(data).to_bytes(4, "big") + data
+
+
+def get_string(reader):
+    return reader.read(int.from_bytes(reader.read(4), "big")).decode()
+
+
+def decode_service(data):
+    reader = io.BytesIO(data)
+    kind = reader.read(1)[0]
+    if kind == ANNOUNCE:
+        return Variant(9)
+    first = get_string(reader)
+    second = get_string(reader)
+    if kind == ACK:
+        return Variant(0, {0: second, 1: first})
+    if kind == CANCEL:
+        return Variant(2, {0: second, 1: first})
+    if kind == HEARTBEAT:
+        return Variant(1, {0: Variant(0, {}), 1: first, 2: second, 3: None})
+    if kind == HEARTBEAT_RESPONSE:
+        milliseconds = int.from_bytes(reader.read(8), "big")
+        ttl = (milliseconds // 1000, milliseconds % 1000 * 1_000_000)
+        return Variant(1, {0: None, 1: second, 2: first, 3: Variant(0, {0: ttl})})
+    if kind == REQUEST:
+        id = get_string(reader)
+        arg = decode(reader)
+        return Variant(1, {0: Variant(1, arg), 1: second, 2: id, 3: first})
+    if kind == REQUEST_ACK:
+        return Variant(0, {0: second, 1: first})
+    if kind == RESPONSE:
+        response = decode(reader)
+        error = response.get(0)
+        output = None if error is not None else Variant(1, response.get(1))
+        return Variant(1, {0: error, 1: second, 2: first, 3: output})
+    raise ValueError(f"unsupported service message kind: {kind}")
+
+
+def encode_service(subject, message):
+    fields = message.value
+    if message.id == 0:
+        # A message to a client acknowledges a request, and a message to a server acknowledges a response.
+        kind = REQUEST_ACK if ".client." in subject else ACK
+        return bytes([kind]) + put_string(fields[1]) + put_string(fields[0])
+    if message.id == 2:
+        return bytes([CANCEL]) + put_string(fields[1]) + put_string(fields[0])
+    if message.id == 1 and isinstance(fields[0], Variant):
+        # A heartbeat or a request from a client.
+        arg, client, id, attempt = fields[0], fields[1], fields[2], fields[3]
+        if arg.id == 0:
+            return bytes([HEARTBEAT]) + put_string(client) + put_string(id)
+        return bytes([REQUEST]) + put_string(attempt) + put_string(client) + put_string(id) + encode(arg.value)
+    # A response from a server.
+    error, id, attempt, output = fields[0], fields[1], fields[2], fields[3]
+    if output is not None and output.id == 0:
+        seconds, nanoseconds = output.value[0]
+        milliseconds = seconds * 1000 + nanoseconds // 1_000_000
+        return bytes([HEARTBEAT_RESPONSE]) + put_string(attempt) + put_string(id) + milliseconds.to_bytes(8, "big")
+    response = {}
+    if error is not None:
+        response[0] = error
+    elif output is not None and output.value is not None:
+        response[1] = output.value
+    return bytes([RESPONSE]) + put_string(attempt) + put_string(id) + encode(response)
 
 
 class Sync:
@@ -316,20 +388,12 @@ class Messenger:
                 data = self.reader.read(int(fields[-1]))
                 assert self.reader.read(2) == b"\r\n"
                 path = fields[1].decode()
-                reader = io.BytesIO(data)
-                message = decode(reader)
-                if ".client." in path and message.id == 1:
-                    output = message.value[3]
-                    if output is not None and output.id == 0:
-                        # Duration is an unframed pair; its nanoseconds follow the final struct field.
-                        output.value[0] = (output.value[0], decode(reader))
-                assert not reader.read(), "unexpected trailing control data"
-                self.queue.put((path, message))
+                self.queue.put((path, decode_service(data)))
         except Exception as error:
             self.queue.put(error)
 
     def publish(self, subject, message):
-        data = encode(message)
+        data = encode_service(subject, message)
         with self.lock:
             self.socket.sendall(f"PUB {subject} {len(data)}\r\n".encode() + data + b"\r\n")
 
@@ -342,7 +406,7 @@ class Messenger:
             try:
                 item = self.queue.get(timeout=max(0, deadline - time.monotonic()))
             except queue.Empty:
-                raise TimeoutError("the expected control message did not arrive") from None
+                raise TimeoutError("the expected service message did not arrive") from None
             if isinstance(item, Exception):
                 raise item
             if predicate(*item):
@@ -354,7 +418,7 @@ class Messenger:
             message = self.receive(predicate, duration)
         except TimeoutError:
             return
-        raise AssertionError(f"unexpected control message: {message}")
+        raise AssertionError(f"unexpected service message: {message}")
 
 
 class Peer:
@@ -385,22 +449,21 @@ class Peer:
         self.reply(request, Variant(1, {0: {3: error} if error else None, 1: request[2], 2: request[3], 3: output}))
 
     def cancel(self, id, attempt):
-        self.messenger.publish(f"{self.subject}.attempts.{attempt}.server", Variant(2, {0: id, 1: attempt}))
+        self.messenger.publish(f"{self.subject}.server", Variant(2, {0: id, 1: attempt}))
 
     def cancelled(self, request):
         return self.messenger.receive(lambda path, message:
-            path == f"{self.subject}.attempts.{request[3]}.server"
+            path == f"{self.subject}.server"
             and message == Variant(2, {0: request[2], 1: request[3]}))
 
     def acknowledged(self, id, attempt):
         return self.messenger.receive(lambda path, message:
-            path == f"{self.subject}.attempts.{attempt}.server" and message == Variant(0, {0: id, 1: attempt}))
+            path == f"{self.subject}.server" and message == Variant(0, {0: id, 1: attempt}))
 
     def send(self, id, node=None, attempt=None, client="client", permissions=Variant(1, [Variant(0)]), storage=Variant(0, [Variant(0)])):
         arg = Variant(0, {}) if node is None else Variant(1, {0: node_bytes(node), 1: permissions, 2: storage})
         request = {0: arg, 1: client, 2: id, 3: attempt}
-        path = f"{self.subject}.server" if attempt is None else f"{self.subject}.attempts.{attempt}.server"
-        self.messenger.publish(path, Variant(1, request))
+        self.messenger.publish(f"{self.subject}.server", Variant(1, request))
         return request
 
     def response(self, id, timeout=10, client="client"):
@@ -412,7 +475,7 @@ class Peer:
             path == f"{self.subject}.client.{client}" and message.id == 0 and message.value[0] == id)
 
     def acknowledge(self, response):
-        self.messenger.publish(f"{self.subject}.attempts.{response[2]}.server", Variant(0, {0: response[1], 1: response[2]}))
+        self.messenger.publish(f"{self.subject}.server", Variant(0, {0: response[1], 1: response[2]}))
 
     def connect(self, id="heartbeat", client="client"):
         deadline = time.monotonic() + 10
@@ -423,7 +486,7 @@ class Peer:
                 self.acknowledge(response)
                 return response[2]
             except TimeoutError:
-                assert time.monotonic() < deadline, "the responder did not subscribe"
+                assert time.monotonic() < deadline, "the service did not subscribe"
 
 
 def read_object(id, token, collection="objects", *, metadata=False):
@@ -447,10 +510,10 @@ def read_object(id, token, collection="objects", *, metadata=False):
 
 
 def fake_peer(messenger, nodes=None):
-    # Keep the real responder unsubscribed while the test controls its wire messages.
-    subscribe = watch("sync.control.subscribe")
+    # Keep the real service unsubscribed while the test controls its wire messages.
+    subscribe = watch("sync.service.subscribe")
     sync = Sync({"get": ",".join(nodes or [missing_id()])})
-    reached("sync.control.subscribe", subscribe)
+    reached("sync.service.subscribe", subscribe)
     return sync, Peer(messenger, sync.token), subscribe
 
 
@@ -492,7 +555,7 @@ def test_output(messenger):
     sync = Sync({"get": missing_id()})
     referent = sync.sync
     token = sync.token
-    assert f"syncs.{referent['node']}.control" == subject(token)
+    assert f"syncs.{referent['node']}.service" == subject(token)
     sync.close()
     sync = Sync({"get": missing_id(), "sync": referent})
     assert sync.sync == referent, "retries must reuse the supplied sync referent"
@@ -527,10 +590,10 @@ def recover_attempt(messenger, fail):
         peer.heartbeat(heartbeat, "old")
         request = peer.request()
         assert peer.request() == request, "node retries must preserve their ID and attempt"
-        ack_watch = watch("sync.control.ack", node=id)
+        ack_watch = watch("sync.service.ack", node=id)
         peer.ack(request)
-        reached("sync.control.ack", ack_watch)
-        release("sync.control.ack", ack_watch)
+        reached("sync.service.ack", ack_watch)
+        release("sync.service.ack", ack_watch)
         old_heartbeat = heartbeat
         heartbeat = peer.request(True)
         while heartbeat[2] == old_heartbeat[2]:
@@ -556,7 +619,7 @@ def recover_attempt(messenger, fail):
         peer.respond(replacement, error)
         peer.acknowledged(request[2], "new")
     sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_attempts(messenger):
@@ -578,7 +641,7 @@ def test_stale_heartbeats(messenger):
         peer.heartbeat(old, "old")
         peer.acknowledged(old[2], "old")
         messenger.absent(lambda path, message:
-            path == f"{peer.subject}.attempts.old.server" and message.id == 1)
+            path == f"{peer.subject}.server" and message.id == 1 and message.value[3] == "old")
         deadline = time.monotonic() + TTL + 1
         while time.monotonic() < deadline:
             peer.heartbeat(new, "new")
@@ -586,7 +649,7 @@ def test_stale_heartbeats(messenger):
         status, body = read.result(timeout=5)
         assert status == 500 and b"failed to verify the resource through a sync" in body, (status, body)
     sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_final_read(messenger):
@@ -598,23 +661,23 @@ def test_final_read(messenger):
         read = executor.submit(read_object, id, sync.token)
         peer.heartbeat(peer.request(True), "attempt")
         request = peer.request()
-        ack_watch = watch("sync.control.ack", node=id)
+        ack_watch = watch("sync.service.ack", node=id)
         peer.ack(request)
-        reached("sync.control.ack", ack_watch)
+        reached("sync.service.ack", ack_watch)
         reached("verification.index", index_watch)
         assert command("put", 'tg.blob("final read")', token=reader_token) == id
         assert not read.done(), "an acknowledged sync must wait for a response"
-        release("sync.control.ack", ack_watch)
-        response_watch = watch("sync.control.response", id=request[2], attempt=request[3])
+        release("sync.service.ack", ack_watch)
+        response_watch = watch("sync.service.response", id=request[2], attempt=request[3])
         peer.respond(request, "the transfer failed")
-        reached("sync.control.response", response_watch)
-        release("sync.control.response", response_watch)
+        reached("sync.service.response", response_watch)
+        release("sync.service.response", response_watch)
         release("verification.index", index_watch)
         status, body = read.result(timeout=5)
         assert status == 200, (status, body)
         assert base64.b64decode(json.loads(body)["data"]["value"]["bytes"]) == b"final read"
     sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_pending_source(messenger):
@@ -636,7 +699,7 @@ def test_pending_source(messenger):
     assert message.value.value[0] == node_bytes(id)
     sync.close()
     alternate.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
     # A local hit must not send pending or start alternate-sync requests.
     alternate, peer, subscribe = fake_peer(messenger)
@@ -647,7 +710,7 @@ def test_pending_source(messenger):
         path.startswith(peer.subject + ".") and path.endswith(".server") and message.id == 1)
     sync.close()
     alternate.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_pending_cancel(messenger):
@@ -668,7 +731,7 @@ def test_pending_cancel(messenger):
         pass
     sync.close()
     alternate.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_pending_destination(messenger):
@@ -694,7 +757,7 @@ def test_pending_destination(messenger):
         pass
     sync.close()
     alternate.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_pending_late_source(messenger):
@@ -763,7 +826,7 @@ def test_pending_process(messenger):
 
 
     alternate.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 def test_pending_process_available(messenger):
     id = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"
@@ -922,7 +985,7 @@ def test_failed_wait(messenger):
         status, body = read_object(id, [])
         assert status == 200, (status, body)
     sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_notification(messenger):
@@ -932,16 +995,16 @@ def test_notification(messenger):
         read = executor.submit(read_object, id, sync.token)
         peer.heartbeat(peer.request(True), "attempt")
         request = peer.request()
-        ack = watch("sync.control.ack", id=request[2])
+        ack = watch("sync.service.ack", id=request[2])
         peer.ack(request)
-        reached("sync.control.ack", ack)
-        release("sync.control.ack", ack)
+        reached("sync.service.ack", ack)
+        release("sync.service.ack", ack)
         time.sleep(0.1)
         peer.respond(request)
         status, body = read.result(timeout=1)
         assert status == 200, (status, body)
     sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_live_wait(messenger):
@@ -962,7 +1025,7 @@ def test_live_wait(messenger):
         status, body = read.result(timeout=2)
         assert status == 500 and b"failed to verify the resource through a sync" in body, (status, body)
     sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_shared_heartbeat(messenger):
@@ -1044,14 +1107,14 @@ def test_shared_heartbeat(messenger):
     peer.acknowledged(request[2], request[3])
     incoming.close()
     sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_candidates(messenger):
-    subscribe = watch("sync.control.subscribe")
+    subscribe = watch("sync.service.subscribe")
     syncs = [Sync({"get": missing_id()}) for _ in range(4)]
     for index in range(len(syncs)):
-        reached("sync.control.subscribe", subscribe, index)
+        reached("sync.service.subscribe", subscribe, index)
     peers = [Peer(messenger, sync.token) for sync in syncs]
     id = command("put", 'tg.blob("candidates")')
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -1060,10 +1123,10 @@ def test_candidates(messenger):
         for index, peer in enumerate(peers):
             peer.heartbeat(peer.request(True), f"candidate-{index}")
             request = peer.request()
-            ack = watch("sync.control.ack", id=request[2])
+            ack = watch("sync.service.ack", id=request[2])
             peer.ack(request)
-            reached("sync.control.ack", ack)
-            release("sync.control.ack", ack)
+            reached("sync.service.ack", ack)
+            release("sync.service.ack", ack)
             requests.append(request)
         messenger.absent(lambda path, message:
             path.startswith(peers[0].subject + ".") and path.endswith(".server")
@@ -1083,15 +1146,15 @@ def test_candidates(messenger):
         peers[2].acknowledged(requests[2][2], requests[2][3])
     for sync in syncs:
         sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_candidate_local_fallback(messenger):
     for missing in (False, True):
-        subscribe = watch("sync.control.subscribe")
+        subscribe = watch("sync.service.subscribe")
         syncs = [Sync({"get": missing_id()}) for _ in range(2)]
         for index in range(len(syncs)):
-            reached("sync.control.subscribe", subscribe, index)
+            reached("sync.service.subscribe", subscribe, index)
         peers = [Peer(messenger, sync.token) for sync in syncs]
         text = f"local fallback after candidate ends: {missing}"
         id = command("put", f"tg.blob({json.dumps(text)})")
@@ -1101,10 +1164,10 @@ def test_candidate_local_fallback(messenger):
             for index, peer in enumerate(peers):
                 peer.heartbeat(peer.request(True), f"fallback-{index}")
                 request = peer.request()
-                ack = watch("sync.control.ack", id=request[2])
+                ack = watch("sync.service.ack", id=request[2])
                 peer.ack(request)
-                reached("sync.control.ack", ack)
-                release("sync.control.ack", ack)
+                reached("sync.service.ack", ack)
+                release("sync.service.ack", ack)
                 requests.append(request)
             assert command("put", f"tg.blob({json.dumps(text)})", token=reader_token) == id
             command("index")
@@ -1118,14 +1181,14 @@ def test_candidate_local_fallback(messenger):
             peers[1].cancelled(requests[1])
         for sync in syncs:
             sync.close()
-        release("sync.control.subscribe", subscribe)
+        release("sync.service.subscribe", subscribe)
 
 
 def test_client_cancel(messenger):
-    subscribe = watch("sync.control.subscribe")
+    subscribe = watch("sync.service.subscribe")
     syncs = [Sync({"get": missing_id()}) for _ in range(2)]
     for index in range(len(syncs)):
-        reached("sync.control.subscribe", subscribe, index)
+        reached("sync.service.subscribe", subscribe, index)
     peers = [Peer(messenger, sync.token) for sync in syncs]
     id = missing_id(1)
     parent = command("put", 'tg.command({"args":[{"kind":"value","value":' + id + '}],"executable":"true","host":"builtin"})')
@@ -1142,7 +1205,7 @@ def test_client_cancel(messenger):
         peer.cancelled(request)
     for sync in syncs:
         sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_cancel(messenger):
@@ -1160,10 +1223,10 @@ def test_cancel(messenger):
             sync.requested(id)
             sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(id), 1: b"\x00cancelled"}))))
             peer.response("cancelled")
-        cancel = watch("sync.control.cancel", id="cancelled", attempt=attempt)
+        cancel = watch("sync.service.cancel", id="cancelled", attempt=attempt)
         peer.cancel("cancelled", attempt)
-        reached("sync.control.cancel", cancel)
-        release("sync.control.cancel", cancel)
+        reached("sync.service.cancel", cancel)
+        release("sync.service.cancel", cancel)
         while True:
             try:
                 peer.response("cancelled", 0.01)
@@ -1196,16 +1259,16 @@ def test_finish(messenger):
             assert first[0] is not None and first[3] is None, first
         else:
             assert first[0] is None and first[3] == Variant(1, None), first
-        ack_watch = watch("sync.control.response_ack", id="missing", attempt=attempt)
+        ack_watch = watch("sync.service.response_ack", id="missing", attempt=attempt)
         peer.acknowledge(first)
-        reached("sync.control.response_ack", ack_watch)
+        reached("sync.service.response_ack", ack_watch)
         # Drain messages already published before the acknowledgement was consumed.
         while True:
             try:
                 peer.response("missing", 0.05)
             except TimeoutError:
                 break
-        release("sync.control.response_ack", ack_watch)
+        release("sync.service.response_ack", ack_watch)
         messenger.absent(lambda path, message:
             path == f"{peer.subject}.client.client" and message.id == 1 and message.value[1] == "missing")
         time.sleep(TTL + 0.2)
@@ -1235,7 +1298,7 @@ def test_finished_active_clients(messenger):
         assert peer.connect(f"keepalive-{index}") == attempt
         index += 1
 
-    # A retained responder must also serve a new verifier holding the sync token.
+    # A retained service must also serve a new verifier holding the sync token.
     peer.send("new-heartbeat", client="new")
     response = peer.response("new-heartbeat", timeout=1, client="new")
     peer.acknowledge(response)
@@ -1281,7 +1344,7 @@ def test_index_handoff(messenger):
             reached("sync.get.index.enqueue", enqueue)
         messenger.absent(lambda path, message:
             path == f"{peer.subject}.client.client" and message.id == 1 and message.value[1] == "missing")
-        # Control must still accept new readers while the partial grant batch is blocked.
+        # The service must still accept new readers while the partial grant batch is blocked.
         fresh_attempt = peer.connect("fresh", client="fresh")
         peer.send("read", id, fresh_attempt, client="fresh")
         response = peer.response("read", client="fresh")
@@ -1297,7 +1360,7 @@ def test_index_handoff(messenger):
         batch = watch("index.batch")
         release("sync.get.index.enqueue", enqueue)
         reached("index.batch", batch)
-        # Finishing control requires enqueueing, but does not require processing the batch.
+        # Finishing the service requires enqueueing, but does not require processing the batch.
         terminal = peer.response("missing")
         assert terminal[0] is not None, terminal
         peer.acknowledge(terminal)
@@ -1369,7 +1432,7 @@ def test_authorization_storage(messenger):
                 assert proof["expires_at"] <= response_proof[0], "the object proof must not outlive the returned authorization body"
             peer.acknowledged(request[2], request[3])
         sync.close()
-        release("sync.control.subscribe", subscribe)
+        release("sync.service.subscribe", subscribe)
 
     # A metadata request may return a node proof after indexing without waiting for optional subtree permission.
     id = command("put", 'tg.blob("optional subtree")')
@@ -1389,7 +1452,7 @@ def test_authorization_storage(messenger):
         assert status == 200, (status, body)
         peer.cancelled(requests[1])
     sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_verification_storage(messenger, result="success"):
@@ -1438,7 +1501,7 @@ def test_verification_storage(messenger, result="success"):
         else:
             assert b"event: error" in body, "a transient storage failure must not settle as unavailable"
     sync.close()
-    release("sync.control.subscribe", subscribe)
+    release("sync.service.subscribe", subscribe)
 
 
 def test_verification_storage_error(messenger):

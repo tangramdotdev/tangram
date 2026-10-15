@@ -20,7 +20,7 @@ mod queue;
 
 pub(crate) use self::graph::Graph;
 
-pub(crate) mod control;
+pub(crate) mod service;
 
 #[derive(Default)]
 pub(crate) struct InnerArg {

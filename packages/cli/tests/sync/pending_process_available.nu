@@ -1,5 +1,5 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # Complete destination availability cancels source process verification.
 
-sync_control test pending_process_available
+sync_service test pending_process_available

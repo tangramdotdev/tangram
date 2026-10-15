@@ -20,8 +20,8 @@ mod tests;
 
 pub use id::Id;
 
-pub mod control;
 pub mod id;
+pub mod service;
 
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.sync";
 

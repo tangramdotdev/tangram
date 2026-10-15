@@ -17,7 +17,7 @@ for internal in [true false] {
 	let directory = tg --url $source.url put --no-tokens ('tg.directory({ "file": tg.file(' + ($value | to json --raw) + ') })') | referent node
 	let blob = tg --url $source.url put --no-tokens ('tg.blob(' + ($value | to json --raw) + ')') | referent node
 	let watch = tg --url $destination.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blob } | to json --raw) | from json | get watch
-	let request_watch = tg --url $destination.url --token $root_token checkpoint watch sync.control.request --params ({ node: $directory } | to json --raw) | from json | get watch
+	let request_watch = tg --url $destination.url --token $root_token checkpoint watch sync.service.request --params ({ node: $directory } | to json --raw) | from json | get watch
 	let log = $env.TMPDIR | path join $'push-($internal).log'
 	let push = job spawn {
 		let job_id = job id
@@ -37,8 +37,8 @@ for internal in [true false] {
 		}
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $destination.url --token $root_token checkpoint wait sync.control.request $request_watch 0 | ignore
-	tg --url $destination.url --token $root_token checkpoint unwatch sync.control.request $request_watch
+	timeout 10s tg --url $destination.url --token $root_token checkpoint wait sync.service.request $request_watch 0 | ignore
+	tg --url $destination.url --token $root_token checkpoint unwatch sync.service.request $request_watch
 	let premature = try { job recv --tag $checkout --timeout 1sec } catch { null }
 	assert equal $premature null 'checkout must wait for the stored subtree'
 	tg --url $destination.url --token $root_token checkpoint unwatch sync.get.store.object $watch

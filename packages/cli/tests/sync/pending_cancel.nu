@@ -1,5 +1,5 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # Canceling a pending sync request removes its pending transfer.
 
-sync_control test pending_cancel
+sync_service test pending_cancel

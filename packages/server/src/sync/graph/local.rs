@@ -159,7 +159,7 @@ impl Graph {
 		let mut changed = std::collections::BTreeSet::new();
 		while let Some(index) = self.local_queue.pop_front() {
 			self.local_queued.remove(&index);
-			if self.control.is_some() {
+			if self.service.is_some() {
 				changed.insert(self.nodes.get_index(index).unwrap().0.clone());
 			}
 			let node = self.nodes.get_index_mut(index).unwrap().1;
@@ -208,14 +208,14 @@ impl Graph {
 			}
 			self.update_local_end(index);
 		}
-		if let Some(control) = self
-			.control
+		if let Some(service) = self
+			.service
 			.as_ref()
 			.and_then(tokio::sync::mpsc::WeakUnboundedSender::upgrade)
 			&& !changed.is_empty()
 		{
-			control
-				.send(super::super::control::Event::Nodes(
+			service
+				.send(super::super::service::Event::Nodes(
 					changed.into_iter().collect(),
 				))
 				.ok();

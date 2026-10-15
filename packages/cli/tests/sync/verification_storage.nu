@@ -1,4 +1,4 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # Storage-only verification does not require a permission proof.
-sync_control test verification_storage
+sync_service test verification_storage

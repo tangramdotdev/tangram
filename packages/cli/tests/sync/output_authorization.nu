@@ -5,7 +5,7 @@ let local_source = server spawn --name local-source
 let root_token = random chars
 let remote_destination = server spawn --cloud --name remote-destination --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: { control: { recovery_timeout: 1, request_timeout: 1 } },
+	sync: { service: { recovery_timeout: 1, request_timeout: 1 } },
 }
 let alice = tg --url $remote_destination.url login --verbose --name alice | from json
 let bob = tg --url $remote_destination.url login --verbose --name bob | from json

@@ -2297,9 +2297,6 @@ pub struct SyncOptions {
 	pub channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub control: Option<SyncControl>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub get: Option<SyncGet>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2331,13 +2328,16 @@ pub struct SyncOptions {
 	pub put: Option<SyncPut>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub service: Option<SyncResponder>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
 }
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct SyncControl {
+pub struct SyncResponder {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub attempt_ttl: Option<Duration>,
@@ -5823,14 +5823,31 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	if let Some(value) = source.push_channel_capacity {
 		target.push_channel_capacity = value;
 	}
-	if let Some(source) = source.control {
-		target.control = resolve_sync_control(source);
-	}
 	if let Some(source) = source.get {
 		target.get = resolve_sync_get(&source);
 	}
 	if let Some(source) = source.put {
 		target.put = resolve_sync_put(&source);
+	}
+	if let Some(source) = source.service {
+		if let Some(value) = source.attempt_ttl {
+			target.service.attempt_ttl = value;
+		}
+		if let Some(value) = source.heartbeat_interval {
+			target.service.heartbeat_interval = value;
+		}
+		if let Some(value) = source.idle_timeout {
+			target.service.idle_timeout = value;
+		}
+		if let Some(value) = source.recovery_timeout {
+			target.service.recovery_timeout = value;
+		}
+		if let Some(value) = source.request_timeout {
+			target.service.request_timeout = value;
+		}
+		if let Some(value) = source.retry_interval {
+			target.service.retry_interval = value;
+		}
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
@@ -5849,29 +5866,6 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	}
 	if let Some(value) = source.max_frame_size {
 		target.max_frame_size = value;
-	}
-	target
-}
-
-fn resolve_sync_control(source: SyncControl) -> server::SyncControl {
-	let mut target = server::SyncControl::default();
-	if let Some(value) = source.attempt_ttl {
-		target.attempt_ttl = value;
-	}
-	if let Some(value) = source.heartbeat_interval {
-		target.heartbeat_interval = value;
-	}
-	if let Some(value) = source.idle_timeout {
-		target.idle_timeout = value;
-	}
-	if let Some(value) = source.recovery_timeout {
-		target.recovery_timeout = value;
-	}
-	if let Some(value) = source.request_timeout {
-		target.request_timeout = value;
-	}
-	if let Some(value) = source.retry_interval {
-		target.retry_interval = value;
 	}
 	target
 }

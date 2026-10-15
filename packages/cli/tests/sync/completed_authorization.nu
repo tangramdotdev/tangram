@@ -5,7 +5,7 @@ let root_token = random chars
 let remote_destination = server spawn --name remote-destination --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: { control: { attempt_ttl: 0.1, recovery_timeout: 0.1, request_timeout: 0.1 } },
+	sync: { service: { attempt_ttl: 0.1, recovery_timeout: 0.1, request_timeout: 0.1 } },
 }
 let alice = tg --url $remote_destination.url login --verbose --name alice | from json
 let bob = tg --url $remote_destination.url login --verbose --name bob | from json
@@ -15,7 +15,7 @@ let local_source = server spawn --name local-source --config {
 let file = tg --url $local_source.url put --no-tokens 'tg.file("private")' | referent node
 tg --url $remote_destination.url --token $root_token index
 let batch_watch = tg --url $remote_destination.url --token $root_token checkpoint watch index.batch | from json | get watch
-let stopped_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.control.stopped | from json | get watch
+let stopped_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.service.stopped | from json | get watch
 let push_log = $env.TMPDIR | path join push.log
 '' | save --force $push_log
 let push = job spawn {
@@ -48,8 +48,8 @@ assert equal (try { job recv --tag $read --timeout 0sec } catch { null }) null '
 tg --url $remote_destination.url --token $root_token checkpoint unwatch verification.index.wait $wait_watch
 tg --url $remote_destination.url --token $root_token checkpoint unwatch index.batch $batch_watch
 success (job recv --tag $push --timeout 10sec) 'the sync should complete after its final index writes'
-tg --url $remote_destination.url --token $root_token checkpoint wait sync.control.stopped $stopped_watch 0 | ignore
-tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.control.stopped $stopped_watch
+tg --url $remote_destination.url --token $root_token checkpoint wait sync.service.stopped $stopped_watch 0 | ignore
+tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.service.stopped $stopped_watch
 let output = job recv --tag $read --timeout 10sec
 success $output 'authorization should wait for the queued sync permissions'
 assert equal $output.stdout 'private'

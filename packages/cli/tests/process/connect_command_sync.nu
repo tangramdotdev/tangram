@@ -56,7 +56,7 @@ let store_watch = (
 	| get watch
 )
 let retain_watch = (
-	tg --url $remote.url --token $root_token checkpoint watch sync.control.request.retain --params ({ node: $blob } | to json --raw)
+	tg --url $remote.url --token $root_token checkpoint watch sync.service.request.retain --params ({ node: $blob } | to json --raw)
 	| from json
 	| get watch
 )
@@ -83,10 +83,10 @@ tg --url $runner.url checkpoint continue runner.process.state.inserted $state_wa
 tg --url $runner.url checkpoint unwatch runner.process.state.inserted $state_watch
 
 # The runner uses the authorization token for the command sync to request the executable from the in-flight push.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.control.request.retain $retain_watch 0 | complete
+let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.service.request.retain $retain_watch 0 | complete
 success $output "the runner should request the in-flight executable with its authorization token for the sync"
-tg --url $remote.url --token $root_token checkpoint continue sync.control.request.retain $retain_watch 0
-tg --url $remote.url --token $root_token checkpoint unwatch sync.control.request.retain $retain_watch
+tg --url $remote.url --token $root_token checkpoint continue sync.service.request.retain $retain_watch 0
+tg --url $remote.url --token $root_token checkpoint unwatch sync.service.request.retain $retain_watch
 
 # The process cannot finish until the held command graph is stored.
 let output = try { job recv --tag $run --timeout 1sec } catch { null }

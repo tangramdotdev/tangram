@@ -1,5 +1,5 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # A pending sync request waits for its source to become available.
 
-sync_control test pending_source
+sync_service test pending_source

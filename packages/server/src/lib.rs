@@ -140,7 +140,7 @@ pub struct State {
 
 	checkout_xattr_value_size: Mutex<Option<usize>>,
 
-	checkpoints: Option<self::checkpoint::State>,
+	checkpoints: Option<Arc<self::checkpoint::State>>,
 
 	clock: self::clock::Clock,
 
@@ -197,11 +197,11 @@ pub struct State {
 
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
 
-	sync_control_clients: self::sync::control::Clients,
-
-	sync_control_tasks: tangram_futures::task::Set<tg::Result<()>>,
+	sync_clients: tangram_messenger::service::Clients<self::sync::service::Protocol, Messenger>,
 
 	sync_index_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
+	sync_service_tasks: tangram_futures::task::Set<tg::Result<()>>,
 
 	tangram_path: PathBuf,
 
@@ -244,7 +244,11 @@ impl Server {
 			.http2
 			.validate()
 			.map_err(|source| tg::error!(!source, "invalid HTTP/2 configuration"))?;
-		config.sync.control.validate()?;
+		config
+			.sync
+			.service
+			.validate()
+			.map_err(|source| tg::error!(!source, "invalid sync service configuration"))?;
 		if config.authentication.cache.capacity != 0 && config.authentication.cache.ttl.is_zero() {
 			return Err(tg::error!(
 				"the authentication cache ttl must be greater than zero"
@@ -770,7 +774,7 @@ impl Server {
 		let checkpoints = config
 			.advanced
 			.checkpoints
-			.then(self::checkpoint::State::new);
+			.then(|| Arc::new(self::checkpoint::State::new()));
 
 		// Create the context.
 		let context = Context::root();
@@ -1847,6 +1851,15 @@ impl Server {
 		// Create the billing provider.
 		let billing = config.billing.as_ref().map(self::billing::Billing::new);
 
+		// Create the sync clients, which observe their events as checkpoints.
+		let observer = Arc::new(self::sync::service::Observer::new(checkpoints.clone()));
+		let sync_clients = tangram_messenger::service::Clients::new(
+			messenger.clone(),
+			config.sync.service,
+			observer,
+		)
+		.map_err(|source| tg::error!(!source, "failed to create the sync clients"))?;
+
 		// Create the server.
 		let server = Self(Arc::new(State {
 			archive,
@@ -1930,11 +1943,11 @@ impl Server {
 
 			shutdown,
 
-			sync_control_clients: self::sync::control::Clients::default(),
-
-			sync_control_tasks: tangram_futures::task::Set::default(),
+			sync_clients,
 
 			sync_index_tasks: tangram_futures::task::Set::default(),
+
+			sync_service_tasks: tangram_futures::task::Set::default(),
 
 			tangram_path,
 
@@ -2420,9 +2433,10 @@ impl Server {
 				// Enqueue interrupted transfers before stopping their control tasks.
 				server.sync_index_tasks.wait().await;
 
-				// Drain the sync control tasks after the transfers have stopped.
-				server.sync_control_tasks.stop_all();
-				server.sync_control_tasks.wait().await;
+				// Stop the sync clients and drain the sync service tasks after the transfers have stopped.
+				server.sync_clients.stop();
+				server.sync_service_tasks.stop_all();
+				server.sync_service_tasks.wait().await;
 
 				// Finish the archive tasks after their producers have stopped.
 				server.archive_tasks.wait().await;
@@ -2696,7 +2710,7 @@ impl Deref for Server {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
-		self.sync_control_tasks.abort_all();
+		self.sync_service_tasks.abort_all();
 		self.sync_index_tasks.abort_all();
 		self.archive_tasks.abort_all();
 		self.checkout_graph_tasks.abort_all();

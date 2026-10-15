@@ -1,5 +1,5 @@
 use {
-	super::{control::Control, graph::Graph, progress::Progress, queue::Queue},
+	super::{graph::Graph, progress::Progress, queue::Queue, service},
 	crate::Session,
 	futures::{FutureExt as _, stream::BoxStream},
 	std::{
@@ -23,13 +23,13 @@ mod store;
 
 pub(super) struct State {
 	pub(super) arg: tg::sync::Arg,
-	pub(super) control: Control,
 	pub(super) graph: Arc<Mutex<Graph>>,
 	pub(super) id: tg::sync::Id,
 	pending: Mutex<BTreeSet<tg::Id>>,
 	progress: Progress,
 	queue: Queue,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
+	pub(super) service: service::Handle,
 }
 
 struct Completion {
@@ -77,19 +77,19 @@ impl Session {
 			.sync
 			.as_ref()
 			.map_or_else(tg::sync::Id::new, |sync| sync.node.clone());
-		let control = self.spawn_sync_control_task(graph.clone(), &id);
+		let service = self.spawn_sync_service_task(graph.clone(), &id);
 		let state = Arc::new(State {
 			arg,
-			control,
 			graph,
 			id,
 			pending: Mutex::default(),
 			progress,
 			queue,
 			sender,
+			service,
 		});
 
-		// Keep control alive until the permissions are queued, including when the transfer is cancelled.
+		// Keep the service alive until the permissions are queued, including when the transfer is cancelled.
 		let completion = Completion {
 			enqueued: false,
 			result: Err(tg::error!(
@@ -102,7 +102,7 @@ impl Session {
 			let state = state.clone();
 			move |completion| {
 				if completion.enqueued {
-					state.control.finish(completion.result);
+					state.service.finish(completion.result);
 				} else {
 					session.spawn_sync_get_index_partial_task(state, completion.result);
 				}
@@ -261,7 +261,7 @@ impl Session {
 		if let Err(error) = &indexed {
 			tracing::error!(error = %error.trace(), "failed to index the partial sync");
 		}
-		state.control.finish(indexed.clone().and(result));
+		state.service.finish(indexed.clone().and(result));
 		indexed?;
 		Ok(())
 	}

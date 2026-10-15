@@ -8,7 +8,7 @@ for kind in [object process] {
 		advanced: { checkpoints: true },
 		authentication: { root: { token: $root_token } },
 		sync: {
-			control: { request_timeout: 120 },
+			service: { request_timeout: 120 },
 			get: { store: { lmdb: $store, memory: $store, scylla: $store } },
 		},
 	}
@@ -43,8 +43,8 @@ for kind in [object process] {
 	let url = if $kind == object { $remote.url } else { $local.url }
 	let watch = tg --url $url --token $root_token checkpoint watch $checkpoint --params ({ id: $node } | to json --raw) | from json | get watch
 	let blocker_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blocker } | to json --raw) | from json | get watch
-	let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params ({ node: $node } | to json --raw) | from json | get watch
-	let blocker_ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params ({ node: $blocker } | to json --raw) | from json | get watch
+	let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.ack --params ({ node: $node } | to json --raw) | from json | get watch
+	let blocker_ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.ack --params ({ node: $blocker } | to json --raw) | from json | get watch
 	let push_log = $env.TMPDIR | path join $'push-($kind).log'
 	'' | save --force $push_log
 	let push = job spawn {
@@ -69,8 +69,8 @@ for kind in [object process] {
 		}
 	}
 	let attempts = 0..3 | each {|index|
-		let attempt = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack_watch $index | from json | get params.attempt
-		tg --url $remote.url --token $root_token checkpoint continue sync.control.ack $ack_watch $index
+		let attempt = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $ack_watch $index | from json | get params.attempt
+		tg --url $remote.url --token $root_token checkpoint continue sync.service.ack $ack_watch $index
 		$attempt
 	}
 	assert equal ($attempts | uniq | length) 1 'the reads should share the client attempt'
@@ -79,9 +79,9 @@ for kind in [object process] {
 		let output = http get --max-time 30sec --unix-socket $socket --headers $headers $'http://localhost/objects/($blocker)?($query)'
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $blocker_ack_watch 0 | ignore
-	tg --url $remote.url --token $root_token checkpoint unwatch sync.control.ack $ack_watch
-	tg --url $remote.url --token $root_token checkpoint unwatch sync.control.ack $blocker_ack_watch
+	timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $blocker_ack_watch 0 | ignore
+	tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $ack_watch
+	tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $blocker_ack_watch
 	tg --url $url --token $root_token checkpoint unwatch $checkpoint $watch
 
 	# All waiting reads complete before the held object allows the sync to finish.

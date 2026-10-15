@@ -1,4 +1,4 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # Verify storage after a recovered sync request.
-sync_control test verification_storage_recovered
+sync_service test verification_storage_recovered

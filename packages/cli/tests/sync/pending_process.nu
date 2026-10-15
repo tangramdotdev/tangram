@@ -1,5 +1,5 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # A pending sync request completes when its process becomes available.
 
-sync_control test pending_process
+sync_service test pending_process

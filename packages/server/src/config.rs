@@ -1645,8 +1645,6 @@ pub struct IpRange {
 pub struct Sync {
 	pub channel_capacity: usize,
 
-	pub control: SyncControl,
-
 	pub get: SyncGet,
 
 	pub max_frame_size: u64,
@@ -1666,21 +1664,8 @@ pub struct Sync {
 	pub put: SyncPut,
 
 	pub retry: Retry,
-}
 
-#[derive(Clone, Debug)]
-pub struct SyncControl {
-	pub attempt_ttl: Duration,
-
-	pub heartbeat_interval: Duration,
-
-	pub idle_timeout: Duration,
-
-	pub recovery_timeout: Duration,
-
-	pub request_timeout: Duration,
-
-	pub retry_interval: Duration,
+	pub service: tangram_messenger::service::Options,
 }
 
 #[derive(Clone, Debug)]
@@ -2980,7 +2965,6 @@ impl Default for Sync {
 	fn default() -> Self {
 		Self {
 			channel_capacity: 4096,
-			control: SyncControl::default(),
 			get: SyncGet::default(),
 			max_frame_size: tg::sync::Config::default().max_frame_size,
 			message_channel_capacity: 256,
@@ -2991,36 +2975,14 @@ impl Default for Sync {
 			push_channel_capacity: 1024,
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
-		}
-	}
-}
-
-impl SyncControl {
-	pub fn validate(&self) -> tg::Result<()> {
-		for (name, interval) in [
-			("attempt_ttl", self.attempt_ttl),
-			("heartbeat_interval", self.heartbeat_interval),
-			("retry_interval", self.retry_interval),
-		] {
-			if interval.is_zero() {
-				return Err(tg::error!(
-					"the sync control {name} must be greater than zero"
-				));
-			}
-		}
-		Ok(())
-	}
-}
-
-impl Default for SyncControl {
-	fn default() -> Self {
-		Self {
-			attempt_ttl: Duration::from_secs(10),
-			heartbeat_interval: Duration::from_secs(1),
-			idle_timeout: Duration::from_secs(60),
-			recovery_timeout: Duration::from_secs(60),
-			request_timeout: Duration::from_secs(60),
-			retry_interval: Duration::from_secs(1),
+			service: tangram_messenger::service::Options {
+				attempt_ttl: Duration::from_secs(10),
+				heartbeat_interval: Duration::from_secs(1),
+				idle_timeout: Duration::from_secs(60),
+				recovery_timeout: Duration::from_secs(60),
+				request_timeout: Duration::from_secs(60),
+				retry_interval: Duration::from_secs(1),
+			},
 		}
 	}
 }

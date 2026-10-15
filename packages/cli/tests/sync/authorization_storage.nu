@@ -1,4 +1,4 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # Authorization asks syncs for permissions independently of byte availability.
-sync_control test authorization_storage
+sync_service test authorization_storage

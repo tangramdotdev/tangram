@@ -58,7 +58,7 @@ let watches = [first second] | each {|text|
 	let params = { id: $blob } | to json --raw
 	let store = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params $params | from json | get watch
 	let params = { node: $blob } | to json --raw
-	let ack = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params $params | from json | get watch
+	let ack = tg --url $remote.url --token $root_token checkpoint watch sync.service.ack --params $params | from json | get watch
 	{ store: $store, ack: $ack }
 }
 let capacities = $runners | each {|runner|
@@ -77,7 +77,7 @@ for watch in $watches {
 let ack_tag = random int 1000000..2000000
 for watch in $watches {
 	job spawn {
-		let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $watch.ack 0 | complete
+		let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $watch.ack 0 | complete
 		{ output: $output, watch: $watch } | job send --tag $ack_tag 0
 	} | ignore
 }
@@ -86,7 +86,7 @@ for _ in $watches {
 	success $event.output 'each input must wait on its own producer transfer'
 	assert equal (try { job recv --tag $build --timeout 1sec } catch { null }) null 'the build must wait for the input transfers'
 	let watch = $event.watch
-	tg --url $remote.url --token $root_token checkpoint unwatch sync.control.ack $watch.ack
+	tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $watch.ack
 	tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $watch.store
 }
 let output = job recv --tag $build --timeout 60sec

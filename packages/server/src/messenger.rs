@@ -98,11 +98,6 @@ impl Messenger {
 		}
 	}
 
-	#[must_use]
-	pub(crate) fn matches_subject(&self, actual: &str, subject: String) -> bool {
-		actual == self.subject_name(self.region.as_deref(), subject)
-	}
-
 	fn subject_name(&self, region: Option<&str>, subject: String) -> String {
 		let prefix = [self.instance.as_deref(), region]
 			.into_iter()

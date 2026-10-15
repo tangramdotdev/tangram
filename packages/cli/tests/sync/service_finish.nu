@@ -1,4 +1,4 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # Finished and cancelled transfers retain their responses until acknowledged or their attempts expire.
-sync_control test finish
+sync_service test finish

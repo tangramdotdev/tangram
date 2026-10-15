@@ -36,11 +36,5 @@ async fn subject_prefixes() {
 			.unwrap()
 			.unwrap();
 		assert_eq!(message.subject, expected);
-		assert!(messenger.matches_subject(&message.subject, "syncs.test.control.server".into()));
-		assert!(!messenger.matches_subject(&message.subject, "syncs.other.control.server".into()));
-		assert!(!messenger.matches_subject(
-			"foreign.syncs.test.control.server",
-			"syncs.test.control.server".into()
-		));
 	}
 }

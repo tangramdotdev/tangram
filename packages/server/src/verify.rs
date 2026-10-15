@@ -41,7 +41,7 @@ struct Requests<'a> {
 			'a,
 			(
 				Request,
-				Option<tg::Result<Option<tg::sync::control::VerifyServerResponseOutput>>>,
+				Option<tg::Result<Option<tg::sync::service::Output>>>,
 			),
 		>,
 	>,
@@ -72,7 +72,7 @@ enum RequestState {
 
 #[derive(Clone)]
 struct Request {
-	arg: tg::sync::control::VerifyClientRequestArg,
+	arg: tg::sync::service::Arg,
 	index_position: usize,
 	position: usize,
 	sync: tg::sync::Id,
@@ -474,7 +474,7 @@ impl Session {
 						) {
 							continue;
 						}
-						let arg = tg::sync::control::VerifyClientRequestArg {
+						let arg = tg::sync::service::Arg {
 							node: id.clone(),
 							permissions: requested,
 							storage,
@@ -715,8 +715,8 @@ impl Session {
 					match result {
 						Some(Ok(Some(output))) => {
 							let storage = match &output {
-								tg::sync::control::VerifyServerResponseOutput::Object(output) => tg::storage::Set::Object(output.storage),
-								tg::sync::control::VerifyServerResponseOutput::Process(output) => tg::storage::Set::Process(output.storage),
+								tg::sync::service::Output::Object(output) => tg::storage::Set::Object(output.storage),
+								tg::sync::service::Output::Process(output) => tg::storage::Set::Process(output.storage),
 							};
 							if !output.permissions().contains(request.arg.permissions)
 								|| !storage.contains(request.arg.storage) {
@@ -802,7 +802,7 @@ impl Session {
 							for permission in permissions {
 								let permissions =
 									tg::authorization::permission::Set::from_permission(permission);
-								args.push(tg::sync::control::VerifyClientRequestArg {
+								args.push(tg::sync::service::Arg {
 									node: sync.resource.clone(),
 									permissions,
 									storage: empty_storage(permissions),
@@ -831,7 +831,7 @@ impl Session {
 								let permissions =
 									tg::authorization::permission::Set::from_permission(permission)
 										.empty_like();
-								args.push(tg::sync::control::VerifyClientRequestArg {
+								args.push(tg::sync::service::Arg {
 									node: sync.resource.clone(),
 									permissions,
 									storage,
@@ -1050,14 +1050,9 @@ impl<'a> Requests<'a> {
 		let session = self.session;
 		self.futures.push(
 			async move {
-				let future = async {
-					let mut control = session.server.sync_control_clients.request(
-						session,
-						&request.sync,
-						tg::sync::control::ClientRequestArg::Verify(request.arg.clone()),
-					);
-					control.wait().await
-				};
+				let future = session
+					.server
+					.request_sync_verification(&request.sync, request.arg.clone());
 				let result = futures::future::Abortable::new(future, registration)
 					.await
 					.ok();

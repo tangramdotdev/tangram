@@ -20,7 +20,6 @@ pub struct Graph {
 	checkout_pointers: bool,
 	checkout_queued_objects: HashSet<tg::object::Id, tg::id::BuildHasher>,
 	checkouts: BTreeMap<tg::artifact::Id, Vec<tg::Id>>,
-	control: Option<tokio::sync::mpsc::WeakUnboundedSender<super::control::Event>>,
 	get_end_received: bool,
 	get_open: bool,
 	local_pending_roots: usize,
@@ -37,6 +36,7 @@ pub struct Graph {
 	remote_pending_roots: usize,
 	remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	remote_selectors: HashMap<tg::Specifier, RemoteSelector, fnv::FnvBuildHasher>,
+	service: Option<tokio::sync::mpsc::WeakUnboundedSender<super::service::Event>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -207,7 +207,6 @@ impl Graph {
 			checkout_pointers,
 			checkout_queued_objects: HashSet::default(),
 			checkouts: BTreeMap::new(),
-			control: None,
 			get_end_received: false,
 			get_open: false,
 			local_pending_roots: 0,
@@ -231,6 +230,7 @@ impl Graph {
 			remote_pending_roots: 0,
 			remote_roots: HashSet::default(),
 			remote_selectors: HashMap::default(),
+			service: None,
 		};
 
 		// Add the roots.
@@ -1465,21 +1465,18 @@ impl Graph {
 		self.get_local_authorization(index, required)
 	}
 
-	pub(super) fn set_control(
+	pub(super) fn set_service(
 		&mut self,
-		control: tokio::sync::mpsc::WeakUnboundedSender<super::control::Event>,
+		service: tokio::sync::mpsc::WeakUnboundedSender<super::service::Event>,
 	) {
-		self.control = Some(control);
+		self.service = Some(service);
 	}
 
-	pub fn try_verify_node_local_control_output(
+	pub fn try_verify_node_local_service_output(
 		&self,
-		arg: &tg::sync::control::VerifyClientRequestArg,
-	) -> tg::Result<Option<tg::sync::control::VerifyServerResponseOutput>> {
-		use tg::sync::control::{
-			VerifyObjectServerResponseOutput, VerifyProcessServerResponseOutput,
-			VerifyServerResponseOutput,
-		};
+		arg: &tg::sync::service::Arg,
+	) -> tg::Result<Option<tg::sync::service::Output>> {
+		use tg::sync::service::{ObjectOutput, Output, ProcessOutput};
 		arg.validate()?;
 		let Some(node) = self.nodes.get(&arg.node) else {
 			return Ok(None);
@@ -1494,7 +1491,7 @@ impl Graph {
 				let tg::authorization::permission::Set::Object(permissions) = permissions else {
 					return Err(tg::error!("expected object permissions"));
 				};
-				VerifyServerResponseOutput::Object(VerifyObjectServerResponseOutput {
+				Output::Object(ObjectOutput {
 					permissions,
 					storage: node.local_storage,
 					tokens: Vec::new(),
@@ -1509,7 +1506,7 @@ impl Graph {
 				let tg::authorization::permission::Set::Process(permissions) = permissions else {
 					return Err(tg::error!("expected process permissions"));
 				};
-				VerifyServerResponseOutput::Process(VerifyProcessServerResponseOutput {
+				Output::Process(ProcessOutput {
 					permissions,
 					storage: node.local_storage,
 					tokens: Vec::new(),
@@ -1525,40 +1522,36 @@ impl Graph {
 		id: &tg::Id,
 		output: &crate::verify::Output,
 	) -> tg::Result<()> {
-		let control = match (&output.permissions, &output.storage) {
+		let output = match (&output.permissions, &output.storage) {
 			(
 				tg::authorization::permission::Set::Object(permissions),
 				tg::storage::Set::Object(storage),
-			) => tg::sync::control::VerifyServerResponseOutput::Object(
-				tg::sync::control::VerifyObjectServerResponseOutput {
-					permissions: *permissions,
-					storage: *storage,
-					tokens: Vec::new(),
-				},
-			),
+			) => tg::sync::service::Output::Object(tg::sync::service::ObjectOutput {
+				permissions: *permissions,
+				storage: *storage,
+				tokens: Vec::new(),
+			}),
 			(
 				tg::authorization::permission::Set::Process(permissions),
 				tg::storage::Set::Process(storage),
-			) => tg::sync::control::VerifyServerResponseOutput::Process(
-				tg::sync::control::VerifyProcessServerResponseOutput {
-					permissions: *permissions,
-					storage: *storage,
-					tokens: Vec::new(),
-				},
-			),
+			) => tg::sync::service::Output::Process(tg::sync::service::ProcessOutput {
+				permissions: *permissions,
+				storage: *storage,
+				tokens: Vec::new(),
+			}),
 			_ => return Err(tg::error!("expected verified object or process storage")),
 		};
-		self.update_node_local_control_output(id, &control)?;
+		self.update_node_local_service_output(id, &output)?;
 		Ok(())
 	}
 
-	pub fn update_node_local_control_output(
+	pub fn update_node_local_service_output(
 		&mut self,
 		id: &tg::Id,
-		output: &tg::sync::control::VerifyServerResponseOutput,
+		output: &tg::sync::service::Output,
 	) -> tg::Result<()> {
 		match output {
-			tg::sync::control::VerifyServerResponseOutput::Object(output) => {
+			tg::sync::service::Output::Object(output) => {
 				let id = id.clone().try_into()?;
 				let arg = UpdateObjectLocalArg {
 					data: None,
@@ -1574,7 +1567,7 @@ impl Graph {
 				};
 				self.update_object_local(arg);
 			},
-			tg::sync::control::VerifyServerResponseOutput::Process(output) => {
+			tg::sync::service::Output::Process(output) => {
 				let id = id.clone().try_into()?;
 				let arg = UpdateProcessLocalArg {
 					data: None,

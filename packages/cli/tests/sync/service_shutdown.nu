@@ -1,4 +1,4 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # Shutdown retries retained responses and exits once they are acknowledged.
-sync_control test shutdown
+sync_service test shutdown

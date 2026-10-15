@@ -1,4 +1,4 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # Recover acknowledged requests immediately on attempt replacement and accept responses from either attempt.
-sync_control test attempts
+sync_service test attempts

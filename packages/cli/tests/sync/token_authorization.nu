@@ -7,7 +7,7 @@ let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	sync: {
-		control: { recovery_timeout: 1, request_timeout: 1 },
+		service: { recovery_timeout: 1, request_timeout: 1 },
 		get: { store: { lmdb: $store, memory: $store, scylla: $store } },
 	},
 }
@@ -26,7 +26,7 @@ let private = tg --url $alice_local.url put --no-tokens 'tg.file("private")' | r
 let blocker = tg --url $alice_local.url put --no-tokens 'tg.file("blocker")' | referent node
 let private_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $private } | to json --raw) | from json | get watch
 let blocker_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blocker } | to json --raw) | from json | get watch
-let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params ({ node: $private } | to json --raw) | from json | get watch
+let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.ack --params ({ node: $private } | to json --raw) | from json | get watch
 let push_log = $env.TMPDIR | path join push.log
 let push = job spawn {
 	let job_id = job id
@@ -49,8 +49,8 @@ let read = job spawn {
 	} $'http://localhost/objects/($private)?($query)'
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack_watch 0 | ignore
-tg --url $remote.url --token $root_token checkpoint unwatch sync.control.ack $ack_watch
+timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $ack_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $ack_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $private_watch
 # The concurrent storage lookup saw missing bytes; the authorized read retries after availability is proven.
 assert equal (job recv --tag $read --timeout 10sec | get status) 200

@@ -1,3 +1,3 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
-sync_control test available_after_authorization_exhaustion
+sync_service test available_after_authorization_exhaustion

@@ -1,4 +1,4 @@
-use ../lib/sync_control.nu
+use ../lib/sync_service.nu
 
 # Concurrent and sequential requests within a sync reuse the same heartbeat task.
-sync_control test shared_heartbeat
+sync_service test shared_heartbeat

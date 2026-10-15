@@ -59,7 +59,7 @@ for watch in $watches {
 let output = job recv --tag $build --timeout 30sec
 success $output
 let referent = $output.stdout | str trim
-let ack = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack | from json | get watch
+let ack = tg --url $remote.url --token $root_token checkpoint watch sync.service.ack | from json | get watch
 let checkout_path = $env.TMPDIR | path join checkout
 let checkout = job spawn {
 	let id = job id
@@ -68,8 +68,8 @@ let checkout = job spawn {
 }
 assert equal (try { job recv --tag $checkout --timeout 1sec } catch { null }) null 'checkout must wait for the output transfers'
 # Checkout can wait on a file before discovering its blob.
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack 0 | complete) 'checkout must wait on the output sync'
-tg --url $remote.url --token $root_token checkpoint unwatch sync.control.ack $ack
+success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $ack 0 | complete) 'checkout must wait on the output sync'
+tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $ack
 for watch in $watches {
 	tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $watch.store
 }

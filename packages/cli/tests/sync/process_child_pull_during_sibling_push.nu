@@ -126,7 +126,7 @@ let read = job spawn {
 
 # Watch the control acknowledgement so the test can prove the consumer waits on the producer's sync.
 let ack_watch = (
-	tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params ({ node: $blob } | to json)
+	tg --url $remote.url --token $root_token checkpoint watch sync.service.ack --params ({ node: $blob } | to json)
 	| from json
 	| get watch
 )
@@ -142,9 +142,9 @@ let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wai
 success $output "the producer's push should reach its output blob"
 
 # The consumer asks the producer's sync to notify it when the blob is stored.
-let output = timeout 20s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack_watch 0 | complete
+let output = timeout 20s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $ack_watch 0 | complete
 success $output "the producer's sync should acknowledge the consumer's request"
-tg --url $remote.url --token $root_token checkpoint unwatch sync.control.ack $ack_watch
+tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $ack_watch
 
 # The build waits for the blob rather than failing.
 let output = try { job recv --tag $wait --timeout 5sec } catch { null }
