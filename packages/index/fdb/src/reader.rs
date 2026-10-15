@@ -143,6 +143,7 @@ impl Index {
 		let mut requests = requests
 			.into_iter()
 			.filter(|(_, sender)| !sender.is_closed())
+			.map(|(request, sender)| (request, sender, None::<tangram_index::verify::Batch>))
 			.collect::<Vec<_>>();
 		if requests.is_empty() {
 			return;
@@ -152,7 +153,7 @@ impl Index {
 		let transaction = match database.create_trx() {
 			Err(error) => {
 				let error = tg::error!(!error, "failed to create a read transaction");
-				for (_, sender) in requests {
+				for (_, sender, _) in requests {
 					sender.send(Err(error.clone())).ok();
 				}
 
@@ -172,7 +173,7 @@ impl Index {
 				let request_count = requests.len();
 				let mut futures = requests
 					.into_iter()
-					.map(|(request, sender)| {
+					.map(|(request, sender, mut batch)| {
 						let verification_fact_cache = verification_fact_cache.clone();
 						async move {
 							let result = Self::execute_read_request(
@@ -182,10 +183,11 @@ impl Index {
 								transaction,
 								subspace,
 								&request,
+								&mut batch,
 							)
 							.await;
 
-							(result, request, sender)
+							(result, request, sender, batch)
 						}
 					})
 					.collect::<FuturesUnordered<_>>();
@@ -193,7 +195,7 @@ impl Index {
 				// Send each completed response and collect the retryable requests.
 				let mut retry_error = None;
 				let mut retry_requests = Vec::with_capacity(request_count);
-				while let Some((result, request, sender)) = futures.next().await {
+				while let Some((result, request, sender, batch)) = futures.next().await {
 					match result {
 						Err(error) => {
 							sender.send(Err(error)).ok();
@@ -204,7 +206,7 @@ impl Index {
 						Ok(ControlFlow::Continue(error)) if error.is_retryable() => {
 							if !sender.is_closed() {
 								retry_error.get_or_insert(error);
-								retry_requests.push((request, sender));
+								retry_requests.push((request, sender, batch));
 							}
 						},
 						Ok(ControlFlow::Continue(error)) => {
@@ -224,7 +226,7 @@ impl Index {
 				);
 				return;
 			};
-			retry_requests.retain(|(_, sender)| !sender.is_closed());
+			retry_requests.retain(|(_, sender, _)| !sender.is_closed());
 			if retry_requests.is_empty() {
 				return;
 			}
@@ -240,7 +242,7 @@ impl Index {
 			// Reset the transaction for the retryable requests.
 			let inner = match transaction.take() {
 				Err(error) => {
-					for (_, sender) in retry_requests {
+					for (_, sender, _) in retry_requests {
 						sender.send(Err(error.clone())).ok();
 					}
 
@@ -251,7 +253,7 @@ impl Index {
 			transaction = match inner.on_error(error).await {
 				Err(error) => {
 					let error = tg::error!(!error, "failed to retry a read transaction");
-					for (_, sender) in retry_requests {
+					for (_, sender, _) in retry_requests {
 						sender.send(Err(error.clone())).ok();
 					}
 
@@ -270,6 +272,7 @@ impl Index {
 		transaction: &crate::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &tangram_index::read::Request,
+		batch: &mut Option<tangram_index::verify::Batch>,
 	) -> tg::Result<ControlFlow<tangram_index::read::Response, fdb::FdbError>> {
 		let response = match request {
 			tangram_index::read::Request::VerifyBatch {
@@ -277,14 +280,18 @@ impl Index {
 				config,
 				principal,
 			} => {
+				let batch = match batch {
+					Some(batch) => batch,
+					None => {
+						batch.insert(tangram_index::verify::Batch::new(args, *config, principal)?)
+					},
+				};
 				let result = Self::verify_batch_with_transaction(
 					verification_fact_cache,
 					verification_concurrency,
-					*config,
 					transaction,
 					subspace,
-					args,
-					principal,
+					batch,
 				)
 				.await;
 				let output = crate::propagate!(result);

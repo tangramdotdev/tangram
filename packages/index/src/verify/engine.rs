@@ -22,6 +22,7 @@ type SearchContext = (
 pub struct Batch {
 	args: Vec<super::Arg>,
 	config: super::Config,
+	inflight: Vec<Read>,
 	outcomes: Option<Vec<super::Output>>,
 	phase: BatchPhase,
 	principal: tg::Principal,
@@ -30,6 +31,7 @@ pub struct Batch {
 	resources: Vec<Resolution>,
 	search_indices: BTreeMap<SearchContext, usize>,
 	searches: Vec<TokenSearch>,
+	stored: Option<Vec<tg::storage::Set>>,
 }
 
 enum BatchPhase {
@@ -48,6 +50,7 @@ struct TokenSearch {
 	active: Option<(Key, PermissionSearch)>,
 	config: super::Config,
 	final_search: FinalSearch,
+	inflight: Vec<Read>,
 	initial: BTreeMap<Key, Outcome>,
 	phase: TokenPhase,
 	principal: tg::Principal,
@@ -136,38 +139,53 @@ impl Batch {
 	where
 		E: Clone + Send + Sync + 'static,
 	{
-		let started = std::time::Instant::now();
-		tracing::debug!(target: "tangram_index::verify::timing", args = args.len(), "starting a verification batch");
+		let mut batch = Self::new(args, config, principal)?;
+		batch.run(client).await
+	}
 
-		// Read storage and prove permissions in the same index transaction.
-		let mut args = args.to_vec();
-		config.validate()?;
-		args.iter().try_for_each(super::Arg::validate)?;
-		let storage =
-			futures::future::try_join_all(args.iter().map(|arg| read_storage(arg, &client)))
-				.await?;
-		let mut stored = Vec::with_capacity(args.len());
-		for storage in storage {
-			let storage = match storage {
-				ControlFlow::Break(storage) => storage,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			stored.push(storage);
-		}
-		for (arg, storage) in std::iter::zip(&mut args, &stored) {
-			if storage.contains(arg.storage) {
-				arg.storage = arg.storage.empty_like();
+	/// Run the batch, retaining completed search progress on `Continue` for the next attempt.
+	/// A later attempt may use a different transaction, combining retained observations with newer facts.
+	/// Reads in an interrupted group are replayed, including any reads in that group that already succeeded.
+	/// Resume only after `Continue`; an error or cancellation may leave the batch incomplete.
+	pub async fn run<E>(
+		&mut self,
+		client: facts::Client<E>,
+	) -> Result<ControlFlow<Vec<super::Output>, E>, tg::Error>
+	where
+		E: Clone + Send + Sync + 'static,
+	{
+		let started = std::time::Instant::now();
+		tracing::debug!(target: "tangram_index::verify::timing", args = self.args.len(), "starting a verification batch");
+
+		if self.stored.is_none() {
+			let storage = futures::future::try_join_all(
+				self.args.iter().map(|arg| read_storage(arg, &client)),
+			)
+			.await?;
+			let mut stored = Vec::with_capacity(self.args.len());
+			for storage in storage {
+				let storage = match storage {
+					ControlFlow::Break(storage) => storage,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				stored.push(storage);
 			}
+			for (arg, storage) in std::iter::zip(&mut self.args, &stored) {
+				if storage.contains(arg.storage) {
+					arg.storage = arg.storage.empty_like();
+				}
+			}
+			self.stored = Some(stored);
 		}
 		let client_for_reads = client.clone();
-		let result = Self::verify_inner(&args, client.clone(), config, principal).await;
-		let result = match result? {
+		let result = match self.verify_inner(client).await? {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			ControlFlow::Break(mut results) => {
+				let stored = self.stored.as_ref().unwrap();
 				for ((arg, result), storage) in
-					std::iter::zip(std::iter::zip(&args, &mut results), stored)
+					std::iter::zip(std::iter::zip(&self.args, &mut results), stored)
 				{
-					result.storage = storage;
+					result.storage = *storage;
 					if !storage.contains(arg.storage) && result.outcome == super::Outcome::Satisfied
 					{
 						result.outcome = super::Outcome::Unsatisfied;
@@ -180,14 +198,14 @@ impl Batch {
 		let reads = client_for_reads.reads();
 		tracing::debug!(
 			target: "tangram_index::verify::timing",
-			args = args.len(),
+			args = self.args.len(),
 			reads,
 			elapsed_ms = started.elapsed().as_millis(),
 			"finished a verification batch"
 		);
-		for arg in &args {
+		for arg in &self.args {
 			tracing::debug!(
-				args = args.len(),
+				args = self.args.len(),
 				reads,
 				resource = %arg.resource,
 				"verify batch"
@@ -197,55 +215,61 @@ impl Batch {
 		result
 	}
 
-	pub(super) async fn verify_inner<E>(
-		args: &[super::Arg],
+	async fn verify_inner<E>(
+		&mut self,
 		client: facts::Client<E>,
-		config: super::Config,
-		principal: &tg::Principal,
 	) -> Result<ControlFlow<Vec<super::Output>, E>, tg::Error>
 	where
 		E: Clone + Send + Sync + 'static,
 	{
-		let mut batch = Self::new(args, config, principal)?;
-
 		// Resolve the resources.
-		while !batch.complete() && !matches!(batch.phase, BatchPhase::Search { .. }) {
-			let reads = batch.take_reads(client.concurrency())?;
+		while !self.complete() && !matches!(self.phase, BatchPhase::Search { .. }) {
+			let reads = if self.inflight.is_empty() {
+				self.take_reads(client.concurrency())?
+			} else {
+				self.inflight.clone()
+			};
+			self.inflight = reads.clone();
 			let results = match execute_reads(&client, reads).await? {
 				ControlFlow::Break(results) => results,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
+			self.inflight.clear();
 			for (read, output) in results {
-				batch.apply(read, output)?;
+				self.apply(read, output)?;
 			}
 		}
-		if batch.complete() {
-			let outcomes = batch.into_outputs()?;
-
-			return Ok(ControlFlow::Break(outcomes));
+		if self.complete() {
+			return Ok(ControlFlow::Break(self.outputs()?));
 		}
 
 		// Search independent token collections concurrently while sharing their datastore facts.
-		let searches = std::mem::take(&mut batch.searches);
-		let searches = futures::future::try_join_all(searches.into_iter().map(|search| {
+		let searches = std::mem::take(&mut self.searches);
+		let results = futures::future::try_join_all(searches.into_iter().map(|search| {
 			let client = client.clone();
 			async move { execute_token_search(&client, search).await }
 		}))
 		.await?;
-		for search in searches {
-			let search = match search {
+		let mut interrupted = None;
+		for result in results {
+			let search = match result {
 				ControlFlow::Break(search) => search,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				ControlFlow::Continue((search, error)) => {
+					interrupted.get_or_insert(error);
+					search
+				},
 			};
-			batch.searches.push(search);
+			self.searches.push(search);
 		}
-		batch.finish();
-		let outcomes = batch.into_outputs()?;
+		if let Some(error) = interrupted {
+			return Ok(ControlFlow::Continue(error));
+		}
+		self.finish();
 
-		Ok(ControlFlow::Break(outcomes))
+		Ok(ControlFlow::Break(self.outputs()?))
 	}
 
-	pub(crate) fn new(
+	pub fn new(
 		args: &[super::Arg],
 		config: super::Config,
 		principal: &tg::Principal,
@@ -281,6 +305,7 @@ impl Batch {
 		Ok(Self {
 			args: args.to_vec(),
 			config,
+			inflight: Vec::new(),
 			outcomes,
 			phase,
 			principal: principal.clone(),
@@ -289,6 +314,7 @@ impl Batch {
 			resources: vec![Resolution::Pending; args.len()],
 			search_indices: BTreeMap::new(),
 			searches: Vec::new(),
+			stored: None,
 		})
 	}
 
@@ -376,7 +402,7 @@ impl Batch {
 			.ok_or_else(|| tg::error!("the verification batch is incomplete"))
 	}
 
-	fn into_outputs(self) -> tg::Result<Vec<super::Output>> {
+	fn outputs(&self) -> tg::Result<Vec<super::Output>> {
 		let outcomes = self
 			.outcomes
 			.as_ref()
@@ -664,6 +690,7 @@ impl TokenSearch {
 			active: None,
 			config,
 			final_search,
+			inflight: Vec::new(),
 			initial: BTreeMap::new(),
 			phase: TokenPhase::Initial(initial),
 			principal: principal.clone(),
@@ -1284,16 +1311,22 @@ where
 async fn execute_token_search<E>(
 	client: &facts::Client<E>,
 	mut search: TokenSearch,
-) -> Result<ControlFlow<TokenSearch, E>, tg::Error>
+) -> Result<ControlFlow<TokenSearch, (TokenSearch, E)>, tg::Error>
 where
 	E: Clone + Send + Sync + 'static,
 {
 	while !search.complete() {
-		let reads = search.take_reads(client.concurrency())?;
+		let reads = if search.inflight.is_empty() {
+			search.take_reads(client.concurrency())?
+		} else {
+			search.inflight.clone()
+		};
+		search.inflight = reads.clone();
 		let results = match execute_reads(client, reads).await? {
 			ControlFlow::Break(results) => results,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue((search, error))),
 		};
+		search.inflight.clear();
 		for (read, output) in results {
 			search.apply(read, output)?;
 		}
@@ -1896,6 +1929,8 @@ mod tests {
 		},
 		tokio::sync::Barrier,
 	};
+
+	mod resume;
 
 	#[test]
 	fn a_direct_permission_is_evaluated_by_the_shared_policy() {

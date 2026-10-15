@@ -39,15 +39,13 @@ impl Index {
 	pub(crate) async fn verify_batch_with_transaction(
 		cache: facts::Cache<fdb::FdbError>,
 		concurrency: usize,
-		config: tangram_index::verify::Config,
 		txn: &crate::Transaction,
 		subspace: &Subspace,
-		args: &[tangram_index::verify::Arg],
-		principal: &tg::Principal,
+		batch: &mut Batch,
 	) -> tg::Result<ControlFlow<Vec<tangram_index::verify::Output>, fdb::FdbError>> {
 		let concurrency = concurrency.max(1);
 		let (client, receiver) = facts::channel_with_cache(concurrency, cache);
-		let verify = Batch::verify(args, client, config, principal);
+		let verify = batch.run(client);
 		let context = FactContext {
 			subspace: subspace.clone(),
 			txn: txn.clone(),
