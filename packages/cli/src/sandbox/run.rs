@@ -39,6 +39,9 @@ pub struct Options {
 	pub cgroup_cpu: Option<u64>,
 
 	#[arg(long)]
+	pub cgroup_delegate: bool,
+
+	#[arg(long)]
 	pub cgroup_memory: Option<u64>,
 
 	#[arg(long)]
@@ -336,6 +339,7 @@ impl Options {
 		let linux_options = self.as_pid_1
 			|| !self.binds.is_empty()
 			|| !self.cap_drop.is_empty()
+			|| self.cgroup_delegate
 			|| self.cgroup_readonly
 			|| !self.devs.is_empty()
 			|| self.filesystem_fd.is_some()
@@ -597,6 +601,7 @@ impl Options {
 		});
 		let options = Options {
 			cgroup,
+			cgroup_delegate: self.cgroup_delegate,
 			cgroup_readonly: self.cgroup_readonly,
 			filesystem_fd: self.filesystem_fd,
 			filesystem_path: self.filesystem_path,

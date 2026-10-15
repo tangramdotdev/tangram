@@ -1,7 +1,7 @@
 use {
-	rustix::fs::{AtFlags, unlinkat},
+	rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, mkdirat, openat, unlinkat},
 	std::{
-		ffi::CStr,
+		ffi::{CStr, CString},
 		io::{Read as _, Write as _},
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 		path::{Path, PathBuf},
@@ -10,6 +10,12 @@ use {
 	},
 	tangram_client::prelude::*,
 };
+
+pub(crate) const GUEST: &CStr = c"guest";
+
+pub(crate) const SIDECARS: &CStr = c"sidecars";
+
+const INIT: &CStr = c"init";
 
 static MEMORY: Mutex<()> = Mutex::new(());
 
@@ -118,18 +124,7 @@ impl Cgroup {
 
 		// Resolve the current cgroup.
 		let root = Path::new("/sys/fs/cgroup");
-		if !root.join("cgroup.controllers").exists() {
-			return Err(tg::error!("cgroup v2 is not available"));
-		}
-		let contents = std::fs::read_to_string("/proc/self/cgroup")
-			.map_err(|error| tg::error!(!error, "failed to read the current cgroup"))?;
-		let current = contents
-			.lines()
-			.find_map(|line| line.strip_prefix("0::"))
-			.ok_or_else(|| {
-				tg::error!("the process is not running in a unified cgroup v2 hierarchy")
-			})?;
-		let current = root.join(current.trim_start_matches('/'));
+		let current = current(root)?;
 
 		// Select the required resource controllers.
 		let mut controllers = Vec::new();
@@ -392,6 +387,21 @@ impl Cgroup {
 		Ok(count)
 	}
 
+	pub(crate) fn child(&self, name: &CStr) -> tg::Result<Handle> {
+		mkdirat(&self.cleanup.directory, name, Mode::from_raw_mode(0o755)).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %self.path.display(),
+				"failed to create the child cgroup"
+			)
+		})?;
+		let flags = OFlags::CLOEXEC | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::PATH;
+		let directory = openat(&self.cleanup.directory, name, flags, Mode::empty())
+			.map_err(|error| tg::error!(!error, "failed to open the child cgroup"))?;
+		let handle = Handle { directory };
+		Ok(handle)
+	}
+
 	pub fn cleanup(mut self) -> tg::Result<()> {
 		self.stop()?;
 		self.stopped = true;
@@ -436,6 +446,26 @@ impl Cgroup {
 }
 
 impl Handle {
+	pub(crate) fn current() -> tg::Result<Self> {
+		use std::os::unix::fs::OpenOptionsExt as _;
+
+		let path = current(Path::new("/sys/fs/cgroup"))?;
+		let directory = std::fs::OpenOptions::new()
+			.read(true)
+			.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
+			.open(&path)
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					path = %path.display(),
+					"failed to open the cgroup directory",
+				)
+			})?;
+		let directory = OwnedFd::from(directory);
+		let handle = Self { directory };
+		Ok(handle)
+	}
+
 	#[cfg(test)]
 	pub(crate) unsafe fn from_raw_fd(fd: libc::c_int) -> Self {
 		// SAFETY: The caller transfers ownership of a valid directory descriptor.
@@ -464,6 +494,38 @@ impl Handle {
 	pub fn move_self(&self) -> tg::Result<()> {
 		write_file_at(&self.directory, c"cgroup.procs", b"0\n")
 			.map_err(|error| tg::error!(!error, "failed to move the process into the cgroup"))
+	}
+
+	pub(crate) fn delegate(&self) -> tg::Result<()> {
+		// Move the process into a leaf so that the cgroup can enable controllers for its children.
+		mkdirat(&self.directory, INIT, Mode::from_raw_mode(0o755))
+			.map_err(|error| tg::error!(!error, "failed to create the init cgroup"))?;
+		write_file_at(&self.directory, c"init/cgroup.procs", b"0\n").map_err(|error| {
+			tg::error!(!error, "failed to move the process into the init cgroup")
+		})?;
+		self.enable_controllers()?;
+		Ok(())
+	}
+
+	pub(crate) fn enable_controllers(&self) -> tg::Result<()> {
+		let controllers =
+			read_file_at(&self.directory, c"cgroup.controllers").map_err(|error| {
+				tg::error!(!error, "failed to read the available cgroup controllers")
+			})?;
+		let controllers = controllers
+			.split_ascii_whitespace()
+			.map(|controller| format!("+{controller}"))
+			.collect::<Vec<_>>()
+			.join(" ");
+		if !controllers.is_empty() {
+			write_file_at(
+				&self.directory,
+				c"cgroup.subtree_control",
+				controllers.as_bytes(),
+			)
+			.map_err(|error| tg::error!(!error, "failed to enable the cgroup controllers"))?;
+		}
+		Ok(())
 	}
 }
 
@@ -508,10 +570,66 @@ impl Drop for Cgroup {
 
 impl Drop for Cleanup {
 	fn drop(&mut self) {
+		if let Err(error) = remove_descendants(&self.directory) {
+			tracing::error!(%error, name = %self.name, "failed to remove the descendant cgroups");
+		}
 		if let Err(error) = unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR) {
 			tracing::error!(%error, name = %self.name, "failed to remove the cgroup");
 		}
 	}
+}
+
+fn current(root: &Path) -> tg::Result<PathBuf> {
+	if !root.join("cgroup.controllers").exists() {
+		return Err(tg::error!("cgroup v2 is not available"));
+	}
+	let contents = std::fs::read_to_string("/proc/self/cgroup")
+		.map_err(|error| tg::error!(!error, "failed to read the current cgroup"))?;
+	let current = contents
+		.lines()
+		.find_map(|line| line.strip_prefix("0::"))
+		.ok_or_else(|| tg::error!("the process is not running in a unified cgroup v2 hierarchy"))?;
+	let current = root.join(current.trim_start_matches('/'));
+	Ok(current)
+}
+
+fn remove_descendants(directory: &OwnedFd) -> tg::Result<()> {
+	// Open the cgroup through its descriptor because the sandbox can replace its cgroup mount.
+	let flags = OFlags::CLOEXEC | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY;
+	let directory = openat(directory, c".", flags, Mode::empty())
+		.map_err(|error| tg::error!(!error, "failed to open the cgroup directory"))?;
+	let entries = Dir::read_from(&directory)
+		.map_err(|error| tg::error!(!error, "failed to read the cgroup directory"))?;
+
+	// Remove the descendants depth first, removing each cgroup after its children.
+	let mut current = (directory, entries, CString::default());
+	let mut ancestors = Vec::<(OwnedFd, Dir, CString)>::new();
+	loop {
+		if let Some(entry) = current.1.next() {
+			let entry = entry
+				.map_err(|error| tg::error!(!error, "failed to read a cgroup directory entry"))?;
+			let name = entry.file_name();
+			if entry.file_type() != FileType::Directory || name == c"." || name == c".." {
+				continue;
+			}
+			let directory = openat(&current.0, name, flags, Mode::empty())
+				.map_err(|error| tg::error!(!error, "failed to open a descendant cgroup"))?;
+			let entries = Dir::read_from(&directory)
+				.map_err(|error| tg::error!(!error, "failed to read a descendant cgroup"))?;
+			let name = name.to_owned();
+			ancestors.push(current);
+			current = (directory, entries, name);
+		} else {
+			let Some(parent) = ancestors.pop() else {
+				break;
+			};
+			unlinkat(&parent.0, current.2.as_c_str(), AtFlags::REMOVEDIR)
+				.map_err(|error| tg::error!(!error, "failed to remove a descendant cgroup"))?;
+			current = parent;
+		}
+	}
+
+	Ok(())
 }
 
 fn parse_oom_kill(contents: &str) -> tg::Result<u64> {

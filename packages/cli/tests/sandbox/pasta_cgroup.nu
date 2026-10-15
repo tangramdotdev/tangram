@@ -16,7 +16,8 @@ let helper = $helpers | first
 let helper_cgroup = open --raw $'/proc/($helper)/cgroup' | str trim | str replace '0::' ''
 let server_cgroup = open --raw $'/proc/($server_pid)/cgroup' | str trim | str replace '0::' ''
 assert ($helper_cgroup != $server_cgroup) 'pasta must enter the sandbox cgroup before exec'
-let path = $'/sys/fs/cgroup($helper_cgroup)'
+assert equal ($helper_cgroup | path basename) 'sidecars' 'pasta must enter the sidecars cgroup of the sandbox'
+let path = $'/sys/fs/cgroup($helper_cgroup | path dirname)'
 assert equal (open --raw ($path | path join pids.max) | str trim) '256'
 tg sandbox destroy $sandbox
 tg sandbox wait $sandbox | ignore
