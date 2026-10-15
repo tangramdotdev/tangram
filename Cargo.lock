@@ -9865,12 +9865,15 @@ name = "tangram_messenger"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "data-encoding",
+ "data-encoding-macro",
  "derive_more",
  "futures",
  "serde",
  "serde_json",
  "tangram_either",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
