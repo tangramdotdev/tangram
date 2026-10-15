@@ -582,11 +582,12 @@ export class Process<O extends tg.Value = tg.Value> {
 			let arg: tg.Process.Cancel.Arg = {
 				lease: this.#lease,
 				...(this.#location === null ? {} : { location: this.#location }),
+				process: this.#id,
 			};
 			if (this.#connection !== null) {
 				await this.#connection.cancel(arg);
 			} else {
-				await tg.client.cancelProcess(this.#id, arg);
+				await tg.client.cancelProcess(arg);
 			}
 		}
 		this.#owned = false;
@@ -634,7 +635,10 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.load();
 			location = this.#location;
 		}
-		let arg: tg.Signal.Arg = { signal };
+		let arg: tg.Signal.Arg = {
+			process: this.#id,
+			signal,
+		};
 		if (location !== null) {
 			arg.location = location;
 		}
@@ -642,7 +646,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#connection !== null) {
 			await this.#connection.signal(arg);
 		} else {
-			await tg.client.signalProcess(this.#id, arg);
+			await tg.client.signalProcess(arg);
 		}
 	}
 
@@ -676,7 +680,9 @@ export class Process<O extends tg.Value = tg.Value> {
 			this.#owned = false;
 			return outcome;
 		}
-		let arg: tg.Process.Wait.Arg = {};
+		let arg: tg.Process.Wait.Arg = {
+			process: this.#id,
+		};
 		if (this.#lease !== null) {
 			arg.lease = this.#lease;
 		}
@@ -688,7 +694,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#connection !== null) {
 			waitPromise = this.#connection.wait();
 		} else {
-			let promise = await tg.client.waitProcessPromise(this.#id, arg);
+			let promise = await tg.client.waitProcessPromise(arg);
 			waitPromise = promise();
 		}
 		let outcome =
@@ -787,7 +793,7 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	/** Read process stdio, consuming a matching initial read request when connected. */
 	async readStdio(
-		options: Omit<tg.Process.Stdio.Read.Arg, "tokens">,
+		options: Omit<tg.Process.Stdio.Read.Arg, "process" | "tokens">,
 	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk>> {
 		let output = await this.tryReadStdio(options);
 		if (output === null) {
@@ -797,7 +803,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	async tryReadStdio(
-		options: Omit<tg.Process.Stdio.Read.Arg, "tokens">,
+		options: Omit<tg.Process.Stdio.Read.Arg, "process" | "tokens">,
 	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
 		if (typeof this.#id !== "string") {
 			throw new Error("stdio reads require a sandboxed process");
@@ -805,9 +811,10 @@ export class Process<O extends tg.Value = tg.Value> {
 		let arg = {
 			...options,
 			location: options.location ?? this.#location,
+			process: this.#id,
 			tokens: this.#tokens,
 		};
-		return tg.client.tryReadProcessStdio(this.#id, arg);
+		return tg.client.tryReadProcessStdio(arg);
 	}
 
 	/** Set this process's tty size. */
@@ -822,7 +829,10 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.load();
 			location = this.#location;
 		}
-		let arg: tg.Process.Tty.Put.Arg = { size };
+		let arg: tg.Process.Tty.Put.Arg = {
+			process: this.#id,
+			size,
+		};
 		if (location !== null) {
 			arg.location = location;
 		}
@@ -830,7 +840,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#connection !== null) {
 			await this.#connection.tty(arg);
 		} else {
-			await tg.client.setProcessTtySize(this.#id, arg);
+			await tg.client.setProcessTtySize(arg);
 		}
 	}
 }
@@ -877,6 +887,7 @@ export namespace Process {
 		export namespace Put {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
+				process?: tg.Process.Id | null;
 				size: tg.Process.Tty.Size;
 				tokens?: tg.Authorization.Tokens | null;
 			};

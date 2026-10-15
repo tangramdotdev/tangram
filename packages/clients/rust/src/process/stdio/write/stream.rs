@@ -7,7 +7,6 @@ use {
 #[derive(
 	Clone,
 	Debug,
-	Default,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
@@ -22,6 +21,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[tangram_serialize(id = 4)]
+	pub process: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[serde_as(as = "CommaSeparatedString")]

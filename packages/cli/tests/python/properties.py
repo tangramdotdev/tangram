@@ -64,7 +64,9 @@ async def main():
             assert await process.ports(client) == []
             assert (
                 await client.wait_process(
-                    output["process"], lease=output.get("lease"), **options
+                    lease=output.get("lease"),
+                    process=output["process"],
+                    **options,
                 )
             )["exit"] == 0
         finally:

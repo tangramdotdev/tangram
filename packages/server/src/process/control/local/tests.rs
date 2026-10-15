@@ -33,7 +33,7 @@ async fn read_delivers_output_after_control_retires() {
 	});
 	let arg = read::Arg {
 		streams: vec![tg::process::stdio::Stream::Stdout],
-		..Default::default()
+		..tg::process::stdio::read::Arg::new(tg::process::Id::new())
 	};
 	let messages = local
 		.read(arg, futures::stream::empty().boxed())
@@ -53,7 +53,7 @@ async fn read_holds_back_the_runner_and_ends_when_dropped() {
 	let (local, mut receiver) = Local::new(256);
 	let arg = read::Arg {
 		streams: vec![tg::process::stdio::Stream::Stdout],
-		..Default::default()
+		..tg::process::stdio::read::Arg::new(tg::process::Id::new())
 	};
 	let mut stream = local.read(arg, futures::stream::empty().boxed());
 	assert!(stream.next().now_or_never().is_none());

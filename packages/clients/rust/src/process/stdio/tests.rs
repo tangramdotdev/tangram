@@ -131,11 +131,11 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 			length: Some(-99),
 			position: Some(std::io::SeekFrom::End(96)),
 			streams: vec![Stream::Stdout],
-			..Default::default()
+			..read::Arg::new(id)
 		};
 		let stream = tokio::time::timeout(
 			std::time::Duration::from_secs(5),
-			client.try_read_process_stdio_all(&id, arg),
+			client.try_read_process_stdio_all(arg),
 		)
 		.await
 		.unwrap()

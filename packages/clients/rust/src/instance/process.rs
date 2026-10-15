@@ -117,11 +117,10 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn cancel_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::cancel::Output>> + Send {
 		async move {
-			self.try_cancel_process(id, arg)
+			self.try_cancel_process(arg)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
@@ -129,7 +128,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_cancel_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::cancel::Output>>> + Send;
 
@@ -148,11 +146,10 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn signal_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			self.try_signal_process(id, arg)
+			self.try_signal_process(arg)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
@@ -160,13 +157,11 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_signal_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
 	fn try_get_process_status_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -176,7 +171,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_get_process_children_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -188,11 +182,10 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn set_process_tty_size(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			self.try_set_process_tty_size(id, arg)
+			self.try_set_process_tty_size(arg)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
@@ -200,13 +193,11 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_set_process_tty_size(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
 	fn try_read_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
@@ -219,7 +210,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn write_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
@@ -228,7 +218,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send {
 		async move {
-			self.try_write_process_stdio(id, arg, input)
+			self.try_write_process_stdio(arg, input)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
@@ -236,7 +226,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_write_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
@@ -267,7 +256,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn wait_process_future(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -275,7 +263,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send {
 		async move {
-			self.try_wait_process_future(id, arg)
+			self.try_wait_process_future(arg)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
@@ -283,7 +271,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_wait_process_future(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -359,12 +346,9 @@ impl tg::instance::Process for tg::Client {
 
 	async fn try_cancel_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		self.session(&self.context)
-			.try_cancel_process(id, arg)
-			.await
+		self.session(&self.context).try_cancel_process(arg).await
 	}
 
 	async fn try_get_process_control_stream(
@@ -384,51 +368,46 @@ impl tg::instance::Process for tg::Client {
 
 	async fn try_signal_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
-			.try_post_process_signal(id, arg)
+			.try_post_process_signal(arg)
 			.await
 	}
 
 	async fn try_get_process_status_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_get_process_status_stream(id, arg)
+			.try_get_process_status_stream(arg)
 			.await
 	}
 
 	async fn try_get_process_children_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_get_process_children_stream(id, arg)
+			.try_get_process_children_stream(arg)
 			.await
 	}
 
 	async fn try_set_process_tty_size(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
-			.try_set_process_tty_size(id, arg)
+			.try_set_process_tty_size(arg)
 			.await
 	}
 
 	async fn try_read_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<
@@ -437,20 +416,19 @@ impl tg::instance::Process for tg::Client {
 		>,
 	> {
 		self.session(&self.context)
-			.try_read_process_stdio(id, arg, input)
+			.try_read_process_stdio(arg, input)
 			.await
 	}
 
 	async fn try_write_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_write_process_stdio(id, arg, input)
+			.try_write_process_stdio(arg, input)
 			.await
 	}
 
@@ -464,7 +442,6 @@ impl tg::instance::Process for tg::Client {
 
 	async fn try_wait_process_future(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
@@ -472,7 +449,7 @@ impl tg::instance::Process for tg::Client {
 		>,
 	> {
 		self.session(&self.context)
-			.try_wait_process_future(id, arg)
+			.try_wait_process_future(arg)
 			.await
 	}
 }

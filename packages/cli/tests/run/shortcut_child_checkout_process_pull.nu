@@ -42,9 +42,10 @@ let path = artifact {
 				if (event.kind !== "output") continue;
 				let output = event.value;
 				tg.assert(typeof output.process === "string");
-				let outcome = await tg.client.waitProcess(output.process, {
+				let outcome = await tg.client.waitProcess({
 					lease: output.lease ?? null,
 					location: output.location == null ? null : tg.Location.Arg.fromLocation(output.location),
+					process: output.process,
 					tokens: output.tokens ?? {},
 				});
 				tg.assert(outcome.exit === 0);

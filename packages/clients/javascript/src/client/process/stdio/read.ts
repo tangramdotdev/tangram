@@ -1,5 +1,5 @@
 import * as tg from "../../../index.ts";
-import { Body, Request, Response, percentEncode } from "../../../http.ts";
+import { Body, Request, Response } from "../../../http.ts";
 import {
 	type Client,
 	backoff,
@@ -61,28 +61,26 @@ class Acks {
 
 export async function tryReadProcessStdio(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 ): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
 	let acks = new Acks(typeof arg.position === "number" ? arg.position : 0);
-	let connection = await connect(client, id, arg, acks);
+	let connection = await connect(client, arg, acks);
 	if (connection === null) {
 		acks.close();
 		return null;
 	}
 
-	return readProcessStdioAll(client, id, arg, connection, acks);
+	return readProcessStdioAll(client, arg, connection, acks);
 }
 
 export function readProcessStdioAll(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	connection: Connection,
 	acks: Acks,
 ): AsyncIterableIterator<tg.Process.Stdio.Chunk> {
 	let state = { canceled: false, connection };
-	let output = readProcessStdioAllInner(client, id, arg, state, acks);
+	let output = readProcessStdioAllInner(client, arg, state, acks);
 	return {
 		next: () => output.next(),
 		return: async () => {
@@ -100,7 +98,6 @@ export function readProcessStdioAll(
 
 async function* readProcessStdioAllInner(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	state: { canceled: boolean; connection: Connection },
 	acks: Acks,
@@ -130,7 +127,6 @@ async function* readProcessStdioAllInner(
 			if (result === null || result.done) {
 				[connection, reconnects] = await reconnect(
 					client,
-					id,
 					nextArg,
 					connection,
 					acks,
@@ -227,13 +223,12 @@ async function* readProcessStdioAllInner(
 
 async function connect(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	acks: Acks,
 ): Promise<Connection | null> {
 	return await retry(
 		client.streamRetry,
-		() => readProcessStdioOnce(client, id, arg, acks),
+		() => readProcessStdioOnce(client, arg, acks),
 		isRetryableError,
 	);
 }
@@ -241,7 +236,6 @@ async function connect(
 /** Reconnect after the given number of consecutive failed attempts, returning the new connection and the number of consecutive failed attempts including this one. */
 async function reconnect(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	connection: Connection,
 	acks: Acks,
@@ -264,7 +258,7 @@ async function reconnect(
 		// Connect.
 		let next: Connection | null;
 		try {
-			next = await readProcessStdioOnce(client, id, arg, acks);
+			next = await readProcessStdioOnce(client, arg, acks);
 		} catch (error_) {
 			if (!isRetryableError(error_)) {
 				throw error_;
@@ -282,11 +276,10 @@ async function reconnect(
 
 async function readProcessStdioOnce(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	acks: Acks,
 ): Promise<Connection | null> {
-	let uri = `/processes/${percentEncode(id)}/stdio/read`;
+	let uri = "/processes/stdio/read";
 	let request = new Request({
 		body: Body.sse(acks.events()),
 		headers: {

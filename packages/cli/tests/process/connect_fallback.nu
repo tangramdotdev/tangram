@@ -43,9 +43,8 @@ let path = artifact {
 let ids = tg --url $local.url run $path | from json
 let requests = open --raw $log | lines | each { split row '?' | first }
 assert equal ($requests | where { $in == '/processes/connect' } | length) 2
-for id in $ids {
-	for operation in ['signal' 'stdio/read' 'stdio/write' 'wait'] {
-		assert ($'/processes/($id)/($operation)' in $requests)
-	}
+assert equal ($ids | length) 2
+for operation in ['signal' 'stdio/read' 'stdio/write' 'wait'] {
+	assert ($'/processes/($operation)' in $requests)
 }
 job kill $proxy

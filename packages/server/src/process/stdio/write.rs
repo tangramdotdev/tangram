@@ -35,10 +35,10 @@ enum Destination {
 impl Session {
 	pub async fn try_write_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
+		let id = &arg.process;
 		Self::validate_process_stdio_write_streams(&arg.streams)?;
 		let stdin = arg.streams.contains(&tg::process::stdio::Stream::Stdin);
 		if stdin
@@ -339,11 +339,12 @@ impl Session {
 		let arg = tg::process::stdio::write::stream::Arg {
 			id: arg.id.clone(),
 			location: Some(location.clone().into()),
+			process: id.clone(),
 			streams: arg.streams.clone(),
 			tokens: arg.tokens.for_location(&location),
 		};
 		let stream = client
-			.try_write_process_stdio(id, arg, input)
+			.try_write_process_stdio(arg, input)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to write stdio"))?;
 
@@ -368,11 +369,12 @@ impl Session {
 		let arg = tg::process::stdio::write::stream::Arg {
 			id: arg.id.clone(),
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+			process: id.clone(),
 			streams: arg.streams.clone(),
 			tokens: arg.tokens.for_location(&location),
 		};
 		let stream = client
-			.try_write_process_stdio(id, arg, input)
+			.try_write_process_stdio(arg, input)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to write stdio"))?;
 
@@ -382,7 +384,6 @@ impl Session {
 	pub(crate) async fn try_write_process_stdio_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -405,17 +406,15 @@ impl Session {
 			tangram_content_type,
 		)
 		.map_err(|error| tg::error!(argument, !error, "invalid content type"))?;
-		let id = id
-			.parse::<tg::process::Id>()
-			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 		let (arg, request) = request
 			.arg_with_tangram::<tg::process::stdio::write::stream::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
-		let arg = arg.unwrap_or_default();
+		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
+		let id = arg.process.clone();
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let input = super::decode(request, input_encoding, max_frame_size);
-		let Some(output) = self.try_write_process_stdio(&id, arg, input).await? else {
+		let Some(output) = self.try_write_process_stdio(arg, input).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

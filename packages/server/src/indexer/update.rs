@@ -107,7 +107,7 @@ impl Indexer {
 		let options = crate::control::Options { retry, timeout };
 		let session = self.server.session(&self.server.context);
 		let wait_future = session
-			.try_wait_process_future(id, tg::process::wait::Arg::default())
+			.try_wait_process_future(tg::process::wait::Arg::new(id.clone()))
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;

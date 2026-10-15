@@ -13,7 +13,7 @@ let path = artifact {
 			console.log(sandbox.id);
 			{
 				await using destroyed = await tg.Sandbox.create();
-				await tg.client.destroySandbox(destroyed.id);
+				await tg.client.destroySandbox({ sandbox: destroyed.id });
 			}
 		}
 	',

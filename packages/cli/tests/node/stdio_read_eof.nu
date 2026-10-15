@@ -49,7 +49,7 @@ let output = timeout 10 node --input-type=module -e '
 			return new tg.Response(200, { "content-type": "text/event-stream" }, { sse: output });
 		};
 		let chunks = [];
-		let stream = await client.tryReadProcessStdio("pcs_010000000000000000000000000000000000000000000000000000", { length: -99, position: test.position, streams: ["stdout"] });
+		let stream = await client.tryReadProcessStdio({ process: "pcs_010000000000000000000000000000000000000000000000000000", length: -99, position: test.position, streams: ["stdout"] });
 		for await (let chunk of stream) chunks.push(Buffer.from(chunk.bytes).toString());
 		assert.deepEqual(chunks, ["x"]);
 		assert.deepEqual(requests, [

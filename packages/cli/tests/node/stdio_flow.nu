@@ -77,9 +77,9 @@ let output = timeout 5 node --input-type=module -e '
 	        yield { bytes: new Uint8Array(chunkSize), combinedPosition: index * chunkSize, stream: "stdin", streamPosition: index * chunkSize };
 	    }
 	};
-	await tg.client.writeProcessStdio(id, { streams: ["stdin"] }, input());
+	await tg.client.writeProcessStdio({ process: id, streams: ["stdin"] }, input());
 	assert.equal(sent, count);
-	let read = await tg.client.tryReadProcessStdio(id, { streams: ["stdout"] });
+	let read = await tg.client.tryReadProcessStdio({ process: id, streams: ["stdout"] });
 	let bytes = 0;
 	for await (let chunk of read) bytes += chunk.bytes.length;
 	assert.equal(bytes, count * chunkSize);

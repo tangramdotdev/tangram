@@ -11,12 +11,12 @@ use {
 };
 
 impl Session {
-	#[tracing::instrument(name = "sandbox.destroy_request", level = "info", skip_all, fields(sandbox = %id), err(level = "debug"))]
+	#[tracing::instrument(name = "sandbox.destroy_request", level = "info", skip_all, fields(sandbox = ?arg.sandbox), err(level = "debug"))]
 	pub(crate) async fn try_destroy_sandbox(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
+		let id = &arg.sandbox;
 		if let Some(output) = self.try_destroy_sandbox_runner(id, &arg).await? {
 			return Ok(Some(output));
 		}
@@ -289,7 +289,7 @@ impl Session {
 			tokens: arg.tokens.for_location(&location),
 			..arg.clone()
 		};
-		let Some(destroyed) = client.try_destroy_sandbox(id, arg).await.map_err(
+		let Some(destroyed) = client.try_destroy_sandbox(arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to destroy the sandbox"),
 		)?
 		else {
@@ -349,7 +349,7 @@ impl Session {
 			tokens: arg.tokens.for_location(&location),
 			..arg.clone()
 		};
-		let Some(destroyed) = client.try_destroy_sandbox(id, arg).await.map_err(
+		let Some(destroyed) = client.try_destroy_sandbox(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to destroy the sandbox"),
 		)?
 		else {
@@ -364,7 +364,11 @@ impl Session {
 		arg: tg::sandbox::destroy::Arg,
 		connection_future: super::ConnectionFuture,
 	) -> tg::Result<()> {
-		match self.try_destroy_sandbox(id, arg.clone()).await {
+		let arg = tg::sandbox::destroy::Arg {
+			sandbox: id.clone(),
+			..arg
+		};
+		match self.try_destroy_sandbox(arg.clone()).await {
 			Ok(Some(_)) => return Ok(()),
 			Ok(None) => {},
 			Err(error) => {
@@ -385,7 +389,7 @@ impl Session {
 				)
 			})??;
 		let output = self
-			.try_destroy_sandbox(id, arg)
+			.try_destroy_sandbox(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?;
 		if output.is_none() {
@@ -401,25 +405,21 @@ impl Session {
 	pub(crate) async fn try_destroy_sandbox_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
-		let id = id
-			.parse::<tg::sandbox::Id>()
-			.map_err(|error| tg::error!(argument, !error, "failed to parse the sandbox id"))?;
 		let arg = request
-			.json_or_default()
+			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		let Some(destroyed) = self
-			.try_destroy_sandbox(&id, arg)
+			.try_destroy_sandbox(arg)
 			.boxed()
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
+			.map_err(|error| tg::error!(!error, "failed to destroy the sandbox"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

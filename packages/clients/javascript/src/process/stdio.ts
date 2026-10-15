@@ -77,6 +77,7 @@ export namespace Stdio {
 			length?: number | null;
 			location?: tg.Location.Arg | null;
 			position?: number | string | null;
+			process: tg.Process.Id;
 			size?: number | null;
 			streams: Array<tg.Process.Stdio.Stream>;
 			timeout?: number | null;
@@ -149,6 +150,7 @@ export namespace Stdio {
 		export namespace Stream {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
+				process: tg.Process.Id;
 				streams: Array<tg.Process.Stdio.Stream>;
 				tokens?: tg.Authorization.Tokens | null;
 			};
@@ -227,10 +229,11 @@ export namespace Stdio {
 					throw new Error("expected a sandboxed process id");
 				}
 				let client = this.#process.connection?.stdioClient() ?? tg.client;
-				let input = await client.tryReadProcessStdio(this.#process.id, {
+				let input = await client.tryReadProcessStdio({
 					...(this.#process.location !== null
 						? { location: this.#process.location }
 						: {}),
+					process: this.#process.id,
 					streams: [this.#stream],
 					tokens: this.#process.tokens,
 				});
@@ -402,9 +405,9 @@ export namespace Stdio {
 			let chunks = writeChunks(input, this.#stream);
 			let client = process.connection?.stdioClient() ?? tg.client;
 			let task = client.writeProcessStdio(
-				process.id,
 				{
 					...(location !== null ? { location } : {}),
+					process: process.id,
 					streams: [this.#stream],
 					tokens: process.tokens,
 				},
@@ -690,9 +693,9 @@ async function stdinTask(
 				}
 			})();
 		await client.writeProcessStdio(
-			id,
 			{
 				...(location !== null ? { location } : {}),
+				process: id,
 				streams: ["stdin"],
 				tokens,
 			},
@@ -739,8 +742,9 @@ async function stdoutStderrTask(
 	if (streams.length === 0) {
 		return;
 	}
-	let iterator = await client.tryReadProcessStdio(id, {
+	let iterator = await client.tryReadProcessStdio({
 		...(location !== null ? { location } : {}),
+		process: id,
 		streams,
 		tokens,
 	});
@@ -768,11 +772,14 @@ async function sigwinchTask(
 		if (size === null) {
 			continue;
 		}
-		let arg: tg.Process.Tty.Put.Arg = { size };
+		let arg: tg.Process.Tty.Put.Arg = {
+			process: id,
+			size,
+		};
 		if (location !== null) {
 			arg.location = location;
 		}
 		arg.tokens = tokens;
-		await client.setProcessTtySize(id, arg);
+		await client.setProcessTtySize(arg);
 	}
 }

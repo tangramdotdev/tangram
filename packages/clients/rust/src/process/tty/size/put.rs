@@ -16,6 +16,10 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
+	pub process: Option<tg::process::Id>,
+
 	#[tangram_serialize(id = 1)]
 	pub size: tg::process::tty::Size,
 
@@ -29,13 +33,9 @@ pub struct Arg {
 }
 
 impl tg::Session {
-	pub async fn try_set_process_tty_size(
-		&self,
-		id: &tg::process::Id,
-		arg: Arg,
-	) -> tg::Result<Option<()>> {
+	pub async fn try_set_process_tty_size(&self, arg: Arg) -> tg::Result<Option<()>> {
 		let method = http::Method::PUT;
-		let uri = format!("/processes/{id}/tty/size");
+		let uri = "/processes/tty/size";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

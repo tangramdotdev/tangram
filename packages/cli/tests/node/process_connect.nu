@@ -115,7 +115,7 @@ let output = timeout 15 node --input-type=module -e '
 			return value;
 		});
 	let writer = (await stdio.next()).value;
-	assert.equal(writer.path, `/processes/${id}/stdio/write`);
+	assert.equal(writer.path, "/processes/stdio/write");
 	let write = await data(writer);
 	assert.equal(write.kind, "chunk");
 	await tick();
@@ -142,7 +142,7 @@ let output = timeout 15 node --input-type=module -e '
 		return value;
 	});
 	let reader = (await stdio.next()).value;
-	assert.equal(reader.path, `/processes/${id}/stdio/read`);
+	assert.equal(reader.path, "/processes/stdio/read");
 	assert.equal(reader.query.get("streams"), "stdout");
 	reader.emit("notification", { kind: "chunk", value: {
 		bytes: "YWJj", combined_position: 0, stream: "stdout", stream_position: 0,
@@ -155,8 +155,8 @@ let output = timeout 15 node --input-type=module -e '
 	assert.equal((await process.wait()).exit, 0);
 	assert.deepEqual(requests, [
 		"/processes/connect",
-		`/processes/${id}/stdio/write`,
-		`/processes/${id}/stdio/read`,
+		"/processes/stdio/write",
+		"/processes/stdio/read",
 	]);
 
 	// A transport failure after a receipt fails the operation, and the connection reopens to wait.

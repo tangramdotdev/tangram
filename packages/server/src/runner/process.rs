@@ -1626,8 +1626,9 @@ impl Session {
 					let arg = tg::process::cancel::Arg {
 						lease,
 						location,
+						process: Some(child.clone()),
 					};
-					if let Err(error) = session.cancel_process(&child, arg).await {
+					if let Err(error) = session.cancel_process(arg).await {
 						tracing::error!(error = %error.trace(), process = %child, "failed to release a child process lease");
 					}
 				}
@@ -1663,11 +1664,12 @@ impl Session {
 			let arg = tg::process::stdio::write::stream::Arg {
 				id: None,
 				location: Some(location.into()),
+				process: id.clone(),
 				streams,
 				tokens: tg::authorization::Tokens::default(),
 			};
 			let chunks = tokio_stream::wrappers::ReceiverStream::new(chunks).boxed();
-			session.write_process_stdio_all(&id, arg, chunks).await
+			session.write_process_stdio_all(arg, chunks).await
 		};
 		let produce = async {
 			let sender = sender;

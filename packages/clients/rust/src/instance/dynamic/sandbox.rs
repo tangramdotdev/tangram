@@ -22,7 +22,6 @@ impl tg::instance::Sandbox for Instance {
 
 	fn try_get_sandbox_processes_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -36,7 +35,7 @@ impl tg::instance::Sandbox for Instance {
 		// SAFETY: The erased instance returns the same boxed future and stream output types.
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_get_sandbox_processes_stream(id, arg),
+				self.0.try_get_sandbox_processes_stream(arg),
 			)
 		}
 	}
@@ -50,15 +49,13 @@ impl tg::instance::Sandbox for Instance {
 
 	fn try_destroy_sandbox(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_destroy_sandbox(id, arg)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_destroy_sandbox(arg)) }
 	}
 
 	fn try_get_sandbox_status_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -69,7 +66,7 @@ impl tg::instance::Sandbox for Instance {
 	> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_get_sandbox_status_stream(id, arg),
+				self.0.try_get_sandbox_status_stream(arg),
 			)
 		}
 	}

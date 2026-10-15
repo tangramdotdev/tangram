@@ -69,12 +69,9 @@ impl tg::instance::Process for Server {
 
 	async fn try_cancel_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		self.session(&self.context)
-			.try_cancel_process(id, arg)
-			.await
+		self.session(&self.context).try_cancel_process(arg).await
 	}
 
 	async fn try_get_process_control_stream(
@@ -95,51 +92,46 @@ impl tg::instance::Process for Server {
 
 	async fn try_signal_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
-			.try_post_process_signal(id, arg)
+			.try_post_process_signal(arg)
 			.await
 	}
 
 	async fn try_get_process_status_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_get_process_status_stream(id, arg)
+			.try_get_process_status_stream(arg)
 			.await
 	}
 
 	async fn try_get_process_children_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_get_process_children_stream(id, arg)
+			.try_get_process_children_stream(arg)
 			.await
 	}
 
 	async fn try_set_process_tty_size(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
-			.try_set_process_tty_size(id, arg)
+			.try_set_process_tty_size(arg)
 			.await
 	}
 
 	async fn try_read_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<
@@ -148,20 +140,19 @@ impl tg::instance::Process for Server {
 		>,
 	> {
 		self.session(&self.context)
-			.try_read_process_stdio(id, arg, input)
+			.try_read_process_stdio(arg, input)
 			.await
 	}
 
 	async fn try_write_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static>,
 	> {
 		self.session(&self.context)
-			.try_write_process_stdio(id, arg, input)
+			.try_write_process_stdio(arg, input)
 			.await
 	}
 
@@ -175,7 +166,6 @@ impl tg::instance::Process for Server {
 
 	async fn try_wait_process_future(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
@@ -183,7 +173,7 @@ impl tg::instance::Process for Server {
 		>,
 	> {
 		self.session(&self.context)
-			.try_wait_process_future(id, arg)
+			.try_wait_process_future(arg)
 			.await
 	}
 }

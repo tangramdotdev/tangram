@@ -101,14 +101,14 @@ export class Connection {
 		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"
 	> {
 		return {
-			setProcessTtySize: (_id, arg) => this.tty(arg),
-			tryReadProcessStdio: async (id, arg) => {
+			setProcessTtySize: (arg) => this.tty(arg),
+			tryReadProcessStdio: async (arg) => {
 				if (this.#closed) return null;
-				let iterator = await tg.client.tryReadProcessStdio(id, arg);
+				let iterator = await tg.client.tryReadProcessStdio(arg);
 				return iterator === null ? null : this.#bind(iterator);
 			},
-			writeProcessStdio: (id, arg, input, complete) =>
-				tg.client.writeProcessStdio(id, arg, input, complete),
+			writeProcessStdio: (arg, input, complete) =>
+				tg.client.writeProcessStdio(arg, input, complete),
 		};
 	}
 

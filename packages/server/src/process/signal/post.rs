@@ -10,9 +10,13 @@ use {
 impl Session {
 	pub(crate) async fn try_post_process_signal(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
+		let id = arg
+			.process
+			.clone()
+			.ok_or_else(|| tg::error!(argument, "missing the process"))?;
+		let id = &id;
 		if let Some(control) = self
 			.try_get_process_control_runner(
 				id,
@@ -191,10 +195,11 @@ impl Session {
 		});
 		let arg = tg::process::signal::post::Arg {
 			location: Some(location.clone().into()),
+			process: Some(id.clone()),
 			signal,
 			tokens: tokens.for_location(&location),
 		};
-		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
+		let Some(()) = client.try_post_process_signal(arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to signal the process"),
 		)?
 		else {
@@ -256,10 +261,11 @@ impl Session {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			process: Some(id.clone()),
 			signal,
 			tokens: tokens.for_location(&location),
 		};
-		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
+		let Some(()) = client.try_post_process_signal(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to signal the process"),
 		)?
 		else {
@@ -271,18 +277,12 @@ impl Session {
 	pub(crate) async fn try_signal_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
-
-		// Parse the process id.
-		let id = id
-			.parse()
-			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 
 		// Get the arg.
 		let arg = request
@@ -292,7 +292,7 @@ impl Session {
 
 		// Post the process signal.
 		let Some(()) = self
-			.try_post_process_signal(&id, arg)
+			.try_post_process_signal(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to post process signal"))?
 		else {

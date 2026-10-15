@@ -32,10 +32,12 @@ pub enum Status {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	pub sandbox: tg::sandbox::Id,
 
 	#[serde(default, skip_serializing_if = "tg::sandbox::Source::is_auto")]
 	pub source: tg::sandbox::Source,
@@ -60,6 +62,20 @@ pub struct Options {
 	pub timeout: Option<Duration>,
 }
 
+impl Arg {
+	/// Create an arg to get the sandbox's status with the server's defaults.
+	#[must_use]
+	pub fn new(sandbox: tg::sandbox::Id) -> Self {
+		Self {
+			location: None,
+			sandbox,
+			source: tg::sandbox::Source::default(),
+			timeout: None,
+			tokens: tg::authorization::Tokens::default(),
+		}
+	}
+}
+
 impl tg::Sandbox {
 	pub async fn wait(
 		&self,
@@ -81,11 +97,12 @@ impl tg::Sandbox {
 
 		let arg = tg::sandbox::status::Arg {
 			location: self.location(),
+			sandbox: self.id().clone(),
 			source: options.source,
-			tokens: self.tokens(),
 			timeout: options.timeout,
+			tokens: self.tokens(),
 		};
-		let stream = instance.get_sandbox_status(self.id(), arg).await?;
+		let stream = instance.get_sandbox_status(arg).await?;
 		let stream = std::pin::pin!(stream);
 		let status = stream
 			.try_filter(|status| futures::future::ready(status.is_destroyed()))
@@ -101,14 +118,13 @@ impl tg::Sandbox {
 impl tg::Session {
 	pub async fn try_get_sandbox_status_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static + use<>>,
 	> {
 		let method = http::Method::GET;
-		let path = format!("/sandboxes/{id}/status");
-		let uri = Uri::builder().path(&path).build().unwrap();
+		let path = "/sandboxes/status";
+		let uri = Uri::builder().path(path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

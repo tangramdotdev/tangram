@@ -103,17 +103,17 @@ impl<O> tg::Process<O> {
 		let arg = tg::process::stdio::write::stream::Arg {
 			id: None,
 			location: options.location.or_else(|| self.location()),
+			process: id.clone(),
 			streams: options.streams,
 			tokens: self.tokens(),
 		};
-		instance.write_process_stdio_all(id, arg, input).await
+		instance.write_process_stdio_all(arg, input).await
 	}
 }
 
 impl tg::Session {
 	pub async fn try_write_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
@@ -128,8 +128,8 @@ impl tg::Session {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 		let max_frame_size = self.client().sync.max_frame_size;
-		let path = format!("/processes/{id}/stdio/write");
-		let uri = Uri::builder().path(&path).build().unwrap();
+		let path = "/processes/stdio/write";
+		let uri = Uri::builder().path(path).build().unwrap();
 		let body = super::encode(input, max_frame_size);
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)

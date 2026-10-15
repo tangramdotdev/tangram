@@ -1,13 +1,12 @@
 import * as tg from "../../index.ts";
-import { Body, Request, percentEncode } from "../../http.ts";
+import { Body, Request } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export async function destroySandbox(
 	client: Client,
-	id: tg.Sandbox.Id,
-	arg?: tg.Sandbox.Destroy.Arg | null,
+	arg: tg.Sandbox.Destroy.Arg,
 ): Promise<void> {
-	let destroyed = await tryDestroySandbox(client, id, arg);
+	let destroyed = await tryDestroySandbox(client, arg);
 	if (destroyed === null) {
 		throw new Error("failed to find the sandbox");
 	} else if (!destroyed) {
@@ -17,19 +16,19 @@ export async function destroySandbox(
 
 export async function tryDestroySandbox(
 	client: Client,
-	id: tg.Sandbox.Id,
-	arg?: tg.Sandbox.Destroy.Arg | null,
+	arg: tg.Sandbox.Destroy.Arg,
 ): Promise<boolean | null> {
 	let method = "POST";
-	let uri = `/sandboxes/${percentEncode(id)}/destroy`;
+	let uri = "/sandboxes/destroy";
 	let headers = {
 		"content-type": "application/json",
 	};
 	let body = Body.json({
 		location:
-			arg?.location === undefined || arg.location === null
+			arg.location === undefined || arg.location === null
 				? null
 				: tg.Location.Arg.toDataString(arg.location),
+		sandbox: arg.sandbox,
 	});
 	let request = new Request({
 		body,

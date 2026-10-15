@@ -64,10 +64,9 @@ impl tg::instance::Process for tg::Session {
 
 	fn try_cancel_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::cancel::Output>>> {
-		self.try_cancel_process(id, arg)
+		self.try_cancel_process(arg)
 	}
 
 	fn try_get_process_control_stream(
@@ -87,27 +86,24 @@ impl tg::instance::Process for tg::Session {
 
 	fn try_signal_process(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.try_post_process_signal(id, arg)
+		self.try_post_process_signal(arg)
 	}
 
 	fn try_get_process_status_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_process_status_stream(id, arg)
+		self.try_get_process_status_stream(arg)
 	}
 
 	fn try_get_process_children_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -116,20 +112,18 @@ impl tg::instance::Process for tg::Session {
 			>,
 		>,
 	> {
-		self.try_get_process_children_stream(id, arg)
+		self.try_get_process_children_stream(arg)
 	}
 
 	fn try_set_process_tty_size(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.try_set_process_tty_size(id, arg)
+		self.try_set_process_tty_size(arg)
 	}
 
 	fn try_read_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
@@ -139,12 +133,11 @@ impl tg::instance::Process for tg::Session {
 			>,
 		>,
 	> {
-		self.try_read_process_stdio(id, arg, input)
+		self.try_read_process_stdio(arg, input)
 	}
 
 	fn try_write_process_stdio(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
@@ -154,7 +147,7 @@ impl tg::instance::Process for tg::Session {
 			>,
 		>,
 	> {
-		self.try_write_process_stdio(id, arg, input)
+		self.try_write_process_stdio(arg, input)
 	}
 
 	fn try_touch_process(
@@ -167,7 +160,6 @@ impl tg::instance::Process for tg::Session {
 
 	fn try_wait_process_future(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -176,6 +168,6 @@ impl tg::instance::Process for tg::Session {
 			>,
 		>,
 	> {
-		self.try_wait_process_future(id, arg)
+		self.try_wait_process_future(arg)
 	}
 }

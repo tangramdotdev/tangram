@@ -49,7 +49,7 @@ fn read(
 fn stdout() -> tg::process::stdio::read::Arg {
 	tg::process::stdio::read::Arg {
 		streams: vec![tg::process::stdio::Stream::Stdout],
-		..Default::default()
+		..tg::process::stdio::read::Arg::new(tg::process::Id::new())
 	}
 }
 
@@ -72,7 +72,7 @@ fn an_idle_read_does_not_block_another_stream() {
 	let (mut stdout, _stdout) = read(stdout());
 	let arg = tg::process::stdio::read::Arg {
 		streams: vec![tg::process::stdio::Stream::Stderr],
-		..Default::default()
+		..tg::process::stdio::read::Arg::new(tg::process::Id::new())
 	};
 	let (mut stderr, _stderr) = read(arg);
 	assert!(pipe.read(&mut stdout).unwrap().is_none());
@@ -166,7 +166,7 @@ async fn a_full_stdout_buffer_does_not_block_stderr() {
 		.unwrap();
 	let arg = tg::process::stdio::read::Arg {
 		streams: vec![tg::process::stdio::Stream::Stderr],
-		..Default::default()
+		..tg::process::stdio::read::Arg::new(tg::process::Id::new())
 	};
 	let (mut read, _receiver) = read(arg);
 	let Some(ServerMessage::Notification(Event::Chunk(chunk))) = pipe.read(&mut read).unwrap()
@@ -223,7 +223,7 @@ async fn drained_streams_keep_eof_available() {
 	] {
 		let arg = tg::process::stdio::read::Arg {
 			streams: vec![stream],
-			..Default::default()
+			..tg::process::stdio::read::Arg::new(tg::process::Id::new())
 		};
 		let (read_sender, mut output) = tokio::sync::mpsc::channel(1);
 		let message = Message::Read {
@@ -240,7 +240,7 @@ async fn drained_streams_keep_eof_available() {
 	// A reader that reconnects after draining receives EOF again.
 	let arg = tg::process::stdio::read::Arg {
 		streams: vec![tg::process::stdio::Stream::Stdout],
-		..Default::default()
+		..tg::process::stdio::read::Arg::new(tg::process::Id::new())
 	};
 	let (read_sender, mut output) = tokio::sync::mpsc::channel(1);
 	let message = Message::Read {
@@ -276,7 +276,7 @@ async fn drained_streams_are_released_after_the_time_to_live() {
 			tg::process::stdio::Stream::Stderr,
 			tg::process::stdio::Stream::Stdout,
 		],
-		..Default::default()
+		..tg::process::stdio::read::Arg::new(tg::process::Id::new())
 	};
 	let (read_sender, mut output) = tokio::sync::mpsc::channel(1);
 	let message = Message::Read {

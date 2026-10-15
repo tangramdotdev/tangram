@@ -605,9 +605,10 @@ impl Session {
 			let arg = tg::sandbox::destroy::Arg {
 				error: Some(error),
 				location: Some(location.into()),
+				sandbox: id.clone(),
 				tokens: tg::authorization::Tokens::default(),
 			};
-			match session.try_destroy_sandbox(&id, arg).boxed().await {
+			match session.try_destroy_sandbox(arg).boxed().await {
 				Ok(Some(_)) => {},
 				Ok(None) => {
 					tracing::error!(sandbox = %id, "failed to find the sandbox after the sandbox failed");

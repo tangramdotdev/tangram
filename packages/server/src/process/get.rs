@@ -815,9 +815,9 @@ impl Session {
 			let arg = tg::process::children::get::Arg {
 				location: location.clone(),
 				tokens,
-				..Default::default()
+				..tg::process::children::get::Arg::new(id.clone())
 			};
-			self.try_get_process_children(id, arg)
+			self.try_get_process_children(arg)
 				.await?
 				.ok_or_else(|| tg::error!("expected the process to exist"))?
 				.map_ok(|chunk| stream::iter(chunk.data).map(Ok::<_, tg::Error>))
@@ -935,9 +935,9 @@ impl Session {
 				location,
 				source,
 				tokens: output.tokens.clone(),
-				..Default::default()
+				..tg::process::children::get::Arg::new(id.clone())
 			};
-			if let Some(stream) = self.try_get_process_children(&id, arg).await? {
+			if let Some(stream) = self.try_get_process_children(arg).await? {
 				let children = stream
 					.map_ok(|chunk| stream::iter(chunk.data).map(Ok::<_, tg::Error>))
 					.try_flatten()

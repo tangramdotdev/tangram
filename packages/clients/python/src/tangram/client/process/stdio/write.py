@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tangram.error import Error
-from tangram.http import Body, Request, percent_encode
+from tangram.http import Body, Request
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
 
@@ -30,6 +30,7 @@ class Connection:
 
 class KeywordOptions(TypedDict, total=False):
     location: LocationArgObject | None
+    process: str
     streams: list[StdioStream]
     tokens: dict[str, list[str]] | None
 
@@ -47,20 +48,18 @@ class NotFoundError(ValueError):
 
 async def write_process_stdio(
     client: Client,
-    id: str,
     arg=None,
     input: AsyncIterable[StdioChunk] | None = None,
     complete: Callable[[StdioChunk], None] | None = None,
     **options,
 ) -> None:
-    output = await try_write_process_stdio(client, id, arg, input, complete, **options)
+    output = await try_write_process_stdio(client, arg, input, complete, **options)
     if output is None:
         raise ValueError("failed to find the process")
 
 
 async def try_write_process_stdio(
     client: Client,
-    id: str,
     arg=None,
     input: AsyncIterable[StdioChunk] | None = None,
     complete: Callable[[StdioChunk], None] | None = None,
@@ -71,19 +70,19 @@ async def try_write_process_stdio(
         arg = {}
     arg = {**arg, **options}
     complete = complete if complete is not None else arg.pop("complete", None)
-    connection = await connect(client, id, arg)
+    connection = await connect(client, arg)
     if connection is None:
         await close_output(input)
         return None
     try:
-        await write_process_stdio_all(client, id, arg, input, connection, complete)
+        await write_process_stdio_all(client, arg, input, connection, complete)
     except NotFoundError:
         return None
     return True
 
 
 async def write_process_stdio_all(
-    client: Client, id, arg, input, connection, complete=None
+    client: Client, arg, input, connection, complete=None
 ):
     pending = deque()
     written = 0
@@ -160,7 +159,7 @@ async def write_process_stdio_all(
             if event["kind"] == "output_error" or event["done"]:
                 error = event["error"] if event["kind"] == "output_error" else None
                 connection, reconnects = await reconnect(
-                    client, id, arg, connection, reconnects, error
+                    client, arg, connection, reconnects, error
                 )
                 for value in pending:
                     value["sent"] = False
@@ -257,18 +256,18 @@ async def next_event(iterator, kind):
         return {"kind": kind + "_error", "error": error}
 
 
-async def connect(client: Client, id: str, arg) -> Connection | None:
+async def connect(client: Client, arg) -> Connection | None:
     from tangram.client import retry
 
     return await retry(
         client.stream_retry,
-        lambda: write_process_stdio_once(client, id, arg),
+        lambda: write_process_stdio_once(client, arg),
         is_retryable_error,
     )
 
 
 async def reconnect(
-    client: Client, id, arg, connection, attempt: int, error
+    client: Client, arg, connection, attempt: int, error
 ) -> tuple[Connection, int]:
     """Reconnect after the given number of consecutive failed attempts.
 
@@ -292,7 +291,7 @@ async def reconnect(
 
         # Connect.
         try:
-            next_ = await write_process_stdio_once(client, id, arg)
+            next_ = await write_process_stdio_once(client, arg)
         except Exception as error_:
             if not is_retryable_error(error_):
                 raise
@@ -304,11 +303,11 @@ async def reconnect(
         return next_, attempt
 
 
-async def write_process_stdio_once(client: Client, id, arg):
+async def write_process_stdio_once(client: Client, arg):
     input = Channel()
     request = Request(
         "POST",
-        f"/processes/{percent_encode(id)}/stdio/write",
+        "/processes/stdio/write",
         {"accept": "text/event-stream", "content-type": "text/event-stream"},
         Body.sse(encode_client_messages(input)),
     ).arg(

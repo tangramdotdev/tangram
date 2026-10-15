@@ -89,18 +89,14 @@ export class Client {
 		};
 	}
 
-	cancelProcess(
-		id: tg.Process.Id,
-		arg: tg.Process.Cancel.Arg,
-	): Promise<tg.Process.Cancel.Output> {
-		return cancelProcess(this, id, arg);
+	cancelProcess(arg: tg.Process.Cancel.Arg): Promise<tg.Process.Cancel.Output> {
+		return cancelProcess(this, arg);
 	}
 
 	tryCancelProcess(
-		id: tg.Process.Id,
 		arg: tg.Process.Cancel.Arg,
 	): Promise<tg.Process.Cancel.Output | null> {
-		return tryCancelProcess(this, id, arg);
+		return tryCancelProcess(this, arg);
 	}
 
 	checkin(
@@ -174,35 +170,25 @@ export class Client {
 	}
 
 	tryReadProcessStdio(
-		id: tg.Process.Id,
 		arg: tg.Process.Stdio.Read.Arg,
 	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
-		return tryReadProcessStdio(this, id, arg);
+		return tryReadProcessStdio(this, arg);
 	}
 
-	setProcessTtySize(
-		id: tg.Process.Id,
-		arg: tg.Process.Tty.Put.Arg,
-	): Promise<void> {
-		return setProcessTtySize(this, id, arg);
+	setProcessTtySize(arg: tg.Process.Tty.Put.Arg): Promise<void> {
+		return setProcessTtySize(this, arg);
 	}
 
-	trySetProcessTtySize(
-		id: tg.Process.Id,
-		arg: tg.Process.Tty.Put.Arg,
-	): Promise<true | null> {
-		return trySetProcessTtySize(this, id, arg);
+	trySetProcessTtySize(arg: tg.Process.Tty.Put.Arg): Promise<true | null> {
+		return trySetProcessTtySize(this, arg);
 	}
 
-	signalProcess(id: tg.Process.Id, arg: tg.Signal.Arg): Promise<void> {
-		return signalProcess(this, id, arg);
+	signalProcess(arg: tg.Signal.Arg): Promise<void> {
+		return signalProcess(this, arg);
 	}
 
-	trySignalProcess(
-		id: tg.Process.Id,
-		arg: tg.Signal.Arg,
-	): Promise<true | null> {
-		return trySignalProcess(this, id, arg);
+	trySignalProcess(arg: tg.Signal.Arg): Promise<true | null> {
+		return trySignalProcess(this, arg);
 	}
 
 	spawnProcess(
@@ -221,61 +207,48 @@ export class Client {
 		return trySpawnProcess(this, arg);
 	}
 
-	waitProcess(
-		id: tg.Process.Id,
-		arg: tg.Process.Wait.Arg,
-	): Promise<tg.Process.Outcome> {
-		return waitProcess(this, id, arg);
+	waitProcess(arg: tg.Process.Wait.Arg): Promise<tg.Process.Outcome> {
+		return waitProcess(this, arg);
 	}
 
 	waitProcessPromise(
-		id: tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
 	): Promise<() => Promise<tg.Process.Outcome | null>> {
-		return waitProcessPromise(this, id, arg);
+		return waitProcessPromise(this, arg);
 	}
 
 	tryWaitProcessPromise(
-		id: tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
 	): Promise<(() => Promise<tg.Process.Outcome | null>) | null> {
-		return tryWaitProcessPromise(this, id, arg);
+		return tryWaitProcessPromise(this, arg);
 	}
 
 	writeProcessStdio(
-		id: tg.Process.Id,
 		arg: tg.Process.Stdio.Write.Stream.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 		complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 	): Promise<void> {
-		return writeProcessStdio(this, id, arg, input, complete);
+		return writeProcessStdio(this, arg, input, complete);
 	}
 
 	tryWriteProcessStdio(
-		id: tg.Process.Id,
 		arg: tg.Process.Stdio.Write.Stream.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 		complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 	): Promise<true | null> {
-		return tryWriteProcessStdio(this, id, arg, input, complete);
+		return tryWriteProcessStdio(this, arg, input, complete);
 	}
 
 	createSandbox(arg: tg.Sandbox.Create.Arg): Promise<tg.Sandbox.Create.Output> {
 		return createSandbox(this, arg);
 	}
 
-	destroySandbox(
-		id: tg.Sandbox.Id,
-		arg?: tg.Sandbox.Destroy.Arg | null,
-	): Promise<void> {
-		return destroySandbox(this, id, arg);
+	destroySandbox(arg: tg.Sandbox.Destroy.Arg): Promise<void> {
+		return destroySandbox(this, arg);
 	}
 
-	tryDestroySandbox(
-		id: tg.Sandbox.Id,
-		arg?: tg.Sandbox.Destroy.Arg | null,
-	): Promise<boolean | null> {
-		return tryDestroySandbox(this, id, arg);
+	tryDestroySandbox(arg: tg.Sandbox.Destroy.Arg): Promise<boolean | null> {
+		return tryDestroySandbox(this, arg);
 	}
 
 	getSandbox(

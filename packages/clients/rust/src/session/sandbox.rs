@@ -21,7 +21,6 @@ impl tg::instance::Sandbox for tg::Session {
 
 	fn try_get_sandbox_processes_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -30,7 +29,7 @@ impl tg::instance::Sandbox for tg::Session {
 			>,
 		>,
 	> {
-		self.try_get_sandbox_processes_stream(id, arg)
+		self.try_get_sandbox_processes_stream(arg)
 	}
 
 	fn list_sandboxes(
@@ -42,22 +41,20 @@ impl tg::instance::Sandbox for tg::Session {
 
 	fn try_destroy_sandbox(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> {
-		self.try_destroy_sandbox(id, arg)
+		self.try_destroy_sandbox(arg)
 	}
 
 	fn try_get_sandbox_status_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_sandbox_status_stream(id, arg)
+		self.try_get_sandbox_status_stream(arg)
 	}
 
 	fn get_sandbox_control_stream(

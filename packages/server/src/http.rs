@@ -3,6 +3,7 @@ use {
 	futures::{FutureExt as _, future},
 	std::{
 		convert::Infallible,
+		fmt::Write as _,
 		path::Path,
 		pin::{Pin, pin},
 		task::Poll,
@@ -52,6 +53,106 @@ fn request_timeout_response() -> http::Response<BoxBody> {
 		.bytes(bytes)
 		.unwrap()
 		.boxed_body()
+}
+
+/// Set the ID of the process or sandbox in the path on the request's arg, wherever the arg is, so that a route with an ID in its path is handled like the route without one.
+async fn set_path_id(
+	request: http::Request<BoxBody>,
+	key: &str,
+	id: &str,
+) -> tg::Result<http::Request<BoxBody>> {
+	let value = serde_json::Value::String(id.to_owned());
+
+	// Set the ID on an arg in the body, which must be JSON.
+	if tangram_http::body::arg::get_header(request.headers())
+		.map_err(|error| tg::error!(argument, !error, "invalid arg header"))?
+	{
+		let (arg, request) = request
+			.arg::<serde_json::Value>()
+			.await
+			.map_err(|error| tg::error!(argument, !error, "failed to deserialize the arg"))?;
+		let arg = set_id(arg.unwrap_or_default(), key, value)?;
+		let (mut parts, body) = request.into_parts();
+		let body = tangram_http::body::arg::Body::with_arg(body, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
+		parts.headers.insert(
+			tangram_http::body::arg::HEADER,
+			http::HeaderValue::from_static("true"),
+		);
+		let request = http::Request::from_parts(parts, BoxBody::new(body));
+		return Ok(request);
+	}
+
+	// Set the ID on a JSON body.
+	let json = request
+		.headers()
+		.get(http::header::CONTENT_TYPE)
+		.and_then(|value| value.to_str().ok())
+		.and_then(|value| value.parse::<mime::Mime>().ok())
+		.is_some_and(|mime| mime.subtype() == mime::JSON || mime.suffix() == Some(mime::JSON));
+	if json {
+		let (parts, body) = request.into_parts();
+		let bytes = http::Request::from_parts(parts.clone(), body)
+			.bytes()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the request body"))?;
+		let arg = if bytes.is_empty() {
+			serde_json::Value::Object(serde_json::Map::new())
+		} else {
+			serde_json::from_slice(&bytes)
+				.map_err(|error| tg::error!(argument, !error, "failed to deserialize the body"))?
+		};
+		let arg = set_id(arg, key, value)?;
+		let bytes = serde_json::to_vec(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the body"))?;
+		let mut parts = parts;
+		parts.headers.remove(http::header::CONTENT_LENGTH);
+		let request = http::Request::from_parts(parts, BoxBody::with_bytes(bytes));
+		return Ok(request);
+	}
+
+	// Otherwise, add the ID to the arg in the query.
+	let (mut parts, body) = request.into_parts();
+	let id = id.bytes().fold(String::new(), |mut output, byte| {
+		if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') {
+			output.push(char::from(byte));
+		} else {
+			write!(output, "%{byte:02X}").unwrap();
+		}
+		output
+	});
+	let param = format!("{key}={id}");
+	let query = match parts.uri.query() {
+		Some(query) if !query.is_empty() => format!("{query}&{param}"),
+		_ => param,
+	};
+	let path_and_query = format!("{}?{query}", parts.uri.path())
+		.parse::<http::uri::PathAndQuery>()
+		.map_err(|error| tg::error!(argument, !error, "invalid path"))?;
+	let mut uri = parts.uri.clone().into_parts();
+	uri.path_and_query = Some(path_and_query);
+	parts.uri = http::Uri::from_parts(uri).map_err(|error| tg::error!(!error, "invalid uri"))?;
+	let request = http::Request::from_parts(parts, body);
+
+	Ok(request)
+}
+
+/// Set an ID on a JSON arg, failing if the arg already has a different one.
+fn set_id(
+	arg: serde_json::Value,
+	key: &str,
+	value: serde_json::Value,
+) -> tg::Result<serde_json::Value> {
+	let serde_json::Value::Object(mut arg) = arg else {
+		return Err(tg::error!(argument, "expected the arg to be an object"));
+	};
+	if let Some(existing) = arg.get(key)
+		&& existing != &value
+	{
+		return Err(tg::error!(argument, %key, "the arg has a different ID than the path"));
+	}
+	arg.insert(key.to_owned(), value);
+	Ok(serde_json::Value::Object(arg))
 }
 
 impl Server {
@@ -764,6 +865,30 @@ impl Server {
 			(http::Method::POST, ["processes", "spawn"]) => {
 				session.try_spawn_process_request(request).boxed()
 			},
+			(http::Method::POST, ["processes", "cancel"]) => {
+				session.try_cancel_process_request(request).boxed()
+			},
+			(http::Method::GET, ["processes", "children"]) => session
+				.try_get_process_children_stream_request(request)
+				.boxed(),
+			(http::Method::POST, ["processes", "signal"]) => {
+				session.try_signal_process_request(request).boxed()
+			},
+			(http::Method::GET, ["processes", "status"]) => session
+				.try_get_process_status_stream_request(request)
+				.boxed(),
+			(http::Method::POST, ["processes", "stdio", "read"]) => {
+				session.try_read_process_stdio_request(request).boxed()
+			},
+			(http::Method::POST, ["processes", "stdio", "write"]) => {
+				session.try_write_process_stdio_request(request).boxed()
+			},
+			(http::Method::PUT, ["processes", "tty", "size"]) => {
+				session.try_set_process_tty_size_request(request).boxed()
+			},
+			(http::Method::POST, ["processes", "wait"]) => {
+				session.try_wait_process_future_request(request).boxed()
+			},
 			(http::Method::GET, ["processes", process, "metadata"]) => session
 				.try_get_process_metadata_request(request, process)
 				.boxed(),
@@ -776,36 +901,54 @@ impl Server {
 			(http::Method::PUT, ["processes", process]) => {
 				session.put_process_request(request, process).boxed()
 			},
-			(http::Method::POST, ["processes", process, "cancel"]) => {
-				session.try_cancel_process_request(request, process).boxed()
-			},
+			(http::Method::POST, ["processes", process, "cancel"]) => async {
+				let request = set_path_id(request, "process", process).await?;
+				session.try_cancel_process_request(request).await
+			}
+			.boxed(),
 			(http::Method::POST, ["processes", "control"]) => session
 				.try_get_process_control_stream_request(request)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "signal"]) => {
-				session.try_signal_process_request(request, process).boxed()
-			},
-			(http::Method::GET, ["processes", process, "status"]) => session
-				.try_get_process_status_stream_request(request, process)
-				.boxed(),
-			(http::Method::GET, ["processes", process, "children"]) => session
-				.try_get_process_children_stream_request(request, process)
-				.boxed(),
-			(http::Method::PUT, ["processes", process, "tty", "size"]) => session
-				.try_set_process_tty_size_request(request, process)
-				.boxed(),
-			(http::Method::POST, ["processes", process, "stdio", "read"]) => session
-				.try_read_process_stdio_request(request, process)
-				.boxed(),
-			(http::Method::POST, ["processes", process, "stdio", "write"]) => session
-				.try_write_process_stdio_request(request, process)
-				.boxed(),
+			(http::Method::POST, ["processes", process, "signal"]) => async {
+				let request = set_path_id(request, "process", process).await?;
+				session.try_signal_process_request(request).await
+			}
+			.boxed(),
+			(http::Method::GET, ["processes", process, "status"]) => async {
+				let request = set_path_id(request, "process", process).await?;
+				session.try_get_process_status_stream_request(request).await
+			}
+			.boxed(),
+			(http::Method::GET, ["processes", process, "children"]) => async {
+				let request = set_path_id(request, "process", process).await?;
+				session
+					.try_get_process_children_stream_request(request)
+					.await
+			}
+			.boxed(),
+			(http::Method::PUT, ["processes", process, "tty", "size"]) => async {
+				let request = set_path_id(request, "process", process).await?;
+				session.try_set_process_tty_size_request(request).await
+			}
+			.boxed(),
+			(http::Method::POST, ["processes", process, "stdio", "read"]) => async {
+				let request = set_path_id(request, "process", process).await?;
+				session.try_read_process_stdio_request(request).await
+			}
+			.boxed(),
+			(http::Method::POST, ["processes", process, "stdio", "write"]) => async {
+				let request = set_path_id(request, "process", process).await?;
+				session.try_write_process_stdio_request(request).await
+			}
+			.boxed(),
 			(http::Method::POST, ["processes", process, "touch"]) => {
 				session.try_touch_process_request(request, process).boxed()
 			},
-			(http::Method::POST, ["processes", process, "wait"]) => session
-				.try_wait_process_future_request(request, process)
-				.boxed(),
+			(http::Method::POST, ["processes", process, "wait"]) => async {
+				let request = set_path_id(request, "process", process).await?;
+				session.try_wait_process_future_request(request).await
+			}
+			.boxed(),
 
 			// Runners.
 			(http::Method::POST, ["runners"]) => session.create_runner_request(request).boxed(),
@@ -841,21 +984,38 @@ impl Server {
 			// Sandboxes.
 			(http::Method::POST, ["sandboxes"]) => session.create_sandbox_request(request).boxed(),
 			(http::Method::GET, ["sandboxes"]) => session.list_sandboxes_request(request).boxed(),
+			(http::Method::POST, ["sandboxes", "destroy"]) => {
+				session.try_destroy_sandbox_request(request).boxed()
+			},
+			(http::Method::GET, ["sandboxes", "processes"]) => session
+				.try_get_sandbox_processes_stream_request(request)
+				.boxed(),
+			(http::Method::GET, ["sandboxes", "status"]) => session
+				.try_get_sandbox_status_stream_request(request)
+				.boxed(),
 			(http::Method::GET, ["sandboxes", sandbox]) => {
 				session.try_get_sandbox_request(request, sandbox).boxed()
 			},
-			(http::Method::POST, ["sandboxes", sandbox, "destroy"]) => session
-				.try_destroy_sandbox_request(request, sandbox)
-				.boxed(),
+			(http::Method::POST, ["sandboxes", sandbox, "destroy"]) => async {
+				let request = set_path_id(request, "sandbox", sandbox).await?;
+				session.try_destroy_sandbox_request(request).await
+			}
+			.boxed(),
 			(http::Method::POST, ["sandboxes", "control"]) => {
 				session.get_sandbox_control_stream_request(request).boxed()
 			},
-			(http::Method::GET, ["sandboxes", sandbox, "processes"]) => session
-				.try_get_sandbox_processes_stream_request(request, sandbox)
-				.boxed(),
-			(http::Method::GET, ["sandboxes", sandbox, "status"]) => session
-				.try_get_sandbox_status_stream_request(request, sandbox)
-				.boxed(),
+			(http::Method::GET, ["sandboxes", sandbox, "processes"]) => async {
+				let request = set_path_id(request, "sandbox", sandbox).await?;
+				session
+					.try_get_sandbox_processes_stream_request(request)
+					.await
+			}
+			.boxed(),
+			(http::Method::GET, ["sandboxes", sandbox, "status"]) => async {
+				let request = set_path_id(request, "sandbox", sandbox).await?;
+				session.try_get_sandbox_status_stream_request(request).await
+			}
+			.boxed(),
 
 			// Tags.
 			(http::Method::POST, ["tags", "batch"]) => {

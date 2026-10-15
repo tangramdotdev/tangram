@@ -164,6 +164,7 @@ impl Session {
 			let mut wait_arg = tg::process::wait::Arg {
 				lease: None,
 				location: location.clone(),
+				process: id.clone(),
 				source: tg::process::Source::Auto,
 				tokens: tokens.clone(),
 			};
@@ -454,6 +455,7 @@ impl Session {
 		state.operations.push(future);
 	}
 
+	/// Run an operation that a client requested on its connection, which always acts on the connection's process.
 	pub(super) async fn run_process_connect_operation(
 		&self,
 		id: &tg::process::Id,
@@ -464,8 +466,9 @@ impl Session {
 		let output = match arg {
 			tg::process::connect::ClientRequestArg::Cancel(mut arg) => {
 				arg.location = location;
+				arg.process = Some(id.clone());
 				let output = self
-					.try_cancel_process(id, arg)
+					.try_cancel_process(arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Cancel(output)
@@ -473,16 +476,18 @@ impl Session {
 			tg::process::connect::ClientRequestArg::Detach => unreachable!(),
 			tg::process::connect::ClientRequestArg::Signal(mut arg) => {
 				arg.location = location;
+				arg.process = Some(id.clone());
 				arg.tokens.inherit(&tokens);
-				self.try_post_process_signal(id, arg)
+				self.try_post_process_signal(arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Signal
 			},
 			tg::process::connect::ClientRequestArg::Tty(mut arg) => {
 				arg.location = location;
+				arg.process = Some(id.clone());
 				arg.tokens.inherit(&tokens);
-				self.try_set_process_tty_size(id, arg)
+				self.try_set_process_tty_size(arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Tty

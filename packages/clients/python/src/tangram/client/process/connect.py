@@ -20,7 +20,6 @@ from .cancel import Cancel
 from .signal import Signal
 from .spawn import ArgObject as SpawnArgObject
 from .spawn import Spawn, location_arg_to_string
-from .wait import Wait
 
 
 class Tagged[K: str, V](TypedDict):
@@ -32,7 +31,14 @@ class EmptyTagged[K: str](TypedDict):
     kind: K
 
 
-class ConnectArgObject(Wait.Arg):
+class ConnectOptions(TypedDict):
+    lease: NotRequired[str | None]
+    location: NotRequired[LocationArgObject | None]
+    source: NotRequired[str]
+    tokens: NotRequired[dict[str, list[str]] | None]
+
+
+class ConnectArgObject(ConnectOptions):
     mode: Literal["run", "spawn"]
     process: SpawnArgObject | str
 
@@ -41,16 +47,13 @@ class Header(TypedDict):
     sync: NotRequired[ReferentData[str]]
 
 
-class ConnectOptions(Wait.Arg):
-    pass
-
-
 class TtySize(TypedDict):
     cols: int
     rows: int
 
 
 class TtyArg(TypedDict):
+    process: NotRequired[str | None]
     size: TtySize
     location: NotRequired[LocationArgObject | None]
     tokens: NotRequired[dict[str, list[str]] | None]

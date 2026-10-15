@@ -7,8 +7,8 @@ export namespace Connect {
 		sync?: tg.Referent.Data<string> | undefined;
 	};
 	export type Mode = "run" | "spawn";
-	export type Options = tg.Process.Wait.Arg;
-	export type Arg = tg.Process.Wait.Arg & {
+	export type Options = Omit<tg.Process.Wait.Arg, "process">;
+	export type Arg = Options & {
 		mode: Mode;
 		process: tg.Process.Spawn.Arg | tg.Process.Id;
 	};

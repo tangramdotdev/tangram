@@ -315,7 +315,7 @@ impl Session {
 		// Open the runner's stdin read.
 		let arg = tg::process::stdio::read::Arg {
 			streams: vec![tg::process::stdio::Stream::Stdin],
-			..Default::default()
+			..tg::process::stdio::read::Arg::new(id.clone())
 		};
 		let open = tg::process::control::ServerRequest {
 			arg: tg::process::control::ServerRequestArg::Open(

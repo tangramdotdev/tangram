@@ -55,9 +55,9 @@ let output = timeout 10 node --input-type=module -e '
 	const operations = [
 		() => client.tryRead({ blob, tokens }),
 		() => client.tryGetProcess(id, { metadata: true, tokens }),
-		async () => (await client.tryWaitProcessPromise(id, { tokens }))(),
-		() => client.tryReadProcessStdio(id, { streams: ["stdout"], tokens }),
-		() => client.tryWriteProcessStdio(id, { streams: ["stdout"], tokens }, (async function* () {})()),
+		async () => (await client.tryWaitProcessPromise({ process: id, tokens }))(),
+		() => client.tryReadProcessStdio({ process: id, streams: ["stdout"], tokens }),
+		() => client.tryWriteProcessStdio({ process: id, streams: ["stdout"], tokens }, (async function* () {})()),
 	];
 	for (const operation of operations) {
 		await assert.rejects(operation, error => error === stopped);
@@ -65,9 +65,9 @@ let output = timeout 10 node --input-type=module -e '
 	assert.deepEqual(requests, [
 		"/read",
 		`/processes/${id}`,
-		`/processes/${id}/wait`,
-		`/processes/${id}/stdio/read`,
-		`/processes/${id}/stdio/write`,
+		"/processes/wait",
+		"/processes/stdio/read",
+		"/processes/stdio/write",
 	]);
 ' | complete
 success $output

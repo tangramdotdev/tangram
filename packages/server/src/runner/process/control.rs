@@ -669,11 +669,12 @@ impl Session {
 		let arg = tg::process::stdio::write::stream::Arg {
 			id: Some(open),
 			location: Some(location.clone().into()),
+			process: id.clone(),
 			streams: streams.clone(),
 			tokens: tg::authorization::Tokens::default(),
 		};
 		let mut output = self
-			.try_write_process_stdio(id, arg, input)
+			.try_write_process_stdio(arg, input)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
@@ -778,10 +779,10 @@ impl Session {
 			id: Some(open),
 			location: Some(location.clone().into()),
 			streams: vec![tg::process::stdio::Stream::Stdin],
-			..Default::default()
+			..tg::process::stdio::read::Arg::new(id.clone())
 		};
 		let mut output = self
-			.try_read_process_stdio(id, arg, input)
+			.try_read_process_stdio(arg, input)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 

@@ -3,13 +3,15 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	pub sandbox: tg::sandbox::Id,
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,
@@ -28,9 +30,10 @@ impl tg::Sandbox {
 		let arg = tg::sandbox::destroy::Arg {
 			error: None,
 			location: self.location(),
+			sandbox: self.id().clone(),
 			tokens: self.tokens(),
 		};
-		instance.destroy_sandbox(self.id(), arg).await?;
+		instance.destroy_sandbox(arg).await?;
 		self.detach();
 
 		Ok(())
@@ -40,11 +43,10 @@ impl tg::Sandbox {
 impl tg::Session {
 	pub async fn try_destroy_sandbox(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
 		let method = http::Method::POST;
-		let uri = format!("/sandboxes/{id}/destroy");
+		let uri = "/sandboxes/destroy";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

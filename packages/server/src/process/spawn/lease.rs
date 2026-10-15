@@ -43,11 +43,11 @@ impl Drop for LeaseGuard {
 		let arg = tg::process::cancel::Arg {
 			lease,
 			location: self.location.clone(),
+			process: Some(self.id.clone()),
 		};
-		let id = self.id.clone();
 		let session = self.session.clone();
 		tokio::spawn(async move {
-			session.cancel_process(&id, arg).await.ok();
+			session.cancel_process(arg).await.ok();
 		});
 	}
 }

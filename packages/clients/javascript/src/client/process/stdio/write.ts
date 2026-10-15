@@ -1,5 +1,5 @@
 import * as tg from "../../../index.ts";
-import { Body, Request, Response, percentEncode } from "../../../http.ts";
+import { Body, Request, Response } from "../../../http.ts";
 import {
 	type Client,
 	backoff,
@@ -28,12 +28,11 @@ class NotFoundError extends Error {}
 
 export async function writeProcessStdio(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 	complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 ): Promise<void> {
-	let output = await tryWriteProcessStdio(client, id, arg, input, complete);
+	let output = await tryWriteProcessStdio(client, arg, input, complete);
 	if (output === null) {
 		throw new Error("failed to find the process");
 	}
@@ -41,18 +40,17 @@ export async function writeProcessStdio(
 
 export async function tryWriteProcessStdio(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 	complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 ): Promise<true | null> {
-	let connection = await connect(client, id, arg);
+	let connection = await connect(client, arg);
 	if (connection === null) {
 		await input.return?.();
 		return null;
 	}
 	try {
-		await writeProcessStdioAll(client, id, arg, input, connection, complete);
+		await writeProcessStdioAll(client, arg, input, connection, complete);
 	} catch (error) {
 		if (error instanceof NotFoundError) {
 			return null;
@@ -65,7 +63,6 @@ export async function tryWriteProcessStdio(
 
 export async function writeProcessStdioAll(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 	connection: Connection,
@@ -206,7 +203,6 @@ export async function writeProcessStdioAll(
 				drainEvent = null;
 				[connection, reconnects] = await reconnect(
 					client,
-					id,
 					arg,
 					connection,
 					reconnects,
@@ -264,12 +260,11 @@ function nextOutput(
 
 async function connect(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 ): Promise<Connection | null> {
 	return await retry(
 		client.streamRetry,
-		() => writeProcessStdioOnce(client, id, arg),
+		() => writeProcessStdioOnce(client, arg),
 		isRetryableError,
 	);
 }
@@ -277,7 +272,6 @@ async function connect(
 /** Reconnect after the given number of consecutive failed attempts, returning the new connection and the number of consecutive failed attempts including this one. */
 async function reconnect(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 	connection: Connection,
 	attempt: number,
@@ -300,7 +294,7 @@ async function reconnect(
 		// Connect.
 		let next: Connection | null;
 		try {
-			next = await writeProcessStdioOnce(client, id, arg);
+			next = await writeProcessStdioOnce(client, arg);
 		} catch (error_) {
 			if (!isRetryableError(error_)) {
 				throw error_;
@@ -318,11 +312,10 @@ async function reconnect(
 
 async function writeProcessStdioOnce(
 	client: Client,
-	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 ): Promise<Connection | null> {
 	let input = new Channel<tg.Process.Stdio.Write.Data>();
-	let uri = `/processes/${percentEncode(id)}/stdio/write`;
+	let uri = "/processes/stdio/write";
 	let request = new Request({
 		body: Body.sse(encodeData(input)),
 		headers: {

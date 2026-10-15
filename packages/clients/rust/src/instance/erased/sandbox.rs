@@ -15,12 +15,11 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::get::Output>>>;
 
-	fn try_get_sandbox_processes_stream<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
+	fn try_get_sandbox_processes_stream(
+		&self,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> BoxFuture<
-		'a,
+		'_,
 		tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>,
 	>;
 
@@ -29,24 +28,22 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::list::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::sandbox::list::Output>>;
 
-	fn try_destroy_sandbox<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
+	fn try_destroy_sandbox(
+		&self,
 		arg: tg::sandbox::destroy::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
+	) -> BoxFuture<'_, tg::Result<Option<bool>>>;
 
-	fn try_get_sandbox_status_stream<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
+	fn try_get_sandbox_status_stream(
+		&self,
 		arg: tg::sandbox::status::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>;
+	) -> BoxFuture<'_, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>;
 
-	fn get_sandbox_control_stream<'a>(
-		&'a self,
+	fn get_sandbox_control_stream(
+		&self,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> BoxFuture<
-		'a,
+		'_,
 		tg::Result<(
 			tg::sandbox::control::Header,
 			BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
@@ -73,17 +70,16 @@ where
 		self.try_get_sandbox(id, arg).boxed()
 	}
 
-	fn try_get_sandbox_processes_stream<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
+	fn try_get_sandbox_processes_stream(
+		&self,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> BoxFuture<
-		'a,
+		'_,
 		tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>,
 	> {
 		async move {
 			Ok(self
-				.try_get_sandbox_processes_stream(id, arg)
+				.try_get_sandbox_processes_stream(arg)
 				.await?
 				.map(futures::StreamExt::boxed))
 		}
@@ -97,35 +93,33 @@ where
 		self.list_sandboxes(arg).boxed()
 	}
 
-	fn try_destroy_sandbox<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
+	fn try_destroy_sandbox(
+		&self,
 		arg: tg::sandbox::destroy::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
-		self.try_destroy_sandbox(id, arg).boxed()
+	) -> BoxFuture<'_, tg::Result<Option<bool>>> {
+		self.try_destroy_sandbox(arg).boxed()
 	}
 
-	fn try_get_sandbox_status_stream<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
+	fn try_get_sandbox_status_stream(
+		&self,
 		arg: tg::sandbox::status::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>
+	) -> BoxFuture<'_, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>
 	{
 		async move {
 			Ok(self
-				.try_get_sandbox_status_stream(id, arg)
+				.try_get_sandbox_status_stream(arg)
 				.await?
 				.map(futures::StreamExt::boxed))
 		}
 		.boxed()
 	}
 
-	fn get_sandbox_control_stream<'a>(
-		&'a self,
+	fn get_sandbox_control_stream(
+		&self,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> BoxFuture<
-		'a,
+		'_,
 		tg::Result<(
 			tg::sandbox::control::Header,
 			BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
