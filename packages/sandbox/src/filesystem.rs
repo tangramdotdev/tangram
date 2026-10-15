@@ -20,12 +20,10 @@ use {
 	tangram_client::prelude::*,
 };
 
-mod btrfs;
 mod ext4;
 mod project;
 mod xfs;
 
-const BTRFS_SUPER_MAGIC: libc::c_long = 0x9123_683e_u32 as libc::c_long;
 const EXT4_SUPER_MAGIC: libc::c_long = 0xef53;
 const MOUNT_ATTR_IDMAP: u64 = 0x0010_0000;
 const XFS_SUPER_MAGIC: libc::c_long = 0x5846_5342;
@@ -59,12 +57,11 @@ pub fn create(path: &Path, project: u32, size: Option<u64>, inodes: Option<u64>)
 		.map_err(|error| tg::error!(!error, "failed to open the sandbox filesystem parent"))?;
 	let filesystem = kind(&directory)?;
 	match filesystem {
-		BTRFS_SUPER_MAGIC => btrfs::create(&directory, path, project, size, inodes)?,
 		EXT4_SUPER_MAGIC => ext4::create(path, project, size, inodes)?,
 		XFS_SUPER_MAGIC => xfs::create(path, project, size, inodes)?,
 		_ => {
 			return Err(
-				tg::error!(%filesystem, "filesystem limits require ext4 or XFS project quotas or Btrfs quotas"),
+				tg::error!(%filesystem, "filesystem limits require ext4 or XFS project quotas"),
 			);
 		},
 	}
@@ -318,12 +315,11 @@ fn set_quota(
 	inodes: Option<u64>,
 ) -> tg::Result<()> {
 	match filesystem {
-		BTRFS_SUPER_MAGIC => btrfs::set_limit(directory, project, size.unwrap_or(u64::MAX))?,
 		EXT4_SUPER_MAGIC => ext4::set_limit(directory, project, size, inodes)?,
 		XFS_SUPER_MAGIC => xfs::set_limit(directory, project, size, inodes)?,
 		_ => {
 			return Err(
-				tg::error!(%filesystem, "filesystem limits require ext4 or XFS project quotas or Btrfs quotas"),
+				tg::error!(%filesystem, "filesystem limits require ext4 or XFS project quotas"),
 			);
 		},
 	}
@@ -363,20 +359,9 @@ fn syscall_fd(number: libc::c_long, args: &[usize]) -> std::io::Result<OwnedFd> 
 }
 
 pub(crate) fn usage(directory: &std::fs::File, project: u32) -> tg::Result<u64> {
-	if kind(directory)? == BTRFS_SUPER_MAGIC {
-		return btrfs::usage(directory, project);
-	}
 	let usage = project::usage(directory, project)?;
 
 	Ok(usage)
-}
-
-pub(crate) fn ready(directory: &std::fs::File, project: u32) -> tg::Result<bool> {
-	if kind(directory)? == BTRFS_SUPER_MAGIC {
-		return btrfs::ready(directory, project);
-	}
-	let ready = project::usage(directory, project)? == 0;
-	Ok(ready)
 }
 
 pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Control> {
@@ -387,9 +372,6 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project"))?;
 	let directory = std::sync::Arc::new(directory);
 	let filesystem = kind(&directory)?;
-	if filesystem == BTRFS_SUPER_MAGIC {
-		return btrfs::control(directory, path, project);
-	}
 	let usage = {
 		let directory = directory.clone();
 		Box::new(move || usage(&directory, project))

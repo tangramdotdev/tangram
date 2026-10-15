@@ -37,7 +37,7 @@ when that protection is insufficient. An exclusive runner pool sets its
 own memory protection and physical memory/swap budgets before accepting sandboxes.
 Above the minimum, memory can be reclaimed, swapped, or subject to an OOM kill.
 Swap is a separate resource, limited with `memory.swap.max`. Local storage uses
-ext4 or XFS project quotas or Btrfs subvolume quotas, and includes the writable
+ext4 or XFS project quotas, and includes the writable
 overlay, scratch space, outputs, and temporary files. Linux needs delegated CPU,
 cpuset, memory, and pids controllers; filesystem quota enforcement needs enabled
 quotas and CAP_SYS_ADMIN. The default container maxima are one CPU, 1 GiB RAM,
@@ -46,20 +46,8 @@ set `runner.backend.storage_limits` to `true` to enforce requested storage bound
 macOS rejects explicit resource bounds. VM isolation supports whole CPU maxima
 and memory maxima, and rejects the other bounds.
 
-Btrfs requires consistent quotas and the quota counters exposed under
-`/sys/fs/btrfs` on Linux 6.1 or later. Both qgroups and
-simple quotas are supported. Sandbox project IDs identify level-one quota groups;
-configure distinct `runner.resources.filesystem_project_ids` ranges for runners
-sharing a filesystem. Empty level-one groups are retained for reuse within that
-range; remove them with `btrfs qgroup destroy` when retiring a runner, after its
-subvolumes and retained data have been deleted. Byte limits
-include pending data and metadata allocations. Usage reporting is approximate because
-the kernel exposes these counters separately. The runner reserves each Btrfs
-sandbox’s entire granted storage limit until its subvolume and retained extents
-have been reclaimed; unused capacity within that grant is not lent to other
-sandboxes. Project IDs are also held until reclamation, even if usage temporarily
-reads zero. Btrfs does not support inode limits,
-so hardened isolation, which requires an inode limit, still requires ext4 or XFS.
+Storage usage tracking and limits require XFS or ext4 with project quotas enabled.
+Other filesystems can be used with storage limits disabled.
 
 ```json
 {
