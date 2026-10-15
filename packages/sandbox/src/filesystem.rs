@@ -20,50 +20,13 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod ext4;
+mod project;
+mod xfs;
+
 const EXT4_SUPER_MAGIC: libc::c_long = 0xef53;
-const FS_XFLAG_PROJINHERIT: u32 = 0x0000_0200;
-const PRJQUOTA: libc::c_int = 2;
 const MOUNT_ATTR_IDMAP: u64 = 0x0010_0000;
 const XFS_SUPER_MAGIC: libc::c_long = 0x5846_5342;
-
-#[repr(C)]
-struct FsXAttr {
-	xflags: u32,
-	extsize: u32,
-	nextents: u32,
-	project: u32,
-	cowextsize: u32,
-	pad: [u8; 8],
-}
-
-#[repr(C)]
-struct XfsDiskQuota {
-	version: i8,
-	flags: i8,
-	fieldmask: u16,
-	id: u32,
-	block_hard: u64,
-	block_soft: u64,
-	inode_hard: u64,
-	inode_soft: u64,
-	block_count: u64,
-	inode_count: u64,
-	inode_timer: i32,
-	block_timer: i32,
-	inode_warnings: u16,
-	block_warnings: u16,
-	inode_timer_high: i8,
-	block_timer_high: i8,
-	realtime_block_timer_high: i8,
-	padding2: i8,
-	realtime_block_hard: u64,
-	realtime_block_soft: u64,
-	realtime_block_count: u64,
-	realtime_block_timer: i32,
-	realtime_block_warnings: u16,
-	padding3: i16,
-	padding4: [u8; 8],
-}
 
 /// A detached view of a disk-backed directory shared by the runner and its sandbox launcher.
 ///
@@ -87,11 +50,23 @@ impl Filesystem {
 }
 
 pub fn create(path: &Path, project: u32, size: Option<u64>, inodes: Option<u64>) -> tg::Result<()> {
-	create_directory(path)?;
-	let directory = std::fs::File::open(path).map_err(|error| {
-		tg::error!(!error, path = %path.display(), "failed to open the sandbox filesystem directory")
-	})?;
-	configure_quota(&directory, project, size, inodes)
+	let parent = path
+		.parent()
+		.ok_or_else(|| tg::error!("the sandbox filesystem has no parent"))?;
+	let directory = std::fs::File::open(parent)
+		.map_err(|error| tg::error!(!error, "failed to open the sandbox filesystem parent"))?;
+	let filesystem = kind(&directory)?;
+	match filesystem {
+		EXT4_SUPER_MAGIC => ext4::create(path, project, size, inodes)?,
+		XFS_SUPER_MAGIC => xfs::create(path, project, size, inodes)?,
+		_ => {
+			return Err(
+				tg::error!(%filesystem, "filesystem limits require ext4 or XFS project quotas"),
+			);
+		},
+	}
+
+	Ok(())
 }
 
 pub fn create_directory(path: &Path) -> tg::Result<()> {
@@ -102,73 +77,13 @@ pub fn create_directory(path: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn configure_quota(
-	directory: &std::fs::File,
-	project: u32,
-	size: Option<u64>,
-	inodes: Option<u64>,
-) -> tg::Result<()> {
-	// Check the filesystem type.
-	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
-
-	// SAFETY: The descriptor and output pointer are valid.
-	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
-		return Err(tg::error!(
-			source = std::io::Error::last_os_error(),
-			"failed to inspect the sandbox filesystem"
-		));
-	}
-
-	// SAFETY: fstatfs initialized the structure on success.
-	let statistics = unsafe { statistics.assume_init() };
-	if !matches!(statistics.f_type, EXT4_SUPER_MAGIC | XFS_SUPER_MAGIC) {
-		return Err(
-			tg::error!(filesystem = %statistics.f_type, "hardened filesystem limits require a disk-backed ext4 or XFS filesystem with project quotas enabled"),
-		);
-	}
-
-	// Set the project ID and inheritance flag.
-	let attributes = FsXAttr {
-		cowextsize: 0,
-		extsize: 0,
-		nextents: 0,
-		pad: [0; 8],
-		project,
-		xflags: FS_XFLAG_PROJINHERIT,
-	};
-	let request = ioctl_write_request(b'X', 32, std::mem::size_of::<FsXAttr>());
-
-	// SAFETY: The descriptor refers to the new directory and the attribute pointer is valid.
-	if unsafe { libc::ioctl(directory.as_raw_fd(), request, &raw const attributes) } != 0 {
-		return Err(
-			tg::error!(source = std::io::Error::last_os_error(), %project, "failed to assign the sandbox filesystem project; enable project quotas and grant CAP_SYS_ADMIN"),
-		);
-	}
-
-	// Set the project quota.
-	set_quota(directory, statistics.f_type, project, size, inodes)?;
-
-	Ok(())
-}
-
 pub(crate) fn clear(path: &Path, project: u32) -> tg::Result<()> {
 	let directory = std::fs::File::open(path).map_err(|error| {
 		tg::error!(!error, path = %path.display(), "failed to open the sandbox filesystem directory")
 	})?;
-	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
-
-	// SAFETY: The descriptor and output pointer are valid.
-	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
-		return Err(tg::error!(
-			source = std::io::Error::last_os_error(),
-			"failed to inspect the sandbox filesystem"
-		));
-	}
-
-	// SAFETY: fstatfs initialized the structure on success.
-	let statistics = unsafe { statistics.assume_init() };
-
-	set_quota(&directory, statistics.f_type, project, Some(0), Some(0))
+	let filesystem = kind(&directory)?;
+	set_quota(&directory, filesystem, project, Some(0), Some(0))?;
+	Ok(())
 }
 
 pub fn open(path: &Path) -> tg::Result<OwnedFd> {
@@ -399,116 +314,17 @@ fn set_quota(
 	size: Option<u64>,
 	inodes: Option<u64>,
 ) -> tg::Result<()> {
-	let result = if filesystem == XFS_SUPER_MAGIC {
-		let block_mask = if size.is_some() {
-			(1 << 2) | (1 << 3)
-		} else {
-			0
-		};
-		let inode_mask = if inodes.is_some() {
-			(1 << 0) | (1 << 1)
-		} else {
-			0
-		};
-		let limits = XfsDiskQuota {
-			block_count: 0,
-			block_hard: size.unwrap_or_default().div_ceil(512),
-			block_soft: size.unwrap_or_default().div_ceil(512),
-			block_timer: 0,
-			block_timer_high: 0,
-			block_warnings: 0,
-			fieldmask: block_mask | inode_mask,
-			flags: 1 << 1,
-			id: project,
-			inode_count: 0,
-			inode_hard: inodes.unwrap_or_default(),
-			inode_soft: inodes.unwrap_or_default(),
-			inode_timer: 0,
-			inode_timer_high: 0,
-			inode_warnings: 0,
-			padding2: 0,
-			padding3: 0,
-			padding4: [0; 8],
-			realtime_block_count: 0,
-			realtime_block_hard: 0,
-			realtime_block_soft: 0,
-			realtime_block_timer: 0,
-			realtime_block_timer_high: 0,
-			realtime_block_warnings: 0,
-			version: 1,
-		};
-		let command = libc::QCMD((u32::from(b'X') << 8).cast_signed() | 4, PRJQUOTA);
-		quota_control(directory, command, project, (&raw const limits).cast())
-	} else {
-		let limits = libc::dqblk {
-			dqb_bhardlimit: size.unwrap_or_default().div_ceil(1024),
-			dqb_bsoftlimit: size.unwrap_or_default().div_ceil(1024),
-			dqb_btime: 0,
-			dqb_curinodes: 0,
-			dqb_curspace: 0,
-			dqb_ihardlimit: inodes.unwrap_or_default(),
-			dqb_isoftlimit: inodes.unwrap_or_default(),
-			dqb_itime: 0,
-			dqb_valid: (u32::from(size.is_some()) * libc::QIF_BLIMITS)
-				| (u32::from(inodes.is_some()) * libc::QIF_ILIMITS),
-		};
-		let command = libc::QCMD(libc::Q_SETQUOTA, PRJQUOTA);
-		quota_control(directory, command, project, (&raw const limits).cast())
-	};
-	result.map_err(|error| {
-		tg::error!(
-			!error,
-			%project,
-			"failed to configure the sandbox filesystem project quota; enable project quota enforcement and grant CAP_SYS_ADMIN"
-		)
-	})?;
+	match filesystem {
+		EXT4_SUPER_MAGIC => ext4::set_limit(directory, project, size, inodes)?,
+		XFS_SUPER_MAGIC => xfs::set_limit(directory, project, size, inodes)?,
+		_ => {
+			return Err(
+				tg::error!(%filesystem, "filesystem limits require ext4 or XFS project quotas"),
+			);
+		},
+	}
 
 	Ok(())
-}
-
-fn quota_control(
-	directory: &std::fs::File,
-	command: libc::c_int,
-	project: u32,
-	limits: *const libc::c_void,
-) -> std::io::Result<()> {
-	let result = syscall(
-		libc::SYS_quotactl_fd,
-		&[
-			raw_fd_arg(directory),
-			usize::try_from(command.cast_unsigned()).unwrap(),
-			project as usize,
-			limits as usize,
-		],
-	)?;
-	debug_assert_eq!(result, 0);
-	Ok(())
-}
-
-const fn ioctl_write_request(group: u8, number: u8, size: usize) -> libc::c_ulong {
-	#[cfg(any(
-		target_arch = "mips",
-		target_arch = "mips32r6",
-		target_arch = "mips64",
-		target_arch = "mips64r6",
-		target_arch = "powerpc",
-		target_arch = "powerpc64"
-	))]
-	let (direction, direction_shift) = (4_u64, 29_u32);
-	#[cfg(not(any(
-		target_arch = "mips",
-		target_arch = "mips32r6",
-		target_arch = "mips64",
-		target_arch = "mips64r6",
-		target_arch = "powerpc",
-		target_arch = "powerpc64"
-	)))]
-	let (direction, direction_shift) = (1_u64, 30_u32);
-	let value = (direction << direction_shift)
-		| ((size as u64) << 16)
-		| ((group as u64) << 8)
-		| number as u64;
-	value as libc::c_ulong
 }
 
 fn syscall(number: libc::c_long, args: &[usize]) -> std::io::Result<libc::c_long> {
@@ -543,15 +359,9 @@ fn syscall_fd(number: libc::c_long, args: &[usize]) -> std::io::Result<OwnedFd> 
 }
 
 pub(crate) fn usage(directory: &std::fs::File, project: u32) -> tg::Result<u64> {
-	let mut quota = std::mem::MaybeUninit::<libc::dqblk>::zeroed();
-	let command = libc::QCMD(libc::Q_GETQUOTA, PRJQUOTA);
-	quota_control(directory, command, project, quota.as_mut_ptr().cast())
-		.map_err(|error| tg::error!(!error, "failed to read the filesystem project usage"))?;
+	let usage = project::usage(directory, project)?;
 
-	// SAFETY: The quota syscall initialized the structure on success.
-	let quota = unsafe { quota.assume_init() };
-
-	Ok(quota.dqb_curspace)
+	Ok(usage)
 }
 
 pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Control> {
@@ -561,43 +371,36 @@ pub(crate) fn control(path: &Path, project: u32) -> tg::Result<crate::budget::Co
 	let directory = std::fs::File::open(parent)
 		.map_err(|error| tg::error!(!error, "failed to open the filesystem project"))?;
 	let directory = std::sync::Arc::new(directory);
-	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
+	let filesystem = kind(&directory)?;
+	let usage = {
+		let directory = directory.clone();
+		Box::new(move || usage(&directory, project))
+	};
+	let limit = Box::new(move |size| set_quota(&directory, filesystem, project, Some(size), None));
+
+	Ok(crate::budget::Control { limit, usage })
+}
+
+fn kind(directory: &std::fs::File) -> tg::Result<libc::c_long> {
+	let mut statistics = MaybeUninit::<libc::statfs>::uninit();
 
 	// SAFETY: The descriptor and output pointer are valid.
 	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
 		return Err(tg::error!(
 			source = std::io::Error::last_os_error(),
-			"failed to inspect the filesystem project"
+			"failed to inspect the sandbox filesystem"
 		));
 	}
 
 	// SAFETY: fstatfs initialized the structure on success.
 	let statistics = unsafe { statistics.assume_init() };
-	let usage = {
-		let directory = directory.clone();
-		Box::new(move || usage(&directory, project))
-	};
-	let limit =
-		Box::new(move |size| set_quota(&directory, statistics.f_type, project, Some(size), None));
 
-	Ok(crate::budget::Control { limit, usage })
+	Ok(statistics.f_type)
 }
 
 #[cfg(test)]
 mod tests {
 	use {super::*, std::path::PathBuf};
-
-	#[test]
-	fn quota_structures_preserve_the_linux_abi() {
-		assert_eq!(std::mem::size_of::<FsXAttr>(), 28);
-		assert_eq!(std::mem::offset_of!(FsXAttr, xflags), 0);
-		assert_eq!(std::mem::offset_of!(FsXAttr, project), 12);
-		assert_eq!(std::mem::size_of::<XfsDiskQuota>(), 112);
-		assert_eq!(std::mem::offset_of!(XfsDiskQuota, version), 0);
-		assert_eq!(std::mem::offset_of!(XfsDiskQuota, fieldmask), 2);
-		assert_eq!(std::mem::offset_of!(XfsDiskQuota, id), 4);
-		assert_eq!(std::mem::offset_of!(XfsDiskQuota, block_hard), 8);
-	}
 
 	#[test]
 	fn relocate_descendant() {

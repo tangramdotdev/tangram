@@ -37,12 +37,17 @@ when that protection is insufficient. An exclusive runner pool sets its
 own memory protection and physical memory/swap budgets before accepting sandboxes.
 Above the minimum, memory can be reclaimed, swapped, or subject to an OOM kill.
 Swap is a separate resource, limited with `memory.swap.max`. Local storage uses
-ext4 or XFS project quotas, and includes the writable overlay, scratch space,
-outputs, and temporary files. Linux needs delegated CPU, cpuset, memory, and pids
-controllers; filesystem quota enforcement needs enabled project quotas and
-CAP_SYS_ADMIN. The default container maxima are one CPU, 1 GiB RAM, 10 GiB local
-storage, and zero swap. macOS rejects explicit resource bounds. VM isolation
-supports whole CPU maxima and memory maxima, and rejects the other bounds.
+ext4 or XFS project quotas, and includes the writable
+overlay, scratch space, outputs, and temporary files. Linux needs delegated CPU,
+cpuset, memory, and pids controllers; filesystem quota enforcement needs enabled
+quotas and CAP_SYS_ADMIN. The default container maxima are one CPU, 1 GiB RAM,
+unlimited local storage, and zero swap. Storage limits are disabled by default;
+set `runner.backend.storage_limits` to `true` to enforce requested storage bounds.
+macOS rejects explicit resource bounds. VM isolation supports whole CPU maxima
+and memory maxima, and rejects the other bounds.
+
+Storage usage tracking and limits require XFS or ext4 with project quotas enabled.
+Other filesystems can be used with storage limits disabled.
 
 ```json
 {

@@ -985,7 +985,7 @@ impl Sandbox {
 		}
 		if self.0.arg.storage.is_some() {
 			let path = Self::host_filesystem_path_from_root(&self.0.arg.path);
-			tokio::fs::remove_dir_all(&path)
+			tangram_util::fs::remove(&path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to remove the sandbox storage"))?;
 		}
