@@ -1,8 +1,5 @@
 use {
-	super::{
-		Error, Event, Message, Observer, Options, Protocol, announce_subject, client_subject,
-		server_subject,
-	},
+	super::{Error, Event, Message, Observer, Options, Protocol, announce_subject, server_subject},
 	crate::{Messenger, Payload},
 	bytes::Bytes,
 	futures::{Stream, StreamExt as _, stream::BoxStream},
@@ -71,7 +68,6 @@ struct Task<P: Protocol, M> {
 	options: Options,
 	state: State,
 	status: watch::Sender<Status>,
-	subject: String,
 }
 
 #[derive(Default)]
@@ -114,7 +110,7 @@ where
 	// Validate the options.
 	options.validate()?;
 
-	// Subscribe to the clients before announcing, so that no heartbeat sent in response to the announcement is missed.
+	// Subscribe to the clients before announcing, so that no request resent in response to the announcement is missed.
 	let subject = subject.into();
 	let messages = messenger
 		.subscribe::<Message>(server_subject(&subject))
@@ -138,7 +134,6 @@ where
 		options,
 		state: State::default(),
 		status: status_sender,
-		subject,
 	};
 	let task = tokio::spawn(async move {
 		task.run(messages, commands).await;
@@ -275,7 +270,16 @@ where
 					self.observer.observe(event).await;
 				}
 			},
-			Message::Cancel { attempt, id } => {
+			Message::Cancel {
+				attempt,
+				client,
+				id,
+			} => {
+				// Cancel a request that was sent without an attempt under the client's current attempt.
+				let Some(attempt) = attempt.or_else(|| self.state.clients.get(&client).cloned())
+				else {
+					return;
+				};
 				let Some(entry) = self.state.attempts.get_mut(&attempt) else {
 					return;
 				};
@@ -311,32 +315,7 @@ where
 
 	async fn heartbeat(&mut self, client: String, id: String) {
 		let ttl = self.options.attempt_ttl;
-
-		// Replace the client's attempt if it expired.
-		if self
-			.state
-			.clients
-			.get(&client)
-			.is_some_and(|attempt| Instant::now() >= self.state.attempts[attempt].expires_at)
-		{
-			self.expire();
-		}
-
-		// Find or create the client's attempt.
-		let attempt = if let Some(attempt) = self.state.clients.get(&client) {
-			attempt.clone()
-		} else {
-			let attempt = super::id();
-			let entry = Attempt {
-				cancelled: BTreeSet::new(),
-				client: client.clone(),
-				entries: BTreeMap::new(),
-				expires_at: Instant::now() + ttl,
-			};
-			self.state.attempts.insert(attempt.clone(), entry);
-			self.state.clients.insert(client.clone(), attempt.clone());
-			attempt
-		};
+		let attempt = self.attempt(&client);
 
 		// Answer a retransmitted heartbeat with its response, without extending the attempt again.
 		let entry = self.state.attempts.get_mut(&attempt).unwrap();
@@ -370,8 +349,22 @@ where
 		self.publish(&client, response).await;
 	}
 
-	async fn request(&mut self, attempt: String, client: String, id: String, request: Bytes) {
-		// Accept requests only under a live attempt of the client. The client's next heartbeat recovers a lost registration.
+	async fn request(
+		&mut self,
+		attempt: Option<String>,
+		client: String,
+		id: String,
+		request: Bytes,
+	) {
+		// Establish the client's attempt with a request sent without one, extending it because the request shows that the client is alive.
+		let attempt = attempt.unwrap_or_else(|| {
+			let attempt = self.attempt(&client);
+			let entry = self.state.attempts.get_mut(&attempt).unwrap();
+			entry.expires_at = Instant::now() + self.options.attempt_ttl;
+			attempt
+		});
+
+		// Accept requests only under a live attempt of the client. A request under an unknown or expired attempt is recovered when the client resends it under a new one.
 		let Some(entry) = self.state.attempts.get(&attempt) else {
 			return;
 		};
@@ -389,6 +382,7 @@ where
 				None if previous.received => Some(Message::RequestAck {
 					attempt: attempt.clone(),
 					id: id.clone(),
+					ttl: self.options.attempt_ttl,
 				}),
 				None => None,
 			};
@@ -438,7 +432,11 @@ where
 			return;
 		}
 		entry.received = true;
-		let message = Message::RequestAck { attempt, id };
+		let message = Message::RequestAck {
+			attempt,
+			id,
+			ttl: self.options.attempt_ttl,
+		};
 		self.publish(&client, message).await;
 	}
 
@@ -460,6 +458,37 @@ where
 		};
 		entry.response = Some(message.clone());
 		self.publish(&client, message).await;
+	}
+
+	/// Find the client's attempt, replacing it if it expired, or create one.
+	fn attempt(&mut self, client: &str) -> String {
+		// Replace the client's attempt if it expired.
+		if self
+			.state
+			.clients
+			.get(client)
+			.is_some_and(|attempt| Instant::now() >= self.state.attempts[attempt].expires_at)
+		{
+			self.expire();
+		}
+
+		// Find or create the client's attempt.
+		if let Some(attempt) = self.state.clients.get(client) {
+			return attempt.clone();
+		}
+		let attempt = super::id();
+		let entry = Attempt {
+			cancelled: BTreeSet::new(),
+			client: client.to_owned(),
+			entries: BTreeMap::new(),
+			expires_at: Instant::now() + self.options.attempt_ttl,
+		};
+		self.state.attempts.insert(attempt.clone(), entry);
+		self.state
+			.clients
+			.insert(client.to_owned(), attempt.clone());
+
+		attempt
 	}
 
 	/// Expire the attempts whose clients stopped sending heartbeats, and the acknowledged responses.
@@ -540,11 +569,11 @@ where
 		});
 	}
 
+	/// Publish a message to a client, whose identity is the subject that its responses are published to.
 	async fn publish(&self, client: &str, message: Message) {
 		tokio::time::timeout(
 			self.options.retry_interval,
-			self.messenger
-				.publish(client_subject(&self.subject, client), message),
+			self.messenger.publish(client.to_owned(), message),
 		)
 		.await
 		.ok();

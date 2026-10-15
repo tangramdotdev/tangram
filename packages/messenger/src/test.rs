@@ -19,7 +19,7 @@ struct TestState {
 	duplicate_every: Option<u64>,
 	held: Option<(String, Bytes)>,
 	reorder_every: Option<u64>,
-	subscribers: Vec<(String, mpsc::UnboundedSender<Bytes>)>,
+	subscribers: Vec<(String, mpsc::UnboundedSender<(String, Bytes)>)>,
 }
 
 impl TestMessenger {
@@ -45,11 +45,22 @@ impl TestMessenger {
 		}
 	}
 
+	/// Count the live subscriptions whose subjects start with a prefix.
+	pub(crate) fn subscriptions(&self, prefix: &str) -> usize {
+		let mut state = self.state.lock().unwrap();
+		state.subscribers.retain(|(_, sender)| !sender.is_closed());
+		state
+			.subscribers
+			.iter()
+			.filter(|(name, _)| name.starts_with(prefix))
+			.count()
+	}
+
 	fn deliver(state: &mut TestState, subject: &str, bytes: &Bytes) {
 		state.subscribers.retain(|(_, sender)| !sender.is_closed());
 		for (name, sender) in &state.subscribers {
-			if name == subject {
-				sender.send(bytes.clone()).ok();
+			if matches(name, subject) {
+				sender.send((subject.to_owned(), bytes.clone())).ok();
 			}
 		}
 	}
@@ -106,15 +117,13 @@ impl crate::Messenger for TestMessenger {
 			.lock()
 			.unwrap()
 			.subscribers
-			.push((subject.clone(), sender));
-		let stream = futures::stream::poll_fn(move |cx| receiver.poll_recv(cx)).map(move |bytes| {
-			let payload = T::deserialize(bytes)?;
-			let message = crate::Message {
-				payload,
-				subject: subject.clone(),
-			};
-			Ok(message)
-		});
+			.push((subject, sender));
+		let stream =
+			futures::stream::poll_fn(move |cx| receiver.poll_recv(cx)).map(|(subject, bytes)| {
+				let payload = T::deserialize(bytes)?;
+				let message = crate::Message { subject, payload };
+				Ok(message)
+			});
 		Ok(stream)
 	}
 
@@ -131,4 +140,15 @@ impl crate::Messenger for TestMessenger {
 	{
 		self.subscribe(subject).await
 	}
+}
+
+/// Check whether a subscription's subject, whose tokens may be the token wildcard, matches a published subject.
+fn matches(subscription: &str, subject: &str) -> bool {
+	let subscription = subscription.split('.').collect::<Vec<_>>();
+	let subject = subject.split('.').collect::<Vec<_>>();
+	subscription.len() == subject.len()
+		&& subscription
+			.iter()
+			.zip(&subject)
+			.all(|(pattern, token)| *pattern == "*" || pattern == token)
 }

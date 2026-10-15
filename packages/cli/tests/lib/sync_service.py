@@ -207,7 +207,7 @@ def release(name, watch):
     command("checkpoint", "unwatch", name, watch)
 
 
-# The service's envelope is binary: a kind byte, then length-prefixed strings, then a Tangram-serialized payload. These translate it to and from the message shapes that the cases use, which keep the fields of each message by index.
+# The service's envelope is binary: a kind byte, then length-prefixed strings, where an attempt that a request or a cancellation may omit is preceded by a presence byte, then a Tangram-serialized payload. A client is identified by the subject that its responses are published to. These translate the envelope to and from the message shapes that the cases use, which keep the fields of each message by index.
 ACK, ANNOUNCE, CANCEL, HEARTBEAT, HEARTBEAT_RESPONSE, REQUEST, REQUEST_ACK, RESPONSE = range(8)
 
 
@@ -220,27 +220,40 @@ def get_string(reader):
     return reader.read(int.from_bytes(reader.read(4), "big")).decode()
 
 
+def put_optional_string(value):
+    return b"\x00" if value is None else b"\x01" + put_string(value)
+
+
+def get_optional_string(reader):
+    return get_string(reader) if reader.read(1)[0] else None
+
+
 def decode_service(data):
     reader = io.BytesIO(data)
     kind = reader.read(1)[0]
     if kind == ANNOUNCE:
         return Variant(9)
+    if kind == CANCEL:
+        attempt = get_optional_string(reader)
+        get_string(reader)
+        id = get_string(reader)
+        return Variant(2, {0: id, 1: attempt})
+    if kind == REQUEST:
+        attempt = get_optional_string(reader)
+        client = get_string(reader)
+        id = get_string(reader)
+        arg = decode(reader)
+        return Variant(1, {0: Variant(1, arg), 1: client, 2: id, 3: attempt})
     first = get_string(reader)
     second = get_string(reader)
     if kind == ACK:
         return Variant(0, {0: second, 1: first})
-    if kind == CANCEL:
-        return Variant(2, {0: second, 1: first})
     if kind == HEARTBEAT:
         return Variant(1, {0: Variant(0, {}), 1: first, 2: second, 3: None})
     if kind == HEARTBEAT_RESPONSE:
         milliseconds = int.from_bytes(reader.read(8), "big")
         ttl = (milliseconds // 1000, milliseconds % 1000 * 1_000_000)
         return Variant(1, {0: None, 1: second, 2: first, 3: Variant(0, {0: ttl})})
-    if kind == REQUEST:
-        id = get_string(reader)
-        arg = decode(reader)
-        return Variant(1, {0: Variant(1, arg), 1: second, 2: id, 3: first})
     if kind == REQUEST_ACK:
         return Variant(0, {0: second, 1: first})
     if kind == RESPONSE:
@@ -251,20 +264,21 @@ def decode_service(data):
     raise ValueError(f"unsupported service message kind: {kind}")
 
 
-def encode_service(subject, message):
+def encode_service(subject, message, client=None):
     fields = message.value
     if message.id == 0:
-        # A message to a client acknowledges a request, and a message to a server acknowledges a response.
-        kind = REQUEST_ACK if ".client." in subject else ACK
-        return bytes([kind]) + put_string(fields[1]) + put_string(fields[0])
+        # A message to a server acknowledges a response, and a message to a client acknowledges a request and carries the attempt's time to live.
+        if subject.endswith(".server"):
+            return bytes([ACK]) + put_string(fields[1]) + put_string(fields[0])
+        return bytes([REQUEST_ACK]) + put_string(fields[1]) + put_string(fields[0]) + (TTL * 1000).to_bytes(8, "big")
     if message.id == 2:
-        return bytes([CANCEL]) + put_string(fields[1]) + put_string(fields[0])
+        return bytes([CANCEL]) + put_optional_string(fields[1]) + put_string(client or "") + put_string(fields[0])
     if message.id == 1 and isinstance(fields[0], Variant):
         # A heartbeat or a request from a client.
         arg, client, id, attempt = fields[0], fields[1], fields[2], fields[3]
         if arg.id == 0:
             return bytes([HEARTBEAT]) + put_string(client) + put_string(id)
-        return bytes([REQUEST]) + put_string(attempt) + put_string(client) + put_string(id) + encode(arg.value)
+        return bytes([REQUEST]) + put_optional_string(attempt) + put_string(client) + put_string(id) + encode(arg.value)
     # A response from a server.
     error, id, attempt, output = fields[0], fields[1], fields[2], fields[3]
     if output is not None and output.id == 0:
@@ -392,8 +406,8 @@ class Messenger:
         except Exception as error:
             self.queue.put(error)
 
-    def publish(self, subject, message):
-        data = encode_service(subject, message)
+    def publish(self, subject, message, client=None):
+        data = encode_service(subject, message, client)
         with self.lock:
             self.socket.sendall(f"PUB {subject} {len(data)}\r\n".encode() + data + b"\r\n")
 
@@ -423,8 +437,12 @@ class Messenger:
 
 class Peer:
     def __init__(self, messenger, token):
+        self.attempt = None
         self.messenger = messenger
         self.subject = subject(token)
+
+    def client(self, name="client"):
+        return f"{self.subject}.client.{name}"
 
     def request(self, heartbeat=False, attempt=None, timeout=10):
         return self.messenger.receive(lambda path, message:
@@ -433,12 +451,14 @@ class Peer:
             and (attempt is None or message.value[3] == attempt), timeout)
 
     def ack(self, request):
-        self.reply(request, Variant(0, {0: request[2], 1: request[3]}))
+        self.reply(request, Variant(0, {0: request[2], 1: request[3] or self.attempt}))
 
     def reply(self, request, message):
-        self.messenger.publish(f"{self.subject}.client.{request[1]}", message)
+        # A client is identified by the subject that its responses are published to.
+        self.messenger.publish(request[1], message)
 
     def heartbeat(self, request, attempt):
+        self.attempt = attempt
         self.reply(request, Variant(1, {0: None, 1: request[2], 2: attempt, 3: Variant(0, {0: (TTL, 0)})}))
 
     def respond(self, request, error=None, stored=True):
@@ -446,10 +466,10 @@ class Peer:
         storage = [Variant(0), Variant(1 if kind == 0 else 5)] if stored else []
         permissions = [Variant(0), Variant(1)] if stored else []
         output = None if error else Variant(1, verification_output(request[0].value[0], storage, permissions) if stored else None)
-        self.reply(request, Variant(1, {0: {3: error} if error else None, 1: request[2], 2: request[3], 3: output}))
+        self.reply(request, Variant(1, {0: {3: error} if error else None, 1: request[2], 2: request[3] or self.attempt, 3: output}))
 
-    def cancel(self, id, attempt):
-        self.messenger.publish(f"{self.subject}.server", Variant(2, {0: id, 1: attempt}))
+    def cancel(self, id, attempt, client="client"):
+        self.messenger.publish(f"{self.subject}.server", Variant(2, {0: id, 1: attempt}), self.client(client))
 
     def cancelled(self, request):
         return self.messenger.receive(lambda path, message:
@@ -462,7 +482,7 @@ class Peer:
 
     def send(self, id, node=None, attempt=None, client="client", permissions=Variant(1, [Variant(0)]), storage=Variant(0, [Variant(0)])):
         arg = Variant(0, {}) if node is None else Variant(1, {0: node_bytes(node), 1: permissions, 2: storage})
-        request = {0: arg, 1: client, 2: id, 3: attempt}
+        request = {0: arg, 1: self.client(client), 2: id, 3: attempt}
         self.messenger.publish(f"{self.subject}.server", Variant(1, request))
         return request
 

@@ -390,7 +390,9 @@ impl service::Observer<Protocol> for Observer {
 					id,
 					request,
 				} => {
-					insert("attempt", attempt);
+					if let Some(attempt) = attempt {
+						insert("attempt", attempt);
+					}
 					insert("id", id);
 					insert("node", &request.0.node.to_string());
 					"sync.service.request"

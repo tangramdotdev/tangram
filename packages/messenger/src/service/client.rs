@@ -1,11 +1,11 @@
 use {
 	super::{
 		Error, Event, Message, Observer, Options, Protocol, announce_subject, client_subject, id,
-		server_subject,
+		pool_subject, server_subject,
 	},
 	crate::{Messenger, Payload},
 	bytes::Bytes,
-	futures::{StreamExt as _, stream::BoxStream},
+	futures::{FutureExt as _, StreamExt as _, future::BoxFuture, stream::BoxStream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		marker::PhantomData,
@@ -17,11 +17,14 @@ use {
 	},
 };
 
-/// The clients of a messenger, with one shared client per subject that stops after it has been idle.
+type Messages = BoxStream<'static, Result<crate::Message<Message>, crate::Error>>;
+
+/// The clients of a messenger, with one shared client per subject that stops after it has been idle, and one subscription for the responses to all of them.
 pub struct Clients<P: Protocol, M> {
 	messenger: M,
 	observer: Arc<dyn Observer<P>>,
 	options: Options,
+	pool: Arc<Pool>,
 	stopped: watch::Sender<bool>,
 	subjects: Arc<Mutex<BTreeMap<String, Arc<Client<P>>>>>,
 }
@@ -34,10 +37,29 @@ pub struct Request<P: Protocol> {
 	receiver: watch::Receiver<Output>,
 }
 
-/// The client for one subject, which a task runs.
+/// The client for one subject, which a task runs. Its ID is the subject that its responses are published to.
 struct Client<P: Protocol> {
 	id: String,
 	sender: mpsc::UnboundedSender<Command<P>>,
+}
+
+/// The subscription of a pool of clients, which routes each response to its client by the subject that it was published to.
+struct Pool {
+	id: String,
+	routes: Mutex<Routes>,
+	subscribing: tokio::sync::Mutex<()>,
+}
+
+#[derive(Default)]
+struct Routes {
+	senders: BTreeMap<String, mpsc::UnboundedSender<Result<Message, Error>>>,
+	subscribed: bool,
+}
+
+/// A client's route in its pool, which is removed when the client stops.
+struct Route {
+	client: String,
+	pool: Arc<Pool>,
 }
 
 #[derive(Clone)]
@@ -59,6 +81,7 @@ struct Task<P: Protocol, M> {
 	messenger: M,
 	observer: Arc<dyn Observer<P>>,
 	options: Options,
+	pool: Arc<Pool>,
 	state: State<P>,
 	subjects: Arc<Mutex<BTreeMap<String, Arc<Client<P>>>>>,
 }
@@ -93,6 +116,12 @@ struct Pending<P: Protocol> {
 	request: P::Request,
 	retry_at: Instant,
 	sender: watch::Sender<Output>,
+
+	/// When the request was last sent, from which an attempt that it establishes is timed.
+	sent_at: Instant,
+
+	/// Whether the request was sent without an attempt, so that the server holds it under the attempt that it established.
+	sent_without_attempt: bool,
 }
 
 impl<P, M> Clients<P, M>
@@ -107,10 +136,16 @@ where
 	) -> Result<Self, Error> {
 		options.validate()?;
 		let (stopped, _) = watch::channel(false);
+		let pool = Pool {
+			id: id(),
+			routes: Mutex::default(),
+			subscribing: tokio::sync::Mutex::new(()),
+		};
 		let clients = Self {
 			messenger,
 			observer,
 			options,
+			pool: Arc::new(pool),
 			stopped,
 			subjects: Arc::new(Mutex::new(BTreeMap::new())),
 		};
@@ -159,7 +194,10 @@ where
 
 	fn spawn(&self, subject: &str) -> Arc<Client<P>> {
 		let (sender, commands) = mpsc::unbounded_channel();
-		let client = Arc::new(Client { id: id(), sender });
+		let client = Arc::new(Client {
+			id: client_subject(&self.pool.id, &id()),
+			sender,
+		});
 		let state = State {
 			attempt: None,
 			client: client.id.clone(),
@@ -174,6 +212,7 @@ where
 			messenger: self.messenger.clone(),
 			observer: self.observer.clone(),
 			options: self.options,
+			pool: self.pool.clone(),
 			state,
 			subjects: self.subjects.clone(),
 		};
@@ -182,6 +221,78 @@ where
 			task.run(commands, stopped).await;
 		});
 		client
+	}
+}
+
+impl Pool {
+	async fn register<M>(
+		self: &Arc<Self>,
+		messenger: &M,
+		client: &str,
+		stopped: watch::Receiver<bool>,
+	) -> Result<(Route, mpsc::UnboundedReceiver<Result<Message, Error>>), Error>
+	where
+		M: Messenger + Clone + Send + Sync + 'static,
+	{
+		// Subscribe once for the responses to every client of the pool.
+		let _subscribing = self.subscribing.lock().await;
+		if !self.routes.lock().unwrap().subscribed {
+			let messages = messenger
+				.subscribe::<Message>(pool_subject(&self.id))
+				.await
+				.map_err(Error::messenger)?
+				.boxed();
+			self.routes.lock().unwrap().subscribed = true;
+			let pool = self.clone();
+			tokio::spawn(async move {
+				pool.dispatch(messages, stopped).await;
+			});
+		}
+
+		// Add the client's route.
+		let (sender, receiver) = mpsc::unbounded_channel();
+		self.routes
+			.lock()
+			.unwrap()
+			.senders
+			.insert(client.to_owned(), sender);
+		let route = Route {
+			client: client.to_owned(),
+			pool: self.clone(),
+		};
+
+		Ok((route, receiver))
+	}
+
+	async fn dispatch(&self, mut messages: Messages, mut stopped: watch::Receiver<bool>) {
+		// Route each response to its client until the subscription ends or the clients stop.
+		let error = loop {
+			tokio::select! {
+				message = messages.next() => {
+					match message {
+						Some(Ok(message)) => {
+							let routes = self.routes.lock().unwrap();
+							if let Some(sender) = routes.senders.get(&message.subject) {
+								sender.send(Ok(message.payload)).ok();
+							}
+						},
+						Some(Err(crate::Error::Deserialization(_))) => (),
+						Some(Err(error)) => break Error::messenger(error),
+						None => break Error::Closed,
+					}
+				},
+				_ = stopped.wait_for(|stopped| *stopped) => {
+					break Error::Stopped;
+				},
+			}
+		};
+
+		// Fail every client, so that the next client subscribes again.
+		let mut routes = self.routes.lock().unwrap();
+		routes.subscribed = false;
+		for sender in std::mem::take(&mut routes.senders).into_values() {
+			sender.send(Err(error.clone())).ok();
+		}
 	}
 }
 
@@ -213,30 +324,37 @@ where
 		mut commands: mpsc::UnboundedReceiver<Command<P>>,
 		mut stopped: watch::Receiver<bool>,
 	) {
-		// Subscribe to the responses and the announcements.
-		let messages = self
-			.messenger
-			.subscribe::<Message>(client_subject(&self.state.subject, &self.state.client))
+		// Register with the pool before sending anything, so that every response to this client is routed to it.
+		let registered = self
+			.pool
+			.register(&self.messenger, &self.state.client, stopped.clone())
 			.await;
-		let announcements = self
-			.messenger
-			.subscribe::<Message>(announce_subject(&self.state.subject))
-			.await;
-		let (mut messages, mut announcements): (BoxStream<'static, _>, BoxStream<'static, _>) =
-			match (messages, announcements) {
-				(Ok(messages), Ok(announcements)) => (messages.boxed(), announcements.boxed()),
-				(Err(error), _) | (_, Err(error)) => {
-					let error = Error::messenger(error);
-					self.fail(&error);
-					commands.close();
-					while let Some(command) = commands.recv().await {
-						if let Command::Request { sender, .. } = command {
-							sender.send_replace(Output::Ready(Err(error.clone())));
-						}
+		let (_route, mut messages) = match registered {
+			Ok(registered) => registered,
+			Err(error) => {
+				self.fail(&error);
+				commands.close();
+				while let Some(command) = commands.recv().await {
+					if let Command::Request { sender, .. } = command {
+						sender.send_replace(Output::Ready(Err(error.clone())));
 					}
-					return;
-				},
+				}
+				return;
+			},
+		};
+
+		// Subscribe to the announcements without delaying the first request.
+		let mut subscribing: Option<BoxFuture<'static, Result<Messages, crate::Error>>> = {
+			let messenger = self.messenger.clone();
+			let subject = announce_subject(&self.state.subject);
+			let future = async move {
+				let announcements = messenger.subscribe::<Message>(subject).await?;
+				Ok(announcements.boxed())
 			};
+			Some(future.boxed())
+		};
+		let mut announcements = None::<Messages>;
+
 		let event = Event::Started {
 			client: &self.state.client,
 			subject: &self.state.subject,
@@ -260,11 +378,16 @@ where
 					match command {
 						Some(Command::Cancel(id)) => {
 							if let Some(request) = self.state.requests.remove(&id) {
-								self.cancel(&id, request.attempts).await;
+								self.cancel(&id, request.attempts, request.sent_without_attempt).await;
 							}
 						},
 						Some(Command::Request { id, request, sender }) => {
 							self.state.idle_at = None;
+
+							// Start the heartbeats one interval after a request arrives at a client without pending requests, because the request establishes the attempt itself.
+							if self.state.requests.is_empty() {
+								self.state.heartbeat_at = Instant::now() + self.options.heartbeat_interval;
+							}
 							let bytes = match request.serialize() {
 								Ok(bytes) => bytes,
 								Err(error) => {
@@ -280,11 +403,10 @@ where
 								request,
 								retry_at: Instant::now(),
 								sender,
+								sent_at: Instant::now(),
+								sent_without_attempt: false,
 							};
 							self.state.requests.insert(id.clone(), pending);
-							if self.state.attempt.is_none() {
-								tick.reset_immediately();
-							}
 							self.send_request(&id).await;
 						},
 						None => {
@@ -292,37 +414,42 @@ where
 						},
 					}
 				},
-				message = messages.next() => {
-					// Fail the pending requests with the response stream's error, so that they report its cause.
+				message = messages.recv() => {
+					// Fail the pending requests with the pool subscription's error, so that they report its cause.
 					let error = match message {
 						Some(Ok(message)) => {
-							self.message(message.payload).await;
+							self.message(message).await;
 							continue;
 						},
-						Some(Err(error)) => Error::messenger(error),
+						Some(Err(error)) => error,
 						None => Error::Closed,
 					};
 					self.fail(&error);
 					return;
 				},
-				message = announcements.next() => {
+				result = async { subscribing.as_mut().unwrap().await }, if subscribing.is_some() => {
+					subscribing = None;
+					match result {
+						Ok(stream) => {
+							announcements = Some(stream);
+						},
+						Err(error) => {
+							self.fail(&Error::messenger(error));
+							return;
+						},
+					}
+				},
+				message = async { announcements.as_mut().unwrap().next().await }, if announcements.is_some() => {
 					if message.is_none() {
 						self.fail(&Error::Closed);
 						return;
 					}
 
-					// Resend the pending heartbeat to a server that has just started, or start one if none is pending.
+					// Resend the pending requests without an attempt to a server that has just started, so that they establish a new one.
 					if closed_at.is_none() && !self.state.requests.is_empty() {
-						let now = Instant::now();
-						let mut pending = false;
-						for heartbeat in self.state.heartbeats.values_mut().filter(|heartbeat| !heartbeat.acknowledged) {
-							heartbeat.retry_at = now;
-							pending = true;
-						}
-						if !pending {
-							self.state.heartbeat_at = now;
-						}
-						tick.reset_immediately();
+						self.state.attempt = None;
+						self.recover();
+						self.send_requests().await;
 					}
 				},
 				_ = tick.tick() => {
@@ -469,14 +596,41 @@ where
 				self.publish(server_subject(&self.state.subject), message)
 					.await;
 			},
-			Message::RequestAck { attempt, id } => {
-				if self
-					.state
-					.attempt
-					.as_ref()
-					.is_some_and(|current| current.id == attempt)
-					&& let Some(request) = self.state.requests.get_mut(&id)
-				{
+			Message::RequestAck { attempt, id, ttl } => {
+				let Some(request) = self.state.requests.get(&id) else {
+					return;
+				};
+				let (sent_at, sent_without_attempt) =
+					(request.sent_at, request.sent_without_attempt);
+
+				// Accept an acknowledgment under the current attempt, or adopt the attempt that a request sent without one established.
+				match self.state.attempt.as_ref() {
+					Some(current) if current.id == attempt => (),
+					None if sent_without_attempt => {
+						let now = Instant::now();
+						let Some(deadline) =
+							sent_at.checked_add(ttl).filter(|deadline| now < *deadline)
+						else {
+							return;
+						};
+						self.state.attempt = Some(Attempt {
+							deadline,
+							id: attempt.clone(),
+						});
+						let event = Event::Attempt {
+							attempt: &attempt,
+							client: &self.state.client,
+						};
+						self.observer.observe(event).await;
+					},
+					_ => {
+						return;
+					},
+				}
+
+				// Mark the request acknowledged, so that the client stops resending it and waits for the response.
+				if let Some(request) = self.state.requests.get_mut(&id) {
+					request.attempts.insert(attempt.clone());
 					request.acknowledged = true;
 					request.deadline = None;
 					request.sender.send_replace(Output::Pending);
@@ -505,7 +659,7 @@ where
 					let mut request = self.state.requests.remove(&id).unwrap();
 					request.attempts.remove(&attempt);
 					request.sender.send_replace(Output::Ready(Ok(response)));
-					self.cancel(&id, request.attempts).await;
+					self.cancel(&id, request.attempts, false).await;
 				}
 				let event = Event::Responded {
 					attempt: &attempt,
@@ -560,18 +714,25 @@ where
 		tokio::time::timeout(timeout, future).await.ok();
 	}
 
+	/// Send a request under the current attempt, or without one, so that the server establishes the attempt.
 	async fn send_request(&mut self, id: &str) {
-		let Some(attempt) = self
+		let attempt = self
 			.state
 			.attempt
 			.as_ref()
-			.map(|attempt| attempt.id.clone())
-		else {
-			return;
-		};
+			.map(|attempt| attempt.id.clone());
+		let now = Instant::now();
 		let request = self.state.requests.get_mut(id).unwrap();
-		request.attempts.insert(attempt.clone());
-		request.retry_at = Instant::now() + self.options.retry_interval;
+		match &attempt {
+			Some(attempt) => {
+				request.attempts.insert(attempt.clone());
+			},
+			None => {
+				request.sent_without_attempt = true;
+			},
+		}
+		request.retry_at = now + self.options.retry_interval;
+		request.sent_at = now;
 		let message = Message::Request {
 			attempt: attempt.clone(),
 			client: self.state.client.clone(),
@@ -582,18 +743,23 @@ where
 			.await;
 		let request = &self.state.requests[id];
 		let event = Event::RequestSent {
-			attempt: &attempt,
+			attempt: attempt.as_deref(),
 			id,
 			request: &request.request,
 		};
 		self.observer.observe(event).await;
 	}
 
-	/// Cancel a request under each attempt it was sent under.
-	async fn cancel(&self, id: &str, attempts: BTreeSet<String>) {
+	/// Cancel a request under each attempt it was sent under, and under the client's attempt at the server if it was sent without one.
+	async fn cancel(&self, id: &str, attempts: BTreeSet<String>, sent_without_attempt: bool) {
+		let attempts = attempts
+			.into_iter()
+			.map(Some)
+			.chain(sent_without_attempt.then_some(None));
 		for attempt in attempts {
 			let message = Message::Cancel {
 				attempt,
+				client: self.state.client.clone(),
 				id: id.to_owned(),
 			};
 			self.publish(server_subject(&self.state.subject), message)
@@ -631,6 +797,17 @@ where
 		)
 		.await
 		.ok();
+	}
+}
+
+impl Drop for Route {
+	fn drop(&mut self) {
+		self.pool
+			.routes
+			.lock()
+			.unwrap()
+			.senders
+			.remove(&self.client);
 	}
 }
 

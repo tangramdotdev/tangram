@@ -89,6 +89,50 @@ async fn a_request_is_answered() {
 }
 
 #[tokio::test]
+async fn a_request_is_answered_without_waiting_for_a_heartbeat() {
+	// Use a heartbeat interval far longer than the test, so that the request must establish its attempt itself.
+	let options = Options {
+		heartbeat_interval: Duration::from_secs(60),
+		..options()
+	};
+	let messenger = TestMessenger::default();
+	let mut server = server(&messenger, options).await;
+	let record = Arc::new(Record::default());
+	let clients = Arc::new(Clients::new(messenger.clone(), options, record.clone()).unwrap());
+	let request = spawn_request(&clients, "hello");
+	let incoming = server.next().await.unwrap();
+	incoming.reply.acknowledge().unwrap();
+	incoming.reply.send(&Bytes::from("world")).unwrap();
+	assert_eq!(request.await.unwrap().unwrap(), Bytes::from("world"));
+	assert_eq!(record.count("heartbeat_sent"), 0);
+}
+
+#[tokio::test]
+async fn clients_of_one_pool_share_one_response_subscription() {
+	let messenger = TestMessenger::default();
+	let mut answers = Vec::new();
+	for subject in ["first", "second"] {
+		let mut server = serve::<Test, _>(&messenger, subject, options(), Arc::new(Ignore))
+			.await
+			.unwrap();
+		answers.push(tokio::spawn(async move {
+			while let Some(incoming) = server.next().await {
+				incoming.reply.send(&incoming.request).unwrap();
+			}
+		}));
+	}
+	let clients = clients(&messenger, options());
+	for subject in ["first", "second"] {
+		let mut request = clients.request(subject, Bytes::from(subject)).unwrap();
+		assert_eq!(request.wait().await.unwrap(), Bytes::from(subject));
+	}
+	assert_eq!(messenger.subscriptions("_service."), 1);
+	for answer in answers {
+		answer.abort();
+	}
+}
+
+#[tokio::test]
 async fn a_request_sent_before_the_server_starts_is_recovered_when_the_server_announces() {
 	// Use a retry interval far longer than the test, so that only the announcement can deliver the request in time.
 	let options = Options {
@@ -309,7 +353,8 @@ async fn a_stray_cancellation_does_not_affect_a_request() {
 	let request = spawn_request(&clients, "mine");
 	let incoming = server.next().await.unwrap();
 	let message = Message::Cancel {
-		attempt: "unknown".to_owned(),
+		attempt: Some("unknown".to_owned()),
+		client: "unknown".to_owned(),
 		id: "unknown".to_owned(),
 	};
 	messenger
@@ -341,7 +386,13 @@ fn messages_roundtrip() {
 		},
 		Message::Announce,
 		Message::Cancel {
-			attempt: string(),
+			attempt: Some(string()),
+			client: string(),
+			id: string(),
+		},
+		Message::Cancel {
+			attempt: None,
+			client: string(),
 			id: string(),
 		},
 		Message::Heartbeat {
@@ -354,14 +405,21 @@ fn messages_roundtrip() {
 			ttl: Duration::from_millis(1234),
 		},
 		Message::Request {
-			attempt: string(),
+			attempt: Some(string()),
 			client: string(),
 			id: String::new(),
 			request: Bytes::from("request"),
 		},
+		Message::Request {
+			attempt: None,
+			client: string(),
+			id: string(),
+			request: Bytes::new(),
+		},
 		Message::RequestAck {
 			attempt: string(),
 			id: string(),
+			ttl: Duration::from_millis(1234),
 		},
 		Message::Response {
 			attempt: string(),

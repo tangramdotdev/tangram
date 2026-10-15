@@ -40,7 +40,7 @@ pub enum Event<'a, P: Protocol> {
 		request: &'a P::Request,
 	},
 
-	/// A client established an attempt with a server.
+	/// A client established an attempt with a server, from a heartbeat response or from the acknowledgment of a request.
 	Attempt { attempt: &'a str, client: &'a str },
 
 	/// The server received a client's cancellation of a request.
@@ -56,9 +56,9 @@ pub enum Event<'a, P: Protocol> {
 	/// A client sent a heartbeat.
 	HeartbeatSent { client: &'a str, id: &'a str },
 
-	/// A client sent a request.
+	/// A client sent a request, under its current attempt or, if it has none, under the attempt that the request establishes.
 	RequestSent {
-		attempt: &'a str,
+		attempt: Option<&'a str>,
 		id: &'a str,
 		request: &'a P::Request,
 	},
@@ -69,7 +69,7 @@ pub enum Event<'a, P: Protocol> {
 	/// The server received a client's acknowledgment of a response.
 	ResponseAcknowledged { attempt: &'a str, id: &'a str },
 
-	/// A client started.
+	/// A client started. A client is identified by the subject that its responses are published to.
 	Started { client: &'a str, subject: &'a str },
 }
 
@@ -114,7 +114,8 @@ enum Message {
 	},
 	Announce,
 	Cancel {
-		attempt: String,
+		attempt: Option<String>,
+		client: String,
 		id: String,
 	},
 	Heartbeat {
@@ -127,7 +128,7 @@ enum Message {
 		ttl: Duration,
 	},
 	Request {
-		attempt: String,
+		attempt: Option<String>,
 		client: String,
 		id: String,
 		request: Bytes,
@@ -135,6 +136,7 @@ enum Message {
 	RequestAck {
 		attempt: String,
 		id: String,
+		ttl: Duration,
 	},
 	Response {
 		attempt: String,
@@ -185,9 +187,14 @@ impl Payload for Message {
 			Self::Announce => {
 				bytes.put_u8(1);
 			},
-			Self::Cancel { attempt, id } => {
+			Self::Cancel {
+				attempt,
+				client,
+				id,
+			} => {
 				bytes.put_u8(2);
-				put_string(&mut bytes, attempt);
+				put_optional_string(&mut bytes, attempt.as_deref());
+				put_string(&mut bytes, client);
 				put_string(&mut bytes, id);
 			},
 			Self::Heartbeat { client, id } => {
@@ -208,15 +215,16 @@ impl Payload for Message {
 				request,
 			} => {
 				bytes.put_u8(5);
-				put_string(&mut bytes, attempt);
+				put_optional_string(&mut bytes, attempt.as_deref());
 				put_string(&mut bytes, client);
 				put_string(&mut bytes, id);
 				bytes.put_slice(request);
 			},
-			Self::RequestAck { attempt, id } => {
+			Self::RequestAck { attempt, id, ttl } => {
 				bytes.put_u8(6);
 				put_string(&mut bytes, attempt);
 				put_string(&mut bytes, id);
+				bytes.put_u64(ttl.as_millis().try_into().unwrap_or(u64::MAX));
 			},
 			Self::Response {
 				attempt,
@@ -250,10 +258,15 @@ impl Payload for Message {
 				Self::Announce
 			},
 			2 => {
-				let attempt = get_string(&mut bytes)?;
+				let attempt = get_optional_string(&mut bytes)?;
+				let client = get_string(&mut bytes)?;
 				let id = get_string(&mut bytes)?;
 				end(&bytes)?;
-				Self::Cancel { attempt, id }
+				Self::Cancel {
+					attempt,
+					client,
+					id,
+				}
 			},
 			3 => {
 				let client = get_string(&mut bytes)?;
@@ -271,7 +284,7 @@ impl Payload for Message {
 				Self::HeartbeatResponse { attempt, id, ttl }
 			},
 			5 => {
-				let attempt = get_string(&mut bytes)?;
+				let attempt = get_optional_string(&mut bytes)?;
 				let client = get_string(&mut bytes)?;
 				let id = get_string(&mut bytes)?;
 				Self::Request {
@@ -284,8 +297,11 @@ impl Payload for Message {
 			6 => {
 				let attempt = get_string(&mut bytes)?;
 				let id = get_string(&mut bytes)?;
-				end(&bytes)?;
-				Self::RequestAck { attempt, id }
+				if bytes.remaining() != 8 {
+					return Err(invalid());
+				}
+				let ttl = Duration::from_millis(bytes.get_u64());
+				Self::RequestAck { attempt, id, ttl }
 			},
 			7 => {
 				let attempt = get_string(&mut bytes)?;
@@ -335,8 +351,14 @@ fn announce_subject(subject: &str) -> String {
 	format!("{subject}.announce")
 }
 
-fn client_subject(subject: &str, client: &str) -> String {
-	format!("{subject}.client.{client}")
+/// The subject that the responses to one client of a pool are published to, which identifies the client.
+fn client_subject(pool: &str, client: &str) -> String {
+	format!("_service.{pool}.{client}")
+}
+
+/// The subject that a pool subscribes to once for the responses to all of its clients.
+fn pool_subject(pool: &str) -> String {
+	format!("_service.{pool}.*")
 }
 
 fn server_subject(subject: &str) -> String {
@@ -346,6 +368,18 @@ fn server_subject(subject: &str) -> String {
 fn put_string(bytes: &mut BytesMut, value: &str) {
 	bytes.put_u32(value.len().try_into().unwrap());
 	bytes.put_slice(value.as_bytes());
+}
+
+fn put_optional_string(bytes: &mut BytesMut, value: Option<&str>) {
+	match value {
+		Some(value) => {
+			bytes.put_u8(1);
+			put_string(bytes, value);
+		},
+		None => {
+			bytes.put_u8(0);
+		},
+	}
 }
 
 fn end(bytes: &Bytes) -> Result<(), crate::Error> {
@@ -366,4 +400,16 @@ fn get_string(bytes: &mut Bytes) -> Result<String, crate::Error> {
 	}
 	let value = bytes.split_to(length);
 	String::from_utf8(value.to_vec()).map_err(|_| invalid())
+}
+
+fn get_optional_string(bytes: &mut Bytes) -> Result<Option<String>, crate::Error> {
+	let invalid = || crate::Error::deserialization("invalid service message");
+	if bytes.remaining() < 1 {
+		return Err(invalid());
+	}
+	match bytes.get_u8() {
+		0 => Ok(None),
+		1 => get_string(bytes).map(Some),
+		_ => Err(invalid()),
+	}
 }
