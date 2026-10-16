@@ -300,6 +300,7 @@ impl Session {
 			data,
 			id,
 			options,
+			outcome_sync,
 			parent,
 			token: inner_token,
 		} = process;
@@ -453,6 +454,16 @@ impl Session {
 				));
 			},
 		};
+
+		// Use the assignment's outcome sync for a remote process control connection, so that the outcome push does not wait for its header.
+		if connection_header.is_none()
+			&& location.is_remote()
+			&& let Some(sync) = &outcome_sync
+			&& let Some(sender) = sync_sender.take()
+		{
+			sender.send(Some(sync.clone())).ok();
+		}
+
 		tracing::Span::current().record("process", tracing::field::display(&id));
 		tracing::Span::current().record("sandbox", state.sandbox.as_ref().map(ToString::to_string));
 		tracing::info!(parent = parent.as_ref().map(ToString::to_string), process = %id, runner = self.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = state.sandbox.as_ref().map(ToString::to_string), "initialized the process");
@@ -911,7 +922,7 @@ impl Session {
 				id: Some(id.clone()),
 				location: Some(location.clone().into()),
 				mode: tg::process::control::Mode::Start(start),
-				outcome_sync: None,
+				outcome_sync: outcome_sync.clone(),
 			};
 			session
 				.connect_process_control(arg, control_sender)

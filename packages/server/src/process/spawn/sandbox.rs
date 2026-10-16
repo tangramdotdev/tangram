@@ -189,6 +189,7 @@ impl Session {
 			data,
 			id,
 			options,
+			outcome_sync: None,
 			parent,
 			token,
 		}
@@ -293,6 +294,11 @@ impl Session {
 				},
 			}
 		}
+
+		// Give the assignment the outcome sync.
+		let mut process = process;
+		process.outcome_sync = Some(self.prepare_sync(None)?);
+
 		let request = crate::scheduler::EnqueueSandboxRequestArg {
 			arg,
 			creator: Some(self.context.principal.clone()),
