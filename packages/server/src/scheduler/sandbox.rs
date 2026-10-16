@@ -213,7 +213,7 @@ impl Sandboxes {
 
 impl Borrowable {
 	#[must_use]
-	fn new(
+	fn try_new(
 		notification: BorrowableCapacityNotification,
 		connection_index: Option<u64>,
 		previous: Option<&Self>,
@@ -464,7 +464,7 @@ impl State {
 				queue: Queue::new(),
 			});
 		let borrowable =
-			Borrowable::new(notification, connection_index, parent.borrowable.as_ref());
+			Borrowable::try_new(notification, connection_index, parent.borrowable.as_ref());
 		let previous = parent.borrowable.take();
 		parent.borrowable = borrowable;
 		if let Some(previous) = previous
