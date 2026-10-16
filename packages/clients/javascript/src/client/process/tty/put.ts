@@ -4,7 +4,7 @@ import type { Client } from "../../../client.ts";
 
 export async function setProcessTtySize(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Tty.Put.Arg,
 ): Promise<void> {
 	let found = await trySetProcessTtySize(client, id, arg);
@@ -15,7 +15,7 @@ export async function setProcessTtySize(
 
 export async function trySetProcessTtySize(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Tty.Put.Arg,
 ): Promise<true | null> {
 	let method = "PUT";

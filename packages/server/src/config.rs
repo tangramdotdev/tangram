@@ -1067,6 +1067,8 @@ pub struct ProcessConnect {
 
 	pub max_unacknowledged_responses: usize,
 
+	pub service: tangram_messenger::service::Options,
+
 	pub spawn_channel_capacity: usize,
 }
 
@@ -2765,6 +2767,14 @@ impl Default for ProcessConnect {
 			max_operations: 64,
 			max_pending_messages: 64,
 			max_unacknowledged_responses: 196,
+			service: tangram_messenger::service::Options {
+				attempt_ttl: Duration::from_secs(10),
+				heartbeat_interval: Duration::from_secs(1),
+				idle_timeout: Duration::from_secs(60),
+				recovery_timeout: Duration::from_secs(10),
+				request_timeout: Duration::from_secs(10),
+				retry_interval: Duration::from_secs(1),
+			},
 			spawn_channel_capacity: 64,
 		}
 	}

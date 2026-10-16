@@ -351,7 +351,7 @@ impl Session {
 		let lease = lease.ok_or_else(|| tg::error!("missing the process lease"))?;
 		let arg = tg::process::cancel::Arg { lease, location };
 		// The candidate may belong to a remote even when it ran here.
-		self.try_cancel_process(&id, arg)
+		self.try_cancel_process(&tg::Either::Right(id.clone()), arg)
 			.await
 			.map_err(|error| tg::error!(!error, process = %id, "failed to cancel the process"))?
 			.ok_or_else(|| tg::error!(process = %id, "failed to find the process"))?;

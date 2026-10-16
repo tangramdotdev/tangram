@@ -31,11 +31,11 @@ pub struct Arg {
 impl tg::Session {
 	pub async fn try_set_process_tty_size(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: Arg,
 	) -> tg::Result<Option<()>> {
 		let method = http::Method::PUT;
-		let uri = format!("/processes/{id}/tty/size");
+		let uri = format!("/processes/{process}/tty/size");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

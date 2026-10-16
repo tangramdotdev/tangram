@@ -34,6 +34,8 @@ class EmptyTagged[K: str](TypedDict):
 
 class ConnectArgObject(Wait.Arg):
     mode: Literal["run", "spawn"]
+    nonce: NotRequired[str | None]
+    open: NotRequired[list[str]]
     process: SpawnArgObject | str
 
 

@@ -102,6 +102,29 @@ class Connection:
     async def tty(self, arg):
         await (await self.ensure_session()).tty(arg)
 
+    @staticmethod
+    def nonce_stdio_client(connection, client):
+        """Get a stdio client for a process located by its connect's nonce.
+
+        Its reads end when the connection closes once it opens.
+        """
+
+        async def read(process, arg=None, **options):
+            stream = await client.try_read_process_stdio(process, arg, **options)
+            try:
+                opened = await connection
+            except Exception:
+                opened = None
+            if stream is None or opened is None:
+                return stream
+            return BoundStream(stream, opened._closing)
+
+        return SimpleNamespace(
+            set_process_tty_size=client.set_process_tty_size,
+            try_read_process_stdio=read,
+            write_process_stdio=client.write_process_stdio,
+        )
+
     def stdio_client(self):
         client = self.session.client
 

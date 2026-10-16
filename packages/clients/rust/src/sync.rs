@@ -115,9 +115,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 14, default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
 
+	/// The sync that this sync joins, named by the nonce of the connect whose command sync it is, or by its referent.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 15, default, skip_serializing_if = "Option::is_none")]
-	pub sync: Option<tg::Referent<tg::sync::Id>>,
+	pub sync: Option<tg::Either<tg::process::Nonce, tg::Referent<tg::sync::Id>>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]

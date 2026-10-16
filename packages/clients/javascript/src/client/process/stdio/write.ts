@@ -28,7 +28,7 @@ class NotFoundError extends Error {}
 
 export async function writeProcessStdio(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 	complete?: (chunk: tg.Process.Stdio.Chunk) => void,
@@ -41,7 +41,7 @@ export async function writeProcessStdio(
 
 export async function tryWriteProcessStdio(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 	complete?: (chunk: tg.Process.Stdio.Chunk) => void,
@@ -65,7 +65,7 @@ export async function tryWriteProcessStdio(
 
 export async function writeProcessStdioAll(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 	connection: Connection,
@@ -264,7 +264,7 @@ function nextOutput(
 
 async function connect(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 ): Promise<Connection | null> {
 	return await retry(
@@ -277,7 +277,7 @@ async function connect(
 /** Reconnect after the given number of consecutive failed attempts, returning the new connection and the number of consecutive failed attempts including this one. */
 async function reconnect(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 	connection: Connection,
 	attempt: number,
@@ -318,7 +318,7 @@ async function reconnect(
 
 async function writeProcessStdioOnce(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 ): Promise<Connection | null> {
 	let input = new Channel<tg.Process.Stdio.Write.Data>();

@@ -306,7 +306,7 @@ pub trait Ext: tg::Instance {
 			let instance = self.clone();
 			let id = id.clone();
 			let Some(stream) = instance
-				.try_get_process_status_stream(&id, arg.clone())
+				.try_get_process_status_stream(&tg::Either::Right(id.clone()), arg.clone())
 				.await?
 			else {
 				return Ok(None);
@@ -333,7 +333,7 @@ pub trait Ext: tg::Instance {
 						stream
 					} else {
 						instance
-							.try_get_process_status_stream(&id, arg)
+							.try_get_process_status_stream(&tg::Either::Right(id.clone()), arg)
 							.await?
 							.ok_or_else(|| tg::error!("failed to find the process"))?
 							.boxed()
@@ -389,7 +389,7 @@ pub trait Ext: tg::Instance {
 			let instance = self.clone();
 			let id = id.clone();
 			let Some(stream) = instance
-				.try_get_process_children_stream(&id, arg.clone())
+				.try_get_process_children_stream(&tg::Either::Right(id.clone()), arg.clone())
 				.await?
 			else {
 				return Ok(None);
@@ -420,7 +420,7 @@ pub trait Ext: tg::Instance {
 					} else {
 						let arg = state.lock().unwrap().arg.clone();
 						instance
-							.try_get_process_children_stream(&id, arg)
+							.try_get_process_children_stream(&tg::Either::Right(id.clone()), arg)
 							.await?
 							.ok_or_else(|| tg::error!("failed to find the process"))?
 							.boxed()
@@ -473,12 +473,13 @@ pub trait Ext: tg::Instance {
 		arg: tg::process::wait::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::outcome::Data>> + Send {
 		async move {
-			let mut future = self.wait_process_future(id, arg.clone()).await?;
+			let process = tg::Either::Right(id.clone());
+			let mut future = self.wait_process_future(&process, arg.clone()).await?;
 			loop {
 				if let Some(outcome) = future.await? {
 					return Ok(outcome);
 				}
-				future = self.wait_process_future(id, arg.clone()).await?;
+				future = self.wait_process_future(&process, arg.clone()).await?;
 			}
 		}
 	}
@@ -606,7 +607,7 @@ pub trait Ext: tg::Instance {
 
 	fn try_read_process_stdio_all(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 	) -> impl Future<
 		Output = tg::Result<
@@ -614,7 +615,9 @@ pub trait Ext: tg::Instance {
 		>,
 	> + Send {
 		async move {
-			let output = self.try_read_process_stdio_all_inner(id, arg, None).await?;
+			let output = self
+				.try_read_process_stdio_all_inner(process, arg, None)
+				.await?;
 			let output = output.map(|stream| {
 				stream.try_filter_map(|message| {
 					future::ready(Ok(match message {
@@ -635,7 +638,7 @@ pub trait Ext: tg::Instance {
 	/// Read the process's stdio, reconnecting from the acknowledged position. The reader acknowledges each chunk as it yields it, unless `acks` reports the positions that its own reader has acknowledged.
 	fn try_read_process_stdio_all_inner(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 		acks: Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>>,
 	) -> impl Future<
@@ -647,7 +650,7 @@ pub trait Ext: tg::Instance {
 	> + Send {
 		async move {
 			let instance = self.clone();
-			let id = id.clone();
+			let process = process.clone();
 			let forward = arg.length.is_none_or(|length| length >= 0);
 			let combined = arg.streams.len() > 1;
 			let position = match arg.position {
@@ -676,7 +679,7 @@ pub trait Ext: tg::Instance {
 			let ack_sender = ack_task.is_none().then_some(ack_sender);
 			let input = read_process_stdio_acks(ack_receiver.clone());
 			let Some(output) = instance
-				.try_read_process_stdio(&id, arg.clone(), input)
+				.try_read_process_stdio(&process, arg.clone(), input)
 				.await?
 			else {
 				return Ok(None);
@@ -689,11 +692,11 @@ pub trait Ext: tg::Instance {
 				ended: bool,
 				error: Option<tg::Error>,
 				forward: bool,
-				id: tg::process::Id,
 				instance: I,
 				output:
 					Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>,
 				position: Option<u64>,
+				process: tg::Either<tg::process::Nonce, tg::process::Id>,
 				retries: Option<BoxStream<'static, ()>>,
 				stream_retry: tangram_futures::retry::Options,
 			}
@@ -706,10 +709,10 @@ pub trait Ext: tg::Instance {
 				ended: false,
 				error: None,
 				forward,
-				id,
 				instance,
 				output: Some(output.boxed()),
 				position,
+				process,
 				retries: None,
 				stream_retry,
 			};
@@ -748,7 +751,7 @@ pub trait Ext: tg::Instance {
 						let input = read_process_stdio_acks(state.ack_receiver.clone());
 						match state
 							.instance
-							.try_read_process_stdio(&state.id, arg, input)
+							.try_read_process_stdio(&state.process, arg, input)
 							.await
 						{
 							Ok(Some(output)) => {
@@ -876,7 +879,7 @@ pub trait Ext: tg::Instance {
 
 	fn write_process_stdio_all(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
@@ -886,7 +889,7 @@ pub trait Ext: tg::Instance {
 				completion: None,
 			})
 			.boxed();
-		tg::process::stdio::write::all(self, id, arg, input)
+		tg::process::stdio::write::all(self, process, arg, input)
 	}
 }
 

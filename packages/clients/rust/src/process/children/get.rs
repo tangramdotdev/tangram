@@ -139,7 +139,7 @@ impl<O> tg::Process<O> {
 impl tg::Session {
 	pub async fn try_get_process_children_stream(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<
 		Option<
@@ -147,7 +147,7 @@ impl tg::Session {
 		>,
 	> {
 		let method = http::Method::GET;
-		let path = format!("/processes/{id}/children");
+		let path = format!("/processes/{process}/children");
 		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)

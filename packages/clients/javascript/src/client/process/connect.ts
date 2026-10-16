@@ -10,6 +10,8 @@ export namespace Connect {
 	export type Options = tg.Process.Wait.Arg;
 	export type Arg = tg.Process.Wait.Arg & {
 		mode: Mode;
+		nonce?: tg.Process.Nonce | null;
+		open?: Array<tg.Process.Stdio.Stream>;
 		process: tg.Process.Spawn.Arg | tg.Process.Id;
 	};
 	export type ClientRequestArg =

@@ -31,11 +31,11 @@ pub struct Arg {
 impl tg::Session {
 	pub async fn try_post_process_signal(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: Arg,
 	) -> tg::Result<Option<()>> {
 		let method = http::Method::POST;
-		let uri = format!("/processes/{id}/signal");
+		let uri = format!("/processes/{process}/signal");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

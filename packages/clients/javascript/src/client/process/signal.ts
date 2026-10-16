@@ -12,7 +12,7 @@ export namespace Signal {
 
 export async function signalProcess(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Signal.Arg,
 ): Promise<void> {
 	let found = await trySignalProcess(client, id, arg);
@@ -23,7 +23,7 @@ export async function signalProcess(
 
 export async function trySignalProcess(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Signal.Arg,
 ): Promise<true | null> {
 	let method = "POST";

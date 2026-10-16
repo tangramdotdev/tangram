@@ -264,7 +264,12 @@ impl Session {
 								args,
 								None,
 								false,
-								state.arg.sync.as_ref().map(|sync| &sync.node),
+								state
+									.arg
+									.sync
+									.as_ref()
+									.and_then(|sync| sync.as_ref().right())
+									.map(|sync| &sync.node),
 							)
 							.await?;
 						let output = outputs.pop().unwrap();
@@ -648,7 +653,12 @@ impl Session {
 								args,
 								None,
 								false,
-								state.arg.sync.as_ref().map(|sync| &sync.node),
+								state
+									.arg
+									.sync
+									.as_ref()
+									.and_then(|sync| sync.as_ref().right())
+									.map(|sync| &sync.node),
 							)
 							.await?;
 						let output = outputs.pop().unwrap();

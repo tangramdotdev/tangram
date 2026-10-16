@@ -18,6 +18,7 @@ impl Session {
 		let arg = crate::process::PushProcessObjectsArg {
 			location: location.clone(),
 			nodes,
+			nonce: None,
 			process_command_objects: true,
 			sync: None,
 		};
