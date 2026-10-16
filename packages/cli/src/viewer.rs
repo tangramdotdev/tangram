@@ -295,9 +295,10 @@ impl Viewer {
 					let row = tangram_util::tty::get_cursor_position(tty_fd)
 						.map_or(0, |(_column, row)| row.to_usize().unwrap());
 
-					// Clear the screen and save the cursor position.
+					// Return to the first column, clear the screen, and save the cursor position.
 					ct::queue!(
 						tty,
+						ct::cursor::MoveToColumn(0),
 						ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 						ct::cursor::SavePosition,
 					)
@@ -350,6 +351,7 @@ impl Viewer {
 		{
 			ct::queue!(
 				tty,
+				ct::cursor::MoveToColumn(0),
 				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 				ct::cursor::Show,
 			)
