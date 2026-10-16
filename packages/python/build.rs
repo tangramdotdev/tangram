@@ -98,7 +98,7 @@ fn main() {
 	let python = host_distribution.join(host_metadata["python_exe"].as_str().unwrap());
 	let packages = tangram_python_build::packages(&python, &root, &output);
 	let status = Command::new(&python)
-		.args(["-E", "-s"])
+		.args(["-B", "-E", "-s"])
 		.arg("build/embed.py")
 		.arg(&distribution)
 		.arg(&host_distribution)
