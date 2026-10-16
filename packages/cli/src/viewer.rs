@@ -295,36 +295,8 @@ impl Viewer {
 					let row = tangram_util::tty::get_cursor_position(tty_fd)
 						.map_or(0, |(_column, row)| row.to_usize().unwrap());
 
-					// Clear the screen and save the cursor position.
-					ct::queue!(
-						tty,
-						ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-						ct::cursor::SavePosition,
-					)
-					.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
-
-					// Print the tree.
-					let mut first = true;
-					for line in tree.lines().take(rows.saturating_sub(row)) {
-						if !first {
-							writeln!(tty).map_err(|error| {
-								tg::error!(!error, "failed to write to the terminal")
-							})?;
-						}
-						first = false;
-						let line = clip(line, columns);
-						write!(tty, "{line}").map_err(|error| {
-							tg::error!(!error, "failed to write to the terminal")
-						})?;
-					}
-
-					// Restore the cursor position.
-					ct::queue!(tty, ct::cursor::RestorePosition)
-						.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
-
-					// Flush the terminal.
-					tty.flush()
-						.map_err(|error| tg::error!(!error, "failed to flush the terminal"))?;
+					// Render the frame in the rows below the cursor.
+					render_inline_frame(tty, &tree, columns, rows.saturating_sub(row))?;
 				} else {
 					self.tree.clear_guards();
 				}
@@ -350,6 +322,7 @@ impl Viewer {
 		{
 			ct::queue!(
 				tty,
+				ct::cursor::MoveToColumn(0),
 				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 				ct::cursor::Show,
 			)
@@ -634,6 +607,46 @@ impl Drop for TerminalSession {
 	}
 }
 
+fn render_inline_frame(
+	writer: &mut impl std::io::Write,
+	tree: &str,
+	columns: usize,
+	rows: usize,
+) -> tg::Result<()> {
+	// Return to the first column, clear the screen, and save the cursor position.
+	ct::queue!(
+		writer,
+		ct::cursor::MoveToColumn(0),
+		ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+		ct::cursor::SavePosition,
+	)
+	.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
+
+	// Print the tree.
+	let mut first = true;
+	for line in tree.lines().take(rows) {
+		if !first {
+			writeln!(writer)
+				.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
+		}
+		first = false;
+		let line = clip(line, columns);
+		write!(writer, "{line}")
+			.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
+	}
+
+	// Restore the cursor position.
+	ct::queue!(writer, ct::cursor::RestorePosition)
+		.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
+
+	// Flush the terminal.
+	writer
+		.flush()
+		.map_err(|error| tg::error!(!error, "failed to flush the terminal"))?;
+
+	Ok(())
+}
+
 fn render_block_and_get_area(title: &str, focused: bool, area: Rect, buffer: &mut Buffer) -> Rect {
 	let block = tui::widgets::Block::bordered()
 		.title(title)
@@ -646,4 +659,32 @@ fn render_block_and_get_area(title: &str, focused: bool, area: Rect, buffer: &mu
 		.first()
 		.copied()
 		.unwrap_or(area)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::render_inline_frame;
+
+	#[test]
+	fn inline_frames_ignore_echoed_input() {
+		// Create a terminal with the cursor on its bottom row.
+		let mut parser = vt100::Parser::new(3, 10, 0);
+		parser.process(b"\x1b[3;1H");
+
+		// Render frames before and after an echoed arrow key shifts the cursor.
+		let tree = "building";
+		for frame in 0..3 {
+			if frame == 1 {
+				parser.process(b"^[[A");
+			}
+			let mut bytes = Vec::new();
+			render_inline_frame(&mut bytes, tree, 10, 1).unwrap();
+			parser.process(&bytes);
+		}
+
+		// Assert that only the bottom row contains the tree and the cursor is restored.
+		let rows = parser.screen().rows(0, 10).collect::<Vec<_>>();
+		assert_eq!(rows, ["", "", tree]);
+		assert_eq!(parser.screen().cursor_position(), (2, 0));
+	}
 }
