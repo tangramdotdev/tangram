@@ -90,8 +90,12 @@ impl Index {
 		let read = tg::authorization::Permission::Sync(
 			tg::authorization::permission::sync::Permission::Read,
 		);
-		let subjects =
-			Self::get_resource_permission_subjects_with_transaction(db, subspace, transaction, resource)?;
+		let subjects = Self::get_resource_permission_subjects_with_transaction(
+			db,
+			subspace,
+			transaction,
+			resource,
+		)?;
 		let mut permissions = Vec::new();
 		for sync_subject in subjects {
 			let tg::authorization::Subject::Sync(sync) = &sync_subject else {

@@ -13,7 +13,10 @@ impl Index {
 		resource: &tg::Id,
 	) -> tg::Result<Vec<tg::tag::Id>> {
 		let bytes = resource.to_bytes();
-		let prefix = Self::pack(subspace, &(Kind::TargetTag.to_i32().unwrap(), bytes.as_ref()));
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::TargetTag.to_i32().unwrap(), bytes.as_ref()),
+		);
 		let mut tags = Vec::new();
 		let entries = db
 			.prefix_iter(transaction, &prefix)

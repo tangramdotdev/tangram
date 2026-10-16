@@ -515,6 +515,7 @@ impl Index {
 								id,
 								subject,
 								cleaning_partition_total,
+								partition_totals.usage_update,
 							)
 							.await
 						)
@@ -527,6 +528,7 @@ impl Index {
 								id,
 								subject,
 								cleaning_partition_total,
+								partition_totals.usage_update,
 							)
 							.await
 						)
@@ -1591,6 +1593,7 @@ impl Index {
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let resource = tg::Id::from(id.clone());
 		let (children, entries) = futures::try_join!(
@@ -1768,6 +1771,7 @@ impl Index {
 				subject,
 				&entries,
 				partition_total,
+				usage_partition_total,
 			)
 			.await
 		);
@@ -1807,6 +1811,7 @@ impl Index {
 		subject: &tg::authorization::Subject,
 		entries: &[crate::permission::PermissionEntry],
 		partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let tg::authorization::Subject::Tag(tag) = subject else {
 			return Ok(ControlFlow::Break(false));
@@ -1829,22 +1834,18 @@ impl Index {
 		let mut anchored = creator.is_some();
 		if !anchored {
 			let parents = match id {
-				tg::Either::Left(id) => {
-					crate::propagate!(
-						Self::get_object_parents_with_transaction(txn, subspace, id).await
-					)
-					.into_iter()
-					.map(tg::Id::from)
-					.collect::<Vec<_>>()
-				},
-				tg::Either::Right(id) => {
-					crate::propagate!(
-						Self::get_process_parents_with_transaction(txn, subspace, id).await
-					)
-					.into_iter()
-					.map(tg::Id::from)
-					.collect::<Vec<_>>()
-				},
+				tg::Either::Left(id) => crate::propagate!(
+					Self::get_object_parents_with_transaction(txn, subspace, id).await
+				)
+				.into_iter()
+				.map(tg::Id::from)
+				.collect::<Vec<_>>(),
+				tg::Either::Right(id) => crate::propagate!(
+					Self::get_process_parents_with_transaction(txn, subspace, id).await
+				)
+				.into_iter()
+				.map(tg::Id::from)
+				.collect::<Vec<_>>(),
 			};
 			for parent in parents {
 				let entries = crate::propagate!(
@@ -1872,7 +1873,7 @@ impl Index {
 			.map(|entry| entry.permission)
 			.collect::<BTreeSet<_>>();
 		let mut changed = false;
-		for permission in permissions {
+		for permission in permissions.iter().copied() {
 			if crate::propagate!(
 				Self::put_permission_index_entry(
 					txn,
@@ -1893,8 +1894,51 @@ impl Index {
 				changed = true;
 			}
 		}
+		if !changed {
+			return Ok(ControlFlow::Break(false));
+		}
 
-		Ok(ControlFlow::Break(changed))
+		// Enqueue a usage update for the tag's account.
+		let account =
+			crate::propagate!(Self::try_get_tag_with_transaction(txn, subspace, tag).await)
+				.and_then(|tag| tag.account);
+		let Some(account) = account else {
+			return Ok(ControlFlow::Break(true));
+		};
+		let (kind, touched_at) = match id {
+			tg::Either::Left(id) => (
+				tg::authorization::ResourceKind::Object,
+				crate::propagate!(Self::try_get_object_with_transaction(txn, subspace, id).await)
+					.map(|object| object.touched_at),
+			),
+			tg::Either::Right(id) => (
+				tg::authorization::ResourceKind::Process,
+				crate::propagate!(Self::try_get_process_with_transaction(txn, subspace, id).await)
+					.map(|process| process.touched_at),
+			),
+		};
+		let Some(touched_at) = touched_at else {
+			return Ok(ControlFlow::Break(true));
+		};
+		let mut set = tg::authorization::permission::Set::empty_for_kind(kind);
+		for permission in permissions {
+			set.insert(permission.into());
+		}
+		let kind = crate::update::Kind::Usage(crate::update::UsageKind::Put {
+			account,
+			permissions: set,
+			touched_at,
+		});
+		Self::enqueue_update_with_kind(
+			txn,
+			subspace,
+			id,
+			&kind,
+			crate::update::Source::Put,
+			usage_partition_total,
+		);
+
+		Ok(ControlFlow::Break(true))
 	}
 
 	async fn promote_process_direct_permissions_for_subject(
@@ -2217,6 +2261,7 @@ impl Index {
 		id: &tg::process::Id,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let key = crate::Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -2361,6 +2406,7 @@ impl Index {
 				subject,
 				&entries,
 				partition_total,
+				usage_partition_total,
 			)
 			.await
 		);
@@ -3665,8 +3711,9 @@ impl Index {
 			tg::Either::Left(id) => tg::Id::from(id.clone()),
 			tg::Either::Right(id) => tg::Id::from(id.clone()),
 		};
-		let tags =
-			crate::propagate!(Self::get_target_tags_with_transaction(txn, subspace, &resource).await);
+		let tags = crate::propagate!(
+			Self::get_target_tags_with_transaction(txn, subspace, &resource).await
+		);
 		for tag in tags {
 			let enqueue = if matches!(source, tg::authorization::Subject::Sync(_)) {
 				true

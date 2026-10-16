@@ -372,12 +372,7 @@ async fn tag_creator_sync_permissions_promote_tag_permissions_on_object_target()
 
 	// Retarget the tag and lose the permissions.
 	let arg = tangram_index::batch::Arg {
-		items: vec![tag(
-			&tag_id,
-			&tg::Either::Left(object(1)),
-			&alice,
-			"v2",
-		)],
+		items: vec![tag(&tag_id, &tg::Either::Left(object(1)), &alice, "v2")],
 	};
 	index.batch(arg).await.unwrap().unwrap();
 	drain(&index).await;
@@ -564,10 +559,12 @@ fn process_permission(
 	tangram_index::batch::Item::PutPermission(arg)
 }
 
-fn sync_read(sync: &tg::sync::Id, subject: &tg::authorization::Subject) -> tangram_index::batch::Item {
-	let permission = tg::authorization::Permission::Sync(
-		tg::authorization::permission::sync::Permission::Read,
-	);
+fn sync_read(
+	sync: &tg::sync::Id,
+	subject: &tg::authorization::Subject,
+) -> tangram_index::batch::Item {
+	let permission =
+		tg::authorization::Permission::Sync(tg::authorization::permission::sync::Permission::Read);
 	let arg = tangram_index::permission::put::Arg {
 		created_at: 0,
 		creator: None,
@@ -618,7 +615,11 @@ fn direct(
 	)
 	.unwrap()
 	.into_iter()
-	.filter_map(|entry| entry.direct.map(|expires_at| (entry.permission, expires_at)))
+	.filter_map(|entry| {
+		entry
+			.direct
+			.map(|expires_at| (entry.permission, expires_at))
+	})
 	.collect()
 }
 

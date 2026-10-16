@@ -15,7 +15,10 @@ impl Index {
 		resource: &tg::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::tag::Id>, fdb::FdbError>> {
 		let bytes = resource.to_bytes();
-		let prefix = Self::pack(subspace, &(Kind::TargetTag.to_i32().unwrap(), bytes.as_ref()));
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::TargetTag.to_i32().unwrap(), bytes.as_ref()),
+		);
 		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption::from(&range_subspace);
 		let result = txn

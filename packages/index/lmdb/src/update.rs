@@ -807,7 +807,7 @@ impl Index {
 			.map(|entry| entry.permission)
 			.collect::<BTreeSet<_>>();
 		let mut changed = false;
-		for permission in permissions {
+		for permission in permissions.iter().copied() {
 			let entry = crate::permission::PermissionIndexEntry {
 				creator: None,
 				expires_at: None,
@@ -826,8 +826,51 @@ impl Index {
 				changed = true;
 			}
 		}
+		if !changed {
+			return Ok(false);
+		}
 
-		Ok(changed)
+		// Enqueue a usage update for the tag's account.
+		let account = Self::try_get_tag_with_transaction(db, subspace, transaction, tag)?
+			.and_then(|tag| tag.account);
+		let Some(account) = account else {
+			return Ok(true);
+		};
+		let (kind, touched_at) = match id {
+			tg::Either::Left(id) => (
+				tg::authorization::ResourceKind::Object,
+				Self::try_get_object_with_transaction(db, subspace, transaction, id)?
+					.map(|object| object.touched_at),
+			),
+			tg::Either::Right(id) => (
+				tg::authorization::ResourceKind::Process,
+				Self::try_get_process_with_transaction(db, subspace, transaction, id)?
+					.map(|process| process.touched_at),
+			),
+		};
+		let Some(touched_at) = touched_at else {
+			return Ok(true);
+		};
+		let mut set = tg::authorization::permission::Set::empty_for_kind(kind);
+		for permission in permissions {
+			set.insert(permission.into());
+		}
+		let kind = crate::update::Kind::Usage(crate::update::UsageKind::Put {
+			account,
+			permissions: set,
+			touched_at,
+		});
+		Self::enqueue_update_with_kind(
+			db,
+			subspace,
+			transaction,
+			id.clone(),
+			kind,
+			crate::update::Source::Put,
+			None,
+		)?;
+
+		Ok(true)
 	}
 
 	fn promote_process_direct_permissions_for_subject(
