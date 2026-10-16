@@ -165,7 +165,7 @@ impl Session {
 			// Report potential capacity before waiting for an outstanding borrower to finish.
 			let notification = tg::process::control::BorrowableCapacityClientNotification {
 				available: false,
-				capacity,
+				capacity: Some(capacity),
 				heartbeat_index: self.server.runner.state().heartbeat_index(),
 				parent: parent_sandbox.clone(),
 				runner: runner.clone(),
@@ -186,7 +186,7 @@ impl Session {
 			else {
 				let notification = tg::process::control::BorrowableCapacityClientNotification {
 					available: false,
-					capacity: tg::runner::Capacity::default(),
+					capacity: None,
 					heartbeat_index: self.server.runner.state().heartbeat_index(),
 					parent: parent_sandbox.clone(),
 					runner: runner.clone(),
@@ -198,7 +198,7 @@ impl Session {
 			};
 			let notification = tg::process::control::BorrowableCapacityClientNotification {
 				available: true,
-				capacity,
+				capacity: Some(capacity),
 				heartbeat_index: self.server.runner.state().heartbeat_index(),
 				parent: parent_sandbox.clone(),
 				runner: runner.clone(),

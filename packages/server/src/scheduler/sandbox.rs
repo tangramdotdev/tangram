@@ -217,12 +217,14 @@ impl Borrowable {
 		notification: BorrowableCapacityNotification,
 		connection_index: Option<u64>,
 		previous: Option<&Self>,
-	) -> Self {
+	) -> Option<Self> {
+		let capacity = notification.capacity?;
+
 		// A pending borrower must not revoke an existing unconsumed reservation.
 		let available = notification.available
 			|| previous.is_some_and(|previous| {
 				previous.available
-					&& previous.capacity == notification.capacity
+					&& previous.capacity == capacity
 					&& previous.connection_index == connection_index
 					&& previous.runner == notification.runner
 			});
@@ -234,13 +236,15 @@ impl Borrowable {
 			.map_or(notification.heartbeat_index, |previous| {
 				previous.heartbeat_index.max(notification.heartbeat_index)
 			});
-		Self {
+		let borrowable = Self {
 			available,
-			capacity: notification.capacity,
+			capacity,
 			connection_index,
 			heartbeat_index,
 			runner: notification.runner,
-		}
+		};
+
+		Some(borrowable)
 	}
 }
 
@@ -462,9 +466,7 @@ impl State {
 		let borrowable =
 			Borrowable::new(notification, connection_index, parent.borrowable.as_ref());
 		let previous = parent.borrowable.take();
-		if borrowable.capacity.cpu.max.millis() != 0 {
-			parent.borrowable = Some(borrowable);
-		}
+		parent.borrowable = borrowable;
 		if let Some(previous) = previous
 			&& let Some(runner) = self.runners.entries.get_mut(&previous.runner)
 		{

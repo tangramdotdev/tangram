@@ -141,7 +141,7 @@ pub(crate) enum Notification {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct BorrowableCapacityNotification {
 	pub available: bool,
-	pub capacity: tg::runner::Capacity,
+	pub capacity: Option<tg::runner::Capacity>,
 	pub heartbeat_index: u64,
 	pub parent: tg::sandbox::Id,
 	pub runner: tg::runner::Id,

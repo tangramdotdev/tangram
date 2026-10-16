@@ -160,8 +160,10 @@ pub struct BorrowableCapacityClientNotification {
 	#[tangram_serialize(id = 4)]
 	pub available: bool,
 
-	#[tangram_serialize(id = 0)]
-	pub capacity: tg::runner::Capacity,
+	/// The capacity the parent can lend, where none revokes it.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	pub capacity: Option<tg::runner::Capacity>,
 
 	#[tangram_serialize(id = 5)]
 	pub heartbeat_index: u64,
