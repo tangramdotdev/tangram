@@ -80,7 +80,9 @@ impl<O> tg::Process<O> {
 			.or_else(|| self.lease().copied())
 			.ok_or_else(|| tg::error!("missing lease"))?;
 		let arg = Arg { lease, location };
-		instance.cancel_process(id, arg).await?;
+		instance
+			.cancel_process(&tg::Either::Right(id.clone()), arg)
+			.await?;
 		self.disarm();
 
 		Ok(())
@@ -90,11 +92,11 @@ impl<O> tg::Process<O> {
 impl tg::Session {
 	pub async fn try_cancel_process(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let method = http::Method::POST;
-		let path = format!("/processes/{id}/cancel");
+		let path = format!("/processes/{process}/cancel");
 		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)

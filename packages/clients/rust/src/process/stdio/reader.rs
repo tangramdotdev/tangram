@@ -123,7 +123,10 @@ impl Reader {
 				tokens,
 				..Default::default()
 			};
-			let Some(input) = instance.try_read_process_stdio_all(&process, arg).await? else {
+			let Some(input) = instance
+				.try_read_process_stdio_all(&tg::Either::Right(process.clone()), arg)
+				.await?
+			else {
 				return Err(tg::error!("{} is not available", stream));
 			};
 			state.input = Some(input.boxed());

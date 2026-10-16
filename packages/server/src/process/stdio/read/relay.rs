@@ -38,7 +38,7 @@ impl Session {
 					..arg
 				};
 				client
-					.try_read_process_stdio(id, arg, input)
+					.try_read_process_stdio(&tg::Either::Right(id.clone()), arg, input)
 					.await
 					.map_err(|error| tg::error!(!error, region = %region, "failed to read stdin"))?
 					.map(futures::StreamExt::boxed)
@@ -64,7 +64,7 @@ impl Session {
 					..arg
 				};
 				client
-					.try_read_process_stdio(id, arg, input)
+					.try_read_process_stdio(&tg::Either::Right(id.clone()), arg, input)
 					.await
 					.map_err(|error| tg::error!(!error, remote = %remote, "failed to read stdin"))?
 					.map(futures::StreamExt::boxed)

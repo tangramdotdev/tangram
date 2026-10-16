@@ -5,8 +5,14 @@ use {
 
 pub(crate) struct PushProcessObjectsArg {
 	pub location: tg::Location,
+
+	/// The nonce of the connect whose command sync the push joins, when the push does not know the sync.
+	pub nonce: Option<tg::process::Nonce>,
+
 	pub nodes: Vec<tg::Referent<tg::Id>>,
+
 	pub process_command_objects: bool,
+
 	pub sync: Option<tg::Referent<tg::sync::Id>>,
 }
 
@@ -23,6 +29,7 @@ impl Session {
 		let PushProcessObjectsArg {
 			location,
 			nodes,
+			nonce,
 			process_command_objects,
 			sync,
 		} = arg;
@@ -72,7 +79,7 @@ impl Session {
 			user_children: false,
 		};
 		let retry = self.server.config.process.push_retry.clone().into();
-		let (header, stream) = self.push_for_process(arg, sync, retry).await?;
+		let (header, stream) = self.push_for_process(arg, sync, nonce, retry).await?;
 		let sync = header
 			.sync
 			.ok_or_else(|| tg::error!("the process object push did not produce a sync"))?;

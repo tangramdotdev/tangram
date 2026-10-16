@@ -102,11 +102,31 @@ impl Session {
 		tg::sync::Header,
 		BoxStream<'static, tg::Result<tg::sync::Message>>,
 	)> {
-		// Verify or create the sync before starting the transfer.
-		arg.sync = Some(self.prepare_sync(arg.sync)?);
-		let header = tg::sync::Header {
-			sync: arg.sync.clone(),
+		// Join the command sync of the connect that a nonce names, giving the requested nodes the sync's tokens.
+		let sync = match arg.sync.take() {
+			Some(tg::Either::Left(nonce)) => {
+				let sync = self
+					.try_resolve_process_command_sync(&nonce)
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the command sync of the connect"))?;
+				for referent in &mut arg.get {
+					for token in sync.options.tokens.local_authorization() {
+						referent
+							.options
+							.tokens
+							.insert_local_authorization(token.clone());
+					}
+				}
+				Some(sync)
+			},
+			Some(tg::Either::Right(sync)) => Some(sync),
+			None => None,
 		};
+
+		// Verify or create the sync before starting the transfer.
+		let sync = self.prepare_sync(sync)?;
+		arg.sync = Some(tg::Either::Right(sync.clone()));
+		let header = tg::sync::Header { sync: Some(sync) };
 
 		// Start the transfer.
 		let capacity = self.server.config.sync.channel_capacity;

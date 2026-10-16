@@ -112,13 +112,14 @@ impl<O> tg::Process<O> {
 			source: options.source,
 			tokens: self.tokens(),
 		};
-		let mut future = instance.wait_process_future(id, arg.clone()).await?;
+		let process = tg::Either::Right(id.clone());
+		let mut future = instance.wait_process_future(&process, arg.clone()).await?;
 		self.wait_stdio().await?;
 		let data = loop {
 			if let Some(data) = future.await? {
 				break data;
 			}
-			future = instance.wait_process_future(id, arg.clone()).await?;
+			future = instance.wait_process_future(&process, arg.clone()).await?;
 		};
 		let outcome: tg::process::Outcome = data.try_into()?;
 		let location = location.and_then(|location| location.to_location());
@@ -154,11 +155,11 @@ impl<O> tg::Process<O> {
 impl tg::Session {
 	pub async fn try_wait_process_future(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		let method = http::Method::POST;
-		let path = format!("/processes/{id}/wait");
+		let path = format!("/processes/{process}/wait");
 		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)

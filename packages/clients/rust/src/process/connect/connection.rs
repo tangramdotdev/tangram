@@ -233,6 +233,8 @@ impl Session {
 			lease: output.lease,
 			location: output.location.clone().map(Into::into),
 			mode: Mode::Run,
+			nonce: None,
+			open: Vec::new(),
 			process: tg::Either::Right(id),
 			push: false,
 			tokens: output.tokens.clone(),

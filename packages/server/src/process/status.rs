@@ -21,10 +21,21 @@ use {
 impl Session {
 	pub async fn try_get_process_status_stream(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::status::Arg,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		mut arg: tg::process::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
+		let mut process = process.clone();
+		if self
+			.try_resolve_process(&mut process, &mut arg.location, Some(&mut arg.tokens), &[])
+			.await?
+			.is_none()
+		{
+			return Ok(None);
+		}
+		let id = process.clone().right();
+		let process = &process;
 		if !arg.source.is_index()
+			&& let Some(id) = &id
 			&& let Some(stream) = self.try_get_process_status_stream_runner(id, &arg).await?
 		{
 			return Ok(Some(stream));
@@ -36,7 +47,9 @@ impl Session {
 
 		if let Some(local) = &locations.local {
 			let stopper = self.context.stopper.clone();
-			if local.current {
+			if local.current
+				&& let Some(id) = &id
+			{
 				let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
 					None
 				} else {
@@ -76,7 +89,7 @@ impl Session {
 
 			if let Some(status) = self
 				.try_get_process_status_stream_regions(
-					id,
+					process,
 					&local.regions,
 					arg.timeout,
 					&arg.tokens,
@@ -84,7 +97,7 @@ impl Session {
 				)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %id, "failed to get the process status from another region"),
+					|error| tg::error!(!error, %process, "failed to get the process status from another region"),
 				)? {
 				return Ok(Some(status));
 			}
@@ -92,7 +105,7 @@ impl Session {
 
 		if let Some(status) = self
 			.try_get_process_status_stream_remotes(
-				id,
+				process,
 				&locations.remotes,
 				arg.timeout,
 				&arg.tokens,
@@ -100,7 +113,7 @@ impl Session {
 			)
 			.await
 			.map_err(
-				|error| tg::error!(!error, %id, "failed to get the process status from a remote"),
+				|error| tg::error!(!error, %process, "failed to get the process status from a remote"),
 			)? {
 			return Ok(Some(status));
 		}
@@ -163,7 +176,7 @@ impl Session {
 					// Resume at the owning location when the runner releases its state.
 					arg.location = Some(runner.location_arg);
 					let mut stream = self
-						.try_get_process_status_stream(id, arg)
+						.try_get_process_status_stream(&tg::Either::Right(id.clone()), arg)
 						.boxed()
 						.await?
 						.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
@@ -421,7 +434,7 @@ impl Session {
 
 	async fn try_get_process_status_stream_regions(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		regions: &[String],
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
@@ -430,7 +443,7 @@ impl Session {
 		let mut futures = regions
 			.iter()
 			.map(|region| {
-				self.try_get_process_status_stream_region(id, region, timeout, tokens, source)
+				self.try_get_process_status_stream_region(process, region, timeout, tokens, source)
 			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
@@ -454,7 +467,7 @@ impl Session {
 
 	async fn try_get_process_status_stream_region(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		region: &str,
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
@@ -473,7 +486,7 @@ impl Session {
 			tokens: tokens.for_location(&location),
 		};
 		let Some(stream) = client
-			.try_get_process_status_stream(id, arg)
+			.try_get_process_status_stream(process, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the process status"),
@@ -486,7 +499,7 @@ impl Session {
 
 	async fn try_get_process_status_stream_remotes(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		remotes: &[crate::location::Remote],
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
@@ -495,7 +508,7 @@ impl Session {
 		let mut futures = remotes
 			.iter()
 			.map(|remote| {
-				self.try_get_process_status_stream_remote(id, remote, timeout, tokens, source)
+				self.try_get_process_status_stream_remote(process, remote, timeout, tokens, source)
 			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
@@ -519,7 +532,7 @@ impl Session {
 
 	async fn try_get_process_status_stream_remote(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		remote: &crate::location::Remote,
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
@@ -546,7 +559,7 @@ impl Session {
 			tokens: tokens.for_location(&location),
 		};
 		let Some(stream) = client
-			.try_get_process_status_stream(id, arg)
+			.try_get_process_status_stream(process, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the process status"),
@@ -560,12 +573,12 @@ impl Session {
 	pub(crate) async fn try_get_process_status_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
+		process: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		// Parse the ID.
-		let id = id
-			.parse()
-			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
+		// Parse the process.
+		let process = process
+			.parse::<tg::Either<tg::process::Nonce, tg::process::Id>>()
+			.map_err(|_| tg::error!(argument, "failed to parse the process"))?;
 
 		// Parse the arg.
 		let (arg, request) = request
@@ -581,7 +594,7 @@ impl Session {
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self.try_get_process_status_stream(&id, arg).await? else {
+		let Some(stream) = self.try_get_process_status_stream(&process, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

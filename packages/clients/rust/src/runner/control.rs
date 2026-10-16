@@ -115,6 +115,10 @@ pub struct Process {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::process::Id>,
 
+	/// The stdio opens that the runner services when the process starts, as if each arrived over process control.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub open: Vec<tg::process::control::ServerRequest>,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub options: tg::referent::Options,
 

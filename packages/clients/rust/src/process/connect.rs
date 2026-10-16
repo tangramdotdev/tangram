@@ -35,6 +35,16 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 2)]
 	pub mode: Mode,
 
+	/// The nonce that names this connect, so that other requests can locate its process before they know its ID.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "Option::is_none")]
+	pub nonce: Option<tg::process::Nonce>,
+
+	/// The stdio streams that the client will read or write, which a scheduled process's runner opens when the process starts, locating each by the connect's nonce.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 8, skip_serializing_if = "Vec::is_empty")]
+	pub open: Vec<tg::process::stdio::Stream>,
+
 	#[serde(deserialize_with = "deserialize_process")]
 	#[tangram_serialize(id = 3)]
 	pub process: tg::Either<Box<tg::process::spawn::Arg>, tg::process::Id>,
@@ -316,6 +326,8 @@ impl<O: 'static> tg::Process<O> {
 			lease: options.lease,
 			location: options.location,
 			mode: Mode::Run,
+			nonce: None,
+			open: Vec::new(),
 			process: tg::Either::Right(id.clone()),
 			push: false,
 			tokens: options.tokens,

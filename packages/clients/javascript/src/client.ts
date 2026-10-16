@@ -90,14 +90,14 @@ export class Client {
 	}
 
 	cancelProcess(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Cancel.Arg,
 	): Promise<tg.Process.Cancel.Output> {
 		return cancelProcess(this, id, arg);
 	}
 
 	tryCancelProcess(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Cancel.Arg,
 	): Promise<tg.Process.Cancel.Output | null> {
 		return tryCancelProcess(this, id, arg);
@@ -174,32 +174,35 @@ export class Client {
 	}
 
 	tryReadProcessStdio(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Stdio.Read.Arg,
 	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
 		return tryReadProcessStdio(this, id, arg);
 	}
 
 	setProcessTtySize(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Tty.Put.Arg,
 	): Promise<void> {
 		return setProcessTtySize(this, id, arg);
 	}
 
 	trySetProcessTtySize(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Tty.Put.Arg,
 	): Promise<true | null> {
 		return trySetProcessTtySize(this, id, arg);
 	}
 
-	signalProcess(id: tg.Process.Id, arg: tg.Signal.Arg): Promise<void> {
+	signalProcess(
+		id: tg.Process.Nonce | tg.Process.Id,
+		arg: tg.Signal.Arg,
+	): Promise<void> {
 		return signalProcess(this, id, arg);
 	}
 
 	trySignalProcess(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Signal.Arg,
 	): Promise<true | null> {
 		return trySignalProcess(this, id, arg);
@@ -222,28 +225,28 @@ export class Client {
 	}
 
 	waitProcess(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
 	): Promise<tg.Process.Outcome> {
 		return waitProcess(this, id, arg);
 	}
 
 	waitProcessPromise(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
 	): Promise<() => Promise<tg.Process.Outcome | null>> {
 		return waitProcessPromise(this, id, arg);
 	}
 
 	tryWaitProcessPromise(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
 	): Promise<(() => Promise<tg.Process.Outcome | null>) | null> {
 		return tryWaitProcessPromise(this, id, arg);
 	}
 
 	writeProcessStdio(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Stdio.Write.Stream.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 		complete?: (chunk: tg.Process.Stdio.Chunk) => void,
@@ -252,7 +255,7 @@ export class Client {
 	}
 
 	tryWriteProcessStdio(
-		id: tg.Process.Id,
+		id: tg.Process.Nonce | tg.Process.Id,
 		arg: tg.Process.Stdio.Write.Stream.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 		complete?: (chunk: tg.Process.Stdio.Chunk) => void,

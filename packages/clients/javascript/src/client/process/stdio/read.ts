@@ -61,7 +61,7 @@ class Acks {
 
 export async function tryReadProcessStdio(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 ): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
 	let acks = new Acks(typeof arg.position === "number" ? arg.position : 0);
@@ -76,7 +76,7 @@ export async function tryReadProcessStdio(
 
 export function readProcessStdioAll(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	connection: Connection,
 	acks: Acks,
@@ -100,7 +100,7 @@ export function readProcessStdioAll(
 
 async function* readProcessStdioAllInner(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	state: { canceled: boolean; connection: Connection },
 	acks: Acks,
@@ -227,7 +227,7 @@ async function* readProcessStdioAllInner(
 
 async function connect(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	acks: Acks,
 ): Promise<Connection | null> {
@@ -241,7 +241,7 @@ async function connect(
 /** Reconnect after the given number of consecutive failed attempts, returning the new connection and the number of consecutive failed attempts including this one. */
 async function reconnect(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	connection: Connection,
 	acks: Acks,
@@ -282,7 +282,7 @@ async function reconnect(
 
 async function readProcessStdioOnce(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	acks: Acks,
 ): Promise<Connection | null> {

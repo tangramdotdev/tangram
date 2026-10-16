@@ -11,6 +11,9 @@ pub(super) struct Output {
 	#[debug(ignore)]
 	pub allocation: Option<crate::runner::capacity::Allocation>,
 
+	#[debug(ignore)]
+	pub open: Option<crate::process::connect::service::Open>,
+
 	pub cached: bool,
 
 	pub data: tg::process::Data,
@@ -494,6 +497,7 @@ impl Session {
 		};
 		let output = Output {
 			allocation: None,
+			open: None,
 			cached: false,
 			data,
 			id: id.clone(),

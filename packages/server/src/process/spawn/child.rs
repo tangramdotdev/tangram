@@ -51,9 +51,11 @@ impl Session {
 			drop(parent_sandbox);
 			if let Some(lease) = lease {
 				let arg = tg::process::cancel::Arg { lease, location };
-				self.cancel_process(&child, arg).await.map_err(
-					|error| tg::error!(!error, %child, "failed to release a duplicate child lease"),
-				)?;
+				self.cancel_process(&tg::Either::Right(child.clone()), arg)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %child, "failed to release a duplicate child lease"),
+					)?;
 			}
 
 			return Ok(());

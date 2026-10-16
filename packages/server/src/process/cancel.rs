@@ -11,10 +11,22 @@ use {
 impl Session {
 	pub async fn try_cancel_process(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::cancel::Arg,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		mut arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		if let Some(output) = self.try_cancel_process_runner(id, &arg).await? {
+		let mut process = process.clone();
+		if self
+			.try_resolve_process(&mut process, &mut arg.location, None, &[])
+			.await?
+			.is_none()
+		{
+			return Ok(None);
+		}
+		let id = process.clone().right();
+		let process = &process;
+		if let Some(id) = &id
+			&& let Some(output) = self.try_cancel_process_runner(id, &arg).await?
+		{
 			return Ok(Some(output));
 		}
 		let locations = self
@@ -24,6 +36,7 @@ impl Session {
 
 		if let Some(local) = &locations.local {
 			if local.current
+				&& let Some(id) = &id
 				&& let Some(output) = self
 					.try_cancel_process_local(id, arg.clone())
 					.await
@@ -33,20 +46,21 @@ impl Session {
 			}
 
 			if let Some(output) = self
-				.try_cancel_process_regions(id, arg.clone(), &local.regions)
+				.try_cancel_process_regions(process, arg.clone(), &local.regions)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %id, "failed to cancel the process in another region"),
+					|error| tg::error!(!error, %process, "failed to cancel the process in another region"),
 				)? {
 				return Ok(Some(output));
 			}
 		}
 
 		if let Some(output) = self
-			.try_cancel_process_remotes(id, arg, &locations.remotes)
+			.try_cancel_process_remotes(process, arg, &locations.remotes)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to cancel the process in a remote"))?
-		{
+			.map_err(
+				|error| tg::error!(!error, %process, "failed to cancel the process in a remote"),
+			)? {
 			return Ok(Some(output));
 		}
 
@@ -193,13 +207,13 @@ impl Session {
 
 	async fn try_cancel_process_regions(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::cancel::Arg,
 		regions: &[String],
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_cancel_process_region(id, arg.clone(), region))
+			.map(|region| self.try_cancel_process_region(process, arg.clone(), region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -222,12 +236,12 @@ impl Session {
 
 	async fn try_cancel_process_region(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::cancel::Arg,
 		region: &str,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
-			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, %process, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -236,7 +250,7 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		let Some(output) = client.try_cancel_process(id, arg).await.map_err(
+		let Some(output) = client.try_cancel_process(process, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to cancel the process"),
 		)?
 		else {
@@ -247,13 +261,13 @@ impl Session {
 
 	async fn try_cancel_process_remotes(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::cancel::Arg,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_cancel_process_remote(id, arg.clone(), remote))
+			.map(|remote| self.try_cancel_process_remote(process, arg.clone(), remote))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -276,7 +290,7 @@ impl Session {
 
 	async fn try_cancel_process_remote(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::cancel::Arg,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
@@ -284,7 +298,7 @@ impl Session {
 			.get_remote_session_for_process(&remote.name)
 			.await
 			.map_err(
-				|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
+				|error| tg::error!(!error, remote = %remote.name, %process, "failed to get the remote client"),
 			)?;
 		let arg = tg::process::cancel::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -294,7 +308,7 @@ impl Session {
 			])),
 			..arg
 		};
-		let Some(output) = client.try_cancel_process(id, arg).await.map_err(
+		let Some(output) = client.try_cancel_process(process, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to cancel the process"),
 		)?
 		else {
@@ -306,7 +320,7 @@ impl Session {
 	pub(crate) async fn try_cancel_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
+		process: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -314,10 +328,10 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
-		// Parse the ID.
-		let id = id
-			.parse()
-			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
+		// Parse the process.
+		let process = process
+			.parse::<tg::Either<tg::process::Nonce, tg::process::Id>>()
+			.map_err(|_| tg::error!(argument, "failed to parse the process"))?;
 
 		// Parse the arg.
 		let (arg, _) = request
@@ -327,9 +341,9 @@ impl Session {
 		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
 
 		let Some(output) = self
-			.try_cancel_process(&id, arg)
+			.try_cancel_process(&process, arg)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))?
+			.map_err(|error| tg::error!(!error, %process, "failed to cancel the process"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

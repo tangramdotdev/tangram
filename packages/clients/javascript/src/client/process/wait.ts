@@ -13,7 +13,7 @@ export namespace Wait {
 
 export async function waitProcess(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<tg.Process.Outcome> {
 	let promise = await waitProcessPromise(client, id, arg);
@@ -26,7 +26,7 @@ export async function waitProcess(
 
 export async function waitProcessPromise(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<() => Promise<tg.Process.Outcome | null>> {
 	let promise = await tryWaitProcessPromise(client, id, arg);
@@ -38,7 +38,7 @@ export async function waitProcessPromise(
 
 export async function tryWaitProcessPromise(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<(() => Promise<tg.Process.Outcome | null>) | null> {
 	return async () => {
@@ -48,7 +48,7 @@ export async function tryWaitProcessPromise(
 
 async function waitProcessLoop(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<tg.Process.Outcome | null> {
 	while (true) {
@@ -61,7 +61,7 @@ async function waitProcessLoop(
 
 async function waitProcessOnce(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<tg.Process.Outcome | null> {
 	let method = "POST";

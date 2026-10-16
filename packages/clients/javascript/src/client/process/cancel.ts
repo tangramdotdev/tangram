@@ -15,7 +15,7 @@ export namespace Cancel {
 
 export async function cancelProcess(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Cancel.Arg,
 ): Promise<tg.Process.Cancel.Output> {
 	let output = await tryCancelProcess(client, id, arg);
@@ -27,7 +27,7 @@ export async function cancelProcess(
 
 export async function tryCancelProcess(
 	client: Client,
-	id: tg.Process.Id,
+	id: tg.Process.Nonce | tg.Process.Id,
 	arg: tg.Process.Cancel.Arg,
 ): Promise<tg.Process.Cancel.Output | null> {
 	let method = "POST";

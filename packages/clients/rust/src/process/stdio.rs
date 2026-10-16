@@ -347,15 +347,15 @@ fn split_body(
 	(reader, trailer_receiver, task)
 }
 
+/// The arg of a task that connects a process's stdio to this process's stdio, which locates the process by its connect's nonce.
 pub(super) struct StdioTaskArg<I> {
 	pub instance: I,
-	pub id: tg::process::Id,
-	pub location: Option<tg::Location>,
+	pub location: Option<tg::location::Arg>,
+	pub nonce: tg::process::Nonce,
 	pub raw: bool,
 	pub stderr: Option<tg::process::Stdio>,
 	pub stdin: Option<tg::process::Stdio>,
 	pub stdout: Option<tg::process::Stdio>,
-	pub tokens: tg::authorization::Tokens,
 	pub tty: bool,
 }
 
@@ -365,42 +365,33 @@ where
 {
 	let StdioTaskArg {
 		instance,
-		id,
 		location,
+		nonce,
 		raw,
 		stderr,
 		stdin,
 		stdout,
-		tokens,
 		tty,
 	} = arg;
 	let mut stdin_task = stdin.map(|stdin| {
 		let instance = instance.clone();
-		let id = id.clone();
 		let location = location.clone();
-		let tokens = tokens.clone();
-		Task::spawn(move |_| async move {
-			stdin_task(&instance, id, location, stdin, raw, tokens).await
-		})
+		Task::spawn(
+			move |_| async move { stdin_task(&instance, location, nonce, stdin, raw).await },
+		)
 	});
 
 	let sigwinch_task = if tty {
 		let instance = instance.clone();
-		let id = id.clone();
 		let location = location.clone();
-		let tokens = tokens.clone();
-		let task =
-			Task::spawn(|_| async move { sigwinch_task(&instance, id, location, tokens).await });
+		let task = Task::spawn(|_| async move { sigwinch_task(&instance, location, nonce).await });
 		Some(task)
 	} else {
 		None
 	};
 
 	let output = if stdout.is_some() || stderr.is_some() {
-		let instance = instance.clone();
-		let id = id.clone();
-		let location = location.clone();
-		stdout_stderr_task(&instance, id, location, stdout, stderr, tokens).await
+		stdout_stderr_task(&instance, location, nonce, stdout, stderr).await
 	} else {
 		Ok(())
 	};
@@ -427,11 +418,10 @@ where
 
 async fn stdin_task<I>(
 	instance: &I,
-	id: tg::process::Id,
-	location: Option<tg::Location>,
+	location: Option<tg::location::Arg>,
+	nonce: tg::process::Nonce,
 	stdin: tg::process::Stdio,
 	raw: bool,
-	tokens: tg::authorization::Tokens,
 ) -> tg::Result<()>
 where
 	I: tg::Instance,
@@ -471,9 +461,9 @@ where
 	let _ = raw;
 	let arg = tg::process::stdio::write::stream::Arg {
 		id: None,
-		location: location.map(Into::into),
+		location,
 		streams: vec![tg::process::stdio::Stream::Stdin],
-		tokens,
+		tokens: tg::authorization::Tokens::default(),
 	};
 	let input = io::stdin()
 		.map_err(|error| tg::error!(!error, "failed to open stdin"))?
@@ -504,16 +494,16 @@ where
 			future::ready(Some(result))
 		})
 		.boxed();
-	instance.write_process_stdio_all(&id, arg, input).await
+	let process = tg::Either::Left(nonce);
+	instance.write_process_stdio_all(&process, arg, input).await
 }
 
 async fn stdout_stderr_task<I>(
 	instance: &I,
-	id: tg::process::Id,
-	location: Option<tg::Location>,
+	location: Option<tg::location::Arg>,
+	nonce: tg::process::Nonce,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
-	tokens: tg::authorization::Tokens,
 ) -> tg::Result<()>
 where
 	I: tg::Instance,
@@ -533,12 +523,17 @@ where
 		return Ok(());
 	}
 	let arg = tg::process::stdio::read::Arg {
-		location: location.map(Into::into),
+		id: None,
+		length: None,
+		location,
+		position: None,
+		size: None,
 		streams,
-		tokens,
-		..Default::default()
+		timeout: None,
+		tokens: tg::authorization::Tokens::default(),
 	};
-	let Some(stream) = instance.try_read_process_stdio_all(&id, arg).await? else {
+	let process = tg::Either::Left(nonce);
+	let Some(stream) = instance.try_read_process_stdio_all(&process, arg).await? else {
 		return Ok(());
 	};
 	let mut stdout_writer = tokio::io::BufWriter::new(tokio::io::stdout());
@@ -579,15 +574,15 @@ where
 
 async fn sigwinch_task<I>(
 	instance: &I,
-	id: tg::process::Id,
-	location: Option<tg::Location>,
-	tokens: tg::authorization::Tokens,
+	location: Option<tg::location::Arg>,
+	nonce: tg::process::Nonce,
 ) -> tg::Result<()>
 where
 	I: tg::Instance,
 {
 	let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())
 		.map_err(|error| tg::error!(!error, "failed to create signal handler"))?;
+	let process = tg::Either::Left(nonce);
 	while let Some(()) = signal.recv().await {
 		let Some(size) =
 			tangram_util::tty::get_controlling_tty_size().map(|size| tg::process::tty::Size {
@@ -598,12 +593,12 @@ where
 			continue;
 		};
 		let arg = tg::process::tty::size::put::Arg {
-			location: location.clone().map(Into::into),
+			location: location.clone(),
 			size,
-			tokens: tokens.clone(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		instance
-			.set_process_tty_size(&id, arg)
+			.set_process_tty_size(&process, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the tty"))?;
 	}
