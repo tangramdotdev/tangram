@@ -39,6 +39,9 @@ vsock = ["tangram_client/vsock", "tangram_sandbox/vsock", "tangram_server/vsock"
 [lints]
 workspace = true
 
+[dev-dependencies]
+vt100 = { workspace = true }
+
 [dependencies]
 anstream = { workspace = true }
 astral-tokio-tar = { workspace = true }
