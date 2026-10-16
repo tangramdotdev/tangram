@@ -32,8 +32,10 @@ async fn subject_prefixes() {
 			.await
 			.unwrap();
 		let mut messages = std::pin::pin!(messages);
-		let Inner::Memory(inner) = &messenger.inner else {
-			unreachable!()
+		let inner = match &messenger.inner {
+			Inner::Memory(inner) => inner,
+			#[cfg(feature = "nats")]
+			Inner::Nats(_) => unreachable!(),
 		};
 		let raw = inner.subscribe::<()>(expected.into()).await.unwrap();
 		let mut raw = std::pin::pin!(raw);

@@ -94,7 +94,7 @@ impl Messenger {
 			#[cfg(feature = "nats")]
 			Inner::Nats(messenger) => messenger.subscribe(subject).await?.boxed(),
 		};
-		let messages = Self::unprefixed(prefix, messages);
+		let messages = Self::unprefixed(&prefix, messages);
 		Ok(messages)
 	}
 
@@ -123,7 +123,7 @@ impl Messenger {
 
 	/// Remove the prefix from the subjects of the received messages, so that each message has the subject that it was published to.
 	fn unprefixed<T>(
-		prefix: String,
+		prefix: &str,
 		messages: futures::stream::BoxStream<
 			'static,
 			Result<messenger::Message<T>, messenger::Error>,
@@ -194,7 +194,7 @@ impl messenger::Messenger for Messenger {
 				.await?
 				.boxed(),
 		};
-		let messages = Self::unprefixed(prefix, messages);
+		let messages = Self::unprefixed(&prefix, messages);
 		Ok(messages)
 	}
 }
