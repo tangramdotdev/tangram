@@ -1855,6 +1855,7 @@ impl Server {
 		let observer = Arc::new(self::sync::service::Observer::new(checkpoints.clone()));
 		let sync_clients = tangram_messenger::service::Clients::new(
 			messenger.clone(),
+			"syncs.service",
 			config.sync.service,
 			observer,
 		)

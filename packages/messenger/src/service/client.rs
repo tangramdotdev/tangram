@@ -47,6 +47,7 @@ struct Client<P: Protocol> {
 struct Pool {
 	id: String,
 	routes: Mutex<Routes>,
+	subject: String,
 	subscribing: tokio::sync::Mutex<()>,
 }
 
@@ -129,8 +130,10 @@ where
 	P: Protocol,
 	M: Messenger + Clone + Send + Sync + 'static,
 {
+	/// Create the clients of a messenger, whose responses are published to subjects under the given subject.
 	pub fn new(
 		messenger: M,
+		subject: impl Into<String>,
 		options: Options,
 		observer: Arc<dyn Observer<P>>,
 	) -> Result<Self, Error> {
@@ -139,6 +142,7 @@ where
 		let pool = Pool {
 			id: id(),
 			routes: Mutex::default(),
+			subject: subject.into(),
 			subscribing: tokio::sync::Mutex::new(()),
 		};
 		let clients = Self {
@@ -195,7 +199,7 @@ where
 	fn spawn(&self, subject: &str) -> Arc<Client<P>> {
 		let (sender, commands) = mpsc::unbounded_channel();
 		let client = Arc::new(Client {
-			id: client_subject(&self.pool.id, &id()),
+			id: client_subject(&self.pool.subject, &self.pool.id, &id()),
 			sender,
 		});
 		let state = State {
@@ -238,7 +242,7 @@ impl Pool {
 		let _subscribing = self.subscribing.lock().await;
 		if !self.routes.lock().unwrap().subscribed {
 			let messages = messenger
-				.subscribe::<Message>(pool_subject(&self.id))
+				.subscribe::<Message>(pool_subject(&self.subject, &self.id))
 				.await
 				.map_err(Error::messenger)?
 				.boxed();

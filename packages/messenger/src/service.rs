@@ -352,13 +352,13 @@ fn announce_subject(subject: &str) -> String {
 }
 
 /// The subject that the responses to one client of a pool are published to, which identifies the client.
-fn client_subject(pool: &str, client: &str) -> String {
-	format!("_service.{pool}.{client}")
+fn client_subject(subject: &str, pool: &str, client: &str) -> String {
+	format!("{subject}.{pool}.{client}")
 }
 
 /// The subject that a pool subscribes to once for the responses to all of its clients.
-fn pool_subject(pool: &str) -> String {
-	format!("_service.{pool}.*")
+fn pool_subject(subject: &str, pool: &str) -> String {
+	format!("{subject}.{pool}.*")
 }
 
 fn server_subject(subject: &str) -> String {

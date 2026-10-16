@@ -65,7 +65,7 @@ async fn server(messenger: &TestMessenger, options: Options) -> Server<Test> {
 }
 
 fn clients(messenger: &TestMessenger, options: Options) -> Arc<Clients<Test, TestMessenger>> {
-	Arc::new(Clients::new(messenger.clone(), options, Arc::new(Ignore)).unwrap())
+	Arc::new(Clients::new(messenger.clone(), "test.service", options, Arc::new(Ignore)).unwrap())
 }
 
 fn spawn_request(
@@ -98,7 +98,8 @@ async fn a_request_is_answered_without_waiting_for_a_heartbeat() {
 	let messenger = TestMessenger::default();
 	let mut server = server(&messenger, options).await;
 	let record = Arc::new(Record::default());
-	let clients = Arc::new(Clients::new(messenger.clone(), options, record.clone()).unwrap());
+	let clients =
+		Arc::new(Clients::new(messenger.clone(), "test.service", options, record.clone()).unwrap());
 	let request = spawn_request(&clients, "hello");
 	let incoming = server.next().await.unwrap();
 	incoming.reply.acknowledge().unwrap();
@@ -126,7 +127,7 @@ async fn clients_of_one_pool_share_one_response_subscription() {
 		let mut request = clients.request(subject, Bytes::from(subject)).unwrap();
 		assert_eq!(request.wait().await.unwrap(), Bytes::from(subject));
 	}
-	assert_eq!(messenger.subscriptions("_service."), 1);
+	assert_eq!(messenger.subscriptions("test.service."), 1);
 	for answer in answers {
 		answer.abort();
 	}
@@ -215,7 +216,9 @@ async fn a_request_is_resent_until_the_server_acknowledges_it() {
 	let messenger = TestMessenger::default();
 	let mut server = server(&messenger, options()).await;
 	let record = Arc::new(Record::default());
-	let clients = Arc::new(Clients::new(messenger.clone(), options(), record.clone()).unwrap());
+	let clients = Arc::new(
+		Clients::new(messenger.clone(), "test.service", options(), record.clone()).unwrap(),
+	);
 	let request = spawn_request(&clients, "retained");
 	let incoming = server.next().await.unwrap();
 
@@ -305,7 +308,9 @@ async fn requests_to_a_subject_share_one_client_until_it_is_idle() {
 	let messenger = TestMessenger::default();
 	let mut server = server(&messenger, options()).await;
 	let record = Arc::new(Record::default());
-	let clients = Arc::new(Clients::new(messenger.clone(), options(), record.clone()).unwrap());
+	let clients = Arc::new(
+		Clients::new(messenger.clone(), "test.service", options(), record.clone()).unwrap(),
+	);
 	let answer = tokio::spawn(async move {
 		while let Some(incoming) = server.next().await {
 			incoming.reply.send(&incoming.request).unwrap();

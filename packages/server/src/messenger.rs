@@ -1,4 +1,7 @@
-use tangram_messenger::{self as messenger, Messenger as _};
+use {
+	futures::{StreamExt as _, TryStreamExt as _},
+	tangram_messenger::{self as messenger, Messenger as _},
+};
 
 #[cfg(test)]
 mod tests;
@@ -84,32 +87,63 @@ impl Messenger {
 	where
 		T: messenger::Payload,
 	{
-		let subject = self.subject_name(region, subject);
-		match &self.inner {
-			Inner::Memory(messenger) => messenger
-				.subscribe(subject)
-				.await
-				.map(futures::StreamExt::boxed),
+		let prefix = self.prefix(region);
+		let subject = Self::prefixed(&prefix, subject);
+		let messages = match &self.inner {
+			Inner::Memory(messenger) => messenger.subscribe(subject).await?.boxed(),
 			#[cfg(feature = "nats")]
-			Inner::Nats(messenger) => messenger
-				.subscribe(subject)
-				.await
-				.map(futures::StreamExt::boxed),
-		}
+			Inner::Nats(messenger) => messenger.subscribe(subject).await?.boxed(),
+		};
+		let messages = Self::unprefixed(prefix, messages);
+		Ok(messages)
 	}
 
 	fn subject_name(&self, region: Option<&str>, subject: String) -> String {
-		let prefix = [self.instance.as_deref(), region]
+		let prefix = self.prefix(region);
+		Self::prefixed(&prefix, subject)
+	}
+
+	/// Get the prefix of the subjects in a region, which is the instance and the region, each of which is optional.
+	fn prefix(&self, region: Option<&str>) -> String {
+		[self.instance.as_deref(), region]
 			.into_iter()
 			.flatten()
 			.filter(|component| !component.is_empty())
 			.collect::<Vec<_>>()
-			.join(".");
+			.join(".")
+	}
+
+	fn prefixed(prefix: &str, subject: String) -> String {
 		if prefix.is_empty() {
 			subject
 		} else {
 			format!("{prefix}.{subject}")
 		}
+	}
+
+	/// Remove the prefix from the subjects of the received messages, so that each message has the subject that it was published to.
+	fn unprefixed<T>(
+		prefix: String,
+		messages: futures::stream::BoxStream<
+			'static,
+			Result<messenger::Message<T>, messenger::Error>,
+		>,
+	) -> futures::stream::BoxStream<'static, Result<messenger::Message<T>, messenger::Error>>
+	where
+		T: Send + 'static,
+	{
+		if prefix.is_empty() {
+			return messages;
+		}
+		let prefix = format!("{prefix}.");
+		messages
+			.map_ok(move |mut message| {
+				if let Some(subject) = message.subject.strip_prefix(&prefix) {
+					message.subject = subject.to_owned();
+				}
+				message
+			})
+			.boxed()
 	}
 }
 
@@ -147,17 +181,20 @@ impl messenger::Messenger for Messenger {
 	where
 		T: messenger::Payload,
 	{
-		let subject = self.subject_name(self.region.as_deref(), subject);
-		match &self.inner {
+		let prefix = self.prefix(self.region.as_deref());
+		let subject = Self::prefixed(&prefix, subject);
+		let messages = match &self.inner {
 			Inner::Memory(messenger) => messenger
 				.queue_subscribe(subject, queue_group)
-				.await
-				.map(futures::StreamExt::boxed),
+				.await?
+				.boxed(),
 			#[cfg(feature = "nats")]
 			Inner::Nats(messenger) => messenger
 				.queue_subscribe(subject, queue_group)
-				.await
-				.map(futures::StreamExt::boxed),
-		}
+				.await?
+				.boxed(),
+		};
+		let messages = Self::unprefixed(prefix, messages);
+		Ok(messages)
 	}
 }
