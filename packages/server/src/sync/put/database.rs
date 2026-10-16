@@ -48,7 +48,12 @@ impl Session {
 				permissions,
 				permissions,
 				permissions.empty_like(),
-				state.arg.sync.as_ref().map(|sync| &sync.node),
+				state
+					.arg
+					.sync
+					.as_ref()
+					.and_then(|sync| sync.as_ref().right())
+					.map(|sync| &sync.node),
 			)
 			.await?
 			.check_exhaustion()?;

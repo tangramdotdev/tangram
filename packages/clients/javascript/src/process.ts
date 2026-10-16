@@ -847,6 +847,7 @@ export namespace Process {
 		export type ServerMessage = ProcessConnect.ServerMessage;
 	}
 	export type Id = string;
+	export type Nonce = string;
 
 	export namespace Cancel {
 		export type Arg = ProcessCancel.Arg;

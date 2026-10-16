@@ -294,7 +294,10 @@ impl<O> tg::Process<O> {
 			timeout: options.timeout,
 			tokens: self.tokens(),
 		};
-		let Some(stream) = instance.try_read_process_stdio_all(id, arg).await? else {
+		let Some(stream) = instance
+			.try_read_process_stdio_all(&tg::Either::Right(id.clone()), arg)
+			.await?
+		else {
 			return Ok(None);
 		};
 
@@ -305,7 +308,7 @@ impl<O> tg::Process<O> {
 impl tg::Session {
 	pub async fn try_read_process_stdio(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<
@@ -320,7 +323,7 @@ impl tg::Session {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 		let max_frame_size = self.client().sync.max_frame_size;
-		let path = format!("/processes/{id}/stdio/read");
+		let path = format!("/processes/{process}/stdio/read");
 		let uri = Uri::builder().path(&path).build().unwrap();
 		let body = super::encode(input, max_frame_size);
 		let request = http::request::Builder::default()

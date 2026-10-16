@@ -132,6 +132,8 @@ impl Session {
 				lease: output.lease,
 				location,
 				mode,
+				nonce: None,
+				open: Vec::new(),
 				process: tg::Either::Right(output.process.as_ref().unwrap_right().clone()),
 				push: false,
 				tokens: output.tokens.clone(),
@@ -465,7 +467,7 @@ impl Session {
 			tg::process::connect::ClientRequestArg::Cancel(mut arg) => {
 				arg.location = location;
 				let output = self
-					.try_cancel_process(id, arg)
+					.try_cancel_process(&tg::Either::Right(id.clone()), arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Cancel(output)
@@ -474,7 +476,7 @@ impl Session {
 			tg::process::connect::ClientRequestArg::Signal(mut arg) => {
 				arg.location = location;
 				arg.tokens.inherit(&tokens);
-				self.try_post_process_signal(id, arg)
+				self.try_post_process_signal(&tg::Either::Right(id.clone()), arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Signal
@@ -482,7 +484,7 @@ impl Session {
 			tg::process::connect::ClientRequestArg::Tty(mut arg) => {
 				arg.location = location;
 				arg.tokens.inherit(&tokens);
-				self.try_set_process_tty_size(id, arg)
+				self.try_set_process_tty_size(&tg::Either::Right(id.clone()), arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Tty

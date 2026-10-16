@@ -33,7 +33,12 @@ impl Session {
 		);
 		let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
 		let resource = tg::Referent::with_node_and_tokens(node.id.clone(), tokens);
-		let sync = state.arg.sync.as_ref().map(|sync| &sync.node);
+		let sync = state
+			.arg
+			.sync
+			.as_ref()
+			.and_then(|sync| sync.as_ref().right())
+			.map(|sync| &sync.node);
 		let authorized = self
 			.authorize_batch([(resource, permission.into())], sync)
 			.await?

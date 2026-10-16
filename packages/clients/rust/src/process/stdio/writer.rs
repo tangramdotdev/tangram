@@ -188,7 +188,13 @@ impl Writer {
 		let input = receiver.map(Ok).boxed();
 		let instance = instance.clone();
 		let task = Task::spawn(move |_| async move {
-			tg::process::stdio::write::all(&instance, &process, arg, input).await
+			tg::process::stdio::write::all(
+				&instance,
+				&tg::Either::Right(process.clone()),
+				arg,
+				input,
+			)
+			.await
 		});
 		state.input = Some(sender);
 		state.task = Some(task);

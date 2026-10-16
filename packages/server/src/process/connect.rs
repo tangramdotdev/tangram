@@ -26,6 +26,8 @@ use {
 
 mod connection;
 
+pub mod service;
+
 type Input = BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>;
 type Operation = BoxFuture<'static, (u64, tg::Result<()>)>;
 type Output = BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>;
@@ -49,44 +51,107 @@ struct ConnectProcessSpawnTaskArg<'a> {
 impl Session {
 	pub fn try_get_process_connect_stream(
 		&self,
-		mut arg: tg::process::connect::Arg,
+		arg: tg::process::connect::Arg,
 		input: Input,
 	) -> BoxFuture<'_, tg::Result<Option<(tg::process::connect::Header, Output)>>> {
 		async move {
-			// Resolve the destination.
-			let mut input = Some(input);
-			if arg.process.is_right() {
-				return self
-					.try_get_process_connect_stream_inner(arg, &mut input)
-					.await;
+			// Start answering the requests that locate the process by the connect's nonce.
+			let sender = arg
+				.nonce
+				.as_ref()
+				.map(|nonce| self.spawn_process_connect_service_task(nonce))
+				.transpose()?;
+			if let (Some(sender), tg::Either::Right(id)) = (&sender, &arg.process) {
+				sender.set_process(tg::Referent::with_node(id.clone()));
 			}
 
-			// A spawn selects one destination, using the same preparation and routing as spawn.
-			let tg::Either::Left(spawn) = &mut arg.process else {
-				unreachable!()
+			// Connect.
+			crate::checkpoint!(self.server, "process.connect.start").await;
+			let Some((header, output)) = self
+				.try_get_process_connect_stream_destination(arg, input, sender.as_ref())
+				.await?
+			else {
+				return Ok(None);
 			};
-			spawn.location = arg.location.take().or_else(|| spawn.location.take());
-			let prepare_output = self.spawn_process_prepare(spawn).await?;
-			arg.location = spawn.location.clone();
-			let location = self.server.location(arg.location.as_ref())?;
-			if matches!(
-				&location,
-				tg::Location::Local(tg::location::Local { region })
-				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
-			) || self.spawn_process_runner_matches_location(&location)
-			{
-				return self
-					.try_get_process_connect_stream_local(arg, &mut input, Some(prepare_output))
-					.await;
-			}
-			let output = self
-				.connect_process_spawn(arg, input.take().unwrap(), prepare_output)
-				.boxed()
-				.await?;
 
-			Ok(Some(output))
+			// Tell the connect service the connect's command sync and the process it selects, and finish it when the connection ends.
+			if let (Some(sender), Some(sync)) = (&sender, &header.sync) {
+				sender.set_sync(sync.clone());
+			}
+			let output = match sender {
+				Some(sender) => output
+					.inspect_ok(move |message| {
+						if let tg::process::connect::ServerMessage::Notification(
+							tg::process::connect::ServerNotification::Progress(
+								tg::progress::Event::Output(output),
+							),
+						) = message && let tg::Either::Right(id) = &output.process
+						{
+							let options = tg::referent::Options {
+								location: output.location.clone(),
+								tokens: output.tokens.clone(),
+								..Default::default()
+							};
+							sender.set_process(tg::Referent::new(id.clone(), options));
+						}
+					})
+					.boxed(),
+				None => output,
+			};
+
+			Ok(Some((header, output)))
 		}
 		.boxed()
+	}
+
+	async fn try_get_process_connect_stream_destination(
+		&self,
+		mut arg: tg::process::connect::Arg,
+		input: Input,
+		sender: Option<&crate::process::connect::service::Sender>,
+	) -> tg::Result<Option<(tg::process::connect::Header, Output)>> {
+		// Resolve the destination.
+		let mut input = Some(input);
+		if arg.process.is_right() {
+			return self
+				.try_get_process_connect_stream_inner(arg, &mut input)
+				.await;
+		}
+
+		// A spawn selects one destination, using the same preparation and routing as spawn.
+		let tg::Either::Left(spawn) = &mut arg.process else {
+			unreachable!()
+		};
+		spawn.location = arg.location.take().or_else(|| spawn.location.take());
+		let mut prepare_output = self.spawn_process_prepare(spawn).await?;
+		arg.location = spawn.location.clone();
+		let location = self.server.location(arg.location.as_ref())?;
+		if matches!(
+			&location,
+			tg::Location::Local(tg::location::Local { region })
+			if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
+		) || self.spawn_process_runner_matches_location(&location)
+		{
+			// Give the spawn the connect's open, so that a scheduled process's runner opens the declared streams when the process starts.
+			if let (Some(sender), Some(nonce)) = (sender, arg.nonce.as_ref())
+				&& !arg.open.is_empty()
+			{
+				prepare_output.open = Some(sender.open(nonce, &arg.open));
+			}
+			return self
+				.try_get_process_connect_stream_local(arg, &mut input, Some(prepare_output))
+				.await;
+		}
+		// Tell the connect service the location of the server that the connect goes to, whose connect service answers for the nonce in its place.
+		if let Some(sender) = sender {
+			sender.set_location(location.clone());
+		}
+		let output = self
+			.connect_process_spawn(arg, input.take().unwrap(), prepare_output)
+			.boxed()
+			.await?;
+
+		Ok(Some(output))
 	}
 
 	async fn connect_process_spawn(
@@ -98,7 +163,7 @@ impl Session {
 		let tg::Either::Left(spawn_arg) = &mut arg.process else {
 			unreachable!()
 		};
-		let spawn::PrepareOutput { parent_sandbox } = prepare_output;
+		let spawn::PrepareOutput { parent_sandbox, .. } = prepare_output;
 		let location = self.server.location(arg.location.as_ref())?;
 		let notify = self
 			.try_prepare_spawn_process_for_location(spawn_arg, &location, parent_sandbox.as_ref())
@@ -138,6 +203,12 @@ impl Session {
 		let push = !arg.push;
 		arg.push = true;
 
+		// Push the command objects concurrently with the connect, joining the destination's command sync by the connect's nonce.
+		let push = push.then(|| {
+			let nonce = *arg.nonce.get_or_insert_with(tg::process::Nonce::new);
+			self.push_process_connect_command(&spawn_arg.command, &location, nonce)
+		});
+
 		// Connect to the destination.
 		let mut input = Some(input);
 		let (header, output) = match location.clone() {
@@ -158,13 +229,6 @@ impl Session {
 			},
 		}
 		.ok_or_else(|| tg::error!("failed to find the process"))?;
-
-		// Push the command objects under the destination's sync, concurrently with the spawn.
-		let push = if push && let Some(sync) = header.sync.clone() {
-			Some(self.push_process_connect_command(&spawn_arg.command, &location, sync))
-		} else {
-			None
-		};
 
 		// Register the child and return the connection messages, failing the connection if the push fails.
 		let capacity = self.server.config.process.connect.spawn_channel_capacity;
@@ -195,7 +259,7 @@ impl Session {
 		&self,
 		command: &tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		location: &tg::Location,
-		sync: tg::Referent<tg::sync::Id>,
+		nonce: tg::process::Nonce,
 	) -> oneshot::Receiver<tg::Result<()>> {
 		// Keep transferring after the connection has been dropped.
 		let (sender, receiver) = oneshot::channel();
@@ -204,7 +268,7 @@ impl Session {
 		let location = location.clone();
 		let mut task = Task::spawn(move |_| async move {
 			let result = session
-				.push_process_connect_command_task(&command, &location, sync)
+				.push_process_connect_command_task(&command, &location, nonce)
 				.await;
 			if let Err(error) = &result {
 				tracing::error!(error = %error.trace(), "failed to push the process command");
@@ -219,7 +283,7 @@ impl Session {
 		&self,
 		command: &tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		location: &tg::Location,
-		sync: tg::Referent<tg::sync::Id>,
+		nonce: tg::process::Nonce,
 	) -> tg::Result<()> {
 		let nodes = Self::spawn_process_command_nodes(command)?;
 		if nodes.is_empty() {
@@ -229,8 +293,9 @@ impl Session {
 		let arg = crate::process::PushProcessObjectsArg {
 			location: location.clone(),
 			nodes,
+			nonce: Some(nonce),
 			process_command_objects: true,
-			sync: Some(sync),
+			sync: None,
 		};
 		let output = self.push_process_objects(arg).await?;
 		let result = output

@@ -87,6 +87,23 @@ impl Local {
 		Ok(future)
 	}
 
+	/// Send a request whose response no one awaits, such as an open.
+	pub(crate) async fn send(
+		&self,
+		request: tg::process::control::ServerRequest,
+	) -> tg::Result<()> {
+		let (sender, _) = tokio::sync::mpsc::channel(1);
+		let message = Message::Request {
+			request,
+			sender: Reply::Local(sender),
+		};
+		self.sender
+			.send(message)
+			.await
+			.map_err(|_| tg::error!("the runner control channel closed"))?;
+		Ok(())
+	}
+
 	pub(crate) async fn write(
 		&self,
 		data: write::Data,

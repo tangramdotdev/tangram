@@ -1623,6 +1623,9 @@ pub struct ProcessConnect {
 	pub max_unacknowledged_responses: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub service: Option<Service>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub spawn_channel_capacity: Option<usize>,
 }
 
@@ -2332,16 +2335,16 @@ pub struct SyncOptions {
 	pub put: Option<SyncPut>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub service: Option<SyncResponder>,
+	pub retry: Option<Retry>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub retry: Option<Retry>,
+	pub service: Option<Service>,
 }
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct SyncResponder {
+pub struct Service {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub attempt_ttl: Option<Duration>,
@@ -5174,6 +5177,9 @@ fn resolve_process(source: Process) -> server::Process {
 		if let Some(value) = source.max_unacknowledged_responses {
 			target.connect.max_unacknowledged_responses = value;
 		}
+		if let Some(source) = source.service {
+			resolve_service(source, &mut target.connect.service);
+		}
 	}
 	if let Some(source) = source.control {
 		target.control = resolve_client_process_control(source);
@@ -5367,6 +5373,27 @@ pub(crate) fn resolve_retry(source: Retry) -> tg::Result<server::Retry> {
 	};
 
 	Ok(target)
+}
+
+fn resolve_service(source: Service, target: &mut tangram_messenger::service::Options) {
+	if let Some(value) = source.attempt_ttl {
+		target.attempt_ttl = value;
+	}
+	if let Some(value) = source.heartbeat_interval {
+		target.heartbeat_interval = value;
+	}
+	if let Some(value) = source.idle_timeout {
+		target.idle_timeout = value;
+	}
+	if let Some(value) = source.recovery_timeout {
+		target.recovery_timeout = value;
+	}
+	if let Some(value) = source.request_timeout {
+		target.request_timeout = value;
+	}
+	if let Some(value) = source.retry_interval {
+		target.retry_interval = value;
+	}
 }
 
 fn resolve_retry_with_default(source: Retry, mut target: server::Retry) -> server::Retry {
@@ -5835,28 +5862,11 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	if let Some(source) = source.put {
 		target.put = resolve_sync_put(&source);
 	}
-	if let Some(source) = source.service {
-		if let Some(value) = source.attempt_ttl {
-			target.service.attempt_ttl = value;
-		}
-		if let Some(value) = source.heartbeat_interval {
-			target.service.heartbeat_interval = value;
-		}
-		if let Some(value) = source.idle_timeout {
-			target.service.idle_timeout = value;
-		}
-		if let Some(value) = source.recovery_timeout {
-			target.service.recovery_timeout = value;
-		}
-		if let Some(value) = source.request_timeout {
-			target.service.request_timeout = value;
-		}
-		if let Some(value) = source.retry_interval {
-			target.service.retry_interval = value;
-		}
-	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(source) = source.service {
+		resolve_service(source, &mut target.service);
 	}
 	if let Some(value) = source.metadata_poll_interval {
 		target.metadata_poll_interval = value;

@@ -31,15 +31,39 @@ enum Source {
 impl Session {
 	pub async fn try_read_process_stdio(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::read::Arg,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		mut arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
+		// Resolve the process, claiming the connect's open for a read that starts from the beginning.
+		let streams = if arg.position.is_none() && arg.length.is_none() {
+			arg.streams.clone()
+		} else {
+			Vec::new()
+		};
+		let mut process = process.clone();
+		let Some(output) = self
+			.try_resolve_process(
+				&mut process,
+				&mut arg.location,
+				Some(&mut arg.tokens),
+				&streams,
+			)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let open = output.open;
+		let id = process.clone().right();
+		let process = &process;
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 		if arg.id.is_some() {
+			let Some(id) = &id else {
+				return Err(tg::error!(argument, "expected a process for a relay read"));
+			};
 			return self.try_read_process_stdio_relay(id, arg, input).await;
 		}
 
@@ -63,7 +87,7 @@ impl Session {
 		});
 
 		let Some(source) = self
-			.try_read_process_stdio_source(id, arg.clone(), &acks)
+			.try_read_process_stdio_source(id.as_ref(), process, arg.clone(), &acks, open)
 			.await?
 		else {
 			return Ok(None);
@@ -78,19 +102,22 @@ impl Session {
 
 	async fn try_read_process_stdio_source(
 		&self,
-		id: &tg::process::Id,
+		id: Option<&tg::process::Id>,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 		acks: &Acks,
+		open: Option<String>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
-		if let Some(control) = self
-			.try_get_process_control_runner(
-				id,
-				arg.location.as_ref(),
-				&arg.tokens,
-				tg::authorization::permission::process::Set::NODE,
-			)
-			.await?
+		if let Some(id) = id
+			&& let Some(control) = self
+				.try_get_process_control_runner(
+					id,
+					arg.location.as_ref(),
+					&arg.tokens,
+					tg::authorization::permission::process::Set::NODE,
+				)
+				.await?
 		{
 			let source = Self::get_process_stdio_source(&control.data, &arg)?;
 			if let Source::Pipe(streams) = &source
@@ -120,15 +147,16 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 		if let Some(local) = &locations.local {
 			if local.current
+				&& let Some(id) = id
 				&& let Some(stream) = self
-					.try_read_process_stdio_local(id, arg.clone(), acks)
+					.try_read_process_stdio_local(id, arg.clone(), acks, open)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to read local process stdio"))?
 			{
 				return Ok(Some(stream));
 			}
 			if let Some(stream) = self
-				.try_read_process_stdio_regions(id, arg.clone(), &local.regions, acks)
+				.try_read_process_stdio_regions(process, arg.clone(), &local.regions, acks)
 				.await
 				.map_err(|error| {
 					tg::error!(!error, "failed to read process stdio from another region")
@@ -137,7 +165,7 @@ impl Session {
 			}
 		}
 		if let Some(stream) = self
-			.try_read_process_stdio_remotes(id, arg, &locations.remotes, acks)
+			.try_read_process_stdio_remotes(process, arg, &locations.remotes, acks)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read process stdio from a remote"))?
 		{
@@ -164,6 +192,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		acks: &Acks,
+		open: Option<String>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		let output = self
@@ -215,7 +244,7 @@ impl Session {
 			))
 			.boxed(),
 			Source::Pipe(streams) => {
-				self.try_read_process_stdio_pipe_local(id, &arg, streams, acks)
+				self.try_read_process_stdio_pipe_local(id, &arg, streams, acks, open)
 			},
 		};
 
@@ -478,6 +507,7 @@ impl Session {
 		arg: &tg::process::stdio::read::Arg,
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		acks: &Acks,
+		open: Option<String>,
 	) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>> {
 		let arg = tg::process::stdio::read::Arg {
 			streams: streams.into_iter().collect(),
@@ -490,7 +520,7 @@ impl Session {
 			let acks = acks.clone();
 			move |_| async move {
 				let result = session
-					.read_process_stdio_relay(&id, arg, &sender, acks)
+					.read_process_stdio_relay(&id, arg, &sender, acks, open)
 					.boxed()
 					.await;
 				if let Err(error) = result {
@@ -507,6 +537,7 @@ impl Session {
 		arg: tg::process::stdio::read::Arg,
 		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
 		acks: Acks,
+		mut open: Option<String>,
 	) -> tg::Result<()> {
 		for stream in &arg.streams {
 			crate::checkpoint!(self.server, "process.stdio.read.request", process = %id, stream = %stream).await;
@@ -550,6 +581,7 @@ impl Session {
 					&mut position,
 					&mut length,
 					acks.clone(),
+					open.take(),
 				)
 				.await;
 			let attempt_error = match result {
@@ -582,10 +614,12 @@ impl Session {
 		position: &mut u64,
 		length: &mut Option<i64>,
 		acks: Acks,
+		open: Option<String>,
 	) -> tg::Result<()> {
-		// Open the relay before the read, so the runner's first bytes are not missed.
+		// Open the relay before the read, so the runner's first bytes are not missed. A claimed open names the relay that the runner opened when the process started.
 		let timeout = arg.timeout;
-		let request_id = crate::control::id();
+		let claimed = open.is_some();
+		let request_id = open.unwrap_or_else(crate::control::id);
 		let send_subject = super::relay::ack_subject(id, &request_id);
 		let receive_subject = super::relay::data_subject(id, &request_id);
 		let options = self.server.config().process.stdio_relay;
@@ -605,16 +639,21 @@ impl Session {
 		let ack_items = relay_process_stdio_acks(acks.clone(), end);
 		let mut ack_task = AbortOnDropHandle::new(tokio::spawn(relay_sender.send_all(ack_items)));
 
-		// Open the read on the runner.
-		let open = tg::process::control::OpenServerRequestArg { arg };
-		let request = tg::process::control::ServerRequest {
-			arg: tg::process::control::ServerRequestArg::Open(open),
-			id: request_id.clone(),
+		// Open the read on the runner, unless the runner opened it when the process started.
+		let mut response = if claimed {
+			crate::checkpoint!(self.server, "process.stdio.read.open.claimed", process = %id).await;
+			futures::future::pending::<tg::Result<()>>().boxed()
+		} else {
+			let open = tg::process::control::OpenServerRequestArg { arg };
+			let request = tg::process::control::ServerRequest {
+				arg: tg::process::control::ServerRequestArg::Open(open),
+				id: request_id.clone(),
+			};
+			self.send_process_control_open(id, request).await?
 		};
-		let mut response = self.send_process_control_open(id, request).await?;
 
 		// Forward the relayed chunks until the relay ends.
-		let mut opened = false;
+		let mut opened = claimed;
 		loop {
 			let item = tokio::select! {
 				item = items.next() => item,
@@ -775,7 +814,7 @@ impl Session {
 
 	async fn try_read_process_stdio_regions(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 		regions: &[String],
 		acks: &Acks,
@@ -783,7 +822,7 @@ impl Session {
 	{
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_read_process_stdio_region(id, arg.clone(), region, acks))
+			.map(|region| self.try_read_process_stdio_region(process, arg.clone(), region, acks))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -802,7 +841,7 @@ impl Session {
 
 	async fn try_read_process_stdio_region(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 		region: &str,
 		acks: &Acks,
@@ -822,7 +861,7 @@ impl Session {
 		};
 		let acks = read_process_stdio_acks(acks);
 		let stream = client
-			.try_read_process_stdio_all_inner(id, arg, Some(acks))
+			.try_read_process_stdio_all_inner(process, arg, Some(acks))
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to read the process stdio"),
@@ -834,7 +873,7 @@ impl Session {
 
 	async fn try_read_process_stdio_remotes(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 		remotes: &[crate::location::Remote],
 		acks: &Acks,
@@ -842,7 +881,7 @@ impl Session {
 	{
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_read_process_stdio_remote(id, arg.clone(), remote, acks))
+			.map(|remote| self.try_read_process_stdio_remote(process, arg.clone(), remote, acks))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -861,7 +900,7 @@ impl Session {
 
 	async fn try_read_process_stdio_remote(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 		remote: &crate::location::Remote,
 		acks: &Acks,
@@ -889,7 +928,7 @@ impl Session {
 		};
 		let acks = read_process_stdio_acks(acks);
 		let stream = client
-			.try_read_process_stdio_all_inner(id, arg, Some(acks))
+			.try_read_process_stdio_all_inner(process, arg, Some(acks))
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to read the process stdio"),
@@ -959,7 +998,7 @@ impl Session {
 	pub(crate) async fn try_read_process_stdio_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
+		process: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -982,9 +1021,9 @@ impl Session {
 			tangram_content_type,
 		)
 		.map_err(|error| tg::error!(argument, !error, "invalid content type"))?;
-		let id = id
-			.parse::<tg::process::Id>()
-			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
+		let process = process
+			.parse::<tg::Either<tg::process::Nonce, tg::process::Id>>()
+			.map_err(|_| tg::error!(argument, "failed to parse the process"))?;
 		let (arg, request) = request
 			.arg_with_tangram::<tg::process::stdio::read::Arg>()
 			.await
@@ -992,7 +1031,7 @@ impl Session {
 		let arg = arg.unwrap_or_default();
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let input = super::decode(request, input_encoding, max_frame_size);
-		let Some(output) = self.try_read_process_stdio(&id, arg, input).await? else {
+		let Some(output) = self.try_read_process_stdio(&process, arg, input).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

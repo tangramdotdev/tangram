@@ -673,7 +673,7 @@ impl Session {
 			tokens: tg::authorization::Tokens::default(),
 		};
 		let mut output = self
-			.try_write_process_stdio(id, arg, input)
+			.try_write_process_stdio(&tg::Either::Right(id.clone()), arg, input)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
@@ -781,7 +781,7 @@ impl Session {
 			..Default::default()
 		};
 		let mut output = self
-			.try_read_process_stdio(id, arg, input)
+			.try_read_process_stdio(&tg::Either::Right(id.clone()), arg, input)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 

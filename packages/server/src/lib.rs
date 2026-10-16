@@ -179,6 +179,17 @@ pub struct State {
 
 	path: PathBuf,
 
+	process_connect_clients:
+		tangram_messenger::service::Clients<self::process::connect::service::Protocol, Messenger>,
+
+	process_connect_service_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
+	process_connect_services: DashMap<
+		tg::process::Nonce,
+		tokio::sync::mpsc::UnboundedSender<self::process::connect::service::LocalRequest>,
+		fnv::FnvBuildHasher,
+	>,
+
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
@@ -1861,6 +1872,18 @@ impl Server {
 		)
 		.map_err(|source| tg::error!(!source, "failed to create the sync clients"))?;
 
+		// Create the process connect clients, which observe their events as checkpoints.
+		let observer = Arc::new(self::process::connect::service::Observer::new(
+			checkpoints.clone(),
+		));
+		let process_connect_clients = tangram_messenger::service::Clients::new(
+			messenger.clone(),
+			"processes.service",
+			config.process.connect.service,
+			observer,
+		)
+		.map_err(|source| tg::error!(!source, "failed to create the process connect clients"))?;
+
 		// Create the server.
 		let server = Self(Arc::new(State {
 			archive,
@@ -1925,6 +1948,12 @@ impl Server {
 			object_get_tasks,
 
 			path,
+
+			process_connect_clients,
+
+			process_connect_service_tasks: tangram_futures::task::Set::default(),
+
+			process_connect_services: DashMap::default(),
 
 			regions,
 
@@ -2439,6 +2468,11 @@ impl Server {
 				server.sync_service_tasks.stop_all();
 				server.sync_service_tasks.wait().await;
 
+				// Stop the process connect clients and drain the process connect service tasks.
+				server.process_connect_clients.stop();
+				server.process_connect_service_tasks.stop_all();
+				server.process_connect_service_tasks.wait().await;
+
 				// Finish the archive tasks after their producers have stopped.
 				server.archive_tasks.wait().await;
 
@@ -2712,6 +2746,7 @@ impl Deref for Server {
 impl Drop for Owned {
 	fn drop(&mut self) {
 		self.sync_service_tasks.abort_all();
+		self.process_connect_service_tasks.abort_all();
 		self.sync_index_tasks.abort_all();
 		self.archive_tasks.abort_all();
 		self.checkout_graph_tasks.abort_all();

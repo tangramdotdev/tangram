@@ -10,17 +10,28 @@ use {
 impl Session {
 	pub(crate) async fn try_post_process_signal(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::signal::post::Arg,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		mut arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
-		if let Some(control) = self
-			.try_get_process_control_runner(
-				id,
-				arg.location.as_ref(),
-				&arg.tokens,
-				tg::authorization::permission::process::Set::PARENT,
-			)
+		let mut process = process.clone();
+		if self
+			.try_resolve_process(&mut process, &mut arg.location, Some(&mut arg.tokens), &[])
 			.await?
+			.is_none()
+		{
+			return Ok(None);
+		}
+		let id = process.clone().right();
+		let process = &process;
+		if let Some(id) = &id
+			&& let Some(control) = self
+				.try_get_process_control_runner(
+					id,
+					arg.location.as_ref(),
+					&arg.tokens,
+					tg::authorization::permission::process::Set::PARENT,
+				)
+				.await?
 		{
 			return self
 				.post_process_signal_with_control(
@@ -39,6 +50,7 @@ impl Session {
 
 		if let Some(local) = &locations.local {
 			if local.current
+				&& let Some(id) = &id
 				&& let Some(output) = self
 					.try_post_process_signal_local(id, arg.signal, arg.tokens.local_authorization())
 					.await
@@ -48,20 +60,21 @@ impl Session {
 			}
 
 			if let Some(output) = self
-				.try_post_process_signal_regions(id, arg.signal, &local.regions, &arg.tokens)
+				.try_post_process_signal_regions(process, arg.signal, &local.regions, &arg.tokens)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %id, "failed to signal the process in another region"),
+					|error| tg::error!(!error, %process, "failed to signal the process in another region"),
 				)? {
 				return Ok(Some(output));
 			}
 		}
 
 		if let Some(output) = self
-			.try_post_process_signal_remotes(id, arg.signal, &locations.remotes, &arg.tokens)
+			.try_post_process_signal_remotes(process, arg.signal, &locations.remotes, &arg.tokens)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to signal the process in a remote"))?
-		{
+			.map_err(
+				|error| tg::error!(!error, %process, "failed to signal the process in a remote"),
+			)? {
 			return Ok(Some(output));
 		}
 
@@ -148,14 +161,14 @@ impl Session {
 
 	async fn try_post_process_signal_regions(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		signal: tg::process::Signal,
 		regions: &[String],
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<()>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_post_process_signal_region(id, signal, region, tokens))
+			.map(|region| self.try_post_process_signal_region(process, signal, region, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -178,13 +191,13 @@ impl Session {
 
 	async fn try_post_process_signal_region(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		signal: tg::process::Signal,
 		region: &str,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
-			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, %process, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -194,7 +207,7 @@ impl Session {
 			signal,
 			tokens: tokens.for_location(&location),
 		};
-		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
+		let Some(()) = client.try_post_process_signal(process, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to signal the process"),
 		)?
 		else {
@@ -205,14 +218,14 @@ impl Session {
 
 	async fn try_post_process_signal_remotes(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		signal: tg::process::Signal,
 		remotes: &[crate::location::Remote],
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<()>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_post_process_signal_remote(id, signal, remote, tokens))
+			.map(|remote| self.try_post_process_signal_remote(process, signal, remote, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -235,7 +248,7 @@ impl Session {
 
 	async fn try_post_process_signal_remote(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		signal: tg::process::Signal,
 		remote: &crate::location::Remote,
 		tokens: &tg::authorization::Tokens,
@@ -244,7 +257,7 @@ impl Session {
 			.get_remote_session_for_process(&remote.name)
 			.await
 			.map_err(
-				|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
+				|error| tg::error!(!error, remote = %remote.name, %process, "failed to get the remote client"),
 			)?;
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
@@ -259,7 +272,7 @@ impl Session {
 			signal,
 			tokens: tokens.for_location(&location),
 		};
-		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
+		let Some(()) = client.try_post_process_signal(process, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to signal the process"),
 		)?
 		else {
@@ -271,7 +284,7 @@ impl Session {
 	pub(crate) async fn try_signal_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
+		process: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -279,10 +292,10 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
-		// Parse the process id.
-		let id = id
-			.parse()
-			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
+		// Parse the process.
+		let process = process
+			.parse::<tg::Either<tg::process::Nonce, tg::process::Id>>()
+			.map_err(|_| tg::error!(argument, "failed to parse the process"))?;
 
 		// Get the arg.
 		let arg = request
@@ -292,7 +305,7 @@ impl Session {
 
 		// Post the process signal.
 		let Some(()) = self
-			.try_post_process_signal(&id, arg)
+			.try_post_process_signal(&process, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to post process signal"))?
 		else {

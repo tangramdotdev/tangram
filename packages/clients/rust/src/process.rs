@@ -16,6 +16,7 @@ pub use self::{
 	id::Id,
 	lease::Lease,
 	metadata::Metadata,
+	nonce::Nonce,
 	outcome::Outcome,
 	run::{run, run_with_instance},
 	signal::Signal,
@@ -45,6 +46,7 @@ pub mod id;
 pub mod lease;
 pub mod log;
 pub mod metadata;
+pub mod nonce;
 pub mod outcome;
 pub mod put;
 pub mod run;

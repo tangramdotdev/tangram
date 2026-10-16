@@ -35,13 +35,30 @@ enum Destination {
 impl Session {
 	pub async fn try_write_process_stdio(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::write::stream::Arg,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		mut arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
+		// Resolve the process, claiming the connect's open for the write.
+		let mut process = process.clone();
+		let Some(output) = self
+			.try_resolve_process(
+				&mut process,
+				&mut arg.location,
+				Some(&mut arg.tokens),
+				&arg.streams.clone(),
+			)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let open = output.open;
+		let id = process.clone().right();
+		let process = &process;
 		Self::validate_process_stdio_write_streams(&arg.streams)?;
 		let stdin = arg.streams.contains(&tg::process::stdio::Stream::Stdin);
 		if stdin
+			&& let Some(id) = &id
 			&& let Some(control) = self
 				.try_get_process_control_runner(
 					id,
@@ -58,6 +75,7 @@ impl Session {
 				input,
 				self.context.stopper.clone(),
 				Some(control.control_sender),
+				None,
 			);
 			return Ok(Some(stream));
 		}
@@ -66,32 +84,35 @@ impl Session {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
-				self.try_write_process_stdio_region(id, &arg, input, region)
+				self.try_write_process_stdio_region(process, &arg, input, region)
 					.await?
-			},
-			tg::Location::Local(_) if arg.id.is_some() => {
-				let open = arg.id.as_deref().unwrap();
-				self.write_process_stdio_relay_local(id, open, &arg.streams, input)?
-			},
-			tg::Location::Local(_) if stdin => {
-				self.try_write_process_stdio_local(
-					id,
-					&arg.streams,
-					input,
-					self.context.stopper.clone(),
-					arg.tokens.local_authorization(),
-				)
-				.await?
 			},
 			tg::Location::Local(_) => {
-				self.try_write_process_stdio_log_local(id, &arg.streams, input)
+				let Some(id) = &id else {
+					return Ok(None);
+				};
+				if let Some(relay) = arg.id.as_deref() {
+					self.write_process_stdio_relay_local(id, relay, &arg.streams, input)?
+				} else if stdin {
+					self.try_write_process_stdio_local(
+						id,
+						&arg.streams,
+						input,
+						self.context.stopper.clone(),
+						arg.tokens.local_authorization(),
+						open,
+					)
 					.await?
+				} else {
+					self.try_write_process_stdio_log_local(id, &arg.streams, input)
+						.await?
+				}
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
 			}) => {
-				self.try_write_process_stdio_remote(id, &arg, input, remote, region)
+				self.try_write_process_stdio_remote(process, &arg, input, remote, region)
 					.await?
 			},
 		};
@@ -106,6 +127,7 @@ impl Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		stopper: Option<Stopper>,
 		tokens: &[tg::authorization::Token],
+		open: Option<String>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
 		let Some(tg::process::get::Output { data, location, .. }) = self
 			.try_get_process_local(id, false, false, tokens, tg::process::Source::Auto)
@@ -132,10 +154,12 @@ impl Session {
 		if !authorized.permissions.contains(permission) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let stream = self.write_process_stdio_with_control(id, data, streams, input, stopper, None);
+		let stream =
+			self.write_process_stdio_with_control(id, data, streams, input, stopper, None, open);
 		Ok(Some(stream))
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	fn write_process_stdio_with_control(
 		&self,
 		id: &tg::process::Id,
@@ -144,6 +168,7 @@ impl Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		stopper: Option<Stopper>,
 		control_sender: Option<crate::process::control::local::Local>,
+		open: Option<String>,
 	) -> BoxStream<'static, tg::Result<tg::process::stdio::write::Output>> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 		let task = Task::spawn({
@@ -159,6 +184,7 @@ impl Session {
 						input,
 						&sender,
 						control_sender.as_ref(),
+						open,
 					)
 					.boxed();
 				let result = match stopper {
@@ -196,6 +222,7 @@ impl Session {
 		}
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	async fn write_process_stdio_local_task(
 		&self,
 		id: &tg::process::Id,
@@ -204,6 +231,7 @@ impl Session {
 		mut input: BoxStream<'static, tg::Result<Data>>,
 		sender: &tokio::sync::mpsc::Sender<tg::Result<Output>>,
 		control_sender: Option<&crate::process::control::local::Local>,
+		open: Option<String>,
 	) -> tg::Result<()> {
 		let destination = get_stdin_destination(data)?;
 		let wait = if data.status.is_finished() {
@@ -219,7 +247,7 @@ impl Session {
 			&& wait.clone().now_or_never().is_none()
 		{
 			return self
-				.write_process_stdio_relay_task(id, streams, input, sender, wait)
+				.write_process_stdio_relay_task(id, streams, input, sender, wait, open)
 				.boxed()
 				.await;
 		}
@@ -325,7 +353,7 @@ impl Session {
 
 	async fn try_write_process_stdio_region(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: &tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		region: String,
@@ -343,7 +371,7 @@ impl Session {
 			tokens: arg.tokens.for_location(&location),
 		};
 		let stream = client
-			.try_write_process_stdio(id, arg, input)
+			.try_write_process_stdio(process, arg, input)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to write stdio"))?;
 
@@ -352,7 +380,7 @@ impl Session {
 
 	async fn try_write_process_stdio_remote(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: &tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		remote: String,
@@ -372,7 +400,7 @@ impl Session {
 			tokens: arg.tokens.for_location(&location),
 		};
 		let stream = client
-			.try_write_process_stdio(id, arg, input)
+			.try_write_process_stdio(process, arg, input)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to write stdio"))?;
 
@@ -382,7 +410,7 @@ impl Session {
 	pub(crate) async fn try_write_process_stdio_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
+		process: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -405,9 +433,9 @@ impl Session {
 			tangram_content_type,
 		)
 		.map_err(|error| tg::error!(argument, !error, "invalid content type"))?;
-		let id = id
-			.parse::<tg::process::Id>()
-			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
+		let process = process
+			.parse::<tg::Either<tg::process::Nonce, tg::process::Id>>()
+			.map_err(|_| tg::error!(argument, "failed to parse the process"))?;
 		let (arg, request) = request
 			.arg_with_tangram::<tg::process::stdio::write::stream::Arg>()
 			.await
@@ -415,14 +443,14 @@ impl Session {
 		let arg = arg.unwrap_or_default();
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let input = super::decode(request, input_encoding, max_frame_size);
-		let Some(output) = self.try_write_process_stdio(&id, arg, input).await? else {
+		let Some(output) = self.try_write_process_stdio(&process, arg, input).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
 				.boxed_body());
 		};
-		crate::checkpoint!(self.server, "process.stdio.write.response", process = %id).await;
+		crate::checkpoint!(self.server, "process.stdio.write.response", process = %process).await;
 		let content_type = output_encoding.content_type(tangram_content_type);
 		let body = super::encode(output, output_encoding, max_frame_size);
 		let response = http::Response::builder()

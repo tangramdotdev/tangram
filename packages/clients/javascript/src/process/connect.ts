@@ -96,6 +96,31 @@ export class Connection {
 		await (await this.#ensureSession()).tty(arg);
 	}
 
+	/** Get a stdio client for a process located by its connect's nonce, whose reads end when the connection closes once it opens. */
+	static stdioClient(
+		connection: Promise<Connection | null>,
+	): Pick<
+		typeof tg.client,
+		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"
+	> {
+		return {
+			setProcessTtySize: (process, arg) =>
+				tg.client.setProcessTtySize(process, arg),
+			tryReadProcessStdio: async (process, arg) => {
+				let iterator = await tg.client.tryReadProcessStdio(process, arg);
+				let opened = await connection.catch(() => null);
+				if (iterator === null || opened === null) return iterator;
+				if (opened.#closed) {
+					await iterator.return?.();
+					return null;
+				}
+				return opened.#bind(iterator);
+			},
+			writeProcessStdio: (process, arg, input, complete) =>
+				tg.client.writeProcessStdio(process, arg, input, complete),
+		};
+	}
+
 	stdioClient(): Pick<
 		typeof tg.client,
 		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"

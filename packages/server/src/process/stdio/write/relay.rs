@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	futures::{
-		StreamExt as _, TryStreamExt as _,
+		FutureExt as _, StreamExt as _, TryStreamExt as _,
 		future::{self, BoxFuture},
 		stream::BoxStream,
 	},
@@ -227,6 +227,7 @@ impl Session {
 		mut input: BoxStream<'static, tg::Result<Data>>,
 		sender: &tokio::sync::mpsc::Sender<tg::Result<Output>>,
 		wait: future::Shared<BoxFuture<'static, tg::Result<()>>>,
+		mut open: Option<String>,
 	) -> tg::Result<()> {
 		// Keep the client's data until the runner has written it, so a failed relay can be replaced by one that resends it.
 		let mut kept = VecDeque::<(Data, Pending)>::new();
@@ -256,6 +257,7 @@ impl Session {
 					&mut kept,
 					&mut ended,
 					&mut position,
+					open.take(),
 				)
 				.await;
 			let attempt_error = match result {
@@ -289,9 +291,11 @@ impl Session {
 		kept: &mut VecDeque<(Data, Pending)>,
 		ended: &mut bool,
 		position: &mut u64,
+		open: Option<String>,
 	) -> tg::Result<()> {
-		// Open the relay, which sends the data and receives the runner's acknowledgments.
-		let open = crate::control::id();
+		// Open the relay, which sends the data and receives the runner's acknowledgments. A claimed open names the relay that the runner opened when the process started.
+		let claimed = open.is_some();
+		let open = open.unwrap_or_else(crate::control::id);
 		let send_subject = super::super::relay::data_subject(id, &open);
 		let receive_subject = super::super::relay::ack_subject(id, &open);
 		let options = self.server.config().process.stdio_relay;
@@ -312,18 +316,24 @@ impl Session {
 		let items = ReceiverStream::new(items_receiver);
 		let mut relay = AbortOnDropHandle::new(tokio::spawn(relay_sender.send_all(items)));
 
-		// Open the runner's stdin read.
-		let arg = tg::process::stdio::read::Arg {
-			streams: vec![tg::process::stdio::Stream::Stdin],
-			..Default::default()
+		// Open the runner's stdin read, unless the runner opened it when the process started.
+		let mut response = if claimed {
+			crate::checkpoint!(self.server, "process.stdio.write.open.claimed", process = %id)
+				.await;
+			future::pending::<tg::Result<()>>().boxed()
+		} else {
+			let arg = tg::process::stdio::read::Arg {
+				streams: vec![tg::process::stdio::Stream::Stdin],
+				..Default::default()
+			};
+			let open = tg::process::control::ServerRequest {
+				arg: tg::process::control::ServerRequestArg::Open(
+					tg::process::control::OpenServerRequestArg { arg },
+				),
+				id: open,
+			};
+			self.send_process_control_open(id, open).await?
 		};
-		let open = tg::process::control::ServerRequest {
-			arg: tg::process::control::ServerRequestArg::Open(
-				tg::process::control::OpenServerRequestArg { arg },
-			),
-			id: open,
-		};
-		let mut response = self.send_process_control_open(id, open).await?;
 
 		// Resend the kept data on the new relay, then queue new data behind it. The runner skips the bytes it already wrote.
 		let mut queue = kept
@@ -385,6 +395,10 @@ impl Session {
 						Self::answer_process_stdio_relay_writes(sender, kept, position, acked).await?;
 					},
 					Some(Err(error)) => return Err(super::super::relay::error(error)),
+
+					// The runner ends a claimed open's relay when stdin closes, because no open response reports it.
+					None if claimed => return Self::close_process_stdio_relay(sender, *position).await,
+
 					None => acks_open = false,
 				},
 				result = &mut relay, if !relayed => {

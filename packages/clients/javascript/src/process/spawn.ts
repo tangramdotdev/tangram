@@ -690,11 +690,47 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 	}
 	let spawnLocation = spawnArg.location ?? null;
 	delete spawnArg.location;
-	let opened = await Connection.open({
+
+	// Name the connect with a nonce, and start the stdio task with it and the connect's location, so that the stdio requests open concurrently with the connect and route to its server.
+	let nonce =
+		stdin !== null || stdout !== null || stderr !== null || localTty
+			? createNonce()
+			: null;
+	let open: Array<tg.Process.Stdio.Stream> = [];
+	if (nonce !== null) {
+		if (stdin !== null) open.push("stdin");
+		if (stdout !== null) open.push("stdout");
+		if (stderr !== null) open.push("stderr");
+	}
+	let opening = Connection.open({
 		location: spawnLocation,
 		mode,
+		...(nonce !== null ? { nonce, open } : {}),
 		process: spawnArg,
 	});
+	let stdioPromise =
+		nonce !== null
+			? stdio.task(
+					spawnLocation,
+					nonce,
+					stdin,
+					stdout,
+					stderr,
+					localTty,
+					opening.then(({ connection }) =>
+						mode === "run" ? connection : null,
+					),
+				)
+			: null;
+
+	// Connect.
+	let opened;
+	try {
+		opened = await opening;
+	} catch (error) {
+		stdioPromise?.catch(() => {});
+		throw error;
+	}
 	let output = opened.output;
 	let connection = mode === "run" ? opened.connection : null;
 	let outcome =
@@ -708,19 +744,6 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 	if (typeof output.process !== "string") {
 		throw new Error("expected a sandboxed process id");
 	}
-	let stdioPromise =
-		stdin !== null || stdout !== null || stderr !== null || localTty
-			? stdio.task(
-					output.process,
-					location,
-					output.tokens ?? {},
-					stdin,
-					stdout,
-					stderr,
-					localTty,
-					connection,
-				)
-			: null;
 	let process = new tg.Process<O>({
 		connection,
 		id: output.process,
@@ -1160,3 +1183,24 @@ let normalizeNetworkForPorts = (
 		ports: portData,
 	};
 };
+
+/** Create a nonce that names a connect from 128 random bits, encoded with the symbols of IDs. */
+function createNonce(): string {
+	let symbols = "0123456789abcdefghjkmnpqrstvwxyz";
+	let nonce = "";
+	let buffer = 0;
+	let bits = 0;
+	for (let index = 0; index < 16; index++) {
+		buffer = (buffer << 8) | Math.floor(Math.random() * 256);
+		bits += 8;
+		while (bits >= 5) {
+			bits -= 5;
+			nonce += symbols[(buffer >> bits) & 31];
+		}
+		buffer &= (1 << bits) - 1;
+	}
+	if (bits > 0) {
+		nonce += symbols[(buffer << (5 - bits)) & 31];
+	}
+	return nonce;
+}
