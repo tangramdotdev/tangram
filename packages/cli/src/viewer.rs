@@ -668,24 +668,23 @@ mod tests {
 	#[test]
 	fn inline_frames_ignore_echoed_input() {
 		// Create a terminal with the cursor on its bottom row.
-		let mut parser = vt100::Parser::new(20, 112, 0);
-		parser.process(b"\x1b[20;1H");
+		let mut parser = vt100::Parser::new(3, 10, 0);
+		parser.process(b"\x1b[3;1H");
 
-		// Render frames before and after the terminal echoes arrow keys at the cursor.
-		let tree = "⠧ packages/llvm/tangram.ts: packages/llvm/tangram.ts#libclang";
+		// Render frames before and after an echoed arrow key shifts the cursor.
+		let tree = "building";
 		for frame in 0..3 {
 			if frame == 1 {
-				parser.process("^[[A".repeat(13).as_bytes());
+				parser.process(b"^[[A");
 			}
 			let mut bytes = Vec::new();
-			render_inline_frame(&mut bytes, tree, 112, 1).unwrap();
+			render_inline_frame(&mut bytes, tree, 10, 1).unwrap();
 			parser.process(&bytes);
 		}
 
-		// Assert that the tree is drawn once on the bottom row from the first column.
-		let rows = parser.screen().rows(0, 112).collect::<Vec<_>>();
-		let tree_rows = rows.iter().filter(|row| row.contains("libclan")).count();
-		assert_eq!(tree_rows, 1);
-		assert_eq!(rows.last().map(String::as_str), Some(tree));
+		// Assert that only the bottom row contains the tree and the cursor is restored.
+		let rows = parser.screen().rows(0, 10).collect::<Vec<_>>();
+		assert_eq!(rows, ["", "", tree]);
+		assert_eq!(parser.screen().cursor_position(), (2, 0));
 	}
 }
