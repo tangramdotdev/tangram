@@ -507,6 +507,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 				touched_at: 0,
 				version: "initial".into(),
 				account: Some(account.clone()),
+				creator: tg::authorization::Subject::Root,
 				id: tag.clone(),
 				name: "tag".to_owned(),
 				parent: Some(user.into()),
@@ -680,6 +681,7 @@ async fn account_storage_is_retained_by_a_tag() {
 				touched_at: 0,
 				version: "initial".into(),
 				account: Some(account.clone()),
+				creator: tg::authorization::Subject::Root,
 				id: tag.clone(),
 				name: "tag".to_owned(),
 				parent: Some(user.into()),
@@ -815,6 +817,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 				stored,
 				tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
 					account: Some(account.clone()),
+					creator: tg::authorization::Subject::Root,
 					id: tag.clone(),
 					name: "tag".into(),
 					parent: None,
@@ -1152,6 +1155,7 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 			};
 			let mut tag = tangram_index::tag::put::Arg {
 				account: Some(first_account.clone()),
+				creator: tg::authorization::Subject::Root,
 				id: tag_id.clone(),
 				name: "tag".into(),
 				parent: None,
@@ -1273,6 +1277,7 @@ async fn tag_storage_follows_captured_object_permissions() {
 					tangram_index::batch::Item::PutObject(object_arg(inaccessible.clone(), [], 4)),
 					tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
 						account: Some(account.clone()),
+						creator: tg::authorization::Subject::Root,
 						id: tag.clone(),
 						name: "tag".into(),
 						parent: None,
@@ -1342,6 +1347,7 @@ async fn tag_storage_follows_captured_object_permissions() {
 			let account = tangram_index::usage::Account::User(tg::user::Id::new());
 			let arg = tangram_index::tag::put::Arg {
 				account: Some(account.clone()),
+				creator: tg::authorization::Subject::Root,
 				id: tag.clone(),
 				name: "tag".into(),
 				parent: None,
@@ -1493,6 +1499,7 @@ async fn tag_storage_follows_captured_process_permissions() {
 					tangram_index::batch::Item::PutProcess(child_arg),
 					tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
 						account: Some(account.clone()),
+						creator: tg::authorization::Subject::Root,
 						id: tag.clone(),
 						name: "tag".into(),
 						parent: None,
@@ -1599,6 +1606,7 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 			tangram_index::batch::Item::PutObject(object_arg(child.clone(), [], 2)),
 			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
 				account: Some(account.clone()),
+				creator: tg::authorization::Subject::Root,
 				id: tag.clone(),
 				name: "tag".into(),
 				parent: None,
@@ -1676,6 +1684,120 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 	let usage = index.get_usage(&account, period, now).await.unwrap();
 	assert_eq!(usage.object_count, 2);
 	assert_eq!(usage.object_size, 3);
+}
+
+#[tokio::test]
+async fn tag_storage_follows_permissions_captured_from_a_later_push() {
+	let (_dir, index) = new_index(1);
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let alice = tg::authorization::Subject::User(tg::user::Id::new());
+	let sync = tg::sync::Id::new();
+	let root = object_id(1500);
+	let child = object_id(1501);
+	let tag = tg::tag::Id::new();
+	let created_at = 3600;
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutTag(
+			tangram_index::tag::put::Arg {
+				account: Some(account.clone()),
+				creator: alice.clone(),
+				id: tag.clone(),
+				name: "tag".into(),
+				parent: None,
+				specifier: "tag".parse().unwrap(),
+				target: tg::Either::Left(root.clone()),
+				touched_at: created_at,
+				version: "initial".into(),
+			},
+		)],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+	drain_all(&index).await;
+
+	// Push the target as Alice, which gives the sync the subtree and Alice read on the sync.
+	let permission = |resource: tg::Id, subject, permission: tg::authorization::Permission| {
+		tangram_index::batch::Item::PutPermission(tangram_index::permission::put::Arg {
+			created_at,
+			creator: None,
+			permissions: permission.into(),
+			resource,
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(created_at + 60),
+			},
+			subject,
+			time_to_touch: None,
+			version: None,
+		})
+	};
+	let arg = tangram_index::batch::Arg {
+		items: vec![
+			tangram_index::batch::Item::PutObject(object_arg(root.clone(), [child.clone()], 1)),
+			tangram_index::batch::Item::PutObject(object_arg(child.clone(), [], 2)),
+			permission(
+				root.clone().into(),
+				tg::authorization::Subject::Sync(sync.clone()),
+				tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				),
+			),
+			permission(
+				sync.into(),
+				alice,
+				tg::authorization::Permission::Sync(
+					tg::authorization::permission::sync::Permission::Read,
+				),
+			),
+		],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+	drain_all(&index).await;
+
+	// The tag holds the permanent subtree permission that the push established.
+	let transaction = index.env.read_txn().unwrap();
+	let entries = Index::get_resource_permission_entries_for_subject_with_transaction(
+		&index.db,
+		&index.subspace,
+		&transaction,
+		&root.clone().into(),
+		&tg::authorization::Subject::Tag(tag),
+	)
+	.unwrap();
+	drop(transaction);
+	assert!(
+		entries.iter().any(|entry| {
+			entry.direct == Some(None)
+				&& entry.permission
+					== tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
+					)
+		}),
+		"the tag must permanently capture the pushed subtree",
+	);
+
+	// The tag's account is charged for the captured subtree.
+	let now = jiff::Timestamp::new(created_at, 0).unwrap();
+	let period =
+		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
+	let usage = index.get_usage(&account, period, now).await.unwrap();
+	assert_eq!(usage.object_count, 2);
+	assert_eq!(usage.object_size, 3);
+}
+
+async fn drain_all(index: &Index) {
+	for _ in 0..100 {
+		let mut count = 0;
+		for kind in [
+			tangram_index::update::Kind::Permission,
+			tangram_index::update::Kind::StorageAndMetadata,
+			tangram_index::update::Kind::Usage,
+		] {
+			count += index.update_batch(kind, 100).await.unwrap().count;
+		}
+		if count == 0 {
+			return;
+		}
+	}
+	panic!("the updates did not finish");
 }
 
 #[tokio::test]
@@ -1884,6 +2006,7 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 	for (id, name) in [(&log_tag, "log"), (&output_tag, "output")] {
 		let arg = tangram_index::tag::put::Arg {
 			account: Some(account.clone()),
+			creator: tg::authorization::Subject::Root,
 			id: id.clone(),
 			name: name.into(),
 			parent: None,
@@ -1993,6 +2116,7 @@ async fn tag_storage_expands_permissions_during_propagation() {
 	}
 	let arg = tangram_index::tag::put::Arg {
 		account: Some(account.clone()),
+		creator: tg::authorization::Subject::Root,
 		id: tag.clone(),
 		name: "tag".into(),
 		parent: None,
@@ -2197,6 +2321,7 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 	for (id, name) in tags {
 		let arg = tangram_index::tag::put::Arg {
 			account: Some(account.clone()),
+			creator: tg::authorization::Subject::Root,
 			id: id.clone(),
 			name: name.into(),
 			parent: None,

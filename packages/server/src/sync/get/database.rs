@@ -1286,9 +1286,11 @@ impl Session {
 						.cloned()
 						.ok_or_else(|| tg::error!("missing the tag permissions"))?;
 					let target = Self::sync_get_database_tag_target(&message.target)?;
+					let creator = self.context.principal.try_to_subject()?;
 					tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
 						touched_at,
 						account: tag_accounts.get(&message.id).cloned().flatten(),
+						creator,
 						id: message.id.clone(),
 						name: message.name.clone(),
 						parent: message.parent.clone(),

@@ -55,6 +55,11 @@ struct ProcessPermissionInputs<'a> {
 	child_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	command_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	error_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
+	expected: &'a BTreeSet<(
+		tg::authorization::Subject,
+		tg::authorization::Permission,
+		Option<i64>,
+	)>,
 	log_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	output_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	set: ProcessPermissionSet,
@@ -582,25 +587,35 @@ impl Index {
 		);
 		let delegations =
 			Self::get_delegations_with_prefix(db, subspace, transaction, &prefix, usize::MAX)?;
-		for delegation in delegations {
-			let source_entries =
-				Self::get_resource_permission_entries_for_subject_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&resource,
-					&delegation.source,
-				)?;
+		let mut sources = delegations
+			.into_iter()
+			.map(|delegation| (delegation.source, Some(delegation.expires_at)))
+			.collect::<Vec<_>>();
+		if let tg::authorization::Subject::Tag(tag) = subject
+			&& let Some(creator) = Self::try_get_tag_target_creator_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&resource,
+				tag,
+			)? {
+			sources.push((creator, None));
+		}
+		for (source, source_expires_at) in sources {
+			let source_entries = Self::get_source_permission_entries_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&resource,
+				&source,
+			)?;
 			for permission in [node, subtree] {
-				let Some(cover) = Self::permission_entries_cover_expires_at(
-					&source_entries,
-					&delegation.source,
-					permission,
-				) else {
+				let Some(cover) =
+					Self::permission_entries_cover_expires_at(&source_entries, &source, permission)
+				else {
 					continue;
 				};
-				let expires_at =
-					Self::min_expires_at(cover.expires_at, Some(delegation.expires_at));
+				let expires_at = Self::min_expires_at(cover.expires_at, source_expires_at);
 				if !Self::has_non_materialized_cover(&entries, subject, permission, expires_at) {
 					expected.insert((subject.clone(), permission, expires_at));
 				}
@@ -674,7 +689,7 @@ impl Index {
 			&resource,
 			subject,
 		)?;
-		let direct_changed = Self::promote_process_direct_permissions_for_subject(
+		let process_changed = Self::promote_process_direct_permissions_for_subject(
 			db,
 			subspace,
 			transaction,
@@ -682,8 +697,180 @@ impl Index {
 			subject,
 			&entries,
 		)?;
+		let tag_changed = Self::promote_tag_direct_permissions_for_subject(
+			db,
+			subspace,
+			transaction,
+			&tg::Either::Left(id.clone()),
+			subject,
+			&entries,
+		)?;
 
-		Ok(direct_changed || materialized_changed)
+		Ok(process_changed || tag_changed || materialized_changed)
+	}
+
+	fn get_source_permission_entries_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		resource: &tg::Id,
+		source: &tg::authorization::Subject,
+	) -> tg::Result<Vec<crate::permission::PermissionEntry>> {
+		let mut entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+			db,
+			subspace,
+			transaction,
+			resource,
+			source,
+		)?;
+		let sync_entries = Self::get_resource_sync_permission_entries_for_subject_with_transaction(
+			db,
+			subspace,
+			transaction,
+			resource,
+			source,
+		)?;
+		entries.extend(sync_entries);
+		Ok(entries)
+	}
+
+	fn promote_tag_direct_permissions_for_subject(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		subject: &tg::authorization::Subject,
+		entries: &[crate::permission::PermissionEntry],
+	) -> tg::Result<bool> {
+		let tg::authorization::Subject::Tag(tag) = subject else {
+			return Ok(false);
+		};
+		let resource = match id {
+			tg::Either::Left(id) => tg::Id::from(id.clone()),
+			tg::Either::Right(id) => tg::Id::from(id.clone()),
+		};
+		let node = match id {
+			tg::Either::Left(_) => tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			),
+			tg::Either::Right(_) => tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Node,
+			),
+		};
+		let mut anchored = Self::try_get_tag_target_creator_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			tag,
+		)?
+		.is_some();
+		if !anchored {
+			let parents = match id {
+				tg::Either::Left(id) => {
+					Self::get_object_parents_with_transaction(db, subspace, transaction, id)?
+						.into_iter()
+						.map(tg::Id::from)
+						.collect::<Vec<_>>()
+				},
+				tg::Either::Right(id) => {
+					Self::get_process_parents_with_transaction(db, subspace, transaction, id)?
+						.into_iter()
+						.map(tg::Id::from)
+						.collect::<Vec<_>>()
+				},
+			};
+			for parent in parents {
+				let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&parent,
+					subject,
+				)?;
+				if entries
+					.iter()
+					.any(|entry| entry.direct == Some(None) && entry.permission.implies(node))
+				{
+					anchored = true;
+					break;
+				}
+			}
+		}
+		if !anchored {
+			return Ok(false);
+		}
+
+		let permissions = entries
+			.iter()
+			.filter(|entry| entry.grant || entry.direct.is_some() || entry.materialized.is_some())
+			.map(|entry| entry.permission)
+			.collect::<BTreeSet<_>>();
+		let mut changed = false;
+		for permission in permissions.iter().copied() {
+			let entry = crate::permission::PermissionIndexEntry {
+				creator: None,
+				expires_at: None,
+				permission,
+				resource: &resource,
+				subject,
+			};
+			if Self::put_permission_index_entry(
+				db,
+				subspace,
+				transaction,
+				&entry,
+				crate::permission::PermissionSource::Direct,
+				None,
+			)? {
+				changed = true;
+			}
+		}
+		if !changed {
+			return Ok(false);
+		}
+
+		// Enqueue a usage update for the tag's account.
+		let account = Self::try_get_tag_with_transaction(db, subspace, transaction, tag)?
+			.and_then(|tag| tag.account);
+		let Some(account) = account else {
+			return Ok(true);
+		};
+		let (kind, touched_at) = match id {
+			tg::Either::Left(id) => (
+				tg::authorization::ResourceKind::Object,
+				Self::try_get_object_with_transaction(db, subspace, transaction, id)?
+					.map(|object| object.touched_at),
+			),
+			tg::Either::Right(id) => (
+				tg::authorization::ResourceKind::Process,
+				Self::try_get_process_with_transaction(db, subspace, transaction, id)?
+					.map(|process| process.touched_at),
+			),
+		};
+		let Some(touched_at) = touched_at else {
+			return Ok(true);
+		};
+		let mut set = tg::authorization::permission::Set::empty_for_kind(kind);
+		for permission in permissions {
+			set.insert(permission.into());
+		}
+		let kind = crate::update::Kind::Usage(crate::update::UsageKind::Put {
+			account,
+			permissions: set,
+			touched_at,
+		});
+		Self::enqueue_update_with_kind(
+			db,
+			subspace,
+			transaction,
+			id.clone(),
+			kind,
+			crate::update::Source::Put,
+			None,
+		)?;
+
+		Ok(true)
 	}
 
 	fn promote_process_direct_permissions_for_subject(
@@ -858,7 +1045,7 @@ impl Index {
 			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 		);
 
-		let mut expected = BTreeSet::new();
+		let mut expected = input.expected.clone();
 
 		if input.set.command_objects {
 			let command_object_entries = input
@@ -928,41 +1115,44 @@ impl Index {
 			(node_log_objects, subtree_log_objects),
 			(node_output_objects, subtree_output_objects),
 		] {
-			for entry in input
+			let mut nodes = input
 				.entries
 				.iter()
 				.filter(|entry| entry.permission == source)
-			{
-				let Some(entry_expires_at) = entry.effective_expires_at() else {
-					continue;
-				};
+				.filter_map(|entry| {
+					entry
+						.effective_expires_at()
+						.map(|expires_at| (entry.subject.clone(), expires_at))
+				})
+				.collect::<Vec<_>>();
+			nodes.extend(
+				input
+					.expected
+					.iter()
+					.filter(|(_, permission, _)| *permission == source)
+					.map(|(subject, _, expires_at)| (subject.clone(), *expires_at)),
+			);
+			for (subject, entry_expires_at) in nodes {
 				let expires_at =
 					input
 						.child_entries
 						.iter()
 						.try_fold(entry_expires_at, |output, entries| {
-							Self::permission_entries_cover_expires_at(
-								entries,
-								&entry.subject,
-								target,
-							)
-							.map(|cover| Self::min_expires_at(output, cover.expires_at))
+							Self::permission_entries_cover_expires_at(entries, &subject, target)
+								.map(|cover| Self::min_expires_at(output, cover.expires_at))
 						});
 				if let Some(expires_at) = expires_at {
-					if Self::has_non_materialized_cover(
-						input.entries,
-						&entry.subject,
-						target,
-						expires_at,
-					) {
+					if Self::has_non_materialized_cover(input.entries, &subject, target, expires_at)
+					{
 						continue;
 					}
-					expected.insert((entry.subject.clone(), target, expires_at));
+					expected.insert((subject, target, expires_at));
 				}
 			}
 		}
 
 		let managed = BTreeSet::from([
+			node,
 			node_command_objects,
 			node_error_objects,
 			node_log_objects,
@@ -1139,12 +1329,21 @@ impl Index {
 				},
 			}
 		}
+		let expected = Self::get_process_expected_permissions_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			subject,
+			&entries,
+		)?;
 		let entry = ProcessPermissionInputs {
 			resource: &resource,
 			entries: &entries,
 			child_entries: &child_entries,
 			command_object_entries: &command_object_entries,
 			error_object_entries: &error_object_entries,
+			expected: &expected,
 			log_object_entries: &log_object_entries,
 			output_object_entries: &output_object_entries,
 			set: ProcessPermissionSet {
@@ -1154,7 +1353,88 @@ impl Index {
 				output_objects: process.set.output_objects,
 			},
 		};
-		Self::update_process_permissions(db, subspace, transaction, &entry)
+		let materialized_changed =
+			Self::update_process_permissions(db, subspace, transaction, &entry)?;
+		let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			subject,
+		)?;
+		let direct_changed = Self::promote_tag_direct_permissions_for_subject(
+			db,
+			subspace,
+			transaction,
+			&tg::Either::Right(id.clone()),
+			subject,
+			&entries,
+		)?;
+
+		Ok(direct_changed || materialized_changed)
+	}
+
+	fn get_process_expected_permissions_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+		entries: &[crate::permission::PermissionEntry],
+	) -> tg::Result<
+		BTreeSet<(
+			tg::authorization::Subject,
+			tg::authorization::Permission,
+			Option<i64>,
+		)>,
+	> {
+		// Use the tag creator as the source when the process is the tag's target.
+		let mut expected = BTreeSet::new();
+		let tg::authorization::Subject::Tag(tag) = subject else {
+			return Ok(expected);
+		};
+		let Some(creator) = Self::try_get_tag_target_creator_with_transaction(
+			db,
+			subspace,
+			transaction,
+			resource,
+			tag,
+		)?
+		else {
+			return Ok(expected);
+		};
+		let source_entries = Self::get_source_permission_entries_with_transaction(
+			db,
+			subspace,
+			transaction,
+			resource,
+			&creator,
+		)?;
+		let permissions = [
+			tg::authorization::permission::process::Permission::Node,
+			tg::authorization::permission::process::Permission::NodeCommandObjects,
+			tg::authorization::permission::process::Permission::NodeErrorObjects,
+			tg::authorization::permission::process::Permission::NodeLogObjects,
+			tg::authorization::permission::process::Permission::NodeOutputObjects,
+			tg::authorization::permission::process::Permission::Subtree,
+			tg::authorization::permission::process::Permission::SubtreeCommandObjects,
+			tg::authorization::permission::process::Permission::SubtreeErrorObjects,
+			tg::authorization::permission::process::Permission::SubtreeLogObjects,
+			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
+		]
+		.map(tg::authorization::Permission::Process);
+		for permission in permissions {
+			let Some(cover) =
+				Self::permission_entries_cover_expires_at(&source_entries, &creator, permission)
+			else {
+				continue;
+			};
+			if !Self::has_non_materialized_cover(entries, subject, permission, cover.expires_at) {
+				expected.insert((subject.clone(), permission, cover.expires_at));
+			}
+		}
+
+		Ok(expected)
 	}
 
 	fn update_process(
@@ -2170,6 +2450,14 @@ impl Index {
 							Some(version),
 						)?;
 					}
+					Self::enqueue_target_tag_permission_updates(
+						db,
+						subspace,
+						transaction,
+						&tg::Either::Left(id.clone()),
+						source,
+						version,
+					)?;
 				}
 
 				let parents =
@@ -2200,6 +2488,16 @@ impl Index {
 				}
 			},
 			tg::Either::Right(id) => {
+				if let Kind::Permission(source) = kind {
+					Self::enqueue_target_tag_permission_updates(
+						db,
+						subspace,
+						transaction,
+						&tg::Either::Right(id.clone()),
+						source,
+						version,
+					)?;
+				}
 				let parents =
 					Self::get_process_parents_with_transaction(db, subspace, transaction, id)?;
 				for parent in parents {
@@ -2214,6 +2512,40 @@ impl Index {
 					)?;
 				}
 			},
+		}
+		Ok(())
+	}
+
+	fn enqueue_target_tag_permission_updates(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		source: &tg::authorization::Subject,
+		version: u64,
+	) -> tg::Result<()> {
+		// Re-evaluate the tags targeting the resource when a sync permission or their creator's permission changes.
+		let resource = match id {
+			tg::Either::Left(id) => tg::Id::from(id.clone()),
+			tg::Either::Right(id) => tg::Id::from(id.clone()),
+		};
+		let tags = Self::get_target_tags_with_transaction(db, subspace, transaction, &resource)?;
+		for tag in tags {
+			let enqueue = matches!(source, tg::authorization::Subject::Sync(_))
+				|| Self::try_get_tag_with_transaction(db, subspace, transaction, &tag)?
+					.is_some_and(|tag| tag.creator == *source);
+			if !enqueue {
+				continue;
+			}
+			Self::enqueue_update_with_kind(
+				db,
+				subspace,
+				transaction,
+				id.clone(),
+				Kind::Permission(tg::authorization::Subject::Tag(tag)),
+				Source::Propagate,
+				Some(version),
+			)?;
 		}
 		Ok(())
 	}

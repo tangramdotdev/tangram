@@ -122,6 +122,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let value = tangram_index::tag::Tag {
 			account: arg.account.clone(),
+			creator: arg.creator.clone(),
 			name: arg.name.clone(),
 			parent: arg.parent.clone(),
 			specifier: arg.specifier.clone(),
@@ -149,6 +150,15 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|error| tg::error!(!error, "failed to put the target tag"))?;
+		Self::enqueue_update_with_kind(
+			db,
+			subspace,
+			transaction,
+			arg.target.clone(),
+			crate::update::Kind::Permission(tg::authorization::Subject::Tag(arg.id.clone())),
+			crate::update::Source::Put,
+			None,
+		)?;
 
 		let key = Key::Tag(crate::tag::Key::ParentTag {
 			parent: arg.parent.clone(),

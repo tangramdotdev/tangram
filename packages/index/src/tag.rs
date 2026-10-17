@@ -9,6 +9,9 @@ pub struct Tag {
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub account: Option<crate::usage::Account>,
 
+	#[tangram_serialize(id = 7)]
+	pub creator: tg::authorization::Subject,
+
 	#[tangram_serialize(id = 1)]
 	pub name: String,
 

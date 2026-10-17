@@ -108,6 +108,7 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 				touched_at: 0,
 				version: "initial".into(),
 				account: None,
+				creator: tg::authorization::Subject::Root,
 				id: tag,
 				name: "tag".to_owned(),
 				parent: None,

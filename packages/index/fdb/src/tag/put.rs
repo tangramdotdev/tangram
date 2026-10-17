@@ -147,6 +147,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let value = tangram_index::tag::Tag {
 			account: arg.account.clone(),
+			creator: arg.creator.clone(),
 			name: arg.name.clone(),
 			parent: arg.parent.clone(),
 			specifier: arg.specifier.clone(),
@@ -171,6 +172,14 @@ impl Index {
 		});
 		let target_tag_key = Self::pack(subspace, &target_tag_key);
 		txn.set(&target_tag_key, &[]);
+		Self::enqueue_update_with_kind(
+			txn,
+			subspace,
+			&arg.target,
+			&crate::update::Kind::Permission(tg::authorization::Subject::Tag(arg.id.clone())),
+			crate::update::Source::Put,
+			partition_totals.permission_update,
+		);
 
 		let parent_tag_key = Key::Tag(crate::tag::Key::ParentTag {
 			parent: arg.parent.clone(),

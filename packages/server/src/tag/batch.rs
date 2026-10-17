@@ -164,10 +164,12 @@ impl Session {
 				tg::tag::data::Target::Object(id) => tg::Either::Left(id),
 				tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 			};
+			let creator = self.context.principal.try_to_subject()?;
 			batch.items.push(tangram_index::batch::Item::PutTag(
 				tangram_index::tag::put::Arg {
 					touched_at,
 					account: account.clone(),
+					creator,
 					id: data.id,
 					name: data.name,
 					parent: data.parent,

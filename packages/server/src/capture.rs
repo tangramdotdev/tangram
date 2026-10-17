@@ -99,43 +99,46 @@ impl Session {
 			if proven.contains(requested) {
 				continue;
 			}
-
-			// Delegate only roots that still need capture, including authority held by pending syncs.
-			let time_to_live = i64::try_from(
-				self.server
-					.config
-					.indexer
-					.permission_capture
-					.delegation_time_to_live
-					.as_secs(),
-			)
-			.map_err(|error| tg::error!(!error, "failed to convert the delegation time to live"))?;
-			let expires_at = created_at
-				.checked_add(time_to_live)
-				.ok_or_else(|| tg::error!("the delegation expiration overflowed"))?;
-			let mut sources = BTreeSet::new();
-			let source = match &principal {
-				tg::Principal::Anonymous => tg::authorization::Subject::Public,
-				source => source.try_to_subject()?,
-			};
-			sources.insert(source);
-			for token in &tokens {
-				if let Some(sync) = self.try_get_sync_id_from_token(token) {
-					sources.insert(tg::authorization::Subject::Sync(sync));
-				}
-			}
-			for source in sources {
-				if source == subject {
-					continue;
-				}
-				let arg = tangram_index::delegation::put::Arg {
-					expires_at,
-					resource: resource.node.clone(),
-					source,
-					subject: subject.clone(),
-					version: version.clone(),
+			// Delegate only process roots that still need capture, including authority held by pending syncs.
+			if matches!(subject, tg::authorization::Subject::Process(_)) {
+				let time_to_live = i64::try_from(
+					self.server
+						.config
+						.indexer
+						.permission_capture
+						.delegation_time_to_live
+						.as_secs(),
+				)
+				.map_err(|error| {
+					tg::error!(!error, "failed to convert the delegation time to live")
+				})?;
+				let expires_at = created_at
+					.checked_add(time_to_live)
+					.ok_or_else(|| tg::error!("the delegation expiration overflowed"))?;
+				let mut sources = BTreeSet::new();
+				let source = match &principal {
+					tg::Principal::Anonymous => tg::authorization::Subject::Public,
+					source => source.try_to_subject()?,
 				};
-				items.push(tangram_index::batch::Item::PutDelegation(arg));
+				sources.insert(source);
+				for token in &tokens {
+					if let Some(sync) = self.try_get_sync_id_from_token(token) {
+						sources.insert(tg::authorization::Subject::Sync(sync));
+					}
+				}
+				for source in sources {
+					if source == subject {
+						continue;
+					}
+					let arg = tangram_index::delegation::put::Arg {
+						expires_at,
+						resource: resource.node.clone(),
+						source,
+						subject: subject.clone(),
+						version: version.clone(),
+					};
+					items.push(tangram_index::batch::Item::PutDelegation(arg));
+				}
 			}
 			resource.options.tokens = tg::authorization::Tokens::with_authorization(tokens);
 			pending.push(resource);
