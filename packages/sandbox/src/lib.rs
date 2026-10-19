@@ -21,6 +21,8 @@ mod cgroup;
 mod client;
 mod command;
 #[cfg(target_os = "linux")]
+mod executable;
+#[cfg(target_os = "linux")]
 mod filesystem;
 mod libraries;
 #[cfg(target_os = "linux")]

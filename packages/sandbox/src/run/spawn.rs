@@ -182,11 +182,15 @@ pub(crate) async fn spawn(
 		Sandbox::guest_store_path_from_host_store_path(&arg.store_path),
 		true,
 	);
-	add_mount(
-		arg.tangram_path.clone(),
-		Sandbox::guest_libexec_tangram_path(),
-		true,
-	);
+	let staged_tangram_path = arg.rootfs_path.join("opt/tangram/libexec/tangram");
+	let metadata = std::fs::metadata(&staged_tangram_path)
+		.map_err(|error| tg::error!(!error, "failed to stat the staged tangram executable"))?;
+	let tangram_path = if metadata.len() > 0 {
+		staged_tangram_path
+	} else {
+		arg.tangram_path.clone()
+	};
+	add_mount(tangram_path, Sandbox::guest_libexec_tangram_path(), true);
 	add_mount(
 		arg.tangram_socket_path
 			.clone()

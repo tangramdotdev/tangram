@@ -1,6 +1,7 @@
 use {
 	crate::libraries,
 	std::{
+		os::unix::fs::FileExt as _,
 		path::{Path, PathBuf},
 		time::SystemTime,
 	},
@@ -26,8 +27,10 @@ struct InputTimes {
 pub fn create(arg: &Arg) -> tg::Result<()> {
 	// Resolve the build inputs.
 	let libraries = libraries::resolve()?;
+	let entrypoint = crate::executable::entrypoint(&arg.tangram_path)?;
+	let stage = arg.vm || entrypoint.is_some();
 	let mut current_input_times = input_times(&arg.tangram_path, &libraries)?;
-	if root_is_current(&arg.path, current_input_times.latest(), arg.vm)? {
+	if root_is_current(&arg.path, current_input_times.latest(), stage)? {
 		if let Ok(temp_path) = temporary_path(&arg.path) {
 			remove_path(&temp_path).ok();
 		}
@@ -53,7 +56,9 @@ pub fn create(arg: &Arg) -> tg::Result<()> {
 	for _ in 0..arg.build_attempts {
 		// Build the root without modifying the installed root.
 		remove_path(&temp_path)?;
-		let result = build(&temp_path, &arg.tangram_path, &libraries, arg.vm);
+		let entrypoint = crate::executable::entrypoint(&arg.tangram_path)?;
+		let stage = arg.vm || entrypoint.is_some();
+		let result = build(&temp_path, &arg.tangram_path, &libraries, stage, entrypoint);
 		if let Err(error) = result {
 			remove_path(&temp_path).ok();
 			return Err(error);
@@ -102,7 +107,8 @@ fn build(
 	path: &Path,
 	tangram_path: &Path,
 	libraries: &[libraries::Library],
-	vm: bool,
+	stage: bool,
+	entrypoint: Option<u64>,
 ) -> tg::Result<()> {
 	// Extract and prepare the root filesystem.
 	std::fs::create_dir(path).map_err(|error| {
@@ -121,8 +127,8 @@ fn build(
 	create_rootfs_mountpoints(path)?;
 
 	// Create the guest-specific files.
-	if vm {
-		stage_tangram(path, tangram_path)?;
+	if stage {
+		stage_tangram(path, tangram_path, entrypoint)?;
 	}
 
 	// Stage the shared libraries.
@@ -251,7 +257,7 @@ fn remove_path(path: &Path) -> tg::Result<()> {
 	}
 }
 
-fn root_is_current(path: &Path, input_modified: SystemTime, vm: bool) -> tg::Result<bool> {
+fn root_is_current(path: &Path, input_modified: SystemTime, stage: bool) -> tg::Result<bool> {
 	// Check the root filesystem path.
 	let metadata = match std::fs::symlink_metadata(path) {
 		Ok(metadata) => metadata,
@@ -269,7 +275,7 @@ fn root_is_current(path: &Path, input_modified: SystemTime, vm: bool) -> tg::Res
 	}
 
 	// Check the guest-specific files.
-	if vm {
+	if stage {
 		let tangram_path = path.join("opt/tangram/libexec/tangram");
 		let metadata = match std::fs::metadata(&tangram_path) {
 			Ok(metadata) => metadata,
@@ -356,7 +362,12 @@ fn restore_rootfs_symlinks(rootfs_path: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn stage_tangram(rootfs_path: &Path, tangram_path: &Path) -> tg::Result<()> {
+fn stage_tangram(
+	rootfs_path: &Path,
+	tangram_path: &Path,
+	entrypoint: Option<u64>,
+) -> tg::Result<()> {
+	// Copy the executable.
 	let path = rootfs_path.join("opt/tangram/libexec/tangram");
 	std::fs::copy(tangram_path, &path).map_err(|error| {
 		tg::error!(
@@ -366,6 +377,23 @@ fn stage_tangram(rootfs_path: &Path, tangram_path: &Path) -> tg::Result<()> {
 			"failed to stage the tangram executable"
 		)
 	})?;
+
+	// Restore the original entrypoint, so that the guest bypasses an embedded wrapper that depends on the host store.
+	if let Some(entrypoint) = entrypoint {
+		let permissions =
+			<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755);
+		std::fs::set_permissions(&path, permissions).map_err(|error| {
+			tg::error!(!error, "failed to set the staged executable permissions")
+		})?;
+		let file = std::fs::OpenOptions::new()
+			.write(true)
+			.open(&path)
+			.map_err(|error| tg::error!(!error, "failed to open the staged executable"))?;
+		let offset = std::mem::offset_of!(libc::Elf64_Ehdr, e_entry) as u64;
+		file.write_all_at(&entrypoint.to_le_bytes(), offset)
+			.map_err(|error| tg::error!(!error, "failed to restore the executable entrypoint"))?;
+	}
+
 	Ok(())
 }
 
