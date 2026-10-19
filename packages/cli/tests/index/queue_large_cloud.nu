@@ -4,21 +4,20 @@ use ../lib/test.nu *
 
 skip_if_no_cloud
 
-# Index into LMDB, because a FoundationDB transaction cannot hold a directory with this many children.
 let local = server spawn --cloud --config {
 	advanced: { checkpoints: true },
-	index: { kind: 'lmdb', map_size: 4_294_967_296 },
 }
 let watch = tg --url $local.url checkpoint watch index.batch | from json | get watch
 
-# Put directories whose index items together exceed ScyllaDB's 100 MiB hard limit for unpaged queries. Shared children keep each item above one MiB, and a unique entry makes each directory distinct.
-let children = 0..<30_000 | each { |i|
-	let hash = $i | into string | fill --alignment right --character '0' --width 51
-	$'"($i)":"fil_01($hash)0"'
+# Put overlapping directory trees whose queued batches together exceed ScyllaDB's 100 MiB hard limit for unpaged queries.
+let children = 0..<1_000 | each { |i|
+	$'"($i)":' + 'tg.file("' + ($i | into string) + '")'
+} | str join ','
+let directories = 0..<30 | each { |i|
+	$'"($i)":' + 'tg.directory({' + $'"unique_($i)":' + 'tg.file("unique"),' + $children + '})'
 } | str join ','
 let ids = 0..<110 | each { |i|
-	let hash = 30_000 + $i | into string | fill --alignment right --character '0' --width 51
-	let output = $'{"entries":{"unique":"fil_01($hash)0",($children)}}' | tg --url $local.url object put --no-tokens --bytes --kind directory | complete
+	let output = ('tg.directory({' + $'"unique_($i)":' + 'tg.file("unique"),' + $directories + '})') | tg --url $local.url put --no-tokens | complete
 	success $output 'the directory must be stored'
 	$output.stdout | referent node
 }
@@ -37,8 +36,8 @@ let server = server start $local
 let output = tg --url $local.url index | complete
 success $output 'the indexer must recover the queue after the restart'
 
-# Verify that every directory has indexed metadata after recovery.
+# Verify that every complete directory tree was indexed after recovery.
 for id in $ids {
 	let metadata = tg --url $local.url object metadata $id | from json
-	assert ($metadata.node.size > 1_048_576) 'the large directory must be indexed after recovery'
+	assert equal $metadata.subtree.count 60_093 'the directory tree must be indexed after recovery'
 }
