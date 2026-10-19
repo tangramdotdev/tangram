@@ -2,7 +2,10 @@ import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
 import cargoNextest from "cargo-nextest" with {
 	source: "../packages/packages/cargo-nextest.tg.ts",
 };
+import curl from "curl" with { source: "../packages/packages/curl.tg.ts" };
+import delta from "delta" with { source: "../packages/packages/delta.tg.ts" };
 import fd from "fd" with { source: "../packages/packages/fd.tg.ts" };
+import nodejs from "nodejs" with { source: "../packages/packages/nodejs.tg.ts" };
 import nushell from "nushell" with {
 	source: "../packages/packages/nushell.tg.ts",
 };
@@ -17,6 +20,7 @@ import * as std from "std" with { source: "../packages/packages/std" };
 import source from "." with { type: "directory" };
 
 import { build as buildTangram, toolchain } from "./tangram.ts";
+import pasta from "./test/pasta.tg.ts";
 
 export type Arg = cargo.Arg;
 
@@ -84,6 +88,7 @@ export const testCli = async (arg: CliArg = {}) => {
 			for key in ($env | columns | where { $in starts-with 'TANGRAM_ENV_' }) {
 				hide-env $key
 			}
+			hide-env --ignore-errors TANGRAM_OUTPUT TANGRAM_TOKEN TANGRAM_URL
 			nu packages/cli/test.nu --no-cloud --no-clients --no-progress-details --preserve-failing-temps --tangram-path $tangram_path --jobs $options.jobs --timeout $options.timeout ...$offline ...$options.filters
 		}
 	`;
@@ -105,8 +110,14 @@ export const testCli = async (arg: CliArg = {}) => {
 		.env(
 			std.env.arg(
 				std.sdk({ host }),
+				std.sdkModule.dependencies.python.build({ host }),
+				std.utils.attr.build({ host }),
+				curl({ host }),
+				delta({ host, parallelJobs: jobs }),
+				nodejs({ host }),
 				nushell({ host, parallelJobs: jobs }),
 				fd({ host, parallelJobs: jobs }),
+				pasta(host),
 				procps({ host }),
 				bun({ host }),
 				{
