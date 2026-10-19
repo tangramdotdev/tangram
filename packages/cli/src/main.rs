@@ -608,7 +608,7 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 	let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
 	// Initialize V8.
-	#[cfg(any(feature = "typescript6", feature = "v8"))]
+	#[cfg(feature = "v8")]
 	let initialize_v8 = server || {
 		#[cfg(feature = "v8")]
 		{
@@ -623,7 +623,7 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 			false
 		}
 	};
-	#[cfg(any(feature = "typescript6", feature = "v8"))]
+	#[cfg(feature = "v8")]
 	if initialize_v8 {
 		let thread_pool_size = cli
 			.config
@@ -868,7 +868,7 @@ impl Cli {
 	}
 
 	/// Initialize V8.
-	#[cfg(any(feature = "typescript6", feature = "v8"))]
+	#[cfg(feature = "v8")]
 	fn initialize_v8(thread_pool_size: u32) {
 		// Set the ICU data.
 		v8::icu::set_common_data_78(deno_core_icudata::ICU_DATA).unwrap();

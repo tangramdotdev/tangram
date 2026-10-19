@@ -35,8 +35,6 @@ tls = ["tangram_client/tls", "tangram_server/tls"]
 tsrs = ["javascript", "tangram_compiler/tsrs", "tangram_server/tsrs"]
 turso = ["tangram_server/turso"]
 ty = ["python", "tangram_compiler/ty", "tangram_server/ty"]
-typescript6 = ["dep:deno_core_icudata", "dep:v8", "javascript", "tangram_compiler/typescript6", "tangram_server/typescript6"]
-typescript7 = ["javascript", "tangram_compiler/typescript7", "tangram_server/typescript7"]
 v8 = ["dep:deno_core_icudata", "dep:tangram_javascript", "dep:v8", "javascript", "tangram_javascript/v8"]
 vsock = ["tangram_client/vsock", "tangram_sandbox/vsock", "tangram_server/vsock"]
 

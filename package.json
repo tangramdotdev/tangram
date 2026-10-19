@@ -5,7 +5,6 @@
 		"packages/clients/python",
 		"packages/javascript",
 		"packages/python",
-		"packages/typescript",
 		"packages/vscode"
 	],
 	"scripts": {

@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/lsp.nu
 
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_backend: tsrs}}
+let local = server spawn
 let path = artifact {
     tangram.ts: 'export {};'
     main.tg.ts: "import { value } from './helper.tg.ts';\nexport const result: number = value;"

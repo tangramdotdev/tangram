@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/lsp.nu
 
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_backend: tsrs}}
+let local = server spawn
 let source = 'secret;'
 let helper = 'export const secret = 42;'
 let path = artifact {'main.tg.ts': $source, 'helper.tg.ts': $helper}

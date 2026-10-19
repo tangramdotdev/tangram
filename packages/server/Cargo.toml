@@ -31,8 +31,6 @@ tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls", "tangram_database
 tsrs = ["javascript", "tangram_compiler/tsrs"]
 turso = ["dep:turso", "dep:tangram_database_turso"]
 ty = ["python", "tangram_compiler/ty"]
-typescript6 = ["javascript", "tangram_compiler/typescript6"]
-typescript7 = ["javascript", "tangram_compiler/typescript7"]
 vsock = ["dep:tokio-vsock", "tangram_client/vsock", "tangram_sandbox/vsock"]
 
 [lib]

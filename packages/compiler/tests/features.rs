@@ -1,7 +1,4 @@
-use {
-	tangram_client::prelude::*,
-	tangram_compiler::{CheckBackend, Compiler, Options},
-};
+use {tangram_client::prelude::*, tangram_compiler::Compiler};
 
 #[test]
 fn javascript_frontend() {
@@ -75,27 +72,8 @@ fn python_frontend() {
 
 #[tokio::test]
 async fn unavailable_checkers() {
-	for (backend, enabled, feature) in [
-		(CheckBackend::Tsrs, cfg!(feature = "tsrs"), "tsrs"),
-		(
-			CheckBackend::Typescript6,
-			cfg!(feature = "typescript6"),
-			"typescript6",
-		),
-		(
-			CheckBackend::Typescript7,
-			cfg!(feature = "typescript7"),
-			"typescript7",
-		),
-	] {
-		if enabled {
-			continue;
-		}
-		let options = Options {
-			check_backend: backend,
-			..Default::default()
-		};
-		let compiler = compiler(options);
+	if !cfg!(feature = "tsrs") {
+		let compiler = compiler();
 		let error = compiler
 			.check(vec![module(tg::module::Kind::TypeScript)])
 			.await
@@ -103,13 +81,13 @@ async fn unavailable_checkers() {
 		assert!(
 			error
 				.to_string()
-				.contains(&format!("the {feature} feature is not enabled"))
+				.contains("the tsrs feature is not enabled")
 		);
 		compiler.stop();
 		compiler.wait().await.unwrap();
 	}
 	if !cfg!(feature = "ty") {
-		let compiler = compiler(Options::default());
+		let compiler = compiler();
 		let error = compiler
 			.check(vec![module(tg::module::Kind::Python)])
 			.await
@@ -120,7 +98,7 @@ async fn unavailable_checkers() {
 	}
 }
 
-fn compiler(options: Options) -> tangram_compiler::Shared {
+fn compiler() -> tangram_compiler::Shared {
 	let arg = tg::Arg {
 		url: Some("http://127.0.0.1:1".parse().unwrap()),
 		..Default::default()
@@ -133,7 +111,6 @@ fn compiler(options: Options) -> tangram_compiler::Shared {
 		"/test/library".into(),
 		tokio::runtime::Handle::current(),
 		"test".into(),
-		options,
 	)
 }
 

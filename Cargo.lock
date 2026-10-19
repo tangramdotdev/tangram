@@ -9372,13 +9372,10 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_yaml",
- "sourcemap",
  "tangram_client",
  "tangram_futures",
  "tangram_python_build",
- "tangram_typescript_client",
  "tangram_util",
- "tangram_v8",
  "tokio",
  "tokio-util",
  "toml",
@@ -9400,7 +9397,6 @@ dependencies = [
  "ty_python_core",
  "ty_python_semantic",
  "ty_vendored",
- "v8",
 ]
 
 [[package]]
@@ -9941,15 +9937,6 @@ dependencies = [
  "unicode-width 0.2.2",
  "uuid",
  "xattr",
-]
-
-[[package]]
-name = "tangram_typescript_client"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
