@@ -3,6 +3,7 @@ use {
 		Cache,
 		queue::{prepare, sequence, value},
 	},
+	futures::TryStreamExt as _,
 	indoc::indoc,
 	tangram_cache::index,
 	tangram_client::prelude::*,
@@ -34,44 +35,45 @@ impl Cache {
 		&self,
 		arg: index::queue::get::batch::Arg,
 	) -> tg::Result<Vec<index::queue::Fragment>> {
+		// Page the rows, because a range of fragments can exceed ScyllaDB's memory limit for unpaged queries.
 		let indexer = arg.indexer.to_bytes();
 		let sequence_end = sequence(arg.sequence_end)?;
 		let sequence_start = sequence(arg.sequence_start)?;
-		let result = self
+		let pager = self
 			.session
-			.execute_unpaged(
-				&self.statements.index.get_batch,
+			.execute_iter(
+				self.statements.index.get_batch.clone(),
 				(indexer.as_ref(), sequence_start, sequence_end),
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get index queue fragments"))?
-			.into_rows_result()
+			.map_err(|error| tg::error!(!error, "failed to get index queue fragments"))?;
+		let mut rows = pager
+			.rows_stream::<(i64, Vec<u8>, i64, i64, Vec<u8>)>()
 			.map_err(|error| tg::error!(!error, "failed to get the index queue rows"))?;
-		let fragments = result
-			.rows::<(i64, Vec<u8>, i64, i64, Vec<u8>)>()
-			.map_err(|error| tg::error!(!error, "failed to iterate the index queue rows"))?
-			.map(|row| {
-				let (sequence, batch, fragment, fragments, payload) = row.map_err(|error| {
-					tg::error!(!error, "failed to deserialize an index queue row")
-				})?;
-				let batch = batch
-					.try_into()
-					.map(index::queue::batch::Id::new)
-					.map_err(|_| tg::error!("invalid index queue batch id"))?;
-				let fragment = index::queue::Fragment {
-					batch,
-					fragment: value(fragment)?,
-					fragments: value(fragments)?,
-					indexer: arg.indexer.clone(),
-					payload: payload.into(),
-					sequence: value(sequence)?,
-				};
 
-				Ok(fragment)
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
+		// Read the fragments.
+		let mut output = Vec::new();
+		while let Some((sequence, batch, fragment, fragments, payload)) = rows
+			.try_next()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read an index queue row"))?
+		{
+			let batch = batch
+				.try_into()
+				.map(index::queue::batch::Id::new)
+				.map_err(|_| tg::error!("invalid index queue batch id"))?;
+			let fragment = index::queue::Fragment {
+				batch,
+				fragment: value(fragment)?,
+				fragments: value(fragments)?,
+				indexer: arg.indexer.clone(),
+				payload: payload.into(),
+				sequence: value(sequence)?,
+			};
+			output.push(fragment);
+		}
 
-		Ok(fragments)
+		Ok(output)
 	}
 
 	pub async fn put_index_queue_fragment(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
