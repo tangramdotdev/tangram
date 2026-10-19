@@ -803,7 +803,7 @@ fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg:
 	Ok(())
 }
 
-fn mount_proc(target: &Path) -> tg::Result<()> {
+pub(crate) fn mount_proc(target: &Path) -> tg::Result<()> {
 	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
 			!error,
