@@ -32,8 +32,6 @@ pub struct Capacity {
 	pub sandboxes: u64,
 	#[tangram_serialize(id = 2)]
 	pub storage: crate::sandbox::Resource<u64>,
-	#[tangram_serialize(id = 3)]
-	pub swap: crate::sandbox::Resource<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -42,7 +40,6 @@ pub struct Overcommit {
 	pub cpu: u64,
 	pub memory: u64,
 	pub storage: u64,
-	pub swap: u64,
 }
 
 impl Capacity {
@@ -54,10 +51,9 @@ impl Capacity {
 			&& self.memory.contains(requested.memory, overcommit.memory)
 			&& requested.sandboxes <= self.sandboxes
 			&& self.storage.contains(requested.storage, overcommit.storage)
-			&& self.swap.contains(requested.swap, overcommit.swap)
 	}
 
-	/// Borrow the requested capacity from a waiting lender's capacity, returning the borrowed capacity and the capacity that the borrower must also acquire from the runner. The lender lends all of its CPU, including its minimum, because a waiting lender does not use it. The lender keeps its memory, storage, and swap minima, because a waiting lender still holds its data, and lends only the range above them. The borrower acquires from the runner whatever it requests beyond what the lender lends, and a requested resource without a maximum takes whatever the lender lends.
+	/// Borrow the requested capacity from a waiting lender's capacity, returning the borrowed capacity and the capacity that the borrower must also acquire from the runner. The lender lends all of its CPU, including its minimum, because a waiting lender does not use it. The lender keeps its memory and storage minima, because a waiting lender still holds its data, and lends only the range above them. The borrower acquires from the runner whatever it requests beyond what the lender lends, and a requested resource without a maximum takes whatever the lender lends.
 	#[must_use]
 	pub fn try_borrow(self, requested: Self) -> Option<(Self, Self)> {
 		// Borrow the sandbox.
@@ -68,14 +64,13 @@ impl Capacity {
 		// Borrow the CPU, including the lender's minimum.
 		let (cpu, acquired_cpu) = borrow(cpu_millis(requested.cpu), cpu_millis(self.cpu));
 
-		// Borrow the memory, storage, and swap above the lender's minima.
+		// Borrow the memory and storage above the lender's minima.
 		let lent = |resource: crate::sandbox::Resource<u64>| crate::sandbox::Resource {
 			max: resource.max.map(|max| max.saturating_sub(resource.min)),
 			min: 0,
 		};
 		let (memory, acquired_memory) = borrow(requested.memory, lent(self.memory));
 		let (storage, acquired_storage) = borrow(requested.storage, lent(self.storage));
-		let (swap, acquired_swap) = borrow(requested.swap, lent(self.swap));
 
 		// Create the borrowed and acquired capacities.
 		let borrowed = Self {
@@ -83,14 +78,12 @@ impl Capacity {
 			memory,
 			sandboxes: requested.sandboxes,
 			storage,
-			swap,
 		};
 		let acquired = Self {
 			cpu: cpu_amounts(acquired_cpu),
 			memory: acquired_memory,
 			sandboxes: 0,
 			storage: acquired_storage,
-			swap: acquired_swap,
 		};
 
 		Some((borrowed, acquired))
@@ -107,13 +100,11 @@ impl Capacity {
 		let memory = self.memory.subtract(requested.memory, overcommit.memory);
 		let sandboxes = self.sandboxes.saturating_sub(requested.sandboxes);
 		let storage = self.storage.subtract(requested.storage, overcommit.storage);
-		let swap = self.swap.subtract(requested.swap, overcommit.swap);
 		Self {
 			cpu,
 			memory,
 			sandboxes,
 			storage,
-			swap,
 		}
 	}
 }
@@ -124,7 +115,6 @@ impl Default for Overcommit {
 			cpu: 4,
 			memory: 1,
 			storage: 1,
-			swap: 1,
 		}
 	}
 }
@@ -189,7 +179,6 @@ mod tests {
 			memory: crate::sandbox::Resource::new(100, 200),
 			sandboxes: 2,
 			storage: crate::sandbox::Resource::new(100, 200),
-			swap: crate::sandbox::Resource::new(100, 200),
 		};
 		let requested = Capacity {
 			cpu: crate::sandbox::Cpu::new(
@@ -199,20 +188,18 @@ mod tests {
 			memory: crate::sandbox::Resource::new(80, 100),
 			sandboxes: 1,
 			storage: crate::sandbox::Resource::new(80, 100),
-			swap: crate::sandbox::Resource::new(80, 100),
 		};
 		let overcommit = Overcommit {
 			cpu: 4,
 			memory: 2,
 			storage: 2,
-			swap: 2,
 		};
 		assert!(capacity.contains(requested, overcommit));
 		let available = capacity.subtract(requested, overcommit);
 		assert_eq!(available.cpu.max.unwrap().millis(), 6250);
 		assert_eq!(available.sandboxes, 1);
 		assert_eq!(available.cpu.min.millis(), 1562);
-		for resource in [available.memory, available.storage, available.swap] {
+		for resource in [available.memory, available.storage] {
 			assert_eq!(resource, crate::sandbox::Resource::new(10, 20));
 			assert!(resource.contains(20.into(), 2));
 			assert!(!resource.contains(crate::sandbox::Resource::new(11, 11), 2));

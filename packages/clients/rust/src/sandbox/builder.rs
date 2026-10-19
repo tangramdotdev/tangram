@@ -89,12 +89,6 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn swap(mut self, swap: impl Into<Option<tg::sandbox::Resource<u64>>>) -> Self {
-		self.arg.swap = swap.into();
-		self
-	}
-
-	#[must_use]
 	pub fn ttl(mut self, ttl: impl Into<Option<Duration>>) -> Self {
 		self.arg.ttl = ttl.into();
 		self.default_ttl = false;

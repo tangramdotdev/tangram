@@ -28,11 +28,11 @@ def send(event, value):
     chunk(f"event: {event}\ndata: {json.dumps(value)}\n\n".encode())
 
 
-empty = {resource: {"max": 0, "min": 0} for resource in ("cpu", "memory", "storage", "swap")}
+empty = {resource: {"max": 0, "min": 0} for resource in ("cpu", "memory", "storage")}
 capacity = {
     "available": empty,
     "cpu_limit": 0,
-    "overcommit": {"cpu": 4, "memory": 1, "storage": 1, "swap": 1},
+    "overcommit": {"cpu": 4, "memory": 1, "storage": 1},
     "total": empty,
 }
 

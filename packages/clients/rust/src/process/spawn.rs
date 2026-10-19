@@ -1379,7 +1379,6 @@ fn normalize_sandbox(
 				network,
 				owner: arg.owner.clone(),
 				storage: None,
-				swap: None,
 				ttl: Some(Duration::ZERO),
 			};
 			Ok(Some(tg::Either::Left(sandbox)))
@@ -1400,7 +1399,6 @@ fn normalize_sandbox_create_arg(
 		network: sandbox.network,
 		owner: sandbox.owner,
 		storage: sandbox.storage,
-		swap: sandbox.swap,
 		ttl: sandbox.ttl.unwrap_or(Some(Duration::ZERO)),
 	}
 }

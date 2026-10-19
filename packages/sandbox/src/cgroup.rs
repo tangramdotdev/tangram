@@ -25,7 +25,6 @@ pub struct Cgroup {
 	pin: Option<crate::cpu::Pin>,
 	share: Option<crate::cpu::Share>,
 	stopped: bool,
-	swap_allocation: Option<crate::budget::Allocation>,
 }
 
 #[derive(Debug)]
@@ -50,10 +49,7 @@ pub struct Options {
 	pub cpu_threads: Option<crate::cpu::Threads>,
 	pub memory: Option<tg::sandbox::Resource<u64>>,
 	pub memory_oom_group: bool,
-	pub memory_swap: Option<u64>,
 	pub pids: Option<u64>,
-	pub swap: Option<tg::sandbox::Resource<u64>>,
-	pub swap_pool: Option<crate::budget::Pool>,
 }
 
 pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
@@ -72,10 +68,7 @@ pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
 		cpu_threads: arg.cpu_threads.clone(),
 		memory: arg.memory,
 		memory_oom_group: true,
-		memory_swap: arg.swap.and_then(|swap| swap.max).or(resources.memory_swap),
 		pids: resources.max_pids,
-		swap: arg.swap,
-		swap_pool: arg.swap_pool.clone(),
 	};
 	let name = arg
 		.path
@@ -149,7 +142,7 @@ impl Cgroup {
 		if options.cpu.is_some() || options.cpu_request.is_some() {
 			controllers.push("cpu");
 		}
-		if options.memory.is_some() || options.memory_oom_group || options.memory_swap.is_some() {
+		if options.memory.is_some() || options.memory_oom_group {
 			controllers.push("memory");
 		}
 		if options.pids.is_some() {
@@ -176,17 +169,6 @@ impl Cgroup {
 			})?;
 		let parent = OwnedFd::from(parent);
 		let path = current.join(&name);
-
-		// Allocate the swap budget.
-		let swap = match (options.swap, &options.swap_pool) {
-			(Some(resource), Some(pool)) if resource.max.is_some() || resource.min > 0 => {
-				Some(pool.allocate(resource)?)
-			},
-			(Some(resource), None) if resource.max.is_some_and(|max| max > 0) => {
-				return Err(tg::error!("swap limits require a runner swap pool"));
-			},
-			_ => None,
-		};
 
 		// Create the sandbox cgroup and cleanup state.
 		std::fs::create_dir(&path).map_err(|error| {
@@ -237,7 +219,6 @@ impl Cgroup {
 			pin,
 			share: None,
 			stopped: false,
-			swap_allocation: swap,
 		};
 
 		// Configure the CPU limit.
@@ -265,7 +246,7 @@ impl Cgroup {
 			cgroup.share = Some(shares.insert(cpu, cgroup.handle()?)?);
 		}
 
-		// Configure the memory and swap limits.
+		// Configure the memory limits and disable swap.
 		if let Some(max) = options.memory.and_then(|memory| memory.max) {
 			let memory_max = path.join("memory.max");
 			write_file(&memory_max, format!("{max}\n").as_bytes()).map_err(|error| {
@@ -295,39 +276,17 @@ impl Cgroup {
 			}
 		}
 
-		if let Some(memory_swap) = cgroup
-			.swap_allocation
-			.as_ref()
-			.map(crate::budget::Allocation::limit)
-			.or(options.memory_swap)
-		{
+		if controllers.contains(&"memory") {
 			let memory_swap_max = path.join("memory.swap.max");
-			write_file(&memory_swap_max, format!("{memory_swap}\n").as_bytes()).map_err(
-				|error| {
+			if memory_swap_max.exists() {
+				write_file(&memory_swap_max, b"0\n").map_err(|error| {
 					tg::error!(
 						!error,
 						path = %memory_swap_max.display(),
 						"failed to set memory.swap.max"
 					)
-				},
-			)?;
-		}
-
-		if let Some(swap) = &cgroup.swap_allocation {
-			let cleanup = cgroup.cleanup.clone();
-			let limit_handle = cgroup.handle()?;
-			let usage = Box::new(move || {
-				read_file_at(&cleanup.directory, c"memory.swap.current")
-					.map_err(|error| tg::error!(!error, "failed to read the sandbox swap usage"))?
-					.trim()
-					.parse()
-					.map_err(|error| tg::error!(!error, "invalid swap usage"))
-			});
-			let limit = Box::new(move |limit: u64| {
-				limit_handle.write(c"memory.swap.max", limit.to_string().as_bytes())
-			});
-			let control = crate::budget::Control { limit, usage };
-			swap.bind(control)?;
+				})?;
+			}
 		}
 
 		// Configure the process limit.
@@ -400,9 +359,6 @@ impl Cgroup {
 		drop(self.share.take());
 		self.stop()?;
 		self.stopped = true;
-
-		// Retained swap allocations keep the directory alive until their data is released.
-		drop(self.swap_allocation.take());
 
 		Ok(())
 	}
@@ -535,10 +491,7 @@ impl Default for Options {
 			cpu_threads: None,
 			memory: None,
 			memory_oom_group: false,
-			memory_swap: None,
 			pids: None,
-			swap: None,
-			swap_pool: None,
 		}
 	}
 }
@@ -551,9 +504,7 @@ impl Drop for Cgroup {
 		}
 		if let Err(error) = self.stop() {
 			tracing::error!(%error, path = %self.path.display(), "failed to stop the cgroup");
-			return;
 		}
-		drop(self.swap_allocation.take());
 	}
 }
 
@@ -765,51 +716,6 @@ fn write_file_at(directory: &OwnedFd, name: &CStr, bytes: &[u8]) -> std::io::Res
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn retained_swap_keeps_its_directory_until_usage_is_zero() {
-		use std::sync::atomic::{AtomicU64, Ordering};
-
-		// Create the retained cgroup directory.
-		let temp = tangram_util::fs::Temp::new().unwrap();
-		let path = temp.path().join("sandbox");
-		std::fs::create_dir_all(&path).unwrap();
-		let directory = std::fs::File::open(&path).unwrap().into();
-		let parent = std::fs::File::open(temp.path()).unwrap().into();
-		let cleanup = Cleanup {
-			directory,
-			name: "sandbox".to_owned(),
-			parent,
-		};
-		let cleanup = Arc::new(cleanup);
-
-		// Allocate the swap budget.
-		let pool = crate::budget::Pool::new(100, 0, 1);
-		let allocation = pool.allocate(100.into()).unwrap();
-		let usage = Arc::new(AtomicU64::new(90));
-		let retained = cleanup.clone();
-		let current = usage.clone();
-		let control = crate::budget::Control {
-			limit: Box::new(|_| Ok(())),
-			usage: Box::new(move || {
-				rustix::fs::fstat(&retained.directory)
-					.map_err(|error| tg::error!(!error, "failed to inspect the directory"))?;
-				Ok(current.load(Ordering::SeqCst))
-			}),
-		};
-		allocation.bind(control).unwrap();
-
-		// Release the allocation while swap remains in use.
-		drop(cleanup);
-		drop(allocation);
-		assert!(path.exists());
-		assert!(pool.allocate(tg::sandbox::Resource::new(20, 20)).is_err());
-
-		// Release the retained directory after swap usage reaches zero.
-		usage.store(0, Ordering::SeqCst);
-		assert!(pool.allocate(tg::sandbox::Resource::new(20, 20)).is_ok());
-		assert!(!path.exists());
-	}
 
 	#[test]
 	fn select_delegated_parent_for_populated_leaf() {

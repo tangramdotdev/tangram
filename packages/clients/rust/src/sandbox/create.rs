@@ -54,10 +54,6 @@ pub struct Arg {
 	pub storage: Option<tg::sandbox::Resource<u64>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
-	pub swap: Option<tg::sandbox::Resource<u64>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[tangram_serialize(default, id = 9, skip_serializing_if = "Option::is_none")]
 	pub ttl: Option<Duration>,

@@ -48,9 +48,6 @@ pub struct Options {
 	pub cgroup_memory_oom_group: bool,
 
 	#[arg(long)]
-	pub cgroup_memory_swap: Option<u64>,
-
-	#[arg(long)]
 	pub cgroup_pids: Option<u64>,
 
 	#[arg(long)]
@@ -446,7 +443,6 @@ impl Options {
 				|| self.cgroup_cpu.is_some()
 				|| self.cgroup_memory.is_some()
 				|| self.cgroup_memory_oom_group
-				|| self.cgroup_memory_swap.is_some()
 				|| self.cgroup_pids.is_some()
 				|| self.nice.is_some()
 				|| self.rlimit_nofile.is_some())
@@ -457,7 +453,6 @@ impl Options {
 			&& (self.cgroup_cpu.is_some()
 				|| self.cgroup_memory.is_some()
 				|| self.cgroup_memory_oom_group
-				|| self.cgroup_memory_swap.is_some()
 				|| self.cgroup_pids.is_some())
 		{
 			return Err(tg::error!("cgroup limits require a cgroup name"));
@@ -595,7 +590,6 @@ impl Options {
 			cpu: self.cgroup_cpu,
 			memory: self.cgroup_memory,
 			memory_oom_group: self.cgroup_memory_oom_group,
-			memory_swap: self.cgroup_memory_swap,
 			name,
 			pids: self.cgroup_pids,
 		});
@@ -724,7 +718,6 @@ impl Options {
 			cpu: self.cgroup_cpu,
 			memory: self.cgroup_memory,
 			memory_oom_group: self.cgroup_memory_oom_group,
-			memory_swap: self.cgroup_memory_swap,
 			name,
 			pids: self.cgroup_pids,
 		});

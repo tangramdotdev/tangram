@@ -37,14 +37,6 @@ impl Index {
 					tangram_index::usage::DeltaKind::SandboxStorageReservation,
 					usage.storage.reservation,
 				),
-				(
-					tangram_index::usage::DeltaKind::SandboxSwapConsumption,
-					usage.swap.consumption,
-				),
-				(
-					tangram_index::usage::DeltaKind::SandboxSwapReservation,
-					usage.swap.reservation,
-				),
 			] {
 				let delta = i64::try_from(value)
 					.map_err(|_| tg::error!("the resource usage is too large"))?;

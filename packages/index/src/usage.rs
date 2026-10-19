@@ -51,12 +51,6 @@ pub enum DeltaKind {
 
 	#[tangram_serialize(id = 9)]
 	SandboxStorageReservation = 9,
-
-	#[tangram_serialize(id = 10)]
-	SandboxSwapConsumption = 10,
-
-	#[tangram_serialize(id = 11)]
-	SandboxSwapReservation = 11,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -71,8 +65,6 @@ pub struct PartitionAggregate {
 	pub sandbox_memory_reservation: u128,
 	pub sandbox_storage_consumption: u128,
 	pub sandbox_storage_reservation: u128,
-	pub sandbox_swap_consumption: u128,
-	pub sandbox_swap_reservation: u128,
 }
 
 #[derive(Clone, Copy)]
@@ -165,14 +157,6 @@ impl PartitionAggregate {
 			.sandbox_storage_reservation
 			.checked_add(other.sandbox_storage_reservation)
 			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
-		self.sandbox_swap_consumption = self
-			.sandbox_swap_consumption
-			.checked_add(other.sandbox_swap_consumption)
-			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
-		self.sandbox_swap_reservation = self
-			.sandbox_swap_reservation
-			.checked_add(other.sandbox_swap_reservation)
-			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
 
 		Ok(())
 	}
@@ -197,8 +181,6 @@ impl PartitionAggregate {
 			sandbox_memory_reservation: self.sandbox_memory_reservation,
 			sandbox_storage_consumption: self.sandbox_storage_consumption,
 			sandbox_storage_reservation: self.sandbox_storage_reservation,
-			sandbox_swap_consumption: self.sandbox_swap_consumption,
-			sandbox_swap_reservation: self.sandbox_swap_reservation,
 		};
 
 		Ok(aggregate)
@@ -233,7 +215,7 @@ pub fn closing_hour(period: Period) -> tg::Result<i64> {
 }
 
 pub fn deserialize_aggregate(bytes: &[u8]) -> tg::Result<PartitionAggregate> {
-	let bytes: &[u8; 192] = bytes
+	let bytes: &[u8; 160] = bytes
 		.try_into()
 		.map_err(|_| tg::error!("invalid usage aggregate"))?;
 	let object_count = i128::from_le_bytes(bytes[0..16].try_into().unwrap());
@@ -246,8 +228,6 @@ pub fn deserialize_aggregate(bytes: &[u8]) -> tg::Result<PartitionAggregate> {
 	let sandbox_memory_reservation = u128::from_le_bytes(bytes[112..128].try_into().unwrap());
 	let sandbox_storage_consumption = u128::from_le_bytes(bytes[128..144].try_into().unwrap());
 	let sandbox_storage_reservation = u128::from_le_bytes(bytes[144..160].try_into().unwrap());
-	let sandbox_swap_consumption = u128::from_le_bytes(bytes[160..176].try_into().unwrap());
-	let sandbox_swap_reservation = u128::from_le_bytes(bytes[176..192].try_into().unwrap());
 	let aggregate = PartitionAggregate {
 		object_count,
 		object_size,
@@ -259,15 +239,13 @@ pub fn deserialize_aggregate(bytes: &[u8]) -> tg::Result<PartitionAggregate> {
 		sandbox_memory_reservation,
 		sandbox_storage_consumption,
 		sandbox_storage_reservation,
-		sandbox_swap_consumption,
-		sandbox_swap_reservation,
 	};
 	Ok(aggregate)
 }
 
 #[must_use]
 pub fn serialize_aggregate(aggregate: &PartitionAggregate) -> Vec<u8> {
-	let mut bytes = Vec::with_capacity(192);
+	let mut bytes = Vec::with_capacity(160);
 	bytes.extend(aggregate.object_count.to_le_bytes());
 	bytes.extend(aggregate.object_size.to_le_bytes());
 	bytes.extend(aggregate.process_count.to_le_bytes());
@@ -278,8 +256,6 @@ pub fn serialize_aggregate(aggregate: &PartitionAggregate) -> Vec<u8> {
 	bytes.extend(aggregate.sandbox_memory_reservation.to_le_bytes());
 	bytes.extend(aggregate.sandbox_storage_consumption.to_le_bytes());
 	bytes.extend(aggregate.sandbox_storage_reservation.to_le_bytes());
-	bytes.extend(aggregate.sandbox_swap_consumption.to_le_bytes());
-	bytes.extend(aggregate.sandbox_swap_reservation.to_le_bytes());
 	bytes
 }
 
@@ -300,11 +276,9 @@ mod tests {
 			sandbox_memory_reservation: 0,
 			sandbox_storage_consumption: 0,
 			sandbox_storage_reservation: 0,
-			sandbox_swap_consumption: 0,
-			sandbox_swap_reservation: 0,
 		};
 		let bytes = serialize_aggregate(&expected);
-		assert_eq!(bytes.len(), 192);
+		assert_eq!(bytes.len(), 160);
 		let actual = deserialize_aggregate(&bytes).unwrap();
 		assert_eq!(actual, expected);
 	}

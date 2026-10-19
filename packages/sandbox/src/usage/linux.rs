@@ -36,12 +36,6 @@ impl Source {
 			.trim()
 			.parse()
 			.map_err(|error| tg::error!(!error, "invalid sandbox memory usage"))?;
-		let swap = self
-			.cgroup
-			.read(c"memory.swap.current")?
-			.trim()
-			.parse()
-			.map_err(|error| tg::error!(!error, "invalid sandbox swap usage"))?;
 
 		// Read the storage usage from the filesystem's project quota counter, and report none without a project quota.
 		let storage = if let (Some(directory), Some(project)) = (&self.directory, self.project) {
@@ -54,7 +48,6 @@ impl Source {
 			cpu,
 			memory,
 			storage,
-			swap,
 		})
 	}
 }

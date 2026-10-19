@@ -91,7 +91,6 @@ fn sandbox_arg(
 			owner: None,
 			status,
 			storage: None,
-			swap: None,
 			ttl: None,
 			usage: None,
 		},

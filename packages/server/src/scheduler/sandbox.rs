@@ -1085,7 +1085,6 @@ fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
 	for (resource, value) in [
 		(&mut capacity.memory, value.memory),
 		(&mut capacity.storage, value.storage),
-		(&mut capacity.swap, value.swap),
 	] {
 		let max = resource
 			.accounted_max()
@@ -1168,7 +1167,6 @@ fn subtract(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
 	for (resource, value) in [
 		(&mut capacity.memory, value.memory),
 		(&mut capacity.storage, value.storage),
-		(&mut capacity.swap, value.swap),
 	] {
 		let max = resource
 			.accounted_max()

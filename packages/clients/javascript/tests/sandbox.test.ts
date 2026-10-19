@@ -36,7 +36,7 @@ test("sandbox reads send authorization tokens and the requested source", async (
 });
 
 test("resource shorthand and omitted maxima normalize consistently", () => {
-	for (let key of ["cpu", "memory", "storage", "swap"] as const) {
+	for (let key of ["cpu", "memory", "storage"] as const) {
 		for (let [value, expected] of [
 			[2, { max: 2, min: 0 }],
 			[
@@ -69,17 +69,15 @@ test("resource builders preserve minima and fractional CPU values", async () => 
 		await tg.Sandbox.create()
 			.cpu({ min: 0.25, max: 1 })
 			.memory({ min: 1024 })
-			.storage(4096)
-			.swap({ min: 0, max: 8192 });
+			.storage(4096);
 		assert.deepEqual(requests[0]?.cpu, { max: 2, min: 0 });
-		let { cpu, memory, storage, swap } = requests[1]!;
+		let { cpu, memory, storage } = requests[1]!;
 		assert.deepEqual(
-			{ cpu, memory, storage, swap },
+			{ cpu, memory, storage },
 			{
 				cpu: { max: 1, min: 0.25 },
 				memory: { min: 1024 },
 				storage: { max: 4096, min: 0 },
-				swap: { max: 8192, min: 0 },
 			},
 		);
 	} finally {

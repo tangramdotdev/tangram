@@ -961,11 +961,6 @@ impl Session {
 
 			store_path: store_source,
 
-			swap: arg.swap,
-
-			#[cfg(target_os = "linux")]
-			swap_pool: Some(self.server.runner.state.swap_pool.clone()),
-
 			tangram_path: self.server.tangram_path.clone(),
 
 			tangram_socket_path,

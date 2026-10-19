@@ -745,7 +745,6 @@ impl Server {
 					max_open_files = ?container.max_open_files,
 					max_pids = ?container.max_pids,
 					memory = ?config.scheduler.default_memory,
-					memory_swap = ?container.memory_swap,
 					seccomp = ?container.seccomp,
 					uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
 					"validated the hardened container isolation profile"
@@ -1280,11 +1279,7 @@ impl Server {
 				.default_cpu
 				.threads()
 				.map_err(|error| tg::error!(!error, "invalid default sandbox CPU bounds"))?;
-			for resource in [
-				scheduler.default_memory,
-				scheduler.default_storage,
-				scheduler.default_swap,
-			] {
+			for resource in [scheduler.default_memory, scheduler.default_storage] {
 				resource.validate().map_err(|error| {
 					tg::error!(!error, "invalid default sandbox resource bounds")
 				})?;
@@ -1311,7 +1306,6 @@ impl Server {
 			config.runner.overcommit.cpu,
 			config.runner.overcommit.memory,
 			config.runner.overcommit.storage,
-			config.runner.overcommit.swap,
 		]
 		.contains(&0)
 		{
@@ -1327,15 +1321,12 @@ impl Server {
 				.cpus
 				.unwrap_or_else(|| u64::try_from(parallelism).unwrap());
 			#[cfg(target_os = "linux")]
-			let (physical_memory, physical_storage, physical_swap) =
-				tangram_sandbox::capacity::detect(&path)?;
+			let (physical_memory, physical_storage) = tangram_sandbox::capacity::detect(&path)?;
 			#[cfg(not(target_os = "linux"))]
-			let (physical_memory, physical_storage, physical_swap) =
-				(1_073_741_824_u64.saturating_mul(cpus), 0, 0);
+			let (physical_memory, physical_storage) = (1_073_741_824_u64.saturating_mul(cpus), 0);
 			let memory = runner.memory.unwrap_or(physical_memory * 3 / 4);
 			let storage = runner.storage.unwrap_or(physical_storage * 3 / 4);
-			let swap = runner.swap.unwrap_or(physical_swap);
-			if memory > physical_memory || storage > physical_storage || swap > physical_swap {
+			if memory > physical_memory || storage > physical_storage {
 				return Err(tg::error!(
 					"the runner resource capacity exceeds its available backing"
 				));
@@ -1351,11 +1342,6 @@ impl Server {
 				storage
 					.checked_mul(runner.overcommit.storage)
 					.ok_or_else(|| tg::error!("the storage overcommit capacity overflowed"))?,
-			);
-			let swap = tg::sandbox::Resource::new(
-				swap,
-				swap.checked_mul(runner.overcommit.swap)
-					.ok_or_else(|| tg::error!("the swap overcommit capacity overflowed"))?,
 			);
 
 			let max = cpus
@@ -1383,7 +1369,6 @@ impl Server {
 				memory,
 				sandboxes,
 				storage,
-				swap,
 			};
 			if capacity.cpu.max.is_none_or(|max| max.millis() == 0) {
 				return Err(tg::error!(

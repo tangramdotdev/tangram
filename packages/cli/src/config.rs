@@ -1928,9 +1928,6 @@ pub struct Runner {
 	pub storage: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub swap: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
 
@@ -2035,9 +2032,6 @@ pub struct RunnerResources {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_pids: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub memory_swap: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -2100,10 +2094,6 @@ pub struct Scheduler {
 	/// The storage bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_storage: Option<tg::sandbox::Resource<u64>>,
-
-	/// The swap bounds for a sandbox that omits them, where an omitted maximum means no limit.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub default_swap: Option<tg::sandbox::Resource<u64>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub enqueue_retry: Option<Retry>,
@@ -5426,9 +5416,6 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.storage {
 		target.storage = Some(value);
 	}
-	if let Some(value) = source.swap {
-		target.swap = Some(value);
-	}
 	if let Some(value) = source.overcommit {
 		target.overcommit = value;
 	}
@@ -5600,7 +5587,6 @@ fn resolve_runner_resources(source: &RunnerResources) -> server::RunnerResources
 			.map_or_else(Default::default, Into::into),
 		max_duration: source.max_duration,
 		max_pids: source.max_pids,
-		memory_swap: source.memory_swap,
 	}
 }
 
@@ -5665,9 +5651,6 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	}
 	if let Some(value) = source.default_storage {
 		target.default_storage = value;
-	}
-	if let Some(value) = source.default_swap {
-		target.default_swap = value;
 	}
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
@@ -6812,8 +6795,7 @@ mod tests {
 			"resources": {
 				"filesystem_project_ids": { "count": 10_000, "start": 20_000 },
 				"max_duration": 123.5,
-				"max_pids": 1234,
-				"memory_swap": 0
+				"max_pids": 1234
 			},
 		}))
 		.unwrap();
@@ -6833,7 +6815,6 @@ mod tests {
 		assert_eq!(container.max_duration, Some(Duration::from_millis(123_500)));
 		assert_eq!(container.max_open_files, Some(2048));
 		assert_eq!(container.max_pids, Some(1234));
-		assert_eq!(container.memory_swap, Some(0));
 		assert_eq!(
 			container.seccomp,
 			Some(tangram_sandbox::SeccompPolicy::Default)

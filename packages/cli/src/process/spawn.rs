@@ -965,10 +965,6 @@ impl Cli {
 							options.sandbox.arg.storage_min,
 							options.sandbox.arg.storage,
 						),
-						swap: crate::sandbox::resource(
-							options.sandbox.arg.swap_min,
-							options.sandbox.arg.swap,
-						),
 						ttl: Some(options.sandbox.ttl.get()),
 					},
 				))

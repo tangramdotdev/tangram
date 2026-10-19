@@ -272,7 +272,6 @@ fn sandbox_data(
 			owner: Some(owner),
 			status,
 			storage: None,
-			swap: None,
 			ttl: None,
 			usage,
 		},
@@ -672,7 +671,6 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 					reservation: 0,
 				},
 				storage: tg::sandbox::ResourceUsage::default(),
-				swap: tg::sandbox::ResourceUsage::default(),
 			}),
 		)),
 		id: sandbox.clone(),
@@ -728,7 +726,6 @@ async fn records_compute_once_when_destroy_precedes_start() {
 				reservation: 0,
 			},
 			storage: tg::sandbox::ResourceUsage::default(),
-			swap: tg::sandbox::ResourceUsage::default(),
 		});
 		let arg = tangram_index::sandbox::put::Arg {
 			account: Some(account.clone()),
@@ -803,7 +800,6 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 					reservation: 0,
 				},
 				storage: tg::sandbox::ResourceUsage::default(),
-				swap: tg::sandbox::ResourceUsage::default(),
 			}),
 		)),
 		id: sandbox.clone(),

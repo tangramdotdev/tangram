@@ -60,7 +60,6 @@ pub(crate) fn resolve_sandbox_resources(
 	arg.cpu = resolve_sandbox_resource(arg.cpu, defaults.cpu);
 	arg.memory = resolve_sandbox_resource(arg.memory, defaults.memory);
 	arg.storage = resolve_sandbox_resource(arg.storage, defaults.storage);
-	arg.swap = resolve_sandbox_resource(arg.swap, defaults.swap);
 }
 
 /// Remove the resource bounds of a sandbox for a darwin host, which neither applies nor enforces them, and return whether the host is darwin.
@@ -73,7 +72,6 @@ pub(crate) fn clear_darwin_sandbox_resources(arg: &mut tg::sandbox::create::Arg)
 		arg.cpu = None;
 		arg.memory = None;
 		arg.storage = None;
-		arg.swap = None;
 	}
 	darwin
 }
@@ -86,7 +84,6 @@ pub(crate) fn limit_sandbox_resources(
 	arg.cpu = limit_sandbox_resource(arg.cpu, capacity.cpu);
 	arg.memory = limit_sandbox_resource(arg.memory, capacity.memory);
 	arg.storage = limit_sandbox_resource(arg.storage, capacity.storage);
-	arg.swap = limit_sandbox_resource(arg.swap, capacity.swap);
 }
 
 /// Get the capacity that a sandbox with resolved resources reserves.
@@ -97,7 +94,6 @@ pub(crate) fn sandbox_capacity(arg: &tg::sandbox::create::Arg) -> tg::runner::Ca
 		memory: arg.memory.unwrap_or_default(),
 		sandboxes: 1,
 		storage: arg.storage.unwrap_or_default(),
-		swap: arg.swap.unwrap_or_default(),
 	}
 }
 
@@ -171,7 +167,6 @@ impl State {
 			owner: arg.owner.clone(),
 			status: self.status,
 			storage: arg.storage,
-			swap: arg.swap,
 			ttl: arg.ttl,
 			usage: self.usage.clone(),
 		};
@@ -233,13 +228,12 @@ impl Server {
 		memory: Option<tg::sandbox::Resource<u64>>,
 		hostname: Option<&str>,
 		storage: Option<tg::sandbox::Resource<u64>>,
-		swap: Option<tg::sandbox::Resource<u64>>,
 	) -> tg::Result<()> {
 		// Validate the resource bounds.
 		if let Some(cpu) = cpu {
 			cpu.threads()?;
 		}
-		for resource in [memory, storage, swap].into_iter().flatten() {
+		for resource in [memory, storage].into_iter().flatten() {
 			resource.validate()?;
 		}
 
@@ -249,11 +243,9 @@ impl Server {
 			tangram_sandbox::Backend::Builtin
 				| tangram_sandbox::Backend::Bubblewrap { .. }
 				| tangram_sandbox::Backend::Gvisor { .. }
-		) && (storage.is_some() || swap.is_some())
+		) && storage.is_some()
 		{
-			return Err(tg::error!(
-				"storage and swap bounds require container isolation"
-			));
+			return Err(tg::error!("storage bounds require container isolation"));
 		}
 		if matches!(isolation, tangram_sandbox::Backend::CloudHypervisor(_))
 			&& (cpu.is_some_and(|cpu| {
@@ -370,10 +362,7 @@ mod tests {
 			..Default::default()
 		};
 		resolve_sandbox_resources(&defaults, &mut arg);
-		assert_eq!(
-			(arg.cpu, arg.memory, arg.storage, arg.swap),
-			(None, None, None, None)
-		);
+		assert_eq!((arg.cpu, arg.memory, arg.storage), (None, None, None));
 	}
 
 	#[test]

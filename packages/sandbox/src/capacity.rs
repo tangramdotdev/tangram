@@ -1,10 +1,9 @@
 use {std::path::Path, tangram_client::prelude::*};
 
-pub fn detect(path: &Path) -> tg::Result<(u64, u64, u64)> {
+pub fn detect(path: &Path) -> tg::Result<(u64, u64)> {
 	let contents = std::fs::read_to_string("/proc/meminfo")
 		.map_err(|error| tg::error!(!error, "failed to read the host memory capacity"))?;
 	let mut memory = field(&contents, "MemAvailable:")?;
-	let mut swap = field(&contents, "SwapFree:")?;
 	let current = std::fs::read_to_string("/proc/self/cgroup")
 		.map_err(|error| tg::error!(!error, "failed to read the runner cgroup"))?;
 	let current = current
@@ -16,10 +15,7 @@ pub fn detect(path: &Path) -> tg::Result<(u64, u64, u64)> {
 		.ancestors()
 		.take_while(|ancestor| ancestor.starts_with("/sys/fs/cgroup"))
 	{
-		for (available, limit, used) in [
-			(&mut memory, "memory.max", "memory.current"),
-			(&mut swap, "memory.swap.max", "memory.swap.current"),
-		] {
+		for (available, limit, used) in [(&mut memory, "memory.max", "memory.current")] {
 			let Ok(limit) = std::fs::read_to_string(ancestor.join(limit)) else {
 				continue;
 			};
@@ -46,7 +42,7 @@ pub fn detect(path: &Path) -> tg::Result<(u64, u64, u64)> {
 		.f_bavail
 		.checked_mul(statistics.f_frsize)
 		.ok_or_else(|| tg::error!("the disk capacity overflowed"))?;
-	Ok((memory, storage, swap))
+	Ok((memory, storage))
 }
 
 fn field(contents: &str, name: &str) -> tg::Result<u64> {

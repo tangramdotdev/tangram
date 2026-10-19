@@ -108,7 +108,6 @@ pub struct Cgroup {
 	pub cpu: Option<u64>,
 	pub memory: Option<u64>,
 	pub memory_oom_group: bool,
-	pub memory_swap: Option<u64>,
 	pub name: String,
 	pub pids: Option<u64>,
 }
@@ -436,7 +435,6 @@ fn prepare(arg: &mut Options, backend: &Backend) -> tg::Result<Prepared> {
 				cpu: options.cpu,
 				memory: options.memory.map(Into::into),
 				memory_oom_group: options.memory_oom_group,
-				memory_swap: options.memory_swap,
 				pids: options.pids,
 				..Default::default()
 			};

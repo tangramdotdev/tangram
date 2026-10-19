@@ -111,7 +111,6 @@ pub struct SandboxCreateArg {
 	pub network: Option<tg::sandbox::Network>,
 	pub owner: Option<tg::Principal>,
 	pub storage: Option<tg::sandbox::Resource<u64>>,
-	pub swap: Option<tg::sandbox::Resource<u64>>,
 	pub ttl: Option<Option<Duration>>,
 }
 

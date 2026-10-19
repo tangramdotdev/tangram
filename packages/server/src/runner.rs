@@ -96,9 +96,6 @@ pub struct State {
 	storage_pool: tangram_sandbox::budget::Pool,
 
 	#[cfg(target_os = "linux")]
-	swap_pool: tangram_sandbox::budget::Pool,
-
-	#[cfg(target_os = "linux")]
 	filesystem_project_ids: self::project::Pool,
 
 	heartbeat_index: AtomicU64,
@@ -156,9 +153,6 @@ impl Runner {
 				4096,
 				4096,
 			),
-
-			#[cfg(target_os = "linux")]
-			swap_pool: tangram_sandbox::budget::Pool::new(config.capacity.swap.min, 0, 4096),
 		};
 		let task = Mutex::new(None);
 		let process_control_connection_pool = ControlConnectionPool::new(

@@ -45,8 +45,6 @@ pub struct Aggregate {
 	pub sandbox_memory_reservation: u128,
 	pub sandbox_storage_consumption: u128,
 	pub sandbox_storage_reservation: u128,
-	pub sandbox_swap_consumption: u128,
-	pub sandbox_swap_reservation: u128,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -130,8 +128,6 @@ pub struct Output {
 	pub sandbox_memory_reservation: u128,
 	pub sandbox_storage_consumption: u128,
 	pub sandbox_storage_reservation: u128,
-	pub sandbox_swap_consumption: u128,
-	pub sandbox_swap_reservation: u128,
 }
 
 impl Account {
@@ -193,14 +189,6 @@ impl Aggregate {
 		self.sandbox_storage_reservation = self
 			.sandbox_storage_reservation
 			.checked_add(other.sandbox_storage_reservation)
-			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
-		self.sandbox_swap_consumption = self
-			.sandbox_swap_consumption
-			.checked_add(other.sandbox_swap_consumption)
-			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
-		self.sandbox_swap_reservation = self
-			.sandbox_swap_reservation
-			.checked_add(other.sandbox_swap_reservation)
 			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?;
 
 		Ok(())

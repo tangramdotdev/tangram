@@ -190,11 +190,6 @@ pub struct Arg {
 
 	pub store_path: PathBuf,
 
-	pub swap: Option<tg::sandbox::Resource<u64>>,
-
-	#[cfg(target_os = "linux")]
-	pub swap_pool: Option<budget::Pool>,
-
 	pub tangram_path: PathBuf,
 
 	pub tangram_socket_path: Option<PathBuf>,
@@ -246,7 +241,6 @@ pub struct Resources {
 	pub max_filesystem_size: Option<u64>,
 	pub max_open_files: Option<u64>,
 	pub max_pids: Option<u64>,
-	pub memory_swap: Option<u64>,
 	pub seccomp: Option<SeccompPolicy>,
 	pub uid_map: Option<IdMap>,
 }
@@ -346,17 +340,15 @@ impl Sandbox {
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
 		// Validate the sandbox resources and mount targets.
 		validate_resources(&arg.backend, arg.cpu, arg.memory)?;
-		for resource in [arg.memory, arg.storage, arg.swap].into_iter().flatten() {
+		for resource in [arg.memory, arg.storage].into_iter().flatten() {
 			resource.validate()?;
 		}
 		if !matches!(
 			arg.backend,
 			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. }
-		) && (arg.storage.is_some() || arg.swap.is_some())
+		) && arg.storage.is_some()
 		{
-			return Err(tg::error!(
-				"storage and swap bounds require container isolation"
-			));
+			return Err(tg::error!("storage bounds require container isolation"));
 		}
 		validate_options(&arg)?;
 
@@ -659,7 +651,6 @@ impl Sandbox {
 				memory: self.0.arg.memory.unwrap_or_default(),
 				sandboxes: 1,
 				storage: self.0.arg.storage.unwrap_or_default(),
-				swap: self.0.arg.swap.unwrap_or_default(),
 			};
 			*self.0.accounting.lock().await = Some(usage::Accounting::new(
 				source,
@@ -717,7 +708,6 @@ impl Sandbox {
 			cpu: tg::sandbox::ResourceUsage::default(),
 			memory: tg::sandbox::ResourceUsage::default(),
 			storage: tg::sandbox::ResourceUsage::default(),
-			swap: tg::sandbox::ResourceUsage::default(),
 		})
 	}
 
@@ -912,7 +902,6 @@ impl Sandbox {
 				cpu: tg::sandbox::ResourceUsage::default(),
 				memory: tg::sandbox::ResourceUsage::default(),
 				storage: tg::sandbox::ResourceUsage::default(),
-				swap: tg::sandbox::ResourceUsage::default(),
 			});
 		let output = Output { usage };
 		Ok(output)

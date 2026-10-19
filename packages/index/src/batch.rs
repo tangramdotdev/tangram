@@ -128,7 +128,6 @@ mod tests {
 				owner: Some(tg::Principal::Root),
 				status: tg::sandbox::Status::Destroyed,
 				storage: None,
-				swap: None,
 				ttl: Some(std::time::Duration::new(60, 123)),
 				usage: Some(tg::sandbox::Usage {
 					cpu: tg::sandbox::ResourceUsage {
@@ -140,7 +139,6 @@ mod tests {
 						reservation: 0,
 					},
 					storage: tg::sandbox::ResourceUsage::default(),
-					swap: tg::sandbox::ResourceUsage::default(),
 				}),
 			},
 			location: None,

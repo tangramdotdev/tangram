@@ -92,7 +92,6 @@ impl Pool {
 			&& arg.mounts.is_empty()
 			&& arg.network.is_none()
 			&& arg.storage == warm.storage
-			&& arg.swap == warm.swap
 	}
 
 	/// Get the arg of a warm sandbox, which resolves the default resource bounds.

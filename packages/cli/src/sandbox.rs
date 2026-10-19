@@ -75,12 +75,6 @@ pub struct Options {
 
 	#[arg(id = "sandbox.storage_min", long = "storage-min", value_parser = parse_bytes)]
 	pub storage_min: Option<u64>,
-
-	#[arg(alias = "swap-max", id = "sandbox.swap", long = "swap", value_parser = parse_bytes)]
-	pub swap: Option<u64>,
-
-	#[arg(id = "sandbox.swap_min", long = "swap-min", value_parser = parse_bytes)]
-	pub swap_min: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]

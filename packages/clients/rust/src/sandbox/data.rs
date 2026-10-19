@@ -53,10 +53,6 @@ pub struct Data {
 	pub storage: Option<tg::sandbox::Resource<u64>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
-	pub swap: Option<tg::sandbox::Resource<u64>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[tangram_serialize(
 		deserialize_with = "super::get::deserialize_duration",
@@ -89,9 +85,6 @@ pub struct Usage {
 
 	#[tangram_serialize(id = 2)]
 	pub storage: ResourceUsage,
-
-	#[tangram_serialize(id = 3)]
-	pub swap: ResourceUsage,
 }
 
 /// Resource time charged for a reservation and for consumption above it.

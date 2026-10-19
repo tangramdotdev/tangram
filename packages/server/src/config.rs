@@ -1228,8 +1228,6 @@ pub struct Runner {
 
 	pub storage: Option<u64>,
 
-	pub swap: Option<u64>,
-
 	pub token: Option<String>,
 }
 
@@ -1283,8 +1281,6 @@ pub struct RunnerResources {
 	pub max_duration: Option<Duration>,
 
 	pub max_pids: Option<u64>,
-
-	pub memory_swap: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -1371,7 +1367,6 @@ impl RunnerBackend {
 			.max_duration
 			.or(harden.then_some(Duration::from_hours(1)));
 		resources.max_pids = common.max_pids.or(harden.then_some(1024));
-		resources.memory_swap = common.memory_swap.or(harden.then_some(0));
 
 		// Apply the hardened resource defaults.
 		if harden {
@@ -1519,9 +1514,6 @@ pub struct Scheduler {
 
 	/// The storage bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	pub default_storage: tg::sandbox::Resource<u64>,
-
-	/// The swap bounds for a sandbox that omits them, where an omitted maximum means no limit.
-	pub default_swap: tg::sandbox::Resource<u64>,
 
 	pub enqueue_retry: Retry,
 
@@ -2872,7 +2864,6 @@ impl Default for Runner {
 			stdio_drain_timeout: Duration::from_secs(1),
 			stdio_drained_ttl: Duration::from_secs(10),
 			storage: None,
-			swap: None,
 			token: None,
 		}
 	}
@@ -2887,7 +2878,6 @@ impl Scheduler {
 			memory: self.default_memory,
 			sandboxes: 1,
 			storage: self.default_storage,
-			swap: self.default_swap,
 		}
 	}
 }
@@ -2900,7 +2890,6 @@ impl Default for Scheduler {
 			default_cpu: tg::sandbox::Cpu::default(),
 			default_memory: tg::sandbox::Resource::default(),
 			default_storage: tg::sandbox::Resource::default(),
-			default_swap: tg::sandbox::Resource::default(),
 			enqueue_retry: message_retry_default(),
 			heartbeat_interval: Duration::from_secs(1),
 			heartbeat_ttl: Duration::from_secs(10),

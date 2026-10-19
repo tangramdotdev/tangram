@@ -314,7 +314,6 @@ mod tests {
 			memory: tg::sandbox::Resource::new(min, max),
 			sandboxes: 1,
 			storage: tg::sandbox::Resource::new(min, max),
-			swap: tg::sandbox::Resource::new(min, max),
 		}
 	}
 
@@ -328,7 +327,6 @@ mod tests {
 			cpu: 4,
 			memory: 4,
 			storage: 4,
-			swap: 4,
 		};
 		let pool = Pool::new(total, overcommit);
 		let first = pool.try_acquire(capacity(250, 1000)).unwrap();

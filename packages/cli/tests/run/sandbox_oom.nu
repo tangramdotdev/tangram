@@ -12,7 +12,7 @@ let local = server spawn --config {
 }
 let memory = 134_217_728
 let script = 'value=x; while :; do value="$value$value"; done'
-let process = tg spawn --sandbox --memory $memory --swap 0 --verbose --executable /bin/sh -- -c $script | from json | get process
+let process = tg spawn --sandbox --memory $memory --verbose --executable /bin/sh -- -c $script | from json | get process
 let output = timeout 30s tg wait $process | complete
 success $output 'the process should finish after an OOM kill'
 let outcome = $output.stdout | from json

@@ -73,7 +73,6 @@ impl Session {
 			arg.memory,
 			arg.hostname.as_deref(),
 			arg.storage,
-			arg.swap,
 		)?;
 
 		// Create the sandbox identity and control token.

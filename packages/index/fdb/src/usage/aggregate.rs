@@ -19,8 +19,6 @@ struct Deltas {
 	sandbox_memory_reservation: i128,
 	sandbox_storage_consumption: i128,
 	sandbox_storage_reservation: i128,
-	sandbox_swap_consumption: i128,
-	sandbox_swap_reservation: i128,
 }
 
 impl Index {
@@ -178,10 +176,6 @@ impl Index {
 			.map_err(|_| tg::error!("the sandbox memory usage is out of range"))?;
 		let sandbox_storage_reservation = u128::try_from(deltas.sandbox_storage_reservation)
 			.map_err(|_| tg::error!("the sandbox memory usage is out of range"))?;
-		let sandbox_swap_consumption = u128::try_from(deltas.sandbox_swap_consumption)
-			.map_err(|_| tg::error!("the sandbox memory usage is out of range"))?;
-		let sandbox_swap_reservation = u128::try_from(deltas.sandbox_swap_reservation)
-			.map_err(|_| tg::error!("the sandbox memory usage is out of range"))?;
 		let aggregate = tangram_index::usage::PartitionAggregate {
 			object_count: apply_delta(previous.object_count, deltas.object_count)?,
 			object_size: apply_delta(previous.object_size, deltas.object_size)?,
@@ -193,8 +187,6 @@ impl Index {
 			sandbox_memory_reservation,
 			sandbox_storage_consumption,
 			sandbox_storage_reservation,
-			sandbox_swap_consumption,
-			sandbox_swap_reservation,
 		};
 		if !clear_aggregation {
 			return Ok(ControlFlow::Break(aggregate));
@@ -456,12 +448,6 @@ impl Index {
 				},
 				tangram_index::usage::DeltaKind::SandboxStorageReservation => {
 					&mut deltas.sandbox_storage_reservation
-				},
-				tangram_index::usage::DeltaKind::SandboxSwapConsumption => {
-					&mut deltas.sandbox_swap_consumption
-				},
-				tangram_index::usage::DeltaKind::SandboxSwapReservation => {
-					&mut deltas.sandbox_swap_reservation
 				},
 			};
 			*target = target

@@ -444,7 +444,6 @@ impl Session {
 					sandbox_arg.memory,
 					sandbox_arg.hostname.as_deref(),
 					sandbox_arg.storage,
-					sandbox_arg.swap,
 				)?;
 				let sandbox = tg::sandbox::Id::new();
 				let token = self

@@ -22,7 +22,6 @@ pub(crate) struct Snapshot {
 	pub(crate) cpu: u64,
 	pub(crate) memory: u64,
 	pub(crate) storage: u64,
-	pub(crate) swap: u64,
 }
 
 struct Accumulator {
@@ -35,7 +34,6 @@ struct Accumulator {
 	previous_at: Instant,
 	resources: tg::runner::Capacity,
 	storage: u128,
-	swap: u128,
 }
 
 impl Accounting {
@@ -151,7 +149,6 @@ impl Accumulator {
 			previous_at: started_at,
 			resources,
 			storage: 0,
-			swap: 0,
 		}
 	}
 
@@ -164,7 +161,7 @@ impl Accumulator {
 			.ok_or_else(|| tg::error!("the CPU counter decreased"))?;
 		self.sample_cpu(u128::from(cpu) * 1000, duration)?;
 
-		// Sample the memory, storage, and swap consumption.
+		// Sample the memory and storage consumption.
 		for (accumulated, previous, current, minimum) in [
 			(
 				&mut self.memory,
@@ -185,16 +182,6 @@ impl Accumulator {
 					.storage
 					.min(self.resources.storage.max.unwrap_or(u64::MAX)),
 				self.resources.storage.min,
-			),
-			(
-				&mut self.swap,
-				self.previous
-					.swap
-					.min(self.resources.swap.max.unwrap_or(u64::MAX)),
-				snapshot
-					.swap
-					.min(self.resources.swap.max.unwrap_or(u64::MAX)),
-				self.resources.swap.min,
 			),
 		] {
 			let area = integral(previous, current, minimum, duration)?;
@@ -271,13 +258,11 @@ impl Accumulator {
 		};
 		let memory = byte_usage(self.memory, self.resources.memory.min, duration)?;
 		let storage = byte_usage(self.storage, self.resources.storage.min, duration)?;
-		let swap = byte_usage(self.swap, self.resources.swap.min, duration)?;
 
 		Ok(tg::sandbox::Usage {
 			cpu,
 			memory,
 			storage,
-			swap,
 		})
 	}
 }
@@ -443,21 +428,19 @@ mod tests {
 		let resources = tg::runner::Capacity {
 			memory: resource,
 			storage: resource,
-			swap: resource,
 			..Default::default()
 		};
 		let mut accumulator = Accumulator::new(resources, Snapshot::default(), started_at);
 		let snapshot = Snapshot {
 			memory: 2_097_152,
 			storage: 2_097_152,
-			swap: 2_097_152,
 			..Default::default()
 		};
 		accumulator
 			.sample(snapshot, started_at + Duration::from_secs(1))
 			.unwrap();
 		let usage = accumulator.usage().unwrap();
-		for resource in [usage.memory, usage.storage, usage.swap] {
+		for resource in [usage.memory, usage.storage] {
 			assert_eq!(resource.reservation, 1000);
 			assert_eq!(resource.consumption, 0);
 		}

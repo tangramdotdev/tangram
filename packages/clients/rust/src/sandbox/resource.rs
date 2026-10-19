@@ -195,7 +195,6 @@ mod tests {
 			)),
 			memory: Some(Resource::new(268_435_456, 1_073_741_824)),
 			storage: Some(Resource::new(1_073_741_824, 10_737_418_240)),
-			swap: Some(0.into()),
 			..Default::default()
 		};
 		let config = serde_qs::Config::new().use_form_encoding(true);
@@ -204,7 +203,6 @@ mod tests {
 		assert_eq!(decoded.cpu, arg.cpu);
 		assert_eq!(decoded.memory, arg.memory);
 		assert_eq!(decoded.storage, arg.storage);
-		assert_eq!(decoded.swap, arg.swap);
 	}
 
 	#[test]

@@ -156,7 +156,6 @@ export namespace Sandbox {
 		location?: string | null;
 		memory?: number | tg.Sandbox.Resource | null;
 		storage?: number | tg.Sandbox.Resource | null;
-		swap?: number | tg.Sandbox.Resource | null;
 		mounts?: Array<tg.Sandbox.Mount.Data>;
 		network?: tg.Sandbox.Network.Data | null;
 		owner?: string | null;
@@ -170,7 +169,6 @@ export namespace Sandbox {
 		id: tg.Sandbox.Id;
 		memory?: number | tg.Sandbox.Resource | null;
 		storage?: number | tg.Sandbox.Resource | null;
-		swap?: number | tg.Sandbox.Resource | null;
 		mounts?: Array<tg.Sandbox.Mount.Data>;
 		network?: tg.Sandbox.Network.Data | null;
 		owner?: string | null;
@@ -183,7 +181,6 @@ export namespace Sandbox {
 		cpu: ResourceUsage;
 		memory: ResourceUsage;
 		storage: ResourceUsage;
-		swap: ResourceUsage;
 	};
 
 	export type ResourceUsage = { consumption: number; reservation: number };
@@ -256,7 +253,6 @@ export namespace Sandbox {
 		location?: tg.Location.Arg | null;
 		memory?: number | tg.Sandbox.Resource | null;
 		storage?: number | tg.Sandbox.Resource | null;
-		swap?: number | tg.Sandbox.Resource | null;
 		mounts?: Array<tg.Sandbox.Mount> | null;
 		network?: boolean | tg.Sandbox.Network | null;
 		owner?: string | null;
@@ -289,10 +285,9 @@ export namespace Sandbox {
 				output.memory =
 					arg.memory === null ? null : tg.Sandbox.Resource.from(arg.memory);
 			}
-			for (let key of ["storage", "swap"] as const) {
-				let value = arg[key];
-				if (value !== undefined)
-					output[key] = value === null ? null : tg.Sandbox.Resource.from(value);
+			if (arg.storage !== undefined) {
+				output.storage =
+					arg.storage === null ? null : tg.Sandbox.Resource.from(arg.storage);
 			}
 
 			// Convert the mount and network settings.
@@ -362,15 +357,6 @@ export namespace Sandbox {
 			> | null>,
 		): this {
 			this.#args.push({ storage });
-			return this;
-		}
-
-		swap(
-			swap: tg.Unresolved<tg.MaybeMutation<
-				number | tg.Sandbox.Resource
-			> | null>,
-		): this {
-			this.#args.push({ swap });
 			return this;
 		}
 

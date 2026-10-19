@@ -65,7 +65,6 @@ class SandboxArg(TypedDict, total=False):
     location: Unresolved[str | ArgObject | None]
     memory: Unresolved[int | float | Resource | Mutation | None]
     storage: Unresolved[int | float | Resource | Mutation | None]
-    swap: Unresolved[int | float | Resource | Mutation | None]
     mounts: Unresolved[list[Unresolved[MountValue]] | None]
     network: Unresolved[bool | NetworkValue | Mutation | None]
     owner: Unresolved[str | Mutation | None]
@@ -87,7 +86,6 @@ class SandboxUsage(TypedDict):
     cpu: ResourceUsage
     memory: ResourceUsage
     storage: ResourceUsage
-    swap: ResourceUsage
 
 
 class SandboxData(TypedDict, total=False):
@@ -98,7 +96,6 @@ class SandboxData(TypedDict, total=False):
     hostname: str | None
     memory: Resource | None
     storage: Resource | None
-    swap: Resource | None
     mounts: list[str]
     network: SandboxNetworkData | None
     owner: str | None
@@ -289,9 +286,6 @@ class Builder:
     ) -> Self:
         return self._push("storage", value)
 
-    def swap(self, value: Unresolved[int | float | Resource | Mutation | None]) -> Self:
-        return self._push("swap", value)
-
     def mounts(self, *values: Unresolved[list[MountValue] | Mutation | None]) -> Self:
         for value in values:
             self._push("mounts", value)
@@ -388,7 +382,6 @@ def arg_to_data(arg):
             "memory",
             "owner",
             "storage",
-            "swap",
             "ttl",
         )
         if key in arg
@@ -404,7 +397,7 @@ def arg_to_data(arg):
         output["network"] = network
 
     # Normalize the resource settings.
-    for key in ("cpu", "memory", "storage", "swap"):
+    for key in ("cpu", "memory", "storage"):
         if key in output and output[key] is not None:
             output[key] = normalize_resource(output[key], cpu=key == "cpu")
 

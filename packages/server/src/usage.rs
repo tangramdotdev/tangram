@@ -74,8 +74,6 @@ impl Session {
 				sandbox_memory_reservation: output.sandbox_memory_reservation,
 				sandbox_storage_consumption: output.sandbox_storage_consumption,
 				sandbox_storage_reservation: output.sandbox_storage_reservation,
-				sandbox_swap_consumption: output.sandbox_swap_consumption,
-				sandbox_swap_reservation: output.sandbox_swap_reservation,
 			};
 			aggregate.checked_add(regional)?;
 		}
@@ -274,7 +272,5 @@ fn usage_output(
 		sandbox_memory_reservation: aggregate.sandbox_memory_reservation,
 		sandbox_storage_consumption: aggregate.sandbox_storage_consumption,
 		sandbox_storage_reservation: aggregate.sandbox_storage_reservation,
-		sandbox_swap_consumption: aggregate.sandbox_swap_consumption,
-		sandbox_swap_reservation: aggregate.sandbox_swap_reservation,
 	}
 }

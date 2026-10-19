@@ -67,7 +67,6 @@ impl Cli {
 				args.arg.storage_min,
 				args.arg.storage,
 			))
-			.swap(crate::sandbox::resource(args.arg.swap_min, args.arg.swap))
 			.mounts(args.arg.mounts)
 			.network(network)
 			.owner(owner)
