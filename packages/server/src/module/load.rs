@@ -25,6 +25,17 @@ impl Session {
 			return Err(tg::error!("the python feature is not enabled"));
 		}
 
+		#[cfg(not(feature = "javascript"))]
+		if matches!(
+			arg.module.kind,
+			tg::module::Kind::JavaScript
+				| tg::module::Kind::TypeScript
+				| tg::module::Kind::TypeScriptDeclaration
+		) || arg.language == Some(tg::module::load::Language::JavaScript)
+		{
+			return Err(tg::error!("the javascript feature is not enabled"));
+		}
+
 		// Generate the Python representation of object modules.
 		#[cfg(feature = "python")]
 		if arg.language == Some(tg::module::load::Language::Python)

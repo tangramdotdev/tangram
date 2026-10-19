@@ -3293,6 +3293,7 @@ impl Cli {
 			.unwrap_or_default()
 	}
 
+	#[cfg(any(feature = "quickjs", feature = "v8"))]
 	pub(crate) fn repl_config(&self) -> Repl {
 		self.config
 			.as_ref()

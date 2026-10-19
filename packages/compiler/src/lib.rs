@@ -18,10 +18,13 @@ use {
 	tokio_util::task::TaskTracker,
 };
 
+#[cfg(feature = "tsrs")]
 mod tsrs;
-#[cfg(feature = "typescript")]
+#[cfg(feature = "typescript6")]
 mod typescript6;
+#[cfg(feature = "typescript7")]
 mod typescript7;
+#[cfg(feature = "javascript")]
 mod util;
 
 pub mod analyze;
@@ -53,6 +56,7 @@ pub mod selection_range;
 pub mod semantic_tokens;
 pub mod signature_help;
 pub mod symbols;
+#[cfg(feature = "javascript")]
 pub mod transpile;
 pub mod version;
 pub mod workspace;
@@ -84,13 +88,14 @@ pub struct State {
 	library_path: PathBuf,
 
 	/// A handle to the main tokio runtime.
+	#[cfg(any(feature = "tsrs", feature = "ty", feature = "typescript6"))]
 	main_runtime_handle: tokio::runtime::Handle,
 
 	/// The position encoding negotiated with the LSP client.
 	position_encoding: RwLock<tg::position::Encoding>,
 
 	/// The Python service.
-	#[cfg(feature = "python")]
+	#[cfg(feature = "ty")]
 	python: python::Service,
 
 	/// The outgoing request ID counter.
@@ -109,12 +114,14 @@ pub struct State {
 	store_path: PathBuf,
 
 	/// The embedded native TypeScript service.
+	#[cfg(feature = "tsrs")]
 	tsrs: tsrs::Service,
 
 	/// The typescript service.
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "typescript6")]
 	typescript6: typescript6::Service,
 
+	#[cfg(feature = "typescript7")]
 	typescript7: typescript7::Service,
 
 	typescript_backend: TypescriptBackend,
@@ -273,38 +280,62 @@ impl Compiler {
 		version: String,
 		options: Options,
 	) -> Shared {
+		#[cfg(not(any(feature = "tsrs", feature = "ty", feature = "typescript6")))]
+		let _ = main_runtime_handle;
 		let documents = DashMap::default();
 		let requests = DashMap::new();
 		let request_id = AtomicI32::new(1);
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = Mutex::new(None);
-		#[cfg(feature = "typescript")]
+		#[cfg(feature = "typescript6")]
 		let typescript6 = typescript6::Service::new();
+		#[cfg(feature = "tsrs")]
 		let tsrs = tsrs::Service::new();
+		#[cfg(feature = "typescript7")]
 		let typescript7 = typescript7::Service::new(options.typescript_executable);
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
 			check_backend: options.check_backend,
+
 			documents,
+
 			instance,
+
 			library_path,
+
+			#[cfg(any(feature = "tsrs", feature = "ty", feature = "typescript6"))]
 			main_runtime_handle,
+
 			position_encoding: RwLock::new(tg::position::Encoding::Utf8),
-			#[cfg(feature = "python")]
+
+			#[cfg(feature = "ty")]
 			python: python::Service::new(),
+
 			request_id,
+
 			requests,
+
 			sender,
+
 			serve_task,
+
 			store_path,
+
+			#[cfg(feature = "tsrs")]
 			tsrs,
-			#[cfg(feature = "typescript")]
+
+			#[cfg(feature = "typescript6")]
 			typescript6,
+
+			#[cfg(feature = "typescript7")]
 			typescript7,
+
 			typescript_backend: options.typescript_backend,
+
 			version,
+
 			workspaces,
 		}));
 
@@ -318,17 +349,21 @@ impl Compiler {
 					serve_task.wait().await.unwrap();
 				}
 
-				#[cfg(feature = "python")]
+				#[cfg(feature = "ty")]
 				{
 					compiler.python.stop();
 					compiler.python.join().await;
 				}
-				compiler.tsrs.stop();
-				compiler.tsrs.join().await;
+				#[cfg(feature = "tsrs")]
+				{
+					compiler.tsrs.stop();
+					compiler.tsrs.join().await;
+				}
+				#[cfg(feature = "typescript7")]
 				compiler.typescript7.stop().await;
 
 				// Stop and await the typescript service.
-				#[cfg(feature = "typescript")]
+				#[cfg(feature = "typescript6")]
 				{
 					compiler.typescript6.stop();
 					compiler.typescript6.join().await;
@@ -954,37 +989,59 @@ impl Compiler {
 			.module()
 			.is_some_and(|module| module.kind == tg::module::Kind::Python)
 		{
-			#[cfg(feature = "python")]
 			return self.request_python(request).await;
-			#[cfg(not(feature = "python"))]
-			return Err(tg::error!("the python feature is not enabled"));
-		}
-		if matches!(self.check_backend, CheckBackend::Tsrs) && matches!(request, Request::Check(_))
-		{
-			return self.tsrs.request(self, request).await;
-		}
-		if matches!(self.check_backend, CheckBackend::Typescript7)
-			&& let Request::Check(request) = request
-		{
-			let response = self.typescript7.check(self, request).await?;
-			return Ok(Response::Check(response));
 		}
 
-		if matches!(self.typescript_backend, TypescriptBackend::Tsrs)
-			&& !matches!(request, Request::Check(_))
-		{
-			return self.tsrs.request(self, request).await;
-		}
+		let backend = if matches!(request, Request::Check(_)) {
+			self.check_backend
+		} else {
+			match self.typescript_backend {
+				TypescriptBackend::Tsrs => CheckBackend::Tsrs,
+				TypescriptBackend::Typescript6 => CheckBackend::Typescript6,
+			}
+		};
+		match backend {
+			CheckBackend::Tsrs => {
+				#[cfg(feature = "tsrs")]
+				{
+					self.tsrs.request(self, request).await
+				}
+				#[cfg(not(feature = "tsrs"))]
+				{
+					Err(tg::error!("the tsrs feature is not enabled"))
+				}
+			},
+			CheckBackend::Typescript6 => {
+				#[cfg(feature = "typescript6")]
+				{
+					self.typescript6.request(self, request).await
+				}
+				#[cfg(not(feature = "typescript6"))]
+				{
+					Err(tg::error!("the typescript6 feature is not enabled"))
+				}
+			},
+			CheckBackend::Typescript7 => {
+				#[cfg(feature = "typescript7")]
+				{
+					let Request::Check(request) = request else {
+						return Err(tg::error!("the typescript7 backend only supports checking"));
+					};
+					let response = self.typescript7.check(self, request).await?;
 
-		#[cfg(feature = "typescript")]
-		{
-			self.typescript6.request(self, request).await
+					Ok(Response::Check(response))
+				}
+				#[cfg(not(feature = "typescript7"))]
+				{
+					Err(tg::error!("the typescript7 feature is not enabled"))
+				}
+			},
 		}
-		#[cfg(not(feature = "typescript"))]
-		{
-			let _ = request;
-			Err(tg::error!("the typescript feature is not enabled"))
-		}
+	}
+
+	#[cfg(not(feature = "ty"))]
+	async fn request_python(&self, _request: Request) -> tg::Result<Response> {
+		Err(tg::error!("the ty feature is not enabled"))
 	}
 
 	async fn module_kind_for_path(&self, path: &Path) -> tg::Result<tg::module::Kind> {
@@ -1504,10 +1561,11 @@ impl Deref for Compiler {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
+		#[cfg(feature = "tsrs")]
 		self.compiler.tsrs.stop();
-		#[cfg(feature = "python")]
+		#[cfg(feature = "ty")]
 		self.compiler.python.stop();
-		#[cfg(feature = "typescript")]
+		#[cfg(feature = "typescript6")]
 		self.compiler.typescript6.stop();
 	}
 }

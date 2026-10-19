@@ -50,7 +50,7 @@ impl Compiler {
 			symbols.extend(javascript);
 		}
 
-		#[cfg(feature = "python")]
+		#[cfg(feature = "ty")]
 		if self.python.is_started()
 			|| self
 				.documents

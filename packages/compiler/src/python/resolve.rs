@@ -208,6 +208,7 @@ impl Resolver {
 	}
 
 	/// Include unsaved editor files in the filesystem view used by relative imports.
+	#[cfg(feature = "ty")]
 	#[must_use]
 	pub(crate) fn with_paths(
 		instance: tg::instance::dynamic::Instance,
@@ -590,6 +591,7 @@ impl Resolver {
 	}
 }
 
+#[cfg(feature = "ty")]
 impl Output {
 	#[must_use]
 	pub(crate) fn without_token(&self) -> Self {
@@ -624,6 +626,7 @@ impl Resolution {
 	}
 }
 
+#[cfg(feature = "ty")]
 impl Context {
 	fn clear_tokens(&mut self) {
 		self.parent.clear_tokens();
@@ -662,6 +665,7 @@ impl Target {
 		})
 	}
 
+	#[cfg(feature = "ty")]
 	fn clear_tokens(&mut self) {
 		match self {
 			Self::Module(module) => module.data.referent.options.tokens.clear(),

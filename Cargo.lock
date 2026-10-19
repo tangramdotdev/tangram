@@ -9915,7 +9915,6 @@ dependencies = [
  "tangram_index",
  "tangram_index_fdb",
  "tangram_index_lmdb",
- "tangram_javascript",
  "tangram_messenger",
  "tangram_messenger_memory",
  "tangram_messenger_nats",

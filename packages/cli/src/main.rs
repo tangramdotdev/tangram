@@ -35,7 +35,7 @@ mod health;
 mod id;
 mod index;
 mod init;
-#[cfg(feature = "javascript")]
+#[cfg(any(feature = "quickjs", feature = "v8"))]
 mod javascript;
 mod list;
 mod location;
@@ -54,11 +54,11 @@ mod publish;
 mod pull;
 mod push;
 mod put;
-#[cfg(feature = "python")]
+#[cfg(feature = "cpython")]
 mod python;
 mod read;
 mod remote;
-#[cfg(feature = "javascript")]
+#[cfg(any(feature = "quickjs", feature = "v8"))]
 mod repl;
 mod runner;
 mod sandbox;
@@ -338,7 +338,7 @@ enum Command {
 
 	Init(self::init::Args),
 
-	#[cfg(feature = "javascript")]
+	#[cfg(any(feature = "quickjs", feature = "v8"))]
 	#[command(name = "javascript", alias = "js", hide = true)]
 	JavaScript(self::javascript::Args),
 
@@ -383,7 +383,7 @@ enum Command {
 	#[command(alias = "add")]
 	Put(self::put::Args),
 
-	#[cfg(feature = "python")]
+	#[cfg(feature = "cpython")]
 	#[command(alias = "py")]
 	Python(self::python::Args),
 
@@ -394,7 +394,7 @@ enum Command {
 
 	Revoke(self::grants::delete::Args),
 
-	#[cfg(feature = "javascript")]
+	#[cfg(any(feature = "quickjs", feature = "v8"))]
 	Repl(self::repl::Args),
 
 	#[command(alias = "r")]
@@ -484,7 +484,7 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 	let result = match cli.args.command.clone() {
 		Command::Builtin(command_args) => Some(cli.command_builtin(command_args).await),
 
-		#[cfg(feature = "javascript")]
+		#[cfg(any(feature = "quickjs", feature = "v8"))]
 		Command::JavaScript(command_args) => {
 			#[cfg(feature = "v8")]
 			if command_args.engine.is_auto() || command_args.engine.is_v_8() {
@@ -494,7 +494,7 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 			Some(result)
 		},
 
-		#[cfg(feature = "python")]
+		#[cfg(feature = "cpython")]
 		Command::Python(command_args) => Some(cli.command_python(command_args).await),
 
 		Command::Sandbox(self::sandbox::Args {
@@ -608,21 +608,22 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 	let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
 	// Initialize V8.
-	#[cfg(feature = "v8")]
-	let initialize_v8 = if server {
-		true
-	} else if let Command::JavaScript(args) = &cli.args.command
-		&& (args.engine.is_auto() || args.engine.is_v_8())
-	{
-		true
-	} else if let Command::Repl(args) = &cli.args.command
-		&& (args.engine.is_auto() || args.engine.is_v_8())
-	{
-		true
-	} else {
-		false
+	#[cfg(any(feature = "typescript6", feature = "v8"))]
+	let initialize_v8 = server || {
+		#[cfg(feature = "v8")]
+		{
+			match &cli.args.command {
+				Command::JavaScript(args) => args.engine.is_auto() || args.engine.is_v_8(),
+				Command::Repl(args) => args.engine.is_auto() || args.engine.is_v_8(),
+				_ => false,
+			}
+		}
+		#[cfg(not(feature = "v8"))]
+		{
+			false
+		}
 	};
-	#[cfg(feature = "v8")]
+	#[cfg(any(feature = "typescript6", feature = "v8"))]
 	if initialize_v8 {
 		let thread_pool_size = cli
 			.config
@@ -727,7 +728,7 @@ impl Cli {
 
 			Command::Init(args) => self.command_init(args).boxed_local(),
 
-			#[cfg(feature = "javascript")]
+			#[cfg(any(feature = "quickjs", feature = "v8"))]
 			Command::JavaScript(args) => self.command_javascript(args).boxed_local(),
 
 			Command::List(args) => self.command_list(args).boxed_local(),
@@ -764,7 +765,7 @@ impl Cli {
 
 			Command::Push(args) => self.command_push(args).boxed_local(),
 
-			#[cfg(feature = "python")]
+			#[cfg(feature = "cpython")]
 			Command::Python(args) => self.command_python(args).boxed_local(),
 
 			Command::Put(args) => self.command_put(args).boxed_local(),
@@ -775,7 +776,7 @@ impl Cli {
 
 			Command::Revoke(args) => self.command_grants_delete(args).boxed_local(),
 
-			#[cfg(feature = "javascript")]
+			#[cfg(any(feature = "quickjs", feature = "v8"))]
 			Command::Repl(args) => self.command_repl(args).boxed_local(),
 
 			Command::Run(args) => self.command_run(args).boxed_local(),
@@ -867,7 +868,7 @@ impl Cli {
 	}
 
 	/// Initialize V8.
-	#[cfg(feature = "v8")]
+	#[cfg(any(feature = "typescript6", feature = "v8"))]
 	fn initialize_v8(thread_pool_size: u32) {
 		// Set the ICU data.
 		v8::icu::set_common_data_78(deno_core_icudata::ICU_DATA).unwrap();
@@ -903,6 +904,7 @@ impl Cli {
 		Ok(())
 	}
 
+	#[cfg(any(feature = "cpython", feature = "quickjs", feature = "v8"))]
 	async fn spawn_thread<F, T>(f: F) -> tg::Result<T>
 	where
 		F: FnOnce() -> tg::Result<T> + Send + 'static,

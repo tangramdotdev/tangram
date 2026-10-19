@@ -2,14 +2,18 @@ fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 
 	// Build the library.
+	let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+	std::fs::create_dir_all(output.join("lib")).unwrap();
+	#[cfg(feature = "javascript")]
 	self::library::build();
-	#[cfg(feature = "python")]
+	#[cfg(feature = "ty")]
 	self::python::build();
 
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "typescript6")]
 	self::typescript::build();
 }
 
+#[cfg(feature = "javascript")]
 mod library {
 	use {
 		serde_json::json,
@@ -141,7 +145,7 @@ mod library {
 	}
 }
 
-#[cfg(feature = "typescript")]
+#[cfg(feature = "typescript6")]
 mod typescript {
 	use {
 		indoc::formatdoc,
@@ -338,7 +342,7 @@ mod typescript {
 	}
 }
 
-#[cfg(feature = "python")]
+#[cfg(feature = "ty")]
 mod python {
 	use std::{path::PathBuf, process::Command};
 

@@ -5,14 +5,12 @@ use {
 };
 
 impl Session {
-	#[cfg(not(feature = "typescript"))]
+	#[cfg(not(feature = "typescript6"))]
 	pub(crate) async fn document(&self, _arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
-		Err(tg::error!(
-			"this version of tangram was not compiled with typescript support"
-		))
+		Err(tg::error!("the typescript6 feature is not enabled"))
 	}
 
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "typescript6")]
 	pub(crate) async fn document(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
 		let location = self.server.location(arg.location.as_ref())?;
 
@@ -32,7 +30,7 @@ impl Session {
 		Ok(output)
 	}
 
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "typescript6")]
 	async fn document_local(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
 		if !self.server.checkouts_enabled() {
 			return Err(tg::error!("checkouts are disabled"));
@@ -56,7 +54,7 @@ impl Session {
 		Ok(output)
 	}
 
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "typescript6")]
 	async fn document_region(
 		&self,
 		arg: tg::document::Arg,
@@ -78,7 +76,7 @@ impl Session {
 		Ok(output)
 	}
 
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "typescript6")]
 	async fn document_remote(
 		&self,
 		arg: tg::document::Arg,

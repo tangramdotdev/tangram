@@ -11,13 +11,29 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
+javascript = ["dep:oxc", "dep:oxc_formatter", "dep:oxc_formatter_core"]
 python = [
 	"dep:pep440_rs",
-	"dep:ruff_db",
-	"dep:ruff_notebook",
 	"dep:ruff_python_ast",
 	"dep:ruff_python_formatter",
 	"dep:ruff_python_parser",
+]
+tsrs = [
+	"javascript",
+	"dep:tsrs_ast",
+	"dep:tsrs_compiler",
+	"dep:tsrs_core",
+	"dep:tsrs_diagnostics",
+	"dep:tsrs_ls",
+	"dep:tsrs_lsproto",
+	"dep:tsrs_module",
+	"dep:tsrs_project",
+	"dep:tsrs_vfs",
+]
+ty = [
+	"python",
+	"dep:ruff_db",
+	"dep:ruff_notebook",
 	"dep:salsa",
 	"dep:tangram_python_build",
 	"dep:ty_ide",
@@ -28,7 +44,8 @@ python = [
 	"dep:ty_text_size",
 	"dep:ty_vendored",
 ]
-typescript = ["dep:tangram_v8", "dep:v8"]
+typescript6 = ["javascript", "dep:sourcemap", "dep:tangram_v8", "dep:v8"]
+typescript7 = ["javascript", "dep:tangram_typescript_client"]
 
 [lib]
 doctest = false
@@ -57,9 +74,9 @@ indoc = { workspace = true }
 itertools = { workspace = true }
 lsp-types = { workspace = true }
 num = { workspace = true }
-oxc = { workspace = true }
-oxc_formatter = { workspace = true }
-oxc_formatter_core = { workspace = true }
+oxc = { workspace = true, optional = true }
+oxc_formatter = { workspace = true, optional = true }
+oxc_formatter_core = { workspace = true, optional = true }
 pep440_rs = { workspace = true, optional = true }
 ruff_db = { workspace = true, optional = true }
 ruff_notebook = { workspace = true, optional = true }
@@ -72,25 +89,25 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }
 serde_yaml = { workspace = true }
-sourcemap = { workspace = true }
+sourcemap = { workspace = true, optional = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
-tangram_typescript_client = { workspace = true }
+tangram_typescript_client = { workspace = true, optional = true }
 tangram_util = { workspace = true }
 tangram_v8 = { workspace = true, optional = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
-tsrs_ast = { workspace = true }
-tsrs_compiler = { workspace = true }
-tsrs_core = { workspace = true }
-tsrs_diagnostics = { workspace = true }
-tsrs_ls = { workspace = true }
-tsrs_lsproto = { workspace = true }
-tsrs_module = { workspace = true }
-tsrs_project = { workspace = true }
-tsrs_vfs = { workspace = true }
+tsrs_ast = { workspace = true, optional = true }
+tsrs_compiler = { workspace = true, optional = true }
+tsrs_core = { workspace = true, optional = true }
+tsrs_diagnostics = { workspace = true, optional = true }
+tsrs_ls = { workspace = true, optional = true }
+tsrs_lsproto = { workspace = true, optional = true }
+tsrs_module = { workspace = true, optional = true }
+tsrs_project = { workspace = true, optional = true }
+tsrs_vfs = { workspace = true, optional = true }
 ty_ide = { workspace = true, optional = true }
 ty_module_resolver = { workspace = true, optional = true }
 ty_project = { workspace = true, optional = true }

@@ -17,13 +17,13 @@ impl Compiler {
 		let (python, modules): (Vec<_>, Vec<_>) = modules
 			.into_iter()
 			.partition(|module| module.kind == tg::module::Kind::Python);
-		#[cfg(not(feature = "python"))]
+		#[cfg(not(feature = "ty"))]
 		if !python.is_empty() {
-			return Err(tg::error!("the python feature is not enabled"));
+			return Err(tg::error!("the ty feature is not enabled"));
 		}
-		#[cfg(not(feature = "python"))]
+		#[cfg(not(feature = "ty"))]
 		let mut diagnostics = Vec::new();
-		#[cfg(feature = "python")]
+		#[cfg(feature = "ty")]
 		let mut diagnostics = if python.is_empty() {
 			Vec::new()
 		} else {

@@ -1,18 +1,18 @@
-#[cfg(not(feature = "python"))]
+#[cfg(not(all(feature = "javascript", feature = "python")))]
 use tangram_client::prelude::*;
-#[cfg(feature = "python")]
+#[cfg(all(feature = "javascript", feature = "python"))]
 use {
 	std::{collections::BTreeMap, fmt::Write as _},
 	tangram_client::prelude::*,
 };
 
-#[cfg(feature = "python")]
+#[cfg(all(feature = "javascript", feature = "python"))]
 mod javascript;
-#[cfg(feature = "python")]
+#[cfg(all(feature = "javascript", feature = "python"))]
 mod python;
 
 /// Generate the consuming language's representation without changing the module's identity.
-#[cfg(feature = "python")]
+#[cfg(all(feature = "javascript", feature = "python"))]
 pub fn module(
 	module: &tg::module::Data,
 	text: &str,
@@ -81,21 +81,32 @@ pub fn module(
 	Ok(output)
 }
 
-#[cfg(not(feature = "python"))]
+#[cfg(not(all(feature = "javascript", feature = "python")))]
 pub fn module(
 	module: &tg::module::Data,
 	text: &str,
 	language: Option<tg::module::load::Language>,
 ) -> tg::Result<String> {
-	if module.kind == tg::module::Kind::Python
-		|| language == Some(tg::module::load::Language::Python)
+	if !cfg!(feature = "python")
+		&& (module.kind == tg::module::Kind::Python
+			|| language == Some(tg::module::load::Language::Python))
 	{
 		return Err(tg::error!("the python feature is not enabled"));
+	}
+	if !cfg!(feature = "javascript")
+		&& (matches!(
+			module.kind,
+			tg::module::Kind::JavaScript
+				| tg::module::Kind::TypeScript
+				| tg::module::Kind::TypeScriptDeclaration
+		) || language == Some(tg::module::load::Language::JavaScript))
+	{
+		return Err(tg::error!("the javascript feature is not enabled"));
 	}
 	Ok(text.to_owned())
 }
 
-#[cfg(feature = "python")]
+#[cfg(all(feature = "javascript", feature = "python"))]
 fn located_error(
 	module: &tg::module::Data,
 	text: &str,
@@ -120,7 +131,7 @@ fn located_error(
 	tg::Error::with_object(object)
 }
 
-#[cfg(all(test, feature = "python"))]
+#[cfg(all(test, feature = "javascript", feature = "python"))]
 mod tests {
 	use super::*;
 

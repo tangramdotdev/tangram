@@ -6,7 +6,7 @@ The initial schema targets TypeScript `7.1.0-dev.20260930.4`. It implements the 
 
 ## Enable native checking
 
-Install a nightly with `bun install -g typescript@next`, then configure the Tangram server:
+Build with the `typescript7` Cargo feature (`cargo build --features typescript7`), install a compatible nightly with `bun install -g typescript@next`, then configure the Tangram server:
 
 ```json
 {
@@ -17,11 +17,11 @@ Install a nightly with `bun install -g typescript@next`, then configure the Tang
 }
 ```
 
-The default check backend is `typescript6`. The executable defaults to `tsc` on PATH; use an explicit path if another TypeScript installation shadows the nightly. Configure the server that handles checks, and restart it after changing configuration.
+The default check backend is `tsrs`. The `typescript7` feature enables the JavaScript frontend without selecting an execution runtime. The executable defaults to `tsc` on PATH; use an explicit path if another TypeScript installation shadows the nightly. Configure the server that handles checks, and restart it after changing configuration.
 
 The npm-installed `tsc` command is a Node launcher. To avoid Node entirely, set `typescript_executable` to the native binary inside the platform package. For example, the Bun global installation on Apple Silicon macOS contains `$HOME/.bun/install/global/node_modules/@typescript/typescript-darwin-arm64/lib/tsc`. Expand `$HOME` to an absolute path in JSON; the configuration does not perform shell expansion. Both the launcher and the direct native binary were tested.
 
-Only check requests use TypeScript 7. LSP, documentation, and all other compiler requests continue using TypeScript 6. Both services start lazily. Native startup/API failures are reported rather than falling back to TypeScript 6.
+Only check requests use TypeScript 7. The separate `compiler.typescript_backend` setting selects the editor backend, which defaults to tsrs. Documentation requires the `typescript6` Cargo feature and `typescript_backend: "typescript6"`. Services start lazily. Native startup/API failures are reported without falling back to another backend.
 
 The adapter serves virtual modules and Tangram's bundled declaration library through callbacks, including open-buffer contents. Synthetic paths reversibly encode the token-free module URI in a URL-safe base64 directory, so a module always gets the same path regardless of discovery order. Resolution and loading decode that identity directly; there is no full module registry. A per-check token side map merges authorization tokens and restores them before resolution/loading. Tokens are not encoded in TypeScript paths. Each check creates a fresh program; incremental reuse is not implemented. Import attributes are not supplied by the upstream resolver callback and are not supported by this proof of concept. Use ordinary imports for now.
 
@@ -29,14 +29,18 @@ The adapter serves virtual modules and Tangram's bundled declaration library thr
 
 Transport unit tests do not require a native compiler or Tangram server:
 
-```sh
+```nu
 cargo test -p tangram_typescript_client
 ```
 
 The CLI smoke test is opt-in because it requires a compatible external compiler:
 
-```sh
-TANGRAM_TEST_TYPESCRIPT7_EXECUTABLE="$HOME/.bun/install/global/node_modules/@typescript/typescript-darwin-arm64/lib/tsc" nu packages/cli/test.nu --no-cloud typescript7
+```nu
+with-env {
+    TANGRAM_TEST_TYPESCRIPT7_EXECUTABLE: ($env.HOME | path join '.bun/install/global/node_modules/@typescript/typescript-darwin-arm64/lib/tsc')
+} {
+    nu packages/cli/test.nu --no-cloud --typescript-backend typescript6 typescript7
+}
 ```
 
 It checks successful ordinary imports, Tangram declarations, dependency edits, Unicode diagnostics, and missing imports. The missing-executable test always runs and verifies that LSP diagnostics still work through TypeScript 6 even when the configured native executable is unavailable.

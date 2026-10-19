@@ -60,6 +60,7 @@ pub fn parse(path: &Path, text: &str) -> tg::Result<Metadata> {
 	parse_module(path, text, &parsed)
 }
 
+#[cfg(feature = "ty")]
 pub(crate) fn parse_unchecked(path: &Path, text: &str) -> tg::Result<Metadata> {
 	let parsed =
 		ruff_python_parser::parse_unchecked_source(text, ruff_python_ast::PySourceType::Python);

@@ -2,6 +2,8 @@ use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 impl Compiler {
 	pub fn format(text: &str, kind: tg::module::Kind) -> tg::Result<String> {
+		#[cfg(not(any(feature = "javascript", feature = "python")))]
+		let _ = text;
 		match kind {
 			tg::module::Kind::Artifact
 			| tg::module::Kind::Blob
@@ -14,7 +16,16 @@ impl Compiler {
 			| tg::module::Kind::Symlink => Err(tg::error!(%kind, "cannot format the module")),
 			tg::module::Kind::TypeScriptDeclaration
 			| tg::module::Kind::JavaScript
-			| tg::module::Kind::TypeScript => Self::format_javascript(text),
+			| tg::module::Kind::TypeScript => {
+				#[cfg(feature = "javascript")]
+				{
+					Self::format_javascript(text)
+				}
+				#[cfg(not(feature = "javascript"))]
+				{
+					Err(tg::error!("the javascript feature is not enabled"))
+				}
+			},
 			tg::module::Kind::Python => {
 				#[cfg(feature = "python")]
 				{
@@ -28,6 +39,7 @@ impl Compiler {
 		}
 	}
 
+	#[cfg(feature = "javascript")]
 	fn format_javascript(text: &str) -> tg::Result<String> {
 		let allocator = oxc::allocator::Allocator::default();
 		let source_type = oxc::span::SourceType::ts();

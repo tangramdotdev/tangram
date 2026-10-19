@@ -18,22 +18,26 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-default = ["javascript", "lmdb", "python", "sqlite", "tls", "typescript", "v8"]
+default = ["cpython", "lmdb", "sqlite", "tls", "tsrs", "ty", "v8"]
+cpython = ["dep:tangram_python", "python"]
 fjall = ["tangram_server/fjall"]
 foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
-javascript = ["tangram_server/javascript"]
+javascript = ["tangram_compiler/javascript", "tangram_server/javascript"]
 lmdb = ["tangram_server/lmdb"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
-python = ["dep:tangram_python", "tangram_server/python"]
-quickjs = ["javascript", "tangram_server/quickjs", "tangram_javascript/quickjs"]
+python = ["tangram_compiler/python", "tangram_server/python"]
+quickjs = ["dep:tangram_javascript", "javascript", "tangram_javascript/quickjs"]
 rocksdb = ["tangram_server/rocksdb"]
 scylla = ["tangram_server/scylla"]
 sqlite = ["tangram_server/sqlite"]
 tls = ["tangram_client/tls", "tangram_server/tls"]
+tsrs = ["javascript", "tangram_compiler/tsrs", "tangram_server/tsrs"]
 turso = ["tangram_server/turso"]
-typescript = ["tangram_server/typescript", "v8"]
-v8 = ["dep:v8", "javascript", "tangram_server/v8", "tangram_javascript/v8"]
+ty = ["python", "tangram_compiler/ty", "tangram_server/ty"]
+typescript6 = ["dep:deno_core_icudata", "dep:v8", "javascript", "tangram_compiler/typescript6", "tangram_server/typescript6"]
+typescript7 = ["javascript", "tangram_compiler/typescript7", "tangram_server/typescript7"]
+v8 = ["dep:deno_core_icudata", "dep:tangram_javascript", "dep:v8", "javascript", "tangram_javascript/v8"]
 vsock = ["tangram_client/vsock", "tangram_sandbox/vsock", "tangram_server/vsock"]
 
 [lints]
@@ -56,7 +60,7 @@ clap_complete_nushell = { workspace = true }
 console-subscriber = { workspace = true }
 crossterm = { workspace = true }
 data-encoding = { workspace = true }
-deno_core_icudata = { workspace = true }
+deno_core_icudata = { workspace = true, optional = true }
 derive_more = { workspace = true }
 foundationdb = { workspace = true, optional = true }
 futures = { workspace = true }
@@ -92,7 +96,7 @@ tangram_compiler = { workspace = true }
 tangram_fdb = { workspace = true, optional = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
-tangram_javascript = { workspace = true }
+tangram_javascript = { workspace = true, optional = true }
 tangram_python = { workspace = true, optional = true }
 tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }

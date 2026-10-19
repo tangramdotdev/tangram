@@ -178,6 +178,8 @@ impl Server {
 		origin: Origin,
 		stopper: Stopper,
 	) {
+		#[cfg(not(feature = "tls"))]
+		let _ = config;
 		#[cfg(feature = "tls")]
 		let tls = if matches!(config.url.scheme(), Some("https")) {
 			let Some(tls_config) = config.tls.as_ref() else {

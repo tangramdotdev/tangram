@@ -1,3 +1,6 @@
+#[cfg(not(feature = "javascript"))]
+use tangram_client::prelude::*;
+#[cfg(feature = "javascript")]
 use {
 	oxc::ast::ast::{
 		ArrayExpressionElement, Declaration, Expression, ObjectPropertyKind, PropertyKey, Statement,
@@ -5,6 +8,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(feature = "javascript")]
 pub fn metadata(text: &str) -> tg::Result<Option<serde_json::Map<String, serde_json::Value>>> {
 	let allocator = oxc::allocator::Allocator::default();
 	let source_type = oxc::span::SourceType::ts();
@@ -53,6 +57,12 @@ pub fn metadata(text: &str) -> tg::Result<Option<serde_json::Map<String, serde_j
 	Ok(None)
 }
 
+#[cfg(not(feature = "javascript"))]
+pub fn metadata(_text: &str) -> tg::Result<Option<serde_json::Map<String, serde_json::Value>>> {
+	Err(tg::error!("the javascript feature is not enabled"))
+}
+
+#[cfg(feature = "javascript")]
 fn expression_to_json(expr: &Expression) -> tg::Result<serde_json::Value> {
 	match expr {
 		Expression::StringLiteral(lit) => Ok(serde_json::Value::String(lit.value.to_string())),
@@ -158,7 +168,7 @@ fn expression_to_json(expr: &Expression) -> tg::Result<serde_json::Value> {
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "javascript"))]
 mod tests {
 	use {super::*, indoc::indoc};
 

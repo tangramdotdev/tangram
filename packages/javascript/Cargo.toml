@@ -54,7 +54,7 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sourcemap = { workspace = true }
 tangram_client = { workspace = true }
-tangram_compiler = { workspace = true }
+tangram_compiler = { workspace = true, features = ["javascript"] }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_quickjs = { workspace = true, optional = true }

@@ -2,6 +2,44 @@
 
 The compiler supports an embedded tsrs backend alongside TypeScript 6 and the optional TypeScript 7 subprocess checker. tsrs is the default for checking and editor requests.
 
+## Cargo features
+
+Language frontends, checker/editor backends, and execution runtimes are selected separately. Each backend enables its language frontend; enabling a frontend does not select a backend.
+
+| Purpose | JavaScript and TypeScript | Python |
+| --- | --- | --- |
+| Frontend | `javascript` | `python` |
+| Native checker and editor backend | `tsrs` | `ty` |
+| Alternative checker/editor backend | `typescript6` | |
+| Subprocess checker | `typescript7` | |
+| Execution runtime (CLI) | `v8`, `quickjs` | `cpython` |
+
+The `javascript` frontend provides OXC parsing, import and metadata analysis, formatting, transpilation, and bundled declarations. The `python` frontend provides Ruff parsing, import and metadata analysis, formatting, module resolution, and object-module generation. Cross-language wrappers require both frontends. The `ty` backend prepares the Python checker library; `cpython` includes the interpreter distribution separately.
+
+The compiler and server expose the frontend and checker/editor features. Runtime features belong to the CLI and runtime crates. `typescript6` includes the V8 dependency and initializes it in the CLI without enabling the `v8` execution runtime. The former `typescript` feature is named `typescript6`.
+
+The `cpython` runtime uses the pinned, bundled CPython distribution. It does not discover or link a system Python installation; the checked-in PyO3 configuration suppresses automatic Python linking.
+
+The CLI defaults enable `tsrs`, `ty`, `v8`, and `cpython`, along with LMDB, SQLite, and TLS. TypeScript 6, TypeScript 7, and QuickJS are opt-in. Checker and editor configuration still defaults to tsrs; configure an alternative explicitly when building without tsrs. Selecting a backend that was not compiled in reports its missing feature.
+
+JavaScript, TypeScript, and Python module kinds, module values, and wire representations remain available in every build. Features control source processing and backends, not the client data model.
+
+For example, these Nushell commands build the CLI with language tooling and local storage, without an execution runtime:
+
+```nu
+cargo build --no-default-features --features 'lmdb,sqlite,tsrs,ty'
+cargo build --no-default-features --features 'lmdb,sqlite,javascript,python'
+```
+
+Run the compiler's frontend and missing-backend regression tests across feature selections with:
+
+```nu
+cargo test --package tangram_compiler --no-default-features
+for features in [javascript python 'javascript,python' tsrs ty typescript6 typescript7] {
+    cargo test --package tangram_compiler --no-default-features --features $features
+}
+```
+
 ## Embedded tsrs
 
 The Cargo workspace uses Git dependencies on [Tangram's tsrs fork](https://github.com/tangramdotdev/tsrs), with the revision pinned in `Cargo.lock`. Building Tangram does not require a sibling tsrs checkout. The fork adds import-attribute-aware module resolution, native language-service preparation for synthetic projects, and a fix for exported-symbol completion details. Its import-attribute patch can be removed when equivalent upstream support is available.

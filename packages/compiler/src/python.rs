@@ -1,3 +1,4 @@
+#[cfg(feature = "ty")]
 use {
 	super::{
 		Compiler,
@@ -7,34 +8,45 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(feature = "ty")]
 mod db;
+#[cfg(feature = "ty")]
 mod library;
+#[cfg(feature = "ty")]
 mod system;
 
 pub mod load;
 pub mod resolve;
 
+#[cfg(feature = "ty")]
 type Documents = BTreeMap<Key, Document>;
 
+#[cfg(feature = "ty")]
 type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
+
+#[cfg(feature = "ty")]
 type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 
+#[cfg(feature = "ty")]
 #[derive(Default)]
 pub struct Service {
 	request_sender: Mutex<Option<RequestSender>>,
 	thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
+#[cfg(feature = "ty")]
 enum Request {
 	Check(Vec<tg::module::Data>),
 	Query(crate::Request, tg::position::Encoding),
 }
 
+#[cfg(feature = "ty")]
 enum Response {
 	Check(Vec<tg::Diagnostic>),
 	Query(crate::Response),
 }
 
+#[cfg(feature = "ty")]
 impl Service {
 	#[must_use]
 	pub fn new() -> Self {
@@ -90,6 +102,7 @@ impl Service {
 	}
 }
 
+#[cfg(feature = "ty")]
 impl Compiler {
 	pub(super) async fn check_python(
 		&self,
@@ -127,6 +140,7 @@ impl Compiler {
 	}
 }
 
+#[cfg(feature = "ty")]
 fn run(
 	compiler: &Compiler,
 	mut receiver: tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>,
