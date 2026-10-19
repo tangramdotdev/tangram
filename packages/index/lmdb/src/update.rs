@@ -58,6 +58,7 @@ struct ProcessPermissionInputs<'a> {
 	log_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	output_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	set: ProcessPermissionSet,
+	subject: &'a tg::authorization::Subject,
 }
 
 #[derive(Clone, Copy)]
@@ -905,7 +906,7 @@ impl Index {
 			Self::insert_object_aspect_permissions(
 				&mut expected,
 				input.entries,
-				command_object_entries.iter().flat_map(|entries| *entries),
+				input.subject,
 				&command_object_entries,
 				object_subtree,
 				node_command_objects,
@@ -920,7 +921,7 @@ impl Index {
 			Self::insert_object_aspect_permissions(
 				&mut expected,
 				input.entries,
-				error_object_entries.iter().flat_map(|entries| *entries),
+				input.subject,
 				&error_object_entries,
 				object_subtree,
 				node_error_objects,
@@ -935,7 +936,7 @@ impl Index {
 			Self::insert_object_aspect_permissions(
 				&mut expected,
 				input.entries,
-				log_object_entries.iter().flat_map(|entries| *entries),
+				input.subject,
 				&log_object_entries,
 				object_subtree,
 				node_log_objects,
@@ -950,7 +951,7 @@ impl Index {
 			Self::insert_object_aspect_permissions(
 				&mut expected,
 				input.entries,
-				output_object_entries.iter().flat_map(|entries| *entries),
+				input.subject,
 				&output_object_entries,
 				object_subtree,
 				node_output_objects,
@@ -1020,47 +1021,33 @@ impl Index {
 		)
 	}
 
-	fn insert_object_aspect_permissions<'a>(
+	fn insert_object_aspect_permissions(
 		expected: &mut BTreeSet<(
 			tg::authorization::Subject,
 			tg::authorization::Permission,
 			Option<i64>,
 		)>,
 		target_entries: &[crate::permission::PermissionEntry],
-		sources: impl IntoIterator<Item = &'a crate::permission::PermissionEntry>,
-		required: &[&[crate::permission::PermissionEntry]],
+		subject: &tg::authorization::Subject,
+		objects: &[&[crate::permission::PermissionEntry]],
 		source_permission: tg::authorization::Permission,
 		target_permission: tg::authorization::Permission,
 	) {
-		for entry in sources
-			.into_iter()
-			.filter(|entry| entry.permission == source_permission)
-		{
-			let Some(entry_expires_at) = entry.effective_expires_at() else {
-				continue;
-			};
-			let expires_at = required
-				.iter()
-				.try_fold(entry_expires_at, |output, entries| {
-					Self::permission_entries_cover_expires_at(
-						entries,
-						&entry.subject,
-						source_permission,
-					)
-					.map(|cover| Self::min_expires_at(output, cover.expires_at))
-				});
-			if let Some(expires_at) = expires_at {
-				if Self::has_non_materialized_cover(
-					target_entries,
-					&entry.subject,
-					target_permission,
-					expires_at,
-				) {
-					continue;
-				}
-				expected.insert((entry.subject.clone(), target_permission, expires_at));
-			}
+		if objects.is_empty() {
+			return;
 		}
+		let expires_at = objects.iter().try_fold(None, |output, entries| {
+			Self::permission_entries_cover_expires_at(entries, subject, source_permission)
+				.map(|cover| Self::min_expires_at(output, cover.expires_at))
+		});
+		let Some(expires_at) = expires_at else {
+			return;
+		};
+		if Self::has_non_materialized_cover(target_entries, subject, target_permission, expires_at)
+		{
+			return;
+		}
+		expected.insert((subject.clone(), target_permission, expires_at));
 	}
 
 	fn has_non_materialized_cover(
@@ -1189,6 +1176,7 @@ impl Index {
 				log_objects: process.set.log_objects,
 				output_objects: process.set.output_objects,
 			},
+			subject,
 		};
 		Self::update_process_permissions(db, subspace, transaction, &entry)
 	}
