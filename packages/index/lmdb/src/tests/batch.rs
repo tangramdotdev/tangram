@@ -424,12 +424,16 @@ async fn process_child_tokens_belong_to_the_parent() {
 	assert!(!index.process_has_ancestor(&child, &parent).await.unwrap());
 	let transaction = index.env.read_txn().unwrap();
 	assert_eq!(
-		Index::get_process_children_with_transaction(
-			&index.db,
-			&index.subspace,
-			&transaction,
-			&parent
-		)
+		crate::page::collect(|after| {
+			Index::get_process_children_page_with_transaction(
+				&index.db,
+				&index.subspace,
+				&transaction,
+				&parent,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})
 		.unwrap(),
 		Vec::<tg::process::Id>::new()
 	);
@@ -476,12 +480,16 @@ async fn process_child_tokens_belong_to_the_parent() {
 	assert!(!index.process_has_ancestor(&child, &parent).await.unwrap());
 	let transaction = index.env.read_txn().unwrap();
 	assert_eq!(
-		Index::get_process_children_with_transaction(
-			&index.db,
-			&index.subspace,
-			&transaction,
-			&parent
-		)
+		crate::page::collect(|after| {
+			Index::get_process_children_page_with_transaction(
+				&index.db,
+				&index.subspace,
+				&transaction,
+				&parent,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})
 		.unwrap(),
 		Vec::<tg::process::Id>::new()
 	);

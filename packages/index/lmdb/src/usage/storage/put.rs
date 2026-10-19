@@ -89,7 +89,16 @@ impl Index {
 					.or_insert(permissions);
 			}
 		};
-		let parents = Self::get_object_parents_with_transaction(db, subspace, transaction, object)?;
+		let parents = crate::page::collect(|after| {
+			Self::get_object_parents_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				object,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for parent in parents {
 			for account in
 				Self::get_object_accounts_with_transaction(db, subspace, transaction, &parent)?
@@ -116,7 +125,7 @@ impl Index {
 				transaction,
 				object,
 				after.as_deref(),
-				crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+				crate::page::PAGE_SIZE,
 			)?;
 			for (process, kind) in processes {
 				for account in Self::get_process_accounts_with_transaction(
@@ -194,8 +203,16 @@ impl Index {
 					.or_insert(permissions);
 			}
 		};
-		let parents =
-			Self::get_process_parents_with_transaction(db, subspace, transaction, process)?;
+		let parents = crate::page::collect(|after| {
+			Self::get_process_parents_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for parent in parents {
 			for account in
 				Self::get_process_accounts_with_transaction(db, subspace, transaction, &parent)?
@@ -254,10 +271,27 @@ impl Index {
 		if accounts.is_empty() {
 			return Ok(());
 		}
-		let children =
-			Self::get_process_children_with_transaction(db, subspace, transaction, process)?;
-		let objects =
-			Self::get_process_objects_with_transaction(db, subspace, transaction, process)?;
+		let children = crate::page::collect(|after| {
+			Self::get_process_children_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
+		let objects = crate::page::collect(|after| {
+			Self::get_process_objects_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				None,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for account in accounts {
 			let Some(entry) = Self::get_account_storage_entry_with_transaction(
 				db,
@@ -662,7 +696,16 @@ impl Index {
 		let children = if inherited.is_empty() {
 			Vec::new()
 		} else {
-			Self::get_object_children_with_transaction(db, subspace, transaction, &arg.object)?
+			crate::page::collect(|after| {
+				Self::get_object_children_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg.object,
+					after,
+					crate::page::PAGE_SIZE,
+				)
+			})?
 		};
 		for child in children {
 			Self::enqueue_update_with_kind(
@@ -706,7 +749,16 @@ impl Index {
 		let children = if inherited.is_empty() {
 			Vec::new()
 		} else {
-			Self::get_process_children_with_transaction(db, subspace, transaction, &arg.process)?
+			crate::page::collect(|after| {
+				Self::get_process_children_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg.process,
+					after,
+					crate::page::PAGE_SIZE,
+				)
+			})?
 		};
 		for child in children {
 			Self::enqueue_update_with_kind(
@@ -723,8 +775,17 @@ impl Index {
 				Some(version),
 			)?;
 		}
-		let objects =
-			Self::get_process_objects_with_transaction(db, subspace, transaction, &arg.process)?;
+		let objects = crate::page::collect(|after| {
+			Self::get_process_objects_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&arg.process,
+				None,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for (object, kind) in objects {
 			let permissions = tangram_index::usage::storage::object_permissions(permissions, kind);
 			if permissions.is_empty() {

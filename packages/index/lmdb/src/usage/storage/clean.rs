@@ -305,9 +305,16 @@ impl Index {
 	) -> tg::Result<()> {
 		match id {
 			tg::Either::Left(object) => {
-				for child in
-					Self::get_object_children_with_transaction(db, subspace, transaction, object)?
-				{
+				for child in crate::page::collect(|after| {
+					Self::get_object_children_page_with_transaction(
+						db,
+						subspace,
+						transaction,
+						object,
+						after,
+						crate::page::PAGE_SIZE,
+					)
+				})? {
 					Self::schedule_account_object_for_cleaning(
 						db,
 						subspace,
@@ -318,9 +325,16 @@ impl Index {
 				}
 			},
 			tg::Either::Right(process) => {
-				for child in
-					Self::get_process_children_with_transaction(db, subspace, transaction, process)?
-				{
+				for child in crate::page::collect(|after| {
+					Self::get_process_children_page_with_transaction(
+						db,
+						subspace,
+						transaction,
+						process,
+						after,
+						crate::page::PAGE_SIZE,
+					)
+				})? {
 					Self::schedule_account_process_for_cleaning(
 						db,
 						subspace,
@@ -329,9 +343,17 @@ impl Index {
 						&child,
 					)?;
 				}
-				for (object, _) in
-					Self::get_process_objects_with_transaction(db, subspace, transaction, process)?
-				{
+				for (object, _) in crate::page::collect(|after| {
+					Self::get_process_objects_page_with_transaction(
+						db,
+						subspace,
+						transaction,
+						process,
+						None,
+						after,
+						crate::page::PAGE_SIZE,
+					)
+				})? {
 					Self::schedule_account_object_for_cleaning(
 						db,
 						subspace,
@@ -355,8 +377,16 @@ impl Index {
 		now: i64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
-		let children =
-			Self::get_object_children_with_transaction(db, subspace, transaction, object)?;
+		let children = crate::page::collect(|after| {
+			Self::get_object_children_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				object,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for child in children {
 			Self::schedule_account_object_for_cleaning(db, subspace, transaction, account, &child)?;
 		}
@@ -428,8 +458,16 @@ impl Index {
 			&tg::Either::Right(process.clone()),
 		)?
 		.is_some_and(|entry| entry.stores_node());
-		let children =
-			Self::get_process_children_with_transaction(db, subspace, transaction, process)?;
+		let children = crate::page::collect(|after| {
+			Self::get_process_children_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for child in children {
 			Self::schedule_account_process_for_cleaning(
 				db,
@@ -439,8 +477,17 @@ impl Index {
 				&child,
 			)?;
 		}
-		let objects =
-			Self::get_process_objects_with_transaction(db, subspace, transaction, process)?;
+		let objects = crate::page::collect(|after| {
+			Self::get_process_objects_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				None,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for (object, _) in objects {
 			Self::schedule_account_object_for_cleaning(
 				db,

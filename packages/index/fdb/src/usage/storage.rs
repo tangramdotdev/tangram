@@ -116,13 +116,33 @@ impl Index {
 		let mut count = 0;
 		let parents = match id {
 			tg::Either::Left(object) => crate::propagate!(
-				Self::get_object_parents_with_transaction(txn, subspace, object).await
+				crate::page::collect(|after| async move {
+					Self::get_object_parents_page_with_transaction(
+						txn,
+						subspace,
+						object,
+						after.as_deref(),
+						crate::page::PAGE_SIZE,
+					)
+					.await
+				})
+				.await
 			)
 			.into_iter()
 			.map(tg::Either::Left)
 			.collect::<Vec<_>>(),
 			tg::Either::Right(process) => crate::propagate!(
-				Self::get_process_parents_with_transaction(txn, subspace, process).await
+				crate::page::collect(|after| async move {
+					Self::get_process_parents_page_with_transaction(
+						txn,
+						subspace,
+						process,
+						after.as_deref(),
+						crate::page::PAGE_SIZE,
+					)
+					.await
+				})
+				.await
 			)
 			.into_iter()
 			.map(tg::Either::Right)
@@ -149,7 +169,7 @@ impl Index {
 						subspace,
 						object,
 						after.as_deref(),
-						crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+						crate::page::PAGE_SIZE,
 					)
 					.await
 				);

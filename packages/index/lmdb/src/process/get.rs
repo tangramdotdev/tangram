@@ -60,9 +60,16 @@ impl Index {
 		let mut seen = BTreeSet::from([process.clone()]);
 		let mut queue = VecDeque::from([process.clone()]);
 		while let Some(process) = queue.pop_front() {
-			for parent in
-				Self::get_process_parents_with_transaction(db, subspace, transaction, &process)?
-			{
+			for parent in crate::page::collect(|after| {
+				Self::get_process_parents_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&process,
+					after,
+					crate::page::PAGE_SIZE,
+				)
+			})? {
 				if &parent == ancestor {
 					return Ok(true);
 				}
@@ -103,29 +110,38 @@ impl Index {
 		Ok(Some(tangram_index::process::Process::deserialize(bytes)?))
 	}
 
-	pub(crate) fn get_process_children_with_transaction(
+	pub(crate) fn get_process_children_page_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::process::Id,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		let id_bytes = id.to_bytes();
-		let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, prefix);
-		let mut children = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get process children"))?;
-		for entry in iter {
-			let (key, _) =
-				entry.map_err(|error| tg::error!(!error, "failed to read process child entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Process(crate::process::Key::ProcessChild { child, .. }) = key else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			children.push(child);
-		}
-		Ok(children)
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tg::process::Id>> {
+		let bytes = id.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Process(crate::process::Key::ProcessChild { child, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(child)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok((items, cursor))
 	}
 
 	pub(crate) fn try_get_process_children_count_with_transaction(
@@ -266,54 +282,84 @@ impl Index {
 		Ok(Some(children))
 	}
 
-	pub(crate) fn get_process_parents_with_transaction(
+	pub(crate) fn get_process_parents_page_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::process::Id,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		let id_bytes = id.to_bytes();
-		let prefix = &(Kind::ChildProcess.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, prefix);
-		let mut parents = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get process parents"))?;
-		for entry in iter {
-			let (key, _) =
-				entry.map_err(|error| tg::error!(!error, "failed to read child process entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Process(crate::process::Key::ChildProcess { parent, .. }) = key else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			parents.push(parent);
-		}
-		Ok(parents)
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tg::process::Id>> {
+		let bytes = id.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ChildProcess.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Process(crate::process::Key::ChildProcess { parent, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(parent)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok((items, cursor))
 	}
 
-	pub(crate) fn get_process_objects_with_transaction(
+	pub(crate) fn get_process_objects_page_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::process::Id,
-	) -> tg::Result<Vec<(tg::object::Id, tangram_index::process::object::Kind)>> {
-		let id_bytes = id.to_bytes();
-		let prefix = &(Kind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, prefix);
-		let mut objects = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get process objects"))?;
-		for entry in iter {
-			let (key, _) =
-				entry.map_err(|error| tg::error!(!error, "failed to read process object entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Process(crate::process::Key::ProcessObject { kind, object, .. }) = key else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			objects.push((object, kind));
-		}
-		Ok(objects)
+		kind: Option<tangram_index::process::object::Kind>,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<(tg::object::Id, tangram_index::process::object::Kind)>> {
+		let bytes = id.to_bytes();
+		let prefix = match kind {
+			Some(kind) => Self::pack(
+				subspace,
+				&(
+					Kind::ProcessObject.to_i32().unwrap(),
+					bytes.as_ref(),
+					kind.to_i32().unwrap(),
+				),
+			),
+			None => Self::pack(
+				subspace,
+				&(Kind::ProcessObject.to_i32().unwrap(), bytes.as_ref()),
+			),
+		};
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Process(crate::process::Key::ProcessObject { kind, object, .. }) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok((object, kind))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok((items, cursor))
 	}
 
 	pub(crate) fn try_get_process_children_and_objects_with_transaction(
@@ -358,7 +404,17 @@ impl Index {
 				.or_insert(child);
 		}
 
-		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
+		let objects = crate::page::collect(|after| {
+			Self::get_process_objects_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				id,
+				None,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for (object, _) in objects {
 			let id: tg::Id = object.into();
 			children

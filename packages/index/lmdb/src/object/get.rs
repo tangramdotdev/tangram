@@ -34,68 +34,72 @@ impl Index {
 		Ok(Some(tangram_index::object::Object::deserialize(bytes)?))
 	}
 
-	pub(crate) fn get_object_children_with_transaction(
+	pub(crate) fn get_object_children_page_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
-	) -> tg::Result<Vec<tg::object::Id>> {
-		let id_bytes = id.to_bytes();
-		let prefix = &(Kind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, prefix);
-		let mut children = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get object children"))?;
-		for entry in iter {
-			let (key, _) =
-				entry.map_err(|error| tg::error!(!error, "failed to read object child entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Object(crate::object::Key::ObjectChild { child, .. }) = key else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			children.push(child);
-		}
-		Ok(children)
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tg::object::Id>> {
+		let bytes = id.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ObjectChild.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Object(crate::object::Key::ObjectChild { child, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(child)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok((items, cursor))
 	}
 
-	pub(crate) fn try_get_object_children_with_transaction(
+	pub(crate) fn get_object_parents_page_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<Vec<tg::object::Id>>> {
-		let Some(_) = Self::try_get_object_with_transaction(db, subspace, transaction, id)? else {
-			return Ok(None);
-		};
-		let children = Self::get_object_children_with_transaction(db, subspace, transaction, id)?;
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tg::object::Id>> {
+		let bytes = id.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ChildObject.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Object(crate::object::Key::ChildObject { object, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(object)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(Some(children))
-	}
-
-	pub(crate) fn get_object_parents_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
-		id: &tg::object::Id,
-	) -> tg::Result<Vec<tg::object::Id>> {
-		let id_bytes = id.to_bytes();
-		let prefix = &(Kind::ChildObject.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, prefix);
-		let mut parents = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get object parents"))?;
-		for entry in iter {
-			let (key, _) =
-				entry.map_err(|error| tg::error!(!error, "failed to read child object entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Object(crate::object::Key::ChildObject { object, .. }) = key else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			parents.push(object);
-		}
-		Ok(parents)
+		Ok((items, cursor))
 	}
 
 	pub(crate) fn get_object_processes_page_with_transaction(
@@ -105,47 +109,31 @@ impl Index {
 		id: &tg::object::Id,
 		after: Option<&[u8]>,
 		limit: usize,
-	) -> tg::Result<(
-		Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
-		Option<Vec<u8>>,
-	)> {
-		let id_bytes = id.to_bytes();
-		let prefix = &(Kind::ObjectProcess.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, prefix);
-		let start = if let Some(after) = after {
-			let mut start = after.to_vec();
-			start.push(0);
-			start
-		} else {
-			prefix.clone()
-		};
-		let range = (
-			std::ops::Bound::Included(start.as_slice()),
-			std::ops::Bound::Unbounded,
+	) -> tg::Result<crate::page::Page<(tg::process::Id, tangram_index::process::object::Kind)>> {
+		let bytes = id.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ObjectProcess.to_i32().unwrap(), bytes.as_ref()),
 		);
-		let iter = db
-			.range(transaction, &range)
-			.map_err(|error| tg::error!(!error, "failed to get object processes"))?;
-		let mut processes = Vec::new();
-		let mut last = None;
-		let mut cursor = None;
-		for entry in iter {
-			let (key, _) =
-				entry.map_err(|error| tg::error!(!error, "failed to read object process entry"))?;
-			if !key.starts_with(&prefix) {
-				break;
-			}
-			if processes.len() == limit {
-				cursor = last;
-				break;
-			}
-			last = Some(key.to_vec());
-			let key = Self::unpack(subspace, key)?;
-			let Key::Object(crate::object::Key::ObjectProcess { kind, process, .. }) = key else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			processes.push((process, kind));
-		}
-		Ok((processes, cursor))
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Object(crate::object::Key::ObjectProcess { kind, process, .. }) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok((process, kind))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok((items, cursor))
 	}
 }

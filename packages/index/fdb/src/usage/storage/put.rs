@@ -84,7 +84,17 @@ impl Index {
 			}
 		};
 		let parents = crate::propagate!(
-			Self::get_object_parents_with_transaction(txn, subspace, object).await
+			crate::page::collect(|after| async move {
+				Self::get_object_parents_page_with_transaction(
+					txn,
+					subspace,
+					object,
+					after.as_deref(),
+					crate::page::PAGE_SIZE,
+				)
+				.await
+			})
+			.await
 		);
 		for parent in parents {
 			for account in crate::propagate!(
@@ -114,7 +124,7 @@ impl Index {
 					subspace,
 					object,
 					after.as_deref(),
-					crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+					crate::page::PAGE_SIZE,
 				)
 				.await
 			);
@@ -190,7 +200,17 @@ impl Index {
 			}
 		};
 		let parents = crate::propagate!(
-			Self::get_process_parents_with_transaction(txn, subspace, process).await
+			crate::page::collect(|after| async move {
+				Self::get_process_parents_page_with_transaction(
+					txn,
+					subspace,
+					process,
+					after.as_deref(),
+					crate::page::PAGE_SIZE,
+				)
+				.await
+			})
+			.await
 		);
 		for parent in parents {
 			for account in crate::propagate!(

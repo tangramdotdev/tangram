@@ -143,12 +143,17 @@ async fn command_objects_can_be_empty_or_multiple_without_a_stored_command() {
 		assert_eq!(process.metadata.node.command_objects.size, Some(count));
 		assert!(index.try_get_object(&command_id).await.unwrap().is_none());
 		let transaction = index.env.read_txn().unwrap();
-		let relationships = Index::get_process_objects_with_transaction(
-			&index.db,
-			&index.subspace,
-			&transaction,
-			&id,
-		)
+		let relationships = crate::page::collect(|after| {
+			Index::get_process_objects_page_with_transaction(
+				&index.db,
+				&index.subspace,
+				&transaction,
+				&id,
+				None,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})
 		.unwrap();
 		assert_eq!(relationships.len(), objects.len());
 		assert!(
