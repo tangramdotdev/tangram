@@ -8,7 +8,6 @@ skip_if_no_cloud
 let local = server spawn --cloud --config {
 	advanced: { checkpoints: true },
 	index: { kind: 'lmdb', map_size: 4_294_967_296 },
-	object: { index_queue: { concurrency: 1024 } },
 }
 let watch = tg --url $local.url checkpoint watch index.batch | from json | get watch
 
@@ -17,10 +16,11 @@ let children = 0..<30_000 | each { |i|
 	let hash = $i | into string | fill --alignment right --character '0' --width 51
 	$'"($i)":"fil_01($hash)0"'
 } | str join ','
-for i in 0..<110 {
+let ids = 0..<110 | each { |i|
 	let hash = 30_000 + $i | into string | fill --alignment right --character '0' --width 51
 	let output = $'{"entries":{"unique":"fil_01($hash)0",($children)}}' | tg --url $local.url object put --no-tokens --bytes --kind directory | complete
 	success $output 'the directory must be stored'
+	$output.stdout | referent node
 }
 tg --url $local.url checkpoint wait index.batch $watch 0 | ignore
 
@@ -36,3 +36,9 @@ let server = server start $local
 
 let output = tg --url $local.url index | complete
 success $output 'the indexer must recover the queue after the restart'
+
+# Verify that every directory has indexed metadata after recovery.
+for id in $ids {
+	let metadata = tg --url $local.url object metadata $id | from json
+	assert ($metadata.node.size > 1_048_576) 'the large directory must be indexed after recovery'
+}
