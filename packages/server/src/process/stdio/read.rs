@@ -49,16 +49,23 @@ impl Session {
 			_ => 0,
 		};
 		let (ack_sender, acks) = tokio::sync::watch::channel(start);
-		let ack_task = Task::spawn(move |_| async move {
-			let mut input = input;
-			while let Some(Ok(tg::process::stdio::read::ClientMessage::Ack { position })) =
-				input.next().await
-			{
-				ack_sender.send_if_modified(|acked| {
-					let modified = position > *acked;
-					*acked = (*acked).max(position);
-					modified
-				});
+		let ack_task = Task::spawn({
+			let server = self.server.clone();
+			let id = id.clone();
+			move |_| async move {
+				let mut input = input;
+				while let Some(Ok(tg::process::stdio::read::ClientMessage::Ack { position })) =
+					input.next().await
+				{
+					let modified = ack_sender.send_if_modified(|acked| {
+						let modified = position > *acked;
+						*acked = (*acked).max(position);
+						modified
+					});
+					if modified {
+						crate::checkpoint!(server, "process.stdio.read.ack", process = %id, position).await;
+					}
+				}
 			}
 		});
 
