@@ -1,52 +1,37 @@
 use {super::Compiler, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub modules: Vec<tg::module::Data>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
+#[derive(Debug)]
+pub struct Output {
 	pub diagnostics: Vec<tg::diagnostic::Data>,
 }
 
 impl Compiler {
 	/// Get all diagnostics for the provided modules.
 	pub async fn check(&self, modules: Vec<tg::module::Data>) -> tg::Result<Vec<tg::Diagnostic>> {
-		// Check the Python modules.
-		let (python, modules): (Vec<_>, Vec<_>) = modules
+		// Check the modules of each language with its backend.
+		let (python, javascript): (Vec<_>, Vec<_>) = modules
 			.into_iter()
 			.partition(|module| module.kind == tg::module::Kind::Python);
-		#[cfg(not(feature = "ty"))]
-		if !python.is_empty() {
-			return Err(tg::error!("the ty feature is not enabled"));
-		}
-		#[cfg(not(feature = "ty"))]
 		let mut diagnostics = Vec::new();
-		#[cfg(feature = "ty")]
-		let mut diagnostics = if python.is_empty() {
-			Vec::new()
-		} else {
-			self.check_python(python).await?
-		};
-		if modules.is_empty() {
-			return Ok(diagnostics);
+		for (kind, modules) in [
+			(tg::module::Kind::Python, python),
+			(tg::module::Kind::TypeScript, javascript),
+		] {
+			if modules.is_empty() {
+				continue;
+			}
+			let arg = Arg { modules };
+			let output = self.backend(kind).check(self, arg).await?;
+			for diagnostic in output.diagnostics {
+				diagnostics.push(diagnostic.try_into()?);
+			}
 		}
 
-		// Create the request.
-		let request = super::Request::Check(Request { modules });
-
-		// Perform the request.
-		let response = self.request(request).await?.unwrap_check();
-
-		// Convert diagnostics from data to the non-serializable form.
-		let javascript = response
-			.diagnostics
-			.into_iter()
-			.map(TryInto::try_into)
-			.collect::<tg::Result<Vec<_>>>()?;
-
-		diagnostics.extend(javascript);
 		Ok(diagnostics)
 	}
 }

@@ -6,9 +6,9 @@ use {
 impl Project {
 	pub(super) fn document_link(
 		&self,
-		request: &document_link::Request,
-	) -> tg::Result<document_link::Response> {
-		let path = self.host.path(&request.module);
+		arg: &document_link::Arg,
+	) -> tg::Result<document_link::Output> {
+		let path = self.host.path(&arg.module);
 		let file = self
 			.program()?
 			.get_source_file(&path)
@@ -78,8 +78,8 @@ impl Project {
 			}
 		}
 		let links = (!links.is_empty()).then_some(links);
-		let response = document_link::Response { links };
+		let output = document_link::Output { links };
 
-		Ok(response)
+		Ok(output)
 	}
 }

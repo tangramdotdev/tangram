@@ -5,27 +5,23 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub query: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub symbols: Option<Vec<Symbol>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct Symbol {
 	pub name: String,
 	pub kind: String,
 	pub module: tg::module::Data,
 	pub range: tg::Range,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub container_name: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub deprecated: Option<bool>,
 }
 
@@ -37,13 +33,16 @@ impl Compiler {
 			.iter()
 			.any(|document| document.open && document.module.kind != tg::module::Kind::Python)
 		{
-			let request = super::Request::WorkspaceSymbol(Request {
+			let arg = Arg {
 				query: query.clone(),
-			});
-			let response = self.request(request).await?.unwrap_workspace_symbol();
+			};
+			let output = self
+				.backend(tg::module::Kind::TypeScript)
+				.workspace_symbol(self, arg)
+				.await?;
 			let javascript = self
 				.materialize_workspace_symbols(
-					response.symbols.unwrap_or_default(),
+					output.symbols.unwrap_or_default(),
 					tg::module::Kind::TypeScript,
 				)
 				.await?;
@@ -57,14 +56,14 @@ impl Compiler {
 				.iter()
 				.any(|document| document.module.kind == tg::module::Kind::Python)
 		{
-			let request = super::Request::WorkspaceSymbol(Request { query });
-			let response = self
-				.request_python(request)
-				.await?
-				.unwrap_workspace_symbol();
+			let arg = Arg { query };
+			let output = self
+				.backend(tg::module::Kind::Python)
+				.workspace_symbol(self, arg)
+				.await?;
 			let python = self
 				.materialize_workspace_symbols(
-					response.symbols.unwrap_or_default(),
+					output.symbols.unwrap_or_default(),
 					tg::module::Kind::Python,
 				)
 				.await?;

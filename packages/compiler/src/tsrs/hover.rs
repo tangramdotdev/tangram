@@ -6,13 +6,13 @@ use {
 };
 
 impl Project {
-	pub(super) fn hover(&self, request: &hover::Request) -> tg::Result<hover::Response> {
-		self.with_language_service(&request.module, |context, service| {
+	pub(super) fn hover(&self, arg: &hover::Arg) -> tg::Result<hover::Output> {
+		self.with_language_service(&arg.module, |context, service| {
 			let text_document = native::TextDocumentIdentifier {
-				uri: self.uri(&request.module),
+				uri: self.uri(&arg.module),
 			};
 			let params = native::HoverParams {
-				position: position(request.position),
+				position: position(arg.position),
 				text_document,
 				..Default::default()
 			};
@@ -40,9 +40,9 @@ impl Project {
 						})
 					})
 			});
-			let response = hover::Response { text };
+			let output = hover::Output { text };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

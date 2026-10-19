@@ -18,6 +18,7 @@ use {
 	tokio_util::task::TaskTracker,
 };
 
+mod backend;
 #[cfg(feature = "tsrs")]
 mod tsrs;
 #[cfg(feature = "javascript")]
@@ -116,99 +117,6 @@ pub struct State {
 
 	/// The workspaces.
 	workspaces: tokio::sync::RwLock<BTreeSet<PathBuf>>,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(content = "request", rename_all = "snake_case", tag = "kind")]
-enum Request {
-	CallHierarchyIncoming(call_hierarchy::IncomingRequest),
-	CallHierarchyOutgoing(call_hierarchy::OutgoingRequest),
-	CallHierarchyPrepare(call_hierarchy::PrepareRequest),
-	Check(check::Request),
-	CodeAction(code_action::Request),
-	Completion(completion::Request),
-	CompletionResolve(completion::ResolveRequest),
-	Declaration(definition::Request),
-	Definition(definition::Request),
-	DocumentDiagnostics(diagnostics::DocumentRequest),
-	DocumentHighlight(document_highlight::Request),
-	Document(document::Request),
-	DocumentLink(document_link::Request),
-	FoldingRange(folding_range::Request),
-	Hover(hover::Request),
-	Implementation(implementation::Request),
-	InlayHint(inlay_hint::Request),
-	PrepareRename(prepare_rename::Request),
-	References(references::Request),
-	Rename(rename::Request),
-	SelectionRange(selection_range::Request),
-	SemanticTokens(semantic_tokens::Request),
-	SignatureHelp(signature_help::Request),
-	Symbols(symbols::Request),
-	TypeDefinition(definition::Request),
-	WorkspaceSymbol(workspace_symbols::Request),
-}
-
-#[derive(Debug, derive_more::Unwrap, serde::Deserialize)]
-#[serde(content = "response", rename_all = "snake_case", tag = "kind")]
-enum Response {
-	CallHierarchyIncoming(call_hierarchy::IncomingResponse),
-	CallHierarchyOutgoing(call_hierarchy::OutgoingResponse),
-	CallHierarchyPrepare(call_hierarchy::PrepareResponse),
-	Check(check::Response),
-	CodeAction(code_action::Response),
-	Completion(completion::Response),
-	CompletionResolve(completion::ResolveResponse),
-	Declaration(definition::Response),
-	Definition(definition::Response),
-	DocumentDiagnostics(diagnostics::DocumentResponse),
-	DocumentHighlight(document_highlight::Response),
-	Document(document::Response),
-	DocumentLink(document_link::Response),
-	FoldingRange(folding_range::Response),
-	Hover(hover::Response),
-	Implementation(implementation::Response),
-	InlayHint(inlay_hint::Response),
-	PrepareRename(prepare_rename::Response),
-	References(references::Response),
-	Rename(rename::Response),
-	SelectionRange(selection_range::Response),
-	SemanticTokens(semantic_tokens::Response),
-	SignatureHelp(signature_help::Response),
-	Symbols(symbols::Response),
-	TypeDefinition(definition::Response),
-	WorkspaceSymbol(workspace_symbols::Response),
-}
-
-impl Request {
-	fn module(&self) -> Option<&tg::module::Data> {
-		match self {
-			Self::CallHierarchyIncoming(request) => Some(&request.module),
-			Self::CallHierarchyOutgoing(request) => Some(&request.module),
-			Self::CallHierarchyPrepare(request) => Some(&request.module),
-			Self::Check(_) | Self::DocumentDiagnostics(_) | Self::WorkspaceSymbol(_) => None,
-			Self::CodeAction(request) => Some(&request.module),
-			Self::Completion(request) => Some(&request.module),
-			Self::CompletionResolve(request) => Some(&request.module),
-			Self::Declaration(request)
-			| Self::Definition(request)
-			| Self::TypeDefinition(request) => Some(&request.module),
-			Self::Document(request) => Some(&request.module),
-			Self::DocumentHighlight(request) => Some(&request.module),
-			Self::DocumentLink(request) => Some(&request.module),
-			Self::FoldingRange(request) => Some(&request.module),
-			Self::Hover(request) => Some(&request.module),
-			Self::Implementation(request) => Some(&request.module),
-			Self::InlayHint(request) => Some(&request.module),
-			Self::PrepareRename(request) => Some(&request.module),
-			Self::References(request) => Some(&request.module),
-			Self::Rename(request) => Some(&request.module),
-			Self::SelectionRange(request) => Some(&request.module),
-			Self::SemanticTokens(request) => Some(&request.module),
-			Self::SignatureHelp(request) => Some(&request.module),
-			Self::Symbols(request) => Some(&request.module),
-		}
-	}
 }
 
 impl Shared {
@@ -914,27 +822,19 @@ impl Compiler {
 		}
 	}
 
-	async fn request(&self, request: Request) -> tg::Result<Response> {
-		if request
-			.module()
-			.is_some_and(|module| module.kind == tg::module::Kind::Python)
-		{
-			return self.request_python(request).await;
+	/// Get the backend for modules of a kind.
+	#[expect(clippy::unused_self)]
+	fn backend(&self, kind: tg::module::Kind) -> &'static dyn backend::Backend {
+		if kind == tg::module::Kind::Python {
+			#[cfg(feature = "ty")]
+			return &python::Backend;
+			#[cfg(not(feature = "ty"))]
+			return &backend::Unavailable { feature: "ty" };
 		}
-
 		#[cfg(feature = "tsrs")]
-		{
-			self.tsrs.request(self, request).await
-		}
+		return &tsrs::Backend;
 		#[cfg(not(feature = "tsrs"))]
-		{
-			Err(tg::error!("the tsrs feature is not enabled"))
-		}
-	}
-
-	#[cfg(not(feature = "ty"))]
-	async fn request_python(&self, _request: Request) -> tg::Result<Response> {
-		Err(tg::error!("the ty feature is not enabled"))
+		return &backend::Unavailable { feature: "tsrs" };
 	}
 
 	async fn module_kind_for_path(&self, path: &Path) -> tg::Result<tg::module::Kind> {

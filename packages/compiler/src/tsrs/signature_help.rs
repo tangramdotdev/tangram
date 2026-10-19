@@ -8,12 +8,12 @@ use {
 impl Project {
 	pub(super) fn signature_help(
 		&self,
-		request: &signature_help::Request,
-	) -> tg::Result<signature_help::Response> {
-		self.with_language_service(&request.module, |context, service| {
-			let uri = self.uri(&request.module);
+		arg: &signature_help::Arg,
+	) -> tg::Result<signature_help::Output> {
+		self.with_language_service(&arg.module, |context, service| {
+			let uri = self.uri(&arg.module);
 			let output = service
-				.provide_signature_help(context, &uri, position(request.position), None)
+				.provide_signature_help(context, &uri, position(arg.position), None)
 				.map_err(|error| tg::error!(!error, "failed to get tsrs signature help"))?;
 			let help = output
 				.signature_help
@@ -60,9 +60,9 @@ impl Project {
 					Ok::<_, tg::Error>(help)
 				})
 				.transpose()?;
-			let response = signature_help::Response { help };
+			let output = signature_help::Output { help };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

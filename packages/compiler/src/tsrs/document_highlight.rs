@@ -8,12 +8,12 @@ use {
 impl Project {
 	pub(super) fn document_highlight(
 		&self,
-		request: &document_highlight::Request,
-	) -> tg::Result<document_highlight::Response> {
-		self.with_language_service(&request.module, |context, service| {
-			let uri = self.uri(&request.module);
+		arg: &document_highlight::Arg,
+	) -> tg::Result<document_highlight::Output> {
+		self.with_language_service(&arg.module, |context, service| {
+			let uri = self.uri(&arg.module);
 			let output = service
-				.provide_document_highlights(context, &uri, position(request.position))
+				.provide_document_highlights(context, &uri, position(arg.position))
 				.map_err(|error| tg::error!(!error, "failed to get tsrs document highlights"))?;
 			let highlights = output
 				.document_highlights
@@ -43,9 +43,9 @@ impl Project {
 						.collect()
 				})
 				.transpose()?;
-			let response = document_highlight::Response { highlights };
+			let output = document_highlight::Output { highlights };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

@@ -5,55 +5,48 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Debug, serde::Serialize)]
-pub struct PrepareRequest {
+#[derive(Debug)]
+pub struct PrepareArg {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct PrepareResponse {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct PrepareOutput {
 	pub items: Option<Vec<Item>>,
 }
 
-#[derive(Debug, serde::Serialize)]
-pub struct IncomingRequest {
+#[derive(Debug)]
+pub struct IncomingArg {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct IncomingResponse {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct IncomingOutput {
 	pub calls: Option<Vec<IncomingCall>>,
 }
 
-#[derive(Debug, serde::Serialize)]
-pub struct OutgoingRequest {
+#[derive(Debug)]
+pub struct OutgoingArg {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct OutgoingResponse {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct OutgoingOutput {
 	pub calls: Option<Vec<OutgoingCall>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct Item {
 	pub name: String,
 	pub kind: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detail: Option<String>,
 	pub module: tg::module::Data,
 	pub range: tg::Range,
 	pub selection: tg::Range,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub container_name: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub data: Option<ItemData>,
 }
 
@@ -64,15 +57,13 @@ pub struct ItemData {
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct IncomingCall {
 	pub from: Item,
 	pub from_ranges: Vec<tg::Range>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct OutgoingCall {
 	pub from_ranges: Vec<tg::Range>,
 	pub to: Item,
@@ -84,21 +75,19 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<Item>>> {
-		// Create the request.
-		let request = super::Request::CallHierarchyPrepare(PrepareRequest {
+		// Create the arg.
+		let arg = PrepareArg {
 			module: module.clone(),
 			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::CallHierarchyPrepare(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.items)
+		// Get the output.
+		let output = self
+			.backend(module.kind)
+			.call_hierarchy_prepare(self, arg)
+			.await?;
+
+		Ok(output.items)
 	}
 
 	pub async fn call_hierarchy_incoming(
@@ -106,21 +95,19 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<IncomingCall>>> {
-		// Create the request.
-		let request = super::Request::CallHierarchyIncoming(IncomingRequest {
+		// Create the arg.
+		let arg = IncomingArg {
 			module: module.clone(),
 			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::CallHierarchyIncoming(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.calls)
+		// Get the output.
+		let output = self
+			.backend(module.kind)
+			.call_hierarchy_incoming(self, arg)
+			.await?;
+
+		Ok(output.calls)
 	}
 
 	pub async fn call_hierarchy_outgoing(
@@ -128,21 +115,19 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<OutgoingCall>>> {
-		// Create the request.
-		let request = super::Request::CallHierarchyOutgoing(OutgoingRequest {
+		// Create the arg.
+		let arg = OutgoingArg {
 			module: module.clone(),
 			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::CallHierarchyOutgoing(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.calls)
+		// Get the output.
+		let output = self
+			.backend(module.kind)
+			.call_hierarchy_outgoing(self, arg)
+			.await?;
+
+		Ok(output.calls)
 	}
 }
 

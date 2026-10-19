@@ -1,14 +1,13 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub text: Option<String>,
 }
 
@@ -55,15 +54,15 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<String>> {
-		// Create the request.
-		let request = super::Request::Hover(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
 			position,
-		});
+		};
 
-		// Perform the request.
-		let response = self.request(request).await?.unwrap_hover();
+		// Get the output.
+		let output = self.backend(module.kind).hover(self, arg).await?;
 
-		Ok(response.text)
+		Ok(output.text)
 	}
 }

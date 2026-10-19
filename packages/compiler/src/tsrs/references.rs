@@ -6,20 +6,17 @@ use {
 };
 
 impl Project {
-	pub(super) fn references(
-		&self,
-		request: &references::Request,
-	) -> tg::Result<references::Response> {
-		self.with_language_service(&request.module, |context, service| {
+	pub(super) fn references(&self, arg: &references::Arg) -> tg::Result<references::Output> {
+		self.with_language_service(&arg.module, |context, service| {
 			let context_arg = native::ReferenceContext {
-				include_declaration: request.include_declaration,
+				include_declaration: arg.include_declaration,
 			};
 			let text_document = native::TextDocumentIdentifier {
-				uri: self.uri(&request.module),
+				uri: self.uri(&arg.module),
 			};
 			let params = native::ReferenceParams {
 				context: context_arg,
-				position: position(request.position),
+				position: position(arg.position),
 				text_document,
 				..Default::default()
 			};
@@ -35,9 +32,9 @@ impl Project {
 						.collect()
 				})
 				.transpose()?;
-			let response = references::Response { locations };
+			let output = references::Output { locations };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

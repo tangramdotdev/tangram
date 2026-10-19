@@ -1,29 +1,25 @@
 use {super::Compiler, lsp_types as lsp, std::collections::HashMap, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 	pub range: tg::Range,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub only: Option<Vec<String>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub actions: Option<Vec<Action>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug)]
 pub struct Action {
 	pub title: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub edits: Option<Vec<Edit>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug)]
 pub struct Edit {
 	pub module: tg::module::Data,
 	pub new_text: String,
@@ -41,23 +37,18 @@ impl Compiler {
 			return Ok(None);
 		}
 
-		// Create the request.
-		let request = super::Request::CodeAction(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
 			range,
 			only,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::CodeAction(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
+		// Get the output.
+		let output = self.backend(module.kind).code_action(self, arg).await?;
+
 		// Exclude actions that would edit an immutable cross-language representation.
-		let actions = response.actions.map(|actions| {
+		let actions = output.actions.map(|actions| {
 			actions
 				.into_iter()
 				.filter(|action| {

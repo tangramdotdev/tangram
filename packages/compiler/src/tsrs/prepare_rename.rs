@@ -7,22 +7,22 @@ use {
 impl Project {
 	pub(super) fn prepare_rename(
 		&self,
-		request: &prepare_rename::Request,
-	) -> tg::Result<prepare_rename::Response> {
-		self.with_language_service(&request.module, |context, service| {
+		arg: &prepare_rename::Arg,
+	) -> tg::Result<prepare_rename::Output> {
+		self.with_language_service(&arg.module, |context, service| {
 			let info = service.get_rename_info(
 				context,
 				"",
-				&self.uri(&request.module),
-				position(request.position),
+				&self.uri(&arg.module),
+				position(arg.position),
 			);
 			let prepare = info.can_rename.then(|| prepare_rename::Prepare {
 				placeholder: info.display_name,
 				range: range(info.trigger_span),
 			});
-			let response = prepare_rename::Response { prepare };
+			let output = prepare_rename::Output { prepare };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

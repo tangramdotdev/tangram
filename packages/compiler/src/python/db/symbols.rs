@@ -3,17 +3,17 @@ use {
 };
 
 impl Database {
-	pub(super) fn symbols(
+	pub(in crate::python) fn symbols(
 		&self,
 		file: File,
 		encoding: tg::position::Encoding,
-	) -> tg::Result<crate::symbols::Response> {
+	) -> tg::Result<crate::symbols::Output> {
 		let tree = ty_ide::document_symbols(self, self.program_file(file)).to_hierarchical();
 		let symbols = tree
 			.iter()
 			.map(|(id, info)| self.symbol(file, &tree, id, info, encoding))
 			.collect::<tg::Result<Vec<_>>>()?;
-		Ok(crate::symbols::Response {
+		Ok(crate::symbols::Output {
 			symbols: Some(symbols),
 		})
 	}
@@ -62,11 +62,11 @@ impl Database {
 		Ok(symbol)
 	}
 
-	pub(super) fn workspace_symbols(
+	pub(in crate::python) fn workspace_symbols(
 		&self,
 		query: &str,
 		encoding: tg::position::Encoding,
-	) -> tg::Result<crate::workspace_symbols::Response> {
+	) -> tg::Result<crate::workspace_symbols::Output> {
 		let symbols = ty_ide::workspace_symbols(self, query)
 			.into_iter()
 			.map(|symbol| {
@@ -81,7 +81,7 @@ impl Database {
 				})
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		Ok(crate::workspace_symbols::Response {
+		Ok(crate::workspace_symbols::Output {
 			symbols: Some(symbols),
 		})
 	}

@@ -3,10 +3,10 @@ use {super::Project, crate::folding_range, tangram_client::prelude::*, tsrs_lspr
 impl Project {
 	pub(super) fn folding_range(
 		&self,
-		request: &folding_range::Request,
-	) -> tg::Result<folding_range::Response> {
-		self.with_language_service(&request.module, |context, service| {
-			let uri = self.uri(&request.module);
+		arg: &folding_range::Arg,
+	) -> tg::Result<folding_range::Output> {
+		self.with_language_service(&arg.module, |context, service| {
+			let uri = self.uri(&arg.module);
 			let output = service
 				.provide_folding_range(context, &uri)
 				.map_err(|error| tg::error!(!error, "failed to get tsrs folding ranges"))?;
@@ -43,9 +43,9 @@ impl Project {
 						.collect()
 				})
 				.transpose()?;
-			let response = folding_range::Response { ranges };
+			let output = folding_range::Output { ranges };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

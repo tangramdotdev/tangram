@@ -8,13 +8,13 @@ use {
 impl Project {
 	pub(super) fn selection_range(
 		&self,
-		request: selection_range::Request,
-	) -> tg::Result<selection_range::Response> {
-		self.with_language_service(&request.module, |context, service| {
+		arg: selection_range::Arg,
+	) -> tg::Result<selection_range::Output> {
+		self.with_language_service(&arg.module, |context, service| {
 			let text_document = native::TextDocumentIdentifier {
-				uri: self.uri(&request.module),
+				uri: self.uri(&arg.module),
 			};
-			let positions = request.positions.into_iter().map(position).collect();
+			let positions = arg.positions.into_iter().map(position).collect();
 			let params = native::SelectionRangeParams {
 				positions,
 				text_document,
@@ -26,9 +26,9 @@ impl Project {
 			let ranges = output
 				.selection_ranges
 				.map(|ranges| ranges.into_iter().map(selection).collect());
-			let response = selection_range::Response { ranges };
+			let output = selection_range::Output { ranges };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

@@ -1,16 +1,14 @@
 use {super::Compiler, lsp_types as lsp, std::collections::BTreeMap, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 	pub new_name: String,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub edits: Option<Vec<Data>>,
 }
 
@@ -20,7 +18,7 @@ pub struct Edit {
 	pub new_text: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug)]
 pub struct Data {
 	pub location: tg::module::data::Location,
 	pub new_text: String,
@@ -104,23 +102,18 @@ impl Compiler {
 			return Ok(None);
 		}
 
-		// Create the request.
-		let request = super::Request::Rename(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
 			new_name,
 			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::Rename(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
+		// Get the output.
+		let output = self.backend(module.kind).rename(self, arg).await?;
+
 		// A rename must never apply generated positions to a source in another language.
-		if response.edits.as_ref().is_some_and(|edits| {
+		if output.edits.as_ref().is_some_and(|edits| {
 			edits.iter().any(|edit| {
 				let location = &edit.location;
 				(location.module.kind == tg::module::Kind::Python)
@@ -132,7 +125,7 @@ impl Compiler {
 		}
 
 		// Convert the edits from data to the non-serializable form.
-		let edits = response
+		let edits = output
 			.edits
 			.map(|edits| {
 				edits

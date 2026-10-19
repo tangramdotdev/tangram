@@ -8,14 +8,14 @@ use {
 impl Project {
 	pub(super) fn call_hierarchy_prepare(
 		&self,
-		request: &call_hierarchy::PrepareRequest,
-	) -> tg::Result<call_hierarchy::PrepareResponse> {
-		self.with_language_service(&request.module, |context, service| {
+		arg: &call_hierarchy::PrepareArg,
+	) -> tg::Result<call_hierarchy::PrepareOutput> {
+		self.with_language_service(&arg.module, |context, service| {
 			let output = service
 				.provide_prepare_call_hierarchy(
 					context,
-					&self.uri(&request.module),
-					position(request.position),
+					&self.uri(&arg.module),
+					position(arg.position),
 				)
 				.map_err(|error| tg::error!(!error, "failed to prepare the tsrs call hierarchy"))?;
 			let items = output
@@ -27,22 +27,22 @@ impl Project {
 						.collect()
 				})
 				.transpose()?;
-			let response = call_hierarchy::PrepareResponse { items };
+			let output = call_hierarchy::PrepareOutput { items };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 
 	pub(super) fn call_hierarchy_incoming(
 		&self,
-		request: &call_hierarchy::IncomingRequest,
-	) -> tg::Result<call_hierarchy::IncomingResponse> {
-		self.with_language_service(&request.module, |context, service| {
+		arg: &call_hierarchy::IncomingArg,
+	) -> tg::Result<call_hierarchy::IncomingOutput> {
+		self.with_language_service(&arg.module, |context, service| {
 			let prepared = service
 				.provide_prepare_call_hierarchy(
 					context,
-					&self.uri(&request.module),
-					position(request.position),
+					&self.uri(&arg.module),
+					position(arg.position),
 				)
 				.map_err(|error| tg::error!(!error, "failed to prepare the tsrs call hierarchy"))?;
 			let mut calls = Vec::new();
@@ -58,22 +58,22 @@ impl Project {
 				}
 			}
 			let calls = (!calls.is_empty()).then_some(calls);
-			let response = call_hierarchy::IncomingResponse { calls };
+			let output = call_hierarchy::IncomingOutput { calls };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 
 	pub(super) fn call_hierarchy_outgoing(
 		&self,
-		request: &call_hierarchy::OutgoingRequest,
-	) -> tg::Result<call_hierarchy::OutgoingResponse> {
-		self.with_language_service(&request.module, |context, service| {
+		arg: &call_hierarchy::OutgoingArg,
+	) -> tg::Result<call_hierarchy::OutgoingOutput> {
+		self.with_language_service(&arg.module, |context, service| {
 			let prepared = service
 				.provide_prepare_call_hierarchy(
 					context,
-					&self.uri(&request.module),
-					position(request.position),
+					&self.uri(&arg.module),
+					position(arg.position),
 				)
 				.map_err(|error| tg::error!(!error, "failed to prepare the tsrs call hierarchy"))?;
 			let mut calls = Vec::new();
@@ -89,9 +89,9 @@ impl Project {
 				}
 			}
 			let calls = (!calls.is_empty()).then_some(calls);
-			let response = call_hierarchy::OutgoingResponse { calls };
+			let output = call_hierarchy::OutgoingOutput { calls };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 

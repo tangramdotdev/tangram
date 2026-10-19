@@ -35,19 +35,17 @@ pub(super) const MODIFIERS: &[&str] = &[
 	"documentation",
 ];
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub tokens: Option<Vec<Token>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct Token {
 	pub line: u32,
 	pub start: u32,
@@ -61,20 +59,15 @@ impl Compiler {
 		&self,
 		module: &tg::module::Data,
 	) -> tg::Result<Option<Vec<Token>>> {
-		// Create the request.
-		let request = super::Request::SemanticTokens(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::SemanticTokens(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.tokens)
+		// Get the output.
+		let output = self.backend(module.kind).semantic_tokens(self, arg).await?;
+
+		Ok(output.tokens)
 	}
 }
 

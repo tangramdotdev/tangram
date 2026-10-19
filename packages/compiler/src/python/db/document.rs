@@ -49,7 +49,7 @@ struct Context<'a> {
 }
 
 impl Database {
-	pub(super) fn document(
+	pub(in crate::python) fn document(
 		&self,
 		file: File,
 		encoding: tg::position::Encoding,

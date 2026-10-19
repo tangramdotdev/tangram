@@ -3,12 +3,12 @@ use {
 };
 
 impl Database {
-	pub(super) fn completion(
+	pub(in crate::python) fn completion(
 		&self,
 		file: File,
 		position: tg::Position,
 		encoding: tg::position::Encoding,
-	) -> tg::Result<crate::completion::Response> {
+	) -> tg::Result<crate::completion::Output> {
 		let offset = self.offset(file, position, encoding)?;
 		let file = self.program_file(file);
 		let environment = ty_python_semantic::ProgramEnvironment::from_file(file);
@@ -63,7 +63,7 @@ impl Database {
 				Ok(entry)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		Ok(crate::completion::Response {
+		Ok(crate::completion::Output {
 			entries: Some(entries),
 		})
 	}

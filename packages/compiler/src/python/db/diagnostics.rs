@@ -7,11 +7,11 @@ use {
 };
 
 impl Database {
-	pub(super) fn document_diagnostics(
+	pub(in crate::python) fn document_diagnostics(
 		&self,
 		modules: Vec<tg::module::Data>,
 		encoding: tg::position::Encoding,
-	) -> tg::Result<crate::diagnostics::DocumentResponse> {
+	) -> tg::Result<crate::diagnostics::DocumentOutput> {
 		let mut diagnostics = Vec::new();
 		for module in modules {
 			let file = self.query_file(&module)?;
@@ -40,24 +40,24 @@ impl Database {
 		if let Some(error) = self.error.lock().unwrap().take() {
 			return Err(error);
 		}
-		Ok(crate::diagnostics::DocumentResponse { diagnostics })
+		Ok(crate::diagnostics::DocumentOutput { diagnostics })
 	}
 
-	pub(super) fn code_actions(
+	pub(in crate::python) fn code_actions(
 		&self,
 		file: File,
-		request: &crate::code_action::Request,
+		arg: &crate::code_action::Arg,
 		encoding: tg::position::Encoding,
-	) -> tg::Result<crate::code_action::Response> {
-		if request.only.as_ref().is_some_and(|kinds| {
+	) -> tg::Result<crate::code_action::Output> {
+		if arg.only.as_ref().is_some_and(|kinds| {
 			!kinds
 				.iter()
 				.any(|kind| kind.is_empty() || kind == "quickfix")
 		}) {
-			return Ok(crate::code_action::Response { actions: None });
+			return Ok(crate::code_action::Output { actions: None });
 		}
-		let start = self.offset(file, request.range.start, encoding)?;
-		let end = self.offset(file, request.range.end, encoding)?;
+		let start = self.offset(file, arg.range.start, encoding)?;
+		let end = self.offset(file, arg.range.end, encoding)?;
 		let program_file = self.program_file(file);
 		let diagnostics = ty_python_semantic::check_file(self, program_file)
 			.unwrap_or_else(|error| vec![error].into_boxed_slice());
@@ -87,7 +87,7 @@ impl Database {
 			.map(|edit| {
 				let range = self.range(file, edit.range(), encoding)?;
 				let new_text = edit.content().unwrap_or_default().to_owned();
-				let module = request.module.clone();
+				let module = arg.module.clone();
 				Ok(crate::code_action::Edit {
 					module,
 					new_text,
@@ -102,7 +102,7 @@ impl Database {
 			};
 			actions.push(action);
 		}
-		Ok(crate::code_action::Response {
+		Ok(crate::code_action::Output {
 			actions: Some(actions),
 		})
 	}

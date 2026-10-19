@@ -9,8 +9,8 @@ use {
 impl Project {
 	pub(super) fn workspace_symbols(
 		&self,
-		request: &workspace_symbols::Request,
-	) -> tg::Result<workspace_symbols::Response> {
+		arg: &workspace_symbols::Arg,
+	) -> tg::Result<workspace_symbols::Output> {
 		let context = Self::context();
 		let program = self.program()?;
 		let converters = self.snapshot.borrow().0.converters();
@@ -20,7 +20,7 @@ impl Project {
 			&[program],
 			&converters,
 			&preferences,
-			&request.query,
+			&arg.query,
 		)
 		.map_err(|error| tg::error!(!error, "failed to get tsrs workspace symbols"))?;
 		let symbols = output
@@ -50,8 +50,8 @@ impl Project {
 					.collect()
 			})
 			.transpose()?;
-		let response = workspace_symbols::Response { symbols };
+		let output = workspace_symbols::Output { symbols };
 
-		Ok(response)
+		Ok(output)
 	}
 }

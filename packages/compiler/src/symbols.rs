@@ -1,37 +1,27 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub symbols: Option<Vec<Symbol>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug)]
 pub struct Symbol {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub children: Option<Vec<Self>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detail: Option<String>,
-
 	pub kind: Kind,
-
 	pub name: String,
-
 	pub range: tg::Range,
-
 	pub selection: tg::Range,
-
 	pub tags: Vec<Tag>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug)]
 pub enum Kind {
 	Array,
 	Boolean,
@@ -60,28 +50,22 @@ pub enum Kind {
 	Variable,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug)]
 pub enum Tag {
 	Deprecated,
 }
 
 impl Compiler {
 	pub async fn symbols(&self, module: &tg::module::Data) -> tg::Result<Option<Vec<Symbol>>> {
-		// Create the request.
-		let request = super::Request::Symbols(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::Symbols(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.symbols)
+		// Get the output.
+		let output = self.backend(module.kind).symbols(self, arg).await?;
+
+		Ok(output.symbols)
 	}
 }
 

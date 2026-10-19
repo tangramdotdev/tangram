@@ -7,16 +7,13 @@ use {
 };
 
 impl Project {
-	pub(super) fn completion(
-		&self,
-		request: &completion::Request,
-	) -> tg::Result<completion::Response> {
-		self.with_language_service_with_auto_imports(&request.module, |context, service| {
+	pub(super) fn completion(&self, arg: &completion::Arg) -> tg::Result<completion::Output> {
+		self.with_language_service_with_auto_imports(&arg.module, |context, service| {
 			let output = service
 				.provide_completion(
 					context,
-					&self.uri(&request.module),
-					position(request.position),
+					&self.uri(&arg.module),
+					position(arg.position),
 					None,
 				)
 				.map_err(|error| tg::error!(!error, "failed to get the tsrs completions"))?;
@@ -29,19 +26,19 @@ impl Project {
 						.collect::<tg::Result<_>>()
 				})
 				.transpose()?;
-			let response = completion::Response { entries };
+			let output = completion::Output { entries };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 
 	pub(super) fn completion_resolve(
 		&self,
-		request: completion::ResolveRequest,
-	) -> tg::Result<completion::ResolveResponse> {
-		self.with_language_service_with_auto_imports(&request.module, |context, service| {
+		arg: completion::ResolveArg,
+	) -> tg::Result<completion::ResolveOutput> {
+		self.with_language_service_with_auto_imports(&arg.module, |context, service| {
 			// Restore the native completion metadata carried by Tangram's typed request.
-			let item = if let Some(data) = request.data {
+			let item = if let Some(data) = arg.data {
 				let text = serde_json::to_string(&data).map_err(|error| {
 					tg::error!(!error, "failed to encode the completion metadata")
 				})?;
@@ -55,8 +52,8 @@ impl Project {
 				let output = service
 					.provide_completion(
 						context,
-						&self.uri(&request.module),
-						position(request.position),
+						&self.uri(&arg.module),
+						position(arg.position),
 						None,
 					)
 					.map_err(|error| tg::error!(!error, "failed to get the tsrs completions"))?;
@@ -66,8 +63,8 @@ impl Project {
 					.unwrap_or_default()
 					.into_iter()
 					.find(|item| {
-						item.label == request.name
-							&& request.source.as_ref().is_none_or(|source| {
+						item.label == arg.name
+							&& arg.source.as_ref().is_none_or(|source| {
 								item.data
 									.as_ref()
 									.is_some_and(|data| &data.source == source)
@@ -75,7 +72,7 @@ impl Project {
 					})
 			};
 			let Some(item) = item else {
-				return Ok(completion::ResolveResponse { entry: None });
+				return Ok(completion::ResolveOutput { entry: None });
 			};
 
 			// Resolve the item through the native language service.
@@ -107,9 +104,9 @@ impl Project {
 				kind,
 				kind_modifiers,
 			});
-			let response = completion::ResolveResponse { entry };
+			let output = completion::ResolveOutput { entry };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

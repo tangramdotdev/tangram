@@ -6,14 +6,14 @@ use {
 };
 
 impl Project {
-	pub(super) fn rename(&self, request: rename::Request) -> tg::Result<rename::Response> {
-		self.with_language_service(&request.module, |context, service| {
+	pub(super) fn rename(&self, arg: rename::Arg) -> tg::Result<rename::Output> {
+		self.with_language_service(&arg.module, |context, service| {
 			let text_document = native::TextDocumentIdentifier {
-				uri: self.uri(&request.module),
+				uri: self.uri(&arg.module),
 			};
 			let params = native::RenameParams {
-				new_name: request.new_name,
-				position: position(request.position),
+				new_name: arg.new_name,
+				position: position(arg.position),
 				text_document,
 				..Default::default()
 			};
@@ -67,9 +67,9 @@ impl Project {
 						.collect::<tg::Result<_>>()
 				})
 				.transpose()?;
-			let response = rename::Response { edits };
+			let output = rename::Output { edits };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }
