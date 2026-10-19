@@ -697,9 +697,16 @@ impl Index {
 		let tg::authorization::Subject::Process(process) = subject else {
 			return Ok(false);
 		};
-		let direct = Self::get_object_processes_with_transaction(db, subspace, transaction, id)?
-			.into_iter()
-			.any(|(candidate, _)| candidate == *process);
+		let permissions = entries
+			.iter()
+			.filter(|entry| entry.grant || entry.direct.is_some() || entry.materialized.is_some())
+			.map(|entry| entry.permission)
+			.collect::<BTreeSet<_>>();
+		if permissions.is_empty() {
+			return Ok(false);
+		}
+		let direct =
+			Self::has_object_process_with_transaction(db, subspace, transaction, id, process)?;
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
@@ -727,11 +734,6 @@ impl Index {
 			return Ok(false);
 		}
 
-		let permissions = entries
-			.iter()
-			.filter(|entry| entry.grant || entry.direct.is_some() || entry.materialized.is_some())
-			.map(|entry| entry.permission)
-			.collect::<BTreeSet<_>>();
 		let creator = tg::Principal::Process(process.clone());
 		let resource = tg::Id::from(id.clone());
 		let mut changed = false;
@@ -756,6 +758,35 @@ impl Index {
 		}
 
 		Ok(changed)
+	}
+
+	fn has_object_process_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		object: &tg::object::Id,
+		process: &tg::process::Id,
+	) -> tg::Result<bool> {
+		for kind in [
+			tangram_index::process::object::Kind::Command,
+			tangram_index::process::object::Kind::Error,
+			tangram_index::process::object::Kind::Log,
+			tangram_index::process::object::Kind::Output,
+		] {
+			let key = crate::Key::Object(crate::object::Key::ObjectProcess {
+				object: object.clone(),
+				kind,
+				process: process.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			let value = db
+				.get(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to get the object process"))?;
+			if value.is_some() {
+				return Ok(true);
+			}
+		}
+		Ok(false)
 	}
 
 	fn reconcile_materialized_permissions(

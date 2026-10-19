@@ -1763,11 +1763,17 @@ impl Index {
 		let tg::authorization::Subject::Process(process) = subject else {
 			return Ok(ControlFlow::Break(false));
 		};
-		let processes =
-			crate::propagate!(Self::get_object_processes_with_transaction(txn, subspace, id).await);
-		let direct = processes
-			.into_iter()
-			.any(|(candidate, _)| candidate == *process);
+		let permissions = entries
+			.iter()
+			.filter(|entry| entry.grant || entry.direct.is_some() || entry.materialized.is_some())
+			.map(|entry| entry.permission)
+			.collect::<BTreeSet<_>>();
+		if permissions.is_empty() {
+			return Ok(ControlFlow::Break(false));
+		}
+		let direct = crate::propagate!(
+			Self::has_object_process_with_transaction(txn, subspace, id, process).await
+		);
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
@@ -1796,11 +1802,6 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		}
 
-		let permissions = entries
-			.iter()
-			.filter(|entry| entry.grant || entry.direct.is_some() || entry.materialized.is_some())
-			.map(|entry| entry.permission)
-			.collect::<BTreeSet<_>>();
 		let creator = tg::Principal::Process(process.clone());
 		let resource = tg::Id::from(id.clone());
 		let mut changed = false;
@@ -1827,6 +1828,33 @@ impl Index {
 		}
 
 		Ok(ControlFlow::Break(changed))
+	}
+
+	async fn has_object_process_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		object: &tg::object::Id,
+		process: &tg::process::Id,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		for kind in [
+			tangram_index::process::object::Kind::Command,
+			tangram_index::process::object::Kind::Error,
+			tangram_index::process::object::Kind::Log,
+			tangram_index::process::object::Kind::Output,
+		] {
+			let key = crate::Key::Object(crate::object::Key::ObjectProcess {
+				object: object.clone(),
+				kind,
+				process: process.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			let result = txn.get(&key, false).await;
+			let value = crate::retry!(result);
+			if value.is_some() {
+				return Ok(ControlFlow::Break(true));
+			}
+		}
+		Ok(ControlFlow::Break(false))
 	}
 
 	async fn reconcile_materialized_permissions(
