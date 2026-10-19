@@ -111,14 +111,19 @@ mod library {
 			Ok(path) => PathBuf::from(path),
 			Err(_) => PathBuf::from("../../node_modules"),
 		};
-		// The typescript package aliases @typescript/typescript6, whose sibling old package bun's two linkers place differently.
-		let typescript_lib_path = [
-			node_modules_path.join("typescript/../old/lib"),
-			node_modules_path.join("@typescript/old/lib"),
-		]
-		.into_iter()
-		.find(|path| path.exists())
-		.expect("failed to find the typescript libraries");
+		// The libraries are in the typescript package's platform-specific sibling package, which bun's isolated and hoisted linkers place differently.
+		let typescript_path = std::fs::canonicalize(node_modules_path.join("typescript"))
+			.expect("failed to find the typescript package");
+		let patterns = [
+			typescript_path.join("../@typescript/typescript-*/lib/lib.es5.d.ts"),
+			node_modules_path.join("@typescript/typescript-*/lib/lib.es5.d.ts"),
+		];
+		let typescript_lib_path = patterns
+			.iter()
+			.flat_map(|pattern| glob::glob(&pattern.to_string_lossy()).unwrap())
+			.find_map(Result::ok)
+			.and_then(|path| path.parent().map(Path::to_owned))
+			.expect("failed to find the typescript libraries");
 		let paths =
 			glob::glob(&typescript_lib_path.join("lib.es*.d.ts").to_string_lossy()).unwrap();
 		for path in paths {

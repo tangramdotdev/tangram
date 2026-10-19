@@ -36,9 +36,9 @@ export type Arg = cargo.Arg & {
 
 export const check = async () => {
 	await tg.run`cargo clippy --all-features --all-targets --workspace`;
-	await tg.run`cd packages/clients/javascript && bunx tsgo && bunx oxlint src`;
-	await tg.run`cd packages/javascript && bunx tsgo && bunx oxlint ./src/main.ts`;
-	await tg.run`cd packages/vscode && bunx tsgo && bunx oxlint extension.ts`;
+	await tg.run`cd packages/clients/javascript && bunx tsc && bunx oxlint src`;
+	await tg.run`cd packages/javascript && bunx tsc && bunx oxlint ./src/main.ts`;
+	await tg.run`cd packages/vscode && bunx tsc && bunx oxlint extension.ts`;
 };
 
 export const format = async () => {
