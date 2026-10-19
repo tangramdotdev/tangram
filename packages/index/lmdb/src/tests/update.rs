@@ -705,6 +705,95 @@ async fn process_subtree_permissions_materialize_the_longest_cover() {
 	}
 }
 
+#[tokio::test]
+async fn permission_updates_reach_a_shared_object_process_through_the_subject_permissions() {
+	let (_dir, index) = super::new_index();
+	let log = object_id(0);
+	put_log_object(&index, &log).await;
+
+	// Add processes that share the log object.
+	let mut processes = Vec::new();
+	for _ in 0..5 {
+		let process = tg::process::Id::new();
+		let items = put_process_with_log_items(&process, &log, None);
+		index
+			.batch(tangram_index::batch::Arg { items })
+			.await
+			.unwrap()
+			.unwrap();
+		drain_permission_updates(&index).await;
+		processes.push(process);
+	}
+
+	// Give a user a node permission on one process, and then a subtree permission on the log object.
+	let subject = tg::authorization::Subject::User(tg::user::Id::new());
+	let permission = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: Some(subject.try_to_principal().unwrap()),
+		permissions: tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		)
+		.into(),
+		resource: processes[2].clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(i64::MAX),
+		},
+		subject: subject.clone(),
+		time_to_touch: None,
+		version: None,
+	};
+	index.put_permissions(&[permission]).await.unwrap();
+	drain_permission_updates(&index).await;
+	let permission = subtree_permission_arg(&log, &subject);
+	index.put_permissions(&[permission]).await.unwrap();
+	drain_permission_updates(&index).await;
+
+	// Verify that the user materializes the log permission only on the process with the node permission.
+	for (n, process) in processes.iter().enumerate() {
+		let entries =
+			object_permission_entries_for_resource(&index, &process.clone().into(), &subject);
+		assert_eq!(has_materialized_node_log_objects(&entries), n == 2);
+	}
+}
+
+#[tokio::test]
+async fn permission_updates_reach_a_parent_object_for_a_subject_with_many_permissions() {
+	let (_dir, index) = super::new_index();
+	let child = object_id(0);
+	put_log_object(&index, &child).await;
+
+	// Give a user subtree permissions on unrelated objects.
+	let subject = tg::authorization::Subject::User(tg::user::Id::new());
+	for n in 10..20 {
+		let object = object_id(n);
+		put_log_object(&index, &object).await;
+		let permission = subtree_permission_arg(&object, &subject);
+		index.put_permissions(&[permission]).await.unwrap();
+		drain_permission_updates(&index).await;
+	}
+
+	// Add a parent of the child with a node permission for the user, and then give the user a subtree permission on the child.
+	let parent = object_id(1);
+	let items = put_parent_object_items(&parent, &child, &subject);
+	index
+		.batch(tangram_index::batch::Arg { items })
+		.await
+		.unwrap()
+		.unwrap();
+	drain_permission_updates(&index).await;
+	let permission = subtree_permission_arg(&child, &subject);
+	index.put_permissions(&[permission]).await.unwrap();
+	drain_permission_updates(&index).await;
+
+	// Verify that the user materializes a subtree permission on the parent.
+	let entries = object_permission_entries(&index, &parent, &subject);
+	assert!(
+		entries
+			.iter()
+			.any(|entry| entry.permission == object_subtree() && entry.materialized.is_some())
+	);
+}
+
 fn node_log_objects() -> tg::authorization::Permission {
 	tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::NodeLogObjects,

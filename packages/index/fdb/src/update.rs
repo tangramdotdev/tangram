@@ -111,6 +111,13 @@ struct PermissionCover {
 	expires_at: Option<i64>,
 }
 
+#[derive(Clone, Copy)]
+enum Relation<'a> {
+	ObjectParents(&'a tg::object::Id),
+	ObjectProcesses(&'a tg::object::Id),
+	ProcessParents(&'a tg::process::Id),
+}
+
 impl PermissionUpdate {
 	pub fn new(source: Source) -> Self {
 		Self { source }
@@ -3262,22 +3269,24 @@ impl Index {
 					}
 				}
 
-				let parents = crate::propagate!(
-					Self::get_object_parents_with_transaction(txn, subspace, id).await
-				);
+				let parents = match kind {
+					Kind::Permission(subject) => crate::propagate!(
+						Self::get_related_resources_for_subject_with_transaction(
+							txn,
+							subspace,
+							Relation::ObjectParents(id),
+							subject,
+						)
+						.await
+					)
+					.into_iter()
+					.map(tg::object::Id::try_from)
+					.collect::<tg::Result<Vec<_>>>()?,
+					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+						Self::get_object_parents_with_transaction(txn, subspace, id).await
+					),
+				};
 				for parent in parents {
-					if let Kind::Permission(subject) = kind
-						&& !crate::propagate!(
-							Self::has_permissions_for_subject(
-								txn,
-								subspace,
-								&parent.clone().into(),
-								subject,
-							)
-							.await
-						) {
-						continue;
-					}
 					crate::propagate!(
 						Self::enqueue_update_propagate(
 							txn,
@@ -3290,22 +3299,27 @@ impl Index {
 						.await
 					);
 				}
-				let process_parents = crate::propagate!(
-					Self::get_object_processes_with_transaction(txn, subspace, id).await
-				);
-				for (process, _kind) in process_parents {
-					if let Kind::Permission(subject) = kind
-						&& !crate::propagate!(
-							Self::has_permissions_for_subject(
-								txn,
-								subspace,
-								&process.clone().into(),
-								subject,
-							)
-							.await
-						) {
-						continue;
-					}
+				let processes = match kind {
+					Kind::Permission(subject) => crate::propagate!(
+						Self::get_related_resources_for_subject_with_transaction(
+							txn,
+							subspace,
+							Relation::ObjectProcesses(id),
+							subject,
+						)
+						.await
+					)
+					.into_iter()
+					.map(tg::process::Id::try_from)
+					.collect::<tg::Result<Vec<_>>>()?,
+					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+						Self::get_object_processes_with_transaction(txn, subspace, id).await
+					)
+					.into_iter()
+					.map(|(process, _)| process)
+					.collect(),
+				};
+				for process in processes {
 					crate::propagate!(
 						Self::enqueue_update_propagate(
 							txn,
@@ -3320,22 +3334,24 @@ impl Index {
 				}
 			},
 			tg::Either::Right(id) => {
-				let parents = crate::propagate!(
-					Self::get_process_parents_with_transaction(txn, subspace, id).await
-				);
+				let parents = match kind {
+					Kind::Permission(subject) => crate::propagate!(
+						Self::get_related_resources_for_subject_with_transaction(
+							txn,
+							subspace,
+							Relation::ProcessParents(id),
+							subject,
+						)
+						.await
+					)
+					.into_iter()
+					.map(tg::process::Id::try_from)
+					.collect::<tg::Result<Vec<_>>>()?,
+					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+						Self::get_process_parents_with_transaction(txn, subspace, id).await
+					),
+				};
 				for parent in parents {
-					if let Kind::Permission(subject) = kind
-						&& !crate::propagate!(
-							Self::has_permissions_for_subject(
-								txn,
-								subspace,
-								&parent.clone().into(),
-								subject,
-							)
-							.await
-						) {
-						continue;
-					}
 					crate::propagate!(
 						Self::enqueue_update_propagate(
 							txn,
@@ -3351,6 +3367,160 @@ impl Index {
 			},
 		}
 		Ok(ControlFlow::Break(()))
+	}
+
+	async fn get_related_resources_for_subject_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		relation: Relation<'_>,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<ControlFlow<Vec<tg::Id>, fdb::FdbError>> {
+		// Read the related resources and the resources on which the subject has a permission in turns, so that the reads are bounded by the shorter of the two.
+		let prefix = match relation {
+			Relation::ObjectParents(id) => Self::pack(
+				subspace,
+				&(
+					crate::Kind::ChildObject.to_i32().unwrap(),
+					id.to_bytes().as_ref(),
+				),
+			),
+			Relation::ObjectProcesses(id) => Self::pack(
+				subspace,
+				&(
+					crate::Kind::ObjectProcess.to_i32().unwrap(),
+					id.to_bytes().as_ref(),
+				),
+			),
+			Relation::ProcessParents(id) => Self::pack(
+				subspace,
+				&(
+					crate::Kind::ChildProcess.to_i32().unwrap(),
+					id.to_bytes().as_ref(),
+				),
+			),
+		};
+		let related_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::Iterator,
+			..fdb::RangeOption::from(&related_subspace)
+		};
+		let mut related_stream = txn.get_ranges_keyvalues(range, false);
+		let prefix = Self::pack(
+			subspace,
+			&(
+				crate::Kind::SubjectPermission.to_i32().unwrap(),
+				subject.to_string(),
+			),
+		);
+		let subject_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::Iterator,
+			..fdb::RangeOption::from(&subject_subspace)
+		};
+		let mut subject_stream = txn.get_ranges_keyvalues(range, false);
+		let mut related = Vec::new();
+		let mut resources = BTreeSet::new();
+		let related_exhausted = loop {
+			let result = related_stream.try_next().await;
+			let Some(entry) = crate::retry!(result) else {
+				break true;
+			};
+			let resource = match (relation, Self::unpack(subspace, entry.key())?) {
+				(
+					Relation::ObjectParents(_),
+					crate::Key::Object(crate::object::Key::ChildObject { object, .. }),
+				) => tg::Id::from(object),
+				(
+					Relation::ObjectProcesses(_),
+					crate::Key::Object(crate::object::Key::ObjectProcess { process, .. }),
+				)
+				| (
+					Relation::ProcessParents(_),
+					crate::Key::Process(crate::process::Key::ChildProcess {
+						parent: process, ..
+					}),
+				) => tg::Id::from(process),
+				_ => return Err(tg::error!("unexpected key type")),
+			};
+			related.push(resource);
+			let result = subject_stream.try_next().await;
+			let Some(entry) = crate::retry!(result) else {
+				break false;
+			};
+			let crate::Key::Permission(crate::permission::Key::SubjectPermission {
+				resource, ..
+			}) = Self::unpack(subspace, entry.key())?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			resources.insert(resource);
+		};
+		drop(related_stream);
+		drop(subject_stream);
+
+		// Keep the related resources on which the subject has a permission.
+		let mut output = Vec::new();
+		if related_exhausted {
+			for resource in related {
+				if crate::propagate!(
+					Self::has_permissions_for_subject(txn, subspace, &resource, subject).await
+				) {
+					output.push(resource);
+				}
+			}
+		} else {
+			for resource in resources {
+				if crate::propagate!(
+					Self::is_related_with_transaction(txn, subspace, relation, &resource).await
+				) {
+					output.push(resource);
+				}
+			}
+		}
+
+		Ok(ControlFlow::Break(output))
+	}
+
+	async fn is_related_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		relation: Relation<'_>,
+		resource: &tg::Id,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let key = match relation {
+			Relation::ObjectParents(id) => {
+				let Ok(object) = tg::object::Id::try_from(resource.clone()) else {
+					return Ok(ControlFlow::Break(false));
+				};
+				crate::Key::Object(crate::object::Key::ChildObject {
+					child: id.clone(),
+					object,
+				})
+			},
+			Relation::ObjectProcesses(id) => {
+				let Ok(process) = tg::process::Id::try_from(resource.clone()) else {
+					return Ok(ControlFlow::Break(false));
+				};
+				let output = crate::propagate!(
+					Self::has_object_process_with_transaction(txn, subspace, id, &process).await
+				);
+				return Ok(ControlFlow::Break(output));
+			},
+			Relation::ProcessParents(id) => {
+				let Ok(parent) = tg::process::Id::try_from(resource.clone()) else {
+					return Ok(ControlFlow::Break(false));
+				};
+				crate::Key::Process(crate::process::Key::ChildProcess {
+					child: id.clone(),
+					parent,
+				})
+			},
+		};
+		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let value = crate::retry!(result);
+		let output = value.is_some();
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn has_permissions_for_subject(
