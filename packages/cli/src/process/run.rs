@@ -272,12 +272,13 @@ impl Cli {
 		} else {
 			wait_future.await
 		}
-		.map_err(|error| tg::error!(!error, "failed to await the process"))?;
+		.map_err(|error| tg::error!(!error, "failed to await the process"));
 
-		// Stop and await the view task.
+		// Stop and await the view task before handling a wait error, so that the viewer cannot keep the CLI running.
 		if let Some(view_task) = view_task {
 			Self::stop_view_task(view_task).await;
 		}
+		let outcome = outcome?;
 
 		// If verbose, return the outcome.
 		if options.verbose {
