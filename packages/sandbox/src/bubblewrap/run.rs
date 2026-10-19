@@ -87,6 +87,9 @@ fn command(command_arg: &crate::run::Command, arg: &Arg) -> tg::Result<Command> 
 		.arg("--chdir")
 		.arg(&command_arg.cwd)
 		.arg("--clearenv");
+	for capability in crate::linux::capability_names(crate::linux::capabilities(arg.uid)) {
+		command.arg("--cap-add").arg(capability);
+	}
 	if arg.as_pid_1 {
 		command.arg("--as-pid-1");
 	}

@@ -154,11 +154,13 @@ fn spec(
 	}
 	mounts.sort_by_key(|mount| mount["destination"].as_str().unwrap().matches('/').count());
 
-	// Create the OCI process configuration.
+	// Create the OCI process configuration, keeping the default capabilities for a root workload.
+	let bounding = crate::linux::capability_names(crate::linux::CAPABILITIES);
+	let capabilities = crate::linux::capability_names(crate::linux::capabilities(arg.uid));
 	let mut process = serde_json::json!({
 		"args": args, "cwd": command.cwd, "env": env, "noNewPrivileges": true, "terminal": false,
 		"user": { "uid": arg.uid, "gid": arg.gid },
-		"capabilities": { "bounding": [], "effective": [], "inheritable": [], "permitted": [], "ambient": [] },
+		"capabilities": { "bounding": bounding, "effective": capabilities, "inheritable": [], "permitted": capabilities, "ambient": [] },
 	});
 	if let Some(limit) = prepared.rlimit_nofile {
 		process["rlimits"] =
