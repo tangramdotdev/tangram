@@ -279,6 +279,7 @@ tracing-opentelemetry = "0.34"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-tree = "0.4"
 tsrs_ast = { git = "https://github.com/tangramdotdev/tsrs" }
+tsrs_checker = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_compiler = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_core = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_diagnostics = { git = "https://github.com/tangramdotdev/tsrs" }
@@ -286,6 +287,7 @@ tsrs_ls = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_lsproto = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_module = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_project = { git = "https://github.com/tangramdotdev/tsrs" }
+tsrs_scanner = { git = "https://github.com/tangramdotdev/tsrs" }
 tsrs_vfs = { git = "https://github.com/tangramdotdev/tsrs" }
 turso = "0.8"
 unicode-segmentation = "1"

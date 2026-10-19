@@ -1,0 +1,1330 @@
+{
+  "declarations": [
+    {
+      "comment": {
+        "examples": [
+          "add(1, 2);"
+        ],
+        "tags": [
+          {
+            "name": "since",
+            "text": "1.0"
+          }
+        ],
+        "text": "Add two numbers."
+      },
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          9,
+          0,
+          9,
+          63
+        ]
+      },
+      "name": "add",
+      "signature": {
+        "parameters": [
+          {
+            "comment": "The first number.",
+            "name": "a",
+            "type": {
+              "kind": "keyword",
+              "value": "number"
+            }
+          },
+          {
+            "comment": "The second number.",
+            "default": "2",
+            "name": "b",
+            "optional": true,
+            "type": {
+              "kind": "keyword",
+              "value": "number"
+            }
+          }
+        ],
+        "return": {
+          "kind": "keyword",
+          "value": "number"
+        },
+        "returns": "The sum."
+      }
+    },
+    {
+      "comment": {
+        "deprecated": "Use add with a negative number instead.",
+        "text": "Subtract two numbers."
+      },
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          15,
+          0,
+          15,
+          72
+        ]
+      },
+      "name": "subtract",
+      "signature": {
+        "parameters": [
+          {
+            "name": "a",
+            "type": {
+              "kind": "keyword",
+              "value": "number"
+            }
+          },
+          {
+            "name": "b",
+            "type": {
+              "kind": "keyword",
+              "value": "number"
+            }
+          }
+        ],
+        "return": {
+          "kind": "keyword",
+          "value": "number"
+        }
+      }
+    },
+    {
+      "comment": {
+        "text": "Echo a string."
+      },
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          21,
+          0,
+          21,
+          44
+        ]
+      },
+      "name": "echo",
+      "signature": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "kind": "keyword",
+              "value": "string"
+            }
+          }
+        ],
+        "return": {
+          "kind": "keyword",
+          "value": "string"
+        }
+      }
+    },
+    {
+      "comment": {
+        "text": "Echo a number."
+      },
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          23,
+          0,
+          23,
+          44
+        ]
+      },
+      "name": "echo",
+      "signature": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "kind": "keyword",
+              "value": "number"
+            }
+          }
+        ],
+        "return": {
+          "kind": "keyword",
+          "value": "number"
+        }
+      }
+    },
+    {
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          89,
+          0,
+          89,
+          63
+        ]
+      },
+      "name": "file",
+      "signature": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "tg.File",
+                "runtime": true
+              }
+            }
+          }
+        ],
+        "return": {
+          "kind": "reference",
+          "value": {
+            "name": "tg.File",
+            "runtime": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          26,
+          13,
+          26,
+          85
+        ]
+      },
+      "name": "identity",
+      "signature": {
+        "location": {
+          "module": 0,
+          "range": [
+            26,
+            24,
+            26,
+            85
+          ]
+        },
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "kind": "reference",
+              "value": {
+                "isTypeParameter": true,
+                "name": "T"
+              }
+            }
+          },
+          {
+            "name": "rest",
+            "rest": true,
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "Array",
+                "typeArguments": [
+                  {
+                    "kind": "keyword",
+                    "value": "string"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "return": {
+          "kind": "reference",
+          "value": {
+            "isTypeParameter": true,
+            "name": "T"
+          }
+        },
+        "typeParameters": [
+          {
+            "constraint": {
+              "kind": "keyword",
+              "value": "object"
+            },
+            "name": "T"
+          }
+        ]
+      }
+    },
+    {
+      "comment": {
+        "text": "A greeting."
+      },
+      "constant": true,
+      "kind": "variable",
+      "location": {
+        "module": 0,
+        "range": [
+          29,
+          13,
+          29,
+          31
+        ]
+      },
+      "name": "greeting",
+      "type": {
+        "kind": "literal",
+        "value": {
+          "kind": "string",
+          "value": "hello"
+        }
+      }
+    },
+    {
+      "kind": "variable",
+      "location": {
+        "module": 0,
+        "range": [
+          31,
+          11,
+          31,
+          43
+        ]
+      },
+      "name": "config",
+      "type": {
+        "kind": "object",
+        "value": {
+          "properties": [
+            {
+              "name": "count",
+              "type": {
+                "kind": "keyword",
+                "value": "number"
+              }
+            },
+            {
+              "name": "name",
+              "type": {
+                "kind": "keyword",
+                "value": "string"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          33,
+          13,
+          33,
+          65
+        ]
+      },
+      "name": "entry",
+      "signature": {
+        "location": {
+          "module": 0,
+          "range": [
+            33,
+            21,
+            33,
+            65
+          ]
+        },
+        "return": {
+          "kind": "tuple",
+          "value": {
+            "elements": [
+              {
+                "name": "key",
+                "type": {
+                  "kind": "keyword",
+                  "value": "string"
+                }
+              },
+              {
+                "name": "value",
+                "optional": true,
+                "type": {
+                  "kind": "keyword",
+                  "value": "number"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "kind": "enum",
+      "location": {
+        "module": 0,
+        "range": [
+          35,
+          0,
+          35,
+          52
+        ]
+      },
+      "members": [
+        {
+          "name": "Red",
+          "value": {
+            "kind": "number",
+            "value": 0
+          }
+        },
+        {
+          "initializer": "\"green\"",
+          "name": "Green",
+          "value": {
+            "kind": "string",
+            "value": "green"
+          }
+        },
+        {
+          "initializer": "4",
+          "name": "Blue",
+          "value": {
+            "kind": "number",
+            "value": 4
+          }
+        }
+      ],
+      "name": "Color"
+    },
+    {
+      "callSignatures": [
+        {
+          "location": {
+            "module": 0,
+            "range": [
+              48,
+              1,
+              48,
+              19
+            ]
+          },
+          "parameters": [
+            {
+              "name": "x",
+              "type": {
+                "kind": "keyword",
+                "value": "number"
+              }
+            }
+          ],
+          "return": {
+            "kind": "keyword",
+            "value": "void"
+          }
+        }
+      ],
+      "comment": {
+        "text": "A shape."
+      },
+      "constructSignatures": [
+        {
+          "location": {
+            "module": 0,
+            "range": [
+              49,
+              1,
+              49,
+              24
+            ]
+          },
+          "parameters": [
+            {
+              "name": "x",
+              "type": {
+                "kind": "keyword",
+                "value": "number"
+              }
+            }
+          ],
+          "return": {
+            "kind": "reference",
+            "value": {
+              "declarations": [
+                10
+              ],
+              "name": "Shape"
+            }
+          }
+        }
+      ],
+      "extends": [
+        {
+          "kind": "reference",
+          "value": {
+            "name": "Base"
+          }
+        }
+      ],
+      "indexSignatures": [
+        {
+          "key": {
+            "kind": "keyword",
+            "value": "string"
+          },
+          "name": "key",
+          "type": {
+            "kind": "keyword",
+            "value": "unknown"
+          }
+        }
+      ],
+      "kind": "interface",
+      "location": {
+        "module": 0,
+        "range": [
+          42,
+          0,
+          50,
+          1
+        ]
+      },
+      "name": "Shape",
+      "properties": [
+        {
+          "comment": {
+            "text": "The name."
+          },
+          "name": "name",
+          "readonly": true,
+          "type": {
+            "kind": "reference",
+            "value": {
+              "fullyQualifiedName": "Shape.T",
+              "isTypeParameter": true,
+              "name": "T"
+            }
+          }
+        },
+        {
+          "method": true,
+          "name": "area",
+          "type": {
+            "kind": "function",
+            "value": {
+              "signatures": [
+                {
+                  "location": {
+                    "module": 0,
+                    "range": [
+                      45,
+                      1,
+                      45,
+                      16
+                    ]
+                  },
+                  "return": {
+                    "kind": "keyword",
+                    "value": "number"
+                  }
+                },
+                {
+                  "location": {
+                    "module": 0,
+                    "range": [
+                      46,
+                      1,
+                      46,
+                      29
+                    ]
+                  },
+                  "parameters": [
+                    {
+                      "name": "scale",
+                      "type": {
+                        "kind": "keyword",
+                        "value": "number"
+                      }
+                    }
+                  ],
+                  "return": {
+                    "kind": "keyword",
+                    "value": "number"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "typeParameters": [
+        {
+          "default": {
+            "kind": "keyword",
+            "value": "string"
+          },
+          "name": "T"
+        }
+      ]
+    },
+    {
+      "kind": "type_alias",
+      "location": {
+        "module": 0,
+        "range": [
+          52,
+          0,
+          52,
+          44
+        ]
+      },
+      "name": "Maybe",
+      "type": {
+        "kind": "union",
+        "value": {
+          "types": [
+            {
+              "kind": "reference",
+              "value": {
+                "fullyQualifiedName": "Maybe.T",
+                "isTypeParameter": true,
+                "name": "T"
+              }
+            },
+            {
+              "kind": "keyword",
+              "value": "undefined"
+            },
+            {
+              "kind": "literal",
+              "value": {
+                "kind": "null"
+              }
+            }
+          ]
+        }
+      },
+      "typeParameters": [
+        {
+          "name": "T"
+        }
+      ]
+    },
+    {
+      "kind": "type_alias",
+      "location": {
+        "module": 0,
+        "range": [
+          53,
+          0,
+          53,
+          77
+        ]
+      },
+      "name": "Pair",
+      "type": {
+        "kind": "tuple",
+        "value": {
+          "elements": [
+            {
+              "name": "first",
+              "type": {
+                "kind": "keyword",
+                "value": "string"
+              }
+            },
+            {
+              "name": "second",
+              "optional": true,
+              "type": {
+                "kind": "keyword",
+                "value": "number"
+              }
+            },
+            {
+              "name": "rest",
+              "rest": true,
+              "type": {
+                "kind": "reference",
+                "value": {
+                  "name": "Array",
+                  "typeArguments": [
+                    {
+                      "kind": "keyword",
+                      "value": "boolean"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "type_alias",
+      "location": {
+        "module": 0,
+        "range": [
+          54,
+          0,
+          54,
+          31
+        ]
+      },
+      "name": "Keys",
+      "type": {
+        "kind": "type_operator",
+        "value": {
+          "operator": "keyof",
+          "type": {
+            "kind": "reference",
+            "value": {
+              "declarations": [
+                10
+              ],
+              "name": "Shape"
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "type_alias",
+      "location": {
+        "module": 0,
+        "range": [
+          55,
+          0,
+          55,
+          63
+        ]
+      },
+      "name": "Unwrap",
+      "type": {
+        "kind": "conditional",
+        "value": {
+          "checkType": {
+            "kind": "reference",
+            "value": {
+              "fullyQualifiedName": "Unwrap.T",
+              "isTypeParameter": true,
+              "name": "T"
+            }
+          },
+          "extendsType": {
+            "kind": "reference",
+            "value": {
+              "name": "Promise",
+              "typeArguments": [
+                {
+                  "kind": "infer",
+                  "value": {
+                    "name": "U"
+                  }
+                }
+              ]
+            }
+          },
+          "falseType": {
+            "kind": "keyword",
+            "value": "never"
+          },
+          "trueType": {
+            "kind": "reference",
+            "value": {
+              "fullyQualifiedName": "Unwrap.U",
+              "isTypeParameter": true,
+              "name": "U"
+            }
+          }
+        }
+      },
+      "typeParameters": [
+        {
+          "name": "T"
+        }
+      ]
+    },
+    {
+      "kind": "type_alias",
+      "location": {
+        "module": 0,
+        "range": [
+          56,
+          0,
+          56,
+          60
+        ]
+      },
+      "name": "Partial",
+      "type": {
+        "kind": "mapped",
+        "value": {
+          "constraint": {
+            "kind": "type_operator",
+            "value": {
+              "operator": "keyof",
+              "type": {
+                "kind": "reference",
+                "value": {
+                  "fullyQualifiedName": "Partial.T",
+                  "isTypeParameter": true,
+                  "name": "T"
+                }
+              }
+            }
+          },
+          "optional": true,
+          "readonly": true,
+          "type": {
+            "kind": "indexed_access",
+            "value": {
+              "indexType": {
+                "kind": "reference",
+                "value": {
+                  "fullyQualifiedName": "Partial.K",
+                  "isTypeParameter": true,
+                  "name": "K"
+                }
+              },
+              "objectType": {
+                "kind": "reference",
+                "value": {
+                  "fullyQualifiedName": "Partial.T",
+                  "isTypeParameter": true,
+                  "name": "T"
+                }
+              }
+            }
+          },
+          "typeParameterName": "K"
+        }
+      },
+      "typeParameters": [
+        {
+          "name": "T"
+        }
+      ]
+    },
+    {
+      "kind": "type_alias",
+      "location": {
+        "module": 0,
+        "range": [
+          57,
+          0,
+          57,
+          42
+        ]
+      },
+      "name": "Prefixed",
+      "type": {
+        "kind": "template_literal",
+        "value": {
+          "head": "prefix-",
+          "templateSpans": [
+            {
+              "literal": "",
+              "type": {
+                "kind": "keyword",
+                "value": "string"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "type_alias",
+      "location": {
+        "module": 0,
+        "range": [
+          58,
+          0,
+          58,
+          56
+        ]
+      },
+      "name": "Guard",
+      "type": {
+        "kind": "function",
+        "value": {
+          "signatures": [
+            {
+              "location": {
+                "module": 0,
+                "range": [
+                  58,
+                  20,
+                  58,
+                  55
+                ]
+              },
+              "parameters": [
+                {
+                  "name": "value",
+                  "type": {
+                    "kind": "keyword",
+                    "value": "unknown"
+                  }
+                }
+              ],
+              "return": {
+                "kind": "predicate",
+                "value": {
+                  "name": "value",
+                  "type": {
+                    "kind": "keyword",
+                    "value": "number"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "comment": {
+        "text": "A dog."
+      },
+      "constructors": [
+        {
+          "comment": {
+            "text": "Create a dog."
+          },
+          "location": {
+            "module": 0,
+            "range": [
+              73,
+              1,
+              73,
+              57
+            ]
+          },
+          "parameters": [
+            {
+              "name": "name",
+              "type": {
+                "kind": "keyword",
+                "value": "string"
+              }
+            },
+            {
+              "name": "value",
+              "optional": true,
+              "type": {
+                "kind": "reference",
+                "value": {
+                  "fullyQualifiedName": "Dog.T",
+                  "isTypeParameter": true,
+                  "name": "T"
+                }
+              }
+            }
+          ],
+          "return": {
+            "kind": "reference",
+            "value": {
+              "declarations": [
+                18
+              ],
+              "name": "Dog",
+              "typeArguments": [
+                {
+                  "kind": "reference",
+                  "value": {
+                    "fullyQualifiedName": "Dog.T",
+                    "isTypeParameter": true,
+                    "name": "T"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "extends": {
+        "kind": "reference",
+        "value": {
+          "name": "Animal"
+        }
+      },
+      "implements": [
+        {
+          "kind": "reference",
+          "value": {
+            "name": "Base"
+          }
+        }
+      ],
+      "kind": "class",
+      "location": {
+        "module": 0,
+        "range": [
+          68,
+          0,
+          83,
+          1
+        ]
+      },
+      "name": "Dog",
+      "properties": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "keyword",
+            "value": "string"
+          }
+        },
+        {
+          "name": "loud",
+          "readonly": true,
+          "type": {
+            "kind": "keyword",
+            "value": "boolean"
+          }
+        },
+        {
+          "method": true,
+          "name": "sound",
+          "protected": true,
+          "type": {
+            "kind": "function",
+            "value": {
+              "signatures": [
+                {
+                  "location": {
+                    "module": 0,
+                    "range": [
+                      75,
+                      1,
+                      75,
+                      45
+                    ]
+                  },
+                  "return": {
+                    "kind": "keyword",
+                    "value": "string"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "method": true,
+          "name": "bark",
+          "type": {
+            "kind": "function",
+            "value": {
+              "signatures": [
+                {
+                  "comment": {
+                    "text": "Bark."
+                  },
+                  "location": {
+                    "module": 0,
+                    "range": [
+                      80,
+                      1,
+                      80,
+                      43
+                    ]
+                  },
+                  "parameters": [
+                    {
+                      "comment": "The number of times to bark.",
+                      "name": "times",
+                      "type": {
+                        "kind": "keyword",
+                        "value": "number"
+                      }
+                    }
+                  ],
+                  "return": {
+                    "kind": "keyword",
+                    "value": "string"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "handler",
+          "type": {
+            "kind": "function",
+            "value": {
+              "signatures": [
+                {
+                  "location": {
+                    "module": 0,
+                    "range": [
+                      81,
+                      10,
+                      81,
+                      33
+                    ]
+                  },
+                  "parameters": [
+                    {
+                      "name": "event",
+                      "type": {
+                        "kind": "keyword",
+                        "value": "string"
+                      }
+                    }
+                  ],
+                  "return": {
+                    "kind": "keyword",
+                    "value": "void"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "count",
+          "static": true,
+          "type": {
+            "kind": "keyword",
+            "value": "number"
+          }
+        },
+        {
+          "method": true,
+          "name": "create",
+          "static": true,
+          "type": {
+            "kind": "function",
+            "value": {
+              "signatures": [
+                {
+                  "location": {
+                    "module": 0,
+                    "range": [
+                      82,
+                      1,
+                      82,
+                      56
+                    ]
+                  },
+                  "return": {
+                    "kind": "reference",
+                    "value": {
+                      "declarations": [
+                        18
+                      ],
+                      "name": "Dog",
+                      "typeArguments": [
+                        {
+                          "kind": "keyword",
+                          "value": "number"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "typeParameters": [
+        {
+          "name": "T"
+        }
+      ]
+    },
+    {
+      "exports": {
+        "inner": [
+          20
+        ]
+      },
+      "kind": "namespace",
+      "location": {
+        "module": 0,
+        "range": [
+          85,
+          0,
+          87,
+          1
+        ]
+      },
+      "name": "Space"
+    },
+    {
+      "constant": true,
+      "kind": "variable",
+      "location": {
+        "module": 0,
+        "range": [
+          86,
+          14,
+          86,
+          23
+        ]
+      },
+      "name": "inner",
+      "type": {
+        "kind": "literal",
+        "value": {
+          "kind": "number",
+          "value": 1
+        }
+      }
+    },
+    {
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          91,
+          13,
+          91,
+          51
+        ]
+      },
+      "name": "directory",
+      "signature": {
+        "location": {
+          "module": 0,
+          "range": [
+            91,
+            25,
+            91,
+            51
+          ]
+        },
+        "return": {
+          "kind": "reference",
+          "value": {
+            "name": "Promise",
+            "typeArguments": [
+              {
+                "kind": "reference",
+                "value": {
+                  "name": "tg.Directory",
+                  "runtime": true
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          95,
+          0,
+          95,
+          24
+        ]
+      },
+      "name": "default",
+      "signature": {
+        "location": {
+          "module": 0,
+          "range": [
+            95,
+            15,
+            95,
+            23
+          ]
+        },
+        "return": {
+          "kind": "keyword",
+          "value": "number"
+        }
+      }
+    }
+  ],
+  "exports": {
+    "Color": [
+      9
+    ],
+    "Dog": [
+      18
+    ],
+    "Guard": [
+      17
+    ],
+    "Keys": [
+      13
+    ],
+    "Maybe": [
+      11
+    ],
+    "Pair": [
+      12
+    ],
+    "Partial": [
+      15
+    ],
+    "Prefixed": [
+      16
+    ],
+    "Shape": [
+      10
+    ],
+    "Space": [
+      19
+    ],
+    "Unwrap": [
+      14
+    ],
+    "add": [
+      0
+    ],
+    "config": [
+      7
+    ],
+    "default": [
+      22
+    ],
+    "directory": [
+      21
+    ],
+    "echo": [
+      2,
+      3
+    ],
+    "entry": [
+      8
+    ],
+    "file": [
+      4
+    ],
+    "greeting": [
+      6
+    ],
+    "identity": [
+      5
+    ],
+    "plus": [
+      0
+    ],
+    "subtract": [
+      1
+    ]
+  },
+  "modules": [
+    {
+      "kind": "typescript",
+      "referent": {
+        "node": "fil_011ekxtzvd7g900n3v7wy3t08xcb5kkqzj1f6m43v8zqv2v5tn5ct0",
+        "options": {
+          "location": "local",
+          "path": "tangram.ts"
+        }
+      }
+    }
+  ]
+}

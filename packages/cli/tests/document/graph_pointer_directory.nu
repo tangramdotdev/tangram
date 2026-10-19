@@ -23,84 +23,51 @@ success $output
 let json = $output.stdout | from json
 snapshot ($json | to json --indent 2) '
 	{
-	  "exports": {
-	    "default": {
-	      "variable": [
-	        {
-	          "comment": {
-	            "tags": [],
-	            "text": ""
-	          },
-	          "location": {
-	            "module": {
-	              "kind": "typescript",
-	              "referent": {
-	                "node": "fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0",
-	                "options": {
-	                  "path": "tangram.ts",
-	                  "tokens": {
-	                    "local": [
-	                      "<token>"
-	                    ]
-	                  }
-	                }
-	              }
-	            },
-	            "range": {
-	              "end": {
-	                "character": 24,
-	                "line": 0
-	              },
-	              "start": {
-	                "character": 0,
-	                "line": 0
-	              }
-	            }
-	          },
-	          "type": {
-	            "kind": "function",
-	            "value": {
-	              "signatures": [
-	                {
-	                  "location": {
-	                    "module": {
-	                      "kind": "typescript",
-	                      "referent": {
-	                        "node": "fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0",
-	                        "options": {
-	                          "path": "tangram.ts",
-	                          "tokens": {
-	                            "local": [
-	                              "<token>"
-	                            ]
-	                          }
-	                        }
-	                      }
-	                    },
-	                    "range": {
-	                      "end": {
-	                        "character": 23,
-	                        "line": 0
-	                      },
-	                      "start": {
-	                        "character": 15,
-	                        "line": 0
-	                      }
-	                    }
-	                  },
-	                  "parameters": {},
-	                  "return": {
-	                    "kind": "keyword",
-	                    "value": "number"
-	                  },
-	                  "typeParameters": {}
-	                }
-	              ]
-	            }
-	          }
+	  "declarations": [
+	    {
+	      "kind": "function",
+	      "location": {
+	        "module": 0,
+	        "range": [
+	          0,
+	          0,
+	          0,
+	          24
+	        ]
+	      },
+	      "name": "default",
+	      "signature": {
+	        "location": {
+	          "module": 0,
+	          "range": [
+	            0,
+	            15,
+	            0,
+	            23
+	          ]
+	        },
+	        "return": {
+	          "kind": "keyword",
+	          "value": "number"
 	        }
-	      ]
+	      }
 	    }
-	  }
+	  ],
+	  "exports": {
+	    "default": [
+	      0
+	    ]
+	  },
+	  "modules": [
+	    {
+	      "kind": "typescript",
+	      "referent": {
+	        "node": "fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0",
+	        "options": {
+	          "path": "tangram.ts"
+	        }
+	      }
+	    }
+	  ]
 	}
 '

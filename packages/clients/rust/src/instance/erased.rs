@@ -71,7 +71,7 @@ pub trait Instance:
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::clean::Output>>>>,
 	>;
 
-	fn document(&self, arg: tg::document::Arg) -> BoxFuture<'_, tg::Result<serde_json::Value>>;
+	fn document(&self, arg: tg::document::Arg) -> BoxFuture<'_, tg::Result<tg::document::Output>>;
 
 	fn format(&self, arg: tg::format::Arg) -> BoxFuture<'_, tg::Result<()>>;
 
@@ -191,7 +191,7 @@ where
 		self.clean().map_ok(futures::StreamExt::boxed).boxed()
 	}
 
-	fn document(&self, arg: tg::document::Arg) -> BoxFuture<'_, tg::Result<serde_json::Value>> {
+	fn document(&self, arg: tg::document::Arg) -> BoxFuture<'_, tg::Result<tg::document::Output>> {
 		self.document(arg).boxed()
 	}
 

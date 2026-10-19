@@ -109,7 +109,7 @@ where
 	fn document(
 		&self,
 		arg: tg::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+	) -> impl Future<Output = tg::Result<tg::document::Output>> {
 		match self {
 			tg::Either::Left(s) => s.document(arg).left_future(),
 			tg::Either::Right(s) => s.document(arg).right_future(),

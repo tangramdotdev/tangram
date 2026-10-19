@@ -21,6 +21,7 @@ python = [
 tsrs = [
 	"javascript",
 	"dep:tsrs_ast",
+	"dep:tsrs_checker",
 	"dep:tsrs_compiler",
 	"dep:tsrs_core",
 	"dep:tsrs_diagnostics",
@@ -28,6 +29,7 @@ tsrs = [
 	"dep:tsrs_lsproto",
 	"dep:tsrs_module",
 	"dep:tsrs_project",
+	"dep:tsrs_scanner",
 	"dep:tsrs_vfs",
 ]
 ty = [
@@ -100,6 +102,7 @@ tokio-util = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 tsrs_ast = { workspace = true, optional = true }
+tsrs_checker = { workspace = true, optional = true }
 tsrs_compiler = { workspace = true, optional = true }
 tsrs_core = { workspace = true, optional = true }
 tsrs_diagnostics = { workspace = true, optional = true }
@@ -107,6 +110,7 @@ tsrs_ls = { workspace = true, optional = true }
 tsrs_lsproto = { workspace = true, optional = true }
 tsrs_module = { workspace = true, optional = true }
 tsrs_project = { workspace = true, optional = true }
+tsrs_scanner = { workspace = true, optional = true }
 tsrs_vfs = { workspace = true, optional = true }
 ty_ide = { workspace = true, optional = true }
 ty_module_resolver = { workspace = true, optional = true }

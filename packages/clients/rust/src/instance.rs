@@ -136,7 +136,7 @@ pub trait Instance:
 	fn document(
 		&self,
 		arg: tg::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send;
+	) -> impl Future<Output = tg::Result<tg::document::Output>> + Send;
 
 	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 
@@ -328,7 +328,7 @@ impl tg::Instance for tg::Client {
 		self.session(&self.context).clean().await
 	}
 
-	async fn document(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+	async fn document(&self, arg: tg::document::Arg) -> tg::Result<tg::document::Output> {
 		self.session(&self.context).document(arg).await
 	}
 

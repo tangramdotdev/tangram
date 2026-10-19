@@ -5,13 +5,19 @@ use {
 };
 
 impl Session {
-	#[cfg(not(feature = "typescript6"))]
-	pub(crate) async fn document(&self, _arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
-		Err(tg::error!("the typescript6 feature is not enabled"))
+	#[cfg(not(feature = "javascript"))]
+	pub(crate) async fn document(
+		&self,
+		_arg: tg::document::Arg,
+	) -> tg::Result<tg::document::Output> {
+		Err(tg::error!("the javascript feature is not enabled"))
 	}
 
-	#[cfg(feature = "typescript6")]
-	pub(crate) async fn document(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+	#[cfg(feature = "javascript")]
+	pub(crate) async fn document(
+		&self,
+		arg: tg::document::Arg,
+	) -> tg::Result<tg::document::Output> {
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
@@ -30,8 +36,8 @@ impl Session {
 		Ok(output)
 	}
 
-	#[cfg(feature = "typescript6")]
-	async fn document_local(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+	#[cfg(feature = "javascript")]
+	async fn document_local(&self, arg: tg::document::Arg) -> tg::Result<tg::document::Output> {
 		if !self.server.checkouts_enabled() {
 			return Err(tg::error!("checkouts are disabled"));
 		}
@@ -54,12 +60,12 @@ impl Session {
 		Ok(output)
 	}
 
-	#[cfg(feature = "typescript6")]
+	#[cfg(feature = "javascript")]
 	async fn document_region(
 		&self,
 		arg: tg::document::Arg,
 		region: String,
-	) -> tg::Result<serde_json::Value> {
+	) -> tg::Result<tg::document::Output> {
 		let client = self.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -76,13 +82,13 @@ impl Session {
 		Ok(output)
 	}
 
-	#[cfg(feature = "typescript6")]
+	#[cfg(feature = "javascript")]
 	async fn document_remote(
 		&self,
 		arg: tg::document::Arg,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<serde_json::Value> {
+	) -> tg::Result<tg::document::Output> {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;

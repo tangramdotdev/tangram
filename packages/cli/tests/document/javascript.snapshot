@@ -1,0 +1,93 @@
+{
+  "declarations": [
+    {
+      "comment": {
+        "text": "Greet someone."
+      },
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          6,
+          0,
+          8,
+          1
+        ]
+      },
+      "name": "greet",
+      "signature": {
+        "parameters": [
+          {
+            "comment": "The name to greet.",
+            "name": "name",
+            "type": {
+              "kind": "keyword",
+              "value": "string"
+            }
+          },
+          {
+            "comment": "The number of times to greet.",
+            "default": "1",
+            "name": "times",
+            "optional": true,
+            "type": {
+              "kind": "keyword",
+              "value": "number"
+            }
+          }
+        ],
+        "return": {
+          "kind": "keyword",
+          "value": "string"
+        },
+        "returns": "The greeting."
+      }
+    },
+    {
+      "constant": true,
+      "kind": "variable",
+      "location": {
+        "module": 0,
+        "range": [
+          11,
+          13,
+          11,
+          32
+        ]
+      },
+      "name": "numbers",
+      "type": {
+        "kind": "reference",
+        "value": {
+          "name": "Array",
+          "typeArguments": [
+            {
+              "kind": "keyword",
+              "value": "number"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "exports": {
+    "greet": [
+      0
+    ],
+    "numbers": [
+      1
+    ]
+  },
+  "modules": [
+    {
+      "kind": "javascript",
+      "referent": {
+        "node": "fil_01bgwk27jw6wgjncpfk8z1659v8gencbj5ywhzd402gfx206cbnt8g",
+        "options": {
+          "location": "local",
+          "path": "tangram.js"
+        }
+      }
+    }
+  ]
+}

@@ -58,7 +58,7 @@ impl tg::Instance for Server {
 		self.session(&self.context).clean().await
 	}
 
-	async fn document(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+	async fn document(&self, arg: tg::document::Arg) -> tg::Result<tg::document::Output> {
 		self.session(&self.context).document(arg).await
 	}
 

@@ -5,7 +5,7 @@ pub struct Request {
 	pub module: tg::module::Data,
 }
 
-pub type Response = serde_json::Value;
+pub type Response = tg::document::Output;
 
 impl Compiler {
 	/// Document a module.

@@ -100,7 +100,7 @@ impl tg::Instance for Instance {
 	fn document(
 		&self,
 		arg: tg::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+	) -> impl Future<Output = tg::Result<tg::document::Output>> {
 		self.0.document(arg)
 	}
 

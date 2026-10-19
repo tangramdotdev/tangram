@@ -15,5 +15,5 @@ let output = tg document $path | complete
 success $output
 
 let json = $output.stdout | from json
-let entries = $json.exports.greet | values | flatten
-assert equal $entries.0.comment.text "Greets the caller." "the doc comment text should appear in the documentation"
+let declaration = $json.declarations | get ($json.exports.greet | first)
+assert equal $declaration.comment.text "Greets the caller." "the doc comment text should appear in the documentation"

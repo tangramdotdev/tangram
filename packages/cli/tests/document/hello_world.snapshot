@@ -1,76 +1,40 @@
 {
-  "exports": {
-    "default": {
-      "function": [
-        {
-          "comment": {
-            "tags": [],
-            "text": ""
-          },
-          "location": {
-            "module": {
-              "kind": "typescript",
-              "referent": {
-                "node": "fil_01mv43gcytv6ysz1mp5ab5whv8nzgbx916j15mxvrsmmk08h4zfsyg",
-                "options": {
-                  "location": "local",
-                  "path": "tangram.ts",
-                  "tokens": {
-                    "local": [
-                      "<token>"
-                    ]
-                  }
-                }
-              }
-            },
-            "range": {
-              "end": {
-                "character": 54,
-                "line": 0
-              },
-              "start": {
-                "character": 0,
-                "line": 0
-              }
-            }
-          },
-          "signature": {
-            "location": {
-              "module": {
-                "kind": "typescript",
-                "referent": {
-                  "node": "fil_01mv43gcytv6ysz1mp5ab5whv8nzgbx916j15mxvrsmmk08h4zfsyg",
-                  "options": {
-                    "location": "local",
-                    "path": "tangram.ts",
-                    "tokens": {
-                      "local": [
-                        "<token>"
-                      ]
-                    }
-                  }
-                }
-              },
-              "range": {
-                "end": {
-                  "character": 54,
-                  "line": 0
-                },
-                "start": {
-                  "character": 0,
-                  "line": 0
-                }
-              }
-            },
-            "parameters": {},
-            "return": {
-              "kind": "keyword",
-              "value": "string"
-            },
-            "typeParameters": {}
-          }
+  "declarations": [
+    {
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          0,
+          0,
+          0,
+          54
+        ]
+      },
+      "name": "default",
+      "signature": {
+        "return": {
+          "kind": "keyword",
+          "value": "string"
         }
-      ]
+      }
     }
-  }
+  ],
+  "exports": {
+    "default": [
+      0
+    ]
+  },
+  "modules": [
+    {
+      "kind": "typescript",
+      "referent": {
+        "node": "fil_01mv43gcytv6ysz1mp5ab5whv8nzgbx916j15mxvrsmmk08h4zfsyg",
+        "options": {
+          "location": "local",
+          "path": "tangram.ts"
+        }
+      }
+    }
+  ]
 }

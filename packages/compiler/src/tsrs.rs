@@ -15,6 +15,7 @@ mod completion;
 mod convert;
 mod definition;
 mod diagnostics;
+mod document;
 mod document_highlight;
 mod document_link;
 mod folding_range;
@@ -156,11 +157,7 @@ fn handle(
 		},
 		Request::Declaration(request) => Response::Declaration(project.declaration(&request)?),
 		Request::Definition(request) => Response::Definition(project.definition(&request)?),
-		Request::Document(_) => {
-			return Err(tg::error!(
-				"documentation is not implemented for the tsrs service"
-			));
-		},
+		Request::Document(request) => Response::Document(project.document(&request)?),
 		Request::DocumentDiagnostics(request) => {
 			Response::DocumentDiagnostics(project.diagnostics(request)?)
 		},
