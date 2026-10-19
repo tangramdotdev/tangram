@@ -168,20 +168,32 @@ impl Accumulator {
 		for (accumulated, previous, current, minimum) in [
 			(
 				&mut self.memory,
-				self.previous.memory.min(self.resources.memory.max),
-				snapshot.memory.min(self.resources.memory.max),
+				self.previous
+					.memory
+					.min(self.resources.memory.max.unwrap_or(u64::MAX)),
+				snapshot
+					.memory
+					.min(self.resources.memory.max.unwrap_or(u64::MAX)),
 				self.resources.memory.min,
 			),
 			(
 				&mut self.storage,
-				self.previous.storage.min(self.resources.storage.max),
-				snapshot.storage.min(self.resources.storage.max),
+				self.previous
+					.storage
+					.min(self.resources.storage.max.unwrap_or(u64::MAX)),
+				snapshot
+					.storage
+					.min(self.resources.storage.max.unwrap_or(u64::MAX)),
 				self.resources.storage.min,
 			),
 			(
 				&mut self.swap,
-				self.previous.swap.min(self.resources.swap.max),
-				snapshot.swap.min(self.resources.swap.max),
+				self.previous
+					.swap
+					.min(self.resources.swap.max.unwrap_or(u64::MAX)),
+				snapshot
+					.swap
+					.min(self.resources.swap.max.unwrap_or(u64::MAX)),
 				self.resources.swap.min,
 			),
 		] {
@@ -224,7 +236,7 @@ impl Accumulator {
 
 	fn finish_cpu(&mut self) -> tg::Result<()> {
 		let minimum = u128::from(self.resources.cpu.min.millis()) * self.cpu_duration;
-		let consumed = if self.resources.cpu.min == self.resources.cpu.max {
+		let consumed = if Some(self.resources.cpu.min) == self.resources.cpu.max {
 			0
 		} else {
 			self.cpu.saturating_sub(minimum)

@@ -65,6 +65,7 @@ impl Session {
 		self.verify_billing(owner.as_ref()).await?;
 
 		// Validate the backend and resources.
+		crate::sandbox::clear_darwin_sandbox_resources(&mut arg);
 		let isolation = self.server.resolve_sandbox_backend()?;
 		Server::validate_sandbox_resources(
 			&isolation,

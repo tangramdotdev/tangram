@@ -2,8 +2,20 @@
 
 Each sandbox has a minimum and maximum for CPU, memory, local storage, and swap.
 The minimum reserves backed runner capacity for the sandbox's lifetime. The maximum
-limits consumption. A scalar specifies a maximum with a zero minimum; an object
-containing only a minimum uses that value for its maximum too.
+limits consumption, and an omitted maximum means no limit. A scalar specifies a
+maximum with a zero minimum, and an object containing only a minimum has no maximum.
+
+The scheduler fills in the bounds that a sandbox omits from `scheduler.default_cpu`,
+`scheduler.default_memory`, `scheduler.default_storage`, and `scheduler.default_swap`,
+raising a default maximum to meet a larger minimum. These defaults are unset, so a
+sandbox can use every resource on the runner that other sandboxes have not reserved.
+Each sandbox also reserves one unit of the runner's sandbox capacity,
+`runner.sandboxes`, which defaults to the runner's number of hardware threads. A
+parent waiting for a child lends its reserved capacity, including its sandbox, to the
+child.
+
+Admission charges a minimum in full and the rest of a maximum divided by the
+resource's overcommit factor. A sandbox without a maximum is charged its minimum.
 
 ```sh
 tg sandbox create --cpu 1 --memory 1GiB --storage 10GiB --swap 2GiB
@@ -19,31 +31,25 @@ await using sandbox = await tg.Sandbox.create()
 await sandbox.run`echo hello`;
 ```
 
-CPU units are hardware threads, with precision of 0.001 CPU. Each sandbox stays
-within a fixed CPU affinity domain containing enough threads for its maximum.
-CPU minima require an empty delegated exclusive cpuset partition configured with
-`runner.cpu_pool`; the pool includes every SMT sibling of its physical cores.
-Fractional minima reserve execution time within that fixed domain. The allocator
-accounts for reservations before distributing scheduler weight to other workloads.
-A minimum in a domain wider than one thread can hold additional physical capacity
-to preserve the promise for a single busy worker. Runner heartbeats include this
-affinity padding; billing uses the requested minimum. Domains stay fixed, so
-placement can fail because of fragmentation even when aggregate capacity remains.
+CPU units are hardware threads, with precision of 0.001 CPU. A sandbox with a CPU
+maximum is pinned with `sched_setaffinity` to that many of the hardware threads that
+the fewest sandboxes are pinned to, so `nproc` reports its maximum, and `cpu.max` limits its execution time. The runner sets each
+sandbox's `cpu.weight` to its share of its minimum, and divides the remaining weight
+among the sandboxes in proportion to their capacity above their minima, so that each
+sandbox receives its minimum when the CPUs are contended.
 
-Memory minima reserve capacity and set `memory.min`; maxima set `memory.max`.
-Runner ancestor cgroups must provide enough memory protection for a minimum.
-Admission checks the sum of sibling minima at each ancestor and rejects requests
-when that protection is insufficient. An exclusive runner pool sets its
-own memory protection and physical memory/swap budgets before accepting sandboxes.
+Memory minima reserve capacity in scheduler admission and set `memory.min`, which
+the kernel honors only as far as the runner's ancestor cgroups protect memory;
+maxima set `memory.max`.
 Above the minimum, memory can be reclaimed, swapped, or subject to an OOM kill.
 Swap is a separate resource, limited with `memory.swap.max`. Local storage uses
 ext4 or XFS project quotas, and includes the writable
 overlay, scratch space, outputs, and temporary files. Linux needs delegated CPU,
-cpuset, memory, and pids controllers; filesystem quota enforcement needs enabled
-quotas and CAP_SYS_ADMIN. The default container maxima are one CPU, 1 GiB RAM,
-unlimited local storage, and zero swap. Storage limits are disabled by default;
+memory, and pids controllers;
+filesystem quota enforcement needs enabled quotas and CAP_SYS_ADMIN. Storage limits
+are disabled by default;
 set `runner.backend.storage_limits` to `true` to enforce requested storage bounds.
-macOS rejects explicit resource bounds. VM isolation supports whole CPU maxima
+macOS neither applies nor enforces resource bounds. VM isolation supports whole CPU maxima
 and memory maxima, and rejects the other bounds.
 
 Storage usage tracking and limits require XFS or ext4 with project quotas enabled.

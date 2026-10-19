@@ -507,11 +507,11 @@ Sandbox.Network = Network
 
 def normalize_resource(value, *, cpu: bool = False) -> Resource:
     resource = {"max": value} if isinstance(value, (int, float)) else value
-    if not isinstance(resource, dict) or not resource or set(resource) - {"min", "max"}:
-        raise ValueError("a resource requires min or max")
+    if not isinstance(resource, dict) or set(resource) - {"min", "max"}:
+        raise ValueError("a resource has only min and max")
     minimum = resource.get("min", 0)
-    maximum = resource.get("max", minimum)
-    for amount in (minimum, maximum):
+    maximum = resource.get("max")
+    for amount in (minimum,) if maximum is None else (minimum, maximum):
         if (
             isinstance(amount, bool)
             or not isinstance(amount, (int, float))
@@ -524,6 +524,8 @@ def normalize_resource(value, *, cpu: bool = False) -> Resource:
                 raise ValueError("CPU must be a multiple of 0.001")
         elif int(amount) != amount:
             raise ValueError("resource bytes must be integers")
+    if maximum is None:
+        return {"min": minimum}
     if minimum > maximum or (cpu and maximum == 0):
         raise ValueError("invalid resource bounds")
     return {"max": maximum, "min": minimum}

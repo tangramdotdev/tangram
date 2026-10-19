@@ -5,7 +5,7 @@ use {
 		io::{Read as _, Write as _},
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 		path::{Path, PathBuf},
-		sync::{Arc, Mutex},
+		sync::Arc,
 		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
@@ -17,15 +17,13 @@ pub(crate) const SIDECARS: &CStr = c"sidecars";
 
 const INIT: &CStr = c"init";
 
-static MEMORY: Mutex<()> = Mutex::new(());
-
 pub struct Cgroup {
-	allocation: Option<crate::cpu::Allocation>,
 	cleanup: Arc<Cleanup>,
 	cleanup_interval: Duration,
 	cleanup_timeout: Duration,
-	name: String,
 	path: PathBuf,
+	pin: Option<crate::cpu::Pin>,
+	share: Option<crate::cpu::Share>,
 	stopped: bool,
 	swap_allocation: Option<crate::budget::Allocation>,
 }
@@ -47,9 +45,9 @@ pub struct Options {
 	pub cleanup_timeout: Duration,
 	pub cpu: Option<u64>,
 	pub cpu_affinity: bool,
-	pub cpu_parent: Option<crate::cpu::Lease>,
-	pub cpu_pool: Option<crate::cpu::Pool>,
 	pub cpu_request: Option<tg::sandbox::Cpu>,
+	pub cpu_shares: Option<crate::cpu::Shares>,
+	pub cpu_threads: Option<crate::cpu::Threads>,
 	pub memory: Option<tg::sandbox::Resource<u64>>,
 	pub memory_oom_group: bool,
 	pub memory_swap: Option<u64>,
@@ -65,15 +63,16 @@ pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
 		cleanup_timeout: arg.cgroup_cleanup_timeout,
 		cpu: arg
 			.cpu
-			.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
-			.transpose()?,
+			.map(tg::sandbox::Cpu::threads)
+			.transpose()?
+			.flatten(),
 		cpu_affinity: arg.cpu_affinity,
-		cpu_parent: arg.cpu_parent.clone(),
-		cpu_pool: arg.cpu_pool.clone(),
 		cpu_request: arg.cpu,
+		cpu_shares: arg.cpu_shares.clone(),
+		cpu_threads: arg.cpu_threads.clone(),
 		memory: arg.memory,
 		memory_oom_group: true,
-		memory_swap: arg.swap.map(|swap| swap.max).or(resources.memory_swap),
+		memory_swap: arg.swap.and_then(|swap| swap.max).or(resources.memory_swap),
 		pids: resources.max_pids,
 		swap: arg.swap,
 		swap_pool: arg.swap_pool.clone(),
@@ -85,6 +84,30 @@ pub(crate) fn create(arg: &crate::Arg) -> tg::Result<Cgroup> {
 		.unwrap_or("sandbox");
 	let cgroup = Cgroup::new(name, &options)?;
 	Ok(cgroup)
+}
+
+pub(crate) fn set_affinity_before_exec(command: &mut std::process::Command, cpus: &[usize]) {
+	use std::os::unix::process::CommandExt as _;
+
+	// Build the CPU set before forking, so that the child only makes a system call.
+	// SAFETY: A zeroed cpu_set_t is an empty CPU set.
+	let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+	for cpu in cpus {
+		// SAFETY: CPU_SET ignores CPUs beyond the set's size.
+		unsafe { libc::CPU_SET(*cpu, &mut set) };
+	}
+
+	// SAFETY: The pre_exec closure only invokes the async-signal-safe sched_setaffinity system call.
+	unsafe {
+		command.pre_exec(move || {
+			if libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &raw const set)
+				!= 0
+			{
+				return Err(std::io::Error::last_os_error());
+			}
+			Ok(())
+		});
+	}
 }
 
 pub(crate) fn enter_before_exec(command: &mut std::process::Command, cgroup: libc::c_int) {
@@ -117,18 +140,13 @@ impl Cgroup {
 	pub fn new(name: &str, options: &Options) -> tg::Result<Self> {
 		use std::os::unix::fs::OpenOptionsExt as _;
 
-		// Lock the memory admission check.
-		let _memory = MEMORY
-			.lock()
-			.map_err(|error| tg::error!(%error, "the memory admission lock is poisoned"))?;
-
 		// Resolve the current cgroup.
 		let root = Path::new("/sys/fs/cgroup");
 		let current = current(root)?;
 
 		// Select the required resource controllers.
 		let mut controllers = Vec::new();
-		if options.cpu.is_some() {
+		if options.cpu.is_some() || options.cpu_request.is_some() {
 			controllers.push("cpu");
 		}
 		if options.memory.is_some() || options.memory_oom_group || options.memory_swap.is_some() {
@@ -138,31 +156,8 @@ impl Cgroup {
 			controllers.push("pids");
 		}
 
-		// Allocate the CPU capacity.
-		let allocation = options
-			.cpu_pool
-			.as_ref()
-			.zip(options.cpu_request)
-			.map(|(pool, cpu)| match &options.cpu_parent {
-				Some(parent) => pool.borrow(parent, cpu),
-				None => pool.allocate(cpu),
-			})
-			.transpose()?;
-		if allocation.is_some() || (options.cpu_affinity && options.cpu_request.is_some()) {
-			controllers.push("cpuset");
-		}
-
-		// Select the parent cgroup and check memory admission.
-		let current = if let Some(allocation) = &allocation {
-			allocation.parent().to_owned()
-		} else {
-			resolve_parent(root, &current, &controllers)?
-		};
-		if let Some(memory) = options.memory
-			&& memory.min > 0
-		{
-			validate_memory(root, &current, memory.min)?;
-		}
+		// Select the parent cgroup.
+		let current = resolve_parent(root, &current, &controllers)?;
 
 		// Open the parent cgroup.
 		let name = sanitize_name(name);
@@ -184,8 +179,10 @@ impl Cgroup {
 
 		// Allocate the swap budget.
 		let swap = match (options.swap, &options.swap_pool) {
-			(Some(resource), Some(pool)) => Some(pool.allocate(resource)?),
-			(Some(resource), None) if resource.max > 0 => {
+			(Some(resource), Some(pool)) if resource.max.is_some() || resource.min > 0 => {
+				Some(pool.allocate(resource)?)
+			},
+			(Some(resource), None) if resource.max.is_some_and(|max| max > 0) => {
 				return Err(tg::error!("swap limits require a runner swap pool"));
 			},
 			_ => None,
@@ -218,57 +215,35 @@ impl Cgroup {
 			parent,
 		};
 		let cleanup = Arc::new(cleanup);
-		let cgroup = Self {
-			allocation,
+
+		// Pin the sandbox to the least used hardware threads, so that it sees as many as its CPU maximum.
+		let pin = if options.cpu_affinity
+			&& let Some(max) = options.cpu_request.and_then(|cpu| cpu.max)
+		{
+			let cpus = available_cpus()?;
+			let width = usize::try_from(max.threads())
+				.map_err(|_| tg::error!("the CPU affinity is too wide"))?;
+			let threads = options.cpu_threads.clone().unwrap_or_default();
+			Some(threads.pin(&cpus, width)?)
+		} else {
+			None
+		};
+
+		let mut cgroup = Self {
 			cleanup,
 			cleanup_interval: options.cleanup_interval,
 			cleanup_timeout: options.cleanup_timeout,
-			name,
 			path: path.clone(),
+			pin,
+			share: None,
 			stopped: false,
 			swap_allocation: swap,
 		};
 
-		// Configure the CPU allocation and limits.
-		if let Some(allocation) = &cgroup.allocation {
-			let mems = std::fs::read_to_string(current.join("cpuset.mems.effective"))
-				.map_err(|error| tg::error!(!error, "failed to read the CPU pool memory nodes"))?;
-			write_file(&path.join("cpuset.mems"), mems.as_bytes())
-				.map_err(|error| tg::error!(!error, "failed to set the sandbox memory nodes"))?;
-			allocation.bind(cgroup.handle()?)?;
-		}
-
-		if cgroup.allocation.is_none()
-			&& options.cpu_affinity
-			&& let Some(cpu) = options.cpu_request
-		{
-			let cpus = crate::cpu::parse_list(
-				&std::fs::read_to_string(current.join("cpuset.cpus.effective"))
-					.map_err(|error| tg::error!(!error, "failed to read the available CPUs"))?,
-			)?;
-			let width = usize::try_from(cpu.max.threads())
-				.map_err(|_| tg::error!("the CPU affinity is too wide"))?;
-			if width > cpus.len() {
-				return Err(tg::error!(
-					"the CPU maximum exceeds the available hardware threads"
-				));
-			}
-			let offset = cgroup.name.bytes().map(usize::from).sum::<usize>() % cpus.len();
-			let cpus = cpus
-				.iter()
-				.copied()
-				.cycle()
-				.skip(offset)
-				.take(width)
-				.collect();
-			cgroup
-				.handle()?
-				.write(c"cpuset.cpus", crate::cpu::format_list(&cpus).as_bytes())?;
-		}
-
+		// Configure the CPU limit.
 		if let Some(cpu) = options.cpu {
-			let quota = match options.cpu_request {
-				Some(request) => request.max.millis().checked_mul(1000),
+			let quota = match options.cpu_request.and_then(|request| request.max) {
+				Some(max) => max.millis().checked_mul(1000),
 				None => cpu.checked_mul(1_000_000),
 			}
 			.ok_or_else(|| tg::error!("the sandbox CPU is too large"))?;
@@ -282,10 +257,18 @@ impl Cgroup {
 			})?;
 		}
 
+		// Add the sandbox to the CPU shares, which weight each sandbox by its minimum and divide the rest of the CPU in proportion to the capacity above each minimum.
+		if let Some(shares) = &options.cpu_shares
+			&& path.join("cpu.weight").exists()
+		{
+			let cpu = options.cpu_request.unwrap_or_default();
+			cgroup.share = Some(shares.insert(cpu, cgroup.handle()?)?);
+		}
+
 		// Configure the memory and swap limits.
-		if let Some(memory) = options.memory {
+		if let Some(max) = options.memory.and_then(|memory| memory.max) {
 			let memory_max = path.join("memory.max");
-			write_file(&memory_max, format!("{}\n", memory.max).as_bytes()).map_err(|error| {
+			write_file(&memory_max, format!("{max}\n").as_bytes()).map_err(|error| {
 				tg::error!(
 					!error,
 					path = %memory_max.display(),
@@ -362,9 +345,22 @@ impl Cgroup {
 		Ok(cgroup)
 	}
 
+	/// Get the hardware threads that the sandbox's processes are pinned to.
 	#[must_use]
-	pub(crate) fn cpu_lease(&self) -> Option<crate::cpu::Lease> {
-		self.allocation.as_ref().map(crate::cpu::Allocation::lease)
+	pub(crate) fn affinity(&self) -> Option<&[usize]> {
+		self.pin.as_ref().map(crate::cpu::Pin::cpus)
+	}
+
+	#[must_use]
+	pub(crate) fn cpu_share(&self) -> Option<crate::cpu::ShareId> {
+		self.share.as_ref().map(crate::cpu::Share::id)
+	}
+
+	pub(crate) fn set_cpu_lender(&self, lender: Option<crate::cpu::ShareId>) -> tg::Result<()> {
+		if let Some(share) = &self.share {
+			share.set_lender(lender)?;
+		}
+		Ok(())
 	}
 
 	pub fn handle(&self) -> tg::Result<Handle> {
@@ -401,11 +397,11 @@ impl Cgroup {
 	}
 
 	pub fn cleanup(mut self) -> tg::Result<()> {
+		drop(self.share.take());
 		self.stop()?;
 		self.stopped = true;
 
 		// Retained swap allocations keep the directory alive until their data is released.
-		drop(self.allocation.take());
 		drop(self.swap_allocation.take());
 
 		Ok(())
@@ -534,9 +530,9 @@ impl Default for Options {
 			cleanup_timeout: Duration::from_secs(5),
 			cpu: None,
 			cpu_affinity: false,
-			cpu_parent: None,
-			cpu_pool: None,
 			cpu_request: None,
+			cpu_shares: None,
+			cpu_threads: None,
 			memory: None,
 			memory_oom_group: false,
 			memory_swap: None,
@@ -549,19 +545,14 @@ impl Default for Options {
 
 impl Drop for Cgroup {
 	fn drop(&mut self) {
+		drop(self.share.take());
 		if self.stopped {
 			return;
 		}
 		if let Err(error) = self.stop() {
 			tracing::error!(%error, path = %self.path.display(), "failed to stop the cgroup");
-
-			// Retain the core reservation when processes could still be executing on it.
-			if let Some(allocation) = self.allocation.take() {
-				allocation.retain();
-			}
 			return;
 		}
-		drop(self.allocation.take());
 		drop(self.swap_allocation.take());
 	}
 }
@@ -575,6 +566,26 @@ impl Drop for Cleanup {
 			tracing::error!(%error, name = %self.name, "failed to remove the cgroup");
 		}
 	}
+}
+
+/// Get the hardware threads that the current process may run on.
+fn available_cpus() -> tg::Result<Vec<usize>> {
+	// SAFETY: A zeroed cpu_set_t is an empty CPU set, which sched_getaffinity fills.
+	let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+	// SAFETY: The set is a valid cpu_set_t of the given size.
+	let result =
+		unsafe { libc::sched_getaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &raw mut set) };
+	if result != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to get the available CPUs"
+		));
+	}
+	let cpus = (0..usize::try_from(libc::CPU_SETSIZE).unwrap())
+		// SAFETY: Each CPU is within the set's size.
+		.filter(|cpu| unsafe { libc::CPU_ISSET(*cpu, &set) })
+		.collect();
+	Ok(cpus)
 }
 
 fn current(root: &Path) -> tg::Result<PathBuf> {
@@ -711,47 +722,6 @@ fn resolve_parent(root: &Path, current: &Path, controllers: &[&str]) -> tg::Resu
 	))
 }
 
-fn validate_memory(root: &Path, parent: &Path, additional: u64) -> tg::Result<()> {
-	for ancestor in parent
-		.ancestors()
-		.take_while(|ancestor| *ancestor != root && ancestor.starts_with(root))
-	{
-		let minimum = read_minimum(ancestor)?;
-		let children = std::fs::read_dir(ancestor).map_err(|error| {
-			tg::error!(!error, "failed to read the memory protection hierarchy")
-		})?;
-		let mut required = if ancestor == parent { additional } else { 0 };
-		for child in children {
-			let child = child
-				.map_err(|error| tg::error!(!error, "failed to read a memory protection entry"))?;
-			if !child
-				.file_type()
-				.map_err(|error| tg::error!(!error, "failed to inspect a memory protection entry"))?
-				.is_dir()
-			{
-				continue;
-			}
-			required = required
-				.checked_add(read_minimum(&child.path())?)
-				.ok_or_else(|| tg::error!("the memory reservation overflowed"))?;
-		}
-		if required > minimum {
-			return Err(tg::error!(
-				"memory minima exceed the runner ancestor protection"
-			));
-		}
-	}
-	Ok(())
-}
-
-fn read_minimum(path: &Path) -> tg::Result<u64> {
-	std::fs::read_to_string(path.join("memory.min"))
-		.map_err(|error| tg::error!(!error, "failed to read the runner memory protection"))?
-		.trim()
-		.parse()
-		.map_err(|error| tg::error!(!error, "invalid runner memory protection"))
-}
-
 fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 	let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
 	file.write_all(bytes)
@@ -839,23 +809,6 @@ mod tests {
 		usage.store(0, Ordering::SeqCst);
 		assert!(pool.allocate(tg::sandbox::Resource::new(20, 20)).is_ok());
 		assert!(!path.exists());
-	}
-
-	#[test]
-	fn memory_admission_accounts_for_sibling_minima() {
-		let temp = tangram_util::fs::Temp::new().unwrap();
-		let parent = temp.path().join("runner");
-		let child = parent.join("sandbox");
-		std::fs::create_dir_all(&child).unwrap();
-		std::fs::write(parent.join("memory.min"), "100").unwrap();
-		std::fs::write(child.join("memory.min"), "60").unwrap();
-		assert!(validate_memory(temp.path(), &parent, 40).is_ok());
-		assert!(validate_memory(temp.path(), &parent, 41).is_err());
-		let leaf = child.join("leaf");
-		std::fs::create_dir(&leaf).unwrap();
-		std::fs::write(child.join("memory.min"), "120").unwrap();
-		std::fs::write(leaf.join("memory.min"), "0").unwrap();
-		assert!(validate_memory(temp.path(), &child, 1).is_err());
 	}
 
 	#[test]

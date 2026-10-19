@@ -519,7 +519,7 @@ pub(crate) fn cpu(options: &Options) -> Option<tg::sandbox::Cpu> {
 		return None;
 	}
 	let min = options.cpu_min.unwrap_or_default();
-	let max = options.cpu.unwrap_or(min);
+	let max = options.cpu;
 	Some(tg::sandbox::Cpu { max, min })
 }
 
@@ -528,7 +528,6 @@ pub(crate) fn resource(min: Option<u64>, max: Option<u64>) -> Option<tg::sandbox
 		return None;
 	}
 	let min = min.unwrap_or_default();
-	let max = max.unwrap_or(min);
 	Some(tg::sandbox::Resource { max, min })
 }
 

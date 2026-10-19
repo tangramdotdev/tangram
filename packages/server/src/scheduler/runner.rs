@@ -35,14 +35,9 @@ pub(super) struct Runner {
 }
 
 pub(super) struct Reservation {
+	/// The capacity that the reservation holds on the runner, which for a borrowed sandbox is only the capacity that it acquires in addition to what it borrows.
 	pub capacity: tg::runner::Capacity,
-	pub source: ReservationSource,
 	pub state: ReservationState,
-}
-
-pub(super) enum ReservationSource {
-	Borrowed,
-	Regular,
 }
 
 #[derive(Clone, Copy)]

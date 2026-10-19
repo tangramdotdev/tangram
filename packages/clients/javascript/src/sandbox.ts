@@ -197,13 +197,9 @@ export namespace Sandbox {
 				Object.keys(resource).every((key) => key === "min" || key === "max"),
 				"unknown resource property",
 			);
-			tg.assert(
-				resource.min !== undefined || resource.max !== undefined,
-				"a resource requires min or max",
-			);
 			let min = resource.min ?? 0;
-			let max = resource.max ?? min;
-			for (let amount of [min, max]) {
+			let max = resource.max;
+			for (let amount of max === undefined ? [min] : [min, max]) {
 				tg.assert(
 					Number.isFinite(amount) && amount >= 0,
 					"resource amounts must be finite and nonnegative",
@@ -217,6 +213,9 @@ export namespace Sandbox {
 						? "CPU must be a multiple of 0.001"
 						: "resource bytes must be safe integers",
 				);
+			}
+			if (max === undefined) {
+				return { min };
 			}
 			tg.assert(min <= max, "resource min must not exceed max");
 			if (cpu) tg.assert(max > 0, "CPU max must be greater than zero");

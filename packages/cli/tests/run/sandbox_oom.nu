@@ -17,5 +17,5 @@ let output = timeout 30s tg wait $process | complete
 success $output 'the process should finish after an OOM kill'
 let outcome = $output.stdout | from json
 let error = tg get --depth inf --no-tokens $outcome.error
-assert ($error | str contains 'the sandbox was killed by the out-of-memory killer') $error
-assert ($error | str contains $'"memory_limit":"($memory)"') $error
+assert ($error | str contains 'the sandbox exceeded its memory max') $error
+assert ($error | str contains $'"memory_max":"($memory)"') $error

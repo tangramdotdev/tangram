@@ -7,7 +7,7 @@ let local = server spawn
 let health = tg health | from json
 assert equal ($health | columns) [database diagnostics processes version] "the health should contain all of the fields"
 assert equal ($health.processes | columns) [capacity started] "the processes health should contain the capacity and the started count"
-assert equal ($health.processes.capacity | columns) [available cpu_limit cpu_threads_per_core overcommit total] "the capacity should contain the resource budgets and overcommit factors"
+assert equal ($health.processes.capacity | columns) [available cpu_limit overcommit total] "the capacity should contain the resource budgets and overcommit factors"
 assert equal $health.processes.capacity.available $health.processes.capacity.total "an idle runner should have all of its capacity available"
 assert ($health.processes.capacity.cpu_limit > 0) "the runner should have CPU capacity"
 assert equal $health.processes.capacity.total.cpu.max ($health.processes.capacity.cpu_limit * $health.processes.capacity.overcommit.cpu) "the runner should apply CPU overcommit per hardware thread"

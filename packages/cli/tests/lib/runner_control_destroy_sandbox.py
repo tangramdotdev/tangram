@@ -32,7 +32,6 @@ empty = {resource: {"max": 0, "min": 0} for resource in ("cpu", "memory", "stora
 capacity = {
     "available": empty,
     "cpu_limit": 0,
-    "cpu_threads_per_core": 1,
     "overcommit": {"cpu": 4, "memory": 1, "storage": 1, "swap": 1},
     "total": empty,
 }

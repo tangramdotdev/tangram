@@ -722,12 +722,7 @@ impl Scheduler {
 		let config = Config {
 			create_sandbox_queue_capacity: config.create_sandbox_queue_capacity,
 			create_sandbox_timeout: config.create_sandbox_timeout,
-			default_capacity: tg::runner::Capacity {
-				cpu: config.default_cpu.unwrap_or_default().into(),
-				memory: config.default_memory.unwrap_or_default().into(),
-				storage: config.default_storage.unwrap_or_default().into(),
-				swap: 0.into(),
-			},
+			default_capacity: config.default_capacity(),
 			heartbeat_interval: config.heartbeat_interval,
 			inbox_ttl: config.inbox_ttl,
 			max_create_sandbox_attempts: config.max_create_sandbox_attempts,

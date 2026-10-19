@@ -36,7 +36,7 @@ impl Pool {
 		arg: &tg::sandbox::create::Arg,
 		session: &Session,
 	) -> Option<Task<tg::Result<CreateSandboxOutput>>> {
-		if !Self::matches(arg) {
+		if !Self::matches(arg, session) {
 			return None;
 		}
 		let mut tasks = self.inner.lock().unwrap();
@@ -82,25 +82,34 @@ impl Pool {
 			.await;
 	}
 
+	/// Check whether a sandbox request can claim a warm sandbox, which has the default resource bounds.
 	#[must_use]
-	fn matches(arg: &tg::sandbox::create::Arg) -> bool {
-		arg.cpu.is_none()
+	fn matches(arg: &tg::sandbox::create::Arg, session: &Session) -> bool {
+		let warm = Self::arg(session);
+		arg.cpu == warm.cpu
 			&& arg.hostname.is_none()
-			&& arg.memory.is_none()
+			&& arg.memory == warm.memory
 			&& arg.mounts.is_empty()
 			&& arg.network.is_none()
+			&& arg.storage == warm.storage
+			&& arg.swap == warm.swap
+	}
+
+	/// Get the arg of a warm sandbox, which resolves the default resource bounds.
+	fn arg(session: &Session) -> tg::sandbox::create::Arg {
+		let mut arg = tg::sandbox::create::Arg::default();
+		let defaults = session.server.config.scheduler.default_capacity();
+		crate::sandbox::resolve_sandbox_resources(&defaults, &mut arg);
+		arg
 	}
 
 	fn spawn(session: &Session) -> Task<tg::Result<CreateSandboxOutput>> {
 		Task::spawn({
 			let session = session.clone();
 			move |_| async move {
+				let arg = Self::arg(&session);
 				session
-					.create_sandbox_inner(
-						tg::sandbox::create::Arg::default(),
-						#[cfg(target_os = "linux")]
-						None,
-					)
+					.create_sandbox_inner(arg)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to warm a sandbox"))
 			}

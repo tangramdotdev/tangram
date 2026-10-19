@@ -255,6 +255,10 @@ impl Session {
 		#[cfg(target_os = "linux")]
 		let mut allocation = allocation;
 
+		// Limit each resource without a maximum to the capacity that the sandbox was allocated, which is its lender's capacity when it borrows.
+		let mut arg = arg;
+		crate::sandbox::limit_sandbox_resources(&mut arg, allocation.capacity());
+
 		let identity = match (id, token) {
 			(Some(id), Some(token)) => Some((id, token)),
 			(None, None) => None,
@@ -287,11 +291,7 @@ impl Session {
 		let connection_session = self.server.session(&context);
 
 		// Create the sandbox concurrently with its control stream.
-		let create_future = self.create_sandbox_with_pool(
-			arg.clone(),
-			#[cfg(target_os = "linux")]
-			allocation.cpu_parent(),
-		);
+		let create_future = self.create_sandbox_with_pool(arg.clone());
 		let created_at = self.server.clock.unix_timestamp()?;
 		let control_data = tg::sandbox::control::Data {
 			arg: arg.clone(),
@@ -440,9 +440,20 @@ impl Session {
 			token: token.clone(),
 		});
 
-		// Store the identified sandbox state before starting any processes.
+		// Take the sandbox's CPU minimum from its lender, and record its CPU share so that its borrowers can take theirs from it.
 		#[cfg(target_os = "linux")]
-		allocation.set_cpu_lease(create_output.sandbox.cpu_lease().await);
+		{
+			let result = create_output
+				.sandbox
+				.set_cpu_lender(allocation.cpu_lender())
+				.await;
+			if let Err(error) = result {
+				tracing::warn!(error = %error.trace(), "failed to set the sandbox CPU lender");
+			}
+			allocation.set_cpu_share(create_output.sandbox.cpu_share().await);
+		}
+
+		// Store the identified sandbox state before starting any processes.
 		let capacity = allocation.capacity();
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		let index = create_output.sandbox.index();
@@ -634,7 +645,6 @@ impl Session {
 	async fn create_sandbox_with_pool(
 		&self,
 		arg: tg::sandbox::create::Arg,
-		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
 		if let Some(task) = self.server.runner.sandbox_pool.take(&arg, self) {
 			match task.wait().await {
@@ -671,12 +681,7 @@ impl Session {
 
 		tracing::debug!("creating a sandbox after a pool miss");
 
-		self.create_sandbox_inner(
-			arg,
-			#[cfg(target_os = "linux")]
-			cpu_parent,
-		)
-		.await
+		self.create_sandbox_inner(arg).await
 	}
 
 	#[tracing::instrument(
@@ -688,7 +693,6 @@ impl Session {
 	async fn create_sandbox_inner(
 		&self,
 		mut arg: tg::sandbox::create::Arg,
-		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
 		let isolation = self.server.resolve_sandbox_backend()?;
 		let mut resources = self.server.sandbox_resources();
@@ -711,14 +715,6 @@ impl Session {
 			}
 		}
 
-		// Apply the configured sandbox defaults.
-		#[cfg(target_os = "linux")]
-		{
-			let scheduler = &self.server.config.scheduler;
-			arg.cpu = arg.cpu.or(scheduler.default_cpu.map(Into::into));
-			arg.memory = arg.memory.or(scheduler.default_memory.map(Into::into));
-		}
-
 		#[cfg(target_os = "linux")]
 		self.server
 			.sandbox_assets
@@ -726,19 +722,6 @@ impl Session {
 			.await?;
 
 		let rootfs_path = self.server.sandbox_assets.root.clone();
-
-		#[cfg(target_os = "linux")]
-		if matches!(
-			isolation,
-			tangram_sandbox::Backend::Builtin
-				| tangram_sandbox::Backend::Bubblewrap { .. }
-				| tangram_sandbox::Backend::Gvisor { .. }
-		) {
-			if let Some(storage) = self.server.config.scheduler.default_storage {
-				arg.storage.get_or_insert(storage.into());
-			}
-			arg.swap.get_or_insert(0.into());
-		}
 
 		// Enforce the sandbox storage maximum only when storage limits are enabled, because enforcement requires a filesystem with project quotas.
 		if !self.server.config.runner.backend.storage_limits() {
@@ -751,7 +734,9 @@ impl Session {
 			if !isolation.uses_linux_namespaces() {
 				return Err(tg::error!("storage bounds require container isolation"));
 			}
-			resources.max_filesystem_size = Some(storage.max);
+			if let Some(max) = storage.max {
+				resources.max_filesystem_size = Some(max);
+			}
 		}
 
 		// Allocate the filesystem project ID.
@@ -917,10 +902,10 @@ impl Session {
 			cpu_affinity: self.server.config.runner.cpu_affinity,
 
 			#[cfg(target_os = "linux")]
-			cpu_parent,
+			cpu_shares: Some(self.server.runner.state.cpu_shares.clone()),
 
 			#[cfg(target_os = "linux")]
-			cpu_pool: self.server.runner.state.cpu_pool.clone(),
+			cpu_threads: Some(self.server.runner.state.cpu_threads.clone()),
 
 			dns: config.network.dns.clone(),
 

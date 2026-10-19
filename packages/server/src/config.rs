@@ -1155,10 +1155,8 @@ pub struct Runner {
 
 	pub control_channel_capacity: usize,
 
-	/// Whether to pin each sandbox without a CPU pool to as many hardware threads as its CPU maximum, which requires the cpuset cgroup controller.
+	/// Whether to pin each sandbox with a CPU maximum to that many hardware threads.
 	pub cpu_affinity: bool,
-
-	pub cpu_pool: Option<PathBuf>,
 
 	pub cpus: Option<u64>,
 
@@ -1214,6 +1212,9 @@ pub struct Runner {
 	pub sandbox_pool_size: usize,
 
 	pub sandbox_state_ttl: Duration,
+
+	/// The number of sandboxes that the runner runs at once, which defaults to its number of hardware threads.
+	pub sandboxes: Option<u64>,
 
 	pub scheduler_ttl: Duration,
 
@@ -1510,14 +1511,17 @@ pub struct Scheduler {
 
 	pub create_sandbox_timeout: Duration,
 
-	/// The CPU maximum for a sandbox that does not request one, where none means unlimited.
-	pub default_cpu: Option<u64>,
+	/// The CPU bounds for a sandbox that omits them, where an omitted maximum means no limit.
+	pub default_cpu: tg::sandbox::Cpu,
 
-	/// The memory maximum for a sandbox that does not request one, where none means unlimited.
-	pub default_memory: Option<u64>,
+	/// The memory bounds for a sandbox that omits them, where an omitted maximum means no limit.
+	pub default_memory: tg::sandbox::Resource<u64>,
 
-	/// The storage maximum for a sandbox that does not request one, where none means unlimited.
-	pub default_storage: Option<u64>,
+	/// The storage bounds for a sandbox that omits them, where an omitted maximum means no limit.
+	pub default_storage: tg::sandbox::Resource<u64>,
+
+	/// The swap bounds for a sandbox that omits them, where an omitted maximum means no limit.
+	pub default_swap: tg::sandbox::Resource<u64>,
 
 	pub enqueue_retry: Retry,
 
@@ -2834,7 +2838,6 @@ impl Default for Runner {
 			backend: RunnerBackend::default(),
 			control_channel_capacity: 256,
 			cpu_affinity: true,
-			cpu_pool: None,
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
@@ -2862,6 +2865,7 @@ impl Default for Runner {
 			sandbox_control_connection_pool_ttl: Duration::from_secs(5),
 			sandbox_pool_size: 1,
 			sandbox_state_ttl: Duration::from_mins(1),
+			sandboxes: None,
 			scheduler_ttl: Duration::from_secs(10),
 			stdio_buffer_chunks: 16 * 1024,
 			stdio_buffer_size: 8 * 1024 * 1024,
@@ -2874,14 +2878,29 @@ impl Default for Runner {
 	}
 }
 
+impl Scheduler {
+	/// Get the default bounds for a sandbox's resources.
+	#[must_use]
+	pub fn default_capacity(&self) -> tg::runner::Capacity {
+		tg::runner::Capacity {
+			cpu: self.default_cpu,
+			memory: self.default_memory,
+			sandboxes: 1,
+			storage: self.default_storage,
+			swap: self.default_swap,
+		}
+	}
+}
+
 impl Default for Scheduler {
 	fn default() -> Self {
 		Self {
 			create_sandbox_queue_capacity: default_scheduler_create_sandbox_queue_capacity(),
 			create_sandbox_timeout: Duration::from_secs(10),
-			default_cpu: None,
-			default_memory: None,
-			default_storage: None,
+			default_cpu: tg::sandbox::Cpu::default(),
+			default_memory: tg::sandbox::Resource::default(),
+			default_storage: tg::sandbox::Resource::default(),
+			default_swap: tg::sandbox::Resource::default(),
 			enqueue_retry: message_retry_default(),
 			heartbeat_interval: Duration::from_secs(1),
 			heartbeat_ttl: Duration::from_secs(10),

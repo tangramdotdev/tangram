@@ -1804,12 +1804,9 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub control_channel_capacity: Option<usize>,
 
-	/// Whether to pin sandboxes with a CPU maximum to that many hardware threads. Enabled by default and requires the cpuset controller.
+	/// Whether to pin sandboxes with a CPU maximum to that many hardware threads. Enabled by default.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpu_affinity: Option<bool>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cpu_pool: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpus: Option<u64>,
@@ -1904,6 +1901,10 @@ pub struct Runner {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandbox_state_ttl: Option<Duration>,
+
+	/// The number of sandboxes that the runner runs at once, which defaults to its number of hardware threads.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandboxes: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2088,17 +2089,21 @@ pub struct Scheduler {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub create_sandbox_timeout: Option<Duration>,
 
-	/// The CPU maximum for a sandbox that does not request one, where none means unlimited.
+	/// The CPU bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub default_cpu: Option<u64>,
+	pub default_cpu: Option<tg::sandbox::Cpu>,
 
-	/// The memory maximum for a sandbox that does not request one, where none means unlimited.
+	/// The memory bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub default_memory: Option<u64>,
+	pub default_memory: Option<tg::sandbox::Resource<u64>>,
 
-	/// The storage maximum for a sandbox that does not request one, where none means unlimited.
+	/// The storage bounds for a sandbox that omits them, where an omitted maximum means no limit.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub default_storage: Option<u64>,
+	pub default_storage: Option<tg::sandbox::Resource<u64>>,
+
+	/// The swap bounds for a sandbox that omits them, where an omitted maximum means no limit.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default_swap: Option<tg::sandbox::Resource<u64>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub enqueue_retry: Option<Retry>,
@@ -5409,10 +5414,7 @@ fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {
 
 fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	// Create the default runner configuration.
-	let mut target = server::Runner {
-		cpu_pool: source.cpu_pool,
-		..Default::default()
-	};
+	let mut target = server::Runner::default();
 
 	// Apply the capacity and channel settings.
 	if let Some(value) = source.cpu_affinity {
@@ -5499,6 +5501,9 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	}
 	if let Some(value) = source.sandbox_pool_size {
 		target.sandbox_pool_size = value;
+	}
+	if let Some(value) = source.sandboxes {
+		target.sandboxes = Some(value);
 	}
 	if let Some(value) = source.sandbox_state_ttl {
 		target.sandbox_state_ttl = value;
@@ -5653,13 +5658,16 @@ fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 		target.create_sandbox_timeout = value;
 	}
 	if let Some(value) = source.default_cpu {
-		target.default_cpu = Some(value);
+		target.default_cpu = value;
 	}
 	if let Some(value) = source.default_memory {
-		target.default_memory = Some(value);
+		target.default_memory = value;
 	}
 	if let Some(value) = source.default_storage {
-		target.default_storage = Some(value);
+		target.default_storage = value;
+	}
+	if let Some(value) = source.default_swap {
+		target.default_swap = value;
 	}
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;

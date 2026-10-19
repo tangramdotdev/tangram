@@ -300,7 +300,7 @@ pub(crate) async fn spawn(
 		cwd: "/".into(),
 		env: environment,
 	};
-	let cgroup_readonly = isolation.cgroup_readonly || arg.cpu_pool.is_some();
+	let cgroup_readonly = isolation.cgroup_readonly;
 	let options = crate::run::Options {
 		cgroup_delegate: !cgroup_readonly,
 		cgroup_readonly,
@@ -398,7 +398,7 @@ pub(crate) async fn spawn(
 		.stderr(std::process::Stdio::inherit());
 
 	// Spawn the launcher and install the identity maps.
-	let child = spawn_command(&mut command, &launcher_cgroup)?;
+	let child = spawn_command(&mut command, &launcher_cgroup, cgroup.affinity())?;
 	config.finish().await?;
 	if let Some((host, guest, uid_map, gid_map)) = user_namespace {
 		drop(guest);
@@ -458,9 +458,13 @@ pub(crate) async fn spawn(
 pub(crate) fn spawn_command(
 	command: &mut tokio::process::Command,
 	cgroup: &crate::cgroup::Handle,
+	affinity: Option<&[usize]>,
 ) -> tg::Result<tokio::process::Child> {
 	let directory = cgroup.open_fd()?;
 	crate::cgroup::enter_before_exec(command.as_std_mut(), directory.as_raw_fd());
+	if let Some(cpus) = affinity {
+		crate::cgroup::set_affinity_before_exec(command.as_std_mut(), cpus);
+	}
 	let child = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox launcher"))?;

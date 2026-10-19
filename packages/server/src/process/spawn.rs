@@ -211,25 +211,13 @@ impl Session {
 		tracing::info!(location = %location, parent = arg.parent.as_ref().map(ToString::to_string), "scheduling the process");
 		let runner_matches_location = self.spawn_process_runner_matches_location(&location);
 		let new_sandbox = matches!(arg.sandbox, Some(tg::Either::Left(_)));
+
+		// Resolve the resources of a new sandbox that this server's runner may create, and get the capacity that it reserves.
 		let requested =
-			if runner_matches_location && let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
-				let scheduler = &self.server.config.scheduler;
-				Some(tg::runner::Capacity {
-					cpu: sandbox
-						.cpu
-						.unwrap_or(scheduler.default_cpu.unwrap_or_default().into()),
-					memory: sandbox
-						.memory
-						.unwrap_or(scheduler.default_memory.unwrap_or_default().into()),
-					storage: sandbox.storage.unwrap_or_else(|| {
-						if cfg!(target_os = "macos") {
-							0.into()
-						} else {
-							scheduler.default_storage.unwrap_or_default().into()
-						}
-					}),
-					swap: sandbox.swap.unwrap_or_default(),
-				})
+			if runner_matches_location && let Some(tg::Either::Left(sandbox)) = &mut arg.sandbox {
+				let defaults = self.server.config.scheduler.default_capacity();
+				crate::sandbox::resolve_sandbox_resources(&defaults, sandbox);
+				Some(crate::sandbox::sandbox_capacity(sandbox))
 			} else {
 				None
 			};
@@ -341,23 +329,7 @@ impl Session {
 		if arg.cached == Some(true) {
 			return None;
 		}
-		let scheduler = &self.server.config.scheduler;
-		let requested = tg::runner::Capacity {
-			cpu: sandbox
-				.cpu
-				.unwrap_or(scheduler.default_cpu.unwrap_or_default().into()),
-			memory: sandbox
-				.memory
-				.unwrap_or(scheduler.default_memory.unwrap_or_default().into()),
-			storage: sandbox.storage.unwrap_or_else(|| {
-				if cfg!(target_os = "macos") {
-					0.into()
-				} else {
-					scheduler.default_storage.unwrap_or_default().into()
-				}
-			}),
-			swap: sandbox.swap.unwrap_or_default(),
-		};
+		let requested = crate::sandbox::sandbox_capacity(sandbox);
 		let session = self.clone();
 		let parent = parent.clone();
 		let parent_sandbox = parent_sandbox.clone();

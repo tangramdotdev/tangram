@@ -36,8 +36,9 @@ struct Bookkeeping {
 struct Entry {
 	control: Option<Control>,
 	limit: u64,
+	max: u64,
+	min: u64,
 	orphaned: bool,
-	resource: tg::sandbox::Resource<u64>,
 }
 
 impl Pool {
@@ -52,9 +53,12 @@ impl Pool {
 		Self(Arc::new(state))
 	}
 
+	/// Allocate a resource from the pool, where a resource without a maximum may grow to the pool's capacity.
 	pub(crate) fn allocate(&self, resource: tg::sandbox::Resource<u64>) -> tg::Result<Allocation> {
 		resource.validate()?;
-		if resource.max < self.0.floor || self.round(resource.min)? > resource.max {
+		let max = resource.max.unwrap_or(self.0.capacity);
+		let min = resource.min;
+		if max < self.0.floor || self.round(min)? > max {
 			return Err(tg::error!(
 				"the resource maximum is smaller than the allocation unit"
 			));
@@ -70,8 +74,9 @@ impl Pool {
 		let entry = Entry {
 			control: None,
 			limit: 0,
+			max,
+			min,
 			orphaned: false,
-			resource,
 		};
 		let limits: BTreeMap<_, _> = entries
 			.entries
@@ -106,7 +111,7 @@ impl Pool {
 		for entry in entries.entries.values_mut() {
 			if let Some(control) = &entry.control {
 				let usage = (control.usage)()?;
-				let floor = self.round(usage.max(entry.resource.min).max(self.0.floor))?;
+				let floor = self.round(usage.max(entry.min).max(self.0.floor))?;
 				if let Err(error) = (control.limit)(floor) {
 					entries.poisoned = true;
 					return Err(error);
@@ -128,7 +133,7 @@ impl Pool {
 				removable.push(*id);
 				continue;
 			}
-			let floor = self.round(usage.max(entry.resource.min).max(self.0.floor))?;
+			let floor = self.round(usage.max(entry.min).max(self.0.floor))?;
 			occupied = occupied
 				.checked_add(floor)
 				.ok_or_else(|| tg::error!("the resource capacity overflowed"))?;
@@ -146,13 +151,11 @@ impl Pool {
 		let demand: u128 = entries
 			.entries
 			.iter()
-			.map(|(id, entry)| {
-				u128::from(entry.resource.max.saturating_sub(floors[id]) / self.0.unit)
-			})
+			.map(|(id, entry)| u128::from(entry.max.saturating_sub(floors[id]) / self.0.unit))
 			.sum();
 		for (id, entry) in &mut entries.entries {
 			let floor = floors[id];
-			let need = entry.resource.max.saturating_sub(floor) / self.0.unit;
+			let need = entry.max.saturating_sub(floor) / self.0.unit;
 			let granted = u128::from(remaining) * u128::from(need) / demand.max(1);
 			let granted = u64::try_from(granted).unwrap_or(u64::MAX).min(need);
 			let limit = floor + granted * self.0.unit;

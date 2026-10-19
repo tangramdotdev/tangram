@@ -194,8 +194,9 @@ pub(crate) fn command(
 	// Create the launch configuration.
 	let cpu = arg
 		.cpu
-		.map(|cpu| crate::cpu::threads(cpu, arg.cpu_pool.as_ref()))
-		.transpose()?;
+		.map(tg::sandbox::Cpu::threads)
+		.transpose()?
+		.flatten();
 	let launch = Arg {
 		cloud_hypervisor_path: config.cloud_hypervisor_path.clone(),
 		create_snapshot: None,
@@ -211,7 +212,7 @@ pub(crate) fn command(
 		kernel_path: config.kernel_path.clone(),
 		max_cpu: config.max_cpu,
 		max_memory: config.max_memory,
-		memory: arg.memory.map(|memory| memory.max),
+		memory: arg.memory.and_then(|memory| memory.max),
 		mounts: arg.mounts.clone(),
 		network: network_kind,
 		network_interface_timeout: config.network_interface_timeout,

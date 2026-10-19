@@ -4,7 +4,7 @@ use {
 		DequeueSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
 		HeartbeatNotification, Operation, OwnerAncestors, PendingEnqueue, ResponseOutput,
 		Scheduler, State,
-		runner::{Reservation, ReservationSource, ReservationState, Runner},
+		runner::{Reservation, ReservationState, Runner},
 	},
 	futures::FutureExt as _,
 	std::{
@@ -380,31 +380,22 @@ impl State {
 	fn enqueue_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
-		request: EnqueueSandboxRequestArg,
+		mut request: EnqueueSandboxRequestArg,
 		owner_ancestors: OwnerAncestors,
 	) -> tg::Result<EnqueueSandboxResponseOutput> {
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
 			return Ok(EnqueueSandboxResponseOutput { enqueued: true });
 		}
-		let capacity = tg::runner::Capacity {
-			cpu: request
-				.arg
-				.cpu
-				.unwrap_or(scheduler.config.default_capacity.cpu),
-			memory: request
-				.arg
-				.memory
-				.unwrap_or(scheduler.config.default_capacity.memory),
-			storage: default_storage(&request.arg, scheduler.config.default_capacity.storage),
-			swap: request
-				.arg
-				.swap
-				.unwrap_or(scheduler.config.default_capacity.swap),
-		};
-		if request.arg.cpu.is_some_and(|cpu| cpu.max.millis() == 0) {
+		// Resolve the sandbox's resources, so that the runner creates the sandbox with the bounds that the scheduler admits.
+		crate::sandbox::resolve_sandbox_resources(
+			&scheduler.config.default_capacity,
+			&mut request.arg,
+		);
+		let capacity = crate::sandbox::sandbox_capacity(&request.arg);
+		if capacity.cpu.max.is_some_and(|max| max.millis() == 0) {
 			return Err(tg::error!("the sandbox CPU must be greater than zero"));
 		}
-		if request.arg.memory.is_some_and(|memory| memory.max == 0) {
+		if capacity.memory.max == Some(0) {
 			return Err(tg::error!("the sandbox memory must be greater than zero"));
 		}
 		let id = request.sandbox.clone();
@@ -462,7 +453,7 @@ impl State {
 		let borrowable =
 			Borrowable::new(notification, connection_index, parent.borrowable.as_ref());
 		let previous = parent.borrowable.take();
-		if borrowable.capacity.cpu.max.millis() != 0 {
+		if borrowable.capacity.sandboxes != 0 {
 			parent.borrowable = Some(borrowable);
 		}
 		if let Some(previous) = previous
@@ -526,7 +517,7 @@ impl State {
 		runner.committed = tg::runner::Capacity::default();
 		runner.heartbeat_at = tokio::time::Instant::now();
 		runner.heartbeat_index = notification.heartbeat_index;
-		runner.ready = runner.capacity.total.cpu.max.millis() != 0;
+		runner.ready = runner.capacity.total.sandboxes != 0;
 		self.queue.wake();
 
 		true
@@ -786,7 +777,11 @@ impl State {
 			}
 			let available = available(runner);
 			if !available.contains(sandbox.capacity, runner.capacity.overcommit)
-				|| sandbox.capacity.cpu.max.threads() > cpu_limit(runner)
+				|| sandbox
+					.capacity
+					.cpu
+					.max
+					.is_some_and(|max| max.threads() > cpu_limit(runner))
 			{
 				continue;
 			}
@@ -820,14 +815,13 @@ impl State {
 		})
 	}
 
+	/// Find the capacity that a sandbox's parent lends on a runner, where the runner also has the capacity that the sandbox must acquire in addition to what it borrows.
 	fn borrowable(&self, sandbox: &Sandbox) -> Option<(&Borrowable, &Runner)> {
 		let parent = sandbox.request.parent.as_ref()?;
 		let borrowable = self.parents.0.get(parent)?.borrowable.as_ref()?;
 		let runner = self.runners.entries.get(&borrowable.runner)?;
-		if borrowable
-			.capacity
-			.try_borrow(sandbox.capacity, runner.capacity.overcommit)
-			.is_none()
+		let (_, acquired) = borrowable.capacity.try_borrow(sandbox.capacity)?;
+		if !available(runner).contains(acquired, runner.capacity.overcommit)
 			|| borrowable
 				.connection_index
 				.is_some_and(|index| index != runner.connection_index)
@@ -894,11 +888,9 @@ impl State {
 		let Some(reservation) = runner.reservations.remove(id) else {
 			return;
 		};
-		if matches!(reservation.source, ReservationSource::Regular) {
-			subtract(&mut runner.reserved, reservation.capacity);
-			if commit {
-				add(&mut runner.committed, reservation.capacity);
-			}
+		subtract(&mut runner.reserved, reservation.capacity);
+		if commit {
+			add(&mut runner.committed, reservation.capacity);
 		}
 	}
 
@@ -953,23 +945,27 @@ impl State {
 		let request = sandbox.request.clone();
 		let runner_ref = placement.runner().clone();
 		self.remove_queued_sandbox(id);
-		if let Placement::Borrowed { parent, .. } = &placement
-			&& let Some(parent) = self.parents.0.get_mut(parent)
-		{
-			parent.borrowable.as_mut().unwrap().available = false;
-		}
+
+		// Reserve the sandbox's capacity on the runner, which for a borrowed sandbox is only the capacity that it acquires in addition to what it borrows.
+		let reserved = match &placement {
+			Placement::Borrowed { parent, .. } => {
+				let borrowable = self
+					.parents
+					.0
+					.get_mut(parent)
+					.and_then(|parent| parent.borrowable.as_mut())
+					.unwrap();
+				borrowable.available = false;
+				let (_, acquired) = borrowable.capacity.try_borrow(capacity).unwrap();
+				acquired
+			},
+			Placement::Regular { .. } => capacity,
+		};
 		let runner = self.runners.entries.get_mut(&runner_ref.id).unwrap();
 		runner.requests += 1;
-		let source = match &placement {
-			Placement::Borrowed { .. } => ReservationSource::Borrowed,
-			Placement::Regular { .. } => {
-				add(&mut runner.reserved, capacity);
-				ReservationSource::Regular
-			},
-		};
+		add(&mut runner.reserved, reserved);
 		let entry = Reservation {
-			capacity,
-			source,
+			capacity: reserved,
 			state: ReservationState::Pending,
 		};
 		runner.reservations.insert(id.clone(), entry);
@@ -1070,29 +1066,34 @@ async fn create_sandbox(
 	Ok(result)
 }
 
+/// Add a request to a sum of requests, which accounts for each request's maximum as its minimum when it has none.
 fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
-	capacity.cpu.max = tg::sandbox::Amount::from_millis(
-		capacity
-			.cpu
-			.max
-			.millis()
-			.saturating_add(value.cpu.max.millis()),
-	);
-	capacity.cpu.min = tg::sandbox::Amount::from_millis(
-		capacity
-			.cpu
-			.min
-			.millis()
-			.saturating_add(value.cpu.min.millis()),
+	let max = capacity
+		.cpu
+		.accounted_max()
+		.millis()
+		.saturating_add(value.cpu.accounted_max().millis());
+	let min = capacity
+		.cpu
+		.min
+		.millis()
+		.saturating_add(value.cpu.min.millis());
+	capacity.cpu = tg::sandbox::Cpu::new(
+		tg::sandbox::Amount::from_millis(min),
+		tg::sandbox::Amount::from_millis(max),
 	);
 	for (resource, value) in [
 		(&mut capacity.memory, value.memory),
 		(&mut capacity.storage, value.storage),
 		(&mut capacity.swap, value.swap),
 	] {
-		resource.min = resource.min.saturating_add(value.min);
-		resource.max = resource.max.saturating_add(value.max);
+		let max = resource
+			.accounted_max()
+			.saturating_add(value.accounted_max());
+		let min = resource.min.saturating_add(value.min);
+		*resource = tg::sandbox::Resource::new(min, max);
 	}
+	capacity.sandboxes = capacity.sandboxes.saturating_add(value.sandboxes);
 }
 
 fn available(runner: &Runner) -> tg::runner::Capacity {
@@ -1127,7 +1128,11 @@ fn placeable(runner: &Runner, sandbox: &Sandbox) -> bool {
 			.capacity
 			.total
 			.contains(sandbox.capacity, runner.capacity.overcommit)
-		&& sandbox.capacity.cpu.max.threads() <= runner.capacity.cpu_limit
+		&& sandbox
+			.capacity
+			.cpu
+			.max
+			.is_none_or(|max| max.threads() <= runner.capacity.cpu_limit)
 }
 
 fn score(
@@ -1136,71 +1141,40 @@ fn score(
 	requested: tg::runner::Capacity,
 ) -> (u128, u128) {
 	let remaining = available.subtract(requested, runner.capacity.overcommit);
-	let cpu = u128::from(remaining.cpu.max.millis()) * 1_000_000
-		/ u128::from(runner.capacity.total.cpu.max.millis().max(1));
-	let memory = u128::from(remaining.memory.max) * 1_000_000
-		/ u128::from(runner.capacity.total.memory.max.max(1));
+	let total = runner.capacity.total;
+	let cpu = u128::from(remaining.cpu.max.map_or(0, tg::sandbox::Amount::millis)) * 1_000_000
+		/ u128::from(total.cpu.max.map_or(1, tg::sandbox::Amount::millis).max(1));
+	let memory = u128::from(remaining.memory.max.unwrap_or_default()) * 1_000_000
+		/ u128::from(total.memory.max.unwrap_or(1).max(1));
 	(cpu.max(memory), cpu + memory)
 }
 
+/// Subtract a request from a sum of requests.
 fn subtract(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
-	capacity.cpu.max = tg::sandbox::Amount::from_millis(
-		capacity
-			.cpu
-			.max
-			.millis()
-			.saturating_sub(value.cpu.max.millis()),
-	);
-	capacity.cpu.min = tg::sandbox::Amount::from_millis(
-		capacity
-			.cpu
-			.min
-			.millis()
-			.saturating_sub(value.cpu.min.millis()),
+	let max = capacity
+		.cpu
+		.accounted_max()
+		.millis()
+		.saturating_sub(value.cpu.accounted_max().millis());
+	let min = capacity
+		.cpu
+		.min
+		.millis()
+		.saturating_sub(value.cpu.min.millis());
+	capacity.cpu = tg::sandbox::Cpu::new(
+		tg::sandbox::Amount::from_millis(min),
+		tg::sandbox::Amount::from_millis(max),
 	);
 	for (resource, value) in [
 		(&mut capacity.memory, value.memory),
 		(&mut capacity.storage, value.storage),
 		(&mut capacity.swap, value.swap),
 	] {
-		resource.min = resource.min.saturating_sub(value.min);
-		resource.max = resource.max.saturating_sub(value.max);
+		let max = resource
+			.accounted_max()
+			.saturating_sub(value.accounted_max());
+		let min = resource.min.saturating_sub(value.min);
+		*resource = tg::sandbox::Resource::new(min, max);
 	}
-}
-
-fn default_storage(
-	arg: &tg::sandbox::create::Arg,
-	default: tg::sandbox::Resource<u64>,
-) -> tg::sandbox::Resource<u64> {
-	if let Some(storage) = arg.storage {
-		return storage;
-	}
-	if arg
-		.host
-		.as_ref()
-		.is_some_and(|host| host.ends_with("-darwin"))
-	{
-		return 0.into();
-	}
-	default
-}
-
-#[cfg(test)]
-mod resource_tests {
-	use super::*;
-
-	#[test]
-	fn storage_defaults_follow_the_requested_host() {
-		let default = (10 * 1024 * 1024 * 1024).into();
-		for (host, expected) in [
-			("aarch64-darwin", 0),
-			("x86_64-linux", 10 * 1024 * 1024 * 1024),
-		] {
-			let arg = tg::sandbox::create::Arg {
-				host: Some(host.to_owned()),
-				..Default::default()
-			};
-			assert_eq!(default_storage(&arg, default).max, expected);
-		}
-	}
+	capacity.sandboxes = capacity.sandboxes.saturating_sub(value.sandboxes);
 }

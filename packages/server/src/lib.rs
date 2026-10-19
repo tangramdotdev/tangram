@@ -1262,15 +1262,32 @@ impl Server {
 					"the scheduler create sandbox queue capacity must be greater than zero"
 				));
 			}
-			if scheduler.default_cpu == Some(0) {
+			if scheduler
+				.default_cpu
+				.max
+				.is_some_and(|max| max.millis() == 0)
+			{
 				return Err(tg::error!(
 					"the default sandbox CPU must be greater than zero"
 				));
 			}
-			if scheduler.default_memory == Some(0) {
+			if scheduler.default_memory.max == Some(0) {
 				return Err(tg::error!(
 					"the default sandbox memory must be greater than zero"
 				));
+			}
+			scheduler
+				.default_cpu
+				.threads()
+				.map_err(|error| tg::error!(!error, "invalid default sandbox CPU bounds"))?;
+			for resource in [
+				scheduler.default_memory,
+				scheduler.default_storage,
+				scheduler.default_swap,
+			] {
+				resource.validate().map_err(|error| {
+					tg::error!(!error, "invalid default sandbox resource bounds")
+				})?;
 			}
 			if scheduler.max_create_sandbox_requests == 0 {
 				return Err(tg::error!(
@@ -1284,23 +1301,12 @@ impl Server {
 			}
 		}
 
-		// Create the exclusive CPU pool and validate the sampling interval.
+		// Validate the sampling interval and overcommit factors.
 		if config.runner.memory_sampling_interval.is_zero() {
 			return Err(tg::error!(
 				"the memory sampling interval must be greater than zero"
 			));
 		}
-		#[cfg(target_os = "linux")]
-		let cpu_pool = if config.roles.contains(&self::config::Role::Runner) {
-			config
-				.runner
-				.cpu_pool
-				.clone()
-				.map(|parent| tangram_sandbox::cpu::Pool::new(parent, config.runner.overcommit.cpu))
-				.transpose()?
-		} else {
-			None
-		};
 		if [
 			config.runner.overcommit.cpu,
 			config.runner.overcommit.memory,
@@ -1313,10 +1319,6 @@ impl Server {
 				"the resource overcommit factors must be greater than zero"
 			));
 		}
-		#[cfg(target_os = "macos")]
-		if config.runner.cpu_pool.is_some() {
-			return Err(tg::error!("CPU pools are not supported on macos"));
-		}
 
 		// Create the runner state.
 		let capacity = if config.roles.contains(&self::config::Role::Runner) {
@@ -1326,7 +1328,7 @@ impl Server {
 				.unwrap_or_else(|| u64::try_from(parallelism).unwrap());
 			#[cfg(target_os = "linux")]
 			let (physical_memory, physical_storage, physical_swap) =
-				tangram_sandbox::capacity::detect(&path, runner.cpu_pool.as_deref())?;
+				tangram_sandbox::capacity::detect(&path)?;
 			#[cfg(not(target_os = "linux"))]
 			let (physical_memory, physical_storage, physical_swap) =
 				(1_073_741_824_u64.saturating_mul(cpus), 0, 0);
@@ -1366,31 +1368,30 @@ impl Server {
 					"the runner CPU capacity exceeds its available hardware threads"
 				));
 			}
-			let min = tg::sandbox::Amount::default();
-			#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
-			let mut capacity = tg::runner::Capacity {
-				cpu: tg::sandbox::Cpu { max, min },
+			let min = cpus
+				.checked_mul(1000)
+				.ok_or_else(|| tg::error!("the CPU capacity is too large"))?;
+			let min = tg::sandbox::Amount::from_millis(min);
+			let sandboxes = runner.sandboxes.unwrap_or(cpus);
+			if sandboxes == 0 {
+				return Err(tg::error!(
+					"the runner sandbox capacity must be greater than zero"
+				));
+			}
+			let capacity = tg::runner::Capacity {
+				cpu: tg::sandbox::Cpu::new(min, max),
 				memory,
+				sandboxes,
 				storage,
 				swap,
 			};
-			#[cfg(target_os = "linux")]
-			if let Some(pool) = &cpu_pool {
-				if runner.cpus.is_some() {
-					return Err(tg::error!(
-						"an exclusive CPU pool determines the runner CPU capacity"
-					));
-				}
-				capacity.cpu = pool.capacity().cpu;
-				pool.budget(memory.min, swap.min)?;
-			}
-			if capacity.cpu.max.millis() == 0 {
+			if capacity.cpu.max.is_none_or(|max| max.millis() == 0) {
 				return Err(tg::error!(
 					"the runner CPU capacity must be greater than zero"
 				));
 			}
 
-			if capacity.memory.max == 0 {
+			if capacity.memory.max.is_none_or(|max| max == 0) {
 				return Err(tg::error!(
 					"the runner memory capacity must be greater than zero"
 				));
@@ -1401,19 +1402,14 @@ impl Server {
 			tg::runner::Capacity::default()
 		};
 
-		// Warm sandboxes would claim physical CPU slots before scheduler admission.
-		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner)
-			&& config.runner.cpu_pool.is_none()
-		{
+		// Warm sandboxes only on runners.
+		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner) {
 			config.runner.sandbox_pool_size
 		} else {
 			0
 		};
 		let runner_config = self::runner::Config {
 			capacity,
-
-			#[cfg(target_os = "linux")]
-			cpu_pool,
 
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: config.runner.resources.filesystem_project_ids,

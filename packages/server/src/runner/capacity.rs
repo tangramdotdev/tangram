@@ -17,10 +17,10 @@ pub struct Pool {
 pub struct Allocation {
 	capacity: tg::runner::Capacity,
 	#[cfg(target_os = "linux")]
-	cpu_lease: Option<tangram_sandbox::cpu::Lease>,
+	cpu_lender: Option<tangram_sandbox::cpu::ShareId>,
 	#[cfg(target_os = "linux")]
-	cpu_parent: Option<tangram_sandbox::cpu::Lease>,
-	overcommit: tg::runner::Overcommit,
+	cpu_share: Option<tangram_sandbox::cpu::ShareId>,
+	#[allow(dead_code)]
 	source: AllocationSource,
 }
 
@@ -39,11 +39,8 @@ pub struct ReservationGuard {
 struct State {
 	allocations: Mutex<BTreeMap<u64, tg::runner::Capacity>>,
 	changed: tokio::sync::Notify,
-	#[cfg(target_os = "linux")]
-	cpu_pool: Mutex<Option<tangram_sandbox::cpu::Pool>>,
 	next_index: AtomicU64,
 	overcommit: tg::runner::Overcommit,
-	threads_per_core: u64,
 	total: tg::runner::Capacity,
 }
 
@@ -58,35 +55,34 @@ struct Reservation {
 	index: u64,
 }
 
+/// The source of an allocation's capacity, which holds the capacity until it is dropped.
+#[allow(dead_code)]
 enum AllocationSource {
-	Parent(#[allow(dead_code)] tokio::sync::OwnedMutexGuard<Option<Allocation>>),
-	Pool { index: u64, pool: Pool },
+	Parent {
+		acquisition: Option<Acquisition>,
+		parent: tokio::sync::OwnedMutexGuard<Option<Allocation>>,
+	},
+	Pool(Acquisition),
+}
+
+/// Capacity acquired from the pool, which is released when it is dropped.
+struct Acquisition {
+	index: u64,
+	pool: Pool,
 }
 
 impl Pool {
 	#[must_use]
-	pub fn new(
-		total: tg::runner::Capacity,
-		overcommit: tg::runner::Overcommit,
-		threads_per_core: u64,
-	) -> Self {
+	pub fn new(total: tg::runner::Capacity, overcommit: tg::runner::Overcommit) -> Self {
 		Self {
 			state: Arc::new(State {
 				allocations: Mutex::new(BTreeMap::new()),
 				changed: tokio::sync::Notify::new(),
-				#[cfg(target_os = "linux")]
-				cpu_pool: Mutex::new(None),
 				next_index: AtomicU64::new(0),
 				overcommit,
-				threads_per_core,
 				total,
 			}),
 		}
-	}
-
-	#[cfg(target_os = "linux")]
-	pub fn set_cpu_pool(&self, pool: Option<tangram_sandbox::cpu::Pool>) {
-		*self.state.cpu_pool.lock().unwrap() = pool;
 	}
 
 	#[must_use]
@@ -101,27 +97,16 @@ impl Pool {
 	) -> tg::runner::control::Capacity {
 		let total = self.state.total;
 		let overcommit = self.state.overcommit;
-		let cpu_threads_per_core = self.state.threads_per_core;
 		let available = allocations.values().fold(total, |available, allocation| {
 			available.subtract(*allocation, overcommit)
 		});
-		#[cfg(target_os = "linux")]
-		let available = if let Some(pool) = &*self.state.cpu_pool.lock().unwrap() {
-			let cpu = pool.available();
-			let cpu = tg::sandbox::Cpu::new(
-				cpu.min.min(available.cpu.min),
-				cpu.max.min(available.cpu.max),
-			);
-			tg::runner::Capacity { cpu, ..available }
-		} else {
-			available
-		};
-
-		let cpu_limit = total.cpu.max.millis() / (1000 * overcommit.cpu);
+		let cpu_limit = total
+			.cpu
+			.max
+			.map_or(0, |max| max.millis() / (1000 * overcommit.cpu));
 		tg::runner::control::Capacity {
 			available,
 			cpu_limit,
-			cpu_threads_per_core,
 			overcommit,
 			total,
 		}
@@ -129,10 +114,25 @@ impl Pool {
 
 	#[must_use]
 	pub fn try_acquire(&self, capacity: tg::runner::Capacity) -> Option<Allocation> {
+		let acquisition = self.try_acquire_inner(capacity)?;
+		Some(Allocation {
+			capacity,
+			#[cfg(target_os = "linux")]
+			cpu_lender: None,
+			#[cfg(target_os = "linux")]
+			cpu_share: None,
+			source: AllocationSource::Pool(acquisition),
+		})
+	}
+
+	fn try_acquire_inner(&self, capacity: tg::runner::Capacity) -> Option<Acquisition> {
 		let mut allocations = self.state.allocations.lock().unwrap();
 		let current = self.capacity(&allocations);
 		if !current.available.contains(capacity, current.overcommit)
-			|| capacity.cpu.max.threads() > current.cpu_limit
+			|| capacity
+				.cpu
+				.max
+				.is_some_and(|max| max.threads() > current.cpu_limit)
 		{
 			return None;
 		}
@@ -141,15 +141,7 @@ impl Pool {
 		drop(allocations);
 		self.state.changed.notify_one();
 		let pool = self.clone();
-		Some(Allocation {
-			capacity,
-			#[cfg(target_os = "linux")]
-			cpu_lease: None,
-			#[cfg(target_os = "linux")]
-			cpu_parent: None,
-			overcommit: self.state.overcommit,
-			source: AllocationSource::Pool { index, pool },
-		})
+		Some(Acquisition { index, pool })
 	}
 
 	pub async fn wait_for_change(&self) {
@@ -181,9 +173,8 @@ impl Reservations {
 		parent: tg::sandbox::Id,
 		requested: tg::runner::Capacity,
 	) -> Option<(tg::runner::Capacity, ReservationGuard)> {
-		let parent_allocation = allocation.as_ref()?;
-		let capacity = parent_allocation.capacity;
-		capacity.try_borrow(requested, parent_allocation.overcommit)?;
+		let capacity = allocation.as_ref()?.capacity;
+		capacity.try_borrow(requested)?;
 		let index = self.state.next_index.fetch_add(1, Ordering::Relaxed);
 		let (consumed, receiver) = tokio::sync::oneshot::channel();
 		let reservation = Reservation {
@@ -211,17 +202,19 @@ impl Reservations {
 	#[must_use]
 	pub fn try_acquire(
 		&self,
+		pool: &Pool,
 		parent: &tg::sandbox::Id,
 		requested: tg::runner::Capacity,
 	) -> Option<Allocation> {
 		let mut entries = self.state.entries.lock().unwrap();
 		let reservation = entries.remove(parent)?;
 		let allocation = reservation.allocation.as_ref()?;
-		if allocation
+		let current = pool.get();
+		let borrowable = allocation
 			.capacity
-			.try_borrow(requested, allocation.overcommit)
-			.is_none()
-		{
+			.try_borrow(requested)
+			.is_some_and(|(_, acquired)| current.available.contains(acquired, current.overcommit));
+		if !borrowable {
 			entries.insert(parent.clone(), reservation);
 			return None;
 		}
@@ -230,7 +223,7 @@ impl Reservations {
 			return None;
 		}
 
-		Allocation::try_borrow(reservation.allocation, requested)
+		Allocation::try_borrow(pool, reservation.allocation, requested)
 	}
 }
 
@@ -240,39 +233,46 @@ impl Allocation {
 		self.capacity
 	}
 
+	/// Borrow the requested capacity from a waiting parent's allocation, acquiring from the pool the minima that the parent keeps.
 	#[must_use]
 	pub fn try_borrow(
+		pool: &Pool,
 		parent: tokio::sync::OwnedMutexGuard<Option<Self>>,
 		requested: tg::runner::Capacity,
 	) -> Option<Self> {
 		let allocation = parent.as_ref()?;
-		let capacity = allocation
-			.capacity
-			.try_borrow(requested, allocation.overcommit)?;
+		let (capacity, acquired) = allocation.capacity.try_borrow(requested)?;
+		let acquisition = if acquired == tg::runner::Capacity::default() {
+			None
+		} else {
+			Some(pool.try_acquire_inner(acquired)?)
+		};
 		#[cfg(target_os = "linux")]
-		let cpu_parent = allocation.cpu_lease.clone();
-		let overcommit = allocation.overcommit;
+		let cpu_lender = allocation.cpu_share;
 		Some(Self {
 			capacity,
 			#[cfg(target_os = "linux")]
-			cpu_lease: None,
+			cpu_lender,
 			#[cfg(target_os = "linux")]
-			cpu_parent,
-			overcommit,
-			source: AllocationSource::Parent(parent),
+			cpu_share: None,
+			source: AllocationSource::Parent {
+				acquisition,
+				parent,
+			},
 		})
 	}
 
+	/// Get the CPU share of the sandbox whose CPU minimum this allocation borrows.
 	#[cfg(target_os = "linux")]
 	#[must_use]
-	pub fn cpu_parent(&self) -> Option<tangram_sandbox::cpu::Lease> {
-		self.cpu_parent.clone()
+	pub fn cpu_lender(&self) -> Option<tangram_sandbox::cpu::ShareId> {
+		self.cpu_lender
 	}
 
+	/// Set the CPU share of the sandbox that this allocation belongs to, so that its borrowers can name it as their lender.
 	#[cfg(target_os = "linux")]
-	pub fn set_cpu_lease(&mut self, lease: Option<tangram_sandbox::cpu::Lease>) {
-		self.cpu_lease = lease;
-		self.cpu_parent.take();
+	pub fn set_cpu_share(&mut self, share: Option<tangram_sandbox::cpu::ShareId>) {
+		self.cpu_share = share;
 	}
 }
 
@@ -294,11 +294,9 @@ impl Drop for ReservationGuard {
 	}
 }
 
-impl Drop for Allocation {
+impl Drop for Acquisition {
 	fn drop(&mut self) {
-		if let AllocationSource::Pool { index, pool } = &self.source {
-			pool.release(*index);
-		}
+		self.pool.release(self.index);
 	}
 }
 
@@ -314,6 +312,7 @@ mod tests {
 		tg::runner::Capacity {
 			cpu,
 			memory: tg::sandbox::Resource::new(min, max),
+			sandboxes: 1,
 			storage: tg::sandbox::Resource::new(min, max),
 			swap: tg::sandbox::Resource::new(min, max),
 		}
@@ -321,14 +320,17 @@ mod tests {
 
 	#[test]
 	fn admission_reserves_all_minima_and_recovers_capacity_on_release() {
-		let total = capacity(2000, 8000);
+		let total = tg::runner::Capacity {
+			sandboxes: 4,
+			..capacity(2000, 8000)
+		};
 		let overcommit = tg::runner::Overcommit {
 			cpu: 4,
 			memory: 4,
 			storage: 4,
 			swap: 4,
 		};
-		let pool = Pool::new(total, overcommit, 2);
+		let pool = Pool::new(total, overcommit);
 		let first = pool.try_acquire(capacity(250, 1000)).unwrap();
 		assert_eq!(pool.get().cpu_limit, 2);
 		assert_eq!(
@@ -343,18 +345,50 @@ mod tests {
 	}
 
 	#[test]
-	fn a_borrower_cannot_promote_a_maximum_into_a_new_minimum() {
-		let total = capacity(2000, 8000);
-		let pool = Pool::new(total, tg::runner::Overcommit::default(), 2);
-		let parent = pool.try_acquire(capacity(0, 1000)).unwrap();
+	fn a_borrower_takes_its_parent_cpu_minimum_and_acquires_the_rest() {
+		let total = tg::runner::Capacity {
+			sandboxes: 4,
+			..capacity(2000, 8000)
+		};
+		let pool = Pool::new(total, tg::runner::Overcommit::default());
+		let parent = pool.try_acquire(capacity(1000, 2000)).unwrap();
 		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
 		let available = pool.get().available;
+
+		// A borrower acquires the CPU minimum beyond its parent's from the pool.
+		let requested = tg::runner::Capacity {
+			cpu: tg::sandbox::Cpu::with_min(tg::sandbox::Amount::from_millis(1500)),
+			sandboxes: 1,
+			..Default::default()
+		};
 		let guard = parent.clone().try_lock_owned().unwrap();
-		assert!(Allocation::try_borrow(guard, capacity(250, 1000)).is_none());
-		let guard = parent.clone().try_lock_owned().unwrap();
-		let child = Allocation::try_borrow(guard, capacity(0, 1000)).unwrap();
-		assert_eq!(pool.get().available, available);
+		let child = Allocation::try_borrow(&pool, guard, requested).unwrap();
+		assert_eq!(
+			pool.get().available.cpu.min.millis(),
+			available.cpu.min.millis() - 500
+		);
 		drop(child);
+
+		// A borrower takes its CPU minimum from its parent and acquires its other minima from the pool.
+		let requested = tg::runner::Capacity {
+			cpu: tg::sandbox::Cpu::with_min(tg::sandbox::Amount::from_millis(500)),
+			memory: tg::sandbox::Resource::with_min(500),
+			sandboxes: 1,
+			..Default::default()
+		};
+		let guard = parent.clone().try_lock_owned().unwrap();
+		let child = Allocation::try_borrow(&pool, guard, requested).unwrap();
+		assert_eq!(child.capacity().cpu.min.millis(), 500);
+		assert_eq!(
+			child.capacity().memory,
+			tg::sandbox::Resource::new(500, 1500)
+		);
+		assert_eq!(pool.get().available.cpu, available.cpu);
+		assert_eq!(pool.get().available.memory.min, available.memory.min - 500);
+
+		// Releasing the borrower releases what it acquired.
+		drop(child);
+		assert_eq!(pool.get().available, available);
 		drop(parent);
 		assert_eq!(pool.get().available, total);
 	}

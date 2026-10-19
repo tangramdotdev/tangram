@@ -1,6 +1,6 @@
-use crate::prelude::*;
+use {crate::prelude::*, tangram_util::serde::is_default};
 
-/// A resource reservation and an upper bound on consumption.
+/// A resource reservation and an optional upper bound on consumption.
 #[derive(
 	Clone,
 	Copy,
@@ -12,21 +12,40 @@ use crate::prelude::*;
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Resource<T> {
-	#[tangram_serialize(id = 0)]
-	pub max: T,
-	#[tangram_serialize(id = 1)]
+pub struct Resource<T: Default + PartialEq> {
+	/// The upper bound on consumption, where none means no limit.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	pub max: Option<T>,
+
+	/// The amount that is reserved.
+	#[serde(skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
 	pub min: T,
 }
 
 impl<T: Copy + Default + PartialOrd> Resource<T> {
 	#[must_use]
 	pub fn new(min: T, max: T) -> Self {
-		Self { max, min }
+		Self {
+			max: Some(max),
+			min,
+		}
+	}
+
+	#[must_use]
+	pub fn with_min(min: T) -> Self {
+		Self { max: None, min }
+	}
+
+	/// Get the maximum that admission accounts for, which is the minimum when there is no maximum.
+	#[must_use]
+	pub fn accounted_max(self) -> T {
+		self.max.unwrap_or(self.min)
 	}
 
 	pub fn validate(self) -> tg::Result<()> {
-		if self.min < T::default() || self.max < self.min {
+		if self.min < T::default() || self.max.is_some_and(|max| max < self.min) {
 			return Err(tg::error!(
 				"the resource bounds must satisfy 0 <= min <= max"
 			));
@@ -35,10 +54,10 @@ impl<T: Copy + Default + PartialOrd> Resource<T> {
 	}
 }
 
-impl<T: Default> From<T> for Resource<T> {
+impl<T: Copy + Default + PartialEq> From<T> for Resource<T> {
 	fn from(max: T) -> Self {
 		Self {
-			max,
+			max: Some(max),
 			min: T::default(),
 		}
 	}
@@ -105,11 +124,7 @@ where
 						_ => return Err(serde::de::Error::unknown_field(&key, &["min", "max"])),
 					}
 				}
-				if max.is_none() && min.is_none() {
-					return Err(serde::de::Error::custom("a resource requires min or max"));
-				}
 				let min = min.unwrap_or_default();
-				let max = max.unwrap_or(min);
 				let resource = Resource { max, min };
 				resource.validate().map_err(serde::de::Error::custom)?;
 				Ok(resource)
@@ -121,24 +136,32 @@ where
 }
 
 impl Resource<u64> {
+	/// Check whether this available capacity admits a request, where an available maximum of none means no limit.
 	#[must_use]
 	pub fn contains(self, requested: Self, overcommit: u64) -> bool {
-		let cost = u128::from(requested.min) * u128::from(overcommit)
-			+ u128::from(requested.max.saturating_sub(requested.min));
-		overcommit > 0 && requested.min <= self.min && cost <= u128::from(self.max)
+		let cost = Self::cost(requested, overcommit);
+		overcommit > 0
+			&& requested.min <= self.min
+			&& self.max.is_none_or(|max| cost <= u128::from(max))
 	}
 
+	/// Subtract a request from this available capacity.
 	#[must_use]
 	pub fn subtract(self, requested: Self, overcommit: u64) -> Self {
-		let cost = u128::from(requested.min) * u128::from(overcommit)
-			+ u128::from(requested.max.saturating_sub(requested.min));
-		let max = u128::from(self.max).saturating_sub(cost);
-		let max = u64::try_from(max).unwrap_or(u64::MAX);
-		let min = self
-			.min
-			.saturating_sub(requested.min)
-			.min(max / overcommit.max(1));
+		let cost = Self::cost(requested, overcommit);
+		let max = self.max.map(|max| {
+			let max = u128::from(max).saturating_sub(cost);
+			u64::try_from(max).unwrap_or(u64::MAX)
+		});
+		let min = self.min.saturating_sub(requested.min);
+		let min = max.map_or(min, |max| min.min(max / overcommit.max(1)));
 		Self { max, min }
+	}
+
+	/// Get the cost of a request, which charges its minimum in full and the rest of its maximum once.
+	fn cost(requested: Self, overcommit: u64) -> u128 {
+		u128::from(requested.min) * u128::from(overcommit)
+			+ u128::from(requested.accounted_max().saturating_sub(requested.min))
 	}
 }
 
@@ -150,8 +173,9 @@ mod tests {
 	fn scalar_and_bounds_have_consistent_defaults() {
 		for (json, expected) in [
 			("4", Resource::new(0, 4)),
+			("{}", Resource::default()),
 			(r#"{"max":4}"#, Resource::new(0, 4)),
-			(r#"{"min":4}"#, Resource::new(4, 4)),
+			(r#"{"min":4}"#, Resource::with_min(4)),
 			(r#"{"min":2,"max":4}"#, Resource::new(2, 4)),
 		] {
 			let resource: Resource<u64> = serde_json::from_str(json).unwrap();
@@ -185,7 +209,7 @@ mod tests {
 
 	#[test]
 	fn rejects_invalid_bounds_and_unknown_fields() {
-		for json in ["{}", r#"{"min":5,"max":4}"#, r#"{"max":4,"other":1}"#] {
+		for json in [r#"{"min":5,"max":4}"#, r#"{"max":4,"other":1}"#] {
 			assert!(serde_json::from_str::<Resource<u64>>(json).is_err());
 		}
 	}

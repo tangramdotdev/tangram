@@ -43,7 +43,7 @@ test("resource shorthand and omitted maxima normalize consistently", () => {
 				{ max: 4, min: 2 },
 				{ max: 4, min: 2 },
 			],
-			[{ min: 2 }, { max: 2, min: 2 }],
+			[{ min: 2 }, { min: 2 }],
 		] as const)
 			assert.deepEqual(tg.Sandbox.Arg.toData({ [key]: value })[key], expected);
 	}
@@ -51,9 +51,10 @@ test("resource shorthand and omitted maxima normalize consistently", () => {
 		min: 0.25,
 		max: 1,
 	});
-	for (let cpu of [0, -1, 0.0001, NaN, Infinity, {}, { min: 2, max: 1 }]) {
+	for (let cpu of [0, -1, 0.0001, NaN, Infinity, { min: 2, max: 1 }]) {
 		assert.throws(() => tg.Sandbox.Arg.toData({ cpu }));
 	}
+	assert.deepEqual(tg.Sandbox.Arg.toData({ cpu: {} }).cpu, { min: 0 });
 });
 
 test("resource builders preserve minima and fractional CPU values", async () => {
@@ -76,7 +77,7 @@ test("resource builders preserve minima and fractional CPU values", async () => 
 			{ cpu, memory, storage, swap },
 			{
 				cpu: { max: 1, min: 0.25 },
-				memory: { max: 1024, min: 1024 },
+				memory: { min: 1024 },
 				storage: { max: 4096, min: 0 },
 				swap: { max: 8192, min: 0 },
 			},

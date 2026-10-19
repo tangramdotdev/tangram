@@ -101,10 +101,8 @@ pub struct HeartbeatClientNotification {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Capacity {
 	pub available: tg::runner::Capacity,
-	/// The maximum number of hardware threads in one affinity domain.
+	/// The maximum number of hardware threads that one sandbox can use.
 	pub cpu_limit: u64,
-	/// The number of hardware threads in each physical core.
-	pub cpu_threads_per_core: u64,
 	/// The maximum overcommit factor for each resource.
 	pub overcommit: tg::runner::Overcommit,
 	pub total: tg::runner::Capacity,

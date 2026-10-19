@@ -136,10 +136,10 @@ pub struct Arg {
 	pub cpu_affinity: bool,
 
 	#[cfg(target_os = "linux")]
-	pub cpu_parent: Option<cpu::Lease>,
+	pub cpu_shares: Option<cpu::Shares>,
 
 	#[cfg(target_os = "linux")]
-	pub cpu_pool: Option<cpu::Pool>,
+	pub cpu_threads: Option<cpu::Threads>,
 
 	pub dns: Vec<Ipv4Addr>,
 
@@ -359,12 +359,6 @@ impl Sandbox {
 			));
 		}
 		validate_options(&arg)?;
-		#[cfg(target_os = "linux")]
-		if arg.cpu.is_some_and(|cpu| cpu.min.millis() > 0) && arg.cpu_pool.is_none() {
-			return Err(tg::error!(
-				"CPU reservations require an exclusive sandbox CPU pool"
-			));
-		}
 
 		// Validate the mounts.
 		let mut targets = BTreeSet::new();
@@ -490,7 +484,7 @@ impl Sandbox {
 				let cgroup = self::cgroup::create(&arg)?;
 				let (mut command, config) =
 					self::cloud_hypervisor::run::command(&arg, &serve_arg, network.as_ref())?;
-				let process = self::run::spawn_command(&mut command, &cgroup.handle()?)?;
+				let process = self::run::spawn_command(&mut command, &cgroup.handle()?, None)?;
 				tokio::time::timeout_at(deadline, config.finish())
 					.await
 					.map_err(|error| tg::error!(!error, "timed out configuring the sandbox"))??;
@@ -498,10 +492,9 @@ impl Sandbox {
 			},
 		};
 
-		// Release the temporary parent lease and the inherited FUSE socket.
+		// Release the inherited FUSE socket.
 		#[cfg(target_os = "linux")]
 		let arg = Arg {
-			cpu_parent: None,
 			fuse_fd: None,
 			..arg
 		};
@@ -609,14 +602,24 @@ impl Sandbox {
 		Ok(sandbox)
 	}
 
+	/// Get the identifier of the sandbox's entry in the runner's CPU shares.
 	#[cfg(target_os = "linux")]
-	pub async fn cpu_lease(&self) -> Option<cpu::Lease> {
+	pub async fn cpu_share(&self) -> Option<cpu::ShareId> {
 		self.0
 			.cgroup
 			.lock()
 			.await
 			.as_ref()
-			.and_then(cgroup::Cgroup::cpu_lease)
+			.and_then(cgroup::Cgroup::cpu_share)
+	}
+
+	/// Set the sandbox whose CPU minimum this sandbox borrows from.
+	#[cfg(target_os = "linux")]
+	pub async fn set_cpu_lender(&self, lender: Option<cpu::ShareId>) -> tg::Result<()> {
+		if let Some(cgroup) = self.0.cgroup.lock().await.as_ref() {
+			cgroup.set_cpu_lender(lender)?;
+		}
+		Ok(())
 	}
 
 	/// Activate the assigned sandbox before spawning workloads.
@@ -652,14 +655,11 @@ impl Sandbox {
 
 			// Start charging for the assigned sandbox.
 			let resources = tg::runner::Capacity {
-				cpu: self
-					.0
-					.arg
-					.cpu
-					.unwrap_or(tg::sandbox::Amount::from_millis(u64::from(u32::MAX)).into()),
-				memory: self.0.arg.memory.unwrap_or(u64::MAX.into()),
-				storage: self.0.arg.storage.unwrap_or(u64::MAX.into()),
-				swap: self.0.arg.swap.unwrap_or(u64::MAX.into()),
+				cpu: self.0.arg.cpu.unwrap_or_default(),
+				memory: self.0.arg.memory.unwrap_or_default(),
+				sandboxes: 1,
+				storage: self.0.arg.storage.unwrap_or_default(),
+				swap: self.0.arg.swap.unwrap_or_default(),
 			};
 			*self.0.accounting.lock().await = Some(usage::Accounting::new(
 				source,
@@ -1107,16 +1107,17 @@ impl Sandbox {
 				},
 				Ok(0) => (),
 				Ok(_) => {
-					let memory_limit = self
-						.0
-						.arg
-						.memory
-						.map_or_else(|| "unlimited".to_owned(), |memory| memory.max.to_string());
-					return tg::error!(
-						!error,
-						%memory_limit,
-						"the sandbox was killed by the out-of-memory killer"
-					);
+					let error = match self.0.arg.memory.and_then(|memory| memory.max) {
+						Some(memory_max) => tg::error!(
+							!error,
+							%memory_max,
+							"the sandbox exceeded its memory max"
+						),
+						None => {
+							tg::error!(!error, "the sandbox was killed by the out-of-memory killer")
+						},
+					};
+					return error;
 				},
 			}
 		}
@@ -1145,18 +1146,13 @@ fn validate_resources(
 	memory: Option<tg::sandbox::Resource<u64>>,
 ) -> tg::Result<()> {
 	if let Some(cpu) = cpu {
-		cpu.total()?;
+		cpu.threads()?;
 	}
 	if matches!(backend, Backend::CloudHypervisor(_)) {
 		validate_vm_resources(cpu, memory)?;
 	}
-	if memory.is_some_and(|memory| memory.max == 0) {
+	if memory.is_some_and(|memory| memory.max == Some(0)) {
 		return Err(tg::error!("sandbox memory must be greater than zero"));
-	}
-	if matches!(backend, Backend::Seatbelt) && (cpu.is_some() || memory.is_some()) {
-		return Err(tg::error!(
-			"sandbox cpu and memory are not supported with seatbelt isolation"
-		));
 	}
 	Ok(())
 }
@@ -1165,8 +1161,9 @@ fn validate_vm_resources(
 	cpu: Option<tg::sandbox::Cpu>,
 	memory: Option<tg::sandbox::Resource<u64>>,
 ) -> tg::Result<()> {
-	if cpu.is_some_and(|cpu| cpu.min.millis() > 0 || cpu.max.millis() % 1000 != 0)
-		|| memory.is_some_and(|memory| memory.min > 0)
+	if cpu.is_some_and(|cpu| {
+		cpu.min.millis() > 0 || cpu.max.is_some_and(|max| max.millis() % 1000 != 0)
+	}) || memory.is_some_and(|memory| memory.min > 0)
 	{
 		return Err(tg::error!(
 			"resource minima and fractional CPUs require container isolation"

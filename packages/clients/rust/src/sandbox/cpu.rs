@@ -3,14 +3,18 @@ use crate::prelude::*;
 pub type Cpu = super::Resource<super::Amount>;
 
 impl Cpu {
-	pub fn total(self) -> tg::Result<u64> {
+	/// Get the number of hardware threads that the maximum spans, where none means no limit.
+	pub fn threads(self) -> tg::Result<Option<u64>> {
 		self.validate()?;
-		if self.max.millis() == 0 || self.max.millis() > u64::from(u32::MAX) {
+		let Some(max) = self.max else {
+			return Ok(None);
+		};
+		if max.millis() == 0 || max.millis() > u64::from(u32::MAX) {
 			return Err(tg::error!(
 				"the sandbox CPU maximum must be between 0.001 and 4294967.295"
 			));
 		}
-		Ok(self.max.threads())
+		Ok(Some(max.threads()))
 	}
 }
 

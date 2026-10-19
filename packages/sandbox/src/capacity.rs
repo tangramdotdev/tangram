@@ -1,6 +1,6 @@
 use {std::path::Path, tangram_client::prelude::*};
 
-pub fn detect(path: &Path, parent: Option<&Path>) -> tg::Result<(u64, u64, u64)> {
+pub fn detect(path: &Path) -> tg::Result<(u64, u64, u64)> {
 	let contents = std::fs::read_to_string("/proc/meminfo")
 		.map_err(|error| tg::error!(!error, "failed to read the host memory capacity"))?;
 	let mut memory = field(&contents, "MemAvailable:")?;
@@ -12,8 +12,7 @@ pub fn detect(path: &Path, parent: Option<&Path>) -> tg::Result<(u64, u64, u64)>
 		.find_map(|line| line.strip_prefix("0::"))
 		.ok_or_else(|| tg::error!("the runner requires cgroup v2"))?;
 	let current = std::path::PathBuf::from("/sys/fs/cgroup").join(current.trim_start_matches('/'));
-	let parent = parent.unwrap_or(&current);
-	for ancestor in parent
+	for ancestor in current
 		.ancestors()
 		.take_while(|ancestor| ancestor.starts_with("/sys/fs/cgroup"))
 	{

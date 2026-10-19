@@ -37,13 +37,9 @@ type RunnerSender =
 
 type CreateControlConnection<T> = Arc<dyn Fn() -> BoxFuture<'static, tg::Result<T>> + Send + Sync>;
 
-#[derive(Clone, Debug)]
-#[cfg_attr(not(target_os = "linux"), derive(Copy))]
+#[derive(Clone, Copy, Debug)]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
-
-	#[cfg(target_os = "linux")]
-	pub cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 
 	#[cfg(target_os = "linux")]
 	pub filesystem_project_ids: crate::config::FilesystemProjectIds,
@@ -89,7 +85,10 @@ pub struct Runner {
 
 pub struct State {
 	#[cfg(target_os = "linux")]
-	cpu_pool: Option<tangram_sandbox::cpu::Pool>,
+	cpu_shares: tangram_sandbox::cpu::Shares,
+
+	#[cfg(target_os = "linux")]
+	cpu_threads: tangram_sandbox::cpu::Threads,
 
 	capacity: self::capacity::Pool,
 
@@ -123,22 +122,14 @@ impl Runner {
 	#[must_use]
 	pub fn new(config: Config) -> Self {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
-		#[cfg(target_os = "linux")]
-		let threads_per_core = config
-			.cpu_pool
-			.as_ref()
-			.map_or(1, tangram_sandbox::cpu::Pool::threads_per_core);
-		#[cfg(not(target_os = "linux"))]
-		let threads_per_core = 1;
 		let state = State {
-			capacity: self::capacity::Pool::new(
-				config.capacity,
-				config.overcommit,
-				threads_per_core,
-			),
+			capacity: self::capacity::Pool::new(config.capacity, config.overcommit),
 
 			#[cfg(target_os = "linux")]
-			cpu_pool: config.cpu_pool,
+			cpu_shares: tangram_sandbox::cpu::Shares::new(config.capacity.cpu.min.millis()),
+
+			#[cfg(target_os = "linux")]
+			cpu_threads: tangram_sandbox::cpu::Threads::new(),
 
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: self::project::Pool::new(config.filesystem_project_ids),
@@ -169,8 +160,6 @@ impl Runner {
 			#[cfg(target_os = "linux")]
 			swap_pool: tangram_sandbox::budget::Pool::new(config.capacity.swap.min, 0, 4096),
 		};
-		#[cfg(target_os = "linux")]
-		state.capacity.set_cpu_pool(state.cpu_pool.clone());
 		let task = Mutex::new(None);
 		let process_control_connection_pool = ControlConnectionPool::new(
 			"process",
@@ -905,12 +894,12 @@ impl Session {
 			.state
 			.heartbeat_index
 			.store(index, Ordering::Release);
-		let capacity = if cleanup || !self.server.runner.state.healthy() {
+		let capacity = if cleanup {
 			tg::runner::control::Capacity::default()
 		} else {
 			self.server.runner.state.capacity.get()
 		};
-		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_cpu_min = capacity.available.cpu.min.millis(), available_cpu_max = capacity.available.cpu.max.millis(), available_memory = ?capacity.available.memory, "sending the runner heartbeat");
+		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_cpu_min = capacity.available.cpu.min.millis(), available_cpu_max = ?capacity.available.cpu.max.map(tg::sandbox::Amount::millis), available_memory = ?capacity.available.memory, "sending the runner heartbeat");
 		let sandboxes = self
 			.server
 			.runner
@@ -956,16 +945,6 @@ impl Session {
 }
 
 impl State {
-	#[cfg_attr(not(target_os = "linux"), allow(clippy::unused_self))]
-	#[must_use]
-	pub(crate) fn healthy(&self) -> bool {
-		#[cfg(target_os = "linux")]
-		if let Some(pool) = &self.cpu_pool {
-			return pool.healthy();
-		}
-		true
-	}
-
 	#[must_use]
 	pub(crate) fn heartbeat_index(&self) -> u64 {
 		self.heartbeat_index.load(Ordering::Acquire)

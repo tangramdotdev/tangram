@@ -59,16 +59,15 @@ impl Session {
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
 	) -> Option<crate::runner::capacity::Allocation> {
-		if !self.server.runner.state().healthy() {
-			return None;
-		}
 		if let Some(parent) = parent
 			&& let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(parent)
 			&& let Some(allocation) = sandbox.allocation.clone()
 			&& let Ok(parent) = allocation.try_lock_owned()
-			&& let Some(allocation) =
-				crate::runner::capacity::Allocation::try_borrow(parent, requested)
-		{
+			&& let Some(allocation) = crate::runner::capacity::Allocation::try_borrow(
+				self.server.runner.state().capacity(),
+				parent,
+				requested,
+			) {
 			return Some(allocation);
 		}
 		self.server.runner.state().capacity().try_acquire(requested)
@@ -80,9 +79,6 @@ impl Session {
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
 	) -> Option<crate::runner::capacity::Allocation> {
-		if !self.server.runner.state().healthy() {
-			return None;
-		}
 		if borrowed {
 			let parent = parent?;
 			return self
@@ -90,7 +86,7 @@ impl Session {
 				.runner
 				.state()
 				.reservations()
-				.try_acquire(parent, requested)
+				.try_acquire(self.server.runner.state().capacity(), parent, requested)
 				.or_else(|| self.try_acquire_parent_sandbox_capacity(parent, requested));
 		}
 
@@ -102,14 +98,15 @@ impl Session {
 		parent: &tg::sandbox::Id,
 		requested: tg::runner::Capacity,
 	) -> Option<crate::runner::capacity::Allocation> {
-		if !self.server.runner.state().healthy() {
-			return None;
-		}
 		let sandbox = self.server.runner.state().sandboxes().get_by_id(parent)?;
 		let allocation = sandbox.allocation.clone()?;
 		let parent = allocation.try_lock_owned().ok()?;
 
-		crate::runner::capacity::Allocation::try_borrow(parent, requested)
+		crate::runner::capacity::Allocation::try_borrow(
+			self.server.runner.state().capacity(),
+			parent,
+			requested,
+		)
 	}
 
 	pub(super) async fn spawn_process_notify_borrowable_capacity(
@@ -118,9 +115,6 @@ impl Session {
 		parent_sandbox: &tg::sandbox::Id,
 		requested: tg::runner::Capacity,
 	) -> tg::Result<()> {
-		if !self.server.runner.state().healthy() {
-			return Ok(());
-		}
 		let sandbox = self
 			.server
 			.runner
@@ -152,13 +146,10 @@ impl Session {
 			.map(|process| process.control.clone())
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
-		let overcommit = self.server.runner.state().capacity().get().overcommit;
 
 		loop {
 			let scheduler = self.server.runner.state().wait_for_scheduler().await;
-			if !self.server.runner.state().healthy()
-				|| capacity.try_borrow(requested, overcommit).is_none()
-			{
+			if capacity.try_borrow(requested).is_none() {
 				return Ok(());
 			}
 
@@ -174,9 +165,6 @@ impl Session {
 			self.spawn_process_send_borrowable_capacity(&control, notification)
 				.await?;
 			let allocation = allocation.clone().lock_owned().await;
-			if !self.server.runner.state().healthy() {
-				return Ok(());
-			}
 			let Some((capacity, mut reservation)) = self
 				.server
 				.runner
@@ -448,6 +436,7 @@ impl Session {
 				sandbox_arg.host = Some(host.to_owned());
 				sandbox_arg.location.clone_from(&arg.location);
 				sandbox_arg.owner.clone_from(&owner);
+				crate::sandbox::clear_darwin_sandbox_resources(&mut sandbox_arg);
 				let isolation = self.server.resolve_sandbox_backend()?;
 				crate::Server::validate_sandbox_resources(
 					&isolation,
