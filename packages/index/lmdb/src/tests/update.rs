@@ -580,26 +580,67 @@ async fn object_aspect_permissions_materialize_the_longest_cover() {
 
 	// Verify that repeated updates keep the longest cover.
 	for _ in 0..3 {
-		{
-			let mut transaction = index.env.write_txn().unwrap();
-			Index::enqueue_update_with_kind(
-				&index.db,
-				&index.subspace,
-				&mut transaction,
-				tg::Either::Right(process.clone()),
-				super::super::update::Kind::Permission(subject.clone()),
-				super::super::update::Source::Propagate,
-				None,
-			)
-			.unwrap();
-			transaction.commit().unwrap();
-		}
+		enqueue_permission_update(&index, &process, &subject);
 		drain_permission_updates(&index).await;
 		let entries =
 			object_permission_entries_for_resource(&index, &process.clone().into(), &subject);
 		let materialized = entries
 			.iter()
 			.filter(|entry| entry.permission == node_log_objects())
+			.filter_map(|entry| entry.materialized)
+			.collect::<Vec<_>>();
+		assert_eq!(materialized, vec![Some(200)]);
+	}
+}
+
+#[tokio::test]
+async fn process_subtree_permissions_materialize_the_longest_cover() {
+	let (_dir, index) = super::new_index();
+	let log = object_id(0);
+	put_log_object(&index, &log).await;
+
+	// Add a process on which the subject has two node permissions with different expirations.
+	let process = tg::process::Id::new();
+	let subject = tg::authorization::Subject::User(tg::user::Id::new());
+	let mut items = put_process_with_log_items(&process, &log, None);
+	items.truncate(1);
+	for expires_at in [100, 200] {
+		let permission = tangram_index::permission::put::Arg {
+			created_at: 0,
+			creator: Some(tg::Principal::User(tg::user::Id::new())),
+			permissions: tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Node,
+			)
+			.into(),
+			resource: process.clone().into(),
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(expires_at),
+			},
+			subject: subject.clone(),
+			time_to_touch: None,
+			version: None,
+		};
+		items.push(tangram_index::batch::Item::PutPermission(permission));
+	}
+	index
+		.batch(tangram_index::batch::Arg { items })
+		.await
+		.unwrap()
+		.unwrap();
+	drain_permission_updates(&index).await;
+
+	// Verify that repeated updates keep the longest cover.
+	let subtree = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Subtree,
+	);
+	for _ in 0..3 {
+		enqueue_permission_update(&index, &process, &subject);
+		drain_permission_updates(&index).await;
+		let entries =
+			object_permission_entries_for_resource(&index, &process.clone().into(), &subject);
+		let materialized = entries
+			.iter()
+			.filter(|entry| entry.permission == subtree)
 			.filter_map(|entry| entry.materialized)
 			.collect::<Vec<_>>();
 		assert_eq!(materialized, vec![Some(200)]);
@@ -803,4 +844,23 @@ fn object_subtree() -> tg::authorization::Permission {
 	tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Subtree,
 	)
+}
+
+fn enqueue_permission_update(
+	index: &Index,
+	process: &tg::process::Id,
+	subject: &tg::authorization::Subject,
+) {
+	let mut transaction = index.env.write_txn().unwrap();
+	Index::enqueue_update_with_kind(
+		&index.db,
+		&index.subspace,
+		&mut transaction,
+		tg::Either::Right(process.clone()),
+		super::super::update::Kind::Permission(subject.clone()),
+		super::super::update::Source::Propagate,
+		None,
+	)
+	.unwrap();
+	transaction.commit().unwrap();
 }
