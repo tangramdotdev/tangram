@@ -1,5 +1,9 @@
 use {
 	num::ToPrimitive as _,
+	rustix::thread::{
+		CapabilitySet, CapabilitySets, clear_ambient_capability_set,
+		configure_capability_in_ambient_set, set_capabilities,
+	},
 	std::{
 		io::{Read as _, Write as _},
 		os::{
@@ -9,6 +13,19 @@ use {
 	},
 	tangram_client::prelude::*,
 };
+
+/// The capabilities that a root workload keeps, which match podman's default capabilities.
+pub(crate) const CAPABILITIES: CapabilitySet = CapabilitySet::CHOWN
+	.union(CapabilitySet::DAC_OVERRIDE)
+	.union(CapabilitySet::FOWNER)
+	.union(CapabilitySet::FSETID)
+	.union(CapabilitySet::KILL)
+	.union(CapabilitySet::NET_BIND_SERVICE)
+	.union(CapabilitySet::SETFCAP)
+	.union(CapabilitySet::SETGID)
+	.union(CapabilitySet::SETPCAP)
+	.union(CapabilitySet::SETUID)
+	.union(CapabilitySet::SYS_CHROOT);
 
 pub(crate) fn fork() -> tg::Result<libc::pid_t> {
 	let pid = unsafe { libc::fork() };
@@ -249,41 +266,53 @@ pub(crate) fn set_securebits() -> tg::Result<()> {
 	Ok(())
 }
 
-pub(crate) fn drop_capabilities() -> tg::Result<()> {
-	#[repr(C)]
-	struct CapUserHeader {
-		version: u32,
-		pid: i32,
+#[must_use]
+pub(crate) fn capabilities(uid: libc::uid_t) -> CapabilitySet {
+	if uid == 0 {
+		CAPABILITIES
+	} else {
+		CapabilitySet::empty()
+	}
+}
+
+#[must_use]
+pub(crate) fn capability_names(capabilities: CapabilitySet) -> Vec<String> {
+	capabilities
+		.iter_names()
+		.map(|(name, _)| format!("CAP_{name}"))
+		.collect()
+}
+
+pub(crate) fn set_ambient_capabilities(capabilities: CapabilitySet) -> tg::Result<()> {
+	// Clear the ambient capabilities.
+	clear_ambient_capability_set()
+		.map_err(|error| tg::error!(!error, "failed to clear ambient capabilities"))?;
+
+	// Add the capabilities to the inheritable set, which must contain every ambient capability.
+	let mut sets = rustix::thread::capabilities(None)
+		.map_err(|error| tg::error!(!error, "failed to read the capabilities"))?;
+	sets.inheritable = capabilities;
+	set_capabilities(None, sets)
+		.map_err(|error| tg::error!(!error, "failed to set the inheritable capabilities"))?;
+
+	// Raise the ambient capabilities, so that they survive execve.
+	for capability in capabilities {
+		configure_capability_in_ambient_set(capability, true).map_err(|error| {
+			tg::error!(
+				!error,
+				capability = ?capability,
+				"failed to raise an ambient capability"
+			)
+		})?;
 	}
 
-	#[repr(C)]
-	#[derive(Clone, Copy)]
-	struct CapUserData {
-		effective: u32,
-		permitted: u32,
-		inheritable: u32,
-	}
+	Ok(())
+}
 
-	const _: () = {
-		assert!(std::mem::offset_of!(CapUserHeader, version) == 0);
-		assert!(std::mem::offset_of!(CapUserHeader, pid) == 4);
-		assert!(std::mem::offset_of!(CapUserData, permitted) == 4);
-		assert!(std::mem::offset_of!(CapUserData, inheritable) == 8);
-	};
-
-	const CAPABILITY_VERSION_3: u32 = 0x2008_0522;
-	const PR_CAP_AMBIENT: libc::c_int = 47;
-	const PR_CAP_AMBIENT_CLEAR_ALL: libc::c_int = 4;
+pub(crate) fn restrict_capabilities(capabilities: CapabilitySet) -> tg::Result<()> {
 	const PR_CAPBSET_DROP: libc::c_int = 24;
 
-	// Clear the ambient capabilities.
-	let ret = unsafe { libc::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) };
-	if ret != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to clear ambient capabilities"));
-	}
-
-	// Drop the capability bounding set.
+	// Drop every capability outside the default capabilities from the bounding set.
 	for capability in 0..64 {
 		// SAFETY: prctl takes scalar arguments and the operation does not retain pointers.
 		if unsafe { libc::prctl(libc::PR_CAPBSET_READ, capability, 0, 0, 0) } < 0 {
@@ -296,6 +325,9 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 				"failed to read the capability bounding set"
 			));
 		}
+		if CAPABILITIES.bits() & (1 << capability) != 0 {
+			continue;
+		}
 
 		// SAFETY: prctl takes scalar arguments and the operation does not retain pointers.
 		if unsafe { libc::prctl(PR_CAPBSET_DROP, capability, 0, 0, 0) } != 0 {
@@ -307,27 +339,14 @@ pub(crate) fn drop_capabilities() -> tg::Result<()> {
 		}
 	}
 
-	// Clear the effective, permitted, and inheritable capabilities.
-	let mut header = CapUserHeader {
-		pid: 0,
-		version: CAPABILITY_VERSION_3,
+	// Restrict the effective, permitted, and inheritable capabilities.
+	let sets = CapabilitySets {
+		effective: capabilities,
+		inheritable: capabilities,
+		permitted: capabilities,
 	};
-	let mut data = [CapUserData {
-		effective: 0,
-		inheritable: 0,
-		permitted: 0,
-	}; 2];
-	let ret = unsafe {
-		libc::syscall(
-			libc::SYS_capset,
-			std::ptr::addr_of_mut!(header),
-			data.as_mut_ptr(),
-		)
-	};
-	if ret != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to drop capabilities"));
-	}
+	set_capabilities(None, sets)
+		.map_err(|error| tg::error!(!error, "failed to restrict the capabilities"))?;
 
 	Ok(())
 }

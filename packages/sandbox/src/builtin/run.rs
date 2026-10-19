@@ -176,14 +176,16 @@ fn child_main(
 	// Prepare the seccomp filter directly from its policy.
 	let filter = arg.seccomp.map(crate::seccomp::filter).transpose()?;
 
-	// Drop privileges and close the inherited descriptors.
+	// Drop privileges, keeping the default capabilities for a root workload, and close the inherited descriptors.
+	let capabilities = linux::capabilities(arg.uid);
+	linux::set_ambient_capabilities(capabilities)?;
 	linux::set_securebits()?;
 	linux::setresgid(arg.gid)?;
 	linux::setresuid(arg.uid)?;
 	crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	linux::validate_parent(parent)?;
 	linux::set_no_new_privs()?;
-	linux::drop_capabilities()?;
+	linux::restrict_capabilities(capabilities)?;
 	linux::close_non_std_fds()?;
 
 	// Install the seccomp filter.
