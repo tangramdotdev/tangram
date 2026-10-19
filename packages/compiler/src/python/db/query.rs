@@ -264,7 +264,16 @@ impl Database {
 				let references = ty_ide::can_rename(self, program_file, offset)
 					.and_then(|_| ty_ide::rename(self, program_file, offset, &request.new_name));
 				let locations = self.reference_locations(references, encoding)?;
-				Response::Rename(crate::rename::Response { locations })
+				let edits = locations.map(|locations| {
+					locations
+						.into_iter()
+						.map(|location| crate::rename::Data {
+							location,
+							new_text: request.new_name.clone(),
+						})
+						.collect()
+				});
+				Response::Rename(crate::rename::Response { edits })
 			},
 			Request::SelectionRange(request) => {
 				let ranges = request

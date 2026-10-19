@@ -9,6 +9,18 @@ directories for failed tests, or `--preserve-temps` to keep them for every
 test. Pass `--no-progress-details` to show only the aggregate progress bar
 during highly concurrent runs.
 
+Run the same check and LSP fixtures against both TypeScript backends with Nushell:
+
+```nushell
+for backend in [typescript6 tsrs] {
+    nu packages/cli/test.nu --no-cloud --typescript-backend $backend '(check|lsp)/'
+}
+```
+
+`--typescript-backend` sets the default checker and editor backend for test servers.
+Explicit backend settings in a fixture take precedence, so backend-specific tests
+continue to exercise their selected implementation.
+
 ## Cloud databases
 
 Cloud database tests are supported on Linux and macOS. On Linux, install native

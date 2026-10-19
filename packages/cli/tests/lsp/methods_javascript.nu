@@ -33,7 +33,10 @@ assert equal (lsp result $responses 12).0.range {start: {line: 6, character: 16}
 assert equal (lsp result $responses 13).0.range.start {line: 0, character: 13}
 let symbols = lsp result $responses 14
 assert equal ($symbols | where name == 'greet' | get 0.range.start.line) 6
+assert equal ($symbols | where name == 'greet' | get 0.selectionRange) {start: {line: 6, character: 16}, end: {line: 6, character: 21}}
+assert equal ($symbols | where name == 'Box' | get 0.selectionRange) {start: {line: 0, character: 13}, end: {line: 0, character: 16}}
 assert equal ($symbols | where name == 'Box' | get 0.children.0.name) 'size'
+assert equal ($symbols | where name == 'Box' | get 0.children.0.selectionRange) {start: {line: 1, character: 4}, end: {line: 1, character: 8}}
 assert (((lsp result $responses 15) | length) > 0)
 assert equal (lsp result $responses 16).0.range {start: {line: 9, character: 15}, end: {line: 9, character: 20}}
 assert equal ((lsp result $responses 17) | length) 2

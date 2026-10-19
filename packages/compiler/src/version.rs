@@ -51,7 +51,7 @@ impl Compiler {
 		})?;
 
 		// Find the lockfile.
-		let lockfile = self.find_lockfile_for_path(path).await;
+		let lockfile = self.get_module_resolution_version(module).await;
 
 		// Get or create the document.
 		let mut document = entry.or_insert(Document {

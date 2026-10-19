@@ -18,6 +18,7 @@ use {
 	tokio_util::task::TaskTracker,
 };
 
+mod tsrs;
 #[cfg(feature = "typescript")]
 mod typescript6;
 mod typescript7;
@@ -47,6 +48,7 @@ pub mod prepare_rename;
 pub mod python;
 pub mod references;
 pub mod rename;
+pub mod resolve;
 pub mod selection_range;
 pub mod semantic_tokens;
 pub mod signature_help;
@@ -106,11 +108,16 @@ pub struct State {
 	/// The store path.
 	store_path: PathBuf,
 
+	/// The embedded native TypeScript service.
+	tsrs: tsrs::Service,
+
 	/// The typescript service.
 	#[cfg(feature = "typescript")]
 	typescript6: typescript6::Service,
 
 	typescript7: typescript7::Service,
+
+	typescript_backend: TypescriptBackend,
 
 	/// The version.
 	version: String,
@@ -124,6 +131,8 @@ pub struct State {
 pub struct Options {
 	#[serde(default)]
 	pub check_backend: CheckBackend,
+	#[serde(default)]
+	pub typescript_backend: TypescriptBackend,
 	#[serde(default = "default_typescript_executable")]
 	pub typescript_executable: PathBuf,
 }
@@ -132,8 +141,20 @@ pub struct Options {
 #[serde(rename_all = "snake_case")]
 pub enum CheckBackend {
 	#[default]
+	Tsrs,
+
 	Typescript6,
+
 	Typescript7,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TypescriptBackend {
+	#[default]
+	Tsrs,
+
+	Typescript6,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -259,6 +280,7 @@ impl Compiler {
 		let serve_task = Mutex::new(None);
 		#[cfg(feature = "typescript")]
 		let typescript6 = typescript6::Service::new();
+		let tsrs = tsrs::Service::new();
 		let typescript7 = typescript7::Service::new(options.typescript_executable);
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 
@@ -277,9 +299,11 @@ impl Compiler {
 			sender,
 			serve_task,
 			store_path,
+			tsrs,
 			#[cfg(feature = "typescript")]
 			typescript6,
 			typescript7,
+			typescript_backend: options.typescript_backend,
 			version,
 			workspaces,
 		}));
@@ -299,6 +323,8 @@ impl Compiler {
 					compiler.python.stop();
 					compiler.python.join().await;
 				}
+				compiler.tsrs.stop();
+				compiler.tsrs.join().await;
 				compiler.typescript7.stop().await;
 
 				// Stop and await the typescript service.
@@ -933,11 +959,21 @@ impl Compiler {
 			#[cfg(not(feature = "python"))]
 			return Err(tg::error!("the python feature is not enabled"));
 		}
+		if matches!(self.check_backend, CheckBackend::Tsrs) && matches!(request, Request::Check(_))
+		{
+			return self.tsrs.request(self, request).await;
+		}
 		if matches!(self.check_backend, CheckBackend::Typescript7)
 			&& let Request::Check(request) = request
 		{
 			let response = self.typescript7.check(self, request).await?;
 			return Ok(Response::Check(response));
+		}
+
+		if matches!(self.typescript_backend, TypescriptBackend::Tsrs)
+			&& !matches!(request, Request::Check(_))
+		{
+			return self.tsrs.request(self, request).await;
 		}
 
 		#[cfg(feature = "typescript")]
@@ -1132,6 +1168,10 @@ impl Compiler {
 		let module = tg::module::Data { kind, referent };
 
 		Ok(module)
+	}
+
+	fn is_generated_module(&self, module: &tg::module::Data) -> bool {
+		matches!(&module.referent.node, tg::module::data::Source::Path(path) if path.starts_with(self.library_path.join("generated")))
 	}
 
 	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::module::Data> {
@@ -1464,6 +1504,7 @@ impl Deref for Compiler {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
+		self.compiler.tsrs.stop();
 		#[cfg(feature = "python")]
 		self.compiler.python.stop();
 		#[cfg(feature = "typescript")]
@@ -1475,6 +1516,7 @@ impl Default for Options {
 	fn default() -> Self {
 		Self {
 			check_backend: CheckBackend::default(),
+			typescript_backend: TypescriptBackend::default(),
 			typescript_executable: default_typescript_executable(),
 		}
 	}

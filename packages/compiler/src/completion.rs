@@ -33,25 +33,38 @@ pub struct ResolveResponse {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
-	pub name: String,
-	pub kind: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub kind_modifiers: Option<String>,
-	pub sort_text: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub insert_text: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub filter_text: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub is_snippet: Option<bool>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub source: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub commit_characters: Option<Vec<String>>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub data: Option<serde_json::Value>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub filter_text: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub insert_text: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub is_snippet: Option<bool>,
+
+	pub kind: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub kind_modifiers: Option<String>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub label_details: Option<LabelDetails>,
+
+	pub name: String,
+
+	pub sort_text: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub source: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub text_edit: Option<lsp::CompletionTextEdit>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -66,13 +79,26 @@ pub struct LabelDetails {
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EntryDetails {
-	pub kind: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub kind_modifiers: Option<String>,
+	pub additional_text_edits: Option<Vec<TextEdit>>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detail: Option<String>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub documentation: Option<String>,
+
+	pub kind: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub kind_modifiers: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextEdit {
+	pub new_text: String,
+	pub range: tg::Range,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -91,6 +117,10 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<Entry>>> {
+		if self.is_generated_module(module) {
+			return Ok(None);
+		}
+
 		// Create the request.
 		let request = super::Request::Completion(Request {
 			module: module.clone(),
@@ -116,6 +146,10 @@ impl Compiler {
 		source: Option<String>,
 		data: Option<serde_json::Value>,
 	) -> tg::Result<Option<EntryDetails>> {
+		if self.is_generated_module(module) {
+			return Ok(None);
+		}
+
 		// Create the request.
 		let request = super::Request::CompletionResolve(ResolveRequest {
 			module: module.clone(),
@@ -184,6 +218,7 @@ impl Compiler {
 					sort_text: Some(entry.sort_text),
 					filter_text: entry.filter_text,
 					insert_text: entry.insert_text,
+					text_edit: entry.text_edit,
 					insert_text_format: if entry.is_snippet.unwrap_or(false) {
 						Some(lsp::InsertTextFormat::SNIPPET)
 					} else {
@@ -241,6 +276,15 @@ impl Compiler {
 		if item.tags.is_none() && is_kind_modifiers_deprecated(entry.kind_modifiers.as_deref()) {
 			item.tags = Some(vec![lsp::CompletionItemTag::DEPRECATED]);
 		}
+		item.additional_text_edits = entry.additional_text_edits.map(|edits| {
+			edits
+				.into_iter()
+				.map(|edit| lsp::TextEdit {
+					new_text: edit.new_text,
+					range: edit.range.into(),
+				})
+				.collect()
+		});
 		item.detail = entry.detail;
 		item.documentation = entry.documentation.map(lsp::Documentation::String);
 

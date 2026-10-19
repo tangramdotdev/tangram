@@ -31,6 +31,7 @@ impl Database {
 					.take()
 					.map(|doc| doc.render_plaintext());
 				let details = crate::completion::EntryDetails {
+					additional_text_edits: None,
 					detail,
 					documentation,
 					kind: kind.clone(),
@@ -57,6 +58,7 @@ impl Database {
 					name: completion.label().to_owned(),
 					sort_text: format!("{index:010}"),
 					source: None,
+					text_edit: None,
 				};
 				Ok(entry)
 			})

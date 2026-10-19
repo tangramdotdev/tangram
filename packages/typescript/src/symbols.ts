@@ -89,6 +89,18 @@ export let walk = (
 		start: ts.getLineAndCharacterOfPosition(sourceFile, startPosition),
 		end: ts.getLineAndCharacterOfPosition(sourceFile, endPosition),
 	};
+	let selection = tree.nameSpan
+		? {
+				start: ts.getLineAndCharacterOfPosition(
+					sourceFile,
+					tree.nameSpan.start,
+				),
+				end: ts.getLineAndCharacterOfPosition(
+					sourceFile,
+					tree.nameSpan.start + tree.nameSpan.length,
+				),
+			}
+		: range;
 
 	// Parse the symbol kind from the nav tree.
 	let kind = getKind(tree.kind);
@@ -102,7 +114,7 @@ export let walk = (
 		tags: [],
 		detail: null,
 		range,
-		selection: range,
+		selection,
 		children: children ?? null,
 	};
 };

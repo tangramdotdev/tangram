@@ -24,11 +24,16 @@ $session = lsp send_all $session [
 ]
 let response = lsp wait_result $session 11
 $session = $response.session
-let action = $response.result | where { |action| $action.title | str contains 'floor' } | get 0
-assert equal $action.kind quickfix
-let edit = $action.edit.changes | values | get 0.0
-assert equal $edit.newText floor
-assert equal $edit.range {start: {line: 1, character: 5}, end: {line: 1, character: 10}}
+if ($local.config.compiler?.typescript_backend? | default tsrs) == typescript6 {
+    let action = $response.result | where { |action| $action.title | str contains 'floor' } | get 0
+    assert equal $action.kind quickfix
+    let edit = $action.edit.changes | values | get 0.0
+    assert equal $edit.newText floor
+    assert equal $edit.range {start: {line: 1, character: 5}, end: {line: 1, character: 10}}
+} else {
+    # The native service currently has no spelling-fix provider.
+    assert equal $response.result null
+}
 let response = lsp wait_result $session 12
 $session = $response.session
 assert equal $response.result null

@@ -33,5 +33,5 @@ assert ((lsp result $responses 11).signatures.0.label | str contains 'name: str'
 assert ((lsp result $responses 12).items.0.message | str contains 'str')
 assert equal (lsp result $responses 12).items.0.range.start.line 5
 assert equal (lsp result $responses 13) null
-assert equal (lsp result $responses 14).0.location.uri $js_uri
+assert equal ((lsp result $responses 14) | where name == welcome and location.uri == $js_uri | length) 1
 assert equal ((lsp result $responses 15) | where location.uri == $uri | length) 1

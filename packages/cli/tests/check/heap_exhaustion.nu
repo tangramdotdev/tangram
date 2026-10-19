@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A check that exhausts the compiler's heap fails without aborting the server.
 
-let local = server spawn --name local
+let local = server spawn --name local --config {compiler: {check_backend: typescript6, typescript_backend: typescript6}}
 
 # Each alias expands to 90,000 distinct strings to exhaust the default V8 heap.
 let aliases = 0..999 | each { |i| $'type A($i) = `($i)${T}`;' }

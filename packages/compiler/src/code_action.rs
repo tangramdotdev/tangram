@@ -37,6 +37,10 @@ impl Compiler {
 		range: tg::Range,
 		only: Option<Vec<String>>,
 	) -> tg::Result<Option<Vec<Action>>> {
+		if self.is_generated_module(module) {
+			return Ok(None);
+		}
+
 		// Create the request.
 		let request = super::Request::CodeAction(Request {
 			module: module.clone(),
@@ -52,7 +56,24 @@ impl Compiler {
 			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.actions)
+		// Exclude actions that would edit an immutable cross-language representation.
+		let actions = response.actions.map(|actions| {
+			actions
+				.into_iter()
+				.filter(|action| {
+					action.edits.as_ref().is_none_or(|edits| {
+						edits.iter().all(|edit| {
+							(edit.module.kind == tg::module::Kind::Python)
+								== (module.kind == tg::module::Kind::Python)
+								&& !self.is_generated_module(&edit.module)
+						})
+					})
+				})
+				.collect::<Vec<_>>()
+		});
+		let actions = actions.filter(|actions| !actions.is_empty());
+
+		Ok(actions)
 	}
 }
 

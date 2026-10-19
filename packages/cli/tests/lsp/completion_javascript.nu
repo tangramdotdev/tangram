@@ -37,3 +37,32 @@ for entry in [{extension: js, language: tangram-javascript}, {extension: ts, lan
     assert equal $response.result.0.fromRanges.0.start {line: 5, character: 11}
     lsp stop $session
 }
+
+# Deprecated symbols retain their tags on completion and resolution.
+for extension in [js ts] {
+    let source = "/** @deprecated Use replacement. */\nexport const obsolete = 1;\nobso"
+    let filename = $'main.tg.($extension)'
+    let path = artifact {($filename): $source}
+    let uri = lsp uri ($path | path join $filename)
+    mut session = lsp start
+    $session = lsp send_all $session [
+        (lsp initialize 1)
+        (lsp initialized)
+        (lsp did_open $uri $source)
+        (lsp request 10 'textDocument/completion' {textDocument: {uri: $uri}, position: {line: 2, character: 4}})
+    ]
+    let response = lsp wait_result $session 10
+    $session = $response.session
+    let item = $response.result | where label == obsolete | first
+    assert equal $item.tags [1]
+    $session = lsp send_all $session [
+        (lsp request 11 'completionItem/resolve' $item)
+        (lsp request 12 'completionItem/resolve' ($item | reject tags))
+    ]
+    for id in [11, 12] {
+        let response = lsp wait_result $session $id
+        $session = $response.session
+        assert equal $response.result.tags [1]
+    }
+    lsp stop $session
+}

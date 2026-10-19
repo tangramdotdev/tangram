@@ -41,13 +41,13 @@ impl Compiler {
 				query: query.clone(),
 			});
 			let response = self.request(request).await?.unwrap_workspace_symbol();
-			symbols.extend(
-				response
-					.symbols
-					.into_iter()
-					.flatten()
-					.filter(|symbol| symbol.module.kind != tg::module::Kind::Python),
-			);
+			let javascript = self
+				.materialize_workspace_symbols(
+					response.symbols.unwrap_or_default(),
+					tg::module::Kind::TypeScript,
+				)
+				.await?;
+			symbols.extend(javascript);
 		}
 
 		#[cfg(feature = "python")]
@@ -62,9 +62,43 @@ impl Compiler {
 				.request_python(request)
 				.await?
 				.unwrap_workspace_symbol();
-			symbols.extend(response.symbols.into_iter().flatten());
+			let python = self
+				.materialize_workspace_symbols(
+					response.symbols.unwrap_or_default(),
+					tg::module::Kind::Python,
+				)
+				.await?;
+			symbols.extend(python);
 		}
 		Ok(Some(symbols))
+	}
+
+	async fn materialize_workspace_symbols(
+		&self,
+		mut symbols: Vec<Symbol>,
+		kind: tg::module::Kind,
+	) -> tg::Result<Vec<Symbol>> {
+		for symbol in &mut symbols {
+			let is_wrapper = matches!(
+				(kind, symbol.module.kind),
+				(
+					tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
+					tg::module::Kind::Python,
+				) | (
+					tg::module::Kind::Python,
+					tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
+				)
+			);
+			if !is_wrapper {
+				continue;
+			}
+			let uri = self
+				.lsp_uri_for_module_with_language(&symbol.module, kind)
+				.await?;
+			symbol.module = self.module_for_lsp_uri(&uri).await?;
+		}
+
+		Ok(symbols)
 	}
 }
 

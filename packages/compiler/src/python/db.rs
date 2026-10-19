@@ -8,6 +8,7 @@ use {
 		system::SystemPathBuf,
 		vendored::VendoredFileSystem,
 	},
+	ruff_python_ast::PythonVersion,
 	salsa::Setter as _,
 	std::{
 		borrow::Cow,
@@ -20,7 +21,6 @@ use {
 		FallibleStrategy, ImportingFile, Module, ModuleKind, ModuleName, ModuleResolution,
 		ModuleResolveMode, ResolverEnvironment, ResolverFile, SearchPathSettings,
 	},
-	ty_python_ast::PythonVersion,
 	ty_python_core::{Program, ProgramFile, program::ProgramSettings},
 	ty_python_semantic::{
 		AnalysisSettings, PythonVersionWithSource,
@@ -560,7 +560,7 @@ impl Database {
 	fn resolve_import_member<'db>(
 		&'db self,
 		importing_file: ImportingFile<'db>,
-		import: &ty_python_ast::StmtImportFrom,
+		import: &ruff_python_ast::StmtImportFrom,
 		member: &str,
 		export: Option<Module<'db>>,
 	) -> ModuleResolution<'db> {
@@ -969,7 +969,7 @@ impl ty_module_resolver::Db for Database {
 		&'db self,
 		importing_file: ImportingFile<'db>,
 		_parent: Module<'db>,
-		import: &ty_python_ast::StmtImportFrom,
+		import: &ruff_python_ast::StmtImportFrom,
 		member: &str,
 		export: Option<Module<'db>>,
 		_mode: ModuleResolveMode,

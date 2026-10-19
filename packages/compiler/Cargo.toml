@@ -23,7 +23,6 @@ python = [
 	"dep:ty_ide",
 	"dep:ty_module_resolver",
 	"dep:ty_project",
-	"dep:ty_python_ast",
 	"dep:ty_python_core",
 	"dep:ty_python_semantic",
 	"dep:ty_text_size",
@@ -83,10 +82,18 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
+tsrs_ast = { workspace = true }
+tsrs_compiler = { workspace = true }
+tsrs_core = { workspace = true }
+tsrs_diagnostics = { workspace = true }
+tsrs_ls = { workspace = true }
+tsrs_lsproto = { workspace = true }
+tsrs_module = { workspace = true }
+tsrs_project = { workspace = true }
+tsrs_vfs = { workspace = true }
 ty_ide = { workspace = true, optional = true }
 ty_module_resolver = { workspace = true, optional = true }
 ty_project = { workspace = true, optional = true }
-ty_python_ast = { workspace = true, optional = true }
 ty_python_core = { workspace = true, optional = true }
 ty_python_semantic = { workspace = true, optional = true }
 ty_text_size = { workspace = true, optional = true }

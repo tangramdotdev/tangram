@@ -13,8 +13,21 @@ $session = lsp send_all $session [
     (lsp initialized)
     (lsp did_open $uri $source 17)
     (lsp did_open $target $helper 42)
-    (lsp rename 10 $uri 1 16 hello)
+    (lsp rename 9 $uri 1 16 hello)
 ]
+let response = lsp wait_result $session 9
+$session = $response.session
+let edits = $response.result.documentChanges
+assert equal ($edits | length) 1
+assert equal $edits.0.textDocument.uri $uri
+assert equal $edits.0.textDocument.version 17
+assert equal $edits.0.edits [
+    {newText: 'greet as hello', range: {start: {line: 0, character: 9}, end: {line: 0, character: 14}}}
+    {newText: hello, range: {start: {line: 1, character: 14}, end: {line: 1, character: 19}}}
+]
+
+# Renaming the declaration updates both documents.
+$session = lsp send $session (lsp rename 10 $target 0 17 hello)
 let response = lsp wait_result $session 10
 $session = $response.session
 let edits = $response.result.documentChanges
@@ -27,7 +40,7 @@ $session = lsp send_all $session [
     (lsp notification 'textDocument/didClose' {textDocument: {uri: $target}})
     (lsp notification 'textDocument/didClose' {textDocument: {uri: $uri}})
     (lsp did_open $uri $source 0)
-    (lsp rename 11 $uri 1 16 hello)
+    (lsp rename 11 $target 0 17 hello)
 ]
 let response = lsp wait_result $session 11
 $session = $response.session

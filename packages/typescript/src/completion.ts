@@ -1,6 +1,7 @@
 import ts from "typescript";
 import type { Module } from "./module.ts";
 import type { Position } from "./position.ts";
+import type { Range } from "./range.ts";
 import * as typescript from "./typescript.ts";
 
 export type Request = {
@@ -24,6 +25,7 @@ export type CompletionEntry = {
 	commitCharacters?: Array<string> | null;
 	data?: {} | null;
 	labelDetails?: CompletionEntryLabelDetails | null;
+	textEdit?: { newText: string; range: Range } | null;
 };
 
 export type CompletionEntryLabelDetails = {
@@ -73,7 +75,9 @@ export let handle = (request: Request): Response => {
 	);
 
 	// Convert the completion entries.
-	let entries = info?.entries.map(convertCompletionEntry);
+	let entries = info?.entries.map((entry) =>
+		convertCompletionEntry(entry, sourceFile),
+	);
 
 	return {
 		entries: entries ?? null,
@@ -112,8 +116,24 @@ export let handleResolve = (request: ResolveRequest): ResolveResponse => {
 	return { entry };
 };
 
-let convertCompletionEntry = (entry: ts.CompletionEntry): CompletionEntry => {
+let convertCompletionEntry = (
+	entry: ts.CompletionEntry,
+	sourceFile: ts.SourceFile,
+): CompletionEntry => {
 	let labelDetails = convertCompletionEntryLabelDetails(entry);
+	let span = entry.replacementSpan;
+	let textEdit = span
+		? {
+				newText: entry.insertText ?? entry.name,
+				range: {
+					start: ts.getLineAndCharacterOfPosition(sourceFile, span.start),
+					end: ts.getLineAndCharacterOfPosition(
+						sourceFile,
+						span.start + span.length,
+					),
+				},
+			}
+		: null;
 	return {
 		name: entry.name,
 		kind: entry.kind,
@@ -126,6 +146,7 @@ let convertCompletionEntry = (entry: ts.CompletionEntry): CompletionEntry => {
 		commitCharacters: entry.commitCharacters ?? null,
 		data: (entry.data ?? null) as {} | null,
 		labelDetails,
+		textEdit,
 	};
 };
 

@@ -11,7 +11,7 @@ export type Request = {
 };
 
 export type Response = {
-	locations?: Array<Location> | null;
+	edits?: Array<{ location: Location; new_text: string }> | null;
 };
 
 export let handle = (request: Request): Response => {
@@ -35,10 +35,11 @@ export let handle = (request: Request): Response => {
 		position,
 		false,
 		false,
+		true,
 	);
 
 	// Convert the definitions.
-	let locations = renameLocations?.map((renameLocation) => {
+	let edits = renameLocations?.map((renameLocation) => {
 		let destFile = typescript.host.getSourceFile(
 			renameLocation.fileName,
 			ts.ScriptTarget.ESNext,
@@ -58,8 +59,11 @@ export let handle = (request: Request): Response => {
 			module: typescript.moduleFromFileName(renameLocation.fileName),
 			range: { start, end },
 		};
-		return location;
+		return {
+			location,
+			new_text: `${renameLocation.prefixText ?? ""}${request.newName}${renameLocation.suffixText ?? ""}`,
+		};
 	});
 
-	return { locations: locations ?? null };
+	return { edits: edits ?? null };
 };

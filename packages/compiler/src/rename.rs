@@ -1,4 +1,4 @@
-use {super::Compiler, lsp_types as lsp, std::collections::HashMap, tangram_client::prelude::*};
+use {super::Compiler, lsp_types as lsp, std::collections::BTreeMap, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -11,7 +11,19 @@ pub struct Request {
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub locations: Option<Vec<tg::module::data::Location>>,
+	pub edits: Option<Vec<Data>>,
+}
+
+#[derive(Debug)]
+pub struct Edit {
+	pub location: tg::module::Location,
+	pub new_text: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct Data {
+	pub location: tg::module::data::Location,
+	pub new_text: String,
 }
 
 impl Compiler {
@@ -26,22 +38,20 @@ impl Compiler {
 
 		// Get the position for the request.
 		let position = params.text_document_position.position;
-		let new_text = &params.new_name;
 
-		// Get the references.
-		let locations = self
-			.rename(&module, position.into(), params.new_name.clone())
+		// Get the edits.
+		let edits = self
+			.rename(&module, position.into(), params.new_name)
 			.await?;
 
-		// If there are no references, then return None.
-		let Some(locations) = locations else {
+		// Return if there are no edits.
+		let Some(edits) = edits else {
 			return Ok(None);
 		};
 
 		// Convert the edits.
-		#[expect(clippy::mutable_key_type)]
-		let mut edit = HashMap::<lsp::Uri, lsp::TextDocumentEdit>::new();
-		for location in locations {
+		let mut documents = BTreeMap::<String, lsp::TextDocumentEdit>::new();
+		for Edit { location, new_text } in edits {
 			// Create the URI.
 			let uri = self.lsp_uri_for_module(&location.module.to_data()).await?;
 
@@ -52,7 +62,7 @@ impl Compiler {
 				.filter(|document| document.open)
 				.map(|document| document.version);
 
-			if edit.get_mut(&uri).is_none() {
+			if !documents.contains_key(uri.as_str()) {
 				let entry = lsp::TextDocumentEdit {
 					text_document: lsp::OptionalVersionedTextDocumentIdentifier {
 						uri: uri.clone(),
@@ -60,22 +70,23 @@ impl Compiler {
 					},
 					edits: Vec::<lsp::OneOf<lsp::TextEdit, lsp::AnnotatedTextEdit>>::new(),
 				};
-				edit.insert(uri.clone(), entry);
+				documents.insert(uri.to_string(), entry);
 			}
 
-			edit.get_mut(&uri)
+			documents
+				.get_mut(uri.as_str())
 				.unwrap()
 				.edits
 				.push(lsp::OneOf::Left(lsp::TextEdit {
 					range: location.range.into(),
-					new_text: new_text.clone(),
+					new_text,
 				}));
 		}
 
 		let edit = lsp::WorkspaceEdit {
 			changes: None,
 			document_changes: Some(lsp::DocumentChanges::Edits(
-				edit.values().cloned().collect(),
+				documents.into_values().collect(),
 			)),
 			change_annotations: None,
 		};
@@ -88,7 +99,7 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 		new_name: String,
-	) -> tg::Result<Option<Vec<tg::module::Location>>> {
+	) -> tg::Result<Option<Vec<Edit>>> {
 		if self.is_generated_module(module) {
 			return Ok(None);
 		}
@@ -109,8 +120,9 @@ impl Compiler {
 		};
 
 		// A rename must never apply generated positions to a source in another language.
-		if response.locations.as_ref().is_some_and(|locations| {
-			locations.iter().any(|location| {
+		if response.edits.as_ref().is_some_and(|edits| {
+			edits.iter().any(|edit| {
+				let location = &edit.location;
 				(location.module.kind == tg::module::Kind::Python)
 					!= (module.kind == tg::module::Kind::Python)
 					|| self.is_generated_module(&location.module)
@@ -119,21 +131,22 @@ impl Compiler {
 			return Ok(None);
 		}
 
-		// Convert locations from data to the non-serializable form.
-		let locations = response
-			.locations
-			.map(|locations| {
-				locations
+		// Convert the edits from data to the non-serializable form.
+		let edits = response
+			.edits
+			.map(|edits| {
+				edits
 					.into_iter()
-					.map(TryInto::try_into)
-					.collect::<tg::Result<Vec<_>>>()
+					.map(|edit| {
+						let location = edit.location.try_into()?;
+						let new_text = edit.new_text;
+						let edit = Edit { location, new_text };
+						Ok::<_, tg::Error>(edit)
+					})
+					.collect::<tg::Result<_>>()
 			})
 			.transpose()?;
 
-		Ok(locations)
-	}
-
-	fn is_generated_module(&self, module: &tg::module::Data) -> bool {
-		matches!(&module.referent.node, tg::module::data::Source::Path(path) if path.starts_with(self.library_path.join("generated")))
+		Ok(edits)
 	}
 }

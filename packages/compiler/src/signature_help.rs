@@ -15,30 +15,36 @@ pub struct Response {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Help {
-	pub signatures: Vec<Signature>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub active_signature: Option<u32>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub active_parameter: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub active_signature: Option<u32>,
+
+	pub signatures: Vec<Signature>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Signature {
-	pub label: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub documentation: Option<String>,
-	pub parameters: Vec<Parameter>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub active_parameter: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub documentation: Option<String>,
+
+	pub label: String,
+
+	pub parameters: Vec<Parameter>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Parameter {
-	pub label: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub documentation: Option<String>,
+
+	pub label: String,
 }
 
 impl Compiler {

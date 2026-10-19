@@ -13,7 +13,8 @@ let responses = lsp exchange [
     (lsp request 11 'textDocument/references' {textDocument: {uri: $uri}, position: {line: 1, character: 2}, context: {includeDeclaration: true}})
     (lsp request 12 'textDocument/references' {textDocument: {uri: $uri}, position: {line: 1, character: 2}, context: {includeDeclaration: false}})
 ]
-assert equal (lsp result $responses 10).0.selectionRange {start: {line: 0, character: 0}, end: {line: 0, character: 38}}
+assert equal (lsp result $responses 10).0.range {start: {line: 0, character: 0}, end: {line: 0, character: 38}}
+assert equal (lsp result $responses 10).0.selectionRange {start: {line: 0, character: 16}, end: {line: 0, character: 21}}
 assert equal ((lsp result $responses 11) | length) 2
 assert equal (lsp result $responses 12) [{uri: $uri, range: {start: {line: 1, character: 0}, end: {line: 1, character: 5}}}]
 

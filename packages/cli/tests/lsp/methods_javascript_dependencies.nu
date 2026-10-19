@@ -30,7 +30,14 @@ assert ((lsp result $responses 11).signatures.0.label | str contains 'name: stri
 let diagnostic = (lsp result $responses 12).items | where range.start.line == 1 | get 0
 assert ($diagnostic.message | str contains 'string')
 assert equal $diagnostic.range {start: {line: 1, character: 27}, end: {line: 1, character: 29}}
-assert equal (lsp result $responses 14).0.location.uri $py_uri
+assert equal ((lsp result $responses 14) | where name == welcome and location.uri == $py_uri | length) 1
+let wrappers = (lsp result $responses 14) | where {|symbol| $symbol.name == welcome and ($symbol.location.uri | str contains '/generated/') }
+assert (($wrappers | length) > 0)
+for symbol in $wrappers {
+    let wrapper = open --raw (lsp path_for_uri $symbol.location.uri)
+    let range = $symbol.location.range
+    assert ($wrapper | lines | get $range.start.line | str substring $range.start.character..<$range.end.character | str contains welcome)
+}
 assert equal ((lsp result $responses 15) | where location.uri == $uri | length) 1
 let target = (lsp result $responses 16).0
 assert equal $target.range {start: {line: 1, character: 16}, end: {line: 1, character: 21}}

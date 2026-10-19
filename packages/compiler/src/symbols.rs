@@ -13,15 +13,21 @@ pub struct Response {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Symbol {
-	pub name: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub detail: Option<String>,
-	pub kind: Kind,
-	pub tags: Vec<Tag>,
-	pub range: tg::Range,
-	pub selection: tg::Range,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub children: Option<Vec<Self>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub detail: Option<String>,
+
+	pub kind: Kind,
+
+	pub name: String,
+
+	pub range: tg::Range,
+
+	pub selection: tg::Range,
+
+	pub tags: Vec<Tag>,
 }
 
 #[derive(Debug, serde::Deserialize)]
