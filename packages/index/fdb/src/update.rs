@@ -17,6 +17,8 @@ use {
 	tangram_client::prelude::*,
 };
 
+const PERMISSION_ENTRIES_READ_CHUNK_SIZE: usize = 64;
+
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
@@ -87,22 +89,12 @@ pub(super) enum Source {
 }
 
 struct ProcessPermissionInputs<'a> {
-	resource: &'a tg::Id,
+	child_covers: &'a BTreeMap<tg::authorization::Permission, Option<i64>>,
 	entries: &'a [crate::permission::PermissionEntry],
-	child_entries: &'a [Vec<crate::permission::PermissionEntry>],
-	command_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
-	error_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
-	log_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
-	output_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
-	set: ProcessPermissionSet,
-}
-
-#[derive(Clone, Copy)]
-struct ProcessPermissionSet {
-	command_objects: bool,
-	error_objects: bool,
-	log_objects: bool,
-	output_objects: bool,
+	object_covers: &'a BTreeMap<tg::authorization::Permission, Option<i64>>,
+	resource: &'a tg::Id,
+	subject: &'a tg::authorization::Subject,
+	time_to_touch: std::time::Duration,
 }
 
 struct ProcessOutput {
@@ -118,6 +110,13 @@ enum UsageRelationship {
 #[derive(Clone, Copy)]
 struct PermissionCover {
 	expires_at: Option<i64>,
+}
+
+#[derive(Clone, Copy)]
+enum Relation<'a> {
+	ObjectParents(&'a tg::object::Id),
+	ObjectProcesses(&'a tg::object::Id),
+	ProcessParents(&'a tg::process::Id),
 }
 
 impl PermissionUpdate {
@@ -378,6 +377,8 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 		max_process_depth: Option<u64>,
+		object_permission_time_to_touch: std::time::Duration,
+		process_permission_time_to_touch: std::time::Duration,
 		partition_totals: crate::PartitionTotals,
 		storage_relation_batch_size: usize,
 	) -> tg::Result<ControlFlow<tangram_index::update::Output, fdb::FdbError>> {
@@ -509,6 +510,7 @@ impl Index {
 								subspace,
 								id,
 								subject,
+								object_permission_time_to_touch,
 								cleaning_partition_total,
 							)
 							.await
@@ -521,6 +523,7 @@ impl Index {
 								subspace,
 								id,
 								subject,
+								process_permission_time_to_touch,
 								cleaning_partition_total,
 							)
 							.await
@@ -1585,6 +1588,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
+		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let resource = tg::Id::from(id.clone());
@@ -1601,28 +1605,6 @@ impl Index {
 		let entries = match entries {
 			ControlFlow::Break(value) => value,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let child_entries = {
-			let result = future::try_join_all(children.iter().flatten().map(|child| {
-				let resource = tg::Id::from(child.clone());
-				async move {
-					Self::get_resource_permission_entries_for_subject_with_transaction(
-						txn, subspace, &resource, subject,
-					)
-					.await
-				}
-			}))
-			.await;
-			let results = result?;
-			let mut values = Vec::with_capacity(results.len());
-			for result in results {
-				let value = match result {
-					ControlFlow::Break(value) => value,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				values.push(value);
-			}
-			values
 		};
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
@@ -1685,18 +1667,33 @@ impl Index {
 				.filter(|(_, permission, _)| *permission == node)
 				.map(|(subject, _, expires_at)| (subject.clone(), *expires_at)),
 		);
-		// Derive subtree permissions only after the object children are indexed.
-		for (subject, entry_expires_at) in nodes.into_iter().filter(|_| children.is_some()) {
-			let expires_at = child_entries
-				.iter()
-				.try_fold(entry_expires_at, |output, entries| {
-					Self::permission_entries_cover_expires_at(entries, &subject, subtree)
-						.map(|cover| Self::min_expires_at(output, cover.expires_at))
-				});
-			if let Some(expires_at) = expires_at
-				&& !Self::has_non_materialized_cover(&entries, &subject, subtree, expires_at)
-			{
-				expected.insert((subject, subtree, expires_at));
+		// Derive subtree permissions only after the object children are indexed, reading the children only when there is a node proof.
+		let child_cover = match &children {
+			Some(children) if !nodes.is_empty() => {
+				let children = children
+					.iter()
+					.map(|child| tg::Id::from(child.clone()))
+					.collect::<Vec<_>>();
+				crate::propagate!(
+					Self::get_resources_covers_with_transaction(
+						txn,
+						subspace,
+						&children,
+						subject,
+						[subtree],
+					)
+					.await
+				)
+				.remove(&subtree)
+			},
+			_ => None,
+		};
+		if let Some(child_cover) = child_cover {
+			for (subject, entry_expires_at) in nodes {
+				let expires_at = Self::min_expires_at(entry_expires_at, child_cover);
+				if !Self::has_non_materialized_cover(&entries, &subject, subtree, expires_at) {
+					expected.insert((subject, subtree, expires_at));
+				}
 			}
 		}
 
@@ -1718,6 +1715,9 @@ impl Index {
 			.map(|((subject, permission), expires_at)| (subject, permission, expires_at))
 			.collect();
 		let managed = BTreeSet::from([node, subtree]);
+
+		// Keep the current materialized expirations that the expected expirations extend by less than the time to touch.
+		let expected = Self::retain_materialized_expirations(&entries, expected, time_to_touch);
 
 		let materialized_changed = crate::propagate!(
 			Self::reconcile_materialized_permissions(
@@ -1763,11 +1763,17 @@ impl Index {
 		let tg::authorization::Subject::Process(process) = subject else {
 			return Ok(ControlFlow::Break(false));
 		};
-		let processes =
-			crate::propagate!(Self::get_object_processes_with_transaction(txn, subspace, id).await);
-		let direct = processes
-			.into_iter()
-			.any(|(candidate, _)| candidate == *process);
+		let permissions = entries
+			.iter()
+			.filter(|entry| entry.grant || entry.direct.is_some() || entry.materialized.is_some())
+			.map(|entry| entry.permission)
+			.collect::<BTreeSet<_>>();
+		if permissions.is_empty() {
+			return Ok(ControlFlow::Break(false));
+		}
+		let direct = crate::propagate!(
+			Self::has_object_process_with_transaction(txn, subspace, id, process).await
+		);
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
@@ -1796,11 +1802,6 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		}
 
-		let permissions = entries
-			.iter()
-			.filter(|entry| entry.grant || entry.direct.is_some() || entry.materialized.is_some())
-			.map(|entry| entry.permission)
-			.collect::<BTreeSet<_>>();
 		let creator = tg::Principal::Process(process.clone());
 		let resource = tg::Id::from(id.clone());
 		let mut changed = false;
@@ -1827,6 +1828,33 @@ impl Index {
 		}
 
 		Ok(ControlFlow::Break(changed))
+	}
+
+	async fn has_object_process_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		object: &tg::object::Id,
+		process: &tg::process::Id,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		for kind in [
+			tangram_index::process::object::Kind::Command,
+			tangram_index::process::object::Kind::Error,
+			tangram_index::process::object::Kind::Log,
+			tangram_index::process::object::Kind::Output,
+		] {
+			let key = crate::Key::Object(crate::object::Key::ObjectProcess {
+				object: object.clone(),
+				kind,
+				process: process.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			let result = txn.get(&key, false).await;
+			let value = crate::retry!(result);
+			if value.is_some() {
+				return Ok(ControlFlow::Break(true));
+			}
+		}
+		Ok(ControlFlow::Break(false))
 	}
 
 	async fn reconcile_materialized_permissions(
@@ -1902,165 +1930,74 @@ impl Index {
 		input: &ProcessPermissionInputs<'_>,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
-		let object_subtree = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-		let node = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Node,
-		);
-		let node_command_objects = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeCommandObjects,
-		);
-		let node_error_objects = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeErrorObjects,
-		);
-		let node_log_objects = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeLogObjects,
-		);
-		let node_output_objects = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeOutputObjects,
-		);
-		let subtree = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Subtree,
-		);
-		let subtree_command_objects = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeCommandObjects,
-		);
-		let subtree_error_objects = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeErrorObjects,
-		);
-		let subtree_log_objects = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeLogObjects,
-		);
-		let subtree_output_objects = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
-		);
-
 		let mut expected = BTreeSet::new();
 
-		if input.set.command_objects {
-			let command_object_entries = input
-				.command_object_entries
-				.iter()
-				.map(Vec::as_slice)
-				.collect::<Vec<_>>();
-			Self::insert_object_aspect_permissions(
-				&mut expected,
+		// Derive the node object aspect permissions from the object covers, unless a non-materialized permission implies them.
+		let mut aspects = BTreeMap::new();
+		for (permission, expires_at) in input.object_covers {
+			if !Self::has_implying_non_materialized_cover(
 				input.entries,
-				command_object_entries.iter().flat_map(|entries| *entries),
-				&command_object_entries,
-				object_subtree,
-				node_command_objects,
-			);
-		}
-		if input.set.error_objects {
-			let error_object_entries = input
-				.error_object_entries
-				.iter()
-				.map(Vec::as_slice)
-				.collect::<Vec<_>>();
-			Self::insert_object_aspect_permissions(
-				&mut expected,
-				input.entries,
-				error_object_entries.iter().flat_map(|entries| *entries),
-				&error_object_entries,
-				object_subtree,
-				node_error_objects,
-			);
-		}
-		if input.set.log_objects {
-			let log_object_entries = input
-				.log_object_entries
-				.iter()
-				.map(Vec::as_slice)
-				.collect::<Vec<_>>();
-			Self::insert_object_aspect_permissions(
-				&mut expected,
-				input.entries,
-				log_object_entries.iter().flat_map(|entries| *entries),
-				&log_object_entries,
-				object_subtree,
-				node_log_objects,
-			);
-		}
-		if input.set.output_objects {
-			let output_object_entries = input
-				.output_object_entries
-				.iter()
-				.map(Vec::as_slice)
-				.collect::<Vec<_>>();
-			Self::insert_object_aspect_permissions(
-				&mut expected,
-				input.entries,
-				output_object_entries.iter().flat_map(|entries| *entries),
-				&output_object_entries,
-				object_subtree,
-				node_output_objects,
-			);
-		}
-
-		for (source, target) in [
-			(node, subtree),
-			(node_command_objects, subtree_command_objects),
-			(node_error_objects, subtree_error_objects),
-			(node_log_objects, subtree_log_objects),
-			(node_output_objects, subtree_output_objects),
-		] {
-			for entry in input
-				.entries
-				.iter()
-				.filter(|entry| entry.permission == source)
-			{
-				let Some(entry_expires_at) = entry.effective_expires_at() else {
-					continue;
-				};
-				let expires_at =
-					input
-						.child_entries
-						.iter()
-						.try_fold(entry_expires_at, |output, entries| {
-							Self::permission_entries_cover_expires_at(
-								entries,
-								&entry.subject,
-								target,
-							)
-							.map(|cover| Self::min_expires_at(output, cover.expires_at))
-						});
-				if let Some(expires_at) = expires_at {
-					if Self::has_non_materialized_cover(
-						input.entries,
-						&entry.subject,
-						target,
-						expires_at,
-					) {
-						continue;
-					}
-					expected.insert((entry.subject.clone(), target, expires_at));
-				}
+				input.subject,
+				*permission,
+				*expires_at,
+			) {
+				expected.insert((input.subject.clone(), *permission, *expires_at));
+				aspects.insert(*permission, *expires_at);
 			}
 		}
 
+		// Derive the subtree permissions from the non-materialized node permissions, the node object aspect permissions derived above, and the child covers.
+		for (source, target) in process_subtree_permissions() {
+			let Some(child_cover) = input.child_covers.get(&target) else {
+				continue;
+			};
+			let cover =
+				Self::non_materialized_cover_expires_at(input.entries, input.subject, source)
+					.map(|cover| cover.expires_at);
+			let cover = match (cover, aspects.get(&source).copied()) {
+				(Some(left), Some(right)) => Some(Self::max_expires_at(left, right)),
+				(cover, None) | (None, cover) => cover,
+			};
+			let Some(cover) = cover else {
+				continue;
+			};
+			let expires_at = Self::min_expires_at(cover, *child_cover);
+			if !Self::has_non_materialized_cover(input.entries, input.subject, target, expires_at) {
+				expected.insert((input.subject.clone(), target, expires_at));
+			}
+		}
+
+		// Keep the current materialized expirations that the expected expirations extend by less than the time to touch.
+		let expected =
+			Self::retain_materialized_expirations(input.entries, expected, input.time_to_touch);
+
+		// Reconcile the materialized permissions.
+		let process = tg::authorization::Permission::Process;
 		let managed = BTreeSet::from([
-			node_command_objects,
-			node_error_objects,
-			node_log_objects,
-			node_output_objects,
-			subtree,
-			subtree_command_objects,
-			subtree_error_objects,
-			subtree_log_objects,
-			subtree_output_objects,
+			process(tg::authorization::permission::process::Permission::NodeCommandObjects),
+			process(tg::authorization::permission::process::Permission::NodeErrorObjects),
+			process(tg::authorization::permission::process::Permission::NodeLogObjects),
+			process(tg::authorization::permission::process::Permission::NodeOutputObjects),
+			process(tg::authorization::permission::process::Permission::Subtree),
+			process(tg::authorization::permission::process::Permission::SubtreeCommandObjects),
+			process(tg::authorization::permission::process::Permission::SubtreeErrorObjects),
+			process(tg::authorization::permission::process::Permission::SubtreeLogObjects),
+			process(tg::authorization::permission::process::Permission::SubtreeOutputObjects),
 		]);
-		Self::reconcile_materialized_permissions(
-			txn,
-			subspace,
-			input.resource,
-			input.entries,
-			&expected,
-			&managed,
-			partition_total,
-		)
-		.await
+		let changed = crate::propagate!(
+			Self::reconcile_materialized_permissions(
+				txn,
+				subspace,
+				input.resource,
+				input.entries,
+				&expected,
+				&managed,
+				partition_total,
+			)
+			.await
+		);
+
+		Ok(ControlFlow::Break(changed))
 	}
 
 	async fn update_process_permissions_for_subject(
@@ -2068,8 +2005,10 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		subject: &tg::authorization::Subject,
+		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		// Get the process.
 		let key = crate::Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;
@@ -2078,161 +2017,198 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		};
 		let process = tangram_index::process::Process::deserialize(&bytes)?;
-		let resource = tg::Id::from(id.clone());
-		let entries_future = Self::get_resource_permission_entries_for_subject_with_transaction(
-			txn, subspace, &resource, subject,
-		);
-		let child_entries_future = async {
-			let children = crate::propagate!(
-				Self::get_process_children_with_transaction(txn, subspace, id).await
-			);
-			let child_entries = {
-				let result = future::try_join_all(children.iter().map(|child| {
-					let resource = tg::Id::from(child.clone());
-					async move {
-						Self::get_resource_permission_entries_for_subject_with_transaction(
-							txn, subspace, &resource, subject,
-						)
-						.await
-					}
-				}))
-				.await;
-				let results = result?;
-				let mut values = Vec::with_capacity(results.len());
-				for result in results {
-					let value = match result {
-						ControlFlow::Break(value) => value,
-						ControlFlow::Continue(error) => {
-							return Ok(ControlFlow::Continue(error));
-						},
-					};
-					values.push(value);
-				}
-				values
-			};
 
-			Ok::<_, tg::Error>(ControlFlow::Break(child_entries))
+		// Get the subject's permission entries, which every materialized permission requires.
+		let resource = tg::Id::from(id.clone());
+		let entries = crate::propagate!(
+			Self::get_resource_permission_entries_for_subject_with_transaction(
+				txn, subspace, &resource, subject,
+			)
+			.await
+		);
+		if entries.is_empty() {
+			return Ok(ControlFlow::Break(false));
+		}
+
+		// Get the object covers of the object aspects, only for a subject with a direct or grant permission on the process.
+		let object_subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let anchored = entries
+			.iter()
+			.any(|entry| entry.grant || entry.direct.is_some());
+		let mut aspects = if anchored {
+			process_object_aspect_permissions(&process.set)
+		} else {
+			Vec::new()
 		};
-		let object_entries_future = async {
+
+		// Skip the object aspects for a subject that has them inherently, as the process itself or one of its parents.
+		if !aspects.is_empty()
+			&& let tg::authorization::Subject::Process(subject_process) = subject
+		{
+			let inherent = subject_process == id || {
+				let parents = crate::propagate!(
+					Self::get_process_parents_with_transaction(txn, subspace, id).await
+				);
+				parents.contains(subject_process)
+			};
+			if inherent {
+				aspects.clear();
+			}
+		}
+		let mut object_covers = BTreeMap::new();
+		if !aspects.is_empty() {
 			let objects = crate::propagate!(
 				Self::get_process_objects_with_transaction(txn, subspace, id).await
 			);
-			let mut command_object_entries: Vec<Vec<crate::permission::PermissionEntry>> =
-				Vec::new();
-			let mut error_object_entries: Vec<Vec<crate::permission::PermissionEntry>> = Vec::new();
-			let mut log_object_entries: Vec<Vec<crate::permission::PermissionEntry>> = Vec::new();
-			let mut output_object_entries: Vec<Vec<crate::permission::PermissionEntry>> =
-				Vec::new();
-			for (object, kind) in objects {
-				let resource = tg::Id::from(object);
-				let entries = crate::propagate!(
-					Self::get_resource_permission_entries_for_subject_with_transaction(
-						txn, subspace, &resource, subject,
+			for (kind, permission) in aspects {
+				let objects = objects
+					.iter()
+					.filter(|(_, object_kind)| *object_kind == kind)
+					.map(|(object, _)| tg::Id::from(object.clone()))
+					.collect::<Vec<_>>();
+				if objects.is_empty() {
+					continue;
+				}
+				let cover = crate::propagate!(
+					Self::get_resources_covers_with_transaction(
+						txn,
+						subspace,
+						&objects,
+						subject,
+						[object_subtree],
 					)
 					.await
-				);
-				match kind {
-					tangram_index::process::object::Kind::Command => {
-						command_object_entries.push(entries);
-					},
-					tangram_index::process::object::Kind::Error => {
-						error_object_entries.push(entries);
-					},
-					tangram_index::process::object::Kind::Log => {
-						log_object_entries.push(entries);
-					},
-					tangram_index::process::object::Kind::Output => {
-						output_object_entries.push(entries);
-					},
+				)
+				.remove(&object_subtree);
+				if let Some(cover) = cover {
+					object_covers.insert(permission, cover);
 				}
 			}
+		}
 
-			Ok::<_, tg::Error>(ControlFlow::Break((
-				command_object_entries,
-				error_object_entries,
-				log_object_entries,
-				output_object_entries,
-			)))
+		// Get the child covers of the subtree permissions whose node permissions the subject has, stopping once no child cover remains.
+		let targets = process_subtree_permissions()
+			.into_iter()
+			.filter(|(source, _)| {
+				Self::non_materialized_cover_expires_at(&entries, subject, *source).is_some()
+					|| object_covers.contains_key(source)
+			})
+			.map(|(_, target)| target)
+			.collect::<Vec<_>>();
+		let child_covers = if targets.is_empty() {
+			BTreeMap::new()
+		} else {
+			let children = crate::propagate!(
+				Self::get_process_children_with_transaction(txn, subspace, id).await
+			);
+			let children = children.into_iter().map(tg::Id::from).collect::<Vec<_>>();
+			crate::propagate!(
+				Self::get_resources_covers_with_transaction(
+					txn, subspace, &children, subject, targets,
+				)
+				.await
+			)
 		};
-		let (entries, child_entries, object_entries) =
-			futures::try_join!(entries_future, child_entries_future, object_entries_future)?;
-		let entries = match entries {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let child_entries = match child_entries {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let object_entries = match object_entries {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let (
-			command_object_entries,
-			error_object_entries,
-			log_object_entries,
-			output_object_entries,
-		) = object_entries;
+
+		// Update the materialized permissions.
 		let entry = ProcessPermissionInputs {
-			resource: &resource,
+			child_covers: &child_covers,
 			entries: &entries,
-			child_entries: &child_entries,
-			command_object_entries: &command_object_entries,
-			error_object_entries: &error_object_entries,
-			log_object_entries: &log_object_entries,
-			output_object_entries: &output_object_entries,
-			set: ProcessPermissionSet {
-				command_objects: process.set.command_objects,
-				error_objects: process.set.error_objects,
-				log_objects: process.set.log_objects,
-				output_objects: process.set.output_objects,
-			},
+			object_covers: &object_covers,
+			resource: &resource,
+			subject,
+			time_to_touch,
 		};
-		Self::update_process_permissions(txn, subspace, &entry, partition_total).await
+		let changed = crate::propagate!(
+			Self::update_process_permissions(txn, subspace, &entry, partition_total).await
+		);
+
+		Ok(ControlFlow::Break(changed))
 	}
 
-	fn insert_object_aspect_permissions<'a>(
-		expected: &mut BTreeSet<(
+	async fn get_resources_covers_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		resources: &[tg::Id],
+		subject: &tg::authorization::Subject,
+		permissions: impl IntoIterator<Item = tg::authorization::Permission>,
+	) -> tg::Result<ControlFlow<BTreeMap<tg::authorization::Permission, Option<i64>>, fdb::FdbError>>
+	{
+		let mut covers = permissions
+			.into_iter()
+			.map(|permission| (permission, None))
+			.collect::<BTreeMap<_, _>>();
+		for chunk in resources.chunks(PERMISSION_ENTRIES_READ_CHUNK_SIZE) {
+			if covers.is_empty() {
+				break;
+			}
+			let results = future::try_join_all(chunk.iter().map(|resource| {
+				Self::get_resource_permission_entries_for_subject_with_transaction(
+					txn, subspace, resource, subject,
+				)
+			}))
+			.await?;
+			for result in results {
+				let entries = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				Self::retain_permission_entries_covers(&mut covers, &entries, subject);
+			}
+		}
+		Ok(ControlFlow::Break(covers))
+	}
+
+	fn retain_permission_entries_covers(
+		covers: &mut BTreeMap<tg::authorization::Permission, Option<i64>>,
+		entries: &[crate::permission::PermissionEntry],
+		subject: &tg::authorization::Subject,
+	) {
+		covers.retain(|permission, cover| {
+			let Some(entry_cover) =
+				Self::permission_entries_cover_expires_at(entries, subject, *permission)
+			else {
+				return false;
+			};
+			*cover = Self::min_expires_at(*cover, entry_cover.expires_at);
+			true
+		});
+	}
+
+	fn retain_materialized_expirations(
+		entries: &[crate::permission::PermissionEntry],
+		expected: BTreeSet<(
 			tg::authorization::Subject,
 			tg::authorization::Permission,
 			Option<i64>,
 		)>,
-		target_entries: &[crate::permission::PermissionEntry],
-		sources: impl IntoIterator<Item = &'a crate::permission::PermissionEntry>,
-		required: &[&[crate::permission::PermissionEntry]],
-		source_permission: tg::authorization::Permission,
-		target_permission: tg::authorization::Permission,
-	) {
-		for entry in sources
+		time_to_touch: std::time::Duration,
+	) -> BTreeSet<(
+		tg::authorization::Subject,
+		tg::authorization::Permission,
+		Option<i64>,
+	)> {
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap_or(i64::MAX);
+		expected
 			.into_iter()
-			.filter(|entry| entry.permission == source_permission)
-		{
-			let Some(entry_expires_at) = entry.effective_expires_at() else {
-				continue;
-			};
-			let expires_at = required
-				.iter()
-				.try_fold(entry_expires_at, |output, entries| {
-					Self::permission_entries_cover_expires_at(
-						entries,
-						&entry.subject,
-						source_permission,
-					)
-					.map(|cover| Self::min_expires_at(output, cover.expires_at))
-				});
-			if let Some(expires_at) = expires_at {
-				if Self::has_non_materialized_cover(
-					target_entries,
-					&entry.subject,
-					target_permission,
-					expires_at,
-				) {
-					continue;
-				}
-				expected.insert((entry.subject.clone(), target_permission, expires_at));
-			}
-		}
+			.map(|(subject, permission, expires_at)| {
+				let current = entries
+					.iter()
+					.filter(|entry| entry.subject == subject && entry.permission == permission)
+					.find_map(|entry| entry.materialized);
+				let expires_at = match (current, expires_at) {
+					(Some(Some(current)), Some(expires_at))
+						if expires_at > current && expires_at - current < time_to_touch =>
+					{
+						Some(current)
+					},
+					_ => expires_at,
+				};
+				(subject, permission, expires_at)
+			})
+			.collect()
 	}
 
 	fn has_non_materialized_cover(
@@ -2246,6 +2222,39 @@ impl Index {
 				&& entry.permission == permission
 				&& entry.has_non_materialized_cover(expires_at)
 		})
+	}
+
+	fn has_implying_non_materialized_cover(
+		entries: &[crate::permission::PermissionEntry],
+		subject: &tg::authorization::Subject,
+		permission: tg::authorization::Permission,
+		expires_at: Option<i64>,
+	) -> bool {
+		entries.iter().any(|entry| {
+			entry.subject == *subject
+				&& entry.permission.implies(permission)
+				&& entry.has_non_materialized_cover(expires_at)
+		})
+	}
+
+	fn non_materialized_cover_expires_at(
+		entries: &[crate::permission::PermissionEntry],
+		subject: &tg::authorization::Subject,
+		permission: tg::authorization::Permission,
+	) -> Option<PermissionCover> {
+		entries
+			.iter()
+			.filter(|entry| entry.subject == *subject && entry.permission == permission)
+			.filter_map(|entry| {
+				let mut entry = entry.clone();
+				entry.materialized = None;
+				entry
+					.effective_expires_at()
+					.map(|expires_at| PermissionCover { expires_at })
+			})
+			.reduce(|left, right| PermissionCover {
+				expires_at: Self::max_expires_at(left.expires_at, right.expires_at),
+			})
 	}
 
 	fn permission_entries_cover_expires_at(
@@ -3337,9 +3346,23 @@ impl Index {
 					}
 				}
 
-				let parents = crate::propagate!(
-					Self::get_object_parents_with_transaction(txn, subspace, id).await
-				);
+				let parents = match kind {
+					Kind::Permission(subject) => crate::propagate!(
+						Self::get_related_resources_for_subject_with_transaction(
+							txn,
+							subspace,
+							Relation::ObjectParents(id),
+							subject,
+						)
+						.await
+					)
+					.into_iter()
+					.map(tg::object::Id::try_from)
+					.collect::<tg::Result<Vec<_>>>()?,
+					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+						Self::get_object_parents_with_transaction(txn, subspace, id).await
+					),
+				};
 				for parent in parents {
 					crate::propagate!(
 						Self::enqueue_update_propagate(
@@ -3353,27 +3376,86 @@ impl Index {
 						.await
 					);
 				}
-				let process_parents = crate::propagate!(
-					Self::get_object_processes_with_transaction(txn, subspace, id).await
-				);
-				for (process, _kind) in process_parents {
-					crate::propagate!(
-						Self::enqueue_update_propagate(
-							txn,
-							subspace,
-							&tg::Either::Right(process),
-							kind,
-							version,
-							partition_total,
+				match kind {
+					Kind::Permission(subject) => {
+						let processes = crate::propagate!(
+							Self::get_related_resources_for_subject_with_transaction(
+								txn,
+								subspace,
+								Relation::ObjectProcesses(id),
+								subject,
+							)
+							.await
 						)
-						.await
-					);
+						.into_iter()
+						.map(tg::process::Id::try_from)
+						.collect::<tg::Result<Vec<_>>>()?;
+						for process in processes {
+							crate::propagate!(
+								Self::enqueue_update_propagate(
+									txn,
+									subspace,
+									&tg::Either::Right(process),
+									kind,
+									version,
+									partition_total,
+								)
+								.await
+							);
+						}
+					},
+					Kind::StorageAndMetadata | Kind::Usage(_) => {
+						let mut after = None;
+						loop {
+							let (processes, cursor) = crate::propagate!(
+								Self::get_object_processes_page_with_transaction(
+									txn,
+									subspace,
+									id,
+									after.as_deref(),
+									crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+								)
+								.await
+							);
+							for (process, _) in processes {
+								crate::propagate!(
+									Self::enqueue_update_propagate(
+										txn,
+										subspace,
+										&tg::Either::Right(process),
+										kind,
+										version,
+										partition_total,
+									)
+									.await
+								);
+							}
+							let Some(cursor) = cursor else {
+								break;
+							};
+							after = Some(cursor);
+						}
+					},
 				}
 			},
 			tg::Either::Right(id) => {
-				let parents = crate::propagate!(
-					Self::get_process_parents_with_transaction(txn, subspace, id).await
-				);
+				let parents = match kind {
+					Kind::Permission(subject) => crate::propagate!(
+						Self::get_related_resources_for_subject_with_transaction(
+							txn,
+							subspace,
+							Relation::ProcessParents(id),
+							subject,
+						)
+						.await
+					)
+					.into_iter()
+					.map(tg::process::Id::try_from)
+					.collect::<tg::Result<Vec<_>>>()?,
+					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+						Self::get_process_parents_with_transaction(txn, subspace, id).await
+					),
+				};
 				for parent in parents {
 					crate::propagate!(
 						Self::enqueue_update_propagate(
@@ -3390,6 +3472,176 @@ impl Index {
 			},
 		}
 		Ok(ControlFlow::Break(()))
+	}
+
+	async fn get_related_resources_for_subject_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		relation: Relation<'_>,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<ControlFlow<Vec<tg::Id>, fdb::FdbError>> {
+		// Read the related resources and the resources on which the subject has a permission in turns, so that the reads are bounded by the shorter of the two.
+		let prefix = match relation {
+			Relation::ObjectParents(id) => Self::pack(
+				subspace,
+				&(
+					crate::Kind::ChildObject.to_i32().unwrap(),
+					id.to_bytes().as_ref(),
+				),
+			),
+			Relation::ObjectProcesses(id) => Self::pack(
+				subspace,
+				&(
+					crate::Kind::ObjectProcess.to_i32().unwrap(),
+					id.to_bytes().as_ref(),
+				),
+			),
+			Relation::ProcessParents(id) => Self::pack(
+				subspace,
+				&(
+					crate::Kind::ChildProcess.to_i32().unwrap(),
+					id.to_bytes().as_ref(),
+				),
+			),
+		};
+		let related_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::Iterator,
+			..fdb::RangeOption::from(&related_subspace)
+		};
+		let mut related_stream = txn.get_ranges_keyvalues(range, false);
+		let prefix = Self::pack(
+			subspace,
+			&(
+				crate::Kind::SubjectPermission.to_i32().unwrap(),
+				subject.to_string(),
+			),
+		);
+		let subject_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::Iterator,
+			..fdb::RangeOption::from(&subject_subspace)
+		};
+		let mut subject_stream = txn.get_ranges_keyvalues(range, false);
+		let mut related = Vec::new();
+		let mut resources = BTreeSet::new();
+		let related_exhausted = loop {
+			let result = related_stream.try_next().await;
+			let Some(entry) = crate::retry!(result) else {
+				break true;
+			};
+			let resource = match (relation, Self::unpack(subspace, entry.key())?) {
+				(
+					Relation::ObjectParents(_),
+					crate::Key::Object(crate::object::Key::ChildObject { object, .. }),
+				) => tg::Id::from(object),
+				(
+					Relation::ObjectProcesses(_),
+					crate::Key::Object(crate::object::Key::ObjectProcess { process, .. }),
+				)
+				| (
+					Relation::ProcessParents(_),
+					crate::Key::Process(crate::process::Key::ChildProcess {
+						parent: process, ..
+					}),
+				) => tg::Id::from(process),
+				_ => return Err(tg::error!("unexpected key type")),
+			};
+			related.push(resource);
+			let result = subject_stream.try_next().await;
+			let Some(entry) = crate::retry!(result) else {
+				break false;
+			};
+			let crate::Key::Permission(crate::permission::Key::SubjectPermission {
+				resource, ..
+			}) = Self::unpack(subspace, entry.key())?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			resources.insert(resource);
+		};
+		drop(related_stream);
+		drop(subject_stream);
+
+		// Keep the related resources on which the subject has a permission.
+		let mut output = Vec::new();
+		if related_exhausted {
+			for resource in related {
+				if crate::propagate!(
+					Self::has_permissions_for_subject(txn, subspace, &resource, subject).await
+				) {
+					output.push(resource);
+				}
+			}
+		} else {
+			for resource in resources {
+				if crate::propagate!(
+					Self::is_related_with_transaction(txn, subspace, relation, &resource).await
+				) {
+					output.push(resource);
+				}
+			}
+		}
+
+		Ok(ControlFlow::Break(output))
+	}
+
+	async fn is_related_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		relation: Relation<'_>,
+		resource: &tg::Id,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let key = match relation {
+			Relation::ObjectParents(id) => {
+				let Ok(object) = tg::object::Id::try_from(resource.clone()) else {
+					return Ok(ControlFlow::Break(false));
+				};
+				crate::Key::Object(crate::object::Key::ChildObject {
+					child: id.clone(),
+					object,
+				})
+			},
+			Relation::ObjectProcesses(id) => {
+				let Ok(process) = tg::process::Id::try_from(resource.clone()) else {
+					return Ok(ControlFlow::Break(false));
+				};
+				let output = crate::propagate!(
+					Self::has_object_process_with_transaction(txn, subspace, id, &process).await
+				);
+				return Ok(ControlFlow::Break(output));
+			},
+			Relation::ProcessParents(id) => {
+				let Ok(parent) = tg::process::Id::try_from(resource.clone()) else {
+					return Ok(ControlFlow::Break(false));
+				};
+				crate::Key::Process(crate::process::Key::ChildProcess {
+					child: id.clone(),
+					parent,
+				})
+			},
+		};
+		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let value = crate::retry!(result);
+		let output = value.is_some();
+		Ok(ControlFlow::Break(output))
+	}
+
+	async fn has_permissions_for_subject(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let entries = crate::propagate!(
+			Self::get_resource_permission_entries_for_subject_with_transaction(
+				txn, subspace, resource, subject,
+			)
+			.await
+		);
+		let output = !entries.is_empty();
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn enqueue_update_propagate(
@@ -3480,4 +3732,66 @@ fn serialize_update(kind: &Kind, source: Source) -> tg::Result<Vec<u8>> {
 	};
 
 	Ok(value)
+}
+
+fn process_object_aspect_permissions(
+	set: &tangram_index::process::Set,
+) -> Vec<(
+	tangram_index::process::object::Kind,
+	tg::authorization::Permission,
+)> {
+	let process = tg::authorization::Permission::Process;
+	[
+		(
+			set.command_objects,
+			tangram_index::process::object::Kind::Command,
+			process(tg::authorization::permission::process::Permission::NodeCommandObjects),
+		),
+		(
+			set.error_objects,
+			tangram_index::process::object::Kind::Error,
+			process(tg::authorization::permission::process::Permission::NodeErrorObjects),
+		),
+		(
+			set.log_objects,
+			tangram_index::process::object::Kind::Log,
+			process(tg::authorization::permission::process::Permission::NodeLogObjects),
+		),
+		(
+			set.output_objects,
+			tangram_index::process::object::Kind::Output,
+			process(tg::authorization::permission::process::Permission::NodeOutputObjects),
+		),
+	]
+	.into_iter()
+	.filter(|(set, _, _)| *set)
+	.map(|(_, kind, permission)| (kind, permission))
+	.collect()
+}
+
+fn process_subtree_permissions()
+-> [(tg::authorization::Permission, tg::authorization::Permission); 5] {
+	let process = tg::authorization::Permission::Process;
+	[
+		(
+			process(tg::authorization::permission::process::Permission::Node),
+			process(tg::authorization::permission::process::Permission::Subtree),
+		),
+		(
+			process(tg::authorization::permission::process::Permission::NodeCommandObjects),
+			process(tg::authorization::permission::process::Permission::SubtreeCommandObjects),
+		),
+		(
+			process(tg::authorization::permission::process::Permission::NodeErrorObjects),
+			process(tg::authorization::permission::process::Permission::SubtreeErrorObjects),
+		),
+		(
+			process(tg::authorization::permission::process::Permission::NodeLogObjects),
+			process(tg::authorization::permission::process::Permission::SubtreeLogObjects),
+		),
+		(
+			process(tg::authorization::permission::process::Permission::NodeOutputObjects),
+			process(tg::authorization::permission::process::Permission::SubtreeOutputObjects),
+		),
+	]
 }

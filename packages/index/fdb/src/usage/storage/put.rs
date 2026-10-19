@@ -106,29 +106,47 @@ impl Index {
 				}
 			}
 		}
-		let processes = crate::propagate!(
-			Self::get_object_processes_with_transaction(txn, subspace, object).await
-		);
-		for (process, kind) in processes {
-			for account in crate::propagate!(
-				Self::get_process_accounts_with_transaction(txn, subspace, &process).await
-			) {
-				if let Some(entry) = crate::propagate!(
-					Self::get_account_storage_entry_with_transaction(
-						txn,
-						subspace,
-						&account,
-						&tg::Either::Right(process.clone())
-					)
-					.await
+		let mut after = None;
+		loop {
+			let (processes, cursor) = crate::propagate!(
+				Self::get_object_processes_page_with_transaction(
+					txn,
+					subspace,
+					object,
+					after.as_deref(),
+					crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+				)
+				.await
+			);
+			for (process, kind) in processes {
+				for account in crate::propagate!(
+					Self::get_process_accounts_with_transaction(txn, subspace, &process).await
 				) {
-					insert(
-						account,
-						tangram_index::usage::storage::object_permissions(entry.permissions, kind),
-					);
+					if let Some(entry) = crate::propagate!(
+						Self::get_account_storage_entry_with_transaction(
+							txn,
+							subspace,
+							&account,
+							&tg::Either::Right(process.clone())
+						)
+						.await
+					) {
+						insert(
+							account,
+							tangram_index::usage::storage::object_permissions(
+								entry.permissions,
+								kind,
+							),
+						);
+					}
 				}
 			}
+			let Some(cursor) = cursor else {
+				break;
+			};
+			after = Some(cursor);
 		}
+
 		let resource = tg::Id::from(object.clone());
 		for (account, permissions) in crate::propagate!(
 			Self::get_tag_storage_permissions_with_transaction(txn, subspace, &resource).await

@@ -43,8 +43,10 @@ pub struct Config {
 	pub map_size: usize,
 	pub max_process_depth: Option<u64>,
 	pub max_readers: u32,
+	pub object_permission_time_to_touch: std::time::Duration,
 	pub path: PathBuf,
 	pub posix_sem_prefix: Option<String>,
+	pub process_permission_time_to_touch: std::time::Duration,
 	pub read_channel_capacity: usize,
 	pub read_request_batch_size: usize,
 	pub read_transaction_concurrency: usize,
@@ -149,6 +151,8 @@ impl Index {
 			let env = env.clone();
 			let subspace = subspace.clone();
 			let max_process_depth = config.max_process_depth;
+			let object_permission_time_to_touch = config.object_permission_time_to_touch;
+			let process_permission_time_to_touch = config.process_permission_time_to_touch;
 			let usage_partition_total = config.usage_partition_total;
 			let write_operation_batch_size = config.write_operation_batch_size;
 			move || {
@@ -156,6 +160,8 @@ impl Index {
 					db: &db,
 					env: &env,
 					max_process_depth,
+					object_permission_time_to_touch,
+					process_permission_time_to_touch,
 					receiver_high: &writer_receiver_high,
 					receiver_low: &writer_receiver_low,
 					receiver_medium: &writer_receiver_medium,

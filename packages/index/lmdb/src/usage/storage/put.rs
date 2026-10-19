@@ -108,26 +108,46 @@ impl Index {
 				}
 			}
 		}
-		let processes =
-			Self::get_object_processes_with_transaction(db, subspace, transaction, object)?;
-		for (process, kind) in processes {
-			for account in
-				Self::get_process_accounts_with_transaction(db, subspace, transaction, &process)?
-			{
-				if let Some(entry) = Self::get_account_storage_entry_with_transaction(
+		let mut after = None;
+		loop {
+			let (processes, cursor) = Self::get_object_processes_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				object,
+				after.as_deref(),
+				crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+			)?;
+			for (process, kind) in processes {
+				for account in Self::get_process_accounts_with_transaction(
 					db,
 					subspace,
 					transaction,
-					&account,
-					&tg::Either::Right(process.clone()),
+					&process,
 				)? {
-					insert(
-						account,
-						tangram_index::usage::storage::object_permissions(entry.permissions, kind),
-					);
+					if let Some(entry) = Self::get_account_storage_entry_with_transaction(
+						db,
+						subspace,
+						transaction,
+						&account,
+						&tg::Either::Right(process.clone()),
+					)? {
+						insert(
+							account,
+							tangram_index::usage::storage::object_permissions(
+								entry.permissions,
+								kind,
+							),
+						);
+					}
 				}
 			}
+			let Some(cursor) = cursor else {
+				break;
+			};
+			after = Some(cursor);
 		}
+
 		let resource = tg::Id::from(object.clone());
 		for (account, permissions) in Self::get_tag_storage_permissions_with_transaction(
 			db,

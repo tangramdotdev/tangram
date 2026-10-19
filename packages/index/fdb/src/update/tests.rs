@@ -43,11 +43,13 @@ async fn run_with_partition_totals(
 			.expect("set FDB_CLUSTER_FILE")
 			.into(),
 		permission_update_partition_total: partition_totals.permission_update,
+		process_permission_time_to_touch: std::time::Duration::ZERO,
 		instance: Some(format!(
 			"index_update_test_{:032x}/",
 			rand::random::<u128>()
 		)),
 		max_process_depth: None,
+		object_permission_time_to_touch: std::time::Duration::ZERO,
 		storage_and_metadata_update_partition_total: partition_totals.storage_and_metadata_update,
 		read_channel_capacity: 256,
 		read_request_batch_size: 1,

@@ -30,7 +30,9 @@ pub(super) struct Arg {
 	pub max_process_depth: Option<u64>,
 	pub max_write_operation_batch_size: usize,
 	pub metrics: Metrics,
+	pub object_permission_time_to_touch: std::time::Duration,
 	pub partition_totals: crate::PartitionTotals,
+	pub process_permission_time_to_touch: std::time::Duration,
 	pub receiver_high: RequestReceiver,
 	pub receiver_low: RequestReceiver,
 	pub receiver_medium: RequestReceiver,
@@ -56,7 +58,9 @@ struct ExecutionConfig<'a> {
 	max_process_depth: Option<u64>,
 	max_write_operation_batch_size: usize,
 	metrics: &'a Metrics,
+	object_permission_time_to_touch: std::time::Duration,
 	partition_totals: crate::PartitionTotals,
+	process_permission_time_to_touch: std::time::Duration,
 	storage_relation_batch_size: usize,
 }
 
@@ -72,7 +76,9 @@ impl Index {
 			max_process_depth,
 			max_write_operation_batch_size,
 			metrics,
+			object_permission_time_to_touch,
 			partition_totals,
+			process_permission_time_to_touch,
 			mut receiver_high,
 			mut receiver_low,
 			mut receiver_medium,
@@ -158,7 +164,9 @@ impl Index {
 					max_process_depth,
 					max_write_operation_batch_size,
 					metrics: &metrics,
+					object_permission_time_to_touch,
 					partition_totals,
+					process_permission_time_to_touch,
 					storage_relation_batch_size,
 				};
 				Self::execute_batch(&database, &subspace, batch, config).await;
@@ -1236,7 +1244,9 @@ impl Index {
 	) -> tg::Result<ControlFlow<Response, fdb::FdbError>> {
 		let ExecutionConfig {
 			max_process_depth,
+			object_permission_time_to_touch,
 			partition_totals,
+			process_permission_time_to_touch,
 			storage_relation_batch_size,
 			..
 		} = config;
@@ -1497,6 +1507,8 @@ impl Index {
 					*partition_start,
 					*partition_end,
 					max_process_depth,
+					object_permission_time_to_touch,
+					process_permission_time_to_touch,
 					partition_totals,
 					storage_relation_batch_size,
 				)

@@ -142,23 +142,38 @@ impl Index {
 			}
 		}
 		if let tg::Either::Left(object) = id {
-			let processes =
-				Self::get_object_processes_with_transaction(db, subspace, transaction, object)?;
-			for (process, kind) in processes {
-				if let Some(entry) = Self::get_account_storage_entry_with_transaction(
+			let mut after = None;
+			loop {
+				let (processes, cursor) = Self::get_object_processes_page_with_transaction(
 					db,
 					subspace,
 					transaction,
-					account,
-					&tg::Either::Right(process),
-				)? {
-					let inherited =
-						tangram_index::usage::storage::object_permissions(entry.permissions, kind);
-					if !inherited.is_empty() {
-						permissions.insert(inherited);
-						count += 1;
+					object,
+					after.as_deref(),
+					crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+				)?;
+				for (process, kind) in processes {
+					if let Some(entry) = Self::get_account_storage_entry_with_transaction(
+						db,
+						subspace,
+						transaction,
+						account,
+						&tg::Either::Right(process),
+					)? {
+						let inherited = tangram_index::usage::storage::object_permissions(
+							entry.permissions,
+							kind,
+						);
+						if !inherited.is_empty() {
+							permissions.insert(inherited);
+							count += 1;
+						}
 					}
 				}
+				let Some(cursor) = cursor else {
+					break;
+				};
+				after = Some(cursor);
 			}
 		}
 		let accounts = Self::get_tag_storage_permissions_with_transaction(

@@ -1569,8 +1569,10 @@ impl Server {
 								u64::try_from(config.indexer.updates.max_process_depth).unwrap()
 							}),
 						max_write_operation_batch_size: options.max_write_operation_batch_size,
+						object_permission_time_to_touch: config.object.permission_time_to_touch,
 						permission_update_partition_total: options
 							.permission_update_partition_total,
+						process_permission_time_to_touch: config.process.permission_time_to_touch,
 						read_channel_capacity: options.read_channel_capacity,
 						read_request_batch_size: options.read_request_batch_size,
 						read_task_concurrency: options.read_task_concurrency,
@@ -1608,8 +1610,10 @@ impl Server {
 								u64::try_from(config.indexer.updates.max_process_depth).unwrap()
 							}),
 						max_readers: options.max_readers,
+						object_permission_time_to_touch: config.object.permission_time_to_touch,
 						path,
 						posix_sem_prefix: options.posix_sem_prefix.clone(),
+						process_permission_time_to_touch: config.process.permission_time_to_touch,
 						read_channel_capacity: options.read_channel_capacity,
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
