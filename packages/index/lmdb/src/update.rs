@@ -55,6 +55,7 @@ struct ProcessPermissionInputs<'a> {
 	object_covers: &'a BTreeMap<tg::authorization::Permission, Option<i64>>,
 	resource: &'a tg::Id,
 	subject: &'a tg::authorization::Subject,
+	time_to_touch: std::time::Duration,
 }
 
 struct ProcessOutput {
@@ -187,6 +188,7 @@ impl Index {
 		Ok(output)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	pub(super) fn update_batch_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -194,6 +196,8 @@ impl Index {
 		batch_size: usize,
 		kind: tangram_index::update::Kind,
 		max_process_depth: Option<u64>,
+		object_permission_time_to_touch: std::time::Duration,
+		process_permission_time_to_touch: std::time::Duration,
 		usage_partition_total: u64,
 	) -> tg::Result<tangram_index::update::Output> {
 		let prefix = &(update_version_key_kind(kind).to_i32().unwrap(),);
@@ -246,6 +250,7 @@ impl Index {
 						transaction,
 						id,
 						subject,
+						object_permission_time_to_touch,
 					)?,
 					tg::Either::Right(id) => Self::update_process_permissions_for_subject(
 						db,
@@ -253,6 +258,7 @@ impl Index {
 						transaction,
 						id,
 						subject,
+						process_permission_time_to_touch,
 					)?,
 				},
 				Kind::StorageAndMetadata => match &id {
@@ -536,6 +542,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
+		time_to_touch: std::time::Duration,
 	) -> tg::Result<bool> {
 		let resource = tg::Id::from(id.clone());
 		let children =
@@ -646,6 +653,9 @@ impl Index {
 			.map(|((subject, permission), expires_at)| (subject, permission, expires_at))
 			.collect();
 		let managed = BTreeSet::from([node, subtree]);
+
+		// Keep the current materialized expirations that the expected expirations extend by less than the time to touch.
+		let expected = Self::retain_materialized_expirations(&entries, expected, time_to_touch);
 
 		let materialized_changed = Self::reconcile_materialized_permissions(
 			db,
@@ -877,6 +887,10 @@ impl Index {
 			}
 		}
 
+		// Keep the current materialized expirations that the expected expirations extend by less than the time to touch.
+		let expected =
+			Self::retain_materialized_expirations(input.entries, expected, input.time_to_touch);
+
 		// Reconcile the materialized permissions.
 		let process = tg::authorization::Permission::Process;
 		let managed = BTreeSet::from([
@@ -901,6 +915,40 @@ impl Index {
 		)?;
 
 		Ok(changed)
+	}
+
+	fn retain_materialized_expirations(
+		entries: &[crate::permission::PermissionEntry],
+		expected: BTreeSet<(
+			tg::authorization::Subject,
+			tg::authorization::Permission,
+			Option<i64>,
+		)>,
+		time_to_touch: std::time::Duration,
+	) -> BTreeSet<(
+		tg::authorization::Subject,
+		tg::authorization::Permission,
+		Option<i64>,
+	)> {
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap_or(i64::MAX);
+		expected
+			.into_iter()
+			.map(|(subject, permission, expires_at)| {
+				let current = entries
+					.iter()
+					.filter(|entry| entry.subject == subject && entry.permission == permission)
+					.find_map(|entry| entry.materialized);
+				let expires_at = match (current, expires_at) {
+					(Some(Some(current)), Some(expires_at))
+						if expires_at > current && expires_at - current < time_to_touch =>
+					{
+						Some(current)
+					},
+					_ => expires_at,
+				};
+				(subject, permission, expires_at)
+			})
+			.collect()
 	}
 
 	fn has_non_materialized_cover(
@@ -967,6 +1015,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 		subject: &tg::authorization::Subject,
+		time_to_touch: std::time::Duration,
 	) -> tg::Result<bool> {
 		// Get the process.
 		let key = crate::Key::Process(crate::process::Key::Process(id.clone()));
@@ -1072,6 +1121,7 @@ impl Index {
 			object_covers: &object_covers,
 			resource: &resource,
 			subject,
+			time_to_touch,
 		};
 		let changed = Self::update_process_permissions(db, subspace, transaction, &entry)?;
 

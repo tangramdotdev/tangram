@@ -61,6 +61,8 @@ pub struct Options {
 	pub permission_update_partition_total: u64,
 	pub instance: Option<String>,
 	pub max_process_depth: Option<u64>,
+	pub object_permission_time_to_touch: std::time::Duration,
+	pub process_permission_time_to_touch: std::time::Duration,
 	pub storage_and_metadata_update_partition_total: u64,
 	pub read_channel_capacity: usize,
 	pub read_request_batch_size: usize,
@@ -156,6 +158,8 @@ impl Index {
 		// Spawn the writer task.
 		let max_process_depth = options.max_process_depth;
 		let max_write_operation_batch_size = options.max_write_operation_batch_size;
+		let object_permission_time_to_touch = options.object_permission_time_to_touch;
+		let process_permission_time_to_touch = options.process_permission_time_to_touch;
 		let storage_relation_batch_size = options.storage_relation_batch_size;
 		let write_operation_batch_size = options.write_operation_batch_size;
 		let write_transaction_concurrency = options.write_transaction_concurrency;
@@ -169,7 +173,9 @@ impl Index {
 					max_process_depth,
 					max_write_operation_batch_size,
 					metrics,
+					object_permission_time_to_touch,
 					partition_totals,
+					process_permission_time_to_touch,
 					receiver_high: writer_receiver_high,
 					receiver_low: writer_receiver_low,
 					receiver_medium: writer_receiver_medium,

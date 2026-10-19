@@ -94,6 +94,7 @@ struct ProcessPermissionInputs<'a> {
 	object_covers: &'a BTreeMap<tg::authorization::Permission, Option<i64>>,
 	resource: &'a tg::Id,
 	subject: &'a tg::authorization::Subject,
+	time_to_touch: std::time::Duration,
 }
 
 struct ProcessOutput {
@@ -376,6 +377,8 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 		max_process_depth: Option<u64>,
+		object_permission_time_to_touch: std::time::Duration,
+		process_permission_time_to_touch: std::time::Duration,
 		partition_totals: crate::PartitionTotals,
 		storage_relation_batch_size: usize,
 	) -> tg::Result<ControlFlow<tangram_index::update::Output, fdb::FdbError>> {
@@ -507,6 +510,7 @@ impl Index {
 								subspace,
 								id,
 								subject,
+								object_permission_time_to_touch,
 								cleaning_partition_total,
 							)
 							.await
@@ -519,6 +523,7 @@ impl Index {
 								subspace,
 								id,
 								subject,
+								process_permission_time_to_touch,
 								cleaning_partition_total,
 							)
 							.await
@@ -1583,6 +1588,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
+		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let resource = tg::Id::from(id.clone());
@@ -1709,6 +1715,9 @@ impl Index {
 			.map(|((subject, permission), expires_at)| (subject, permission, expires_at))
 			.collect();
 		let managed = BTreeSet::from([node, subtree]);
+
+		// Keep the current materialized expirations that the expected expirations extend by less than the time to touch.
+		let expected = Self::retain_materialized_expirations(&entries, expected, time_to_touch);
 
 		let materialized_changed = crate::propagate!(
 			Self::reconcile_materialized_permissions(
@@ -1951,6 +1960,10 @@ impl Index {
 			}
 		}
 
+		// Keep the current materialized expirations that the expected expirations extend by less than the time to touch.
+		let expected =
+			Self::retain_materialized_expirations(input.entries, expected, input.time_to_touch);
+
 		// Reconcile the materialized permissions.
 		let process = tg::authorization::Permission::Process;
 		let managed = BTreeSet::from([
@@ -1985,6 +1998,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		subject: &tg::authorization::Subject,
+		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		// Get the process.
@@ -2097,6 +2111,7 @@ impl Index {
 			object_covers: &object_covers,
 			resource: &resource,
 			subject,
+			time_to_touch,
 		};
 		let changed = crate::propagate!(
 			Self::update_process_permissions(txn, subspace, &entry, partition_total).await
@@ -2152,6 +2167,40 @@ impl Index {
 			*cover = Self::min_expires_at(*cover, entry_cover.expires_at);
 			true
 		});
+	}
+
+	fn retain_materialized_expirations(
+		entries: &[crate::permission::PermissionEntry],
+		expected: BTreeSet<(
+			tg::authorization::Subject,
+			tg::authorization::Permission,
+			Option<i64>,
+		)>,
+		time_to_touch: std::time::Duration,
+	) -> BTreeSet<(
+		tg::authorization::Subject,
+		tg::authorization::Permission,
+		Option<i64>,
+	)> {
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap_or(i64::MAX);
+		expected
+			.into_iter()
+			.map(|(subject, permission, expires_at)| {
+				let current = entries
+					.iter()
+					.filter(|entry| entry.subject == subject && entry.permission == permission)
+					.find_map(|entry| entry.materialized);
+				let expires_at = match (current, expires_at) {
+					(Some(Some(current)), Some(expires_at))
+						if expires_at > current && expires_at - current < time_to_touch =>
+					{
+						Some(current)
+					},
+					_ => expires_at,
+				};
+				(subject, permission, expires_at)
+			})
+			.collect()
 	}
 
 	fn has_non_materialized_cover(

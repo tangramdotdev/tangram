@@ -794,6 +794,80 @@ async fn permission_updates_reach_a_parent_object_for_a_subject_with_many_permis
 	);
 }
 
+#[tokio::test]
+async fn materialized_permissions_are_rewritten_only_when_their_expiration_moves_beyond_the_time_to_touch()
+ {
+	let (_dir, index) =
+		super::new_index_with_permission_time_to_touch(std::time::Duration::from_secs(100));
+	let child = object_id(0);
+	put_log_object(&index, &child).await;
+	let parent = object_id(1);
+	let subject = tg::authorization::Subject::User(tg::user::Id::new());
+	let put_object = tangram_index::object::put::Arg {
+		checkout: None,
+		children: BTreeSet::from([child.clone()]),
+		id: parent.clone(),
+		metadata: tg::object::Metadata::default(),
+		put: [1; 16],
+		storage: tg::object::storage::Set::NODE,
+		time_to_touch: std::time::Duration::ZERO,
+		touched_at: 0,
+	};
+	index
+		.batch(tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutObject(put_object)],
+		})
+		.await
+		.unwrap()
+		.unwrap();
+
+	// Renew the subject's permissions on the parent and the child, recording the materialized subtree expiration on the parent after each renewal.
+	let mut expirations = Vec::new();
+	for expires_at in [1000, 1050, 1200] {
+		let node = tangram_index::permission::put::Arg {
+			created_at: 0,
+			creator: Some(subject.try_to_principal().unwrap()),
+			permissions: tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			)
+			.into(),
+			resource: parent.clone().into(),
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(expires_at),
+			},
+			subject: subject.clone(),
+			time_to_touch: None,
+			version: None,
+		};
+		let subtree = tangram_index::permission::put::Arg {
+			created_at: 0,
+			creator: Some(subject.try_to_principal().unwrap()),
+			permissions: object_subtree().into(),
+			resource: child.clone().into(),
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(expires_at),
+			},
+			subject: subject.clone(),
+			time_to_touch: None,
+			version: None,
+		};
+		index.put_permissions(&[node, subtree]).await.unwrap();
+		drain_permission_updates(&index).await;
+		let entries = object_permission_entries(&index, &parent, &subject);
+		let expiration = entries
+			.iter()
+			.filter(|entry| entry.permission == object_subtree())
+			.find_map(|entry| entry.materialized);
+		expirations.push(expiration);
+	}
+
+	// Verify that the renewal within the time to touch keeps the earlier expiration.
+	assert_eq!(
+		expirations,
+		vec![Some(Some(1000)), Some(Some(1000)), Some(Some(1200))]
+	);
+}
+
 fn node_log_objects() -> tg::authorization::Permission {
 	tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::NodeLogObjects,

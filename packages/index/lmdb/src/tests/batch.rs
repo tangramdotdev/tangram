@@ -1276,6 +1276,8 @@ fn execute_write_requests(
 		db: &index.db,
 		env: &index.env,
 		max_process_depth: None,
+		object_permission_time_to_touch: std::time::Duration::ZERO,
+		process_permission_time_to_touch: std::time::Duration::ZERO,
 		receiver_high: &receiver_high,
 		receiver_low: &receiver_low,
 		receiver_medium: &receiver_medium,

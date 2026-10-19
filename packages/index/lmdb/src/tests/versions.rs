@@ -39,6 +39,8 @@ async fn a_batch_preserves_an_older_propagation_when_combining_updates() {
 			2,
 			tangram_index::update::Kind::StorageAndMetadata,
 			None,
+			std::time::Duration::ZERO,
+			std::time::Duration::ZERO,
 			1,
 		)
 		.unwrap();

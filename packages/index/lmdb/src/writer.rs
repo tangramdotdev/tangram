@@ -17,6 +17,8 @@ pub(super) struct Arg<'a> {
 	pub db: &'a Db,
 	pub env: &'a lmdb::Env,
 	pub max_process_depth: Option<u64>,
+	pub object_permission_time_to_touch: std::time::Duration,
+	pub process_permission_time_to_touch: std::time::Duration,
 	pub receiver_high: &'a RequestReceiver,
 	pub receiver_low: &'a RequestReceiver,
 	pub receiver_medium: &'a RequestReceiver,
@@ -42,6 +44,8 @@ impl Index {
 			db,
 			env,
 			max_process_depth,
+			object_permission_time_to_touch,
+			process_permission_time_to_touch,
 			receiver_high,
 			receiver_low,
 			receiver_medium,
@@ -387,6 +391,8 @@ impl Index {
 							batch_size,
 							kind,
 							max_process_depth,
+							object_permission_time_to_touch,
+							process_permission_time_to_touch,
 							usage_partition_total,
 						)
 						.map(Response::UpdateOutput)
