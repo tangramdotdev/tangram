@@ -1,5 +1,7 @@
 # Run the local cloud databases in the foreground with temporary state.
-def main [] {
+def main [
+	--foundationdb-version: string = '7.3.68' # The FoundationDB server version on macOS, which must match the FoundationDB client that Tangram links.
+] {
 	# Check the required programs.
 	let programs = if $nu.os-info.name == 'linux' {
 		[bash fdbcli fdbserver initdb nats-server pg_isready postgres scylla]
@@ -24,7 +26,7 @@ def main [] {
 	}
 	print -e $"starting the local cloud databases with temporary state in ($state)"
 
-	exec bash -c (supervisor) _ $nu.os-info.name $state $scylla
+	exec bash -c (supervisor) _ $nu.os-info.name $state $scylla $"foundationdb/foundationdb:($foundationdb_version)"
 }
 
 def supervisor [] {
@@ -33,6 +35,7 @@ set -m
 platform=$1
 state=$2
 scylla_client=$3
+foundationdb_image=$4
 names=()
 pids=()
 scylla_args=(
@@ -125,7 +128,7 @@ if [ "$platform" = linux ]; then
 	fdbcli=(fdbcli -C "$state/fdb.cluster")
 else
 	docker rm --force --volumes tangram_cloud_foundationdb tangram_cloud_scylla >/dev/null 2>&1
-	start foundationdb docker run --rm --name tangram_cloud_foundationdb --publish 127.0.0.1:4500:4500 --env FDB_NETWORKING_MODE=host --env FDB_PORT=4500 foundationdb/foundationdb:7.4.5
+	start foundationdb docker run --rm --name tangram_cloud_foundationdb --publish 127.0.0.1:4500:4500 --env FDB_NETWORKING_MODE=host --env FDB_PORT=4500 "$foundationdb_image"
 	start scylla docker run --rm --name tangram_cloud_scylla --publish 127.0.0.1:9042:9042 scylladb/scylla:2026.3.0 "${scylla_args[@]}" --overprovisioned=1
 	fdbcli=(docker exec tangram_cloud_foundationdb fdbcli)
 fi
