@@ -921,6 +921,56 @@ async fn object_processes_are_returned_in_pages() {
 	assert_eq!(output, processes);
 }
 
+#[tokio::test]
+async fn object_aspect_permissions_materialize_their_subtree_permissions_in_the_same_update() {
+	let (_dir, index) = super::new_index();
+	let log = object_id(0);
+	put_log_object(&index, &log).await;
+
+	// Add a process without children on which a user has a node permission, and give the user a subtree permission on the log object.
+	let process = tg::process::Id::new();
+	let subject = tg::authorization::Subject::User(tg::user::Id::new());
+	let mut items = put_process_with_log_items(&process, &log, None);
+	items.truncate(1);
+	let node = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: Some(subject.try_to_principal().unwrap()),
+		permissions: tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		)
+		.into(),
+		resource: process.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(i64::MAX),
+		},
+		subject: subject.clone(),
+		time_to_touch: None,
+		version: None,
+	};
+	items.push(tangram_index::batch::Item::PutPermission(node));
+	index
+		.batch(tangram_index::batch::Arg { items })
+		.await
+		.unwrap()
+		.unwrap();
+	drain_permission_updates(&index).await;
+	let permission = subtree_permission_arg(&log, &subject);
+	index.put_permissions(&[permission]).await.unwrap();
+	drain_permission_updates(&index).await;
+
+	// Verify that the user materializes both the node and the subtree log permissions.
+	let subtree_log_objects = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::SubtreeLogObjects,
+	);
+	let entries = object_permission_entries_for_resource(&index, &process.clone().into(), &subject);
+	assert!(has_materialized_node_log_objects(&entries));
+	assert!(
+		entries
+			.iter()
+			.any(|entry| entry.permission == subtree_log_objects && entry.materialized.is_some())
+	);
+}
+
 fn node_log_objects() -> tg::authorization::Permission {
 	tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::NodeLogObjects,

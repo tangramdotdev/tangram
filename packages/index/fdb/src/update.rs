@@ -1933,6 +1933,7 @@ impl Index {
 		let mut expected = BTreeSet::new();
 
 		// Derive the node object aspect permissions from the object covers, unless a non-materialized permission implies them.
+		let mut aspects = BTreeMap::new();
 		for (permission, expires_at) in input.object_covers {
 			if !Self::has_implying_non_materialized_cover(
 				input.entries,
@@ -1941,20 +1942,26 @@ impl Index {
 				*expires_at,
 			) {
 				expected.insert((input.subject.clone(), *permission, *expires_at));
+				aspects.insert(*permission, *expires_at);
 			}
 		}
 
-		// Derive the subtree permissions from the node permissions and the child covers.
+		// Derive the subtree permissions from the non-materialized node permissions, the node object aspect permissions derived above, and the child covers.
 		for (source, target) in process_subtree_permissions() {
 			let Some(child_cover) = input.child_covers.get(&target) else {
 				continue;
 			};
-			let Some(cover) =
-				Self::permission_entries_cover_expires_at(input.entries, input.subject, source)
-			else {
+			let cover =
+				Self::non_materialized_cover_expires_at(input.entries, input.subject, source)
+					.map(|cover| cover.expires_at);
+			let cover = match (cover, aspects.get(&source).copied()) {
+				(Some(left), Some(right)) => Some(Self::max_expires_at(left, right)),
+				(cover, None) | (None, cover) => cover,
+			};
+			let Some(cover) = cover else {
 				continue;
 			};
-			let expires_at = Self::min_expires_at(cover.expires_at, *child_cover);
+			let expires_at = Self::min_expires_at(cover, *child_cover);
 			if !Self::has_non_materialized_cover(input.entries, input.subject, target, expires_at) {
 				expected.insert((input.subject.clone(), target, expires_at));
 			}
@@ -2085,7 +2092,8 @@ impl Index {
 		let targets = process_subtree_permissions()
 			.into_iter()
 			.filter(|(source, _)| {
-				Self::permission_entries_cover_expires_at(&entries, subject, *source).is_some()
+				Self::non_materialized_cover_expires_at(&entries, subject, *source).is_some()
+					|| object_covers.contains_key(source)
 			})
 			.map(|(_, target)| target)
 			.collect::<Vec<_>>();
@@ -2227,6 +2235,26 @@ impl Index {
 				&& entry.permission.implies(permission)
 				&& entry.has_non_materialized_cover(expires_at)
 		})
+	}
+
+	fn non_materialized_cover_expires_at(
+		entries: &[crate::permission::PermissionEntry],
+		subject: &tg::authorization::Subject,
+		permission: tg::authorization::Permission,
+	) -> Option<PermissionCover> {
+		entries
+			.iter()
+			.filter(|entry| entry.subject == *subject && entry.permission == permission)
+			.filter_map(|entry| {
+				let mut entry = entry.clone();
+				entry.materialized = None;
+				entry
+					.effective_expires_at()
+					.map(|expires_at| PermissionCover { expires_at })
+			})
+			.reduce(|left, right| PermissionCover {
+				expires_at: Self::max_expires_at(left.expires_at, right.expires_at),
+			})
 	}
 
 	fn permission_entries_cover_expires_at(
