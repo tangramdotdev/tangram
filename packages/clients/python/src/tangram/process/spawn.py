@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
+import secrets
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, cast, overload
 
@@ -242,9 +244,50 @@ async def spawn_sandboxed(
     else:
         state.pop("tty", None)
     spawn_location = state.pop("location", None)
-    opened = await Connection.open(
-        state, client=client, mode=mode, location=spawn_location
+
+    # Name the connect with a nonce, and start the stdio task with its location.
+    stdio_needed = any(value is not None for value in local.values()) or local_tty
+    nonce = create_nonce() if stdio_needed else None
+    open_ = [
+        stream
+        for stream in ("stdin", "stdout", "stderr")
+        if nonce is not None and local[stream] is not None
+    ]
+    options_ = {"nonce": nonce, "open": open_} if nonce is not None else {}
+    opening = asyncio.ensure_future(
+        Connection.open(
+            state, client=client, mode=mode, location=spawn_location, **options_
+        )
     )
+
+    async def connection_():
+        opened = await asyncio.shield(opening)
+        return opened if mode == "run" else None
+
+    stdio_promise = (
+        asyncio.create_task(
+            stdio.task(
+                spawn_location,
+                nonce,
+                local["stdin"],
+                local["stdout"],
+                local["stderr"],
+                local_tty,
+                asyncio.ensure_future(connection_()),
+                client=client,
+            )
+        )
+        if nonce is not None
+        else None
+    )
+
+    # Connect.
+    try:
+        opened = await opening
+    except BaseException:
+        if stdio_promise is not None:
+            stdio_promise.cancel()
+        raise
     output = opened.output
     connection = opened if mode == "run" else None
     if not isinstance(output["process"], str):
@@ -267,20 +310,8 @@ async def spawn_sandboxed(
     process.stdin = stdio.Writer(process, "stdin", unavailable=not provide["stdin"])
     process.stdout = stdio.Reader(process, "stdout", unavailable=not provide["stdout"])
     process.stderr = stdio.Reader(process, "stderr", unavailable=not provide["stderr"])
-    if any(value is not None for value in local.values()) or local_tty:
-        process._stdio_promise = asyncio.create_task(
-            stdio.task(
-                process.id,
-                location,
-                process.tokens,
-                local["stdin"],
-                local["stdout"],
-                local["stderr"],
-                local_tty,
-                connection,
-                client=client,
-            )
-        )
+    if stdio_promise is not None:
+        process._stdio_promise = stdio_promise
     return process
 
 
@@ -790,3 +821,13 @@ def normalize_sandbox(arg):
         if network is not None:
             output["network"] = network
     return output
+
+
+def create_nonce() -> str:
+    """Create a connect nonce from 128 random bits with the symbols of IDs."""
+    encoded = base64.b32encode(secrets.token_bytes(16)).decode().rstrip("=")
+    return encoded.translate(
+        str.maketrans(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", "0123456789abcdefghjkmnpqrstvwxyz"
+        )
+    )

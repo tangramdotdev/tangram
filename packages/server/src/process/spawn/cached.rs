@@ -537,6 +537,7 @@ impl Session {
 		let token = self.create_process_wait_token(&id, now)?;
 		Ok(super::local::Output {
 			allocation: None,
+			open: None,
 			cached: true,
 			data,
 			id,
@@ -632,6 +633,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, %id, "failed to store the process"))?;
 		Ok(super::local::Output {
 			allocation: None,
+			open: None,
 			cached: true,
 			data,
 			id,

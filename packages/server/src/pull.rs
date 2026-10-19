@@ -46,6 +46,7 @@ impl Session {
 				source,
 				destination,
 				None,
+				None,
 				self.server.config.sync.retry.clone().into(),
 			)
 			.await?

@@ -560,10 +560,55 @@ impl<O: 'static> tg::Process<O> {
 				},
 			}
 		}
+		// Name the connect with a nonce, and start the stdio task with it and the connect's location, so that the stdio requests open concurrently with the connect and route to its server.
+		let location = arg.location.take();
+		let stdio = stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty;
+		let nonce = stdio.then(tg::process::Nonce::new);
+		let stdio_task = nonce.map(|nonce| {
+			let instance = tg::instance::dynamic::Instance::new(instance.clone());
+			let location = location.clone();
+			let stdin = stdin.clone();
+			let stdout = stdout.clone();
+			let stderr = stderr.clone();
+			tangram_futures::task::Shared::spawn(move |_| async move {
+				let arg = super::stdio::StdioTaskArg {
+					instance,
+					location,
+					nonce,
+					raw,
+					stderr,
+					stdin,
+					stdout,
+					tty: local_tty,
+				};
+				super::stdio::stdio_task(arg).await
+			})
+		});
+
+		// Declare the streams that the stdio task reads and writes, so that the runner of a scheduled process opens them when the process starts.
+		let open = [
+			(&stdin, tg::process::stdio::Stream::Stdin),
+			(&stdout, tg::process::stdio::Stream::Stdout),
+			(&stderr, tg::process::stdio::Stream::Stderr),
+		]
+		.into_iter()
+		.filter(|(stdio, _)| {
+			nonce.is_some()
+				&& matches!(
+					stdio,
+					Some(tg::process::Stdio::Pipe | tg::process::Stdio::Tty)
+				)
+		})
+		.map(|(_, stream)| stream)
+		.collect();
+
+		// Connect.
 		let arg = tg::process::connect::Arg {
 			lease: None,
-			location: arg.location.take(),
+			location,
 			mode: options.mode,
+			nonce,
+			open,
 			process: tg::Either::Left(Box::new(arg)),
 			push: false,
 			tokens: tg::authorization::Tokens::default(),
@@ -582,39 +627,6 @@ impl<O: 'static> tg::Process<O> {
 			.cloned()
 			.ok_or_else(|| tg::error!("expected a sandboxed process id"))?;
 		let location = output.location.clone();
-		let stdio_instance = match &connection {
-			Some(connection) => tg::instance::dynamic::Instance::with_connection(
-				instance.clone(),
-				id.clone(),
-				connection.clone(),
-			),
-			None => tg::instance::dynamic::Instance::new(instance.clone()),
-		};
-		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty {
-			let instance = stdio_instance;
-			let id = id.clone();
-			let location = location.clone();
-			let stdin = stdin.clone();
-			let stdout = stdout.clone();
-			let stderr = stderr.clone();
-			let tokens = output.tokens.clone();
-			Some(tangram_futures::task::Shared::spawn(move |_| async move {
-				let arg = super::stdio::StdioTaskArg {
-					id,
-					instance,
-					location,
-					raw,
-					stderr,
-					stdin,
-					stdout,
-					tokens,
-					tty: local_tty,
-				};
-				super::stdio::stdio_task(arg).await
-			}))
-		} else {
-			None
-		};
 		let stderr = if provide_stderr {
 			super::stdio::Reader::from_process(tg::process::stdio::Stream::Stderr)
 		} else {

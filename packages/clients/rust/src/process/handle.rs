@@ -412,7 +412,9 @@ impl<O> Process<O> {
 			tokens: self.tokens(),
 		};
 		let id = self.id().unwrap_right();
-		instance.signal_process(id, arg).await?;
+		instance
+			.signal_process(&tg::Either::Right(id.clone()), arg)
+			.await?;
 
 		Ok(())
 	}
@@ -471,7 +473,10 @@ impl Drop for Inner {
 		};
 		runtime.spawn(async move {
 			let arg = tg::process::cancel::Arg { lease, location };
-			instance.try_cancel_process(&id, arg).await.ok();
+			instance
+				.try_cancel_process(&tg::Either::Right(id.clone()), arg)
+				.await
+				.ok();
 		});
 	}
 }

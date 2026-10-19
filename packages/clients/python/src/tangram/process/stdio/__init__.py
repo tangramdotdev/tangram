@@ -442,26 +442,26 @@ async def write_chunks(input, stream: Stream) -> AsyncGenerator[StdioChunk, None
 
 
 async def task(
-    id,
     location,
-    tokens,
+    nonce,
     stdin,
     stdout,
     stderr,
     tty,
-    connection=None,
+    connection,
     *,
     client: Client | None = None,
 ):
-    """Forward inherited stdio and terminal resize events until output ends."""
+    """Forward inherited stdio and terminal resize events until output ends.
+
+    The task locates the process by its connect's nonce and routes to the connect's
+    location, so that the stdio requests open concurrently with the connect.
+    """
     from ... import host
     from ...client import client as default_client
+    from ..connect import Connection
 
-    client = (
-        connection.stdio_client()
-        if connection is not None
-        else client or default_client
-    )
+    client = Connection.nonce_stdio_client(connection, client or default_client)
     stdin_closing = False
     stdin_error = None
     resize_error = None
@@ -472,7 +472,7 @@ async def task(
     async def input_task():
         nonlocal stdin_error
         try:
-            await stdin_task(id, location, tokens, stdin, stopper, client)
+            await stdin_task(location, nonce, stdin, stopper, client)
         except Exception as error:
             if not stdin_closing:
                 stdin_error = error
@@ -480,7 +480,7 @@ async def task(
     async def resize_task():
         nonlocal resize_error
         try:
-            await sigwinch_task(id, location, tokens, listener, client)
+            await sigwinch_task(location, nonce, listener, client)
         except Exception as error:
             resize_error = error
 
@@ -488,7 +488,7 @@ async def task(
     resize_future = asyncio.create_task(resize_task()) if listener is not None else None
     try:
         try:
-            await stdout_stderr_task(id, location, tokens, stdout, stderr, client)
+            await stdout_stderr_task(location, nonce, stdout, stderr, client)
         except Exception as error:
             output_error = error
         if stopper is not None:
@@ -519,7 +519,7 @@ async def cleanup(stopper, listener) -> None:
             await host.stopper_close(stopper)
 
 
-async def stdin_task(id, location, tokens, stdin, stopper, client) -> None:
+async def stdin_task(location, nonce, stdin, stopper, client) -> None:
     from ... import host
 
     raw = stdin == "tty" and host.is_foreground_controlling_tty(0)
@@ -544,10 +544,9 @@ async def stdin_task(id, location, tokens, stdin, stopper, client) -> None:
                 }
                 position += len(bytes_)
 
-        arg = {"streams": ["stdin"], "tokens": tokens}
-        if location is not None:
-            arg["location"] = location
-        await client.write_process_stdio(id, input(), **arg)
+        await client.write_process_stdio(
+            nonce, input(), location=location, streams=["stdin"]
+        )
     except Exception as caught:
         error = caught
     finally:
@@ -561,7 +560,7 @@ async def stdin_task(id, location, tokens, stdin, stopper, client) -> None:
         raise error
 
 
-async def stdout_stderr_task(id, location, tokens, stdout, stderr, client) -> None:
+async def stdout_stderr_task(location, nonce, stdout, stderr, client) -> None:
     from ... import host
 
     streams = [
@@ -571,10 +570,9 @@ async def stdout_stderr_task(id, location, tokens, stdout, stderr, client) -> No
     ]
     if not streams:
         return
-    arg = {"streams": streams, "tokens": tokens}
-    if location is not None:
-        arg["location"] = location
-    iterator = await client.try_read_process_stdio(id, arg)
+    iterator = await client.try_read_process_stdio(
+        nonce, {"location": location, "streams": streams}
+    )
     if iterator is None:
         return
     try:
@@ -585,17 +583,14 @@ async def stdout_stderr_task(id, location, tokens, stdout, stderr, client) -> No
             await iterator.aclose()
 
 
-async def sigwinch_task(id, location, tokens, listener, client) -> None:
+async def sigwinch_task(location, nonce, listener, client) -> None:
     from ... import host
 
     async for _ in listener:
         size = host.get_tty_size()
         if size is None:
             continue
-        arg = {"size": size, "tokens": tokens}
-        if location is not None:
-            arg["location"] = location
-        await client.set_process_tty_size(id, arg)
+        await client.set_process_tty_size(nonce, {"location": location, "size": size})
 
 
 class Stdio:

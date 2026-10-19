@@ -135,7 +135,7 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 		};
 		let stream = tokio::time::timeout(
 			std::time::Duration::from_secs(5),
-			client.try_read_process_stdio_all(&id, arg),
+			client.try_read_process_stdio_all(&tg::Either::Right(id.clone()), arg),
 		)
 		.await
 		.unwrap()

@@ -63,10 +63,10 @@ impl tg::instance::Process for Session {
 
 	async fn try_cancel_process(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		self.try_cancel_process(id, arg).await
+		self.try_cancel_process(process, arg).await
 	}
 
 	async fn try_get_process_control_stream(
@@ -86,43 +86,43 @@ impl tg::instance::Process for Session {
 
 	async fn try_signal_process(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
-		self.try_post_process_signal(id, arg).await
+		self.try_post_process_signal(process, arg).await
 	}
 
 	async fn try_get_process_status_stream(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 	> {
-		self.try_get_process_status_stream(id, arg).await
+		self.try_get_process_status_stream(process, arg).await
 	}
 
 	async fn try_get_process_children_stream(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
 	> {
-		self.try_get_process_children_stream(id, arg).await
+		self.try_get_process_children_stream(process, arg).await
 	}
 
 	async fn try_set_process_tty_size(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::tty::size::put::Arg,
 	) -> tg::Result<Option<()>> {
-		self.try_set_process_tty_size(id, arg).await
+		self.try_set_process_tty_size(process, arg).await
 	}
 
 	async fn try_read_process_stdio(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<
@@ -130,18 +130,18 @@ impl tg::instance::Process for Session {
 			impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
 		>,
 	> {
-		self.try_read_process_stdio(id, arg, input).await
+		self.try_read_process_stdio(process, arg, input).await
 	}
 
 	async fn try_write_process_stdio(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static>,
 	> {
-		self.try_write_process_stdio(id, arg, input).await
+		self.try_write_process_stdio(process, arg, input).await
 	}
 
 	async fn try_touch_process(
@@ -154,13 +154,13 @@ impl tg::instance::Process for Session {
 
 	async fn try_wait_process_future(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
 			impl Future<Output = tg::Result<Option<tg::process::outcome::Data>>> + Send + 'static,
 		>,
 	> {
-		self.try_wait_process_future(id, arg).await
+		self.try_wait_process_future(process, arg).await
 	}
 }

@@ -299,6 +299,7 @@ impl Session {
 		let tg::runner::control::Process {
 			data,
 			id,
+			open,
 			options,
 			outcome_sync,
 			parent,
@@ -510,7 +511,7 @@ impl Session {
 			changed: tokio::sync::watch::channel(()).0,
 			children,
 			control: control_sender.clone(),
-			control_sender: local_control_sender,
+			control_sender: local_control_sender.clone(),
 			data,
 			finish: None,
 			index_task: index_task.clone(),
@@ -886,6 +887,11 @@ impl Session {
 				.in_current_span()
 			}
 		});
+
+		// Service the assignment's opens as if each arrived over process control.
+		for request in open {
+			local_control_sender.send(request).await?;
+		}
 
 		// Wait for sandbox control to be ready before connecting process control.
 		if let Some(receiver) = sandbox_ready_receiver
@@ -1435,6 +1441,7 @@ impl Session {
 		let arg = crate::process::PushProcessObjectsArg {
 			location: location.clone(),
 			nodes,
+			nonce: None,
 			process_command_objects: false,
 			sync: Some(sync.clone()),
 		};
@@ -1466,6 +1473,7 @@ impl Session {
 			let arg = crate::process::PushProcessObjectsArg {
 				location: location.clone(),
 				nodes,
+				nonce: None,
 				process_command_objects: false,
 				sync: Some(sync.clone()),
 			};
@@ -1628,7 +1636,7 @@ impl Session {
 						lease,
 						location,
 					};
-					if let Err(error) = session.cancel_process(&child, arg).await {
+					if let Err(error) = session.cancel_process(&tg::Either::Right(child.clone()), arg).await {
 						tracing::error!(error = %error.trace(), process = %child, "failed to release a child process lease");
 					}
 				}
@@ -1668,7 +1676,9 @@ impl Session {
 				tokens: tg::authorization::Tokens::default(),
 			};
 			let chunks = tokio_stream::wrappers::ReceiverStream::new(chunks).boxed();
-			session.write_process_stdio_all(&id, arg, chunks).await
+			session
+				.write_process_stdio_all(&tg::Either::Right(id.clone()), arg, chunks)
+				.await
 		};
 		let produce = async {
 			let sender = sender;

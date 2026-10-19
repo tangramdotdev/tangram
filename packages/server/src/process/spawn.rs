@@ -20,6 +20,9 @@ mod wait;
 pub(super) mod lease;
 
 pub(super) struct PrepareOutput {
+	/// The stdio streams that a connect declared, which the runner of a scheduled process opens when the process starts.
+	pub open: Option<crate::process::connect::service::Open>,
+
 	pub parent_sandbox: Option<tg::sandbox::Id>,
 }
 
@@ -126,7 +129,10 @@ impl Session {
 				.map(|process| process.sandbox.clone())
 		});
 
-		let output = PrepareOutput { parent_sandbox };
+		let output = PrepareOutput {
+			open: None,
+			parent_sandbox,
+		};
 
 		Ok(output)
 	}
@@ -161,7 +167,10 @@ impl Session {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
-		let PrepareOutput { parent_sandbox } = prepare_output;
+		let PrepareOutput {
+			open,
+			parent_sandbox,
+		} = prepare_output;
 
 		// Create the progress.
 		let capacity = self.server.config.progress.channel_capacity;
@@ -175,7 +184,7 @@ impl Session {
 			move |_| {
 				async move {
 					match session
-						.try_spawn_process_task(arg, parent_sandbox, &progress)
+						.try_spawn_process_task(arg, parent_sandbox, open, &progress)
 						.boxed()
 						.await
 					{
@@ -205,6 +214,7 @@ impl Session {
 		&self,
 		mut arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
+		open: Option<crate::process::connect::service::Open>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let location = self.server.location(arg.location.as_ref())?;
@@ -248,9 +258,15 @@ impl Session {
 		};
 
 		let mut output = if shortcut {
-			self.try_spawn_process_local(arg.clone(), parent_sandbox, allocation, Some(&location))
-				.boxed()
-				.await?
+			self.try_spawn_process_local(
+				arg.clone(),
+				parent_sandbox,
+				allocation,
+				None,
+				Some(&location),
+			)
+			.boxed()
+			.await?
 		} else {
 			let spawn_future = match location.clone() {
 				tg::Location::Local(tg::location::Local {
@@ -259,7 +275,7 @@ impl Session {
 					.try_spawn_process_region(arg.clone(), progress, region)
 					.boxed(),
 				tg::Location::Local(_) => self
-					.try_spawn_process_local(arg.clone(), parent_sandbox.clone(), None, None)
+					.try_spawn_process_local(arg.clone(), parent_sandbox.clone(), None, open, None)
 					.boxed(),
 				tg::Location::Remote(tg::location::Remote {
 					name: remote,
@@ -375,6 +391,7 @@ impl Session {
 		mut arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
 		allocation: Option<crate::runner::capacity::Allocation>,
+		open: Option<crate::process::connect::service::Open>,
 		cache_location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let command = self.spawn_process_resolve_command(&mut arg)?;
@@ -402,6 +419,7 @@ impl Session {
 			&& !output.cached
 		{
 			output.allocation = allocation;
+			output.open = open;
 		}
 		if cache_location.is_some_and(tg::Location::is_remote)
 			&& let Some(output) = &mut output
