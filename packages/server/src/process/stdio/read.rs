@@ -63,7 +63,7 @@ impl Session {
 						modified
 					});
 					if modified {
-						crate::checkpoint!(server, "process.stdio.read.ack", process = %id, position = position).await;
+						crate::checkpoint!(server, "process.stdio.read.ack", process = %id, position).await;
 					}
 				}
 			}

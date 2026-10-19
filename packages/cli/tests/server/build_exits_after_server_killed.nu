@@ -31,6 +31,9 @@ let pid = open --raw ($server.directory | path join 'lock') | str trim | into in
 kill --signal 9 $pid
 
 # The build must report a wait error within 30 seconds of the server being killed.
-let output = job recv --tag $build --timeout 30sec
+let output = try { job recv --tag $build --timeout 30sec } catch { null }
+if $output == null {
+	error make { msg: 'the build did not exit within 30 seconds of the server being killed' }
+}
 failure $output 'the build must fail after the server is killed'
 assert ($output.stderr | str contains 'failed to await the process') $output.stderr
