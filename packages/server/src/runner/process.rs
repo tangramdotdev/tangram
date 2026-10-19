@@ -387,12 +387,19 @@ impl Session {
 					connection.header.token.clone().ok_or_else(
 						|| tg::error!(%id, "missing the process authentication token"),
 					)?;
+				let sandbox_token = state
+					.sandbox
+					.as_ref()
+					.and_then(|sandbox| self.server.runner.state.sandboxes.get_by_id(sandbox))
+					.map(|sandbox| sandbox.token.clone());
 				let start = tg::process::control::StartClientRequestArg {
 					data: state.to_data(),
 					lease,
 					options: options.clone(),
 					parent: Some(parent.clone()),
+					parent_token: command_session.context.token.clone(),
 					sandbox: sandbox_initialization,
+					sandbox_token,
 				};
 				control_sender = connection.control.sender();
 				let response = Self::send_process_control_client_request_inner(
@@ -921,7 +928,9 @@ impl Session {
 				lease,
 				options: options.clone(),
 				parent: parent.clone(),
+				parent_token: None,
 				sandbox: None,
+				sandbox_token: None,
 			};
 			let arg = tg::process::control::Arg {
 				command_sync: None,

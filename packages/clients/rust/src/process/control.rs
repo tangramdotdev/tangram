@@ -245,9 +245,19 @@ pub struct StartClientRequestArg {
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
 
+	/// The parent's process token, which proves that the runner that starts a process on the shortcut path runs its parent.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
+	pub parent_token: Option<String>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
 	pub sandbox: Option<Sandbox>,
+
+	/// The sandbox's token, which proves that the runner that starts a process on the shortcut path hosts its sandbox.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
+	pub sandbox_token: Option<String>,
 }
 
 #[derive(

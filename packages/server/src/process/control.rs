@@ -267,12 +267,28 @@ impl Session {
 					lease,
 					mut options,
 					parent,
+					parent_token,
 					sandbox,
+					sandbox_token,
 				} = start;
-				if shortcut && parent.is_none() {
-					return Err(tg::error!(
-						"a process on the shortcut path must have a parent"
-					));
+
+				// Ignore the parent that a scheduled process's start restates, since the server recorded the parent when it spawned the process.
+				let parent = if shortcut { parent } else { None };
+
+				// Require a process on the shortcut path to prove with their tokens that its runner runs its parent and hosts its sandbox.
+				if shortcut {
+					let parent = parent.as_ref().ok_or_else(|| {
+						tg::error!("a process on the shortcut path must have a parent")
+					})?;
+					let principal = tg::Principal::Process(parent.clone());
+					self.verify_process_control_start_token(parent_token.as_deref(), principal)
+						.await?;
+					let sandbox = data.sandbox.as_ref().ok_or_else(|| {
+						tg::error!("a process on the shortcut path must have a sandbox")
+					})?;
+					let principal = tg::Principal::Sandbox(sandbox.clone());
+					self.verify_process_control_start_token(sandbox_token.as_deref(), principal)
+						.await?;
 				}
 				options.tokens.clear();
 				if let Some(syncs) = &syncs {
@@ -744,6 +760,33 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to index the process"))?;
 		crate::checkpoint!(self.server, "process.control.index.submitted", process = %id).await;
 
+		Ok(())
+	}
+
+	/// Verify that a token in a process control start authenticates as the given principal.
+	async fn verify_process_control_start_token(
+		&self,
+		token: Option<&str>,
+		principal: tg::Principal,
+	) -> tg::Result<()> {
+		let token = token.ok_or_else(|| {
+			tg::error!(
+				unauthorized,
+				%principal,
+				"a process on the shortcut path requires a token for the principal"
+			)
+		})?;
+		let authentication = self
+			.server
+			.authenticate(self.context.origin, Some(token))
+			.await?;
+		if authentication.principal != principal {
+			return Err(tg::error!(
+				unauthorized,
+				%principal,
+				"invalid token for a process on the shortcut path"
+			));
+		}
 		Ok(())
 	}
 
