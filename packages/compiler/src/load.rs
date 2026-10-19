@@ -2,7 +2,7 @@
 use tangram_client::prelude::*;
 #[cfg(all(feature = "javascript", feature = "python"))]
 use {
-	std::{collections::BTreeMap, fmt::Write as _},
+	std::{collections::BTreeMap, fmt::Write as _, ops::Range},
 	tangram_client::prelude::*,
 };
 
@@ -10,6 +10,32 @@ use {
 mod javascript;
 #[cfg(all(feature = "javascript", feature = "python"))]
 mod python;
+
+/// The prefix of the comment that records the source of each export in a generated module.
+const MARKER: &str = "tangram: ";
+
+/// An export of a module that another language imports.
+#[cfg(all(feature = "javascript", feature = "python"))]
+struct Export {
+	/// The text of the export's documentation comment.
+	documentation: Option<String>,
+
+	/// The byte range of the export's name in the module's source.
+	range: Option<Range<usize>>,
+}
+
+/// The source of an export in a generated module, recorded so that positions in the generated module can be mapped to the original module.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct Source {
+	/// The name of the export.
+	pub(crate) name: String,
+
+	/// The range of the export's name in the original module, with UTF-8 character offsets.
+	utf8: [u32; 4],
+
+	/// The range of the export's name in the original module, with UTF-16 character offsets.
+	utf16: [u32; 4],
+}
 
 /// Generate the consuming language's representation without changing the module's identity.
 #[cfg(all(feature = "javascript", feature = "python"))]
@@ -36,7 +62,28 @@ pub fn module(
 	let mut output = String::new();
 	match language.unwrap() {
 		tg::module::load::Language::JavaScript => {
-			for (index, name) in exports.iter().enumerate() {
+			for (index, (name, export)) in exports.iter().enumerate() {
+				// Record the source of the export and its documentation.
+				if let Some(source) = Source::new(name, export, text) {
+					writeln!(
+						output,
+						"// {MARKER}{}",
+						serde_json::to_string(&source).unwrap()
+					)
+					.unwrap();
+				}
+				if let Some(documentation) = &export.documentation {
+					output.push_str("/**\n");
+					for line in documentation.replace("*/", "*\\/").lines() {
+						if line.is_empty() {
+							output.push_str(" *\n");
+						} else {
+							writeln!(output, " * {line}").unwrap();
+						}
+					}
+					output.push_str(" */\n");
+				}
+
 				let name = serde_json::to_string(name).unwrap();
 				writeln!(output, "const f{index} = {{\nasync {name}(...args: Array<tg.Value>): Promise<tg.Value> {{ return await tg.command(f{index}, ...args).build(); }}\n}}[{name}];\nexport {{ f{index} as {name} }};").unwrap();
 			}
@@ -44,26 +91,58 @@ pub fn module(
 		},
 		tg::module::load::Language::Python => {
 			// Bind each export that Python can name.
+			let names = exports.keys().cloned().collect();
 			let bindings = exports
 				.iter()
-				.filter_map(|name| {
-					let binding = python::binding(name, &exports).ok()?;
-					Some((binding, name))
+				.filter_map(|(name, export)| {
+					let binding = python::binding(name, &names).ok()?;
+					Some((binding, (name, export)))
 				})
 				.collect::<BTreeMap<_, _>>();
 
-			// Choose helper names that cannot shadow a binding.
+			// Choose helper names that cannot shadow a binding, preferring the client's global name.
 			let mut prefix = "_tg".to_owned();
 			while bindings.keys().any(|binding| binding.starts_with(&prefix)) {
 				prefix.push('_');
 			}
+			let client = if bindings.contains_key("tg") {
+				writeln!(output, "import tangram as {prefix}_client").unwrap();
+				format!("{prefix}_client")
+			} else {
+				"tg".to_owned()
+			};
+			let arguments = if bindings.contains_key("args") {
+				format!("{prefix}_args")
+			} else {
+				"args".to_owned()
+			};
 
-			// Generate a function for each binding.
-			writeln!(output, "import tangram as {prefix}_client").unwrap();
-			for (binding, name) in &bindings {
+			// Generate a function for each binding, recording the source of the export and its documentation.
+			for (binding, (name, export)) in &bindings {
+				if let Some(source) = Source::new(name, export, text) {
+					writeln!(
+						output,
+						"# {MARKER}{}",
+						serde_json::to_string(&source).unwrap()
+					)
+					.unwrap();
+				}
 				writeln!(
 					output,
-					"async def {binding}(*{prefix}_args: {prefix}_client.Value.Type) -> {prefix}_client.Value.Type:\n    return await {prefix}_client.command({binding}, *{prefix}_args).build()"
+					"async def {binding}(*{arguments}: {client}.Value.Type) -> {client}.Value.Type:"
+				)
+				.unwrap();
+				if let Some(documentation) = &export.documentation {
+					writeln!(
+						output,
+						"    {}",
+						serde_json::to_string(documentation).unwrap()
+					)
+					.unwrap();
+				}
+				writeln!(
+					output,
+					"    return await {client}.command({binding}, *{arguments}).build()"
 				)
 				.unwrap();
 				// Record the export name so that the function targets the export rather than the binding.
@@ -104,6 +183,59 @@ pub fn module(
 		return Err(tg::error!("the javascript feature is not enabled"));
 	}
 	Ok(text.to_owned())
+}
+
+/// Get the source of the export that contains an offset in a generated module.
+pub(crate) fn source(text: &str, offset: usize) -> Option<Source> {
+	let text = text.get(..offset)?;
+	text.lines().rev().find_map(|line| {
+		let json = line
+			.strip_prefix("// ")
+			.or_else(|| line.strip_prefix("# "))?
+			.strip_prefix(MARKER)?;
+		serde_json::from_str(json).ok()
+	})
+}
+
+impl Source {
+	#[cfg(all(feature = "javascript", feature = "python"))]
+	fn new(name: &str, export: &Export, text: &str) -> Option<Self> {
+		let range = export.range.clone()?;
+		let convert = |encoding| {
+			let range = tg::Range::try_from_byte_range_in_string(text, range.clone(), encoding)?;
+			Some([
+				range.start.line,
+				range.start.character,
+				range.end.line,
+				range.end.character,
+			])
+		};
+		let source = Self {
+			name: name.to_owned(),
+			utf8: convert(tg::position::Encoding::Utf8)?,
+			utf16: convert(tg::position::Encoding::Utf16)?,
+		};
+		Some(source)
+	}
+
+	/// Get the range of the export's name in the original module.
+	#[must_use]
+	pub(crate) fn range(&self, encoding: tg::position::Encoding) -> tg::Range {
+		let [start_line, start_character, end_line, end_character] = match encoding {
+			tg::position::Encoding::Utf8 => self.utf8,
+			tg::position::Encoding::Utf16 => self.utf16,
+		};
+		tg::Range {
+			end: tg::Position {
+				character: end_character,
+				line: end_line,
+			},
+			start: tg::Position {
+				character: start_character,
+				line: start_line,
+			},
+		}
+	}
 }
 
 #[cfg(all(feature = "javascript", feature = "python"))]
@@ -178,6 +310,54 @@ mod tests {
 		assert!(!text.contains("import tangram as _tg_client\n"));
 		assert!(text.contains("async def _tg_client("));
 		assert!(text.contains("async def default("));
+	}
+
+	#[test]
+	fn records_the_sources_of_exports() {
+		// A JavaScript representation of a Python module records each export's source and docstring.
+		let source_ = source(tg::module::Kind::Python);
+		let python = "x = 1\n\ndef greet(name):\n    \"\"\"Greet someone.\n\n    Args:\n        name: The name.\n    \"\"\"\n";
+		let text = module(
+			&source_,
+			python,
+			Some(tg::module::load::Language::JavaScript),
+		)
+		.unwrap();
+		assert!(
+			text.contains("/**\n * Greet someone.\n *\n * Args:\n *     name: The name.\n */\n"),
+			"{text}"
+		);
+		let offset = text.find("async \"greet\"").unwrap();
+		let export = super::source(&text, offset).unwrap();
+		assert_eq!(export.name, "greet");
+		let range = export.range(tg::position::Encoding::Utf8);
+		assert_eq!((range.start.line, range.start.character), (2, 4));
+		assert_eq!((range.end.line, range.end.character), (2, 9));
+
+		// A Python representation of a TypeScript module records each export's source and documentation.
+		let mut source_ = source_;
+		source_.kind = tg::module::Kind::TypeScript;
+		let typescript =
+			"/** Say hello. */\nexport const hello = () => \"hi\";\nexport const other = 1;";
+		let text = module(
+			&source_,
+			typescript,
+			Some(tg::module::load::Language::Python),
+		)
+		.unwrap();
+		assert!(ruff_python_parser::parse_module(&text).is_ok());
+		assert!(
+			text.contains(
+				"async def hello(*args: tg.Value.Type) -> tg.Value.Type:\n    \"Say hello.\"\n"
+			),
+			"{text}"
+		);
+		let offset = text.find("async def hello").unwrap();
+		let export = super::source(&text, offset).unwrap();
+		assert_eq!(export.name, "hello");
+		let range = export.range(tg::position::Encoding::Utf16);
+		assert_eq!((range.start.line, range.start.character), (1, 13));
+		assert!(super::source(&text, 0).is_none());
 	}
 
 	#[test]

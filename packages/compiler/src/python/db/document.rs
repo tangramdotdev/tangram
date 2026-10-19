@@ -230,6 +230,12 @@ impl<'a> Converter<'a> {
 			return slot;
 		}
 
+		// Name a declaration from a module generated for another language by its export.
+		let source = binding_name_ranges(binding)
+			.first()
+			.and_then(|range| self.source(context, range.start()));
+		let name = source.as_ref().map_or(name, |source| source.name.as_str());
+
 		match binding {
 			Binding::Assignment(statement, docstring) => {
 				let declaration = self.assignment(context, name, statement, *docstring);
@@ -890,10 +896,13 @@ impl<'a> Converter<'a> {
 		let runtime = self.database.is_runtime(file);
 		let is_type_parameter =
 			self.database.entry(file).is_some() && self.is_type_parameter(file, range);
+		let qualified_name = self
+			.qualified_name(file, range)
+			.unwrap_or_else(|| definition.clone());
 		let fully_qualified_name = if runtime {
-			Some(format!("tg.{definition}"))
+			Some(format!("tg.{qualified_name}"))
 		} else if self.database.entry(file).is_some() {
-			Some(definition.clone())
+			Some(qualified_name)
 		} else {
 			None
 		};
@@ -915,6 +924,18 @@ impl<'a> Converter<'a> {
 			type_arguments,
 		};
 		Type::Reference(reference)
+	}
+
+	/// Get the name of the definition at a range, qualified by its enclosing classes.
+	fn qualified_name(&self, file: File, range: TextRange) -> Option<String> {
+		let parsed = self.parsed(file);
+		let mut finder = NameFinder {
+			classes: Vec::new(),
+			name: None,
+			range,
+		};
+		ast::visitor::source_order::walk_body(&mut finder, &parsed.syntax().body);
+		finder.name
 	}
 
 	fn is_top_level(&self, file: File, name: &str) -> bool {
@@ -967,6 +988,18 @@ impl<'a> Converter<'a> {
 		Type::Other(return_.to_owned())
 	}
 
+	/// Get the source of a position in a module generated for another language.
+	fn source(&self, context: &Context<'a>, offset: TextSize) -> Option<crate::load::Source> {
+		let entry = self.database.entry(context.file)?;
+		if !matches!(
+			entry.module.kind,
+			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript
+		) {
+			return None;
+		}
+		crate::load::source(&context.text, usize::from(offset))
+	}
+
 	fn location(&mut self, context: &Context<'a>, range: TextRange) -> Option<Location> {
 		// Get the module's index, adding the module without its tokens if necessary.
 		let module = if let Some(module) = self.module_ids.get(&context.file) {
@@ -979,11 +1012,14 @@ impl<'a> Converter<'a> {
 			index
 		};
 
-		// Get the range.
-		let range = self
-			.database
-			.range(context.file, range, self.encoding)
-			.ok()?;
+		// Get the range, using the source of an export in a module generated for another language.
+		let range = if let Some(source) = self.source(context, range.start()) {
+			source.range(self.encoding)
+		} else {
+			self.database
+				.range(context.file, range, self.encoding)
+				.ok()?
+		};
 		let range = [
 			range.start.line,
 			range.start.character,
@@ -993,6 +1029,62 @@ impl<'a> Converter<'a> {
 
 		let location = Location { module, range };
 		Some(location)
+	}
+}
+
+/// A visitor that finds the name of a definition at a range, qualified by its enclosing classes.
+struct NameFinder<'a> {
+	classes: Vec<&'a str>,
+	name: Option<String>,
+	range: TextRange,
+}
+
+impl<'a> ast::visitor::source_order::SourceOrderVisitor<'a> for NameFinder<'a> {
+	fn visit_stmt(&mut self, statement: &'a Stmt) {
+		if self.name.is_some() {
+			return;
+		}
+
+		// Check the names that the statement defines.
+		let names = match statement {
+			Stmt::AnnAssign(assignment) => vec![&*assignment.target],
+			Stmt::Assign(assignment) => assignment.targets.iter().collect(),
+			Stmt::TypeAlias(alias) => vec![&*alias.name],
+			_ => Vec::new(),
+		};
+		let names = names
+			.into_iter()
+			.filter_map(|target| target.as_name_expr())
+			.map(|name| (name.id.as_str(), name.range()))
+			.chain(match statement {
+				Stmt::ClassDef(class) => Some((class.name.as_str(), class.name.range())),
+				Stmt::FunctionDef(function) => {
+					Some((function.name.as_str(), function.name.range()))
+				},
+				_ => None,
+			});
+		for (name, range) in names {
+			if range == self.range {
+				let name = self
+					.classes
+					.iter()
+					.copied()
+					.chain(std::iter::once(name))
+					.collect::<Vec<_>>()
+					.join(".");
+				self.name = Some(name);
+				return;
+			}
+		}
+
+		// Visit the statement's body within its class.
+		if let Stmt::ClassDef(class) = statement {
+			self.classes.push(class.name.as_str());
+			ast::visitor::source_order::walk_stmt(self, statement);
+			self.classes.pop();
+		} else {
+			ast::visitor::source_order::walk_stmt(self, statement);
+		}
 	}
 }
 

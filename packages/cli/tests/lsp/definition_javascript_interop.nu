@@ -15,15 +15,20 @@ let responses = lsp exchange [
     (lsp definition 10 $uri 1 2)
     (lsp request 11 textDocument/prepareRename {textDocument: {uri: $uri}, position: {line: 1, character: 2}})
     (lsp rename 12 $uri 1 2 welcome)
+    (lsp request 13 workspace/symbol {query: greet})
 ]
-let location = (lsp result $responses 10).0
+
+# The definition is the export's name in the original Python module.
+assert equal (lsp result $responses 10) [{
+    uri: (lsp uri ($path | path join helper.tg.py))
+    range: {start: {line: 0, character: 4}, end: {line: 0, character: 9}}
+}]
+
+# Workspace search finds the generated JavaScript representation.
+let location = lsp result $responses 13 | where { |symbol| $symbol.location.uri | str contains '/generated/' } | get 0.location
 let generated = lsp path_for_uri $location.uri
-assert ($generated | str contains '/generated/')
 assert ($generated | str ends-with '.tg.js')
 let text = open --raw $generated
-let line = $text | lines | get $location.range.start.line
-assert equal ($line | str substring $location.range.start.character..<$location.range.end.character) 'f0'
-assert ($line | str contains 'const f0 =')
 assert equal (lsp result $responses 11) {
     placeholder: greet
     range: {start: {line: 1, character: 0}, end: {line: 1, character: 5}}

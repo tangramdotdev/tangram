@@ -17,6 +17,7 @@ python = [
 	"dep:ruff_python_ast",
 	"dep:ruff_python_formatter",
 	"dep:ruff_python_parser",
+	"dep:ty_text_size",
 ]
 tsrs = [
 	"javascript",

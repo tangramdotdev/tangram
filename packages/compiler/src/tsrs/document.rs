@@ -174,7 +174,12 @@ impl Converter<'_> {
 			return slot;
 		}
 		let flags = symbol.flags();
-		let name = symbol.name().to_owned();
+		// Name a declaration from a module generated for another language by its export.
+		let name = symbol
+			.declarations()
+			.first()
+			.and_then(|declaration| self.source(*declaration))
+			.map_or_else(|| symbol.name().to_owned(), |source| source.name);
 
 		// Convert a namespace.
 		if flags.intersects(SymbolFlags::NamespaceModule | SymbolFlags::ValueModule) {
@@ -1398,6 +1403,24 @@ impl Converter<'_> {
 		Type::Reference(reference)
 	}
 
+	/// Get the source of a node in a module generated for another language.
+	fn source(&self, node: P<Node>) -> Option<crate::load::Source> {
+		let source_file = tsrs_ast::get_source_file_of_node(node)?;
+		let module = self
+			.project
+			.host
+			.try_module(source_file.file_name())
+			.ok()??;
+		if module.kind != tg::module::Kind::Python {
+			return None;
+		}
+		if !is_parsed(node) {
+			return None;
+		}
+		let offset = tsrs_scanner::get_token_pos_of_node(node, source_file, false);
+		crate::load::source(source_file.text(), offset as usize)
+	}
+
 	fn location(&mut self, node: P<Node>) -> Option<Location> {
 		// Get the source file.
 		if !is_parsed(node) {
@@ -1422,13 +1445,18 @@ impl Converter<'_> {
 			index
 		};
 
-		// Get the range.
+		// Get the range, using the source of an export in a module generated for another language.
 		let start = tsrs_scanner::get_token_pos_of_node(node, source_file, false);
 		let end = node.loc().source_end()?;
-		let (range_, _) = self
-			.converters
-			.to_lsp_range(&source_file, TextRange::new(start, end));
-		let range_ = range(range_);
+		let range_ = if let Some(source) = self.source(node) {
+			let encoding = *self.project.host.compiler.position_encoding.read().unwrap();
+			source.range(encoding)
+		} else {
+			let (range_, _) = self
+				.converters
+				.to_lsp_range(&source_file, TextRange::new(start, end));
+			range(range_)
+		};
 		let range = [
 			range_.start.line,
 			range_.start.character,

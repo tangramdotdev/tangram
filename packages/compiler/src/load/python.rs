@@ -1,7 +1,9 @@
 use {
+	super::Export,
 	ruff_python_ast::{Expr, Stmt},
-	std::collections::BTreeSet,
+	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
+	ty_text_size::Ranged,
 };
 
 /// Escape keywords without displacing an export that already has a valid Python name.
@@ -24,7 +26,11 @@ pub(super) fn binding(name: &str, exports: &BTreeSet<String>) -> tg::Result<Stri
 	Ok(binding)
 }
 
-pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTreeSet<String>> {
+/// Discover a module's exports, with the ranges of their names and their docstrings.
+pub(super) fn exports(
+	module: &tg::module::Data,
+	text: &str,
+) -> tg::Result<BTreeMap<String, Export>> {
 	let parsed = ruff_python_parser::parse_module(text).map_err(|error| {
 		let range = usize::from(error.location.start())..usize::from(error.location.end());
 		super::located_error(
@@ -37,7 +43,40 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 	crate::analyze::python::validate_imports(module, text, &parsed.syntax().body)?;
 	let mut names = BTreeSet::new();
 	let mut all = None;
-	for statement in &parsed.syntax().body {
+	let mut sources = BTreeMap::new();
+	let body = &parsed.syntax().body;
+	for (index, statement) in body.iter().enumerate() {
+		// Record the range of each name the statement binds and its docstring.
+		let documentation = match statement {
+			Stmt::ClassDef(class) => class.body.first().and_then(docstring),
+			Stmt::FunctionDef(function) => function.body.first().and_then(docstring),
+			_ => body.get(index + 1).and_then(docstring),
+		};
+		let mut ranges = Vec::new();
+		match statement {
+			Stmt::AnnAssign(assign) => ranges.push(assign.target.range()),
+			Stmt::Assign(assign) => ranges.extend(assign.targets.iter().map(Ranged::range)),
+			Stmt::ClassDef(class) => ranges.push(class.name.range()),
+			Stmt::FunctionDef(function) => ranges.push(function.name.range()),
+			Stmt::ImportFrom(import) => ranges.extend(
+				import
+					.names
+					.iter()
+					.map(|alias| alias.asname.as_ref().unwrap_or(&alias.name).range()),
+			),
+			_ => {},
+		}
+		for range in ranges {
+			let Some(name) = text.get(usize::from(range.start())..usize::from(range.end())) else {
+				continue;
+			};
+			let export = Export {
+				documentation: documentation.clone(),
+				range: Some(usize::from(range.start())..usize::from(range.end())),
+			};
+			sources.insert(name.to_owned(), export);
+		}
+
 		match statement {
 			Stmt::AnnAssign(assign) => {
 				if let Some(value) = &assign.value {
@@ -98,10 +137,55 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 		}
 	}
 	if let Some(all) = all {
-		return Ok(all);
+		names = all;
+	} else {
+		names.retain(|name| !name.starts_with('_'));
 	}
-	names.retain(|name| !name.starts_with('_'));
-	Ok(names)
+
+	// Attach the source of each export.
+	let exports = names
+		.into_iter()
+		.map(|name| {
+			let export = sources.remove(&name).unwrap_or(Export {
+				documentation: None,
+				range: None,
+			});
+			(name, export)
+		})
+		.collect();
+
+	Ok(exports)
+}
+
+/// Get the cleaned text of a statement that is a docstring.
+fn docstring(statement: &Stmt) -> Option<String> {
+	let Stmt::Expr(expression) = statement else {
+		return None;
+	};
+	let literal = expression.value.as_string_literal_expr()?;
+	let text = literal.value.to_str();
+	let mut lines = text.lines();
+	let first = lines.next().unwrap_or_default().trim();
+	let rest = lines.collect::<Vec<_>>();
+	let indentation = rest
+		.iter()
+		.filter(|line| !line.trim().is_empty())
+		.map(|line| line.len() - line.trim_start().len())
+		.min()
+		.unwrap_or(0);
+	let text = std::iter::once(first)
+		.chain(
+			rest.iter()
+				.map(|line| line.get(indentation..).unwrap_or_default()),
+		)
+		.collect::<Vec<_>>()
+		.join("\n")
+		.trim()
+		.to_owned();
+	if text.is_empty() {
+		return None;
+	}
+	Some(text)
 }
 
 fn is_identifier(name: &str) -> bool {
@@ -158,7 +242,8 @@ mod tests {
 	use super::*;
 
 	fn exports(text: &str) -> tg::Result<BTreeSet<String>> {
-		super::exports(&crate::load::tests::source(tg::module::Kind::Python), text)
+		let exports = super::exports(&crate::load::tests::source(tg::module::Kind::Python), text)?;
+		Ok(exports.into_keys().collect())
 	}
 
 	#[test]
