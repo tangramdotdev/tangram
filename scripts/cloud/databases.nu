@@ -128,7 +128,8 @@ if [ "$platform" = linux ]; then
 else
 	docker rm --force --volumes tangram_cloud_foundationdb tangram_cloud_scylla >/dev/null 2>&1
 	start foundationdb docker run --rm --name tangram_cloud_foundationdb --publish 127.0.0.1:4500:4500 --env FDB_NETWORKING_MODE=host --env FDB_PORT=4500 "$foundationdb_image"
-	start scylla docker run --rm --name tangram_cloud_scylla --publish 127.0.0.1:9042:9042 scylladb/scylla:2026.3.0 "${scylla_args[@]}" --overprovisioned=1
+	# Advertise the published address so that clients connect through it, because connections to the container address stall under sustained load on OrbStack and are not routed at all by Docker Desktop.
+	start scylla docker run --rm --name tangram_cloud_scylla --publish 127.0.0.1:9042:9042 scylladb/scylla:2026.3.0 "${scylla_args[@]}" --broadcast-rpc-address=127.0.0.1 --overprovisioned=1
 	fdbcli=(docker exec tangram_cloud_foundationdb fdbcli)
 fi
 set +m
