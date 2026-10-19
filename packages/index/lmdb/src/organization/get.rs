@@ -42,30 +42,53 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		member: &tg::Id,
 	) -> tg::Result<Vec<tg::organization::Id>> {
-		let member_bytes = member.to_bytes();
-		let prefix = &(
-			Kind::MemberOrganization.to_i32().unwrap(),
-			member_bytes.as_ref(),
+		crate::page::collect(|after| {
+			Self::get_member_organizations_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				member,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})
+	}
+
+	pub(crate) fn get_member_organizations_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		member: &tg::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tg::organization::Id>> {
+		let bytes = member.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::MemberOrganization.to_i32().unwrap(), bytes.as_ref()),
 		);
-		let prefix = Self::pack(subspace, prefix);
-		let mut organizations = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get the member organizations"))?;
-		for entry in iter {
-			let (key, _) = entry.map_err(|error| {
-				tg::error!(!error, "failed to read the member organization entry")
-			})?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Organization(crate::organization::Key::MemberOrganization {
-				organization,
-				..
-			}) = key
-			else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			organizations.push(organization);
-		}
-		Ok(organizations)
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Organization(crate::organization::Key::MemberOrganization {
+					organization,
+					..
+				}) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(organization)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok((items, cursor))
 	}
 }

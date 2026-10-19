@@ -40,22 +40,49 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		member: &tg::Id,
 	) -> tg::Result<Vec<tg::group::Id>> {
-		let member_bytes = member.to_bytes();
-		let prefix = &(Kind::MemberGroup.to_i32().unwrap(), member_bytes.as_ref());
-		let prefix = Self::pack(subspace, prefix);
-		let mut groups = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get the member groups"))?;
-		for entry in iter {
-			let (key, _) = entry
-				.map_err(|error| tg::error!(!error, "failed to read the member group entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Group(crate::group::Key::MemberGroup { group, .. }) = key else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			groups.push(group);
-		}
-		Ok(groups)
+		crate::page::collect(|after| {
+			Self::get_member_groups_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				member,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})
+	}
+
+	pub(crate) fn get_member_groups_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		member: &tg::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tg::group::Id>> {
+		let bytes = member.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::MemberGroup.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Group(crate::group::Key::MemberGroup { group, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(group)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok((items, cursor))
 	}
 }

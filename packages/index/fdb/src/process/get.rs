@@ -19,32 +19,19 @@ impl Index {
 	) -> tg::Result<
 		ControlFlow<Vec<(tg::process::Id, tangram_index::process::Process)>, fdb::FdbError>,
 	> {
-		let command_bytes = command.to_bytes();
-		let prefix = (
-			Kind::CommandCacheableProcess.to_i32().unwrap(),
-			command_bytes.as_ref(),
-		);
-		let prefix = Self::pack(subspace, &prefix);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-		let processes = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Process(crate::process::Key::CommandCacheableProcess { process, .. }) =
-					key
-				else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				Ok(process)
+		let processes = crate::propagate!(
+			crate::page::collect(|after| async move {
+				Self::get_command_cacheable_processes_page_with_transaction(
+					txn,
+					subspace,
+					command,
+					after.as_deref(),
+					crate::page::PAGE_SIZE,
+				)
+				.await
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
-		drop(entries);
+			.await
+		);
 		let processes = {
 			let result =
 				futures::future::try_join_all(processes.into_iter().map(|process| async move {
@@ -79,6 +66,39 @@ impl Index {
 			a_created_at.cmp(&b_created_at).then_with(|| a_id.cmp(b_id))
 		});
 		Ok(ControlFlow::Break(output))
+	}
+
+	pub(crate) async fn get_command_cacheable_processes_page_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		command: &tg::object::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<crate::page::Page<tg::process::Id>, fdb::FdbError>> {
+		let bytes = command.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(
+				Kind::CommandCacheableProcess.to_i32().unwrap(),
+				bytes.as_ref(),
+			),
+		);
+		let (entries, cursor) = crate::propagate!(
+			Self::get_entry_page_with_transaction(txn, subspace, &prefix, after, limit).await
+		);
+		let processes = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Process(crate::process::Key::CommandCacheableProcess { process, .. }) =
+					key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(process)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(ControlFlow::Break((processes, cursor)))
 	}
 
 	pub(crate) async fn process_has_ancestor_with_transaction(

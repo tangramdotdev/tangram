@@ -357,29 +357,51 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		object: &tg::object::Id,
 	) -> tg::Result<Vec<tangram_index::usage::Account>> {
-		let object_bytes = object.to_bytes();
+		crate::page::collect(|after| {
+			Self::get_object_accounts_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				object,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})
+	}
+
+	fn get_object_accounts_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		object: &tg::object::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tangram_index::usage::Account>> {
+		let bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
-			&(
-				crate::Kind::ObjectAccount.to_i32().unwrap(),
-				object_bytes.as_ref(),
-			),
+			&(crate::Kind::ObjectAccount.to_i32().unwrap(), bytes.as_ref()),
 		);
-		let accounts = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to iterate the object accounts"))?
-			.map(|entry| {
-				let (key, _) = entry
-					.map_err(|error| tg::error!(!error, "failed to read an object account"))?;
-				let key = Self::unpack(subspace, key)?;
-				let Key::Usage(crate::usage::Key::ObjectAccount { account, .. }) = key else {
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let crate::Key::Usage(crate::usage::Key::ObjectAccount { account, .. }) = key
+				else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(accounts)
+		Ok((items, cursor))
 	}
 
 	fn get_process_accounts_with_transaction(
@@ -388,29 +410,54 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		process: &tg::process::Id,
 	) -> tg::Result<Vec<tangram_index::usage::Account>> {
-		let process_bytes = process.to_bytes();
+		crate::page::collect(|after| {
+			Self::get_process_accounts_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})
+	}
+
+	fn get_process_accounts_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		process: &tg::process::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tangram_index::usage::Account>> {
+		let bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
 			&(
 				crate::Kind::ProcessAccount.to_i32().unwrap(),
-				process_bytes.as_ref(),
+				bytes.as_ref(),
 			),
 		);
-		let accounts = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to iterate the process accounts"))?
-			.map(|entry| {
-				let (key, _) = entry
-					.map_err(|error| tg::error!(!error, "failed to read a process account"))?;
-				let key = Self::unpack(subspace, key)?;
-				let Key::Usage(crate::usage::Key::ProcessAccount { account, .. }) = key else {
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let crate::Key::Usage(crate::usage::Key::ProcessAccount { account, .. }) = key
+				else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(accounts)
+		Ok((items, cursor))
 	}
 
 	pub(crate) fn put_account_object(

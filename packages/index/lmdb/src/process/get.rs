@@ -13,24 +13,18 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		command: &tg::object::Id,
 	) -> tg::Result<Vec<(tg::process::Id, tangram_index::process::Process)>> {
-		let command_bytes = command.to_bytes();
-		let prefix = &(
-			Kind::CommandCacheableProcess.to_i32().unwrap(),
-			command_bytes.as_ref(),
-		);
-		let prefix = Self::pack(subspace, prefix);
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get the cached processes"))?;
+		let processes = crate::page::collect(|after| {
+			Self::get_command_cacheable_processes_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				command,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		let mut output = Vec::new();
-		for entry in iter {
-			let (key, _) = entry
-				.map_err(|error| tg::error!(!error, "failed to read a cached process entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Process(crate::process::Key::CommandCacheableProcess { process, .. }) = key
-			else {
-				return Err(tg::error!("unexpected key type"));
-			};
+		for process in processes {
 			let Some(data) =
 				Self::try_get_process_with_transaction(db, subspace, transaction, &process)?
 			else {
@@ -48,6 +42,45 @@ impl Index {
 		});
 
 		Ok(output)
+	}
+
+	pub(crate) fn get_command_cacheable_processes_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		command: &tg::object::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tg::process::Id>> {
+		let bytes = command.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(
+				Kind::CommandCacheableProcess.to_i32().unwrap(),
+				bytes.as_ref(),
+			),
+		);
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let processes = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let Key::Process(crate::process::Key::CommandCacheableProcess { process, .. }) =
+					key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(process)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok((processes, cursor))
 	}
 
 	pub(crate) fn process_has_ancestor_with_transaction(
