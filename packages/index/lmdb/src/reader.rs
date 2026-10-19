@@ -319,8 +319,20 @@ impl Index {
 				tangram_index::read::Response::TryGetIndexer(output)
 			},
 			tangram_index::read::Request::TryGetObjectChildren { id } => {
-				let output =
-					Self::try_get_object_children_with_transaction(db, subspace, transaction, &id)?;
+				let output = Self::try_get_object_with_transaction(db, subspace, transaction, &id)?
+					.map(|_| {
+						crate::page::collect(|after| {
+							Self::get_object_children_page_with_transaction(
+								db,
+								subspace,
+								transaction,
+								&id,
+								after,
+								crate::page::PAGE_SIZE,
+							)
+						})
+					})
+					.transpose()?;
 				tangram_index::read::Response::TryGetObjectChildren(output)
 			},
 			tangram_index::read::Request::TryGetObjects { ids } => {

@@ -6,7 +6,7 @@ use {
 	super::{Index, Kind, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
-	futures::{StreamExt as _, future},
+	futures::{StreamExt as _, TryStreamExt as _, future},
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -668,11 +668,9 @@ impl Index {
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
 		};
 		let count = txn
-			.get_range(&range, 1, false)
-			.await?
-			.len()
-			.to_u64()
-			.unwrap();
+			.get_ranges_keyvalues(range, false)
+			.try_fold(0u64, |count, _| future::ready(Ok(count + 1)))
+			.await?;
 
 		Ok(count)
 	}
@@ -769,7 +767,10 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let result = txn.get_range(&range, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let entries = crate::retry!(result);
 		let dependencies = entries
 			.iter()
@@ -847,7 +848,10 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let result = txn.get_range(&range, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let entries = crate::retry!(result);
 		let children = entries
 			.iter()
@@ -946,7 +950,10 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let result = txn.get_range(&range, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let entries = crate::retry!(result);
 		let children = entries
 			.iter()
@@ -983,7 +990,10 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let result = txn.get_range(&range, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let entries = crate::retry!(result);
 		let object_processes = entries
 			.iter()
@@ -1035,7 +1045,10 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let result = txn.get_range(&range, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let values = crate::retry!(result);
 		let entries = values
 			.iter()
@@ -1131,7 +1144,10 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let result = txn.get_range(&range, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let values = crate::retry!(result);
 		let entries = values
 			.iter()

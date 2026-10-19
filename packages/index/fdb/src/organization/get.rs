@@ -61,22 +61,37 @@ impl Index {
 		subspace: &Subspace,
 		member: &tg::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::organization::Id>, fdb::FdbError>> {
+		crate::page::collect(|after| async move {
+			Self::get_member_organizations_page_with_transaction(
+				txn,
+				subspace,
+				member,
+				after.as_deref(),
+				crate::page::PAGE_SIZE,
+			)
+			.await
+		})
+		.await
+	}
+
+	pub(crate) async fn get_member_organizations_page_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		member: &tg::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<crate::page::Page<tg::organization::Id>, fdb::FdbError>> {
 		let bytes = member.to_bytes();
-		let key = (Kind::MemberOrganization.to_i32().unwrap(), bytes.as_ref());
-		let prefix = Self::pack(subspace, &key);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-
-		let organizations = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::MemberOrganization.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (entries, cursor) = crate::propagate!(
+			Self::get_entry_page_with_transaction(txn, subspace, &prefix, after, limit).await
+		);
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
 				let Key::Organization(crate::organization::Key::MemberOrganization {
 					organization,
 					..
@@ -88,6 +103,6 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break(organizations))
+		Ok(ControlFlow::Break((items, cursor)))
 	}
 }

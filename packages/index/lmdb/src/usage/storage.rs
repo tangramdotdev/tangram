@@ -113,18 +113,32 @@ impl Index {
 			});
 		let mut count = 0;
 		let parents = match id {
-			tg::Either::Left(object) => {
-				Self::get_object_parents_with_transaction(db, subspace, transaction, object)?
-					.into_iter()
-					.map(tg::Either::Left)
-					.collect::<Vec<_>>()
-			},
-			tg::Either::Right(process) => {
-				Self::get_process_parents_with_transaction(db, subspace, transaction, process)?
-					.into_iter()
-					.map(tg::Either::Right)
-					.collect::<Vec<_>>()
-			},
+			tg::Either::Left(object) => crate::page::collect(|after| {
+				Self::get_object_parents_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					object,
+					after,
+					crate::page::PAGE_SIZE,
+				)
+			})?
+			.into_iter()
+			.map(tg::Either::Left)
+			.collect::<Vec<_>>(),
+			tg::Either::Right(process) => crate::page::collect(|after| {
+				Self::get_process_parents_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					process,
+					after,
+					crate::page::PAGE_SIZE,
+				)
+			})?
+			.into_iter()
+			.map(tg::Either::Right)
+			.collect::<Vec<_>>(),
 		};
 		for parent in parents {
 			if let Some(entry) = Self::get_account_storage_entry_with_transaction(
@@ -150,7 +164,7 @@ impl Index {
 					transaction,
 					object,
 					after.as_deref(),
-					crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+					crate::page::PAGE_SIZE,
 				)?;
 				for (process, kind) in processes {
 					if let Some(entry) = Self::get_account_storage_entry_with_transaction(

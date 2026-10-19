@@ -1128,7 +1128,10 @@ impl Index {
 			begin.push(0);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let result = txn.get_range(&range, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let entries = crate::retry!(result);
 		let mut accounts = entries
 			.iter()
@@ -1183,7 +1186,10 @@ impl Index {
 			begin.push(0);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let result = txn.get_range(&range, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let entries = crate::retry!(result);
 		let mut children = entries
 			.iter()
@@ -1378,7 +1384,10 @@ impl Index {
 			begin.push(0);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let result = txn.get_range(&range, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let entries = crate::retry!(result);
 		let mut objects = entries
 			.iter()
@@ -1454,8 +1463,19 @@ impl Index {
 		};
 		let mut object = tangram_index::object::Object::deserialize(&bytes)?;
 
-		let children =
-			crate::propagate!(Self::get_object_children_with_transaction(txn, subspace, id).await);
+		let children = crate::propagate!(
+			crate::page::collect(|after| async move {
+				Self::get_object_children_page_with_transaction(
+					txn,
+					subspace,
+					id,
+					after.as_deref(),
+					crate::page::PAGE_SIZE,
+				)
+				.await
+			})
+			.await
+		);
 
 		let child_objects = {
 			let result = future::try_join_all(
@@ -1592,14 +1612,14 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let resource = tg::Id::from(id.clone());
-		let (children, entries) = futures::try_join!(
-			Self::try_get_object_children_with_transaction(txn, subspace, id),
+		let (object, entries) = futures::try_join!(
+			Self::try_get_object_with_transaction(txn, subspace, id),
 			Self::get_resource_permission_entries_for_subject_with_transaction(
 				txn, subspace, &resource, subject,
 			),
 		)?;
-		let children = match children {
-			ControlFlow::Break(value) => value,
+		let indexed = match object {
+			ControlFlow::Break(value) => value.is_some(),
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 		let entries = match entries {
@@ -1668,25 +1688,34 @@ impl Index {
 				.map(|(subject, _, expires_at)| (subject.clone(), *expires_at)),
 		);
 		// Derive subtree permissions only after the object children are indexed, reading the children only when there is a node proof.
-		let child_cover = match &children {
-			Some(children) if !nodes.is_empty() => {
-				let children = children
-					.iter()
-					.map(|child| tg::Id::from(child.clone()))
-					.collect::<Vec<_>>();
-				crate::propagate!(
-					Self::get_resources_covers_with_transaction(
-						txn,
-						subspace,
-						&children,
-						subject,
-						[subtree],
-					)
-					.await
+		let child_cover = if indexed && !nodes.is_empty() {
+			crate::propagate!(
+				Self::get_resources_covers_with_transaction(
+					txn,
+					subspace,
+					|after: Option<Vec<u8>>| async move {
+						let (children, cursor) = crate::propagate!(
+							Self::get_object_children_page_with_transaction(
+								txn,
+								subspace,
+								id,
+								after.as_deref(),
+								crate::page::PAGE_SIZE,
+							)
+							.await
+						);
+						let children = children.into_iter().map(tg::Id::from).collect();
+						Ok::<_, tg::Error>(ControlFlow::Break((children, cursor)))
+					},
+					subject,
+					[subtree],
 				)
-				.remove(&subtree)
-			},
-			_ => None,
+				.await
+			)
+			.0
+			.remove(&subtree)
+		} else {
+			None
 		};
 		if let Some(child_cover) = child_cover {
 			for (subject, entry_expires_at) in nodes {
@@ -1780,7 +1809,17 @@ impl Index {
 		let mut anchored = direct;
 		if !anchored {
 			let parents = crate::propagate!(
-				Self::get_object_parents_with_transaction(txn, subspace, id).await
+				crate::page::collect(|after| async move {
+					Self::get_object_parents_page_with_transaction(
+						txn,
+						subspace,
+						id,
+						after.as_deref(),
+						crate::page::PAGE_SIZE,
+					)
+					.await
+				})
+				.await
 			);
 			for parent in parents {
 				let resource = tg::Id::from(parent);
@@ -2047,44 +2086,53 @@ impl Index {
 		if !aspects.is_empty()
 			&& let tg::authorization::Subject::Process(subject_process) = subject
 		{
-			let inherent = subject_process == id || {
-				let parents = crate::propagate!(
-					Self::get_process_parents_with_transaction(txn, subspace, id).await
+			let inherent = subject_process == id
+				|| crate::propagate!(
+					Self::is_related_with_transaction(
+						txn,
+						subspace,
+						Relation::ProcessParents(id),
+						&subject_process.clone().into(),
+					)
+					.await
 				);
-				parents.contains(subject_process)
-			};
 			if inherent {
 				aspects.clear();
 			}
 		}
+
+		// Get the object covers of the object aspects, reading the objects of each kind only while every object read so far is covered.
 		let mut object_covers = BTreeMap::new();
-		if !aspects.is_empty() {
-			let objects = crate::propagate!(
-				Self::get_process_objects_with_transaction(txn, subspace, id).await
-			);
-			for (kind, permission) in aspects {
-				let objects = objects
-					.iter()
-					.filter(|(_, object_kind)| *object_kind == kind)
-					.map(|(object, _)| tg::Id::from(object.clone()))
-					.collect::<Vec<_>>();
-				if objects.is_empty() {
-					continue;
-				}
-				let cover = crate::propagate!(
-					Self::get_resources_covers_with_transaction(
-						txn,
-						subspace,
-						&objects,
-						subject,
-						[object_subtree],
-					)
-					.await
+		for (kind, permission) in aspects {
+			let (mut covers, any) = crate::propagate!(
+				Self::get_resources_covers_with_transaction(
+					txn,
+					subspace,
+					|after: Option<Vec<u8>>| async move {
+						let (objects, cursor) = crate::propagate!(
+							Self::get_process_objects_page_with_transaction(
+								txn,
+								subspace,
+								id,
+								Some(kind),
+								after.as_deref(),
+								crate::page::PAGE_SIZE,
+							)
+							.await
+						);
+						let objects = objects
+							.into_iter()
+							.map(|(object, _)| tg::Id::from(object))
+							.collect();
+						Ok::<_, tg::Error>(ControlFlow::Break((objects, cursor)))
+					},
+					subject,
+					[object_subtree],
 				)
-				.remove(&object_subtree);
-				if let Some(cover) = cover {
-					object_covers.insert(permission, cover);
-				}
+				.await
+			);
+			if any && let Some(cover) = covers.remove(&object_subtree) {
+				object_covers.insert(permission, cover);
 			}
 		}
 
@@ -2100,16 +2148,30 @@ impl Index {
 		let child_covers = if targets.is_empty() {
 			BTreeMap::new()
 		} else {
-			let children = crate::propagate!(
-				Self::get_process_children_with_transaction(txn, subspace, id).await
-			);
-			let children = children.into_iter().map(tg::Id::from).collect::<Vec<_>>();
 			crate::propagate!(
 				Self::get_resources_covers_with_transaction(
-					txn, subspace, &children, subject, targets,
+					txn,
+					subspace,
+					|after: Option<Vec<u8>>| async move {
+						let (children, cursor) = crate::propagate!(
+							Self::get_process_children_page_with_transaction(
+								txn,
+								subspace,
+								id,
+								after.as_deref(),
+								crate::page::PAGE_SIZE,
+							)
+							.await
+						);
+						let children = children.into_iter().map(tg::Id::from).collect();
+						Ok::<_, tg::Error>(ControlFlow::Break((children, cursor)))
+					},
+					subject,
+					targets,
 				)
 				.await
 			)
+			.0
 		};
 
 		// Update the materialized permissions.
@@ -2128,37 +2190,52 @@ impl Index {
 		Ok(ControlFlow::Break(changed))
 	}
 
-	async fn get_resources_covers_with_transaction(
+	async fn get_resources_covers_with_transaction<F, Fut>(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
-		resources: &[tg::Id],
+		mut get_page: F,
 		subject: &tg::authorization::Subject,
 		permissions: impl IntoIterator<Item = tg::authorization::Permission>,
-	) -> tg::Result<ControlFlow<BTreeMap<tg::authorization::Permission, Option<i64>>, fdb::FdbError>>
+	) -> tg::Result<
+		ControlFlow<(BTreeMap<tg::authorization::Permission, Option<i64>>, bool), fdb::FdbError>,
+	>
+	where
+		F: FnMut(Option<Vec<u8>>) -> Fut,
+		Fut: Future<Output = tg::Result<ControlFlow<crate::page::Page<tg::Id>, fdb::FdbError>>>,
 	{
 		let mut covers = permissions
 			.into_iter()
 			.map(|permission| (permission, None))
 			.collect::<BTreeMap<_, _>>();
-		for chunk in resources.chunks(PERMISSION_ENTRIES_READ_CHUNK_SIZE) {
-			if covers.is_empty() {
+		let mut any = false;
+		let mut after = None;
+		while !covers.is_empty() {
+			let (resources, cursor) = crate::propagate!(get_page(after.take()).await);
+			for chunk in resources.chunks(PERMISSION_ENTRIES_READ_CHUNK_SIZE) {
+				if covers.is_empty() {
+					break;
+				}
+				any = true;
+				let results = future::try_join_all(chunk.iter().map(|resource| {
+					Self::get_resource_permission_entries_for_subject_with_transaction(
+						txn, subspace, resource, subject,
+					)
+				}))
+				.await?;
+				for result in results {
+					let entries = match result {
+						ControlFlow::Break(value) => value,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					Self::retain_permission_entries_covers(&mut covers, &entries, subject);
+				}
+			}
+			let Some(cursor) = cursor else {
 				break;
-			}
-			let results = future::try_join_all(chunk.iter().map(|resource| {
-				Self::get_resource_permission_entries_for_subject_with_transaction(
-					txn, subspace, resource, subject,
-				)
-			}))
-			.await?;
-			for result in results {
-				let entries = match result {
-					ControlFlow::Break(value) => value,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				Self::retain_permission_entries_covers(&mut covers, &entries, subject);
-			}
+			};
+			after = Some(cursor);
 		}
-		Ok(ControlFlow::Break(covers))
+		Ok(ControlFlow::Break((covers, any)))
 	}
 
 	fn retain_permission_entries_covers(
@@ -2310,7 +2387,17 @@ impl Index {
 
 		let children_future = async {
 			let children = crate::propagate!(
-				Self::get_process_children_with_transaction(txn, subspace, id).await
+				crate::page::collect(|after| async move {
+					Self::get_process_children_page_with_transaction(
+						txn,
+						subspace,
+						id,
+						after.as_deref(),
+						crate::page::PAGE_SIZE,
+					)
+					.await
+				})
+				.await
 			);
 			let children = {
 				let result = future::try_join_all(
@@ -2338,7 +2425,18 @@ impl Index {
 
 		let objects_future = async {
 			let objects = crate::propagate!(
-				Self::get_process_objects_with_transaction(txn, subspace, id).await
+				crate::page::collect(|after| async move {
+					Self::get_process_objects_page_with_transaction(
+						txn,
+						subspace,
+						id,
+						None,
+						after.as_deref(),
+						crate::page::PAGE_SIZE,
+					)
+					.await
+				})
+				.await
 			);
 			let mut command_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
 			let mut error_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
@@ -3360,7 +3458,17 @@ impl Index {
 					.map(tg::object::Id::try_from)
 					.collect::<tg::Result<Vec<_>>>()?,
 					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
-						Self::get_object_parents_with_transaction(txn, subspace, id).await
+						crate::page::collect(|after| async move {
+							Self::get_object_parents_page_with_transaction(
+								txn,
+								subspace,
+								id,
+								after.as_deref(),
+								crate::page::PAGE_SIZE,
+							)
+							.await
+						})
+						.await
 					),
 				};
 				for parent in parents {
@@ -3413,7 +3521,7 @@ impl Index {
 									subspace,
 									id,
 									after.as_deref(),
-									crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+									crate::page::PAGE_SIZE,
 								)
 								.await
 							);
@@ -3453,7 +3561,17 @@ impl Index {
 					.map(tg::process::Id::try_from)
 					.collect::<tg::Result<Vec<_>>>()?,
 					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
-						Self::get_process_parents_with_transaction(txn, subspace, id).await
+						crate::page::collect(|after| async move {
+							Self::get_process_parents_page_with_transaction(
+								txn,
+								subspace,
+								id,
+								after.as_deref(),
+								crate::page::PAGE_SIZE,
+							)
+							.await
+						})
+						.await
 					),
 				};
 				for parent in parents {

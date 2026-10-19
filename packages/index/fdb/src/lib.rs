@@ -20,6 +20,7 @@ mod key;
 mod node;
 mod object;
 mod organization;
+mod page;
 mod permission;
 mod process;
 mod reader;

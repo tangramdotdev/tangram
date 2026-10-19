@@ -84,7 +84,17 @@ impl Index {
 			}
 		};
 		let parents = crate::propagate!(
-			Self::get_object_parents_with_transaction(txn, subspace, object).await
+			crate::page::collect(|after| async move {
+				Self::get_object_parents_page_with_transaction(
+					txn,
+					subspace,
+					object,
+					after.as_deref(),
+					crate::page::PAGE_SIZE,
+				)
+				.await
+			})
+			.await
 		);
 		for parent in parents {
 			for account in crate::propagate!(
@@ -114,7 +124,7 @@ impl Index {
 					subspace,
 					object,
 					after.as_deref(),
-					crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+					crate::page::PAGE_SIZE,
 				)
 				.await
 			);
@@ -190,7 +200,17 @@ impl Index {
 			}
 		};
 		let parents = crate::propagate!(
-			Self::get_process_parents_with_transaction(txn, subspace, process).await
+			crate::page::collect(|after| async move {
+				Self::get_process_parents_page_with_transaction(
+					txn,
+					subspace,
+					process,
+					after.as_deref(),
+					crate::page::PAGE_SIZE,
+				)
+				.await
+			})
+			.await
 		);
 		for parent in parents {
 			for account in crate::propagate!(
@@ -268,32 +288,46 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
 	) -> tg::Result<ControlFlow<Vec<tangram_index::usage::Account>, fdb::FdbError>> {
-		let object_bytes = object.to_bytes();
+		crate::page::collect(|after| async move {
+			Self::get_object_accounts_page_with_transaction(
+				txn,
+				subspace,
+				object,
+				after.as_deref(),
+				crate::page::PAGE_SIZE,
+			)
+			.await
+		})
+		.await
+	}
+
+	async fn get_object_accounts_page_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &fdbt::Subspace,
+		object: &tg::object::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<crate::page::Page<tangram_index::usage::Account>, fdb::FdbError>> {
+		let bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
-			&(
-				crate::Kind::ObjectAccount.to_i32().unwrap(),
-				object_bytes.as_ref(),
-			),
+			&(crate::Kind::ObjectAccount.to_i32().unwrap(), bytes.as_ref()),
 		);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
-		};
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-		let accounts = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Usage(crate::usage::Key::ObjectAccount { account, .. }) = key else {
+		let (entries, cursor) = crate::propagate!(
+			Self::get_entry_page_with_transaction(txn, subspace, &prefix, after, limit).await
+		);
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let crate::Key::Usage(crate::usage::Key::ObjectAccount { account, .. }) = key
+				else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break(accounts))
+		Ok(ControlFlow::Break((items, cursor)))
 	}
 
 	async fn get_process_accounts_with_transaction(
@@ -301,32 +335,49 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Vec<tangram_index::usage::Account>, fdb::FdbError>> {
-		let process_bytes = process.to_bytes();
+		crate::page::collect(|after| async move {
+			Self::get_process_accounts_page_with_transaction(
+				txn,
+				subspace,
+				process,
+				after.as_deref(),
+				crate::page::PAGE_SIZE,
+			)
+			.await
+		})
+		.await
+	}
+
+	async fn get_process_accounts_page_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &fdbt::Subspace,
+		process: &tg::process::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<crate::page::Page<tangram_index::usage::Account>, fdb::FdbError>> {
+		let bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
 			&(
 				crate::Kind::ProcessAccount.to_i32().unwrap(),
-				process_bytes.as_ref(),
+				bytes.as_ref(),
 			),
 		);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
-		};
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-		let accounts = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Usage(crate::usage::Key::ProcessAccount { account, .. }) = key else {
+		let (entries, cursor) = crate::propagate!(
+			Self::get_entry_page_with_transaction(txn, subspace, &prefix, after, limit).await
+		);
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let crate::Key::Usage(crate::usage::Key::ProcessAccount { account, .. }) = key
+				else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break(accounts))
+		Ok(ControlFlow::Break((items, cursor)))
 	}
 
 	pub(crate) async fn put_account_object(

@@ -2,7 +2,6 @@ use {
 	crate::{Index, Key, Kind},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
-	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -52,27 +51,24 @@ impl Index {
 		Ok(ControlFlow::Break(object))
 	}
 
-	pub(crate) async fn get_object_children_with_transaction(
+	pub(crate) async fn get_object_children_page_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
-	) -> tg::Result<ControlFlow<Vec<tg::object::Id>, fdb::FdbError>> {
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<crate::page::Page<tg::object::Id>, fdb::FdbError>> {
 		let bytes = id.to_bytes();
-		let key = (Kind::ObjectChild.to_i32().unwrap(), bytes.as_ref());
-		let prefix = Self::pack(subspace, &key);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-
-		let children = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ObjectChild.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (entries, cursor) = crate::propagate!(
+			Self::get_entry_page_with_transaction(txn, subspace, &prefix, after, limit).await
+		);
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
 				let Key::Object(crate::object::Key::ObjectChild { child, .. }) = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -80,46 +76,27 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break(children))
+		Ok(ControlFlow::Break((items, cursor)))
 	}
 
-	pub(crate) async fn try_get_object_children_with_transaction(
+	pub(crate) async fn get_object_parents_page_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
-	) -> tg::Result<ControlFlow<Option<Vec<tg::object::Id>>, fdb::FdbError>> {
-		let Some(_) =
-			crate::propagate!(Self::try_get_object_with_transaction(txn, subspace, id).await)
-		else {
-			return Ok(ControlFlow::Break(None));
-		};
-		let children =
-			crate::propagate!(Self::get_object_children_with_transaction(txn, subspace, id).await);
-
-		Ok(ControlFlow::Break(Some(children)))
-	}
-
-	pub(crate) async fn get_object_parents_with_transaction(
-		txn: &crate::Transaction,
-		subspace: &Subspace,
-		id: &tg::object::Id,
-	) -> tg::Result<ControlFlow<Vec<tg::object::Id>, fdb::FdbError>> {
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<crate::page::Page<tg::object::Id>, fdb::FdbError>> {
 		let bytes = id.to_bytes();
-		let key = (Kind::ChildObject.to_i32().unwrap(), bytes.as_ref());
-		let prefix = Self::pack(subspace, &key);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-
-		let parents = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ChildObject.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (entries, cursor) = crate::propagate!(
+			Self::get_entry_page_with_transaction(txn, subspace, &prefix, after, limit).await
+		);
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
 				let Key::Object(crate::object::Key::ChildObject { object, .. }) = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -127,7 +104,7 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break(parents))
+		Ok(ControlFlow::Break((items, cursor)))
 	}
 
 	pub(crate) async fn get_object_processes_page_with_transaction(
@@ -138,43 +115,21 @@ impl Index {
 		limit: usize,
 	) -> tg::Result<
 		ControlFlow<
-			(
-				Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
-				Option<Vec<u8>>,
-			),
+			crate::page::Page<(tg::process::Id, tangram_index::process::object::Kind)>,
 			fdb::FdbError,
 		>,
 	> {
 		let bytes = id.to_bytes();
-		let key = (Kind::ObjectProcess.to_i32().unwrap(), bytes.as_ref());
-		let prefix = Self::pack(subspace, &key);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let mut range = fdb::RangeOption {
-			limit: Some(limit + 1),
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-		if let Some(after) = after {
-			let mut begin = after.to_vec();
-			begin.push(0);
-			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
-		}
-
-		let result = txn
-			.get_ranges_keyvalues(range, false)
-			.try_collect::<Vec<_>>()
-			.await;
-		let mut entries = crate::retry!(result);
-		let cursor = if entries.len() > limit {
-			entries.truncate(limit);
-			entries.last().map(|entry| entry.key().to_vec())
-		} else {
-			None
-		};
-		let processes = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ObjectProcess.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (entries, cursor) = crate::propagate!(
+			Self::get_entry_page_with_transaction(txn, subspace, &prefix, after, limit).await
+		);
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
 				let Key::Object(crate::object::Key::ObjectProcess { kind, process, .. }) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
@@ -183,6 +138,6 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break((processes, cursor)))
+		Ok(ControlFlow::Break((items, cursor)))
 	}
 }

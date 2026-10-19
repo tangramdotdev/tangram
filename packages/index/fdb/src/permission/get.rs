@@ -44,6 +44,29 @@ impl Index {
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<ControlFlow<Vec<crate::permission::PermissionEntry>, fdb::FdbError>> {
+		crate::page::collect(|after| async move {
+			Self::get_resource_permission_entries_for_subject_page_with_transaction(
+				txn,
+				subspace,
+				resource,
+				subject,
+				after.as_deref(),
+				crate::page::PAGE_SIZE,
+			)
+			.await
+		})
+		.await
+	}
+
+	pub(crate) async fn get_resource_permission_entries_for_subject_page_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<crate::page::Page<crate::permission::PermissionEntry>, fdb::FdbError>>
+	{
 		let bytes = resource.to_bytes();
 		let key = (
 			Kind::ResourcePermission.to_i32().unwrap(),
@@ -51,19 +74,12 @@ impl Index {
 			subject.to_string(),
 		);
 		let prefix = Self::pack(subspace, &key);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-
+		let (entries, cursor) = crate::propagate!(
+			Self::get_entry_page_with_transaction(txn, subspace, &prefix, after, limit).await
+		);
 		let entries = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
+			.into_iter()
+			.map(|(key, value)| {
 				let Key::Permission(crate::permission::Key::ResourcePermission {
 					creator,
 					permission,
@@ -73,7 +89,7 @@ impl Index {
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				let value = crate::permission::PermissionValue::deserialize(entry.value())?;
+				let value = crate::permission::PermissionValue::deserialize(&value)?;
 				Ok(crate::permission::PermissionEntry {
 					creator,
 					grant: value.grant,
@@ -85,7 +101,7 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break(entries))
+		Ok(ControlFlow::Break((entries, cursor)))
 	}
 
 	pub(crate) async fn try_get_visibility_with_transaction(

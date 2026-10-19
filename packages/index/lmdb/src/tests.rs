@@ -6,6 +6,7 @@ mod delegation;
 mod indexer;
 mod location;
 mod object;
+mod page;
 mod reader;
 mod storage;
 mod tag;

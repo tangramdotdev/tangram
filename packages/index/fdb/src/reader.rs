@@ -495,9 +495,27 @@ impl Index {
 				tangram_index::read::Response::TryGetIndexer(output)
 			},
 			tangram_index::read::Request::TryGetObjectChildren { id } => {
-				let result =
-					Self::try_get_object_children_with_transaction(transaction, subspace, id).await;
-				let output = crate::propagate!(result);
+				let object = crate::propagate!(
+					Self::try_get_object_with_transaction(transaction, subspace, id).await
+				);
+				let output = if object.is_some() {
+					let children = crate::propagate!(
+						crate::page::collect(|after| async move {
+							Self::get_object_children_page_with_transaction(
+								transaction,
+								subspace,
+								id,
+								after.as_deref(),
+								crate::page::PAGE_SIZE,
+							)
+							.await
+						})
+						.await
+					);
+					Some(children)
+				} else {
+					None
+				};
 				tangram_index::read::Response::TryGetObjectChildren(output)
 			},
 			tangram_index::read::Request::TryGetObjects { ids } => {

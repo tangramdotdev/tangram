@@ -2,6 +2,7 @@ use {
 	crate::{Index, Key, Kind},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
+	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -22,7 +23,10 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
 		};
-		let result = txn.get_range(&entry, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(entry, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let entries = crate::retry!(result);
 		let sandboxes = entries
 			.iter()

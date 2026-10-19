@@ -89,7 +89,16 @@ impl Index {
 					.or_insert(permissions);
 			}
 		};
-		let parents = Self::get_object_parents_with_transaction(db, subspace, transaction, object)?;
+		let parents = crate::page::collect(|after| {
+			Self::get_object_parents_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				object,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for parent in parents {
 			for account in
 				Self::get_object_accounts_with_transaction(db, subspace, transaction, &parent)?
@@ -116,7 +125,7 @@ impl Index {
 				transaction,
 				object,
 				after.as_deref(),
-				crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+				crate::page::PAGE_SIZE,
 			)?;
 			for (process, kind) in processes {
 				for account in Self::get_process_accounts_with_transaction(
@@ -194,8 +203,16 @@ impl Index {
 					.or_insert(permissions);
 			}
 		};
-		let parents =
-			Self::get_process_parents_with_transaction(db, subspace, transaction, process)?;
+		let parents = crate::page::collect(|after| {
+			Self::get_process_parents_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for parent in parents {
 			for account in
 				Self::get_process_accounts_with_transaction(db, subspace, transaction, &parent)?
@@ -254,10 +271,27 @@ impl Index {
 		if accounts.is_empty() {
 			return Ok(());
 		}
-		let children =
-			Self::get_process_children_with_transaction(db, subspace, transaction, process)?;
-		let objects =
-			Self::get_process_objects_with_transaction(db, subspace, transaction, process)?;
+		let children = crate::page::collect(|after| {
+			Self::get_process_children_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
+		let objects = crate::page::collect(|after| {
+			Self::get_process_objects_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				None,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for account in accounts {
 			let Some(entry) = Self::get_account_storage_entry_with_transaction(
 				db,
@@ -323,29 +357,51 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		object: &tg::object::Id,
 	) -> tg::Result<Vec<tangram_index::usage::Account>> {
-		let object_bytes = object.to_bytes();
+		crate::page::collect(|after| {
+			Self::get_object_accounts_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				object,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})
+	}
+
+	fn get_object_accounts_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		object: &tg::object::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tangram_index::usage::Account>> {
+		let bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
-			&(
-				crate::Kind::ObjectAccount.to_i32().unwrap(),
-				object_bytes.as_ref(),
-			),
+			&(crate::Kind::ObjectAccount.to_i32().unwrap(), bytes.as_ref()),
 		);
-		let accounts = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to iterate the object accounts"))?
-			.map(|entry| {
-				let (key, _) = entry
-					.map_err(|error| tg::error!(!error, "failed to read an object account"))?;
-				let key = Self::unpack(subspace, key)?;
-				let Key::Usage(crate::usage::Key::ObjectAccount { account, .. }) = key else {
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let crate::Key::Usage(crate::usage::Key::ObjectAccount { account, .. }) = key
+				else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(accounts)
+		Ok((items, cursor))
 	}
 
 	fn get_process_accounts_with_transaction(
@@ -354,29 +410,54 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		process: &tg::process::Id,
 	) -> tg::Result<Vec<tangram_index::usage::Account>> {
-		let process_bytes = process.to_bytes();
+		crate::page::collect(|after| {
+			Self::get_process_accounts_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				process,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})
+	}
+
+	fn get_process_accounts_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		process: &tg::process::Id,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<crate::page::Page<tangram_index::usage::Account>> {
+		let bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
 			&(
 				crate::Kind::ProcessAccount.to_i32().unwrap(),
-				process_bytes.as_ref(),
+				bytes.as_ref(),
 			),
 		);
-		let accounts = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to iterate the process accounts"))?
-			.map(|entry| {
-				let (key, _) = entry
-					.map_err(|error| tg::error!(!error, "failed to read a process account"))?;
-				let key = Self::unpack(subspace, key)?;
-				let Key::Usage(crate::usage::Key::ProcessAccount { account, .. }) = key else {
+		let (entries, cursor) = Self::get_entry_page_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&prefix,
+			after,
+			limit,
+		)?;
+		let items = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let crate::Key::Usage(crate::usage::Key::ProcessAccount { account, .. }) = key
+				else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(accounts)
+		Ok((items, cursor))
 	}
 
 	pub(crate) fn put_account_object(
@@ -662,7 +743,16 @@ impl Index {
 		let children = if inherited.is_empty() {
 			Vec::new()
 		} else {
-			Self::get_object_children_with_transaction(db, subspace, transaction, &arg.object)?
+			crate::page::collect(|after| {
+				Self::get_object_children_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg.object,
+					after,
+					crate::page::PAGE_SIZE,
+				)
+			})?
 		};
 		for child in children {
 			Self::enqueue_update_with_kind(
@@ -706,7 +796,16 @@ impl Index {
 		let children = if inherited.is_empty() {
 			Vec::new()
 		} else {
-			Self::get_process_children_with_transaction(db, subspace, transaction, &arg.process)?
+			crate::page::collect(|after| {
+				Self::get_process_children_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg.process,
+					after,
+					crate::page::PAGE_SIZE,
+				)
+			})?
 		};
 		for child in children {
 			Self::enqueue_update_with_kind(
@@ -723,8 +822,17 @@ impl Index {
 				Some(version),
 			)?;
 		}
-		let objects =
-			Self::get_process_objects_with_transaction(db, subspace, transaction, &arg.process)?;
+		let objects = crate::page::collect(|after| {
+			Self::get_process_objects_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&arg.process,
+				None,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		for (object, kind) in objects {
 			let permissions = tangram_index::usage::storage::object_permissions(permissions, kind);
 			if permissions.is_empty() {

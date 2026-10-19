@@ -422,7 +422,16 @@ impl Index {
 		};
 		let mut object = tangram_index::object::Object::deserialize(bytes)?;
 
-		let children = Self::get_object_children_with_transaction(db, subspace, transaction, id)?;
+		let children = crate::page::collect(|after| {
+			Self::get_object_children_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				id,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 
 		let child_objects: Vec<Option<tangram_index::object::Object>> = children
 			.iter()
@@ -545,8 +554,8 @@ impl Index {
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<bool> {
 		let resource = tg::Id::from(id.clone());
-		let children =
-			Self::try_get_object_children_with_transaction(db, subspace, transaction, id)?;
+		let indexed =
+			Self::try_get_object_with_transaction(db, subspace, transaction, id)?.is_some();
 		let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
 			db,
 			subspace,
@@ -614,17 +623,30 @@ impl Index {
 				.map(|(subject, _, expires_at)| (subject.clone(), *expires_at)),
 		);
 		// Derive subtree permissions only after the object children are indexed, reading the children only when there is a node proof.
-		let child_cover = match &children {
-			Some(children) if !nodes.is_empty() => Self::get_resources_covers_with_transaction(
+		let child_cover = if indexed && !nodes.is_empty() {
+			Self::get_resources_covers_with_transaction(
 				db,
 				subspace,
 				transaction,
-				children.iter().map(|child| tg::Id::from(child.clone())),
+				|after| {
+					let (children, cursor) = Self::get_object_children_page_with_transaction(
+						db,
+						subspace,
+						transaction,
+						id,
+						after,
+						crate::page::PAGE_SIZE,
+					)?;
+					let children = children.into_iter().map(tg::Id::from).collect();
+					Ok((children, cursor))
+				},
 				subject,
 				[subtree],
 			)?
-			.remove(&subtree),
-			_ => None,
+			.0
+			.remove(&subtree)
+		} else {
+			None
 		};
 		if let Some(child_cover) = child_cover {
 			for (subject, entry_expires_at) in nodes {
@@ -711,7 +733,16 @@ impl Index {
 		);
 		let mut anchored = direct;
 		if !anchored {
-			let parents = Self::get_object_parents_with_transaction(db, subspace, transaction, id)?;
+			let parents = crate::page::collect(|after| {
+				Self::get_object_parents_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					id,
+					after,
+					crate::page::PAGE_SIZE,
+				)
+			})?;
 			for parent in parents {
 				let resource = tg::Id::from(parent);
 				let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
@@ -1085,36 +1116,44 @@ impl Index {
 		if !aspects.is_empty()
 			&& let tg::authorization::Subject::Process(subject_process) = subject
 			&& (subject_process == id
-				|| Self::get_process_parents_with_transaction(db, subspace, transaction, id)?
-					.contains(subject_process))
-		{
-			aspects.clear();
-		}
-		let mut object_covers = BTreeMap::new();
-		if !aspects.is_empty() {
-			let objects =
-				Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
-			for (kind, permission) in aspects {
-				let objects = objects
-					.iter()
-					.filter(|(_, object_kind)| *object_kind == kind)
-					.map(|(object, _)| tg::Id::from(object.clone()))
-					.collect::<Vec<_>>();
-				if objects.is_empty() {
-					continue;
-				}
-				let cover = Self::get_resources_covers_with_transaction(
+				|| Self::is_related_with_transaction(
 					db,
 					subspace,
 					transaction,
-					objects,
-					subject,
-					[object_subtree],
-				)?
-				.remove(&object_subtree);
-				if let Some(cover) = cover {
-					object_covers.insert(permission, cover);
-				}
+					Relation::ProcessParents(id),
+					&subject_process.clone().into(),
+				)?) {
+			aspects.clear();
+		}
+
+		// Get the object covers of the object aspects, reading the objects of each kind only while every object read so far is covered.
+		let mut object_covers = BTreeMap::new();
+		for (kind, permission) in aspects {
+			let (mut covers, any) = Self::get_resources_covers_with_transaction(
+				db,
+				subspace,
+				transaction,
+				|after| {
+					let (objects, cursor) = Self::get_process_objects_page_with_transaction(
+						db,
+						subspace,
+						transaction,
+						id,
+						Some(kind),
+						after,
+						crate::page::PAGE_SIZE,
+					)?;
+					let objects = objects
+						.into_iter()
+						.map(|(object, _)| tg::Id::from(object))
+						.collect();
+					Ok((objects, cursor))
+				},
+				subject,
+				[object_subtree],
+			)?;
+			if any && let Some(cover) = covers.remove(&object_subtree) {
+				object_covers.insert(permission, cover);
 			}
 		}
 
@@ -1130,16 +1169,26 @@ impl Index {
 		let child_covers = if targets.is_empty() {
 			BTreeMap::new()
 		} else {
-			let children =
-				Self::get_process_children_with_transaction(db, subspace, transaction, id)?;
 			Self::get_resources_covers_with_transaction(
 				db,
 				subspace,
 				transaction,
-				children.into_iter().map(tg::Id::from),
+				|after| {
+					let (children, cursor) = Self::get_process_children_page_with_transaction(
+						db,
+						subspace,
+						transaction,
+						id,
+						after,
+						crate::page::PAGE_SIZE,
+					)?;
+					let children = children.into_iter().map(tg::Id::from).collect();
+					Ok((children, cursor))
+				},
 				subject,
 				targets,
 			)?
+			.0
 		};
 
 		// Update the materialized permissions.
@@ -1160,28 +1209,38 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		resources: impl IntoIterator<Item = tg::Id>,
+		mut get_page: impl FnMut(Option<&[u8]>) -> tg::Result<crate::page::Page<tg::Id>>,
 		subject: &tg::authorization::Subject,
 		permissions: impl IntoIterator<Item = tg::authorization::Permission>,
-	) -> tg::Result<BTreeMap<tg::authorization::Permission, Option<i64>>> {
+	) -> tg::Result<(BTreeMap<tg::authorization::Permission, Option<i64>>, bool)> {
 		let mut covers = permissions
 			.into_iter()
 			.map(|permission| (permission, None))
 			.collect::<BTreeMap<_, _>>();
-		for resource in resources {
-			if covers.is_empty() {
-				break;
+		let mut any = false;
+		let mut after = None;
+		while !covers.is_empty() {
+			let (resources, cursor) = get_page(after.as_deref())?;
+			for resource in resources {
+				if covers.is_empty() {
+					break;
+				}
+				any = true;
+				let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&resource,
+					subject,
+				)?;
+				Self::retain_permission_entries_covers(&mut covers, &entries, subject);
 			}
-			let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
-				db,
-				subspace,
-				transaction,
-				&resource,
-				subject,
-			)?;
-			Self::retain_permission_entries_covers(&mut covers, &entries, subject);
+			let Some(cursor) = cursor else {
+				break;
+			};
+			after = Some(cursor);
 		}
-		Ok(covers)
+		Ok((covers, any))
 	}
 
 	fn retain_permission_entries_covers(
@@ -1221,13 +1280,32 @@ impl Index {
 		};
 		let mut process = tangram_index::process::Process::deserialize(bytes)?;
 
-		let children = Self::get_process_children_with_transaction(db, subspace, transaction, id)?;
+		let children = crate::page::collect(|after| {
+			Self::get_process_children_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				id,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		let children = children
 			.iter()
 			.map(|child| Self::try_get_process_with_transaction(db, subspace, transaction, child))
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
+		let objects = crate::page::collect(|after| {
+			Self::get_process_objects_page_with_transaction(
+				db,
+				subspace,
+				transaction,
+				id,
+				None,
+				after,
+				crate::page::PAGE_SIZE,
+			)
+		})?;
 		let mut command_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
 		let mut error_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
 		let mut log_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
@@ -2228,9 +2306,16 @@ impl Index {
 						.map(tg::object::Id::try_from)
 						.collect::<tg::Result<Vec<_>>>()?
 					},
-					Kind::StorageAndMetadata | Kind::Usage(_) => {
-						Self::get_object_parents_with_transaction(db, subspace, transaction, id)?
-					},
+					Kind::StorageAndMetadata | Kind::Usage(_) => crate::page::collect(|after| {
+						Self::get_object_parents_page_with_transaction(
+							db,
+							subspace,
+							transaction,
+							id,
+							after,
+							crate::page::PAGE_SIZE,
+						)
+					})?,
 				};
 				for parent in parents {
 					Self::enqueue_update_with_kind(
@@ -2277,7 +2362,7 @@ impl Index {
 									transaction,
 									id,
 									after.as_deref(),
-									crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+									crate::page::PAGE_SIZE,
 								)?;
 							for (process, _) in processes {
 								Self::enqueue_update_with_kind(
@@ -2312,9 +2397,16 @@ impl Index {
 						.map(tg::process::Id::try_from)
 						.collect::<tg::Result<Vec<_>>>()?
 					},
-					Kind::StorageAndMetadata | Kind::Usage(_) => {
-						Self::get_process_parents_with_transaction(db, subspace, transaction, id)?
-					},
+					Kind::StorageAndMetadata | Kind::Usage(_) => crate::page::collect(|after| {
+						Self::get_process_parents_page_with_transaction(
+							db,
+							subspace,
+							transaction,
+							id,
+							after,
+							crate::page::PAGE_SIZE,
+						)
+					})?,
 				};
 				for parent in parents {
 					Self::enqueue_update_with_kind(
