@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/lsp.nu
 
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_backend: tsrs}}
+let local = server spawn
 let source = "/** Greet a friend. */\nexport function greet(name = \"\") {\n    return name;\n}\nexport function welcome() {\n    return greet(\"Ada\");\n}\ngre\n"
 for entry in [{extension: js, language: tangram-javascript}, {extension: ts, language: tangram-typescript}] {
     let extension = $entry.extension

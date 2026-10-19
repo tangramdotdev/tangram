@@ -20,10 +20,6 @@ use {
 
 #[cfg(feature = "tsrs")]
 mod tsrs;
-#[cfg(feature = "typescript6")]
-mod typescript6;
-#[cfg(feature = "typescript7")]
-mod typescript7;
 #[cfg(feature = "javascript")]
 mod util;
 
@@ -76,8 +72,6 @@ pub struct Owned {
 pub struct Compiler(Arc<State>);
 
 pub struct State {
-	check_backend: CheckBackend,
-
 	/// The documents, keyed by source identity.
 	documents: DashMap<document::Key, Document, fnv::FnvBuildHasher>,
 
@@ -88,7 +82,7 @@ pub struct State {
 	library_path: PathBuf,
 
 	/// A handle to the main tokio runtime.
-	#[cfg(any(feature = "tsrs", feature = "ty", feature = "typescript6"))]
+	#[cfg(any(feature = "tsrs", feature = "ty"))]
 	main_runtime_handle: tokio::runtime::Handle,
 
 	/// The position encoding negotiated with the LSP client.
@@ -113,55 +107,15 @@ pub struct State {
 	/// The store path.
 	store_path: PathBuf,
 
-	/// The embedded native TypeScript service.
+	/// The TypeScript service.
 	#[cfg(feature = "tsrs")]
 	tsrs: tsrs::Service,
-
-	/// The typescript service.
-	#[cfg(feature = "typescript6")]
-	typescript6: typescript6::Service,
-
-	#[cfg(feature = "typescript7")]
-	typescript7: typescript7::Service,
-
-	typescript_backend: TypescriptBackend,
 
 	/// The version.
 	version: String,
 
 	/// The workspaces.
 	workspaces: tokio::sync::RwLock<BTreeSet<PathBuf>>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Options {
-	#[serde(default)]
-	pub check_backend: CheckBackend,
-	#[serde(default)]
-	pub typescript_backend: TypescriptBackend,
-	#[serde(default = "default_typescript_executable")]
-	pub typescript_executable: PathBuf,
-}
-
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CheckBackend {
-	#[default]
-	Tsrs,
-
-	Typescript6,
-
-	Typescript7,
-}
-
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TypescriptBackend {
-	#[default]
-	Tsrs,
-
-	Typescript6,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -278,34 +232,27 @@ impl Compiler {
 		library_path: PathBuf,
 		main_runtime_handle: tokio::runtime::Handle,
 		version: String,
-		options: Options,
 	) -> Shared {
-		#[cfg(not(any(feature = "tsrs", feature = "ty", feature = "typescript6")))]
+		#[cfg(not(any(feature = "tsrs", feature = "ty")))]
 		let _ = main_runtime_handle;
 		let documents = DashMap::default();
 		let requests = DashMap::new();
 		let request_id = AtomicI32::new(1);
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = Mutex::new(None);
-		#[cfg(feature = "typescript6")]
-		let typescript6 = typescript6::Service::new();
 		#[cfg(feature = "tsrs")]
 		let tsrs = tsrs::Service::new();
-		#[cfg(feature = "typescript7")]
-		let typescript7 = typescript7::Service::new(options.typescript_executable);
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
-			check_backend: options.check_backend,
-
 			documents,
 
 			instance,
 
 			library_path,
 
-			#[cfg(any(feature = "tsrs", feature = "ty", feature = "typescript6"))]
+			#[cfg(any(feature = "tsrs", feature = "ty"))]
 			main_runtime_handle,
 
 			position_encoding: RwLock::new(tg::position::Encoding::Utf8),
@@ -325,14 +272,6 @@ impl Compiler {
 
 			#[cfg(feature = "tsrs")]
 			tsrs,
-
-			#[cfg(feature = "typescript6")]
-			typescript6,
-
-			#[cfg(feature = "typescript7")]
-			typescript7,
-
-			typescript_backend: options.typescript_backend,
 
 			version,
 
@@ -358,15 +297,6 @@ impl Compiler {
 				{
 					compiler.tsrs.stop();
 					compiler.tsrs.join().await;
-				}
-				#[cfg(feature = "typescript7")]
-				compiler.typescript7.stop().await;
-
-				// Stop and await the typescript service.
-				#[cfg(feature = "typescript6")]
-				{
-					compiler.typescript6.stop();
-					compiler.typescript6.join().await;
 				}
 			}
 		};
@@ -992,50 +922,13 @@ impl Compiler {
 			return self.request_python(request).await;
 		}
 
-		let backend = if matches!(request, Request::Check(_)) {
-			self.check_backend
-		} else {
-			match self.typescript_backend {
-				TypescriptBackend::Tsrs => CheckBackend::Tsrs,
-				TypescriptBackend::Typescript6 => CheckBackend::Typescript6,
-			}
-		};
-		match backend {
-			CheckBackend::Tsrs => {
-				#[cfg(feature = "tsrs")]
-				{
-					self.tsrs.request(self, request).await
-				}
-				#[cfg(not(feature = "tsrs"))]
-				{
-					Err(tg::error!("the tsrs feature is not enabled"))
-				}
-			},
-			CheckBackend::Typescript6 => {
-				#[cfg(feature = "typescript6")]
-				{
-					self.typescript6.request(self, request).await
-				}
-				#[cfg(not(feature = "typescript6"))]
-				{
-					Err(tg::error!("the typescript6 feature is not enabled"))
-				}
-			},
-			CheckBackend::Typescript7 => {
-				#[cfg(feature = "typescript7")]
-				{
-					let Request::Check(request) = request else {
-						return Err(tg::error!("the typescript7 backend only supports checking"));
-					};
-					let response = self.typescript7.check(self, request).await?;
-
-					Ok(Response::Check(response))
-				}
-				#[cfg(not(feature = "typescript7"))]
-				{
-					Err(tg::error!("the typescript7 feature is not enabled"))
-				}
-			},
+		#[cfg(feature = "tsrs")]
+		{
+			self.tsrs.request(self, request).await
+		}
+		#[cfg(not(feature = "tsrs"))]
+		{
+			Err(tg::error!("the tsrs feature is not enabled"))
 		}
 	}
 
@@ -1565,21 +1458,5 @@ impl Drop for Owned {
 		self.compiler.tsrs.stop();
 		#[cfg(feature = "ty")]
 		self.compiler.python.stop();
-		#[cfg(feature = "typescript6")]
-		self.compiler.typescript6.stop();
 	}
-}
-
-impl Default for Options {
-	fn default() -> Self {
-		Self {
-			check_backend: CheckBackend::default(),
-			typescript_backend: TypescriptBackend::default(),
-			typescript_executable: default_typescript_executable(),
-		}
-	}
-}
-
-fn default_typescript_executable() -> PathBuf {
-	"tsc".into()
 }

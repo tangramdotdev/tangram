@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/lsp.nu
 
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_backend: tsrs}}
+let local = server spawn
 let dependency = artifact {
     tangram.ts: 'export default 0;'
     number.tg.ts: 'export const value = 42;'

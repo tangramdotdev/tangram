@@ -2,7 +2,7 @@ use ../lib/test.nu *
 use ../lib/lsp.nu
 
 $env.TSRS_REGION_LOG = '1'
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_backend: tsrs}}
+let local = server spawn
 let source = 'import { value } from "./helper.tg.ts"; export const answer: number = value; answer;'
 let character = ($source | str index-of --end answer) + 1
 let path = artifact {'main.tg.ts': $source, 'helper.tg.ts': 'export const value = 42;'}

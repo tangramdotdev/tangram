@@ -38,7 +38,6 @@ def main [
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 2min # The timeout for each test.
 	--turso # Use Turso for the server database.
-	--typescript-backend: string # Set the default TypeScript checker and editor backend for test servers.
 	--vfs # Run every test against the VFS: FSKit on macOS and FUSE on Linux. On macOS, this requires the app and its file system extension to be installed and enabled.
 	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
@@ -63,9 +62,6 @@ def main [
 	}
 	if $timeout <= 0sec {
 		error make { msg: '--timeout must be greater than zero' }
-	}
-	if $typescript_backend != null and $typescript_backend not-in [typescript6 tsrs] {
-		error make { msg: '--typescript-backend must be typescript6 or tsrs' }
 	}
 
 	# Validate the --vm/--kernel-path flag combination.
@@ -294,7 +290,6 @@ def main [
 		stress: $stress,
 		timeout: $timeout,
 		turso: $turso,
-		typescript_backend: ($typescript_backend | default ''),
 		vfs: $vfs,
 		vm: $vm,
 	}
@@ -1272,7 +1267,6 @@ def run_test [test: record, options: record] {
 		TANGRAM_TEST_OFFLINE: (if $options.offline { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $options.quickjs { "1" } else { "" }),
 		TANGRAM_TEST_TURSO: (if $options.turso { "1" } else { "" }),
-		TANGRAM_TEST_TYPESCRIPT_BACKEND: $options.typescript_backend,
 		TANGRAM_TEST_VFS: (if $options.vfs { "1" } else { "" }),
 		TANGRAM_TEST_VM: (if $options.vm { "1" } else { "" }),
 		TMPDIR: $temp_path,

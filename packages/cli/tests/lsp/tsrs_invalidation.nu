@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/lsp.nu
 
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_backend: tsrs}}
+let local = server spawn
 let source = "import { value } from './helper.tg.ts';\nexport const expected: number = value;\n"
 let path = artifact {'main.tg.ts': $source, 'helper.tg.ts': 'export const value = 1;'}
 let uri = lsp uri ($path | path join main.tg.ts)

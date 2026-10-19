@@ -583,16 +583,6 @@ export def --env "server spawn" [
 		v8_thread_pool_size: 1,
 	}
 
-	let typescript_backend = $env.TANGRAM_TEST_TYPESCRIPT_BACKEND? | default ''
-	if $typescript_backend != '' {
-		$default_config = $default_config | merge deep {
-			compiler: {
-				check_backend: $typescript_backend,
-				typescript_backend: $typescript_backend,
-			},
-		}
-	}
-
 	let use_quickjs = $quickjs or (($env.TANGRAM_TEST_QUICKJS? | default "") | str length) > 0
 	if $use_quickjs {
 		$default_config = $default_config | merge deep {

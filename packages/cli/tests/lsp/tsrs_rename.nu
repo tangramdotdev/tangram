@@ -2,7 +2,7 @@ use ../lib/test.nu *
 use ../lib/lsp.nu
 
 let source = "const value = 1; const object = {value}; object.value;\nconst record = {\"123\": 1}; record[\"123\"];\n"
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_backend: tsrs}}
+let local = server spawn
 let path = artifact {'main.tg.ts': $source}
 let uri = lsp uri ($path | path join main.tg.ts)
 let responses = lsp exchange [

@@ -36,15 +36,14 @@ export type Arg = cargo.Arg & {
 
 export const check = async () => {
 	await tg.run`cargo clippy --all-features --all-targets --workspace`;
-	await tg.run`cd packages/clients/javascript && bunx tsgo && bunx oxlint src`;
-	await tg.run`cd packages/javascript && bunx tsgo && bunx oxlint ./src/main.ts`;
-	await tg.run`cd packages/typescript && bunx tsgo && bunx oxlint src`;
-	await tg.run`cd packages/vscode && bunx tsgo && bunx oxlint extension.ts`;
+	await tg.run`cd packages/clients/javascript && bunx tsc && bunx oxlint src`;
+	await tg.run`cd packages/javascript && bunx tsc && bunx oxlint ./src/main.ts`;
+	await tg.run`cd packages/vscode && bunx tsc && bunx oxlint extension.ts`;
 };
 
 export const format = async () => {
 	await tg.run`cargo fmt --all`;
-	await tg.run`bunx oxfmt --write packages/clients/javascript/src packages/javascript/src/tangram.d.ts packages/javascript/src/main.ts packages/typescript/src packages/vscode/extension.ts`;
+	await tg.run`bunx oxfmt --write packages/clients/javascript/src packages/javascript/src/tangram.d.ts packages/javascript/src/main.ts packages/vscode/extension.ts`;
 };
 
 export const run = async (...args: tg.Args<Arg>) => {
@@ -319,9 +318,6 @@ const nodeModules = async (hostArg?: string) => {
 	const bunLock = source.get("bun.lock").then(tg.File.expect);
 	const clientsJavaScript = source.get("packages/clients/javascript").then(tg.Directory.expect);
 	const javascript = source.get("packages/javascript").then(tg.Directory.expect);
-	const typescript = source
-		.get("packages/typescript")
-		.then(tg.Directory.expect);
 	const vscode = source.get("packages/vscode").then(tg.Directory.expect);
 
 	const workspaceSource = tg.directory({
@@ -332,7 +328,6 @@ const nodeModules = async (hostArg?: string) => {
 				javascript: clientsJavaScript,
 			},
 			javascript,
-			typescript,
 			vscode,
 		},
 	});

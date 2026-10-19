@@ -1,11 +1,6 @@
 use ../lib/test.nu *
 
-let local = server spawn --config {
-	compiler: {
-		check_backend: tsrs
-		typescript_executable: /__missing_typescript7__/tsc
-	}
-}
+let local = server spawn
 
 let path = artifact {
 	value.tg.ts: 'export const value = 42;'

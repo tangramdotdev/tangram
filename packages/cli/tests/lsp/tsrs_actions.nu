@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/lsp.nu
 
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_backend: tsrs}}
+let local = server spawn
 let source = "import { unused, value } from './helper.tg.ts';\nexport { value };\n"
 let missing = "interface Shape { value: number; }\nexport class Box implements Shape {}\n"
 let path = artifact {

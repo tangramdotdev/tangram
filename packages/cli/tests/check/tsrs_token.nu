@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A process may check a module from its sandbox.
 
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_executable: /__missing_tsrs_test__/tsc}}
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

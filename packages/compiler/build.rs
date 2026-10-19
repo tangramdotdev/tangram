@@ -8,9 +8,6 @@ fn main() {
 	self::library::build();
 	#[cfg(feature = "ty")]
 	self::python::build();
-
-	#[cfg(feature = "typescript6")]
-	self::typescript::build();
 }
 
 #[cfg(feature = "javascript")]
@@ -114,14 +111,19 @@ mod library {
 			Ok(path) => PathBuf::from(path),
 			Err(_) => PathBuf::from("../../node_modules"),
 		};
-		// The typescript package aliases @typescript/typescript6, whose sibling old package bun's two linkers place differently.
-		let typescript_lib_path = [
-			node_modules_path.join("typescript/../old/lib"),
-			node_modules_path.join("@typescript/old/lib"),
-		]
-		.into_iter()
-		.find(|path| path.exists())
-		.expect("failed to find the typescript libraries");
+		// The libraries are in the typescript package's platform-specific sibling package, which bun's isolated and hoisted linkers place differently.
+		let typescript_path = std::fs::canonicalize(node_modules_path.join("typescript"))
+			.expect("failed to find the typescript package");
+		let patterns = [
+			typescript_path.join("../@typescript/typescript-*/lib/lib.es5.d.ts"),
+			node_modules_path.join("@typescript/typescript-*/lib/lib.es5.d.ts"),
+		];
+		let typescript_lib_path = patterns
+			.iter()
+			.flat_map(|pattern| glob::glob(&pattern.to_string_lossy()).unwrap())
+			.find_map(Result::ok)
+			.and_then(|path| path.parent().map(Path::to_owned))
+			.expect("failed to find the typescript libraries");
 		let paths =
 			glob::glob(&typescript_lib_path.join("lib.es*.d.ts").to_string_lossy()).unwrap();
 		for path in paths {
@@ -142,203 +144,6 @@ mod library {
 	fn copy(from: &Path, to: &Path) {
 		std::fs::remove_file(to).ok();
 		std::fs::copy(from, to).unwrap();
-	}
-}
-
-#[cfg(feature = "typescript6")]
-mod typescript {
-	use {
-		indoc::formatdoc,
-		std::path::{Path, PathBuf},
-	};
-
-	pub fn build() {
-		// Get the out dir path.
-		let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-		let manifest_directory_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-		let typescript_path =
-			std::fs::canonicalize(manifest_directory_path.join("../../packages/typescript"))
-				.unwrap();
-
-		// Install dependencies.
-		println!("cargo:rerun-if-env-changed=NODE_PATH");
-		if std::env::var("NODE_PATH").ok().is_none() {
-			println!("cargo:rerun-if-changed=../../bun.lock");
-
-			// Acquire an exclusive lock on the node_modules.lock file to ensure only one build script runs bun install at a time.
-			let lock_path = Path::new("../../node_modules.lock");
-			let lock_file = std::fs::File::create(lock_path).unwrap();
-			let lock_file = scopeguard::guard(lock_file, |_| {
-				std::fs::remove_file(lock_path).ok();
-			});
-			lock_file.lock().unwrap();
-
-			std::process::Command::new("bun")
-				.args(["install", "--frozen-lockfile"])
-				.status()
-				.unwrap()
-				.success()
-				.then_some(())
-				.unwrap();
-		}
-
-		// Check the compiler.
-		println!("cargo:rerun-if-changed=../../packages/typescript/package.json");
-		println!("cargo:rerun-if-changed=../../packages/typescript/src");
-		println!("cargo:rerun-if-changed=../../packages/typescript/tsconfig.json");
-		if let Ok(node_path) = std::env::var("NODE_PATH") {
-			std::fs::write(
-				out_dir_path.join("tsconfig.json"),
-				formatdoc!(
-					r#"
-						{{
-							"extends": "{typescript_path}/tsconfig.json",
-							"compilerOptions": {{
-								"paths": {{
-									"*": ["{node_path}/*"]
-								}}
-							}},
-							"include": ["{typescript_path}/src/**/*"]
-						}}
-					"#,
-					typescript_path = typescript_path.display(),
-				),
-			)
-			.unwrap();
-			std::process::Command::new("bunx")
-				.args(["tsc", "--project", out_dir_path.to_str().unwrap()])
-				.status()
-				.unwrap()
-				.success()
-				.then_some(())
-				.unwrap();
-		} else {
-			std::process::Command::new("bun")
-				.args(["run", "check"])
-				.current_dir(&typescript_path)
-				.status()
-				.unwrap()
-				.success()
-				.then_some(())
-				.unwrap();
-		}
-
-		// Build the compiler.
-		if std::env::var("NODE_PATH").is_ok() {
-			// The typescript package's build script writes into the package directory, which is read only under NODE_PATH.
-			let outfile = format!("--outfile={}", out_dir_path.join("main.js").display());
-			std::process::Command::new("bunx")
-				.args([
-					"esbuild",
-					"--bundle",
-					"--minify",
-					&outfile,
-					"--sourcemap=external",
-				])
-				.arg(typescript_path.join("src/main.ts"))
-				.status()
-				.unwrap()
-				.success()
-				.then_some(())
-				.unwrap();
-		} else {
-			std::process::Command::new("bun")
-				.args(["run", "build"])
-				.current_dir(&typescript_path)
-				.status()
-				.unwrap()
-				.success()
-				.then_some(())
-				.unwrap();
-
-			// Copy the compiler.
-			std::fs::copy(
-				typescript_path.join("dist/main.js"),
-				out_dir_path.join("main.js"),
-			)
-			.unwrap();
-			std::fs::copy(
-				typescript_path.join("dist/main.js.map"),
-				out_dir_path.join("main.js.map"),
-			)
-			.unwrap();
-		}
-		fixup_source_map(out_dir_path.join("main.js.map"));
-
-		// Initialize V8.
-		let platform = v8::new_default_platform(0, false).make_shared();
-		v8::V8::initialize_platform(platform);
-		v8::V8::set_flags_from_string("--no-extensible_ro_snapshot");
-		v8::V8::initialize();
-
-		// Create the isolate.
-		let mut isolate = v8::Isolate::snapshot_creator(None, None);
-
-		{
-			// Create a context.
-			v8::scope!(scope, &mut isolate);
-			let context = v8::Context::new(scope, v8::ContextOptions::default());
-			let scope = &mut v8::ContextScope::new(scope, context);
-
-			// Compile the script.
-			let path = out_dir_path.join("main.js");
-			let script_text = std::fs::read_to_string(path).unwrap();
-			let script_str = v8::String::new(scope, &script_text).unwrap();
-			let resource_name = v8::Integer::new(scope, 0).into();
-			let resource_line_offset = 0;
-			let resource_column_offset = 0;
-			let resource_is_shared_cross_origin = false;
-			let script_id = 0;
-			let source_map_url = None;
-			let resource_is_opaque = true;
-			let is_wasm = false;
-			let is_module = false;
-			let host_defined_options = None;
-			let origin = v8::ScriptOrigin::new(
-				scope,
-				resource_name,
-				resource_line_offset,
-				resource_column_offset,
-				resource_is_shared_cross_origin,
-				script_id,
-				source_map_url,
-				resource_is_opaque,
-				is_wasm,
-				is_module,
-				host_defined_options,
-			);
-			let script = v8::Script::compile(scope, script_str, Some(&origin)).unwrap();
-
-			// Run the script.
-			script.run(scope).unwrap();
-
-			// Set the default context for the snapshot.
-			scope.set_default_context(context);
-		}
-
-		// Create the snapshot.
-		let snapshot = isolate.create_blob(v8::FunctionCodeHandling::Keep).unwrap();
-
-		// Write the snapshot.
-		let path = out_dir_path.join("main.heapsnapshot");
-		std::fs::write(path, &*snapshot).unwrap();
-	}
-
-	fn fixup_source_map(path: impl AsRef<Path>) {
-		let bytes = std::fs::read(&path).unwrap();
-		let mut json = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
-		let sources = json.get_mut("sources").unwrap().as_array_mut().unwrap();
-		for source in sources.iter_mut() {
-			let serde_json::Value::String(source) = source else {
-				panic!();
-			};
-			let prefix = "../";
-			while source.strip_prefix(prefix).is_some() {
-				source.drain(..prefix.len()).for_each(drop);
-			}
-		}
-		let bytes = serde_json::to_vec(&json).unwrap();
-		std::fs::write(&path, bytes).unwrap();
 	}
 }
 

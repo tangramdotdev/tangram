@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/lsp.nu
 
-let local = server spawn --config {compiler: {check_backend: tsrs, typescript_backend: tsrs}}
+let local = server spawn
 let source = "export function greet(name: string): string {\n    return name;\n}\ngreet(\"Ada\");\n"
 let consumer = "import { greet } from './library.tg.ts';\n\ngreet(\"Grace\");\n"
 let path = artifact {'main.tg.ts': $consumer, 'library.tg.ts': $source}
