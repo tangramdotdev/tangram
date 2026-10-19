@@ -1916,9 +1916,9 @@ impl Index {
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let mut expected = BTreeSet::new();
 
-		// Derive the node object aspect permissions from the object covers.
+		// Derive the node object aspect permissions from the object covers, unless a non-materialized permission implies them.
 		for (permission, expires_at) in input.object_covers {
-			if !Self::has_non_materialized_cover(
+			if !Self::has_implying_non_materialized_cover(
 				input.entries,
 				input.subject,
 				*permission,
@@ -2009,10 +2009,26 @@ impl Index {
 		let anchored = entries
 			.iter()
 			.any(|entry| entry.grant || entry.direct.is_some());
-		let aspects = process_object_aspect_permissions(&process.set)
-			.into_iter()
-			.filter(|_| anchored)
-			.collect::<Vec<_>>();
+		let mut aspects = if anchored {
+			process_object_aspect_permissions(&process.set)
+		} else {
+			Vec::new()
+		};
+
+		// Skip the object aspects for a subject that has them inherently, as the process itself or one of its parents.
+		if !aspects.is_empty()
+			&& let tg::authorization::Subject::Process(subject_process) = subject
+		{
+			let inherent = subject_process == id || {
+				let parents = crate::propagate!(
+					Self::get_process_parents_with_transaction(txn, subspace, id).await
+				);
+				parents.contains(subject_process)
+			};
+			if inherent {
+				aspects.clear();
+			}
+		}
 		let mut object_covers = BTreeMap::new();
 		if !aspects.is_empty() {
 			let objects = crate::propagate!(
@@ -2140,6 +2156,19 @@ impl Index {
 		entries.iter().any(|entry| {
 			entry.subject == *subject
 				&& entry.permission == permission
+				&& entry.has_non_materialized_cover(expires_at)
+		})
+	}
+
+	fn has_implying_non_materialized_cover(
+		entries: &[crate::permission::PermissionEntry],
+		subject: &tg::authorization::Subject,
+		permission: tg::authorization::Permission,
+		expires_at: Option<i64>,
+	) -> bool {
+		entries.iter().any(|entry| {
+			entry.subject == *subject
+				&& entry.permission.implies(permission)
 				&& entry.has_non_materialized_cover(expires_at)
 		})
 	}

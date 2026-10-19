@@ -400,12 +400,12 @@ async fn shared_log_objects_do_not_materialize_permissions_on_unrelated_processe
 		processes.push(process);
 	}
 
-	// Verify that each process materializes only its own log permission.
+	// Verify that no process materializes a log permission on itself, whose permissions it has inherently, or on an unrelated process.
 	for resource in &processes {
 		for subject in &processes {
 			let entries = process_permission_entries(&index, resource, subject);
 			if resource == subject {
-				assert!(has_materialized_node_log_objects(&entries));
+				assert!(!has_materialized_node_log_objects(&entries));
 			} else {
 				assert_eq!(entries, Vec::new());
 			}
@@ -437,7 +437,7 @@ async fn shared_log_objects_do_not_materialize_permissions_on_unrelated_processe
 }
 
 #[tokio::test]
-async fn shared_log_objects_materialize_permissions_for_a_parent_with_a_permission() {
+async fn shared_log_objects_do_not_materialize_implied_permissions_for_a_parent() {
 	let (_dir, index) = super::new_index();
 	let log = object_id(0);
 	put_log_object(&index, &log).await;
@@ -476,9 +476,67 @@ async fn shared_log_objects_materialize_permissions_for_a_parent_with_a_permissi
 		.unwrap();
 	drain_permission_updates(&index).await;
 
-	// Verify that the parent materializes the child's log permission.
+	// Verify that the parent does not materialize the child's log permission, which its parent permission implies.
 	let entries = process_permission_entries(&index, &child, &parent);
-	assert!(has_materialized_node_log_objects(&entries));
+	assert!(!has_materialized_node_log_objects(&entries));
+
+	// Verify that the parent is still authorized to read the child's log.
+	let permissions = tg::authorization::permission::Set::from(node_log_objects());
+	let arg = tangram_index::verify::Arg {
+		requested: permissions,
+		required: permissions,
+		resource: tg::Selector::Id(child.clone().into()),
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
+		tokens: Vec::new(),
+	};
+	let principal = tg::Principal::Process(parent.clone());
+	let output = index
+		.verify_batch(&[arg], tangram_index::verify::Config::default(), &principal)
+		.await
+		.unwrap();
+	assert!(output[0].permissions.contains(permissions));
+}
+
+#[tokio::test]
+async fn object_aspect_permissions_are_not_materialized_for_a_subject_with_a_parent_permission() {
+	let (_dir, index) = super::new_index();
+	let log = object_id(0);
+	put_log_object(&index, &log).await;
+
+	// Add a process on which a user has a parent permission, and give the user a subtree permission on the log object.
+	let process = tg::process::Id::new();
+	let subject = tg::authorization::Subject::User(tg::user::Id::new());
+	let mut items = put_process_with_log_items(&process, &log, None);
+	items.truncate(1);
+	let parent = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: Some(subject.try_to_principal().unwrap()),
+		permissions: tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		)
+		.into(),
+		resource: process.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(i64::MAX),
+		},
+		subject: subject.clone(),
+		time_to_touch: None,
+		version: None,
+	};
+	items.push(tangram_index::batch::Item::PutPermission(parent));
+	let permission = subtree_permission_arg(&log, &subject);
+	items.push(tangram_index::batch::Item::PutPermission(permission));
+	index
+		.batch(tangram_index::batch::Arg { items })
+		.await
+		.unwrap()
+		.unwrap();
+	drain_permission_updates(&index).await;
+
+	// Verify that the user does not materialize the log permission, which the parent permission implies.
+	let entries = object_permission_entries_for_resource(&index, &process.clone().into(), &subject);
+	assert!(!has_materialized_node_log_objects(&entries));
 }
 
 #[tokio::test]
