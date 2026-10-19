@@ -22,6 +22,8 @@ Do not write Rust tests that create or start Tangram servers. Cover behavior tha
 
 To run all tests, run `bun run test`. The most important tests are the CLI tests in `packages/cli/tests`. You can run the CLI tests with `nu packages/cli/test.nu`; pass `--no-cloud` when the cloud databases are not running. Provide a regex pattern as an arg for the tests in the tests directory. For example, `nu packages/cli/test.nu build` will run all the build tests. To accept new and updated snapshots, run the tests with `--accept`.
 
+Run `bun run test:fdb` to run the FoundationDB index tests against a temporary FoundationDB server. It requires `fdbserver` and `fdbcli`, and passes extra arguments to the test binary as a test name filter.
+
 ## macOS
 
 The macOS app uses XcodeGen. Commit changes to `packages/macos/project.yml`, and do not commit the generated Xcode project or build directory.
