@@ -234,6 +234,7 @@ impl Server {
 		if arg.is_empty() {
 			return Ok(());
 		}
+		arg.validate()?;
 		if !self.config.advanced.single_process {
 			let config = &self.config.object.index_queue;
 			let bytes: bytes::Bytes = arg.serialize()?.into();

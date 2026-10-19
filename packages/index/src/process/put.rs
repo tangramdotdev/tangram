@@ -79,6 +79,29 @@ pub struct Arg {
 }
 
 impl Arg {
+	/// The largest process record the index can store as a single value.
+	pub const MAX_RECORD_SIZE: usize = 100_000;
+
+	/// The size of the record this put would store, excluding the children, which are stored one per key.
+	pub fn record_size(&self) -> tg::Result<usize> {
+		let mut data = self.data.clone();
+		if let Some(data) = &mut data {
+			data.children = None;
+		}
+		let process = super::Process {
+			command_id: self.command_id.clone(),
+			data,
+			location: self.location.clone(),
+			metadata: self.metadata.clone(),
+			reference_count: 0,
+			sandbox: self.sandbox.clone(),
+			set: self.set(),
+			storage: self.storage,
+			touched_at: self.touched_at,
+		};
+		Ok(process.serialize()?.len())
+	}
+
 	pub fn validate(&self) -> tg::Result<()> {
 		if self.principal != tg::Principal::Process(self.id.clone())
 			&& self
@@ -87,6 +110,15 @@ impl Arg {
 				.is_some_and(|data| !data.status.is_finished())
 		{
 			return Err(tg::error!("expected a finished process"));
+		}
+		let size = self.record_size()?;
+		if size > Self::MAX_RECORD_SIZE {
+			return Err(tg::error!(
+				id = %self.id,
+				size = %size,
+				max = %Self::MAX_RECORD_SIZE,
+				"the process record is too large to index"
+			));
 		}
 		let Some(children) = &self.children else {
 			return Ok(());

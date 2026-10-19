@@ -221,15 +221,16 @@ impl Entry {
 		self.authorization = resources.into_values().flatten().collect();
 
 		// Keep authorization tokens for syncs so readers can wait for objects that are still being transferred.
+		// Once the resource is proven directly, proofs for other resources are redundant for it.
 		if let Some(resource) = resource
 			&& self
 				.authorization
 				.iter()
-				.any(|token| token.authorizes_object_subtree(resource))
+				.any(|token| token.body.resource == *resource)
 		{
 			self.authorization.retain(|token| {
 				token.body.resource.kind() == tg::id::Kind::Sync
-					|| token.authorizes_object_subtree(resource)
+					|| token.body.resource == *resource
 			});
 		}
 		self.authorization.sort_by_cached_key(ToString::to_string);

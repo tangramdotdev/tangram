@@ -100,6 +100,16 @@ impl Arg {
 	pub fn is_empty(&self) -> bool {
 		self.items.is_empty()
 	}
+
+	/// Reject items the index could never store, before they are queued.
+	pub fn validate(&self) -> tg::Result<()> {
+		for item in &self.items {
+			if let Item::PutProcess(arg) = item {
+				arg.validate()?;
+			}
+		}
+		Ok(())
+	}
 }
 
 #[cfg(test)]

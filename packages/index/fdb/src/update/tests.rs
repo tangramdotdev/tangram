@@ -7,6 +7,7 @@ use {
 };
 
 mod clean;
+mod record_size;
 mod storage;
 
 #[tokio::test]

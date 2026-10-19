@@ -976,6 +976,13 @@ impl Index {
 					Err(error) => Self::fail_tracker(&tracker, &error),
 				}
 			},
+			// The database will never accept these requests, so reject them instead of retrying them.
+			Err(TransactionError::FoundationDb(error)) if Self::is_permanent_error(error) => {
+				let error = tg::error!(!error, "failed to execute a batch");
+				for tracker in &batch.trackers {
+					Self::complete_tracker(tracker, Ok(Response::Mutation(Err(error.clone()))));
+				}
+			},
 			Err(error) => {
 				let error = match error {
 					TransactionError::FoundationDb(error) => {
@@ -1052,6 +1059,13 @@ impl Index {
 					// Preserve the order when another adaptive split is required.
 					pending.push(right);
 					pending.push(left);
+				},
+				// The database will never accept this batch, so reject it instead of retrying it.
+				Err(TransactionError::FoundationDb(error)) if Self::is_permanent_error(error) => {
+					return Ok(Err(tg::error!(
+						!error,
+						"failed to execute an index batch item"
+					)));
 				},
 				Err(error) => {
 					let error = match error {
@@ -1533,6 +1547,11 @@ impl Index {
 
 	fn is_split_error(error: fdb::FdbError) -> bool {
 		Self::is_transaction_too_large(error) || Self::is_transaction_too_old(error)
+	}
+
+	/// An error the database reports for the request itself, which no retry can change.
+	fn is_permanent_error(error: fdb::FdbError) -> bool {
+		!error.is_retryable() && !error.is_maybe_committed()
 	}
 
 	fn complete_tracker(tracker: &Arc<Mutex<RequestTracker>>, result: tg::Result<Response>) {

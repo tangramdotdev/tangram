@@ -68,15 +68,22 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local::default());
 		let authorization_tokens = sync.options.tokens.for_location(&location);
 		if let Some(output) = &mut data.output {
-			Self::update_process_value_tokens(output, &mut |tokens, _| {
-				tokens.inherit(&authorization_tokens);
+			Self::update_process_value_tokens(output, &mut |tokens, id| {
+				tokens.inherit_with_resource(&authorization_tokens, Some(&id.clone().into()));
 			});
 		}
 		if let Some(log) = &mut data.log {
-			log.options.tokens.inherit(&authorization_tokens);
+			let id = log.node.clone().into();
+			log.options
+				.tokens
+				.inherit_with_resource(&authorization_tokens, Some(&id));
 		}
 		if let Some(tg::Either::Right(error)) = &mut data.error {
-			error.options.tokens.inherit(&authorization_tokens);
+			let id = error.node.clone().into();
+			error
+				.options
+				.tokens
+				.inherit_with_resource(&authorization_tokens, Some(&id));
 		}
 	}
 
