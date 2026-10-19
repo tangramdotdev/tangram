@@ -98,28 +98,54 @@ impl Index {
 		Ok(parents)
 	}
 
-	pub(crate) fn get_object_processes_with_transaction(
+	pub(crate) fn get_object_processes_page_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, tangram_index::process::object::Kind)>> {
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<(
+		Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
+		Option<Vec<u8>>,
+	)> {
 		let id_bytes = id.to_bytes();
 		let prefix = &(Kind::ObjectProcess.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);
-		let mut parents = Vec::new();
+		let start = if let Some(after) = after {
+			let mut start = after.to_vec();
+			start.push(0);
+			start
+		} else {
+			prefix.clone()
+		};
+		let range = (
+			std::ops::Bound::Included(start.as_slice()),
+			std::ops::Bound::Unbounded,
+		);
 		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get object process parents"))?;
+			.range(transaction, &range)
+			.map_err(|error| tg::error!(!error, "failed to get object processes"))?;
+		let mut processes = Vec::new();
+		let mut last = None;
+		let mut cursor = None;
 		for entry in iter {
 			let (key, _) =
 				entry.map_err(|error| tg::error!(!error, "failed to read object process entry"))?;
+			if !key.starts_with(&prefix) {
+				break;
+			}
+			if processes.len() == limit {
+				cursor = last;
+				break;
+			}
+			last = Some(key.to_vec());
 			let key = Self::unpack(subspace, key)?;
 			let Key::Object(crate::object::Key::ObjectProcess { kind, process, .. }) = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			parents.push((process, kind));
+			processes.push((process, kind));
 		}
-		Ok(parents)
+		Ok((processes, cursor))
 	}
 }

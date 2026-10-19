@@ -868,6 +868,59 @@ async fn materialized_permissions_are_rewritten_only_when_their_expiration_moves
 	);
 }
 
+#[tokio::test]
+async fn object_processes_are_returned_in_pages() {
+	let (_dir, index) = super::new_index();
+	let log = object_id(0);
+	put_log_object(&index, &log).await;
+
+	// Add processes that share the log object.
+	let mut processes = BTreeSet::new();
+	for _ in 0..5 {
+		let process = tg::process::Id::new();
+		let items = put_process_with_log_items(&process, &log, None);
+		index
+			.batch(tangram_index::batch::Arg { items })
+			.await
+			.unwrap()
+			.unwrap();
+		processes.insert(process);
+	}
+
+	// Read the object processes in pages of two.
+	let transaction = index.env.read_txn().unwrap();
+	let mut pages = Vec::new();
+	let mut after = None;
+	loop {
+		let (page, cursor) = Index::get_object_processes_page_with_transaction(
+			&index.db,
+			&index.subspace,
+			&transaction,
+			&log,
+			after.as_deref(),
+			2,
+		)
+		.unwrap();
+		pages.push(page);
+		let Some(cursor) = cursor else {
+			break;
+		};
+		after = Some(cursor);
+	}
+
+	// Verify that the pages contain every process exactly once.
+	assert_eq!(
+		pages.iter().map(Vec::len).collect::<Vec<_>>(),
+		vec![2, 2, 1]
+	);
+	let output = pages
+		.into_iter()
+		.flatten()
+		.map(|(process, _)| process)
+		.collect::<BTreeSet<_>>();
+	assert_eq!(output, processes);
+}
+
 fn node_log_objects() -> tg::authorization::Permission {
 	tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::NodeLogObjects,

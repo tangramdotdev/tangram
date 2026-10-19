@@ -11,6 +11,8 @@ mod touch;
 
 pub(super) use key::Key;
 
+pub(crate) const OBJECT_PROCESSES_PAGE_SIZE: usize = 1024;
+
 impl Index {
 	pub async fn try_get_object_children(
 		&self,

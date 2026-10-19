@@ -3348,38 +3348,66 @@ impl Index {
 						.await
 					);
 				}
-				let processes = match kind {
-					Kind::Permission(subject) => crate::propagate!(
-						Self::get_related_resources_for_subject_with_transaction(
-							txn,
-							subspace,
-							Relation::ObjectProcesses(id),
-							subject,
+				match kind {
+					Kind::Permission(subject) => {
+						let processes = crate::propagate!(
+							Self::get_related_resources_for_subject_with_transaction(
+								txn,
+								subspace,
+								Relation::ObjectProcesses(id),
+								subject,
+							)
+							.await
 						)
-						.await
-					)
-					.into_iter()
-					.map(tg::process::Id::try_from)
-					.collect::<tg::Result<Vec<_>>>()?,
-					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
-						Self::get_object_processes_with_transaction(txn, subspace, id).await
-					)
-					.into_iter()
-					.map(|(process, _)| process)
-					.collect(),
-				};
-				for process in processes {
-					crate::propagate!(
-						Self::enqueue_update_propagate(
-							txn,
-							subspace,
-							&tg::Either::Right(process),
-							kind,
-							version,
-							partition_total,
-						)
-						.await
-					);
+						.into_iter()
+						.map(tg::process::Id::try_from)
+						.collect::<tg::Result<Vec<_>>>()?;
+						for process in processes {
+							crate::propagate!(
+								Self::enqueue_update_propagate(
+									txn,
+									subspace,
+									&tg::Either::Right(process),
+									kind,
+									version,
+									partition_total,
+								)
+								.await
+							);
+						}
+					},
+					Kind::StorageAndMetadata | Kind::Usage(_) => {
+						let mut after = None;
+						loop {
+							let (processes, cursor) = crate::propagate!(
+								Self::get_object_processes_page_with_transaction(
+									txn,
+									subspace,
+									id,
+									after.as_deref(),
+									crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+								)
+								.await
+							);
+							for (process, _) in processes {
+								crate::propagate!(
+									Self::enqueue_update_propagate(
+										txn,
+										subspace,
+										&tg::Either::Right(process),
+										kind,
+										version,
+										partition_total,
+									)
+									.await
+								);
+							}
+							let Some(cursor) = cursor else {
+								break;
+							};
+							after = Some(cursor);
+						}
+					},
 				}
 			},
 			tg::Either::Right(id) => {

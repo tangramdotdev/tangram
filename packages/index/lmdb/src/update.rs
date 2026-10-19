@@ -2215,9 +2215,9 @@ impl Index {
 						Some(version),
 					)?;
 				}
-				let processes = match kind {
+				match kind {
 					Kind::Permission(subject) => {
-						Self::get_related_resources_for_subject_with_transaction(
+						let processes = Self::get_related_resources_for_subject_with_transaction(
 							db,
 							subspace,
 							transaction,
@@ -2226,25 +2226,48 @@ impl Index {
 						)?
 						.into_iter()
 						.map(tg::process::Id::try_from)
-						.collect::<tg::Result<Vec<_>>>()?
+						.collect::<tg::Result<Vec<_>>>()?;
+						for process in processes {
+							Self::enqueue_update_with_kind(
+								db,
+								subspace,
+								transaction,
+								tg::Either::Right(process),
+								kind.clone(),
+								Source::Propagate,
+								Some(version),
+							)?;
+						}
 					},
 					Kind::StorageAndMetadata | Kind::Usage(_) => {
-						Self::get_object_processes_with_transaction(db, subspace, transaction, id)?
-							.into_iter()
-							.map(|(process, _)| process)
-							.collect()
+						let mut after = None;
+						loop {
+							let (processes, cursor) =
+								Self::get_object_processes_page_with_transaction(
+									db,
+									subspace,
+									transaction,
+									id,
+									after.as_deref(),
+									crate::object::OBJECT_PROCESSES_PAGE_SIZE,
+								)?;
+							for (process, _) in processes {
+								Self::enqueue_update_with_kind(
+									db,
+									subspace,
+									transaction,
+									tg::Either::Right(process),
+									kind.clone(),
+									Source::Propagate,
+									Some(version),
+								)?;
+							}
+							let Some(cursor) = cursor else {
+								break;
+							};
+							after = Some(cursor);
+						}
 					},
-				};
-				for process in processes {
-					Self::enqueue_update_with_kind(
-						db,
-						subspace,
-						transaction,
-						tg::Either::Right(process),
-						kind.clone(),
-						Source::Propagate,
-						Some(version),
-					)?;
 				}
 			},
 			tg::Either::Right(id) => {

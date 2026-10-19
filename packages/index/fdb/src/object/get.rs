@@ -2,6 +2,7 @@ use {
 	crate::{Index, Key, Kind},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
+	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -129,25 +130,47 @@ impl Index {
 		Ok(ControlFlow::Break(parents))
 	}
 
-	pub(crate) async fn get_object_processes_with_transaction(
+	pub(crate) async fn get_object_processes_page_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
+		after: Option<&[u8]>,
+		limit: usize,
 	) -> tg::Result<
-		ControlFlow<Vec<(tg::process::Id, tangram_index::process::object::Kind)>, fdb::FdbError>,
+		ControlFlow<
+			(
+				Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
+				Option<Vec<u8>>,
+			),
+			fdb::FdbError,
+		>,
 	> {
 		let bytes = id.to_bytes();
 		let key = (Kind::ObjectProcess.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
 		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
+		let mut range = fdb::RangeOption {
+			limit: Some(limit + 1),
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
+		if let Some(after) = after {
+			let mut begin = after.to_vec();
+			begin.push(0);
+			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
+		}
 
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let mut entries = crate::retry!(result);
+		let cursor = if entries.len() > limit {
+			entries.truncate(limit);
+			entries.last().map(|entry| entry.key().to_vec())
+		} else {
+			None
+		};
 		let processes = entries
 			.iter()
 			.map(|entry| {
@@ -160,6 +183,6 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break(processes))
+		Ok(ControlFlow::Break((processes, cursor)))
 	}
 }
