@@ -38,6 +38,7 @@ scylla_client=$3
 foundationdb_image=$4
 names=()
 pids=()
+# Give ScyllaDB enough shards and memory that a std build does not queue its reads until they time out.
 scylla_args=(
 	--auto-snapshot=false
 	--commitlog-segment-size-in-mb=8
@@ -47,9 +48,9 @@ scylla_args=(
 	--developer-mode=1
 	--kernel-page-cache=1
 	--max-partition-key-restrictions-per-query=1024
-	--memory=1280MiB
+	--memory=4GiB
 	--schema-commitlog-segment-size-in-mb=32
-	--smp=1
+	--smp=4
 	--unsafe-bypass-fsync=1
 	--write-request-timeout-in-ms=20000
 )
