@@ -1,4 +1,4 @@
-use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
+use {super::Compiler, lsp_types as lsp, std::collections::BTreeMap, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
 pub struct Request {
@@ -277,5 +277,176 @@ impl Compiler {
 		});
 
 		Ok(())
+	}
+}
+
+/// Replace the slots in documentation with the indices of the declarations they refer to.
+pub(crate) fn resolve(output: &mut tg::document::Output, slots: &[Vec<usize>]) {
+	// Resolve the exports, removing the exports without declarations.
+	resolve_exports(&mut output.exports, slots);
+
+	// Resolve the declarations.
+	for declaration in &mut output.declarations {
+		match declaration {
+			tg::document::Declaration::Class(class) => {
+				for signature in &mut class.constructors {
+					resolve_signature(signature, slots);
+				}
+				for type_ in class.extends.iter_mut().chain(&mut class.implements) {
+					resolve_type(type_, slots);
+				}
+				for property in &mut class.properties {
+					resolve_type(&mut property.type_, slots);
+				}
+				resolve_type_parameters(&mut class.type_parameters, slots);
+			},
+			tg::document::Declaration::Enum(_) => {},
+			tg::document::Declaration::Function(function) => {
+				resolve_signature(&mut function.signature, slots);
+			},
+			tg::document::Declaration::Interface(interface) => {
+				for type_ in &mut interface.extends {
+					resolve_type(type_, slots);
+				}
+				resolve_members(&mut interface.members, slots);
+				resolve_type_parameters(&mut interface.type_parameters, slots);
+			},
+			tg::document::Declaration::Namespace(namespace) => {
+				resolve_exports(&mut namespace.exports, slots);
+			},
+			tg::document::Declaration::TypeAlias(alias) => {
+				resolve_type(&mut alias.type_, slots);
+				resolve_type_parameters(&mut alias.type_parameters, slots);
+			},
+			tg::document::Declaration::Variable(variable) => {
+				resolve_type(&mut variable.type_, slots);
+			},
+		}
+	}
+}
+
+fn resolve_exports(exports: &mut BTreeMap<String, Vec<usize>>, slots: &[Vec<usize>]) {
+	for ids in exports.values_mut() {
+		resolve_ids(ids, slots);
+	}
+	exports.retain(|_, ids| !ids.is_empty());
+}
+
+fn resolve_ids(ids: &mut Vec<usize>, slots: &[Vec<usize>]) {
+	if let Some(slot) = ids.first() {
+		*ids = slots[*slot].clone();
+	}
+}
+
+fn resolve_members(members: &mut tg::document::Members, slots: &[Vec<usize>]) {
+	for signature in members
+		.call_signatures
+		.iter_mut()
+		.chain(&mut members.construct_signatures)
+	{
+		resolve_signature(signature, slots);
+	}
+	for signature in &mut members.index_signatures {
+		resolve_type(&mut signature.key, slots);
+		resolve_type(&mut signature.type_, slots);
+	}
+	for property in &mut members.properties {
+		resolve_type(&mut property.type_, slots);
+	}
+}
+
+fn resolve_signature(signature: &mut tg::document::Signature, slots: &[Vec<usize>]) {
+	for parameter in &mut signature.parameters {
+		resolve_type(&mut parameter.type_, slots);
+	}
+	resolve_type(&mut signature.return_, slots);
+	resolve_type_parameters(&mut signature.type_parameters, slots);
+}
+
+fn resolve_type(type_: &mut tg::document::Type, slots: &[Vec<usize>]) {
+	match type_ {
+		tg::document::Type::Array(array) => {
+			resolve_type(&mut array.type_, slots);
+		},
+		tg::document::Type::Conditional(conditional) => {
+			resolve_type(&mut conditional.check_type, slots);
+			resolve_type(&mut conditional.extends_type, slots);
+			resolve_type(&mut conditional.false_type, slots);
+			resolve_type(&mut conditional.true_type, slots);
+		},
+		tg::document::Type::Function(function) => {
+			for signature in &mut function.signatures {
+				resolve_signature(signature, slots);
+			}
+		},
+		tg::document::Type::IndexedAccess(indexed_access) => {
+			resolve_type(&mut indexed_access.index_type, slots);
+			resolve_type(&mut indexed_access.object_type, slots);
+		},
+		tg::document::Type::Infer(type_parameter) => {
+			resolve_type_parameters(std::slice::from_mut(type_parameter.as_mut()), slots);
+		},
+		tg::document::Type::Intersection(types) | tg::document::Type::Union(types) => {
+			for type_ in &mut types.types {
+				resolve_type(type_, slots);
+			}
+		},
+		tg::document::Type::Keyword(_)
+		| tg::document::Type::Literal(_)
+		| tg::document::Type::Other(_)
+		| tg::document::Type::Query(_) => {},
+		tg::document::Type::Mapped(mapped) => {
+			for type_ in [
+				&mut mapped.constraint,
+				&mut mapped.name_type,
+				&mut mapped.type_,
+			]
+			.into_iter()
+			.flatten()
+			{
+				resolve_type(type_, slots);
+			}
+		},
+		tg::document::Type::Object(members) => {
+			resolve_members(members, slots);
+		},
+		tg::document::Type::Operator(operator) => {
+			resolve_type(&mut operator.type_, slots);
+		},
+		tg::document::Type::Predicate(predicate) => {
+			if let Some(type_) = &mut predicate.type_ {
+				resolve_type(type_, slots);
+			}
+		},
+		tg::document::Type::Reference(reference) => {
+			resolve_ids(&mut reference.declarations, slots);
+			for type_ in &mut reference.type_arguments {
+				resolve_type(type_, slots);
+			}
+		},
+		tg::document::Type::TemplateLiteral(template_literal) => {
+			for span in &mut template_literal.template_spans {
+				resolve_type(&mut span.type_, slots);
+			}
+		},
+		tg::document::Type::Tuple(tuple) => {
+			for element in &mut tuple.elements {
+				resolve_type(&mut element.type_, slots);
+			}
+		},
+	}
+}
+
+fn resolve_type_parameters(
+	type_parameters: &mut [tg::document::TypeParameter],
+	slots: &[Vec<usize>],
+) {
+	for type_parameter in type_parameters {
+		for type_ in [&mut type_parameter.constraint, &mut type_parameter.default]
+			.into_iter()
+			.flatten()
+		{
+			resolve_type(type_, slots);
+		}
 	}
 }
