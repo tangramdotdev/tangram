@@ -20,6 +20,14 @@ pub struct Arg {
 }
 
 pub fn run(command_arg: &crate::run::Command, arg: &Arg) -> tg::Result<u8> {
+	// Mount proc for the launcher's PID namespace, so that bubblewrap can find its child.
+	crate::linux::unshare(
+		libc::CLONE_NEWNS,
+		"failed to isolate the bubblewrap proc mount",
+	)?;
+	crate::mount::mount_proc(Path::new("/proc"))?;
+
+	// Execute bubblewrap.
 	let mut command = command(command_arg, arg)?;
 	let error = command.exec();
 	Err(tg::error!(!error, "failed to execute bubblewrap"))
