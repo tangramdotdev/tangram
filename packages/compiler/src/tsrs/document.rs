@@ -62,11 +62,11 @@ struct Documentation {
 }
 
 impl Project {
-	pub(super) fn document(&self, request: &document::Request) -> tg::Result<document::Response> {
+	pub(super) fn document(&self, arg: &document::Arg) -> tg::Result<document::Output> {
 		// Get the source file and a type checker.
 		let context = Self::context();
 		let program = self.program()?;
-		let path = self.host.path(&request.module);
+		let path = self.host.path(&arg.module);
 		let source_file = program
 			.get_source_file(&path)
 			.ok_or_else(|| tg::error!("the tsrs program did not contain the requested module"))?;

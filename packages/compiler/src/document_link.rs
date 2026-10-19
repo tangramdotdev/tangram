@@ -5,41 +5,34 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub links: Option<Vec<Link>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug)]
 pub struct Link {
 	pub range: tg::Range,
 	pub module: tg::module::Data,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tooltip: Option<String>,
 }
 
 impl Compiler {
 	pub async fn document_links(&self, module: &tg::module::Data) -> tg::Result<Option<Vec<Link>>> {
-		// Create the request.
-		let request = super::Request::DocumentLink(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::DocumentLink(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.links)
+		// Get the output.
+		let output = self.backend(module.kind).document_link(self, arg).await?;
+
+		Ok(output.links)
 	}
 }
 

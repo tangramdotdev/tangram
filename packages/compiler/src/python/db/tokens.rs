@@ -6,11 +6,11 @@ use {
 };
 
 impl Database {
-	pub(super) fn semantic_tokens(
+	pub(in crate::python) fn semantic_tokens(
 		&self,
 		file: File,
 		encoding: tg::position::Encoding,
-	) -> tg::Result<crate::semantic_tokens::Response> {
+	) -> tg::Result<crate::semantic_tokens::Output> {
 		let text = source_text(self, file);
 		let mut tokens = Vec::new();
 		for token in ty_ide::semantic_tokens(self, self.program_file(file), None).iter() {
@@ -61,7 +61,7 @@ impl Database {
 				offset += line.len();
 			}
 		}
-		Ok(crate::semantic_tokens::Response {
+		Ok(crate::semantic_tokens::Output {
 			tokens: Some(tokens),
 		})
 	}

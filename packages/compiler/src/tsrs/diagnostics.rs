@@ -3,10 +3,10 @@ use {super::Project, crate::diagnostics, tangram_client::prelude::*, tsrs_lsprot
 impl Project {
 	pub(super) fn diagnostics(
 		&self,
-		request: diagnostics::DocumentRequest,
-	) -> tg::Result<diagnostics::DocumentResponse> {
+		arg: diagnostics::DocumentArg,
+	) -> tg::Result<diagnostics::DocumentOutput> {
 		let mut diagnostics = Vec::new();
-		for module in request.modules {
+		for module in arg.modules {
 			let items = self.with_language_service(&module, |context, service| {
 				let uri = self.uri(&module);
 				let output = service
@@ -66,9 +66,9 @@ impl Project {
 			})?;
 			diagnostics.extend(items);
 		}
-		let response = diagnostics::DocumentResponse { diagnostics };
+		let output = diagnostics::DocumentOutput { diagnostics };
 
-		Ok(response)
+		Ok(output)
 	}
 
 	pub(super) fn diagnostic(

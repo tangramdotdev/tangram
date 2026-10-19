@@ -1,29 +1,24 @@
-use {super::Compiler, lsp_types as lsp, std::collections::BTreeMap, tangram_client::prelude::*};
+use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 }
 
-pub type Response = tg::document::Output;
+pub type Output = tg::document::Output;
 
 impl Compiler {
 	/// Document a module.
-	pub async fn document(&self, module: &tg::module::Data) -> tg::Result<Response> {
-		// Create the request.
-		let request = super::Request::Document(Request {
+	pub async fn document(&self, module: &tg::module::Data) -> tg::Result<Output> {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::Document(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response)
+		// Get the output.
+		let output = self.backend(module.kind).document(self, arg).await?;
+
+		Ok(output)
 	}
 }
 
@@ -281,6 +276,7 @@ impl Compiler {
 }
 
 /// Replace the slots in documentation with the indices of the declarations they refer to.
+#[cfg(any(feature = "tsrs", feature = "ty"))]
 pub(crate) fn resolve(output: &mut tg::document::Output, slots: &[Vec<usize>]) {
 	// Resolve the exports, removing the exports without declarations.
 	resolve_exports(&mut output.exports, slots);
@@ -325,19 +321,25 @@ pub(crate) fn resolve(output: &mut tg::document::Output, slots: &[Vec<usize>]) {
 	}
 }
 
-fn resolve_exports(exports: &mut BTreeMap<String, Vec<usize>>, slots: &[Vec<usize>]) {
+#[cfg(any(feature = "tsrs", feature = "ty"))]
+fn resolve_exports(
+	exports: &mut std::collections::BTreeMap<String, Vec<usize>>,
+	slots: &[Vec<usize>],
+) {
 	for ids in exports.values_mut() {
 		resolve_ids(ids, slots);
 	}
 	exports.retain(|_, ids| !ids.is_empty());
 }
 
+#[cfg(any(feature = "tsrs", feature = "ty"))]
 fn resolve_ids(ids: &mut Vec<usize>, slots: &[Vec<usize>]) {
 	if let Some(slot) = ids.first() {
 		*ids = slots[*slot].clone();
 	}
 }
 
+#[cfg(any(feature = "tsrs", feature = "ty"))]
 fn resolve_members(members: &mut tg::document::Members, slots: &[Vec<usize>]) {
 	for signature in members
 		.call_signatures
@@ -355,6 +357,7 @@ fn resolve_members(members: &mut tg::document::Members, slots: &[Vec<usize>]) {
 	}
 }
 
+#[cfg(any(feature = "tsrs", feature = "ty"))]
 fn resolve_signature(signature: &mut tg::document::Signature, slots: &[Vec<usize>]) {
 	for parameter in &mut signature.parameters {
 		resolve_type(&mut parameter.type_, slots);
@@ -363,6 +366,7 @@ fn resolve_signature(signature: &mut tg::document::Signature, slots: &[Vec<usize
 	resolve_type_parameters(&mut signature.type_parameters, slots);
 }
 
+#[cfg(any(feature = "tsrs", feature = "ty"))]
 fn resolve_type(type_: &mut tg::document::Type, slots: &[Vec<usize>]) {
 	match type_ {
 		tg::document::Type::Array(array) => {
@@ -437,6 +441,7 @@ fn resolve_type(type_: &mut tg::document::Type, slots: &[Vec<usize>]) {
 	}
 }
 
+#[cfg(any(feature = "tsrs", feature = "ty"))]
 fn resolve_type_parameters(
 	type_parameters: &mut [tg::document::TypeParameter],
 	slots: &[Vec<usize>],

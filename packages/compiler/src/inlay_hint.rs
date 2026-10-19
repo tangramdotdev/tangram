@@ -1,32 +1,26 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 	pub range: tg::Range,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub hints: Option<Vec<Hint>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct Hint {
 	pub position: tg::Position,
 	pub label: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<Kind>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub padding_left: Option<bool>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub padding_right: Option<bool>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug)]
 pub enum Kind {
 	Type,
 	Parameter,
@@ -38,21 +32,16 @@ impl Compiler {
 		module: &tg::module::Data,
 		range: tg::Range,
 	) -> tg::Result<Option<Vec<Hint>>> {
-		// Create the request.
-		let request = super::Request::InlayHint(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
 			range,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::InlayHint(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.hints)
+		// Get the output.
+		let output = self.backend(module.kind).inlay_hint(self, arg).await?;
+
+		Ok(output.hints)
 	}
 }
 

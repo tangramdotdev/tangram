@@ -1,26 +1,23 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub highlights: Option<Vec<Highlight>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug)]
 pub struct Highlight {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<Kind>,
 	pub range: tg::Range,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug)]
 pub enum Kind {
 	Text,
 	Read,
@@ -33,21 +30,19 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<Highlight>>> {
-		// Create the request.
-		let request = super::Request::DocumentHighlight(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
 			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::DocumentHighlight(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.highlights)
+		// Get the output.
+		let output = self
+			.backend(module.kind)
+			.document_highlight(self, arg)
+			.await?;
+
+		Ok(output.highlights)
 	}
 }
 

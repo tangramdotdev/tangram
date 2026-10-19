@@ -1,20 +1,18 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 	pub positions: Vec<tg::Position>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub ranges: Option<Vec<SelectionRange>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug)]
 pub struct SelectionRange {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<Box<SelectionRange>>,
 	pub range: tg::Range,
 }
@@ -25,21 +23,16 @@ impl Compiler {
 		module: &tg::module::Data,
 		positions: Vec<tg::Position>,
 	) -> tg::Result<Option<Vec<SelectionRange>>> {
-		// Create the request.
-		let request = super::Request::SelectionRange(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
 			positions,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::SelectionRange(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.ranges)
+		// Get the output.
+		let output = self.backend(module.kind).selection_range(self, arg).await?;
+
+		Ok(output.ranges)
 	}
 }
 

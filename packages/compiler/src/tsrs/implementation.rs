@@ -8,14 +8,14 @@ use {
 impl Project {
 	pub(super) fn implementation(
 		&self,
-		request: &implementation::Request,
-	) -> tg::Result<implementation::Response> {
-		self.with_language_service(&request.module, |context, service| {
+		arg: &implementation::Arg,
+	) -> tg::Result<implementation::Output> {
+		self.with_language_service(&arg.module, |context, service| {
 			let text_document = native::TextDocumentIdentifier {
-				uri: self.uri(&request.module),
+				uri: self.uri(&arg.module),
 			};
 			let params = native::ImplementationParams {
-				position: position(request.position),
+				position: position(arg.position),
 				text_document,
 				..Default::default()
 			};
@@ -23,9 +23,9 @@ impl Project {
 				.provide_implementations(context, &params, None)
 				.map_err(|error| tg::error!(!error, "failed to get the tsrs implementations"))?;
 			let locations = self.definition_locations(output)?;
-			let response = implementation::Response { locations };
+			let output = implementation::Output { locations };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

@@ -1,78 +1,49 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub entries: Option<Vec<Entry>>,
 }
 
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResolveRequest {
+#[derive(Debug)]
+pub struct ResolveArg {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 	pub name: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub data: Option<serde_json::Value>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct ResolveResponse {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct ResolveOutput {
 	pub entry: Option<EntryDetails>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct Entry {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub commit_characters: Option<Vec<String>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub data: Option<serde_json::Value>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub filter_text: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub insert_text: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub is_snippet: Option<bool>,
-
 	pub kind: String,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind_modifiers: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub label_details: Option<LabelDetails>,
-
 	pub name: String,
-
 	pub sort_text: String,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub text_edit: Option<lsp::CompletionTextEdit>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct LabelDetails {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detail: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub description: Option<String>,
 }
 
@@ -121,21 +92,16 @@ impl Compiler {
 			return Ok(None);
 		}
 
-		// Create the request.
-		let request = super::Request::Completion(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
 			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::Completion(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.entries)
+		// Get the output.
+		let output = self.backend(module.kind).completion(self, arg).await?;
+
+		Ok(output.entries)
 	}
 
 	pub async fn completion_resolve(
@@ -150,24 +116,22 @@ impl Compiler {
 			return Ok(None);
 		}
 
-		// Create the request.
-		let request = super::Request::CompletionResolve(ResolveRequest {
+		// Create the arg.
+		let arg = ResolveArg {
 			module: module.clone(),
 			position,
 			name,
 			source,
 			data,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::CompletionResolve(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.entry)
+		// Get the output.
+		let output = self
+			.backend(module.kind)
+			.completion_resolve(self, arg)
+			.await?;
+
+		Ok(output.entry)
 	}
 }
 

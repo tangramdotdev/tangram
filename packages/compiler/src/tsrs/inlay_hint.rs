@@ -6,17 +6,14 @@ use {
 };
 
 impl Project {
-	pub(super) fn inlay_hint(
-		&self,
-		request: &inlay_hint::Request,
-	) -> tg::Result<inlay_hint::Response> {
-		self.with_language_service(&request.module, |context, service| {
+	pub(super) fn inlay_hint(&self, arg: &inlay_hint::Arg) -> tg::Result<inlay_hint::Output> {
+		self.with_language_service(&arg.module, |context, service| {
 			let range = native::Range {
-				end: position(request.range.end),
-				start: position(request.range.start),
+				end: position(arg.range.end),
+				start: position(arg.range.start),
 			};
 			let text_document = native::TextDocumentIdentifier {
-				uri: self.uri(&request.module),
+				uri: self.uri(&arg.module),
 			};
 			let params = native::InlayHintParams {
 				range,
@@ -66,9 +63,9 @@ impl Project {
 						.collect()
 				})
 				.transpose()?;
-			let response = inlay_hint::Response { hints };
+			let output = inlay_hint::Output { hints };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

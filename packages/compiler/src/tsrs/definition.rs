@@ -6,44 +6,35 @@ use {
 };
 
 impl Project {
-	pub(super) fn declaration(
-		&self,
-		request: &definition::Request,
-	) -> tg::Result<definition::Response> {
-		self.definition(request)
+	pub(super) fn declaration(&self, arg: &definition::Arg) -> tg::Result<definition::Output> {
+		self.definition(arg)
 	}
 
-	pub(super) fn definition(
-		&self,
-		request: &definition::Request,
-	) -> tg::Result<definition::Response> {
-		self.with_language_service(&request.module, |context, service| {
-			let uri = self.uri(&request.module);
-			let position = position(request.position);
+	pub(super) fn definition(&self, arg: &definition::Arg) -> tg::Result<definition::Output> {
+		self.with_language_service(&arg.module, |context, service| {
+			let uri = self.uri(&arg.module);
+			let position = position(arg.position);
 			let output = service
 				.provide_definition(context, &uri, position)
 				.map_err(|error| tg::error!(!error, "failed to get the tsrs definitions"))?;
 			let locations = self.definition_locations(output)?;
-			let response = definition::Response { locations };
+			let output = definition::Output { locations };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 
-	pub(super) fn type_definition(
-		&self,
-		request: &definition::Request,
-	) -> tg::Result<definition::Response> {
-		self.with_language_service(&request.module, |context, service| {
-			let uri = self.uri(&request.module);
-			let position = position(request.position);
+	pub(super) fn type_definition(&self, arg: &definition::Arg) -> tg::Result<definition::Output> {
+		self.with_language_service(&arg.module, |context, service| {
+			let uri = self.uri(&arg.module);
+			let position = position(arg.position);
 			let output = service
 				.provide_type_definition(context, &uri, position)
 				.map_err(|error| tg::error!(!error, "failed to get the tsrs definitions"))?;
 			let locations = self.definition_locations(output)?;
-			let response = definition::Response { locations };
+			let output = definition::Output { locations };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 

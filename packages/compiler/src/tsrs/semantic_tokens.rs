@@ -3,10 +3,10 @@ use {super::Project, crate::semantic_tokens, tangram_client::prelude::*, tsrs_ls
 impl Project {
 	pub(super) fn semantic_tokens(
 		&self,
-		request: &semantic_tokens::Request,
-	) -> tg::Result<semantic_tokens::Response> {
-		self.with_language_service(&request.module, |context, service| {
-			let uri = self.uri(&request.module);
+		arg: &semantic_tokens::Arg,
+	) -> tg::Result<semantic_tokens::Output> {
+		self.with_language_service(&arg.module, |context, service| {
+			let uri = self.uri(&arg.module);
 			let output = service
 				.provide_semantic_tokens(context, &uri)
 				.map_err(|error| tg::error!(!error, "failed to get tsrs semantic tokens"))?;
@@ -66,9 +66,9 @@ impl Project {
 					Ok::<_, tg::Error>(output)
 				})
 				.transpose()?;
-			let response = semantic_tokens::Response { tokens };
+			let output = semantic_tokens::Output { tokens };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

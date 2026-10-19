@@ -6,9 +6,9 @@ use {
 };
 
 impl Project {
-	pub(super) fn symbols(&self, request: &symbols::Request) -> tg::Result<symbols::Response> {
-		self.with_language_service(&request.module, |context, service| {
-			let uri = self.uri(&request.module);
+	pub(super) fn symbols(&self, arg: &symbols::Arg) -> tg::Result<symbols::Output> {
+		self.with_language_service(&arg.module, |context, service| {
+			let uri = self.uri(&arg.module);
 			let output = service
 				.provide_document_symbols(context, &uri)
 				.map_err(|error| tg::error!(!error, "failed to get tsrs document symbols"))?;
@@ -16,9 +16,9 @@ impl Project {
 				.document_symbols
 				.map(|symbols| symbols.into_iter().map(document_symbol).collect())
 				.transpose()?;
-			let response = symbols::Response { symbols };
+			let output = symbols::Output { symbols };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

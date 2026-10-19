@@ -1,31 +1,25 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub ranges: Option<Vec<Range>>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct Range {
 	pub start_line: u32,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub start_character: Option<u32>,
 	pub end_line: u32,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub end_character: Option<u32>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<Kind>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug)]
 pub enum Kind {
 	Comment,
 	Imports,
@@ -37,20 +31,15 @@ impl Compiler {
 		&self,
 		module: &tg::module::Data,
 	) -> tg::Result<Option<Vec<Range>>> {
-		// Create the request.
-		let request = super::Request::FoldingRange(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::FoldingRange(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.ranges)
+		// Get the output.
+		let output = self.backend(module.kind).folding_range(self, arg).await?;
+
+		Ok(output.ranges)
 	}
 }
 

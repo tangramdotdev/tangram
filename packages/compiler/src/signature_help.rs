@@ -1,49 +1,34 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub help: Option<Help>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct Help {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub active_parameter: Option<u32>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub active_signature: Option<u32>,
-
 	pub signatures: Vec<Signature>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct Signature {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub active_parameter: Option<u32>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub documentation: Option<String>,
-
 	pub label: String,
-
 	pub parameters: Vec<Parameter>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct Parameter {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub documentation: Option<String>,
-
 	pub label: String,
 }
 
@@ -53,21 +38,16 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<Help>> {
-		// Create the request.
-		let request = super::Request::SignatureHelp(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
 			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::SignatureHelp(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.help)
+		// Get the output.
+		let output = self.backend(module.kind).signature_help(self, arg).await?;
+
+		Ok(output.help)
 	}
 }
 

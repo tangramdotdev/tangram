@@ -6,13 +6,10 @@ use {
 };
 
 impl Project {
-	pub(super) fn code_action(
-		&self,
-		request: &code_action::Request,
-	) -> tg::Result<code_action::Response> {
-		self.with_language_service_with_auto_imports(&request.module, |context, service| {
+	pub(super) fn code_action(&self, arg: &code_action::Arg) -> tg::Result<code_action::Output> {
+		self.with_language_service_with_auto_imports(&arg.module, |context, service| {
 			// Collect the current diagnostics overlapping the requested range.
-			let uri = self.uri(&request.module);
+			let uri = self.uri(&arg.module);
 			let diagnostics = service
 				.provide_diagnostics(context, &uri)
 				.map_err(|error| tg::error!(!error, "failed to get the tsrs diagnostics"))?
@@ -29,23 +26,22 @@ impl Project {
 					}
 					let start = diagnostic.range.start;
 					let end = diagnostic.range.end;
-					(start.line, start.character)
-						<= (request.range.end.line, request.range.end.character)
+					(start.line, start.character) <= (arg.range.end.line, arg.range.end.character)
 						&& (end.line, end.character)
-							>= (request.range.start.line, request.range.start.character)
+							>= (arg.range.start.line, arg.range.start.character)
 				})
 				.collect();
 
 			// Request the supported quick fixes and import organization.
 			let mut only = Vec::new();
-			if includes(request.only.as_deref(), "quickfix") {
+			if includes(arg.only.as_deref(), "quickfix") {
 				only.push(native::CodeActionKind::QuickFix);
 			}
-			if includes(request.only.as_deref(), "source.organizeImports") {
+			if includes(arg.only.as_deref(), "source.organizeImports") {
 				only.push(native::CodeActionKind::SourceOrganizeImportsTs);
 			}
 			if only.is_empty() {
-				return Ok(code_action::Response { actions: None });
+				return Ok(code_action::Output { actions: None });
 			}
 			let params = native::CodeActionParams {
 				context: native::CodeActionContext {
@@ -54,8 +50,8 @@ impl Project {
 					..Default::default()
 				},
 				range: native::Range {
-					start: position(request.range.start),
-					end: position(request.range.end),
+					start: position(arg.range.start),
+					end: position(arg.range.end),
 				},
 				text_document: native::TextDocumentIdentifier { uri },
 				..Default::default()
@@ -122,9 +118,9 @@ impl Project {
 				actions.push(action);
 			}
 			let actions = (!actions.is_empty()).then_some(actions);
-			let response = code_action::Response { actions };
+			let output = code_action::Output { actions };
 
-			Ok(response)
+			Ok(output)
 		})
 	}
 }

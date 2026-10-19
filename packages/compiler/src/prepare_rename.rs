@@ -1,18 +1,17 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub prepare: Option<Prepare>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug)]
 pub struct Prepare {
 	pub placeholder: String,
 	pub range: tg::Range,
@@ -24,21 +23,16 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<Prepare>> {
-		// Create the request.
-		let request = super::Request::PrepareRename(Request {
+		// Create the arg.
+		let arg = Arg {
 			module: module.clone(),
 			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::PrepareRename(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
-		let Some(prepare) = response.prepare else {
+		// Get the output.
+		let output = self.backend(module.kind).prepare_rename(self, arg).await?;
+
+		let Some(prepare) = output.prepare else {
 			return Ok(None);
 		};
 		// Reject the same cross-language edits as the rename request.

@@ -1,12 +1,12 @@
 use {super::Compiler, itertools::Itertools as _, lsp_types as lsp, tangram_client::prelude::*};
 
-#[derive(Debug, serde::Serialize)]
-pub struct DocumentRequest {
+#[derive(Debug)]
+pub struct DocumentArg {
 	pub modules: Vec<tg::module::Data>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct DocumentResponse {
+#[derive(Debug)]
+pub struct DocumentOutput {
 	pub diagnostics: Vec<tg::diagnostic::Data>,
 }
 
@@ -15,52 +15,25 @@ impl Compiler {
 		&self,
 		modules: Vec<tg::module::Data>,
 	) -> tg::Result<Vec<tg::Diagnostic>> {
-		let (python, modules): (Vec<_>, Vec<_>) = modules
+		// Get the diagnostics for the modules of each language from its backend.
+		let (python, javascript): (Vec<_>, Vec<_>) = modules
 			.into_iter()
 			.partition(|module| module.kind == tg::module::Kind::Python);
 		let mut diagnostics = Vec::new();
-		#[cfg(not(feature = "ty"))]
-		if !python.is_empty() {
-			return Err(tg::error!("the ty feature is not enabled"));
+		for (kind, modules) in [
+			(tg::module::Kind::Python, python),
+			(tg::module::Kind::TypeScript, javascript),
+		] {
+			if modules.is_empty() {
+				continue;
+			}
+			let arg = DocumentArg { modules };
+			let output = self.backend(kind).document_diagnostics(self, arg).await?;
+			for diagnostic in output.diagnostics {
+				diagnostics.push(diagnostic.try_into()?);
+			}
 		}
-		#[cfg(feature = "ty")]
-		if !python.is_empty() {
-			let request = super::Request::DocumentDiagnostics(DocumentRequest { modules: python });
-			let response = self
-				.request_python(request)
-				.await?
-				.unwrap_document_diagnostics();
-			diagnostics.extend(
-				response
-					.diagnostics
-					.into_iter()
-					.map(TryInto::try_into)
-					.collect::<tg::Result<Vec<_>>>()?,
-			);
-		}
-		if modules.is_empty() {
-			return Ok(diagnostics);
-		}
-		// Create the request.
-		let request = super::Request::DocumentDiagnostics(DocumentRequest { modules });
 
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::DocumentDiagnostics(response) = response else {
-			return Err(tg::error!("unexpected response type"));
-		};
-		let DocumentResponse {
-			diagnostics: javascript,
-		} = response;
-
-		let javascript = javascript
-			.into_iter()
-			.map(TryInto::try_into)
-			.collect::<tg::Result<Vec<_>>>()?;
-
-		diagnostics.extend(javascript);
 		Ok(diagnostics)
 	}
 }

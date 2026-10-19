@@ -5,17 +5,15 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Request {
+#[derive(Debug)]
+pub struct Arg {
 	pub include_declaration: bool,
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Response {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+#[derive(Debug)]
+pub struct Output {
 	pub locations: Option<Vec<tg::module::data::Location>>,
 }
 
@@ -65,23 +63,18 @@ impl Compiler {
 		position: tg::Position,
 		include_declaration: bool,
 	) -> tg::Result<Option<Vec<tg::module::Location>>> {
-		// Create the request.
-		let request = super::Request::References(Request {
+		// Create the arg.
+		let arg = Arg {
 			include_declaration,
 			module: module.clone(),
 			position,
-		});
-
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::References(response) = response else {
-			return Err(tg::error!("unexpected response type"));
 		};
 
+		// Get the output.
+		let output = self.backend(module.kind).references(self, arg).await?;
+
 		// Convert locations from data to the non-serializable form.
-		let locations = response
+		let locations = output
 			.locations
 			.map(|locations| {
 				locations

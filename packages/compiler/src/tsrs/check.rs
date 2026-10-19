@@ -4,9 +4,9 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub(super) fn handle(compiler: &Compiler, request: check::Request) -> tg::Result<check::Response> {
+pub(super) fn handle(compiler: &Compiler, arg: check::Arg) -> tg::Result<check::Output> {
 	// Create a separate compiler program.
-	let project = Project::new(compiler, request.modules)?;
+	let project = Project::new(compiler, arg.modules)?;
 
 	// Collect and convert the diagnostics while the snapshot owns their source files.
 	let context = Project::context();
@@ -25,7 +25,7 @@ pub(super) fn handle(compiler: &Compiler, request: check::Request) -> tg::Result
 		.iter()
 		.map(|diagnostic| project.diagnostic(*diagnostic))
 		.collect::<tg::Result<_>>()?;
-	let response = check::Response { diagnostics };
+	let output = check::Output { diagnostics };
 
-	Ok(response)
+	Ok(output)
 }
