@@ -945,12 +945,14 @@
           }
         }
       ],
-      "extends": {
-        "kind": "reference",
-        "value": {
-          "name": "Animal"
+      "extends": [
+        {
+          "kind": "reference",
+          "value": {
+            "name": "Animal"
+          }
         }
-      },
+      ],
       "implements": [
         {
           "kind": "reference",
@@ -1191,6 +1193,7 @@
       },
       "name": "directory",
       "signature": {
+        "async": true,
         "location": {
           "module": 0,
           "range": [

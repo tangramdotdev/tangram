@@ -1,0 +1,725 @@
+{
+  "declarations": [
+    {
+      "comment": {
+        "text": "A color."
+      },
+      "kind": "enum",
+      "location": {
+        "module": 0,
+        "range": [
+          18,
+          0,
+          23,
+          19
+        ]
+      },
+      "members": [
+        {
+          "comment": {
+            "text": "The color red."
+          },
+          "initializer": "1",
+          "name": "RED",
+          "value": {
+            "kind": "number",
+            "value": 1
+          }
+        },
+        {
+          "initializer": "\"green\"",
+          "name": "GREEN",
+          "value": {
+            "kind": "string",
+            "value": "green"
+          }
+        }
+      ],
+      "name": "Color"
+    },
+    {
+      "comment": {
+        "text": "A greeter."
+      },
+      "constructors": [
+        {
+          "location": {
+            "module": 0,
+            "range": [
+              77,
+              4,
+              78,
+              29
+            ]
+          },
+          "parameters": [
+            {
+              "comment": "The prefix of each greeting.",
+              "default": "\"Hello\"",
+              "name": "prefix",
+              "optional": true,
+              "type": {
+                "kind": "reference",
+                "value": {
+                  "name": "str"
+                }
+              }
+            }
+          ],
+          "return": {
+            "kind": "keyword",
+            "value": "None"
+          }
+        }
+      ],
+      "kind": "class",
+      "location": {
+        "module": 0,
+        "range": [
+          65,
+          0,
+          98,
+          12
+        ]
+      },
+      "name": "Greeter",
+      "properties": [
+        {
+          "comment": {
+            "text": "The default prefix."
+          },
+          "name": "default_prefix",
+          "type": {
+            "kind": "reference",
+            "value": {
+              "name": "str"
+            }
+          }
+        },
+        {
+          "comment": {
+            "text": "The prefix."
+          },
+          "name": "prefix",
+          "readonly": true,
+          "type": {
+            "kind": "reference",
+            "value": {
+              "name": "str"
+            }
+          }
+        },
+        {
+          "method": true,
+          "name": "greet",
+          "type": {
+            "kind": "function",
+            "value": {
+              "signatures": [
+                {
+                  "comment": {
+                    "text": "Greet someone."
+                  },
+                  "location": {
+                    "module": 0,
+                    "range": [
+                      85,
+                      4,
+                      87,
+                      41
+                    ]
+                  },
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": {
+                        "kind": "reference",
+                        "value": {
+                          "name": "str"
+                        }
+                      }
+                    }
+                  ],
+                  "return": {
+                    "kind": "reference",
+                    "value": {
+                      "name": "str"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "classMethod": true,
+          "method": true,
+          "name": "create",
+          "type": {
+            "kind": "function",
+            "value": {
+              "signatures": [
+                {
+                  "location": {
+                    "module": 0,
+                    "range": [
+                      89,
+                      4,
+                      91,
+                      20
+                    ]
+                  },
+                  "return": {
+                    "kind": "reference",
+                    "value": {
+                      "declarations": [
+                        1
+                      ],
+                      "name": "Greeter"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "method": true,
+          "name": "separator",
+          "static": true,
+          "type": {
+            "kind": "function",
+            "value": {
+              "signatures": [
+                {
+                  "location": {
+                    "module": 0,
+                    "range": [
+                      93,
+                      4,
+                      95,
+                      18
+                    ]
+                  },
+                  "return": {
+                    "kind": "reference",
+                    "value": {
+                      "name": "str"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "type_alias",
+      "location": {
+        "module": 0,
+        "range": [
+          13,
+          0,
+          13,
+          42
+        ]
+      },
+      "name": "Mode",
+      "type": {
+        "kind": "union",
+        "value": {
+          "types": [
+            {
+              "kind": "literal",
+              "value": {
+                "kind": "string",
+                "value": "quiet"
+              }
+            },
+            {
+              "kind": "literal",
+              "value": {
+                "kind": "string",
+                "value": "loud"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "type_alias",
+      "location": {
+        "module": 0,
+        "range": [
+          15,
+          0,
+          15,
+          26
+        ]
+      },
+      "name": "Pair",
+      "type": {
+        "kind": "tuple",
+        "value": {
+          "elements": [
+            {
+              "type": {
+                "kind": "reference",
+                "value": {
+                  "isTypeParameter": true,
+                  "name": "T"
+                }
+              }
+            },
+            {
+              "type": {
+                "kind": "reference",
+                "value": {
+                  "isTypeParameter": true,
+                  "name": "T"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "typeParameters": [
+        {
+          "name": "T"
+        }
+      ]
+    },
+    {
+      "comment": {
+        "text": "The version of the package."
+      },
+      "constant": true,
+      "kind": "variable",
+      "location": {
+        "module": 0,
+        "range": [
+          8,
+          0,
+          8,
+          22
+        ]
+      },
+      "name": "VERSION",
+      "type": {
+        "kind": "literal",
+        "value": {
+          "kind": "string",
+          "value": "1.0"
+        }
+      }
+    },
+    {
+      "comment": {
+        "text": "Build the source."
+      },
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          60,
+          0,
+          62,
+          15
+        ]
+      },
+      "name": "build",
+      "signature": {
+        "async": true,
+        "parameters": [
+          {
+            "name": "source",
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "tg.Directory",
+                "runtime": true
+              }
+            }
+          }
+        ],
+        "return": {
+          "kind": "union",
+          "value": {
+            "types": [
+              {
+                "kind": "reference",
+                "value": {
+                  "name": "tg.File",
+                  "runtime": true
+                }
+              },
+              {
+                "kind": "keyword",
+                "value": "None"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "comment": {
+        "text": "Count the values."
+      },
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          39,
+          0,
+          45,
+          22
+        ]
+      },
+      "name": "count",
+      "signature": {
+        "parameters": [
+          {
+            "comment": "The values to count.",
+            "name": "values",
+            "rest": true,
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "int"
+              }
+            }
+          },
+          {
+            "kind": "keyword_rest",
+            "name": "options",
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "str"
+              }
+            }
+          }
+        ],
+        "return": {
+          "kind": "reference",
+          "value": {
+            "name": "int"
+          }
+        },
+        "returns": "The number of values."
+      }
+    },
+    {
+      "comment": {
+        "text": "Greet someone."
+      },
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          26,
+          0,
+          36,
+          23
+        ]
+      },
+      "name": "greet",
+      "signature": {
+        "parameters": [
+          {
+            "comment": "The name to greet.",
+            "name": "name",
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "str"
+              }
+            }
+          },
+          {
+            "comment": "The number of times to greet.",
+            "default": "1",
+            "name": "times",
+            "optional": true,
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "int"
+              }
+            }
+          },
+          {
+            "default": "\"quiet\"",
+            "kind": "keyword_only",
+            "name": "mode",
+            "optional": true,
+            "type": {
+              "kind": "reference",
+              "value": {
+                "declarations": [
+                  2
+                ],
+                "name": "Mode"
+              }
+            }
+          }
+        ],
+        "return": {
+          "kind": "reference",
+          "value": {
+            "name": "str"
+          }
+        },
+        "returns": "The greeting."
+      }
+    },
+    {
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          56,
+          0,
+          57,
+          18
+        ]
+      },
+      "name": "infer",
+      "signature": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "int"
+              }
+            }
+          }
+        ],
+        "return": {
+          "kind": "keyword",
+          "value": "Any"
+        }
+      }
+    },
+    {
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          48,
+          0,
+          49,
+          33
+        ]
+      },
+      "name": "parse",
+      "signature": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "str"
+              }
+            }
+          }
+        ],
+        "return": {
+          "kind": "reference",
+          "value": {
+            "name": "int"
+          }
+        }
+      }
+    },
+    {
+      "kind": "function",
+      "location": {
+        "module": 0,
+        "range": [
+          50,
+          0,
+          51,
+          35
+        ]
+      },
+      "name": "parse",
+      "signature": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "bytes"
+              }
+            }
+          }
+        ],
+        "return": {
+          "kind": "reference",
+          "value": {
+            "name": "int"
+          }
+        }
+      }
+    },
+    {
+      "comment": {
+        "text": "Shapes."
+      },
+      "exports": {
+        "Circle": [
+          12
+        ]
+      },
+      "kind": "namespace",
+      "location": {
+        "module": 1,
+        "range": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "name": "shapes"
+    },
+    {
+      "kind": "class",
+      "location": {
+        "module": 1,
+        "range": [
+          3,
+          0,
+          4,
+          17
+        ]
+      },
+      "name": "Circle",
+      "properties": [
+        {
+          "name": "radius",
+          "type": {
+            "kind": "reference",
+            "value": {
+              "name": "float"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "comment": {
+        "text": "Shout the text."
+      },
+      "kind": "function",
+      "location": {
+        "module": 2,
+        "range": [
+          3,
+          0,
+          5,
+          23
+        ]
+      },
+      "name": "shout",
+      "signature": {
+        "parameters": [
+          {
+            "name": "text",
+            "type": {
+              "kind": "reference",
+              "value": {
+                "name": "str"
+              }
+            }
+          }
+        ],
+        "return": {
+          "kind": "reference",
+          "value": {
+            "name": "str"
+          }
+        }
+      }
+    }
+  ],
+  "exports": {
+    "Color": [
+      0
+    ],
+    "Greeter": [
+      1
+    ],
+    "Mode": [
+      2
+    ],
+    "Pair": [
+      3
+    ],
+    "VERSION": [
+      4
+    ],
+    "build": [
+      5
+    ],
+    "count": [
+      6
+    ],
+    "greet": [
+      7
+    ],
+    "infer": [
+      8
+    ],
+    "parse": [
+      9,
+      10
+    ],
+    "shapes": [
+      11
+    ],
+    "shout": [
+      13
+    ]
+  },
+  "modules": [
+    {
+      "kind": "python",
+      "referent": {
+        "node": "graph=gph_016gtqk2ryznnhn5fzwdymf9h4czbhkwame31webb08sth33z64ssg&index=1&kind=file",
+        "options": {
+          "location": "local",
+          "path": "tangram.py"
+        }
+      }
+    },
+    {
+      "kind": "python",
+      "referent": {
+        "node": "graph=gph_016gtqk2ryznnhn5fzwdymf9h4czbhkwame31webb08sth33z64ssg&index=2&kind=file",
+        "options": {
+          "location": "local",
+          "path": "shapes.tg.py"
+        }
+      }
+    },
+    {
+      "kind": "python",
+      "referent": {
+        "node": "graph=gph_016gtqk2ryznnhn5fzwdymf9h4czbhkwame31webb08sth33z64ssg&index=0&kind=file",
+        "options": {
+          "location": "local",
+          "path": "helpers.tg.py"
+        }
+      }
+    }
+  ]
+}

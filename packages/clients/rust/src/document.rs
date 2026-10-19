@@ -50,8 +50,8 @@ pub struct Class {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub constructors: Vec<Signature>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub extends: Option<Type>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub extends: Vec<Type>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub implements: Vec<Type>,
@@ -175,6 +175,10 @@ pub struct Property {
 	#[serde(default, rename = "abstract", skip_serializing_if = "is_false")]
 	pub abstract_: bool,
 
+	/// Whether the property is a class method.
+	#[serde(default, rename = "classMethod", skip_serializing_if = "is_false")]
+	pub class_method: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub comment: Option<Comment>,
 
@@ -274,6 +278,9 @@ pub struct Location {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Signature {
+	#[serde(default, rename = "async", skip_serializing_if = "is_false")]
+	pub async_: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub comment: Option<Comment>,
 
@@ -304,6 +311,10 @@ pub struct Parameter {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default: Option<String>,
 
+	/// The kind of the parameter, which is absent for a parameter that may be passed by position or by keyword.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub kind: Option<ParameterKind>,
+
 	pub name: String,
 
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -314,6 +325,19 @@ pub struct Parameter {
 
 	#[serde(rename = "type")]
 	pub type_: Type,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParameterKind {
+	/// A parameter that may only be passed by keyword.
+	KeywordOnly,
+
+	/// A parameter that collects the remaining keyword arguments.
+	KeywordRest,
+
+	/// A parameter that may only be passed by position.
+	PositionalOnly,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

@@ -121,11 +121,7 @@ impl Database {
 				)?;
 				Response::Definition(crate::definition::Response { locations })
 			},
-			Request::Document(_) => {
-				return Err(tg::error!(
-					"python documentation generation is not supported"
-				));
-			},
+			Request::Document(_) => Response::Document(self.document(file, encoding)?),
 			Request::DocumentHighlight(request) => {
 				let offset = self.offset(file, request.position, encoding)?;
 				let highlights = ty_ide::document_highlights(self, program_file, offset)

@@ -31,6 +31,7 @@ use {
 
 mod completion;
 mod diagnostics;
+mod document;
 mod query;
 mod symbols;
 mod tokens;
@@ -330,6 +331,13 @@ impl Database {
 		};
 		file.map(Some)
 			.map_err(|error| tg::error!(!error, "failed to get the python library file"))
+	}
+
+	/// Determine whether a file belongs to the Tangram Python client library.
+	fn is_runtime(&self, file: File) -> bool {
+		file.path(self)
+			.as_system_path()
+			.is_some_and(|path| path.starts_with("/library"))
 	}
 
 	fn location(

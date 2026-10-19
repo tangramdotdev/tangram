@@ -105,7 +105,7 @@ impl Project {
 		};
 
 		// Replace the slots with the indices of the declarations.
-		resolve_output(&mut output, &converter.slots);
+		crate::document::resolve(&mut output, &converter.slots);
 
 		Ok(output)
 	}
@@ -403,7 +403,9 @@ impl Converter<'_> {
 
 		// Get the heritage.
 		let extends = tsrs_ast::get_class_extends_heritage_element(declaration)
-			.map(|node| self.type_node(node));
+			.map(|node| self.type_node(node))
+			.into_iter()
+			.collect();
 		let implements = tsrs_ast::get_implements_heritage_clause_elements(declaration)
 			.iter()
 			.map(|node| self.type_node(*node))
@@ -469,6 +471,7 @@ impl Converter<'_> {
 
 		let property = Property {
 			abstract_: flags.intersects(ModifierFlags::Abstract),
+			class_method: false,
 			comment,
 			method,
 			name: symbol.name().to_owned(),
@@ -591,6 +594,7 @@ impl Converter<'_> {
 					}
 					let property = Property {
 						abstract_: false,
+						class_method: false,
 						comment: None,
 						method: true,
 						name,
@@ -619,6 +623,7 @@ impl Converter<'_> {
 					let flags = tsrs_ast::get_combined_modifier_flags(node);
 					let property = Property {
 						abstract_: false,
+						class_method: false,
 						comment: documentation.comment,
 						method: false,
 						name: member_name(node),
@@ -686,6 +691,7 @@ impl Converter<'_> {
 		};
 
 		Signature {
+			async_: tsrs_ast::get_combined_modifier_flags(node).intersects(ModifierFlags::Async),
 			comment: documentation.comment,
 			location: self.location(node),
 			parameters,
@@ -727,6 +733,7 @@ impl Converter<'_> {
 				Parameter {
 					comment: None,
 					default: None,
+					kind: None,
 					name: parameter.name().to_owned(),
 					optional: parameter.flags().intersects(SymbolFlags::Optional),
 					rest,
@@ -747,6 +754,7 @@ impl Converter<'_> {
 		let return_ = self.return_type(signature);
 
 		Signature {
+			async_: false,
 			comment: None,
 			location: declaration.and_then(|declaration| self.location(declaration)),
 			parameters,
@@ -801,6 +809,7 @@ impl Converter<'_> {
 		Parameter {
 			comment: None,
 			default,
+			kind: None,
 			name,
 			optional,
 			rest,
@@ -1283,6 +1292,7 @@ impl Converter<'_> {
 			let comment = if method { None } else { documentation.comment };
 			let property = Property {
 				abstract_: false,
+				class_method: false,
 				comment,
 				method,
 				name: symbol.name().to_owned(),
@@ -1668,168 +1678,4 @@ fn number(value: f64) -> Option<serde_json::Number> {
 		return Some(serde_json::Number::from(value as i64));
 	}
 	serde_json::Number::from_f64(value)
-}
-
-fn resolve_output(output: &mut Output, slots: &[Vec<usize>]) {
-	// Resolve the exports, removing the exports without declarations.
-	resolve_exports(&mut output.exports, slots);
-
-	// Resolve the declarations.
-	for declaration in &mut output.declarations {
-		match declaration {
-			Declaration::Class(class) => {
-				for signature in &mut class.constructors {
-					resolve_signature(signature, slots);
-				}
-				for type_ in class.extends.iter_mut().chain(&mut class.implements) {
-					resolve_type(type_, slots);
-				}
-				for property in &mut class.properties {
-					resolve_type(&mut property.type_, slots);
-				}
-				resolve_type_parameters(&mut class.type_parameters, slots);
-			},
-			Declaration::Enum(_) => {},
-			Declaration::Function(function) => {
-				resolve_signature(&mut function.signature, slots);
-			},
-			Declaration::Interface(interface) => {
-				for type_ in &mut interface.extends {
-					resolve_type(type_, slots);
-				}
-				resolve_members(&mut interface.members, slots);
-				resolve_type_parameters(&mut interface.type_parameters, slots);
-			},
-			Declaration::Namespace(namespace) => {
-				resolve_exports(&mut namespace.exports, slots);
-			},
-			Declaration::TypeAlias(alias) => {
-				resolve_type(&mut alias.type_, slots);
-				resolve_type_parameters(&mut alias.type_parameters, slots);
-			},
-			Declaration::Variable(variable) => {
-				resolve_type(&mut variable.type_, slots);
-			},
-		}
-	}
-}
-
-fn resolve_exports(exports: &mut BTreeMap<String, Vec<usize>>, slots: &[Vec<usize>]) {
-	for ids in exports.values_mut() {
-		resolve_ids(ids, slots);
-	}
-	exports.retain(|_, ids| !ids.is_empty());
-}
-
-fn resolve_ids(ids: &mut Vec<usize>, slots: &[Vec<usize>]) {
-	if let Some(slot) = ids.first() {
-		*ids = slots[*slot].clone();
-	}
-}
-
-fn resolve_members(members: &mut Members, slots: &[Vec<usize>]) {
-	for signature in members
-		.call_signatures
-		.iter_mut()
-		.chain(&mut members.construct_signatures)
-	{
-		resolve_signature(signature, slots);
-	}
-	for signature in &mut members.index_signatures {
-		resolve_type(&mut signature.key, slots);
-		resolve_type(&mut signature.type_, slots);
-	}
-	for property in &mut members.properties {
-		resolve_type(&mut property.type_, slots);
-	}
-}
-
-fn resolve_signature(signature: &mut Signature, slots: &[Vec<usize>]) {
-	for parameter in &mut signature.parameters {
-		resolve_type(&mut parameter.type_, slots);
-	}
-	resolve_type(&mut signature.return_, slots);
-	resolve_type_parameters(&mut signature.type_parameters, slots);
-}
-
-fn resolve_type(type_: &mut Type, slots: &[Vec<usize>]) {
-	match type_ {
-		Type::Array(array) => {
-			resolve_type(&mut array.type_, slots);
-		},
-		Type::Conditional(conditional) => {
-			resolve_type(&mut conditional.check_type, slots);
-			resolve_type(&mut conditional.extends_type, slots);
-			resolve_type(&mut conditional.false_type, slots);
-			resolve_type(&mut conditional.true_type, slots);
-		},
-		Type::Function(function) => {
-			for signature in &mut function.signatures {
-				resolve_signature(signature, slots);
-			}
-		},
-		Type::IndexedAccess(indexed_access) => {
-			resolve_type(&mut indexed_access.index_type, slots);
-			resolve_type(&mut indexed_access.object_type, slots);
-		},
-		Type::Infer(type_parameter) => {
-			resolve_type_parameters(std::slice::from_mut(type_parameter.as_mut()), slots);
-		},
-		Type::Intersection(types) | Type::Union(types) => {
-			for type_ in &mut types.types {
-				resolve_type(type_, slots);
-			}
-		},
-		Type::Keyword(_) | Type::Literal(_) | Type::Other(_) | Type::Query(_) => {},
-		Type::Mapped(mapped) => {
-			for type_ in [
-				&mut mapped.constraint,
-				&mut mapped.name_type,
-				&mut mapped.type_,
-			]
-			.into_iter()
-			.flatten()
-			{
-				resolve_type(type_, slots);
-			}
-		},
-		Type::Object(members) => {
-			resolve_members(members, slots);
-		},
-		Type::Operator(operator) => {
-			resolve_type(&mut operator.type_, slots);
-		},
-		Type::Predicate(predicate) => {
-			if let Some(type_) = &mut predicate.type_ {
-				resolve_type(type_, slots);
-			}
-		},
-		Type::Reference(reference) => {
-			resolve_ids(&mut reference.declarations, slots);
-			for type_ in &mut reference.type_arguments {
-				resolve_type(type_, slots);
-			}
-		},
-		Type::TemplateLiteral(template_literal) => {
-			for span in &mut template_literal.template_spans {
-				resolve_type(&mut span.type_, slots);
-			}
-		},
-		Type::Tuple(tuple) => {
-			for element in &mut tuple.elements {
-				resolve_type(&mut element.type_, slots);
-			}
-		},
-	}
-}
-
-fn resolve_type_parameters(type_parameters: &mut [TypeParameter], slots: &[Vec<usize>]) {
-	for type_parameter in type_parameters {
-		for type_ in [&mut type_parameter.constraint, &mut type_parameter.default]
-			.into_iter()
-			.flatten()
-		{
-			resolve_type(type_, slots);
-		}
-	}
 }
