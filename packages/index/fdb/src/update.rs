@@ -3346,6 +3346,18 @@ impl Index {
 					Self::get_object_parents_with_transaction(txn, subspace, id).await
 				);
 				for parent in parents {
+					if let Kind::Permission(subject) = kind
+						&& !crate::propagate!(
+							Self::has_permissions_for_subject(
+								txn,
+								subspace,
+								&parent.clone().into(),
+								subject,
+							)
+							.await
+						) {
+						continue;
+					}
 					crate::propagate!(
 						Self::enqueue_update_propagate(
 							txn,
@@ -3364,8 +3376,11 @@ impl Index {
 				for (process, _kind) in process_parents {
 					if let Kind::Permission(subject) = kind
 						&& !crate::propagate!(
-							Self::has_process_permissions_for_subject(
-								txn, subspace, &process, subject,
+							Self::has_permissions_for_subject(
+								txn,
+								subspace,
+								&process.clone().into(),
+								subject,
 							)
 							.await
 						) {
@@ -3391,8 +3406,11 @@ impl Index {
 				for parent in parents {
 					if let Kind::Permission(subject) = kind
 						&& !crate::propagate!(
-							Self::has_process_permissions_for_subject(
-								txn, subspace, &parent, subject,
+							Self::has_permissions_for_subject(
+								txn,
+								subspace,
+								&parent.clone().into(),
+								subject,
 							)
 							.await
 						) {
@@ -3415,16 +3433,15 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
-	async fn has_process_permissions_for_subject(
+	async fn has_permissions_for_subject(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
-		process: &tg::process::Id,
+		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
-		let resource = tg::Id::from(process.clone());
 		let entries = crate::propagate!(
 			Self::get_resource_permission_entries_for_subject_with_transaction(
-				txn, subspace, &resource, subject,
+				txn, subspace, resource, subject,
 			)
 			.await
 		);

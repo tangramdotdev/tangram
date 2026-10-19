@@ -481,6 +481,54 @@ async fn shared_log_objects_materialize_permissions_for_a_parent_with_a_permissi
 	assert!(has_materialized_node_log_objects(&entries));
 }
 
+#[tokio::test]
+async fn shared_child_objects_do_not_enqueue_permission_updates_for_unrelated_parents() {
+	let (_dir, index) = super::new_index();
+	let child = object_id(0);
+	put_log_object(&index, &child).await;
+
+	// Add parents that share the child object, each put by a different subject, recording the permission updates that each subject's child permission causes.
+	let mut parents = Vec::new();
+	let mut subjects = Vec::new();
+	let mut counts = Vec::new();
+	for n in 1..=4 {
+		let parent = object_id(n);
+		let subject = tg::authorization::Subject::User(tg::user::Id::new());
+		let items = put_parent_object_items(&parent, &child, &subject);
+		index
+			.batch(tangram_index::batch::Arg { items })
+			.await
+			.unwrap()
+			.unwrap();
+		drain_permission_updates(&index).await;
+		let permission = subtree_permission_arg(&child, &subject);
+		index.put_permissions(&[permission]).await.unwrap();
+		counts.push(drain_permission_updates(&index).await);
+		parents.push(parent);
+		subjects.push(subject);
+	}
+
+	// Verify that each subject materializes a subtree permission only on its own parent.
+	for (resource, owner) in parents.iter().zip(&subjects) {
+		for subject in &subjects {
+			let entries = object_permission_entries(&index, resource, subject);
+			if subject == owner {
+				assert!(entries.iter().any(|entry| {
+					entry.permission == object_subtree() && entry.materialized.is_some()
+				}));
+			} else {
+				assert_eq!(entries, Vec::new());
+			}
+		}
+	}
+
+	// Verify that the permission updates for each added parent do not grow with the number of parents that share the child object.
+	assert!(
+		counts.windows(2).all(|window| window[0] == window[1]),
+		"{counts:?}"
+	);
+}
+
 fn node_log_objects() -> tg::authorization::Permission {
 	tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::NodeLogObjects,
@@ -593,4 +641,81 @@ fn has_materialized_node_log_objects(
 	entries
 		.iter()
 		.any(|entry| entry.permission == node_log_objects() && entry.materialized.is_some())
+}
+
+fn put_parent_object_items(
+	parent: &tg::object::Id,
+	child: &tg::object::Id,
+	subject: &tg::authorization::Subject,
+) -> Vec<tangram_index::batch::Item> {
+	let creator = subject.try_to_principal().unwrap();
+	let put_object = tangram_index::object::put::Arg {
+		checkout: None,
+		children: BTreeSet::from([child.clone()]),
+		id: parent.clone(),
+		metadata: tg::object::Metadata::default(),
+		put: [1; 16],
+		storage: tg::object::storage::Set::NODE,
+		time_to_touch: std::time::Duration::ZERO,
+		touched_at: 0,
+	};
+	let put_node_permission = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: Some(creator),
+		permissions: tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		)
+		.into(),
+		resource: parent.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(i64::MAX),
+		},
+		subject: subject.clone(),
+		time_to_touch: None,
+		version: None,
+	};
+	vec![
+		tangram_index::batch::Item::PutObject(put_object),
+		tangram_index::batch::Item::PutPermission(put_node_permission),
+	]
+}
+
+fn subtree_permission_arg(
+	resource: &tg::object::Id,
+	subject: &tg::authorization::Subject,
+) -> tangram_index::permission::put::Arg {
+	tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: Some(subject.try_to_principal().unwrap()),
+		permissions: object_subtree().into(),
+		resource: resource.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(i64::MAX),
+		},
+		subject: subject.clone(),
+		time_to_touch: None,
+		version: None,
+	}
+}
+
+fn object_permission_entries(
+	index: &Index,
+	resource: &tg::object::Id,
+	subject: &tg::authorization::Subject,
+) -> Vec<super::super::permission::PermissionEntry> {
+	let transaction = index.env.read_txn().unwrap();
+	Index::get_resource_permission_entries_for_subject_with_transaction(
+		&index.db,
+		&index.subspace,
+		&transaction,
+		&resource.clone().into(),
+		subject,
+	)
+	.unwrap()
+}
+
+fn object_subtree() -> tg::authorization::Permission {
+	tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Subtree,
+	)
 }

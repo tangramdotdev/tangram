@@ -2180,6 +2180,16 @@ impl Index {
 				let parents =
 					Self::get_object_parents_with_transaction(db, subspace, transaction, id)?;
 				for parent in parents {
+					if let Kind::Permission(subject) = kind
+						&& !Self::has_permissions_for_subject(
+							db,
+							subspace,
+							transaction,
+							&parent.clone().into(),
+							subject,
+						)? {
+						continue;
+					}
 					Self::enqueue_update_with_kind(
 						db,
 						subspace,
@@ -2194,11 +2204,11 @@ impl Index {
 					Self::get_object_processes_with_transaction(db, subspace, transaction, id)?;
 				for (process, _kind) in process_parents {
 					if let Kind::Permission(subject) = kind
-						&& !Self::has_process_permissions_for_subject(
+						&& !Self::has_permissions_for_subject(
 							db,
 							subspace,
 							transaction,
-							&process,
+							&process.clone().into(),
 							subject,
 						)? {
 						continue;
@@ -2219,11 +2229,11 @@ impl Index {
 					Self::get_process_parents_with_transaction(db, subspace, transaction, id)?;
 				for parent in parents {
 					if let Kind::Permission(subject) = kind
-						&& !Self::has_process_permissions_for_subject(
+						&& !Self::has_permissions_for_subject(
 							db,
 							subspace,
 							transaction,
-							&parent,
+							&parent.clone().into(),
 							subject,
 						)? {
 						continue;
@@ -2243,19 +2253,18 @@ impl Index {
 		Ok(())
 	}
 
-	fn has_process_permissions_for_subject(
+	fn has_permissions_for_subject(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		process: &tg::process::Id,
+		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<bool> {
-		let resource = tg::Id::from(process.clone());
 		let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
 			db,
 			subspace,
 			transaction,
-			&resource,
+			resource,
 			subject,
 		)?;
 		let output = !entries.is_empty();
