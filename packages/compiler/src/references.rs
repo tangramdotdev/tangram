@@ -47,12 +47,9 @@ impl Compiler {
 				let kind = module.kind;
 				let compiler = self.clone();
 				async move {
-					Ok::<_, tg::Error>(lsp::Location {
-						uri: compiler
-							.lsp_uri_for_module_with_language(&location.module.to_data(), kind)
-							.await?,
-						range: location.range.into(),
-					})
+					compiler
+						.lsp_location_with_language(&location.to_data(), kind)
+						.await
 				}
 			})
 			.collect::<FuturesOrdered<_>>()

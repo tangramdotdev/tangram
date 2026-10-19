@@ -1,23 +1,22 @@
 use {
-	oxc::ast::ast::{
-		BindingPattern, Declaration, ExportDefaultDeclarationKind, ImportOrExportKind, Statement,
+	super::Export,
+	oxc::ast::{
+		Comment,
+		ast::{
+			BindingPattern, Declaration, ExportDefaultDeclarationKind, ImportOrExportKind,
+			Statement,
+		},
 	},
 	oxc::span::GetSpan as _,
-	std::{
-		collections::{BTreeMap, BTreeSet},
-		ops::Range,
-	},
+	std::{collections::BTreeMap, ops::Range},
 	tangram_client::prelude::*,
 };
 
-pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTreeSet<String>> {
-	Ok(declarations(module, text)?.into_keys().collect())
-}
-
-pub(super) fn declarations(
+/// Discover a module's exports, with the ranges of their names and their documentation comments.
+pub(super) fn exports(
 	module: &tg::module::Data,
 	text: &str,
-) -> tg::Result<BTreeMap<String, Range<usize>>> {
+) -> tg::Result<BTreeMap<String, Export>> {
 	let allocator = oxc::allocator::Allocator::default();
 	let parsed = oxc::parser::Parser::new(&allocator, text, oxc::span::SourceType::ts()).parse();
 	if let Some(error) = parsed.diagnostics.first().cloned() {
@@ -33,6 +32,8 @@ pub(super) fn declarations(
 	}
 	let mut names = BTreeMap::new();
 	for statement in &parsed.program.body {
+		let documentation = documentation(&parsed.program.comments, statement.span().start, text);
+		let mut ranges = BTreeMap::new();
 		match statement {
 			Statement::ExportAllDeclaration(export)
 				if export.export_kind == ImportOrExportKind::Value =>
@@ -49,7 +50,7 @@ pub(super) fn declarations(
 			Statement::ExportDeclaration(export) => match &export.declaration {
 				Declaration::ClassDeclaration(class) if !class.declare => {
 					if let Some(id) = &class.id {
-						names.insert(
+						ranges.insert(
 							id.name.to_string(),
 							id.span.start as usize..id.span.end as usize,
 						);
@@ -57,21 +58,21 @@ pub(super) fn declarations(
 				},
 				Declaration::FunctionDeclaration(function) if function.body.is_some() => {
 					if let Some(id) = &function.id {
-						names.insert(
+						ranges.insert(
 							id.name.to_string(),
 							id.span.start as usize..id.span.end as usize,
 						);
 					}
 				},
 				Declaration::TSEnumDeclaration(declaration) if !declaration.declare => {
-					names.insert(
+					ranges.insert(
 						declaration.id.name.to_string(),
 						declaration.id.span.start as usize..declaration.id.span.end as usize,
 					);
 				},
 				Declaration::VariableDeclaration(declaration) if !declaration.declare => {
 					for declarator in &declaration.declarations {
-						bindings(&declarator.id, &mut names);
+						bindings(&declarator.id, &mut ranges);
 					}
 				},
 				_ => {},
@@ -81,7 +82,7 @@ pub(super) fn declarations(
 					export.declaration,
 					ExportDefaultDeclarationKind::TSInterfaceDeclaration(_)
 				) {
-					names.insert(
+					ranges.insert(
 						"default".to_owned(),
 						export.span.start as usize..export.span.end as usize,
 					);
@@ -93,7 +94,7 @@ pub(super) fn declarations(
 				for specifier in &export.specifiers {
 					if specifier.export_kind == ImportOrExportKind::Value {
 						let span = specifier.exported.span();
-						names.insert(
+						ranges.insert(
 							specifier.exported.name().to_string(),
 							span.start as usize..span.end as usize,
 						);
@@ -106,7 +107,7 @@ pub(super) fn declarations(
 				for specifier in &export.specifiers {
 					if specifier.export_kind == ImportOrExportKind::Value {
 						let span = specifier.exported.span();
-						names.insert(
+						ranges.insert(
 							specifier.exported.name().to_string(),
 							span.start as usize..span.end as usize,
 						);
@@ -115,8 +116,38 @@ pub(super) fn declarations(
 			},
 			_ => {},
 		}
+		for (name, range) in ranges {
+			let export = Export {
+				documentation: documentation.clone(),
+				range: Some(range),
+			};
+			names.insert(name, export);
+		}
 	}
 	Ok(names)
+}
+
+/// Get the text of the documentation comment attached to the statement at an offset.
+fn documentation(comments: &[Comment], offset: u32, text: &str) -> Option<String> {
+	let comment = comments
+		.iter()
+		.rev()
+		.find(|comment| comment.attached_to == offset && comment.is_jsdoc())?;
+	let span = comment.content_span();
+	let content = text.get(span.start as usize..span.end as usize)?;
+	let lines = content
+		.lines()
+		.map(|line| {
+			let line = line.trim();
+			let line = line.strip_prefix('*').unwrap_or(line);
+			line.strip_prefix(' ').unwrap_or(line)
+		})
+		.collect::<Vec<_>>();
+	let documentation = lines.join("\n").trim().to_owned();
+	if documentation.is_empty() {
+		return None;
+	}
+	Some(documentation)
 }
 
 fn bindings(pattern: &BindingPattern, names: &mut BTreeMap<String, Range<usize>>) {
@@ -149,13 +180,14 @@ fn bindings(pattern: &BindingPattern, names: &mut BTreeMap<String, Range<usize>>
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+	use {super::*, std::collections::BTreeSet};
 
 	fn exports(text: &str) -> tg::Result<BTreeSet<String>> {
-		super::exports(
+		let exports = super::exports(
 			&crate::load::tests::source(tg::module::Kind::TypeScript),
 			text,
-		)
+		)?;
+		Ok(exports.into_keys().collect())
 	}
 
 	#[test]

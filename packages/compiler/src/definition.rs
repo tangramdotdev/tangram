@@ -145,19 +145,24 @@ impl Compiler {
 				let kind = module.kind;
 				let compiler = self.clone();
 				async move {
-					Ok::<_, tg::Error>(lsp::Location {
-						uri: compiler
-							.lsp_uri_for_module_with_language(&location.module.to_data(), kind)
-							.await?,
-						range: location.range.into(),
-					})
+					compiler
+						.lsp_location_with_language(&location.to_data(), kind)
+						.await
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
-			.try_collect()
+			.try_collect::<Vec<_>>()
 			.await?;
 
-		let response = lsp::GotoDefinitionResponse::Array(locations);
+		// Remove duplicate locations, such as several generated declarations that map to the same source.
+		let mut unique = Vec::new();
+		for location in locations {
+			if !unique.contains(&location) {
+				unique.push(location);
+			}
+		}
+
+		let response = lsp::GotoDefinitionResponse::Array(unique);
 
 		Ok(Some(response))
 	}
@@ -188,19 +193,24 @@ impl Compiler {
 				let kind = module.kind;
 				let compiler = self.clone();
 				async move {
-					Ok::<_, tg::Error>(lsp::Location {
-						uri: compiler
-							.lsp_uri_for_module_with_language(&location.module.to_data(), kind)
-							.await?,
-						range: location.range.into(),
-					})
+					compiler
+						.lsp_location_with_language(&location.to_data(), kind)
+						.await
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
-			.try_collect()
+			.try_collect::<Vec<_>>()
 			.await?;
 
-		let response = lsp::GotoDefinitionResponse::Array(locations);
+		// Remove duplicate locations, such as several generated declarations that map to the same source.
+		let mut unique = Vec::new();
+		for location in locations {
+			if !unique.contains(&location) {
+				unique.push(location);
+			}
+		}
+
+		let response = lsp::GotoDefinitionResponse::Array(unique);
 
 		Ok(Some(response))
 	}
@@ -231,19 +241,24 @@ impl Compiler {
 				let kind = module.kind;
 				let compiler = self.clone();
 				async move {
-					Ok::<_, tg::Error>(lsp::Location {
-						uri: compiler
-							.lsp_uri_for_module_with_language(&location.module.to_data(), kind)
-							.await?,
-						range: location.range.into(),
-					})
+					compiler
+						.lsp_location_with_language(&location.to_data(), kind)
+						.await
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
-			.try_collect()
+			.try_collect::<Vec<_>>()
 			.await?;
 
-		let response = lsp::GotoDefinitionResponse::Array(locations);
+		// Remove duplicate locations, such as several generated declarations that map to the same source.
+		let mut unique = Vec::new();
+		for location in locations {
+			if !unique.contains(&location) {
+				unique.push(location);
+			}
+		}
+
+		let response = lsp::GotoDefinitionResponse::Array(unique);
 
 		Ok(Some(response))
 	}

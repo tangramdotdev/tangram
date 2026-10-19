@@ -42,10 +42,6 @@ $session = lsp send $session (lsp definition 12 $uri 5 10)
 let response = lsp wait_result $session 12 --timeout $response_timeout
 $session = $response.session
 let location = $response.result.0
-let generated = lsp path_for_uri $location.uri
-assert ($generated | str contains '/generated/')
-assert ($generated | str ends-with '.tg.py')
-let line = open --raw $generated | lines | get $location.range.start.line
-assert equal ($line | str substring $location.range.start.character..<$location.range.end.character) 'greet'
-assert ($line | str contains 'async def greet(')
+assert equal $location.uri (lsp uri ($path | path join helper.tg.ts))
+assert equal $location.range {start: {line: 0, character: 16}, end: {line: 0, character: 21}}
 lsp stop $session

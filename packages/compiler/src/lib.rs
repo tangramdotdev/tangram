@@ -1179,21 +1179,48 @@ impl Compiler {
 		Ok(module)
 	}
 
+	/// Convert a location returned by a language service for a module of the given kind, mapping a position in a generated module to its source in the original module.
+	async fn lsp_location_with_language(
+		&self,
+		location: &tg::module::data::Location,
+		kind: tg::module::Kind,
+	) -> tg::Result<lsp::Location> {
+		// Map a position in a generated module to the source of its export.
+		if let Some((language, _)) = generated_language(kind, location.module.kind) {
+			let text = self
+				.load_module_with_language(&location.module, Some(language))
+				.await?;
+			let encoding = *self.position_encoding.read().unwrap();
+			if let Some(offset) = location
+				.range
+				.start
+				.try_to_byte_index_in_string(&text, encoding)
+				&& let Some(source) = load::source(&text, offset)
+			{
+				let uri = self.lsp_uri_for_module(&location.module).await?;
+				let range = source.range(encoding).into();
+				let location = lsp::Location { uri, range };
+				return Ok(location);
+			}
+		}
+
+		// Otherwise, use the representation whose positions the language service returned.
+		let uri = self
+			.lsp_uri_for_module_with_language(&location.module, kind)
+			.await?;
+		let range = location.range.into();
+		let location = lsp::Location { uri, range };
+
+		Ok(location)
+	}
+
 	async fn lsp_uri_for_module_with_language(
 		&self,
 		module: &tg::module::Data,
 		kind: tg::module::Kind,
 	) -> tg::Result<lsp::Uri> {
-		let (language, extension) = match (kind, module.kind) {
-			(
-				tg::module::Kind::Python,
-				tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
-			) => (tg::module::load::Language::Python, "py"),
-			(
-				tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
-				tg::module::Kind::Python,
-			) => (tg::module::load::Language::JavaScript, "js"),
-			_ => return self.lsp_uri_for_module(module).await,
+		let Some((language, extension)) = generated_language(kind, module.kind) else {
+			return self.lsp_uri_for_module(module).await;
 		};
 
 		// Materialize the representation whose positions the language service returned.
@@ -1458,5 +1485,21 @@ impl Drop for Owned {
 		self.compiler.tsrs.stop();
 		#[cfg(feature = "ty")]
 		self.compiler.python.stop();
+	}
+}
+
+/// Get the language and extension of the representation that a module of the given kind uses for a module in another language.
+fn generated_language(
+	kind: tg::module::Kind,
+	module_kind: tg::module::Kind,
+) -> Option<(tg::module::load::Language, &'static str)> {
+	match (kind, module_kind) {
+		(tg::module::Kind::Python, tg::module::Kind::JavaScript | tg::module::Kind::TypeScript) => {
+			Some((tg::module::load::Language::Python, "py"))
+		},
+		(tg::module::Kind::JavaScript | tg::module::Kind::TypeScript, tg::module::Kind::Python) => {
+			Some((tg::module::load::Language::JavaScript, "js"))
+		},
+		_ => None,
 	}
 }

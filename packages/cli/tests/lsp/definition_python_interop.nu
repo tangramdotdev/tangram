@@ -26,25 +26,16 @@ let responses = lsp exchange [
     (lsp request 12 textDocument/prepareRename {textDocument: {uri: $uri}, position: {line: 5, character: 10}})
     (lsp rename 13 $uri 5 10 welcome)
 ]
-let location = (lsp result $responses 10).0
-let generated = lsp path_for_uri $location.uri
-assert ($generated | str contains '/generated/')
-assert ($generated | str ends-with '.tg.py')
-let text = open --raw $generated
-let line = $text | lines | get $location.range.start.line
-assert equal ($line | str substring $location.range.start.character..<$location.range.end.character) 'greet'
-assert ($line | str contains 'async def greet(')
-let other = (lsp result $responses 11).0
-assert equal $other.uri $location.uri
-assert equal ($text | lines | get $other.range.start.line | str substring $other.range.start.character..<$other.range.end.character) 'other'
+
+# The definitions are the exports' names in the original TypeScript module.
+let dependency_uri = lsp uri ($dependency | path join tangram.ts)
+assert equal (lsp result $responses 10) [{
+    uri: $dependency_uri
+    range: {start: {line: 2, character: 16}, end: {line: 2, character: 21}}
+}]
+assert equal (lsp result $responses 11) [{
+    uri: $dependency_uri
+    range: {start: {line: 3, character: 13}, end: {line: 3, character: 18}}
+}]
 assert equal (lsp result $responses 12) null
 assert equal (lsp result $responses 13) null
-
-# Opening the generated module must not allow edits through rename.
-let responses = lsp exchange [
-    (lsp initialize 1)
-    (lsp initialized)
-    (lsp did_open $location.uri $text)
-    (lsp rename 10 $location.uri $location.range.start.line $location.range.start.character welcome)
-]
-assert equal (lsp result $responses 10) null

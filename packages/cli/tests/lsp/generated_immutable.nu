@@ -20,9 +20,19 @@ let path = artifact {
     'control.tg.ts': ''
     'control.tg.py': ''
 }
+
+# Find the directory of generated modules through the generated JavaScript representation of the Python helper.
+let responses = lsp exchange [
+    (lsp initialize 1)
+    (lsp initialized)
+    (lsp did_open (lsp uri ($path | path join main.tg.ts)) $javascript)
+    (lsp request 10 workspace/symbol {query: greet})
+]
+let generated_directory = lsp result $responses 10 | where { |symbol| $symbol.location.uri | str contains '/generated/' } | get 0.location.uri | lsp path_for_uri $in | path dirname
+
 for case in [
-    {main: main.tg.ts, line: 1, control: control.tg.ts, source: "import { greet } from './helper.tg.ts';\nexport function retained() { return 1; }", only: 'source.organizeImports'}
-    {main: main.tg.py, line: 5, control: control.tg.py, source: "missing_name()\n", only: quickfix}
+    {main: main.tg.ts, control: control.tg.ts, source: "import { greet } from './helper.tg.ts';\nexport function retained() { return 1; }", only: 'source.organizeImports'}
+    {main: main.tg.py, control: control.tg.py, source: "missing_name()\n", only: quickfix}
 ] {
     let uri = lsp uri ($path | path join $case.main)
     let control_uri = lsp uri ($path | path join $case.control)
@@ -31,13 +41,12 @@ for case in [
         (lsp initialize 1)
         (lsp initialized)
         (lsp did_open $uri (open --raw ($path | path join $case.main)))
-        (lsp definition 10 $uri $case.line 2)
     ]
-    let response = lsp wait_result $session 10
-    $session = $response.session
-    let generated_uri = $response.result.0.uri
-    let generated_path = lsp path_for_uri $generated_uri
-    assert ($generated_path | str contains '/generated/')
+
+    # Open a module in the generated directory with unsaved text.
+    let generated_path = if ($case.main | str ends-with '.py') { $generated_directory | path join 'immutable.tg.py' } else { $generated_directory | path join 'immutable.tg.js' }
+    $case.source | save --force $generated_path
+    let generated_uri = lsp uri $generated_path
     let original = open --raw $generated_path
     $session = lsp send_all $session [
         (lsp did_open $control_uri $case.source)
