@@ -56,7 +56,7 @@ impl Cache {
 		let id = entry.id.to_bytes();
 		let params = (id.as_ref(), entry.put.as_slice());
 		self.session
-			.execute_unpaged(&self.statements.delete_object, params)
+			.execute_unpaged(&self.statements.delete_object_for_put, params)
 			.await
 			.map_err(|error| tg::error!(!error, id = %entry.id, "failed to delete the object"))?;
 
@@ -92,6 +92,20 @@ impl Cache {
 			.try_for_each_concurrent(self.object_concurrency, |arg| self.delete_object(arg))
 			.await?;
 
+		Ok(())
+	}
+
+	async fn delete_object_for_put(
+		&self,
+		arg: tangram_cache::object::delete::Arg,
+	) -> tg::Result<()> {
+		let id = &arg.id;
+		let id_bytes = id.to_bytes().to_vec();
+		let params = (id_bytes, arg.put.as_slice());
+		self.session
+			.execute_unpaged(&self.statements.delete_object_for_put, params)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?;
 		Ok(())
 	}
 
@@ -194,7 +208,7 @@ impl Cache {
 				id: id.clone(),
 				put,
 			};
-			if let Err(cleanup_error) = self.delete_object(arg).await {
+			if let Err(cleanup_error) = self.delete_object_for_put(arg).await {
 				return Err(tg::error!(
 					!error,
 					cleanup_error = %cleanup_error.trace(),
