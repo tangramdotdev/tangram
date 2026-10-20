@@ -908,15 +908,21 @@ impl Sandbox {
 	}
 
 	async fn destroy_inner(&self) -> tg::Result<()> {
+		// Stop the sandbox process, then stop any descendants that outlive it.
+		self.stop_process().await?;
 		#[cfg(target_os = "macos")]
 		self.0.cleanup.stop(self.0.arg.shutdown_timeout).await?;
+		self.cleanup_cgroup().await?;
+
+		Ok(())
+	}
+
+	async fn stop_process(&self) -> tg::Result<()> {
 		let mut process = self.0.process.lock().await;
 		let status = process
 			.try_wait()
 			.map_err(|error| tg::error!(!error, "failed to query the sandbox process"))?;
 		if status.is_some() {
-			drop(process);
-			self.cleanup_cgroup().await?;
 			return Ok(());
 		}
 
@@ -931,8 +937,6 @@ impl Sandbox {
 		})
 		.await;
 		if matches!(result, Ok(Ok(()))) {
-			drop(process);
-			self.cleanup_cgroup().await?;
 			return Ok(());
 		}
 
@@ -950,8 +954,6 @@ impl Sandbox {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to wait for the sandbox process"))?;
-		drop(process);
-		self.cleanup_cgroup().await?;
 
 		Ok(())
 	}
