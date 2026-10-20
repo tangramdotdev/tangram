@@ -24,12 +24,14 @@ failure (tg --token $mallory.token get $secret | complete) "Mallory should not r
 let runner = tg --token $mallory.token runner create --owner $mallory.user.id | from json
 let lease = $parent | str substring 6..
 
-# The runner must not start the child without the parent's token, or with a token that is not the parent's.
-for token in [null $mallory.token] {
-	let start = { data: $data, kind: start, lease: $lease, parent: $parent, parent_token: $token } | compact
+# The runner must not start the child without a proof, or with a token that is not the parent's.
+for shortcut in [null { parent: { id: $parent, token: $mallory.token }, sandbox: { token: $mallory.token } }] {
+	let start = { data: $data, kind: start, lease: $lease, shortcut: $shortcut } | compact
 	{ location: 'local', mode: $start } | to json | save --force arg.json
 	let output = python3 $helper $socket $runner.token.token arg.json | complete
 	failure $output "a runner should not start a shortcut child of a process that it does not run"
+	let expected = if $shortcut == null { 'must prove its parent and sandbox' } else { $parent }
+	assert ($output.stderr | str contains $expected) $output.stderr
 }
 
 # Mallory runs her own process, whose token proves that her runner runs it.
@@ -37,11 +39,11 @@ let own = tg --token $mallory.token spawn --sandbox --verbose --executable /bin/
 wait_until { (tg --token $mallory.token log $own | complete).stdout | str trim | is-not-empty } "Mallory's process should print its token"
 let own_token = tg --token $mallory.token log $own | str trim
 
-# The runner must not start a child of its own process in Alice's sandbox without the sandbox's token, or with a token that is not the sandbox's.
-for token in [null $own_token] {
-	let start = { data: $data, kind: start, lease: $lease, parent: $own, parent_token: $own_token, sandbox_token: $token } | compact
-	{ location: 'local', mode: $start } | to json | save --force arg.json
-	let output = python3 $helper $socket $runner.token.token arg.json | complete
-	failure $output "a runner should not start a shortcut child in a sandbox that it does not host"
-}
+# The runner must not start a child of its own process in Alice's sandbox with a token that is not the sandbox's.
+let shortcut = { parent: { id: $own, token: $own_token }, sandbox: { token: $own_token } }
+let start = { data: $data, kind: start, lease: $lease, shortcut: $shortcut }
+{ location: 'local', mode: $start } | to json | save --force arg.json
+let output = python3 $helper $socket $runner.token.token arg.json | complete
+failure $output "a runner should not start a shortcut child in a sandbox that it does not host"
+assert ($output.stderr | str contains $data.sandbox) $output.stderr
 tg --token $mallory.token cancel $own | complete

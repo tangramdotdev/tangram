@@ -45,7 +45,7 @@ struct IndexProcessControlArg {
 	id: tg::process::Id,
 	options: tg::referent::Options,
 	parent: Option<tg::process::Id>,
-	sandbox: Option<tg::process::control::Sandbox>,
+	sandbox: Option<tg::process::control::SandboxCreate>,
 }
 
 pub(crate) fn connected_subject(id: &tg::process::Id) -> String {
@@ -266,37 +266,37 @@ impl Session {
 					mut data,
 					lease,
 					mut options,
-					parent,
-					parent_token,
-					sandbox,
-					sandbox_token,
+					shortcut: shortcut_arg,
 				} = start;
 
-				// Ignore the parent that a scheduled process's start restates, since the server recorded the parent when it spawned the process.
-				let parent = if shortcut { parent } else { None };
-
-				// Reject a scheduled process's start that creates a sandbox, since a scheduled process runs in a sandbox that already exists.
-				if !shortcut && sandbox.is_some() {
-					return Err(tg::error!(
-						"a scheduled process's start must not create a sandbox"
-					));
-				}
-
-				// Require a process on the shortcut path to prove with their tokens that its runner runs its parent and hosts its sandbox.
-				if shortcut {
-					let parent = parent.as_ref().ok_or_else(|| {
-						tg::error!("a process on the shortcut path must have a parent")
-					})?;
-					let principal = tg::Principal::Process(parent.clone());
-					self.verify_process_control_start_token(parent_token.as_deref(), principal)
-						.await?;
-					let sandbox = data.sandbox.as_ref().ok_or_else(|| {
-						tg::error!("a process on the shortcut path must have a sandbox")
-					})?;
-					let principal = tg::Principal::Sandbox(sandbox.clone());
-					self.verify_process_control_start_token(sandbox_token.as_deref(), principal)
-						.await?;
-				}
+				// Require a process on the shortcut path to prove with their tokens that its runner runs its parent and hosts its sandbox, and require a scheduled process not to.
+				let (parent, sandbox) = match (shortcut, shortcut_arg) {
+					(true, Some(shortcut_arg)) => {
+						let tg::process::control::Shortcut { parent, sandbox } = shortcut_arg;
+						let principal = tg::Principal::Process(parent.id.clone());
+						self.verify_process_control_start_token(&parent.token, principal)
+							.await?;
+						let sandbox_id = data.sandbox.as_ref().ok_or_else(|| {
+							tg::error!("a process on the shortcut path must have a sandbox")
+						})?;
+						let principal = tg::Principal::Sandbox(sandbox_id.clone());
+						self.verify_process_control_start_token(&sandbox.token, principal)
+							.await?;
+						(Some(parent.id), sandbox.create)
+					},
+					(true, None) => {
+						return Err(tg::error!(
+							unauthorized,
+							"a process on the shortcut path must prove its parent and sandbox"
+						));
+					},
+					(false, Some(_)) => {
+						return Err(tg::error!(
+							"a scheduled process's start must not have a shortcut proof"
+						));
+					},
+					(false, None) => (None, None),
+				};
 				options.tokens.clear();
 				if let Some(syncs) = &syncs {
 					data.command
@@ -672,7 +672,7 @@ impl Session {
 				self.prepare_sandbox_control_index_arg(
 					sandbox_id,
 					sandbox.created_at,
-					sandbox.create,
+					sandbox.arg,
 					sandbox.creator,
 					sandbox.runner,
 				)
@@ -767,16 +767,9 @@ impl Session {
 	/// Verify that a token in a process control start authenticates as the given principal.
 	async fn verify_process_control_start_token(
 		&self,
-		token: Option<&str>,
+		token: &str,
 		principal: tg::Principal,
 	) -> tg::Result<()> {
-		let token = token.ok_or_else(|| {
-			tg::error!(
-				unauthorized,
-				%principal,
-				"a process on the shortcut path requires a token for the principal"
-			)
-		})?;
 		let authentication = self
 			.server
 			.authenticate(self.context.origin, Some(token))

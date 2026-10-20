@@ -432,8 +432,8 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		let sandbox_initialization = shortcut.then(|| tg::process::control::Sandbox {
-			create: arg.clone(),
+		let sandbox_create = shortcut.then(|| tg::process::control::SandboxCreate {
+			arg: arg.clone(),
 			created_at,
 			creator: creator.clone(),
 			runner: self.server.runner.state.id(),
@@ -534,7 +534,7 @@ impl Session {
 				processes: processes.clone(),
 				retention_stopper: stopper.clone(),
 				sandbox: &create_output.sandbox,
-				sandbox_initialization,
+				sandbox_create,
 				sandbox_ready_receiver: Some(sandbox_ready_receiver),
 			};
 			self.spawn_process_task(arg)
@@ -1230,7 +1230,7 @@ impl Session {
 								processes: processes.clone(),
 								retention_stopper: stopper.clone(),
 								sandbox: &sandbox,
-								sandbox_initialization: None,
+								sandbox_create: None,
 								sandbox_ready_receiver: None,
 							};
 							let task = self.spawn_process_task(arg);

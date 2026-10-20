@@ -51,7 +51,7 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub processes: Arc<crate::process::Processes>,
 	pub retention_stopper: Stopper,
 	pub sandbox: &'a tangram_sandbox::Sandbox,
-	pub sandbox_initialization: Option<tg::process::control::Sandbox>,
+	pub sandbox_create: Option<tg::process::control::SandboxCreate>,
 	pub sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
 }
 
@@ -68,7 +68,7 @@ struct ProcessTaskArg {
 	processes: Arc<crate::process::Processes>,
 	retention_stopper: Stopper,
 	sandbox: tangram_sandbox::Sandbox,
-	sandbox_initialization: Option<tg::process::control::Sandbox>,
+	sandbox_create: Option<tg::process::control::SandboxCreate>,
 	sandbox_ready_receiver: Option<tokio::sync::oneshot::Receiver<()>>,
 	sandbox_stopper: Stopper,
 }
@@ -245,7 +245,7 @@ impl Session {
 		let process = arg.process;
 		let processes = arg.processes;
 		let sandbox = arg.sandbox.clone();
-		let sandbox_initialization = arg.sandbox_initialization;
+		let sandbox_create = arg.sandbox_create;
 		let guest_url = arg.guest_url.clone();
 		let location = arg.location;
 		let sandbox_ready_receiver = arg.sandbox_ready_receiver;
@@ -261,7 +261,7 @@ impl Session {
 					processes,
 					retention_stopper,
 					sandbox,
-					sandbox_initialization,
+					sandbox_create,
 					sandbox_ready_receiver,
 					sandbox_stopper,
 				};
@@ -292,7 +292,7 @@ impl Session {
 			processes,
 			retention_stopper,
 			sandbox,
-			sandbox_initialization,
+			sandbox_create,
 			mut sandbox_ready_receiver,
 			sandbox_stopper,
 		} = arg;
@@ -387,19 +387,31 @@ impl Session {
 					connection.header.token.clone().ok_or_else(
 						|| tg::error!(%id, "missing the process authentication token"),
 					)?;
+				let parent_token = command_session
+					.context
+					.token
+					.clone()
+					.ok_or_else(|| tg::error!(%parent, "missing the parent's process token"))?;
+				let parent = tg::process::control::Parent {
+					id: parent.clone(),
+					token: parent_token,
+				};
 				let sandbox_token = state
 					.sandbox
 					.as_ref()
 					.and_then(|sandbox| self.server.runner.state.sandboxes.get_by_id(sandbox))
-					.map(|sandbox| sandbox.token.clone());
+					.map(|sandbox| sandbox.token.clone())
+					.ok_or_else(|| tg::error!(%id, "missing the sandbox's token"))?;
+				let sandbox = tg::process::control::Sandbox {
+					create: sandbox_create,
+					token: sandbox_token,
+				};
+				let shortcut = tg::process::control::Shortcut { parent, sandbox };
 				let start = tg::process::control::StartClientRequestArg {
 					data: state.to_data(),
 					lease,
 					options: options.clone(),
-					parent: Some(parent.clone()),
-					parent_token: command_session.context.token.clone(),
-					sandbox: sandbox_initialization,
-					sandbox_token,
+					shortcut: Some(shortcut),
 				};
 				control_sender = connection.control.sender();
 				let response = Self::send_process_control_client_request_inner(
@@ -927,10 +939,7 @@ impl Session {
 				data: data.clone(),
 				lease,
 				options: options.clone(),
-				parent: parent.clone(),
-				parent_token: None,
-				sandbox: None,
-				sandbox_token: None,
+				shortcut: None,
 			};
 			let arg = tg::process::control::Arg {
 				command_sync: None,
