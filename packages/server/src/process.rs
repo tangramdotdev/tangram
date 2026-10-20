@@ -117,14 +117,16 @@ impl Session {
 		if self.process_children_grant_subtree(data.children.as_deref().unwrap_or_default()) {
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
 		}
+		let output = data.output_with_location_and_tokens();
 		if self
-			.process_output_has_subtree_permission(data.output.as_ref())
+			.process_output_has_subtree_permission(output.as_ref())
 			.unwrap_or(true)
 		{
 			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS);
 		}
-		if self.process_error_has_subtree_permission(data.error.as_ref()) {
+		let error = data.error_with_location_and_tokens();
+		if self.process_error_has_subtree_permission(error.as_ref()) {
 			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS);
 		}

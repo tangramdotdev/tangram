@@ -17,7 +17,7 @@ def put-process [socket: string, token: string, id: string, command: string, out
 		exit: 0,
 		finished_at: 1,
 		host: "x86_64-linux",
-		output: { kind: "object", value: $output },
+		output: { node: { kind: "object", value: $output } },
 		status: "finished",
 	}
 	let response = http put --raw --unix-socket $socket --headers { Authorization: $'Bearer ($token)' } --content-type application/json $'http://localhost/processes/($id)' { data: $data } | from json

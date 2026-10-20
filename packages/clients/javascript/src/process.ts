@@ -1543,7 +1543,8 @@ export namespace Process {
 				output.debug = value.debug;
 			}
 			if (value.error !== null) {
-				output.error = tg.Error.toDataOrId(value.error);
+				let error = tg.Error.toDataOrId(value.error);
+				output.error = typeof error === "string" ? error : { node: error };
 			}
 			if (value.exit !== null) {
 				output.exit = value.exit;
@@ -1556,7 +1557,7 @@ export namespace Process {
 				output.log = tg.Referent.toDataString(referent, (id) => id);
 			}
 			if (value.output !== undefined) {
-				output.output = tg.Value.toData(value.output);
+				output.output = { node: tg.Value.toData(value.output) };
 			}
 			if (value.retry) {
 				output.retry = value.retry;
@@ -1599,14 +1600,7 @@ export namespace Process {
 				debug: data.debug ?? null,
 				error:
 					data.error !== undefined && data.error !== null
-						? typeof data.error === "string"
-							? tg.Error.withReferent(
-									tg.Referent.fromDataString(
-										data.error,
-										(id) => id as tg.Error.Id,
-									),
-								)
-							: tg.Error.fromData(data.error)
+						? errorFromData(data.error)
 						: null,
 				exit: data.exit ?? null,
 				finishedAt: data.finished_at ?? null,
@@ -1631,7 +1625,7 @@ export namespace Process {
 				tty: data.tty ?? null,
 			};
 			if (data.output !== undefined) {
-				output.output = tg.Value.fromData(data.output);
+				output.output = outputFromData(data.output);
 			}
 			return output;
 		};
@@ -1680,12 +1674,12 @@ export namespace Process {
 		command: tg.Process.Data.CommandReferent;
 		created_at: number;
 		debug?: tg.Process.Debug | null;
-		error?: tg.Error.Data | string | null;
+		error?: tg.Process.Data.ErrorReferent | null;
 		exit?: number | null;
 		finished_at?: number | null;
 		host: string;
 		log?: string | null;
-		output?: tg.Value.Data;
+		output?: tg.Process.Data.OutputReferent;
 		retry?: boolean;
 		sandbox?: string | null;
 		started_at?: number | null;
@@ -1705,6 +1699,13 @@ export namespace Process {
 		export type CommandReferent = tg.Referent.Data<
 			tg.Process.Data.Command | tg.Command.Id
 		>;
+
+		export type ErrorReferent = tg.Referent.Data<tg.Error.Data | tg.Error.Id>;
+
+		export type OutputReferent = {
+			node: tg.Value.Data;
+			options?: tg.Referent.Data.Options;
+		};
 
 		export type Command = Omit<
 			tg.Process.Spawn.CommandArg,
@@ -1757,7 +1758,13 @@ export namespace Process {
 						(id) => id,
 					);
 				} else {
-					output.error = tg.Error.Data.withoutLocationAndTokens(data.error);
+					let node = data.error.node;
+					output.error = {
+						node:
+							typeof node === "string"
+								? node
+								: tg.Error.Data.withoutLocationAndTokens(node),
+					};
 				}
 			}
 			if (data.log !== undefined && data.log !== null) {
@@ -1771,7 +1778,9 @@ export namespace Process {
 				);
 			}
 			if (data.output !== undefined) {
-				output.output = tg.Value.Data.withoutLocationAndTokens(data.output);
+				output.output = {
+					node: tg.Value.Data.withoutLocationAndTokens(data.output.node),
+				};
 			}
 			return output;
 		};
@@ -1831,6 +1840,38 @@ function commandReferentFromData(
 	return typeof data === "string"
 		? tg.Referent.fromDataString(data, (id) => id as tg.Command.Id)
 		: tg.Referent.fromData(data, (node) => node);
+}
+
+function errorFromData(data: tg.Process.Data.ErrorReferent): tg.Error {
+	if (typeof data === "string") {
+		let referent = tg.Referent.fromDataString(data, (id) => id as tg.Error.Id);
+		return tg.Error.withReferent(referent);
+	}
+	let referent = tg.Referent.fromData(data, (node) => node);
+	if (typeof referent.node === "string") {
+		return tg.Error.withReferent({ ...referent, node: referent.node });
+	}
+	let error = tg.Error.fromData(referent.node);
+	tg.Object.inheritLocation(error, referent.options?.location ?? null);
+	if (
+		referent.options?.tokens !== undefined &&
+		referent.options.tokens !== null
+	) {
+		tg.Object.inheritTokens(error, referent.options.tokens);
+	}
+	return error;
+}
+
+function outputFromData(data: tg.Process.Data.OutputReferent): tg.Value {
+	let referent = tg.Referent.fromData(data, tg.Value.fromData);
+	tg.Value.inheritLocation(referent.node, referent.options?.location ?? null);
+	if (
+		referent.options?.tokens !== undefined &&
+		referent.options.tokens !== null
+	) {
+		tg.Value.inheritTokens(referent.node, referent.options.tokens);
+	}
+	return referent.node;
 }
 
 function commandReferentToData(

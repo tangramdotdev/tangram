@@ -351,9 +351,9 @@ impl Session {
 			.ok_or_else(|| tg::error!("expected the exit to be set"))?;
 		let mut outcome = tg::process::outcome::Data {
 			checksum: data.checksum.actual.clone(),
-			error: data.error.clone(),
+			error: data.error_with_location_and_tokens(),
 			exit,
-			output: data.output.clone(),
+			output: data.output_with_location_and_tokens(),
 		};
 
 		// A result sync can expose both fields, so require permission for every object-bearing field.

@@ -926,10 +926,10 @@ impl Graph {
 				.collect::<BTreeSet<_>>();
 			let mut error_objects = BTreeSet::new();
 			if let Some(error) = &data.error {
-				match error {
+				match &error.node {
 					tg::Either::Left(error) => error.children(&mut error_objects),
 					tg::Either::Right(error) => {
-						error_objects.insert(error.node.clone().into());
+						error_objects.insert(error.clone().into());
 					},
 				}
 			}
@@ -940,7 +940,7 @@ impl Graph {
 				.collect::<BTreeSet<_>>();
 			let mut output_objects = BTreeSet::new();
 			if let Some(output) = &data.output {
-				output.children(&mut output_objects);
+				output.node.children(&mut output_objects);
 			}
 
 			for (kind, ids) in [

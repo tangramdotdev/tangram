@@ -21,7 +21,7 @@ let data = {
 	finished_at: 1,
 	host: "x86_64-linux",
 	log: "blb_010000000000000000000000000000000000000000000000000000",
-	output: { kind: "object", value: "fil_010000000000000000000000000000000000000000000000000000" },
+	output: { node: { kind: "object", value: "fil_010000000000000000000000000000000000000000000000000000" } },
 	status: "finished",
 }
 let socket = $local.url | str replace 'http+unix://' '' | url decode

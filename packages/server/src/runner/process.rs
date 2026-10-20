@@ -1317,7 +1317,7 @@ impl Session {
 			}
 		}
 		data.checksum.actual = outcome.checksum.clone();
-		data.error = error;
+		data.set_error(error);
 		data.exit = Some(exit);
 		crate::checkpoint!(self.server, "runner.process.output.stored", process = %id).await;
 		let log = match log_task {
@@ -1332,19 +1332,17 @@ impl Session {
 			Err(error) => {
 				let error = tg::error!(!error, "failed to store the process log");
 				data.cacheable = false;
-				data.error = Some(
-					self.store_process_error(
-						error.to_data_or_id().map_right(|_| error.to_referent()),
-					)
-					.await,
-				);
+				let error = self
+					.store_process_error(error.to_data_or_id().map_right(|_| error.to_referent()))
+					.await;
+				data.set_error(Some(error));
 				exit = 1;
 				data.exit = Some(exit);
 				None
 			},
 		};
 		data.finished_at = Some(self.server.clock.unix_timestamp()?);
-		data.output = outcome.output.as_ref().map(tg::Value::to_data);
+		data.set_output(outcome.output.as_ref().map(tg::Value::to_data));
 		data.status = tg::process::Status::Finished;
 		Self::validate_process_data(&data)?;
 		tracing::info!(exit, process = %id, sandbox = state.sandbox.as_ref().map(ToString::to_string), "collected the process output");
@@ -1513,11 +1511,11 @@ impl Session {
 		data: &tg::process::Data,
 	) -> Vec<tg::Referent<tg::object::Id>> {
 		let mut objects = Vec::new();
-		if let Some(output) = &data.output {
+		if let Some(output) = data.output_with_location_and_tokens() {
 			output.children_with_tokens(&mut objects);
 		}
-		if let Some(tg::Either::Right(error)) = &data.error {
-			objects.push(error.clone().map(tg::object::Id::Error));
+		if let Some(tg::Either::Right(error)) = data.error_with_location_and_tokens() {
+			objects.push(error.map(tg::object::Id::Error));
 		}
 		if let Some(log) = &data.log {
 			objects.push(log.clone().map(tg::object::Id::from));
@@ -1550,9 +1548,10 @@ impl Session {
 			}
 		}
 		if let Some(output) = &mut data.output {
-			Self::update_process_value_tokens(output, &mut |tokens, _| inherit(tokens));
+			inherit(&mut output.options.tokens);
+			Self::update_process_value_tokens(&mut output.node, &mut |tokens, _| inherit(tokens));
 		}
-		if let Some(tg::Either::Right(error)) = &mut data.error {
+		if let Some(error) = &mut data.error {
 			inherit(&mut error.options.tokens);
 		}
 		if let Some(log) = &mut data.log {
@@ -1567,10 +1566,11 @@ impl Session {
 	) -> tg::Result<()> {
 		let IndexFinishedProcessTaskArg { data, id, location } = arg;
 		let options = crate::process::put::Options {
+			command_sync: None,
 			defer_index: false,
 			location: Some(location.clone()),
+			outcome_sync: None,
 			store_data: location.is_remote(),
-			sync: None,
 		};
 		let arg = tg::process::put::Arg {
 			data,
@@ -1846,7 +1846,7 @@ impl Session {
 		// Resolve the command before a finish can register its tracked write.
 		command_data.await?;
 
-		let data = data.without_location_and_tokens();
+		let data = data.without_location_and_tokens_except_sync();
 		options.clear_location_and_tokens();
 		let command_id = data.command.command_id()?;
 		let sandbox = data

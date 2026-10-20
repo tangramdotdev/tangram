@@ -267,7 +267,7 @@ impl Server {
 				}
 				data.children.get_or_insert_default();
 				data.cacheable = false;
-				data.error = Some(tg::Either::Left(error.clone()));
+				data.set_error(Some(tg::Either::Left(error.clone())));
 				data.exit = Some(1);
 				data.finished_at = Some(self.clock.unix_timestamp()?);
 				data.status = tg::process::Status::Finished;
@@ -279,10 +279,11 @@ impl Server {
 					location: None,
 				};
 				let options = crate::process::put::Options {
+					command_sync: None,
 					defer_index: false,
 					location: None,
+					outcome_sync: None,
 					store_data: true,
-					sync: None,
 				};
 				session
 					.put_process_local(&process, entry, options)
@@ -299,7 +300,7 @@ impl Server {
 				session.spawn_process_finish_tasks(&process);
 			} else {
 				// Remove the tokens before updating the index.
-				let data = data.without_location_and_tokens();
+				let data = data.without_location_and_tokens_except_sync();
 
 				self.index
 					.batch(tangram_index::batch::Arg {

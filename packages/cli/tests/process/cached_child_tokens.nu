@@ -21,7 +21,7 @@ let child = tg --url $remote.url --token $alice.token build --no-tokens --detach
 tg --url $remote.url --token $alice.token wait --source=index $child | ignore
 tg --url $remote.url --token $remote_root index
 let child_data = tg --url $remote.url --token $alice.token process get --source=index --local $child | from json
-let file = $child_data.output.value | referent node
+let file = $child_data.output.node.value | referent node
 failure (tg --url $remote.url --token $remote_bob.token wait --source=index $child | complete) "an unrelated user must not read the cached process"
 
 let local_root = random chars

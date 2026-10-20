@@ -42,5 +42,5 @@ success (tg --url $remote.url health | complete)
 
 # The retried push delivers the output to the remote.
 let data = tg --url $remote.url --token $root_token process get $process | from json
-let output = $data.output.value | split row '?' | first
+let output = $data.output.node.value | split row '?' | first
 wait_until --timeout 30sec { (tg --url $remote.url --token $root_token get $output | complete).exit_code == 0 } "the output must reach the remote after the outcome push is retried"

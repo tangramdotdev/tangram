@@ -299,10 +299,10 @@ impl Session {
 				};
 				options.tokens.clear();
 				if let Some(syncs) = &syncs {
-					data.command
-						.options
-						.tokens
-						.inherit(&syncs.command.options.tokens);
+					Self::inherit_process_command_authorization_tokens_for_sync(
+						&mut data,
+						&syncs.command,
+					);
 				}
 				let index_arg = IndexProcessControlArg {
 					assign: shortcut,
@@ -459,14 +459,25 @@ impl Session {
 							match request.arg {
 								tg::process::control::ClientRequestArg::Finish(arg) => {
 									let result = async {
-										let sync = syncs
+										let command_sync = syncs
+											.as_ref()
+											.map(|syncs| {
+												session.refresh_sync(syncs.command.node.clone())
+											})
+											.transpose()?;
+										let outcome_sync = syncs
 											.as_ref()
 											.map(|syncs| {
 												session.refresh_sync(syncs.outcome.node.clone())
 											})
 											.transpose()?;
 										session
-											.finish_process_control_request(&id, arg, sync.as_ref())
+											.finish_process_control_request(
+												&id,
+												arg,
+												command_sync,
+												outcome_sync,
+											)
 											.boxed()
 											.await
 									}
@@ -662,7 +673,7 @@ impl Session {
 		let session = self;
 		crate::checkpoint!(self.server, "process.control.index.started", process = %id).await;
 		let command_objects = data.command.objects();
-		let data = data.without_location_and_tokens();
+		let data = data.without_location_and_tokens_except_sync();
 		let sandbox_id = data
 			.sandbox
 			.as_ref()

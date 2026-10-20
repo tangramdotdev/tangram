@@ -42,7 +42,7 @@ impl Output {
 		if !self.data.status.is_finished() {
 			return Ok(None);
 		}
-		let error = self.data.error.clone();
+		let error = self.data.error_with_location_and_tokens();
 		let exit = self
 			.data
 			.exit
@@ -51,7 +51,7 @@ impl Output {
 			checksum: self.data.checksum.actual.clone(),
 			error,
 			exit,
-			output: self.data.output.clone(),
+			output: self.data.output_with_location_and_tokens(),
 		}))
 	}
 }

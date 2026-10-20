@@ -847,10 +847,11 @@ impl Session {
 			location: None,
 		};
 		let options = crate::process::put::Options {
+			command_sync: None,
 			defer_index: false,
 			location: location.and_then(|location| location.to_location()),
+			outcome_sync: None,
 			store_data: true,
-			sync: None,
 		};
 		self.put_process_local(id, arg, options).boxed().await?;
 

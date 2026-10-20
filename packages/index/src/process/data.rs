@@ -38,7 +38,9 @@ mod tests {
 			finished_at: Some(3),
 			host: "host".repeat(1_000),
 			log: None,
-			output: Some(tg::value::Data::String("output".repeat(10_000))),
+			output: Some(tg::Referent::with_node(tg::value::Data::String(
+				"output".repeat(10_000),
+			))),
 			retry: false,
 			sandbox: Some(tg::sandbox::Id::new()),
 			started_at: Some(2),

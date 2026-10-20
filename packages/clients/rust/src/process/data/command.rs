@@ -237,6 +237,13 @@ impl tg::process::spawn::CommandArg {
 	}
 }
 
+pub(super) fn inherit_value_location_and_tokens(
+	value: &mut tg::value::Data,
+	options: &tg::referent::Options,
+) {
+	update_value_options(value, &Update::Inherit(options));
+}
+
 fn update_command_options(
 	args: &mut [tg::command::data::Value],
 	env: &mut BTreeMap<String, tg::command::data::Value>,

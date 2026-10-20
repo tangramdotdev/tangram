@@ -10,10 +10,11 @@ use {
 };
 
 pub(crate) struct Options {
+	pub command_sync: Option<tg::Referent<tg::sync::Id>>,
 	pub defer_index: bool,
 	pub location: Option<tg::Location>,
+	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
 	pub store_data: bool,
-	pub sync: Option<tg::Referent<tg::sync::Id>>,
 }
 
 impl Session {
@@ -32,10 +33,11 @@ impl Session {
 			},
 			tg::Location::Local(_) => {
 				let options = Options {
+					command_sync: None,
 					defer_index: false,
 					location: None,
+					outcome_sync: None,
 					store_data: true,
-					sync: None,
 				};
 				(self.put_process_local(id, arg, options).await?, false)
 			},
@@ -87,21 +89,25 @@ impl Session {
 	fn finished_process_objects(data: &tg::process::Data) -> Vec<tg::Referent<tg::object::Id>> {
 		let mut objects = data.command.objects();
 		if let Some(error) = &data.error {
-			match error {
+			match &error.node {
 				tg::Either::Left(data) => {
 					let mut children = BTreeSet::new();
 					data.children(&mut children);
-					objects.extend(children.into_iter().map(tg::Referent::with_node));
+					objects.extend(
+						children
+							.into_iter()
+							.map(|child| tg::Referent::new(child, error.options.clone())),
+					);
 				},
-				tg::Either::Right(error) => {
-					objects.push(error.clone().map(tg::object::Id::Error));
+				tg::Either::Right(id) => {
+					objects.push(tg::Referent::new(id.clone().into(), error.options.clone()));
 				},
 			}
 		}
 		if let Some(log) = &data.log {
 			objects.push(log.clone().map(tg::object::Id::from));
 		}
-		if let Some(output) = &data.output {
+		if let Some(output) = data.output_with_location_and_tokens() {
 			output.children_with_tokens(&mut objects);
 		}
 
@@ -116,36 +122,48 @@ impl Session {
 		options: Options,
 	) -> tg::Result<tg::process::put::Output> {
 		let Options {
+			command_sync,
 			defer_index,
 			location,
+			outcome_sync,
 			store_data,
-			sync,
 		} = options;
 		let now = self.server.clock.unix_timestamp()?;
-		let token_data = arg.data.clone();
 
-		// Preserve the child authorization tokens separately from the canonical process data.
+		// Associate the command and outcome objects with their syncs, both for the permission capture and in the stored data.
+		let mut token_data = arg.data.clone();
+		if let Some(sync) = &command_sync {
+			Self::inherit_process_command_authorization_tokens_for_sync(&mut token_data, sync);
+		}
+		if let Some(sync) = &outcome_sync {
+			Self::inherit_process_authorization_tokens_for_sync(&mut token_data, sync);
+		}
+
+		// Preserve the child authorization tokens separately from the canonical process data, and keep only the sync tokens on the outer referents.
 		let children = arg.data.children.take();
-		arg.data = arg.data.without_location_and_tokens();
-		if let Some(sync) = &sync {
+		arg.data = arg.data.without_location_and_tokens_except_sync();
+		if let Some(sync) = &command_sync {
+			Self::inherit_process_command_authorization_tokens_for_sync(&mut arg.data, sync);
+		}
+		if let Some(sync) = &outcome_sync {
 			Self::inherit_process_authorization_tokens_for_sync(&mut arg.data, sync);
 		}
 
 		// Create the index arguments.
-		let error_objects = arg.data.error.as_ref().map(|error| match error {
+		let error_objects = arg.data.error.as_ref().map(|error| match &error.node {
 			tg::Either::Left(data) => {
 				let mut children = BTreeSet::new();
 				data.children(&mut children);
 				children.into_iter().collect::<Vec<_>>()
 			},
 			tg::Either::Right(id) => {
-				let id = id.node.clone().into();
+				let id = id.clone().into();
 				vec![id]
 			},
 		});
 		let mut output_objects = BTreeSet::new();
-		if let Some(data) = &arg.data.output {
-			data.children(&mut output_objects);
+		if let Some(output) = &arg.data.output {
+			output.node.children(&mut output_objects);
 		}
 		let output_objects = arg
 			.data

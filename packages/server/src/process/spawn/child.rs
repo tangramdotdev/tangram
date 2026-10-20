@@ -123,7 +123,7 @@ impl Session {
 		let child_id = &child.process.node;
 		let parent_arg = parent_data
 			.map(|(parent_data, location)| -> tg::Result<_> {
-				let parent_data = parent_data.without_location_and_tokens();
+				let parent_data = parent_data.without_location_and_tokens_except_sync();
 				Ok(tangram_index::process::put::Arg {
 					cached: false,
 					children: None,
