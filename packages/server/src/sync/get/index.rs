@@ -476,7 +476,7 @@ impl Session {
 		// Authorize and touch the processes, then get their storage and metadata.
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let (mut outputs, permissions) = self
-			.sync_get_touch_authorized_processes(
+			.sync_get_touch_authorized_processes_with_data(
 				&state.graph,
 				&state.id,
 				&ids,
@@ -487,15 +487,13 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get process metadata"))?;
 		if state.arg.process_children {
-			for (id, process) in std::iter::zip(&ids, &mut outputs) {
-				let Some(process) = process else {
+			for (id, output) in std::iter::zip(&ids, &mut outputs) {
+				let Some((process, data)) = output else {
 					continue;
 				};
 				let children_set = process.set.children;
-				if let Some(data) = &mut process.data {
-					self.set_process_children_from_index(id, children_set, data)
-						.await?;
-				}
+				self.set_process_children_from_index(id, children_set, data)
+					.await?;
 			}
 		}
 
@@ -516,13 +514,13 @@ impl Session {
 
 			// Update the graph.
 			let arg = UpdateProcessLocalArg {
-				data: output.as_ref().and_then(|process| process.data.as_ref()),
+				data: output.as_ref().map(|(_, data)| data),
 				id: &node.id,
 				marked: None,
-				metadata: output.as_ref().map(|p| p.metadata.clone()),
+				metadata: output.as_ref().map(|(process, _)| process.metadata.clone()),
 				permissions,
 				requested: None,
-				storage: output.as_ref().map(|p| p.storage),
+				storage: output.as_ref().map(|(process, _)| process.storage),
 			};
 			state.graph.lock().unwrap().update_process_local(arg);
 			let availability = state
@@ -540,12 +538,9 @@ impl Session {
 					return Err(tg::error!(id = %node.id, "failed to find the process"));
 				}
 
-				let data = output
-					.as_ref()
-					.and_then(|process| process.data.clone())
-					.ok_or_else(
-						|| tg::error!(id = %node.id, "expected the process data to be set"),
-					)?;
+				let data = output.as_ref().map(|(_, data)| data.clone()).ok_or_else(
+					|| tg::error!(id = %node.id, "expected the process data to be set"),
+				)?;
 
 				// Update the graph.
 				let arg = UpdateProcessLocalArg {

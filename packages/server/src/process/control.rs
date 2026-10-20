@@ -257,7 +257,7 @@ impl Session {
 				session
 					.get_process_from_index(&id)
 					.await?
-					.data
+					.status
 					.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
 				lease
 			},

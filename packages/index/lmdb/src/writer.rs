@@ -18,6 +18,7 @@ pub(super) struct Arg<'a> {
 	pub env: &'a lmdb::Env,
 	pub max_process_depth: Option<u64>,
 	pub object_permission_time_to_touch: std::time::Duration,
+	pub process_data_fragment_size: usize,
 	pub process_permission_time_to_touch: std::time::Duration,
 	pub receiver_high: &'a RequestReceiver,
 	pub receiver_low: &'a RequestReceiver,
@@ -45,6 +46,7 @@ impl Index {
 			env,
 			max_process_depth,
 			object_permission_time_to_touch,
+			process_data_fragment_size,
 			process_permission_time_to_touch,
 			receiver_high,
 			receiver_low,
@@ -179,6 +181,7 @@ impl Index {
 						subspace,
 						&mut transaction,
 						&arg,
+						process_data_fragment_size,
 						usage_partition_total,
 					)
 					.map(Response::Mutation),
@@ -325,10 +328,14 @@ impl Index {
 						&args,
 					)
 					.map(|()| Response::Unit),
-					Request::PutProcesses(args) => {
-						Self::put_processes_with_transaction(db, subspace, &mut transaction, &args)
-							.map(Response::Mutation)
-					},
+					Request::PutProcesses(args) => Self::put_processes_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&args,
+						process_data_fragment_size,
+					)
+					.map(Response::Mutation),
 					Request::PutSandboxes(args) => Self::put_sandboxes_with_transaction(
 						db,
 						subspace,
@@ -779,6 +786,7 @@ impl Index {
 			},
 			Request::TouchProcesses(crate::TouchProcesses {
 				account,
+				data,
 				ids,
 				put_account,
 				time_to_touch,
@@ -789,6 +797,7 @@ impl Index {
 					items,
 					Kind::TouchProcesses {
 						account,
+						data,
 						put_account,
 						time_to_touch,
 						touched_at,
@@ -1073,6 +1082,7 @@ impl Index {
 			},
 			Kind::TouchProcesses {
 				account,
+				data,
 				put_account,
 				time_to_touch,
 				touched_at,
@@ -1086,6 +1096,7 @@ impl Index {
 					.collect();
 				Request::TouchProcesses(crate::TouchProcesses {
 					account: account.clone(),
+					data: *data,
 					ids,
 					put_account: *put_account,
 					time_to_touch: *time_to_touch,

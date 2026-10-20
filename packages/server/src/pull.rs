@@ -114,7 +114,7 @@ impl Session {
 			let Some(process) = process else {
 				return false;
 			};
-			if process.data.is_none() {
+			if process.status.is_none() {
 				return false;
 			}
 			let storage = process.storage;

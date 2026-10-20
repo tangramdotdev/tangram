@@ -377,13 +377,11 @@ impl Session {
 		let mut positioned = false;
 		let mut outcome = None;
 		'outer: loop {
-			let indexed = self
-				.get_process_from_index(id)
+			let (_, data) = self
+				.get_process_with_data_from_index(id)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the process"))?;
-			let data = indexed
-				.data
-				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+			let data = data.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
 			// Read the completion marker before draining so every committed chunk is visible.
 			let end =
 				if data.log.is_some() {

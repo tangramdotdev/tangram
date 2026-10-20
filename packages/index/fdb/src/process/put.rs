@@ -13,6 +13,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::process::put::Arg,
 		partition_totals: crate::PartitionTotals,
+		process_data_fragment_size: usize,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
 		if let Err(error) = arg.validate() {
@@ -22,14 +23,41 @@ impl Index {
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		let result = txn.get(&key, false).await;
-		let existing = crate::retry!(result)
-			.map(|bytes| tangram_index::process::Process::deserialize(&bytes))
-			.transpose()?;
+		// Get the existing process and, when the validation compares another principal's data, the existing data concurrently.
+		let compare = arg.data.is_some() && arg.principal != tg::Principal::Process(id.clone());
+		let process = Self::try_get_process_with_transaction(txn, subspace, id);
+		let data = async {
+			if !compare {
+				return Ok(ControlFlow::Break(None));
+			}
+			Self::try_get_process_data_with_transaction(txn, subspace, id).await
+		};
+		let (existing, existing_data) = futures::future::try_join(process, data).await?;
+		let existing = match existing {
+			ControlFlow::Break(existing) => existing,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let mut existing_data = match existing_data {
+			ControlFlow::Break(existing_data) => existing_data,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+
+		// Get the existing data when the process rewrites its own finished data, which the validation compares.
+		if arg.data.is_some()
+			&& !compare
+			&& existing
+				.as_ref()
+				.and_then(|existing| existing.status)
+				.is_some_and(|status| status.is_finished())
+		{
+			existing_data = crate::propagate!(
+				Self::try_get_process_data_with_transaction(txn, subspace, id).await
+			);
+		}
 
 		// Validate process data and children against the existing record in this write transaction.
 		if let Some(existing) = &existing {
-			if let Err(error) = arg.validate_existing(existing)? {
+			if let Err(error) = arg.validate_existing(existing, existing_data.as_ref())? {
 				return Ok(ControlFlow::Break(Err(error)));
 			}
 			if !arg.principal.is_root()
@@ -72,10 +100,8 @@ impl Index {
 
 		// Preserve the stored data after validating an identical write.
 		let mut arg = std::borrow::Cow::Borrowed(arg);
-		if let Some(data) = existing
-			.as_ref()
-			.and_then(|existing| existing.data.as_ref())
-			&& (arg.principal != tg::Principal::Process(id.clone()) || data.status.is_finished())
+		if let Some(status) = existing.as_ref().and_then(|existing| existing.status)
+			&& (arg.principal != tg::Principal::Process(id.clone()) || status.is_finished())
 		{
 			arg.to_mut().data = None;
 		}
@@ -137,13 +163,14 @@ impl Index {
 			metadata.merge(&existing.metadata);
 		}
 
-		let mut data = arg
-			.data
-			.clone()
-			.or_else(|| existing.as_ref().and_then(|existing| existing.data.clone()));
+		let mut data = arg.data.clone();
 		if let Some(data) = &mut data {
 			data.children = None;
 		}
+		let status = data
+			.as_ref()
+			.map(|data| data.status)
+			.or_else(|| existing.as_ref().and_then(|existing| existing.status));
 
 		let location = arg.location.clone().or_else(|| {
 			existing
@@ -176,7 +203,6 @@ impl Index {
 
 		let value = tangram_index::process::Process {
 			command_id: arg.command_id.clone(),
-			data: data.clone(),
 			location,
 			metadata,
 			reference_count: existing
@@ -184,11 +210,18 @@ impl Index {
 				.map_or(0, |existing| existing.reference_count),
 			sandbox,
 			set,
+			status,
 			storage,
 			touched_at,
 		}
 		.serialize()?;
 		txn.set(&key, &value);
+
+		// Replace the stored data with the written data.
+		if let Some(data) = &data {
+			let bytes = tangram_index::process::data::serialize(data)?;
+			Self::put_process_data(txn, subspace, id, &bytes, process_data_fragment_size);
+		}
 
 		if children_changed && let Some(children) = &arg.children {
 			let id_bytes = id.to_bytes();
@@ -298,17 +331,20 @@ impl Index {
 			);
 		}
 
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
-		let key = Key::Process(crate::process::Key::CommandCacheableProcess {
-			command: arg.command_id.clone(),
-			process: id.clone(),
-		});
-		let key = Self::pack(subspace, &key);
-		if data.as_ref().is_some_and(|data| data.cacheable) {
-			txn.set(&key, &[]);
-		} else {
-			txn.clear(&key);
+		// Update the cacheable entry when the data is written, because it matches the stored data otherwise.
+		if let Some(data) = &data {
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			let key = Key::Process(crate::process::Key::CommandCacheableProcess {
+				command: arg.command_id.clone(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			if data.cacheable {
+				txn.set(&key, &[]);
+			} else {
+				txn.clear(&key);
+			}
 		}
 
 		let objects = arg
@@ -431,15 +467,56 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::process::put::Arg],
 		partition_totals: crate::PartitionTotals,
+		process_data_fragment_size: usize,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		for process in args {
 			let result = crate::propagate!(
-				Self::put_process(txn, subspace, process, partition_totals).await
+				Self::put_process(
+					txn,
+					subspace,
+					process,
+					partition_totals,
+					process_data_fragment_size
+				)
+				.await
 			);
 			if let Err(error) = result {
 				return Ok(ControlFlow::Break(Err(error)));
 			}
 		}
 		Ok(ControlFlow::Break(Ok(())))
+	}
+
+	pub(crate) fn put_process_data(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		id: &tg::process::Id,
+		bytes: &[u8],
+		fragment_size: usize,
+	) {
+		// Clear the existing fragments, so that a shorter value does not leave stale fragments behind.
+		Self::delete_process_data(txn, subspace, id);
+
+		// Write the fragments.
+		for (position, fragment) in bytes.chunks(fragment_size).enumerate() {
+			let key = Key::Process(crate::process::Key::ProcessData {
+				position: position.to_i64().unwrap(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, fragment);
+		}
+	}
+
+	pub(crate) fn delete_process_data(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		id: &tg::process::Id,
+	) {
+		let id_bytes = id.to_bytes();
+		let prefix = (Kind::ProcessData.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, &prefix);
+		let (begin, end) = fdbt::Subspace::from_bytes(prefix).range();
+		txn.clear_range(&begin, &end);
 	}
 }

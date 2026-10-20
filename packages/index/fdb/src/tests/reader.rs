@@ -17,6 +17,7 @@ async fn concurrent_verifications_complete_before_the_deadline() {
 		object_permission_time_to_touch: std::time::Duration::ZERO,
 		max_write_operation_batch_size: 1024,
 		permission_update_partition_total: 1,
+		process_data_fragment_size: 16,
 		process_permission_time_to_touch: std::time::Duration::ZERO,
 		read_channel_capacity: 256,
 		read_request_batch_size: 4,

@@ -76,6 +76,9 @@ pub enum Request {
 	TryGetProcesses {
 		ids: Vec<tg::process::Id>,
 	},
+	TryGetProcessesWithData {
+		ids: Vec<tg::process::Id>,
+	},
 	TryGetSandboxProcesses {
 		id: tg::sandbox::Id,
 		length: u64,
@@ -118,7 +121,7 @@ pub enum Response {
 	PermissionCaptureBatch(Vec<crate::permission::capture::Entry>),
 	TryGetAncestors(Option<Vec<tg::Id>>),
 	TryGetCheckouts(Vec<Option<crate::checkout::Checkout>>),
-	TryGetCachedProcesses(Vec<(tg::process::Id, crate::process::Process)>),
+	TryGetCachedProcesses(Vec<(tg::process::Id, crate::process::Process, tg::process::Data)>),
 	TryGetGroups(Vec<Option<crate::group::Group>>),
 	TryGetIdsForSpecifiers(Vec<Option<tg::Id>>),
 	TryGetIndexer(Option<crate::indexer::Indexer>),
@@ -130,6 +133,7 @@ pub enum Response {
 	TryGetProcessChildrenCount(Option<u64>),
 	TryGetProcessChildrenAndObjects(Option<crate::process::NodeChildren>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
+	TryGetProcessesWithData(Vec<Option<(crate::process::Process, Option<tg::process::Data>)>>),
 	TryGetSandboxProcesses(Option<Vec<tg::process::Id>>),
 	TryGetSandboxProcessesCount(Option<u64>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),

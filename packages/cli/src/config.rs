@@ -861,6 +861,10 @@ pub struct FdbIndex {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permission_update_partition_total: Option<u64>,
 
+	/// The maximum size in bytes of each fragment of stored process data.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_data_fragment_size: Option<usize>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_channel_capacity: Option<usize>,
 
@@ -911,6 +915,10 @@ pub struct LmdbIndex {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub posix_sem_prefix: Option<String>,
+
+	/// The maximum size in bytes of each fragment of stored process data.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_data_fragment_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_channel_capacity: Option<usize>,
@@ -4397,6 +4405,9 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.permission_update_partition_total {
 		target.permission_update_partition_total = value;
 	}
+	if let Some(value) = source.process_data_fragment_size {
+		target.process_data_fragment_size = value;
+	}
 	if let Some(value) = source.instance {
 		target.instance = Some(value);
 	}
@@ -4457,6 +4468,9 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	}
 	if let Some(value) = source.posix_sem_prefix {
 		target.posix_sem_prefix = Some(value);
+	}
+	if let Some(value) = source.process_data_fragment_size {
+		target.process_data_fragment_size = value;
 	}
 	if let Some(value) = source.read_channel_capacity {
 		target.read_channel_capacity = value;

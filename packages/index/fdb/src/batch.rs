@@ -24,6 +24,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		items: &[tangram_index::batch::Item],
 		partition_totals: crate::PartitionTotals,
+		process_data_fragment_size: usize,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
 		for item in items {
@@ -232,6 +233,7 @@ impl Index {
 							subspace,
 							std::slice::from_ref(arg),
 							partition_totals,
+							process_data_fragment_size,
 						)
 						.await
 					);

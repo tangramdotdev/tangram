@@ -13,10 +13,16 @@ impl Index {
 		subspace: &Subspace,
 		arg: &crate::TouchProcesses,
 		partition_totals: crate::PartitionTotals,
-	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::process::Process>>, fdb::FdbError>> {
+	) -> tg::Result<
+		ControlFlow<
+			Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>,
+			fdb::FdbError,
+		>,
+	> {
 		let partition_total = partition_totals.cleaning;
 		let crate::TouchProcesses {
 			account,
+			data,
 			ids,
 			put_account,
 			time_to_touch,
@@ -27,6 +33,7 @@ impl Index {
 				txn,
 				subspace,
 				ids,
+				*data,
 				*touched_at,
 				*time_to_touch,
 				partition_total,
@@ -94,10 +101,16 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::process::Id],
+		data: bool,
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::process::Process>>, fdb::FdbError>> {
+	) -> tg::Result<
+		ControlFlow<
+			Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>,
+			fdb::FdbError,
+		>,
+	> {
 		let processes = {
 			let result = future::try_join_all(ids.iter().map(|id| {
 				let subspace = subspace.clone();
@@ -106,6 +119,7 @@ impl Index {
 						txn,
 						&subspace,
 						id,
+						data,
 						touched_at,
 						time_to_touch,
 						partition_total,
@@ -133,24 +147,50 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
+		data: bool,
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> tg::Result<ControlFlow<Option<tangram_index::process::Process>, fdb::FdbError>> {
+	) -> tg::Result<
+		ControlFlow<
+			Option<(tangram_index::process::Process, Option<tg::process::Data>)>,
+			fdb::FdbError,
+		>,
+	> {
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let result = txn.get(&key, false).await;
-		let existing = crate::retry!(result);
-		let existing = existing
-			.as_ref()
-			.map(|bytes| tangram_index::process::Process::deserialize(bytes))
-			.transpose()?;
+
+		// Read the process and, when requested, its data concurrently, so that the data is a snapshot at the touch.
+		let process = async {
+			let result = txn.get(&key, false).await;
+			let existing = crate::retry!(result);
+			let existing = existing
+				.as_ref()
+				.map(|bytes| tangram_index::process::Process::deserialize(bytes))
+				.transpose()?;
+			Ok::<_, tg::Error>(ControlFlow::Break(existing))
+		};
+		let process_data = async {
+			if !data {
+				return Ok(ControlFlow::Break(None));
+			}
+			Self::try_get_process_data_with_transaction(txn, subspace, id).await
+		};
+		let (existing, process_data) = future::try_join(process, process_data).await?;
+		let existing = match existing {
+			ControlFlow::Break(existing) => existing,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let process_data = match process_data {
+			ControlFlow::Break(process_data) => process_data,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let Some(mut process) = existing else {
 			return Ok(ControlFlow::Break(None));
 		};
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		if touched_at - process.touched_at < time_to_touch {
-			return Ok(ControlFlow::Break(Some(process)));
+			return Ok(ControlFlow::Break(Some((process, process_data))));
 		}
 
 		let mut key_end = key.clone();
@@ -177,6 +217,6 @@ impl Index {
 			txn.set(&key, &[]);
 		}
 
-		Ok(ControlFlow::Break(Some(process)))
+		Ok(ControlFlow::Break(Some((process, process_data))))
 	}
 }

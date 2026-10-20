@@ -7,7 +7,11 @@ use {
 	tangram_index::prelude::*,
 };
 
-type Candidate = (tg::process::Id, tangram_index::process::Process);
+type Candidate = (
+	tg::process::Id,
+	tangram_index::process::Process,
+	tg::process::Data,
+);
 
 enum CandidateOutcome {
 	Active,
@@ -75,15 +79,12 @@ impl Session {
 		// A running remote candidate cannot acquire a lease through local process control.
 		let candidates = candidates
 			.into_iter()
-			.filter(|(_, process)| {
+			.filter(|(_, process, data)| {
 				!process
 					.location
 					.as_ref()
 					.is_some_and(tg::Location::is_remote)
-					|| process
-						.data
-						.as_ref()
-						.is_some_and(|data| data.status.is_finished())
+					|| data.status.is_finished()
 			})
 			.collect::<Vec<_>>();
 		let mut cycle = None;
@@ -138,15 +139,11 @@ impl Session {
 		arg: &tg::process::spawn::Arg,
 		candidates: &[Candidate],
 	) -> Vec<usize> {
-		let candidate_outcomes =
-			candidates
-				.iter()
-				.enumerate()
-				.filter_map(|(index, (_, process))| {
-					let data = process.data.as_ref().unwrap();
-					(data.cacheable && data.checksum.expected == arg.checksum)
-						.then(|| (index, Self::cached_process_outcome(data)))
-				});
+		let candidate_outcomes = candidates
+			.iter()
+			.enumerate()
+			.filter(|(_, (_, _, data))| data.cacheable && data.checksum.expected == arg.checksum)
+			.map(|(index, (_, _, data))| (index, Self::cached_process_outcome(data)));
 
 		Self::prioritize_cached_process_candidate_indices(candidate_outcomes, arg.retry)
 	}
@@ -168,8 +165,11 @@ impl Session {
 				if !authorized {
 					continue;
 				}
-				let (id, process) = &candidates[*index];
-				if !self.touch_cached_process_if_needed(id, process).await? {
+				let (id, process, data) = &candidates[*index];
+				if !self
+					.touch_cached_process_if_needed(id, process, data)
+					.await?
+				{
 					continue;
 				}
 				if self
@@ -179,7 +179,6 @@ impl Session {
 					cycle.get_or_insert_with(|| id.clone());
 					continue;
 				}
-				let data = process.data.as_ref().unwrap();
 				let output = self.cached_process_output(id.clone(), data.clone())?;
 				if let Some(output) = self.acquire_cached_process_lease(output).boxed().await? {
 					if !self.put_cached_process_account(id).await? {
@@ -204,8 +203,7 @@ impl Session {
 			candidates
 				.iter()
 				.enumerate()
-				.filter_map(|(index, (_, process))| {
-					let data = process.data.as_ref().unwrap();
+				.filter_map(|(index, (_, _, data))| {
 					let actual_checksum = data.checksum.actual.as_ref()?;
 					let source_expected_checksum = data.checksum.expected.as_ref()?;
 					if !data.cacheable
@@ -247,8 +245,11 @@ impl Session {
 				if !authorized {
 					continue;
 				}
-				let (source, process) = &candidates[*index];
-				if !self.touch_cached_process_if_needed(source, process).await? {
+				let (source, process, data) = &candidates[*index];
+				if !self
+					.touch_cached_process_if_needed(source, process, data)
+					.await?
+				{
 					continue;
 				}
 				if self
@@ -258,7 +259,7 @@ impl Session {
 					cycle.get_or_insert_with(|| source.clone());
 					continue;
 				}
-				let mut data = process.data.as_ref().unwrap().clone();
+				let mut data = data.clone();
 				self.set_process_children_from_index(source, process.set.children, &mut data)
 					.await?;
 				let host = data.host.clone();
@@ -482,8 +483,8 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		process: &tangram_index::process::Process,
+		data: &tg::process::Data,
 	) -> tg::Result<bool> {
-		let data = process.data.as_ref().unwrap();
 		if !data.status.is_finished() {
 			return Ok(true);
 		}

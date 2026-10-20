@@ -29,9 +29,9 @@ impl Session {
 		let data = self
 			.server
 			.index
-			.try_get_process(id)
+			.try_get_process_with_data(id)
 			.await?
-			.and_then(|process| process.data);
+			.and_then(|(_, data)| data);
 		let log_streams = match &data {
 			Some(data) => [
 				data.stderr
@@ -232,9 +232,9 @@ impl Session {
 		let data = self
 			.server
 			.index
-			.try_get_process(id)
+			.try_get_process_with_data(id)
 			.await?
-			.and_then(|process| process.data);
+			.and_then(|(_, data)| data);
 		if data.is_some_and(|data| data.log.is_some()) {
 			return Ok(Output {
 				closed: true,

@@ -11,6 +11,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::process::put::Arg,
+		process_data_fragment_size: usize,
 	) -> tg::Result<tg::Result<()>> {
 		if let Err(error) = arg.validate() {
 			return Ok(Err(error));
@@ -25,9 +26,22 @@ impl Index {
 			.map(tangram_index::process::Process::deserialize)
 			.transpose()?;
 
+		// Get the existing data when the validation compares it, which is for another principal's data or a finished process.
+		let existing_data = if arg.data.is_some()
+			&& existing
+				.as_ref()
+				.and_then(|existing| existing.status)
+				.is_some_and(|status| {
+					arg.principal != tg::Principal::Process(id.clone()) || status.is_finished()
+				}) {
+			Self::try_get_process_data_with_transaction(db, subspace, transaction, id)?
+		} else {
+			None
+		};
+
 		// Validate process data and children against the existing record in this write transaction.
 		if let Some(existing) = &existing {
-			if let Err(error) = arg.validate_existing(existing)? {
+			if let Err(error) = arg.validate_existing(existing, existing_data.as_ref())? {
 				return Ok(Err(error));
 			}
 			if !arg.principal.is_root()
@@ -60,10 +74,8 @@ impl Index {
 
 		// Preserve the stored data after validating an identical write.
 		let mut arg = std::borrow::Cow::Borrowed(arg);
-		if let Some(data) = existing
-			.as_ref()
-			.and_then(|existing| existing.data.as_ref())
-			&& (arg.principal != tg::Principal::Process(id.clone()) || data.status.is_finished())
+		if let Some(status) = existing.as_ref().and_then(|existing| existing.status)
+			&& (arg.principal != tg::Principal::Process(id.clone()) || status.is_finished())
 		{
 			arg.to_mut().data = None;
 		}
@@ -124,13 +136,14 @@ impl Index {
 			metadata.merge(&existing.metadata);
 		}
 
-		let mut data = arg
-			.data
-			.clone()
-			.or_else(|| existing.as_ref().and_then(|existing| existing.data.clone()));
+		let mut data = arg.data.clone();
 		if let Some(data) = &mut data {
 			data.children = None;
 		}
+		let status = data
+			.as_ref()
+			.map(|data| data.status)
+			.or_else(|| existing.as_ref().and_then(|existing| existing.status));
 
 		let location = arg.location.clone().or_else(|| {
 			existing
@@ -163,7 +176,6 @@ impl Index {
 
 		let value = tangram_index::process::Process {
 			command_id: arg.command_id.clone(),
-			data: data.clone(),
 			location,
 			metadata,
 			reference_count: existing
@@ -171,12 +183,26 @@ impl Index {
 				.map_or(0, |existing| existing.reference_count),
 			sandbox,
 			set,
+			status,
 			storage,
 			touched_at,
 		}
 		.serialize()?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
+
+		// Replace the stored data with the written data.
+		if let Some(data) = &data {
+			let bytes = tangram_index::process::data::serialize(data)?;
+			Self::put_process_data(
+				db,
+				subspace,
+				transaction,
+				id,
+				&bytes,
+				process_data_fragment_size,
+			)?;
+		}
 
 		if children_changed && let Some(children) = &arg.children {
 			let id_bytes = id.to_bytes();
@@ -289,19 +315,22 @@ impl Index {
 			Self::put_sandbox_process_with_transaction(db, subspace, transaction, sandbox, id)?;
 		}
 
-		let key = Key::Process(crate::process::Key::CommandCacheableProcess {
-			command: arg.command_id.clone(),
-			process: id.clone(),
-		});
-		let key = Self::pack(subspace, &key);
-		if data.as_ref().is_some_and(|data| data.cacheable) {
-			db.put(transaction, &key, &[]).map_err(|error| {
-				tg::error!(!error, "failed to put the command cacheable process")
-			})?;
-		} else {
-			db.delete(transaction, &key).map_err(|error| {
-				tg::error!(!error, "failed to delete the command cacheable process")
-			})?;
+		// Update the cacheable entry when the data is written, because it matches the stored data otherwise.
+		if let Some(data) = &data {
+			let key = Key::Process(crate::process::Key::CommandCacheableProcess {
+				command: arg.command_id.clone(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			if data.cacheable {
+				db.put(transaction, &key, &[]).map_err(|error| {
+					tg::error!(!error, "failed to put the command cacheable process")
+				})?;
+			} else {
+				db.delete(transaction, &key).map_err(|error| {
+					tg::error!(!error, "failed to delete the command cacheable process")
+				})?;
+			}
 		}
 
 		let objects = arg
@@ -408,12 +437,73 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		args: &[tangram_index::process::put::Arg],
+		process_data_fragment_size: usize,
 	) -> tg::Result<tg::Result<()>> {
 		for process in args {
-			if let Err(error) = Self::put_process(db, subspace, transaction, process)? {
+			if let Err(error) = Self::put_process(
+				db,
+				subspace,
+				transaction,
+				process,
+				process_data_fragment_size,
+			)? {
 				return Ok(Err(error));
 			}
 		}
 		Ok(Ok(()))
+	}
+
+	pub(crate) fn put_process_data(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::process::Id,
+		bytes: &[u8],
+		fragment_size: usize,
+	) -> tg::Result<()> {
+		// Delete the existing fragments, so that a shorter value does not leave stale fragments behind.
+		Self::delete_process_data(db, subspace, transaction, id)?;
+
+		// Write the fragments.
+		for (position, fragment) in bytes.chunks(fragment_size).enumerate() {
+			let key = Key::Process(crate::process::Key::ProcessData {
+				position: position.to_i64().unwrap(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, fragment).map_err(
+				|error| tg::error!(!error, %id, "failed to put a process data fragment"),
+			)?;
+		}
+
+		Ok(())
+	}
+
+	pub(crate) fn delete_process_data(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::process::Id,
+	) -> tg::Result<()> {
+		let id_bytes = id.to_bytes();
+		let prefix = (Kind::ProcessData.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, &prefix);
+		let keys = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process data"))?
+			.map(|entry| {
+				let (key, _) = entry.map_err(
+					|error| tg::error!(!error, %id, "failed to read a process data fragment"),
+				)?;
+				Ok(key.to_vec())
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		for key in keys {
+			db.delete(transaction, &key).map_err(
+				|error| tg::error!(!error, %id, "failed to delete a process data fragment"),
+			)?;
+		}
+
+		Ok(())
 	}
 }

@@ -43,6 +43,7 @@ async fn run_with_partition_totals(
 			.expect("set FDB_CLUSTER_FILE")
 			.into(),
 		permission_update_partition_total: partition_totals.permission_update,
+		process_data_fragment_size: 16,
 		process_permission_time_to_touch: std::time::Duration::ZERO,
 		instance: Some(format!(
 			"index_update_test_{:032x}/",

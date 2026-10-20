@@ -23,6 +23,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::batch::Arg,
+		process_data_fragment_size: usize,
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
 		for item in &arg.items {
@@ -199,6 +200,7 @@ impl Index {
 						subspace,
 						transaction,
 						std::slice::from_ref(arg),
+						process_data_fragment_size,
 					)?;
 					if let Err(error) = result {
 						return Ok(Err(error));

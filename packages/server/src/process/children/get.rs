@@ -2,7 +2,7 @@ use {
 	crate::Session,
 	futures::{
 		FutureExt as _, StreamExt as _,
-		future::BoxFuture,
+		future::{self, BoxFuture},
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
@@ -16,7 +16,10 @@ use {
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
-type Output = crate::process::get::Output<tg::process::control::GetChildrenClientResponseOutput>;
+struct Output {
+	control: Option<tg::process::control::GetChildrenClientResponseOutput>,
+	indexed: Option<tangram_index::process::Process>,
+}
 
 struct LocalChildren {
 	children: Vec<tg::process::data::Child>,
@@ -372,16 +375,82 @@ impl Session {
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Output> {
-		self.get_process_state_local(
-			id,
-			self.get_process_children_from_control(id, position, length),
-			|_| false,
-			true,
-			source,
-			deadline,
-		)
-		.boxed()
-		.await
+		// Create the index future, which reads only the process record.
+		let get_index = || async {
+			let indexed = self.try_get_process_from_index(id).await?;
+			let indexed = indexed.filter(|process| process.set.children);
+			Ok::<_, tg::Error>(indexed)
+		};
+		let index_future = async {
+			let indexed = get_index().await;
+			crate::checkpoint!(self.server, "process.get.index", process = %id).await;
+			indexed
+		}
+		.boxed();
+
+		// Create the control future.
+		let control_future = self.get_process_children_from_control(id, position, length);
+		let control_future = self
+			.server
+			.read_control_response_until(deadline, async {
+				let output = control_future.await;
+				crate::checkpoint!(self.server, "process.get.control", process = %id).await;
+				output
+			})
+			.boxed();
+
+		match source {
+			tg::process::Source::Auto => {},
+			tg::process::Source::Index => {
+				let indexed = index_future.await?;
+				let output = Output {
+					control: None,
+					indexed,
+				};
+				return Ok(output);
+			},
+			tg::process::Source::Runner => {
+				let control = control_future.await.ok();
+				let output = Output {
+					control,
+					indexed: None,
+				};
+				return Ok(output);
+			},
+		}
+
+		// Race the index against control, and return the indexed process if the index finds it first.
+		let control = match future::select(index_future, control_future).await {
+			future::Either::Left((indexed, control_future)) => {
+				let indexed = indexed?;
+				if indexed.is_some() {
+					let output = Output {
+						control: None,
+						indexed,
+					};
+					return Ok(output);
+				}
+				control_future.await
+			},
+			future::Either::Right((control, _)) => control,
+		};
+
+		// Fall back to the index if the control read fails.
+		let output = match control {
+			Err(_) => {
+				let indexed = get_index().await?;
+				Output {
+					control: None,
+					indexed,
+				}
+			},
+			Ok(control) => Output {
+				control: Some(control),
+				indexed: None,
+			},
+		};
+
+		Ok(output)
 	}
 
 	async fn get_process_children_from_control(
@@ -539,9 +608,8 @@ impl Session {
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
 		let status = process
-			.data
-			.ok_or_else(|| tg::error!(%id, "missing the process data"))?
-			.status;
+			.status
+			.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
 		let children = self
 			.server
 			.index

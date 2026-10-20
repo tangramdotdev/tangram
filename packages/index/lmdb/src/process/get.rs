@@ -12,7 +12,13 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		command: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, tangram_index::process::Process)>> {
+	) -> tg::Result<
+		Vec<(
+			tg::process::Id,
+			tangram_index::process::Process,
+			tg::process::Data,
+		)>,
+	> {
 		let processes = crate::page::collect(|after| {
 			Self::get_command_cacheable_processes_page_with_transaction(
 				db,
@@ -25,20 +31,19 @@ impl Index {
 		})?;
 		let mut output = Vec::new();
 		for process in processes {
-			let Some(data) =
-				Self::try_get_process_with_transaction(db, subspace, transaction, &process)?
+			let Some((record, Some(data))) = Self::try_get_process_with_data_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&process,
+			)?
 			else {
 				continue;
 			};
-			if data.data.is_none() {
-				continue;
-			}
-			output.push((process, data));
+			output.push((process, record, data));
 		}
-		output.sort_unstable_by(|(a_id, a), (b_id, b)| {
-			let a_created_at = a.data.as_ref().unwrap().created_at;
-			let b_created_at = b.data.as_ref().unwrap().created_at;
-			a_created_at.cmp(&b_created_at).then_with(|| a_id.cmp(b_id))
+		output.sort_unstable_by(|(a_id, _, a), (b_id, _, b)| {
+			a.created_at.cmp(&b.created_at).then_with(|| a_id.cmp(b_id))
 		});
 
 		Ok(output)
@@ -126,6 +131,33 @@ impl Index {
 			.collect()
 	}
 
+	pub(crate) fn try_get_processes_with_data_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
+		ids.iter()
+			.map(|id| {
+				Self::try_get_process_with_data_with_transaction(db, subspace, transaction, id)
+			})
+			.collect()
+	}
+
+	pub(crate) fn try_get_process_with_data_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<(tangram_index::process::Process, Option<tg::process::Data>)>> {
+		let Some(process) = Self::try_get_process_with_transaction(db, subspace, transaction, id)?
+		else {
+			return Ok(None);
+		};
+		let data = Self::try_get_process_data_with_transaction(db, subspace, transaction, id)?;
+		Ok(Some((process, data)))
+	}
+
 	pub(crate) fn try_get_process_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -141,6 +173,33 @@ impl Index {
 			return Ok(None);
 		};
 		Ok(Some(tangram_index::process::Process::deserialize(bytes)?))
+	}
+
+	pub(crate) fn try_get_process_data_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Data>> {
+		let id_bytes = id.to_bytes();
+		let prefix = (Kind::ProcessData.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, &prefix);
+		let fragments = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process data"))?
+			.map(|entry| {
+				let (_, value) = entry.map_err(
+					|error| tg::error!(!error, %id, "failed to read a process data fragment"),
+				)?;
+				Ok(value)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		if fragments.is_empty() {
+			return Ok(None);
+		}
+		let data = tangram_index::process::data::deserialize(&fragments)?;
+
+		Ok(Some(data))
 	}
 
 	pub(crate) fn get_process_children_page_with_transaction(

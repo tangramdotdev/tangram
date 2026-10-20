@@ -39,9 +39,9 @@ async fn process_location_survives_partial_and_finished_updates() {
 			items: vec![tangram_index::batch::Item::PutProcess(process.clone())],
 		};
 		index.batch(arg).await.unwrap().unwrap();
-		let indexed = index.try_get_process(&id).await.unwrap().unwrap();
+		let (indexed, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
 		assert_eq!(indexed.location, Some(location.clone()));
-		assert!(indexed.data.is_none());
+		assert!(data.is_none());
 
 		process.location = None;
 		process.data = Some(
@@ -62,9 +62,9 @@ async fn process_location_survives_partial_and_finished_updates() {
 			};
 			let arg = tangram_index::batch::Arg::deserialize(&arg.serialize().unwrap()).unwrap();
 			index.batch(arg).await.unwrap().unwrap();
-			let indexed = index.try_get_process(&id).await.unwrap().unwrap();
+			let (indexed, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
 			assert_eq!(indexed.location, Some(location.clone()));
-			assert!(indexed.data.unwrap().status.is_finished());
+			assert!(data.unwrap().status.is_finished());
 		}
 	}
 }

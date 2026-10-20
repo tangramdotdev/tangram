@@ -1564,6 +1564,7 @@ impl Server {
 						object_permission_time_to_touch: config.object.permission_time_to_touch,
 						permission_update_partition_total: options
 							.permission_update_partition_total,
+						process_data_fragment_size: options.process_data_fragment_size,
 						process_permission_time_to_touch: config.process.permission_time_to_touch,
 						read_channel_capacity: options.read_channel_capacity,
 						read_request_batch_size: options.read_request_batch_size,
@@ -1605,6 +1606,7 @@ impl Server {
 						object_permission_time_to_touch: config.object.permission_time_to_touch,
 						path,
 						posix_sem_prefix: options.posix_sem_prefix.clone(),
+						process_data_fragment_size: options.process_data_fragment_size,
 						process_permission_time_to_touch: config.process.permission_time_to_touch,
 						read_channel_capacity: options.read_channel_capacity,
 						read_request_batch_size: options.read_request_batch_size,

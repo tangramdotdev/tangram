@@ -74,6 +74,7 @@ pub(super) struct TouchObjects {
 #[derive(Clone)]
 pub(super) struct TouchProcesses {
 	pub account: Option<tangram_index::usage::Account>,
+	pub data: bool,
 	pub ids: Vec<tg::process::Id>,
 	pub put_account: bool,
 	pub time_to_touch: std::time::Duration,
@@ -160,6 +161,7 @@ pub(super) enum Kind {
 	},
 	TouchProcesses {
 		account: Option<tangram_index::usage::Account>,
+		data: bool,
 		put_account: bool,
 		time_to_touch: std::time::Duration,
 		touched_at: i64,

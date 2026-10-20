@@ -101,19 +101,20 @@ impl Arg {
 		Ok(())
 	}
 
-	pub fn validate_existing(&self, existing: &super::Process) -> tg::Result<tg::Result<()>> {
+	pub fn validate_existing(
+		&self,
+		existing: &super::Process,
+		existing_data: Option<&tg::process::Data>,
+	) -> tg::Result<tg::Result<()>> {
 		if self.principal == tg::Principal::Process(self.id.clone())
-			&& existing
-				.data
-				.as_ref()
-				.is_none_or(|data| !data.status.is_finished())
+			&& existing.status.is_none_or(|status| !status.is_finished())
 		{
 			return Ok(Ok(()));
 		}
 		if self.command_id != existing.command_id {
 			return Ok(Err(tg::error!("cannot replace an existing process")));
 		}
-		if let (Some(data), Some(existing)) = (&self.data, &existing.data) {
+		if let (Some(data), Some(existing)) = (&self.data, existing_data) {
 			let mut data = data.clone().without_location_and_tokens();
 			data.children = None;
 			let mut existing = existing.clone().without_location_and_tokens();

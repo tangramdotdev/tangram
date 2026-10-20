@@ -246,17 +246,15 @@ impl Server {
 			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox processes"))?;
 		let indexed = self
 			.index
-			.try_get_processes(&processes)
+			.try_get_processes_with_data(&processes)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the process records"))?;
 		for (process, indexed) in processes.iter().zip(indexed) {
-			let Some(indexed) = indexed else {
+			let Some((indexed, data)) = indexed else {
 				continue;
 			};
 			let process = process.clone();
-			let mut data = indexed
-				.data
-				.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
+			let mut data = data.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
 			let finish = data.status.is_started();
 			if finish {
 				if data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log()) {

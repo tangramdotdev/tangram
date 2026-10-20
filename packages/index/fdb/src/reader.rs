@@ -536,6 +536,13 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::TryGetProcesses(output)
 			},
+			tangram_index::read::Request::TryGetProcessesWithData { ids } => {
+				let result =
+					Self::try_get_processes_with_data_with_transaction(transaction, subspace, ids)
+						.await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::TryGetProcessesWithData(output)
+			},
 			tangram_index::read::Request::TryGetSandboxes { ids } => {
 				let result =
 					Self::try_get_sandboxes_with_transaction(transaction, subspace, ids).await;

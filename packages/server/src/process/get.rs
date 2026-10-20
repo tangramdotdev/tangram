@@ -16,7 +16,7 @@ mod token;
 
 pub(super) struct Output<T> {
 	pub control: Option<T>,
-	pub indexed: Option<tangram_index::process::Process>,
+	pub indexed: Option<(tangram_index::process::Process, Option<tg::process::Data>)>,
 }
 
 impl Session {
@@ -429,7 +429,6 @@ impl Session {
 					id,
 					self.get_process_from_control(id),
 					|data| metadata || data.status.is_finished(),
-					false,
 					source,
 					deadline,
 				).boxed() => break output?,
@@ -443,17 +442,16 @@ impl Session {
 
 		let (data, location, metadata) = match (output.control, output.indexed) {
 			(None, None) => return Ok(None),
-			(None, Some(indexed)) => {
-				let Some(data) = indexed.data else {
+			(None, Some((indexed, indexed_data))) => {
+				let Some(data) = indexed_data else {
 					return Ok(None);
 				};
 				let metadata = metadata.then_some(indexed.metadata);
 				(data, indexed.location, metadata)
 			},
 			(Some(data), None) => (data, None, None),
-			(Some(data), Some(indexed)) => {
-				let data = indexed
-					.data
+			(Some(data), Some((indexed, indexed_data))) => {
+				let data = indexed_data
 					.filter(|data| data.status.is_finished())
 					.unwrap_or(data);
 				let metadata = metadata.then_some(indexed.metadata);
@@ -470,22 +468,14 @@ impl Session {
 		id: &tg::process::Id,
 		control_future: impl Future<Output = tg::Result<T>> + Send,
 		index_required: impl Fn(&T) -> bool + Send,
-		children: bool,
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Output<T>> {
-		let index_complete = |process: &tangram_index::process::Process| {
-			children
-				|| process
-					.data
-					.as_ref()
-					.is_some_and(|data| data.status.is_finished())
-		};
-		let get_index = || async {
-			let indexed = self.try_get_process_from_index(id).await?;
-			let indexed = indexed.filter(|process| !children || process.set.children);
-			Ok::<_, tg::Error>(indexed)
-		};
+		let index_complete =
+			|(process, _): &(tangram_index::process::Process, Option<tg::process::Data>)| {
+				process.status.is_some_and(|status| status.is_finished())
+			};
+		let get_index = || self.try_get_process_with_data_from_index(id);
 		let index_future = async {
 			let indexed = get_index().await;
 			crate::checkpoint!(self.server, "process.get.index", process = %id).await;
@@ -522,8 +512,9 @@ impl Session {
 		let (control, indexed) = match future::select(index_future, control_future).await {
 			future::Either::Left((indexed, control_future)) => {
 				let indexed = indexed?;
-				if indexed.as_ref().is_some_and(|process| {
-					index_complete(process)
+				if indexed.as_ref().is_some_and(|indexed| {
+					let (process, _) = indexed;
+					index_complete(indexed)
 						|| process
 							.location
 							.as_ref()
@@ -597,6 +588,31 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?;
 		self.server.index.try_get_process(id).await
+	}
+
+	pub(crate) async fn get_process_with_data_from_index(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<(tangram_index::process::Process, Option<tg::process::Data>)> {
+		self.try_get_process_with_data_from_index(id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the process in the index"))
+	}
+
+	pub(crate) async fn try_get_process_with_data_from_index(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<(tangram_index::process::Process, Option<tg::process::Data>)>> {
+		if let Some(output) = self.server.index.try_get_process_with_data(id).await? {
+			return Ok(Some(output));
+		}
+		self.index()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?
+			.try_last()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
+		self.server.index.try_get_process_with_data(id).await
 	}
 
 	pub(crate) async fn get_process_from_control(
@@ -1000,7 +1016,7 @@ impl Server {
 		ids: &[tg::process::Id],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let processes = self.index.try_get_processes(ids).await?;
+		let processes = self.index.try_get_processes_with_data(ids).await?;
 		let location = self.config().region.clone().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
 			|region| {
@@ -1013,8 +1029,8 @@ impl Server {
 		// Combine data and metadata into outputs.
 		let outputs = std::iter::zip(ids, processes)
 			.map(|(id, process)| {
-				let process = process?;
-				let data = process.data?;
+				let (process, data) = process?;
+				let data = data?;
 				if !data.status.is_finished() {
 					return None;
 				}

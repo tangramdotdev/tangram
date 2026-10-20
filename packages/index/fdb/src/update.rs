@@ -2508,10 +2508,7 @@ impl Index {
 				.subtree
 				.depth
 				.is_some_and(|depth| depth > max_depth)
-				&& process
-					.data
-					.as_ref()
-					.is_some_and(|data| !data.status.is_finished())
+				&& process.status.is_some_and(|status| !status.is_finished())
 		});
 
 		if process.set.command_objects {
