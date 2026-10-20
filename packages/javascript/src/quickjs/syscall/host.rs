@@ -152,6 +152,7 @@ pub fn object_id(data: Serde<tg::object::Data>) -> Result<Serde<tg::object::Id>>
 	let Serde(data) = data;
 	let result = (|| {
 		let bytes = data.serialize()?;
+		data.check_limits(bytes.len())?;
 		let id = tg::object::Id::new(data.kind(), &bytes);
 		Ok(id)
 	})();

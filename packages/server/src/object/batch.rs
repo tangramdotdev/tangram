@@ -73,9 +73,11 @@ impl Session {
 		for object in &arg.objects {
 			batch_objects.insert(object.id.clone());
 
-			// Deserialize the object.
+			// Deserialize the object and check its limits.
 			let data = tg::object::Data::deserialize(object.id.kind(), object.bytes.clone())
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+			data.check_limits(object.bytes.len())
+				.map_err(|error| tg::error!(!error, id = %object.id, "invalid object"))?;
 
 			// Create the cache arg.
 			let length = match &data {

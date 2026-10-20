@@ -850,6 +850,8 @@ impl Session {
 			.serialize()
 			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		let id = tg::object::Id::new(kind, &bytes);
+		data.check_limits(bytes.len())
+			.map_err(|error| tg::error!(!error, %id, "failed to check in the artifact"))?;
 		let mut children_ids = BTreeSet::new();
 		data.children(&mut children_ids);
 		let children = children_ids.iter().map(|id| {

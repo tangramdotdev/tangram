@@ -29,6 +29,8 @@ fn object_id(input: &str) -> PyResult<String> {
 	})?;
 	let data = data.without_location_and_tokens();
 	let bytes = data.serialize().map_err(|error| to_python_error(&error))?;
+	data.check_limits(bytes.len())
+		.map_err(|error| to_python_error(&error))?;
 	let id = tg::object::Id::new(data.kind(), &bytes);
 	Ok(id.to_string())
 }

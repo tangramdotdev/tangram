@@ -2165,8 +2165,8 @@ impl Default for CheckinCheckout {
 impl Default for CheckinDirectory {
 	fn default() -> Self {
 		Self {
-			max_branch_children: 128,
-			max_leaf_entries: 1024,
+			max_branch_children: tg::directory::MAX_BRANCH_CHILDREN,
+			max_leaf_entries: tg::directory::MAX_LEAF_ENTRIES,
 		}
 	}
 }
@@ -3297,8 +3297,8 @@ impl Default for Write {
 		Self {
 			avg_leaf_size: 65_536,
 			checkout_pointers: true,
-			max_branch_children: 1_024,
-			max_leaf_size: 131_072,
+			max_branch_children: tg::blob::MAX_BRANCH_CHILDREN,
+			max_leaf_size: tg::blob::MAX_LEAF_SIZE,
 			min_leaf_size: 4_096,
 		}
 	}

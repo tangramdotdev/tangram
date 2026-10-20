@@ -26,3 +26,9 @@ pub mod state;
 pub mod storage;
 pub mod touch;
 pub mod visit;
+
+/// The maximum number of unique children of an object.
+pub const MAX_CHILDREN: usize = 1_024;
+
+/// The maximum size of an object's serialized data in bytes.
+pub const MAX_SIZE: usize = 1_048_576;

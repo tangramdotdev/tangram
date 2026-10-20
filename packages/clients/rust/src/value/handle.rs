@@ -208,6 +208,8 @@ impl Value {
 				.serialize()
 				.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 			let id = tg::object::Id::new(data.kind(), &bytes);
+			data.check_limits(bytes.len())
+				.map_err(|error| tg::error!(!error, %id, "failed to store the object"))?;
 			state.set_id(id.clone());
 			let children = object
 				.children()

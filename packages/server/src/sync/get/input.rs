@@ -76,6 +76,10 @@ impl Session {
 						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?
 					};
 
+					// Check the object's limits.
+					data.check_limits(message.bytes.len())
+						.map_err(|error| tg::error!(!error, id = %message.id, "invalid object"))?;
+
 					if !trust {
 						// Validate the ID.
 						let actual = tg::object::Id::new(message.id.kind(), &message.bytes);

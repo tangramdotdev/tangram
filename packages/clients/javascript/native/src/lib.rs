@@ -28,6 +28,7 @@ fn object_id_inner(input: &str) -> tg::Result<String> {
 	let bytes = data
 		.serialize()
 		.map_err(|error| tg::error!(!error, "failed to serialize the object data"))?;
+	data.check_limits(bytes.len())?;
 	let id = tg::object::Id::new(data.kind(), &bytes);
 
 	Ok(id.to_string())

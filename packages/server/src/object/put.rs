@@ -56,9 +56,11 @@ impl Session {
 				.to_i64()
 				.unwrap();
 
-		// Deserialize the object.
+		// Deserialize the object and check its limits.
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+		data.check_limits(arg.bytes.len())
+			.map_err(|error| tg::error!(!error, %id, "invalid object"))?;
 
 		let length = match &data {
 			tg::object::Data::Blob(blob) => Some(blob.length()),

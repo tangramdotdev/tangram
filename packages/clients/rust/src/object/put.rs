@@ -36,6 +36,12 @@ impl tg::Session {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<tg::object::put::Output> {
+		// Check the object's limits before sending it.
+		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.as_ref())
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
+		data.check_limits(arg.bytes.len())
+			.map_err(|error| tg::error!(!error, %id, "invalid object"))?;
+
 		let method = http::Method::PUT;
 		let path = format!("/objects/{id}");
 		let uri = Uri::builder().path(&path).build().unwrap();
