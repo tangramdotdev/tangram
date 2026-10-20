@@ -412,7 +412,7 @@ impl Index {
 				break;
 			}
 			let begin = Self::pack(subspace, &(key_kind, partition, i64::MIN));
-			let end = Self::pack(subspace, &(key_kind, partition, now + 1));
+			let end = Self::pack(subspace, &(key_kind, partition, now.saturating_add(1)));
 			let range = fdb::RangeOption {
 				begin: fdb::KeySelector::first_greater_or_equal(&begin),
 				end: fdb::KeySelector::first_greater_or_equal(&end),
