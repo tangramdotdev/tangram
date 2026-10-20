@@ -56,8 +56,7 @@ impl Session {
 				(
 					sandbox.id.clone(),
 					sandbox
-						.data
-						.arg
+						.create
 						.host
 						.clone()
 						.unwrap_or_else(|| tg::host::current().to_owned()),

@@ -3,7 +3,6 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::is_default,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -121,8 +120,12 @@ pub struct DestroyServerResponseOutput {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateClientRequestArg {
+	pub arg: tg::sandbox::create::Arg,
+
 	pub created_at: i64,
-	pub data: Data,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub creator: Option<tg::Principal>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -161,33 +164,16 @@ pub struct SpawnProcessClientResponseOutput {
 	pub process: tg::Referent<tg::process::Id>,
 }
 
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Data {
-	#[tangram_serialize(id = 0)]
-	pub arg: tg::sandbox::create::Arg,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub creator: Option<tg::Principal>,
-}
-
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub create: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub create: Option<tg::sandbox::create::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub created_at: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub data: Option<Data>,
+	pub creator: Option<tg::Principal>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::sandbox::Id>,

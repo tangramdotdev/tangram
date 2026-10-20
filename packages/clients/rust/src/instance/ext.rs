@@ -499,7 +499,7 @@ pub trait Ext: tg::Instance {
 	> + Send {
 		async move {
 			let instance = self.clone();
-			let deferred = !arg.create;
+			let deferred = arg.create.is_none();
 			#[derive(Default)]
 			struct CreateState {
 				create: Option<tg::sandbox::control::ClientRequest>,

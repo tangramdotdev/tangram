@@ -191,15 +191,15 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		if !arg.create {
+		let Some(create) = arg.create else {
 			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
 				return Err(tg::error!(
 					"a deferred sandbox control connection requires a runner"
 				));
 			}
-			if arg.created_at.is_some() || arg.data.is_some() {
+			if arg.created_at.is_some() || arg.creator.is_some() {
 				return Err(tg::error!(
-					"a deferred sandbox control connection must not have data or a creation time"
+					"a deferred sandbox control connection must not have a creator or a creation time"
 				));
 			}
 			let header = tg::sandbox::control::Header {
@@ -211,7 +211,7 @@ impl Session {
 			crate::checkpoint!(self.server, "sandbox.control.header", sandbox = %header.id).await;
 
 			return Ok((header, stream));
-		}
+		};
 		self.server.spawn_publish_sandbox_status_task(&id);
 		let created_at = if let Some(created_at) = arg.created_at {
 			created_at
@@ -222,18 +222,16 @@ impl Session {
 
 		// Prepare and submit initialization before accepting subsequent requests.
 		crate::checkpoint!(self.server, "sandbox.control.connect", sandbox = %id).await;
-		if let Some(data) = arg.data {
-			let sandbox = session
-				.prepare_sandbox_control_index_arg(&id, created_at, data, runner.clone())
-				.await?;
-			let arg = tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
-			};
-			self.server
-				.index_batch(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the sandbox"))?;
-		}
+		let sandbox = session
+			.prepare_sandbox_control_index_arg(&id, created_at, create, arg.creator, runner.clone())
+			.await?;
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
+		};
+		self.server
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the sandbox"))?;
 		crate::checkpoint!(self.server, "sandbox.control.index.submitted", sandbox = %id).await;
 
 		let server_messages = self
@@ -390,11 +388,15 @@ impl Session {
 			};
 			crate::checkpoint!(session.server, "sandbox.control.create.received", sandbox = %id)
 				.await;
-			let tg::sandbox::control::CreateClientRequestArg { created_at, data } = create;
+			let tg::sandbox::control::CreateClientRequestArg {
+				arg,
+				created_at,
+				creator,
+			} = create;
 			let arg = tg::sandbox::control::Arg {
-				create: true,
+				create: Some(arg),
 				created_at: Some(created_at),
-				data: Some(data),
+				creator,
 				id: Some(id),
 				location,
 				runner,
@@ -433,10 +435,11 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 		created_at: i64,
-		data: tg::sandbox::control::Data,
+		create: tg::sandbox::create::Arg,
+		creator: Option<tg::Principal>,
 		runner: Option<tg::runner::Id>,
 	) -> tg::Result<tangram_index::sandbox::put::Arg> {
-		let account = match data.arg.owner.as_ref() {
+		let account = match create.owner.as_ref() {
 			Some(owner) => self.usage_account(owner).await?,
 			None => None,
 		};
@@ -445,17 +448,17 @@ impl Session {
 		});
 		let data = tg::sandbox::get::Output {
 			data: tg::sandbox::Data {
-				cpu: data.arg.cpu,
-				creator: data.creator,
-				hostname: data.arg.hostname,
+				cpu: create.cpu,
+				creator,
+				hostname: create.hostname,
 				id: id.clone(),
-				memory: data.arg.memory,
-				mounts: data.arg.mounts,
-				network: data.arg.network,
-				owner: data.arg.owner,
+				memory: create.memory,
+				mounts: create.mounts,
+				network: create.network,
+				owner: create.owner,
 				status: tg::sandbox::Status::Started,
-				storage: data.arg.storage,
-				ttl: data.arg.ttl,
+				storage: create.storage,
+				ttl: create.ttl,
 				usage: None,
 			},
 			location: Some(location.clone()),

@@ -275,6 +275,13 @@ impl Session {
 				// Ignore the parent that a scheduled process's start restates, since the server recorded the parent when it spawned the process.
 				let parent = if shortcut { parent } else { None };
 
+				// Reject a scheduled process's start that creates a sandbox, since a scheduled process runs in a sandbox that already exists.
+				if !shortcut && sandbox.is_some() {
+					return Err(tg::error!(
+						"a scheduled process's start must not create a sandbox"
+					));
+				}
+
 				// Require a process on the shortcut path to prove with their tokens that its runner runs its parent and hosts its sandbox.
 				if shortcut {
 					let parent = parent.as_ref().ok_or_else(|| {
@@ -661,18 +668,12 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 		let sandbox = if let Some(sandbox) = sandbox {
-			let authentication = self
-				.server
-				.authenticate(self.context.origin, Some(&sandbox.token))
-				.await?;
-			if authentication.principal != tg::Principal::Sandbox(sandbox_id.clone()) {
-				return Err(tg::error!("invalid sandbox initialization token"));
-			}
 			Some(
 				self.prepare_sandbox_control_index_arg(
 					sandbox_id,
 					sandbox.created_at,
-					sandbox.data,
+					sandbox.create,
+					sandbox.creator,
 					sandbox.runner,
 				)
 				.await?,

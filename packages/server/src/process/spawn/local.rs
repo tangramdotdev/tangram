@@ -359,7 +359,7 @@ impl Session {
 					.server
 					.try_get_request_origin_sandbox(self.context.origin)?
 					.filter(|origin| origin.id == sandbox.node)
-					.map(|origin| origin.data.arg.owner.clone());
+					.map(|origin| origin.create.owner.clone());
 				if let Some(owner) = origin_owner {
 					owner
 				} else {

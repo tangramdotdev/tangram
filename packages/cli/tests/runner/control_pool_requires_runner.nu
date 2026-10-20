@@ -9,7 +9,7 @@ let remote = server spawn --name remote --config {
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 for entry in [
 	{ path: 'processes/control?mode[kind]=wait', content_type: 'application/vnd.tangram.process-control' }
-	{ path: 'sandboxes/control?create=false', content_type: 'text/event-stream' }
+	{ path: 'sandboxes/control', content_type: 'text/event-stream' }
 ] {
 	let headers = { Authorization: $'Bearer ($root_token)', 'Content-Type': $entry.content_type }
 	let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers $headers $'http://localhost/($entry.path)' ''

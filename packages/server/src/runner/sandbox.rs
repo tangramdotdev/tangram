@@ -293,10 +293,6 @@ impl Session {
 		// Create the sandbox concurrently with its control stream.
 		let create_future = self.create_sandbox_with_pool(arg.clone());
 		let created_at = self.server.clock.unix_timestamp()?;
-		let control_data = tg::sandbox::control::Data {
-			arg: arg.clone(),
-			creator: creator.clone(),
-		};
 		let capacity = self.server.config.runner.sandbox_channel_capacity;
 		let (input, input_receiver) = tokio::sync::mpsc::channel(capacity);
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
@@ -304,7 +300,8 @@ impl Session {
 			.boxed();
 		let connect_future: BoxFuture<'static, tg::Result<SandboxControlConnectionKind>> =
 			if let Some((id, _)) = &identity {
-				let control_data = control_data.clone();
+				let create = arg.clone();
+				let creator = creator.clone();
 				let id = id.clone();
 				let location = location.clone();
 
@@ -314,7 +311,8 @@ impl Session {
 							Some(&id),
 							&location,
 							created_at,
-							control_data,
+							create,
+							creator,
 							input_stream,
 						)
 						.await?;
@@ -363,8 +361,9 @@ impl Session {
 				unreachable!();
 			};
 			let create = tg::sandbox::control::CreateClientRequestArg {
+				arg: arg.clone(),
 				created_at,
-				data: control_data.clone(),
+				creator: creator.clone(),
 			};
 			let request_id = crate::control::id();
 			let request =
@@ -434,10 +433,10 @@ impl Session {
 		};
 		let session = self.server.session(&context);
 		let sandbox_initialization = shortcut.then(|| tg::process::control::Sandbox {
+			create: arg.clone(),
 			created_at,
-			data: control_data.clone(),
+			creator: creator.clone(),
 			runner: self.server.runner.state.id(),
-			token: token.clone(),
 		});
 
 		// Take the sandbox's CPU minimum from its lender, and record its CPU share so that its borrowers can take theirs from it.
@@ -472,7 +471,9 @@ impl Session {
 
 			control_sender,
 
-			data: control_data,
+			create: arg,
+
+			creator,
 
 			id: id.clone(),
 
@@ -1545,9 +1546,9 @@ impl Session {
 			.map(Ok)
 			.boxed();
 		let arg = tg::sandbox::control::Arg {
-			create: false,
+			create: None,
 			created_at: None,
-			data: None,
+			creator: None,
 			id: None,
 			location: Some(location.into()),
 			runner: Some(runner),
@@ -1575,7 +1576,8 @@ impl Session {
 		id: Option<&tg::sandbox::Id>,
 		location: &tg::Location,
 		created_at: i64,
-		data: tg::sandbox::control::Data,
+		create: tg::sandbox::create::Arg,
+		creator: Option<tg::Principal>,
 		input_stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> tg::Result<ConnectedSandboxControl> {
 		let runner = self
@@ -1585,9 +1587,9 @@ impl Session {
 			.id()
 			.ok_or_else(|| tg::error!("missing the runner id"))?;
 		let arg = tg::sandbox::control::Arg {
-			create: true,
+			create: Some(create),
 			created_at: Some(created_at),
-			data: Some(data),
+			creator,
 			id: id.cloned(),
 			location: Some(location.clone().into()),
 			runner: Some(runner),
