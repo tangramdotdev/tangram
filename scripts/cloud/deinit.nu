@@ -1,4 +1,8 @@
 # Stop the Tangram servers before removing their stores and state.
+if not ('.tangram/cloud' | path exists --no-symlink) {
+	print -e 'there is no local cloud state to remove'
+	exit 0
+}
 let target = cargo metadata --format-version 1 --no-deps | from json | get target_directory
 let scylla = $target | path join release tangram_scylla_client
 

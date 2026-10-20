@@ -13,6 +13,31 @@ def main [
 		error make { msg: $"the following programs are missing from PATH: ($missing | str join ', ')" }
 	}
 
+	# Check that the database ports are available, because `nu packages/cli/test.nu --databases` binds the same ports.
+	let endpoints = [
+		{ name: PostgreSQL, port: 5432 },
+		{ name: FoundationDB, port: 4500 },
+		{ name: NATS, port: 4222 },
+		{ name: ScyllaDB, port: 9042 },
+	]
+	let occupied = $endpoints | where { |endpoint| (^bash -c 'exec 3<>/dev/tcp/127.0.0.1/"$1"' _ $endpoint.port | complete).exit_code == 0 }
+	if not ($occupied | is-empty) {
+		let addresses = $occupied | each { |endpoint| $"($endpoint.name) at 127.0.0.1:($endpoint.port)" } | str join ', '
+		error make { msg: $"the following database ports are already in use: ($addresses)" }
+	}
+
+	# Pull the Docker images on macOS.
+	let foundationdb_image = $"foundationdb/foundationdb:($foundationdb_version)"
+	let scylla_image = 'scylladb/scylla:2026.3.0'
+	if $nu.os-info.name == 'macos' {
+		for image in [$foundationdb_image $scylla_image] {
+			if (docker image inspect $image | complete).exit_code != 0 {
+				print -e $"pulling ($image)"
+				docker pull $image
+			}
+		}
+	}
+
 	# Build the ScyllaDB client for the readiness check.
 	cargo build --release --package tangram_scylla_client
 	let target = cargo metadata --format-version 1 --no-deps | from json | get target_directory
@@ -26,7 +51,7 @@ def main [
 	}
 	print -e $"starting the local cloud databases with temporary state in ($state)"
 
-	exec bash -c (supervisor) _ $nu.os-info.name $state $scylla $"foundationdb/foundationdb:($foundationdb_version)"
+	exec bash -c (supervisor) _ $nu.os-info.name $state $scylla $foundationdb_image $scylla_image
 }
 
 def supervisor [] {
@@ -36,6 +61,7 @@ platform=$1
 state=$2
 scylla_client=$3
 foundationdb_image=$4
+scylla_image=$5
 names=()
 pids=()
 # Give ScyllaDB enough shards and memory that a std build does not queue its reads until they time out.
@@ -129,7 +155,7 @@ else
 	docker rm --force --volumes tangram_cloud_foundationdb tangram_cloud_scylla >/dev/null 2>&1
 	start foundationdb docker run --rm --name tangram_cloud_foundationdb --publish 127.0.0.1:4500:4500 --env FDB_NETWORKING_MODE=host --env FDB_PORT=4500 "$foundationdb_image"
 	# Advertise the published address so that clients connect through it, because connections to the container address stall under sustained load on OrbStack and are not routed at all by Docker Desktop.
-	start scylla docker run --rm --name tangram_cloud_scylla --publish 127.0.0.1:9042:9042 scylladb/scylla:2026.3.0 "${scylla_args[@]}" --broadcast-rpc-address=127.0.0.1 --overprovisioned=1
+	start scylla docker run --rm --name tangram_cloud_scylla --publish 127.0.0.1:9042:9042 "$scylla_image" "${scylla_args[@]}" --broadcast-rpc-address=127.0.0.1 --overprovisioned=1
 	fdbcli=(docker exec tangram_cloud_foundationdb fdbcli)
 fi
 set +m
