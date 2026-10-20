@@ -12,3 +12,9 @@ pub mod handle;
 pub mod id;
 pub mod object;
 pub mod read;
+
+/// The maximum number of children of a blob branch.
+pub const MAX_BRANCH_CHILDREN: usize = 1_024;
+
+/// The maximum size of a blob leaf's bytes.
+pub const MAX_LEAF_SIZE: usize = 131_072;

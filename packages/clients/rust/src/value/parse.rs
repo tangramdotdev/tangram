@@ -370,17 +370,13 @@ fn directory_node(input: &mut Input) -> ModalResult<tg::Object> {
 		)
 		.map(|entries: Vec<(String, tg::graph::Edge<tg::Artifact>)>| {
 			let entries = entries.into_iter().collect::<BTreeMap<_, _>>();
-			let leaf = tg::graph::DirectoryLeaf { entries };
-			let node = tg::graph::Directory::Leaf(leaf);
+			let node = tg::graph::Directory::with_entries(entries);
 			let object = tg::directory::Object::Node(node);
 			tg::Directory::with_object(object).into()
 		}),
 		// Empty directory
 		whitespace.map(|()| {
-			let leaf = tg::graph::DirectoryLeaf {
-				entries: BTreeMap::new(),
-			};
-			let node = tg::graph::Directory::Leaf(leaf);
+			let node = tg::graph::Directory::with_entries(BTreeMap::new());
 			let object = tg::directory::Object::Node(node);
 			tg::Directory::with_object(object).into()
 		}),

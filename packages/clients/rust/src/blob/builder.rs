@@ -1,5 +1,8 @@
 use {crate::prelude::*, bytes::Bytes};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug, Default)]
 pub struct Builder {
 	kind: Kind,
@@ -48,14 +51,36 @@ impl Builder {
 			Kind::Leaf(bytes) => {
 				tg::Blob::with_object(tg::blob::Object::Leaf(tg::blob::object::Leaf { bytes }))
 			},
-			Kind::Branch(children) => match children.len() {
-				0 => tg::Blob::with_object(tg::blob::Object::Leaf(tg::blob::object::Leaf {
-					bytes: Bytes::new(),
-				})),
-				1 => children.into_iter().next().unwrap().blob,
-				_ => tg::Blob::with_object(tg::blob::Object::Branch(tg::blob::object::Branch {
-					children,
-				})),
+			Kind::Branch(mut children) => {
+				// Create a branch for each full chunk of the children until the children fit in one branch, as the server does when it writes a blob.
+				while children.len() > tg::blob::MAX_BRANCH_CHILDREN {
+					children = children
+						.chunks(tg::blob::MAX_BRANCH_CHILDREN)
+						.flat_map(|chunk| {
+							if chunk.len() < tg::blob::MAX_BRANCH_CHILDREN {
+								return chunk.to_vec();
+							}
+							let length = chunk.iter().map(|child| child.length).sum();
+							let branch = tg::blob::object::Branch {
+								children: chunk.to_vec(),
+							};
+							let blob = tg::Blob::with_object(tg::blob::Object::Branch(branch));
+							vec![tg::blob::Child { blob, length }]
+						})
+						.collect();
+				}
+
+				match children.len() {
+					0 => tg::Blob::with_object(tg::blob::Object::Leaf(tg::blob::object::Leaf {
+						bytes: Bytes::new(),
+					})),
+					1 => children.into_iter().next().unwrap().blob,
+					_ => {
+						tg::Blob::with_object(tg::blob::Object::Branch(tg::blob::object::Branch {
+							children,
+						}))
+					},
+				}
 			},
 		}
 	}

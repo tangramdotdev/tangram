@@ -23,6 +23,12 @@ if TYPE_CHECKING:
     from .symlink import Symlink
 
 
+# The maximum number of children of a directory branch.
+MAX_BRANCH_CHILDREN = 128
+
+# The maximum number of entries in a directory leaf.
+MAX_LEAF_ENTRIES = 1024
+
 type ArtifactValue = Directory | File | Symlink
 type DirectoryEntryInput = Unresolved[
     ArtifactValue
@@ -117,7 +123,7 @@ class Directory(Object):
             self._stored = arg["stored"]
             return
         if entries is not None:
-            value = {"entries": dict(entries)}
+            value = _node(entries)
         super().__init__(value, **options)
 
     async def object(self, client: Client | None = None) -> DirectoryValue:
@@ -223,7 +229,12 @@ class Directory(Object):
                         )
             else:
                 raise TypeError("invalid directory argument")
-        return cls.with_object({"entries": entries})
+        return cls.with_entries(entries)
+
+    @classmethod
+    def with_entries(cls, entries: Mapping[str, ArtifactValue | Pointer]) -> Self:
+        """Create a directory with entries, branching them like checkin."""
+        return cls.with_object(_node(entries))
 
     def _decode(self, value):
         from .graph import Pointer
@@ -442,3 +453,33 @@ setattr(Directory, "Object", DirectoryObject)
 setattr(Directory, "Data", DirectoryDataNamespace)
 
 directory = DirectoryBuilder
+
+
+def _node(entries: Mapping[str, ArtifactValue | Pointer]) -> DirectoryValue:
+    # Create a leaf if the entries fit in one.
+    names = sorted(entries)
+    if len(names) <= MAX_LEAF_ENTRIES:
+        return {"entries": dict(entries)}
+
+    # Create a leaf for each chunk of the entries.
+    children: list[DirectoryChild] = []
+    for start in range(0, len(names), MAX_LEAF_ENTRIES):
+        chunk = names[start : start + MAX_LEAF_ENTRIES]
+        leaf = Directory.with_object(
+            {"entries": {name: entries[name] for name in chunk}}
+        )
+        children.append({"count": len(chunk), "directory": leaf, "last": chunk[-1]})
+
+    # Create branches for chunks of the children until they fit in one branch.
+    while len(children) > MAX_BRANCH_CHILDREN:
+        branches: list[DirectoryChild] = []
+        for start in range(0, len(children), MAX_BRANCH_CHILDREN):
+            chunk = children[start : start + MAX_BRANCH_CHILDREN]
+            count = sum(child["count"] for child in chunk)
+            branch = Directory.with_object({"children": chunk})
+            branches.append(
+                {"count": count, "directory": branch, "last": chunk[-1]["last"]}
+            )
+        children = branches
+
+    return {"children": children}

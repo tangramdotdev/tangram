@@ -1,6 +1,12 @@
 import * as tg from "./index.ts";
 import { Resolve } from "./resolve.ts";
 
+/** The maximum number of children of a directory branch. */
+const MAX_BRANCH_CHILDREN = 128;
+
+/** The maximum number of entries in a directory leaf. */
+const MAX_LEAF_ENTRIES = 1024;
+
 /** Create a directory. */
 export let directory = (
 	...args: Array<tg.Unresolved<tg.Directory.Arg>>
@@ -54,6 +60,48 @@ export class Directory {
 
 	static fromData(data: tg.Directory.Data): tg.Directory {
 		return tg.Directory.withObject(tg.Directory.Object.fromData(data));
+	}
+
+	/** Create a directory with entries, splitting entries that do not fit in a leaf into leaves and branches as checkin does. */
+	static withEntries(entries: {
+		[key: string]: tg.Graph.Edge<tg.Artifact>;
+	}): tg.Directory {
+		// Create a leaf if the entries fit in one.
+		let names = Object.keys(entries).sort(compareCodePoints);
+		if (names.length <= MAX_LEAF_ENTRIES) {
+			return tg.Directory.withObject({ entries });
+		}
+
+		// Create a leaf for each chunk of the entries.
+		let children: Array<tg.Graph.DirectoryChild> = [];
+		for (let start = 0; start < names.length; start += MAX_LEAF_ENTRIES) {
+			let chunk = names.slice(start, start + MAX_LEAF_ENTRIES);
+			let leaf = Object.fromEntries(
+				chunk.map((name) => [name, entries[name]!]),
+			);
+			let directory = tg.Directory.withObject({ entries: leaf });
+			let last = chunk[chunk.length - 1]!;
+			children.push({ count: chunk.length, directory, last });
+		}
+
+		// Create a branch for each chunk of the children until the children fit in one branch.
+		while (children.length > MAX_BRANCH_CHILDREN) {
+			let branches: Array<tg.Graph.DirectoryChild> = [];
+			for (
+				let start = 0;
+				start < children.length;
+				start += MAX_BRANCH_CHILDREN
+			) {
+				let chunk = children.slice(start, start + MAX_BRANCH_CHILDREN);
+				let count = chunk.reduce((count, child) => count + child.count, 0);
+				let directory = tg.Directory.withObject({ children: chunk });
+				let last = chunk[chunk.length - 1]!.last;
+				branches.push({ count, directory, last });
+			}
+			children = branches;
+		}
+
+		return tg.Directory.withObject({ children });
 	}
 
 	/** Create a directory. */
@@ -181,7 +229,7 @@ export class Directory {
 			}
 			return entries;
 		}, Promise.resolve({}));
-		return tg.Directory.withObject({ entries });
+		return tg.Directory.withEntries(entries);
 	}
 
 	/** Expect that a value is a `tg.Directory`. */
@@ -548,3 +596,17 @@ export namespace Directory {
 		};
 	}
 }
+
+/** Compare strings by code point, which orders them as their UTF-8 encodings are ordered. */
+let compareCodePoints = (a: string, b: string): number => {
+	let index = 0;
+	while (index < a.length && index < b.length) {
+		let left = a.codePointAt(index)!;
+		let right = b.codePointAt(index)!;
+		if (left !== right) {
+			return left - right;
+		}
+		index += left > 0xffff ? 2 : 1;
+	}
+	return a.length - b.length;
+};

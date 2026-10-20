@@ -2,6 +2,12 @@ import * as tg from "./index.ts";
 import { Resolve } from "./resolve.ts";
 import { unindent } from "./template.ts";
 
+/** The maximum number of children of a blob branch. */
+const MAX_BRANCH_CHILDREN = 1024;
+
+/** The maximum size of a blob leaf's bytes. */
+const MAX_LEAF_SIZE = 131_072;
+
 /** Create a blob. */
 export function blob(
 	strings: TemplateStringsArray,
@@ -62,6 +68,18 @@ export class Blob {
 		return tg.Blob.withObject(tg.Blob.Object.fromData(data));
 	}
 
+	/** Create a blob with bytes, writing bytes that do not fit in a leaf to the server so that they are chunked as checkin chunks them. */
+	static async withBytes(bytes: Uint8Array): Promise<tg.Blob> {
+		if (bytes.byteLength <= MAX_LEAF_SIZE) {
+			return tg.Blob.withObject({ bytes });
+		}
+		let input = (async function* () {
+			yield bytes;
+		})();
+		let output = await tg.client.write({}, input);
+		return tg.Blob.withReferent(output.blob);
+	}
+
 	/** Create a blob. */
 	static async new(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob> {
 		let arg: tg.Blob.Arg.Object;
@@ -74,13 +92,14 @@ export class Blob {
 		} else {
 			arg = await tg.Blob.arg(...args);
 		}
+		let children = nest(arg.children ?? []);
 		let blob: tg.Blob;
-		if (!arg.children || arg.children.length === 0) {
+		if (children.length === 0) {
 			blob = tg.Blob.withObject({ bytes: new Uint8Array() });
-		} else if (arg.children.length === 1) {
-			blob = arg.children[0]!.blob;
+		} else if (children.length === 1) {
+			blob = children[0]!.blob;
 		} else {
-			blob = tg.Blob.withObject({ children: arg.children });
+			blob = tg.Blob.withObject({ children });
 		}
 		return blob;
 	}
@@ -115,12 +134,12 @@ export class Blob {
 					return { children: [] };
 				} else if (typeof arg === "string") {
 					let bytes = tg.encoding.utf8.encode(arg);
-					let blob = tg.Blob.withObject({ bytes });
+					let blob = await tg.Blob.withBytes(bytes);
 					let length = bytes.length;
 					return { children: [{ blob, length }] };
 				} else if (arg instanceof Uint8Array) {
 					let bytes = arg;
-					let blob = tg.Blob.withObject({ bytes });
+					let blob = await tg.Blob.withBytes(bytes);
 					let length = bytes.length;
 					return { children: [{ blob, length }] };
 				} else if (arg instanceof tg.Blob) {
@@ -332,7 +351,7 @@ export namespace Blob {
 
 		static async createBranch(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob> {
 			let arg = await tg.Blob.arg(...args);
-			return tg.Blob.withObject({ children: arg.children ?? [] });
+			return tg.Blob.withObject({ children: nest(arg.children ?? []) });
 		}
 
 		then<TResult1 = tg.Blob, TResult2 = never>(
@@ -450,3 +469,22 @@ export namespace Blob {
 		return new tg.Blob.Builder(true, strings, ...placeholders);
 	};
 }
+
+/** Create a branch for each full chunk of the children until the children fit in one branch, as the server does when it writes a blob. */
+let nest = (children: Array<tg.Blob.Child>): Array<tg.Blob.Child> => {
+	while (children.length > MAX_BRANCH_CHILDREN) {
+		let nested: Array<tg.Blob.Child> = [];
+		for (let start = 0; start < children.length; start += MAX_BRANCH_CHILDREN) {
+			let chunk = children.slice(start, start + MAX_BRANCH_CHILDREN);
+			if (chunk.length < MAX_BRANCH_CHILDREN) {
+				nested.push(...chunk);
+				continue;
+			}
+			let length = chunk.reduce((length, child) => length + child.length, 0);
+			let blob = tg.Blob.withObject({ children: chunk });
+			nested.push({ blob, length });
+		}
+		children = nested;
+	}
+	return children;
+};

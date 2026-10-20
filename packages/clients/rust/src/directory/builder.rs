@@ -169,8 +169,7 @@ impl Builder {
 			.into_iter()
 			.map(|(name, artifact)| (name, tg::graph::Edge::Object(artifact)))
 			.collect();
-		let leaf = tg::graph::DirectoryLeaf { entries };
-		let node = tg::graph::Directory::Leaf(leaf);
+		let node = tg::graph::Directory::with_entries(entries);
 		tg::Directory::with_object(tg::directory::Object::Node(node))
 	}
 }

@@ -16,6 +16,12 @@ from .mutation import Mutation
 from .object import Object
 from .resolve import Unresolved, resolve
 
+# The maximum number of children of a blob branch.
+MAX_BRANCH_CHILDREN = 1024
+
+# The maximum size of a blob leaf's bytes.
+MAX_LEAF_SIZE = 131_072
+
 
 class BlobChild(TypedDict):
     blob: Blob
@@ -122,12 +128,26 @@ class Blob(Object):
         if len(resolved_args) == 1 and isinstance(resolved_args[0], cls):
             return resolved_args[0]
         arg = await cls.arg_resolved(*resolved_args, client=client)
-        children = arg.get("children") or []
+        children = _nest(arg.get("children") or [])
         if not children:
             return cls(b"")
         if len(children) == 1:
             return children[0]["blob"]
         return cls({"children": children})
+
+    @classmethod
+    async def with_bytes(
+        cls, bytes_: builtins.bytes, client: Client | None = None
+    ) -> Blob:
+        """Create a blob, chunking bytes larger than a leaf with the server."""
+        if len(bytes_) <= MAX_LEAF_SIZE:
+            return cls.with_object({"bytes": bytes_})
+        from .client import client as default_client
+        from .client.write import single_bytes
+
+        client = client or default_client
+        output = await client.write({}, single_bytes(bytes_))
+        return cls.with_referent(output["blob"])
 
     @staticmethod
     def leaf(*args: BlobInput) -> BlobBuilder:
@@ -152,7 +172,7 @@ class Blob(Object):
                 return {"children": []}
             if isinstance(arg, (str, bytes, bytearray, memoryview)):
                 bytes_ = arg.encode() if isinstance(arg, str) else bytes(arg)
-                blob = cls.with_object({"bytes": bytes_})
+                blob = await cls.with_bytes(bytes_, client=client)
                 length = len(bytes_)
                 return {"children": [{"blob": blob, "length": length}]}
             if isinstance(arg, cls):
@@ -266,7 +286,7 @@ class BlobBuilder(Builder[Blob]):
     @staticmethod
     async def create_branch(*args: BlobInput, client: Client | None = None) -> Blob:
         arg = await Blob.arg(*args, client=client)
-        return Blob.with_object({"children": arg.get("children") or []})
+        return Blob.with_object({"children": _nest(arg.get("children") or [])})
 
     async def _create(self) -> Blob:
         if getattr(self, "_mode", None) == "leaf":
@@ -326,3 +346,20 @@ Blob.Data = BlobDataNamespace
 Blob.Object = BlobObject
 
 blob = BlobBuilder
+
+
+def _nest(children: list[BlobChild]) -> list[BlobChild]:
+    # Nest each full chunk of the children in a branch, as the server does for blobs.
+    while len(children) > MAX_BRANCH_CHILDREN:
+        nested: list[BlobChild] = []
+        for start in range(0, len(children), MAX_BRANCH_CHILDREN):
+            chunk = children[start : start + MAX_BRANCH_CHILDREN]
+            if len(chunk) < MAX_BRANCH_CHILDREN:
+                nested.extend(chunk)
+                continue
+            length = sum(child["length"] for child in chunk)
+            nested.append(
+                {"blob": Blob.with_object({"children": chunk}), "length": length}
+            )
+        children = nested
+    return children
