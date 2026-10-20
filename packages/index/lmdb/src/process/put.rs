@@ -25,7 +25,15 @@ impl Index {
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			.map(tangram_index::process::Process::deserialize)
 			.transpose()?;
-		let existing_data = if arg.data.is_some() {
+
+		// Get the existing data when the validation compares it, which is for another principal's data or a finished process.
+		let existing_data = if arg.data.is_some()
+			&& existing
+				.as_ref()
+				.and_then(|existing| existing.status)
+				.is_some_and(|status| {
+					arg.principal != tg::Principal::Process(id.clone()) || status.is_finished()
+				}) {
 			Self::try_get_process_data_with_transaction(db, subspace, transaction, id)?
 		} else {
 			None
@@ -307,19 +315,22 @@ impl Index {
 			Self::put_sandbox_process_with_transaction(db, subspace, transaction, sandbox, id)?;
 		}
 
-		let key = Key::Process(crate::process::Key::CommandCacheableProcess {
-			command: arg.command_id.clone(),
-			process: id.clone(),
-		});
-		let key = Self::pack(subspace, &key);
-		if data.as_ref().is_some_and(|data| data.cacheable) {
-			db.put(transaction, &key, &[]).map_err(|error| {
-				tg::error!(!error, "failed to put the command cacheable process")
-			})?;
-		} else {
-			db.delete(transaction, &key).map_err(|error| {
-				tg::error!(!error, "failed to delete the command cacheable process")
-			})?;
+		// Update the cacheable entry when the data is written, because it matches the stored data otherwise.
+		if let Some(data) = &data {
+			let key = Key::Process(crate::process::Key::CommandCacheableProcess {
+				command: arg.command_id.clone(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			if data.cacheable {
+				db.put(transaction, &key, &[]).map_err(|error| {
+					tg::error!(!error, "failed to put the command cacheable process")
+				})?;
+			} else {
+				db.delete(transaction, &key).map_err(|error| {
+					tg::error!(!error, "failed to delete the command cacheable process")
+				})?;
+			}
 		}
 
 		let objects = arg

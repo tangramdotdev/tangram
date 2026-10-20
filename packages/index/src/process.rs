@@ -171,6 +171,16 @@ pub trait Index {
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
 
+	fn touch_processes_with_data_with_account(
+		&self,
+		ids: &[tg::process::Id],
+		account: Option<&crate::usage::Account>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<
+		Output = tg::Result<Vec<Option<(crate::process::Process, Option<tg::process::Data>)>>>,
+	> + Send;
+
 	fn touch_process(
 		&self,
 		id: &tg::process::Id,

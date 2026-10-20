@@ -12,9 +12,10 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &crate::TouchProcesses,
 		usage_partition_total: u64,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
+	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
 		let crate::TouchProcesses {
 			account,
+			data,
 			ids,
 			put_account,
 			time_to_touch,
@@ -25,6 +26,7 @@ impl Index {
 			subspace,
 			transaction,
 			ids,
+			*data,
 			*touched_at,
 			*time_to_touch,
 		)?;
@@ -66,9 +68,10 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		ids: &[tg::process::Id],
+		data: bool,
 		touched_at: i64,
 		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
+	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
 		let mut outputs = Vec::with_capacity(ids.len());
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		for id in ids {
@@ -84,8 +87,13 @@ impl Index {
 				outputs.push(None);
 				continue;
 			};
+			let process_data = if data {
+				Self::try_get_process_data_with_transaction(db, subspace, transaction, id)?
+			} else {
+				None
+			};
 			if touched_at - process.touched_at < time_to_touch {
-				outputs.push(Some(process));
+				outputs.push(Some((process, process_data)));
 				continue;
 			}
 			process.touched_at = process.touched_at.max(touched_at);
@@ -101,7 +109,7 @@ impl Index {
 				db.put(transaction, &key, &[])
 					.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
 			}
-			outputs.push(Some(process));
+			outputs.push(Some((process, process_data)));
 		}
 		Ok(outputs)
 	}

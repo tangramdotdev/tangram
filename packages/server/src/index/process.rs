@@ -147,6 +147,29 @@ impl Index {
 			},
 		}
 	}
+
+	pub async fn touch_processes_with_data_with_account(
+		&self,
+		ids: &[tg::process::Id],
+		account: Option<&index::usage::Account>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<(index::process::Process, Option<tg::process::Data>)>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.touch_processes_with_data_with_account(ids, account, touched_at, time_to_touch)
+					.await
+			},
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => {
+				index
+					.touch_processes_with_data_with_account(ids, account, touched_at, time_to_touch)
+					.await
+			},
+		}
+	}
 }
 
 impl index::process::Index for Index {
@@ -230,6 +253,17 @@ impl index::process::Index for Index {
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::process::Process>>> {
 		self.touch_processes_with_account(ids, account, touched_at, time_to_touch)
+			.await
+	}
+
+	async fn touch_processes_with_data_with_account(
+		&self,
+		ids: &[tg::process::Id],
+		account: Option<&index::usage::Account>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<(index::process::Process, Option<tg::process::Data>)>>> {
+		self.touch_processes_with_data_with_account(ids, account, touched_at, time_to_touch)
 			.await
 	}
 }

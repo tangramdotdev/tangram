@@ -786,6 +786,7 @@ impl Index {
 			},
 			Request::TouchProcesses(crate::TouchProcesses {
 				account,
+				data,
 				ids,
 				put_account,
 				time_to_touch,
@@ -796,6 +797,7 @@ impl Index {
 					items,
 					Kind::TouchProcesses {
 						account,
+						data,
 						put_account,
 						time_to_touch,
 						touched_at,
@@ -1080,6 +1082,7 @@ impl Index {
 			},
 			Kind::TouchProcesses {
 				account,
+				data,
 				put_account,
 				time_to_touch,
 				touched_at,
@@ -1093,6 +1096,7 @@ impl Index {
 					.collect();
 				Request::TouchProcesses(crate::TouchProcesses {
 					account: account.clone(),
+					data: *data,
 					ids,
 					put_account: *put_account,
 					time_to_touch: *time_to_touch,

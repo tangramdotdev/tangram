@@ -23,10 +23,11 @@ impl Index {
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		// Get the existing process and, when this write includes data, the existing data concurrently.
+		// Get the existing process and, when the validation compares another principal's data, the existing data concurrently.
+		let compare = arg.data.is_some() && arg.principal != tg::Principal::Process(id.clone());
 		let process = Self::try_get_process_with_transaction(txn, subspace, id);
 		let data = async {
-			if arg.data.is_none() {
+			if !compare {
 				return Ok(ControlFlow::Break(None));
 			}
 			Self::try_get_process_data_with_transaction(txn, subspace, id).await
@@ -36,10 +37,23 @@ impl Index {
 			ControlFlow::Break(existing) => existing,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
-		let existing_data = match existing_data {
+		let mut existing_data = match existing_data {
 			ControlFlow::Break(existing_data) => existing_data,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
+
+		// Get the existing data when the process rewrites its own finished data, which the validation compares.
+		if arg.data.is_some()
+			&& !compare
+			&& existing
+				.as_ref()
+				.and_then(|existing| existing.status)
+				.is_some_and(|status| status.is_finished())
+		{
+			existing_data = crate::propagate!(
+				Self::try_get_process_data_with_transaction(txn, subspace, id).await
+			);
+		}
 
 		// Validate process data and children against the existing record in this write transaction.
 		if let Some(existing) = &existing {
@@ -317,17 +331,20 @@ impl Index {
 			);
 		}
 
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
-		let key = Key::Process(crate::process::Key::CommandCacheableProcess {
-			command: arg.command_id.clone(),
-			process: id.clone(),
-		});
-		let key = Self::pack(subspace, &key);
-		if data.as_ref().is_some_and(|data| data.cacheable) {
-			txn.set(&key, &[]);
-		} else {
-			txn.clear(&key);
+		// Update the cacheable entry when the data is written, because it matches the stored data otherwise.
+		if let Some(data) = &data {
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			let key = Key::Process(crate::process::Key::CommandCacheableProcess {
+				command: arg.command_id.clone(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			if data.cacheable {
+				txn.set(&key, &[]);
+			} else {
+				txn.clear(&key);
+			}
 		}
 
 		let objects = arg

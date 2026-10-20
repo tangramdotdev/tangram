@@ -141,8 +141,15 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes_inner(ids, None, false, touched_at, time_to_touch)
-			.await
+		let processes = self
+			.touch_processes_inner(ids, None, false, false, touched_at, time_to_touch)
+			.await?;
+		let processes = processes
+			.into_iter()
+			.map(|output| output.map(|(process, _)| process))
+			.collect();
+
+		Ok(processes)
 	}
 
 	async fn touch_processes_inner(
@@ -150,14 +157,16 @@ impl Index {
 		ids: &[tg::process::Id],
 		account: Option<&tangram_index::usage::Account>,
 		put_account: bool,
+		data: bool,
 		touched_at: i64,
 		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
+	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		let request = Request::TouchProcesses(crate::TouchProcesses {
 			account: account.cloned(),
+			data,
 			ids: ids.to_vec(),
 			put_account,
 			time_to_touch,
@@ -177,8 +186,15 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes_inner(ids, Some(account), true, touched_at, time_to_touch)
-			.await
+		let processes = self
+			.touch_processes_inner(ids, Some(account), true, false, touched_at, time_to_touch)
+			.await?;
+		let processes = processes
+			.into_iter()
+			.map(|output| output.map(|(process, _)| process))
+			.collect();
+
+		Ok(processes)
 	}
 
 	pub async fn touch_processes_with_account(
@@ -188,7 +204,25 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes_inner(ids, account, false, touched_at, time_to_touch)
+		let processes = self
+			.touch_processes_inner(ids, account, false, false, touched_at, time_to_touch)
+			.await?;
+		let processes = processes
+			.into_iter()
+			.map(|output| output.map(|(process, _)| process))
+			.collect();
+
+		Ok(processes)
+	}
+
+	pub async fn touch_processes_with_data_with_account(
+		&self,
+		ids: &[tg::process::Id],
+		account: Option<&tangram_index::usage::Account>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
+		self.touch_processes_inner(ids, account, false, true, touched_at, time_to_touch)
 			.await
 	}
 }
@@ -280,6 +314,17 @@ impl tangram_index::process::Index for Index {
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
 		self.touch_processes_with_account(ids, account, touched_at, time_to_touch)
+			.await
+	}
+
+	async fn touch_processes_with_data_with_account(
+		&self,
+		ids: &[tg::process::Id],
+		account: Option<&tangram_index::usage::Account>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
+		self.touch_processes_with_data_with_account(ids, account, touched_at, time_to_touch)
 			.await
 	}
 }

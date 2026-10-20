@@ -129,3 +129,61 @@ async fn cleaning_a_process_deletes_its_data() {
 	assert!(index.try_get_process(&id).await.unwrap().is_none());
 	assert_eq!(count_process_data_fragments(&index, &id), 0);
 }
+
+#[tokio::test]
+async fn putting_a_process_without_data_keeps_its_cache_entry() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+	let command: tg::object::Id = tg::command::Id::new(b"command").into();
+	let mut data = process_data(tg::process::Status::Finished, String::new());
+	data.cacheable = true;
+	put_process(&index, process_arg(&id, data.clone())).await;
+	assert_eq!(
+		index
+			.try_get_cached_processes(&command)
+			.await
+			.unwrap()
+			.len(),
+		1
+	);
+
+	// Put the finished process again as another principal, which preserves the stored data.
+	let mut arg = process_arg(&id, data);
+	arg.principal = tg::Principal::Root;
+	put_process(&index, arg).await;
+
+	// Verify that the process is still a cache candidate.
+	let cached = index.try_get_cached_processes(&command).await.unwrap();
+	assert_eq!(cached.len(), 1);
+	assert_eq!(cached[0].0, id);
+}
+
+#[tokio::test]
+async fn touching_a_process_with_data_returns_its_data() {
+	let (_dir, index) = super::new_index();
+	let id = tg::process::Id::new();
+	let missing = tg::process::Id::new();
+	let data = process_data(tg::process::Status::Finished, "host".repeat(100));
+	let bytes = tangram_index::process::data::serialize(&data).unwrap();
+	put_process(&index, process_arg(&id, data)).await;
+
+	// Touch the process and a missing process with data.
+	let output = index
+		.touch_processes_with_data_with_account(
+			&[id.clone(), missing],
+			None,
+			1,
+			std::time::Duration::ZERO,
+		)
+		.await
+		.unwrap();
+
+	// Verify that the touched process is returned with its data and the missing process is absent.
+	let (process, stored) = output[0].clone().unwrap();
+	assert_eq!(process.touched_at, 1);
+	assert_eq!(
+		tangram_index::process::data::serialize(&stored.unwrap()).unwrap(),
+		bytes
+	);
+	assert!(output[1].is_none());
+}
