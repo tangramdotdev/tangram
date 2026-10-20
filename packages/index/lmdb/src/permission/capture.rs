@@ -311,6 +311,30 @@ impl Index {
 		Ok(())
 	}
 
+	pub(crate) fn permission_capture_current(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		arg: &put::Arg,
+	) -> tg::Result<bool> {
+		let key = Self::pack(
+			subspace,
+			&Key::PermissionCapture {
+				resource: arg.resource.node.clone(),
+				subject: arg.subject.clone(),
+			},
+		);
+		let value = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to read a capture"))?;
+		let Some(value) = value else {
+			return Ok(false);
+		};
+		let contexts: Vec<put::Arg> = tangram_serialize::from_slice(value)
+			.map_err(|error| tg::error!(!error, "failed to decode captures"))?;
+		Ok(contexts.contains(arg))
+	}
+
 	pub(crate) fn permission_capture_subject_current(
 		db: &Db,
 		subspace: &fdbt::Subspace,

@@ -149,9 +149,10 @@ impl Indexer {
 			let mut record = arg.clone();
 			record.resource = root.clone();
 			let batch = tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutPermissionCapture(
-					record.clone(),
-				)],
+				items: vec![tangram_index::batch::Item::ContinuePermissionCapture {
+					capture: arg.clone(),
+					resource: root.clone(),
+				}],
 			};
 			self.server.index.batch(batch).await??;
 			let requested = requested_permissions(&root.node)?;
@@ -248,7 +249,13 @@ impl Indexer {
 				time_to_touch: None,
 				version: arg.version.clone(),
 			};
-			self.server.index.put_permissions(&[permission]).await?;
+			let batch = tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::CapturePermission {
+					capture: arg.clone(),
+					permission,
+				}],
+			};
+			self.server.index.batch(batch).await??;
 			self.permission_capture_checkpoint_with_resource(
 				"permission_capture.written",
 				arg,

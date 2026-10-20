@@ -45,6 +45,36 @@ impl Index {
 			}
 
 			match item {
+				tangram_index::batch::Item::CapturePermission {
+					capture,
+					permission,
+				} => {
+					if crate::propagate!(
+						Self::permission_capture_current(txn, subspace, capture).await
+					) {
+						crate::propagate!(
+							Self::put_permissions_with_transaction(
+								txn,
+								subspace,
+								std::slice::from_ref(permission),
+								partition_totals
+							)
+							.await
+						);
+					}
+				},
+				tangram_index::batch::Item::ContinuePermissionCapture { capture, resource } => {
+					if crate::propagate!(
+						Self::permission_capture_current(txn, subspace, capture).await
+					) {
+						let mut record = capture.clone();
+						record.resource = resource.clone();
+						crate::propagate!(
+							Self::put_permission_capture_with_transaction(txn, subspace, &record)
+								.await
+						);
+					}
+				},
 				tangram_index::batch::Item::DeletePermissionCapture(arg) => {
 					crate::propagate!(
 						Self::delete_permission_capture_with_transaction(txn, subspace, arg).await

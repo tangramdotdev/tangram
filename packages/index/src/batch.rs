@@ -9,6 +9,18 @@ pub struct Arg {
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum Item {
+	#[tangram_serialize(id = 33)]
+	CapturePermission {
+		capture: crate::permission::capture::put::Arg,
+		permission: crate::permission::put::Arg,
+	},
+
+	#[tangram_serialize(id = 34)]
+	ContinuePermissionCapture {
+		capture: crate::permission::capture::put::Arg,
+		resource: tg::Referent<tg::Id>,
+	},
+
 	#[tangram_serialize(id = 22)]
 	DeleteCheckout(tg::Id),
 

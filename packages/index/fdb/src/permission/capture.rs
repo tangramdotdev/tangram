@@ -291,6 +291,28 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
+	pub(crate) async fn permission_capture_current(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		arg: &put::Arg,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let key = Self::pack(
+			subspace,
+			&Key::PermissionCapture {
+				resource: arg.resource.node.clone(),
+				subject: arg.subject.clone(),
+			},
+		);
+		let result = txn.get(&key, false).await;
+		let value = crate::retry!(result);
+		let Some(value) = value else {
+			return Ok(ControlFlow::Break(false));
+		};
+		let contexts: Vec<put::Arg> = tangram_serialize::from_slice(&value)
+			.map_err(|error| tg::error!(!error, "failed to decode captures"))?;
+		Ok(ControlFlow::Break(contexts.contains(arg)))
+	}
+
 	pub(crate) async fn permission_capture_subject_current(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,

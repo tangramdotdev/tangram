@@ -41,6 +41,31 @@ impl Index {
 			}
 
 			match item {
+				tangram_index::batch::Item::CapturePermission {
+					capture,
+					permission,
+				} => {
+					if Self::permission_capture_current(db, subspace, transaction, capture)? {
+						Self::put_permissions_with_transaction(
+							db,
+							subspace,
+							transaction,
+							std::slice::from_ref(permission),
+						)?;
+					}
+				},
+				tangram_index::batch::Item::ContinuePermissionCapture { capture, resource } => {
+					if Self::permission_capture_current(db, subspace, transaction, capture)? {
+						let mut record = capture.clone();
+						record.resource = resource.clone();
+						Self::put_permission_capture_with_transaction(
+							db,
+							subspace,
+							transaction,
+							&record,
+						)?;
+					}
+				},
 				tangram_index::batch::Item::DeletePermissionCapture(arg) => {
 					Self::delete_permission_capture_with_transaction(
 						db,

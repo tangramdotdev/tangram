@@ -285,3 +285,119 @@ async fn a_finished_process_accepts_only_the_children_that_it_lists() {
 	assert_eq!(count_delegations(&index, &subject), 0);
 	assert!(index.try_get_process(&unlisted).await.unwrap().is_some());
 }
+
+#[tokio::test]
+async fn stale_capture_cannot_restore_cleaned_process_records_or_permissions() {
+	let (_dir, index) = super::new_index();
+
+	// Create a process with a pending capture and a captured node permission.
+	let id = tg::process::Id::new();
+	let data = process_data(tg::process::Status::Finished, String::new());
+	let resource: tg::Id = tg::file::Id::new(b"capture-race").into();
+	let capture = tangram_index::permission::capture::put::Arg {
+		principal: tg::Principal::Anonymous,
+		resource: tg::Referent::with_node(resource.clone()),
+		subject: id.clone().into(),
+		version: None,
+	};
+	let batch = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutPermissionCapture(
+			capture.clone(),
+		)],
+	};
+	index.batch(batch).await.unwrap().unwrap();
+	let permission = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: Some(tg::Principal::Process(id.clone())),
+		permissions: tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		)
+		.into(),
+		resource: resource.clone(),
+		source: tangram_index::permission::Source::Direct { expires_at: None },
+		subject: tg::authorization::Subject::Process(id.clone()),
+		time_to_touch: None,
+		version: None,
+	};
+	let batch = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::CapturePermission {
+			capture: capture.clone(),
+			permission: permission.clone(),
+		}],
+	};
+	index.batch(batch).await.unwrap().unwrap();
+
+	// Capture can precede the first process indexing during spawn.
+	{
+		let transaction = index.env.read_txn().unwrap();
+		let permissions = Index::get_resource_permission_entries_for_subject_with_transaction(
+			&index.db,
+			&index.subspace,
+			&transaction,
+			&resource,
+			&permission.subject,
+		)
+		.unwrap();
+		assert_eq!(permissions.len(), 1);
+	}
+	put_process(&index, process_arg(&id, data)).await;
+
+	// Read the capture as a worker would before cleanup.
+	let records = index.get_permission_captures(&resource).await.unwrap();
+	assert_eq!(records.len(), 1);
+
+	// Garbage-collect the process and its capture records.
+	let arg = tangram_index::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: i64::MAX,
+		max_process_touched_at: i64::MAX,
+		max_sandbox_touched_at: i64::MAX,
+		now: i64::MAX - 1,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	index.clean(arg).await.unwrap();
+	assert!(index.try_get_process(&id).await.unwrap().is_none());
+	assert_eq!(index.get_permission_captures(&resource).await.unwrap(), []);
+
+	// Resume the stale worker after cleanup.
+	let batch = tangram_index::batch::Arg {
+		items: records
+			.into_iter()
+			.map(
+				|capture| tangram_index::batch::Item::ContinuePermissionCapture {
+					resource: capture.resource.clone(),
+					capture,
+				},
+			)
+			.chain(std::iter::once(
+				tangram_index::batch::Item::CapturePermission {
+					capture: capture.clone(),
+					permission: permission.clone(),
+				},
+			))
+			.collect(),
+	};
+	index.batch(batch).await.unwrap().unwrap();
+	assert!(
+		index
+			.get_permission_captures(&resource)
+			.await
+			.unwrap()
+			.is_empty(),
+		"an in-flight worker restored capture records for a cleaned process"
+	);
+	let transaction = index.env.read_txn().unwrap();
+	let permissions = Index::get_resource_permission_entries_for_subject_with_transaction(
+		&index.db,
+		&index.subspace,
+		&transaction,
+		&resource,
+		&permission.subject,
+	)
+	.unwrap();
+	assert!(
+		permissions.is_empty(),
+		"an in-flight worker restored permissions for a cleaned process"
+	);
+}
