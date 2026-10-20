@@ -13,7 +13,7 @@ use {
 
 impl Index {
 	pub(crate) async fn try_get_cached_processes_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		command: &tg::object::Id,
 	) -> tg::Result<
@@ -69,7 +69,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_command_cacheable_processes_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		command: &tg::object::Id,
 		after: Option<&[u8]>,
@@ -102,7 +102,7 @@ impl Index {
 	}
 
 	pub(crate) async fn process_has_ancestor_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		ancestor: &tg::process::Id,
@@ -149,7 +149,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_processes_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::process::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::process::Process>>, fdb::FdbError>> {
@@ -175,7 +175,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_process_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::process::Process>, fdb::FdbError>> {
@@ -192,7 +192,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_process_children_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		after: Option<&[u8]>,
@@ -220,7 +220,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_process_children_count_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Option<u64>, fdb::FdbError>> {
@@ -257,7 +257,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_process_children_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		position: std::io::SeekFrom,
@@ -368,7 +368,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_process_parents_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		after: Option<&[u8]>,
@@ -396,7 +396,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_process_objects_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		kind: Option<tangram_index::process::object::Kind>,
@@ -441,7 +441,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_process_children_and_objects_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::process::NodeChildren>, fdb::FdbError>> {

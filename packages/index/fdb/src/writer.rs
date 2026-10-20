@@ -1130,72 +1130,61 @@ impl Index {
 		let transaction = database.create_trx();
 		let result = match transaction {
 			Err(error) => Err(TransactionError::FoundationDb(error)),
-			Ok(transaction) => {
-				let mut transaction = crate::Transaction::new(transaction);
-				loop {
-					attempt_count += 1;
-					if priority_batch {
-						transaction
-							.set_option(fdb::options::TransactionOption::PriorityBatch)
-							.unwrap();
-					}
-					let result = match &items_or_requests {
-						tg::Either::Left(items) => Self::batch_with_transaction(
+			Ok(mut transaction) => loop {
+				attempt_count += 1;
+				if priority_batch {
+					transaction
+						.set_option(fdb::options::TransactionOption::PriorityBatch)
+						.unwrap();
+				}
+				let result = match &items_or_requests {
+					tg::Either::Left(items) => Self::batch_with_transaction(
+						&transaction,
+						subspace,
+						items,
+						config.partition_totals,
+					)
+					.await
+					.map(|flow| flow.map_break(|result| vec![Response::Mutation(result)])),
+					tg::Either::Right(requests) => {
+						Self::execute_requests_with_transaction(
 							&transaction,
 							subspace,
-							items,
-							config.partition_totals,
+							requests,
+							config,
 						)
 						.await
-						.map(|flow| flow.map_break(|result| vec![Response::Mutation(result)])),
-						tg::Either::Right(requests) => {
-							Self::execute_requests_with_transaction(
-								&transaction,
-								subspace,
-								requests,
-								config,
-							)
-							.await
-						},
-					};
-					let responses = match result {
-						Err(error) => break Err(TransactionError::Tangram(error)),
-						Ok(ControlFlow::Break(responses)) => responses,
-						Ok(ControlFlow::Continue(error)) => {
-							if Self::is_transaction_too_old(error) {
-								break Err(TransactionError::FoundationDb(error));
-							}
-							let inner = match transaction.take() {
-								Err(error) => break Err(TransactionError::Tangram(error)),
-								Ok(transaction) => transaction,
-							};
-							match inner.on_error(error).await {
-								Ok(value) => {
-									transaction = crate::Transaction::new(value);
-									continue;
-								},
-								Err(error) => break Err(TransactionError::FoundationDb(error)),
-							}
-						},
-					};
-					let inner = match transaction.take() {
-						Err(error) => break Err(TransactionError::Tangram(error)),
-						Ok(transaction) => transaction,
-					};
-					match inner.commit().await {
-						Ok(_) => break Ok(responses),
-						Err(error) => {
-							if Self::is_transaction_too_old(*error) {
-								break Err(TransactionError::FoundationDb(error.into()));
-							}
-							match error.on_error().await {
-								Ok(value) => {
-									transaction = crate::Transaction::new(value);
-								},
-								Err(error) => break Err(TransactionError::FoundationDb(error)),
-							}
-						},
-					}
+					},
+				};
+				let responses = match result {
+					Err(error) => break Err(TransactionError::Tangram(error)),
+					Ok(ControlFlow::Break(responses)) => responses,
+					Ok(ControlFlow::Continue(error)) => {
+						if Self::is_transaction_too_old(error) {
+							break Err(TransactionError::FoundationDb(error));
+						}
+						match transaction.on_error(error).await {
+							Ok(value) => {
+								transaction = value;
+								continue;
+							},
+							Err(error) => break Err(TransactionError::FoundationDb(error)),
+						}
+					},
+				};
+				match transaction.commit().await {
+					Ok(_) => break Ok(responses),
+					Err(error) => {
+						if Self::is_transaction_too_old(*error) {
+							break Err(TransactionError::FoundationDb(error.into()));
+						}
+						match error.on_error().await {
+							Ok(value) => {
+								transaction = value;
+							},
+							Err(error) => break Err(TransactionError::FoundationDb(error)),
+						}
+					},
 				}
 			},
 		};
@@ -1221,7 +1210,7 @@ impl Index {
 	}
 
 	async fn execute_requests_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		requests: &[Request],
 		config: ExecutionConfig<'_>,
@@ -1237,7 +1226,7 @@ impl Index {
 	}
 
 	async fn execute_request(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &Request,
 		config: ExecutionConfig<'_>,

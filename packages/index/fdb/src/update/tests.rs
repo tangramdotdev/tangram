@@ -126,20 +126,17 @@ async fn reproduce(index: &Index, late: bool) {
 	assert_eq!(count(index, &top.id).await, Some(3));
 
 	// Repeating an already covered propagation must not walk the ancestors again.
-	crate::run(&index.database, |txn| {
+	crate::run(&index.database, async |txn| {
 		let id = tg::Either::Left(middle.id.clone());
-		let version = &version;
-		async move {
-			Index::enqueue_update_propagate(
-				&txn,
-				&index.subspace,
-				&id,
-				&Kind::StorageAndMetadata,
-				version,
-				2,
-			)
-			.await
-		}
+		Index::enqueue_update_propagate(
+			txn,
+			&index.subspace,
+			&id,
+			&Kind::StorageAndMetadata,
+			&version,
+			2,
+		)
+		.await
 	})
 	.await
 	.unwrap();
@@ -174,24 +171,21 @@ async fn reproduce(index: &Index, late: bool) {
 			.iter()
 			.all(Option::is_none)
 	);
-	crate::run(&index.database, |txn| {
-		let ids = &ids;
-		async move {
-			for id in ids {
-				let id = tg::Either::Left(id.clone());
-				let version = crate::propagate!(
-					Index::try_get_update_propagated_version(
-						&txn,
-						&index.subspace,
-						&id,
-						&Kind::StorageAndMetadata
-					)
-					.await
-				);
-				assert!(version.is_none());
-			}
-			Ok(ControlFlow::Break(()))
+	crate::run(&index.database, async |txn| {
+		for id in &ids {
+			let id = tg::Either::Left(id.clone());
+			let version = crate::propagate!(
+				Index::try_get_update_propagated_version(
+					txn,
+					&index.subspace,
+					&id,
+					&Kind::StorageAndMetadata
+				)
+				.await
+			);
+			assert!(version.is_none());
 		}
+		Ok(ControlFlow::Break(()))
 	})
 	.await
 	.unwrap();
@@ -235,7 +229,7 @@ async fn step(index: &Index) {
 }
 
 async fn queue(index: &Index) -> Vec<Key> {
-	crate::run(&index.database, |txn| async move {
+	crate::run(&index.database, async |txn| {
 		let begin = Index::pack(&index.subspace, &(61i32,));
 		let end = Index::pack(&index.subspace, &(62i32,));
 		let range = fdb::RangeOption::from((begin.as_slice(), end.as_slice()));
@@ -278,26 +272,22 @@ async fn move_entries(index: &Index, id: &tg::object::Id, partition: u64, newest
 	if newest {
 		entries = vec![entries.pop().unwrap()];
 	}
-	crate::run(&index.database, |txn| {
-		let entries = &entries;
-		let id = &id;
-		async move {
-			for entry in entries {
-				let key = Index::pack(&index.subspace, &crate::Key::Update(entry.clone()));
-				txn.clear(&key);
-				let Key::UpdateVersion { version, .. } = entry else {
-					unreachable!()
-				};
-				let key = crate::Key::Update(Key::UpdateVersion {
-					id: id.clone(),
-					kind: Kind::StorageAndMetadata,
-					partition,
-					version: version.clone(),
-				});
-				txn.set(&Index::pack(&index.subspace, &key), &[]);
-			}
-			Ok(ControlFlow::Break(()))
+	crate::run(&index.database, async |txn| {
+		for entry in &entries {
+			let key = Index::pack(&index.subspace, &crate::Key::Update(entry.clone()));
+			txn.clear(&key);
+			let Key::UpdateVersion { version, .. } = entry else {
+				unreachable!()
+			};
+			let key = crate::Key::Update(Key::UpdateVersion {
+				id: id.clone(),
+				kind: Kind::StorageAndMetadata,
+				partition,
+				version: version.clone(),
+			});
+			txn.set(&Index::pack(&index.subspace, &key), &[]);
 		}
+		Ok(ControlFlow::Break(()))
 	})
 	.await
 	.unwrap();

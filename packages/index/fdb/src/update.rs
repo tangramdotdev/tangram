@@ -180,7 +180,7 @@ impl UsageUpdate {
 
 impl Index {
 	pub(super) fn enqueue_update(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
@@ -196,7 +196,7 @@ impl Index {
 	}
 
 	pub(super) fn enqueue_update_with_kind(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -215,7 +215,7 @@ impl Index {
 	}
 
 	pub(super) fn enqueue_update_with_kind_at_version(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -228,7 +228,7 @@ impl Index {
 	}
 
 	fn enqueue_update_value(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -294,7 +294,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_oldest_update_transaction_id_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		kind: tangram_index::update::Kind,
 		partition_total: u64,
@@ -370,7 +370,7 @@ impl Index {
 
 	#[allow(clippy::too_many_arguments)]
 	pub(super) async fn update_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		batch_size: usize,
 		kind: tangram_index::update::Kind,
@@ -722,7 +722,7 @@ impl Index {
 	}
 
 	async fn try_get_update_propagated_version(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -735,7 +735,7 @@ impl Index {
 	}
 
 	pub(super) async fn try_get_propagation_version(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		key: &Key,
 	) -> tg::Result<ControlFlow<Option<fdbt::Versionstamp>, fdb::FdbError>> {
@@ -758,7 +758,7 @@ impl Index {
 	}
 
 	pub(super) fn clear_update_propagated_versions(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &[u8],
 	) {
@@ -775,7 +775,7 @@ impl Index {
 	}
 
 	pub(super) async fn lower_usage_update_put_version(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &tangram_index::usage::Account,
@@ -798,7 +798,7 @@ impl Index {
 	}
 
 	pub(super) fn clear_usage_update_versions(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &tangram_index::usage::Account,
@@ -819,7 +819,7 @@ impl Index {
 
 	#[allow(clippy::too_many_arguments)]
 	async fn propagate_storage_relationships(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &tangram_index::usage::Account,
@@ -914,7 +914,7 @@ impl Index {
 	}
 
 	async fn propagate_storage_clean(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &tangram_index::usage::Account,
@@ -972,7 +972,7 @@ impl Index {
 	}
 
 	async fn propagate_storage_accounts_clean(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&UsageCursor>,
@@ -1028,7 +1028,7 @@ impl Index {
 	}
 
 	async fn get_storage_relationships_page(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&UsageCursor>,
@@ -1081,7 +1081,7 @@ impl Index {
 	}
 
 	async fn get_storage_accounts_page(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&UsageCursor>,
@@ -1158,7 +1158,7 @@ impl Index {
 	}
 
 	async fn get_storage_object_relationships_page(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		object: &tg::object::Id,
 		after: Option<&tg::object::Id>,
@@ -1217,7 +1217,7 @@ impl Index {
 	}
 
 	async fn get_storage_process_relationships_page(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		cursor: Option<&UsageCursor>,
@@ -1288,7 +1288,7 @@ impl Index {
 	}
 
 	async fn get_storage_process_children_page(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		after: Option<i64>,
@@ -1347,7 +1347,7 @@ impl Index {
 	}
 
 	async fn get_storage_process_objects_page(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		after: Option<&ProcessObjectCursor>,
@@ -1408,7 +1408,7 @@ impl Index {
 	}
 
 	async fn schedule_update_item_clean(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
@@ -1450,7 +1450,7 @@ impl Index {
 	}
 
 	async fn update_object(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
@@ -1604,7 +1604,7 @@ impl Index {
 	}
 
 	async fn update_object_permissions_for_subject(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
@@ -1782,7 +1782,7 @@ impl Index {
 	}
 
 	async fn promote_process_direct_permissions_for_subject(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
@@ -1870,7 +1870,7 @@ impl Index {
 	}
 
 	async fn has_object_process_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		object: &tg::object::Id,
 		process: &tg::process::Id,
@@ -1897,7 +1897,7 @@ impl Index {
 	}
 
 	async fn reconcile_materialized_permissions(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		entries: &[crate::permission::PermissionEntry],
@@ -1964,7 +1964,7 @@ impl Index {
 	}
 
 	async fn update_process_permissions(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		input: &ProcessPermissionInputs<'_>,
 		partition_total: u64,
@@ -2040,7 +2040,7 @@ impl Index {
 	}
 
 	async fn update_process_permissions_for_subject(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		subject: &tg::authorization::Subject,
@@ -2191,7 +2191,7 @@ impl Index {
 	}
 
 	async fn get_resources_covers_with_transaction<F, Fut>(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		mut get_page: F,
 		subject: &tg::authorization::Subject,
@@ -2367,7 +2367,7 @@ impl Index {
 	}
 
 	async fn update_process(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		max_process_depth: Option<u64>,
@@ -3408,7 +3408,7 @@ impl Index {
 	}
 
 	async fn enqueue_parents(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -3593,7 +3593,7 @@ impl Index {
 	}
 
 	async fn get_related_resources_for_subject_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		relation: Relation<'_>,
 		subject: &tg::authorization::Subject,
@@ -3705,7 +3705,7 @@ impl Index {
 	}
 
 	async fn is_related_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		relation: Relation<'_>,
 		resource: &tg::Id,
@@ -3747,7 +3747,7 @@ impl Index {
 	}
 
 	async fn has_permissions_for_subject(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
@@ -3763,7 +3763,7 @@ impl Index {
 	}
 
 	async fn enqueue_update_propagate(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -3804,7 +3804,7 @@ impl Index {
 	}
 
 	fn clear_update_version(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,

@@ -7,7 +7,7 @@ use {
 
 impl Index {
 	pub(crate) async fn try_get_usage_started_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 	) -> tg::Result<ControlFlow<Option<i64>, fdb::FdbError>> {
 		let key = Self::pack(subspace, &Key::Usage(crate::usage::Key::Started));
@@ -20,7 +20,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_usage_unavailable_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		kind: tangram_index::usage::PeriodKind,
@@ -41,7 +41,7 @@ impl Index {
 	}
 
 	pub(crate) fn mark_usage_unavailable_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		kind: tangram_index::usage::PeriodKind,

@@ -150,7 +150,7 @@ impl Index {
 		}
 
 		// Create the transaction.
-		let transaction = match database.create_trx() {
+		let mut transaction = match database.create_trx() {
 			Err(error) => {
 				let error = tg::error!(!error, "failed to create a read transaction");
 				for (_, sender, _) in requests {
@@ -161,7 +161,6 @@ impl Index {
 			},
 			Ok(transaction) => transaction,
 		};
-		let mut transaction = crate::Transaction::new(transaction);
 		loop {
 			let started = std::time::Instant::now();
 			let request_count = requests.len();
@@ -240,17 +239,7 @@ impl Index {
 			);
 
 			// Reset the transaction for the retryable requests.
-			let inner = match transaction.take() {
-				Err(error) => {
-					for (_, sender, _) in retry_requests {
-						sender.send(Err(error.clone())).ok();
-					}
-
-					return;
-				},
-				Ok(transaction) => transaction,
-			};
-			transaction = match inner.on_error(error).await {
+			transaction = match transaction.on_error(error).await {
 				Err(error) => {
 					let error = tg::error!(!error, "failed to retry a read transaction");
 					for (_, sender, _) in retry_requests {
@@ -259,7 +248,7 @@ impl Index {
 
 					return;
 				},
-				Ok(transaction) => crate::Transaction::new(transaction),
+				Ok(transaction) => transaction,
 			};
 			requests = retry_requests;
 		}
@@ -269,7 +258,7 @@ impl Index {
 		verification_fact_cache: tangram_index::verify::facts::Cache<fdb::FdbError>,
 		verification_concurrency: usize,
 		partition_totals: crate::PartitionTotals,
-		transaction: &crate::Transaction,
+		transaction: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &tangram_index::read::Request,
 		batch: &mut Option<tangram_index::verify::Batch>,

@@ -7,7 +7,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_object(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::object::put::Arg,
 		partition_totals: crate::PartitionTotals,
@@ -169,7 +169,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_objects_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::object::put::Arg],
 		partition_totals: crate::PartitionTotals,

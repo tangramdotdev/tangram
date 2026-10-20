@@ -9,7 +9,7 @@ pub(crate) type Page<T> = (Vec<T>, Option<Vec<u8>>);
 
 impl Index {
 	pub(crate) async fn get_entry_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		prefix: &[u8],
 		after: Option<&[u8]>,

@@ -8,7 +8,7 @@ use {
 
 impl Index {
 	pub(crate) async fn try_get_tags_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::tag::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::tag::Tag>>, fdb::FdbError>> {
@@ -31,7 +31,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_tag_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::tag::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::tag::Tag>, fdb::FdbError>> {

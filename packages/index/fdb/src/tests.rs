@@ -17,12 +17,10 @@ pub(crate) async fn run(options: &crate::Options, test: impl AsyncFnOnce(&Index)
 	});
 	let index = Index::new(options).unwrap();
 	let result = AssertUnwindSafe(test(&index)).catch_unwind().await;
-	crate::run(&index.database, |txn| {
+	crate::run(&index.database, async |txn| {
 		let (begin, end) = index.subspace.range();
-		async move {
-			txn.clear_range(&begin, &end);
-			Ok(ControlFlow::Break(()))
-		}
+		txn.clear_range(&begin, &end);
+		Ok(ControlFlow::Break(()))
 	})
 	.await
 	.unwrap();

@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_organizations_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::organization::put::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -41,7 +41,7 @@ impl Index {
 	}
 
 	pub(crate) fn put_organization_members_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::organization::member::put::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {

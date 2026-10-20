@@ -71,7 +71,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_indexer_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		arg: &tangram_index::indexer::delete::Arg,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -83,7 +83,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_indexers_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 	) -> tg::Result<ControlFlow<Vec<tangram_index::indexer::Indexer>, fdb::FdbError>> {
 		let prefix = Self::pack(subspace, &(Kind::Indexer.to_i32().unwrap(),));
@@ -108,7 +108,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_indexer_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		arg: &tangram_index::indexer::put::Arg,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -121,7 +121,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_indexer_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		arg: &tangram_index::indexer::get::Arg,
 	) -> tg::Result<ControlFlow<Option<tangram_index::indexer::Indexer>, fdb::FdbError>> {
@@ -137,7 +137,7 @@ impl Index {
 	}
 
 	pub(crate) async fn update_indexer_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		arg: &tangram_index::indexer::update::Arg,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {

@@ -5,7 +5,7 @@ use {
 
 impl Index {
 	pub(crate) fn put_compute_usage(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: tangram_index::usage::compute::put::Arg<'_>,
 		partition_total: u64,

@@ -15,7 +15,7 @@ mod put;
 
 impl Index {
 	async fn get_tag_storage_permissions_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		resource: &tg::Id,
 	) -> tg::Result<
@@ -72,7 +72,7 @@ impl Index {
 	}
 
 	async fn get_account_storage_entry_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
@@ -98,7 +98,7 @@ impl Index {
 	}
 
 	async fn compute_account_storage_permissions_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
@@ -210,7 +210,7 @@ impl Index {
 		Ok(ControlFlow::Break((permissions, count)))
 	}
 	pub(crate) async fn get_tag_storage_resources_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::tag::Id,
 	) -> tg::Result<ControlFlow<BTreeSet<tg::Id>, fdb::FdbError>> {

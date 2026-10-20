@@ -40,7 +40,7 @@ mod visible;
 mod writer;
 
 pub(crate) use error::{propagate, retry};
-pub(crate) use transaction::{Transaction, run};
+pub(crate) use transaction::run;
 pub(crate) use {
 	key::{Key, Kind},
 	writer::Metrics,

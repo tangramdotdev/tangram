@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn try_get_groups_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::group::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::group::Group>>, fdb::FdbError>> {
@@ -35,7 +35,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_group_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::group::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::group::Group>, fdb::FdbError>> {
@@ -52,7 +52,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_member_groups_and_organizations_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
 	) -> tg::Result<ControlFlow<(Vec<tg::group::Id>, Vec<tg::organization::Id>), fdb::FdbError>> {
@@ -73,7 +73,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_member_groups_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::group::Id>, fdb::FdbError>> {
@@ -91,7 +91,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_member_groups_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
 		after: Option<&[u8]>,

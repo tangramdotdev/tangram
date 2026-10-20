@@ -7,7 +7,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_tags_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::tag::put::Arg],
 		partition_totals: crate::PartitionTotals,
@@ -19,7 +19,7 @@ impl Index {
 	}
 
 	async fn put_tag(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::tag::put::Arg,
 		partition_totals: crate::PartitionTotals,

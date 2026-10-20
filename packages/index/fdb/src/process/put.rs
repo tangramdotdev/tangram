@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_process(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::process::put::Arg,
 		partition_totals: crate::PartitionTotals,
@@ -427,7 +427,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_processes_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::process::put::Arg],
 		partition_totals: crate::PartitionTotals,

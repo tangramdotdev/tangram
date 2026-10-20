@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_users_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::user::put::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {

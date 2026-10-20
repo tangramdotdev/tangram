@@ -8,7 +8,7 @@ use {
 
 impl Index {
 	pub(crate) async fn try_get_checkouts_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::checkout::Checkout>>, fdb::FdbError>> {
@@ -34,7 +34,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_checkout_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::checkout::Checkout>, fdb::FdbError>> {

@@ -224,20 +224,15 @@ async fn cleaning_respects_other_partitions_and_newer_versions() {
 			let expected = version(index, &id, &kind).await.unwrap();
 
 			// Recreate a stale cleanup entry to verify that it cannot delete a newer version.
-			crate::run(&index.database, |txn| {
-				let id = &id;
-				let kind = &kind;
-				let previous = &previous;
-				async move {
-					let key = crate::Key::Update(Key::Clean {
-						id: id.clone(),
-						kind: kind.clone(),
-						partition,
-						version: previous.clone(),
-					});
-					txn.set(&Index::pack(&index.subspace, &key), &[]);
-					Ok(ControlFlow::Break(()))
-				}
+			crate::run(&index.database, async |txn| {
+				let key = crate::Key::Update(Key::Clean {
+					id: id.clone(),
+					kind: kind.clone(),
+					partition,
+					version: previous.clone(),
+				});
+				txn.set(&Index::pack(&index.subspace, &key), &[]);
+				Ok(ControlFlow::Break(()))
 			})
 			.await
 			.unwrap();
@@ -260,14 +255,9 @@ async fn cleaning_respects_other_partitions_and_newer_versions() {
 
 			// An update at exactly the recorded version also prevents its collection.
 			drain(index).await;
-			crate::run(&index.database, |txn| {
+			crate::run(&index.database, async |txn| {
 				let id = &blocker_id;
-				let kind = &kind;
-				let expected = &expected;
-				async move {
-					Index::enqueue_update_propagate(&txn, &index.subspace, id, kind, expected, 2)
-						.await
-				}
+				Index::enqueue_update_propagate(txn, &index.subspace, id, &kind, &expected, 2).await
 			})
 			.await
 			.unwrap();
@@ -301,7 +291,6 @@ async fn concurrent_propagation_conflicts_with_cleaning() {
 		put(index, vec![object]).await;
 		drain(index).await;
 		let transaction = index.database.create_trx().unwrap();
-		let transaction = crate::Transaction::new(transaction);
 		let arg = crate::clean::TransactionArg {
 			batch_size: 100,
 			max_object_touched_at: 0,
@@ -323,7 +312,7 @@ async fn concurrent_propagation_conflicts_with_cleaning() {
 		let expected = version(index, &id, &Kind::StorageAndMetadata)
 			.await
 			.unwrap();
-		assert!(transaction.take().unwrap().commit().await.is_err());
+		assert!(transaction.commit().await.is_err());
 		assert_eq!(
 			version(index, &id, &Kind::StorageAndMetadata).await,
 			Some(expected)
@@ -369,7 +358,6 @@ async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
 
 			// Pause cleanup after it has read the queue heads and selected this item's version.
 			let transaction = index.database.create_trx().unwrap();
-			let transaction = crate::Transaction::new(transaction);
 			let arg = crate::clean::TransactionArg {
 				batch_size: 100,
 				max_object_touched_at: 0,
@@ -390,7 +378,7 @@ async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
 
 			// Consuming another item's queue entry must not invalidate the cleanup transaction.
 			assert_eq!(index.update_batch(queue, 100, 0, 2).await.unwrap().count, 1);
-			transaction.take().unwrap().commit().await.unwrap();
+			transaction.commit().await.unwrap();
 			assert!(version(index, &id, &kind).await.is_none());
 		}
 	})
@@ -421,14 +409,9 @@ async fn replacing_propagated_versions_replaces_cleanup_entries() {
 			}
 
 			// Lowering the propagated version must replace the cleanup entry as well.
-			crate::run(&index.database, |txn| {
-				let id = &id;
-				let kind = &kind;
-				let previous = &previous;
-				async move {
-					Index::enqueue_update_propagate(&txn, &index.subspace, id, kind, previous, 2)
-						.await
-				}
+			crate::run(&index.database, async |txn| {
+				Index::enqueue_update_propagate(txn, &index.subspace, &id, &kind, &previous, 2)
+					.await
 			})
 			.await
 			.unwrap();
@@ -453,7 +436,7 @@ async fn assign(
 	queue: tangram_index::update::Kind,
 	partition: u64,
 ) {
-	crate::run(&index.database, |txn| async move {
+	crate::run(&index.database, async |txn| {
 		let key_kind = super::super::update_version_key_kind(queue)
 			.to_i32()
 			.unwrap();
@@ -493,17 +476,17 @@ async fn version(
 	id: &tg::Either<tg::object::Id, tg::process::Id>,
 	kind: &Kind,
 ) -> Option<foundationdb_tuple::Versionstamp> {
-	crate::run(&index.database, |txn| async move {
-		Index::try_get_update_propagated_version(&txn, &index.subspace, id, kind).await
+	crate::run(&index.database, async |txn| {
+		Index::try_get_update_propagated_version(txn, &index.subspace, id, kind).await
 	})
 	.await
 	.unwrap()
 }
 
 async fn enqueue(index: &Index, id: &tg::Either<tg::object::Id, tg::process::Id>, kind: &Kind) {
-	crate::run(&index.database, |txn| async move {
+	crate::run(&index.database, async |txn| {
 		Index::enqueue_update_with_kind(
-			&txn,
+			txn,
 			&index.subspace,
 			id,
 			kind,
@@ -569,7 +552,7 @@ async fn count_clean_entries(index: &Index) -> usize {
 }
 
 async fn count_keys(index: &Index, kinds: &[crate::Kind]) -> usize {
-	crate::run(&index.database, |txn| async move {
+	crate::run(&index.database, async |txn| {
 		let mut count = 0;
 		for kind in kinds {
 			let prefix = Index::pack(&index.subspace, &(kind.to_i32().unwrap(),));

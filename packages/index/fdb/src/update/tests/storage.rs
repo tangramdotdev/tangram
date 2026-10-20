@@ -158,7 +158,7 @@ async fn puts(index: &Index, late: bool) {
 	for id in &ids {
 		assert!(!associated(index, &account, id).await);
 		let account = &account;
-		crate::run(&index.database, |txn| async move {
+		crate::run(&index.database, async |txn| {
 			for key in [
 				Key::UsageUpdatePutVersion {
 					account: account.clone(),
@@ -170,7 +170,7 @@ async fn puts(index: &Index, late: bool) {
 				},
 			] {
 				let value = crate::propagate!(
-					Index::try_get_propagation_version(&txn, &index.subspace, &key).await
+					Index::try_get_propagation_version(txn, &index.subspace, &key).await
 				);
 				assert!(value.is_none());
 			}
@@ -273,7 +273,7 @@ async fn associated(
 	account: &tangram_index::usage::Account,
 	object: &tg::object::Id,
 ) -> bool {
-	crate::run(&index.database, |txn| async move {
+	crate::run(&index.database, async |txn| {
 		let key = crate::Key::Usage(crate::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
@@ -292,9 +292,9 @@ async fn enqueue(
 	kind: &Kind,
 	version: Option<&fdbt::Versionstamp>,
 ) {
-	crate::run(&index.database, |txn| async move {
+	crate::run(&index.database, async |txn| {
 		Index::enqueue_update_with_kind_at_version(
-			&txn,
+			txn,
 			&index.subspace,
 			&tg::Either::Left(object.clone()),
 			kind,
@@ -311,33 +311,30 @@ async fn enqueue(
 async fn step(index: &Index, selected: &Key) {
 	// Fix the partition assignment while keeping every real commit versionstamp intact.
 	let entries = queue(index).await;
-	crate::run(&index.database, |txn| {
-		let entries = &entries;
-		async move {
-			for entry in entries {
-				let Key::UpdateVersion {
-					id, kind, version, ..
-				} = entry
-				else {
-					unreachable!()
-				};
-				let selected = item(entry) == item(selected)
-					&& version == self::version(selected)
-					&& matches!(selected, Key::UpdateVersion { kind: selected_kind, .. } if kind == selected_kind);
-				txn.clear(&Index::pack(
-					&index.subspace,
-					&crate::Key::Update(entry.clone()),
-				));
-				let key = Key::UpdateVersion {
-					id: id.clone(),
-					kind: kind.clone(),
-					partition: u64::from(!selected),
-					version: version.clone(),
-				};
-				txn.set(&Index::pack(&index.subspace, &crate::Key::Update(key)), &[]);
-			}
-			Ok(ControlFlow::Break(()))
+	crate::run(&index.database, async |txn| {
+		for entry in &entries {
+			let Key::UpdateVersion {
+				id, kind, version, ..
+			} = entry
+			else {
+				unreachable!()
+			};
+			let selected = item(entry) == item(selected)
+				&& version == self::version(selected)
+				&& matches!(selected, Key::UpdateVersion { kind: selected_kind, .. } if kind == selected_kind);
+			txn.clear(&Index::pack(
+				&index.subspace,
+				&crate::Key::Update(entry.clone()),
+			));
+			let key = Key::UpdateVersion {
+				id: id.clone(),
+				kind: kind.clone(),
+				partition: u64::from(!selected),
+				version: version.clone(),
+			};
+			txn.set(&Index::pack(&index.subspace, &crate::Key::Update(key)), &[]);
 		}
+		Ok(ControlFlow::Break(()))
 	})
 	.await
 	.unwrap();
@@ -366,7 +363,7 @@ async fn drain(index: &Index) {
 }
 
 async fn queue(index: &Index) -> Vec<Key> {
-	crate::run(&index.database, |txn| async move {
+	crate::run(&index.database, async |txn| {
 		let begin = Index::pack(&index.subspace, &(63i32,));
 		let end = Index::pack(&index.subspace, &(64i32,));
 		let range = fdb::RangeOption::from((begin.as_slice(), end.as_slice()));

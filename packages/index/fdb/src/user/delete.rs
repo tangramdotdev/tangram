@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn delete_users_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::user::Id],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {

@@ -10,7 +10,7 @@ use {
 
 impl Index {
 	pub(super) async fn clean_update_propagated_versions(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		batch_size: usize,
 		partition_start: u64,

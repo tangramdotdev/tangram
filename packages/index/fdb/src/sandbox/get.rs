@@ -10,7 +10,7 @@ use {
 
 impl Index {
 	pub(crate) async fn try_get_sandboxes_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::sandbox::Sandbox>>, fdb::FdbError>> {
@@ -36,7 +36,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_sandbox_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &foundationdb_tuple::Subspace,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::sandbox::Sandbox>, fdb::FdbError>> {
@@ -52,7 +52,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_sandbox_processes_count_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<Option<u64>, fdb::FdbError>> {
@@ -89,7 +89,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_sandbox_processes_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 		position: std::io::SeekFrom,

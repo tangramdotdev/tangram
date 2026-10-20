@@ -12,7 +12,7 @@ use {
 
 impl Index {
 	pub(crate) async fn delete_subject_permissions_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		subject: &tg::authorization::Subject,
 		partition_totals: crate::PartitionTotals,
@@ -112,7 +112,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_permissions_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::permission::delete::Arg],
 		partition_totals: crate::PartitionTotals,
@@ -158,7 +158,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_permission_index_entry(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		entry: &PermissionIndexEntry<'_>,
 		source: PermissionSource,

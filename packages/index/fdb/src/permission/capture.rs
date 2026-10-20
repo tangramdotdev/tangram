@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn enqueue_permission_capture_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &enqueue::Arg,
 		partition_total: u64,
@@ -34,7 +34,7 @@ impl Index {
 	}
 
 	pub(crate) async fn permission_capture_batch_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		batch_size: usize,
 		partition_start: u64,
@@ -71,7 +71,7 @@ impl Index {
 	}
 
 	pub(crate) fn complete_permission_capture_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		entry: &Entry,
 	) {
@@ -86,7 +86,7 @@ impl Index {
 	}
 
 	async fn permission_capture_resource_current(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &enqueue::Arg,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {

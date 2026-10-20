@@ -10,7 +10,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_permissions_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::permission::put::Arg],
 		partition_totals: crate::PartitionTotals,
@@ -100,7 +100,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_permission_index_entry(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		entry: &PermissionIndexEntry<'_>,
 		source: PermissionSource,
@@ -177,7 +177,7 @@ impl Index {
 	}
 
 	pub(crate) fn update_permission_expiration(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		entry: &PermissionIndexEntry<'_>,
 		source: PermissionSource,
@@ -215,7 +215,7 @@ impl Index {
 	}
 
 	pub(crate) fn enqueue_permission_update(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,

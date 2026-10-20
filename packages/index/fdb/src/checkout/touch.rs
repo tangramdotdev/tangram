@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn touch_checkouts_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::Id],
 		touched_at: i64,
@@ -48,7 +48,7 @@ impl Index {
 	}
 
 	async fn touch_checkout_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
 		touched_at: i64,

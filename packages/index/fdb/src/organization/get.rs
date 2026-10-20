@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn try_get_organizations_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::organization::Id],
 	) -> tg::Result<
@@ -37,7 +37,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_organization_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::organization::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::organization::Organization>, fdb::FdbError>>
@@ -57,7 +57,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_member_organizations_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::organization::Id>, fdb::FdbError>> {
@@ -75,7 +75,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_member_organizations_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
 		after: Option<&[u8]>,

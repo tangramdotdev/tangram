@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_sandbox_process_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		sandbox: &tg::sandbox::Id,
 		process: &tg::process::Id,
@@ -73,7 +73,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_sandbox_processes_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		sandbox: &tg::sandbox::Id,
 		processes: &[tg::process::Id],
@@ -110,7 +110,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_sandbox_processes_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		sandbox: &tg::sandbox::Id,
 		partition_total: u64,

@@ -11,7 +11,7 @@ use {
 
 impl Index {
 	pub(crate) async fn get_usage_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		period: tangram_index::usage::Period,
@@ -84,7 +84,7 @@ impl Index {
 	}
 
 	fn aggregate_usage_period_with_transaction<'a>(
-		txn: &'a crate::Transaction,
+		txn: &'a fdb::Transaction,
 		subspace: &'a fdbt::Subspace,
 		account: &'a tangram_index::usage::Account,
 		partition: u64,

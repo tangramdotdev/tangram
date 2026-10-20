@@ -10,7 +10,7 @@ use {
 
 impl Index {
 	pub(crate) async fn list_sandboxes_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 	) -> tg::Result<
 		ControlFlow<Vec<(tg::sandbox::Id, tangram_index::sandbox::Sandbox)>, fdb::FdbError>,
@@ -41,7 +41,7 @@ impl Index {
 	}
 
 	pub(crate) async fn list_sandboxes_for_principal_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		principal: &tg::Principal,
 		kind: Kind,

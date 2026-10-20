@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn try_get_objects_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::object::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::object::Object>>, fdb::FdbError>> {
@@ -35,7 +35,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_object_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::object::Object>, fdb::FdbError>> {
@@ -52,7 +52,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_object_children_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		after: Option<&[u8]>,
@@ -80,7 +80,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_object_parents_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		after: Option<&[u8]>,
@@ -108,7 +108,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_object_processes_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		after: Option<&[u8]>,
