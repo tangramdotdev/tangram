@@ -122,14 +122,32 @@ impl Session {
 			sync,
 		} = options;
 		let now = self.server.clock.unix_timestamp()?;
-		let token_data = arg.data.clone();
+		let mut token_data = arg.data.clone();
+		if let Some(sync) = &sync {
+			Self::inherit_process_authorization_tokens_for_sync(&mut token_data, sync);
+		}
 
 		// Preserve the child authorization tokens separately from the canonical process data.
 		let children = arg.data.children.take();
-		arg.data = arg.data.without_location_and_tokens();
-		if let Some(sync) = &sync {
-			Self::inherit_process_authorization_tokens_for_sync(&mut arg.data, sync);
+		if self.server.config.advanced.checkpoints {
+			for child in children.iter().flatten() {
+				let resource = tg::Id::from(child.process.node.clone());
+				let tokens = child
+					.process
+					.options
+					.tokens
+					.iter()
+					.flat_map(|(_, entry)| entry.authorization.iter())
+					.filter(|token| token.body.resource != resource)
+					.count();
+				if tokens > 0 {
+					return Err(
+						tg::error!(%id, child = %child.process.node, %tokens, "the stored child referent must not carry tokens for other resources"),
+					);
+				}
+			}
 		}
+		arg.data = arg.data.without_location_and_tokens();
 
 		// Create the index arguments.
 		let error_objects = arg.data.error.as_ref().map(|error| match error {
@@ -166,6 +184,26 @@ impl Session {
 			now,
 		)?;
 		let data = store_data.then(|| arg.data.clone());
+		if self.server.config.advanced.checkpoints
+			&& let Some(data) = &data
+		{
+			let tokens = Self::finished_process_objects(data)
+				.iter()
+				.map(|object| {
+					object
+						.options
+						.tokens
+						.iter()
+						.map(|(_, entry)| entry.authorization.len())
+						.sum::<usize>()
+				})
+				.sum::<usize>();
+			if tokens > 0 {
+				return Err(
+					tg::error!(%id, %tokens, "the stored process data must not carry tokens"),
+				);
+			}
+		}
 		let mut put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children,
@@ -178,6 +216,7 @@ impl Session {
 					.collect(),
 			),
 			command_id: arg.data.command.command_id()?.into(),
+			command_sync: None,
 			data,
 			error: Some(error_objects),
 			id: id.clone(),
@@ -185,6 +224,7 @@ impl Session {
 			log: log_object,
 			metadata: tg::process::Metadata::default(),
 			options: tg::referent::Options::default(),
+			outcome_sync: sync,
 			output: Some(output_objects),
 			parent: None,
 			permissions: Vec::new(),

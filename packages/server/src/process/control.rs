@@ -41,6 +41,7 @@ struct Syncs {
 
 struct IndexProcessControlArg {
 	assign: bool,
+	command_sync: Option<tg::Referent<tg::sync::Id>>,
 	data: tg::process::Data,
 	id: tg::process::Id,
 	options: tg::referent::Options,
@@ -263,7 +264,7 @@ impl Session {
 			},
 			tg::process::control::Mode::Start(start) => {
 				let tg::process::control::StartClientRequestArg {
-					mut data,
+					data,
 					lease,
 					mut options,
 					shortcut: shortcut_arg,
@@ -298,14 +299,10 @@ impl Session {
 					(false, None) => (None, None),
 				};
 				options.tokens.clear();
-				if let Some(syncs) = &syncs {
-					data.command
-						.options
-						.tokens
-						.inherit(&syncs.command.options.tokens);
-				}
+				let command_sync = syncs.as_ref().map(|syncs| syncs.command.clone());
 				let index_arg = IndexProcessControlArg {
 					assign: shortcut,
+					command_sync,
 					data: data.clone(),
 					id: id.clone(),
 					options,
@@ -653,6 +650,7 @@ impl Session {
 	async fn index_process_control(&self, arg: IndexProcessControlArg) -> tg::Result<()> {
 		let IndexProcessControlArg {
 			assign,
+			command_sync,
 			data,
 			id,
 			options,
@@ -661,7 +659,12 @@ impl Session {
 		} = arg;
 		let session = self;
 		crate::checkpoint!(self.server, "process.control.index.started", process = %id).await;
-		let command_objects = data.command.objects();
+		let mut command_objects = data.command.objects();
+		if let Some(sync) = &command_sync {
+			for object in &mut command_objects {
+				object.options.tokens.inherit(&sync.options.tokens);
+			}
+		}
 		let data = data.without_location_and_tokens();
 		let sandbox_id = data
 			.sandbox
@@ -704,6 +707,7 @@ impl Session {
 						.collect(),
 				),
 				command_id: data.command.command_id()?.into(),
+				command_sync,
 				data: Some(data.clone()),
 				error: None,
 				id: id.clone(),
@@ -711,6 +715,7 @@ impl Session {
 				log: None,
 				metadata: tg::process::Metadata::default(),
 				options,
+				outcome_sync: None,
 				output: None,
 				parent: parent.clone(),
 				permissions: Vec::new(),

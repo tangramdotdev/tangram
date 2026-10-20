@@ -14,6 +14,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 1)]
 	pub command_id: tg::object::Id,
 
+	/// The command sync, or `None` to preserve the indexed command sync.
+	#[tangram_serialize(default, id = 20, skip_serializing_if = "Option::is_none")]
+	pub command_sync: Option<tg::Referent<tg::sync::Id>>,
+
 	#[tangram_serialize(id = 2)]
 	pub data: Option<tg::process::Data>,
 
@@ -45,6 +49,10 @@ pub struct Arg {
 
 	#[tangram_serialize(id = 14)]
 	pub options: tg::referent::Options,
+
+	/// The outcome sync, or `None` to preserve the indexed outcome sync.
+	#[tangram_serialize(default, id = 21, skip_serializing_if = "Option::is_none")]
+	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
 
 	#[tangram_serialize(
 		default,

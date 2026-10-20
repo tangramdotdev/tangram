@@ -108,8 +108,10 @@ fn put_process_with_set(
 ) {
 	let value = tangram_index::process::Process {
 		command_id: tg::command::Id::new(b"command").into(),
+		command_sync: None,
 		location: None,
 		metadata: tg::process::Metadata::default(),
+		outcome_sync: None,
 		reference_count: 0,
 		sandbox: Some(sandbox.clone()),
 		set,

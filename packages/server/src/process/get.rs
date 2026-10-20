@@ -443,17 +443,32 @@ impl Session {
 		let (data, location, metadata) = match (output.control, output.indexed) {
 			(None, None) => return Ok(None),
 			(None, Some((indexed, indexed_data))) => {
-				let Some(data) = indexed_data else {
+				let Some(mut data) = indexed_data else {
 					return Ok(None);
 				};
+				if let Some(sync) = &indexed.command_sync {
+					data.command.options.tokens.inherit(&sync.options.tokens);
+				}
+				if let Some(sync) = &indexed.outcome_sync {
+					Self::inherit_process_authorization_tokens_for_sync(&mut data, sync);
+				}
 				let metadata = metadata.then_some(indexed.metadata);
 				(data, indexed.location, metadata)
 			},
 			(Some(data), None) => (data, None, None),
 			(Some(data), Some((indexed, indexed_data))) => {
-				let data = indexed_data
-					.filter(|data| data.status.is_finished())
-					.unwrap_or(data);
+				let data = match indexed_data.filter(|data| data.status.is_finished()) {
+					Some(mut data) => {
+						if let Some(sync) = &indexed.command_sync {
+							data.command.options.tokens.inherit(&sync.options.tokens);
+						}
+						if let Some(sync) = &indexed.outcome_sync {
+							Self::inherit_process_authorization_tokens_for_sync(&mut data, sync);
+						}
+						data
+					},
+					None => data,
+				};
 				let metadata = metadata.then_some(indexed.metadata);
 				(data, indexed.location, metadata)
 			},

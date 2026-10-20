@@ -121,6 +121,22 @@ impl Session {
 		};
 		let now = self.server.clock.unix_timestamp()?;
 		let child_id = &child.process.node;
+		if self.server.config.advanced.checkpoints {
+			let resource = tg::Id::from(child_id.clone());
+			let tokens = child
+				.process
+				.options
+				.tokens
+				.iter()
+				.flat_map(|(_, entry)| entry.authorization.iter())
+				.filter(|token| token.body.resource != resource)
+				.count();
+			if tokens > 0 {
+				return Err(
+					tg::error!(%parent, child = %child_id, %tokens, "the stored child referent must not carry tokens for other resources"),
+				);
+			}
+		}
 		let parent_arg = parent_data
 			.map(|(parent_data, location)| -> tg::Result<_> {
 				let parent_data = parent_data.without_location_and_tokens();
@@ -136,6 +152,7 @@ impl Session {
 							.collect(),
 					),
 					command_id: parent_data.command.command_id()?.into(),
+					command_sync: None,
 					data: Some(parent_data.clone()),
 					error: None,
 					id: parent.clone(),
@@ -143,6 +160,7 @@ impl Session {
 					log: None,
 					metadata: tg::process::Metadata::default(),
 					options: tg::referent::Options::default(),
+					outcome_sync: None,
 					output: None,
 					parent: None,
 					permissions: Vec::new(),
@@ -159,6 +177,7 @@ impl Session {
 			children: None,
 			command: None,
 			command_id: command.clone().into(),
+			command_sync: None,
 			data: None,
 			error: error_objects,
 			id: child_id.clone(),
@@ -166,6 +185,7 @@ impl Session {
 			log: None,
 			metadata: tg::process::Metadata::default(),
 			options: child.process.options.clone(),
+			outcome_sync: None,
 			output: output_objects,
 			parent: Some(parent.clone()),
 			permissions: Vec::new(),

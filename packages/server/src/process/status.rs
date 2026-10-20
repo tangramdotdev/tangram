@@ -417,7 +417,7 @@ impl Session {
 		let Some((process, data)) = output.indexed else {
 			return Ok(None);
 		};
-		let Some(data) = data else {
+		let Some(mut data) = data else {
 			return Ok(None);
 		};
 		if !data.status.is_finished()
@@ -427,6 +427,9 @@ impl Session {
 				.is_some_and(tg::Location::is_remote)
 		{
 			return Ok(None);
+		}
+		if let Some(sync) = &process.outcome_sync {
+			Self::inherit_process_authorization_tokens_for_sync(&mut data, sync);
 		}
 		Ok(Some(data))
 	}

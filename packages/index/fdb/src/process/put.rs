@@ -179,6 +179,16 @@ impl Index {
 				.as_ref()
 				.and_then(|existing| existing.location.clone())
 		});
+		let command_sync = arg.command_sync.clone().or_else(|| {
+			existing
+				.as_ref()
+				.and_then(|existing| existing.command_sync.clone())
+		});
+		let outcome_sync = arg.outcome_sync.clone().or_else(|| {
+			existing
+				.as_ref()
+				.and_then(|existing| existing.outcome_sync.clone())
+		});
 		let sandbox = arg.data.as_ref().map_or_else(
 			|| {
 				arg.sandbox.clone().or_else(|| {
@@ -193,8 +203,10 @@ impl Index {
 			|| sandbox_changed
 			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
-				existing.location != location
+				existing.command_sync != command_sync
+					|| existing.location != location
 					|| existing.metadata != metadata
+					|| existing.outcome_sync != outcome_sync
 					|| existing.sandbox != sandbox
 					|| existing.set != set
 					|| existing.storage != storage
@@ -205,8 +217,10 @@ impl Index {
 
 		let value = tangram_index::process::Process {
 			command_id: arg.command_id.clone(),
+			command_sync,
 			location,
 			metadata,
+			outcome_sync,
 			reference_count: existing
 				.as_ref()
 				.map_or(0, |existing| existing.reference_count),

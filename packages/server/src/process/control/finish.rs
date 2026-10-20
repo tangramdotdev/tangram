@@ -4,17 +4,11 @@ impl Session {
 	pub(super) async fn finish_process_control_request(
 		&self,
 		id: &tg::process::Id,
-		mut arg: tg::process::control::FinishClientRequestArg,
+		arg: tg::process::control::FinishClientRequestArg,
 		sync: Option<&tg::Referent<tg::sync::Id>>,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
 		self.server.spawn_publish_process_status_task(id);
 		crate::checkpoint!(self.server, "process.control.finish", id = %id).await;
-
-		// Associate the output with the incoming sync before publishing the finished process.
-		if let Some(sync) = sync {
-			Self::inherit_process_authorization_tokens_for_sync(&mut arg.data, sync);
-		}
-
 		let data = arg.data.clone();
 
 		let options = crate::process::put::Options {

@@ -1109,7 +1109,7 @@ export def server_errors [server: record] {
 		| each { try { from json } catch { null } }
 		| compact
 		| where { |event| try { $event.level? == 'ERROR' } catch { false } }
-		| each { |event| $"($event.target) ($event.fields.message)" }
+		| each { |event| $"($event.target) ($event.fields.message? | default $event.fields.error?)" }
 		| uniq
 		| sort
 }

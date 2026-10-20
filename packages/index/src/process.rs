@@ -17,11 +17,17 @@ pub struct Process {
 	#[tangram_serialize(id = 8)]
 	pub command_id: tg::object::Id,
 
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
+	pub command_sync: Option<tg::Referent<tg::sync::Id>>,
+
 	#[tangram_serialize(id = 7)]
 	pub location: Option<tg::Location>,
 
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub metadata: tg::process::Metadata,
+
+	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
+	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub reference_count: u64,

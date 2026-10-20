@@ -293,6 +293,7 @@ impl Session {
 							.collect(),
 					),
 					command_id: data.command.command_id()?.into(),
+					command_sync: None,
 					data: Some(data.clone()),
 					error: None,
 					id: id.clone(),
@@ -300,6 +301,7 @@ impl Session {
 					log: None,
 					metadata: metadata.clone().unwrap_or_default(),
 					options: tg::referent::Options::default(),
+					outcome_sync: None,
 					output: None,
 					parent: None,
 					permissions: [
