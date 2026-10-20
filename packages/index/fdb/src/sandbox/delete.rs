@@ -19,7 +19,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_sandboxes_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::sandbox::Id],
 		partition_total: u64,

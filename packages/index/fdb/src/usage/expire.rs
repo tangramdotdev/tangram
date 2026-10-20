@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn expire_usage_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::expire::Arg,
 		partition_total: u64,
@@ -55,7 +55,7 @@ impl Index {
 	}
 
 	async fn find_usage_delta_candidates(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::expire::Arg,
 		keys: &mut Vec<Vec<u8>>,
@@ -123,7 +123,7 @@ impl Index {
 	}
 
 	async fn find_usage_aggregate_candidates(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::expire::Arg,
 		keys: &mut Vec<Vec<u8>>,

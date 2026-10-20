@@ -7,7 +7,7 @@ use {
 
 impl Index {
 	pub(crate) fn put_checkout(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::checkout::put::Arg,
 		partition_total: u64,
@@ -55,7 +55,7 @@ impl Index {
 	}
 
 	pub(crate) fn put_checkouts_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::checkout::put::Arg],
 		partition_total: u64,

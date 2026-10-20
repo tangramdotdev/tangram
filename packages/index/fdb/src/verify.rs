@@ -4,18 +4,13 @@ use {
 	foundationdb_tuple::Subspace,
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
-	std::{ops::ControlFlow, sync::Arc},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_index::verify::{
 		Batch,
 		facts::{self, Output, Request},
 	},
 };
-
-struct FactContext {
-	subspace: Subspace,
-	txn: crate::Transaction,
-}
 
 impl Index {
 	pub async fn verify_batch(
@@ -40,28 +35,15 @@ impl Index {
 	pub(crate) async fn verify_batch_with_transaction(
 		cache: facts::Cache<fdb::FdbError>,
 		concurrency: usize,
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		batch: &mut Batch,
 	) -> tg::Result<ControlFlow<Vec<tangram_index::verify::Output>, fdb::FdbError>> {
 		let concurrency = concurrency.max(1);
 		let (client, receiver) = facts::channel_with_cache(concurrency, cache);
 		let verify = batch.run(client);
-		let context = FactContext {
-			subspace: subspace.clone(),
-			txn: txn.clone(),
-		};
-		let context = Arc::new(context);
-		let provide = facts::serve(receiver, concurrency, move |request| {
-			let context = context.clone();
-			async move {
-				Self::execute_verification_fact_with_transaction(
-					&context.txn,
-					&context.subspace,
-					&request,
-				)
-				.await
-			}
+		let provide = facts::serve(receiver, concurrency, |request| async move {
+			Self::execute_verification_fact_with_transaction(txn, subspace, &request).await
 		});
 		let (outcome, ()) = futures::future::join(verify, provide).await;
 
@@ -69,7 +51,7 @@ impl Index {
 	}
 
 	async fn execute_verification_fact_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		request: &Request,
 	) -> tg::Result<ControlFlow<Output, fdb::FdbError>> {
@@ -785,7 +767,7 @@ impl Index {
 	}
 
 	async fn get_verification_permission_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		creator: Option<&tg::Principal>,
 		permission: tg::authorization::Permission,
@@ -821,7 +803,7 @@ impl Index {
 	}
 
 	async fn get_verification_key_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		prefix: &[u8],
 		after: Option<&[u8]>,
@@ -839,7 +821,7 @@ impl Index {
 	}
 
 	async fn get_verification_entry_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		prefix: &[u8],
 		after: Option<&[u8]>,
@@ -878,7 +860,7 @@ impl Index {
 	}
 
 	async fn get_verification_subject_permissions_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		subject: &tg::authorization::Subject,
 		after: Option<&[u8]>,

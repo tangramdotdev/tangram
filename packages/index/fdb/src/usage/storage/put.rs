@@ -8,7 +8,7 @@ use {
 
 impl Index {
 	pub(crate) async fn touch_account_object(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ObjectArg,
 		time_to_touch: std::time::Duration,
@@ -37,7 +37,7 @@ impl Index {
 	}
 
 	pub(crate) async fn touch_account_process(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ProcessArg,
 		time_to_touch: std::time::Duration,
@@ -66,7 +66,7 @@ impl Index {
 	}
 
 	pub(crate) async fn enqueue_account_object_from_parents(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
 		partition_total: u64,
@@ -182,7 +182,7 @@ impl Index {
 	}
 
 	pub(crate) async fn enqueue_account_process_from_parents(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 		partition_total: u64,
@@ -257,7 +257,7 @@ impl Index {
 	}
 
 	pub(crate) async fn enqueue_account_process_relationships(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 		partition_total: u64,
@@ -284,7 +284,7 @@ impl Index {
 	}
 
 	async fn get_object_accounts_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
 	) -> tg::Result<ControlFlow<Vec<tangram_index::usage::Account>, fdb::FdbError>> {
@@ -302,7 +302,7 @@ impl Index {
 	}
 
 	async fn get_object_accounts_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
 		after: Option<&[u8]>,
@@ -331,7 +331,7 @@ impl Index {
 	}
 
 	async fn get_process_accounts_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Vec<tangram_index::usage::Account>, fdb::FdbError>> {
@@ -349,7 +349,7 @@ impl Index {
 	}
 
 	async fn get_process_accounts_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 		after: Option<&[u8]>,
@@ -381,7 +381,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_account_object(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ObjectArg,
 		partition_totals: crate::PartitionTotals,
@@ -529,7 +529,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_account_process(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ProcessArg,
 		partition_totals: crate::PartitionTotals,
@@ -680,7 +680,7 @@ impl Index {
 	}
 
 	async fn propagate_account_storage(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &tangram_index::usage::Account,
@@ -713,7 +713,7 @@ impl Index {
 	}
 
 	fn put_account_object_clean_key(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ObjectArg,
 		partition_total: u64,
@@ -732,7 +732,7 @@ impl Index {
 	}
 
 	fn put_account_process_clean_key(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ProcessArg,
 		partition_total: u64,

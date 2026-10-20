@@ -10,7 +10,7 @@ use {
 
 impl Index {
 	pub(crate) async fn get_resource_permission_subjects_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 	) -> tg::Result<ControlFlow<BTreeSet<tg::authorization::Subject>, fdb::FdbError>> {
@@ -39,7 +39,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_resource_permission_entries_for_subject_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
@@ -59,7 +59,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_resource_permission_entries_for_subject_page_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
@@ -105,7 +105,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_visibility_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,

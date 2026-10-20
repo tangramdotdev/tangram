@@ -44,7 +44,7 @@ pub(super) struct TransactionArg<'a> {
 	pub partition_start: u64,
 	pub partition_totals: crate::PartitionTotals,
 	pub subspace: &'a Subspace,
-	pub txn: &'a crate::Transaction,
+	pub txn: &'a fdb::Transaction,
 }
 
 impl Index {
@@ -263,7 +263,7 @@ impl Index {
 	}
 
 	async fn clean_candidates(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		cutoffs: &[(ItemKind, i64)],
 		batch_size: usize,
@@ -396,7 +396,7 @@ impl Index {
 	}
 
 	async fn delete_expired_permissions(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		now: i64,
 		batch_size: usize,
@@ -473,7 +473,7 @@ impl Index {
 	}
 
 	async fn get_touched_at(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
 	) -> tg::Result<ControlFlow<Option<i64>, fdb::FdbError>> {
@@ -511,7 +511,7 @@ impl Index {
 		Ok(ControlFlow::Break(touched_at))
 	}
 
-	fn delete_clean_key(txn: &crate::Transaction, subspace: &Subspace, candidate: &Candidate) {
+	fn delete_clean_key(txn: &fdb::Transaction, subspace: &Subspace, candidate: &Candidate) {
 		let key = match &candidate.item {
 			Item::AccountObject { account, object } => {
 				crate::Key::Clean(crate::clean::Key::AccountObject {
@@ -555,7 +555,7 @@ impl Index {
 	}
 
 	async fn compute_checkout_reference_count(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
@@ -576,7 +576,7 @@ impl Index {
 	}
 
 	async fn compute_object_reference_count(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
@@ -616,7 +616,7 @@ impl Index {
 	}
 
 	async fn compute_process_reference_count(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
@@ -656,7 +656,7 @@ impl Index {
 	}
 
 	async fn count_entries_for_kind_and_id(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		kind: Kind,
 		id: &[u8],
@@ -676,7 +676,7 @@ impl Index {
 	}
 
 	async fn set_reference_count(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
 		reference_count: u64,
@@ -732,7 +732,7 @@ impl Index {
 	}
 
 	async fn delete_item(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
 		partition_total: u64,
@@ -747,7 +747,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_checkout(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
 		partition_total: u64,
@@ -813,7 +813,7 @@ impl Index {
 	}
 
 	async fn delete_object(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		partition_total: u64,
@@ -905,7 +905,7 @@ impl Index {
 	}
 
 	async fn delete_process(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		partition_total: u64,
@@ -1030,7 +1030,7 @@ impl Index {
 	}
 
 	async fn delete_permissions_for_subject(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
@@ -1112,7 +1112,7 @@ impl Index {
 	}
 
 	async fn delete_sandbox(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 		partition_total: u64,
@@ -1127,7 +1127,7 @@ impl Index {
 	}
 
 	async fn delete_materialized_permissions_for_resource(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		partition_total: u64,
@@ -1197,7 +1197,7 @@ impl Index {
 	}
 
 	async fn decrement_checkout_reference_count(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
 		partition_total: u64,
@@ -1233,7 +1233,7 @@ impl Index {
 	}
 
 	pub(super) async fn decrement_object_reference_count(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		partition_total: u64,
@@ -1269,7 +1269,7 @@ impl Index {
 	}
 
 	pub(super) async fn decrement_process_reference_count(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		partition_total: u64,

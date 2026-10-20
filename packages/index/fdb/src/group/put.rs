@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) fn put_groups_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::group::put::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -32,7 +32,7 @@ impl Index {
 	}
 
 	pub(crate) fn put_group_members_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::group::member::put::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {

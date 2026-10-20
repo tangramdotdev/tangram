@@ -20,7 +20,7 @@ impl Index {
 	}
 
 	pub(crate) async fn batch_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		items: &[tangram_index::batch::Item],
 		partition_totals: crate::PartitionTotals,

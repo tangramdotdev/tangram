@@ -43,7 +43,7 @@ impl Index {
 	}
 
 	pub(crate) async fn visible_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::Id],
 		principal: &tg::Principal,
@@ -89,7 +89,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_subjects_for_principal_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		principal: &tg::Principal,
 	) -> tg::Result<ControlFlow<Vec<tg::authorization::Subject>, fdb::FdbError>> {

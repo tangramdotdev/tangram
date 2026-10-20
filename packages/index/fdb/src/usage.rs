@@ -64,9 +64,8 @@ impl Index {
 
 	pub async fn start_usage(&self, at: jiff::Timestamp) -> tg::Result<()> {
 		let subspace = self.subspace.clone();
-		crate::run(&self.database, |txn| {
-			let subspace = subspace.clone();
-			async move { Self::start_usage_with_transaction(&txn, &subspace, at).await }
+		crate::run(&self.database, async move |txn| {
+			Self::start_usage_with_transaction(txn, &subspace, at).await
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to start usage tracking"))?;
@@ -75,7 +74,7 @@ impl Index {
 	}
 
 	async fn start_usage_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		at: jiff::Timestamp,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -91,7 +90,7 @@ impl Index {
 	}
 
 	async fn usage_started_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let key = Self::pack(subspace, &IndexKey::Usage(crate::usage::Key::Started));

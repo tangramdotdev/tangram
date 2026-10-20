@@ -33,7 +33,7 @@ pub enum Key {
 
 impl Index {
 	pub(crate) async fn delete_delegations_for_subject_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
@@ -66,7 +66,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_delegations_with_prefix(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		_subspace: &fdbt::Subspace,
 		prefix: &[u8],
 		limit: usize,
@@ -89,7 +89,7 @@ impl Index {
 		Ok(ControlFlow::Break(output))
 	}
 	pub(crate) async fn put_delegation_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::delegation::put::Arg,
 		partition_total: u64,
@@ -137,7 +137,7 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 	pub(crate) async fn delete_expired_delegations(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		now: i64,
 		limit: usize,

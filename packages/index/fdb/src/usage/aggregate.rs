@@ -23,7 +23,7 @@ struct Deltas {
 
 impl Index {
 	pub(crate) async fn aggregate_usage_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::aggregate::Arg,
 	) -> tg::Result<ControlFlow<tangram_index::usage::aggregate::Output, fdb::FdbError>> {
@@ -93,7 +93,7 @@ impl Index {
 	}
 
 	pub(crate) async fn aggregate_usage_for_account_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		partition: u64,
@@ -127,7 +127,7 @@ impl Index {
 	}
 
 	pub(crate) async fn aggregate_usage_hour_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		hour: i64,
@@ -229,7 +229,7 @@ impl Index {
 	}
 
 	pub(crate) async fn aggregate_usage_day_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		partition: u64,
@@ -279,7 +279,7 @@ impl Index {
 	}
 
 	pub(crate) async fn aggregate_usage_parent_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		partition: u64,
@@ -297,7 +297,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_usage_aggregate_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		partition: u64,
@@ -318,7 +318,7 @@ impl Index {
 	}
 
 	pub(crate) async fn contains_usage_aggregation_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		hour: i64,
@@ -337,7 +337,7 @@ impl Index {
 	}
 
 	pub(crate) fn put_usage_aggregate_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		partition: u64,
@@ -355,7 +355,7 @@ impl Index {
 	}
 
 	pub(crate) fn put_usage_aggregation_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		hour: i64,
@@ -371,7 +371,7 @@ impl Index {
 	}
 
 	fn clear_usage_aggregation_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		hour: i64,
@@ -387,7 +387,7 @@ impl Index {
 	}
 
 	async fn get_usage_deltas_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		hour: i64,
@@ -459,7 +459,7 @@ impl Index {
 	}
 
 	async fn try_get_usage_aggregation_for_account_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		partition: u64,
@@ -504,7 +504,7 @@ impl Index {
 	}
 
 	async fn sum_usage_children_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &tangram_index::usage::Account,
 		partition: u64,

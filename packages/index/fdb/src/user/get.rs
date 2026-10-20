@@ -8,7 +8,7 @@ use {
 
 impl Index {
 	pub(crate) async fn try_get_users_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::user::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::user::User>>, fdb::FdbError>> {
@@ -34,7 +34,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_user_with_transaction(
-		txn: &crate::Transaction,
+		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::user::Id,
 	) -> tg::Result<ControlFlow<Option<tangram_index::user::User>, fdb::FdbError>> {
