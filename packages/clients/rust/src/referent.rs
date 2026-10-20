@@ -241,6 +241,19 @@ impl Options {
 		self.tokens.clear();
 	}
 
+	/// Clear the location and every token except the local authorization tokens for syncs.
+	pub fn clear_location_and_tokens_except_sync(&mut self) {
+		let authorization = self
+			.tokens
+			.local_authorization()
+			.iter()
+			.filter(|token| token.body.resource.kind() == tg::id::Kind::Sync)
+			.cloned()
+			.collect::<Vec<_>>();
+		self.location = None;
+		self.tokens = tg::authorization::Tokens::with_authorization(authorization);
+	}
+
 	pub fn with_path(path: impl Into<PathBuf>) -> Self {
 		Self {
 			artifact: None,

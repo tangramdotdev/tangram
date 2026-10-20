@@ -27,7 +27,7 @@ for kind in [object process] {
 			created_at: 0,
 			finished_at: 0,
 			host: 'test',
-			output: 5,
+			output: { node: 5 },
 			sandbox: 'sbx_00041061050r3gg28a1c60t3gf20',
 			status: finished,
 		}
@@ -90,7 +90,7 @@ for kind in [object process] {
 		if $kind == object {
 			assert equal ($output.data.value.bytes | decode base64 | decode utf-8) 'stored'
 		} else {
-			assert equal $output.data.output 5
+			assert equal $output.data.output.node 5
 		}
 	}
 	timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blocker_watch 0 | ignore
@@ -104,7 +104,7 @@ for kind in [object process] {
 	if $kind == object {
 		assert equal ($output.data.value.bytes | decode base64 | decode utf-8) 'stored'
 	} else {
-		assert equal $output.data.output 5
+		assert equal $output.data.output.node 5
 	}
 	tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $blocker_watch
 	job recv --tag $blocked_read --timeout 10sec | ignore

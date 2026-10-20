@@ -223,18 +223,14 @@ impl Session {
 			}
 		}
 		if let Some(error) = &mut data.error {
-			match error {
-				tg::Either::Left(error) => {
-					self.update_error_data_referents_for_location(error, location, trusted)?;
-				},
-				tg::Either::Right(error) => {
-					self.update_tokens_and_location(
-						&mut error.options.tokens,
-						Some(&mut error.options.location),
-						location,
-						trusted,
-					)?;
-				},
+			self.update_tokens_and_location(
+				&mut error.options.tokens,
+				Some(&mut error.options.location),
+				location,
+				trusted,
+			)?;
+			if let tg::Either::Left(error) = &mut error.node {
+				self.update_error_data_referents_for_location(error, location, trusted)?;
 			}
 		}
 		if let Some(log) = &mut data.log {
@@ -246,7 +242,13 @@ impl Session {
 			)?;
 		}
 		if let Some(output) = &mut data.output {
-			self.update_value_data_referents_for_location(output, location, trusted)?;
+			self.update_tokens_and_location(
+				&mut output.options.tokens,
+				Some(&mut output.options.location),
+				location,
+				trusted,
+			)?;
+			self.update_value_data_referents_for_location(&mut output.node, location, trusted)?;
 		}
 		Ok(())
 	}

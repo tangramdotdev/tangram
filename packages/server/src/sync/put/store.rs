@@ -525,7 +525,7 @@ impl Session {
 				&& state.arg.process_error_objects
 				&& let Some(error) = &output.data.error
 			{
-				match error {
+				match &error.node {
 					tg::Either::Left(data) => {
 						let mut children = BTreeSet::new();
 						data.children(&mut children);
@@ -547,7 +547,7 @@ impl Session {
 						let node = crate::sync::queue::ObjectNode {
 							descendants: true,
 							eager: node.eager,
-							id: id.node.clone().into(),
+							id: id.clone().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
 							local_tokens: node.tokens.clone(),
 							parent: Some(node.id.clone().into()),
@@ -583,7 +583,7 @@ impl Session {
 				&& let Some(output) = &output.data.output
 			{
 				let mut children = BTreeSet::new();
-				output.children(&mut children);
+				output.node.children(&mut children);
 				let nodes = children
 					.into_iter()
 					.map(|child| crate::sync::queue::ObjectNode {

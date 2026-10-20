@@ -39,7 +39,7 @@ assert equal $output.exit_code 0 "the old process must finish after the runner r
 let data = tg --url $remote.url --token $root_token get $id | from json
 assert equal $data.status "finished"
 assert equal $data.exit 1
-assert equal $data.error.code "internal"
-assert equal $data.error.message "runner restarted"
+assert equal $data.error.node.code "internal"
+assert equal $data.error.node.message "runner restarted"
 
 assert equal (tg --url $remote.url --token $root_token sandbox get $data.sandbox | from json | get data.status) destroyed

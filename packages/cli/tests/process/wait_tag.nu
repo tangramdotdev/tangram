@@ -19,7 +19,7 @@ assert equal $output.exit 0 "waiting through the tag should succeed"
 assert equal $output.output 42 "waiting through the tag should return the process output"
 
 let process_data = tg --url $local.url process get 'wait_process?location=remote:origin' | from json
-assert equal $process_data.output 42 "a process subcommand should preserve the resolved location"
+assert equal $process_data.output.node 42 "a process subcommand should preserve the resolved location"
 
 let output = tg --url $local.url wait $'($process)?location=remote:origin' | from json
 assert equal $output.exit 0 "waiting through a remote process reference should succeed"

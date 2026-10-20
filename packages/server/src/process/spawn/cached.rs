@@ -473,7 +473,7 @@ impl Session {
 		let Some(error) = &data.error else {
 			return None;
 		};
-		match error {
+		match &error.node {
 			tg::Either::Left(data) => data.code,
 			tg::Either::Right(_) => None,
 		}
@@ -600,7 +600,9 @@ impl Session {
 			command: tg::Referent::new(source.command.node, command.options.clone()),
 			created_at: now,
 			debug: arg.debug.clone(),
-			error: error.clone().map(tg::Either::Left),
+			error: error
+				.clone()
+				.map(|error| tg::Referent::with_node(tg::Either::Left(Box::new(error)))),
 			exit: Some(exit),
 			finished_at: Some(now),
 			host: host.to_owned(),
@@ -623,10 +625,11 @@ impl Session {
 			region: self.server.config.region.clone(),
 		});
 		let options = crate::process::put::Options {
+			command_sync: None,
 			defer_index: false,
 			location: Some(location),
+			outcome_sync: None,
 			store_data: true,
-			sync: None,
 		};
 		let output = self
 			.put_process_local(&id, entry, options)

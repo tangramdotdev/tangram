@@ -21,7 +21,7 @@ tg --url $local.url --token $root_token index
 tg --url $local.url --token $root_token tag put process $process --public
 tg --url $local.url --token $root_token index
 let source = tg --url $local.url --token $reader.token get $process | from json
-assert equal ($source.output.value | split row '?' | first) $output
+assert equal ($source.output.node.value | split row '?' | first) $output
 success (tg --url $local.url --token $reader.token get $output | complete) "the source tag should confer access to its output object."
 
 # Transfer only the process node; the tag must not confer output object permissions.

@@ -365,11 +365,11 @@ fn process_facts_match_recomputation_in_every_arrival_order() {
 	);
 	let error_data = tg::object::Data::Error(tg::error::Data::default());
 	let mut parent_data = process_data(&command, Some(std::slice::from_ref(&child)));
-	parent_data.error = Some(tg::Either::Right(tg::Referent::with_node(error.clone())));
+	parent_data.error = Some(tg::Referent::with_node(tg::Either::Right(error.clone())));
 	parent_data.log = Some(tg::Referent::with_node(log.clone()));
-	parent_data.output = Some(tg::value::Data::Object(tg::Referent::with_node(
+	parent_data.set_output(Some(tg::value::Data::Object(tg::Referent::with_node(
 		output.clone().into(),
-	)));
+	))));
 	let child_data = parent_data.clone();
 	let child_data = tg::process::Data {
 		children: Some(vec![]),
@@ -579,9 +579,9 @@ fn process_metadata_and_availability_settle_without_finalization() {
 	let command = tg::command::Id::new(b"command");
 	let output = tg::object::Id::from(tg::blob::Id::new(b"output"));
 	let mut parent_data = process_data(&command, Some(std::slice::from_ref(&child)));
-	parent_data.output = Some(tg::value::Data::Object(tg::Referent::with_node(
+	parent_data.set_output(Some(tg::value::Data::Object(tg::Referent::with_node(
 		output.clone(),
-	)));
+	))));
 	update_process(&mut graph, &parent, &parent_data);
 	let child_data = process_data(&command, None);
 	update_process(&mut graph, &child, &child_data);

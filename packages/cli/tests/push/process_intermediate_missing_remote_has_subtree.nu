@@ -53,7 +53,7 @@ def test [...args] {
 	tg --url $local_source.url index
 	let process_a_data = tg --url $local_source.url get $process_a_id | from json
 	let module_a_id = (command module-input $process_a_data.command)
-	let output_a_id = $process_a_data.output.value
+	let output_a_id = $process_a_data.output.node.value
 	let log_a_id = $process_a_data.log
 	let children_a = $process_a_data.children
 
@@ -62,7 +62,7 @@ def test [...args] {
 	tg --url $local_source.url index
 	let process_b_data = tg --url $local_source.url get $process_b_id | from json
 	let module_b_id = (command module-input $process_b_data.command)
-	let output_b_id = $process_b_data.output.value
+	let output_b_id = $process_b_data.output.node.value
 	let log_b_id = $process_b_data.log
 	let children_b = $process_b_data.children
 
@@ -71,7 +71,7 @@ def test [...args] {
 	tg --url $local_source.url index
 	let process_c_data = tg --url $local_source.url get $process_c_id | from json
 	let module_c_id = (command module-input $process_c_data.command)
-	let output_c_id = $process_c_data.output.value
+	let output_c_id = $process_c_data.output.node.value
 	let log_c_id = $process_c_data.log
 	let children_c = $process_c_data.children
 
@@ -80,7 +80,7 @@ def test [...args] {
 	tg --url $local_source.url index
 	let process_d_data = tg --url $local_source.url get $process_d_id | from json
 	let module_d_id = (command module-input $process_d_data.command)
-	let output_d_id = $process_d_data.output.value
+	let output_d_id = $process_d_data.output.node.value
 	let log_d_id = $process_d_data.log
 
 	# Helper function to get all module descendants recursively.

@@ -82,12 +82,18 @@ impl Session {
 		if permits(Permission::NodeErrorObjects)
 			&& let Some(error) = &mut data.error
 		{
-			match error {
-				tg::Either::Left(error) => {
-					self.add_tokens_to_process_get_error(error, object_expires_at)?;
+			match &mut error.node {
+				tg::Either::Left(data) => {
+					self.add_tokens_to_process_get_error(data, object_expires_at)?;
 				},
-				tg::Either::Right(error) => {
-					self.add_token_to_object_referent_with_expires_at(error, object_expires_at)?;
+				tg::Either::Right(id) => {
+					let options = std::mem::take(&mut error.options);
+					let mut referent = tg::Referent::new(id.clone(), options);
+					self.add_token_to_object_referent_with_expires_at(
+						&mut referent,
+						object_expires_at,
+					)?;
+					error.options = referent.options;
 				},
 			}
 		}
@@ -99,7 +105,7 @@ impl Session {
 		if permits(Permission::NodeOutputObjects)
 			&& let Some(output) = &mut data.output
 		{
-			self.add_tokens_to_value_data_with_expires_at(output, object_expires_at)?;
+			self.add_tokens_to_value_data_with_expires_at(&mut output.node, object_expires_at)?;
 		}
 
 		Ok(())

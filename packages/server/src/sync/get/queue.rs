@@ -646,7 +646,7 @@ impl Session {
 			&& !availability.is_some_and(|availability| availability.node_error_objects)
 			&& let Some(error) = &data.error
 		{
-			match error {
+			match &error.node {
 				tg::Either::Left(data) => {
 					let mut children = BTreeSet::new();
 					data.children(&mut children);
@@ -666,7 +666,7 @@ impl Session {
 					let node = ObjectNode {
 						descendants: true,
 						eager: state.arg.eager,
-						id: error.clone().node.into(),
+						id: error.clone().into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
 						local_tokens: local_tokens.clone(),
 						parent: Some(id.clone().into()),
@@ -700,7 +700,7 @@ impl Session {
 			&& let Some(output) = &data.output
 		{
 			let mut children = BTreeSet::new();
-			output.children(&mut children);
+			output.node.children(&mut children);
 			state
 				.queue
 				.enqueue_objects(children.into_iter().map(|object| ObjectNode {

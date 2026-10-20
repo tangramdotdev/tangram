@@ -52,7 +52,7 @@ let indexed = tg --url $runner.url --token $runner_root_token process get --loca
 success $indexed "the runner should index the remote process locally."
 let indexed = $indexed.stdout | from json
 assert equal $indexed.status finished "the runner should index the finished process data."
-assert equal ($indexed.output.value | split row '?' | first) $output "the runner should index the process output relationship."
+assert equal ($indexed.output.node.value | split row '?' | first) $output "the runner should index the process output relationship."
 
 let alice = tg --url $runner.url login --verbose --name alice | from json
 tg --url $runner.url --token $runner_root_token grant $alice.user.id process_parent $process | ignore

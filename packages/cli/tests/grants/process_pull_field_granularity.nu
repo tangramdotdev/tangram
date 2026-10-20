@@ -26,7 +26,7 @@ tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree $pr
 tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_output_objects $process | ignore
 
 # Sanity: Eve can get the output she was granted but not the command.
-let output = tg --url $remote.url --token $eve.token get $data.output.value | complete
+let output = tg --url $remote.url --token $eve.token get $data.output.node.value | complete
 success $output "Eve should get the granted output object."
 let command = tg --url $remote.url --token $eve.token get (command module-input $data.command) | complete
 failure $command "Eve should not get the command she was not granted."

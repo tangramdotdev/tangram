@@ -38,7 +38,7 @@ def test [...args] {
 	# Get the process data.
 	let process_data = tg --url $local_source.url get $process_id | from json
 	let module_id = (command module-input $process_data.command)
-	let output_id = $process_data.output.value
+	let output_id = $process_data.output.node.value
 
 	# Get the output's children (the blob).
 	let output_children = tg --url $local_source.url children $output_id | from json

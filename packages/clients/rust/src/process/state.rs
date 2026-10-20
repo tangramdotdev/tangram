@@ -92,12 +92,18 @@ impl State {
 		let error = self
 			.error
 			.as_ref()
-			.map(|error| error.to_data_or_id().map_right(|_| error.to_referent()));
+			.map(|error| match error.to_data_or_id() {
+				tg::Either::Left(data) => tg::Referent::with_node(tg::Either::Left(Box::new(data))),
+				tg::Either::Right(_) => error.to_referent().map(tg::Either::Right),
+			});
 		let exit = self.exit;
 		let finished_at = self.finished_at;
 		let host = self.host.clone();
 		let log = self.log.as_ref().map(tg::Blob::to_referent);
-		let output = self.output.as_ref().map(tg::Value::to_data);
+		let output = self
+			.output
+			.as_ref()
+			.map(|output| tg::Referent::with_node(output.to_data()));
 		let retry = self.retry;
 		let sandbox = self.sandbox.clone();
 		let started_at = self.started_at;
@@ -147,19 +153,35 @@ impl State {
 		let debug = value.debug;
 		let error = value
 			.error
-			.map(|either| match either {
+			.map(|error| match error.node {
 				tg::Either::Left(data) => {
-					let object = tg::error::Object::try_from_data(data)?;
-					Ok::<_, tg::Error>(tg::Error::with_object(object))
+					let object = tg::error::Object::try_from_data(*data)?;
+					let handle = tg::Error::with_object(object);
+					handle
+						.state()
+						.inherit_location(error.options.location.as_ref());
+					handle.state().inherit_tokens(&error.options.tokens);
+					Ok::<_, tg::Error>(handle)
 				},
-				tg::Either::Right(error) => Ok(tg::Error::with_referent(error)),
+				tg::Either::Right(id) => Ok(tg::Error::with_referent(tg::Referent::new(
+					id,
+					error.options,
+				))),
 			})
 			.transpose()?;
 		let exit = value.exit;
 		let finished_at = value.finished_at;
 		let host = value.host;
 		let log = value.log.map(tg::Blob::with_referent);
-		let output = value.output.map(tg::Value::try_from_data).transpose()?;
+		let output = value
+			.output
+			.map(|output| {
+				let value = tg::Value::try_from_data(output.node)?;
+				value.inherit_location(output.options.location.as_ref());
+				value.inherit_tokens(&output.options.tokens);
+				Ok::<_, tg::Error>(value)
+			})
+			.transpose()?;
 		let retry = value.retry;
 		let sandbox = value.sandbox;
 		let started_at = value.started_at;

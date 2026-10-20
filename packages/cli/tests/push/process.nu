@@ -39,9 +39,9 @@ export def test [path: string, ...args] {
 	}
 
 	# Confirm output is present.
-	if $output.output? != null and (($output.output | describe) | str starts-with 'record') {
-		if $output.output.kind == "object" {
-			tg --url $remote.url get $output.output.value --no-tokens --pretty
+	if $output.output? != null and (($output.output.node | describe) | str starts-with 'record') {
+		if $output.output.node.kind == "object" {
+			tg --url $remote.url get $output.output.node.value --no-tokens --pretty
 		}
 	}
 
@@ -69,9 +69,9 @@ export def test [path: string, ...args] {
 	if "--process-children" in $args {
 		for child in $children {
 			let output = tg get $child.process | from json
-			if (($output.output | describe) | str starts-with 'record') {
-				if $output.output.kind == "object" {
-					tg --url $remote.url get $output.output.value --no-tokens --pretty
+			if (($output.output?.node? | describe) | str starts-with 'record') {
+				if $output.output.node.kind == "object" {
+					tg --url $remote.url get $output.output.node.value --no-tokens --pretty
 				}
 			}
 		}

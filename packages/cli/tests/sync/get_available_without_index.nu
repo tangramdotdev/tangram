@@ -78,7 +78,7 @@ let process_data = {
 	created_at: 0,
 	finished_at: 0,
 	host: "test",
-	output: 5,
+	output: { node: 5 },
 	sandbox: "sbx_00041061050r3gg28a1c60t3gf20",
 	status: "finished",
 }

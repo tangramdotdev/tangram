@@ -2535,7 +2535,7 @@ impl Tree {
 			.try_get_with_instance(client, options)
 			.await?
 			.and_then(|output| output.data.error)
-			.is_some_and(|error| match error {
+			.is_some_and(|error| match error.node {
 				tg::Either::Left(data) => {
 					matches!(data.code, Some(tg::error::Code::Cancellation))
 				},

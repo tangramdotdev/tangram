@@ -36,7 +36,7 @@ let process_sentinel = tg --url $secondary.url build --no-tokens --detach $'($pa
 tg --url $secondary.url wait --source=index $process_sentinel | ignore
 tg --url $secondary.url index
 let child_data = tg --url $secondary.url process get --source=index --location='local(secondary)' $child | from json
-let file = $child_data.output.value | referent node
+let file = $child_data.output.node.value | referent node
 let blob = tg --url $secondary.url children --local $file | from json | get 0
 
 # Age the cached process so that reusing it must extend its lifetime.

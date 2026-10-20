@@ -117,12 +117,12 @@ class ProcessDataObject(TypedDict):
     command: ReferentData[ProcessCommandData | str] | str
     created_at: int | float
     debug: NotRequired[DebugObject | None]
-    error: NotRequired[ErrorData | str | None]
+    error: NotRequired[ReferentData[ErrorData | str] | str | None]
     exit: NotRequired[int | None]
     finished_at: NotRequired[int | float | None]
     host: str
     log: NotRequired[str | None]
-    output: NotRequired[ValueData]
+    output: NotRequired[ReferentData[ValueData]]
     retry: NotRequired[bool]
     sandbox: NotRequired[str | None]
     started_at: NotRequired[int | float | None]
@@ -1185,7 +1185,7 @@ class State:
             else [Child.from_data(child) for child in data["children"]]
         )
         state["error"] = (
-            Error.from_data(data["error"]) if data.get("error") is not None else None
+            _error_from_data(data["error"]) if data.get("error") is not None else None
         )
         state["log"] = (
             Blob.with_referent(Referent.from_data_string(data["log"]))
@@ -1193,7 +1193,7 @@ class State:
             else None
         )
         if "output" in data:
-            state["output"] = Value.from_data(data["output"])
+            state["output"] = _output_from_data(data["output"])
         return state
 
     @staticmethod
@@ -1239,12 +1239,12 @@ class State:
             data["error"] = (
                 error.to_referent().to_data_string()
                 if error.state.stored
-                else error.to_data()
+                else {"node": error.to_data()}
             )
         if state.get("log") is not None:
             data["log"] = state["log"].to_referent().to_data_string()
         if "output" in state:
-            data["output"] = Value.to_data(state["output"])
+            data["output"] = {"node": Value.to_data(state["output"])}
         return data
 
 
@@ -1279,18 +1279,25 @@ class Data:
         )
         for key in ("error", "log"):
             value = data.get(key)
-            if value is not None:
+            if isinstance(value, str):
                 output[key] = (
                     Referent.from_data_string(value)
                     .without_location_and_tokens()
                     .to_data_string()
-                    if isinstance(value, str)
-                    else ObjectDataNamespace.without_location_and_tokens(
-                        {"kind": "error", "value": value}
-                    )["value"]
                 )
+            elif value is not None:
+                node = value["node"]
+                output[key] = {
+                    "node": node
+                    if isinstance(node, str)
+                    else ObjectDataNamespace.without_location_and_tokens(
+                        {"kind": "error", "value": node}
+                    )["value"]
+                }
         if "output" in data:
-            output["output"] = Value.Data.without_location_and_tokens(data["output"])
+            output["output"] = {
+                "node": Value.Data.without_location_and_tokens(data["output"]["node"])
+            }
         return output
 
 
@@ -1341,3 +1348,27 @@ Process.Stdio = Stdio
 Process.Tty = Tty
 
 Process.Mount = Mount
+
+
+def _error_from_data(data):
+    if isinstance(data, str):
+        return Error.from_data(data)
+    referent = Referent.from_data(data)
+    error = Error.from_data(referent.node)
+    options = referent.options or {}
+    Object.inherit_location(error, options.get("location"))
+    tokens = options.get("tokens")
+    if tokens:
+        Object.inherit_tokens(error, tokens)
+    return error
+
+
+def _output_from_data(data):
+    referent = Referent.from_data(data)
+    value = Value.from_data(referent.node)
+    options = referent.options or {}
+    Value.inherit_location(value, options.get("location"))
+    tokens = options.get("tokens")
+    if tokens:
+        Value.inherit_tokens(value, tokens)
+    return value

@@ -4,24 +4,20 @@ impl Session {
 	pub(super) async fn finish_process_control_request(
 		&self,
 		id: &tg::process::Id,
-		mut arg: tg::process::control::FinishClientRequestArg,
-		sync: Option<&tg::Referent<tg::sync::Id>>,
+		arg: tg::process::control::FinishClientRequestArg,
+		command_sync: Option<tg::Referent<tg::sync::Id>>,
+		outcome_sync: Option<tg::Referent<tg::sync::Id>>,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
 		self.server.spawn_publish_process_status_task(id);
 		crate::checkpoint!(self.server, "process.control.finish", id = %id).await;
-
-		// Associate the output with the incoming sync before publishing the finished process.
-		if let Some(sync) = sync {
-			Self::inherit_process_authorization_tokens_for_sync(&mut arg.data, sync);
-		}
-
 		let data = arg.data.clone();
 
 		let options = crate::process::put::Options {
+			command_sync,
 			defer_index: true,
 			location: None,
+			outcome_sync,
 			store_data: true,
-			sync: sync.cloned(),
 		};
 		self.put_finished_process_local(id, arg.data, options)
 			.await?;
@@ -61,22 +57,29 @@ impl Session {
 		Ok(())
 	}
 
+	pub(crate) fn inherit_process_command_authorization_tokens_for_sync(
+		data: &mut tg::process::Data,
+		sync: &tg::Referent<tg::sync::Id>,
+	) {
+		let location = tg::Location::Local(tg::location::Local::default());
+		let authorization_tokens = sync.options.tokens.for_location(&location);
+		data.command.options.tokens.inherit(&authorization_tokens);
+	}
+
 	pub(crate) fn inherit_process_authorization_tokens_for_sync(
 		data: &mut tg::process::Data,
 		sync: &tg::Referent<tg::sync::Id>,
 	) {
 		let location = tg::Location::Local(tg::location::Local::default());
 		let authorization_tokens = sync.options.tokens.for_location(&location);
-		if let Some(output) = &mut data.output {
-			Self::update_process_value_tokens(output, &mut |tokens, _| {
-				tokens.inherit(&authorization_tokens);
-			});
+		if let Some(error) = &mut data.error {
+			error.options.tokens.inherit(&authorization_tokens);
 		}
 		if let Some(log) = &mut data.log {
 			log.options.tokens.inherit(&authorization_tokens);
 		}
-		if let Some(tg::Either::Right(error)) = &mut data.error {
-			error.options.tokens.inherit(&authorization_tokens);
+		if let Some(output) = &mut data.output {
+			output.options.tokens.inherit(&authorization_tokens);
 		}
 	}
 

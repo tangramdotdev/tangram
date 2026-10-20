@@ -34,7 +34,7 @@ let log = tg --token $root put --no-tokens 'tg.blob("log")' | referent node
 let error = 'err_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0'
 let child = 'pcs_00081061050r3gg28a1c60t3gf20'
 let parent = 'pcs_00081061050r3gg28a1c60t3gf40'
-let data = { children: [], command: $command, error: $error, created_at: 0, exit: 0, finished_at: 1, host: 'x86_64-linux', log: $log, output: { kind: object, value: $output }, status: finished }
+let data = { children: [], command: $command, error: $error, created_at: 0, exit: 0, finished_at: 1, host: 'x86_64-linux', log: $log, output: { node: { kind: object, value: $output } }, status: finished }
 put-process $socket $root $child $data
 put-process $socket $root $parent ($data | upsert children [{ cached: false, process: $child }])
 for permission in [process_node process_node_command_objects process_node_output_objects] {
@@ -76,7 +76,7 @@ for flags in [[false false] [true false] [false true] [true true]] {
 	let command_token = object-token $result.data.command
 	assert equal (token-body $command_token).resource $command
 	assert ('object_subtree' in (token-body $command_token).permissions) 'node command permissions must authorize the command object subtree'
-	let output_token = object-token $result.data.output.value
+	let output_token = object-token $result.data.output.node.value
 	assert equal (token-body $output_token).resource $output
 	assert ('object_subtree' in (token-body $output_token).permissions)
 	assert ((token-body $output_token).expires_at <= (token-body $scoped).expires_at)
@@ -105,9 +105,9 @@ assert ('process_subtree_command_objects' in (token-body $child_token).permissio
 assert not ('process_parent' in (token-body $child_token).permissions)
 assert ((token-body $child_token).expires_at <= (token-body $full).expires_at)
 let child_result = get-process $socket $stranger.token $child $child_token
-assert ('object_subtree' in (token-body (object-token $child_result.data.output.value)).permissions)
+assert ('object_subtree' in (token-body (object-token $child_result.data.output.node.value)).permissions)
 success (tg --token $stranger.token get --bytes $result.data.command | complete) 'the derived command token must work without a search'
-success (tg --token $stranger.token get --bytes $result.data.output.value | complete) 'the derived output token must work without a search'
+success (tg --token $stranger.token get --bytes $result.data.output.node.value | complete) 'the derived output token must work without a search'
 
 
 let result = get-process $socket $stranger.token $inline $inline_token

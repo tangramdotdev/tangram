@@ -816,7 +816,7 @@ def test_pending_process(messenger):
         "created_at": 0,
         "finished_at": 0,
         "host": "test",
-        "output": 5,
+        "output": {"node": 5},
         "sandbox": "sbx_00041061050r3gg28a1c60t3gf20",
         "status": "finished",
     }
@@ -933,7 +933,7 @@ def test_available_after_authorization_exhaustion(messenger):
     blob = command("put", 'tg.blob("private source bytes")')
     process = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"
     data = {"children": [], "command": "cmd_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0",
-            "created_at": 0, "finished_at": 0, "host": "test", "output": 5,
+            "created_at": 0, "finished_at": 0, "host": "test", "output": {"node": 5},
             "sandbox": "sbx_00041061050r3gg28a1c60t3gf20", "status": "finished"}
     command("process", "put", process, json.dumps(data))
     command("index")
