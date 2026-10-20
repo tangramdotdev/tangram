@@ -3,10 +3,17 @@ import json
 import socket
 import sys
 
+from process_id import derived_process_id, process_id
+
 # Open a process control stream with the given token and arg, and print the response header, or exit with the error response.
 socket_path, token, arg_path = sys.argv[1:]
 with open(arg_path) as file:
     arg = json.load(file)
+# The client names the process. An arg that names a runner gets an ID that the runner derives with its proof, and any other arg without an ID gets a new one.
+runner = arg.pop("runner", None)
+if runner is not None:
+    arg["id"], arg["proof"] = derived_process_id(runner)
+arg.setdefault("id", process_id())
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 sock.settimeout(10)
 sock.connect(socket_path)
@@ -44,4 +51,5 @@ while True:
         break
     shift += 7
 header = json.loads(response.read(length))
+header["process"] = {"node": arg["id"]}
 print(json.dumps(header))

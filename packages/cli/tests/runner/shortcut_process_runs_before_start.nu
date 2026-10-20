@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A shortcut child in a new sandbox takes reserved sandbox and process control connections from the pools. It runs and finishes before the control server starts either of them.
+# A shortcut child in a new sandbox takes a reserved sandbox control connection from the pool and derives its own process ID. It runs and finishes before the control server starts its sandbox or process.
 
 let root_token = random chars
 
@@ -12,14 +12,13 @@ let remote = server spawn --preserve-keys --name remote --config {
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 
-# Spawn the runner with sandbox and process control pools.
+# Spawn the runner with a sandbox control pool.
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: {
 		id: $created.data.id,
-		process_control_connection_pool_size: 1,
 		remote: 'default',
 		sandbox_control_connection_pool_size: 1,
 		token: $created.token.token,
@@ -72,14 +71,14 @@ let build = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-# The shortcut child starts the pooled sandbox and process connections.
+# The shortcut child starts the pooled sandbox connection and its process connection.
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.control.create.sent $sandbox_sent_watch 0 | complete
 success $output "the shortcut child should start a pooled sandbox control connection"
 tg --url $runner.url checkpoint continue runner.sandbox.control.create.sent $sandbox_sent_watch 0
 tg --url $runner.url checkpoint unwatch runner.sandbox.control.create.sent $sandbox_sent_watch
 
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.control.start.sent $process_sent_watch 0 | complete
-success $output "the shortcut child should start a pooled process control connection"
+success $output "the shortcut child should start its process control connection"
 tg --url $runner.url checkpoint continue runner.process.control.start.sent $process_sent_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.control.start.sent $process_sent_watch
 
@@ -105,5 +104,5 @@ let output = try { job recv --tag $build --timeout 30sec } catch { null }
 if $output == null {
 	error make { msg: "the run did not complete" }
 }
-success $output "the run should succeed with pooled control connections"
+success $output "the run should succeed"
 assert ($output.stdout | str contains "42") "the run should return the child output"

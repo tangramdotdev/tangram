@@ -101,7 +101,7 @@ impl tg::process::Id {
 		tg::Id::from_reader(bytes)?.try_into()
 	}
 
-	/// Get the unix timestamp in milliseconds of a process ID whose body is a UUIDv7.
+	/// Get the unix timestamp in milliseconds of a process ID whose body is a `UUIDv7`.
 	#[must_use]
 	pub fn timestamp(&self) -> Option<u64> {
 		let tg::id::Body::UuidV7(body) = self.body() else {
@@ -235,7 +235,7 @@ impl std::str::FromStr for Salt {
 	}
 }
 
-/// Derive a UUIDv7 body from a timestamp and the hash of a runner's ID and a salt.
+/// Derive a `UUIDv7` body from a timestamp and the hash of a runner's ID and a salt.
 fn derive(runner: &tg::runner::Id, timestamp: u64, salt: &Salt) -> [u8; 16] {
 	let mut hasher = blake3::Hasher::new_derive_key(CONTEXT);
 	hasher.update(&runner.to_bytes());

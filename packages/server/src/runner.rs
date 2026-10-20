@@ -46,12 +46,6 @@ pub(super) struct Config {
 
 	pub overcommit: tg::runner::Overcommit,
 
-	pub process_control_connection_pool_refresh_interval: Duration,
-
-	pub process_control_connection_pool_size: usize,
-
-	pub process_control_connection_pool_ttl: Duration,
-
 	pub sandbox_control_connection_pool_refresh_interval: Duration,
 
 	pub sandbox_control_connection_pool_size: usize,
@@ -76,7 +70,6 @@ struct ControlConnectionPool<T: Send + 'static> {
 }
 
 pub struct Runner {
-	process_control_connection_pool: ControlConnectionPool<self::process::ProcessControlConnection>,
 	sandbox_control_connection_pool: ControlConnectionPool<self::sandbox::SandboxControlConnection>,
 	sandbox_pool: self::sandbox::Pool,
 	state: State,
@@ -155,12 +148,6 @@ impl Runner {
 			),
 		};
 		let task = Mutex::new(None);
-		let process_control_connection_pool = ControlConnectionPool::new(
-			"process",
-			config.process_control_connection_pool_refresh_interval,
-			config.process_control_connection_pool_size,
-			config.process_control_connection_pool_ttl,
-		);
 		let sandbox_control_connection_pool = ControlConnectionPool::new(
 			"sandbox",
 			config.sandbox_control_connection_pool_refresh_interval,
@@ -170,19 +157,11 @@ impl Runner {
 		let sandbox_pool = self::sandbox::Pool::new(config.sandbox_pool_size);
 
 		Self {
-			process_control_connection_pool,
 			sandbox_control_connection_pool,
 			sandbox_pool,
 			state,
 			task,
 		}
-	}
-
-	#[must_use]
-	fn process_control_connection_pool(
-		&self,
-	) -> &ControlConnectionPool<self::process::ProcessControlConnection> {
-		&self.process_control_connection_pool
 	}
 
 	#[must_use]
@@ -540,14 +519,6 @@ impl Session {
 		let session = self.server.session(&context);
 		self.server
 			.runner
-			.process_control_connection_pool()
-			.start(move || {
-				let session = session.clone();
-				async move { session.create_process_control_connection().await }
-			});
-		let session = self.server.session(&context);
-		self.server
-			.runner
 			.sandbox_control_connection_pool()
 			.start(move || {
 				let session = session.clone();
@@ -556,11 +527,6 @@ impl Session {
 	}
 
 	async fn shutdown_control_connection_pools(&self) {
-		self.server
-			.runner
-			.process_control_connection_pool()
-			.shutdown()
-			.await;
 		self.server
 			.runner
 			.sandbox_control_connection_pool()

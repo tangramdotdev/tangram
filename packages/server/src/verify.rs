@@ -963,7 +963,145 @@ impl Session {
 				}
 			},
 		};
+
+		// Verify the process permissions that the index cannot yet prove through each process's parent, which a process on the shortcut path records before the index does.
+		let mut index_outcomes = index_outcomes;
+		for (arg, outcome) in std::iter::zip(&index_args, &mut index_outcomes) {
+			self.verify_index_process_parent(arg, outcome, wait_for_requested_permissions)
+				.await?;
+		}
+
 		Ok(index_outcomes)
+	}
+
+	/// Grant the permissions on a process that the index has not recorded whose subtree forms the process's parent grants, finding the parent in the runner's state or the process's control service.
+	fn verify_index_process_parent<'a>(
+		&'a self,
+		arg: &'a tangram_index::verify::Arg,
+		outcome: &'a mut tangram_index::verify::Output,
+		wait_for_requested_permissions: bool,
+	) -> futures::future::BoxFuture<'a, tg::Result<()>> {
+		async move {
+			// Skip a satisfied verification, and every verification other than one of process permissions without storage.
+			let permissions = if wait_for_requested_permissions {
+				arg.requested
+			} else {
+				arg.required
+			};
+			if outcome.permissions.contains(permissions) && outcome.storage.contains(arg.storage) {
+				return Ok(());
+			}
+			let tg::Selector::Id(resource) = &arg.resource else {
+				return Ok(());
+			};
+			let Ok(process) = tg::process::Id::try_from(resource.clone()) else {
+				return Ok(());
+			};
+			let (
+				tg::authorization::permission::Set::Process(requested),
+				tg::authorization::permission::Set::Process(required),
+			) = (arg.requested, arg.required)
+			else {
+				return Ok(());
+			};
+			if !arg.storage.is_empty() {
+				return Ok(());
+			}
+
+			// Find the parent of a process that the index has not recorded.
+			let Some(parent) = self.try_get_unindexed_process_parent(&process).await? else {
+				return Ok(());
+			};
+
+			// Verify the subtree forms of the permissions on the parent.
+			let subtree = |permissions: tg::authorization::permission::process::Set| {
+				let mut subtree = tg::authorization::permission::process::Set::empty();
+				for permission in permissions.iter() {
+					subtree.insert(
+						tg::authorization::permission::process::Set::from_permission(
+							permission.to_subtree(),
+						),
+					);
+				}
+				subtree
+			};
+			let parent_arg = tangram_index::verify::Arg {
+				requested: tg::authorization::permission::Set::Process(subtree(requested)),
+				required: tg::authorization::permission::Set::Process(subtree(required)),
+				resource: tg::Selector::Id(parent.into()),
+				storage: arg.storage,
+				subject: arg.subject.clone(),
+				tokens: arg.tokens.clone(),
+			};
+			let (sender, _) = tokio::sync::mpsc::unbounded_channel();
+			let parent_outcome = self
+				.verify_index_batch(vec![parent_arg], wait_for_requested_permissions, sender)
+				.await?
+				.into_iter()
+				.next()
+				.ok_or_else(|| tg::error!("expected a parent verification outcome"))?;
+			let tg::authorization::permission::Set::Process(parent_permissions) =
+				parent_outcome.permissions
+			else {
+				return Ok(());
+			};
+
+			// Grant each permission whose subtree form the parent grants.
+			let mut granted = tg::authorization::permission::process::Set::empty();
+			for permission in requested.iter() {
+				let subtree = tg::authorization::permission::process::Set::from_permission(
+					permission.to_subtree(),
+				);
+				if parent_permissions.contains(subtree) {
+					granted.insert(
+						tg::authorization::permission::process::Set::from_permission(permission),
+					);
+				}
+			}
+			if granted.is_empty() {
+				return Ok(());
+			}
+			outcome
+				.permissions
+				.insert(tg::authorization::permission::Set::Process(granted));
+			outcome.expires_at = match (outcome.expires_at, parent_outcome.expires_at) {
+				(Some(left), Some(right)) => Some(left.min(right)),
+				(left, right) => left.or(right),
+			};
+			if outcome.permissions.contains(arg.required) {
+				outcome.outcome = tangram_index::verify::Outcome::Satisfied;
+			}
+
+			Ok(())
+		}
+		.boxed()
+	}
+
+	/// Get the parent of a process that the index has not recorded, from the runner's state or, waiting for the process's start, from its control service.
+	async fn try_get_unindexed_process_parent(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Id>> {
+		// Use the parent of a process that this runner runs.
+		let state = self.server.runner.state();
+		if let Some(sandbox) = state
+			.processes()
+			.get(process)
+			.map(|entry| entry.value().clone())
+			&& let Some(sandbox) = state.sandboxes().get_by_id(&sandbox)
+			&& let Some(entry) = sandbox.processes.get(process)
+		{
+			return Ok(entry.parent.clone());
+		}
+
+		// Skip a process that the index has recorded, whose parent the index search already follows.
+		if self.server.index.try_get_process(process).await?.is_some() {
+			return Ok(None);
+		}
+
+		// Ask the process's control service.
+		self.try_get_process_parent_from_control_service(process)
+			.await
 	}
 
 	fn verify_outputs(

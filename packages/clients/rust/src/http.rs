@@ -563,6 +563,11 @@ impl tg::Session {
 					http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap()
 				});
 		}
+		if let Some(process) = self.context().process() {
+			headers
+				.entry(tg::process::PROCESS_HEADER)
+				.or_insert_with(|| http::HeaderValue::from_str(&process.to_string()).unwrap());
+		}
 	}
 
 	pub async fn send<B>(

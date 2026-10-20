@@ -24,10 +24,22 @@ failure (tg --token $mallory.token get $secret | complete) "Mallory should not r
 let runner = tg --token $mallory.token runner create --owner $mallory.user.id | from json
 let lease = $parent | str substring 6..
 
+# The runner must not start a child whose ID it did not derive, or whose ID another runner derived.
+let shortcut = { parent: { id: $parent, token: $mallory.token }, sandbox: { token: $mallory.token } }
+let start = { data: $data, kind: start, lease: $lease, shortcut: $shortcut }
+{ location: 'local', mode: $start } | to json | save --force arg.json
+let output = python3 $helper $socket $runner.token.token arg.json | complete
+failure $output "a runner should not start a process whose ID it did not derive"
+let other = tg --token $mallory.token runner create --owner $mallory.user.id | from json
+{ location: 'local', mode: $start, runner: $other.data.id } | to json | save --force arg.json
+let output = python3 $helper $socket $runner.token.token arg.json | complete
+failure $output "a runner should not start a process whose ID another runner derived"
+assert ($output.stderr | str contains 'did not derive') $output.stderr
+
 # The runner must not start the child without a proof, or with a token that is not the parent's.
 for shortcut in [null { parent: { id: $parent, token: $mallory.token }, sandbox: { token: $mallory.token } }] {
 	let start = { data: $data, kind: start, lease: $lease, shortcut: $shortcut } | compact
-	{ location: 'local', mode: $start } | to json | save --force arg.json
+	{ location: 'local', mode: $start, runner: $runner.data.id } | to json | save --force arg.json
 	let output = python3 $helper $socket $runner.token.token arg.json | complete
 	failure $output "a runner should not start a shortcut child of a process that it does not run"
 	let expected = if $shortcut == null { 'must prove its parent and sandbox' } else { $parent }
@@ -42,7 +54,7 @@ let own_token = tg --token $mallory.token log $own | str trim
 # The runner must not start a child of its own process in Alice's sandbox with a token that is not the sandbox's.
 let shortcut = { parent: { id: $own, token: $own_token }, sandbox: { token: $own_token } }
 let start = { data: $data, kind: start, lease: $lease, shortcut: $shortcut }
-{ location: 'local', mode: $start } | to json | save --force arg.json
+{ location: 'local', mode: $start, runner: $runner.data.id } | to json | save --force arg.json
 let output = python3 $helper $socket $runner.token.token arg.json | complete
 failure $output "a runner should not start a shortcut child in a sandbox that it does not host"
 assert ($output.stderr | str contains $data.sandbox) $output.stderr

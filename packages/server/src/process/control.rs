@@ -2,6 +2,7 @@ use {
 	crate::Session,
 	dashmap::DashSet,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
+	num::ToPrimitive as _,
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_futures::{
@@ -13,6 +14,7 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
+	tangram_index::prelude::*,
 	tangram_messenger::Messenger,
 };
 
@@ -155,9 +157,7 @@ impl Session {
 		self.try_get_process_control_stream_local_inner(
 			arg,
 			stream,
-			None,
 			self.context.local_process_control,
-			None,
 		)
 		.boxed()
 		.await
@@ -167,41 +167,41 @@ impl Session {
 		&self,
 		mut arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-		start_request: Option<String>,
 		local_process_control: bool,
-		prepared_syncs: Option<Syncs>,
 	) -> tg::Result<
 		Option<(
 			tg::process::control::Header,
 			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 		)>,
 	> {
-		let assign = arg.id.is_none();
-		if assign && matches!(arg.mode, tg::process::control::Mode::Resume { .. }) {
-			return Err(tg::error!("resuming process control requires a process id"));
-		}
-		let shortcut = start_request.is_some() || assign;
-		let (id, token) = if let Some(id) = arg.id.take() {
-			match &self.context.principal {
-				tg::Principal::Process(process) if process == &id => (),
-				tg::Principal::Process(process) => {
-					return Err(tg::error!(process = %process, %id, "invalid process"));
-				},
-				_ => return Err(tg::error!("unauthorized")),
-			}
-			(id, self.context.token.clone())
-		} else {
-			if !matches!(
-				self.context.principal,
-				tg::Principal::Root | tg::Principal::Runner(_)
-			) {
-				return Err(tg::error!("unauthorized"));
-			}
-			let id = tg::process::Id::new();
-			let token = self
-				.server
-				.create_process_authentication_token(id.clone())?;
-			(id, Some(token))
+		// Authenticate the connection as its process, or as a runner that proves that it derived the process's ID, which starts or resumes a process on the shortcut path.
+		let id = arg.id.clone();
+		let proof = arg.proof.take();
+		let shortcut_start = matches!(
+			&arg.mode,
+			tg::process::control::Mode::Start(start) if start.shortcut.is_some()
+		);
+		let (shortcut, runner, token) = match (&self.context.principal, proof) {
+			(tg::Principal::Process(process), None) if process == &id => {
+				(false, None, self.context.token.clone())
+			},
+			(tg::Principal::Runner(runner), Some(proof)) => {
+				self.verify_process_control_proof(&id, runner, &proof, &arg.mode)
+					.await?;
+				let token = self
+					.server
+					.create_process_authentication_token(id.clone())?;
+				(true, Some(runner.clone()), Some(token))
+			},
+			(tg::Principal::Root, None) => {
+				let token = self
+					.server
+					.create_process_authentication_token(id.clone())?;
+				(shortcut_start, None, Some(token))
+			},
+			_ => {
+				return Err(tg::error!(unauthorized, %id, "unauthorized"));
+			},
 		};
 		let context = crate::Context {
 			principal: tg::Principal::Process(id.clone()),
@@ -211,9 +211,7 @@ impl Session {
 		let session = self.server.session(&context);
 
 		// An in-process runner stores its outcome locally, so it needs no syncs.
-		let syncs = if let Some(syncs) = prepared_syncs {
-			Some(syncs)
-		} else if local_process_control {
+		let syncs = if local_process_control {
 			None
 		} else {
 			let command = session.refresh_sync(tg::sync::Id::with_process(
@@ -226,36 +224,6 @@ impl Session {
 			))?;
 			Some(Syncs { command, outcome })
 		};
-		if matches!(arg.mode, tg::process::control::Mode::Wait) {
-			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
-				return Err(tg::error!(
-					"a deferred process control connection requires a runner"
-				));
-			}
-			let wait_token = if assign {
-				let now = session.server.clock.unix_timestamp()?;
-				session.create_process_wait_token(&id, now)?
-			} else {
-				None
-			};
-			let process = tg::Referent::with_node_and_local_tokens(id.clone(), wait_token);
-			let header = tg::process::control::Header {
-				command_sync: syncs.as_ref().map(|syncs| syncs.command.clone()),
-				outcome_sync: syncs.as_ref().map(|syncs| syncs.outcome.clone()),
-				process,
-				token,
-			};
-			let stream = session.wait_for_process_control_start(
-				id,
-				arg.location,
-				stream,
-				local_process_control,
-				syncs,
-			);
-			crate::checkpoint!(self.server, "process.control.header", process = %header.process.node).await;
-
-			return Ok(Some((header, stream)));
-		}
 		let mut parent = None;
 		let lease = match arg.mode {
 			tg::process::control::Mode::Resume { lease } => {
@@ -270,6 +238,10 @@ impl Session {
 				lease
 			},
 			tg::process::control::Mode::Start(start) => {
+				if shortcut {
+					crate::checkpoint!(self.server, "process.control.start.received", process = %id)
+						.await;
+				}
 				let tg::process::control::StartClientRequestArg {
 					mut data,
 					lease,
@@ -318,15 +290,10 @@ impl Session {
 				}
 				lease
 			},
-			tg::process::control::Mode::Wait => unreachable!(),
 		};
 		self.server.spawn_publish_process_status_task(&id);
 
 		// Answer the requests for the process for as long as the connection lasts.
-		let runner = match &self.context.principal {
-			tg::Principal::Runner(runner) => Some(runner.clone()),
-			_ => None,
-		};
 		let service_arg = service::Arg {
 			parent,
 			runner,
@@ -341,9 +308,6 @@ impl Session {
 		let config = self.server.config.process.control;
 		let mut control = connection::Connection::new(stream, sender_high, sender_low, config);
 		let control_sender = control.sender();
-		if let Some(id) = &start_request {
-			control.acknowledge_now(id.clone());
-		}
 
 		let subject = format!("processes.{id}.control.server");
 		let mut requests = self
@@ -552,22 +516,13 @@ impl Session {
 				tg::error!(!error, "failed to publish the process control connection")
 			})?;
 
-		let wait_token = if assign {
-			let now = session.server.clock.unix_timestamp()?;
-			session.create_process_wait_token(&id, now)?
-		} else {
-			None
-		};
-		let process = tg::Referent::with_node_and_local_tokens(id, wait_token);
 		let header = tg::process::control::Header {
 			command_sync: syncs.as_ref().map(|syncs| syncs.command.clone()),
 			outcome_sync: syncs.map(|syncs| syncs.outcome),
-			process,
 			token,
 		};
 
-		crate::checkpoint!(self.server, "process.control.header", process = %header.process.node)
-			.await;
+		crate::checkpoint!(self.server, "process.control.header", process = %id).await;
 
 		Ok(Some((header, stream)))
 	}
@@ -596,83 +551,6 @@ impl Session {
 				return Ok(());
 			}
 		}
-	}
-
-	fn wait_for_process_control_start(
-		&self,
-		id: tg::process::Id,
-		location: Option<tg::location::Arg>,
-		mut stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-		local_process_control: bool,
-		syncs: Option<Syncs>,
-	) -> BoxStream<'static, tg::Result<tg::process::control::ServerMessage>> {
-		let session = self.clone();
-		futures::stream::once(async move {
-			let mut buffered = Vec::new();
-			let request = loop {
-				let message = stream
-					.try_next()
-					.await?
-					.ok_or_else(|| tg::error!("the process control stream ended before start"))?;
-				if let tg::process::control::ClientMessage::Request(request) = &message
-					&& matches!(
-						&request.arg,
-						tg::process::control::ClientRequestArg::Start(_)
-					) {
-					let tg::process::control::ClientMessage::Request(request) = message else {
-						unreachable!();
-					};
-					break request;
-				}
-				buffered.push(Ok(message));
-			};
-			let tg::process::control::ClientRequestArg::Start(start) = request.arg else {
-				unreachable!();
-			};
-			crate::checkpoint!(session.server, "process.control.start.received", process = %id)
-				.await;
-			let arg = tg::process::control::Arg {
-				id: Some(id),
-				location,
-				mode: tg::process::control::Mode::Start(start),
-			};
-			let stream = futures::stream::iter(buffered).chain(stream).boxed();
-			let output = session
-				.try_get_process_control_stream_local_inner(
-					arg,
-					stream,
-					Some(request.id.clone()),
-					local_process_control,
-					syncs,
-				)
-				.boxed()
-				.await;
-			let ack = tg::process::control::ServerMessage::Ack(tg::process::control::ServerAck {
-				id: request.id.clone(),
-			});
-			let (response, stream) = match output {
-				Ok(Some((_, stream))) => {
-					let output = tg::process::control::StartServerResponseOutput {};
-					let output = tg::process::control::ServerResponseOutput::Start(output);
-					let response = Self::process_control_server_response(request.id, Ok(output));
-					(response, stream)
-				},
-				Ok(None) => {
-					return Err(tg::error!("failed to find the process control stream"));
-				},
-				Err(error) => {
-					let response = Self::process_control_server_response(request.id, Err(error));
-					let stream = futures::stream::empty().boxed();
-					(response, stream)
-				},
-			};
-			let prefix = futures::stream::iter([Ok(ack), Ok(response)]);
-			let stream = prefix.chain(stream).boxed();
-
-			Ok::<_, tg::Error>(stream)
-		})
-		.try_flatten()
-		.boxed()
 	}
 
 	async fn index_process_control(&self, arg: IndexProcessControlArg) -> tg::Result<()> {
@@ -789,6 +667,54 @@ impl Session {
 		Ok(())
 	}
 
+	/// Verify that a runner derived a process's ID. A start's ID must be recent, and a resume outside the window must name an unfinished process in a sandbox that the runner hosts.
+	async fn verify_process_control_proof(
+		&self,
+		id: &tg::process::Id,
+		runner: &tg::runner::Id,
+		proof: &tg::process::id::Proof,
+		mode: &tg::process::control::Mode,
+	) -> tg::Result<()> {
+		// Verify that the runner derived the ID.
+		proof.verify(id, runner)?;
+
+		// Accept an ID within the window.
+		let now = self.server.clock.unix_timestamp()?;
+		let now = now.to_u64().unwrap_or_default() * 1000;
+		let window = self.server.config.process.id_proof_window;
+		let recent = proof.verify_recent(id, runner, now, window);
+		let tg::process::control::Mode::Resume { .. } = mode else {
+			return recent;
+		};
+		if recent.is_ok() {
+			return Ok(());
+		}
+
+		// Accept a resume of an unfinished process in a sandbox that the runner hosts.
+		let process = self.get_process_from_index(id).await?;
+		if process.status.is_none_or(|status| status.is_finished()) {
+			return Err(tg::error!(%id, "the process is not running"));
+		}
+		let sandbox = process
+			.sandbox
+			.ok_or_else(|| tg::error!(%id, "the process has no sandbox"))?;
+		let sandbox = self
+			.server
+			.index
+			.try_get_sandbox(&sandbox)
+			.await?
+			.ok_or_else(|| tg::error!(%sandbox, "failed to find the sandbox"))?;
+		if sandbox.runner.as_ref() != Some(runner) {
+			return Err(tg::error!(
+				unauthorized,
+				%id,
+				"the runner does not host the process's sandbox"
+			));
+		}
+
+		Ok(())
+	}
+
 	/// Verify a start's shortcut proof, returning its parent and the sandbox that it creates.
 	async fn verify_process_control_start(
 		&self,
@@ -802,9 +728,24 @@ impl Session {
 		match (shortcut, shortcut_arg) {
 			(true, Some(shortcut_arg)) => {
 				let tg::process::control::Shortcut { parent, sandbox } = shortcut_arg;
-				let principal = tg::Principal::Process(parent.id.clone());
-				self.verify_process_control_start_token(&parent.token, principal)
+				if let Some(token) = &parent.token {
+					let principal = tg::Principal::Process(parent.id.clone());
+					self.verify_process_control_start_token(token, principal)
+						.await?;
+				} else {
+					// Verify with the parent's control service that the runner that starts the process started its parent.
+					let tg::Principal::Runner(_) = &self.context.principal else {
+						return Err(tg::error!(
+							unauthorized,
+							"a parent without a token requires a runner"
+						));
+					};
+					self.authorize_with_process_control_service(
+						&parent.id,
+						&self.context.principal,
+					)
 					.await?;
+				}
 				let sandbox_id = data.sandbox.as_ref().ok_or_else(|| {
 					tg::error!("a process on the shortcut path must have a sandbox")
 				})?;
@@ -994,7 +935,6 @@ impl Session {
 		let session = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
 		)?;
-		let trusted = session.trusted();
 		let context = session.context().clone();
 		context.set_token(self.context.token.clone());
 		let session = session.client().session(&context);
@@ -1038,19 +978,9 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
 			)?;
-		let Some((mut header, stream)) = output else {
+		let Some((header, stream)) = output else {
 			return Ok(None);
 		};
-		let location = tg::Location::Remote(tg::location::Remote {
-			name: remote,
-			region,
-		});
-		self.update_tokens_and_location(
-			&mut header.process.options.tokens,
-			Some(&mut header.process.options.location),
-			&location,
-			trusted,
-		)?;
 		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
 
 		Ok(Some((header, stream)))
@@ -1151,7 +1081,7 @@ impl Session {
 			.arg_with_tangram::<tg::process::control::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
-		let arg = arg.unwrap_or_default();
+		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
 
 		// Decode the request stream.
 		let max_frame_size = self.server.config.sync.max_frame_size;

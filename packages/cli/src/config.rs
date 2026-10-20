@@ -1851,17 +1851,6 @@ pub struct Runner {
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub process_control_connection_pool_refresh_interval: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub process_control_connection_pool_size: Option<usize>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub process_control_connection_pool_ttl: Option<Duration>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_state_ttl: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5488,17 +5477,8 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
 	}
-	if let Some(value) = source.process_control_connection_pool_size {
-		target.process_control_connection_pool_size = value;
-	}
-	if let Some(value) = source.process_control_connection_pool_ttl {
-		target.process_control_connection_pool_ttl = value;
-	}
 	if let Some(value) = source.process_state_ttl {
 		target.process_state_ttl = value;
-	}
-	if let Some(value) = source.process_control_connection_pool_refresh_interval {
-		target.process_control_connection_pool_refresh_interval = value;
 	}
 	if let Some(value) = source.progress_log_delay {
 		target.progress_log_delay = value;

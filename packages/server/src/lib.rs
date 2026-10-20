@@ -337,12 +337,6 @@ impl Server {
 			),
 			("progress interval", config.progress.interval),
 			(
-				"runner process control connection pool refresh interval",
-				config
-					.runner
-					.process_control_connection_pool_refresh_interval,
-			),
-			(
 				"runner progress log interval",
 				config.runner.progress_log_interval,
 			),
@@ -1419,16 +1413,6 @@ impl Server {
 			filesystem_project_ids: config.runner.resources.filesystem_project_ids,
 
 			overcommit: config.runner.overcommit,
-
-			process_control_connection_pool_refresh_interval: config
-				.runner
-				.process_control_connection_pool_refresh_interval,
-
-			process_control_connection_pool_size: config
-				.runner
-				.process_control_connection_pool_size,
-
-			process_control_connection_pool_ttl: config.runner.process_control_connection_pool_ttl,
 
 			sandbox_control_connection_pool_refresh_interval: config
 				.runner

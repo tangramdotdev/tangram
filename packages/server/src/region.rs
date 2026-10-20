@@ -28,8 +28,9 @@ impl Session {
 
 	async fn get_region_session_inner(&self, region: &str) -> tg::Result<tg::Session> {
 		let client = self.server.get_region_client(region).await?;
-		let context = client.context().clone();
+		let mut context = client.context().clone();
 		context.set_token(self.context.token.clone());
+		context.set_process(self.context.process.clone());
 		let session = client.session(&context);
 		Ok(session)
 	}
@@ -44,8 +45,9 @@ impl Session {
 			.primary_region()
 			.ok_or_else(|| tg::error!("the primary region is not configured"))?;
 		let client = self.server.get_region_client(region).await?;
-		let context = client.context().clone();
+		let mut context = client.context().clone();
 		context.set_token(self.context.token.clone());
+		context.set_process(self.context.process.clone());
 		let session = client.session(&context);
 		let response = session.send(request).await?;
 

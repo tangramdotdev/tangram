@@ -188,6 +188,7 @@ pub struct State {
 
 #[derive(Debug, Default)]
 pub struct Context {
+	process: Option<tg::process::Id>,
 	token: Arc<RwLock<Option<String>>>,
 	trusted: bool,
 }
@@ -195,6 +196,7 @@ pub struct Context {
 impl Clone for Context {
 	fn clone(&self) -> Self {
 		Self {
+			process: self.process.clone(),
 			token: Arc::new(RwLock::new(self.token())),
 			trusted: self.trusted,
 		}
@@ -205,9 +207,20 @@ impl Context {
 	#[must_use]
 	pub fn new(token: Option<String>) -> Self {
 		Self {
+			process: None,
 			token: Arc::new(RwLock::new(token)),
 			trusted: false,
 		}
+	}
+
+	/// Get the process that a runner's token claims to act for.
+	#[must_use]
+	pub fn process(&self) -> Option<&tg::process::Id> {
+		self.process.as_ref()
+	}
+
+	pub fn set_process(&mut self, process: Option<tg::process::Id>) {
+		self.process = process;
 	}
 
 	#[must_use]

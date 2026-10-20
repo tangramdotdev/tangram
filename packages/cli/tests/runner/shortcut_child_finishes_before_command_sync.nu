@@ -23,7 +23,6 @@ let runner = server spawn --name runner --config {
 	roles: [api indexer runner],
 	runner: {
 		id: $created.data.id,
-		process_control_connection_pool_size: 8,
 		remote: 'default',
 		sandbox_control_connection_pool_size: 8,
 		sandbox_pool_size: 8,

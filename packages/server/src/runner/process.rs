@@ -37,11 +37,6 @@ type ControlConnection = (
 	BoxStream<'static, tg::Result<tg::control::Event<tg::process::control::ServerMessage>>>,
 );
 
-pub(super) struct ProcessControlConnection {
-	control: tg::process::control::Connection,
-	header: tg::process::control::Header,
-}
-
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
 	pub location: tg::Location,
@@ -301,7 +296,7 @@ impl Session {
 			open,
 			options,
 			parent,
-			token: inner_token,
+			token,
 		} = process;
 		let mut state = tg::process::State::try_from_data(data)?;
 		let mut command_options = options.clone();
@@ -350,14 +345,18 @@ impl Session {
 		.try_flatten()
 		.boxed();
 		let config = self.server.config.process.control;
-		let mut control = tg::process::control::Connection::with_input(requests, config);
-		let mut control_sender = control.sender();
+		let control = tg::process::control::Connection::with_input(requests, config);
+		let control_sender = control.sender();
 
-		// Obtain the shortcut process identity before starting execution.
+		// Determine the process's identity. A process on the shortcut path derives its ID from the runner's ID, so that it starts without waiting for the server, and its start proves the derivation, its parent, and its sandbox.
 		let (outcome_sync_sender, outcome_sync_receiver) = tokio::sync::oneshot::channel();
 		let mut command_push = None;
-		let (id, inner_token, command_session, connection_header) = match (id, inner_token) {
-			(Some(id), Some(token)) => (id, token, None, None),
+		let (inner_token_sender, inner_token) = tokio::sync::watch::channel(None::<String>);
+		let (id, command_session, shortcut) = match (id, token) {
+			(Some(id), Some(token)) => {
+				inner_token_sender.send_replace(Some(token));
+				(id, None, None)
+			},
 			(None, None) => {
 				let parent = parent.as_ref().ok_or_else(|| {
 					tg::error!("a process on the shortcut path must have a parent")
@@ -371,23 +370,19 @@ impl Session {
 						tg::error!(!error, "the sandbox failed before becoming ready")
 					})?;
 				}
-				crate::checkpoint!(self.server, "runner.process.control.acquire").await;
-				let connection = self
-					.server
-					.runner
-					.process_control_connection_pool()
-					.take()
-					.await?;
-				let id = connection.header.process.node.clone();
-				let token =
-					connection.header.token.clone().ok_or_else(
-						|| tg::error!(%id, "missing the process authentication token"),
-					)?;
-				let parent_token = command_session
-					.context
-					.token
-					.clone()
-					.ok_or_else(|| tg::error!(%parent, "missing the parent's process token"))?;
+
+				// Derive the ID.
+				let runner = self.server.runner.state.id();
+				let (id, proof) = match &runner {
+					Some(runner) => {
+						let (id, proof) = tg::process::Id::with_runner(runner);
+						(id, Some(proof))
+					},
+					None => (tg::process::Id::new(), None),
+				};
+
+				// Prove the parent with its token, or, while the runner waits for the parent's token, with the parent's control service.
+				let parent_token = self.try_get_process_inner_token(parent);
 				let parent = tg::process::control::Parent {
 					id: parent.clone(),
 					token: parent_token,
@@ -403,63 +398,20 @@ impl Session {
 					token: sandbox_token,
 				};
 				let shortcut = tg::process::control::Shortcut { parent, sandbox };
-				let start = tg::process::control::StartClientRequestArg {
-					data: state.to_data(),
-					lease,
-					options: options.clone(),
-					shortcut: Some(shortcut),
-				};
-				control_sender = connection.control.sender();
-				let response = Self::send_process_control_client_request_inner(
-					&control_sender,
-					tg::process::control::ClientRequestArg::Start(start),
-					tg::process::control::Priority::High,
-				)
-				.await?;
-				let process_stopper = process_stopper.clone();
-				let server = self.server.clone();
-				let process_id = id.clone();
-				let mut start_task = Task::spawn(move |_| {
-					async move {
-					let result = async {
-						let started = std::time::Instant::now();
-						crate::checkpoint!(server, "runner.process.control.start.sent", process = %process_id).await;
-						let output = Self::receive_process_control_client_response(response)
-							.await
-							.and_then(|output| {
-								output.try_unwrap_start().map_err(|_| {
-									tg::error!("expected a process control start response")
-								})
-							})?;
-						tracing::debug!(process = %process_id, elapsed = ?started.elapsed(), "received the process start response");
-						Ok::<_, tg::Error>(output)
-					}
-					.boxed()
-					.await;
-					if result.is_ok() {
-						crate::checkpoint!(server, "runner.process.control.start.succeeded", process = %process_id).await;
-					}
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace(), "failed to start the process control connection");
-						process_stopper.stop();
-					}
-				}.in_current_span()
-				});
-				start_task.detach();
 
-				// Push the command objects under the connection's sync, concurrently with the start request.
-				let sync = connection.header.command_sync.clone();
-				if let Some(sync) = sync.clone() {
+				// Push the command objects concurrently with the start, joining the process's command sync through its control service.
+				if location.is_remote() {
 					let session = command_session.clone();
 					let data = state.to_data();
+					let id = id.clone();
 					let location = location.clone();
 					command_push = Some(Task::spawn(move |_| {
-						async move { session.push_process_command(&data, &location, &sync).await }
+						async move { session.push_process_command(&id, &data, &location).await }
 							.in_current_span()
 					}));
 				}
-				control = connection.control;
-				(id, token, Some(command_session), Some(connection.header))
+
+				(id, Some(command_session), Some((proof, shortcut)))
 			},
 			_ => {
 				return Err(tg::error!(
@@ -473,7 +425,7 @@ impl Session {
 		tracing::info!(parent = parent.as_ref().map(ToString::to_string), process = %id, runner = self.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = state.sandbox.as_ref().map(ToString::to_string), "initialized the process");
 		let context = crate::Context {
 			principal: tg::Principal::Process(id.clone()),
-			token: Some(inner_token.clone()),
+			token: inner_token.borrow().clone(),
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
@@ -520,6 +472,7 @@ impl Session {
 			index_task: index_task.clone(),
 			inner_token: inner_token.clone(),
 			leases: BTreeSet::from([lease]),
+			parent: parent.clone(),
 			process: None,
 			stopper: process_stopper.clone(),
 		};
@@ -914,41 +867,70 @@ impl Session {
 
 		let data = state.to_data();
 
-		// Reuse the shortcut connection or connect the assigned process while it runs.
-		let header = if let Some(header) = connection_header {
-			Ok(header)
+		// Connect process control while the process runs. A process on the shortcut path connects as the runner in the background, so that nothing waits for the server, and receives its process token in the header.
+		let shortcut_start = shortcut.is_some();
+		let (proof, shortcut) = shortcut.unzip();
+		let start = tg::process::control::StartClientRequestArg {
+			data: data.clone(),
+			lease,
+			options: options.clone(),
+			shortcut,
+		};
+		let arg = tg::process::control::Arg {
+			id: id.clone(),
+			location: Some(location.clone().into()),
+			mode: tg::process::control::Mode::Start(start),
+			proof: proof.flatten(),
+		};
+		let connect = if shortcut_start {
+			let session = self.runner_session();
+			let process_stopper = process_stopper.clone();
+			let server = self.server.clone();
+			let process = id.clone();
+			let mut task = Task::spawn(move |_| {
+				async move {
+					crate::checkpoint!(server, "runner.process.control.start.sent", process = %process).await;
+					let result = session
+						.connect_process_control(arg, control_sender)
+						.await
+						.and_then(|(header, requests)| {
+							requests_sender.send(requests).map_err(|_| {
+								tg::error!("the process control stream was dropped")
+							})?;
+							Ok(header)
+						});
+					match result {
+						Ok(header) => {
+							inner_token_sender.send_replace(header.token);
+							crate::checkpoint!(server, "runner.process.control.start.succeeded", process = %process).await;
+						},
+						Err(error) => {
+							tracing::error!(error = %error.trace(), "failed to connect the process control stream");
+							process_stopper.stop();
+						},
+					}
+				}
+				.in_current_span()
+			});
+			task.detach();
+			Ok(())
 		} else {
-			let start = tg::process::control::StartClientRequestArg {
-				data: data.clone(),
-				lease,
-				options: options.clone(),
-				shortcut: None,
-			};
-			let arg = tg::process::control::Arg {
-				id: Some(id.clone()),
-				location: Some(location.clone().into()),
-				mode: tg::process::control::Mode::Start(start),
-			};
 			session
 				.connect_process_control(arg, control_sender)
 				.await
-				.and_then(|(header, requests)| {
+				.and_then(|(_, requests)| {
 					requests_sender
 						.send(requests)
-						.map_err(|_| tg::error!("the process control stream was dropped"))?;
-					Ok(header)
+						.map_err(|_| tg::error!("the process control stream was dropped"))
 				})
 		};
-		let header = match header {
-			Ok(header) => header,
-			Err(error) => {
-				process_stopper.stop();
-				drop(index_sender);
-				finish_task.wait().await.ok();
+		if let Err(error) = connect {
+			process_stopper.stop();
+			drop(index_sender);
+			finish_task.wait().await.ok();
 
-				return Err(error);
-			},
-		};
+			return Err(error);
+		}
 		session
 			.server
 			.notifications
@@ -997,7 +979,7 @@ impl Session {
 		event_sender
 			.send(Ok(Event::Connected(ConnectedEvent {
 				lease,
-				process: header.process,
+				process: tg::Referent::with_node(id.clone()),
 			})))
 			.ok();
 
@@ -1064,44 +1046,7 @@ impl Session {
 		Ok(())
 	}
 
-	pub(super) async fn create_process_control_connection(
-		&self,
-	) -> tg::Result<ProcessControlConnection> {
-		let location = self.server.config.runner.remote.as_ref().map_or_else(
-			|| tg::Location::Local(tg::location::Local::default()),
-			|name| {
-				tg::Location::Remote(tg::location::Remote {
-					name: name.clone(),
-					region: None,
-				})
-			},
-		);
-
-		let (requests_sender, requests_receiver) = tokio::sync::oneshot::channel();
-		let input = futures::stream::once(async move {
-			requests_receiver
-				.await
-				.map_err(|_| tg::error!("the process control connection closed"))
-		})
-		.try_flatten()
-		.boxed();
-		let config = self.server.config.process.control;
-		let control = tg::process::control::Connection::with_input(input, config);
-		let arg = tg::process::control::Arg {
-			id: None,
-			location: Some(location.into()),
-			mode: tg::process::control::Mode::Wait,
-		};
-		let (header, requests) = self.connect_process_control(arg, control.sender()).await?;
-		requests_sender
-			.send(requests)
-			.map_err(|_| tg::error!("the process control connection closed"))?;
-		let connection = ProcessControlConnection { control, header };
-
-		Ok(connection)
-	}
-
-	#[tracing::instrument(name = "process.connect", level = "debug", skip_all, fields(process = arg.id.as_ref().map(ToString::to_string)), err(level = "debug"))]
+	#[tracing::instrument(name = "process.connect", level = "debug", skip_all, fields(process = %arg.id), err(level = "debug"))]
 	async fn connect_process_control(
 		&self,
 		arg: tg::process::control::Arg,
@@ -1110,7 +1055,7 @@ impl Session {
 		crate::checkpoint!(
 			self.server,
 			"runner.process.control.connect",
-			process = ?arg.id
+			process = %arg.id
 		)
 		.await;
 
@@ -1126,10 +1071,11 @@ impl Session {
 		};
 		let session = self.server.session(&context);
 		let reconnect_server = self.server.clone();
+		let id = arg.id.clone();
 		let reconnect = move |header: &tg::process::control::Header| {
 			let token = header.token.clone().or(context.token.clone());
 			let context = crate::Context {
-				principal: tg::Principal::Process(header.process.node.clone()),
+				principal: tg::Principal::Process(id),
 				token,
 				..context
 			};
@@ -1413,12 +1359,12 @@ impl Session {
 
 	async fn push_process_command(
 		&self,
+		id: &tg::process::Id,
 		data: &tg::process::Data,
 		location: &tg::Location,
-		sync: &tg::Referent<tg::sync::Id>,
 	) -> tg::Result<()> {
-		crate::checkpoint!(self.server, "runner.process.command.sync.started", sync = %sync.node)
-			.await;
+		let sync = tg::sync::Id::with_process(id, tg::sync::join::Kind::Command);
+		crate::checkpoint!(self.server, "runner.process.command.sync.started", sync = %sync).await;
 		let mut data = data.clone();
 		Self::inherit_process_control_tokens(&mut data, location);
 		let nodes = data
@@ -1427,12 +1373,16 @@ impl Session {
 			.into_iter()
 			.map(|node| node.map(Into::into))
 			.collect();
+		let join = tg::sync::Join::Process(tg::sync::join::Process {
+			id: id.clone(),
+			kind: tg::sync::join::Kind::Command,
+		});
 		let arg = crate::process::PushProcessObjectsArg {
-			join: None,
+			join: Some(join),
 			location: location.clone(),
 			nodes,
 			process_command_objects: false,
-			sync: Some(sync.clone()),
+			sync: None,
 		};
 		let output = self.push_process_objects(arg).await?;
 		output
@@ -1778,19 +1728,44 @@ impl Session {
 		Ok::<_, tg::Error>(())
 	}
 
+	/// Get a process's token, if the runner has received it.
+	fn try_get_process_inner_token(&self, id: &tg::process::Id) -> Option<String> {
+		let state = self.server.runner.state();
+		let sandbox_id = state.processes().get(id)?.value().clone();
+		let sandbox = state.sandboxes().get_by_id(&sandbox_id)?;
+		let process = sandbox.processes.get(id)?;
+		process.inner_token.borrow().clone()
+	}
+
+	/// Get a session that authenticates as the runner.
+	fn runner_session(&self) -> Session {
+		let principal = self
+			.server
+			.runner
+			.state
+			.id()
+			.map_or(tg::Principal::Root, tg::Principal::Runner);
+		let context = Context {
+			principal,
+			token: self.server.config.runner.token.clone(),
+			..self.context.clone()
+		};
+		self.server.session(&context)
+	}
+
 	fn try_get_process_session(&self, id: &tg::process::Id) -> Option<Session> {
 		let state = self.server.runner.state();
 		let sandbox_id = state.processes().get(id)?.value().clone();
 		let sandbox = state.sandboxes().get_by_id(&sandbox_id)?;
 		let origin = Origin::Sandbox(*sandbox.key());
 		let process = sandbox.processes.get(id)?;
-		let token = process.inner_token.clone();
+		let token = process.inner_token.borrow().clone();
 		drop(process);
 		drop(sandbox);
 		let context = Context {
 			origin,
 			principal: tg::Principal::Process(id.clone()),
-			token: Some(token),
+			token,
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);

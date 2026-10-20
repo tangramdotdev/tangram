@@ -70,18 +70,29 @@ pub(super) async fn open_stream<I: tg::Instance>(
 > {
 	let instance = instance.clone();
 	let stream_retry = instance.arg().stream_retry;
-	let (_, input) = sender.attach().await?;
 
-	// Get the initial header and stream.
-	let Some((header, output_stream)) = instance
-		.try_get_process_control_stream(arg.clone(), input)
-		.await?
-	else {
-		return Ok(None);
+	// Get the initial header and stream, retrying with backoff while the server is unavailable, so that a start whose header the client has not received is replayed.
+	let mut retries = tangram_futures::retry::stream(stream_retry.clone()).boxed();
+	let (header, output_stream) = loop {
+		let (_, input) = sender.attach().await?;
+		match instance
+			.try_get_process_control_stream(arg.clone(), input)
+			.await
+		{
+			Ok(Some(output)) => break output,
+			Ok(None) => return Ok(None),
+			Err(error) if error.kind() == Some(tg::error::Kind::Unavailable) => {
+				tracing::error!(error = %error.trace(), "failed to connect the control stream");
+				if retries.next().await.is_none() {
+					return Err(error);
+				}
+			},
+			Err(error) => return Err(error),
+		}
 	};
 	let instance = reconnect(&header);
 	let mut arg = arg;
-	arg.id = Some(header.process.node.clone());
+	arg.proof = None;
 	if let Mode::Start(start) = arg.mode {
 		arg.mode = Mode::Resume { lease: start.lease };
 	}

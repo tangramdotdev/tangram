@@ -61,6 +61,9 @@ pub mod touch;
 pub mod tty;
 pub mod wait;
 
+/// The header with which a runner's request claims to act for one of its processes.
+pub const PROCESS_HEADER: &str = "x-tg-process";
+
 #[derive(Clone, Debug, Default)]
 pub struct Arg {
 	pub args: tg::value::Array,

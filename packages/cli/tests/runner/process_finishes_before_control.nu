@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn --config {
 	advanced: { checkpoints: true },
-	runner: { process_control_connection_pool_size: 0 },
+	runner: {},
 }
 
 for checkpoint in [runner.process.control.connect process.control.header] {
