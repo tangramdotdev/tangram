@@ -429,7 +429,6 @@ impl Session {
 					id,
 					self.get_process_from_control(id),
 					|data| metadata || data.status.is_finished(),
-					false,
 					source,
 					deadline,
 				).boxed() => break output?,
@@ -469,19 +468,14 @@ impl Session {
 		id: &tg::process::Id,
 		control_future: impl Future<Output = tg::Result<T>> + Send,
 		index_required: impl Fn(&T) -> bool + Send,
-		children: bool,
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Output<T>> {
 		let index_complete =
 			|(process, _): &(tangram_index::process::Process, Option<tg::process::Data>)| {
-				children || process.status.is_some_and(|status| status.is_finished())
+				process.status.is_some_and(|status| status.is_finished())
 			};
-		let get_index = || async {
-			let indexed = self.try_get_process_with_data_from_index(id).await?;
-			let indexed = indexed.filter(|(process, _)| !children || process.set.children);
-			Ok::<_, tg::Error>(indexed)
-		};
+		let get_index = || self.try_get_process_with_data_from_index(id);
 		let index_future = async {
 			let indexed = get_index().await;
 			crate::checkpoint!(self.server, "process.get.index", process = %id).await;
