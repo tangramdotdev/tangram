@@ -154,7 +154,7 @@ impl Index {
 			let subspace = subspace.clone();
 			let max_process_depth = config.max_process_depth;
 			let object_permission_time_to_touch = config.object_permission_time_to_touch;
-			let process_data_fragment_size = config.process_data_fragment_size.max(1);
+			let process_data_fragment_size = config.process_data_fragment_size;
 			let process_permission_time_to_touch = config.process_permission_time_to_touch;
 			let usage_partition_total = config.usage_partition_total;
 			let write_operation_batch_size = config.write_operation_batch_size;
@@ -194,6 +194,11 @@ impl Index {
 		if config.max_readers == 0 {
 			return Err(tg::error!(
 				"the LMDB index max readers must be greater than zero"
+			));
+		}
+		if config.process_data_fragment_size == 0 {
+			return Err(tg::error!(
+				"the LMDB index process data fragment size must be greater than zero"
 			));
 		}
 		if config.read_channel_capacity == 0 {

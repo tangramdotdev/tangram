@@ -6,6 +6,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod process;
 mod reader;
 
 static NETWORK: OnceLock<fdb::api::NetworkAutoStop> = OnceLock::new();

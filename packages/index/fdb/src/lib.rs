@@ -161,7 +161,7 @@ impl Index {
 		let max_process_depth = options.max_process_depth;
 		let max_write_operation_batch_size = options.max_write_operation_batch_size;
 		let object_permission_time_to_touch = options.object_permission_time_to_touch;
-		let process_data_fragment_size = options.process_data_fragment_size.max(1);
+		let process_data_fragment_size = options.process_data_fragment_size;
 		let process_permission_time_to_touch = options.process_permission_time_to_touch;
 		let storage_relation_batch_size = options.storage_relation_batch_size;
 		let write_operation_batch_size = options.write_operation_batch_size;
@@ -229,6 +229,11 @@ impl Index {
 					"the FDB index {name} partition total must be greater than zero"
 				));
 			}
+		}
+		if options.process_data_fragment_size == 0 {
+			return Err(tg::error!(
+				"the FDB index process data fragment size must be greater than zero"
+			));
 		}
 		if options.read_channel_capacity == 0 {
 			return Err(tg::error!(

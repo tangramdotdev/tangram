@@ -187,3 +187,25 @@ async fn touching_a_process_with_data_returns_its_data() {
 	);
 	assert!(output[1].is_none());
 }
+
+#[test]
+fn a_zero_process_data_fragment_size_is_rejected() {
+	let dir = tempfile::TempDir::new().unwrap();
+	let config = crate::Config {
+		map_size: 1 << 30,
+		max_process_depth: None,
+		max_readers: 1_000,
+		object_permission_time_to_touch: std::time::Duration::ZERO,
+		path: dir.path().join("index"),
+		posix_sem_prefix: None,
+		process_data_fragment_size: 0,
+		process_permission_time_to_touch: std::time::Duration::ZERO,
+		read_channel_capacity: 256,
+		read_request_batch_size: 64,
+		read_transaction_concurrency: 4,
+		usage_partition_total: 1,
+		write_channel_capacity: 256,
+		write_operation_batch_size: 1,
+	};
+	assert!(Index::new(&config).is_err());
+}
