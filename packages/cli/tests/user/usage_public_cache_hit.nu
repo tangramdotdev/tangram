@@ -16,9 +16,13 @@ tg --token $alice.token wait $alice_spawn.process
 let alice_sandbox = tg --token $alice.token process get $alice_spawn.process | from json | get sandbox
 tg --token $alice.token wait $alice_sandbox
 tg index
-let alice_usage = tg --token $alice.token user usage | from json
-assert ($alice_usage.sandbox_cpu_consumption > 0) "a destroyed sandbox must charge CPU usage"
-assert ($alice_usage.sandbox_memory_consumption > 0) "a destroyed sandbox must charge memory usage"
+
+# A darwin sandbox reports no resource usage, so only a linux sandbox charges CPU and memory.
+if $nu.os-info.name == 'linux' {
+	let alice_usage = tg --token $alice.token user usage | from json
+	assert ($alice_usage.sandbox_cpu_consumption > 0) "a destroyed sandbox must charge CPU usage"
+	assert ($alice_usage.sandbox_memory_consumption > 0) "a destroyed sandbox must charge memory usage"
+}
 
 # Eve reuses Alice's process rather than creating one of her own.
 let eve_spawn = tg --token $eve.token process spawn --sandbox --cached=true --verbose $path | from json
