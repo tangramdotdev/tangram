@@ -57,6 +57,7 @@ struct Statements {
 	contains_object: scylla::statement::prepared::PreparedStatement,
 	delete_object: scylla::statement::prepared::PreparedStatement,
 	delete_object_cache_entry: scylla::statement::prepared::PreparedStatement,
+	delete_object_for_put: scylla::statement::prepared::PreparedStatement,
 	get_object: scylla::statement::prepared::PreparedStatement,
 	get_object_cache_entries: scylla::statement::prepared::PreparedStatement,
 	get_object_for_put: scylla::statement::prepared::PreparedStatement,
@@ -135,10 +136,11 @@ impl Cache {
 			|error| tg::error!(!error, keyspace = %config.keyspace, "failed to use the keyspace"),
 		)?;
 
+		// Delete the put and every earlier put, so that cleaning does not leave the rows of superseded puts behind.
 		let statement = indoc!(
 			"
 				delete from objects
-				where id = ? and put = ?;
+				where id = ? and put <= ?;
 			"
 		);
 		let mut delete_object = session
@@ -147,6 +149,22 @@ impl Cache {
 			.map_err(|error| tg::error!(!error, "failed to prepare the delete statement"))?;
 		delete_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		delete_object.set_is_idempotent(true);
+
+		// Delete only the put, so that evicting or rolling back a put does not delete an earlier put whose index batch may be pending.
+		let statement = indoc!(
+			"
+				delete from objects
+				where id = ? and put = ?;
+			"
+		);
+		let mut delete_object_for_put = session.prepare(statement).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to prepare the delete object for put statement"
+			)
+		})?;
+		delete_object_for_put.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		delete_object_for_put.set_is_idempotent(true);
 
 		let statement = indoc!(
 			"
@@ -272,6 +290,7 @@ impl Cache {
 				&mut contains_object,
 				&mut delete_object,
 				&mut delete_object_cache_entry,
+				&mut delete_object_for_put,
 				&mut get_object,
 				&mut get_object_cache_entries,
 				&mut get_object_for_put,
@@ -302,6 +321,7 @@ impl Cache {
 				contains_object,
 				delete_object,
 				delete_object_cache_entry,
+				delete_object_for_put,
 				get_object,
 				get_object_cache_entries,
 				get_object_for_put,
