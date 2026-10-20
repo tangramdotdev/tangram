@@ -486,7 +486,7 @@ impl Session {
 				},
 
 				// If the process is present, enqueue its dependencies and send its availability.
-				Some((process, _)) => {
+				Some(process) => {
 					let storage = &process.storage;
 					let metadata = &process.metadata;
 					// Get the process.

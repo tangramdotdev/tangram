@@ -388,6 +388,44 @@ impl Session {
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<(
+		Vec<Option<tangram_index::process::Process>>,
+		Vec<Option<tg::authorization::permission::Set>>,
+	)> {
+		let permissions = self
+			.sync_get_authorize_processes(graph, sync, ids, arg)
+			.await?;
+		let mut touch_indices = Vec::new();
+		let mut touch_ids = Vec::new();
+		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
+			if permissions.is_some() {
+				touch_indices.push(index);
+				touch_ids.push(id.clone());
+			}
+		}
+		let account = self.usage_account(&self.context.principal).await?;
+		let touched = self
+			.server
+			.index
+			.touch_processes_with_account(&touch_ids, account.as_ref(), touched_at, time_to_touch)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+		let mut outputs = vec![None; ids.len()];
+		for (index, output) in std::iter::zip(touch_indices, touched) {
+			// Treat a process without data as absent.
+			outputs[index] = output.filter(|process| process.status.is_some());
+		}
+		Ok((outputs, permissions))
+	}
+
+	async fn sync_get_touch_authorized_processes_with_data(
+		&self,
+		graph: &Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
+		ids: &[tg::process::Id],
+		arg: &tg::sync::Arg,
+		touched_at: i64,
+		time_to_touch: std::time::Duration,
+	) -> tg::Result<(
 		Vec<Option<(tangram_index::process::Process, tg::process::Data)>>,
 		Vec<Option<tg::authorization::permission::Set>>,
 	)> {

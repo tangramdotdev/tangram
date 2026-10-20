@@ -476,7 +476,7 @@ impl Session {
 		// Authorize and touch the processes, then get their storage and metadata.
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let (mut outputs, permissions) = self
-			.sync_get_touch_authorized_processes(
+			.sync_get_touch_authorized_processes_with_data(
 				&state.graph,
 				&state.id,
 				&ids,
