@@ -16,7 +16,10 @@ import traceback
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
+
+if TYPE_CHECKING:
+    from _typeshed.importlib import LoaderProtocol
 
 
 class Host(Protocol):
@@ -169,7 +172,8 @@ class Finder(importlib.abc.MetaPathFinder):
 
     def spec(self, module: Module) -> importlib.machinery.ModuleSpec:
         if module.spec is None:
-            loader = Loader(self, module)
+            # Cast the loader, because the stubs require the deprecated load_module.
+            loader = cast("LoaderProtocol", Loader(self, module))
             spec = importlib.util.spec_from_loader(
                 module.name, loader, is_package=module.package
             )
