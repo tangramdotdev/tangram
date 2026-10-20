@@ -415,10 +415,10 @@ impl Session {
 		if let Some(data) = output.control {
 			return Ok(Some(data));
 		}
-		let Some(process) = output.indexed else {
+		let Some((process, data)) = output.indexed else {
 			return Ok(None);
 		};
-		let Some(data) = process.data else {
+		let Some(data) = data else {
 			return Ok(None);
 		};
 		if !data.status.is_finished()

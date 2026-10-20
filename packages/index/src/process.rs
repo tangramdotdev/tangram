@@ -7,6 +7,7 @@ use {
 
 pub use tg::process::storage;
 
+pub mod data;
 pub mod object;
 pub mod put;
 
@@ -15,9 +16,6 @@ pub struct Process {
 	/// The command identity, which need not identify a stored object.
 	#[tangram_serialize(id = 8)]
 	pub command_id: tg::object::Id,
-
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
-	pub data: Option<tg::process::Data>,
 
 	#[tangram_serialize(id = 7)]
 	pub location: Option<tg::Location>,
@@ -33,6 +31,10 @@ pub struct Process {
 
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_default")]
 	pub set: Set,
+
+	/// The status of the stored process data, which is set exactly when the data is stored.
+	#[tangram_serialize(default, id = 9, skip_serializing_if = "Option::is_none")]
+	pub status: Option<tg::process::Status>,
 
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub storage: storage::Set,
@@ -109,10 +111,19 @@ pub trait Index {
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::process::NodeChildren>>> + Send;
 
+	fn try_get_processes_with_data(
+		&self,
+		ids: &[tg::process::Id],
+	) -> impl Future<
+		Output = tg::Result<Vec<Option<(crate::process::Process, Option<tg::process::Data>)>>>,
+	> + Send;
+
 	fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
+	) -> impl Future<
+		Output = tg::Result<Vec<(tg::process::Id, crate::process::Process, tg::process::Data)>>,
+	> + Send;
 
 	fn process_has_ancestor(
 		&self,
@@ -125,6 +136,15 @@ pub trait Index {
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
 		self.try_get_processes(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_process_with_data(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<(crate::process::Process, Option<tg::process::Data>)>>>
+	+ Send {
+		self.try_get_processes_with_data(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 

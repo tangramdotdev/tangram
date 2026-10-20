@@ -359,6 +359,15 @@ impl Index {
 					Self::try_get_processes_with_transaction(db, subspace, transaction, &ids)?;
 				tangram_index::read::Response::TryGetProcesses(output)
 			},
+			tangram_index::read::Request::TryGetProcessesWithData { ids } => {
+				let output = Self::try_get_processes_with_data_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&ids,
+				)?;
+				tangram_index::read::Response::TryGetProcessesWithData(output)
+			},
 			tangram_index::read::Request::TryGetSandboxes { ids } => {
 				let output =
 					Self::try_get_sandboxes_with_transaction(db, subspace, transaction, &ids)?;

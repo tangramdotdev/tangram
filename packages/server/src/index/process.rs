@@ -13,6 +13,18 @@ impl Index {
 		}
 	}
 
+	pub async fn try_get_processes_with_data(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<(index::process::Process, Option<tg::process::Data>)>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_processes_with_data(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_processes_with_data(ids).await,
+		}
+	}
+
 	pub async fn try_get_process_children_count(
 		&self,
 		id: &tg::process::Id,
@@ -54,7 +66,7 @@ impl Index {
 	pub async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, index::process::Process)>> {
+	) -> tg::Result<Vec<(tg::process::Id, index::process::Process, tg::process::Data)>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.try_get_cached_processes(command).await,
@@ -145,6 +157,13 @@ impl index::process::Index for Index {
 		self.try_get_processes(ids).await
 	}
 
+	async fn try_get_processes_with_data(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<(index::process::Process, Option<tg::process::Data>)>>> {
+		self.try_get_processes_with_data(ids).await
+	}
+
 	async fn try_get_process_children_count(
 		&self,
 		id: &tg::process::Id,
@@ -171,7 +190,7 @@ impl index::process::Index for Index {
 	async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, index::process::Process)>> {
+	) -> tg::Result<Vec<(tg::process::Id, index::process::Process, tg::process::Data)>> {
 		self.try_get_cached_processes(command).await
 	}
 

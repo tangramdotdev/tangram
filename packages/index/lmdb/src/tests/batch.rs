@@ -240,14 +240,14 @@ async fn process_children_are_stored_separately_from_data() {
 	};
 	index.batch(arg).await.unwrap().unwrap();
 
-	let indexed = index
-		.try_get_processes(std::slice::from_ref(&process))
+	let (indexed, data) = index
+		.try_get_processes_with_data(std::slice::from_ref(&process))
 		.await
 		.unwrap()
 		.pop()
 		.unwrap()
 		.unwrap();
-	assert!(indexed.data.unwrap().children.is_none());
+	assert!(data.unwrap().children.is_none());
 	assert!(indexed.set.children);
 	assert_eq!(
 		index
@@ -552,8 +552,8 @@ async fn process_status_does_not_regress() {
 		.await
 		.is_err()
 	);
-	let process = index.try_get_process(&id).await.unwrap().unwrap();
-	assert!(process.data.unwrap().status.is_finished());
+	let (_, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
+	assert!(data.unwrap().status.is_finished());
 }
 
 #[tokio::test]
@@ -976,8 +976,8 @@ async fn only_the_process_can_write_and_finish_unfinished_data() {
 	}
 	arg.principal = tg::Principal::Process(id.clone());
 	put_process(&index, arg).await.unwrap();
-	let stored = index.try_get_process(&id).await.unwrap().unwrap();
-	let data = stored.data.unwrap();
+	let (stored, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
+	let data = data.unwrap();
 	assert_eq!(data.status, tg::process::Status::Finished);
 	assert_eq!(data.exit, Some(1));
 	assert_eq!(data.host, "updated");
@@ -1033,8 +1033,8 @@ async fn process_put_preserves_existing_contents() {
 	let mut changed = arg.clone();
 	changed.data.as_mut().unwrap().exit = Some(1);
 	assert!(put_process(&index, changed.clone()).await.is_err());
-	let stored = index.try_get_process(&id).await.unwrap().unwrap();
-	assert_eq!(stored.data.unwrap().exit, Some(0));
+	let (_, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
+	assert_eq!(data.unwrap().exit, Some(0));
 
 	// A regular user cannot change data.log from None to a blob ID.
 	let mut with_log = arg.clone();
@@ -1044,8 +1044,8 @@ async fn process_put_preserves_existing_contents() {
 	assert!(put_process(&index, with_log).await.is_err());
 	changed.principal = tg::Principal::Process(id.clone());
 	assert!(put_process(&index, changed).await.is_err());
-	let stored = index.try_get_process(&id).await.unwrap().unwrap();
-	assert_eq!(stored.data.unwrap().exit, Some(0));
+	let (_, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
+	assert_eq!(data.unwrap().exit, Some(0));
 }
 
 #[tokio::test]
@@ -1085,8 +1085,8 @@ async fn finished_process_data_is_immutable_for_every_principal() {
 		changed.data.as_mut().unwrap().status = tg::process::Status::Started;
 		assert!(put_process(&index, changed).await.is_err());
 	}
-	let process = index.try_get_process(&id).await.unwrap().unwrap();
-	let data = process.data.unwrap();
+	let (_, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
+	let data = data.unwrap();
 	assert_eq!(data.log.unwrap().node, log);
 	assert_eq!(data.exit, Some(0));
 	assert!(data.status.is_finished());
@@ -1284,6 +1284,7 @@ fn execute_write_requests(
 		env: &index.env,
 		max_process_depth: None,
 		object_permission_time_to_touch: std::time::Duration::ZERO,
+		process_data_fragment_size: 16,
 		process_permission_time_to_touch: std::time::Duration::ZERO,
 		receiver_high: &receiver_high,
 		receiver_low: &receiver_low,
@@ -1343,11 +1344,11 @@ async fn process_rejection_commits_unrelated_requests_and_prior_items() {
 	assert!(index.try_get_process(&unrelated).await.unwrap().is_some());
 	assert_eq!(
 		index
-			.try_get_process(&existing)
+			.try_get_process_with_data(&existing)
 			.await
 			.unwrap()
 			.unwrap()
-			.data
+			.1
 			.unwrap()
 			.host,
 		""

@@ -32,6 +32,7 @@ pub(super) struct Arg {
 	pub metrics: Metrics,
 	pub object_permission_time_to_touch: std::time::Duration,
 	pub partition_totals: crate::PartitionTotals,
+	pub process_data_fragment_size: usize,
 	pub process_permission_time_to_touch: std::time::Duration,
 	pub receiver_high: RequestReceiver,
 	pub receiver_low: RequestReceiver,
@@ -60,6 +61,7 @@ struct ExecutionConfig<'a> {
 	metrics: &'a Metrics,
 	object_permission_time_to_touch: std::time::Duration,
 	partition_totals: crate::PartitionTotals,
+	process_data_fragment_size: usize,
 	process_permission_time_to_touch: std::time::Duration,
 	storage_relation_batch_size: usize,
 }
@@ -78,6 +80,7 @@ impl Index {
 			metrics,
 			object_permission_time_to_touch,
 			partition_totals,
+			process_data_fragment_size,
 			process_permission_time_to_touch,
 			mut receiver_high,
 			mut receiver_low,
@@ -166,6 +169,7 @@ impl Index {
 					metrics: &metrics,
 					object_permission_time_to_touch,
 					partition_totals,
+					process_data_fragment_size,
 					process_permission_time_to_touch,
 					storage_relation_batch_size,
 				};
@@ -1143,6 +1147,7 @@ impl Index {
 						subspace,
 						items,
 						config.partition_totals,
+						config.process_data_fragment_size,
 					)
 					.await
 					.map(|flow| flow.map_break(|result| vec![Response::Mutation(result)])),
@@ -1257,6 +1262,7 @@ impl Index {
 					subspace,
 					&arg.items,
 					config.partition_totals,
+					config.process_data_fragment_size,
 				)
 				.await;
 				let result = crate::propagate!(result);
@@ -1411,9 +1417,14 @@ impl Index {
 				Response::Unit
 			},
 			Request::PutProcesses(args) => {
-				let result =
-					Self::put_processes_with_transaction(txn, subspace, args, partition_totals)
-						.await;
+				let result = Self::put_processes_with_transaction(
+					txn,
+					subspace,
+					args,
+					partition_totals,
+					config.process_data_fragment_size,
+				)
+				.await;
 				let result = crate::propagate!(result);
 				Response::Mutation(result)
 			},

@@ -146,10 +146,7 @@ impl Session {
 							.location
 							.as_ref()
 							.is_some_and(tg::Location::is_remote))
-						&& process
-							.data
-							.as_ref()
-							.is_some_and(|data| data.status.is_finished())
+						&& process.status.is_some_and(|status| status.is_finished())
 				}) {
 				let output = tg::process::cancel::Output { released: false };
 				return Ok(Some(output));
@@ -191,11 +188,7 @@ impl Session {
 			{
 				return Ok(None);
 			}
-			if process
-				.data
-				.as_ref()
-				.is_some_and(|data| data.status.is_finished())
-			{
+			if process.status.is_some_and(|status| status.is_finished()) {
 				let output = tg::process::cancel::Output { released: false };
 				return Ok(Some(output));
 			}

@@ -22,6 +22,7 @@ fn new_index() -> (tempfile::TempDir, Index) {
 		object_permission_time_to_touch: std::time::Duration::ZERO,
 		path: dir.path().join("index"),
 		posix_sem_prefix: None,
+		process_data_fragment_size: 16,
 		process_permission_time_to_touch: std::time::Duration::ZERO,
 		read_channel_capacity: 256,
 		read_request_batch_size: 64,

@@ -388,7 +388,7 @@ impl Session {
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<(
-		Vec<Option<tangram_index::process::Process>>,
+		Vec<Option<(tangram_index::process::Process, tg::process::Data)>>,
 		Vec<Option<tg::authorization::permission::Set>>,
 	)> {
 		let permissions = self
@@ -409,12 +409,27 @@ impl Session {
 			.touch_processes_with_account(&touch_ids, account.as_ref(), touched_at, time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+
+		// Get the data of the touched processes that have data, and treat a process without data as absent.
+		let (data_indices, data_ids): (Vec<_>, Vec<_>) = std::iter::zip(touch_indices, touched)
+			.filter(|(_, process)| {
+				process
+					.as_ref()
+					.is_some_and(|process| process.status.is_some())
+			})
+			.map(|(index, _)| (index, ids[index].clone()))
+			.unzip();
+		let processes = self
+			.server
+			.index
+			.try_get_processes_with_data(&data_ids)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the process data"))?;
 		let mut outputs = vec![None; ids.len()];
-		for (index, output) in std::iter::zip(touch_indices, touched) {
-			// Treat a process without data as absent.
-			let output = output.filter(|process| process.data.is_some());
-			outputs[index] = output;
+		for (index, output) in std::iter::zip(data_indices, processes) {
+			outputs[index] = output.and_then(|(process, data)| Some((process, data?)));
 		}
+
 		Ok((outputs, permissions))
 	}
 

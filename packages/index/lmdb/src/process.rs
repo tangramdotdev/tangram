@@ -30,6 +30,24 @@ impl Index {
 		Ok(output)
 	}
 
+	pub async fn try_get_processes_with_data(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let request = tangram_index::read::Request::TryGetProcessesWithData {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let tangram_index::read::Response::TryGetProcessesWithData(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
 	pub async fn try_get_process_children_count(
 		&self,
 		id: &tg::process::Id,
@@ -79,7 +97,13 @@ impl Index {
 	pub async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, tangram_index::process::Process)>> {
+	) -> tg::Result<
+		Vec<(
+			tg::process::Id,
+			tangram_index::process::Process,
+			tg::process::Data,
+		)>,
+	> {
 		let request = tangram_index::read::Request::TryGetCachedProcesses {
 			command: command.clone(),
 		};
@@ -177,6 +201,13 @@ impl tangram_index::process::Index for Index {
 		self.try_get_processes(ids).await
 	}
 
+	async fn try_get_processes_with_data(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>> {
+		self.try_get_processes_with_data(ids).await
+	}
+
 	async fn try_get_process_children_count(
 		&self,
 		id: &tg::process::Id,
@@ -203,7 +234,13 @@ impl tangram_index::process::Index for Index {
 	async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, tangram_index::process::Process)>> {
+	) -> tg::Result<
+		Vec<(
+			tg::process::Id,
+			tangram_index::process::Process,
+			tg::process::Data,
+		)>,
+	> {
 		self.try_get_cached_processes(command).await
 	}
 

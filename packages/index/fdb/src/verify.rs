@@ -708,7 +708,7 @@ impl Index {
 					);
 					tg::storage::Set::Process(
 						process
-							.filter(|process| process.data.is_some())
+							.filter(|process| process.status.is_some())
 							.map_or_else(tg::process::storage::Set::empty, |process| {
 								process.storage
 							}),

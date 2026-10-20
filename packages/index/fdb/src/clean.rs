@@ -940,6 +940,7 @@ impl Index {
 			txn.clear(&key);
 		}
 		txn.clear(&key);
+		Self::delete_process_data(txn, subspace, id);
 		let id_bytes = id.to_bytes();
 		Self::clear_update_propagated_versions(txn, subspace, id_bytes.as_ref());
 

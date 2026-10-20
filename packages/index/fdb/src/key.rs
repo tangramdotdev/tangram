@@ -44,6 +44,7 @@ pub enum Kind {
 	ObjectProcess = 13,
 	TargetTag = 14,
 	Clean = 15,
+	ProcessData = 16,
 	ParentTag = 18,
 	TagParent = 19,
 	User = 20,
@@ -362,6 +363,13 @@ impl fdbt::TuplePack for Key {
 				process.to_bytes().as_ref(),
 				position,
 				child.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Process(crate::process::Key::ProcessData { position, process }) => (
+				Kind::ProcessData.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
+				position,
 			)
 				.pack(w, tuple_depth),
 
@@ -1163,6 +1171,18 @@ impl fdbt::TupleUnpack<'_> for Key {
 						position,
 						process,
 					}),
+				))
+			},
+
+			Kind::ProcessData => {
+				let (input, process_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, position): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let process = tg::process::Id::from_slice(&process_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Process(crate::process::Key::ProcessData { position, process }),
 				))
 			},
 

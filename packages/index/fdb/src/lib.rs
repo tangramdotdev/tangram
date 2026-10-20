@@ -63,6 +63,7 @@ pub struct Options {
 	pub instance: Option<String>,
 	pub max_process_depth: Option<u64>,
 	pub object_permission_time_to_touch: std::time::Duration,
+	pub process_data_fragment_size: usize,
 	pub process_permission_time_to_touch: std::time::Duration,
 	pub storage_and_metadata_update_partition_total: u64,
 	pub read_channel_capacity: usize,
@@ -160,6 +161,7 @@ impl Index {
 		let max_process_depth = options.max_process_depth;
 		let max_write_operation_batch_size = options.max_write_operation_batch_size;
 		let object_permission_time_to_touch = options.object_permission_time_to_touch;
+		let process_data_fragment_size = options.process_data_fragment_size.max(1);
 		let process_permission_time_to_touch = options.process_permission_time_to_touch;
 		let storage_relation_batch_size = options.storage_relation_batch_size;
 		let write_operation_batch_size = options.write_operation_batch_size;
@@ -176,6 +178,7 @@ impl Index {
 					metrics,
 					object_permission_time_to_touch,
 					partition_totals,
+					process_data_fragment_size,
 					process_permission_time_to_touch,
 					receiver_high: writer_receiver_high,
 					receiver_low: writer_receiver_low,

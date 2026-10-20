@@ -534,14 +534,13 @@ impl Session {
 			let output = LocalChildren { children, status };
 			return Ok(output);
 		}
-		let process = output
+		let (process, _) = output
 			.indexed
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
 		let status = process
-			.data
-			.ok_or_else(|| tg::error!(%id, "missing the process data"))?
-			.status;
+			.status
+			.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
 		let children = self
 			.server
 			.index

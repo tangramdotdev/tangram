@@ -17,7 +17,14 @@ impl Index {
 		subspace: &Subspace,
 		command: &tg::object::Id,
 	) -> tg::Result<
-		ControlFlow<Vec<(tg::process::Id, tangram_index::process::Process)>, fdb::FdbError>,
+		ControlFlow<
+			Vec<(
+				tg::process::Id,
+				tangram_index::process::Process,
+				tg::process::Data,
+			)>,
+			fdb::FdbError,
+		>,
 	> {
 		let processes = crate::propagate!(
 			crate::page::collect(|after| async move {
@@ -35,11 +42,12 @@ impl Index {
 		let processes = {
 			let result =
 				futures::future::try_join_all(processes.into_iter().map(|process| async move {
-					let data = crate::propagate!(
-						Self::try_get_process_with_transaction(txn, subspace, &process).await
+					let output = crate::propagate!(
+						Self::try_get_process_with_data_with_transaction(txn, subspace, &process)
+							.await
 					);
 
-					Ok::<_, tg::Error>(ControlFlow::Break((process, data)))
+					Ok::<_, tg::Error>(ControlFlow::Break((process, output)))
 				}))
 				.await;
 			let results = result?;
@@ -55,15 +63,13 @@ impl Index {
 		};
 		let mut output = processes
 			.into_iter()
-			.filter_map(|(process, data)| {
-				data.filter(|data| data.data.is_some())
-					.map(|data| (process, data))
+			.filter_map(|(id, output)| {
+				let (process, data) = output?;
+				Some((id, process, data?))
 			})
 			.collect::<Vec<_>>();
-		output.sort_unstable_by(|(a_id, a), (b_id, b)| {
-			let a_created_at = a.data.as_ref().unwrap().created_at;
-			let b_created_at = b.data.as_ref().unwrap().created_at;
-			a_created_at.cmp(&b_created_at).then_with(|| a_id.cmp(b_id))
+		output.sort_unstable_by(|(a_id, _, a), (b_id, _, b)| {
+			a.created_at.cmp(&b.created_at).then_with(|| a_id.cmp(b_id))
 		});
 		Ok(ControlFlow::Break(output))
 	}
@@ -174,6 +180,64 @@ impl Index {
 		Ok(ControlFlow::Break(processes))
 	}
 
+	pub(crate) async fn try_get_processes_with_data_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::process::Id],
+	) -> tg::Result<
+		ControlFlow<
+			Vec<Option<(tangram_index::process::Process, Option<tg::process::Data>)>>,
+			fdb::FdbError,
+		>,
+	> {
+		let processes = {
+			let result = futures::future::try_join_all(
+				ids.iter()
+					.map(|id| Self::try_get_process_with_data_with_transaction(txn, subspace, id)),
+			)
+			.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
+
+		Ok(ControlFlow::Break(processes))
+	}
+
+	pub(crate) async fn try_get_process_with_data_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::process::Id,
+	) -> tg::Result<
+		ControlFlow<
+			Option<(tangram_index::process::Process, Option<tg::process::Data>)>,
+			fdb::FdbError,
+		>,
+	> {
+		// Read the process and its data concurrently.
+		let process = Self::try_get_process_with_transaction(txn, subspace, id);
+		let data = Self::try_get_process_data_with_transaction(txn, subspace, id);
+		let (process, data) = futures::future::try_join(process, data).await?;
+		let process = match process {
+			ControlFlow::Break(process) => process,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let data = match data {
+			ControlFlow::Break(data) => data,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let output = process.map(|process| (process, data));
+
+		Ok(ControlFlow::Break(output))
+	}
+
 	pub(crate) async fn try_get_process_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
@@ -189,6 +253,37 @@ impl Index {
 		let process = Some(tangram_index::process::Process::deserialize(&bytes)?);
 
 		Ok(ControlFlow::Break(process))
+	}
+
+	pub(crate) async fn try_get_process_data_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::process::Id,
+	) -> tg::Result<ControlFlow<Option<tg::process::Data>, fdb::FdbError>> {
+		let bytes = id.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ProcessData.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::retry!(result);
+		if entries.is_empty() {
+			return Ok(ControlFlow::Break(None));
+		}
+		let fragments = entries
+			.iter()
+			.map(|entry| entry.value())
+			.collect::<Vec<_>>();
+		let data = tangram_index::process::data::deserialize(&fragments)?;
+
+		Ok(ControlFlow::Break(Some(data)))
 	}
 
 	pub(crate) async fn get_process_children_page_with_transaction(

@@ -62,8 +62,8 @@ impl Session {
 			}));
 		}
 
-		let indexed = self.try_get_process_from_index(id).await?;
-		let data = if let Some(data) = indexed.and_then(|process| process.data) {
+		let indexed = self.try_get_process_with_data_from_index(id).await?;
+		let data = if let Some(data) = indexed.and_then(|(_, data)| data) {
 			data
 		} else {
 			// A request can arrive before Start has submitted the process to the index.

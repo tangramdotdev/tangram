@@ -8,6 +8,10 @@ pub enum Key {
 		position: i64,
 		process: tg::process::Id,
 	},
+	ProcessData {
+		position: i64,
+		process: tg::process::Id,
+	},
 	ChildProcess {
 		child: tg::process::Id,
 		parent: tg::process::Id,

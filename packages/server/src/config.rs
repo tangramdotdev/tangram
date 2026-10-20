@@ -571,6 +571,9 @@ pub struct FdbIndex {
 
 	pub permission_update_partition_total: u64,
 
+	/// The maximum size in bytes of each fragment of stored process data.
+	pub process_data_fragment_size: usize,
+
 	pub read_channel_capacity: usize,
 
 	pub read_request_batch_size: usize,
@@ -604,6 +607,9 @@ pub struct LmdbIndex {
 	pub path: PathBuf,
 
 	pub posix_sem_prefix: Option<String>,
+
+	/// The maximum size in bytes of each fragment of stored process data.
+	pub process_data_fragment_size: usize,
 
 	pub read_channel_capacity: usize,
 
@@ -2331,6 +2337,7 @@ impl Default for FdbIndex {
 			instance: None,
 			max_write_operation_batch_size: 1_000,
 			permission_update_partition_total: 1,
+			process_data_fragment_size: 10_000,
 			read_channel_capacity: 256,
 			read_request_batch_size: 64,
 			read_task_concurrency: 16,
@@ -2353,6 +2360,7 @@ impl Default for LmdbIndex {
 			max_readers: 1_000,
 			path: PathBuf::from("index.lmdb"),
 			posix_sem_prefix: None,
+			process_data_fragment_size: 10_000,
 			read_channel_capacity: 256,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 4,

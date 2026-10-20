@@ -818,6 +818,7 @@ impl Index {
 		}
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
+		Self::delete_process_data(db, subspace, transaction, id)?;
 		let id_bytes = id.to_bytes();
 		Self::clear_update_propagated_versions(db, subspace, transaction, id_bytes.as_ref())?;
 		let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
