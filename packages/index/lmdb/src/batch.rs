@@ -41,6 +41,17 @@ impl Index {
 			}
 
 			match item {
+				tangram_index::batch::Item::DeletePermissionCapture(arg) => {
+					Self::delete_permission_capture_with_transaction(
+						db,
+						subspace,
+						transaction,
+						arg,
+					)?;
+				},
+				tangram_index::batch::Item::PutPermissionCapture(arg) => {
+					Self::put_permission_capture_with_transaction(db, subspace, transaction, arg)?;
+				},
 				tangram_index::batch::Item::DeleteDelegations(subject) => {
 					Self::delete_delegations_for_subject_with_transaction(
 						db,

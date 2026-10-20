@@ -1,6 +1,18 @@
 use {super::Index, tangram_client::prelude::*, tangram_index as index};
 
 impl Index {
+	pub async fn get_permission_captures(
+		&self,
+		resource: &tg::Id,
+	) -> tg::Result<Vec<index::permission::capture::put::Arg>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_permission_captures(resource).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_permission_captures(resource).await,
+		}
+	}
+
 	pub async fn enqueue_permission_capture(
 		&self,
 		arg: index::permission::capture::enqueue::Arg,
@@ -70,6 +82,13 @@ impl Index {
 }
 
 impl index::permission::Index for Index {
+	async fn get_permission_captures(
+		&self,
+		resource: &tg::Id,
+	) -> tg::Result<Vec<index::permission::capture::put::Arg>> {
+		self.get_permission_captures(resource).await
+	}
+
 	async fn enqueue_permission_capture(
 		&self,
 		arg: index::permission::capture::enqueue::Arg,

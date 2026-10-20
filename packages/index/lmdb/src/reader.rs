@@ -144,6 +144,15 @@ impl Index {
 				)?;
 				tangram_index::read::Response::VerifyBatch(output)
 			},
+			tangram_index::read::Request::GetPermissionCaptures { resource } => {
+				let records = Self::get_permission_captures_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&resource,
+				)?;
+				tangram_index::read::Response::GetPermissionCaptures(records)
+			},
 			tangram_index::read::Request::PermissionCaptureBatch {
 				batch_size,
 				partition_end,

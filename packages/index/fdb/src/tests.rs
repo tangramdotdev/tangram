@@ -6,6 +6,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod capture;
 mod process;
 mod reader;
 

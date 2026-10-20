@@ -1252,7 +1252,9 @@ impl Index {
 		let usage_partition_total = partition_totals.usage;
 		let response = match request {
 			Request::CompletePermissionCapture(entry) => {
-				Self::complete_permission_capture_with_transaction(txn, subspace, entry);
+				crate::propagate!(
+					Self::complete_permission_capture_with_transaction(txn, subspace, entry).await
+				);
 				Response::Unit
 			},
 			Request::AggregateUsage(arg) => {

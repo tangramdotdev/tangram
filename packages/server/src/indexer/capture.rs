@@ -4,7 +4,10 @@ use {
 	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
-	tangram_index::permission::capture::{Entry, enqueue},
+	tangram_index::{
+		Index as _,
+		permission::capture::{Entry, put, requested_permissions},
+	},
 };
 
 impl Indexer {
@@ -94,9 +97,27 @@ impl Indexer {
 	}
 
 	async fn permission_capture_entry(&self, entry: &Entry) -> tg::Result<()> {
-		let arg = &entry.arg;
+		let records = self
+			.server
+			.index
+			.get_permission_captures(&entry.resource)
+			.await?;
+		if records.is_empty() {
+			return Ok(());
+		}
+
+		// Wait for the permission updates that caused this attempt before verifying access.
+		self.server.index_inner().await?;
+		for arg in records {
+			self.permission_capture_record(&arg).boxed().await?;
+		}
+
+		Ok(())
+	}
+
+	async fn permission_capture_record(&self, arg: &put::Arg) -> tg::Result<()> {
 		if let Some(version) = &arg.version {
-			let id = tg::tag::Id::try_from(arg.resource.clone())?;
+			let id = tg::tag::Id::try_from(arg.subject.clone())?;
 			let mut tags = self.server.index.try_get_tags(&[id]).await?;
 			if tags
 				.pop()
@@ -106,14 +127,12 @@ impl Indexer {
 				return Ok(());
 			}
 		}
-		for root in &arg.roots {
-			self.permission_capture_checkpoint_with_resource(
-				"permission_capture.started",
-				arg,
-				&root.node,
-			)
-			.await;
-		}
+		self.permission_capture_checkpoint_with_resource(
+			"permission_capture.started",
+			arg,
+			&arg.resource.node,
+		)
+		.await;
 		let mut context = self.server.context.clone();
 		context.principal = arg.principal.clone();
 		context.token = None;
@@ -122,13 +141,19 @@ impl Indexer {
 		let mut pending = BTreeMap::new();
 		let mut stack = Vec::new();
 		let mut visited = BTreeMap::new();
-		for root in arg.roots.iter().rev().cloned() {
-			push_root(&mut pending, &mut stack, &visited, root);
-		}
+		push_root(&mut pending, &mut stack, &visited, arg.resource.clone());
 		let mut error = None;
 		while let Some(id) = stack.pop() {
 			let root = pending.remove(&id).unwrap();
 			visited.insert(root.node.clone(), root.clone());
+			let mut record = arg.clone();
+			record.resource = root.clone();
+			let batch = tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::PutPermissionCapture(
+					record.clone(),
+				)],
+			};
+			self.server.index.batch(batch).await??;
 			let requested = requested_permissions(&root.node)?;
 			let output = match session.authorize(root.clone(), requested).boxed().await {
 				Ok(output) => output,
@@ -139,6 +164,12 @@ impl Indexer {
 			};
 			self.capture_permissions(arg, &root.node, output.permissions)
 				.await?;
+			if output.permissions.contains(requested) {
+				let batch = tangram_index::batch::Arg {
+					items: vec![tangram_index::batch::Item::DeletePermissionCapture(record)],
+				};
+				self.server.index.batch(batch).await??;
+			}
 			if output.outcome == crate::authorization::Outcome::Exhausted {
 				error.get_or_insert_with(|| {
 					tangram_index::verify::search_exhausted_error(
@@ -176,7 +207,7 @@ impl Indexer {
 
 	async fn capture_permissions(
 		&self,
-		arg: &enqueue::Arg,
+		arg: &put::Arg,
 		resource: &tg::Id,
 		permissions: tg::authorization::permission::Set,
 	) -> tg::Result<()> {
@@ -193,16 +224,16 @@ impl Indexer {
 				resource,
 			)
 			.await;
-			let (creator, subject) = match arg.resource.kind() {
+			let (creator, subject) = match arg.subject.kind() {
 				tg::id::Kind::Process => {
-					let process = tg::process::Id::try_from(arg.resource.clone())?;
+					let process = tg::process::Id::try_from(arg.subject.clone())?;
 					(
 						Some(tg::Principal::Process(process.clone())),
 						tg::authorization::Subject::Process(process),
 					)
 				},
 				tg::id::Kind::Tag => {
-					let tag = tg::tag::Id::try_from(arg.resource.clone())?;
+					let tag = tg::tag::Id::try_from(arg.subject.clone())?;
 					(None, tg::authorization::Subject::Tag(tag))
 				},
 				_ => return Err(tg::error!("invalid permission capture resource")),
@@ -262,13 +293,13 @@ impl Indexer {
 	async fn permission_capture_checkpoint_with_resource(
 		&self,
 		name: &str,
-		arg: &enqueue::Arg,
+		arg: &put::Arg,
 		resource: &tg::Id,
 	) {
 		if let Some(version) = &arg.version {
-			crate::checkpoint!(self.server, name, tag = %arg.resource, %version, %resource).await;
+			crate::checkpoint!(self.server, name, tag = %arg.subject, %version, %resource).await;
 		} else {
-			crate::checkpoint!(self.server, name, process = %arg.resource, %resource).await;
+			crate::checkpoint!(self.server, name, process = %arg.subject, %resource).await;
 		}
 	}
 }
@@ -292,41 +323,6 @@ fn push_root(
 	} else {
 		stack.push(root.node.clone());
 		pending.insert(root.node.clone(), root);
-	}
-}
-
-fn requested_permissions(resource: &tg::Id) -> tg::Result<tg::authorization::permission::Set> {
-	let mut permissions = node_permission(resource)?;
-	if tg::object::Id::try_from(resource.clone()).is_ok() {
-		permissions.insert(
-			tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			)
-			.into(),
-		);
-	} else {
-		let mut requested = tg::authorization::permission::process::Set::all();
-		requested.remove(tg::authorization::permission::process::Set::PARENT);
-		permissions.insert(tg::authorization::permission::Set::Process(requested));
-	}
-	Ok(permissions)
-}
-
-fn node_permission(resource: &tg::Id) -> tg::Result<tg::authorization::permission::Set> {
-	if tg::object::Id::try_from(resource.clone()).is_ok() {
-		Ok(tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
-		)
-		.into())
-	} else if tg::process::Id::try_from(resource.clone()).is_ok() {
-		Ok(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Node,
-		)
-		.into())
-	} else {
-		Err(tg::error!(
-			"a permission capture resource must be an object or process"
-		))
 	}
 }
 

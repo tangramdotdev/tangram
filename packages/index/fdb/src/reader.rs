@@ -286,6 +286,13 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::VerifyBatch(output)
 			},
+			tangram_index::read::Request::GetPermissionCaptures { resource } => {
+				let records = crate::propagate!(
+					Self::get_permission_captures_with_transaction(transaction, subspace, resource)
+						.await
+				);
+				tangram_index::read::Response::GetPermissionCaptures(records)
+			},
 			tangram_index::read::Request::PermissionCaptureBatch {
 				batch_size,
 				partition_end,

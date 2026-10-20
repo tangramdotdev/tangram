@@ -76,6 +76,20 @@ pub(crate) struct PermissionIndexEntry<'a> {
 }
 
 impl Index {
+	pub async fn get_permission_captures(
+		&self,
+		resource: &tg::Id,
+	) -> tg::Result<Vec<tangram_index::permission::capture::put::Arg>> {
+		let request = tangram_index::read::Request::GetPermissionCaptures {
+			resource: resource.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let tangram_index::read::Response::GetPermissionCaptures(records) = response else {
+			return Err(tg::error!("unexpected permission capture response"));
+		};
+		Ok(records)
+	}
+
 	pub async fn enqueue_permission_capture(&self, arg: enqueue::Arg) -> tg::Result<()> {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::EnqueuePermissionCapture(arg)],
@@ -307,6 +321,13 @@ pub(crate) fn max_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i6
 }
 
 impl tangram_index::permission::Index for Index {
+	async fn get_permission_captures(
+		&self,
+		resource: &tg::Id,
+	) -> tg::Result<Vec<tangram_index::permission::capture::put::Arg>> {
+		self.get_permission_captures(resource).await
+	}
+
 	async fn enqueue_permission_capture(
 		&self,
 		arg: tangram_index::permission::capture::enqueue::Arg,

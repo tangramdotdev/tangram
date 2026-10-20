@@ -45,6 +45,16 @@ impl Index {
 			}
 
 			match item {
+				tangram_index::batch::Item::DeletePermissionCapture(arg) => {
+					crate::propagate!(
+						Self::delete_permission_capture_with_transaction(txn, subspace, arg).await
+					);
+				},
+				tangram_index::batch::Item::PutPermissionCapture(arg) => {
+					crate::propagate!(
+						Self::put_permission_capture_with_transaction(txn, subspace, arg).await
+					);
+				},
 				tangram_index::batch::Item::DeleteDelegations(subject) => {
 					crate::propagate!(
 						Self::delete_delegations_for_subject_with_transaction(

@@ -2259,6 +2259,15 @@ impl Index {
 		kind: &Kind,
 		version: u64,
 	) -> tg::Result<()> {
+		if matches!(kind, Kind::Permission(_)) {
+			let resource = match id {
+				tg::Either::Left(id) => id.clone().into(),
+				tg::Either::Right(id) => id.clone().into(),
+			};
+			let arg = tangram_index::permission::capture::enqueue::Arg { resource };
+			Self::enqueue_permission_capture_with_transaction(db, subspace, transaction, &arg)?;
+		}
+
 		match id {
 			tg::Either::Left(id) => {
 				if let Kind::Permission(source) = kind {

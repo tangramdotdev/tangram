@@ -794,6 +794,12 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<()> {
+		Self::delete_permission_captures_for_subject_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&id.clone().into(),
+		)?;
 		let resource = id.clone().into();
 		Self::delete_materialized_permissions_for_resource(db, subspace, transaction, &resource)?;
 		let subject = tg::authorization::Subject::Process(id.clone());

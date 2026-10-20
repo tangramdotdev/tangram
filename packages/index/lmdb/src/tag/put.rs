@@ -42,6 +42,12 @@ impl Index {
 					transaction,
 					&subject,
 				)?;
+				Self::delete_permission_captures_for_subject_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg.id.clone().into(),
+				)?;
 				Self::delete_delegations_for_subject_with_transaction(
 					db,
 					subspace,

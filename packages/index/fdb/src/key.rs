@@ -9,13 +9,15 @@ pub enum Key {
 	Checkout(crate::checkout::Key),
 	Clean(crate::clean::Key),
 	Delegation(crate::delegation::Key),
-	Permission(crate::permission::Key),
-	PermissionCapture { id: Vec<u8>, partition: u64 },
 	Group(crate::group::Key),
 	Indexer(crate::indexer::Key),
 	Node(crate::node::Key),
 	Object(crate::object::Key),
 	Organization(crate::organization::Key),
+	Permission(crate::permission::Key),
+	PermissionCapture { resource: tg::Id, subject: tg::Id },
+	PermissionCaptureQueue { partition: u64, resource: tg::Id },
+	PermissionCaptureSubject { resource: tg::Id, subject: tg::Id },
 	Process(crate::process::Key),
 	Runner(crate::runner::Key),
 	Sandbox(crate::sandbox::Key),
@@ -93,7 +95,9 @@ pub enum Kind {
 	DelegationSource = 74,
 	DelegationExpiresAt = 75,
 	DelegationSubject = 76,
-	PermissionCapture = 90,
+	PermissionCaptureQueue = 90,
+	PermissionCapture = 91,
+	PermissionCaptureSubject = 92,
 }
 
 impl fdbt::TuplePack for Key {
@@ -103,10 +107,25 @@ impl fdbt::TuplePack for Key {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
-			Key::PermissionCapture { id, partition } => (
+			Key::PermissionCapture { resource, subject } => (
 				Kind::PermissionCapture.to_i32().unwrap(),
+				resource.to_bytes().as_ref(),
+				subject.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+			Key::PermissionCaptureSubject { resource, subject } => (
+				Kind::PermissionCaptureSubject.to_i32().unwrap(),
+				subject.to_bytes().as_ref(),
+				resource.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+			Key::PermissionCaptureQueue {
+				partition,
+				resource,
+			} => (
+				Kind::PermissionCaptureQueue.to_i32().unwrap(),
 				*partition,
-				id.as_slice(),
+				resource.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 			Key::Delegation(crate::delegation::Key::Delegation {
@@ -733,10 +752,39 @@ impl fdbt::TupleUnpack<'_> for Key {
 		let kind = Kind::from_i32(kind).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
 
 		match kind {
-			Kind::PermissionCapture => {
+			Kind::PermissionCaptureQueue => {
 				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				Ok((input, Key::PermissionCapture { id, partition }))
+				let (input, resource): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let resource = tg::Id::from_slice(&resource)
+					.map_err(|_| fdbt::PackError::Message("invalid capture resource".into()))?;
+				Ok((
+					input,
+					Key::PermissionCaptureQueue {
+						partition,
+						resource,
+					},
+				))
+			},
+			Kind::PermissionCapture | Kind::PermissionCaptureSubject => {
+				let (input, first): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, second): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let first = tg::Id::from_slice(&first)
+					.map_err(|_| fdbt::PackError::Message("invalid capture id".into()))?;
+				let second = tg::Id::from_slice(&second)
+					.map_err(|_| fdbt::PackError::Message("invalid capture id".into()))?;
+				let key = if kind == Kind::PermissionCapture {
+					Key::PermissionCapture {
+						resource: first,
+						subject: second,
+					}
+				} else {
+					Key::PermissionCaptureSubject {
+						subject: first,
+						resource: second,
+					}
+				};
+				Ok((input, key))
 			},
 			Kind::DelegationSubject => {
 				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;

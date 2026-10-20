@@ -9,14 +9,11 @@ pub struct Arg {
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum Item {
-	#[tangram_serialize(id = 25)]
-	DeleteDelegations(tg::authorization::Subject),
-
 	#[tangram_serialize(id = 22)]
 	DeleteCheckout(tg::Id),
 
-	#[tangram_serialize(id = 0)]
-	DeletePermission(crate::permission::delete::Arg),
+	#[tangram_serialize(id = 25)]
+	DeleteDelegations(tg::authorization::Subject),
 
 	#[tangram_serialize(id = 1)]
 	DeleteGroup(tg::group::Id),
@@ -30,6 +27,12 @@ pub enum Item {
 	#[tangram_serialize(id = 4)]
 	DeleteOrganizationMember(crate::organization::member::delete::Arg),
 
+	#[tangram_serialize(id = 0)]
+	DeletePermission(crate::permission::delete::Arg),
+
+	#[tangram_serialize(id = 32)]
+	DeletePermissionCapture(crate::permission::capture::put::Arg),
+
 	#[tangram_serialize(id = 5)]
 	DeleteSandbox(tg::sandbox::Id),
 
@@ -42,14 +45,17 @@ pub enum Item {
 	#[tangram_serialize(id = 30)]
 	EnqueuePermissionCapture(crate::permission::capture::enqueue::Arg),
 
+	#[tangram_serialize(id = 20)]
+	PutAccountObject(crate::usage::storage::put::ObjectArg),
+
+	#[tangram_serialize(id = 21)]
+	PutAccountProcess(crate::usage::storage::put::ProcessArg),
+
 	#[tangram_serialize(id = 8)]
 	PutCheckout(crate::checkout::put::Arg),
 
 	#[tangram_serialize(id = 24)]
 	PutDelegation(crate::delegation::put::Arg),
-
-	#[tangram_serialize(id = 9)]
-	PutPermission(crate::permission::put::Arg),
 
 	#[tangram_serialize(id = 10)]
 	PutGroup(crate::group::put::Arg),
@@ -66,11 +72,11 @@ pub enum Item {
 	#[tangram_serialize(id = 14)]
 	PutOrganizationMember(crate::organization::member::put::Arg),
 
-	#[tangram_serialize(id = 20)]
-	PutAccountObject(crate::usage::storage::put::ObjectArg),
+	#[tangram_serialize(id = 9)]
+	PutPermission(crate::permission::put::Arg),
 
-	#[tangram_serialize(id = 21)]
-	PutAccountProcess(crate::usage::storage::put::ProcessArg),
+	#[tangram_serialize(id = 31)]
+	PutPermissionCapture(crate::permission::capture::put::Arg),
 
 	#[tangram_serialize(id = 15)]
 	PutProcess(crate::process::put::Arg),

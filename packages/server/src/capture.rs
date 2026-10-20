@@ -140,15 +140,23 @@ impl Session {
 			resource.options.tokens = tg::authorization::Tokens::with_authorization(tokens);
 			pending.push(resource);
 		}
-		if !pending.is_empty() {
-			let arg = tangram_index::permission::capture::enqueue::Arg {
-				id: uuid::Uuid::now_v7().as_bytes().to_vec(),
-				principal,
-				resource,
-				roots: pending,
-				version,
+		let captures =
+			pending
+				.into_iter()
+				.map(move |root| tangram_index::permission::capture::put::Arg {
+					principal: principal.clone(),
+					resource: root,
+					subject: resource.clone(),
+					version: version.clone(),
+				});
+		for capture in captures {
+			let enqueue = tangram_index::permission::capture::enqueue::Arg {
+				resource: capture.resource.node.clone(),
 			};
-			items.push(tangram_index::batch::Item::EnqueuePermissionCapture(arg));
+			items.push(tangram_index::batch::Item::PutPermissionCapture(capture));
+			items.push(tangram_index::batch::Item::EnqueuePermissionCapture(
+				enqueue,
+			));
 		}
 
 		Ok(items)
@@ -157,16 +165,7 @@ impl Session {
 	pub(crate) fn permission_capture_permissions(
 		resource: &tg::Id,
 	) -> tg::Result<tg::authorization::permission::Set> {
-		if resource.kind().is_object() {
-			let mut permissions = tg::authorization::permission::object::Set::NODE;
-			permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
-			return Ok(tg::authorization::permission::Set::Object(permissions));
-		}
-		if resource.kind() == tg::id::Kind::Process {
-			let mut permissions = tg::authorization::permission::process::Set::all();
-			permissions.remove(tg::authorization::permission::process::Set::PARENT);
-			return Ok(tg::authorization::permission::Set::Process(permissions));
-		}
-		Err(tg::error!("invalid permission capture resource"))
+		let permissions = tangram_index::permission::capture::requested_permissions(resource)?;
+		Ok(permissions)
 	}
 }

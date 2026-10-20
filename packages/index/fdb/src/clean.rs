@@ -910,6 +910,14 @@ impl Index {
 		id: &tg::process::Id,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		crate::propagate!(
+			Self::delete_permission_captures_for_subject_with_transaction(
+				txn,
+				subspace,
+				&id.clone().into()
+			)
+			.await
+		);
 		let resource = id.clone().into();
 		crate::propagate!(
 			Self::delete_materialized_permissions_for_resource(

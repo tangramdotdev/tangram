@@ -34,8 +34,11 @@ tg --url $remote.url --token $root_token index
 failure (tg --url $remote.url --token $bob.token get --bytes $directory | complete) "the directory must not be readable before it is pushed."
 
 # Push the directory later, then expire the sync permissions.
+let written = tg --url $remote.url --token $root_token checkpoint watch permission_capture.written --params $params | from json | get watch
 tg --url $local.url push $directory | ignore
 tg --url $remote.url --token $root_token index
+timeout 30s tg --url $remote.url --token $root_token checkpoint wait permission_capture.written $written 0 | ignore
+tg --url $remote.url --token $root_token checkpoint unwatch permission_capture.written $written
 advance_time $remote 2min
 tg --url $remote.url --token $root_token clean
 tg --url $remote.url --token $root_token index

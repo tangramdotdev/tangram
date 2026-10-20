@@ -44,6 +44,14 @@ impl Index {
 			.await
 		);
 		crate::propagate!(
+			Self::delete_permission_captures_for_subject_with_transaction(
+				txn,
+				subspace,
+				&id.clone().into()
+			)
+			.await
+		);
+		crate::propagate!(
 			Self::delete_delegations_for_subject_with_transaction(
 				txn,
 				subspace,

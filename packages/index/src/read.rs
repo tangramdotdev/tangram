@@ -5,6 +5,9 @@ pub type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 pub type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 
 pub enum Request {
+	GetPermissionCaptures {
+		resource: tg::Id,
+	},
 	ContainsIds {
 		ids: Vec<tg::Id>,
 	},
@@ -111,6 +114,7 @@ pub enum Request {
 }
 
 pub enum Response {
+	GetPermissionCaptures(Vec<crate::permission::capture::put::Arg>),
 	ContainsIds(Vec<bool>),
 	GetIndexers(Vec<crate::indexer::Indexer>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),

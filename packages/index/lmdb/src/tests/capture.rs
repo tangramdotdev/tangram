@@ -2,26 +2,40 @@ use {
 	super::new_index,
 	crate::{Config, Index},
 	tangram_client::prelude::*,
-	tangram_index::permission::capture::enqueue,
+	tangram_index::permission::capture::{enqueue, put},
 };
 
 #[tokio::test]
-async fn permission_capture_reads_are_bounded_and_leave_entries_until_completed() {
+async fn permission_capture_queue_coalesces_and_preserves_new_attempts() {
 	let (_directory, index) = new_index();
-	for byte in 1..=3 {
-		let mut arg = arg(
-			(tg::process::Id::new().into(), None),
-			vec![root(object_id(&[byte]))],
-		);
-		arg.id = vec![byte; 16];
-		enqueue(&index, arg).await;
-	}
+	let resource = object_id(b"queued").into();
+	let arg = enqueue::Arg { resource };
+	index.enqueue_permission_capture(arg.clone()).await.unwrap();
+	let first = index
+		.permission_capture_batch(1, 0, 1)
+		.await
+		.unwrap()
+		.pop()
+		.unwrap();
+	index.enqueue_permission_capture(arg.clone()).await.unwrap();
+	index.complete_permission_capture(&first).await.unwrap();
+	let second = index.permission_capture_batch(8, 0, 1).await.unwrap();
+	assert_eq!(second.len(), 1);
+	assert_ne!(second[0].attempt, first.attempt);
+	index.complete_permission_capture(&second[0]).await.unwrap();
 	assert!(
 		index
-			.permission_capture_batch(8, 1, 2)
+			.permission_capture_batch(8, 0, 1)
 			.await
 			.unwrap()
 			.is_empty()
+	);
+	// A stale completion must also leave an attempt enqueued after deletion intact.
+	index.enqueue_permission_capture(arg).await.unwrap();
+	index.complete_permission_capture(&second[0]).await.unwrap();
+	assert_eq!(
+		index.permission_capture_batch(8, 0, 1).await.unwrap().len(),
+		1
 	);
 	assert!(
 		index
@@ -30,97 +44,57 @@ async fn permission_capture_reads_are_bounded_and_leave_entries_until_completed(
 			.unwrap()
 			.is_empty()
 	);
-	let first = index.permission_capture_batch(2, 0, 1).await.unwrap();
-	let second = index.permission_capture_batch(2, 0, 1).await.unwrap();
-	assert_eq!(first.len(), 2);
-	assert_eq!(
-		first.iter().map(|entry| &entry.arg.id).collect::<Vec<_>>(),
-		second.iter().map(|entry| &entry.arg.id).collect::<Vec<_>>()
-	);
-	assert!(first.iter().all(|entry| entry.partition == 0));
-	for entry in &first {
-		index.complete_permission_capture(entry).await.unwrap();
-	}
-	for entry in &first {
-		index.complete_permission_capture(entry).await.unwrap();
-	}
-	let remaining = index.permission_capture_batch(8, 0, 1).await.unwrap();
-	assert_eq!(remaining.len(), 1);
-	assert_eq!(remaining[0].arg.id, vec![3; 16]);
-	for entry in &remaining {
-		index.complete_permission_capture(entry).await.unwrap();
-	}
 	assert!(
 		index
-			.permission_capture_batch(8, 0, 1)
+			.permission_capture_batch(8, 1, 2)
 			.await
 			.unwrap()
 			.is_empty()
 	);
-	let transaction = index.env.read_txn().unwrap();
-	let prefix = index
-		.subspace
-		.pack(&(crate::Kind::PermissionCapture as i32,));
-	assert_eq!(
-		index.db.prefix_iter(&transaction, &prefix).unwrap().count(),
-		0
-	);
 }
 
 #[tokio::test]
-async fn permission_capture_retries_failed_entries_with_new_arrivals() {
+async fn permission_capture_records_preserve_sources_and_conditional_deletion() {
 	let (_directory, index) = new_index();
-	for byte in 1..=2 {
-		let mut arg = arg(
-			(tg::process::Id::new().into(), None),
-			vec![root(object_id(&[byte]))],
-		);
-		arg.id = vec![byte; 16];
-		enqueue(&index, arg).await;
-	}
-	let entries = index.permission_capture_batch(2, 0, 1).await.unwrap();
-	assert_eq!(entries.len(), 2);
-	index
-		.complete_permission_capture(&entries[1])
+	let object = object_id(b"contexts");
+	let mut first = arg(
+		(tg::process::Id::new().into(), None),
+		vec![root(object.clone())],
+	);
+	first.resource.options.tokens = tokens(&object, "first");
+	let mut second = first.clone();
+	second.principal = tg::Principal::Anonymous;
+	enqueue(&index, first.clone()).await;
+	enqueue(&index, second.clone()).await;
+	enqueue(&index, first.clone()).await;
+	let records = index
+		.get_permission_captures(&object.clone().into())
 		.await
 		.unwrap();
-	for byte in 3..=5 {
-		let mut arg = arg(
-			(tg::process::Id::new().into(), None),
-			vec![root(object_id(&[byte]))],
-		);
-		arg.id = vec![byte; 16];
-		enqueue(&index, arg).await;
-		let retry = index.permission_capture_batch(2, 0, 1).await.unwrap();
-		assert_eq!(retry.len(), 2);
-		assert_eq!(retry[0].arg.id, entries[0].arg.id);
-		assert_eq!(retry[1].arg.id, vec![byte; 16]);
-		index.complete_permission_capture(&retry[1]).await.unwrap();
-	}
+	assert_eq!(records.len(), 2);
+	assert_eq!(
+		records[0].resource.options.tokens,
+		first.resource.options.tokens
+	);
+	let batch = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::DeletePermissionCapture(first)],
+	};
+	index.batch(batch).await.unwrap().unwrap();
+	let records = index.get_permission_captures(&object.into()).await.unwrap();
+	assert_eq!(records.len(), 1);
+	assert_eq!(records[0].principal, second.principal);
 }
 
 #[tokio::test]
-async fn restarting_permission_capture_retains_original_roots_and_partial_permissions() {
+async fn restarting_permission_capture_retains_context_and_queue() {
 	let (directory, index) = new_index();
-	let first = object_id(b"partial");
-	let second = object_id(b"pending");
-	let process = tg::process::Id::new();
-	let mut first_root = root(first.clone());
-	first_root.options.tokens = tokens(&first, "first");
-	let arg = arg(
-		(process.clone().into(), None),
-		vec![first_root, root(second.clone())],
+	let object = object_id(b"restart");
+	let mut capture = arg(
+		(tg::process::Id::new().into(), None),
+		vec![root(object.clone())],
 	);
-	enqueue(&index, arg.clone()).await;
-	let entries = index.permission_capture_batch(1, 0, 1).await.unwrap();
-	assert_eq!(entries.len(), 1);
-	let write = permission_args(
-		0,
-		(arg.resource.clone(), arg.version.clone()),
-		vec![(first.clone().into(), node())],
-	);
-	write_permissions(&index, write.clone()).await;
-	write_permissions(&index, write).await;
+	capture.resource.options.tokens = tokens(&object, "first");
+	enqueue(&index, capture.clone()).await;
 	drop(index);
 	let config = Config {
 		map_size: 1 << 30,
@@ -139,31 +113,30 @@ async fn restarting_permission_capture_retains_original_roots_and_partial_permis
 		write_operation_batch_size: 1,
 	};
 	let index = Index::new(&config).unwrap();
-	let entries = index.permission_capture_batch(1, 0, 1).await.unwrap();
-	assert_eq!(entries[0].arg.roots.len(), 2);
+	let records = index
+		.get_permission_captures(&object.clone().into())
+		.await
+		.unwrap();
+	assert_eq!(records.len(), 1);
 	assert_eq!(
-		entries[0].arg.roots[0].options.tokens,
-		arg.roots[0].options.tokens
+		records[0].resource.options.tokens,
+		capture.resource.options.tokens
 	);
-	let subject = tg::authorization::Subject::Process(process);
-	assert_eq!(permissions(&index, &first, &subject).len(), 1);
-	assert_eq!(permissions(&index, &second, &subject).len(), 0);
-	let write = permission_args(
-		0,
-		(arg.resource.clone(), arg.version.clone()),
-		vec![(second.clone().into(), node())],
-	);
-	write_permissions(&index, write).await;
-	for entry in &entries {
-		index.complete_permission_capture(entry).await.unwrap();
-	}
-	assert_eq!(permissions(&index, &second, &subject).len(), 1);
-	assert!(
+	let entry = index
+		.permission_capture_batch(1, 0, 1)
+		.await
+		.unwrap()
+		.pop()
+		.unwrap();
+	assert_eq!(entry.resource, tg::Id::from(object));
+	index.complete_permission_capture(&entry).await.unwrap();
+	assert_eq!(
 		index
-			.permission_capture_batch(1, 0, 1)
+			.get_permission_captures(&entry.resource)
 			.await
 			.unwrap()
-			.is_empty()
+			.len(),
+		1
 	);
 }
 
@@ -195,7 +168,7 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 	let batch = tangram_index::batch::Arg {
 		items: vec![
 			tangram_index::batch::Item::PutDelegation(delegation.clone()),
-			tangram_index::batch::Item::EnqueuePermissionCapture(arg.clone()),
+			tangram_index::batch::Item::PutPermissionCapture(arg.clone()),
 		],
 	};
 	index.batch(batch).await.unwrap().unwrap();
@@ -252,12 +225,12 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 	for entry in &entries {
 		index.complete_permission_capture(entry).await.unwrap();
 	}
-	assert!(
+	assert_eq!(
 		index
-			.permission_capture_batch(8, 0, 1)
+			.get_permission_captures(&object.clone().into())
 			.await
-			.unwrap()
-			.is_empty()
+			.unwrap(),
+		[]
 	);
 	let transaction = index.env.read_txn().unwrap();
 	let prefix = Index::pack(
@@ -474,19 +447,30 @@ fn root(object: tg::object::Id) -> tg::Referent<tg::Id> {
 	tg::Referent::with_node(object.into())
 }
 
-fn arg(destination: (tg::Id, Option<String>), roots: Vec<tg::Referent<tg::Id>>) -> enqueue::Arg {
-	let (resource, version) = destination;
-	enqueue::Arg {
-		id: vec![1; 16],
+fn arg(destination: (tg::Id, Option<String>), roots: Vec<tg::Referent<tg::Id>>) -> put::Arg {
+	let (subject, version) = destination;
+	put::Arg {
 		principal: tg::Principal::Root,
-		resource,
-		roots,
+		resource: roots.into_iter().next().unwrap(),
+		subject,
 		version,
 	}
 }
 
-async fn enqueue(index: &Index, arg: enqueue::Arg) {
-	index.enqueue_permission_capture(arg).await.unwrap();
+async fn enqueue(index: &Index, arg: put::Arg) {
+	let mut items = vec![tangram_index::batch::Item::PutPermissionCapture(
+		arg.clone(),
+	)];
+	for root in std::iter::once(arg.resource) {
+		let enqueue = enqueue::Arg {
+			resource: root.node,
+		};
+		items.push(tangram_index::batch::Item::EnqueuePermissionCapture(
+			enqueue,
+		));
+	}
+	let batch = tangram_index::batch::Arg { items };
+	index.batch(batch).await.unwrap().unwrap();
 }
 
 fn permissions(
@@ -523,4 +507,36 @@ fn tokens(object: &tg::object::Id, name: &str) -> tg::authorization::Tokens {
 	};
 	let token = tg::authorization::Token::sign(body, &key).unwrap();
 	tg::authorization::Tokens::with_authorization([token])
+}
+
+#[tokio::test]
+async fn terminal_capture_removes_all_contexts_and_the_reverse_key() {
+	let (_directory, index) = new_index();
+	let object = object_id(b"terminal");
+	let process = tg::process::Id::new();
+	let capture = arg((process.clone().into(), None), vec![root(object.clone())]);
+	enqueue(&index, capture.clone()).await;
+	let mut other = capture.clone();
+	other.principal = tg::Principal::Anonymous;
+	enqueue(&index, other).await;
+	let writes = permission_args(
+		0,
+		(process.clone().into(), None),
+		vec![(object.clone().into(), subtree())],
+	);
+	write_permissions(&index, writes).await;
+	enqueue(&index, capture).await;
+	assert_eq!(
+		index.get_permission_captures(&object.into()).await.unwrap(),
+		[]
+	);
+	let transaction = index.env.read_txn().unwrap();
+	let prefix = index.subspace.pack(&(
+		crate::Kind::PermissionCaptureSubject as i32,
+		tg::Id::from(process).to_bytes().as_ref(),
+	));
+	assert_eq!(
+		index.db.prefix_iter(&transaction, &prefix).unwrap().count(),
+		0
+	);
 }

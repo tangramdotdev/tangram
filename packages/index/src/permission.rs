@@ -43,6 +43,11 @@ pub fn is_process_direct(
 }
 
 pub trait Index {
+	fn get_permission_captures(
+		&self,
+		resource: &tg::Id,
+	) -> impl Future<Output = tg::Result<Vec<crate::permission::capture::put::Arg>>> + Send;
+
 	fn enqueue_permission_capture(
 		&self,
 		arg: crate::permission::capture::enqueue::Arg,
