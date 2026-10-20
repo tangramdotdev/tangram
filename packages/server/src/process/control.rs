@@ -770,6 +770,12 @@ impl Session {
 		token: &str,
 		principal: tg::Principal,
 	) -> tg::Result<()> {
+		// Accept any token from the root, since the root may act as any principal.
+		if matches!(self.context.principal, tg::Principal::Root) {
+			return Ok(());
+		}
+
+		// Authenticate the token and require it to authenticate as the principal.
 		let authentication = self
 			.server
 			.authenticate(self.context.origin, Some(token))

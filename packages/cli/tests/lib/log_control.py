@@ -18,6 +18,9 @@ for key in ("children", "error", "exit", "finished_at", "output"):
 data["status"] = "started"
 lease = "06d0000001r010000000000000"
 
+# Name the parent in a shortcut proof, whose tokens the server does not check for the root.
+shortcut = {"parent": {"id": parent, "token": ""}, "sandbox": {"token": ""}}
+
 
 def open_stream(path, arg, token=None, messages=()):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -156,7 +159,7 @@ def early_finish():
         ("request", {"id": request_id, "arg": finish}),
     ]
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        pending = executor.submit(connect, {"parent": parent, "lease": lease, "data": data}, None, messages)
+        pending = executor.submit(connect, {"shortcut": shortcut, "lease": lease, "data": data}, None, messages)
         try:
             # The request body reaches the server before the header is returned.
             for name in watches:
@@ -194,7 +197,7 @@ def early_finish():
 
 
 def reconnect():
-    sock, response, output = connect({"parent": parent, "lease": lease, "data": data})
+    sock, response, output = connect({"shortcut": shortcut, "lease": lease, "data": data})
     id, token = output["process"]["node"], output["token"]
     arg = {"id": id, "lease": lease}
     first = chunk("stdout", 0, b"hello\n")
@@ -231,7 +234,7 @@ def reconnect():
 def reordered():
     command = [tangram, "--url", url]
     for last_stream in ("stdout", "stderr"):
-        sock, response, output = connect({"parent": parent, "lease": lease, "data": data})
+        sock, response, output = connect({"shortcut": shortcut, "lease": lease, "data": data})
         id, token = output["process"]["node"], output["token"]
         reader = None
         try:
@@ -290,7 +293,7 @@ def reordered():
 
 def growing():
     for added in (46, 96):
-        sock, response, output = connect({"parent": parent, "lease": lease, "data": data})
+        sock, response, output = connect({"shortcut": shortcut, "lease": lease, "data": data})
         id, token = output["process"]["node"], output["token"]
         write(id, token, chunk("stdout", 0, b"abcd"))
         reader = open_stream(f"/processes/{id}/stdio/read", {"streams": "stdout", "position": "end.96", "length": -99, "size": 1})
