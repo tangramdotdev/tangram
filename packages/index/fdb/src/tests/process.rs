@@ -264,3 +264,90 @@ fn a_zero_process_data_fragment_size_is_rejected() {
 	};
 	assert!(Index::validate_options(&options).is_err());
 }
+
+async fn count_delegations(index: &Index, subject: &tg::authorization::Subject) -> usize {
+	crate::run(&index.database, async |txn| {
+		let prefix = Index::pack(
+			&index.subspace,
+			&(
+				Kind::DelegationSubject.to_i32().unwrap(),
+				subject.to_string(),
+			),
+		);
+		let range = foundationdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix));
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::retry!(result);
+		Ok(ControlFlow::Break(entries.len()))
+	})
+	.await
+	.unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
+async fn a_finished_process_accepts_only_the_children_that_it_lists() {
+	super::run(&options(), async |index| {
+		let parent = tg::process::Id::new();
+		let listed = tg::process::Id::new();
+		let unlisted = tg::process::Id::new();
+
+		// Finish the parent with a list of children that includes only the listed child.
+		let mut arg = process_arg(
+			&parent,
+			process_data(tg::process::Status::Finished, String::new()),
+		);
+		arg.children = Some(vec![tg::process::data::Child {
+			cached: false,
+			process: tg::Referent::with_node(listed.clone()),
+		}]);
+		put_process(index, arg).await;
+
+		// Start both children with the parent, and delegate the parent's authority to each.
+		for child in [&listed, &unlisted] {
+			let mut arg = process_arg(
+				child,
+				process_data(tg::process::Status::Started, String::new()),
+			);
+			arg.parent = Some(parent.clone());
+			let delegation = tangram_index::delegation::put::Arg {
+				expires_at: i64::MAX,
+				resource: tg::command::Id::new(b"command").into(),
+				source: tg::authorization::Subject::Process(parent.clone()),
+				subject: tg::authorization::Subject::Process(child.clone()),
+				version: None,
+			};
+			let arg = tangram_index::batch::Arg {
+				items: vec![
+					tangram_index::batch::Item::PutProcess(arg),
+					tangram_index::batch::Item::PutDelegation(delegation),
+				],
+			};
+			index.batch(arg).await.unwrap().unwrap();
+		}
+
+		// Verify that the parent lists only the listed child, and that only the listed child received the parent's authority.
+		let children = index
+			.try_get_process_children(&parent, std::io::SeekFrom::Start(0), 10)
+			.await
+			.unwrap()
+			.unwrap();
+		let children = children
+			.into_iter()
+			.map(|child| child.process.node)
+			.collect::<Vec<_>>();
+		assert_eq!(children, vec![listed.clone()]);
+		let subject = tg::authorization::Subject::Process(listed.clone());
+		assert_eq!(count_delegations(index, &subject).await, 1);
+		let subject = tg::authorization::Subject::Process(unlisted.clone());
+		assert_eq!(count_delegations(index, &subject).await, 0);
+		let processes = index
+			.try_get_processes(std::slice::from_ref(&unlisted))
+			.await
+			.unwrap();
+		assert!(processes[0].is_some());
+	})
+	.await;
+}

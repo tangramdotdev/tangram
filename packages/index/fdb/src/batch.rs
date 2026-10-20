@@ -28,6 +28,22 @@ impl Index {
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
 		for item in items {
+			// Skip a grant from a finished process to a process that it does not list as a child.
+			if let Some((source, destination)) = item.process_grant() {
+				let accepts = crate::propagate!(
+					Self::try_get_process_accepts_child_with_transaction(
+						txn,
+						subspace,
+						&source,
+						&destination
+					)
+					.await
+				);
+				if accepts == Some(false) {
+					continue;
+				}
+			}
+
 			match item {
 				tangram_index::batch::Item::DeleteDelegations(subject) => {
 					crate::propagate!(

@@ -1356,7 +1356,11 @@ impl Session {
 			.await
 			.map_err(|_| tg::error!("the process connection failed before initialization"))?;
 
-		// Publish completion and capture permissions independently of the output transfer.
+		// Publish completion, which records the children that the finished data lists.
+		self.publish_finished_process(&id, &processes, &mut data)
+			.await?;
+
+		// Index completion and capture permissions independently of the output transfer.
 		let arg = IndexFinishedProcessTaskArg {
 			data: data.clone(),
 			id: id.clone(),
@@ -1382,8 +1386,6 @@ impl Session {
 			}
 			.in_current_span()
 		});
-		self.publish_finished_process(&id, &processes, &data)
-			.await?;
 		let index_task = Some(index_task);
 
 		// Retain the finish request across retries and reconnects without waiting for its response.
@@ -1598,7 +1600,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		processes: &crate::process::Processes,
-		data: &tg::process::Data,
+		data: &mut tg::process::Data,
 	) -> tg::Result<()> {
 		let mut process_state = processes
 			.get_mut(id)
@@ -1611,6 +1613,9 @@ impl Session {
 		process_state.data.log = data.log.clone();
 		process_state.data.output = data.output.clone();
 		process_state.data.status = tg::process::Status::Finished;
+
+		// List the children while holding the lock that finishes the process, so that every child that was added before the process finished is listed.
+		data.children = process_state.data().children;
 		process_state.changed.send_replace(());
 		drop(process_state);
 		crate::checkpoint!(self.server, "runner.process.finished", process = %id).await;

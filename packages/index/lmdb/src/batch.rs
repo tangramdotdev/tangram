@@ -27,6 +27,19 @@ impl Index {
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
 		for item in &arg.items {
+			// Skip a grant from a finished process to a process that it does not list as a child.
+			if let Some((source, destination)) = item.process_grant()
+				&& Self::try_get_process_accepts_child_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&source,
+					&destination,
+				)? == Some(false)
+			{
+				continue;
+			}
+
 			match item {
 				tangram_index::batch::Item::DeleteDelegations(subject) => {
 					Self::delete_delegations_for_subject_with_transaction(
