@@ -717,25 +717,25 @@ impl fdbt::TupleUnpack<'_> for Key {
 					},
 				))
 			},
-			Kind::PermissionCapture | Kind::PermissionCaptureSubject => {
-				let (input, first): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, second): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let first = tg::Id::from_slice(&first)
-					.map_err(|_| fdbt::PackError::Message("invalid capture id".into()))?;
-				let second = tg::Id::from_slice(&second)
-					.map_err(|_| fdbt::PackError::Message("invalid capture id".into()))?;
-				let key = if kind == Kind::PermissionCapture {
-					Key::PermissionCapture {
-						resource: first,
-						subject: second,
-					}
-				} else {
-					Key::PermissionCaptureSubject {
-						subject: first,
-						resource: second,
-					}
-				};
-				Ok((input, key))
+			Kind::PermissionCapture => {
+				let (input, resource): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, subject): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let resource = tg::Id::from_slice(&resource)
+					.map_err(|_| fdbt::PackError::Message("invalid capture resource".into()))?;
+				let subject = tg::Id::from_slice(&subject)
+					.map_err(|_| fdbt::PackError::Message("invalid capture subject".into()))?;
+				Ok((input, Key::PermissionCapture { resource, subject }))
+			},
+			Kind::PermissionCaptureSubject => {
+				let (input, subject): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, resource): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let subject = tg::Id::from_slice(&subject)
+					.map_err(|_| fdbt::PackError::Message("invalid capture subject".into()))?;
+				let resource = tg::Id::from_slice(&resource)
+					.map_err(|_| fdbt::PackError::Message("invalid capture resource".into()))?;
+				Ok((input, Key::PermissionCaptureSubject { resource, subject }))
 			},
 			Kind::DelegationSubject => {
 				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;

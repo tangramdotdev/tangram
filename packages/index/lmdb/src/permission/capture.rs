@@ -1,11 +1,12 @@
-use {crate::Db, heed as lmdb};
 use {
-	crate::{Index, Key, Kind},
-	foundationdb_tuple as fdbt,
+	crate::{Db, Index, Key, Kind},
+	foundationdb_tuple as fdbt, heed as lmdb,
 	num::ToPrimitive as _,
+	std::ops::Bound,
 	tangram_client::prelude::*,
 	tangram_index::permission::capture::{Entry, enqueue, put},
 };
+
 impl Index {
 	pub(crate) fn enqueue_permission_capture_with_transaction(
 		db: &Db,
@@ -52,8 +53,8 @@ impl Index {
 			partition_end,
 		));
 		let range = (
-			std::ops::Bound::Included(begin.as_slice()),
-			std::ops::Bound::Excluded(end.as_slice()),
+			Bound::Included(begin.as_slice()),
+			Bound::Excluded(end.as_slice()),
 		);
 		let rows = db
 			.range(transaction, &range)
@@ -125,15 +126,11 @@ impl Index {
 		));
 		let rows = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to read captures"))?
-			.map(|row| {
-				row.map(|(key, value)| (key.to_vec(), value.to_vec()))
-					.map_err(|error| tg::error!(!error, "failed to read a capture"))
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.map_err(|error| tg::error!(!error, "failed to read captures"))?;
 		let mut records = Vec::new();
-		for (_, value) in rows {
-			let contexts: Vec<put::Arg> = tangram_serialize::from_slice(&value)
+		for row in rows {
+			let (_, value) = row.map_err(|error| tg::error!(!error, "failed to read a capture"))?;
+			let contexts: Vec<put::Arg> = tangram_serialize::from_slice(value)
 				.map_err(|error| tg::error!(!error, "failed to decode captures"))?;
 			records.extend(contexts);
 		}
@@ -290,15 +287,15 @@ impl Index {
 			Kind::PermissionCaptureSubject.to_i32().unwrap(),
 			subject.to_bytes().as_ref(),
 		));
-		let rows = db
+		let keys = db
 			.prefix_iter(transaction, &prefix)
 			.map_err(|error| tg::error!(!error, "failed to read captures"))?
 			.map(|row| {
-				row.map(|(key, value)| (key.to_vec(), value.to_vec()))
+				row.map(|(key, _)| key.to_vec())
 					.map_err(|error| tg::error!(!error, "failed to read a capture"))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		for (key, _) in rows {
+		for key in keys {
 			let Key::PermissionCaptureSubject { resource, subject } = Self::unpack(subspace, &key)
 				.map_err(|error| tg::error!(!error, "failed to decode a capture key"))?
 			else {

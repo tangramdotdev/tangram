@@ -1,12 +1,13 @@
-use futures::TryStreamExt as _;
 use {
 	crate::{Index, Key, Kind},
-	foundationdb_tuple as fdbt,
+	foundationdb as fdb, foundationdb_tuple as fdbt,
+	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_index::permission::capture::{Entry, enqueue, put},
 };
-use {foundationdb as fdb, std::ops::ControlFlow};
+
 impl Index {
 	pub(crate) async fn enqueue_permission_capture_with_transaction(
 		txn: &fdb::Transaction,
@@ -118,13 +119,10 @@ impl Index {
 			.get_ranges_keyvalues(range, false)
 			.try_collect::<Vec<_>>()
 			.await;
-		let rows = crate::retry!(result)
-			.into_iter()
-			.map(|row| (row.key().to_vec(), row.value().to_vec()))
-			.collect::<Vec<_>>();
+		let rows = crate::retry!(result);
 		let mut records = Vec::new();
-		for (_, value) in rows {
-			let contexts: Vec<put::Arg> = tangram_serialize::from_slice(&value)
+		for row in rows {
+			let contexts: Vec<put::Arg> = tangram_serialize::from_slice(row.value())
 				.map_err(|error| tg::error!(!error, "failed to decode captures"))?;
 			records.extend(contexts);
 		}
@@ -275,11 +273,11 @@ impl Index {
 			.get_ranges_keyvalues(range, false)
 			.try_collect::<Vec<_>>()
 			.await;
-		let rows = crate::retry!(result)
+		let keys = crate::retry!(result)
 			.into_iter()
-			.map(|row| (row.key().to_vec(), row.value().to_vec()))
+			.map(|row| row.key().to_vec())
 			.collect::<Vec<_>>();
-		for (key, _) in rows {
+		for key in keys {
 			let Key::PermissionCaptureSubject { resource, subject } = Self::unpack(subspace, &key)
 				.map_err(|error| tg::error!(!error, "failed to decode a capture key"))?
 			else {

@@ -13,7 +13,8 @@ impl Session {
 			.into_iter()
 			.map(|resource| {
 				let permissions =
-					Self::permission_capture_permissions(&resource.node)?.empty_like();
+					tangram_index::permission::capture::requested_permissions(&resource.node)?
+						.empty_like();
 				Ok((resource, permissions))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
@@ -47,7 +48,8 @@ impl Session {
 		let mut items = Vec::new();
 		let mut pending = Vec::new();
 		for (mut resource, mut proven) in roots {
-			let requested = Self::permission_capture_permissions(&resource.node)?;
+			let requested =
+				tangram_index::permission::capture::requested_permissions(&resource.node)?;
 			let accepted = proven;
 			for permission in requested.iter() {
 				if accepted.iter().any(|proof| proof.implies(permission)) {
@@ -160,12 +162,5 @@ impl Session {
 		}
 
 		Ok(items)
-	}
-
-	pub(crate) fn permission_capture_permissions(
-		resource: &tg::Id,
-	) -> tg::Result<tg::authorization::permission::Set> {
-		let permissions = tangram_index::permission::capture::requested_permissions(resource)?;
-		Ok(permissions)
 	}
 }

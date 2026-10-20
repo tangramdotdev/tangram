@@ -1311,7 +1311,8 @@ impl Session {
 					.get(&message.id)
 					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
 				let mut proven =
-					Self::permission_capture_permissions(&message.target)?.empty_like();
+					tangram_index::permission::capture::requested_permissions(&message.target)?
+						.empty_like();
 				for permission in permissions {
 					proven.insert((*permission).into());
 				}
