@@ -14,7 +14,7 @@ for backend in [builtin bubblewrap] {
         mkdir ($root | path join upper) ($root | path join work)
         let mode = if $pid1 { [--as-pid-1] } else { [] }
         let script = $'printf "%s\n" "$$"; test ! -r "/proc/1/root($secret)"' + '; test "$(cat /proc/sys/kernel/hostname)" = tangram-test'
-        let output = ^tangram sandbox run --backend $backend --unshare-all --hostname tangram-test ...$mode --uid 0 --gid 0 --overlay-src $lower --overlay ($root | path join upper) ($root | path join work) / --ro-bind /usr /usr --ro-bind ('/bin' | path expand) /bin --ro-bind ('/lib' | path expand) /lib --ro-bind ('/lib64' | path expand) /lib64 --proc /proc -- /bin/sh -ec $script | complete
+        let output = ^tangram sandbox run --backend $backend --unshare-all --hostname tangram-test ...$mode --uid 0 --gid 0 --overlay-src $lower --overlay ($root | path join upper) ($root | path join work) / ...(program_binds) --proc /proc -- /bin/sh -ec $script | complete
         success $output
         assert equal ($output.stdout | str trim | into int) (if $pid1 { 1 } else { 2 })
     }

@@ -5,12 +5,13 @@ if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }
 let uid = ^id -u | str trim | into int
 let gid = ^id -g | str trim | into int
 let tangram = which tangram | first | get path
+let program = which 'true' | first | get path
 
 for readonly in [false true] {
     let inner = $env.PWD | path join $'inner-($readonly).json'
     {
         backend: { kind: builtin, gid: $gid, uid: $uid },
-        command: { args: [/bin/true] },
+        command: { args: [$program] },
         options: { cgroup: { name: $'tangram-test-(random uuid)' } },
     } | to json | save $inner
     let outer = $env.PWD | path join $'outer-($readonly).json'

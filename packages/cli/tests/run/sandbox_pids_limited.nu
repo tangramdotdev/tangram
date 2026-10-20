@@ -29,7 +29,7 @@ else:
     print(count, "none")
 '
 let cgroup = $'tangram-test-(random uuid)'
-{ backend: { kind: builtin }, command: { args: [$python -c $script] }, options: { cgroup: { name: $cgroup, pids: 32 } } } | to json | save setup.json
+{ backend: { kind: builtin }, command: { args: [$python -c $script], env: { PATH: ($env.PATH | str join (char esep)) } }, options: { cgroup: { name: $cgroup, pids: 32 } } } | to json | save setup.json
 let output = ^timeout 30s tangram sandbox run --config setup.json | complete
 success $output
 let result = $output.stdout | str trim | split row ' '

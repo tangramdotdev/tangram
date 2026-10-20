@@ -3,6 +3,7 @@ use ../lib/test.nu *
 # CLI, file, and inherited-descriptor inputs preserve the workload's standard streams.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }
 let tangram = which tangram | first | get path
+let program = which 'true' | first | get path
 const helper = path self ../lib/run_config.py
 let script = 'read line; test "$line" = provided; test "$TEST" = "value with spaces"; printf "output\n"; printf "error\n" >&2; exit 7'
 {
@@ -36,5 +37,5 @@ failure (^tangram sandbox run --config unknown.json | complete)
 
 # Reading a configuration larger than a pipe buffer does not block launch.
 let environment = 0..63 | each { |index| { key: $'KEY_($index)', value: ('' | fill --width 4096 --character x) } } | transpose -r -d
-{ backend: { kind: builtin }, command: { args: [/bin/true], env: $environment } } | to json | save large.json
+{ backend: { kind: builtin }, command: { args: [$program], env: $environment } } | to json | save large.json
 success (^python3 $helper $tangram large.json | complete)

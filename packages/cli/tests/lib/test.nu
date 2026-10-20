@@ -188,6 +188,14 @@ export def container_id_maps [] {
 	}
 }
 
+# Get the arguments that bind the host's program and library directories into an empty sandbox root, including the Tangram store when the tests run in a Tangram sandbox.
+export def program_binds [] {
+	[/usr /bin /lib /lib64 /opt/tangram/store]
+		| where { path exists }
+		| each {|path| [--ro-bind ($path | path expand) $path] }
+		| flatten
+}
+
 export def artifact [artifact] {
 	def inner [artifact: any, path: string] {
 		let artifact = if ($artifact | describe) == 'string' {
