@@ -117,8 +117,7 @@ async fn start_requires_a_successful_response_before_resume() {
 			data: serde_json::from_value(value).unwrap(),
 			lease,
 			options: tg::referent::Options::default(),
-			parent: Some(tg::process::Id::new()),
-			sandbox: None,
+			shortcut: None,
 		};
 		let request = ClientRequest {
 			arg: ClientRequestArg::Start(start),
@@ -180,8 +179,7 @@ async fn a_rejected_start_ends_the_connection_and_fails_pending_requests() {
 		data: serde_json::from_value(value).unwrap(),
 		lease: tg::process::Lease::new(),
 		options: tg::referent::Options::default(),
-		parent: Some(tg::process::Id::new()),
-		sandbox: None,
+		shortcut: None,
 	};
 	let start = ClientMessage::Request(ClientRequest {
 		arg: ClientRequestArg::Start(start),

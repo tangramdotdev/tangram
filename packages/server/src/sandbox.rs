@@ -34,7 +34,8 @@ pub struct State {
 	pub capacity: tg::runner::Capacity,
 	pub changed: tokio::sync::watch::Sender<()>,
 	pub(crate) control_sender: control::local::Local,
-	pub data: tg::sandbox::control::Data,
+	pub create: tg::sandbox::create::Arg,
+	pub creator: Option<tg::Principal>,
 	pub id: tg::sandbox::Id,
 	pub location: tg::Location,
 	pub process_ids: IndexMap<tg::process::Id, (), tg::id::BuildHasher>,
@@ -155,10 +156,10 @@ impl State {
 	#[must_use]
 	pub fn data(&self) -> tg::sandbox::get::Output {
 		let id = self.id.clone();
-		let arg = &self.data.arg;
+		let arg = &self.create;
 		let data = tg::sandbox::Data {
 			cpu: arg.cpu,
-			creator: self.data.creator.clone(),
+			creator: self.creator.clone(),
 			hostname: arg.hostname.clone(),
 			id,
 			memory: arg.memory,
@@ -200,7 +201,7 @@ impl State {
 impl Server {
 	pub(crate) fn origin_has_network_access(&self, origin: Origin) -> tg::Result<bool> {
 		let sandbox = self.try_get_request_origin_sandbox(origin)?;
-		let has_network_access = sandbox.is_none_or(|sandbox| sandbox.data.arg.network.is_some());
+		let has_network_access = sandbox.is_none_or(|sandbox| sandbox.create.network.is_some());
 
 		Ok(has_network_access)
 	}

@@ -332,7 +332,7 @@ impl Server {
 		let Some(sandbox) = self.try_get_request_origin_sandbox(origin)? else {
 			return Ok(true);
 		};
-		if sandbox.data.arg.network.is_some() {
+		if sandbox.create.network.is_some() {
 			return Ok(true);
 		}
 		let can_authenticate = match principal {

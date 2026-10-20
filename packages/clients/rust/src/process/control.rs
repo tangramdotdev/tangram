@@ -241,13 +241,43 @@ pub struct StartClientRequestArg {
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub options: tg::referent::Options,
 
+	/// The proof that the runner that starts a process on the shortcut path runs its parent and hosts its sandbox.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
-	pub parent: Option<tg::process::Id>,
+	pub shortcut: Option<Shortcut>,
+}
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
-	pub sandbox: Option<Sandbox>,
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Shortcut {
+	#[tangram_serialize(id = 0)]
+	pub parent: Parent,
+
+	#[tangram_serialize(id = 1)]
+	pub sandbox: Sandbox,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Parent {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::process::Id,
+
+	/// The parent's process token.
+	#[tangram_serialize(id = 1)]
+	pub token: String,
 }
 
 #[derive(
@@ -259,17 +289,37 @@ pub struct StartClientRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct Sandbox {
+	/// The sandbox to create, when the process does not run in an existing sandbox.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub create: Option<SandboxCreate>,
+
+	/// The sandbox's token.
+	#[tangram_serialize(id = 1)]
+	pub token: String,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct SandboxCreate {
 	#[tangram_serialize(id = 0)]
-	pub created_at: i64,
+	pub arg: tg::sandbox::create::Arg,
 
 	#[tangram_serialize(id = 1)]
-	pub data: tg::sandbox::control::Data,
+	pub created_at: i64,
 
-	#[tangram_serialize(id = 2)]
-	pub runner: Option<tg::runner::Id>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
+	pub creator: Option<tg::Principal>,
 
 	#[tangram_serialize(id = 3)]
-	pub token: String,
+	pub runner: Option<tg::runner::Id>,
 }
 
 #[derive(
