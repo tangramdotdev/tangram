@@ -942,11 +942,9 @@ impl Session {
 				shortcut: None,
 			};
 			let arg = tg::process::control::Arg {
-				command_sync: None,
 				id: Some(id.clone()),
 				location: Some(location.clone().into()),
 				mode: tg::process::control::Mode::Start(start),
-				outcome_sync: outcome_sync.clone(),
 			};
 			session
 				.connect_process_control(arg, control_sender)
@@ -1110,11 +1108,9 @@ impl Session {
 		let config = self.server.config.process.control;
 		let control = tg::process::control::Connection::with_input(input, config);
 		let arg = tg::process::control::Arg {
-			command_sync: None,
 			id: None,
 			location: Some(location.into()),
 			mode: tg::process::control::Mode::Wait,
-			outcome_sync: None,
 		};
 		let (header, requests) = self.connect_process_control(arg, control.sender()).await?;
 		requests_sender

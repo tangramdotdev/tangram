@@ -215,8 +215,8 @@ impl Session {
 		} else if local_process_control {
 			None
 		} else {
-			let command = session.prepare_sync(arg.command_sync.take())?;
-			let outcome = session.prepare_sync(arg.outcome_sync.take())?;
+			let command = session.refresh_sync(tg::sync::Id::with_process_command(&id))?;
+			let outcome = session.refresh_sync(tg::sync::Id::with_process_outcome(&id))?;
 			Some(Syncs { command, outcome })
 		};
 		if matches!(arg.mode, tg::process::control::Mode::Wait) {
@@ -619,11 +619,9 @@ impl Session {
 			crate::checkpoint!(session.server, "process.control.start.received", process = %id)
 				.await;
 			let arg = tg::process::control::Arg {
-				command_sync: None,
 				id: Some(id),
 				location,
 				mode: tg::process::control::Mode::Start(start),
-				outcome_sync: None,
 			};
 			let stream = futures::stream::iter(buffered).chain(stream).boxed();
 			let output = session

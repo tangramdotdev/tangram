@@ -298,7 +298,8 @@ impl Session {
 
 		// Give the assignment the outcome sync and the connect's opens, and offer the opens to the connect's readers and writers.
 		let mut process = process;
-		process.outcome_sync = Some(self.prepare_sync(None)?);
+		process.outcome_sync =
+			Some(self.refresh_sync(tg::sync::Id::with_process_outcome(&output.id))?);
 		if let Some(open) = output.open.take() {
 			process.open = open.requests();
 			open.offer();

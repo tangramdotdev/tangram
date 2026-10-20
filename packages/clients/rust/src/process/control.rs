@@ -23,11 +23,6 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-control"
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
-	/// The sync that pushes the process's command objects, which a reconnect reuses.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
-	pub command_sync: Option<tg::Referent<tg::sync::Id>>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::process::Id>,
@@ -38,11 +33,6 @@ pub struct Arg {
 
 	#[tangram_serialize(id = 2)]
 	pub mode: Mode,
-
-	/// The sync that pushes the process's outcome objects, which a reconnect reuses.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
-	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
 }
 
 #[derive(

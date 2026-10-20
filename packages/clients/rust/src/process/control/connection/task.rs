@@ -82,8 +82,6 @@ pub(super) async fn open_stream<I: tg::Instance>(
 	let instance = reconnect(&header);
 	let mut arg = arg;
 	arg.id = Some(header.process.node.clone());
-	arg.command_sync.clone_from(&header.command_sync);
-	arg.outcome_sync.clone_from(&header.outcome_sync);
 	if let Mode::Start(start) = arg.mode {
 		arg.mode = Mode::Resume { lease: start.lease };
 	}
@@ -122,12 +120,10 @@ pub(super) async fn open_stream<I: tg::Instance>(
 						.await
 					{
 						Ok(Some((header, stream))) => {
-							// Store the reconnect header's syncs for the next reconnect, and its outcome sync for the connection's outcome sync watch.
+							// Store the reconnect header's outcome sync for the connection's outcome sync watch.
 							if let Some(sync) = &header.outcome_sync {
 								sender.updates.send(Update::OutcomeSync(sync.clone())).ok();
 							}
-							state.arg.command_sync = header.command_sync;
-							state.arg.outcome_sync = header.outcome_sync;
 							state.stream.replace(stream.boxed());
 							return Some((Ok(tg::control::Event::Reconnect), state));
 						},
@@ -147,12 +143,6 @@ pub(super) async fn open_stream<I: tg::Instance>(
 				match state.stream.as_mut().unwrap().next().await {
 					Some(Ok(event)) => {
 						state.retries.take();
-						if let ServerMessage::Notification(ServerNotification::Sync(notification)) =
-							&event
-						{
-							state.arg.command_sync = Some(notification.command_sync.clone());
-							state.arg.outcome_sync = Some(notification.outcome_sync.clone());
-						}
 						return Some((Ok(tg::control::Event::Message(event)), state));
 					},
 					Some(Err(error)) => {

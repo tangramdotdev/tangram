@@ -1,5 +1,11 @@
 use crate::prelude::*;
 
+/// The key derivation context for the sync of a process's command objects.
+const PROCESS_COMMAND_CONTEXT: &str = "tangram process command sync id v1";
+
+/// The key derivation context for the sync of a process's outcome objects.
+const PROCESS_OUTCOME_CONTEXT: &str = "tangram process outcome sync id v1";
+
 #[derive(
 	Clone,
 	Eq,
@@ -24,6 +30,20 @@ impl tg::sync::Id {
 	#[must_use]
 	pub fn new() -> Self {
 		Self(tg::Id::new_uuidv7(tg::id::Kind::Sync))
+	}
+
+	/// Derive the ID of the sync of a process's command objects, so that every server computes the same sync for the process.
+	#[must_use]
+	pub fn with_process_command(process: &tg::process::Id) -> Self {
+		let hash = blake3::derive_key(PROCESS_COMMAND_CONTEXT, &process.to_bytes());
+		Self(tg::Id::new(tg::id::Kind::Sync, tg::id::Body::Blake3(hash)))
+	}
+
+	/// Derive the ID of the sync of a process's outcome objects, so that every server computes the same sync for the process.
+	#[must_use]
+	pub fn with_process_outcome(process: &tg::process::Id) -> Self {
+		let hash = blake3::derive_key(PROCESS_OUTCOME_CONTEXT, &process.to_bytes());
+		Self(tg::Id::new(tg::id::Kind::Sync, tg::id::Body::Blake3(hash)))
 	}
 
 	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {
