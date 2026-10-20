@@ -114,9 +114,15 @@ impl Index {
 			&& existing
 				.as_ref()
 				.is_none_or(|existing| !existing.set.output_objects);
-		// A child relationship belongs to the indexed parent.
+		// A child relationship belongs to the indexed parent, which accepts it unless the parent finished without listing it.
 		let parent_changed = if let Some(parent) = &arg.parent {
-			Self::try_get_process_with_transaction(db, subspace, transaction, parent)?.is_some()
+			Self::try_get_process_accepts_child_with_transaction(
+				db,
+				subspace,
+				transaction,
+				parent,
+				id,
+			)? == Some(true)
 		} else {
 			false
 		};
@@ -430,6 +436,35 @@ impl Index {
 		}
 
 		Ok(Ok(()))
+	}
+
+	/// Get whether a process accepts a child, which it does unless it finished without listing the child, or `None` if the process is not indexed.
+	pub(crate) fn try_get_process_accepts_child_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		parent: &tg::process::Id,
+		child: &tg::process::Id,
+	) -> tg::Result<Option<bool>> {
+		let Some(process) =
+			Self::try_get_process_with_transaction(db, subspace, transaction, parent)?
+		else {
+			return Ok(None);
+		};
+		if !process.set.children {
+			return Ok(Some(true));
+		}
+		let key = Key::Process(crate::process::Key::ChildProcess {
+			child: child.clone(),
+			parent: parent.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		let listed = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to get the child process"))?
+			.is_some();
+
+		Ok(Some(listed))
 	}
 
 	pub(crate) fn put_processes_with_transaction(

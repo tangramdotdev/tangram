@@ -140,10 +140,12 @@ impl Index {
 			&& existing
 				.as_ref()
 				.is_none_or(|existing| !existing.set.output_objects);
-		// A child relationship belongs to the indexed parent.
+		// A child relationship belongs to the indexed parent, which accepts it unless the parent finished without listing it.
 		let parent_changed = if let Some(parent) = &arg.parent {
-			crate::propagate!(Self::try_get_process_with_transaction(txn, subspace, parent).await)
-				.is_some()
+			crate::propagate!(
+				Self::try_get_process_accepts_child_with_transaction(txn, subspace, parent, id)
+					.await
+			) == Some(true)
 		} else {
 			false
 		};
@@ -460,6 +462,32 @@ impl Index {
 		}
 
 		Ok(ControlFlow::Break(Ok(())))
+	}
+
+	/// Get whether a process accepts a child, which it does unless it finished without listing the child, or `None` if the process is not indexed.
+	pub(crate) async fn try_get_process_accepts_child_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		parent: &tg::process::Id,
+		child: &tg::process::Id,
+	) -> tg::Result<ControlFlow<Option<bool>, fdb::FdbError>> {
+		let process =
+			crate::propagate!(Self::try_get_process_with_transaction(txn, subspace, parent).await);
+		let Some(process) = process else {
+			return Ok(ControlFlow::Break(None));
+		};
+		if !process.set.children {
+			return Ok(ControlFlow::Break(Some(true)));
+		}
+		let key = Key::Process(crate::process::Key::ChildProcess {
+			child: child.clone(),
+			parent: parent.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let listed = crate::retry!(result).is_some();
+
+		Ok(ControlFlow::Break(Some(listed)))
 	}
 
 	pub(crate) async fn put_processes_with_transaction(
