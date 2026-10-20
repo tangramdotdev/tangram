@@ -32,17 +32,14 @@ impl tg::sync::Id {
 		Self(tg::Id::new_uuidv7(tg::id::Kind::Sync))
 	}
 
-	/// Derive the ID of the sync of a process's command objects, so that every server computes the same sync for the process.
+	/// Derive the ID of one of a process's syncs, so that every server computes the same sync for the process.
 	#[must_use]
-	pub fn with_process_command(process: &tg::process::Id) -> Self {
-		let hash = blake3::derive_key(PROCESS_COMMAND_CONTEXT, &process.to_bytes());
-		Self(tg::Id::new(tg::id::Kind::Sync, tg::id::Body::Blake3(hash)))
-	}
-
-	/// Derive the ID of the sync of a process's outcome objects, so that every server computes the same sync for the process.
-	#[must_use]
-	pub fn with_process_outcome(process: &tg::process::Id) -> Self {
-		let hash = blake3::derive_key(PROCESS_OUTCOME_CONTEXT, &process.to_bytes());
+	pub fn with_process(process: &tg::process::Id, kind: tg::sync::join::Kind) -> Self {
+		let context = match kind {
+			tg::sync::join::Kind::Command => PROCESS_COMMAND_CONTEXT,
+			tg::sync::join::Kind::Outcome => PROCESS_OUTCOME_CONTEXT,
+		};
+		let hash = blake3::derive_key(context, &process.to_bytes());
 		Self(tg::Id::new(tg::id::Kind::Sync, tg::id::Body::Blake3(hash)))
 	}
 

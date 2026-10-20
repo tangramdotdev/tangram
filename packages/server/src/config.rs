@@ -1016,6 +1016,8 @@ pub struct Process {
 
 	pub control_channel_capacity: usize,
 
+	pub control_service: tangram_messenger::service::Options,
+
 	pub default_children_page_size: u64,
 
 	pub default_log_read_size: u64,
@@ -2705,6 +2707,14 @@ impl Default for Process {
 			connect: ProcessConnect::default(),
 			control: tg::process::control::Config::default(),
 			control_channel_capacity: 512,
+			control_service: tangram_messenger::service::Options {
+				attempt_ttl: Duration::from_secs(10),
+				heartbeat_interval: Duration::from_secs(1),
+				idle_timeout: Duration::from_secs(60),
+				recovery_timeout: Duration::from_secs(10),
+				request_timeout: Duration::from_secs(10),
+				retry_interval: Duration::from_secs(1),
+			},
 			default_children_page_size: 256,
 			default_log_read_size: 4096,
 			local_control_channel_capacity: 256,

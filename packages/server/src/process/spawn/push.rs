@@ -16,9 +16,9 @@ impl Session {
 
 		// Push the command objects, associating them with the destination sync before sending the spawn request.
 		let arg = crate::process::PushProcessObjectsArg {
+			join: None,
 			location: location.clone(),
 			nodes,
-			nonce: None,
 			process_command_objects: true,
 			sync: None,
 		};

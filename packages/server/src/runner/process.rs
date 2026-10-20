@@ -88,7 +88,6 @@ struct FinishProcessRunArg {
 	run_task: Task<tg::Result<RunProcessOutcome>>,
 	sandbox: tangram_sandbox::Sandbox,
 	state: tg::process::State,
-	sync: tokio::sync::oneshot::Receiver<Option<tg::Referent<tg::sync::Id>>>,
 }
 
 struct FinishProcessRunOutput {
@@ -301,7 +300,6 @@ impl Session {
 			id,
 			open,
 			options,
-			outcome_sync,
 			parent,
 			token: inner_token,
 		} = process;
@@ -356,8 +354,6 @@ impl Session {
 		let mut control_sender = control.sender();
 
 		// Obtain the shortcut process identity before starting execution.
-		let (sync_sender, sync_receiver) = tokio::sync::oneshot::channel();
-		let mut sync_sender = Some(sync_sender);
 		let (outcome_sync_sender, outcome_sync_receiver) = tokio::sync::oneshot::channel();
 		let mut command_push = None;
 		let (id, inner_token, command_session, connection_header) = match (id, inner_token) {
@@ -462,9 +458,6 @@ impl Session {
 							.in_current_span()
 					}));
 				}
-				if let Some(sender) = sync_sender.take() {
-					sender.send(sync).ok();
-				}
 				control = connection.control;
 				(id, token, Some(command_session), Some(connection.header))
 			},
@@ -474,15 +467,6 @@ impl Session {
 				));
 			},
 		};
-
-		// Use the assignment's outcome sync for a remote process control connection, so that the outcome push does not wait for its header.
-		if connection_header.is_none()
-			&& location.is_remote()
-			&& let Some(sync) = &outcome_sync
-			&& let Some(sender) = sync_sender.take()
-		{
-			sender.send(Some(sync.clone())).ok();
-		}
 
 		tracing::Span::current().record("process", tracing::field::display(&id));
 		tracing::Span::current().record("sandbox", state.sandbox.as_ref().map(ToString::to_string));
@@ -854,7 +838,6 @@ impl Session {
 			run_task,
 			sandbox: sandbox.clone(),
 			state: state.clone(),
-			sync: sync_receiver,
 		};
 		let finish_span = tracing::Span::current();
 		let finish_task = Task::spawn({
@@ -953,9 +936,6 @@ impl Session {
 					requests_sender
 						.send(requests)
 						.map_err(|_| tg::error!("the process control stream was dropped"))?;
-					if let Some(sender) = sync_sender.take() {
-						sender.send(header.outcome_sync.clone()).ok();
-					}
 					Ok(header)
 				})
 		};
@@ -1184,7 +1164,6 @@ impl Session {
 			run_task,
 			sandbox,
 			state,
-			sync,
 		} = arg;
 		let result = run_task
 			.wait()
@@ -1403,7 +1382,6 @@ impl Session {
 
 		// Push the outcome objects concurrently with the finish request, and retain control until the pushes complete.
 		let session = self.clone();
-		let control = control.clone();
 		let mut outcome_task = Task::spawn(move |_| {
 			async move {
 				if let Some(task) = command_push {
@@ -1416,12 +1394,9 @@ impl Session {
 						tracing::error!(error = %error.trace(), process = %id, "failed to push the process command");
 					}
 				}
-				if let Ok(Some(sync)) = sync.await {
-					// Prefer the most recently refreshed outcome sync, whose token has not expired.
-					let sync = control.outcome_sync().unwrap_or(sync);
-					let result = session
-						.push_process_outcome(&id, &location, &data, &sync)
-						.await;
+				// Push the outcome objects to a remote location, joining the process's outcome sync through its control service.
+				if location.is_remote() {
+					let result = session.push_process_outcome(&id, &location, &data).await;
 					if let Err(error) = result {
 						tracing::error!(error = %error.trace(), process = %id, "failed to push the process outcome");
 					}
@@ -1453,9 +1428,9 @@ impl Session {
 			.map(|node| node.map(Into::into))
 			.collect();
 		let arg = crate::process::PushProcessObjectsArg {
+			join: None,
 			location: location.clone(),
 			nodes,
-			nonce: None,
 			process_command_objects: false,
 			sync: Some(sync.clone()),
 		};
@@ -1474,9 +1449,9 @@ impl Session {
 		id: &tg::process::Id,
 		location: &tg::Location,
 		data: &tg::process::Data,
-		sync: &tg::Referent<tg::sync::Id>,
 	) -> tg::Result<()> {
-		crate::checkpoint!(self.server, "runner.process.outcome.sync.started", process = %id, sync = %sync.node).await;
+		let sync = tg::sync::Id::with_process(id, tg::sync::join::Kind::Outcome);
+		crate::checkpoint!(self.server, "runner.process.outcome.sync.started", process = %id, sync = %sync).await;
 		let mut data = data.clone();
 		Self::inherit_process_control_tokens(&mut data, location);
 		let nodes = Self::process_control_outcome_objects(&data)
@@ -1484,12 +1459,16 @@ impl Session {
 			.map(|node| node.map(Into::into))
 			.collect::<Vec<_>>();
 		if !nodes.is_empty() {
+			let join = tg::sync::Join::Process(tg::sync::join::Process {
+				id: id.clone(),
+				kind: tg::sync::join::Kind::Outcome,
+			});
 			let arg = crate::process::PushProcessObjectsArg {
+				join: Some(join),
 				location: location.clone(),
 				nodes,
-				nonce: None,
 				process_command_objects: false,
-				sync: Some(sync.clone()),
+				sync: None,
 			};
 			let output = self.push_process_objects(arg).await?;
 			output

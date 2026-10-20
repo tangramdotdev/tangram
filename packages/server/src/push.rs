@@ -20,7 +20,7 @@ struct PushOrPullInnerArg<'a> {
 	arg: &'a tg::push::Arg,
 	destination: tg::Location,
 	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
-	nonce: Option<tg::process::Nonce>,
+	join: Option<tg::sync::Join>,
 	process: bool,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
 	retry: tangram_futures::retry::Options,
@@ -33,7 +33,7 @@ struct PushOrPullTaskArg {
 	destination: tg::Location,
 	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
 	header_sender: HeaderSender,
-	nonce: Option<tg::process::Nonce>,
+	join: Option<tg::sync::Join>,
 	process: bool,
 	progress: crate::progress::Handle<tg::push::Output>,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
@@ -72,7 +72,7 @@ impl Session {
 		&self,
 		arg: tg::push::Arg,
 		sync: Option<tg::Referent<tg::sync::Id>>,
-		nonce: Option<tg::process::Nonce>,
+		join: Option<tg::sync::Join>,
 		retry: tangram_futures::retry::Options,
 	) -> tg::Result<(
 		tg::push::Header,
@@ -87,7 +87,7 @@ impl Session {
 			.clone()
 			.ok_or_else(|| tg::error!("expected a destination"))?;
 		let (header, stream) = self
-			.push_or_pull_for_process(&arg, source, destination, sync, nonce, retry)
+			.push_or_pull_for_process(&arg, source, destination, sync, join, retry)
 			.await?;
 		Ok((header, stream))
 	}
@@ -112,7 +112,7 @@ impl Session {
 			arg,
 			destination,
 			get,
-			nonce: None,
+			join: None,
 			process: false,
 			received_specifiers: None,
 			retry,
@@ -138,7 +138,7 @@ impl Session {
 			arg,
 			destination,
 			get,
-			nonce: None,
+			join: None,
 			process: false,
 			received_specifiers: Some(received_specifiers.clone()),
 			retry,
@@ -157,7 +157,7 @@ impl Session {
 		source: tg::Location,
 		destination: tg::Location,
 		sync: Option<tg::Referent<tg::sync::Id>>,
-		nonce: Option<tg::process::Nonce>,
+		join: Option<tg::sync::Join>,
 		retry: tangram_futures::retry::Options,
 	) -> tg::Result<(
 		tg::push::Header,
@@ -173,7 +173,7 @@ impl Session {
 			arg,
 			destination,
 			get,
-			nonce,
+			join,
 			process: true,
 			received_specifiers: None,
 			retry,
@@ -194,7 +194,7 @@ impl Session {
 			arg,
 			destination,
 			get,
-			nonce,
+			join,
 			process,
 			received_specifiers,
 			retry,
@@ -311,7 +311,7 @@ impl Session {
 					destination,
 					get,
 					header_sender: header_sender.clone(),
-					nonce,
+					join,
 					process,
 					progress: progress.clone(),
 					received_specifiers,
@@ -506,7 +506,7 @@ impl Session {
 			destination,
 			get,
 			header_sender,
-			nonce,
+			join,
 			process,
 			progress,
 			received_specifiers,
@@ -523,6 +523,7 @@ impl Session {
 			let destination = destination.clone();
 			let get = get.clone();
 			let header_sender = header_sender.clone();
+			let join = join.clone();
 			let progress = progress.clone();
 			let received_specifiers = received_specifiers.clone();
 			let session = session.clone();
@@ -608,9 +609,7 @@ impl Session {
 						process_output_objects: arg.process_output_objects,
 						put: Vec::new(),
 						sandbox_processes: arg.sandbox_processes,
-						sync: sync
-							.map(tg::Either::Right)
-							.or_else(|| nonce.map(tg::Either::Left)),
+						sync: sync.map(tg::sync::Join::Sync).or_else(|| join.clone()),
 						tag_targets: arg.tag_targets,
 						user_children: arg.user_children,
 					};
@@ -726,7 +725,9 @@ impl Session {
 						Ok(completed.then_some((sync_header, get_output)))
 					};
 
-					let completed = join(source_future, destination_future).boxed().await?;
+					let completed = self::join(source_future, destination_future)
+						.boxed()
+						.await?;
 					if let Some(((), (sync_header, get_output))) = completed {
 						let mut output = output.lock().unwrap().clone();
 						output.nodes = session.create_sync_output_nodes(&arg)?;
