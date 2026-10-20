@@ -237,6 +237,13 @@ impl tg::process::spawn::CommandArg {
 	}
 }
 
+pub(super) fn inherit_error_location_and_tokens(
+	error: &mut tg::error::Data,
+	options: &tg::referent::Options,
+) {
+	update_error_options(error, &Update::Inherit(options));
+}
+
 pub(super) fn inherit_value_location_and_tokens(
 	value: &mut tg::value::Data,
 	options: &tg::referent::Options,
@@ -297,12 +304,7 @@ fn update_value_options(value: &mut tg::value::Data, update: &Update<'_>) {
 				update_value_options(value, update);
 			}
 		},
-		tg::value::Data::Module(module) => {
-			let mut children = BTreeSet::new();
-			module.children(&mut children);
-			let resource = children.into_iter().next().map(tg::Id::from);
-			update_options(&mut module.referent.options, update, resource.as_ref());
-		},
+		tg::value::Data::Module(module) => update_module_options(module, update),
 		tg::value::Data::Mutation(mutation) => match mutation {
 			tg::mutation::Data::Append { values } | tg::mutation::Data::Prepend { values } => {
 				for value in values {
@@ -350,4 +352,38 @@ fn update_template_options(template: &mut tg::template::Data, update: &Update<'_
 			);
 		}
 	}
+}
+
+fn update_error_options(error: &mut tg::error::Data, update: &Update<'_>) {
+	for diagnostic in error.diagnostics.iter_mut().flatten() {
+		if let Some(location) = &mut diagnostic.location {
+			update_module_options(&mut location.module, update);
+		}
+	}
+	for location in error
+		.location
+		.iter_mut()
+		.chain(error.stack.iter_mut().flatten())
+	{
+		if let tg::error::data::File::Module(module) = &mut location.file {
+			update_module_options(module, update);
+		}
+	}
+	if let Some(source) = &mut error.source {
+		let resource = match &source.node {
+			tg::Either::Left(_) => None,
+			tg::Either::Right(id) => Some(tg::Id::from(id.clone())),
+		};
+		update_options(&mut source.options, update, resource.as_ref());
+		if let tg::Either::Left(source) = &mut source.node {
+			update_error_options(source, update);
+		}
+	}
+}
+
+fn update_module_options(module: &mut tg::module::Data, update: &Update<'_>) {
+	let mut children = BTreeSet::new();
+	module.children(&mut children);
+	let resource = children.into_iter().next().map(tg::Id::from);
+	update_options(&mut module.referent.options, update, resource.as_ref());
 }

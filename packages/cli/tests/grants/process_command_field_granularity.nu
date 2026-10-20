@@ -27,5 +27,5 @@ let node = tg --token $eve.token get $parent | complete
 failure $node "the command grant should not confer the process node."
 
 # The output is a different field, so it stays masked.
-let output = tg --token $eve.token get $data.output.value | complete
+let output = tg --token $eve.token get $data.output.node.value | complete
 failure $output "the command grant should not confer the output object."

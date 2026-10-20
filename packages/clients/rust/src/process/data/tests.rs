@@ -108,6 +108,30 @@ fn output_with_location_and_tokens_inherits_the_outer_tokens() {
 }
 
 #[test]
+fn error_with_location_and_tokens_inherits_the_outer_tokens_into_an_inline_error() {
+	let key =
+		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+			.unwrap();
+	let sync = sync_token(&key);
+	let source = tg::error::Data {
+		source: Some(tg::Referent::with_node(tg::Either::Right(
+			tg::error::Id::new(b"source"),
+		))),
+		..Default::default()
+	};
+	let mut data = process_data();
+	data.error = Some(tg::Referent::with_node_and_tokens(
+		tg::Either::Left(Box::new(source)),
+		tg::authorization::Tokens::with_authorization([sync.clone()]),
+	));
+	let tg::Either::Left(error) = data.error_with_location_and_tokens().unwrap() else {
+		panic!("expected an inline error");
+	};
+	let source = error.source.unwrap();
+	assert_eq!(source.options.tokens.local_authorization(), [sync]);
+}
+
+#[test]
 fn without_location_and_tokens_except_sync_keeps_only_the_outer_sync_tokens() {
 	let key =
 		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)

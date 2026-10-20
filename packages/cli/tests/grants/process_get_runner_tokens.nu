@@ -57,7 +57,7 @@ for flags in [[false false] [true false] [false true] [true true]] {
 	let command_token = referent-token $command
 	assert ('object_subtree' in (token-body $command_token).permissions)
 	assert ((token-body $command_token).expires_at <= (token-body $token).expires_at)
-	let output_token = referent-token $result.data.output.value
+	let output_token = referent-token $result.data.output.node.value
 	assert ('object_subtree' in (token-body $output_token).permissions)
 	assert ((token-body $output_token).expires_at <= (token-body $token).expires_at)
 	let child_token = referent-token $result.data.children.0.process
@@ -65,9 +65,9 @@ for flags in [[false false] [true false] [false true] [true true]] {
 	assert (('process_subtree_output_objects' in (token-body $child_token).permissions) or ('process_parent' in (token-body $child_token).permissions))
 	assert ((token-body $child_token).expires_at <= (token-body $token).expires_at)
 	let child = get-process $socket $stranger.token ($result.data.children.0.process | referent node) $child_token
-	assert ('object_subtree' in (token-body (referent-token $child.data.output.value)).permissions)
+	assert ('object_subtree' in (token-body (referent-token $child.data.output.node.value)).permissions)
 	success (tg --token $stranger.token get --bytes $command | complete)
-	success (tg --token $stranger.token get --bytes $result.data.output.value | complete)
+	success (tg --token $stranger.token get --bytes $result.data.output.node.value | complete)
 	if $flags.0 { assert ('output_objects' in ($result.metadata.node? | default {} | columns)) }
 	if $flags.1 { assert ('node_output_objects' in ($result.availability | columns)) }
 }
@@ -80,7 +80,7 @@ for flags in [[false false] [true false] [false true] [true true]] {
 	assert not ('process_parent' in $permissions)
 	assert not ('process_node_log_objects' in $permissions)
 	assert ('object_subtree' in (token-body (referent-token (command-referent $result.data.command))).permissions)
-	assert ('object_subtree' in (token-body (referent-token $result.data.output.value)).permissions)
+	assert ('object_subtree' in (token-body (referent-token $result.data.output.node.value)).permissions)
 	assert equal $result.data.children.0.process $baseline.data.children.0.process
 	assert equal $result.data.log? $baseline.data.log?
 	if $flags.0 {

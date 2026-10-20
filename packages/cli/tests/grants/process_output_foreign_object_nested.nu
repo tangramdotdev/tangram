@@ -26,7 +26,7 @@ let directory = $outcome.output.value | split row '?' | first
 
 # The relationship is stored on the process, and Eve can read the wrapper node.
 let process = tg --token $eve.token get $eve_process | from json
-assert equal ($process.output.value | split row '?' | first) $directory
+assert equal ($process.output.node.value | split row '?' | first) $directory
 let wrapper = tg --token $eve.token get $directory | complete
 success $wrapper "Eve should be able to read the wrapper node."
 

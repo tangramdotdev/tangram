@@ -213,14 +213,18 @@ impl Data {
 		self.output = output.map(tg::Referent::with_node);
 	}
 
-	/// Get the error, with the error referent's location and tokens inherited by an error ID.
+	/// Get the error, with the error referent's location and tokens inherited by the error's referents.
 	#[must_use]
 	pub fn error_with_location_and_tokens(
 		&self,
 	) -> Option<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>> {
 		let error = self.error.as_ref()?;
 		let error = match &error.node {
-			tg::Either::Left(data) => tg::Either::Left(data.as_ref().clone()),
+			tg::Either::Left(data) => {
+				let mut data = data.as_ref().clone();
+				command::inherit_error_location_and_tokens(&mut data, &error.options);
+				tg::Either::Left(data)
+			},
 			tg::Either::Right(id) => {
 				tg::Either::Right(tg::Referent::new(id.clone(), error.options.clone()))
 			},

@@ -21,7 +21,7 @@ let process_children = tg children $build.process | from json
 let process = tg get --no-tokens $build.process | from json
 let expected = [
 	$process.log
-	$process.output.value
+	$process.output.node.value
 	(command module-input $process.command)
 ]
 assert equal $process_children $expected "the process should include its direct graph children"

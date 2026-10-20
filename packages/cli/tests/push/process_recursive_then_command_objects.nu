@@ -43,9 +43,9 @@ def test [path: string, ...args] {
 	assert equal $local_process $remote_process
 
 	# Confirm output is present.
-	if (($output.output | describe) | str starts-with 'record') {
-		if $output.output.kind == "object" {
-			tg --url $remote.url get $output.output.value --no-tokens --pretty
+	if (($output.output.node | describe) | str starts-with 'record') {
+		if $output.output.node.kind == "object" {
+			tg --url $remote.url get $output.output.node.value --no-tokens --pretty
 		}
 	}
 

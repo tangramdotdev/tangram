@@ -44,7 +44,7 @@ def test [...args] {
 	# Get the process data.
 	let process_data = tg --url $local_source.url get $process_id | from json
 	let main_module_id = (command module-input $process_data.command)
-	let main_output_id = $process_data.output.value
+	let main_output_id = $process_data.output.node.value
 	let children = $process_data.children
 	tg --url $local_source.url index
 
@@ -112,7 +112,7 @@ def test [...args] {
 		let child_id = $child.process | split row '?' | first
 		let child_data = tg --url $local_source.url get $child_id | from json
 		let child_module_id = (command module-input $child_data.command)
-		let child_output_id = $child_data.output.value
+		let child_output_id = $child_data.output.node.value
 		let child_log_id = $child_data.log
 
 		# Put the child's log to the local server.

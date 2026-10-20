@@ -31,7 +31,7 @@ let data = tg --url $alice_local.url get $parent | from json
 tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_output_objects $parent | ignore
 
 # Eve can read the output object the grant covers.
-let output = tg --url $remote.url --token $eve.token get $data.output.value | complete
+let output = tg --url $remote.url --token $eve.token get $data.output.node.value | complete
 success $output "Eve should read the granted output object."
 
 # The process node is not covered by the output grant, so it stays masked.

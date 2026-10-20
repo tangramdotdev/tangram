@@ -26,7 +26,7 @@ assert equal ($outcome.output.value | split row '?' | first) $file
 
 # The relationship is stored on the process.
 let process = tg --token $eve.token get $eve_process | from json
-assert equal ($process.output.value | split row '?' | first) $file
+assert equal ($process.output.node.value | split row '?' | first) $file
 
 # Reading the output fails only when Eve requests the object.
 let leaked = tg --token $eve.token get $file | complete

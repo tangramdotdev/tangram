@@ -29,17 +29,22 @@ tg --url $remote.url --token $root index
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let result = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?source=runner'
 assert equal (token-body $result.tokens.local.0).permissions [process_node]
-let file = $result.data.output.value
-let tokens = $file | referent tokens local
+let tokens = $result.data.output.options.tokens.local
 let sync = $tokens | where { |token| 'sync_read' in (token-body $token).permissions } | first
 assert ((token-body $sync).resource | str starts-with 'syn_')
 
+# Pass the output referent's sync token down to the output object, as a client does.
+let node = $result.data.output.node.value
+let index = $node | referent tokens local | length
+let separator = if ($node | str contains '?') { '&' } else { '?' }
+let file = $'($node)($separator)tokens[local][($index)]=($sync | url encode --all)'
+
 # Forwarding the stored token must preserve its signed authority and expiration, so repeated index reads return the same full sync token.
 let indexed = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?source=index'
-let indexed_sync = $indexed.data.output.value | referent tokens local | where { |token| 'sync_read' in (token-body $token).permissions } | first
+let indexed_sync = $indexed.data.output.options.tokens.local | where { |token| 'sync_read' in (token-body $token).permissions } | first
 assert equal (token-body $indexed_sync).resource (token-body $sync).resource
 let reindexed = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?source=index'
-assert ($indexed_sync in ($reindexed.data.output.value | referent tokens local))
+assert ($indexed_sync in $reindexed.data.output.options.tokens.local)
 let pull = job spawn {
 	let job_id = job id
 	let output = tg --url $remote.url --token $reader.token cat $file | complete

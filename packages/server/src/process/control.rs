@@ -298,7 +298,9 @@ impl Session {
 					(false, None) => (None, None),
 				};
 				options.tokens.clear();
-				if let Some(syncs) = &syncs {
+
+				// Associate the command with the command sync only on the shortcut path, where the runner pushes the command objects under it.
+				if shortcut && let Some(syncs) = &syncs {
 					Self::inherit_process_command_authorization_tokens_for_sync(
 						&mut data,
 						&syncs.command,
@@ -461,6 +463,7 @@ impl Session {
 									let result = async {
 										let command_sync = syncs
 											.as_ref()
+											.filter(|_| shortcut)
 											.map(|syncs| {
 												session.refresh_sync(syncs.command.node.clone())
 											})
