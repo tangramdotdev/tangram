@@ -12,6 +12,7 @@ members = [
   "packages/cache/rocksdb",
   "packages/cache/scylla",
   "packages/cli",
+  "packages/cli/test",
   "packages/clients/javascript/native",
   "packages/clients/python/native",
   "packages/clients/rust",

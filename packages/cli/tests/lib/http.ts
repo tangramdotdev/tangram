@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { closeSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 
 type ResponseConfig = {
@@ -42,3 +42,7 @@ const hostname = Object.values(networkInterfaces())
 	.flatMap((addresses) => addresses ?? [])
 	.find((address) => address.family === "IPv4" && !address.internal)?.address;
 writeFileSync(portPath, JSON.stringify({ hostname, port }));
+
+// Signal readiness to the supervisor.
+writeSync(3, new Uint8Array([0]));
+closeSync(3);

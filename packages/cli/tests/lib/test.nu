@@ -5,7 +5,7 @@ use ../../../../scripts/macos/identifiers.nu
 export use std/assert
 
 const repository_path = path self '../../../../'
-const server_exit_directory_name = 'server_jobs'
+const supervisors_name = 'supervisors'
 export const vfs_cleanup_marker_name = '.tangram_test_vfs_cleanup'
 
 def acquire_database_instance [pool_path: string] {
@@ -847,12 +847,13 @@ export def --env "server spawn" [
 		config: $config,
 		config_path: $config_path,
 		directory: $directory_path,
-		exit: null,
+		exit: ($config_path | path dirname | path join 'exit'),
 		instance: $instance,
-		job: null,
 		log: $log_path,
 		macos_app_group_socket: null,
 		name: $name,
+		pid: null,
+		supervisor: ($config_path | path dirname),
 		url: $url,
 	}
 	let server = server start $server
@@ -909,12 +910,8 @@ export def --env "server spawn" [
 }
 
 export def --env "server start" [server: record] {
-	let job_id = $server.job?
-	if $job_id != null and not (job list | where id == $job_id | is-empty) {
-		if (server_is_running $server) {
-			error make { msg: 'the server is already running' }
-		}
-		try { job kill $job_id }
+	if (server_is_running $server) {
+		error make { msg: 'the server is already running' }
 	}
 
 	# Record every semaphore name before startup can create it.
@@ -929,13 +926,6 @@ export def --env "server start" [server: record] {
 	# Record VFS intent before launch so cleanup still finds it after a crash.
 	mark_vfs_cleanup $server
 
-	# Create the readiness and exit paths.
-	let ready_path = $server.config_path | path dirname | path join 'ready'
-	rm -f $ready_path
-	^mkfifo $ready_path
-	let server_exit_directory_path = (($env.TMPDIR? | default ($server.config_path | path dirname)) | path join $server_exit_directory_name)
-	try { mkdir $server_exit_directory_path }
-
 	# Create the environment.
 	mut environment = {}
 	if $server.clock? != null {
@@ -945,96 +935,38 @@ export def --env "server start" [server: record] {
 	if $macos_app_group_socket != null {
 		$environment = $environment | upsert TANGRAM_MACOS_APP_GROUP_SOCKET $macos_app_group_socket
 	}
-	$environment = $environment | upsert TANGRAM_TEST_READY_PATH $ready_path
 	let environment = $environment
 
-	# Start the server.
-	let config_path = $server.config_path
-	let directory = $server.directory
-	let log_path = $server.log
-	let name = $server.name
-	let url = $server.url
-	let server_job = job spawn -d server {
-		let server_job_id = job id
-		let exit_path = $server_exit_directory_path | path join $'($server_job_id).exit'
-		let status_path = $server_exit_directory_path | path join $'($server_job_id).status'
-		# Precreate both files so readiness and completion waits can follow stable inodes.
-		'' | save -f $exit_path
-		'' | save -f $status_path
-		do -i {
-			with-env $environment {
-				bash -c (process_supervisor) _ $nu.pid $status_path tangram -c $config_path -d $directory -u $url serve --ready-fd 3 e>| lines | each { |line|
-					$"($line)\n" | save --append $log_path
-					print -e $"($name): ($line)\r"
-				}
-			}
-		}
-		remove_macos_app_group_socket $macos_app_group_socket
-		# Publish completion only after the output is drained and wrapper cleanup is complete.
-		let status = open --raw $status_path | str trim
-		$"($status)\n" | save -f $exit_path
-	}
-	let exit_path = $server_exit_directory_path | path join $'($server_job).exit'
-
-	# Wait for the server to be ready.
-	let ready_timeout = 30sec
-	let ready_timeout_secs = $ready_timeout | into int | $in / 1_000_000_000
-	let ready_output = (^timeout $ready_timeout_secs od -An -t u1 -N1 $ready_path | complete)
-	rm -f $ready_path
-	let ready_byte = $ready_output.stdout | str trim
-	if $ready_output.exit_code != 0 or ($ready_byte | is-empty) {
-		if $ready_output.exit_code == 0 and ($ready_byte | is-empty) {
-			if (wait_for_server_exit $exit_path) == null {
-				stop_server_job $server_job
-				wait_for_server_exit $exit_path | ignore
-			}
-		} else {
-			stop_server_job $server_job
-			wait_for_server_exit $exit_path | ignore
-		}
-		remove_macos_app_group_socket $macos_app_group_socket
-		let message = if $ready_output.exit_code == 124 {
-			$"the server did not signal readiness within ($ready_timeout)"
-		} else {
-			'the server exited before signaling readiness'
-		}
-		let log = if ($log_path | path exists) { open --raw $log_path | str trim } else { '' }
-		if ($log | is-empty) {
-			error make { msg: $message }
-		} else {
-			error make { msg: $message, help: $'server output:\n($log)' }
-		}
-	}
-	if $ready_byte != '0' {
-		stop_server_job $server_job
-		wait_for_server_exit $exit_path | ignore
-		remove_macos_app_group_socket $macos_app_group_socket
-		let message = $"the server signaled an invalid readiness byte: ($ready_byte)"
+	# Start the server under the supervisor, which waits for it to signal readiness and removes the socket after it exits.
+	let supervisor = $server.config_path | path dirname
+	track_supervisor $supervisor
+	rm -f ($supervisor | path join 'error')
+	let remove = if $macos_app_group_socket == null { [] } else { [--remove $macos_app_group_socket] }
+	let output = try {
+		with-env $environment {
+			^tangram_cli_test_supervise start --description server --directory $supervisor --name $server.name --ready-fd 3 ...$remove -- tangram -c $server.config_path -d $server.directory -u $server.url serve --ready-fd 3
+		} | from json
+	} catch {
+		let error_path = $supervisor | path join 'error'
+		let message = if ($error_path | path exists) { open --raw $error_path } else { $'($server.name) did not start' }
 		error make { msg: $message }
 	}
-	$env.TANGRAM_URL = $url
-	let server = $server | upsert exit $exit_path | upsert job $server_job | upsert macos_app_group_socket $macos_app_group_socket
+	$env.TANGRAM_URL = $server.url
+	let server = $server
+		| upsert exit ($supervisor | path join 'exit')
+		| upsert macos_app_group_socket $macos_app_group_socket
+		| upsert pid $output.server
+		| upsert supervisor $supervisor
 
 	$server
 }
 
 export def "server stop" [server: record] {
-	let macos_app_group_socket = $server.macos_app_group_socket?
-	let job_id = $server.job?
-	if $job_id == null or (job list | where id == $job_id | is-empty) {
-		remove_macos_app_group_socket $macos_app_group_socket
-		return
+	let supervisor = $server.supervisor?
+	if $supervisor != null {
+		^tangram_cli_test_supervise stop --directory $supervisor
 	}
-	stop_test_server_processes $server.directory
-	if (wait_for_server_exit $server.exit) == null {
-		stop_server_job $job_id
-		if (wait_for_server_exit $server.exit) == null {
-			try { job kill $job_id }
-			remove_macos_app_group_socket $macos_app_group_socket
-			error make { msg: 'the server did not stop' }
-		}
-	}
-	remove_macos_app_group_socket $macos_app_group_socket
+	remove_macos_app_group_socket $server.macos_app_group_socket?
 }
 
 export def --env "server restart" [server: record] {
@@ -1045,16 +977,21 @@ export def --env "server restart" [server: record] {
 }
 
 def server_is_running [server: record] {
-	let lock_path = $server.directory | path join 'lock'
-	if not ($lock_path | path exists) {
-		return false
-	}
-	let pid = try { open --raw $lock_path | str trim | into int } catch { null }
-	if $pid == null {
+	let supervisor = $server.supervisor?
+	if $supervisor == null {
 		return false
 	}
 
-	not (ps | where pid == $pid | is-empty)
+	(^tangram_cli_test_supervise status --directory $supervisor | complete).exit_code == 0
+}
+
+# Record a supervisor directory so the test cleanup stops its process.
+export def track_supervisor [directory: string] {
+	let path = $env.TMPDIR? | default ($nu.temp-dir? | default $nu.temp-path?) | path join $supervisors_name
+	let tracked = if ($path | path exists) { open --raw $path | lines } else { [] }
+	if $directory not-in $tracked {
+		$directory ++ "\n" | save --append $path
+	}
 }
 
 def create_macos_app_group_socket_path [server: record] {
@@ -1426,97 +1363,6 @@ export def normalize_tokens [value?: string] {
 	$output
 }
 
-def server_exit_path [temp_path: string, job_id: int] {
-	$temp_path | path join $server_exit_directory_name | path join $'($job_id).exit'
-}
-
-export def process_supervisor [] {
-	r#'
-	set -u
-	parent_pid=$1
-	status_path=$2
-	shift 2
-	if [ -n "${TANGRAM_TEST_READY_PATH:-}" ]; then
-		exec 3>"$TANGRAM_TEST_READY_PATH"
-		unset TANGRAM_TEST_READY_PATH
-	fi
-
-	containment=group
-	if command -v setsid >/dev/null 2>&1 && ps -o sid= -p $$ >/dev/null 2>&1; then
-		setsid "$@" &
-		child=$!
-		containment=session
-	else
-		set -m
-		"$@" &
-		child=$!
-		set +m
-	fi
-
-	child_done() {
-		stat=$(ps -o stat= -p "$child" 2>/dev/null | tr -d " ")
-		case "$stat" in
-			""|Z*) return 0 ;;
-			*) return 1 ;;
-		esac
-	}
-
-	tree_done() {
-		if [ "$containment" = session ]; then
-			field=sid
-		else
-			field=pgid
-		fi
-		! ps -axo "$field=,stat=" | awk -v id="$child" '$1 == id && $2 !~ /^Z/ { found = 1 } END { exit found ? 0 : 1 }'
-	}
-
-	signal_tree() {
-		signal=$1
-		if [ "$containment" = session ]; then
-			pkill -"$signal" -s "$child" 2>/dev/null || true
-		else
-			kill -"$signal" -- -"$child" 2>/dev/null || true
-		fi
-		kill -"$signal" "$child" 2>/dev/null || true
-	}
-
-	terminate_tree() {
-		signal_tree TERM
-		for _ in $(seq 1 60); do
-			if child_done && tree_done; then
-				return
-			fi
-			sleep 0.05
-		done
-		signal_tree KILL
-	}
-
-	(
-		while kill -0 "$parent_pid" 2>/dev/null && ! child_done; do
-			sleep 0.05
-		done
-		if ! child_done; then
-			terminate_tree
-		fi
-	) &
-	watcher=$!
-
-	trap "terminate_tree" TERM INT HUP
-
-	wait "$child" 2>/dev/null
-	status=$?
-	if ! tree_done; then
-		terminate_tree
-	fi
-
-	trap - TERM INT HUP
-	kill "$watcher" 2>/dev/null || true
-	wait "$watcher" 2>/dev/null || true
-	printf '%s\n' "$status" > "$status_path"
-	exit "$status"
-	'#
-}
-
 export def fdb_cluster [] {
 	let env_cluster = $env.TANGRAM_TEST_FDB_CLUSTER? | default ''
 	if ($env_cluster | str length) > 0 {
@@ -1530,122 +1376,26 @@ export def fdb_cluster [] {
 
 # Remove this test's semaphore names after its processes have stopped.
 export def cleanup_posix_semaphores [temp_path: string] {
-	let manifest = $temp_path | path join 'posix_semaphores'
-	let recorded = if ($manifest | path exists) {
-		open --raw $manifest | lines | where { $in != '' }
-	} else { [] }
-	# Recover explicit names from older tests that did not record a manifest.
-	let configured = glob ($temp_path | path join '**/config.json') | each {|path|
-		let config = try { open $path } catch { {} }
-		[$config.index?.posix_sem_prefix? $config.cache?.posix_sem_prefix?] | compact
-	} | flatten | uniq | each {|prefix| [$'($prefix)r' $'($prefix)w'] } | flatten
-	let names = [$recorded $configured] | flatten | uniq
-	let helper = $repository_path | path join 'target/test/posix_semaphores'
-	if not ($names | is-empty) {
-		let output = (^$helper ...$names | complete)
-		if $output.exit_code != 0 {
-			error make { msg: 'failed to unlink the test POSIX semaphores', help: ($output.stderr | str trim) }
-		}
-	}
-	# Recover LMDB's default names while the device and inode are still available.
-	let lockfiles = glob ($temp_path | path join '**/*-lock')
-	if not ($lockfiles | is-empty) {
-		let output = (^$helper --lock-file ...$lockfiles | complete)
-		if $output.exit_code != 0 {
-			error make { msg: 'failed to unlink the test LMDB semaphores', help: ($output.stderr | str trim) }
-		}
-	}
+	^tangram_cli_test semaphore cleanup $temp_path
 }
 
 export def cleanup_background_jobs [temp_path: string] {
-	# Kill any background jobs started by the test, such as server and LSP processes.
-	for job in (job list | where { ($in.description? | default '') == 'lsp' }) {
-		for pid in ($job.pids? | default []) {
-			try { ^bash -c 'kill -KILL -- -"$1" 2>/dev/null || true; kill -KILL "$1" 2>/dev/null || true' _ $pid }
-		}
-		try { job kill $job.id }
+	# Stop the supervised servers in the reverse order of their starts, so they can tear down their sandboxes and mounts.
+	let path = $temp_path | path join $supervisors_name
+	let supervisors = if ($path | path exists) { open --raw $path | lines | where { $in != '' } } else { [] }
+	for supervisor in ($supervisors | reverse) {
+		try { ^tangram_cli_test_supervise stop --directory $supervisor }
 	}
 
-	# Signal the actual servers before their Nu job wrappers so they can tear down their sandboxes and mounts.
-	stop_test_server_processes $temp_path
-	for job in (job list | where { ($in.description? | default '') in [http server] } | sort-by id | reverse) {
-		let exit_path = server_exit_path $temp_path $job.id
-		if $job.description == 'http' {
-			stop_server_job $job.id
-		}
-		if (wait_for_server_exit $exit_path) == null {
-			stop_server_job $job.id
-			if (wait_for_server_exit $exit_path) == null {
-				try { job kill $job.id }
-			}
-		}
-	}
-
-	# Kill every remaining test job, including unlabelled helpers and mock services.
+	# Kill every remaining test job and its process group, including unlabelled helpers and mock services.
 	for job in (job list) {
-		for pid in ($job.pids? | default []) {
-			try { ^bash -c 'kill -TERM -- -"$1" 2>/dev/null || true; kill -TERM "$1" 2>/dev/null || true' _ $pid }
+		let pids = $job.pids? | default []
+		if not ($pids | is-empty) {
+			let targets = $pids | each { |pid| [$'-($pid)' $'($pid)'] } | flatten
+			try { ^kill -TERM -- ...$targets e> /dev/null }
 		}
 		try { job kill $job.id }
 	}
-}
-
-def stop_test_server_processes [path: string] {
-	let lock_paths = try { glob ($path | path join '**/lock') } catch { [] }
-	for lock_path in $lock_paths {
-		let pid = try { open --raw $lock_path | str trim | into int } catch { null }
-		if $pid == null {
-			continue
-		}
-		let output = (^ps -o command= -p $pid | complete)
-		if $output.exit_code == 0 and ($output.stdout | str contains $path) and ($output.stdout | str contains ' serve') {
-			try { kill --quiet $pid }
-		}
-	}
-}
-
-def stop_server_job [job_id: int] {
-	for job in (job list | where id == $job_id) {
-		for pid in ($job.pids? | default []) {
-			try { ^bash -c 'children=$(pgrep -P "$1" 2>/dev/null || true); kill -TERM "$1" 2>/dev/null || true; for child in $children; do command=$(ps -o command= -p "$child" 2>/dev/null || true); case "$command" in *" sandbox "*) ;; *) kill -TERM "$child" 2>/dev/null || true ;; esac; done' _ $pid }
-		}
-	}
-}
-
-def wait_for_server_exit [path: string] {
-	let status = try { open --raw $path | str trim } catch { '' }
-	if not ($status | is-empty) {
-		return ($status | into int)
-	}
-	# Follow the precreated file so completion is event-driven and late readers retain the status.
-	let command = r#'
-		# Ensure the recorded PID identifies tail so cleanup terminates the watcher.
-		exec 3< <(exec tail -n +1 -f "$1")
-		tail_pid=$!
-		cleanup() {
-			kill "$tail_pid" 2>/dev/null || true
-			wait "$tail_pid" 2>/dev/null || true
-		}
-		trap cleanup EXIT TERM INT HUP
-
-		IFS= read -r status <&3
-		result=$?
-		if [ "$result" -eq 0 ]; then
-			printf '%s\n' "$status"
-		else
-			exit "$result"
-		fi
-	'#
-	let output = (open /dev/null | timeout 10 bash -c $command _ $path | complete)
-	if $output.exit_code != 0 {
-		return null
-	}
-	let status = $output.stdout | str trim
-	if ($status | is-empty) {
-		return null
-	}
-
-	$status | into int
 }
 
 def mark_vfs_cleanup [server: record] {

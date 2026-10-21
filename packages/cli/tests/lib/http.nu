@@ -7,32 +7,14 @@ export def --env spawn_http_server [routes: record] {
 	let routes_path = mktemp
 	$routes | to json | save --force $routes_path
 	let port_path = mktemp
-	let status_path = mktemp
-	let log_path = mktemp
-	# Use the server lifecycle so cleanup waits for the supervisor to reap the HTTP process.
-	let exits = $env.TMPDIR? | default ($nu.temp-dir? | default $nu.temp-path?) | path join 'server_jobs'
-	mkdir $exits
-	let job = job spawn --description http {
-		let job_id = job id
-		let exit_path = $exits | path join $'($job_id).exit'
-		'' | save --force $exit_path
-		'' | save --force $status_path
-		do -i {
-			bash -c (process_supervisor) _ $nu.pid $status_path bun run $http_path $routes_path $port_path o+e> $log_path
-		}
-		let status = open --raw $status_path | str trim
-		$"($status)\n" | save --force $exit_path
-	}
+
+	# Supervise the HTTP process so that cleanup stops it, and wait for it to signal readiness after writing its port.
+	let supervisor = mktemp -d
+	track_supervisor $supervisor
 	try {
-		wait_until {
-			let status = open --raw $status_path | str trim
-			if ($status | is-not-empty) {
-				error make { msg: $'the local HTTP server exited during startup with status ($status)' }
-			}
-			open --raw $port_path | str trim | is-not-empty
-		} 'the local HTTP server must start'
-	} catch { |error|
-		error make { msg: $error.msg, help: (open --raw $log_path) }
+		^tangram_cli_test_supervise start --directory $supervisor --name http --ready-fd 3 -- bun run $http_path $routes_path $port_path o> /dev/null
+	} catch {
+		error make { msg: 'the local HTTP server must start' }
 	}
 	let endpoint = open --raw $port_path | from json
 	let port = $endpoint.port
@@ -59,7 +41,7 @@ exec "($path)" --map-host-loopback 169.254.254.254 "$@"
 	}
 	{
 		host_url: $'http://127.0.0.1:($port)',
-		job: $job,
+		supervisor: $supervisor,
 		url: $'http://($hostname):($port)',
 	}
 }

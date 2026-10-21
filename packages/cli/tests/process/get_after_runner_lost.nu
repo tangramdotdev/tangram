@@ -59,7 +59,7 @@ assert equal $indexed.status started
 
 # Lose the runner. The index keeps the started process until the scheduler expires
 # its heartbeat, so the get has an answer to give the whole time.
-job kill $runner.job
+kill --signal 9 $runner.pid
 
 let start = (date now)
 let process = tg --url $remote.url --token $root_token get --no-tokens $id | from json

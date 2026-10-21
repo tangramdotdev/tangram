@@ -10,17 +10,7 @@ export def spawn_nats [--config: record, --listen-port: int] {
 	let config_path = mktemp
 	($config | default {}) | to json | save --force $config_path
 	let job = job spawn -d nats {
-		bash -c $"
-			PARENT_PID=\$PPID
-			SELF_PID=\$\$
-			\(
-				while kill -0 \$PARENT_PID 2>/dev/null; do
-					sleep 0.05
-				done
-				kill -TERM -\$SELF_PID 2>/dev/null || true
-			\) &
-			exec nats-server --addr 127.0.0.1 --port ($port) --http_port ($monitor_port) --pid \"($pid_path)\" --config \"($config_path)\"
-		"
+		^nats-server --addr 127.0.0.1 --port $port --http_port $monitor_port --pid $pid_path --config $config_path
 	}
 	let monitor_url = $'http://127.0.0.1:($monitor_port)'
 	wait_until { try { (http get $'($monitor_url)/healthz').status == 'ok' } catch { false } } 'NATS did not start'
