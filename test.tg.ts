@@ -124,7 +124,8 @@ export const testCli = async (arg: CliArg = {}) => {
 			^ln -s $tangram_path ($bin_path | path join tg)
 			$env.PATH = $env.PATH | prepend [$bin_path $runner_path]
 			$env.TANGRAM_TEST_REPOSITORY_PATH = $env.PWD
-			tangram_cli_test run --no-clients --no-progress-details --preserve-failing-temps --jobs $options.jobs --timeout $timeout ...$offline -- ...$options.filters
+			# Run the tests in a user namespace that keeps its capabilities and owns a new mount namespace, so that fusermount3 can mount the test servers' VFS.
+			^unshare --user --map-current-user --mount --keep-caps tangram_cli_test run --no-clients --no-progress-details --preserve-failing-temps --jobs $options.jobs --timeout $timeout ...$offline -- ...$options.filters
 		}
 	`;
 	const output = await std.build`
