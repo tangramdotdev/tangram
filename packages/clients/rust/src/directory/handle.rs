@@ -254,11 +254,7 @@ impl Directory {
 			Object::Pointer(object) => {
 				let graph = &object.graph;
 				let index = object.index;
-				let object = graph.object_with_instance(instance).await?;
-				let node = object
-					.nodes
-					.get(index)
-					.ok_or_else(|| tg::error!("invalid index"))?;
+				let node = graph.node_with_instance(instance, index).await?;
 				let directory = node
 					.try_unwrap_directory_ref()
 					.ok()
@@ -439,11 +435,7 @@ impl Directory {
 			Object::Pointer(object) => {
 				let graph = &object.graph;
 				let index = object.index;
-				let object = graph.object_with_instance(instance).await?;
-				let node = object
-					.nodes
-					.get(index)
-					.ok_or_else(|| tg::error!("invalid index"))?;
+				let node = graph.node_with_instance(instance, index).await?;
 				let directory = node
 					.try_unwrap_directory_ref()
 					.ok()

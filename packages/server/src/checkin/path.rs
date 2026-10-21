@@ -289,46 +289,114 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let directory = node
 					.try_unwrap_directory_ref()
-					.map_err(|_| tg::error!("expected a directory"))?;
-				let leaf = directory
-					.try_unwrap_leaf_ref()
-					.map_err(|_| tg::error!("expected a leaf directory"))?;
-				let entry = leaf
-					.entries
-					.get(name)
-					.ok_or_else(|| tg::error!(%name, "entry not found"))?;
-				Self::checkin_path_convert_entry_with_graph(entry, graph_id, &data)
+					.map_err(|_| tg::error!("expected a directory"))?
+					.clone();
+				let context = Some((graph_id.clone(), data));
+				self.checkin_path_get_entry(directory, context, name).await
 			},
 			tg::graph::data::Edge::Object(id) => {
 				let artifact_id: tg::artifact::Id = id
 					.clone()
 					.try_into()
 					.map_err(|_| tg::error!("expected artifact"))?;
-				let (data, context) = self.checkin_path_load_directory(&artifact_id).await?;
-				let leaf = data
-					.try_unwrap_leaf_ref()
-					.map_err(|_| tg::error!("expected a leaf directory"))?;
-				let entry = leaf
-					.entries
-					.get(name)
-					.ok_or_else(|| tg::error!(%name, "entry not found"))?;
-				match context {
-					Some((graph_id, graph)) => {
-						Self::checkin_path_convert_entry_with_graph(entry, &graph_id, &graph)
-					},
-					None => Ok(Self::checkin_path_convert_artifact_edge(entry)),
-				}
+				let (directory, context) = self.checkin_path_load_directory(&artifact_id).await?;
+				self.checkin_path_get_entry(directory, context, name).await
 			},
 		}
 	}
 
-	async fn checkin_path_load_graph(&self, id: &tg::graph::Id) -> tg::Result<tg::graph::Data> {
-		let output = self
-			.try_get_object_local(&id.clone().into(), false, false, &[])
-			.await?
-			.ok_or_else(|| tg::error!("graph not found"))?;
-		tg::graph::Data::deserialize(output.bytes)
-			.map_err(|e| tg::error!(!e, "failed to deserialize graph"))
+	/// Get an entry of a directory by name, descending through the directory's branches.
+	async fn checkin_path_get_entry(
+		&self,
+		directory: tg::graph::data::Directory,
+		context: Option<(tg::graph::Id, tg::graph::data::Leaf)>,
+		name: &str,
+	) -> tg::Result<tg::graph::data::Edge<tg::object::Id>> {
+		let mut directory = directory;
+		let mut context = context;
+		loop {
+			// Get the entry from a leaf.
+			let branch = match directory {
+				tg::graph::data::Directory::Leaf(leaf) => {
+					let entry = leaf
+						.entries
+						.get(name)
+						.ok_or_else(|| tg::error!(%name, "entry not found"))?;
+					return match &context {
+						Some((graph_id, graph)) => {
+							Self::checkin_path_convert_entry_with_graph(entry, graph_id, graph)
+						},
+						None => Ok(Self::checkin_path_convert_artifact_edge(entry)),
+					};
+				},
+				tg::graph::data::Directory::Branch(branch) => branch,
+			};
+
+			// Find the child whose range of names contains the name.
+			let child = branch
+				.children
+				.into_iter()
+				.find(|child| name <= child.last.as_str())
+				.ok_or_else(|| tg::error!(%name, "entry not found"))?;
+
+			// Get the child directory.
+			(directory, context) = match child.directory {
+				tg::graph::data::Edge::Index(index) => {
+					let (_, graph) = context
+						.as_ref()
+						.ok_or_else(|| tg::error!("missing graph"))?;
+					let directory = graph
+						.nodes
+						.get(index)
+						.ok_or_else(|| tg::error!("invalid index"))?
+						.try_unwrap_directory_ref()
+						.map_err(|_| tg::error!("expected a directory"))?
+						.clone();
+					(directory, context)
+				},
+				tg::graph::data::Edge::Pointer(pointer) => {
+					let graph = self.checkin_path_load_graph(&pointer.graph).await?;
+					let directory = graph
+						.nodes
+						.get(pointer.index)
+						.ok_or_else(|| tg::error!("invalid index"))?
+						.try_unwrap_directory_ref()
+						.map_err(|_| tg::error!("expected a directory"))?
+						.clone();
+					(directory, Some((pointer.graph, graph)))
+				},
+				tg::graph::data::Edge::Object(id) => {
+					self.checkin_path_load_directory(&id.into()).await?
+				},
+			};
+		}
+	}
+
+	/// Load all of a graph's nodes as a single leaf, loading each leaf of a branched graph.
+	async fn checkin_path_load_graph(
+		&self,
+		id: &tg::graph::Id,
+	) -> tg::Result<tg::graph::data::Leaf> {
+		let mut nodes = Vec::new();
+		let mut stack = vec![id.clone()];
+		while let Some(id) = stack.pop() {
+			let output = self
+				.try_get_object_local(&id.clone().into(), false, false, &[])
+				.await?
+				.ok_or_else(|| tg::error!(%id, "graph not found"))?;
+			let data = tg::graph::Data::deserialize(output.bytes)
+				.map_err(|error| tg::error!(!error, %id, "failed to deserialize graph"))?;
+			match data {
+				tg::graph::Data::Leaf(leaf) => {
+					nodes.extend(leaf.nodes);
+				},
+				tg::graph::Data::Branch(branch) => {
+					stack.extend(branch.children.into_iter().rev().map(|child| child.graph));
+				},
+			}
+		}
+		let leaf = tg::graph::data::Leaf { nodes };
+		Ok(leaf)
 	}
 
 	async fn checkin_path_load_directory(
@@ -336,7 +404,7 @@ impl Session {
 		id: &tg::artifact::Id,
 	) -> tg::Result<(
 		tg::graph::data::Directory,
-		Option<(tg::graph::Id, tg::graph::Data)>,
+		Option<(tg::graph::Id, tg::graph::data::Leaf)>,
 	)> {
 		let output = self
 			.try_get_object_local(&id.clone().into(), false, false, &[])
@@ -377,7 +445,7 @@ impl Session {
 	fn checkin_path_convert_entry_with_graph(
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 		graph_id: &tg::graph::Id,
-		graph: &tg::graph::Data,
+		graph: &tg::graph::data::Leaf,
 	) -> tg::Result<tg::graph::data::Edge<tg::object::Id>> {
 		let edge = match edge {
 			tg::graph::data::Edge::Index(index) => {

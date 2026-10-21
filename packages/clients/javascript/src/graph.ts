@@ -1,6 +1,9 @@
 import * as tg from "./index.ts";
 import { Resolve } from "./resolve.ts";
 
+/** The maximum number of children of a graph branch. */
+const MAX_BRANCH_CHILDREN = 1024;
+
 /** Create a graph. */
 export let graph = (...args: tg.Args<tg.Graph.Arg>): tg.Graph.Builder => {
 	return new tg.Graph.Builder(...args);
@@ -131,7 +134,49 @@ export class Graph {
 				}
 			}),
 		);
-		return tg.Graph.withObject({ nodes });
+		return tg.Graph.withNodes(nodes);
+	}
+
+	/** Create a graph with nodes, splitting them into leaves and nesting the leaves in branches as checkin does when they do not fit in one object. */
+	static withNodes(nodes: Array<tg.Graph.Node>): tg.Graph {
+		// Get the number of nodes in each leaf.
+		let data = { nodes: nodes.map(tg.Graph.Node.toData) };
+		let counts = tg.host.graphLeafCounts(data);
+
+		// Create a single leaf if the nodes fit in one.
+		if (counts.length === 1) {
+			return tg.Graph.withObject({ nodes });
+		}
+
+		// Create the leaves.
+		let children: Array<tg.Graph.Child> = [];
+		let offset = 0;
+		for (let count of counts) {
+			let graph = tg.Graph.withObject({
+				nodes: nodes.slice(offset, offset + count),
+			});
+			children.push({ count, graph });
+			offset += count;
+		}
+
+		// Nest the children in branches until they fit in one branch.
+		while (children.length > MAX_BRANCH_CHILDREN) {
+			let branches: Array<tg.Graph.Child> = [];
+			for (
+				let start = 0;
+				start < children.length;
+				start += MAX_BRANCH_CHILDREN
+			) {
+				let chunk = children.slice(start, start + MAX_BRANCH_CHILDREN);
+				let count = chunk.reduce((count, child) => count + child.count, 0);
+				let graph = tg.Graph.withObject({ children: chunk });
+				branches.push({ count, graph });
+			}
+			children = branches;
+		}
+
+		// Create the root branch.
+		return tg.Graph.withObject({ children });
 	}
 
 	static async arg(
@@ -299,16 +344,50 @@ export class Graph {
 		});
 	}
 
-	/** Get this graph's nodes. */
+	/** Get this graph's nodes in order, loading every leaf of a branched graph. */
 	get nodes(): tg.Property<Array<tg.Graph.Node>> {
 		return tg.property(async (client = tg.client) => {
-			return (await this.object(client)).nodes;
+			let object = await this.object(client);
+			if ("nodes" in object) {
+				return object.nodes;
+			}
+			let nodes: Array<tg.Graph.Node> = [];
+			for (let child of object.children) {
+				let graph = this.#childGraph(child.graph);
+				nodes.push(...(await graph.nodes(client)));
+			}
+			return nodes;
 		});
 	}
 
+	/** Get the node at an index, loading only the leaf that contains it. */
+	async node(
+		index: number,
+		client = tg.client,
+	): Promise<tg.Graph.Node | undefined> {
+		let graph: tg.Graph = this;
+		let offset = index;
+		while (true) {
+			let object = await graph.object(client);
+			if ("nodes" in object) {
+				return object.nodes[offset];
+			}
+			let child = object.children.find((child) => {
+				if (offset < child.count) {
+					return true;
+				}
+				offset -= child.count;
+				return false;
+			});
+			if (child === undefined) {
+				return undefined;
+			}
+			graph = graph.#childGraph(child.graph);
+		}
+	}
+
 	async get(index: number, client = tg.client): Promise<tg.Artifact> {
-		let nodes = await this.nodes(client);
-		let node = nodes[index];
+		let node = await this.node(index, client);
 		tg.assert(node !== undefined, "invalid graph index");
 		let artifact: tg.Artifact;
 		switch (node.kind) {
@@ -338,6 +417,13 @@ export class Graph {
 		tg.Object.inheritTokens(artifact, this.#state.tokens);
 
 		return artifact;
+	}
+
+	/** Get a child graph of a branch, inheriting this graph's location and tokens. */
+	#childGraph(graph: tg.Graph): tg.Graph {
+		tg.Object.inheritLocation(graph, this.#state.location);
+		tg.Object.inheritTokens(graph, this.#state.tokens);
+		return graph;
 	}
 }
 
@@ -437,25 +523,55 @@ export namespace Graph {
 		}
 	}
 
-	export type Object = {
+	export type Object = tg.Graph.Leaf | tg.Graph.Branch;
+
+	export type Leaf = {
 		nodes: Array<Node>;
+	};
+
+	export type Branch = {
+		children: Array<tg.Graph.Child>;
+	};
+
+	export type Child = {
+		count: number;
+		graph: tg.Graph;
 	};
 
 	export namespace Object {
 		export let toData = (object: tg.Graph.Object): tg.Graph.Data => {
+			if ("nodes" in object) {
+				return {
+					nodes: object.nodes.map(tg.Graph.Node.toData),
+				};
+			}
 			return {
-				nodes: object.nodes.map(tg.Graph.Node.toData),
+				children: object.children.map((child) => ({
+					count: child.count,
+					graph: child.graph.id,
+				})),
 			};
 		};
 
 		export let fromData = (data: tg.Graph.Data): tg.Graph.Object => {
+			if ("nodes" in data) {
+				return {
+					nodes: data.nodes.map(tg.Graph.Node.fromData),
+				};
+			}
 			return {
-				nodes: data.nodes.map(tg.Graph.Node.fromData),
+				children: data.children.map((child) => ({
+					count: child.count,
+					graph: tg.Graph.withId(child.graph),
+				})),
 			};
 		};
 
 		export let children = (object: tg.Graph.Object): Array<tg.Object> => {
-			return object.nodes.flatMap(tg.Graph.Node.children);
+			if ("nodes" in object) {
+				return object.nodes.flatMap(tg.Graph.Node.children);
+			}
+			return object.children.map((child) => child.graph);
 		};
 	}
 
@@ -1031,18 +1147,35 @@ export namespace Graph {
 		};
 	}
 
-	export type Data = {
-		nodes: Array<tg.Graph.Data.Node>;
-	};
+	export type Data = tg.Graph.Data.Leaf | tg.Graph.Data.Branch;
 
 	export namespace Data {
+		export type Leaf = {
+			nodes: Array<tg.Graph.Data.Node>;
+		};
+
+		export type Branch = {
+			children: Array<tg.Graph.Data.Child>;
+		};
+
+		export type Child = {
+			count: number;
+			graph: tg.Graph.Id;
+		};
+
 		export let children = (data: tg.Graph.Data): Array<tg.Object.Id> => {
-			return data.nodes.flatMap(tg.Graph.Data.Node.children);
+			if ("nodes" in data) {
+				return data.nodes.flatMap(tg.Graph.Data.Node.children);
+			}
+			return data.children.map((child) => child.graph);
 		};
 
 		export let withoutLocationAndTokens = (
 			data: tg.Graph.Data,
 		): tg.Graph.Data => {
+			if (!("nodes" in data)) {
+				return data;
+			}
 			return {
 				...data,
 				nodes: data.nodes.map(tg.Graph.Data.Node.withoutLocationAndTokens),

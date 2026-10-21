@@ -1,6 +1,7 @@
 use {
 	super::{Builder, Data, Id, Object},
 	crate::prelude::*,
+	num::ToPrimitive as _,
 	std::sync::Arc,
 };
 
@@ -182,12 +183,72 @@ impl Graph {
 		self.nodes_with_instance(instance).await
 	}
 
+	/// Get all of the graph's nodes in order, loading every leaf.
 	pub async fn nodes_with_instance<I>(&self, instance: &I) -> tg::Result<Vec<tg::graph::Node>>
 	where
 		I: tg::Instance,
 	{
-		let object = self.load_with_instance(instance).await?;
-		Ok(object.nodes.clone())
+		let mut nodes = Vec::new();
+		let mut stack = vec![self.clone()];
+		while let Some(graph) = stack.pop() {
+			let object = graph.load_with_instance(instance).await?;
+			match object.as_ref() {
+				Object::Leaf(leaf) => {
+					nodes.extend(leaf.nodes.iter().cloned());
+				},
+				Object::Branch(branch) => {
+					let children = branch
+						.children
+						.iter()
+						.rev()
+						.map(|child| graph.child_graph(&child.graph));
+					stack.extend(children);
+				},
+			}
+		}
+		Ok(nodes)
+	}
+
+	pub async fn node(&self, index: usize) -> tg::Result<tg::graph::Node> {
+		let instance = tg::instance()?;
+		self.node_with_instance(instance, index).await
+	}
+
+	/// Get the node at an index, loading only the leaf that contains it.
+	pub async fn node_with_instance<I>(
+		&self,
+		instance: &I,
+		index: usize,
+	) -> tg::Result<tg::graph::Node>
+	where
+		I: tg::Instance,
+	{
+		let mut graph = self.clone();
+		let mut offset = index;
+		loop {
+			let object = graph.load_with_instance(instance).await?;
+			let branch = match object.as_ref() {
+				Object::Leaf(leaf) => {
+					let node = leaf
+						.nodes
+						.get(offset)
+						.ok_or_else(|| tg::error!(%index, "invalid node index"))?
+						.clone();
+					return Ok(node);
+				},
+				Object::Branch(branch) => branch,
+			};
+			let mut child_graph = None;
+			for child in &branch.children {
+				let count = child.count.to_usize().unwrap();
+				if offset < count {
+					child_graph = Some(graph.child_graph(&child.graph));
+					break;
+				}
+				offset -= count;
+			}
+			graph = child_graph.ok_or_else(|| tg::error!(%index, "invalid node index"))?;
+		}
 	}
 
 	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
@@ -239,11 +300,7 @@ impl Graph {
 	where
 		I: tg::Instance,
 	{
-		let object = self.object_with_instance(instance).await?;
-		let node = object
-			.nodes
-			.get(index)
-			.ok_or_else(|| tg::error!("invalid node index"))?;
+		let node = self.node_with_instance(instance, index).await?;
 		let edge = tg::graph::Edge::Pointer(tg::graph::Pointer {
 			graph: self.clone(),
 			index,
@@ -251,6 +308,14 @@ impl Graph {
 		});
 
 		Ok(edge)
+	}
+
+	/// Get a child graph of a branch, inheriting this graph's location and tokens.
+	fn child_graph(&self, child: &Self) -> Self {
+		let child = child.clone();
+		child.state.inherit_location(self.state.location().as_ref());
+		child.state.inherit_tokens(&self.state.tokens());
+		child
 	}
 }
 

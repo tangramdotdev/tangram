@@ -8,9 +8,28 @@ use {
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug)]
-pub struct Graph {
+#[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Graph {
+	Leaf(Leaf),
+	Branch(Branch),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Leaf {
 	pub nodes: Vec<Node>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Branch {
+	pub children: Vec<Child>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Child {
+	pub count: u64,
+	pub graph: tg::Graph,
 }
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
@@ -110,11 +129,45 @@ pub struct Pointer {
 impl Graph {
 	#[must_use]
 	pub fn to_data(&self) -> Data {
-		let nodes = self.nodes.iter().map(Node::to_data).collect();
-		Data { nodes }
+		match self {
+			Self::Leaf(leaf) => Data::Leaf(leaf.to_data()),
+			Self::Branch(branch) => Data::Branch(branch.to_data()),
+		}
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {
+		match data {
+			Data::Leaf(leaf) => Ok(Self::Leaf(Leaf::try_from_data(leaf)?)),
+			Data::Branch(branch) => Ok(Self::Branch(Branch::from_data(branch))),
+		}
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Leaf(leaf) => leaf.children(),
+			Self::Branch(branch) => branch.children(),
+		}
+	}
+
+	/// Get the number of nodes in the graph.
+	#[must_use]
+	pub fn count(&self) -> u64 {
+		match self {
+			Self::Leaf(leaf) => leaf.nodes.len().to_u64().unwrap(),
+			Self::Branch(branch) => branch.children.iter().map(|child| child.count).sum(),
+		}
+	}
+}
+
+impl Leaf {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::Leaf {
+		let nodes = self.nodes.iter().map(Node::to_data).collect();
+		tg::graph::data::Leaf { nodes }
+	}
+
+	pub fn try_from_data(data: tg::graph::data::Leaf) -> tg::Result<Self> {
 		let nodes = data
 			.nodes
 			.into_iter()
@@ -132,6 +185,42 @@ impl Graph {
 				Node::File(file) => file.children(),
 				Node::Symlink(symlink) => symlink.children(),
 			})
+			.collect()
+	}
+}
+
+impl Branch {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::Branch {
+		let children = self
+			.children
+			.iter()
+			.map(|child| tg::graph::data::Child {
+				count: child.count,
+				graph: child.graph.id(),
+			})
+			.collect();
+		tg::graph::data::Branch { children }
+	}
+
+	#[must_use]
+	pub fn from_data(data: tg::graph::data::Branch) -> Self {
+		let children = data
+			.children
+			.into_iter()
+			.map(|child| Child {
+				count: child.count,
+				graph: tg::Graph::with_id(child.graph),
+			})
+			.collect();
+		Self { children }
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		self.children
+			.iter()
+			.map(|child| child.graph.clone().into())
 			.collect()
 	}
 }

@@ -38,6 +38,7 @@ pub fn syscall<'s>(
 		"host_exists" => async_(scope, &args, self::host::exists),
 		"host_get_tty_size" => sync(scope, &args, self::host::get_tty_size),
 		"host_get_xattr" => async_(scope, &args, self::host::getxattr),
+		"host_graph_leaf_counts" => sync(scope, &args, self::host::graph_leaf_counts),
 		"host_is_foreground_controlling_tty" => {
 			sync(scope, &args, self::host::is_foreground_controlling_tty)
 		},

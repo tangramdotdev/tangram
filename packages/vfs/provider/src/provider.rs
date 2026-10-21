@@ -1586,17 +1586,45 @@ impl Fast {
 		})
 	}
 
+	/// Get the node at an index of a graph, loading only the leaf that contains it.
+	fn graph_node_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		graph: &tg::graph::Id,
+		index: usize,
+	) -> std::io::Result<Option<tg::graph::data::Node>> {
+		let mut current = graph.clone();
+		let mut offset = index;
+		loop {
+			let data = self.graph_data_with_transaction(transaction, &current)?;
+			let branch = match data {
+				tg::graph::Data::Leaf(leaf) => return Ok(leaf.nodes.into_iter().nth(offset)),
+				tg::graph::Data::Branch(branch) => branch,
+			};
+			let mut child_graph = None;
+			for child in branch.children {
+				let count = child.count.to_usize().unwrap();
+				if offset < count {
+					child_graph = Some(child.graph);
+					break;
+				}
+				offset -= count;
+			}
+			let Some(child_graph) = child_graph else {
+				return Ok(None);
+			};
+			current = child_graph;
+		}
+	}
+
 	fn resolve_graph_node_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		pointer: &tg::graph::data::Pointer,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
 		let graph = pointer.graph.clone();
-		let graph_data = self.graph_data_with_transaction(transaction, &graph)?;
-		let node = graph_data
-			.nodes
-			.get(pointer.index)
-			.cloned()
+		let node = self
+			.graph_node_with_transaction(transaction, &graph, pointer.index)?
 			.ok_or_else(|| {
 				tracing::error!(graph = %graph, pointer = ?pointer, "invalid graph node");
 				std::io::Error::from_raw_os_error(libc::EIO)
@@ -1958,8 +1986,9 @@ impl Fast {
 		expected_kind: Option<tg::artifact::Kind>,
 	) -> std::io::Result<tg::artifact::Id> {
 		let graph = graph.ok_or_else(fallback)?;
-		let data = self.graph_data_with_transaction(transaction, graph)?;
-		let node = data.nodes.get(index).ok_or_else(fallback)?;
+		let node = self
+			.graph_node_with_transaction(transaction, graph, index)?
+			.ok_or_else(fallback)?;
 		let pointer = tg::graph::data::Pointer {
 			graph: graph.clone(),
 			index,

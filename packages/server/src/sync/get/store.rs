@@ -170,24 +170,14 @@ impl Session {
 				// Get the metadata.
 				let metadata = node.metadata.clone().unwrap_or_else(|| {
 					let size = node.transferred_bytes;
-					let (node_solvable, node_solved) =
-						match data {
-							Some(tg::object::Data::File(file)) => match file {
-								tg::file::Data::Pointer(_) => (false, true),
-								tg::file::Data::Node(node) => (node.solvable(), node.solved()),
-							},
-							Some(tg::object::Data::Graph(graph)) => graph.nodes.iter().fold(
-								(false, true),
-								|(solvable, solved), node| {
-									if let tg::graph::data::Node::File(file) = node {
-										(solvable || file.solvable(), solved && file.solved())
-									} else {
-										(solvable, solved)
-									}
-								},
-							),
-							_ => (false, true),
-						};
+					let (node_solvable, node_solved) = match data {
+						Some(tg::object::Data::File(file)) => match file {
+							tg::file::Data::Pointer(_) => (false, true),
+							tg::file::Data::Node(node) => (node.solvable(), node.solved()),
+						},
+						Some(tg::object::Data::Graph(graph)) => (graph.solvable(), graph.solved()),
+						_ => (false, true),
+					};
 					tg::object::Metadata {
 						node: tg::object::metadata::Node {
 							size,

@@ -34,7 +34,7 @@ pub struct Watch {
 
 pub struct NewArg<F> {
 	pub graph: crate::checkin::Graph,
-	pub lock: Option<Arc<tg::graph::Data>>,
+	pub lock: Option<Arc<tg::graph::data::Leaf>>,
 	pub next: usize,
 	pub options: tg::checkin::Options,
 	pub solutions: crate::checkin::Solutions,
@@ -51,7 +51,7 @@ struct State {
 	graph: crate::checkin::Graph,
 	index_task: Shared<tg::Result<()>>,
 	invalidated_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
-	lock: Option<Arc<tg::graph::Data>>,
+	lock: Option<Arc<tg::graph::data::Leaf>>,
 	pending_lock_write_version: Option<u64>,
 	#[cfg(target_os = "macos")]
 	paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
@@ -66,7 +66,7 @@ struct State {
 pub struct Snapshot {
 	pub graph: crate::checkin::Graph,
 	pub id: Id,
-	pub lock: Option<Arc<tg::graph::Data>>,
+	pub lock: Option<Arc<tg::graph::data::Leaf>>,
 	pub solutions: crate::checkin::Solutions,
 	pub version: u64,
 }
@@ -74,7 +74,7 @@ pub struct Snapshot {
 pub struct UpdateArg<'a> {
 	pub graph: crate::checkin::Graph,
 	pub key: &'a Key,
-	pub lock: Option<Arc<tg::graph::Data>>,
+	pub lock: Option<Arc<tg::graph::data::Leaf>>,
 	pub lock_write_guard: Option<LockWriteGuard>,
 	pub next: usize,
 	pub server: &'a Server,

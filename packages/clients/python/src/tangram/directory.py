@@ -334,9 +334,8 @@ class Directory(Object):
         object_ = await self.object(client)
         if isinstance(object_, Pointer):
             graph = object_.graph
-            nodes = await graph.nodes(client)
-            node = nodes[object_.index]
-            if node["kind"] != "directory":
+            node = await graph.node(object_.index, client)
+            if node is None or node["kind"] != "directory":
                 raise TypeError("expected a directory")
             if "entries" in node:
                 for name, edge in cast(DirectoryLeafNode, node)["entries"].items():

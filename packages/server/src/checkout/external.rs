@@ -329,16 +329,8 @@ impl Session {
 			return Ok(());
 		}
 
-		// Load the graph data.
-		let (_size, data) = self
-			.server
-			.cache
-			.try_get_object_data_sync(&graph_id.clone().into())
-			.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
-			.ok_or_else(|| tg::error!("failed to load the graph"))?;
-		let graph_data: tg::graph::Data = data
-			.try_into()
-			.map_err(|_| tg::error!("expected graph data"))?;
+		// Load the graph's nodes.
+		let graph_data = crate::graph::get_leaf(&self.server.cache, &state.graphs, graph_id)?;
 
 		// Get all items that need store path entries.
 		let items = Self::checkout_entry_items_for_graph(graph_id, &graph_data)?;
@@ -376,7 +368,7 @@ impl Session {
 
 	fn checkout_entry_items_for_graph(
 		graph_id: &tg::graph::Id,
-		graph_data: &tg::graph::Data,
+		graph_data: &tg::graph::data::Leaf,
 	) -> tg::Result<Vec<Item>> {
 		// Collect node indices which have incoming file dependency or symlink artifact edges in the graph.
 		let mut marks = HashSet::<usize, fnv::FnvBuildHasher>::default();

@@ -10,6 +10,12 @@ pub fn blob_chunk_lengths(bytes: &[u8]) -> Vec<u32> {
 }
 
 #[napi]
+pub fn graph_leaf_counts(input: String) -> napi::Result<Vec<u32>> {
+	let input = input.into_boxed_str();
+	graph_leaf_counts_inner(&input).map_err(|error| to_napi_error(&error))
+}
+
+#[napi]
 pub fn object_id(input: String) -> napi::Result<String> {
 	let input = input.into_boxed_str();
 	object_id_inner(&input).map_err(|error| to_napi_error(&error))
@@ -29,6 +35,17 @@ pub fn stringify_value(input: String) -> napi::Result<String> {
 
 fn to_napi_error(error: &tg::Error) -> napi::Error {
 	napi::Error::from_reason(error.to_string())
+}
+
+fn graph_leaf_counts_inner(input: &str) -> tg::Result<Vec<u32>> {
+	let leaf = serde_json::from_str::<tg::graph::data::Leaf>(input)
+		.map_err(|error| tg::error!(!error, "failed to deserialize the graph leaf"))?;
+	let counts = tg::graph::data::Leaf::counts(&leaf.nodes)
+		.into_iter()
+		.map(|count| count.try_into().unwrap())
+		.collect();
+
+	Ok(counts)
 }
 
 fn object_id_inner(input: &str) -> tg::Result<String> {

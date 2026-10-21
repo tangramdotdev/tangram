@@ -155,6 +155,12 @@ pub async fn mkdtemp(ctx: qjs::Ctx<'_>) -> Result<String> {
 	Result(state.host.mkdtemp().await)
 }
 
+pub fn graph_leaf_counts(leaf: Serde<tg::graph::data::Leaf>) -> Serde<Vec<usize>> {
+	let Serde(leaf) = leaf;
+	let counts = tg::graph::data::Leaf::counts(&leaf.nodes);
+	Serde(counts)
+}
+
 pub fn object_id(data: Serde<tg::object::Data>) -> Result<Serde<tg::object::Id>> {
 	let Serde(data) = data;
 	let result = (|| {

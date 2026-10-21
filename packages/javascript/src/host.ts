@@ -47,6 +47,10 @@ export let host: tg.Host = {
 		return syscall("host_get_xattr", path, name);
 	},
 
+	graphLeafCounts(data: tg.Graph.Data.Leaf): Array<number> {
+		return syscall("host_graph_leaf_counts", data);
+	},
+
 	listxattr(path: string): Promise<Array<string>> {
 		return syscall("host_listxattr", path);
 	},

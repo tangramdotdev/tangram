@@ -20,6 +20,15 @@ fn checksum(input: &[u8], algorithm: &str) -> PyResult<String> {
 }
 
 #[pyfunction]
+fn graph_leaf_counts(input: &str) -> PyResult<Vec<usize>> {
+	let leaf = serde_json::from_str::<tg::graph::data::Leaf>(input).map_err(|error| {
+		to_python_error(&tg::error!(!error, "failed to deserialize the graph leaf"))
+	})?;
+	let counts = tg::graph::data::Leaf::counts(&leaf.nodes);
+	Ok(counts)
+}
+
+#[pyfunction]
 fn normalize_object(input: &str) -> PyResult<String> {
 	let data = serde_json::from_str::<tg::object::Data>(input).map_err(|error| {
 		to_python_error(&tg::error!(!error, "failed to deserialize the object data"))
@@ -67,6 +76,7 @@ fn stringify_value(input: &str) -> PyResult<String> {
 pub fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 	module.add_function(wrap_pyfunction!(blob_chunk_lengths, module)?)?;
 	module.add_function(wrap_pyfunction!(checksum, module)?)?;
+	module.add_function(wrap_pyfunction!(graph_leaf_counts, module)?)?;
 	module.add_function(wrap_pyfunction!(normalize_object, module)?)?;
 	module.add_function(wrap_pyfunction!(object_id, module)?)?;
 	module.add_function(wrap_pyfunction!(parse_value, module)?)?;

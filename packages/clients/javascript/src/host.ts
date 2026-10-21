@@ -40,6 +40,9 @@ export type Host = {
 	/** Read a single extended attribute. */
 	getxattr(path: string, name: string): Promise<Uint8Array | null>;
 
+	/** Get the number of nodes in each of the leaves that a graph's nodes are split into. */
+	graphLeafCounts(data: tg.Graph.Data.Leaf): Array<number>;
+
 	/** List extended attribute names without interpreting them. */
 	listxattr(path: string): Promise<Array<string>>;
 

@@ -238,11 +238,7 @@ impl File {
 			Object::Pointer(object) => {
 				let graph = &object.graph;
 				let index = object.index;
-				let object = graph.object_with_instance(instance).await?;
-				let node = object
-					.nodes
-					.get(index)
-					.ok_or_else(|| tg::error!("invalid index"))?;
+				let node = graph.node_with_instance(instance, index).await?;
 				let file = node
 					.try_unwrap_file_ref()
 					.ok()
@@ -281,11 +277,7 @@ impl File {
 			Object::Pointer(pointer) => {
 				let graph = &pointer.graph;
 				let index = pointer.index;
-				let object = graph.object_with_instance(instance).await?;
-				let node = object
-					.nodes
-					.get(index)
-					.ok_or_else(|| tg::error!("invalid index"))?;
+				let node = graph.node_with_instance(instance, index).await?;
 				let file = node
 					.try_unwrap_file_ref()
 					.ok()
@@ -495,11 +487,7 @@ impl File {
 			Object::Pointer(pointer) => {
 				let graph = &pointer.graph;
 				let index = pointer.index;
-				let object = graph.object_with_instance(instance).await?;
-				let node = object
-					.nodes
-					.get(index)
-					.ok_or_else(|| tg::error!("invalid index"))?;
+				let node = graph.node_with_instance(instance, index).await?;
 				let file = node
 					.try_unwrap_file_ref()
 					.ok()
@@ -565,11 +553,7 @@ impl File {
 			Object::Pointer(object) => {
 				let graph = &object.graph;
 				let index = object.index;
-				let object = graph.object_with_instance(instance).await?;
-				let node = object
-					.nodes
-					.get(index)
-					.ok_or_else(|| tg::error!("invalid index"))?;
+				let node = graph.node_with_instance(instance, index).await?;
 				let file = node
 					.try_unwrap_file_ref()
 					.ok()
@@ -597,11 +581,7 @@ impl File {
 			Object::Pointer(object) => {
 				let graph = &object.graph;
 				let index = object.index;
-				let object = graph.object_with_instance(instance).await?;
-				let node = object
-					.nodes
-					.get(index)
-					.ok_or_else(|| tg::error!("invalid index"))?;
+				let node = graph.node_with_instance(instance, index).await?;
 				let file = node
 					.try_unwrap_file_ref()
 					.ok()

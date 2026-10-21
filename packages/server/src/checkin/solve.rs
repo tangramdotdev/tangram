@@ -36,7 +36,7 @@ struct Checkpoint {
 	graphs: Graphs,
 	graph_pointers: GraphPointers,
 	listed: bool,
-	lock: Option<Arc<tg::graph::Data>>,
+	lock: Option<Arc<tg::graph::data::Leaf>>,
 	next: usize,
 	observed_graph_nodes: ObservedGraphNodes,
 	queue: im::Vector<Item>,
@@ -46,7 +46,7 @@ struct Checkpoint {
 
 type Graphs = im::HashMap<
 	tg::graph::Id,
-	(Arc<tg::graph::Data>, Option<tg::object::Metadata>),
+	(Arc<tg::graph::data::Leaf>, Option<tg::object::Metadata>),
 	tg::id::BuildHasher,
 >;
 
@@ -63,7 +63,7 @@ struct CollectedDirectory {
 }
 
 struct GraphObservation {
-	data: Arc<tg::graph::Data>,
+	data: Arc<tg::graph::data::Leaf>,
 	id: tg::graph::Id,
 	metadata: Option<tg::object::Metadata>,
 	node_index: usize,
@@ -145,7 +145,7 @@ pub struct Referrer {
 pub(super) struct CheckinSolveArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
 	pub graph: &'a mut Graph,
-	pub lock: Option<Arc<tg::graph::Data>>,
+	pub lock: Option<Arc<tg::graph::data::Leaf>>,
 	pub next: usize,
 	pub progress: &'a crate::progress::Handle<super::TaskOutput>,
 	pub root: &'a Path,
@@ -155,7 +155,7 @@ pub(super) struct CheckinSolveArg<'a> {
 struct CheckinSolveInnerArg<'a> {
 	arg: &'a tg::checkin::Arg,
 	graph: &'a mut Graph,
-	lock: Option<Arc<tg::graph::Data>>,
+	lock: Option<Arc<tg::graph::data::Leaf>>,
 	next: usize,
 	root: &'a Path,
 	solutions: &'a mut Solutions,
@@ -987,8 +987,11 @@ impl Session {
 			data.clone()
 		} else {
 			let data = tg::graph::Data::deserialize(output.output.bytes)
-				.map(Arc::new)
 				.map_err(|error| tg::error!(!error, "failed to deserialize graph data"))?;
+			let data = self
+				.checkin_solve_get_graph_leaf(prefetch, checkpoint, data, options)
+				.await
+				.map(Arc::new)?;
 			checkpoint
 				.graphs
 				.insert(graph_id.clone(), (data.clone(), output.output.metadata));
@@ -1227,9 +1230,11 @@ impl Session {
 		let create = if permission_only {
 			Self::checkin_solve_metadata_requires_solving(graph_metadata.as_ref())
 		} else {
-			graph_metadata
-				.as_ref()
-				.is_none_or(|metadata| metadata.node.solvable)
+			graph_metadata.is_none()
+				|| graph_data.nodes.iter().any(|node| {
+					node.try_unwrap_file_ref()
+						.is_ok_and(tg::graph::data::File::solvable)
+				})
 		};
 		if !create {
 			let pointer = tg::graph::data::Pointer {
@@ -1393,8 +1398,11 @@ impl Session {
 			(data, metadata)
 		} else {
 			let data = tg::graph::Data::deserialize(output.output.bytes.clone())
-				.map(Arc::new)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
+			let data = self
+				.checkin_solve_get_graph_leaf(&state.prefetch, checkpoint, data, options)
+				.await
+				.map(Arc::new)?;
 			(data, None)
 		};
 		if let Some(output_metadata) = output.output.metadata {
@@ -1440,6 +1448,45 @@ impl Session {
 		};
 
 		Ok(observation)
+	}
+
+	/// Get all of a graph's nodes as a single leaf, getting each leaf of a branched graph.
+	async fn checkin_solve_get_graph_leaf(
+		&self,
+		prefetch: &Prefetch,
+		checkpoint: &mut Checkpoint,
+		data: tg::graph::Data,
+		options: &mut ObjectOptions,
+	) -> tg::Result<tg::graph::data::Leaf> {
+		let mut nodes = Vec::new();
+		let mut stack = vec![data];
+		while let Some(data) = stack.pop() {
+			match data {
+				tg::graph::Data::Leaf(leaf) => {
+					nodes.extend(leaf.nodes);
+				},
+				tg::graph::Data::Branch(branch) => {
+					for child in branch.children.into_iter().rev() {
+						let id = child.graph.into();
+						let output = self
+							.checkin_solve_get_object_with_options(
+								prefetch,
+								&mut checkpoint.graph,
+								checkpoint.next,
+								&id,
+								options,
+							)
+							.await?;
+						let data = tg::graph::Data::deserialize(output.output.bytes).map_err(
+							|error| tg::error!(!error, %id, "failed to deserialize the graph"),
+						)?;
+						stack.push(data);
+					}
+				},
+			}
+		}
+		let leaf = tg::graph::data::Leaf { nodes };
+		Ok(leaf)
 	}
 
 	fn checkin_solve_metadata_requires_solving(metadata: Option<&tg::object::Metadata>) -> bool {

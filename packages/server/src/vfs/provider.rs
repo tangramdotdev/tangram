@@ -133,6 +133,12 @@ struct NamedNodeChild {
 	target: Option<tg::Referent<tg::Id>>,
 }
 
+enum GraphNodeStep {
+	Child(tg::graph::Id),
+	Invalid,
+	Node(tg::graph::data::Node),
+}
+
 enum NamedNodeEntry {
 	Directory,
 	Symlink(tg::Referent<tg::Id>),
@@ -2610,11 +2616,7 @@ impl Provider {
 			tg::graph::data::Edge::Index(index) => {
 				let graph =
 					default_graph.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOSYS))?;
-				let data = self.graph_data_sync_inner(tokens, graph, transaction)?;
-				let node = data
-					.nodes
-					.get(index)
-					.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EIO))?;
+				let node = self.graph_node_sync_inner(tokens, graph, index, transaction)?;
 				let pointer = tg::graph::data::Pointer {
 					graph: graph.clone(),
 					index,
@@ -2648,11 +2650,7 @@ impl Provider {
 			tg::graph::data::Edge::Index(index) => {
 				let graph =
 					default_graph.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOSYS))?;
-				let data = self.graph_data_sync_inner(tokens, graph, transaction)?;
-				let node = data
-					.nodes
-					.get(index)
-					.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EIO))?;
+				let node = self.graph_node_sync_inner(tokens, graph, index, transaction)?;
 				let pointer = tg::graph::data::Pointer {
 					graph: graph.clone(),
 					index,
@@ -2964,21 +2962,35 @@ impl Provider {
 		})
 	}
 
+	/// Get the node at an index of a graph, loading only the leaf that contains it.
+	async fn graph_node_inner(
+		&self,
+		tokens: &Mutex<tg::authorization::Tokens>,
+		graph: &tg::graph::Id,
+		index: usize,
+	) -> std::io::Result<tg::graph::data::Node> {
+		let mut current = graph.clone();
+		let mut offset = index;
+		loop {
+			let data = self.graph_data_inner(tokens, &current).await?;
+			match Self::graph_node_step(data, &mut offset) {
+				GraphNodeStep::Child(child) => current = child,
+				GraphNodeStep::Node(node) => return Ok(node),
+				GraphNodeStep::Invalid => {
+					tracing::error!(%graph, %index, "invalid graph node");
+					return Err(std::io::Error::from_raw_os_error(libc::EIO));
+				},
+			}
+		}
+	}
+
 	async fn resolve_graph_node_inner(
 		&self,
 		tokens: &Mutex<tg::authorization::Tokens>,
 		pointer: &tg::graph::data::Pointer,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
 		let graph = pointer.graph.clone();
-		let graph_data = self.graph_data_inner(tokens, &graph).await?;
-		let node = graph_data
-			.nodes
-			.get(pointer.index)
-			.cloned()
-			.ok_or_else(|| {
-				tracing::error!(graph = %graph, pointer = ?pointer, "invalid graph node");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+		let node = self.graph_node_inner(tokens, &graph, pointer.index).await?;
 		if node.kind() != pointer.kind {
 			tracing::error!(
 				graph = %graph,
@@ -3289,6 +3301,49 @@ impl Provider {
 		})
 	}
 
+	/// Get the node at an index of a graph, loading only the leaf that contains it.
+	fn graph_node_sync_inner(
+		&self,
+		tokens: &Mutex<tg::authorization::Tokens>,
+		graph: &tg::graph::Id,
+		index: usize,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<tg::graph::data::Node> {
+		let mut current = graph.clone();
+		let mut offset = index;
+		loop {
+			let data = self.graph_data_sync_inner(tokens, &current, transaction)?;
+			match Self::graph_node_step(data, &mut offset) {
+				GraphNodeStep::Child(child) => current = child,
+				GraphNodeStep::Node(node) => return Ok(node),
+				GraphNodeStep::Invalid => {
+					tracing::error!(%graph, %index, "invalid graph node");
+					return Err(std::io::Error::from_raw_os_error(libc::EIO));
+				},
+			}
+		}
+	}
+
+	/// Take one step toward the node at an offset, returning the node from a leaf or the child of a branch that contains it.
+	fn graph_node_step(data: tg::graph::Data, offset: &mut usize) -> GraphNodeStep {
+		match data {
+			tg::graph::Data::Leaf(leaf) => match leaf.nodes.into_iter().nth(*offset) {
+				Some(node) => GraphNodeStep::Node(node),
+				None => GraphNodeStep::Invalid,
+			},
+			tg::graph::Data::Branch(branch) => {
+				for child in branch.children {
+					let count = child.count.to_usize().unwrap();
+					if *offset < count {
+						return GraphNodeStep::Child(child.graph);
+					}
+					*offset -= count;
+				}
+				GraphNodeStep::Invalid
+			},
+		}
+	}
+
 	fn resolve_graph_node_sync_inner(
 		&self,
 		tokens: &Mutex<tg::authorization::Tokens>,
@@ -3296,15 +3351,7 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
 		let graph = pointer.graph.clone();
-		let graph_data = self.graph_data_sync_inner(tokens, &graph, transaction)?;
-		let node = graph_data
-			.nodes
-			.get(pointer.index)
-			.cloned()
-			.ok_or_else(|| {
-				tracing::error!(graph = %graph, pointer = ?pointer, "invalid graph node");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+		let node = self.graph_node_sync_inner(tokens, &graph, pointer.index, transaction)?;
 		if node.kind() != pointer.kind {
 			tracing::error!(
 				graph = %graph,

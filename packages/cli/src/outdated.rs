@@ -209,7 +209,7 @@ impl Cli {
 	}
 }
 
-fn create_graph(lock: &tg::graph::Data, path: PathBuf) -> Graph {
+fn create_graph(lock: &tg::graph::data::Leaf, path: PathBuf) -> Graph {
 	let mut nodes = vec![None; lock.nodes.len()];
 	let mut stack = vec![(0, tg::referent::Options::with_path(path), Vec::new())];
 	while let Some((index, options, path)) = stack.pop() {

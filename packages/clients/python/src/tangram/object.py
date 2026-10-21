@@ -584,6 +584,8 @@ class ObjectDataNamespace:
             value = namespace.without_location_and_tokens(data["value"])
         elif kind == "file":
             value = _file_data_without_location_and_tokens(data["value"])
+        elif kind == "graph" and "nodes" not in data["value"]:
+            value = data["value"]
         elif kind == "graph":
             value = {
                 **data["value"],

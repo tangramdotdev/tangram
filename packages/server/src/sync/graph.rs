@@ -1,5 +1,6 @@
 use {
 	indexmap::{IndexMap, IndexSet},
+	num::ToPrimitive as _,
 	petgraph::visit::IntoNeighbors as _,
 	smallvec::SmallVec,
 	std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
@@ -16,6 +17,7 @@ mod tests;
 pub struct Graph {
 	checkout_contained_blobs: HashSet<tg::blob::Id, tg::id::BuildHasher>,
 	checkout_files: BTreeMap<tg::blob::Id, Vec<CheckoutFile>>,
+	checkout_graph_offsets: HashMap<tg::graph::Id, (tg::graph::Id, usize), tg::id::BuildHasher>,
 	checkout_objects: BTreeMap<tg::object::Id, tg::artifact::Id>,
 	checkout_pointers: bool,
 	checkout_queued_objects: HashSet<tg::object::Id, tg::id::BuildHasher>,
@@ -203,6 +205,7 @@ impl Graph {
 		let mut graph = Graph {
 			checkout_contained_blobs: HashSet::default(),
 			checkout_files: BTreeMap::new(),
+			checkout_graph_offsets: HashMap::default(),
 			checkout_objects: BTreeMap::new(),
 			checkout_pointers,
 			checkout_queued_objects: HashSet::default(),
@@ -796,26 +799,54 @@ impl Graph {
 				let Ok(graph_id) = tg::graph::Id::try_from(id.clone()) else {
 					return;
 				};
-				for (index, node) in graph.nodes.iter().enumerate() {
-					let tg::graph::data::Node::File(file) = node else {
-						continue;
-					};
-					let Some(contents) = &file.contents else {
-						continue;
-					};
-					let pointer = tg::graph::data::Pointer {
-						graph: graph_id.clone(),
-						index,
-						kind: tg::artifact::Kind::File,
-					};
-					let data = tg::file::Data::Pointer(pointer);
-					let Ok(bytes) = data.serialize() else {
-						continue;
-					};
-					let id = tg::file::Id::new(&bytes);
-					let dependencies =
-						Self::checkout_file_dependencies(file, Some((&graph_id, graph)));
-					self.insert_checkout_file(contents.clone(), dependencies, id, file.executable);
+
+				// Get the root graph and the offset of this graph's first node within it.
+				let (root, offset) = self
+					.checkout_graph_offsets
+					.get(&graph_id)
+					.cloned()
+					.unwrap_or((graph_id, 0));
+
+				match graph {
+					// Record the root and offset of each child of a branch.
+					tg::graph::Data::Branch(branch) => {
+						let mut child_offset = offset;
+						for child in &branch.children {
+							self.checkout_graph_offsets
+								.insert(child.graph.clone(), (root.clone(), child_offset));
+							child_offset += child.count.to_usize().unwrap();
+						}
+					},
+
+					// Insert a checkout file for each file node of a leaf.
+					tg::graph::Data::Leaf(leaf) => {
+						for (local, node) in leaf.nodes.iter().enumerate() {
+							let tg::graph::data::Node::File(file) = node else {
+								continue;
+							};
+							let Some(contents) = &file.contents else {
+								continue;
+							};
+							let pointer = tg::graph::data::Pointer {
+								graph: root.clone(),
+								index: offset + local,
+								kind: tg::artifact::Kind::File,
+							};
+							let data = tg::file::Data::Pointer(pointer);
+							let Ok(bytes) = data.serialize() else {
+								continue;
+							};
+							let id = tg::file::Id::new(&bytes);
+							let dependencies =
+								Self::checkout_file_dependencies(file, Some((&root, leaf, offset)));
+							self.insert_checkout_file(
+								contents.clone(),
+								dependencies,
+								id,
+								file.executable,
+							);
+						}
+					},
 				}
 			},
 			_ => {},
@@ -824,16 +855,24 @@ impl Graph {
 
 	fn checkout_file_dependencies(
 		file: &tg::graph::data::File,
-		graph: Option<(&tg::graph::Id, &tg::graph::Data)>,
+		graph: Option<(&tg::graph::Id, &tg::graph::data::Leaf, usize)>,
 	) -> Vec<tg::Id> {
 		file.dependencies
 			.values()
 			.flatten()
 			.filter_map(|dependency| dependency.node.as_ref())
 			.filter_map(|edge| {
-				let edge = match graph {
-					Some((id, graph)) => edge.clone().resolve(id, graph).ok()?,
-					None => edge.clone(),
+				let edge = match (graph, edge) {
+					(Some((root, leaf, offset)), tg::graph::data::Edge::Index(index)) => {
+						let node = leaf.nodes.get(index.checked_sub(offset)?)?;
+						let pointer = tg::graph::data::Pointer {
+							graph: root.clone(),
+							index: *index,
+							kind: node.kind(),
+						};
+						tg::graph::data::Edge::Pointer(pointer)
+					},
+					_ => edge.clone(),
 				};
 				match edge {
 					tg::graph::data::Edge::Index(_) => None,
