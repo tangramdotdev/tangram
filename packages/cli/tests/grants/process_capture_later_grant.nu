@@ -18,7 +18,7 @@ let data = {
 	exit: 0
 	finished_at: 1
 	host: 'x86_64-linux'
-	output: { kind: object, value: $file }
+	output: { node: { kind: object, value: $file } }
 	status: finished
 }
 let params = { resource: $file, process: $process } | to json --raw

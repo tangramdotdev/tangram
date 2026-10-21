@@ -124,10 +124,10 @@ impl Item {
 	/// Get the process that grants authority and the other process that receives it, for a delegation or a permission capture from one process to another.
 	#[must_use]
 	pub fn process_grant(&self) -> Option<(tg::process::Id, tg::process::Id)> {
-		let (source, destination) = if let Self::EnqueuePermissionCapture(arg) = self
-			&& let tg::Principal::Process(source) = &arg.principal
+		let (source, destination) = if let Self::PutPermissionCapture(capture) = self
+			&& let tg::Principal::Process(source) = &capture.principal
 		{
-			let destination = tg::process::Id::try_from(arg.resource.clone()).ok()?;
+			let destination = tg::process::Id::try_from(capture.subject.clone()).ok()?;
 			(source.clone(), destination)
 		} else if let Self::PutDelegation(arg) = self
 			&& let tg::authorization::Subject::Process(source) = &arg.source
