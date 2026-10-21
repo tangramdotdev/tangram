@@ -215,20 +215,8 @@ impl Session {
 			return Ok(());
 		}
 
-		// Bound the tokens by the lifetime of the proof accepted during authorization.
-		let created_at = self.server.clock.unix_timestamp()?;
-		let time_to_live = i64::try_from(
-			self.server.config.object.permission_time_to_live.as_secs(),
-		)
-		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
-		let mut expires_at = created_at
-			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
-		if let Some(expiration) = authorization.expires_at {
-			expires_at = expires_at.min(expiration);
-		}
-
 		// Create the token for the object using the existing authorization result.
+		let expires_at = self.object_token_expiration(&authorization)?;
 		let permissions = authorization.permissions;
 		let resource = tg::Id::from(id.clone());
 		if let Some(token) =
@@ -257,6 +245,25 @@ impl Session {
 		}
 
 		Ok(())
+	}
+
+	/// Bound object tokens by the permission time to live and the lifetime of the proof accepted during authorization.
+	pub(crate) fn object_token_expiration(
+		&self,
+		authorization: &crate::authorization::Output,
+	) -> tg::Result<i64> {
+		let created_at = self.server.clock.unix_timestamp()?;
+		let time_to_live = i64::try_from(
+			self.server.config.object.permission_time_to_live.as_secs(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
+		let mut expires_at = created_at
+			.checked_add(time_to_live)
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
+		if let Some(expiration) = authorization.expires_at {
+			expires_at = expires_at.min(expiration);
+		}
+		Ok(expires_at)
 	}
 
 	pub(crate) async fn try_get_object_batch_local(

@@ -145,7 +145,7 @@ lsp-types = "0.97"
 maml = "0.1"
 miette = { version = "7.6", features = ["fancy", "syntect-highlighter"] }
 mime = "0.3"
-moka = { version = "0.12", features = ["future"] }
+moka = { version = "0.12", features = ["future", "sync"] }
 napi = { version = "3.11", default-features = false, features = ["napi4"] }
 napi-build = "2.3"
 napi-derive = "3.6"

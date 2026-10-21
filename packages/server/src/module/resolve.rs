@@ -178,12 +178,21 @@ impl Session {
 				|| tg::error!(referrer = %referrer.node, "the referrer must be a file"),
 			)?;
 
-		// Get the dependency edge and the refreshed authorization token.
-		let mut dependency = file
-			.get_dependency_edge_with_instance(self, &import.reference)
+		// Get the dependency edge and the refreshed authorization token, reading the referrer's graph from the graph cache when it is stored locally.
+		let output = self
+			.try_get_dependency_edge_local(referrer, &import.reference)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the dependency edge"))?;
-		let authorization = authorization.to_referent();
+		let (mut dependency, authorization) = if let Some(output) = output {
+			output
+		} else {
+			let dependency = file
+				.get_dependency_edge_with_instance(self, &import.reference)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the dependency edge"))?;
+			let authorization = authorization.to_referent();
+			(dependency, authorization)
+		};
 
 		// Create and attach an exact token for the dependency edge.
 		let edge = dependency
@@ -370,6 +379,83 @@ impl Session {
 		self.add_token_to_resolved_module_referent(&mut referent, &authorization)?;
 
 		Ok(referent)
+	}
+
+	async fn try_get_dependency_edge_local(
+		&self,
+		referrer: &tg::Referent<&tg::graph::data::Edge<tg::object::Id>>,
+		reference: &tg::Reference,
+	) -> tg::Result<Option<(tg::graph::Dependency, tg::Referent<tg::object::Id>)>> {
+		// Get the data of the graph that the referrer points into.
+		let tg::graph::data::Edge::Pointer(pointer) = referrer.node else {
+			return Ok(None);
+		};
+		if !matches!(
+			referrer.options.location,
+			None | Some(tg::Location::Local(_))
+		) {
+			return Ok(None);
+		}
+		let Some((data, authorization)) = self
+			.try_get_graph_data_local(&pointer.graph, referrer.tokens())
+			.await?
+		else {
+			return Ok(None);
+		};
+
+		// Create the graph's authorization referent with a refreshed token.
+		let tokens =
+			self.refresh_graph_tokens(&pointer.graph, &authorization, referrer.tokens())?;
+		let graph = tg::Graph::with_id(pointer.graph.clone());
+		graph
+			.state()
+			.inherit_location(referrer.options.location.as_ref());
+		graph.state().set_tokens(tokens.clone());
+		let authorization =
+			tg::Referent::with_node_and_tokens(pointer.graph.clone().into(), tokens);
+
+		// Get the dependency from the referrer's node.
+		let file = data
+			.nodes
+			.get(pointer.index)
+			.ok_or_else(|| tg::error!("invalid index"))?
+			.try_unwrap_file_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a file"))?;
+		let reference = reference.without_token();
+		let dependency = file
+			.dependencies
+			.get(&reference)
+			.ok_or_else(|| tg::error!(node = %reference.node(), "expected a dependency"))?
+			.as_ref()
+			.ok_or_else(|| tg::error!("expected the dependency to exist"))?;
+
+		// Create the dependency edge, resolving an index into the referrer's graph.
+		let node = dependency
+			.0
+			.node
+			.clone()
+			.map(|edge| match edge {
+				tg::graph::data::Edge::Index(index) => {
+					let kind = data
+						.nodes
+						.get(index)
+						.ok_or_else(|| tg::error!("invalid node index"))?
+						.kind();
+					let pointer = tg::graph::Pointer {
+						graph: graph.clone(),
+						index,
+						kind,
+					};
+					Ok(tg::graph::Edge::Pointer(pointer))
+				},
+				edge => tg::graph::Edge::try_from_data(edge),
+			})
+			.transpose()?;
+		let options = dependency.0.options.clone();
+		let dependency = tg::graph::Dependency(tg::Referent { node, options });
+
+		Ok(Some((dependency, authorization)))
 	}
 
 	fn add_token_to_resolved_module_referent(

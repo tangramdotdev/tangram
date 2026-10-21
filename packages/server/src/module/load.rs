@@ -118,6 +118,11 @@ impl Session {
 					},
 				..
 			} => {
+				// Read the module from the graph cache when it points into a locally stored graph.
+				if let Some(output) = self.try_load_module_local(edge, options).await? {
+					return Ok(output);
+				}
+
 				let object = edge.try_unwrap_object_ref().map_or_else(
 					|_| {
 						let pointer = edge
@@ -141,19 +146,7 @@ impl Session {
 					.contents_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the file contents"))?;
-				// Retain the contents authorization even when the reader can use a checkout.
-				contents
-					.load_with_instance(self)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to load the module contents"))?;
-				let mut reader = crate::read::Reader::new(self, contents)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to create the module reader"))?;
-				let mut text = String::new();
-				reader
-					.read_to_string(&mut text)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to read the module text"))?;
+				let text = self.read_module_contents(contents).await?;
 				let tokens = file.to_referent().options.tokens;
 				Ok(tg::module::load::Output { text, tokens })
 			},
@@ -237,6 +230,83 @@ impl Session {
 
 			_ => Err(tg::error!("invalid module")),
 		}
+	}
+
+	async fn try_load_module_local(
+		&self,
+		edge: &tg::graph::data::Edge<tg::object::Id>,
+		options: &tg::referent::Options,
+	) -> tg::Result<Option<tg::module::load::Output>> {
+		// Get the data of the graph that the module points into.
+		let tg::graph::data::Edge::Pointer(pointer) = edge else {
+			return Ok(None);
+		};
+		if !matches!(options.location, None | Some(tg::Location::Local(_))) {
+			return Ok(None);
+		}
+		let Some((data, authorization)) = self
+			.try_get_graph_data_local(&pointer.graph, &options.tokens)
+			.await?
+		else {
+			return Ok(None);
+		};
+
+		// Get the file's contents.
+		let file = data
+			.nodes
+			.get(pointer.index)
+			.ok_or_else(|| tg::error!("invalid index"))?
+			.try_unwrap_file_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a file"))?;
+		let contents = file
+			.contents
+			.clone()
+			.ok_or_else(|| tg::error!("missing contents"))?;
+
+		// Create the tokens for the graph and its contents.
+		let mut tokens =
+			self.refresh_graph_tokens(&pointer.graph, &authorization, &options.tokens)?;
+		let expires_at = self.object_token_expiration(&authorization)?;
+		let contents = tg::Blob::with_id(contents);
+		contents.state().inherit_location(options.location.as_ref());
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		if authorization.permissions.contains(subtree)
+			&& let Some(token) =
+				self.create_token(contents.id().into(), vec![subtree], expires_at)?
+		{
+			let tokens = tg::authorization::Tokens::with_authorization(Some(token));
+			contents.state().inherit_tokens(&tokens);
+		}
+		contents.state().inherit_tokens(&tokens);
+
+		// Read the module text, retaining the contents authorization when the graph's token does not cover the contents.
+		let text = self.read_module_contents(contents.clone()).await?;
+		if !authorization.permissions.contains(subtree) {
+			tokens.inherit(&contents.state().tokens());
+		}
+		let output = tg::module::load::Output { text, tokens };
+
+		Ok(Some(output))
+	}
+
+	async fn read_module_contents(&self, contents: tg::Blob) -> tg::Result<String> {
+		// Retain the contents authorization even when the reader can use a checkout.
+		contents
+			.load_with_instance(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to load the module contents"))?;
+		let mut reader = crate::read::Reader::new(self, contents)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the module reader"))?;
+		let mut text = String::new();
+		reader
+			.read_to_string(&mut text)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the module text"))?;
+		Ok(text)
 	}
 
 	pub(crate) async fn load_module_request(

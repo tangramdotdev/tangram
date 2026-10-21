@@ -468,7 +468,7 @@ impl Session {
 
 		// Collect all entries, recursively flattening branches.
 		let entries =
-			crate::directory::collect_directory_entries(&self.server.cache, node, graph.as_ref())?;
+			crate::directory::collect_directory_entries(&self.server, node, graph.as_ref())?;
 
 		// Recurse into the entries.
 		for (name, edge) in entries {
@@ -699,7 +699,7 @@ impl Session {
 		match edge {
 			tg::graph::data::Edge::Index(index) => {
 				let graph = graph.ok_or_else(|| tg::error!("missing graph"))?;
-				let node = crate::graph::get_node(&self.server.cache, graph, index)?;
+				let node = crate::graph::get_node(&self.server, graph, index)?;
 				let pointer = tg::graph::data::Pointer {
 					graph: graph.clone(),
 					index,
@@ -708,8 +708,7 @@ impl Session {
 				Self::checkout_get_item_with_pointer(pointer, node)
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				let node =
-					crate::graph::get_node(&self.server.cache, &pointer.graph, pointer.index)?;
+				let node = crate::graph::get_node(&self.server, &pointer.graph, pointer.index)?;
 				Self::checkout_get_item_with_pointer(pointer, node)
 			},
 
@@ -732,8 +731,7 @@ impl Session {
 					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
 					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
 						let graph_id = pointer.graph;
-						let node =
-							crate::graph::get_node(&self.server.cache, &graph_id, pointer.index)?;
+						let node = crate::graph::get_node(&self.server, &graph_id, pointer.index)?;
 
 						Ok(Item {
 							graph: Some(graph_id),

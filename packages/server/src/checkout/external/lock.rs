@@ -250,14 +250,13 @@ impl Session {
 		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Collect all entries from the directory, flattening branches.
-		let all_entries =
-			crate::directory::collect_directory_entries(&self.server.cache, node, graph)?;
+		let all_entries = crate::directory::collect_directory_entries(&self.server, node, graph)?;
 
 		// Transform each entry for the lock.
 		let entries = all_entries
 			.into_iter()
 			.map(|(name, mut edge)| {
-				edge = crate::graph::resolve_edge(&self.server.cache, edge, graph)?;
+				edge = crate::graph::resolve_edge(&self.server, edge, graph)?;
 				let index = self.checkout_create_lock_inner(state, &edge)?;
 				let edge = tg::graph::data::Edge::Index(index);
 				Ok::<_, tg::Error>((name, edge))
@@ -286,7 +285,7 @@ impl Session {
 				let referent = dependency.0;
 				let edge = match referent.node {
 					Some(tg::graph::data::Edge::Index(index)) => crate::graph::resolve_edge(
-						&self.server.cache,
+						&self.server,
 						tg::graph::data::Edge::Index(index),
 						graph,
 					)?,
@@ -338,7 +337,7 @@ impl Session {
 			.as_ref()
 			.map(|edge| {
 				let mut edge = edge.clone();
-				edge = crate::graph::resolve_edge(&self.server.cache, edge, graph)?;
+				edge = crate::graph::resolve_edge(&self.server, edge, graph)?;
 				let node_index = self.checkout_create_lock_inner(state, &edge)?;
 				Ok::<_, tg::Error>(tg::graph::data::Edge::Index(node_index))
 			})
@@ -428,7 +427,7 @@ impl Session {
 	) -> tg::Result<tg::graph::data::Node> {
 		// Collect all entries, flattening branches recursively.
 		let all_entries =
-			crate::directory::collect_directory_entries(&self.server.cache, node, Some(graph_id))?;
+			crate::directory::collect_directory_entries(&self.server, node, Some(graph_id))?;
 
 		// Process entries to create lock pointers.
 		let entries = all_entries

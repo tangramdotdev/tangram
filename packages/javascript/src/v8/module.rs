@@ -259,8 +259,7 @@ fn resolve_module_callback<'s>(
 		.borrow()
 		.iter()
 		.find(|module| module.v8.as_ref().unwrap() == &referrer)
-		.cloned()
-		.map(|module| module.data)
+		.map(|module| module.data.clone())
 		.ok_or_else(|| tg::error!("unable to find the module"));
 	let module = match result {
 		Ok(module) => module,

@@ -152,6 +152,8 @@ pub struct State {
 
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 
+	graphs: self::graph::Cache,
+
 	index: Index,
 
 	index_changed: tokio::sync::Notify,
@@ -1523,6 +1525,9 @@ impl Server {
 		// Create the diagnostics.
 		let diagnostics = Mutex::new(Vec::new());
 
+		// Create the graph cache.
+		let graphs = self::graph::cache();
+
 		// Create the clock.
 		let clock = self::clock::Clock::new();
 		clock.now()?;
@@ -1909,6 +1914,8 @@ impl Server {
 			database,
 
 			diagnostics,
+
+			graphs,
 
 			index,
 

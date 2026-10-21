@@ -31,6 +31,7 @@ struct SavedCheckpoint {
 struct Checkpoint {
 	candidates: Option<im::Vector<Candidate>>,
 	directory_options: DirectoryOptions,
+	enqueued: im::HashSet<usize, fnv::FnvBuildHasher>,
 	graph: Graph,
 	graphs: Graphs,
 	graph_pointers: GraphPointers,
@@ -251,6 +252,7 @@ impl Session {
 		let mut checkpoint = Checkpoint {
 			candidates: None,
 			directory_options: im::HashMap::default(),
+			enqueued: im::HashSet::default(),
 			graph: graph.clone(),
 			graphs: im::HashMap::default(),
 			graph_pointers: im::HashMap::default(),
@@ -1505,6 +1507,11 @@ impl Session {
 		let solve = node.solvable && !node.solved;
 		let observe = referent.node >= checkpoint.next && node.path.is_some();
 		if !solve && !observe {
+			return;
+		}
+
+		// Enqueue each node's items only once, since the items of an earlier enqueue are processed first and mark the keys of any later enqueue as visited.
+		if checkpoint.enqueued.insert(referent.node).is_some() {
 			return;
 		}
 
