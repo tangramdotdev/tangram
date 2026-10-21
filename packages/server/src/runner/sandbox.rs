@@ -85,20 +85,7 @@ struct CreateSandboxOutput {
 struct ConnectedSandboxControl {
 	requests:
 		BoxStream<'static, tg::Result<tg::control::Event<tg::sandbox::control::ServerMessage>>>,
-}
-
-pub(super) struct SandboxControlConnection {
-	control: crate::control::Stream<
-		tg::sandbox::control::ServerMessage,
-		tg::sandbox::control::ClientMessage,
-	>,
-	id: tg::sandbox::Id,
 	token: String,
-}
-
-enum SandboxControlConnectionKind {
-	Pooled(SandboxControlConnection),
-	Standard(ConnectedSandboxControl),
 }
 
 pub(crate) enum Event {
@@ -259,32 +246,37 @@ impl Session {
 		let mut arg = arg;
 		crate::sandbox::limit_sandbox_resources(&mut arg, allocation.capacity());
 
-		let identity = match (id, token) {
-			(Some(id), Some(token)) => Some((id, token)),
-			(None, None) => None,
+		// Use the sandbox's ID and token from its assignment, or, on the shortcut path, derive the ID and receive the token in the control connection's header.
+		let runner = self
+			.server
+			.runner
+			.state
+			.id()
+			.ok_or_else(|| tg::error!("missing the runner id"))?;
+		let (id, token, proof) = match (id, token) {
+			(Some(id), Some(token)) => (id, Some(token), None),
+			(None, None) => {
+				let (id, proof) = tg::sandbox::Id::with_runner(&runner);
+				(id, None, Some(proof))
+			},
 			_ => {
 				return Err(tg::error!(
 					"the sandbox id and token must be provided together"
 				));
 			},
 		};
-		let context = if let Some((id, token)) = &identity {
+		let shortcut = proof.is_some();
+		let (token_sender, token_receiver) = tokio::sync::watch::channel(token.clone());
+		let context = if let Some(token) = &token {
 			Context {
 				principal: tg::Principal::Sandbox(id.clone()),
 				token: Some(token.clone()),
 				..self.context.clone()
 			}
 		} else {
-			let runner = self
-				.server
-				.runner
-				.state
-				.id()
-				.ok_or_else(|| tg::error!("missing the runner id"))?;
-			let token = self.server.config.runner.token.clone();
 			Context {
 				principal: tg::Principal::Runner(runner),
-				token,
+				token: self.server.config.runner.token.clone(),
 				..self.context.clone()
 			}
 		};
@@ -298,45 +290,40 @@ impl Session {
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();
-		let connect_future: BoxFuture<'static, tg::Result<SandboxControlConnectionKind>> =
-			if let Some((id, _)) = &identity {
-				let create = arg.clone();
-				let creator = creator.clone();
-				let id = id.clone();
-				let location = location.clone();
 
-				async move {
-					let connection = connection_session
-						.get_sandbox_control_stream(
-							Some(&id),
-							&location,
-							created_at,
-							create,
-							creator,
-							input_stream,
-						)
-						.await?;
+		// Connect the control stream in a task, so that the connection proceeds while nothing polls it.
+		let connect_task = Task::spawn({
+			let create = arg.clone();
+			let creator = creator.clone();
+			let id = id.clone();
+			let location = location.clone();
+			move |_| async move {
+				let connection = connection_session
+					.get_sandbox_control_stream(
+						&id,
+						&location,
+						created_at,
+						create,
+						creator,
+						proof,
+						input_stream,
+					)
+					.await?;
 
-					Ok(SandboxControlConnectionKind::Standard(connection))
-				}
-				.boxed()
-			} else {
-				let server = self.server.clone();
+				// Send the token from the header, so that the sandbox's requests stop claiming the sandbox with the runner's token.
+				token_sender.send_replace(Some(connection.token.clone()));
 
-				async move {
-					crate::checkpoint!(server, "runner.sandbox.control.acquire").await;
-					let connection = server
-						.runner
-						.sandbox_control_connection_pool()
-						.take()
-						.await?;
-
-					Ok(SandboxControlConnectionKind::Pooled(connection))
-				}
-				.boxed()
-			};
+				Ok::<_, tg::Error>(connection)
+			}
+		});
+		let mut connect_future: BoxFuture<'static, tg::Result<ConnectedSandboxControl>> =
+			async move {
+				connect_task.wait().await.map_err(|error| {
+					tg::error!(!error, "the sandbox control connect task panicked")
+				})?
+			}
+			.boxed();
 		let mut create_future = pin!(create_future);
-		let mut connect_future = connect_future.boxed();
 		let mut connection = None;
 		let create_output = loop {
 			tokio::select! {
@@ -346,81 +333,6 @@ impl Session {
 				},
 			}
 		};
-
-		// Resolve the shortcut identity before activating the physical sandbox.
-		let shortcut = identity.is_none();
-		let (id, token) = if let Some(identity) = identity {
-			identity
-		} else {
-			let connection_ = if let Some(connection) = connection.take() {
-				connection
-			} else {
-				connect_future.as_mut().await?
-			};
-			let SandboxControlConnectionKind::Pooled(connection_) = connection_ else {
-				unreachable!();
-			};
-			let create = tg::sandbox::control::CreateClientRequestArg {
-				arg: arg.clone(),
-				created_at,
-				creator: creator.clone(),
-			};
-			let request_id = crate::control::id();
-			let request =
-				tg::sandbox::control::ClientMessage::Request(tg::sandbox::control::ClientRequest {
-					arg: tg::sandbox::control::ClientRequestArg::Create(create),
-					id: request_id,
-				});
-			let response = connection_
-				.control
-				.sender()
-				.request(request, crate::control::Priority::High)
-				.await?;
-			let sandbox_stopper = stopper.clone();
-			crate::checkpoint!(self.server, "runner.sandbox.control.create.sent", sandbox = %connection_.id).await;
-			let mut create_task = Task::spawn(move |_| {
-				async move {
-					let result = async {
-						let response = response
-							.await
-							.map_err(|_| tg::error!("the sandbox control response stream ended"))?;
-						let tg::sandbox::control::ServerMessage::Response(response) = response
-						else {
-							return Err(tg::error!("expected a sandbox control create response"));
-						};
-						if let Some(error) = response.error {
-							let error = tg::Error::try_from(error).map_err(|source| {
-								tg::error!(!source, "failed to deserialize the error")
-							})?;
-							return Err(error);
-						}
-						response
-							.output
-							.ok_or_else(|| {
-								tg::error!("missing the sandbox control create response")
-							})?
-							.try_unwrap_create()
-							.map_err(|_| {
-								tg::error!("expected a sandbox control create response")
-							})?;
-
-						Ok::<_, tg::Error>(())
-					}
-					.await;
-
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace(), "failed to create the sandbox control connection");
-						sandbox_stopper.stop();
-					}
-				}
-				.in_current_span()
-			});
-			create_task.detach();
-			let identity = (connection_.id.clone(), connection_.token.clone());
-			connection = Some(SandboxControlConnectionKind::Pooled(connection_));
-
-			identity
-		};
 		tracing::Span::current().record("sandbox", tracing::field::display(&id));
 		tracing::info!(runner = self.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = %id, "created the sandbox");
 		let process = process
@@ -428,7 +340,7 @@ impl Session {
 			.transpose()?;
 		let context = Context {
 			principal: tg::Principal::Sandbox(id.clone()),
-			token: Some(token.clone()),
+			token: token.clone(),
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
@@ -487,7 +399,7 @@ impl Session {
 
 			status: tg::sandbox::Status::Started,
 
-			token,
+			token: token_receiver,
 
 			tokens: BTreeMap::new(),
 
@@ -542,39 +454,31 @@ impl Session {
 
 		// Drive the control stream alongside local requests.
 		let (connected_sender, connected_receiver) = tokio::sync::oneshot::channel();
-		let control = match connection {
-			Some(SandboxControlConnectionKind::Pooled(connection)) => {
-				sandbox_ready_sender.send(()).ok();
-				connected_sender.send(()).ok();
-				connection.control
-			},
-			connection => {
-				let requests = futures::stream::once(async move {
-					let connection = match connection {
-						Some(SandboxControlConnectionKind::Standard(connection)) => connection,
-						Some(SandboxControlConnectionKind::Pooled(_)) => unreachable!(),
-						None => {
-							let SandboxControlConnectionKind::Standard(connection) =
-								connect_future.await?
-							else {
-								unreachable!();
-							};
-							connection
-						},
-					};
-					sandbox_ready_sender.send(()).ok();
-					connected_sender.send(()).ok();
-					Ok::<_, tg::Error>(connection.requests)
-				})
-				.try_flatten()
-				.boxed();
-				crate::control::Stream::new_reconnecting(
-					requests,
-					input,
-					crate::control::stream_options(&self.server.config.control),
-				)
-			},
-		};
+
+		// Let a process on the shortcut path start without waiting for the control stream, because its start creates the sandbox and the sandbox's control service verifies the runner.
+		let mut sandbox_ready_sender = Some(sandbox_ready_sender);
+		if shortcut && let Some(sender) = sandbox_ready_sender.take() {
+			sender.send(()).ok();
+		}
+		let requests = futures::stream::once(async move {
+			let connection = if let Some(connection) = connection {
+				connection
+			} else {
+				connect_future.await?
+			};
+			if let Some(sender) = sandbox_ready_sender {
+				sender.send(()).ok();
+			}
+			connected_sender.send(()).ok();
+			Ok::<_, tg::Error>(connection.requests)
+		})
+		.try_flatten()
+		.boxed();
+		let control = crate::control::Stream::new_reconnecting(
+			requests,
+			input,
+			crate::control::stream_options(&self.server.config.control),
+		);
 		let control = control::Control::new(control, control_receiver);
 		let connected = async move {
 			connected_receiver
@@ -1522,62 +1426,15 @@ impl Session {
 		Ok(())
 	}
 
-	pub(super) async fn create_sandbox_control_connection(
-		&self,
-	) -> tg::Result<SandboxControlConnection> {
-		let location = self.server.config.runner.remote.as_ref().map_or_else(
-			|| tg::Location::Local(tg::location::Local::default()),
-			|name| {
-				tg::Location::Remote(tg::location::Remote {
-					name: name.clone(),
-					region: None,
-				})
-			},
-		);
-		let runner = self
-			.server
-			.runner
-			.state
-			.id()
-			.ok_or_else(|| tg::error!("missing the runner id"))?;
-		let capacity = self.server.config.runner.sandbox_channel_capacity;
-		let (input, input_receiver) = tokio::sync::mpsc::channel(capacity);
-		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
-			.map(Ok)
-			.boxed();
-		let arg = tg::sandbox::control::Arg {
-			create: None,
-			created_at: None,
-			creator: None,
-			id: None,
-			location: Some(location.into()),
-			runner: Some(runner),
-		};
-		let (header, requests) = self.connect_sandbox_control(arg, input_stream).await?;
-		let token = header.token.ok_or_else(
-			|| tg::error!(id = %header.id, "missing the sandbox authentication token"),
-		)?;
-		let control = crate::control::Stream::new_reconnecting(
-			requests,
-			input,
-			crate::control::stream_options(&self.server.config.control),
-		);
-		let connection = SandboxControlConnection {
-			control,
-			id: header.id,
-			token,
-		};
-
-		Ok(connection)
-	}
-
+	#[expect(clippy::too_many_arguments)]
 	async fn get_sandbox_control_stream(
 		&self,
-		id: Option<&tg::sandbox::Id>,
+		id: &tg::sandbox::Id,
 		location: &tg::Location,
 		created_at: i64,
 		create: tg::sandbox::create::Arg,
 		creator: Option<tg::Principal>,
+		proof: Option<tg::sandbox::id::Proof>,
 		input_stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> tg::Result<ConnectedSandboxControl> {
 		let runner = self
@@ -1590,27 +1447,29 @@ impl Session {
 			create: Some(create),
 			created_at: Some(created_at),
 			creator,
-			id: id.cloned(),
+			id: Some(id.clone()),
 			location: Some(location.clone().into()),
+			proof,
 			runner: Some(runner),
 		};
 		let (header, control) = self.connect_sandbox_control(arg, input_stream).await?;
-		if let Some(id) = id
-			&& header.id != *id
-		{
+		if header.id != *id {
 			return Err(
 				tg::error!(actual = %header.id, expected = %id, "the server returned an invalid sandbox"),
 			);
 		}
-		header
+		let token = header
 			.token
-			.or_else(|| id.and(self.context.token.clone()))
+			.or_else(|| self.context.token.clone())
 			.ok_or_else(
 				|| tg::error!(id = %header.id, "missing the sandbox authentication token"),
 			)?;
 		self.index_remote_sandbox(&header.id, location, created_at, None, None)
 			.await?;
-		let connection = ConnectedSandboxControl { requests: control };
+		let connection = ConnectedSandboxControl {
+			requests: control,
+			token,
+		};
 
 		Ok(connection)
 	}
@@ -1625,7 +1484,8 @@ impl Session {
 		BoxStream<'static, tg::Result<tg::control::Event<tg::sandbox::control::ServerMessage>>>,
 	)> {
 		let id = arg.id.clone();
-		crate::checkpoint!(self.server, "runner.sandbox.control.connect", sandbox = ?id).await;
+		let shortcut = arg.proof.is_some();
+		crate::checkpoint!(self.server, "runner.sandbox.control.connect", sandbox = ?id, shortcut = %shortcut).await;
 		let reconnect_context = self.context.clone();
 		let reconnect_server = self.server.clone();
 		let reconnect = move |header: &tg::sandbox::control::Header| {

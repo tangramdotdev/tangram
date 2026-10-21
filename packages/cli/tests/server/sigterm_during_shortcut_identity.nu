@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# SIGTERM cleans up a claimed physical sandbox even when a shortcut has not received its sandbox ID, or has not completed its process control handshake.
+# SIGTERM cleans up a claimed physical sandbox even when a shortcut has not completed its sandbox or process control handshake.
 
 for kind in [sandbox process] {
 	let root_token = random chars
@@ -20,9 +20,14 @@ for kind in [sandbox process] {
 	let local = server spawn --name $'local-($kind)' --config {
 		remotes: { default: { token: $alice.token, url: $remote.url } },
 	}
-	# A shortcut sandbox waits for its ID, and a shortcut process connects process control after the parent's connection.
-	let checkpoint = if $kind == 'sandbox' { 'runner.sandbox.control.acquire' } else { 'runner.process.control.connect' }
-	let control_watch = tg --url $runner.url checkpoint watch $checkpoint | from json | get watch
+	# A shortcut sandbox's connection is the only one that carries a proof, and a shortcut process connects process control after the parent's connection.
+	let checkpoint = $'runner.($kind).control.connect'
+	let control_watch = if $kind == 'sandbox' {
+		let params = { shortcut: 'true' } | to json --raw
+		tg --url $runner.url checkpoint watch $checkpoint --params $params | from json | get watch
+	} else {
+		tg --url $runner.url checkpoint watch $checkpoint | from json | get watch
+	}
 	let control_hit = if $kind == 'sandbox' { 0 } else { 1 }
 	let pool_watch = tg --url $runner.url checkpoint watch runner.sandbox.pool.take | from json | get watch
 	let start_watch = tg --url $runner.url checkpoint watch runner.process.start | from json | get watch
@@ -48,16 +53,12 @@ for kind in [sandbox process] {
 	assert (ps | any { |process| $process.pid == $sandbox_pid }) "the claimed physical sandbox should be running"
 	tg --url $runner.url checkpoint unwatch runner.sandbox.pool.take $pool_watch
 	success (timeout 30s tg --url $runner.url checkpoint wait $checkpoint $control_watch $control_hit | complete)
-	if $kind == 'sandbox' {
-		let started = timeout 1s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | complete
-		assert equal $started.exit_code 124 "the shortcut child must not start before receiving its sandbox identity"
-	}
 
 	# Leave the handshake blocked and terminate the runner.
 	let pid = open ($runner.directory | path join lock) | into int
 	kill --signal 15 $pid
-	wait_for_exit --timeout 20sec $pid "the runner should exit without waiting for shortcut identity acquisition"
-	wait_for_exit --timeout 10sec $sandbox_pid "the unstarted child's physical sandbox should exit with the runner"
+	wait_for_exit --timeout 20sec $pid "the runner should exit without waiting for the shortcut handshake"
+	wait_for_exit --timeout 10sec $sandbox_pid "the child's physical sandbox should exit with the runner"
 	job kill $build
 	server stop $local
 	server stop $remote

@@ -272,9 +272,10 @@ pub struct Sandbox {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub create: Option<SandboxCreate>,
 
-	/// The sandbox's token.
-	#[tangram_serialize(id = 1)]
-	pub token: String,
+	/// The sandbox's token, which is absent while the runner waits for it, in which case the sandbox's control service verifies that the runner hosts the sandbox.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 #[derive(

@@ -27,10 +27,29 @@ pub(crate) struct Process {
 	pub sandbox: tg::sandbox::Id,
 }
 
+/// The token with which a principal authenticates to a remote, and the process or sandbox that a runner's token claims to act for.
+#[derive(Clone, Default)]
+pub(crate) struct RemoteToken {
+	pub process: Option<tg::process::Id>,
+	pub sandbox: Option<tg::sandbox::Id>,
+	pub token: Option<String>,
+}
+
 #[derive(Clone)]
 pub(crate) struct Sandbox {
 	pub location: tg::Location,
 	pub token: Option<String>,
+}
+
+impl RemoteToken {
+	#[must_use]
+	fn with_token(token: String) -> Self {
+		Self {
+			process: None,
+			sandbox: None,
+			token: Some(token),
+		}
+	}
 }
 
 impl Session {
@@ -104,7 +123,7 @@ impl Session {
 			let location = sandbox.location.clone();
 			return Ok(Some(Sandbox {
 				location,
-				token: Some(sandbox.token.clone()),
+				token: sandbox.token.borrow().clone(),
 			}));
 		}
 
@@ -132,24 +151,24 @@ impl Session {
 		}))
 	}
 
-	/// Get the token with which this session's principal authenticates to a remote, and the process that the token claims when it is a runner's token that acts for one of its processes.
+	/// Get the token with which this session's principal authenticates to a remote, and the process or sandbox that the token claims when it is a runner's token that acts for one of its processes or sandboxes.
 	pub(crate) async fn try_get_authenticated_principal_remote_token(
 		&self,
 		remote: &str,
-	) -> tg::Result<(Option<String>, Option<tg::process::Id>)> {
+	) -> tg::Result<RemoteToken> {
 		match &self.context.principal {
 			tg::Principal::Process(id) => {
 				let Some(process) = self.try_get_authenticated_process(id).await? else {
-					return Ok((None, None));
+					return Ok(RemoteToken::default());
 				};
 				let Some(location) = process.location.as_ref() else {
-					return Ok((None, None));
+					return Ok(RemoteToken::default());
 				};
 				let tg::Location::Remote(location) = location else {
-					return Ok((None, None));
+					return Ok(RemoteToken::default());
 				};
 				if location.name != remote {
-					return Ok((None, None));
+					return Ok(RemoteToken::default());
 				}
 
 				// Use the token of a process that this runner runs, or, until a process on the shortcut path receives its token in its control connection's header, claim the process with the runner's token.
@@ -168,20 +187,29 @@ impl Session {
 							.map(|process| process.inner_token.clone())
 					});
 				let Some(receiver) = receiver else {
-					return Ok((process.inner_token, None));
+					let output = RemoteToken {
+						process: None,
+						sandbox: None,
+						token: process.inner_token,
+					};
+					return Ok(output);
 				};
 				let token = receiver.borrow().clone();
 				if let Some(token) = token {
-					return Ok((Some(token), None));
+					return Ok(RemoteToken::with_token(token));
 				}
 
 				// Send the runner's token only to the runner's remote.
 				let runner = &self.server.config.runner;
 				if runner.remote.as_deref() != Some(remote) {
-					return Ok((None, None));
+					return Ok(RemoteToken::default());
 				}
-				let token = runner.token.clone();
-				Ok((token, Some(id.clone())))
+				let output = RemoteToken {
+					process: Some(id.clone()),
+					sandbox: None,
+					token: runner.token.clone(),
+				};
+				Ok(output)
 			},
 			tg::Principal::Runner(id) => {
 				if !self
@@ -190,32 +218,63 @@ impl Session {
 					.roles
 					.contains(&crate::config::Role::Runner)
 				{
-					return Ok((None, None));
+					return Ok(RemoteToken::default());
 				}
 				let runner = &self.server.config.runner;
 				if runner.remote.as_deref() != Some(remote) {
-					return Ok((None, None));
+					return Ok(RemoteToken::default());
 				}
 				if runner.id.as_ref().is_some_and(|runner| runner != id) {
-					return Ok((None, None));
+					return Ok(RemoteToken::default());
 				}
-				Ok((runner.token.clone(), None))
+				let output = RemoteToken {
+					process: None,
+					sandbox: None,
+					token: runner.token.clone(),
+				};
+				Ok(output)
 			},
-			tg::Principal::Sandbox(sandbox) => {
-				let Some(sandbox) = self.try_get_authenticated_sandbox(sandbox).await? else {
-					return Ok((None, None));
+			tg::Principal::Sandbox(id) => {
+				let Some(sandbox) = self.try_get_authenticated_sandbox(id).await? else {
+					return Ok(RemoteToken::default());
 				};
 				let tg::Location::Remote(location) = &sandbox.location else {
-					return Ok((None, None));
+					return Ok(RemoteToken::default());
 				};
-				let token = (location.name == remote).then_some(sandbox.token).flatten();
-				Ok((token, None))
+				if location.name != remote {
+					return Ok(RemoteToken::default());
+				}
+				if let Some(token) = sandbox.token {
+					return Ok(RemoteToken::with_token(token));
+				}
+
+				// Until a sandbox that this runner hosts receives its token in its control connection's header, claim the sandbox with the runner's token, sending it only to the runner's remote.
+				if self
+					.server
+					.runner
+					.state()
+					.sandboxes()
+					.get_by_id(id)
+					.is_none()
+				{
+					return Ok(RemoteToken::default());
+				}
+				let runner = &self.server.config.runner;
+				if runner.remote.as_deref() != Some(remote) {
+					return Ok(RemoteToken::default());
+				}
+				let output = RemoteToken {
+					process: None,
+					sandbox: Some(id.clone()),
+					token: runner.token.clone(),
+				};
+				Ok(output)
 			},
 			tg::Principal::Anonymous
 			| tg::Principal::Group(_)
 			| tg::Principal::Organization(_)
 			| tg::Principal::Root
-			| tg::Principal::User(_) => Ok((None, None)),
+			| tg::Principal::User(_) => Ok(RemoteToken::default()),
 		}
 	}
 }
@@ -266,21 +325,22 @@ impl Server {
 		Ok(token.to_string())
 	}
 
-	/// Authenticate a request, and authenticate a runner's request that claims to act for one of its processes as the process, once the process's control service verifies that the runner started it.
-	pub(crate) async fn authenticate_with_process(
+	/// Authenticate a request, and authenticate a runner's request that claims to act for one of its processes or sandboxes as the process or sandbox, once its control service verifies that the runner started the process or hosts the sandbox.
+	pub(crate) async fn authenticate_with_claim(
 		&self,
 		context: &crate::Context,
 		token: Option<&str>,
 		process: Option<tg::process::Id>,
+		sandbox: Option<tg::sandbox::Id>,
 	) -> tg::Result<Entry> {
 		let authentication = self.authenticate(context.origin, token).await?;
-		let Some(process) = process else {
+		if process.is_none() && sandbox.is_none() {
 			return Ok(authentication);
-		};
+		}
 		let tg::Principal::Runner(_) = &authentication.principal else {
 			return Err(tg::error!(
 				unauthorized,
-				"only a runner may claim to act for a process"
+				"only a runner may claim to act for a process or a sandbox"
 			));
 		};
 		let context = crate::Context {
@@ -288,12 +348,30 @@ impl Server {
 			..context.clone()
 		};
 		let session = self.session(&context);
-		session
-			.authorize_with_process_control_service(&process, &authentication.principal)
-			.await?;
+		let principal = match (process, sandbox) {
+			(Some(process), None) => {
+				session
+					.authorize_with_process_control_service(&process, &authentication.principal)
+					.await?;
+				tg::Principal::Process(process)
+			},
+			(None, Some(sandbox)) => {
+				session
+					.authorize_with_sandbox_control_service(&sandbox, &authentication.principal)
+					.await?;
+				tg::Principal::Sandbox(sandbox)
+			},
+			(Some(_), Some(_)) => {
+				return Err(tg::error!(
+					argument,
+					"a request may not claim both a process and a sandbox"
+				));
+			},
+			(None, None) => unreachable!(),
+		};
 		let authentication = Entry {
 			billing_ready: authentication.billing_ready,
-			principal: tg::Principal::Process(process),
+			principal,
 		};
 
 		Ok(authentication)
@@ -439,7 +517,7 @@ impl Server {
 				.state()
 				.sandboxes()
 				.get_by_id(id)
-				.is_some_and(|sandbox| sandbox.token == value),
+				.is_some_and(|sandbox| sandbox.token.borrow().as_deref() == Some(value)),
 			_ => false,
 		};
 		if matches {

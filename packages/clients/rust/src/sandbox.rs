@@ -2,7 +2,6 @@ mod amount;
 mod builder;
 mod cpu;
 mod data;
-mod id;
 mod mount;
 mod network;
 mod resource;
@@ -28,9 +27,13 @@ pub mod create;
 pub mod destroy;
 pub mod get;
 pub mod handle;
+pub mod id;
 pub mod list;
 pub mod processes;
 pub mod status;
+
+/// The header with which a runner's request claims to act for one of its sandboxes.
+pub const SANDBOX_HEADER: &str = "x-tg-sandbox";
 
 #[derive(Clone, Copy, Debug)]
 pub struct Config {

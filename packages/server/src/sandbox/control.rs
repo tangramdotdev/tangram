@@ -2,6 +2,7 @@ use {
 	crate::Session,
 	dashmap::DashSet,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
+	num::ToPrimitive as _,
 	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
@@ -11,6 +12,7 @@ use {
 
 mod destroy;
 pub(crate) mod local;
+pub(crate) mod service;
 
 #[derive(Clone)]
 pub(crate) struct ClientMessage(pub(crate) tg::sandbox::control::ClientMessage);
@@ -156,42 +158,46 @@ impl Session {
 		tg::sandbox::control::Header,
 		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
 	)> {
-		self.get_sandbox_control_stream_local_inner(arg, stream, None)
+		self.get_sandbox_control_stream_local_inner(arg, stream)
 			.boxed()
 			.await
 	}
 
 	async fn get_sandbox_control_stream_local_inner(
 		&self,
-		mut arg: tg::sandbox::control::Arg,
+		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-		create_request: Option<String>,
 	) -> tg::Result<(
 		tg::sandbox::control::Header,
 		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
 	)> {
-		let assign = arg.id.is_none();
-		let (id, token) = if let Some(id) = arg.id.take() {
-			match &self.context.principal {
-				tg::Principal::Sandbox(sandbox) if sandbox == &id => (),
-				tg::Principal::Sandbox(sandbox) => {
-					return Err(tg::error!(sandbox = %sandbox, %id, "invalid sandbox"));
-				},
-				_ => return Err(tg::error!("unauthorized")),
-			}
-			(id, self.context.token.clone())
-		} else {
-			if !matches!(
-				self.context.principal,
-				tg::Principal::Root | tg::Principal::Runner(_)
-			) {
-				return Err(tg::error!("unauthorized"));
-			}
-			let id = tg::sandbox::Id::new();
-			let token = self
-				.server
-				.create_sandbox_authentication_token(id.clone())?;
-			(id, Some(token))
+		// Authenticate the connection as its sandbox, or as a runner that proves that it derived the sandbox's ID, which receives the sandbox's token.
+		let id = arg
+			.id
+			.ok_or_else(|| tg::error!("a sandbox control connection requires a sandbox id"))?;
+		let token = match (&self.context.principal, &arg.proof) {
+			(tg::Principal::Sandbox(sandbox), _) if sandbox == &id => self.context.token.clone(),
+			(tg::Principal::Runner(runner), Some(proof)) => {
+				if arg.runner.as_ref() != Some(runner) {
+					return Err(tg::error!(
+						unauthorized,
+						%runner,
+						"a sandbox control connection's runner must be its principal"
+					));
+				}
+				let now = self.server.clock.unix_timestamp()?;
+				let now = now.to_u64().unwrap_or_default() * 1000;
+				let window = self.server.config.sandbox.id_proof_window;
+				proof.verify_recent(&id, runner, now, window)?;
+				let token = self
+					.server
+					.create_sandbox_authentication_token(id.clone())?;
+				Some(token)
+			},
+			(tg::Principal::Sandbox(sandbox), _) => {
+				return Err(tg::error!(sandbox = %sandbox, %id, "invalid sandbox"));
+			},
+			_ => return Err(tg::error!(unauthorized, "unauthorized")),
 		};
 		let context = crate::Context {
 			principal: tg::Principal::Sandbox(id.clone()),
@@ -199,27 +205,17 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		let Some(create) = arg.create else {
-			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
-				return Err(tg::error!(
-					"a deferred sandbox control connection requires a runner"
-				));
-			}
-			if arg.created_at.is_some() || arg.creator.is_some() {
-				return Err(tg::error!(
-					"a deferred sandbox control connection must not have a creator or a creation time"
-				));
-			}
-			let header = tg::sandbox::control::Header {
-				id: id.clone(),
-				token,
-			};
-			let stream =
-				session.wait_for_sandbox_control_create(id, arg.location, arg.runner, stream);
-			crate::checkpoint!(self.server, "sandbox.control.header", sandbox = %header.id).await;
+		let create = arg
+			.create
+			.ok_or_else(|| tg::error!("a sandbox control connection requires a create"))?;
 
-			return Ok((header, stream));
-		};
+		// Answer the requests for the sandbox for as long as the connection lasts, starting before initialization so that the requests that verify the runner do not wait for it.
+		let service = session.spawn_sandbox_control_service_task(&id, arg.runner.clone());
+		if arg.proof.is_some() {
+			crate::checkpoint!(self.server, "sandbox.control.shortcut.received", sandbox = %id)
+				.await;
+		}
+
 		self.server.spawn_publish_sandbox_status_task(&id);
 		let created_at = if let Some(created_at) = arg.created_at {
 			created_at
@@ -257,14 +253,11 @@ impl Session {
 		let forwarded_requests = Arc::new(DashSet::new());
 		let capacity = self.server.config.sandbox.control_channel_capacity;
 		let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
-		let mut control = crate::control::Stream::new(
+		let control = crate::control::Stream::new(
 			stream,
 			sender,
 			crate::control::stream_options(&self.server.config.control),
 		);
-		if let Some(id) = &create_request {
-			control.acknowledge_now(id.clone());
-		}
 		let control_sender = control.sender();
 		let mut server_messages = server_messages;
 		let server_message_sender = control_sender.clone();
@@ -313,11 +306,6 @@ impl Session {
 							let request_id = request.id;
 							control.acknowledge(request_id.clone()).await?;
 							let result = match request.arg {
-								tg::sandbox::control::ClientRequestArg::Create(_) => {
-									let output =
-										tg::sandbox::control::CreateServerResponseOutput {};
-									Ok(tg::sandbox::control::ServerResponseOutput::Create(output))
-								},
 								tg::sandbox::control::ClientRequestArg::Destroy(request) => session
 									.destroy_sandbox_control_request(
 										&id,
@@ -348,6 +336,7 @@ impl Session {
 		let stream = tokio_stream::wrappers::ReceiverStream::new(receiver)
 			.attach(server_messages_task)
 			.attach(control_task)
+			.attach(service)
 			.map(Ok)
 			.with_stopper(session.context.stopper.clone())
 			.boxed();
@@ -361,82 +350,6 @@ impl Session {
 		let header = tg::sandbox::control::Header { id, token };
 
 		Ok((header, stream))
-	}
-
-	fn wait_for_sandbox_control_create(
-		&self,
-		id: tg::sandbox::Id,
-		location: Option<tg::location::Arg>,
-		runner: Option<tg::runner::Id>,
-		mut stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>> {
-		let session = self.clone();
-
-		futures::stream::once(async move {
-			let mut buffered = Vec::new();
-			let request = loop {
-				let message = stream
-					.try_next()
-					.await?
-					.ok_or_else(|| tg::error!("the sandbox control stream ended before create"))?;
-				if let tg::sandbox::control::ClientMessage::Request(request) = &message
-					&& matches!(
-						&request.arg,
-						tg::sandbox::control::ClientRequestArg::Create(_)
-					) {
-					let tg::sandbox::control::ClientMessage::Request(request) = message else {
-						unreachable!();
-					};
-					break request;
-				}
-				buffered.push(Ok(message));
-			};
-			let tg::sandbox::control::ClientRequestArg::Create(create) = request.arg else {
-				unreachable!();
-			};
-			crate::checkpoint!(session.server, "sandbox.control.create.received", sandbox = %id)
-				.await;
-			let tg::sandbox::control::CreateClientRequestArg {
-				arg,
-				created_at,
-				creator,
-			} = create;
-			let arg = tg::sandbox::control::Arg {
-				create: Some(arg),
-				created_at: Some(created_at),
-				creator,
-				id: Some(id),
-				location,
-				runner,
-			};
-			let stream = futures::stream::iter(buffered).chain(stream).boxed();
-			let output = session
-				.get_sandbox_control_stream_local_inner(arg, stream, Some(request.id.clone()))
-				.boxed()
-				.await;
-			let ack = tg::sandbox::control::ServerMessage::Ack(tg::sandbox::control::ServerAck {
-				id: request.id.clone(),
-			});
-			let (response, stream) = match output {
-				Ok((_, stream)) => {
-					let output = tg::sandbox::control::CreateServerResponseOutput {};
-					let output = tg::sandbox::control::ServerResponseOutput::Create(output);
-					let response = Self::sandbox_control_server_response(request.id, Ok(output));
-					(response, stream)
-				},
-				Err(error) => {
-					let response = Self::sandbox_control_server_response(request.id, Err(error));
-					let stream = futures::stream::empty().boxed();
-					(response, stream)
-				},
-			};
-			let prefix = futures::stream::iter([Ok(ack), Ok(response)]);
-			let stream = prefix.chain(stream).boxed();
-
-			Ok::<_, tg::Error>(stream)
-		})
-		.try_flatten()
-		.boxed()
 	}
 
 	pub(crate) async fn prepare_sandbox_control_index_arg(

@@ -16,7 +16,7 @@ let remote = server spawn --preserve-keys --name remote --config {
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 
-# Spawn the runner with the control pools, as deployed.
+# Spawn the runner with a sandbox pool, as deployed.
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
@@ -24,7 +24,6 @@ let runner = server spawn --name runner --config {
 	runner: {
 		id: $created.data.id,
 		remote: 'default',
-		sandbox_control_connection_pool_size: 8,
 		sandbox_pool_size: 8,
 		token: $created.token.token,
 	},

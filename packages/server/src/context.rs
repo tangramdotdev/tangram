@@ -15,6 +15,9 @@ pub struct Context {
 	/// The process that a runner's request acts for, which the process's control service verified.
 	pub process: Option<tg::process::Id>,
 
+	/// The sandbox that a runner's request acts for, which the sandbox's control service verified.
+	pub sandbox: Option<tg::sandbox::Id>,
+
 	pub stopper: Option<Stopper>,
 
 	pub token: Option<String>,
@@ -36,6 +39,7 @@ impl Context {
 			origin: Origin::Host,
 			principal: tg::Principal::Root,
 			process: None,
+			sandbox: None,
 			stopper: None,
 			token: None,
 		}

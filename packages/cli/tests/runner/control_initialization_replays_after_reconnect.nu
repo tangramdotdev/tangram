@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A pooled sandbox connection and a shortcut process's connection replay initialization after a remote restart.
+# A shortcut sandbox's connection and a shortcut process's connection replay initialization after a remote restart.
 
 let root_token = random chars
 let remote = server spawn --preserve-keys --name remote --config {
@@ -16,7 +16,6 @@ let runner = server spawn --name runner --config {
 	runner: {
 		id: $created.data.id,
 		remote: 'default',
-		sandbox_control_connection_pool_size: 1,
 		token: $created.token.token,
 	},
 }
@@ -26,7 +25,7 @@ let local = server spawn --name local --config {
 }
 
 # Hold sandbox creation and process start on the remote.
-let sandbox_start_watch = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.create.received | from json | get watch
+let sandbox_start_watch = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.shortcut.received | from json | get watch
 let process_start_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.start.received | from json | get watch
 
 let path = artifact {
@@ -38,8 +37,8 @@ let spawned = tg --url $local.url build --remote --detach --verbose --user $alic
 let process = $spawned.process | split row '?' | first
 
 # The remote receives both requests and is held before indexing either.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.create.received $sandbox_start_watch 0 | complete
-success $output "the remote should receive the sandbox create request"
+let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.shortcut.received $sandbox_start_watch 0 | complete
+success $output "the remote should receive the sandbox connection"
 let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.start.received $process_start_watch 0 | complete
 success $output "the remote should receive the process start"
 

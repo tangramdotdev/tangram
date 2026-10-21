@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A shortcut child in a new sandbox takes a reserved sandbox control connection from the pool and derives its own process ID. It runs and finishes before the control server starts its sandbox or process.
+# A shortcut child in a new sandbox derives its own sandbox and process IDs. It runs and finishes before the control server starts its sandbox or process.
 
 let root_token = random chars
 
@@ -12,7 +12,7 @@ let remote = server spawn --preserve-keys --name remote --config {
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 
-# Spawn the runner with a sandbox control pool.
+# Spawn the runner.
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
@@ -20,7 +20,6 @@ let runner = server spawn --name runner --config {
 	runner: {
 		id: $created.data.id,
 		remote: 'default',
-		sandbox_control_connection_pool_size: 1,
 		token: $created.token.token,
 	},
 }
@@ -33,7 +32,7 @@ let local = server spawn --name local --config {
 
 # Hold the starts on the remote so the child runs while the server has not started its sandbox or process.
 let sandbox_start_watch = (
-	tg --url $remote.url --token $root_token checkpoint watch sandbox.control.create.received
+	tg --url $remote.url --token $root_token checkpoint watch sandbox.control.shortcut.received
 	| from json
 	| get watch
 )
@@ -43,9 +42,10 @@ let process_start_watch = (
 	| get watch
 )
 
-# Watch the pooled starts and the child finish on the runner.
+# Watch the child's starts and finish on the runner.
+let params = { shortcut: 'true' } | to json --raw
 let sandbox_sent_watch = (
-	tg --url $runner.url checkpoint watch runner.sandbox.control.create.sent
+	tg --url $runner.url checkpoint watch runner.sandbox.control.connect --params $params
 	| from json
 	| get watch
 )
@@ -71,11 +71,11 @@ let build = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-# The shortcut child starts the pooled sandbox connection and its process connection.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.control.create.sent $sandbox_sent_watch 0 | complete
-success $output "the shortcut child should start a pooled sandbox control connection"
-tg --url $runner.url checkpoint continue runner.sandbox.control.create.sent $sandbox_sent_watch 0
-tg --url $runner.url checkpoint unwatch runner.sandbox.control.create.sent $sandbox_sent_watch
+# The shortcut child connects its sandbox control and its process control.
+let output = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.control.connect $sandbox_sent_watch 0 | complete
+success $output "the shortcut child should connect its sandbox control"
+tg --url $runner.url checkpoint continue runner.sandbox.control.connect $sandbox_sent_watch 0
+tg --url $runner.url checkpoint unwatch runner.sandbox.control.connect $sandbox_sent_watch
 
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.control.start.sent $process_sent_watch 0 | complete
 success $output "the shortcut child should start its process control connection"
@@ -83,7 +83,7 @@ tg --url $runner.url checkpoint continue runner.process.control.start.sent $proc
 tg --url $runner.url checkpoint unwatch runner.process.control.start.sent $process_sent_watch
 
 # The remote receives both starts and is held there.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.create.received $sandbox_start_watch 0 | complete
+let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.shortcut.received $sandbox_start_watch 0 | complete
 success $output "the remote should receive the sandbox start"
 let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.start.received $process_start_watch 0 | complete
 success $output "the remote should receive the process start"
@@ -95,8 +95,8 @@ tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.finish $finish_watch
 
 # Release the remote.
-tg --url $remote.url --token $root_token checkpoint continue sandbox.control.create.received $sandbox_start_watch 0
-tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.create.received $sandbox_start_watch
+tg --url $remote.url --token $root_token checkpoint continue sandbox.control.shortcut.received $sandbox_start_watch 0
+tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.shortcut.received $sandbox_start_watch
 tg --url $remote.url --token $root_token checkpoint continue process.control.start.received $process_start_watch 0
 tg --url $remote.url --token $root_token checkpoint unwatch process.control.start.received $process_start_watch
 

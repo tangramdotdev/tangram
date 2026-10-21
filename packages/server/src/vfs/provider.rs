@@ -1102,6 +1102,7 @@ impl Provider {
 				.clone()
 				.unwrap_or(tg::Principal::Anonymous),
 			process: None,
+			sandbox: None,
 			stopper: None,
 			token: None,
 		};
@@ -1119,6 +1120,7 @@ impl Provider {
 			origin: crate::Origin::Host,
 			principal,
 			process: None,
+			sandbox: None,
 			stopper: None,
 			token: None,
 		};

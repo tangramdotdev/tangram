@@ -386,12 +386,14 @@ impl Session {
 					id: parent.clone(),
 					token: parent_token,
 				};
+
+				// Prove the sandbox with its token, or, while the runner waits for the sandbox's token, with the sandbox's control service.
 				let sandbox_token = state
 					.sandbox
 					.as_ref()
 					.and_then(|sandbox| self.server.runner.state.sandboxes.get_by_id(sandbox))
-					.map(|sandbox| sandbox.token.clone())
-					.ok_or_else(|| tg::error!(%id, "missing the sandbox's token"))?;
+					.map(|sandbox| sandbox.token.borrow().clone())
+					.ok_or_else(|| tg::error!(%id, "missing the process's sandbox"))?;
 				let sandbox = tg::process::control::Sandbox {
 					create: sandbox_create,
 					token: sandbox_token,
