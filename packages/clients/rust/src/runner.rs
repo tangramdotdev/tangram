@@ -34,11 +34,26 @@ pub struct Capacity {
 	pub storage: crate::sandbox::Resource<u64>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(default, deny_unknown_fields)]
 pub struct Overcommit {
+	#[tangram_serialize(id = 0)]
 	pub cpu: u64,
+
+	#[tangram_serialize(id = 1)]
 	pub memory: u64,
+
+	#[tangram_serialize(id = 2)]
 	pub storage: u64,
 }
 

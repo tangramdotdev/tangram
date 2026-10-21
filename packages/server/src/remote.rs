@@ -392,6 +392,7 @@ impl Server {
 			url: Some(url),
 			version: Some(self.version.clone()),
 			token: None,
+			stream_retry: Self::client_stream_retry(),
 			sync: tg::sync::Config {
 				max_frame_size: self.config().sync.max_frame_size,
 			},

@@ -34,8 +34,12 @@ impl Session {
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		mut arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
-	{
+	) -> tg::Result<
+		ControlFlow<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>,
+			tg::Error,
+		>,
+	> {
 		// Resolve the process, claiming the connect's open for a read that starts from the beginning.
 		let streams = if arg.position.is_none() && arg.length.is_none() {
 			arg.streams.clone()
@@ -52,7 +56,7 @@ impl Session {
 			)
 			.await?
 		else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		let open = output.open;
 		let id = process.clone().right();
@@ -97,14 +101,14 @@ impl Session {
 			.try_read_process_stdio_source(id.as_ref(), process, arg.clone(), &acks, open)
 			.await?
 		else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		let stream = self
 			.read_process_stdio_protocol(source)
 			.attach(ack_task)
 			.boxed();
 
-		Ok(Some(stream))
+		Ok(ControlFlow::Break(Some(stream)))
 	}
 
 	async fn try_read_process_stdio_source(
@@ -1019,9 +1023,9 @@ impl Session {
 			})?;
 		let tangram_content_type = tg::process::stdio::TANGRAM_CONTENT_TYPE;
 		let output_encoding =
-			super::Encoding::from_accept(accept.as_ref(), tangram_content_type)
+			crate::http::frame::Encoding::from_accept(accept.as_ref(), tangram_content_type)
 				.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
-		let input_encoding = super::Encoding::from_content_type(
+		let input_encoding = crate::http::frame::Encoding::from_content_type(
 			content_type
 				.as_ref()
 				.ok_or_else(|| tg::error!(argument, "missing the content type"))?,
@@ -1037,16 +1041,22 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
 		let max_frame_size = self.server.config.sync.max_frame_size;
-		let input = super::decode(request, input_encoding, max_frame_size);
-		let Some(output) = self.try_read_process_stdio(&process, arg, input).await? else {
-			return Ok(http::Response::builder()
-				.not_found()
-				.empty()
-				.unwrap()
-				.boxed_body());
+		let input = crate::http::frame::decode(request, input_encoding, max_frame_size);
+		let output = match self.try_read_process_stdio(&process, arg, input).await? {
+			ControlFlow::Break(Some(output)) => output,
+			ControlFlow::Break(None) => {
+				return Ok(http::Response::builder()
+					.not_found()
+					.empty()
+					.unwrap()
+					.boxed_body());
+			},
+			ControlFlow::Continue(error) => {
+				return Err(tg::error!(unavailable, !error, "failed to read stdio"));
+			},
 		};
 		let content_type = output_encoding.content_type(tangram_content_type);
-		let body = super::encode(output, output_encoding, max_frame_size);
+		let body = crate::http::frame::encode(output, output_encoding, max_frame_size);
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)

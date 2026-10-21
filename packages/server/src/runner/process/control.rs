@@ -672,9 +672,10 @@ impl Session {
 			streams: streams.clone(),
 			tokens: tg::authorization::Tokens::default(),
 		};
-		let mut output = self
+		let result = self
 			.try_write_process_stdio(&tg::Either::Right(id.clone()), arg, input)
-			.await?
+			.await;
+		let mut output = tangram_futures::retry::once(result)?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
 		// Release the kept chunks as the reader acknowledges them.
@@ -780,9 +781,10 @@ impl Session {
 			streams: vec![tg::process::stdio::Stream::Stdin],
 			..Default::default()
 		};
-		let mut output = self
+		let result = self
 			.try_read_process_stdio(&tg::Either::Right(id.clone()), arg, input)
-			.await?
+			.await;
+		let mut output = tangram_futures::retry::once(result)?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
 		// Write each chunk into the process.

@@ -2,6 +2,7 @@ use {
 	super::Instance,
 	crate::prelude::*,
 	futures::{future::BoxFuture, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 impl tg::instance::Sandbox for Instance {
@@ -79,17 +80,23 @@ impl tg::instance::Sandbox for Instance {
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::sandbox::control::Header,
-			impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
-			+ Send
-			+ 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::sandbox::control::Header,
+					impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
+					+ Send
+					+ 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<(_, BoxStream<_>)>>>(
-				self.0.get_sandbox_control_stream(arg, stream),
-			)
+			std::mem::transmute::<
+				_,
+				BoxFuture<'_, tg::Result<ControlFlow<(_, BoxStream<_>), tg::Error>>>,
+			>(self.0.get_sandbox_control_stream(arg, stream))
 		}
 	}
 }

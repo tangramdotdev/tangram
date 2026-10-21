@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	futures::{FutureExt as _, StreamExt as _, stream::BoxStream},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tg::process::stdio::{
@@ -17,7 +18,8 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<ServerMessage>>>> {
+	) -> tg::Result<ControlFlow<Option<BoxStream<'static, tg::Result<ServerMessage>>>, tg::Error>>
+	{
 		if arg.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 			return Err(tg::error!("expected only the stdin stream"));
 		}
@@ -37,16 +39,18 @@ impl Session {
 					tokens: arg.tokens.for_location(&location),
 					..arg
 				};
-				let result = client
+				client
 					.try_read_process_stdio(&tg::Either::Right(id.clone()), arg, input)
-					.await;
-				tangram_futures::retry::once(result)
+					.await
 					.map_err(|error| tg::error!(!error, region = %region, "failed to read stdin"))?
-					.map(futures::StreamExt::boxed)
+					.map_break(|output| output.map(futures::StreamExt::boxed))
+					.map_continue(
+						|error| tg::error!(!error, region = %region, "failed to read stdin"),
+					)
 			},
 			tg::Location::Local(_) => {
 				let open = arg.id.unwrap();
-				Some(self.read_process_stdio_relay_local(id, open, input)?)
+				ControlFlow::Break(Some(self.read_process_stdio_relay_local(id, open, input)?))
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
@@ -64,12 +68,14 @@ impl Session {
 					tokens: arg.tokens.for_location(&location),
 					..arg
 				};
-				let result = client
+				client
 					.try_read_process_stdio(&tg::Either::Right(id.clone()), arg, input)
-					.await;
-				tangram_futures::retry::once(result)
+					.await
 					.map_err(|error| tg::error!(!error, remote = %remote, "failed to read stdin"))?
-					.map(futures::StreamExt::boxed)
+					.map_break(|output| output.map(futures::StreamExt::boxed))
+					.map_continue(
+						|error| tg::error!(!error, remote = %remote, "failed to read stdin"),
+					)
 			},
 		};
 

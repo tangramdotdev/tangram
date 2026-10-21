@@ -77,26 +77,42 @@ where
 	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
 {
 	let (mut reader, trailer_receiver, task) = split_body(body);
-	let result = tangram_http::body::header::get(
+	let Some(header) = header(
 		&mut reader,
 		max_header_length,
 		tangram_http::body::encoding::Encoding::Tangram,
 	)
-	.await;
-	let header = match result {
-		Ok(header) => header,
+	.await?
+	else {
+		return Ok(None);
+	};
+	let stream = decode_reader_with_trailers(reader, trailer_receiver, task, max_frame_size);
+
+	Ok(Some((header, stream)))
+}
+
+/// Read a body's header, returning `None` if the body ended before its header, which happens when the connection is lost.
+pub(crate) async fn header<H, R>(
+	reader: &mut R,
+	max_header_length: u64,
+	encoding: tangram_http::body::encoding::Encoding,
+) -> tg::Result<Option<H>>
+where
+	H: serde::de::DeserializeOwned + for<'de> tangram_serialize::Deserialize<'de>,
+	R: tokio::io::AsyncRead + Send + Unpin,
+{
+	let result = tangram_http::body::header::get(reader, max_header_length, encoding).await;
+	match result {
+		Ok(header) => Ok(Some(header)),
 		Err(error)
 			if error
 				.downcast_ref::<std::io::Error>()
 				.is_some_and(|error| error.kind() == std::io::ErrorKind::UnexpectedEof) =>
 		{
-			return Ok(None);
+			Ok(None)
 		},
-		Err(error) => return Err(tg::error!(!error, "failed to deserialize the header")),
-	};
-	let stream = decode_reader_with_trailers(reader, trailer_receiver, task, max_frame_size);
-
-	Ok(Some((header, stream)))
+		Err(error) => Err(tg::error!(!error, "failed to deserialize the header")),
+	}
 }
 
 pub(crate) fn decode_reader<T, R>(
@@ -177,7 +193,8 @@ where
 	stream.boxed()
 }
 
-fn split_body(
+/// Split a body into a reader of its data and a receiver of its trailers, ending the reader when the body fails, because a lost connection ends the attempt and the caller reconnects.
+pub(crate) fn split_body(
 	body: Boxed,
 ) -> (
 	impl tokio::io::AsyncRead + Send + Unpin + 'static,

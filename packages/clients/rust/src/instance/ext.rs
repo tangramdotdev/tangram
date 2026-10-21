@@ -531,10 +531,11 @@ pub trait Ext: tg::Instance {
 			});
 			input_task.detach();
 
-			// Get the initial header and stream.
-			let (header, output_stream) = instance
+			// Get the initial header and stream, without retrying, because a create that has no sandbox ID yet is not safe to repeat.
+			let result = instance
 				.get_sandbox_control_stream(arg.clone(), input_receiver.clone().boxed())
-				.await?;
+				.await;
+			let (header, output_stream) = tangram_futures::retry::once(result)?;
 			let stream_retry = instance.arg().stream_retry;
 			let instance = reconnect(&header);
 			let arg = tg::sandbox::control::Arg {
@@ -542,12 +543,14 @@ pub trait Ext: tg::Instance {
 				..arg
 			};
 
-			// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
+			// Yield events from the stream, reconnecting with backoff when the stream ends early, which is how a stream reports a lost connection.
 			struct State {
+				error: Option<tg::Error>,
 				retries: Option<BoxStream<'static, ()>>,
 				stream: Option<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>>,
 			}
 			let state = State {
+				error: None,
 				retries: None,
 				stream: Some(output_stream.boxed()),
 			};
@@ -567,22 +570,31 @@ pub trait Ext: tg::Instance {
 							}))
 							.chain(input_receiver.clone())
 							.boxed();
+							// Fail with the last error once the retries are exhausted.
 							let retries = state.retries.get_or_insert_with(|| {
 								tangram_futures::retry::stream(stream_retry.clone()).boxed()
 							});
-							retries.next().await?;
+							if retries.next().await.is_none() {
+								let error = state.error.take().unwrap_or_else(|| {
+									tg::error!("the sandbox control stream ended")
+								});
+								return Some((Err(error), state));
+							}
 							match instance
 								.get_sandbox_control_stream(arg.clone(), input)
 								.await
 							{
-								Ok((_, stream)) => {
+								Ok(ControlFlow::Break((_, stream))) => {
+									state.error = None;
 									state.stream.replace(stream.boxed());
 									return Some((Ok(tg::control::Event::Reconnect), state));
 								},
-								Err(error) => {
+								Ok(ControlFlow::Continue(error)) => {
 									tracing::error!(error = %error.trace(), "failed to reconnect the control stream");
+									state.error = Some(error);
 									continue;
 								},
+								Err(error) => return Some((Err(error), state)),
 							}
 						}
 						match state.stream.as_mut().unwrap().next().await {
@@ -590,10 +602,7 @@ pub trait Ext: tg::Instance {
 								state.retries.take();
 								return Some((Ok(tg::control::Event::Message(event)), state));
 							},
-							Some(Err(error)) => {
-								tracing::error!(error = %error.trace(), "the control stream returned an error");
-								state.stream.take();
-							},
+							Some(Err(error)) => return Some((Err(error), state)),
 							None => {
 								state.stream.take();
 							},

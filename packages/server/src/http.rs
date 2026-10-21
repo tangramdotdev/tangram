@@ -20,6 +20,8 @@ use {
 	tower::ServiceExt as _,
 };
 
+pub(crate) mod frame;
+
 pub(crate) enum Listener {
 	Tcp(tokio::net::TcpListener),
 	Unix {

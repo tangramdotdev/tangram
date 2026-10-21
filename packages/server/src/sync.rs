@@ -448,10 +448,8 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the content type"))?
 			.ok_or_else(|| tg::error!(argument, "missing the content type"))?;
-		let input_encoding = crate::process::stdio::Encoding::from_content_type(
-			&content_type,
-			tg::sync::CONTENT_TYPE,
-		)?;
+		let input_encoding =
+			crate::http::frame::Encoding::from_content_type(&content_type, tg::sync::CONTENT_TYPE)?;
 
 		// Parse the arg.
 		let (arg, request) = request
@@ -468,11 +466,11 @@ impl Session {
 
 		// Select the response encoding.
 		let output_encoding =
-			crate::process::stdio::Encoding::from_accept(accept.as_ref(), tg::sync::CONTENT_TYPE)?;
+			crate::http::frame::Encoding::from_accept(accept.as_ref(), tg::sync::CONTENT_TYPE)?;
 
 		// Decode the request body.
 		let max_frame_size = self.server.config.sync.max_frame_size;
-		let stream = crate::process::stdio::decode(request, input_encoding, max_frame_size);
+		let stream = crate::http::frame::decode(request, input_encoding, max_frame_size);
 
 		// Start the sync, responding that the server is unavailable if the sync could not reach a server.
 		let output = self
@@ -489,7 +487,7 @@ impl Session {
 
 		// Create the response body.
 		let content_type = output_encoding.content_type(tg::sync::CONTENT_TYPE);
-		let body = crate::process::stdio::encode(stream.boxed(), output_encoding, max_frame_size);
+		let body = crate::http::frame::encode(stream.boxed(), output_encoding, max_frame_size);
 		let body = tangram_http::body::header::set(body, &header, output_encoding.serialization())
 			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 

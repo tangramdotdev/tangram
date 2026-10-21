@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{future::BoxFuture, prelude::*, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 pub trait Runner: Send + Sync + 'static {
@@ -45,10 +46,15 @@ pub trait Runner: Send + Sync + 'static {
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<(
-			tg::runner::control::Header,
-			BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
-		)>,
+		tg::Result<
+			ControlFlow<
+				(
+					tg::runner::control::Header,
+					BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
+				),
+				tg::Error,
+			>,
+		>,
 	>;
 }
 
@@ -109,13 +115,18 @@ where
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<(
-			tg::runner::control::Header,
-			BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
-		)>,
+		tg::Result<
+			ControlFlow<
+				(
+					tg::runner::control::Header,
+					BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
+				),
+				tg::Error,
+			>,
+		>,
 	> {
 		self.get_runner_control_stream(arg, stream)
-			.map_ok(|(header, stream)| (header, stream.boxed()))
+			.map_ok(|flow| flow.map_break(|(header, stream)| (header, stream.boxed())))
 			.boxed()
 	}
 }

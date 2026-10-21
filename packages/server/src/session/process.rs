@@ -140,8 +140,7 @@ impl tg::instance::Process for Session {
 			tg::Error,
 		>,
 	> {
-		let output = self.try_read_process_stdio(process, arg, input).await?;
-		Ok(ControlFlow::Break(output))
+		self.try_read_process_stdio(process, arg, input).await
 	}
 
 	async fn try_write_process_stdio(
@@ -157,8 +156,7 @@ impl tg::instance::Process for Session {
 			tg::Error,
 		>,
 	> {
-		let output = self.try_write_process_stdio(process, arg, input).await?;
-		Ok(ControlFlow::Break(output))
+		self.try_write_process_stdio(process, arg, input).await
 	}
 
 	async fn try_touch_process(

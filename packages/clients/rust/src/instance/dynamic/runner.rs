@@ -2,6 +2,7 @@ use {
 	super::Instance,
 	crate::prelude::*,
 	futures::{Stream, future::BoxFuture, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 impl tg::instance::Runner for Instance {
@@ -65,15 +66,21 @@ impl tg::instance::Runner for Instance {
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::runner::control::Header,
-			impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::runner::control::Header,
+					impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<(_, BoxStream<_>)>>>(
-				self.0.get_runner_control_stream(arg, stream),
-			)
+			std::mem::transmute::<
+				_,
+				BoxFuture<'_, tg::Result<ControlFlow<(_, BoxStream<_>), tg::Error>>>,
+			>(self.0.get_runner_control_stream(arg, stream))
 		}
 	}
 }

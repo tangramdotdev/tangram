@@ -1000,9 +1000,9 @@ impl Session {
 			})?;
 		let tangram_content_type = tg::process::control::TANGRAM_CONTENT_TYPE;
 		let output_encoding =
-			super::stdio::Encoding::from_accept(accept.as_ref(), tangram_content_type)
+			crate::http::frame::Encoding::from_accept(accept.as_ref(), tangram_content_type)
 				.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
-		let input_encoding = super::stdio::Encoding::from_content_type(
+		let input_encoding = crate::http::frame::Encoding::from_content_type(
 			content_type
 				.as_ref()
 				.ok_or_else(|| tg::error!(argument, "missing the content type"))?,
@@ -1019,7 +1019,7 @@ impl Session {
 
 		// Decode the request stream.
 		let max_frame_size = self.server.config.sync.max_frame_size;
-		let stream = super::stdio::decode(request, input_encoding, max_frame_size);
+		let stream = crate::http::frame::decode(request, input_encoding, max_frame_size);
 
 		// Get the response stream, responding that the server is unavailable if the stream could not reach a server.
 		let output = self
@@ -1046,7 +1046,7 @@ impl Session {
 
 		// Create the body.
 		let content_type = output_encoding.content_type(tangram_content_type);
-		let body = super::stdio::encode(stream, output_encoding, max_frame_size);
+		let body = crate::http::frame::encode(stream, output_encoding, max_frame_size);
 		let body = tangram_http::body::header::set(body, &header, output_encoding.serialization())
 			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 

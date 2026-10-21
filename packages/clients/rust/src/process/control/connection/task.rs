@@ -97,11 +97,13 @@ pub(super) async fn open_stream<I: tg::Instance>(
 	// Yield events from the stream, reconnecting with backoff when the stream ends before the connection closes, which is how a stream reports a lost connection.
 	struct StreamState {
 		arg: Arg,
+		error: Option<tg::Error>,
 		retries: Option<BoxStream<'static, ()>>,
 		stream: Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>,
 	}
 	let state = StreamState {
 		arg,
+		error: None,
 		retries: None,
 		stream: Some(output_stream.boxed()),
 	};
@@ -119,15 +121,23 @@ pub(super) async fn open_stream<I: tg::Instance>(
 					if let Some(lease) = lease {
 						state.arg.mode = Mode::Resume { lease };
 					}
+					// Fail with the last error once the retries are exhausted.
 					let retries = state.retries.get_or_insert_with(|| {
 						tangram_futures::retry::stream(stream_retry.clone()).boxed()
 					});
-					retries.next().await?;
+					if retries.next().await.is_none() {
+						let error = state
+							.error
+							.take()
+							.unwrap_or_else(|| tg::error!("the control stream ended"));
+						return Some((Err(error), state));
+					}
 					match instance
 						.try_get_process_control_stream(state.arg.clone(), input)
 						.await
 					{
 						Ok(ControlFlow::Break(Some((_, stream)))) => {
+							state.error = None;
 							state.stream.replace(stream.boxed());
 							return Some((Ok(tg::control::Event::Reconnect), state));
 						},
@@ -137,6 +147,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 						},
 						Ok(ControlFlow::Continue(error)) => {
 							tracing::error!(error = %error.trace(), "failed to reconnect the control stream");
+							state.error = Some(error);
 							continue;
 						},
 						Err(error) => {

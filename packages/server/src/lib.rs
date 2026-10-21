@@ -2602,11 +2602,21 @@ impl Server {
 				http2: self.config().http.http2,
 				..Default::default()
 			},
+			stream_retry: Self::client_stream_retry(),
 			sync: tg::sync::Config {
 				max_frame_size: self.config().sync.max_frame_size,
 			},
 			url,
 			version: Some(self.version.clone()),
+			..Default::default()
+		}
+	}
+
+	/// Get the stream retry of the clients that a server creates, which reconnect for as long as the server runs.
+	#[must_use]
+	pub(crate) fn client_stream_retry() -> tangram_futures::retry::Options {
+		tangram_futures::retry::Options {
+			max_retries: u64::MAX,
 			..Default::default()
 		}
 	}
