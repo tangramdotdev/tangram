@@ -2,9 +2,11 @@ import base64
 import concurrent.futures
 import http.client
 import json
+import queue
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -66,7 +68,57 @@ def connect(arg, token=None, messages=()):
         shift += 7
     header = json.loads(response.read(length))
     header["process"] = {"node": arg["id"]}
-    return sock, response, header
+    control = Control(sock, response, value.get("data", data))
+    return control, header
+
+
+class Control:
+    """A process control stream that answers the server's get requests while the driver waits on other work."""
+
+    def __init__(self, sock, response, data):
+        self.data = data
+        self.events = queue.Queue()
+        self.lock = threading.Lock()
+        self.response = response
+        self.sock = sock
+        threading.Thread(target=self.serve, daemon=True).start()
+
+    def serve(self):
+        try:
+            while True:
+                event, value = read(self.response)
+                if event == "request" and value["arg"]["kind"] == "get":
+                    output = {"kind": "get", "value": {"data": self.data}}
+                    self.send("response", {"id": value["id"], "output": output})
+                    continue
+                self.events.put((event, value))
+        except Exception as error:
+            self.events.put(("closed", repr(error)))
+
+    def send(self, event, value):
+        with self.lock:
+            send(self.sock, event, value)
+
+    def receive(self, event, id):
+        while True:
+            kind, data = self.events.get(timeout=10)
+            assert kind not in ("closed", "error"), data
+            if kind == event and data["id"] == id:
+                return data
+
+    def request(self, id, arg, acknowledge=True):
+        if arg["kind"] == "finish":
+            self.data = arg["value"]["data"]
+        self.send("request", {"id": id, "arg": arg})
+        output = self.receive("response", id)
+        assert output.get("error") is None, output
+        if acknowledge:
+            self.send("ack", {"id": id})
+        return output["output"]
+
+    def close(self):
+        self.sock.shutdown(socket.SHUT_RDWR)
+        close(self.sock, self.response)
 
 
 def send(sock, event, value):
@@ -90,23 +142,6 @@ def read(response, positions=False):
             event = value.strip()
         elif key == "data":
             data = value.strip()
-
-
-def receive(response, event, id):
-    while True:
-        kind, data = read(response)
-        assert kind != "error", data
-        if kind == event and data["id"] == id:
-            return data
-
-
-def request(sock, response, id, arg, acknowledge=True):
-    send(sock, "request", {"id": id, "arg": arg})
-    output = receive(response, "response", id)
-    assert output.get("error") is None, output
-    if acknowledge:
-        send(sock, "ack", {"id": id})
-    return output["output"]
 
 
 def chunk(stream, position, value, stream_position=0):
@@ -171,10 +206,10 @@ def early_finish():
             for name in watches:
                 checkpoint("wait", name, watches[name], 0)
             checkpoint("unwatch", "process.control.header", watches.pop("process.control.header"))
-            sock, response, output = pending.result(timeout=10)
+            control, output = pending.result(timeout=10)
             assert "token" in output, output
-            receive(response, "ack", request_id)
-            close(sock, response)
+            control.receive("ack", request_id)
+            control.close()
             # End the synthetic writer's empty log.
             write(output["process"]["node"], output["token"], end(0, 0, 0))
         finally:
@@ -186,11 +221,11 @@ def early_finish():
     # Resume must not enter process initialization again.
     watch = checkpoint("watch", "process.control.index.started")["watch"]
     try:
-        sock, response, reconnected = connect(arg, output["token"])
+        control, reconnected = connect(arg, output["token"])
     finally:
         checkpoint("unwatch", "process.control.index.started", watch)
-    request(sock, response, request_id, finish)
-    close(sock, response)
+    control.request(request_id, finish)
+    control.close()
     process = json.loads(subprocess.check_output(command + ["get", arg["id"]], timeout=10))
     value = process.get("output") or process["error"]
     if isinstance(value, dict):
@@ -205,7 +240,7 @@ def early_finish():
 
 
 def reconnect():
-    sock, response, output = connect({"shortcut": shortcut, "lease": lease, "data": data})
+    control, output = connect({"shortcut": shortcut, "lease": lease, "data": data})
     id, token = output["process"]["node"], output["token"]
     arg = {"id": id, "lease": lease}
     first = chunk("stdout", 0, b"hello\n")
@@ -227,8 +262,8 @@ def reconnect():
     # The writer can supply EOF before Finish is processed.
     assert write(id, token, end(12, 6, 6)) == {"closed": True, "position": 12}
 
-    request(sock, response, "finish", {"kind": "finish", "value": {"data": finished}})
-    close(sock, response)
+    control.request("finish", {"kind": "finish", "value": {"data": finished}})
+    control.close()
 
     command = [tangram, "--url", url]
     # Repeat End after losing its response, after Finish.
@@ -242,7 +277,7 @@ def reconnect():
 def reordered():
     command = [tangram, "--url", url]
     for last_stream in ("stdout", "stderr"):
-        sock, response, output = connect({"shortcut": shortcut, "lease": lease, "data": data})
+        control, output = connect({"shortcut": shortcut, "lease": lease, "data": data})
         id, token = output["process"]["node"], output["token"]
         reader = None
         try:
@@ -268,7 +303,7 @@ def reordered():
             assert event == "notification" and message["kind"] == "chunk", (event, message)
             assert base64.b64decode(message["value"]["bytes"]) == b"A", message
             write(id, token, chunk("stdout", 1, b"B", 1))
-            request(sock, response, "finish", {"kind": "finish", "value": {"data": finished}})
+            control.request("finish", {"kind": "finish", "value": {"data": finished}})
             write(id, token, end(3, 0 if last_stream == "stdout" else 1, 3 if last_stream == "stdout" else 2))
             output = {"stdout": b"A", "stderr": b""}
             position = 1
@@ -296,12 +331,12 @@ def reordered():
         finally:
             if reader is not None:
                 close(*reader)
-            close(sock, response)
+            control.close()
 
 
 def growing():
     for added in (46, 96):
-        sock, response, output = connect({"shortcut": shortcut, "lease": lease, "data": data})
+        control, output = connect({"shortcut": shortcut, "lease": lease, "data": data})
         id, token = output["process"]["node"], output["token"]
         write(id, token, chunk("stdout", 0, b"abcd"))
         reader = open_stream(f"/processes/{id}/stdio/read", {"streams": "stdout", "position": "end.96", "length": -99, "size": 1})
@@ -311,7 +346,7 @@ def growing():
             event, message = read(reader_response, positions=True)
             assert event == "notification" and message == {"kind": "position", "value": {"length": -99, "position": 100}}, (event, message)
             write(id, token, chunk("stdout", 4, b"x" * added, 4))
-            request(sock, response, "finish", {"kind": "finish", "value": {"data": finished}})
+            control.request("finish", {"kind": "finish", "value": {"data": finished}})
             write(id, token, end(4 + added, 0, 4 + added))
             if added < 96:
                 event, message = read(reader_response, positions=True)
@@ -326,7 +361,7 @@ def growing():
             assert b"".join(chunks) == b"x" * added + b"dcb", chunks
         finally:
             close(*reader)
-            close(sock, response)
+            control.close()
 
 
 if case == "early_finish":
