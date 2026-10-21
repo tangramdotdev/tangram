@@ -2259,7 +2259,7 @@ impl Index {
 		kind: &Kind,
 		version: u64,
 	) -> tg::Result<()> {
-		// Notify the capture worker only when the subject's permissions can extend the authority of a pending capture's principal. Group, organization, public, and sync permissions can reach any principal. Process and tag permissions can reach any principal, but cannot extend a capture into the same process or tag. Other permissions reach only the subject itself.
+		// Enqueue a capture for the resource only when the subject's permissions can extend the authority of a pending capture's principal. Group, organization, public, and sync permissions can reach any principal. Process and tag permissions can reach any principal, but cannot extend a capture into the same process or tag. Other permissions reach only the subject itself.
 		if let Kind::Permission(subject) = kind {
 			let resource = match id {
 				tg::Either::Left(id) => id.clone().into(),

@@ -23,7 +23,7 @@ pub struct Capture {
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-	/// Identifies an enqueue so completion cannot remove a newer notification.
+	/// Identifies an enqueue so completion cannot remove a newer enqueue.
 	pub attempt: u128,
 	pub partition: u64,
 	pub resource: tg::Id,

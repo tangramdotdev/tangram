@@ -543,11 +543,11 @@ async fn terminal_capture_removes_all_contexts_and_the_reverse_key() {
 }
 
 #[tokio::test]
-async fn permission_updates_notify_capture_only_for_subjects_that_can_extend_authority() {
+async fn permission_updates_enqueue_capture_only_for_subjects_that_can_extend_authority() {
 	let (_directory, index) = new_index();
 
-	// Add a capture for a user without a notification.
-	let object = object_id(b"notify");
+	// Add a capture for a user without enqueueing it.
+	let object = object_id(b"enqueue");
 	let process = tg::process::Id::new();
 	let user = tg::user::Id::new();
 	let mut capture = arg((process.clone().into(), None), vec![root(object.clone())]);
@@ -558,13 +558,13 @@ async fn permission_updates_notify_capture_only_for_subjects_that_can_extend_aut
 	};
 	index.batch(batch).await.unwrap().unwrap();
 
-	// Verify that permissions for an unrelated user and for the capture subject do not notify the worker.
+	// Verify that permissions for an unrelated user and for the capture subject do not enqueue a capture.
 	let other = tg::authorization::Subject::User(tg::user::Id::new());
-	assert!(!notified(&index, &object, other).await);
+	assert!(!enqueued(&index, &object, other).await);
 	let subject = tg::authorization::Subject::Process(process);
-	assert!(!notified(&index, &object, subject).await);
+	assert!(!enqueued(&index, &object, subject).await);
 
-	// Verify that permissions for the source and for subjects that can reach the principal notify the worker.
+	// Verify that permissions for the source and for subjects that can reach the principal enqueue a capture.
 	let subjects = [
 		tg::authorization::Subject::User(user),
 		tg::authorization::Subject::Group(tg::group::Id::new()),
@@ -572,7 +572,7 @@ async fn permission_updates_notify_capture_only_for_subjects_that_can_extend_aut
 		tg::authorization::Subject::Sync(tg::sync::Id::new()),
 	];
 	for subject in subjects {
-		assert!(notified(&index, &object, subject).await);
+		assert!(enqueued(&index, &object, subject).await);
 	}
 }
 
@@ -645,7 +645,7 @@ async fn clean(index: &Index, now: i64) {
 	index.clean(arg).await.unwrap();
 }
 
-async fn notified(
+async fn enqueued(
 	index: &Index,
 	object: &tg::object::Id,
 	subject: tg::authorization::Subject,
@@ -670,7 +670,7 @@ async fn notified(
 		.await
 		.unwrap();
 
-	// Read and complete the notifications.
+	// Read and complete the queue entries.
 	let entries = index.permission_capture_batch(8, 0, 1).await.unwrap();
 	for entry in &entries {
 		index.complete_permission_capture(entry).await.unwrap();

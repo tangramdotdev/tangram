@@ -3412,7 +3412,7 @@ impl Index {
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		// Notify the capture worker only when the subject's permissions can extend the authority of a pending capture's principal. Group, organization, public, and sync permissions can reach any principal. Process and tag permissions can reach any principal, but cannot extend a capture into the same process or tag. Other permissions reach only the subject itself. The reads conflict with a concurrent capture write, so a capture written during this transaction cannot miss the notification.
+		// Enqueue a capture for the resource only when the subject's permissions can extend the authority of a pending capture's principal. Group, organization, public, and sync permissions can reach any principal. Process and tag permissions can reach any principal, but cannot extend a capture into the same process or tag. Other permissions reach only the subject itself. The reads conflict with a concurrent capture write, so a capture written during this transaction cannot miss the enqueue.
 		if let Kind::Permission(subject) = kind {
 			let resource = match id {
 				tg::Either::Left(id) => id.clone().into(),
