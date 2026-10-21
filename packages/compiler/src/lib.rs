@@ -36,6 +36,7 @@ pub mod document_highlight;
 pub mod document_link;
 pub mod folding_range;
 pub mod format;
+pub mod graphs;
 pub mod hover;
 pub mod implementation;
 pub mod initialize;

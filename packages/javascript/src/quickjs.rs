@@ -9,8 +9,10 @@ use {
 	sourcemap::SourceMap,
 	std::{
 		cell::{OnceCell, RefCell},
+		collections::HashMap,
 		pin::pin,
 		rc::Rc,
+		sync::Arc,
 		task::Poll,
 	},
 	tangram_client::prelude::*,
@@ -37,10 +39,12 @@ pub struct Runtime {
 struct State {
 	arg: crate::Arg,
 	global_source_map: OnceCell<Option<SourceMap>>,
+	graphs: Arc<tangram_compiler::graphs::Graphs>,
 	host: crate::host::Host,
 	http2: crate::http2::Http2,
 	instance: tg::instance::dynamic::Instance,
 	main_runtime_handle: tokio::runtime::Handle,
+	module_indices: RefCell<HashMap<String, usize>>,
 	modules: RefCell<Vec<Module>>,
 	rejections: tokio::sync::watch::Sender<Vec<Rejection>>,
 }
@@ -139,10 +143,12 @@ impl Runtime {
 		let state = Rc::new(State {
 			arg,
 			global_source_map,
+			graphs: Arc::new(tangram_compiler::graphs::Graphs::default()),
 			host,
 			http2,
 			instance,
 			main_runtime_handle,
+			module_indices: RefCell::new(HashMap::new()),
 			modules,
 			rejections,
 		});
@@ -422,6 +428,20 @@ impl Runtime {
 }
 
 impl State {
+	/// Get the index of a module with the same identity, ignoring tokens.
+	fn module_index(&self, module: &tg::module::Data) -> Option<usize> {
+		let key = module.without_token().to_string();
+		self.module_indices.borrow().get(&key).copied()
+	}
+
+	/// Add a module and record its index.
+	fn push_module(&self, module: Module) {
+		let mut modules = self.modules.borrow_mut();
+		let key = module.module.without_token().to_string();
+		self.module_indices.borrow_mut().insert(key, modules.len());
+		modules.push(module);
+	}
+
 	#[must_use]
 	fn global_source_map(&self) -> Option<&SourceMap> {
 		self.global_source_map

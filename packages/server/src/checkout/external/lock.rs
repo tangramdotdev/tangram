@@ -14,6 +14,7 @@ pub(super) enum Output {
 
 struct State {
 	dependencies: bool,
+	graphs: crate::graph::Graphs,
 	ids: Vec<tg::object::Id>,
 	nodes: Vec<Option<tg::graph::data::Node>>,
 	visited: HashMap<tg::artifact::Id, usize, tg::id::BuildHasher>,
@@ -104,6 +105,7 @@ impl Session {
 		// Create the state.
 		let mut state = State {
 			dependencies,
+			graphs: crate::graph::Graphs::default(),
 			ids: Vec::new(),
 			nodes: Vec::new(),
 			visited: HashMap::default(),
@@ -250,14 +252,18 @@ impl Session {
 		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Collect all entries from the directory, flattening branches.
-		let all_entries =
-			crate::directory::collect_directory_entries(&self.server.cache, node, graph)?;
+		let all_entries = crate::directory::collect_directory_entries(
+			&self.server.cache,
+			&state.graphs,
+			node,
+			graph,
+		)?;
 
 		// Transform each entry for the lock.
 		let entries = all_entries
 			.into_iter()
 			.map(|(name, mut edge)| {
-				edge = crate::graph::resolve_edge(&self.server.cache, edge, graph)?;
+				edge = crate::graph::resolve_edge(&self.server.cache, &state.graphs, edge, graph)?;
 				let index = self.checkout_create_lock_inner(state, &edge)?;
 				let edge = tg::graph::data::Edge::Index(index);
 				Ok::<_, tg::Error>((name, edge))
@@ -287,6 +293,7 @@ impl Session {
 				let edge = match referent.node {
 					Some(tg::graph::data::Edge::Index(index)) => crate::graph::resolve_edge(
 						&self.server.cache,
+						&state.graphs,
 						tg::graph::data::Edge::Index(index),
 						graph,
 					)?,
@@ -338,7 +345,7 @@ impl Session {
 			.as_ref()
 			.map(|edge| {
 				let mut edge = edge.clone();
-				edge = crate::graph::resolve_edge(&self.server.cache, edge, graph)?;
+				edge = crate::graph::resolve_edge(&self.server.cache, &state.graphs, edge, graph)?;
 				let node_index = self.checkout_create_lock_inner(state, &edge)?;
 				Ok::<_, tg::Error>(tg::graph::data::Edge::Index(node_index))
 			})
@@ -427,8 +434,12 @@ impl Session {
 		graph_to_lock: &HashMap<usize, usize, fnv::FnvBuildHasher>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Collect all entries, flattening branches recursively.
-		let all_entries =
-			crate::directory::collect_directory_entries(&self.server.cache, node, Some(graph_id))?;
+		let all_entries = crate::directory::collect_directory_entries(
+			&self.server.cache,
+			&state.graphs,
+			node,
+			Some(graph_id),
+		)?;
 
 		// Process entries to create lock pointers.
 		let entries = all_entries

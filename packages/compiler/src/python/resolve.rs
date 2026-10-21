@@ -1,16 +1,24 @@
 use {
+	crate::graphs::Graphs,
 	std::{
-		collections::{BTreeMap, BTreeSet},
+		collections::{BTreeMap, BTreeSet, HashMap},
 		path::{Path, PathBuf},
+		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
 };
 
 /// The Python import policy shared by the runtime and the type checker.
 pub struct Resolver {
+	dependency_paths: Mutex<HashMap<tg::file::Id, Arc<DependencyPaths>>>,
+	graphs: Graphs,
 	instance: tg::instance::dynamic::Instance,
-	paths: BTreeSet<PathBuf>,
+	paths: Mutex<BTreeSet<PathBuf>>,
+	prepared: Mutex<HashMap<String, tg::module::Data>>,
 }
+
+/// A file's dependencies on paths with default options, keyed by their normalized paths, with each path's first reference and whether any of its dependencies is resolved.
+type DependencyPaths = BTreeMap<PathBuf, (tg::Reference, bool)>;
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -105,7 +113,12 @@ pub struct Namespace {
 	pub referrer: tg::module::Data,
 }
 
-pub fn module_file(module: &tg::module::Data) -> tg::Result<tg::File> {
+pub fn module_file(graphs: &Graphs, module: &tg::module::Data) -> tg::Result<tg::File> {
+	// Use the loaded graph for a file in a graph.
+	if let Some((_, file)) = graphs.try_get_file(&module.referent) {
+		return Ok(file);
+	}
+
 	let source = tg::Module::try_from_data(module.clone())?.referent.node;
 	let tg::module::Source::Edge(edge) = source else {
 		return Err(tg::error!("expected a checked-in python module"));
@@ -136,9 +149,10 @@ pub fn module_file(module: &tg::module::Data) -> tg::Result<tg::File> {
 	Ok(file)
 }
 
-/// Recover package placement from the module's checked-in self-reference.
-pub async fn prepare_module(
+/// Recover package placement from the module's checked-in self-reference, using the graphs that have been loaded.
+async fn prepare_module_with_graphs(
 	instance: &tg::instance::dynamic::Instance,
+	graphs: &Graphs,
 	mut module: tg::module::Data,
 ) -> tg::Result<tg::module::Data> {
 	if module.kind != tg::module::Kind::Python
@@ -146,7 +160,7 @@ pub async fn prepare_module(
 	{
 		return Ok(module);
 	}
-	let file = module_file(&module)?;
+	let file = module_file(graphs, &module)?;
 	if let tg::file::Object::Pointer(pointer) = file.object_with_instance(instance).await?.as_ref()
 	{
 		module.referent.node =
@@ -202,19 +216,24 @@ impl Resolver {
 	#[must_use]
 	pub fn new(instance: tg::instance::dynamic::Instance) -> Self {
 		Self {
+			dependency_paths: Mutex::new(HashMap::new()),
+			graphs: Graphs::default(),
 			instance,
-			paths: BTreeSet::new(),
+			paths: Mutex::new(BTreeSet::new()),
+			prepared: Mutex::new(HashMap::new()),
 		}
 	}
 
-	/// Include unsaved editor files in the filesystem view used by relative imports.
+	/// Set the unsaved editor files in the filesystem view used by relative imports.
 	#[cfg(feature = "ty")]
+	pub(crate) fn set_paths(&self, paths: BTreeSet<PathBuf>) {
+		*self.paths.lock().unwrap() = paths;
+	}
+
+	/// Get the graphs that this resolver has loaded.
 	#[must_use]
-	pub(crate) fn with_paths(
-		instance: tg::instance::dynamic::Instance,
-		paths: BTreeSet<PathBuf>,
-	) -> Self {
-		Self { instance, paths }
+	pub fn graphs(&self) -> &Graphs {
+		&self.graphs
 	}
 
 	pub async fn resolve(&self, request: Request) -> tg::Result<Output> {
@@ -273,7 +292,7 @@ impl Resolver {
 		name: &str,
 		level: u32,
 	) -> tg::Result<Output> {
-		let referrer = prepare_module(&self.instance, referrer).await?;
+		let referrer = self.prepare_module(referrer).await?;
 		if level > 0 {
 			let Some(parent) = self.containing(&referrer, PathBuf::from(".")).await? else {
 				return Ok(missing(
@@ -296,7 +315,7 @@ impl Resolver {
 			import: import.clone(),
 			referrer: Some(referrer.clone()),
 		};
-		let module = self.instance.resolve_module(arg).await?.module;
+		let module = resolve_module_with_graphs(&self.instance, &self.graphs, arg).await?;
 		// Preserve directory lookup only when the import itself resolves to a directory.
 		let directory = if module.kind == tg::module::Kind::Python
 			&& matches!(module.referent.node, tg::module::data::Source::Edge(_))
@@ -309,7 +328,7 @@ impl Resolver {
 				import,
 				referrer: Some(referrer),
 			};
-			let mut module = self.instance.resolve_module(arg).await?.module;
+			let mut module = resolve_module_with_graphs(&self.instance, &self.graphs, arg).await?;
 			let is_directory = match &module.referent.node {
 				tg::module::data::Source::Edge(tg::graph::data::Edge::Object(id)) => {
 					id.kind() == tg::object::Kind::Directory
@@ -324,7 +343,7 @@ impl Resolver {
 		} else {
 			None
 		};
-		let module = prepare_module(&self.instance, module).await?;
+		let module = self.prepare_module(module).await?;
 		let target = Target::Module(Module::new(module));
 		let context = target.context().map(|mut context| {
 			if let Some(directory) = directory {
@@ -455,12 +474,7 @@ impl Resolver {
 			.path(&context.referrer, path.clone(), tg::module::Kind::Directory)
 			.await?;
 		if directory.is_none()
-			&& !namespace_exists(
-				self.instance.clone(),
-				context.referrer.clone(),
-				path.clone(),
-			)
-			.await?
+			&& !namespace_exists(self, context.referrer.clone(), path.clone()).await?
 		{
 			return Ok(Output::Fallback);
 		}
@@ -486,7 +500,7 @@ impl Resolver {
 		module: &tg::module::Data,
 		mut prefix: PathBuf,
 	) -> tg::Result<Option<Target>> {
-		let module = prepare_module(&self.instance, module.clone()).await?;
+		let module = self.prepare_module(module.clone()).await?;
 		let module = &module;
 		let descriptor = Module::new(module.clone());
 		if prefix == Path::new(".") && descriptor.package {
@@ -571,13 +585,15 @@ impl Resolver {
 	) -> tg::Result<Option<tg::module::Data>> {
 		if let tg::module::data::Source::Path(source) = &module.referent.node {
 			let target = tangram_util::path::normalize(source.parent().unwrap().join(&path));
-			let exists = match kind {
-				tg::module::Kind::Python => self.paths.contains(&target),
-				tg::module::Kind::Directory => self
-					.paths
-					.iter()
-					.any(|path| path != &target && path.starts_with(&target)),
-				_ => false,
+			let exists = {
+				let paths = self.paths.lock().unwrap();
+				match kind {
+					tg::module::Kind::Python => paths.contains(&target),
+					tg::module::Kind::Directory => paths
+						.iter()
+						.any(|path| path != &target && path.starts_with(&target)),
+					_ => false,
+				}
 			};
 			if exists {
 				let module = tg::module::Data {
@@ -587,7 +603,58 @@ impl Resolver {
 				return Ok(Some(module));
 			}
 		}
-		resolve_path(self.instance.clone(), module.clone(), path, kind).await
+		resolve_path(self, module.clone(), path, kind).await
+	}
+
+	/// Get the paths of a file's dependencies, reading the file's dependencies once.
+	async fn dependency_paths(
+		&self,
+		module: &tg::module::Data,
+	) -> tg::Result<Arc<DependencyPaths>> {
+		let file = module_file(&self.graphs, module)?;
+		let id = file.id();
+		if let Some(paths) = self.dependency_paths.lock().unwrap().get(&id) {
+			return Ok(paths.clone());
+		}
+		let dependencies = file.dependencies_with_instance(&self.instance).await?;
+		let mut paths = DependencyPaths::new();
+		for (reference, dependency) in dependencies {
+			if reference.without_token().options() != &tg::reference::Options::default() {
+				continue;
+			}
+			let Ok(relative) = reference.node().try_unwrap_path_ref() else {
+				continue;
+			};
+			let relative = tangram_util::path::normalize(relative);
+			let resolved = dependency.is_some();
+			paths
+				.entry(relative)
+				.and_modify(|entry| entry.1 |= resolved)
+				.or_insert((reference, resolved));
+		}
+		let paths = Arc::new(paths);
+		self.dependency_paths
+			.lock()
+			.unwrap()
+			.insert(id, paths.clone());
+		Ok(paths)
+	}
+
+	/// Prepare a module, reusing the result for a module with the same identity, which only differs in its tokens.
+	pub async fn prepare_module(&self, module: tg::module::Data) -> tg::Result<tg::module::Data> {
+		let key = module.without_token().to_string();
+		let prepared = self.prepared.lock().unwrap().get(&key).cloned();
+		if let Some(mut prepared) = prepared {
+			prepared
+				.referent
+				.options
+				.tokens
+				.inherit(&module.referent.options.tokens);
+			return Ok(prepared);
+		}
+		let prepared = prepare_module_with_graphs(&self.instance, &self.graphs, module).await?;
+		self.prepared.lock().unwrap().insert(key, prepared.clone());
+		Ok(prepared)
 	}
 }
 
@@ -712,17 +779,19 @@ fn missing(message: impl Into<String>, name: Option<&str>) -> Output {
 }
 
 async fn resolve_path(
-	instance: tg::instance::dynamic::Instance,
+	resolver: &Resolver,
 	module: tg::module::Data,
 	path: PathBuf,
 	kind: tg::module::Kind,
 ) -> tg::Result<Option<tg::module::Data>> {
+	let instance = resolver.instance.clone();
+	let graphs = &resolver.graphs;
 	if module.kind == tg::module::Kind::Directory {
 		let Some(referent) = directory_member(instance.clone(), module, path, kind).await? else {
 			return Ok(None);
 		};
 		let module = tg::module::Data { kind, referent };
-		return Ok(Some(prepare_module(&instance, module).await?));
+		return Ok(Some(resolver.prepare_module(module).await?));
 	}
 	// Translate a Python path to an import before calling the shared resolver.
 	let reference = match &module.referent.node {
@@ -743,20 +812,11 @@ async fn resolve_path(
 			tg::Reference::with_path(path)
 		},
 		tg::module::data::Source::Edge(_) => {
-			let file = module_file(&module)?;
-			let dependencies = file.dependencies_with_instance(&instance).await?;
-			let dependency = dependencies.into_iter().find(|(reference, _)| {
-				let Ok(relative) = reference.node().try_unwrap_path_ref() else {
-					return false;
-				};
-				reference.without_token().options() == &tg::reference::Options::default()
-					&& tangram_util::path::normalize(relative)
-						== tangram_util::path::normalize(&path)
-			});
-			let Some((reference, _)) = dependency else {
+			let paths = resolver.dependency_paths(&module).await?;
+			let Some((reference, _)) = paths.get(&tangram_util::path::normalize(&path)) else {
 				return Ok(None);
 			};
-			reference
+			reference.clone()
 		},
 	};
 	let import = tg::module::Import {
@@ -767,13 +827,30 @@ async fn resolve_path(
 		import,
 		referrer: Some(module),
 	};
-	let module = instance.resolve_module(arg).await?.module;
-	let module = prepare_module(&instance, module).await?;
+	let module = resolve_module_with_graphs(&instance, graphs, arg).await?;
+	let module = resolver.prepare_module(module).await?;
 	Ok(Some(module))
 }
 
+/// Resolve a module without the instance when the loaded graphs allow it, and with the instance otherwise.
+async fn resolve_module_with_graphs(
+	instance: &tg::instance::dynamic::Instance,
+	graphs: &Graphs,
+	arg: tg::module::resolve::Arg,
+) -> tg::Result<tg::module::Data> {
+	if let Some(referrer) = &arg.referrer
+		&& let Some(module) = graphs
+			.try_resolve_module(instance, referrer, &arg.import)
+			.await
+	{
+		return Ok(module);
+	}
+	let module = instance.resolve_module(arg).await?.module;
+	Ok(module)
+}
+
 async fn namespace_exists(
-	instance: tg::instance::dynamic::Instance,
+	resolver: &Resolver,
 	module: tg::module::Data,
 	path: PathBuf,
 ) -> tg::Result<bool> {
@@ -784,20 +861,11 @@ async fn namespace_exists(
 	}
 	// A file-only checkin can retain a namespace's members without a directory object.
 	let path = tangram_util::path::normalize(&path);
-	let file = module_file(&module)?;
-	let dependencies = file.dependencies_with_instance(&instance).await?;
-	let exists = dependencies.into_iter().any(|(reference, dependency)| {
-		if reference.without_token().options() != &tg::reference::Options::default()
-			|| dependency.is_none()
-		{
-			return false;
-		}
-		let Ok(relative) = reference.node().try_unwrap_path_ref() else {
-			return false;
-		};
-		let relative = tangram_util::path::normalize(relative);
-		relative != path && relative.starts_with(&path)
-	});
+	let paths = resolver.dependency_paths(&module).await?;
+	let exists = paths
+		.range(path.clone()..)
+		.take_while(|(relative, _)| relative.starts_with(&path))
+		.any(|(relative, (_, resolved))| *resolved && relative != &path);
 
 	Ok(exists)
 }

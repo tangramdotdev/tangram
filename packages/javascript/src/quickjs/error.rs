@@ -364,10 +364,9 @@ fn get_location(
 	let module_data = file_name.parse().ok()?;
 
 	// Find the module in state.modules by matching the module data.
+	let index = state.module_index(&module_data)?;
 	let modules = state.modules.borrow();
-	let module = modules
-		.iter()
-		.find(|entry| entry.module.has_same_identity(&module_data))?;
+	let module = &modules[index];
 
 	// Get the source.
 	let source = tg::error::data::File::Module(module.module.clone());

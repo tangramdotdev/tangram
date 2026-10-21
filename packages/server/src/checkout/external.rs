@@ -20,6 +20,7 @@ mod lock;
 struct State {
 	arg: tg::checkout::Arg,
 	artifact: tg::artifact::Id,
+	graphs: crate::graph::Graphs,
 	lock: Option<lock::Output>,
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::checkout::Output>,
@@ -241,6 +242,7 @@ impl Session {
 				let mut state = State {
 					arg,
 					artifact,
+					graphs: crate::graph::Graphs::default(),
 					lock: None,
 					path,
 					progress,
@@ -258,7 +260,7 @@ impl Session {
 				// Get the item.
 				let edge = tg::graph::data::Edge::Object(state.artifact.clone());
 				let item = session
-					.checkout_get_item(edge, None)
+					.checkout_get_item(&state.graphs, edge, None)
 					.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 				// Check out the artifact.
@@ -467,14 +469,18 @@ impl Session {
 		)?;
 
 		// Collect all entries, recursively flattening branches.
-		let entries =
-			crate::directory::collect_directory_entries(&self.server.cache, node, graph.as_ref())?;
+		let entries = crate::directory::collect_directory_entries(
+			&self.server.cache,
+			&state.graphs,
+			node,
+			graph.as_ref(),
+		)?;
 
 		// Recurse into the entries.
 		for (name, edge) in entries {
 			let path = path.join(&name);
 			let item = self
-				.checkout_get_item(edge, graph.as_ref())
+				.checkout_get_item(&state.graphs, edge, graph.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			// Check for a cycle.
@@ -535,7 +541,7 @@ impl Session {
 				},
 			};
 			let item = self
-				.checkout_get_item(edge, graph.as_ref())
+				.checkout_get_item(&state.graphs, edge, graph.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 			self.add_permanent_token_to_object_reference(&mut reference, &item.id)?;
 			references.push(reference);
@@ -637,7 +643,7 @@ impl Session {
 
 			// Get the dependency node.
 			let dependency_item = self
-				.checkout_get_item(edge, graph.as_ref())
+				.checkout_get_item(&state.graphs, edge, graph.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			if dependency_item.id == state.artifact {
@@ -693,13 +699,14 @@ impl Session {
 
 	fn checkout_get_item(
 		&self,
+		graphs: &crate::graph::Graphs,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<Item> {
 		match edge {
 			tg::graph::data::Edge::Index(index) => {
 				let graph = graph.ok_or_else(|| tg::error!("missing graph"))?;
-				let node = crate::graph::get_node(&self.server.cache, graph, index)?;
+				let node = crate::graph::get_node(&self.server.cache, graphs, graph, index)?;
 				let pointer = tg::graph::data::Pointer {
 					graph: graph.clone(),
 					index,
@@ -708,8 +715,12 @@ impl Session {
 				Self::checkout_get_item_with_pointer(pointer, node)
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				let node =
-					crate::graph::get_node(&self.server.cache, &pointer.graph, pointer.index)?;
+				let node = crate::graph::get_node(
+					&self.server.cache,
+					graphs,
+					&pointer.graph,
+					pointer.index,
+				)?;
 				Self::checkout_get_item_with_pointer(pointer, node)
 			},
 
@@ -732,8 +743,12 @@ impl Session {
 					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
 					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
 						let graph_id = pointer.graph;
-						let node =
-							crate::graph::get_node(&self.server.cache, &graph_id, pointer.index)?;
+						let node = crate::graph::get_node(
+							&self.server.cache,
+							graphs,
+							&graph_id,
+							pointer.index,
+						)?;
 
 						Ok(Item {
 							graph: Some(graph_id),

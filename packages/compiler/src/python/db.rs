@@ -49,6 +49,7 @@ pub(super) struct Database {
 	project: Option<ty_project::Project>,
 	project_paths: Vec<SystemPathBuf>,
 	resolutions: Arc<Mutex<HashMap<File, BTreeMap<String, Resolution>>>>,
+	resolver: Arc<resolve::Resolver>,
 	revision: Option<Revision>,
 	rules: Arc<RuleSelection>,
 	settings: Arc<ProgramSettings>,
@@ -104,6 +105,7 @@ impl Database {
 		settings.search_paths = search_paths
 			.to_search_paths(&system, ty_vendored::file_system(), &FallibleStrategy)
 			.map_err(|error| tg::error!(!error, "failed to configure the python library"))?;
+		let resolver = Arc::new(resolve::Resolver::new(compiler.instance.clone()));
 		let mut db = Self {
 			analysis: Arc::new(AnalysisSettings::default()),
 			compiler,
@@ -114,6 +116,7 @@ impl Database {
 			project: None,
 			project_paths: Vec::new(),
 			resolutions: Arc::default(),
+			resolver,
 			revision: None,
 			rules: Arc::new(RuleSelection::from_registry(
 				ty_python_semantic::default_lint_registry(),
@@ -425,7 +428,7 @@ impl Database {
 		let module = self
 			.compiler
 			.main_runtime_handle
-			.block_on(resolve::prepare_module(&self.compiler.instance, module))?;
+			.block_on(self.resolver.prepare_module(module))?;
 		let key = module.without_token().to_string();
 		{
 			let modules = self.modules.lock().unwrap();
@@ -859,11 +862,11 @@ impl Database {
 				_ => None,
 			})
 			.collect();
-		let resolver = resolve::Resolver::with_paths(self.compiler.instance.clone(), paths);
+		self.resolver.set_paths(paths);
 		match self
 			.compiler
 			.main_runtime_handle
-			.block_on(resolver.resolve(request))
+			.block_on(self.resolver.resolve(request))
 		{
 			Ok(output) => output,
 			Err(error) => {

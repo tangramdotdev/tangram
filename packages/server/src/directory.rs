@@ -3,6 +3,7 @@ use {std::collections::BTreeMap, tangram_client::prelude::*};
 /// Collect all entries from a directory, recursively flattening branches.
 pub fn collect_directory_entries(
 	cache: &crate::cache::Cache,
+	graphs: &crate::graph::Graphs,
 	directory: &tg::graph::data::Directory,
 	graph: Option<&tg::graph::Id>,
 ) -> tg::Result<BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>> {
@@ -12,15 +13,15 @@ pub fn collect_directory_entries(
 			let mut all_entries = BTreeMap::new();
 			for child in &branch.children {
 				let (child_dir, child_graph) =
-					resolve_directory_child(cache, &child.directory, graph)?;
+					resolve_directory_child(cache, graphs, &child.directory, graph)?;
 				let child_entries =
-					collect_directory_entries(cache, &child_dir, child_graph.as_ref())?;
+					collect_directory_entries(cache, graphs, &child_dir, child_graph.as_ref())?;
 				// Make edges explicit when moving entries out of their graph.
 				for (name, edge) in child_entries {
 					let edge = if child_graph.as_ref() == graph {
 						edge
 					} else {
-						crate::graph::resolve_edge(cache, edge, child_graph.as_ref())?
+						crate::graph::resolve_edge(cache, graphs, edge, child_graph.as_ref())?
 					};
 					all_entries.insert(name, edge);
 				}
@@ -33,6 +34,7 @@ pub fn collect_directory_entries(
 /// Resolve a directory child edge to its directory data.
 fn resolve_directory_child(
 	cache: &crate::cache::Cache,
+	graphs: &crate::graph::Graphs,
 	edge: &tg::graph::data::Edge<tg::directory::Id>,
 	graph: Option<&tg::graph::Id>,
 ) -> tg::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
@@ -59,7 +61,7 @@ fn resolve_directory_child(
 			}
 		},
 	};
-	let node = crate::graph::get_node(cache, graph, index)?;
+	let node = crate::graph::get_node(cache, graphs, graph, index)?;
 	let directory = node
 		.try_unwrap_directory()
 		.map_err(|_| tg::error!("expected directory node in branch child"))?;

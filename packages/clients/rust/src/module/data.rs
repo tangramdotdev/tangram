@@ -103,7 +103,25 @@ impl Module {
 impl Module {
 	#[must_use]
 	pub fn has_same_identity(&self, other: &Self) -> bool {
-		self.without_token() == other.without_token()
+		// Compare every field except the tokens without cloning either module.
+		let tg::referent::Options {
+			artifact,
+			id,
+			location,
+			name,
+			path,
+			tag,
+			tokens: _,
+		} = &self.referent.options;
+		let options = &other.referent.options;
+		self.kind == other.kind
+			&& self.referent.node == other.referent.node
+			&& *artifact == options.artifact
+			&& *id == options.id
+			&& *location == options.location
+			&& *name == options.name
+			&& *path == options.path
+			&& *tag == options.tag
 	}
 
 	#[must_use]

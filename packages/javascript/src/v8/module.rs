@@ -69,11 +69,8 @@ pub fn host_import_module_dynamically_callback<'s>(
 			},
 		};
 		let module = state
-			.modules
-			.borrow()
-			.iter()
-			.find(|entry| entry.data.has_same_identity(&module))
-			.map_or(module, |entry| entry.data.clone());
+			.module_index(&module)
+			.map_or(module, |index| state.modules.borrow()[index].data.clone());
 		Some(module)
 	};
 
@@ -82,9 +79,19 @@ pub fn host_import_module_dynamically_callback<'s>(
 
 	// Resolve the module.
 	let promise = state.create_promise(scope, {
+		let graphs = state.graphs.clone();
 		let instance = state.instance.clone();
 		let import = import.clone();
 		async move {
+			// Resolve the module without the instance if possible.
+			if let Some(referrer) = &referrer
+				&& let Some(module) = graphs
+					.try_resolve_module(&instance, referrer, &import)
+					.await
+			{
+				return Ok(Serde(module));
+			}
+
 			let arg = tg::module::resolve::Arg {
 				referrer: referrer.clone(),
 				import: import.clone(),
@@ -115,11 +122,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 			let Serde(module) = Serde::<tg::module::Data>::deserialize(scope, value).unwrap();
 
 			// Check if the module already exists.
-			let index = state
-				.modules
-				.borrow()
-				.iter()
-				.position(|entry| entry.data.has_same_identity(&module));
+			let index = state.module_index(&module);
 
 			if let Some(index) = index {
 				state.modules.borrow_mut()[index]
@@ -132,19 +135,31 @@ pub fn host_import_module_dynamically_callback<'s>(
 				return_value.set(index.into());
 			} else {
 				let promise = state.create_promise(scope, {
+					let graphs = state.graphs.clone();
 					let instance = state.instance.clone();
 					async move {
-						let arg = tg::module::load::Arg {
-							language: Some(tg::module::load::Language::JavaScript),
-							module: module.clone(),
-						};
-						let output = instance.load_module(arg).await.map_err(|error| {
-							tg::error!(
-								!error,
-								module = ?module.without_token(),
-								"failed to load the module"
+						let output = if let Some(output) = graphs
+							.try_load_module(
+								&instance,
+								&module,
+								tg::module::load::Language::JavaScript,
 							)
-						})?;
+							.await
+						{
+							output
+						} else {
+							let arg = tg::module::load::Arg {
+								language: Some(tg::module::load::Language::JavaScript),
+								module: module.clone(),
+							};
+							instance.load_module(arg).await.map_err(|error| {
+								tg::error!(
+									!error,
+									module = ?module.without_token(),
+									"failed to load the module"
+								)
+							})?
+						};
 						let mut module = module;
 						module.referent.options.tokens.inherit(&output.tokens);
 						Ok(Serde((module, output.text)))
@@ -255,12 +270,8 @@ fn resolve_module_callback<'s>(
 
 	// Get the module.
 	let result = state
-		.modules
-		.borrow()
-		.iter()
-		.find(|module| module.v8.as_ref().unwrap() == &referrer)
-		.cloned()
-		.map(|module| module.data)
+		.module_index_with_v8(referrer)
+		.map(|index| state.modules.borrow()[index].data.clone())
 		.ok_or_else(|| tg::error!("unable to find the module"));
 	let module = match result {
 		Ok(module) => module,
@@ -278,11 +289,7 @@ fn resolve_module_callback<'s>(
 	let mut module = resolve_module_sync(scope, &module, &import)?;
 
 	// Get the module if it already exists. Otherwise, load and compile it.
-	let index = state
-		.modules
-		.borrow()
-		.iter()
-		.position(|entry| entry.data.has_same_identity(&module));
+	let index = state.module_index(&module);
 	let module = if let Some(index) = index {
 		let v8_module = {
 			let mut modules = state.modules.borrow_mut();
@@ -320,18 +327,27 @@ fn resolve_module_sync(
 	let state = context.get_slot::<State>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
+		let graphs = state.graphs.clone();
 		let instance = state.instance.clone();
 		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
-			let arg = tg::module::resolve::Arg {
-				referrer: Some(referrer),
-				import,
-			};
-			let result = instance
-				.resolve_module(arg)
+			// Resolve the module without the instance if possible.
+			let result = if let Some(module) = graphs
+				.try_resolve_module(&instance, &referrer, &import)
 				.await
-				.map(|output| output.module);
+			{
+				Ok(module)
+			} else {
+				let arg = tg::module::resolve::Arg {
+					referrer: Some(referrer),
+					import,
+				};
+				instance
+					.resolve_module(arg)
+					.await
+					.map(|output| output.module)
+			};
 			sender.send(result).unwrap();
 		}
 	});
@@ -360,14 +376,23 @@ fn load_module_sync(scope: &mut v8::PinScope, module: &mut tg::module::Data) -> 
 	let state = context.get_slot::<State>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
+		let graphs = state.graphs.clone();
 		let instance = state.instance.clone();
 		let module = module.clone();
 		async move {
-			let arg = tg::module::load::Arg {
-				language: Some(tg::module::load::Language::JavaScript),
-				module,
+			// Load the module without the instance if possible.
+			let result = if let Some(output) = graphs
+				.try_load_module(&instance, &module, tg::module::load::Language::JavaScript)
+				.await
+			{
+				Ok(output)
+			} else {
+				let arg = tg::module::load::Arg {
+					language: Some(tg::module::load::Language::JavaScript),
+					module,
+				};
+				instance.load_module(arg).await
 			};
-			let result = instance.load_module(arg).await;
 			sender.send(result).unwrap();
 		}
 	});
@@ -425,6 +450,8 @@ fn compile_module<'s>(
 	// Set the module.
 	let id = {
 		let mut modules = state.modules.borrow_mut();
+		let key = module.without_token().to_string();
+		state.module_indices.borrow_mut().insert(key, modules.len());
 		modules.push(Module {
 			data: module.clone(),
 			source_map: Some(source_map),
@@ -474,8 +501,14 @@ fn compile_module<'s>(
 	let module = v8::script_compiler::compile_module(scope, &mut source)?;
 	let module_global = v8::Global::new(scope, module);
 
-	// Update the module.
+	// Update the module and record its index by its identity hash.
 	state.modules.borrow_mut().get_mut(id - 1).unwrap().v8 = Some(module_global);
+	state
+		.module_indices_with_v8
+		.borrow_mut()
+		.entry(module.get_identity_hash())
+		.or_default()
+		.push(id - 1);
 
 	Some(module)
 }
@@ -559,14 +592,8 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 	let state = context.get_slot::<State>().unwrap().clone();
 
 	// Get the module.
-	let module = state
-		.modules
-		.borrow()
-		.iter()
-		.find(|m| m.v8.as_ref().unwrap() == &module)
-		.unwrap()
-		.data
-		.clone();
+	let index = state.module_index_with_v8(module).unwrap();
+	let module = state.modules.borrow()[index].data.clone();
 
 	// Get the Tangram global.
 	let context = scope.get_current_context();

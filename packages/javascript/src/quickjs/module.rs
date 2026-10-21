@@ -27,11 +27,8 @@ impl qjs::loader::Resolver for Resolver {
 				.parse::<tg::module::Data>()
 				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 			let module = state
-				.modules
-				.borrow()
-				.iter()
-				.find(|entry| entry.module.has_same_identity(&module))
-				.map_or(module, |entry| entry.module.clone());
+				.module_index(&module)
+				.map_or(module, |index| state.modules.borrow()[index].module.clone());
 			Some(module)
 		};
 
@@ -59,10 +56,21 @@ impl qjs::loader::Resolver for Resolver {
 		// Resolve the module.
 		let (sender, receiver) = std::sync::mpsc::channel();
 		state.main_runtime_handle.spawn({
+			let graphs = state.graphs.clone();
 			let instance = state.instance.clone();
 			let referrer = referrer.clone();
 			let import = import.clone();
 			async move {
+				// Resolve the module without the instance if possible.
+				if let Some(referrer) = &referrer
+					&& let Some(module) = graphs
+						.try_resolve_module(&instance, referrer, &import)
+						.await
+				{
+					sender.send(Ok(module)).unwrap();
+					return;
+				}
+
 				let arg = tg::module::resolve::Arg {
 					referrer: referrer.clone(),
 					import,
@@ -79,11 +87,7 @@ impl qjs::loader::Resolver for Resolver {
 			.unwrap()
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 		let name = module.without_token().to_string();
-		let index = state
-			.modules
-			.borrow()
-			.iter()
-			.position(|entry| entry.module.has_same_identity(&module));
+		let index = state.module_index(&module);
 		if let Some(index) = index {
 			state.modules.borrow_mut()[index]
 				.module
@@ -92,7 +96,7 @@ impl qjs::loader::Resolver for Resolver {
 				.tokens
 				.inherit(&module.referent.options.tokens);
 		} else {
-			state.modules.borrow_mut().push(Module {
+			state.push_module(Module {
 				module,
 				source_map: None,
 			});
@@ -117,23 +121,29 @@ impl qjs::loader::Loader for Loader {
 			.parse::<tg::module::Data>()
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 		let mut module_data = state
-			.modules
-			.borrow()
-			.iter()
-			.find(|entry| entry.module.has_same_identity(&module))
-			.map_or(module, |entry| entry.module.clone());
+			.module_index(&module)
+			.map_or(module, |index| state.modules.borrow()[index].module.clone());
 
 		// Load the module.
 		let (sender, receiver) = std::sync::mpsc::channel();
 		state.main_runtime_handle.spawn({
+			let graphs = state.graphs.clone();
 			let instance = state.instance.clone();
 			let module = module_data.clone();
 			async move {
-				let arg = tg::module::load::Arg {
-					language: Some(tg::module::load::Language::JavaScript),
-					module,
+				// Load the module without the instance if possible.
+				let result = if let Some(output) = graphs
+					.try_load_module(&instance, &module, tg::module::load::Language::JavaScript)
+					.await
+				{
+					Ok(output)
+				} else {
+					let arg = tg::module::load::Arg {
+						language: Some(tg::module::load::Language::JavaScript),
+						module,
+					};
+					instance.load_module(arg).await
 				};
-				let result = instance.load_module(arg).await;
 				sender.send(result).unwrap();
 			}
 		});
@@ -156,11 +166,7 @@ impl qjs::loader::Loader for Loader {
 		let source_map = SourceMap::from_slice(output.source_map.as_bytes()).ok();
 
 		// Register the module.
-		let index = state
-			.modules
-			.borrow()
-			.iter()
-			.position(|entry| entry.module.has_same_identity(&module_data));
+		let index = state.module_index(&module_data);
 		if let Some(index) = index {
 			let mut modules = state.modules.borrow_mut();
 			modules[index]
@@ -171,7 +177,7 @@ impl qjs::loader::Loader for Loader {
 				.inherit(&loaded.tokens);
 			modules[index].source_map = source_map;
 		} else {
-			state.modules.borrow_mut().push(Module {
+			state.push_module(Module {
 				module: module_data.clone(),
 				source_map,
 			});
