@@ -1,24 +1,51 @@
+# The FoundationDB server image on macOS, which must match the FoundationDB client that Tangram links.
+const foundationdb_image = 'foundationdb/foundationdb:7.3.68'
+
 # Run the FoundationDB index tests against a temporary FoundationDB server.
 def main [...args: string] {
+	# Check the required programs.
+	let programs = if $nu.os-info.name == 'linux' { [fdbcli fdbserver] } else { [docker] }
+	let missing = $programs | where { |program| which $program | is-empty }
+	if not ($missing | is-empty) {
+		error make { msg: $"the following programs are missing from PATH: ($missing | str join ', ')" }
+	}
+
 	# Create the server directory and the cluster file.
 	let directory = mktemp --directory
 	let data = $directory | path join data
 	let log = $directory | path join log
 	mkdir $data $log
-	let address = $"127.0.0.1:(port)"
+	let port = port
+	let address = $"127.0.0.1:($port)"
 	let cluster = $directory | path join fdb.cluster
-	$"test:test@($address)" | save $cluster
+	let container = $"tangram_fdb_test_(random chars --length 8 | str lowercase)"
 
-	# Start the server.
-	let server = job spawn {
-		^fdbserver --cluster-file $cluster --datadir $data --logdir $log --listen-address $address --public-address $address | ignore
+	# Start the server, natively on Linux and in a Docker container on macOS.
+	let server = if $nu.os-info.name == 'linux' {
+		$"test:test@($address)" | save $cluster
+		job spawn {
+			^fdbserver --cluster-file $cluster --datadir $data --logdir $log --listen-address $address --public-address $address | ignore
+		}
+	} else {
+		$"docker:docker@($address)" | save $cluster
+		if (^docker image inspect $foundationdb_image | complete).exit_code != 0 {
+			print --stderr $"pulling ($foundationdb_image)"
+			^docker pull $foundationdb_image
+		}
+		^docker run --detach --rm --name $container --publish $"($address):($port)" --env FDB_NETWORKING_MODE=host --env $"FDB_PORT=($port)" --tmpfs /var/fdb/data:rw --tmpfs /var/fdb/logs:rw $foundationdb_image | ignore
+		null
+	}
+	let fdbcli = if $nu.os-info.name == 'linux' {
+		[fdbcli --cluster-file $cluster]
+	} else {
+		[docker exec $container fdbcli]
 	}
 
 	# Configure a single process database and wait until it is available.
-	^fdbcli --cluster-file $cluster --timeout 30 --exec "configure new single memory" | ignore
+	run-external ...$fdbcli ...[--timeout 30 --exec "configure new single memory"] | complete | ignore
 	mut available = false
 	for _ in 1..60 {
-		let status = ^fdbcli --cluster-file $cluster --timeout 5 --exec "status minimal" | complete
+		let status = run-external ...$fdbcli ...[--timeout 5 --exec "status minimal"] | complete
 		if ($status.stdout | str contains "available") {
 			$available = true
 			break
@@ -42,7 +69,11 @@ def main [...args: string] {
 	}
 
 	# Stop the server and remove its directory.
-	job kill $server
+	if $server != null {
+		job kill $server
+	} else {
+		^docker rm --force $container | complete | ignore
+	}
 	rm --recursive --force $directory
 
 	if not $succeeded {
