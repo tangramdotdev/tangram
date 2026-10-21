@@ -31,7 +31,7 @@ tg checkout $id
 
 # Snapshot.
 snapshot --path --entries [
-	dir_01z2s0c1g21hp91nbn555bejwfq65g1yvv1pgxpm53v8v46c2gpf3g
-	fil_015dcp0awy3fqpf5f48ghbfreg00mkp13qjz3w4md2yv2jnzvpkb9g
-	fil_01pv9xz3njqn4dzv0w4611nnscyxk14q5cjbavfb2kq5xffzpxxww0
+	dir_01rq4c2tee1e5e5netpb4k3bn0rgm86aamzw4frywbzetb2h606bb0
+	fil_016a4v9jpdbdb83jye3zv4js53wsv3z21gjyvarka9marg2znhwh8g
+	fil_01aht3sdwcavvmj7jr9wsrxxzbj93c3wvn21zy9kzm8b8r87wjp25g
 ] $local.checkout_directory

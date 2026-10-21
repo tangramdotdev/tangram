@@ -1,13 +1,12 @@
 use {super::*, std::collections::BTreeMap};
 
 #[test]
-fn a_leaf_serializes_like_a_graph_with_only_nodes() {
-	let leaf = Leaf { nodes: files(2) };
-	let bytes = Graph::Leaf(leaf.clone()).serialize().unwrap();
-	let mut expected = vec![0];
-	tangram_serialize::to_writer(&mut expected, &leaf).unwrap();
-	assert_eq!(bytes.as_ref(), expected.as_slice());
-	assert_eq!(Graph::deserialize(bytes).unwrap(), Graph::Leaf(leaf));
+fn a_leaf_round_trips() {
+	let graph = Graph::Leaf(Leaf { nodes: files(2) });
+	let bytes = graph.serialize().unwrap();
+	assert_eq!(Graph::deserialize(bytes).unwrap(), graph);
+	let json = graph.serialize_json().unwrap();
+	assert_eq!(Graph::deserialize(json).unwrap(), graph);
 }
 
 #[test]
@@ -20,7 +19,6 @@ fn a_branch_round_trips() {
 	};
 	let graph = Graph::Branch(branch);
 	let bytes = graph.serialize().unwrap();
-	assert_eq!(bytes[0], 1);
 	assert_eq!(Graph::deserialize(bytes).unwrap(), graph);
 	let json = graph.serialize_json().unwrap();
 	assert_eq!(Graph::deserialize(json).unwrap(), graph);

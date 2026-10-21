@@ -27,12 +27,17 @@ const MAX_LEAF_NODES_SIZE: usize = tg::object::MAX_SIZE - 1_024;
 	derive_more::Unwrap,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[serde(untagged)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Graph {
+	#[tangram_serialize(id = 0)]
 	Leaf(Leaf),
+
+	#[tangram_serialize(id = 1)]
 	Branch(Branch),
 }
 
@@ -542,21 +547,11 @@ impl std::ops::DerefMut for Dependency {
 }
 
 impl Graph {
-	/// Serialize the graph, prefixing a leaf with `0` and a branch with `1`.
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
-		match self {
-			Self::Leaf(leaf) => {
-				bytes.push(0);
-				tangram_serialize::to_writer(&mut bytes, leaf)
-					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
-			},
-			Self::Branch(branch) => {
-				bytes.push(1);
-				tangram_serialize::to_writer(&mut bytes, branch)
-					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
-			},
-		}
+		bytes.push(0);
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 
@@ -576,10 +571,6 @@ impl Graph {
 		let format = bytes[0];
 		match format {
 			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map(Self::Leaf)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
-			1 => tangram_serialize::from_slice(&bytes[1..])
-				.map(Self::Branch)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			b'{' => serde_json::from_slice(bytes)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),

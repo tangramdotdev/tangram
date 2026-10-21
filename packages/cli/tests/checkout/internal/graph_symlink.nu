@@ -29,7 +29,7 @@ snapshot --path $local.checkout_directory '
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "sym_01ajczwn8gdjcpjn0fcf2re3qjmzga18cda8hxjn7dgmcyywv5p240": {
+	    "sym_014caaz0r8jt1yhhrw579p379wnah3s8yrtver9wz6tcbtpn14vv3g": {
 	      "kind": "symlink",
 	      "path": "/bin/sh"
 	    }

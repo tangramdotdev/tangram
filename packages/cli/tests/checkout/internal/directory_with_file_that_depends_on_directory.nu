@@ -26,5 +26,5 @@ let id = tg build --no-checkout-pointers $path
 tg checkout $id
 
 snapshot --path --entries [
-	dir_01m8h84t7pgq9dzea9zvwvtm7hr2wfkkf1nxbcpvyrwk3xa75r55c0
+	dir_0174aq4yr28b8jspvnr74vze64av8snpdfcyred7ne1vw09khkpvd0
 ] $local.checkout_directory

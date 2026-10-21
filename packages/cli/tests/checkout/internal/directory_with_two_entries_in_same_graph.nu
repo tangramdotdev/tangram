@@ -36,8 +36,8 @@ let id = tg build --no-checkout-pointers $path
 tg checkout $id | complete
 
 snapshot --path --entries [
-	dir_01at8fy016038h8rw7gp51kse6rrpqtq8typjdrsd3d1sptk10e58g
-	dir_01gtwffee5npyzyv9v3190s1n700307tkgxgt1cqctnkwnan62webg
-	dir_01jhgks6ajjxxa25gy3bfmvtwh4ksh9tby3ctq0cyt7519g2p8nh4g
+	dir_013yvx9jd5sqqj099rdnqaswsfyw9c8bzzcx1s8p71ct1a3pzcbv0g
+	dir_01t55mmrcnzhtk9xtms2gjgghkv2dyk5f1r36wry8yzcxj0175x0j0
+	dir_01xm13t32gc48wehgnqx9514fc68kewqy2g1482tp68jeracajq5n0
 	fil_0104e8knec3ab503j9d17p8wgn2xv9wwj16r06sprzcg2zcv9atz2g
 ] $local.checkout_directory
