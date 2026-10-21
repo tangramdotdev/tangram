@@ -241,9 +241,24 @@ impl State {
 	}
 
 	pub fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
+		// Inherit the tokens, and get the loaded object if they changed.
 		let id = self.id().into();
-		let mut inner = self.0.write().unwrap();
-		inner.tokens.inherit_with_resource(tokens, Some(&id));
+		let (tokens, object) = {
+			let mut inner = self.0.write().unwrap();
+			let previous = inner.tokens.clone();
+			inner.tokens.inherit_with_resource(tokens, Some(&id));
+			if inner.tokens == previous {
+				return;
+			}
+			(inner.tokens.clone(), inner.object.clone())
+		};
+
+		// Pass the tokens to the loaded object's children, so that the children of an object that gains tokens after it is loaded inherit them.
+		if let Some(object) = object {
+			for child in object.children() {
+				child.inherit_tokens(&tokens);
+			}
+		}
 	}
 
 	pub fn set_object(&self, object: impl Into<tg::object::Object>) {
@@ -481,8 +496,17 @@ impl State {
 			child.inherit_tokens(&tokens);
 		}
 
-		// Store the object.
-		self.0.write().unwrap().object.replace(object.clone());
+		// Store the object, and pass any tokens inherited while the children were updated to the children.
+		let current = {
+			let mut inner = self.0.write().unwrap();
+			inner.object.replace(object.clone());
+			inner.tokens.clone()
+		};
+		if current != tokens {
+			for child in object.children() {
+				child.inherit_tokens(&current);
+			}
+		}
 
 		Ok(Some(object))
 	}

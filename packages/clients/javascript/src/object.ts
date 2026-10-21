@@ -208,7 +208,17 @@ export namespace Object {
 		}
 
 		inheritTokens(tokens: tg.Authorization.Tokens): void {
+			// Inherit the tokens.
+			let previous = JSON.stringify(this.#tokens);
 			tg.Authorization.Tokens.inherit(this.#tokens, tokens, this.id);
+			if (this.#object === null || JSON.stringify(this.#tokens) === previous) {
+				return;
+			}
+
+			// Pass the tokens to the loaded object's children, so that the children of an object that gains tokens after it is loaded inherit them.
+			for (let child of tg.Object.Object.children(this.#object)) {
+				child.state.inheritTokens(this.#tokens);
+			}
 		}
 
 		collectTokens(): tg.Authorization.Tokens {

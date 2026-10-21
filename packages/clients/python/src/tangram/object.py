@@ -228,7 +228,15 @@ class Object:
         return self.id
 
     def _inherit_tokens(self, tokens):
+        # Inherit the tokens.
+        previous = authorization.clone(self.tokens)
         self.tokens = authorization.inherit(self.tokens, tokens or {}, self.id)
+        if self._value is None or self.tokens == previous:
+            return
+
+        # Pass the tokens to the children, which inherit tokens gained after a load.
+        for child in self._children():
+            child._inherit_tokens(self.tokens)
 
     @tg.property
     async def children(self, client: Client | None = None) -> list[Object]:
