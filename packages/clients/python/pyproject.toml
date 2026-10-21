@@ -17,3 +17,6 @@ module-name = "tangram._native"
 python-source = "src"
 
 include = [{ path = "build.py", format = "sdist" }]
+
+[tool.maturin.sbom]
+rust = false

@@ -9281,6 +9281,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_cli_test"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "crossterm",
+ "futures",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "tangram_client"
 version = "0.0.0"
 dependencies = [

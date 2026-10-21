@@ -21,17 +21,7 @@ export def spawn_stripe [--customer-delay: duration = 0sec] {
 	let requests_path = mktemp
 	let customer_delay_ms = $customer_delay / 1ms | into int
 	let job = job spawn -d stripe {
-		bash -c $"
-			PARENT_PID=\$PPID
-			SELF_PID=\$\$
-			\(
-				while kill -0 \$PARENT_PID 2>/dev/null; do
-					sleep 0.05
-				done
-				kill -TERM -\$SELF_PID 2>/dev/null || true
-			\) &
-			exec bun run \"($stripe_path)\" \"($port_path)\" \"($requests_path)\" \"($customer_delay_ms)\" \"($customer_path)\"
-		"
+		^bun run $stripe_path $port_path $requests_path ($customer_delay_ms | into string) $customer_path
 	}
 	wait_until {
 		try { (open --raw $port_path | str trim | is-not-empty) } catch { false }

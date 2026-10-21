@@ -1,10 +1,12 @@
 # CLI tests
 
 These are the end-to-end tests for tangram. Each `.nu`
-file is one self-contained test, run by the harness in `packages/cli/test.nu`.
-Run them with `nu packages/cli/test.nu [pattern]`, where `pattern` is an
-optional regex matched against each test's path. Pass `--accept` to accept new
-or changed snapshots. Pass `--preserve-failing-temps` to keep the temporary
+file is one self-contained test. The `packages/cli/test.nu` script builds
+Tangram and the test runner in `packages/cli/test`, then runs the tests with it.
+Run them with `bun run test:cli [pattern]`, which runs
+`nu packages/cli/test.nu [pattern]`, where `pattern` is an optional regex
+matched against each test's path. Pass `--accept` to accept new or changed
+snapshots. Pass `--preserve-failing-temps` to keep the temporary
 directories for failed tests, or `--preserve-temps` to keep them for every
 test. Pass `--no-progress-details` to show only the aggregate progress bar
 during highly concurrent runs.
@@ -83,9 +85,9 @@ Comments are complete sentences that end in periods and do not use contractions.
 A test verifies a single behavior and ideally takes a single snapshot (or a
 tight cluster of snapshots for that one behavior). Reuse the `server spawn`,
 `artifact { ... }`, `snapshot`, `success`, and `failure` helpers from
-`lib/test.nu`. Tests import this helper module, not the runner in `../test.nu`, so
-each test avoids parsing runner-only code. When a file would test several
-independent behaviors, split it into one file per behavior.
+`lib/test.nu`. Tests import this helper module, not the launcher in
+`../test.nu`. When a file would test several independent behaviors, split it
+into one file per behavior.
 
 To assert on what the server itself logged, spawn it with
 `--config { tracing: { stderr_format: 'json' } }` and snapshot `server_errors`,
@@ -280,6 +282,13 @@ let eve = tg login --verbose --name eve | from json
 let output = tg --token $eve.token user get $alice.user.id | complete
 failure $output "a user without read permission should not be able to get another user"
 ```
+
+### 12. Leave nothing running
+
+A test must stop every process it starts. Start servers and fixtures with the
+helpers in `lib/`, which stop them when the test ends, and stop anything else
+before the test exits. The runner fails a test whose processes are still running
+two seconds after it exits, and reports them as leaks.
 
 ## Non-scriptable surface
 

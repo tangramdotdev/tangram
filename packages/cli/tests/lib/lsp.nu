@@ -1,3 +1,5 @@
+use test.nu [track_supervisor]
+
 export def uri [path: string] {
 	$"file://($path | path expand)"
 }
@@ -126,44 +128,28 @@ export def start [] {
 	let input = $directory | path join "input"
 	let output = $directory | path join "output"
 	let stderr = $directory | path join "stderr"
-	let pid = $directory | path join "pid"
-	let exit_directory = (($env.TMPDIR? | default $directory) | path join "server_jobs")
-	try { mkdir $exit_directory }
 	mkfifo $input
 	"" | save $output
 	"" | save $stderr
-	let job = job spawn --description lsp {
-		let lsp_job_id = job id
-		let exit_path = $exit_directory | path join $'($lsp_job_id).exit'
-		do --ignore-errors {
-			bash -c $"
-				PARENT_PID=$PPID
-				SELF_PID=$$
-				printf '%s\n' \"$SELF_PID\" > \"($pid)\"
-				\(
-					while kill -0 $PARENT_PID 2>/dev/null; do
-						sleep 1
-					done
-					kill -9 -$SELF_PID
-				\) &
-				export DYLD_LIBRARY_PATH=\"($env.DYLD_LIBRARY_PATH? | default '')\"
-				export DYLD_FALLBACK_LIBRARY_PATH=\"($env.DYLD_FALLBACK_LIBRARY_PATH? | default '')\"
-				exec 3<>\"($input)\"
-				cat <&3 | tg lsp > \"($output)\" 2> \"($stderr)\"
-			"
-		}
-		'' | save --force $exit_path
-	}
+
+	# Supervise the language server so that stop can wait for it to exit and cleanup can stop it.
+	let supervisor = $directory | path join "supervisor"
+	track_supervisor $supervisor
+	let script = $"
+		export DYLD_LIBRARY_PATH=\"($env.DYLD_LIBRARY_PATH? | default '')\"
+		export DYLD_FALLBACK_LIBRARY_PATH=\"($env.DYLD_FALLBACK_LIBRARY_PATH? | default '')\"
+		exec 3<>\"($input)\"
+		exec tg lsp <&3 > \"($output)\" 2> \"($stderr)\"
+	"
+	^tangram_cli_test_supervise start --directory $supervisor --name lsp -- bash -c $script o> /dev/null
 	{
 		directory: $directory,
-		exit: ($exit_directory | path join $'($job).exit'),
 		input: $input,
 		output: $output,
 		stderr: $stderr,
-		pid: $pid,
 		offset: 0,
 		inbox: [],
-		job: $job,
+		supervisor: $supervisor,
 	}
 }
 
@@ -259,20 +245,11 @@ export def stop [session: record] {
 			(notification "exit" null)
 		] | str join "" | timeout 2 bash -c 'cat > "$1"' _ $session.input | ignore
 	}
-	let exited = if ($session.exit | path exists) {
-		true
-	} else {
-		let output = open /dev/null | timeout 5sec bash -c 'while [ ! -e "$1" ]; do sleep 0.05; done' _ $session.exit | complete
-		$output.exit_code == 0 or ($session.exit | path exists)
-	}
-	if not $exited {
-		kill_session_processes $session "TERM"
-		let output = open /dev/null | timeout 1sec bash -c 'while [ ! -e "$1" ]; do sleep 0.05; done' _ $session.exit | complete
-		let exited = $output.exit_code == 0 or ($session.exit | path exists)
-		if not $exited {
-			kill_session_processes $session "KILL"
-		}
-		try { job kill $session.job }
+
+	# Wait for the language server to exit after the exit notification, and stop it if it does not.
+	let output = ^tangram_cli_test_supervise wait --directory $session.supervisor --timeout 5 | complete
+	if $output.exit_code != 0 {
+		^tangram_cli_test_supervise stop --directory $session.supervisor --timeout 1
 	}
 	try { rm --recursive --force $session.directory }
 }
@@ -360,21 +337,3 @@ def parse_output [output: string] {
 	$messages
 }
 
-def kill_session_processes [session: record, signal: string] {
-	mut pids = []
-	if ($session.pid | path exists) {
-		let pid = open $session.pid | str trim
-		if $pid != "" {
-			$pids = $pids | append $pid
-		}
-	}
-	let jobs = job list | where { |job| $job.id == $session.job }
-	for job in $jobs {
-		$pids = $pids | append ($job.pids? | default [])
-	}
-	for pid in ($pids | uniq) {
-		try {
-			^bash -c 'kill -"$2" -- -"$1" 2>/dev/null || true; kill -"$2" "$1" 2>/dev/null || true' _ $pid $signal
-		}
-	}
-}
