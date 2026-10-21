@@ -7,11 +7,14 @@ use {
 	},
 };
 
-/// The progress display, which prints results above a live region that lists the running tests and the aggregate progress.
+/// The interval between frames.
+pub const FRAME: Duration = Duration::from_millis(100);
+
+/// The progress display. In live mode, it renders frames at a fixed rate, each of which prints the messages queued since the previous frame above a region that lists the running tests and the aggregate progress.
 pub struct Progress {
 	details: bool,
 	live: bool,
-	lines: usize,
+	pending: String,
 	print_passing_test_output: bool,
 	start: Instant,
 }
@@ -62,33 +65,74 @@ impl Progress {
 	pub fn new(details: bool, live: bool, print_passing_test_output: bool) -> Self {
 		let live = live && std::io::stderr().is_terminal();
 		if live {
-			eprint!("\x1b[?25l");
+			write("\x1b[?25l");
 		}
 		Self {
 			details,
 			live,
-			lines: 0,
+			pending: String::new(),
 			print_passing_test_output,
 			start: Instant::now(),
 		}
 	}
 
-	/// Redraw the live region.
-	pub fn draw(&mut self, running: &[Running], counts: &Counts) {
+	/// Print the pending messages, clear the live region, and restore the cursor, in one write.
+	pub fn finish(&mut self) {
 		if !self.live {
 			return;
 		}
-		let mut output = String::from("\r\x1b[0J");
-		let width = crossterm::terminal::size().map_or(80, |(columns, _)| usize::from(columns));
+		let mut frame = String::from("\x1b[?2026h\r");
+		push_lines(&mut frame, &std::mem::take(&mut self.pending));
+		frame.push_str("\x1b[J\x1b[?25h\x1b[?2026l");
+		write(&frame);
+		self.live = false;
+	}
+
+	/// Print a message. In live mode, it is printed above the live region with the next frame.
+	pub fn message(&mut self, text: &str) {
+		if self.live {
+			self.pending.push_str(text);
+		} else {
+			write(text);
+		}
+	}
+
+	/// Render a frame: the pending messages followed by the live region, written and flushed once. The lines are overwritten in place within a synchronized update, so the terminal never shows a cleared or partially drawn region.
+	pub fn render(&mut self, running: &[Running], counts: &Counts) {
+		if !self.live {
+			return;
+		}
+		let (columns, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+		let width = usize::from(columns).saturating_sub(1);
+
+		// Begin the synchronized update at the start of the region, and print the pending messages over the previous region.
+		let mut frame = String::from("\x1b[?2026h\r");
+		push_lines(&mut frame, &std::mem::take(&mut self.pending));
+
+		// List the running tests, leaving room for the progress bar so that the region fits on the screen.
 		let mut lines = 0;
 		if self.details {
-			for test in running {
+			let capacity = usize::from(rows).saturating_sub(2);
+			let shown = if running.len() > capacity {
+				capacity.saturating_sub(1)
+			} else {
+				running.len()
+			};
+			for test in &running[..shown] {
 				let text = format!("{} {}s", test.name, test.start.elapsed().as_secs());
 				let text = truncate(&text, width.saturating_sub(2));
-				writeln!(output, "\x1b[34m●\x1b[0m {text}").unwrap();
+				writeln!(frame, "\x1b[34m●\x1b[0m {text}\x1b[K").unwrap();
+				lines += 1;
+			}
+			if shown < running.len() {
+				let text = format!("… and {} more", running.len() - shown);
+				let text = truncate(&text, width.saturating_sub(2));
+				writeln!(frame, "  {text}\x1b[K").unwrap();
 				lines += 1;
 			}
 		}
+
+		// Draw the progress bar, and clear whatever remains of the previous region below it.
 		let filled = match counts.total {
 			Some(total) if total > 0 => (counts.completed * 10 / total).min(10),
 			_ => 0,
@@ -97,41 +141,30 @@ impl Progress {
 		let total = counts
 			.total
 			.map_or_else(|| "∞".to_owned(), |total| total.to_string());
-		let text = format!(
-			"[{bar}] {}/{total}: {} running, \x1b[32m{} passed\x1b[0m, \x1b[33m{} skipped\x1b[0m, \x1b[31m{} failed\x1b[0m, {}s",
+		let elapsed = self.start.elapsed().as_secs();
+		write!(
+			frame,
+			"[{bar}] {}/{total}: {} running, \x1b[32m{} passed\x1b[0m, \x1b[33m{} skipped\x1b[0m, \x1b[31m{} failed\x1b[0m, {elapsed}s\x1b[K\x1b[J",
 			counts.completed,
 			running.len(),
 			counts.passed,
 			counts.skipped,
 			counts.failed,
-			self.start.elapsed().as_secs(),
-		);
-		output.push_str(&text);
+		)
+		.unwrap();
+
+		// Return the cursor to the start of the region and end the synchronized update.
+		frame.push('\r');
 		if lines > 0 {
-			write!(output, "\r\x1b[{lines}A").unwrap();
-		} else {
-			output.push('\r');
+			write!(frame, "\x1b[{lines}A").unwrap();
 		}
-		self.lines = lines;
-		eprint!("{output}");
-		std::io::stderr().flush().ok();
+		frame.push_str("\x1b[?2026l");
+
+		write(&frame);
 	}
 
-	/// Clear the live region and restore the cursor.
-	pub fn finish(&mut self) {
-		if self.live {
-			eprint!("\r\x1b[0J\x1b[?25h");
-			std::io::stderr().flush().ok();
-			self.live = false;
-		}
-	}
-
-	/// Print a test's result above the live region.
-	pub fn print(&mut self, output: &Output) {
-		let mut text = String::new();
-		if self.live {
-			text.push_str("\r\x1b[0J");
-		}
+	/// Print a test's result.
+	pub fn result(&mut self, output: &Output) {
 		let symbol = if output.code == 0 {
 			"\x1b[32m✓\x1b[0m"
 		} else if output.code == SKIPPED {
@@ -144,6 +177,7 @@ impl Progress {
 		} else {
 			String::new()
 		};
+		let mut text = String::new();
 		writeln!(
 			text,
 			"{symbol} {} {}{status}",
@@ -173,14 +207,21 @@ impl Progress {
 			)
 			.unwrap();
 		}
-		eprint!("{text}");
-		std::io::stderr().flush().ok();
+		self.message(&text);
 	}
 }
 
 impl Drop for Progress {
 	fn drop(&mut self) {
 		self.finish();
+	}
+}
+
+/// Append text to a frame, clearing the remainder of each line that it overwrites.
+fn push_lines(frame: &mut String, text: &str) {
+	for line in text.lines() {
+		frame.push_str(line);
+		frame.push_str("\x1b[K\n");
 	}
 }
 
@@ -194,4 +235,11 @@ fn truncate(text: &str, width: usize) -> String {
 		.collect::<String>();
 	output.push('…');
 	output
+}
+
+/// Write to stderr and flush once.
+fn write(text: &str) {
+	let mut stderr = std::io::stderr().lock();
+	stderr.write_all(text.as_bytes()).ok();
+	stderr.flush().ok();
 }

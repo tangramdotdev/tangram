@@ -293,7 +293,8 @@ async fn schedule(
 	let mut results = Vec::new();
 	let mut tasks = JoinSet::new();
 	let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
-	let mut interval = tokio::time::interval(Duration::from_secs(1));
+	let mut frames = tokio::time::interval(progress::FRAME);
+	frames.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 	let ctrl_c = tokio::signal::ctrl_c();
 	tokio::pin!(ctrl_c);
 
@@ -327,29 +328,32 @@ async fn schedule(
 			break;
 		}
 
-		// Wait for a test to finish, the progress interval, or an interrupt.
+		// Wait for a test to finish, the next frame, or an interrupt.
 		tokio::select! {
 			Some(result) = tasks.join_next() => {
 				let Ok((id, round, output)) = result else {
 					continue;
 				};
 				running.remove(&id);
-				progress.print(&output);
+				progress.result(&output);
 				if options.stress && output.failed() {
-					eprintln!("\x1b[31m{} failed on round {round}\x1b[0m", output.name);
+					let message = format!("\x1b[31m{} failed on round {round}\x1b[0m\n", output.name);
+					progress.message(&message);
 					stopped = true;
 				}
 				results.push(output);
+				continue;
 			},
-			_ = interval.tick() => (),
+			_ = frames.tick() => (),
 			_ = &mut ctrl_c, if !interrupted => {
 				interrupted = true;
 				stopped = true;
 				stop_sender.send(true).ok();
+				continue;
 			},
 		}
 
-		// Redraw the live region.
+		// Render the frame.
 		let running = running
 			.values()
 			.map(|(name, start)| Running {
@@ -367,7 +371,7 @@ async fn schedule(
 				.count(),
 			total,
 		};
-		progress.draw(&running, &counts);
+		progress.render(&running, &counts);
 	}
 	progress.finish();
 
