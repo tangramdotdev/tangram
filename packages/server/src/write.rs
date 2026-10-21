@@ -150,9 +150,9 @@ impl Session {
 		let reader = pin!(reader);
 		let mut reader = fastcdc::v2020::AsyncStreamCDC::new(
 			reader,
-			self.server.config.write.min_leaf_size,
-			self.server.config.write.avg_leaf_size,
-			self.server.config.write.max_leaf_size,
+			tg::blob::MIN_LEAF_SIZE,
+			tg::blob::AVG_LEAF_SIZE,
+			tg::blob::MAX_LEAF_SIZE,
 		);
 		let stream = reader.as_stream();
 		let mut stream = pin!(stream);
@@ -226,7 +226,7 @@ impl Session {
 		}
 
 		// Create the tree.
-		let max_branch_children = self.server.config.write.max_branch_children;
+		let max_branch_children = tg::blob::MAX_BRANCH_CHILDREN;
 		while blobs.len() > max_branch_children {
 			blobs = blobs
 				.chunks(max_branch_children)
@@ -257,12 +257,11 @@ impl Session {
 		progress: &crate::progress::Handle<crate::checkin::TaskOutput>,
 	) -> tg::Result<Output> {
 		// Create the chunker.
-		let config = &self.server.config.write;
 		let mut chunker = fastcdc::v2020::StreamCDC::new(
 			&mut reader,
-			config.min_leaf_size,
-			config.avg_leaf_size,
-			config.max_leaf_size,
+			tg::blob::MIN_LEAF_SIZE,
+			tg::blob::AVG_LEAF_SIZE,
+			tg::blob::MAX_LEAF_SIZE,
 		);
 
 		// Open the destination file if necessary.
@@ -321,7 +320,7 @@ impl Session {
 		}
 
 		// Create the tree.
-		let max_branch_children = config.max_branch_children;
+		let max_branch_children = tg::blob::MAX_BRANCH_CHILDREN;
 		while blobs.len() > max_branch_children {
 			blobs = blobs
 				.chunks(max_branch_children)

@@ -1,6 +1,14 @@
 use {pyo3::prelude::*, tangram_client as tg};
 
 #[pyfunction]
+fn blob_chunk_lengths(bytes: &[u8]) -> Vec<usize> {
+	tg::blob::chunks(bytes)
+		.into_iter()
+		.map(|range| range.len())
+		.collect()
+}
+
+#[pyfunction]
 fn checksum(input: &[u8], algorithm: &str) -> PyResult<String> {
 	let algorithm = algorithm
 		.parse()
@@ -57,6 +65,7 @@ fn stringify_value(input: &str) -> PyResult<String> {
 
 #[pymodule]
 pub fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+	module.add_function(wrap_pyfunction!(blob_chunk_lengths, module)?)?;
 	module.add_function(wrap_pyfunction!(checksum, module)?)?;
 	module.add_function(wrap_pyfunction!(normalize_object, module)?)?;
 	module.add_function(wrap_pyfunction!(object_id, module)?)?;

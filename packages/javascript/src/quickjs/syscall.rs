@@ -41,6 +41,9 @@ pub fn syscall<'javascript>(
 		"encoding_utf8_encode" => qjs::Function::new(ctx.clone(), self::encoding::utf8_encode),
 		"encoding_yaml_decode" => qjs::Function::new(ctx.clone(), self::encoding::yaml_decode),
 		"encoding_yaml_encode" => qjs::Function::new(ctx.clone(), self::encoding::yaml_encode),
+		"host_blob_chunk_lengths" => {
+			qjs::Function::new(ctx.clone(), self::host::blob_chunk_lengths)
+		},
 		"host_checksum" => qjs::Function::new(ctx.clone(), Async(self::host::checksum)),
 		"host_close" => qjs::Function::new(ctx.clone(), Async(self::host::close)),
 		"host_current" => qjs::Function::new(ctx.clone(), self::host::current),

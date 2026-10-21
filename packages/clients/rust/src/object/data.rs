@@ -64,25 +64,9 @@ impl Object {
 
 	/// Check that the object's serialized size and its number of unique children are within the limits.
 	pub fn check_limits(&self, size: usize) -> tg::Result<()> {
-		if size > tg::object::MAX_SIZE {
-			return Err(tg::error!(
-				argument,
-				max = %tg::object::MAX_SIZE,
-				%size,
-				"the object is too large"
-			));
-		}
 		let mut children = BTreeSet::new();
 		self.children(&mut children);
-		if children.len() > tg::object::MAX_CHILDREN {
-			return Err(tg::error!(
-				argument,
-				children = %children.len(),
-				max = %tg::object::MAX_CHILDREN,
-				"the object has too many children"
-			));
-		}
-		Ok(())
+		tg::object::check_limits(size, children.len())
 	}
 
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {

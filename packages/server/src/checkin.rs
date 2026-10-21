@@ -595,7 +595,6 @@ impl Session {
 
 		// Create artifacts.
 		let create_artifacts_arg = artifact::CheckinCreateArtifactsArg {
-			config: &self.server.config.checkin,
 			arg: &arg,
 			graph: &mut graph,
 			paths: &paths,

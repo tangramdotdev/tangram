@@ -28,6 +28,7 @@ pub fn syscall<'s>(
 		"encoding_utf8_encode" => sync(scope, &args, self::encoding::utf8_encode),
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
+		"host_blob_chunk_lengths" => sync(scope, &args, self::host::blob_chunk_lengths),
 		"host_checksum" => async_(scope, &args, self::host::checksum),
 		"host_close" => async_(scope, &args, self::host::close),
 		"host_current" => sync(scope, &args, self::host::current),

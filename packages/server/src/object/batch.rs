@@ -73,10 +73,14 @@ impl Session {
 		for object in &arg.objects {
 			batch_objects.insert(object.id.clone());
 
-			// Deserialize the object and check its limits.
+			// Deserialize the object.
 			let data = tg::object::Data::deserialize(object.id.kind(), object.bytes.clone())
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
-			data.check_limits(object.bytes.len())
+
+			// Get the children and check the object's limits.
+			let mut children = BTreeSet::new();
+			data.children(&mut children);
+			tg::object::check_limits(object.bytes.len(), children.len())
 				.map_err(|error| tg::error!(!error, id = %object.id, "invalid object"))?;
 
 			// Create the cache arg.
@@ -93,9 +97,7 @@ impl Session {
 				put,
 			});
 
-			// Get the children.
-			let mut children = BTreeSet::new();
-			data.children(&mut children);
+			// Record the children.
 			object_children.insert(object.id.clone(), children.clone());
 			object_children_with_tokens
 				.entry(object.id.clone())

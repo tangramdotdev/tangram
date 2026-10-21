@@ -207,6 +207,21 @@ impl Blob {
 		Self::builder().children(children).build()
 	}
 
+	/// Create a blob with bytes, splitting them into leaves and branches as checkin does.
+	#[must_use]
+	pub fn with_bytes(bytes: impl Into<Bytes>) -> Self {
+		let bytes = bytes.into();
+		let children = tg::blob::chunks(&bytes)
+			.into_iter()
+			.map(|range| {
+				let length = range.len().to_u64().unwrap();
+				let blob = Self::leaf(bytes.slice(range));
+				tg::blob::Child { blob, length }
+			})
+			.collect();
+		Self::new(children)
+	}
+
 	#[must_use]
 	pub fn leaf(bytes: impl Into<Bytes>) -> Self {
 		Self::builder().bytes(bytes).build()
@@ -298,13 +313,13 @@ impl std::fmt::Display for Blob {
 
 impl From<Bytes> for Blob {
 	fn from(value: Bytes) -> Self {
-		Self::builder().bytes(value).build()
+		Self::with_bytes(value)
 	}
 }
 
 impl From<String> for Blob {
 	fn from(value: String) -> Self {
-		Self::builder().bytes(value).build()
+		Self::with_bytes(value)
 	}
 }
 

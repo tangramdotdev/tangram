@@ -9,6 +9,13 @@ use {
 	tangram_quickjs::Serde,
 };
 
+pub fn blob_chunk_lengths(bytes: Uint8Array) -> Vec<usize> {
+	tg::blob::chunks(&bytes.0)
+		.into_iter()
+		.map(|range| range.len())
+		.collect()
+}
+
 pub async fn close(ctx: qjs::Ctx<'_>, fd: i32) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	Result(state.host.close(fd).await)

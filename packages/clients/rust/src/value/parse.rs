@@ -433,10 +433,7 @@ fn directory_branch_child(input: &mut Input) -> ModalResult<tg::graph::Directory
 fn directory_node_entry(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Artifact>> {
 	alt((
 		string.map(|s| {
-			let bytes = Bytes::from(s.into_bytes());
-			let leaf = tg::blob::object::Leaf { bytes };
-			let blob_object = tg::blob::Object::Leaf(leaf);
-			let blob = tg::Blob::with_object(blob_object);
+			let blob = tg::Blob::with_bytes(s.into_bytes());
 			let node = tg::graph::File {
 				contents: blob,
 				dependencies: BTreeMap::new(),
@@ -467,10 +464,7 @@ fn file(input: &mut Input) -> ModalResult<tg::Object> {
 fn file_string(input: &mut Input) -> ModalResult<tg::Object> {
 	string
 		.map(|s| {
-			let bytes = Bytes::from(s.into_bytes());
-			let leaf = tg::blob::object::Leaf { bytes };
-			let blob_object = tg::blob::Object::Leaf(leaf);
-			let blob = tg::Blob::with_object(blob_object);
+			let blob = tg::Blob::with_bytes(s.into_bytes());
 			let node = tg::graph::File {
 				contents: blob,
 				dependencies: BTreeMap::new(),
@@ -511,10 +505,7 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 			match key.as_str() {
 				"contents" => {
 					let blob = if let Ok(s) = value.try_unwrap_string_ref() {
-						let bytes = Bytes::from(s.as_bytes().to_vec());
-						let leaf = tg::blob::object::Leaf { bytes };
-						let blob_object = tg::blob::Object::Leaf(leaf);
-						tg::Blob::with_object(blob_object)
+						tg::Blob::with_bytes(s.as_bytes().to_vec())
 					} else {
 						let object = value
 							.try_unwrap_object_ref()

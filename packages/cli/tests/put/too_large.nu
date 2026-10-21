@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# An object with more than 1 MiB of data is rejected by the client, and by the server when it is sent directly.
+# An object with more than 1 MiB of data is rejected by the server, whether it is put with the CLI or sent directly.
 
 let local = server spawn
 let socket = $local.url | str replace 'http+unix://' '' | url decode
@@ -8,11 +8,10 @@ let socket = $local.url | str replace 'http+unix://' '' | url decode
 # Create a symlink with a 2 MiB path.
 let data = { path: ('' | fill --character 'x' --width 2_097_152) }
 
-# The client rejects the object.
+# The server rejects the object put with the CLI.
 let output = $data | to json --raw | tg object put --no-tokens --bytes --kind symlink | complete
-failure $output 'the client must reject the object'
-assert ($output.stderr | str contains 'the object is too large') 'the client error must name the size limit'
-assert not ($output.stderr | str contains 'the request failed') 'the client must reject the object before sending it'
+failure $output 'the object put must fail'
+assert ($output.stderr | str contains 'the object is too large') 'the error must name the size limit'
 
 # Get the object's ID from the server's response to a mismatched ID.
 let body = { kind: 'symlink', value: $data } | to json --raw

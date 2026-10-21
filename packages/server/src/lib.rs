@@ -1139,39 +1139,6 @@ impl Server {
 			));
 		}
 
-		// Validate the checkin and write configuration, so that the directories and blobs they create are within the object limits.
-		let checkin_directory = &config.checkin.directory;
-		if checkin_directory.max_leaf_entries == 0
-			|| checkin_directory.max_leaf_entries > tg::object::MAX_CHILDREN
-		{
-			return Err(tg::error!(
-				max = %tg::object::MAX_CHILDREN,
-				"the checkin directory max leaf entries must be at least one and at most the object children limit"
-			));
-		}
-		if checkin_directory.max_branch_children < 2
-			|| checkin_directory.max_branch_children > tg::object::MAX_CHILDREN
-		{
-			return Err(tg::error!(
-				max = %tg::object::MAX_CHILDREN,
-				"the checkin directory max branch children must be at least two and at most the object children limit"
-			));
-		}
-		if config.write.max_leaf_size == 0 || config.write.max_leaf_size >= tg::object::MAX_SIZE {
-			return Err(tg::error!(
-				max = %tg::object::MAX_SIZE,
-				"the write max leaf size must be greater than zero and less than the object size limit"
-			));
-		}
-		if config.write.max_branch_children < 2
-			|| config.write.max_branch_children > tg::object::MAX_CHILDREN
-		{
-			return Err(tg::error!(
-				max = %tg::object::MAX_CHILDREN,
-				"the write max branch children must be at least two and at most the object children limit"
-			));
-		}
-
 		// Validate the object put configuration.
 		if config.object.put_timeout.is_zero() {
 			return Err(tg::error!(

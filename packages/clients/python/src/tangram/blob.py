@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 import tangram as tg
 
+from . import _native
 from .args import Args
 from .builder import Builder
 from .mutation import Mutation
@@ -18,9 +19,6 @@ from .resolve import Unresolved, resolve
 
 # The maximum number of children of a blob branch.
 MAX_BRANCH_CHILDREN = 1024
-
-# The maximum size of a blob leaf's bytes.
-MAX_LEAF_SIZE = 131_072
 
 
 class BlobChild(TypedDict):
@@ -128,26 +126,18 @@ class Blob(Object):
         if len(resolved_args) == 1 and isinstance(resolved_args[0], cls):
             return resolved_args[0]
         arg = await cls.arg_resolved(*resolved_args, client=client)
-        children = _nest(arg.get("children") or [])
-        if not children:
-            return cls(b"")
-        if len(children) == 1:
-            return children[0]["blob"]
-        return cls({"children": children})
+        return _with_children(arg.get("children") or [])
 
     @classmethod
-    async def with_bytes(
-        cls, bytes_: builtins.bytes, client: Client | None = None
-    ) -> Blob:
-        """Create a blob, chunking bytes larger than a leaf with the server."""
-        if len(bytes_) <= MAX_LEAF_SIZE:
-            return cls.with_object({"bytes": bytes_})
-        from .client import client as default_client
-        from .client.write import single_bytes
-
-        client = client or default_client
-        output = await client.write({}, single_bytes(bytes_))
-        return cls.with_referent(output["blob"])
+    def with_bytes(cls, bytes_: builtins.bytes) -> Blob:
+        """Create a blob with bytes, splitting them into leaves like checkin."""
+        children: list[BlobChild] = []
+        offset = 0
+        for length in _native.blob_chunk_lengths(bytes_):
+            leaf = cls.with_object({"bytes": bytes_[offset : offset + length]})
+            children.append({"blob": leaf, "length": length})
+            offset += length
+        return _with_children(children)
 
     @staticmethod
     def leaf(*args: BlobInput) -> BlobBuilder:
@@ -172,7 +162,7 @@ class Blob(Object):
                 return {"children": []}
             if isinstance(arg, (str, bytes, bytearray, memoryview)):
                 bytes_ = arg.encode() if isinstance(arg, str) else bytes(arg)
-                blob = await cls.with_bytes(bytes_, client=client)
+                blob = cls.with_bytes(bytes_)
                 length = len(bytes_)
                 return {"children": [{"blob": blob, "length": length}]}
             if isinstance(arg, cls):
@@ -346,6 +336,16 @@ Blob.Data = BlobDataNamespace
 Blob.Object = BlobObject
 
 blob = BlobBuilder
+
+
+def _with_children(children: list[BlobChild]) -> Blob:
+    # Create a blob with the children, nesting them in branches like the server.
+    children = _nest(children)
+    if not children:
+        return Blob(b"")
+    if len(children) == 1:
+        return children[0]["blob"]
+    return Blob({"children": children})
 
 
 def _nest(children: list[BlobChild]) -> list[BlobChild]:

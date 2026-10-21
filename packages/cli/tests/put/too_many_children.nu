@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# An object with more than 1,024 children is rejected by the client, and by the server when it is sent directly.
+# An object with more than 1,024 children is rejected by the server, whether it is put with the CLI or sent directly.
 
 let local = server spawn
 let socket = $local.url | str replace 'http+unix://' '' | url decode
@@ -12,11 +12,10 @@ let entries = 0..<1_025 | each { |i|
 } | transpose --header-row --as-record
 let data = { entries: $entries }
 
-# The client rejects the object.
+# The server rejects the object put with the CLI.
 let output = $data | to json --raw | tg object put --no-tokens --bytes --kind directory | complete
-failure $output 'the client must reject the object'
-assert ($output.stderr | str contains 'the object has too many children') 'the client error must name the children limit'
-assert not ($output.stderr | str contains 'the request failed') 'the client must reject the object before sending it'
+failure $output 'the object put must fail'
+assert ($output.stderr | str contains 'the object has too many children') 'the error must name the children limit'
 
 # Get the object's ID from the server's response to a mismatched ID.
 let body = { kind: 'directory', value: $data } | to json --raw

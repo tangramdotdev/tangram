@@ -1,34 +1,14 @@
 tg.directory({
   "children": [
     {
-      "directory": tg.directory({
-        "a.txt": tg.file({
-          "contents": tg.blob("File A"),
-        }),
-        "b.txt": tg.file({
-          "contents": tg.blob("File B"),
-        }),
-        "c.txt": tg.file({
-          "contents": tg.blob("File C"),
-        }),
-        "d.txt": tg.file({
-          "contents": tg.blob("File D"),
-        }),
-      }),
-      "count": 4,
-      "last": "d.txt",
+      "directory": dir_0157q8tawwwha8x6504jp073spx89akwfs527bf7d9csys46fr3njg,
+      "count": 1024,
+      "last": "1023.txt",
     },
     {
-      "directory": tg.directory({
-        "e.txt": tg.file({
-          "contents": tg.blob("File E"),
-        }),
-        "f.txt": tg.file({
-          "contents": tg.blob("File F"),
-        }),
-      }),
-      "count": 2,
-      "last": "f.txt",
+      "directory": dir_01hxfw8as6h36d9cej81zzwxcp4yfgwg4vjm4189pgwabbyde0r06g,
+      "count": 1,
+      "last": "1024.txt",
     },
   ],
 })

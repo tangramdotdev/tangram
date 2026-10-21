@@ -9294,6 +9294,7 @@ dependencies = [
  "data-encoding",
  "data-encoding-macro",
  "derive_more",
+ "fastcdc",
  "futures",
  "http",
  "http-body",
