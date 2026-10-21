@@ -1,4 +1,4 @@
-use test.nu [track_supervisor]
+use test.nu [track_supervisor wait_for_growth]
 
 export def uri [path: string] {
 	$"file://($path | path expand)"
@@ -174,11 +174,13 @@ export def read [session: record, --timeout: duration = 5sec] {
 				message: $parsed.message,
 			}
 		}
-		if ((date now) - $start) > $timeout {
+		# Wait for the language server to write more output.
+		let remaining = $timeout - ((date now) - $start)
+		let size = $output | into binary | bytes length
+		if $remaining <= 0sec or not (wait_for_growth $session.output $size --timeout $remaining) {
 			let stderr = open $session.stderr
 			error make { msg: $"timed out waiting for an lsp message: ($stderr)" }
 		}
-		sleep 20ms
 	}
 }
 

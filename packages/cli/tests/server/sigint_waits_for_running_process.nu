@@ -17,16 +17,15 @@ $env.TANGRAM_TRACING = 'info,tangram_server[shutdown]=trace'
 for single_process in [true false] {
 	let local = server spawn --config { advanced: { single_process: $single_process } }
 
-	# Hold a FIFO open for writing before the process starts, so that the process's read blocks until the test releases it.
+	# Hold a FIFO open for writing before the process starts, in a holder process that records its pid, so that the process's read blocks until the test kills the holder.
 	let directory = mktemp --directory
 	let release = $directory | path join release
 	let held = $directory | path join held
-	let go = $directory | path join go
-	mkfifo $release $held $go
+	mkfifo $release $held
 	job spawn {
-		bash -c 'exec 3<> "$1"; echo > "$2"; cat "$3" > /dev/null; echo >&3' _ $release $held $go
+		bash -c 'exec 3<> "$1"; echo $$ > "$2"; exec sleep 3600' _ $release $held
 	} | ignore
-	open --raw $held | ignore
+	let holder = open --raw $held | str trim | into int
 
 	# Spawn a process that blocks reading the FIFO in its mount, and wait for it to start.
 	let process = tg --url $local.url spawn --sandbox --mount $'($directory):/target' --no-tokens --verbose $path | from json | get process
@@ -34,15 +33,15 @@ for single_process in [true false] {
 
 	# Send SIGINT to the server and wait for its shutdown to reach the runner.
 	let pid = open ($local.directory | path join 'lock') | into int
-	kill --signal 2 $pid
+	^kill -INT $pid
 	wait_for_log $local 'TRACE http task'
 
 	# The server must keep running while the process runs.
 	assert (ps | where pid == $pid | is-not-empty) "the server must wait for the running process"
 	assert not (open --raw $local.log | str contains 'TRACE runner task') "the runner must wait for the running process"
 
-	# Release the process. The server must exit once the process finishes.
-	"" | save -f $go
+	# Release the process by killing the holder, which closes the FIFO's last writer. The server must exit once the process finishes.
+	^kill -KILL $holder
 	wait_for_exit --timeout 30sec $pid "the server must exit after the process finishes"
 
 	# The process must have successfully stored its output after shutdown began.

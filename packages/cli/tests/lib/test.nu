@@ -1343,8 +1343,22 @@ export def wait_for_log [
 	let script = 'mkfifo "$3"; tail -n +1 -f "$1" > "$3" & pid=$!; grep -q -m1 -F -- "$2" < "$3"; status=$?; kill $pid; wait $pid 2> /dev/null; rm -f "$3"; exit $status'
 	let output = ^timeout $seconds bash -c $script _ $server.log $text $fifo | complete
 	if $output.exit_code != 0 {
-		error make { msg: $'the server log did not contain "($text)"' }
+		error make { msg: $'the server log did not contain "($text)" within ($timeout)' }
 	}
+}
+
+# Wait until a file is larger than a size, following the file rather than polling it. Return false if the timeout passes first.
+export def wait_for_growth [
+	path: string
+	size: int
+	--timeout: duration = 10sec
+] {
+	let seconds = $timeout / 1sec | math ceil
+	let fifo = mktemp --directory | path join fifo
+	let script = 'mkfifo "$3"; tail -c +"$(( $2 + 1 ))" -f "$1" > "$3" & pid=$!; head -c 1 < "$3" > /dev/null; status=$?; kill $pid; wait $pid 2> /dev/null; rm -f "$3"; exit $status'
+	let output = ^timeout $seconds bash -c $script _ $path $size $fifo | complete
+
+	$output.exit_code == 0
 }
 
 # Redact literal strings in the input for snapshotting.
