@@ -282,6 +282,13 @@ let output = tg --token $eve.token user get $alice.user.id | complete
 failure $output "a user without read permission should not be able to get another user"
 ```
 
+### 12. Leave nothing running
+
+A test must stop every process it starts. Start servers and fixtures with the
+helpers in `lib/`, which stop them when the test ends, and stop anything else
+before the test exits. The runner fails a test whose processes are still running
+two seconds after it exits, and reports them as leaks.
+
 ## Non-scriptable surface
 
 Most `tg` subcommands are scriptable and have end-to-end tests here. A handful
