@@ -5,36 +5,54 @@ use ../../lib/test.nu *
 let local = server spawn
 
 let temp = mktemp --directory
-let marker = $temp | path join marker
+let fifo = $temp | path join fifo
+mkfifo $fifo
 
 let path = artifact {
 	tangram.ts: '
-		export default async function (marker: string) {
+		export default async function (fifo: string) {
 			let detached: tg.Process | undefined;
 			{
-				await using process = await tg.spawn`sleep 0.1`
-					.stderr("null")
-					.stdin("null")
-					.stdout("null");
-				await process.detach();
-				detached = process;
-			}
-			tg.assert(detached !== undefined);
-			tg.assert((await detached.wait()).exit === 0);
-			{
 				await using process = await tg.spawn({
-					args: ["-c", "sleep 0.25; touch \"$1\"; sleep 60", "sh", marker],
+					args: ["-c", "read line < \"$1\"", "sh", fifo],
 					executable: "sh",
 					stderr: "null",
 					stdin: "null",
 					stdout: "null",
 				});
+				await process.detach();
+				detached = process;
 			}
-			await tg.sleep(2);
-			return await tg.host.exists(marker);
+			tg.assert(detached !== undefined);
+			await tg.run({
+				args: ["-c", "echo > \"$1\"", "sh", fifo],
+				executable: "sh",
+				stderr: "null",
+				stdin: "null",
+				stdout: "null",
+			});
+			tg.assert((await detached.wait()).exit === 0);
+			let pid: number | tg.Process.Id | undefined;
+			{
+				await using process = await tg.spawn({
+					args: ["60"],
+					executable: "sleep",
+					stderr: "null",
+					stdin: "null",
+					stdout: "null",
+				});
+				pid = process.id;
+			}
+			tg.assert(typeof pid === "number");
+			try {
+				await tg.host.signal(pid, "KILL");
+				return true;
+			} catch {
+				return false;
+			}
 		}
 	',
 }
 
-let output = tg run $path --arg-string $marker | from json
+let output = tg run $path --arg-string $fifo | from json
 assert equal $output false "a disposed owned child should not continue running"

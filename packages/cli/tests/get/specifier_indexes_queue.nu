@@ -5,11 +5,7 @@ use ../lib/test.nu *
 def stop [instance: record] {
 	let pid = open ($instance.directory | path join 'lock') | into int
 	kill --signal 2 $pid
-	if $nu.os-info.name == 'linux' {
-		^tail --pid $pid -f /dev/null
-	} else {
-		while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-	}
+	wait_for_exit $pid
 }
 
 let directory = mktemp -d

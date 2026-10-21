@@ -46,11 +46,7 @@ success $output "the remote should receive the process start"
 # Crash the remote without gracefully removing its runners, then replay the unacknowledged initialization.
 let pid = open --raw ($remote.directory | path join lock) | str trim | into int
 kill --signal 9 $pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid
 let remote = server start $remote
 
 let output = timeout 60s tg --url $local.url wait --remote $process | complete

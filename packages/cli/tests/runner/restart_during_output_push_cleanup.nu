@@ -45,7 +45,7 @@ success (timeout 60s tg --url $remote.url --token $root_token checkpoint wait sy
 
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
-wait_until { ps | where pid == $pid | is-empty } "the runner must exit"
+wait_for_exit $pid "the runner must exit"
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store
 let runner = server start $runner
 

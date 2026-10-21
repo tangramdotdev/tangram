@@ -56,8 +56,8 @@ for kind in [sandbox process] {
 	# Leave the handshake blocked and terminate the runner.
 	let pid = open ($runner.directory | path join lock) | into int
 	kill --signal 15 $pid
-	wait_until --timeout 20sec { ps | where pid == $pid | is-empty } "the runner should exit without waiting for shortcut identity acquisition"
-	wait_until --timeout 10sec { ps | where pid == $sandbox_pid | is-empty } "the unstarted child's physical sandbox should exit with the runner"
+	wait_for_exit --timeout 20sec $pid "the runner should exit without waiting for shortcut identity acquisition"
+	wait_for_exit --timeout 10sec $sandbox_pid "the unstarted child's physical sandbox should exit with the runner"
 	job kill $build
 	server stop $local
 	server stop $remote

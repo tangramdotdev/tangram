@@ -12,7 +12,7 @@ def token-body [token: string] {
 }
 
 let root_token = random chars
-let local = server spawn --config {
+let local = server spawn --now 2026-01-01T00:00:00Z --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 	object: { permission_time_to_live: 2 }
@@ -38,7 +38,7 @@ let job = job spawn {
 }
 let hit = timeout 10s tg --token $root_token checkpoint wait verification.index $watch 0 | from json
 assert equal $hit.params.token_resource $directory
-sleep 3sec
+advance_time $local 3sec
 tg --token $root_token checkpoint continue verification.index $watch 0
 let delayed = job recv --tag $job --timeout 10sec
 assert equal (token-body $delayed.tokens.local.0).expires_at $expiration

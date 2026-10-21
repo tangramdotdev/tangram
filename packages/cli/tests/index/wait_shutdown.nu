@@ -50,7 +50,7 @@ let b_wait_watch = tg --url $local_b.url checkpoint watch indexer.request.receiv
 tg --url $local_a.url checkpoint unwatch index.batch $batch_watch
 let pid = open ($local_a.directory | path join lock) | into int
 kill --signal 2 $pid
-wait_until { ps | where pid == $pid | is-empty } 'A must shut down without draining shared work'
+wait_for_exit $pid 'A must shut down without draining shared work'
 
 # The caller must send B another wait instead of treating A's deletion as completion.
 tg --url $local_b.url checkpoint wait indexer.request.receive $b_wait_watch 0 | ignore
@@ -82,7 +82,7 @@ let request = job spawn {
 tg --url $local_b.url checkpoint wait indexer.request.receive $b_wait_watch 1 | ignore
 let pid = open ($local_b.directory | path join lock) | into int
 kill --signal 2 $pid
-wait_until { ps | where pid == $pid | is-empty } 'B must shut down with an outstanding wait'
+wait_for_exit $pid 'B must shut down with an outstanding wait'
 let output = job recv --tag $request --timeout 10sec
 failure $output 'the last indexer disappearing must not complete indexing'
 snapshot --normalize $output.stderr '
@@ -106,7 +106,7 @@ let request = job spawn {
 tg --url $local_api.url checkpoint wait index.wait.updates $shared_watch 0 | ignore
 let pid = open ($local_c.directory | path join lock) | into int
 kill --signal 2 $pid
-wait_until { ps | where pid == $pid | is-empty } 'C must shut down after completing its local wait'
+wait_for_exit $pid 'C must shut down after completing its local wait'
 tg --url $local_api.url checkpoint unwatch index.wait.updates $shared_watch
 let output = job recv --tag $request --timeout 10sec
 failure $output 'shared work must not be abandoned when the last indexer disappears'

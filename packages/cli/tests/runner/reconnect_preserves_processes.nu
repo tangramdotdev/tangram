@@ -20,23 +20,26 @@ let local = server spawn --name local --config {
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			await tg.sleep(10);
 			return 42;
 		}
 	',
 }
-let start_watch = tg --url $runner.url checkpoint watch runner.process.start | from json | get watch
+
+# Hold the process on the runner after it exits and before it finishes.
+let exit_watch = tg --url $runner.url checkpoint watch runner.process.exit | from json | get watch
 let id = tg --url $local.url build --no-tokens --remote --detach $path | referent node
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
+success (timeout 30s tg --url $runner.url checkpoint wait runner.process.exit $exit_watch 0 | complete) "the process must run on the runner"
 
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete) "the process must start on the runner"
-tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
-
+# Restart the remote while the runner holds the process.
 let remote_pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 9 $remote_pid
-wait_until { ps | where pid == $remote_pid | is-empty } "the remote server must exit"
+wait_for_exit $remote_pid "the remote server must exit"
 let remote = server start $remote
+
+# Let the process finish after the restart.
+tg --url $runner.url checkpoint continue runner.process.exit $exit_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.exit $exit_watch
 
 let output = timeout 60s tg --url $local.url process wait $id | complete
 success $output "the process must finish after the runner reconnects"

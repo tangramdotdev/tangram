@@ -1,5 +1,6 @@
 use {clap::Parser as _, std::process::ExitCode};
 
+mod exit;
 mod process;
 mod run;
 mod server;
@@ -12,6 +13,7 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 /// Supervise the processes of a CLI test without polling.
 #[derive(clap::Parser)]
 enum Args {
+	Exit(exit::Args),
 	Run(run::Args),
 	Start(server::StartArgs),
 	Status(server::StatusArgs),
@@ -22,6 +24,7 @@ enum Args {
 fn main() -> ExitCode {
 	let args = Args::parse();
 	let result = match args {
+		Args::Exit(args) => exit::exit(&args),
 		Args::Run(args) => run::run(&args),
 		Args::Start(args) => server::start(&args),
 		Args::Status(args) => server::status(&args),

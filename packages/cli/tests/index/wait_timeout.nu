@@ -17,7 +17,15 @@ let request = job spawn {
 tg checkpoint wait indexer.request.receive $receive_watch 0 | ignore
 tg checkpoint continue indexer.request.receive $receive_watch 0
 tg checkpoint wait indexer.request.wait $wait_watch 0 | ignore
-sleep 1500ms
+
+# Let the acknowledged request time out twice, so that its loop completes a full pass after a timeout.
+let timeout_watch = tg checkpoint watch control.request.timeout | from json | get watch
+for hit in [0 1] {
+	let hit_output = tg checkpoint wait control.request.timeout $timeout_watch $hit | from json
+	assert ($hit_output.params.subject | str starts-with 'indexers.') "the timeout must belong to the indexer request"
+	tg checkpoint continue control.request.timeout $timeout_watch $hit
+}
+tg checkpoint unwatch control.request.timeout $timeout_watch
 tg checkpoint unwatch indexer.request.wait $wait_watch
 
 # Any replacement request would be held at the next receive checkpoint.

@@ -43,14 +43,13 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let stealer = await tg.build(steal).spawn();
-			await tg.sleep(1);
 			let first = await tg.build(one);
 			let second = await tg.build(two, first);
-			await stealer.wait();
+			await stealer.cancel();
 			return second;
 		}
 		export async function steal() {
-			await tg.sleep(20);
+			await tg.sleep(60);
 		}
 		export function one() {
 			return tg.file("first");
@@ -63,36 +62,30 @@ let path = artifact {
 }
 let blob = tg --url $local.url put --no-tokens 'tg.blob("first")' | referent node
 
-# Record which runner finishes each process.
-def record_finishes [runner: record] {
+# Record which runner starts each process.
+let start_tag = random int 1000000..2000000
+def record_starts [runner: record, tag: int] {
 	let watch = (
-		tg --url $runner.url checkpoint watch runner.process.finish
+		tg --url $runner.url checkpoint watch runner.process.start
 		| from json
 		| get watch
 	)
 	job spawn {
-		let job_id = job id
-		mut processes = []
 		mut hit = 0
 		loop {
-			let stop = try { job recv --timeout 0sec } catch { null }
-			if $stop != null {
+			let output = tg --url $runner.url checkpoint wait runner.process.start $watch $hit | complete
+			if $output.exit_code != 0 {
 				break
 			}
-			let output = timeout 1s tg --url $runner.url checkpoint wait runner.process.finish $watch $hit | complete
-			if $output.exit_code != 0 {
-				continue
-			}
 			let params = $output.stdout | from json | get params
-			$processes = $processes | append $params.process
-			tg --url $runner.url checkpoint continue runner.process.finish $watch $hit
+			tg --url $runner.url checkpoint continue runner.process.start $watch $hit
+			{ index: $runner.index, process: $params.process } | job send --tag $tag 0
 			$hit += 1
 		}
-		tg --url $runner.url checkpoint unwatch runner.process.finish $watch
-		{ index: $runner.index, processes: $processes } | job send --tag $job_id 0
-	}
+	} | ignore
+	{ url: $runner.url, watch: $watch }
 }
-let recorders = $runners | each {|runner| record_finishes $runner }
+let recorders = $runners | each {|runner| record_starts $runner $start_tag }
 
 # Hold every runner's capacity release so the producer's runner stays busy after the producer finishes and the consumer lands on the third runner.
 let capacity_watches = $runners | each {|runner|
@@ -149,7 +142,7 @@ success $output "the producer's sync should acknowledge the consumer's request"
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $ack_watch
 
 # The build waits for the blob rather than failing.
-let output = try { job recv --tag $wait --timeout 5sec } catch { null }
+let output = try { job recv --tag $wait --timeout 0sec } catch { null }
 if $output != null {
 	error make { msg: $"the build should wait while the push is held: ($output)" }
 }
@@ -175,17 +168,17 @@ for entry in $capacity_watches {
 
 # The stealer ran on the parent's runner, and the producer and the consumer ran on the other two.
 let children = tg --url $local.url get $parent | from json | get children | each {|child| $child.process | split row '?' | first }
-let finishes = $recorders | each {|recorder|
-	"stop" | job send $recorder
-	job recv --tag $recorder --timeout 30sec
+let starts = 0..3 | each { job recv --tag $start_tag --timeout 30sec }
+for recorder in $recorders {
+	tg --url $recorder.url checkpoint unwatch runner.process.start $recorder.watch
 }
-def runner_of [finishes: list, process: string] {
-	$finishes | where {|finish| $process in $finish.processes } | get index | first
+def runner_of [starts: list, process: string] {
+	$starts | where process == $process | get index | first
 }
-let parent_runner = runner_of $finishes $parent
-let stealer_runner = runner_of $finishes ($children | get 0)
-let producer_runner = runner_of $finishes ($children | get 1)
-let consumer_runner = runner_of $finishes ($children | get 2)
+let parent_runner = runner_of $starts $parent
+let stealer_runner = runner_of $starts ($children | get 0)
+let producer_runner = runner_of $starts ($children | get 1)
+let consumer_runner = runner_of $starts ($children | get 2)
 assert equal $stealer_runner $parent_runner "the stealer should run on the parent's runner"
 assert ($producer_runner != $parent_runner) "the producer should run on another runner"
 assert ($consumer_runner != $parent_runner) "the consumer should run on another runner"

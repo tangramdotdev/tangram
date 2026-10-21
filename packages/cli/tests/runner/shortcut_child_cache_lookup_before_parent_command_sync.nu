@@ -56,17 +56,16 @@ tg --url $remote.url --token $root_token index
 server stop $runner
 let runner = server spawn --name runner-fresh --config $runner_config
 
-# Hold the parent's command sync while Start proceeds independently.
+# Hold the parent's command sync while Start proceeds independently, and watch the parent finish.
 let sync_watch = tg --url $runner.url checkpoint watch runner.process.command.sync.started | from json | get watch
+let finished_watch = tg --url $runner.url checkpoint watch runner.process.finished | from json | get watch
 let spawned = tg --url $remote.url --token $root_token build --detach --verbose $"($path)#second" | from json
 let grandparent = $spawned.process | split row '?' | first
 success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 0 | complete) "the parent should reach its command sync"
 
-# Keep the parent's command sync pending while the child attempts its required cache lookup.
-let pushed = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 1 | complete
-if $pushed.exit_code == 0 {
-	tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 1
-}
+# Keep the parent's command sync pending until the parent finishes, which requires the child's cache lookup to succeed.
+success (timeout 60s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete) "the parent should finish while its command sync is pending"
+tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
 
 # Release the parent's command sync.
 tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 0

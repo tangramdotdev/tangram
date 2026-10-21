@@ -83,11 +83,7 @@ wait_until {
 
 let pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 9 $pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid
 
 let remote = server start $remote
 let runner_replacement = server spawn --name runner-replacement --config {

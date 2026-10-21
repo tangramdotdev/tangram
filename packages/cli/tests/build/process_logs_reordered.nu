@@ -8,7 +8,8 @@ if (which python3 | is-empty) {
 }
 let tangram = which tg | where type == external | get path | first
 do {
-	let local = server spawn
+	# Spawn the server with a short live read timeout, because the driver controls the process and never answers live read requests.
+	let local = server spawn --config { control: { read_timeout: 0.1 } }
 	let path = artifact { tangram.ts: 'export default function () {}' }
 	let id = tg build --no-tokens --detach $path | referent node
 	tg wait $id | ignore

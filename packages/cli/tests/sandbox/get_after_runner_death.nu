@@ -31,11 +31,7 @@ assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | fr
 
 let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $runner_pid -f /dev/null
-} else {
-	while (ps | where pid == $runner_pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $runner_pid
 
 # Allow the runner TTL and the next scheduler cleanup tick, but not the control read timeout.
 let output = timeout 15s tg --url $remote.url --token $root_token sandbox get $sandbox | complete

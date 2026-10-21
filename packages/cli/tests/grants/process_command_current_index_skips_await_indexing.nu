@@ -38,11 +38,7 @@ let config = (
 # Restart without an indexer so attempting to await indexing fails.
 let pid = open ($local.directory | path join 'lock') | into int
 kill --signal 2 $pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid
 let local = server spawn --directory $directory --config $config
 failure (tg --url $local.url --token $alice.token index | complete)
 

@@ -8,7 +8,7 @@ def token-body [token: string] {
 }
 
 let root_token = random chars
-let local = server spawn --config {
+let local = server spawn --now 2026-01-01T00:00:00Z --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 	object: { permission_time_to_live: 60 }
@@ -42,7 +42,7 @@ xattr_write user.tangram.token $proof $root
 let alias = mktemp --directory
 ln -s $root ($alias | path join root)
 ln -s $root $'($root).tg.ts'
-sleep 1sec
+advance_time $local 1sec
 let watch = tg --token $root_token checkpoint watch verification.index | from json | get watch
 mut resolved = ''
 for case in [

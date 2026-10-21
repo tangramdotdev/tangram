@@ -37,11 +37,7 @@ success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $
 # Kill rather than gracefully drain the queued write.
 let pid = open --raw ($remote.directory | path join lock) | str trim | into int
 kill --signal 9 $pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid
 let remote = server start $remote
 tg --url $runner.url checkpoint unwatch runner.process.control.start.succeeded $reply_watch
 tg --url $runner.url checkpoint unwatch runner.process.start $run_watch

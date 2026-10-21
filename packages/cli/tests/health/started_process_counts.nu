@@ -3,6 +3,7 @@ use ../lib/test.nu *
 # The processes health reflects a started process in the started count and the available capacity.
 
 let local = server spawn --config {
+	advanced: { checkpoints: true },
 	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
 }
 
@@ -17,8 +18,11 @@ let path = artifact {
 		}
 	'
 }
+let watch = tg checkpoint watch runner.process.start | from json | get watch
 let build = tg build --detach --verbose $path | from json
-wait_until { (tg process status --timeout 0 $build.process | from json) == ["started"] } "the process should start"
+tg checkpoint wait runner.process.start $watch 0 | ignore
+tg checkpoint continue runner.process.start $watch 0
+tg checkpoint unwatch runner.process.start $watch
 
 let busy = tg health --fields processes | from json | get processes
 assert equal $busy.started 1 "the started count should reflect the running process"

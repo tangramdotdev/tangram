@@ -28,7 +28,7 @@ print -e 'the process is running'
 let pid = open ($local.directory | path join 'lock') | into int
 print -e $'killing the server ($pid)'
 kill --signal 9 $pid
-wait_until { ps | where pid == $pid | is-empty } "the server must stop"
+wait_for_exit $pid "the server must stop"
 wait_until { open --raw $local.exit | str trim | is-not-empty } "the server supervisor must report completion"
 assert equal (open --raw $local.exit | str trim | into int) 137 "the supervisor must report the killed server's status"
 print -e 'the server stopped'

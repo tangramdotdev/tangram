@@ -30,7 +30,7 @@ assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | fr
 
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
-wait_until { ps | where pid == $pid | is-empty } "the runner must exit"
+wait_for_exit $pid "the runner must exit"
 $created | to json | save runner.json
 python3 $driver $socket runner.json $sandbox true
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) destroyed

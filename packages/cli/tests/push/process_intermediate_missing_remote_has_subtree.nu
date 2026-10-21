@@ -83,23 +83,6 @@ def test [...args] {
 	let output_d_id = $process_d_data.output.node.value
 	let log_d_id = $process_d_data.log
 
-	# Helper function to get all module descendants recursively.
-	def get_module_descendants [server_url: string, module_id: string] {
-		mut descendants = []
-		mut to_visit = [$module_id]
-		while ($to_visit | length) > 0 {
-			let current = $to_visit | first
-			$to_visit = ($to_visit | skip 1)
-			let children = tg --url $server_url children $current | from json
-			for child in $children {
-				if $child not-in $descendants {
-					$descendants = ($descendants | append $child)
-					$to_visit = ($to_visit | append $child)
-				}
-			}
-		}
-		$descendants
-	}
 
 	# Get output blob.
 	let output_d_children = tg --url $local_source.url children $output_d_id | from json
@@ -108,13 +91,8 @@ def test [...args] {
 	# Put process A to the local server (local has A).
 	tg --url $local_source.url get $process_a_id | tg --url $local.url put --no-tokens --id $process_a_id | referent node
 
-	# Put module A and its descendants to the local server.
-	tg --url $local_source.url get --bytes $module_a_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
-	let module_a_descendants = get_module_descendants $local_source.url $module_a_id
-	for desc_id in $module_a_descendants {
-		let kind = $desc_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $desc_id | tg --url $local.url put --no-tokens --bytes --kind $kind | referent node
-	}
+	# Push module A and its descendants to the local server.
+	tg --url $local_source.url push $module_a_id --remote=fixture-local --no-tokens
 
 	# Put output A to the local server (which is the same as output B, C, D since they pass through).
 	tg --url $local_source.url get --bytes $output_a_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
@@ -128,13 +106,8 @@ def test [...args] {
 	# Put process B, C, and D to the remote server (remote has everything from B downward).
 	tg --url $local_source.url get $process_b_id | tg --url $remote.url put --no-tokens --id $process_b_id | referent node
 
-	# Put module B and its descendants to the remote server.
-	tg --url $local_source.url get --bytes $module_b_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
-	let module_b_descendants = get_module_descendants $local_source.url $module_b_id
-	for desc_id in $module_b_descendants {
-		let kind = $desc_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --no-tokens --bytes --kind $kind | referent node
-	}
+	# Push module B and its descendants to the remote server.
+	tg --url $local_source.url push $module_b_id --remote=fixture-remote --no-tokens
 
 	# Put output B to the remote server.
 	tg --url $local_source.url get --bytes $output_b_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
@@ -143,20 +116,10 @@ def test [...args] {
 	tg --url $local_source.url get $process_c_id | tg --url $remote.url put --no-tokens --id $process_c_id | referent node
 	tg --url $local_source.url get $process_d_id | tg --url $remote.url put --no-tokens --id $process_d_id | referent node
 
-	# Put module C, D and their descendants to the remote server.
-	tg --url $local_source.url get --bytes $module_c_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
-	let module_c_descendants = get_module_descendants $local_source.url $module_c_id
-	for desc_id in $module_c_descendants {
-		let kind = $desc_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --no-tokens --bytes --kind $kind | referent node
-	}
+	# Push modules C and D and their descendants to the remote server.
+	tg --url $local_source.url push $module_c_id --remote=fixture-remote --no-tokens
 
-	tg --url $local_source.url get --bytes $module_d_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
-	let module_d_descendants = get_module_descendants $local_source.url $module_d_id
-	for desc_id in $module_d_descendants {
-		let kind = $desc_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --no-tokens --bytes --kind $kind | referent node
-	}
+	tg --url $local_source.url push $module_d_id --remote=fixture-remote --no-tokens
 
 	# Put outputs C and D to the remote server.
 	tg --url $local_source.url get --bytes $output_c_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node

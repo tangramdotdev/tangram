@@ -63,7 +63,7 @@ let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 
 # Wait for the runner to stop.
-if $nu.os-info.name == "linux" { ^tail --pid $pid -f /dev/null } else { while (ps | where pid == $pid | is-not-empty) { sleep 10ms } }
+wait_for_exit $pid
 
 let output = tg --url $local.url process wait $process | complete
 snapshot $output.stdout '

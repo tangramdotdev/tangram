@@ -97,7 +97,7 @@ def main [
 	let packages = ['--package' 'tangram_cli_test']
 	let packages = if $cloud or $clean { $packages | append ['--package' 'tangram_scylla_client'] } else { $packages }
 	let packages = if $node { $packages | append ['--package' 'tangram_javascript_native'] } else { $packages }
-	let target_path = $repository_path | path join 'target' $profile
+	let target_path = $env.CARGO_TARGET_DIR? | default ($repository_path | path join 'target') | path join $profile
 	if $tangram_path != null {
 		cargo build ...$profile_args ...$packages
 		let tangram_path = $tangram_path | path expand

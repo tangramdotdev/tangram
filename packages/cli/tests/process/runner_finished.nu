@@ -4,10 +4,11 @@ use ../lib/test.nu *
 
 for location in [local remote] {
 	let root_token = random chars
-	let local_owner = server spawn --name $'owner-($location)' --config {
+	let local_owner = server spawn --name $'owner-($location)' --now '2026-01-01T00:00:00Z' --config {
 		advanced: { checkpoints: true, single_process: false },
 		authentication: { root: { token: $root_token } },
-		indexer: { cleaning: {} },
+		control: { read_timeout: 0.25 },
+		indexer: { cleaning: { poll_interval: 0.01 } },
 		process: { time_to_live: 2 },
 		sandbox: { time_to_live: 2 },
 		roles: (if $location == local { [api indexer runner scheduler] } else { [api indexer scheduler] }),
@@ -15,9 +16,10 @@ for location in [local remote] {
 	}
 	let runner = if $location == remote {
 		let created = tg --url $local_owner.url --token $root_token runner create | from json
-		server spawn --name runner --config {
+		server spawn --name runner --now '2026-01-01T00:00:00Z' --config {
 			advanced: { checkpoints: true },
 			authentication: { root: { token: $root_token } },
+			control: { read_timeout: 0.25 },
 			remotes: { default: { token: $root_token, url: $local_owner.url } },
 			roles: [api indexer runner],
 			runner: { id: $created.data.id, process_state_ttl: 0, remote: default, token: $created.token.token },
@@ -34,8 +36,12 @@ for location in [local remote] {
 	let delete_watch = tg --url $local_owner.url --token $root_token checkpoint watch cleaning.process.delete --params $params | from json | get watch
 	tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
 
-	# Hold the runner state after completion has been published, then wait for index expiry.
+	# Hold the runner state after completion has been published, then advance the clocks past the time to live and wait for cleaning.
 	success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.control.retention.finished $retention_watch 0 | complete) "the runner must finish retention"
+	advance_time $local_owner 3sec
+	if $location == remote {
+		advance_time $runner 3sec
+	}
 	success (timeout 30s tg --url $local_owner.url --token $root_token checkpoint wait cleaning.process.delete $delete_watch 0 | complete) "cleaning must delete the process"
 	let owner_socket = $local_owner.url | str replace 'http+unix://' '' | url decode
 	let socket = $runner.url | str replace 'http+unix://' '' | url decode

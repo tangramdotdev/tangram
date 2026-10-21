@@ -11,7 +11,7 @@ assert equal ($names | length) 2
 success (tangram_cli_test semaphore exists ...$names | complete)
 let pid = open ($local.directory | path join lock) | into int
 kill --signal 9 $pid
-wait_until { ps | where pid == $pid | is-empty } 'the killed server should stop'
+wait_for_exit $pid 'the killed server should stop'
 success (tangram_cli_test semaphore exists ...$names | complete)
 cleanup_posix_semaphores $env.TMPDIR
 for name in $names {

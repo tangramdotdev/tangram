@@ -44,7 +44,6 @@ let path = artifact {
 		export default async function () {
 			for (let i = 0; i < 16; i++) {
 				console.log(`log line ${i}`);
-				await tg.sleep(0.250);
 			}
 		}
 	'

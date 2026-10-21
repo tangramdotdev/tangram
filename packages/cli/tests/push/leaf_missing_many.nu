@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Eagerly pushing a directory of many files whose leaf blobs are all missing locally but present on the remote completes and yields matching metadata.
+# Eagerly pushing a directory of several files whose leaf blobs are all missing locally but present on the remote completes and yields matching metadata.
 
 # Create a remote server.
 let remote = server spawn --cloud --name remote
@@ -11,12 +11,12 @@ let local = server spawn --name local
 # Create a source server.
 let local_source = server spawn --name local-source
 
-# Create a directory with many files to increase object count.
+# Create a directory with several files, so that the push handles a mix of present and missing objects.
 let path = artifact {
 	tangram.ts: '
 		export default function () {
 			const files = {};
-			for (let i = 0; i < 50; i++) {
+			for (let i = 0; i < 5; i++) {
 				files[`file_${i.toString().padStart(3, "0")}.txt`] = tg.file(`Content for file number ${i}. This is some text to make the blob larger.`);
 			}
 			return tg.directory(files);

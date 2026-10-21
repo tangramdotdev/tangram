@@ -26,11 +26,7 @@ tg --url $local.url checkpoint wait index.batch $watch 0 | ignore
 # Crash the server while the queue holds every fragment, then restart it.
 let pid = open ($local.directory | path join 'lock') | into int
 kill --signal 9 $pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid
 let server = server start $local
 
 let output = tg --url $local.url index | complete

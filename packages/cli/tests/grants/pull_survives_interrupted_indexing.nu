@@ -18,11 +18,7 @@ tg --url $local_producer.url --token $root_token checkpoint wait index.batch $wa
 
 let pid = open ($local_producer.directory | path join 'lock') | into int
 kill --signal 9 $pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid
 
 let indexer = server start $local_producer
 tg --url $indexer.url --token $root_token index

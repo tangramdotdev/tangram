@@ -58,8 +58,15 @@ success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sy
 let output = job recv --tag $run --timeout 30sec
 success $output "spawn should return while the command push is blocked"
 
-# Restart the remote, so that the command push must retry against a server that has no connect for its nonce.
-let remote = server restart $remote
+# Terminate the remote, wait for the command push attempt to fail, and then kill and restart the remote, so that the command push must retry against a server that has no connect for its nonce.
+let failure_watch = tg --url $local.url checkpoint watch push.attempt.failed | from json | get watch
+let pid = open ($remote.directory | path join 'lock') | into int
+kill --signal 15 $pid
+success (timeout 30s tg --url $local.url checkpoint wait push.attempt.failed $failure_watch 0 | complete) "the command push attempt must fail when the remote terminates"
+kill --signal 9 $pid
+wait_for_exit $pid "the remote must exit after it is killed"
+let remote = server start $remote
+tg --url $local.url checkpoint unwatch push.attempt.failed $failure_watch
 
 # The retried push must complete.
 let finished = timeout 60s tg --url $local.url checkpoint wait process.connect.command.push.finished $push_watch 0 | complete

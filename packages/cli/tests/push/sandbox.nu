@@ -29,7 +29,7 @@ let remote_sandbox = tg --url $remote.url --token $alice.token sandbox get $sand
 assert equal $remote_sandbox.data.id $sandbox
 assert equal $remote_sandbox.data.status destroyed
 assert (($remote_sandbox | get --optional tokens.local) != null) "sandbox get should return a token"
-failure (tg --url $remote.url --token $alice.token process get $process | complete)
+failure (tg --url $remote.url --token $root_token process get --source index $process | complete) "the remote must not store the process"
 
 # The sandbox retains its ordered process IDs even before those process records are transferred.
 let socket = $remote.url | str replace 'http+unix://' '' | url decode

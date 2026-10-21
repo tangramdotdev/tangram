@@ -54,7 +54,6 @@ let path = artifact {
 				}
 				console.log('stdout', s);
 				console.error('stderr', s);
-				await tg.sleep(0.1)
 			}
 		}
 	'#

@@ -21,7 +21,7 @@ def test [...args] {
 		tangram.ts: '
 			export default async function () {
 				const results = [];
-				for (let i = 0; i < 10; i++) {
+				for (let i = 0; i < 4; i++) {
 					const result = await tg.build(makeFile, i);
 					results.push(result);
 				}

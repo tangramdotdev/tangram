@@ -73,19 +73,28 @@ for kind in [sandbox process] {
 		tg --url $runner.url checkpoint continue runner.process.start $start_watch 1
 	}
 
+	# Wait in the background for the child to start without its sandbox identity, which must not happen.
+	let started = if $kind == 'sandbox' {
+		job spawn {
+			let job_id = job id
+			tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | complete | job send --tag $job_id 0
+		}
+	}
+
 	# Reject only new runner-authenticated connections; the parent's assigned control streams remain valid.
 	tg --url $remote.url --token $root_token runner token delete $created.data.id $created.token.id
 	tg --url $runner.url checkpoint unwatch $checkpoint $control_watch
 	let output = job recv --tag $build --timeout 30sec
 	success $output "the parent should catch the rejected shortcut handshake"
 	assert equal ($output.stdout | str trim) '42'
-	if $kind == 'sandbox' {
-		let started = timeout 1s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | complete
-		assert equal $started.exit_code 124 "a child without its sandbox identity must not start"
-	}
-	tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
-	wait_until --timeout 10sec { ps | where pid == $sandbox_pid | is-empty } "the failed shortcut's physical sandbox should exit"
+	wait_for_exit --timeout 10sec $sandbox_pid "the failed shortcut's physical sandbox should exit"
 	wait_until --timeout 10sec { not ($sandbox_path | path exists) } "the failed shortcut's temporary directory should be removed"
+
+	# The child's sandbox is gone, so the child can no longer start, and unwatching ends the background wait without a hit.
+	tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
+	if $kind == 'sandbox' {
+		failure (job recv --tag $started --timeout 30sec) "a child without its sandbox identity must not start"
+	}
 
 	# A scheduled build requires the sole CPU allocation, proving that the failed child released its borrow.
 	let followup = artifact { tangram.ts: 'export default () => 43' }

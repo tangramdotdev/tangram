@@ -9,14 +9,15 @@ let path = artifact {
 }
 
 let sandbox = tg sandbox create --no-tokens | referent node
+let output = tg run $"--sandbox=($sandbox)" $path
+snapshot $output "42"
+
+# Render the tree, which follows the sandbox's processes until the sandbox is destroyed.
 let tree = job spawn {
 	let job_id = job id
 	let output = tg tree $sandbox --depth 2 | complete
 	$output | job send --tag $job_id 0
 }
-sleep 1sec
-let output = tg run $"--sandbox=($sandbox)" $path
-snapshot $output "42"
 tg sandbox destroy $sandbox
 
 let output = job recv --tag $tree --timeout 10sec

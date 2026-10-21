@@ -29,7 +29,7 @@ assert ($outcome.output.value | str contains 'tokens[') "the indexed outcome mus
 
 let remote_pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 9 $remote_pid
-wait_until { ps | where pid == $remote_pid | is-empty } "the server must exit"
+wait_for_exit $remote_pid "the server must exit"
 let remote = server start $remote
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $watch
 

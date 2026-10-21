@@ -55,11 +55,7 @@ success (tg --url $local.url cat ($foo.stdout | str trim) | complete) "the outpu
 # Kill runner1 to force runner 2 to pick up the next build.
 let pid = open ($runner_one.directory | path join 'lock') | into int
 kill --signal 2 $pid
-if $nu.os-info.name == 'linux' {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid
 
 # start runner2.
 let runner_two = server spawn --name runner-two --config $runner_config

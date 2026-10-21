@@ -47,7 +47,7 @@ assert ($requests | any {|request| $request.kind == sandbox_get })
 
 let pid = open ($remote.directory | path join lock) | into int
 kill --signal 2 $pid
-wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
+wait_for_exit $pid "the remote should stop"
 
 let cached = tg --url $local.url get --cached $sandbox | from json
 assert equal $cached.data.id $sandbox

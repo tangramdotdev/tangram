@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cancelling a process also cancels its running children.
 
-let local = server spawn
+let local = server spawn --config { advanced: { checkpoints: true } }
 
 let path = artifact {
 	tangram.ts: '
@@ -18,11 +18,14 @@ let path = artifact {
 	'
 }
 
+# Start the parent and wait for the child to start after it.
+let watch = tg checkpoint watch runner.process.start | from json | get watch
 let parent = tg build --detach --verbose $path | from json
-
-# Wait for the child process to spawn.
-wait_until { (tg process children $parent.process | from json | length) > 0 } "the child should spawn"
-let child = tg process children $parent.process | from json | get 0.process
+tg checkpoint wait runner.process.start $watch 0 | ignore
+tg checkpoint continue runner.process.start $watch 0
+let child = tg checkpoint wait runner.process.start $watch 1 | from json | get params.process
+tg checkpoint continue runner.process.start $watch 1
+tg checkpoint unwatch runner.process.start $watch
 
 # Cancel the parent.
 tg cancel $parent.process $parent.lease

@@ -28,12 +28,13 @@ let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 
-# Watch the command synces so they can be held.
+# Watch the command synces so they can be held, and watch the finished processes.
 let push_watch = (
 	tg --url $runner.url checkpoint watch runner.process.command.sync.started
 	| from json
 	| get watch
 )
+let finished_watch = tg --url $runner.url checkpoint watch runner.process.finished | from json | get watch
 
 # tangram.ts and dep.tg.ts import each other. foo and bar both build dep, so one of them receives
 # it as a cache hit while dep's command sync is still held.
@@ -60,8 +61,7 @@ let path = artifact {
 	dep.tg.ts: '
 		import * as root from "./tangram.ts";
 		import file from "./file.txt";
-		export default async () => {
-			await tg.sleep(5);
+		export default () => {
 			return file;
 		};
 	',
@@ -73,10 +73,15 @@ let build = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-# Hold every command sync across dep's build window, then release them all by unwatching.
+# Hold every command sync until dep, foo, and bar have finished, then release them all by unwatching.
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $push_watch 0 | complete
 success $output "the runner must push a child command on the shortcut path"
-sleep 8sec
+for index in 0..2 {
+	let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch $index | complete
+	success $output "dep, foo, and bar must finish while the command synces are held"
+	tg --url $runner.url checkpoint continue runner.process.finished $finished_watch $index
+}
+tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
 tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $push_watch
 
 # The build must complete and the user must read the output.

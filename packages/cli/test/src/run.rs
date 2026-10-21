@@ -171,7 +171,7 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		args.print_passing_test_output,
 	);
 	let (results, interrupted) =
-		schedule(&tests, &options, jobs, args.stress_count, progress).await;
+		schedule(&tests, &options, jobs, args.stress_count, progress).await?;
 
 	// Accept or review the snapshots.
 	if args.accept {
@@ -271,7 +271,7 @@ async fn schedule(
 	jobs: usize,
 	stress_count: Option<usize>,
 	mut progress: Progress,
-) -> (Vec<Output>, bool) {
+) -> Result<(Vec<Output>, bool)> {
 	// Create the state.
 	let mut pending = tests
 		.iter()
@@ -295,8 +295,9 @@ async fn schedule(
 	let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
 	let mut frames = tokio::time::interval(progress::FRAME);
 	frames.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-	let ctrl_c = tokio::signal::ctrl_c();
-	tokio::pin!(ctrl_c);
+	let mut hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
+	let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+	let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
 	loop {
 		// Keep the pool full. In stress mode, refill the queue with the next round as necessary, so the pool stays full even when fewer tests match than there are jobs.
@@ -345,7 +346,7 @@ async fn schedule(
 				continue;
 			},
 			_ = frames.tick() => (),
-			_ = &mut ctrl_c, if !interrupted => {
+			() = async { tokio::select! { _ = hangup.recv() => (), _ = interrupt.recv() => (), _ = terminate.recv() => () } }, if !interrupted => {
 				interrupted = true;
 				stopped = true;
 				stop_sender.send(true).ok();
@@ -375,5 +376,5 @@ async fn schedule(
 	}
 	progress.finish();
 
-	(results, interrupted)
+	Ok((results, interrupted))
 }

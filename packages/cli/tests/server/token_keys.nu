@@ -20,7 +20,7 @@ for key in $keys {
 
 let pid = open ($local.directory | path join 'lock') | into int
 kill --signal 9 $pid
-wait_until { ps | where pid == $pid | is-empty } 'the server must stop'
+wait_for_exit $pid 'the server must stop'
 let server = server start $local
 for key in $keys {
 	let path = $local.directory | path join $'($key.kind).key'

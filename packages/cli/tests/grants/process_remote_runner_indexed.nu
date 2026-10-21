@@ -39,7 +39,7 @@ let runner_directory = $runner.directory
 let runner_url = $runner.url
 let pid = open ($runner.directory | path join lock) | into int
 kill --signal 2 $pid
-wait_until { ps | where pid == $pid | is-empty } "the runner should stop"
+wait_for_exit $pid "the runner should stop"
 let runner = server spawn --name runner --directory $runner_directory --url $runner_url --config {
 	authentication: {
 		root: { token: $runner_root_token },

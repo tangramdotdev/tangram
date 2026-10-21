@@ -15,12 +15,13 @@ let path = artifact {
 }
 
 # Two detached builds of the same module deduplicate to one process with distinct leases.
+# The watch holds any published acquire lease response, so the second build returns only when the runner acquires the cached process lease directly.
 let first = tg build --detach --verbose $path | from json
 let watch = tg checkpoint watch process.control.response.publish --params '{"kind":"acquire_lease"}' | from json | get watch
-let second = timeout 10s tg build --detach --verbose $path | from json
-let response = timeout 1s tg checkpoint wait process.control.response.publish $watch 0 | complete
+let second = timeout 10s tg build --detach --verbose $path | complete
 tg checkpoint unwatch process.control.response.publish $watch
-assert equal $response.exit_code 124 "the runner should acquire the cached process lease directly"
+success $second "the runner should acquire the cached process lease directly"
+let second = $second.stdout | from json
 assert equal $second.process $first.process "the builds should deduplicate to one process"
 assert ($second.lease != $first.lease) "each build should hold its own lease"
 

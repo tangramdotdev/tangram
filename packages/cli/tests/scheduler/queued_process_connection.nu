@@ -10,7 +10,7 @@ let local = server spawn --config {
 let path = artifact {
 	tangram.ts: '
 		export async function blocker() {
-			await tg.sleep(12);
+			await tg.sleep(2);
 		}
 
 		export function child() {

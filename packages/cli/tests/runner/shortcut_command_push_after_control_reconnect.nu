@@ -40,11 +40,7 @@ tg --url $runner.url checkpoint unwatch runner.process.control.start.succeeded $
 # Crash and restart the remote without removing its runners, so that the child's control connection reconnects with a resume.
 let pid = open --raw ($remote.directory | path join lock) | str trim | into int
 kill --signal 9 $pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $pid -f /dev/null
-} else {
-	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
-}
+wait_for_exit $pid
 let remote = server start $remote
 
 # Release the push, which must still be authorized as the child's parent.

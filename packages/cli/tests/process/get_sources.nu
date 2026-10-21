@@ -14,7 +14,7 @@ let runner = server spawn --name runner --config {
 	authentication: { root: { token: $root_token } },
 	remotes: { default: { token: $root_token, url: $local_owner.url } },
 	roles: [api indexer runner],
-	runner: { id: $created.data.id, remote: default, token: $created.token.token },
+	runner: { id: $created.data.id, remote: default, stdio_drained_ttl: 0, token: $created.token.token },
 }
 let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let retention_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.control.retention.finished | from json | get watch

@@ -32,7 +32,7 @@ assert equal $response.output null
 # The same negative response should be available after the remote stops.
 let pid = open ($remote.directory | path join lock) | into int
 kill --signal 2 $pid
-wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
+wait_for_exit $pid "the remote should stop"
 
 let second = tg --url $local.url get "foo?follow=true" | complete
 failure $second

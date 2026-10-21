@@ -910,8 +910,12 @@ export def --env "server spawn" [
 }
 
 export def --env "server start" [server: record] {
+	# Wait for the previous supervisor, which finishes shortly after its server exits.
 	if (server_is_running $server) {
-		error make { msg: 'the server is already running' }
+		let output = ^tangram_cli_test_supervise wait --directory $server.supervisor --timeout 10 | complete
+		if $output.exit_code != 0 {
+			error make { msg: 'the server is already running' }
+		}
 	}
 
 	# Record every semaphore name before startup can create it.
@@ -1255,6 +1259,34 @@ export def wait_until [
 			}
 		}
 		sleep $interval
+	}
+}
+
+# Wait for a process to exit. Unlike polling `ps`, this returns as soon as the process exits.
+export def wait_for_exit [
+	pid: int
+	message?: string
+	--timeout: duration = 60sec
+] {
+	let seconds = $timeout / 1sec | math ceil
+	let output = ^tangram_cli_test_supervise exit --pid $pid --timeout $seconds | complete
+	if $output.exit_code != 0 {
+		error make { msg: ($message | default $'the process ($pid) did not exit within ($timeout)') }
+	}
+}
+
+# Wait until a server's log contains some text, following the log rather than polling it.
+export def wait_for_log [
+	server: record
+	text: string
+	--timeout: duration = 10sec
+] {
+	let seconds = $timeout / 1sec | math ceil
+	let fifo = mktemp --directory | path join fifo
+	let script = 'mkfifo "$3"; tail -n +1 -f "$1" > "$3" & pid=$!; grep -q -m1 -F -- "$2" < "$3"; status=$?; kill $pid; wait $pid 2> /dev/null; rm -f "$3"; exit $status'
+	let output = ^timeout $seconds bash -c $script _ $server.log $text $fifo | complete
+	if $output.exit_code != 0 {
+		error make { msg: $'the server log did not contain "($text)"' }
 	}
 }
 

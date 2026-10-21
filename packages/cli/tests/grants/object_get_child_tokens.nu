@@ -12,7 +12,7 @@ def token-body [token: string] {
 }
 
 let root_token = random chars
-let local = server spawn --config {
+let local = server spawn --now 2026-01-01T00:00:00Z --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 }
@@ -28,7 +28,7 @@ let child = $first.children | columns | first
 let source = token-body $first.tokens.local.0
 assert equal (token-body ($first.children | get $child | get tokens.local.0)).permissions [object_subtree]
 let bytes = tg --token $alice.token object get --bytes $directory | into binary
-sleep 1sec
+advance_time $local 1sec
 
 # An exact subtree token must avoid every authorization index lookup, including for children.
 let watch = tg --token $root_token checkpoint watch verification.index | from json | get watch

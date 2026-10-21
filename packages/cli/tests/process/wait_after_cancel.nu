@@ -2,14 +2,16 @@ use ../lib/test.nu *
 
 # Waiting on a cancelled process reports the cancellation as an error outcome.
 
-let local = server spawn
+let local = server spawn --config { advanced: { checkpoints: true } }
 
 let path = artifact {
 	tangram.ts: 'export default async function () { while (true) { await tg.sleep(1); } }',
 }
+let watch = tg checkpoint watch runner.process.start | from json | get watch
 let spawned = tg build --detach --verbose $path | from json
-
-wait_until { (tg process status --timeout 0 $spawned.process | from json) == ["started"] } "the process should start"
+tg checkpoint wait runner.process.start $watch 0 | ignore
+tg checkpoint continue runner.process.start $watch 0
+tg checkpoint unwatch runner.process.start $watch
 
 tg cancel $spawned.process $spawned.lease
 

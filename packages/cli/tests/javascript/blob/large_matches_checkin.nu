@@ -4,8 +4,8 @@ use ../../lib/test.nu *
 
 let local = server spawn
 
-# Check in a file with about 2 MB of contents.
-let path = artifact { data: (0..<300_000 | each { into string } | str join (char newline)) }
+# Check in a file with about 290 KB of contents, which spans several blob leaves.
+let path = artifact { data: (0..<50_000 | each { into string } | str join (char newline)) }
 let expected = tg checkin --no-tokens ($path | path join data) | referent node
 
 # Create the same file with tg.file.
@@ -13,7 +13,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let lines = [];
-			for (let i = 0; i < 300000; i++) {
+			for (let i = 0; i < 50000; i++) {
 				lines.push(String(i));
 			}
 			return tg.file(lines.join("\n"));

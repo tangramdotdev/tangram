@@ -1,7 +1,14 @@
 use ../lib/test.nu *
 use ../lib/lsp.nu
 
-$env.TANGRAM_TRACING = 'tangram_compiler::python=debug,ruff_db::parsed=trace,ty_python_semantic::types::infer=trace'
+# Wait until the server log contains every record that the server wrote before this call, by requesting a uniquely traced match and following the log until it appears.
+def drain_log [server: record] {
+	let marker = $'logmarker(random chars | str lowercase)'
+	tg match $marker | complete | ignore
+	wait_for_log $server $marker
+}
+
+$env.TANGRAM_TRACING = 'tangram_compiler::python=debug,ruff_db::parsed=trace,ty_python_semantic::types::infer=trace,tangram_server::match_=trace'
 let local = server spawn
 let path = artifact {'main.tg.py': "def greet(): return 42\nvalue = greet()\n"}
 let uri = lsp uri ($path | path join main.tg.py)
@@ -15,8 +22,7 @@ $session = lsp send $session (lsp definition 10 $uri 1 10)
 let response = lsp wait_result $session 10
 $session = $response.session
 assert equal $response.result.0.range.start {line: 0, character: 4}
-# Wait for the server's output collector to drain the tracing records.
-sleep 100ms
+drain_log $local
 let before = open --raw $local.log
 let parsed = $before | lines | where {|line| $line | str contains 'parsed_module'} | length
 let inferred = $before | lines | where {|line| $line | str contains 'infer_'} | length
@@ -28,7 +34,7 @@ $session = lsp send $session (lsp definition 11 $uri 1 10)
 let response = lsp wait_result $session 11
 $session = $response.session
 assert equal $response.result.0.range.start {line: 0, character: 4}
-sleep 100ms
+drain_log $local
 let after = open --raw $local.log
 assert equal ($after | lines | where {|line| $line | str contains 'parsed_module'} | length) $parsed
 assert equal ($after | lines | where {|line| $line | str contains 'infer_'} | length) $inferred
@@ -40,12 +46,12 @@ let other_uri = lsp uri ($other | path join main.tg.py)
 $session = lsp send $session (lsp definition 12 $other_uri 1 10)
 let response = lsp wait_result $session 12
 $session = $response.session
-sleep 100ms
+drain_log $local
 let before = open --raw $local.log
 $session = lsp send $session (lsp definition 13 $uri 1 10)
 let response = lsp wait_result $session 13
 $session = $response.session
-sleep 100ms
+drain_log $local
 let after = open --raw $local.log
 for query in ['parsed_module' 'infer_'] {
     assert equal ($after | lines | where {|line| $line | str contains $query} | length) ($before | lines | where {|line| $line | str contains $query} | length)
@@ -56,7 +62,7 @@ let before = open --raw $local.log
 $session = lsp send $session (lsp definition 14 $uri 1 10)
 let response = lsp wait_result $session 14
 $session = $response.session
-sleep 100ms
+drain_log $local
 let after = open --raw $local.log
 for query in ['parsed_module' 'infer_'] {
     assert equal ($after | lines | where {|line| $line | str contains $query} | length) ($before | lines | where {|line| $line | str contains $query} | length)

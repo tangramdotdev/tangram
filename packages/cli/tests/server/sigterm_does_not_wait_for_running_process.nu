@@ -22,4 +22,4 @@ let pid = open ($local.directory | path join 'lock') | into int
 kill --signal 15 $pid
 
 # The server must exit rather than wait for the process to finish.
-wait_until --timeout 20sec { ps | where pid == $pid | is-empty } "the server must exit without waiting for the running process"
+wait_for_exit --timeout 20sec $pid "the server must exit without waiting for the running process"

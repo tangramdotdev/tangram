@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Local pulls return bounded capabilities for the permissions they actually verify.
 
-let local = server spawn --config {
+let local = server spawn --now 2026-01-01T00:00:00Z --config {
 	authentication: { users: { providers: { insecure: true } } },
 	object: { permission_time_to_live: 3600 },
 }
@@ -12,8 +12,8 @@ let object = tg --token $alice.token put 'tg.file("local private object")' | str
 let id = $object | referent node
 let original = $object | referent tokens local | first | token body
 
-# Advancing time ensures a fresh full lifetime would outlive the supplied proof.
-sleep 2sec
+# Advancing the simulated clock ensures a fresh full lifetime would outlive the supplied proof.
+advance_time $local 2sec
 failure (tg --token $bob.token pull $id | complete)
 let output = tg --no-quiet --token $bob.token pull $object | complete
 success $output

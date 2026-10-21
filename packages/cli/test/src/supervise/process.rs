@@ -269,6 +269,63 @@ pub fn group(group: libc::pid_t) -> Vec<libc::pid_t> {
 	pids
 }
 
+/// Get a file descriptor that becomes readable when a process that is not a child of this process exits. Return None if the process has already exited.
+#[cfg(target_os = "linux")]
+pub fn watch(pid: libc::pid_t) -> Result<Option<OwnedFd>> {
+	// SAFETY: pidfd_open has no memory safety preconditions.
+	let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+	let fd = libc::c_int::try_from(fd)?;
+	if fd < 0 {
+		let error = io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::ESRCH) {
+			return Ok(None);
+		}
+		return Err(error.into());
+	}
+	// SAFETY: The syscall succeeded, so the file descriptor is open and owned by this process.
+	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+	Ok(Some(fd))
+}
+
+/// Get a file descriptor that becomes readable when a process that is not a child of this process exits. Return None if the process has already exited.
+#[cfg(target_os = "macos")]
+pub fn watch(pid: libc::pid_t) -> Result<Option<OwnedFd>> {
+	// SAFETY: kqueue has no memory safety preconditions.
+	let queue = unsafe { libc::kqueue() };
+	if queue < 0 {
+		return Err(io::Error::last_os_error().into());
+	}
+	// SAFETY: The kqueue call succeeded, so the file descriptor is open and owned by this process.
+	let queue = unsafe { OwnedFd::from_raw_fd(queue) };
+	let change = libc::kevent {
+		data: 0,
+		fflags: libc::NOTE_EXIT,
+		filter: libc::EVFILT_PROC,
+		flags: libc::EV_ADD | libc::EV_ONESHOT,
+		ident: usize::try_from(pid).unwrap_or(0),
+		udata: std::ptr::null_mut(),
+	};
+	// SAFETY: The change is valid for reads, and no events are requested.
+	let result = unsafe {
+		libc::kevent(
+			queue.as_raw_fd(),
+			&raw const change,
+			1,
+			std::ptr::null_mut(),
+			0,
+			std::ptr::null(),
+		)
+	};
+	if result < 0 {
+		let error = io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::ESRCH) {
+			return Ok(None);
+		}
+		return Err(error.into());
+	}
+	Ok(Some(queue))
+}
+
 /// Wait for processes that are not children of this process to exit. Return the processes that are still running at the deadline.
 #[cfg(target_os = "linux")]
 pub fn wait(pids: &[libc::pid_t], deadline: Instant) -> Result<Vec<libc::pid_t>> {

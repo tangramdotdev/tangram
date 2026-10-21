@@ -32,7 +32,7 @@ assert (
 
 let pid = open ($remote.directory | path join lock) | into int
 kill --signal 2 $pid
-wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
+wait_for_exit $pid "the remote should stop"
 
 let output = with-env { TANGRAM_QUIET: "false" } { tg --url $local.url get --cached foo | complete }
 success $output

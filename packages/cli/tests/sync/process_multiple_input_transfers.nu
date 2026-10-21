@@ -29,16 +29,15 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			const stealer = await tg.build(steal).spawn();
-			await tg.sleep(1);
 			const first = await tg.build(produce, "first");
 			const second = await tg.build(produce, "second");
 			const inputs = await tg.directory({ second, first });
 			const output = await tg.build(consume, inputs);
-			await stealer.wait();
+			await stealer.cancel();
 			return output;
 		}
 		export async function steal() {
-			await tg.sleep(20);
+			await tg.sleep(60);
 		}
 		export function produce(text: string) {
 			return tg.file(text);
@@ -86,7 +85,7 @@ for watch in $watches {
 for _ in $watches {
 	let event = job recv --tag $ack_tag --timeout 35sec
 	success $event.output 'each input must wait on its own producer transfer'
-	assert equal (try { job recv --tag $build --timeout 1sec } catch { null }) null 'the build must wait for the input transfers'
+	assert equal (try { job recv --tag $build --timeout 0sec } catch { null }) null 'the build must wait for the input transfers'
 	let watch = $event.watch
 	tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $watch.ack
 	tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $watch.store

@@ -52,8 +52,7 @@ let path = artifact {
 	dep.tg.ts: '
 		import * as root from "./tangram.ts";
 		import file from "./file.txt";
-		export default async () => {
-			await tg.sleep(5);
+		export default () => {
 			return file;
 		};
 	',

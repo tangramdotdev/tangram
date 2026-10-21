@@ -8,7 +8,7 @@ if $nu.os-info.name != 'linux' {
 
 let transports = if (fuse_io_uring_available) { [read_write io_uring] } else { [read_write] }
 for io in $transports {
-	let local = server spawn --name local --config {
+	let local = server spawn --name local --now 2026-01-01T00:00:00Z --config {
 		verification: {
 			permissions: {
 				final: false
@@ -51,7 +51,7 @@ for io in $transports {
 	let output = tg run $'--sandbox=($sandbox)' $first | complete
 	success $output 'the first symlink must load the shared target'
 	assert equal ($output.stdout | str trim) 'ok'
-	sleep 6sec
+	advance_time $local 6sec
 	let output = tg run $'--sandbox=($sandbox)' $second | complete
 	success $output 'the fresh symlink must refresh the cached target and graph descendants'
 	assert equal ($output.stdout | str trim) 'ok'
