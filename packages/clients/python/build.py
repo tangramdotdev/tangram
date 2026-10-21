@@ -75,7 +75,11 @@ def environment():
         (parent for parent in directory.parents if (parent / "Cargo.toml").is_file()),
         directory / "native",
     )
+    # Build in a separate target directory, because the host interpreter's PyO3
+    # configuration differs from the embedded runtime's, and sharing artifacts
+    # would make each build invalidate the other's.
     target = Path(os.environ.get("CARGO_TARGET_DIR", workspace / "target")).resolve()
+    target = target if target.name == "python" else target / "python"
     cache = target / "pyo3"
     cache.mkdir(parents=True, exist_ok=True)
     config = cache / f"{hashlib.sha256(contents).hexdigest()}.txt"
@@ -90,6 +94,7 @@ def environment():
                 pass
     # The custom backend delegates to maturin after configuring the host interpreter.
     variables = {
+        "CARGO_TARGET_DIR": str(target),
         "MATURIN_NO_MISSING_BUILD_BACKEND_WARNING": "1",
         "PYO3_CONFIG_FILE": str(config),
     }

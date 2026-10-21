@@ -51,6 +51,31 @@ pub fn packages(python: &Path, workspace: &Path, output: &Path) -> PathBuf {
 	PathBuf::from(String::from_utf8(result.stdout).unwrap().trim())
 }
 
+/// Declare a dependency on each Python client source that `library.py` copies, rather than on the source directory, because installing the client for development writes its compiled extension into that directory.
+pub fn rerun_if_client_changed(path: &Path) {
+	let mut paths = Vec::new();
+	let mut directories = vec![path.to_owned()];
+	while let Some(directory) = directories.pop() {
+		for entry in std::fs::read_dir(&directory).unwrap() {
+			let path = entry.unwrap().path();
+			if path.is_dir() {
+				if path.file_name().is_some_and(|name| name != "__pycache__") {
+					directories.push(path);
+				}
+			} else if !path
+				.extension()
+				.is_some_and(|extension| extension == "so" || extension == "pyc")
+			{
+				paths.push(path);
+			}
+		}
+	}
+	paths.sort();
+	for path in paths {
+		println!("cargo:rerun-if-changed={}", path.display());
+	}
+}
+
 #[must_use]
 pub fn download(manifest: &Value, target: &str, output: &Path, variable: &str) -> PathBuf {
 	if let Some(path) = std::env::var_os(variable) {
