@@ -608,9 +608,9 @@ impl Session {
 						process_output_objects: arg.process_output_objects,
 						put: Vec::new(),
 						sandbox_processes: arg.sandbox_processes,
-						sync: nonce
-							.map(tg::Either::Left)
-							.or_else(|| sync.map(tg::Either::Right)),
+						sync: sync
+							.map(tg::Either::Right)
+							.or_else(|| nonce.map(tg::Either::Left)),
 						tag_targets: arg.tag_targets,
 						user_children: arg.user_children,
 					};
