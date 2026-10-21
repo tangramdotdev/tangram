@@ -59,10 +59,21 @@ impl qjs::loader::Resolver for Resolver {
 		// Resolve the module.
 		let (sender, receiver) = std::sync::mpsc::channel();
 		state.main_runtime_handle.spawn({
+			let graphs = state.graphs.clone();
 			let instance = state.instance.clone();
 			let referrer = referrer.clone();
 			let import = import.clone();
 			async move {
+				// Resolve the module without the instance if possible.
+				if let Some(referrer) = &referrer
+					&& let Some(module) = graphs
+						.try_resolve_module(&instance, referrer, &import)
+						.await
+				{
+					sender.send(Ok(module)).unwrap();
+					return;
+				}
+
 				let arg = tg::module::resolve::Arg {
 					referrer: referrer.clone(),
 					import,
@@ -126,14 +137,21 @@ impl qjs::loader::Loader for Loader {
 		// Load the module.
 		let (sender, receiver) = std::sync::mpsc::channel();
 		state.main_runtime_handle.spawn({
+			let graphs = state.graphs.clone();
 			let instance = state.instance.clone();
 			let module = module_data.clone();
 			async move {
-				let arg = tg::module::load::Arg {
-					language: Some(tg::module::load::Language::JavaScript),
-					module,
+				// Load the module without the instance if possible.
+				let result = if let Some(output) = graphs.try_load_module(&instance, &module).await
+				{
+					Ok(output)
+				} else {
+					let arg = tg::module::load::Arg {
+						language: Some(tg::module::load::Language::JavaScript),
+						module,
+					};
+					instance.load_module(arg).await
 				};
-				let result = instance.load_module(arg).await;
 				sender.send(result).unwrap();
 			}
 		});

@@ -2,6 +2,7 @@ use {std::path::PathBuf, tangram_client::prelude::*};
 
 mod host;
 mod http2;
+mod module;
 
 pub mod inspect;
 #[cfg(feature = "quickjs")]

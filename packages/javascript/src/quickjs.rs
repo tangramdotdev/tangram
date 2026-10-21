@@ -11,6 +11,7 @@ use {
 		cell::{OnceCell, RefCell},
 		pin::pin,
 		rc::Rc,
+		sync::Arc,
 		task::Poll,
 	},
 	tangram_client::prelude::*,
@@ -37,6 +38,7 @@ pub struct Runtime {
 struct State {
 	arg: crate::Arg,
 	global_source_map: OnceCell<Option<SourceMap>>,
+	graphs: Arc<crate::module::Graphs>,
 	host: crate::host::Host,
 	http2: crate::http2::Http2,
 	instance: tg::instance::dynamic::Instance,
@@ -139,6 +141,7 @@ impl Runtime {
 		let state = Rc::new(State {
 			arg,
 			global_source_map,
+			graphs: Arc::new(crate::module::Graphs::default()),
 			host,
 			http2,
 			instance,

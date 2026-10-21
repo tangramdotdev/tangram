@@ -37,6 +37,7 @@ pub type GraphTasks = tangram_futures::task::Map<
 
 struct State {
 	artifact: tg::artifact::Id,
+	graphs: crate::graph::Graphs,
 	path: PathBuf,
 	progress: crate::progress::Handle<()>,
 	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
@@ -589,7 +590,7 @@ impl Session {
 		let edge = tg::graph::data::Edge::Object(id.clone());
 		let item = tokio::task::spawn_blocking({
 			let session = self.clone();
-			move || session.checkout_internal_get_item(edge, None)
+			move || session.checkout_internal_get_item(&crate::graph::Graphs::default(), edge, None)
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
@@ -974,6 +975,7 @@ impl Session {
 		// Create the state.
 		let mut state = State {
 			artifact: item.id.clone(),
+			graphs: crate::graph::Graphs::default(),
 			path: path.to_owned(),
 			progress: progress.clone(),
 			visiting: HashSet::default(),
@@ -1044,8 +1046,12 @@ impl Session {
 		)?;
 
 		// Collect all entries, recursively flattening branches.
-		let entries =
-			crate::directory::collect_directory_entries(&self.server.cache, node, graph.as_ref())?;
+		let entries = crate::directory::collect_directory_entries(
+			&self.server.cache,
+			&state.graphs,
+			node,
+			graph.as_ref(),
+		)?;
 
 		// Recurse into the entries.
 		let mut dependencies = Vec::new();
@@ -1053,7 +1059,7 @@ impl Session {
 		for (name, edge) in entries {
 			let path = path.join(&name);
 			let item = self
-				.checkout_internal_get_item(edge, graph.as_ref())
+				.checkout_internal_get_item(&state.graphs, edge, graph.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			// Check for a cycle.
@@ -1132,7 +1138,7 @@ impl Session {
 
 			// Get the node.
 			let item = self
-				.checkout_internal_get_item(edge, graph.as_ref())
+				.checkout_internal_get_item(&state.graphs, edge, graph.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 			self.add_permanent_token_to_object_reference(&mut reference, &item.id)?;
 			references.push(reference);
@@ -1234,7 +1240,7 @@ impl Session {
 
 			// Get the dependency node.
 			let item = self
-				.checkout_internal_get_item(edge, graph.as_ref())
+				.checkout_internal_get_item(&state.graphs, edge, graph.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			if item.id == state.artifact {
@@ -1347,13 +1353,14 @@ impl Session {
 
 	fn checkout_internal_get_item(
 		&self,
+		graphs: &crate::graph::Graphs,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<Item> {
 		match edge {
 			tg::graph::data::Edge::Index(index) => {
 				let graph = graph.ok_or_else(|| tg::error!("missing graph"))?;
-				let node = crate::graph::get_node(&self.server.cache, graph, index)?;
+				let node = crate::graph::get_node(&self.server.cache, graphs, graph, index)?;
 				let pointer = tg::graph::data::Pointer {
 					graph: graph.clone(),
 					index,
@@ -1362,8 +1369,12 @@ impl Session {
 				Self::checkout_internal_get_item_with_pointer(pointer, node)
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				let node =
-					crate::graph::get_node(&self.server.cache, &pointer.graph, pointer.index)?;
+				let node = crate::graph::get_node(
+					&self.server.cache,
+					graphs,
+					&pointer.graph,
+					pointer.index,
+				)?;
 				Self::checkout_internal_get_item_with_pointer(pointer, node)
 			},
 
@@ -1386,8 +1397,12 @@ impl Session {
 					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
 					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
 						let graph_id = pointer.graph;
-						let node =
-							crate::graph::get_node(&self.server.cache, &graph_id, pointer.index)?;
+						let node = crate::graph::get_node(
+							&self.server.cache,
+							graphs,
+							&graph_id,
+							pointer.index,
+						)?;
 
 						let item = Item {
 							graph: Some(graph_id),
