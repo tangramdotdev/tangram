@@ -1445,3 +1445,83 @@ fn stored_process_data_does_not_grant_permissions() {
 	assert!(graph.process_local_permissions(&id).is_empty());
 	assert!(!graph.get_process_local_availability(&id).subtree);
 }
+
+#[test]
+fn checkout_files_of_a_graph_leaf_point_into_its_root_graph() {
+	let arg = tg::sync::Arg::default();
+	let mut graph = Graph::new(&arg, true);
+	let (branch_id, branch, leaf_id, leaf) = graph_branch_and_leaf();
+
+	// Update the branch before its leaf.
+	graph.update_checkout_object(&branch_id, &branch).unwrap();
+	graph.update_checkout_object(&leaf_id, &leaf).unwrap();
+
+	// The leaf's second file is the root graph's node at index three.
+	let pointer = tg::graph::data::Pointer {
+		graph: branch_id.clone().try_into().unwrap(),
+		index: 3,
+		kind: tg::artifact::Kind::File,
+	};
+	let expected = tg::file::Id::new(&tg::file::Data::Pointer(pointer).serialize().unwrap());
+	let ids = graph
+		.checkout_files()
+		.values()
+		.flatten()
+		.map(|file| file.id.clone())
+		.collect::<Vec<_>>();
+	assert!(ids.contains(&expected));
+}
+
+#[test]
+fn a_graph_leaf_received_before_its_branch_is_an_error() {
+	let arg = tg::sync::Arg::default();
+	let mut graph = Graph::new(&arg, true);
+	let (branch_id, branch, leaf_id, leaf) = graph_branch_and_leaf();
+
+	// Update the leaf before its branch.
+	graph.update_checkout_object(&leaf_id, &leaf).unwrap();
+	let error = graph
+		.update_checkout_object(&branch_id, &branch)
+		.unwrap_err();
+	assert_eq!(
+		error.to_string(),
+		"received a child of a graph branch before the branch"
+	);
+}
+
+// Create a branch whose second child is a leaf of two files, which are the root graph's nodes at indices two and three.
+fn graph_branch_and_leaf() -> (
+	tg::object::Id,
+	tg::object::Data,
+	tg::object::Id,
+	tg::object::Data,
+) {
+	let files = (0..2)
+		.map(|index| {
+			tg::graph::data::Node::File(tg::graph::data::File {
+				contents: Some(tg::blob::Id::new(format!("{index}").as_bytes())),
+				dependencies: std::collections::BTreeMap::new(),
+				executable: false,
+				module: None,
+			})
+		})
+		.collect();
+	let leaf = tg::object::Data::Graph(tg::graph::Data::Leaf(tg::graph::data::Leaf {
+		nodes: files,
+	}));
+	let leaf_id = tg::object::Id::new(tg::object::Kind::Graph, &leaf.serialize().unwrap());
+	let branch = tg::object::Data::Graph(tg::graph::Data::Branch(tg::graph::data::Branch {
+		children: vec![
+			tg::graph::data::Child {
+				count: 2,
+				graph: tg::graph::Id::new(b"first"),
+			},
+			tg::graph::data::Child {
+				count: 2,
+				graph: leaf_id.clone().try_into().unwrap(),
+			},
+		],
+	}));
+	let branch_id = tg::object::Id::new(tg::object::Kind::Graph, &branch.serialize().unwrap());
+	(branch_id, branch, leaf_id, leaf)
+}

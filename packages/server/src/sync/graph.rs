@@ -18,6 +18,7 @@ pub struct Graph {
 	checkout_contained_blobs: HashSet<tg::blob::Id, tg::id::BuildHasher>,
 	checkout_files: BTreeMap<tg::blob::Id, Vec<CheckoutFile>>,
 	checkout_graph_offsets: HashMap<tg::graph::Id, (tg::graph::Id, usize), tg::id::BuildHasher>,
+	checkout_graph_roots: HashSet<tg::graph::Id, tg::id::BuildHasher>,
 	checkout_objects: BTreeMap<tg::object::Id, tg::artifact::Id>,
 	checkout_pointers: bool,
 	checkout_queued_objects: HashSet<tg::object::Id, tg::id::BuildHasher>,
@@ -206,6 +207,7 @@ impl Graph {
 			checkout_contained_blobs: HashSet::default(),
 			checkout_files: BTreeMap::new(),
 			checkout_graph_offsets: HashMap::default(),
+			checkout_graph_roots: HashSet::default(),
 			checkout_objects: BTreeMap::new(),
 			checkout_pointers,
 			checkout_queued_objects: HashSet::default(),
@@ -776,9 +778,13 @@ impl Graph {
 		self.checkout_contained_blobs.contains(id)
 	}
 
-	pub fn update_checkout_object(&mut self, id: &tg::object::Id, data: &tg::object::Data) {
+	pub fn update_checkout_object(
+		&mut self,
+		id: &tg::object::Id,
+		data: &tg::object::Data,
+	) -> tg::Result<()> {
 		if !self.checkout_pointers {
-			return;
+			return Ok(());
 		}
 		match data {
 			tg::object::Data::Blob(tg::blob::Data::Branch(branch)) => {
@@ -787,31 +793,40 @@ impl Graph {
 			},
 			tg::object::Data::File(tg::file::Data::Node(file)) => {
 				let Some(contents) = &file.contents else {
-					return;
+					return Ok(());
 				};
 				let Ok(id) = tg::file::Id::try_from(id.clone()) else {
-					return;
+					return Ok(());
 				};
 				let dependencies = Self::checkout_file_dependencies(file, None);
 				self.insert_checkout_file(contents.clone(), dependencies, id, file.executable);
 			},
 			tg::object::Data::Graph(graph) => {
 				let Ok(graph_id) = tg::graph::Id::try_from(id.clone()) else {
-					return;
+					return Ok(());
 				};
 
-				// Get the root graph and the offset of this graph's first node within it.
-				let (root, offset) = self
-					.checkout_graph_offsets
-					.get(&graph_id)
-					.cloned()
-					.unwrap_or((graph_id, 0));
+				// Get the root graph and the offset of this graph's first node within it, recording a graph with no parent branch as a root.
+				let (root, offset) =
+					if let Some((root, offset)) = self.checkout_graph_offsets.get(&graph_id) {
+						(root.clone(), *offset)
+					} else {
+						self.checkout_graph_roots.insert(graph_id.clone());
+						(graph_id, 0)
+					};
 
 				match graph {
-					// Record the root and offset of each child of a branch.
+					// Record the root and offset of each child of a branch, which must not have been received before the branch.
 					tg::graph::Data::Branch(branch) => {
 						let mut child_offset = offset;
 						for child in &branch.children {
+							if self.checkout_graph_roots.contains(&child.graph) {
+								return Err(tg::error!(
+									branch = %id,
+									child = %child.graph,
+									"received a child of a graph branch before the branch"
+								));
+							}
 							self.checkout_graph_offsets
 								.insert(child.graph.clone(), (root.clone(), child_offset));
 							child_offset += child.count.to_usize().unwrap();
@@ -851,6 +866,8 @@ impl Graph {
 			},
 			_ => {},
 		}
+
+		Ok(())
 	}
 
 	fn checkout_file_dependencies(

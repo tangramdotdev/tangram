@@ -474,7 +474,7 @@ impl Session {
 			{
 				let mut graph = state.graph.lock().unwrap();
 				graph.update_object_local(arg);
-				graph.update_checkout_object(&object_id, &data);
+				graph.update_checkout_object(&object_id, &data)?;
 			}
 			Self::sync_get_checkout_insert_blob(state, &id, blob);
 		}
