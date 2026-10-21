@@ -1536,10 +1536,17 @@ pub struct Process {
 	pub control_channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub control_service: Option<Service>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_children_page_size: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_log_read_size: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id_proof_window: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local_control_channel_capacity: Option<usize>,
@@ -5139,11 +5146,17 @@ fn resolve_process(source: Process) -> server::Process {
 	if let Some(value) = source.control_channel_capacity {
 		target.control_channel_capacity = value;
 	}
+	if let Some(source) = source.control_service {
+		resolve_service(source, &mut target.control_service);
+	}
 	if let Some(value) = source.default_children_page_size {
 		target.default_children_page_size = value;
 	}
 	if let Some(value) = source.default_log_read_size {
 		target.default_log_read_size = value;
+	}
+	if let Some(value) = source.id_proof_window {
+		target.id_proof_window = value;
 	}
 	if let Some(value) = source.local_control_channel_capacity {
 		target.local_control_channel_capacity = value;

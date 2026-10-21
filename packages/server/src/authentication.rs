@@ -174,7 +174,13 @@ impl Session {
 				if let Some(token) = token {
 					return Ok((Some(token), None));
 				}
-				let token = self.server.config.runner.token.clone();
+
+				// Send the runner's token only to the runner's remote.
+				let runner = &self.server.config.runner;
+				if runner.remote.as_deref() != Some(remote) {
+					return Ok((None, None));
+				}
+				let token = runner.token.clone();
 				Ok((token, Some(id.clone())))
 			},
 			tg::Principal::Runner(id) => {

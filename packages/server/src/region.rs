@@ -29,7 +29,7 @@ impl Session {
 	async fn get_region_session_inner(&self, region: &str) -> tg::Result<tg::Session> {
 		let client = self.server.get_region_client(region).await?;
 		let mut context = client.context().clone();
-		context.set_token(self.context.token.clone());
+		context.set_token(self.region_token());
 		context.set_process(self.context.process.clone());
 		let session = client.session(&context);
 		Ok(session)
@@ -46,12 +46,23 @@ impl Session {
 			.ok_or_else(|| tg::error!("the primary region is not configured"))?;
 		let client = self.server.get_region_client(region).await?;
 		let mut context = client.context().clone();
-		context.set_token(self.context.token.clone());
+		context.set_token(self.region_token());
 		context.set_process(self.context.process.clone());
 		let session = client.session(&context);
 		let response = session.send(request).await?;
 
 		Ok(response)
+	}
+
+	/// Get the token with which a request is forwarded to another region, which for a process that this runner runs is the token that the runner has received since the session was created.
+	fn region_token(&self) -> Option<String> {
+		if let Some(token) = &self.context.token {
+			return Some(token.clone());
+		}
+		let tg::Principal::Process(id) = &self.context.principal else {
+			return None;
+		};
+		self.try_get_process_inner_token(id)
 	}
 }
 

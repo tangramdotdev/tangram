@@ -229,7 +229,7 @@ impl std::str::FromStr for Salt {
 			.decode(value.as_bytes())
 			.ok()
 			.and_then(|bytes| <[u8; 16]>::try_from(bytes).ok())
-			.ok_or_else(|| tg::error!(%value, "invalid salt"))?;
+			.ok_or_else(|| tg::error!(%value, "failed to parse the salt"))?;
 		let salt = Self(bytes);
 		Ok(salt)
 	}

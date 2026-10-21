@@ -41,7 +41,7 @@ chunk(bytes(prefix) + payload)
 response = http.client.HTTPResponse(sock)
 response.begin()
 if response.status != 200:
-    sys.stderr.write(f"{response.status} {response.read().decode()}\n")
+    sys.stderr.write(f"{response.status} {response.read().decode()}\nprocess {arg['id']}\n")
     sys.exit(1)
 length, shift = 0, 0
 while True:

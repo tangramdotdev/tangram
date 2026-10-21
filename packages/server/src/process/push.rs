@@ -4,10 +4,10 @@ use {
 };
 
 pub(crate) struct PushProcessObjectsArg {
-	pub location: tg::Location,
-
 	/// The sync that the push joins, when the push does not know the sync.
 	pub join: Option<tg::sync::Join>,
+
+	pub location: tg::Location,
 
 	pub nodes: Vec<tg::Referent<tg::Id>>,
 

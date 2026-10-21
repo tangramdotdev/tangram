@@ -146,48 +146,28 @@ impl Session {
 
 	async fn try_get_process_control_stream_local(
 		&self,
-		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-	) -> tg::Result<
-		Option<(
-			tg::process::control::Header,
-			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
-		)>,
-	> {
-		self.try_get_process_control_stream_local_inner(
-			arg,
-			stream,
-			self.context.local_process_control,
-		)
-		.boxed()
-		.await
-	}
-
-	async fn try_get_process_control_stream_local_inner(
-		&self,
 		mut arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-		local_process_control: bool,
 	) -> tg::Result<
 		Option<(
 			tg::process::control::Header,
 			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 		)>,
 	> {
-		// Authenticate the connection as its process, or as a runner that proves that it derived the process's ID, which starts or resumes a process on the shortcut path.
+		// Authenticate the connection as its process, or as a runner that proves that it derived the process's ID, which starts a process on the shortcut path.
+		let local_process_control = self.context.local_process_control;
 		let id = arg.id.clone();
 		let proof = arg.proof.take();
 		let shortcut_start = matches!(
 			&arg.mode,
 			tg::process::control::Mode::Start(start) if start.shortcut.is_some()
 		);
-		let (shortcut, runner, token) = match (&self.context.principal, proof) {
+		let (shortcut, mut runner, token) = match (&self.context.principal, proof) {
 			(tg::Principal::Process(process), None) if process == &id => {
 				(false, None, self.context.token.clone())
 			},
 			(tg::Principal::Runner(runner), Some(proof)) => {
-				self.verify_process_control_proof(&id, runner, &proof, &arg.mode)
-					.await?;
+				self.verify_process_control_proof(&id, runner, &proof)?;
 				let token = self
 					.server
 					.create_process_authentication_token(id.clone())?;
@@ -225,16 +205,28 @@ impl Session {
 			Some(Syncs { command, outcome })
 		};
 		let mut parent = None;
+		let resumed = matches!(&arg.mode, tg::process::control::Mode::Resume { .. });
 		let lease = match arg.mode {
 			tg::process::control::Mode::Resume { lease } => {
 				if local_process_control {
 					session.index().await?.try_last().await?;
 				}
-				session
-					.get_process_from_index(&id)
-					.await?
+				let process = session.get_process_from_index(&id).await?;
+				process
 					.status
 					.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+
+				// Restore the runner that hosts the process's sandbox, so that the service of a resumed process answers its runner as the service of its start did.
+				if runner.is_none()
+					&& let Some(sandbox) = &process.sandbox
+				{
+					runner = self
+						.server
+						.index
+						.try_get_sandbox(sandbox)
+						.await?
+						.and_then(|sandbox| sandbox.runner);
+				}
 				lease
 			},
 			tg::process::control::Mode::Start(start) => {
@@ -295,6 +287,7 @@ impl Session {
 
 		// Answer the requests for the process for as long as the connection lasts.
 		let service_arg = service::Arg {
+			indexed: resumed,
 			parent,
 			runner,
 			syncs: syncs.is_some(),
@@ -620,51 +613,17 @@ impl Session {
 		Ok(())
 	}
 
-	/// Verify that a runner derived a process's ID. A start's ID must be recent, and a resume outside the window must name an unfinished process in a sandbox that the runner hosts.
-	async fn verify_process_control_proof(
+	/// Verify that a runner derived a process's ID within the proof window.
+	fn verify_process_control_proof(
 		&self,
 		id: &tg::process::Id,
 		runner: &tg::runner::Id,
 		proof: &tg::process::id::Proof,
-		mode: &tg::process::control::Mode,
 	) -> tg::Result<()> {
-		// Verify that the runner derived the ID.
-		proof.verify(id, runner)?;
-
-		// Accept an ID within the window.
 		let now = self.server.clock.unix_timestamp()?;
 		let now = now.to_u64().unwrap_or_default() * 1000;
 		let window = self.server.config.process.id_proof_window;
-		let recent = proof.verify_recent(id, runner, now, window);
-		let tg::process::control::Mode::Resume { .. } = mode else {
-			return recent;
-		};
-		if recent.is_ok() {
-			return Ok(());
-		}
-
-		// Accept a resume of an unfinished process in a sandbox that the runner hosts.
-		let process = self.get_process_from_index(id).await?;
-		if process.status.is_none_or(|status| status.is_finished()) {
-			return Err(tg::error!(%id, "the process is not running"));
-		}
-		let sandbox = process
-			.sandbox
-			.ok_or_else(|| tg::error!(%id, "the process has no sandbox"))?;
-		let sandbox = self
-			.server
-			.index
-			.try_get_sandbox(&sandbox)
-			.await?
-			.ok_or_else(|| tg::error!(%sandbox, "failed to find the sandbox"))?;
-		if sandbox.runner.as_ref() != Some(runner) {
-			return Err(tg::error!(
-				unauthorized,
-				%id,
-				"the runner does not host the process's sandbox"
-			));
-		}
-
+		proof.verify_recent(id, runner, now, window)?;
 		Ok(())
 	}
 

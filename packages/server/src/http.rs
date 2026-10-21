@@ -580,7 +580,7 @@ impl Server {
 					.to_str()
 					.ok()
 					.and_then(|value| value.parse::<tg::process::Id>().ok())
-					.ok_or_else(|| tg::error!(argument, "invalid process header"))
+					.ok_or_else(|| tg::error!(argument, "failed to parse the process header"))
 			})
 			.transpose();
 		let result = match process {

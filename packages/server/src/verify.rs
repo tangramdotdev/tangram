@@ -4,6 +4,7 @@ use {
 		authorization::{IntoAuthorizationResource, Outcome, Output as Authorization, Proofs},
 	},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
+	num::ToPrimitive as _,
 	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
@@ -1096,6 +1097,18 @@ impl Session {
 
 		// Skip a process that the index has recorded, whose parent the index search already follows.
 		if self.server.index.try_get_process(process).await?.is_some() {
+			return Ok(None);
+		}
+
+		// Skip a process whose ID is outside the proof window, since a process that is still starting has a recent ID.
+		let now = self.server.clock.unix_timestamp()?;
+		let now = now.to_u64().unwrap_or_default() * 1000;
+		let window = self.server.config.process.id_proof_window;
+		let window = window.as_millis().try_into().unwrap_or(u64::MAX);
+		if process
+			.timestamp()
+			.is_none_or(|timestamp| timestamp.abs_diff(now) > window)
+		{
 			return Ok(None);
 		}
 

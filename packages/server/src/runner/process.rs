@@ -372,14 +372,13 @@ impl Session {
 				}
 
 				// Derive the ID.
-				let runner = self.server.runner.state.id();
-				let (id, proof) = match &runner {
-					Some(runner) => {
-						let (id, proof) = tg::process::Id::with_runner(runner);
-						(id, Some(proof))
-					},
-					None => (tg::process::Id::new(), None),
-				};
+				let runner = self
+					.server
+					.runner
+					.state
+					.id()
+					.ok_or_else(|| tg::error!("the runner has no id"))?;
+				let (id, proof) = tg::process::Id::with_runner(&runner);
 
 				// Prove the parent with its token, or, while the runner waits for the parent's token, with the parent's control service.
 				let parent_token = self.try_get_process_inner_token(parent);
@@ -400,7 +399,7 @@ impl Session {
 				let shortcut = tg::process::control::Shortcut { parent, sandbox };
 
 				// Push the command objects concurrently with the start, joining the process's command sync through its control service.
-				if location.is_remote() {
+				if !self.is_local_process_location(&location) {
 					let session = command_session.clone();
 					let data = state.to_data();
 					let id = id.clone();
@@ -880,7 +879,7 @@ impl Session {
 			id: id.clone(),
 			location: Some(location.clone().into()),
 			mode: tg::process::control::Mode::Start(start),
-			proof: proof.flatten(),
+			proof,
 		};
 		let connect = if shortcut_start {
 			let session = self.runner_session();
@@ -1060,11 +1059,8 @@ impl Session {
 		.await;
 
 		// Tell the server when this runner controls a local process, whose outcome it stores directly.
-		let local_process_control = matches!(
-			self.server.location(arg.location.as_ref())?,
-			tg::Location::Local(tg::location::Local { region })
-				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
-		);
+		let location = self.server.location(arg.location.as_ref())?;
+		let local_process_control = self.is_local_process_location(&location);
 		let context = crate::Context {
 			local_process_control,
 			..self.context.clone()
@@ -1340,8 +1336,8 @@ impl Session {
 						tracing::error!(error = %error.trace(), process = %id, "failed to push the process command");
 					}
 				}
-				// Push the outcome objects to a remote location, joining the process's outcome sync through its control service.
-				if location.is_remote() {
+				// Push the outcome objects to a location that this server does not store, joining the process's outcome sync through its control service.
+				if !session.is_local_process_location(&location) {
 					let result = session.push_process_outcome(&id, &location, &data).await;
 					if let Err(error) = result {
 						tracing::error!(error = %error.trace(), process = %id, "failed to push the process outcome");
@@ -1729,12 +1725,21 @@ impl Session {
 	}
 
 	/// Get a process's token, if the runner has received it.
-	fn try_get_process_inner_token(&self, id: &tg::process::Id) -> Option<String> {
+	pub(crate) fn try_get_process_inner_token(&self, id: &tg::process::Id) -> Option<String> {
 		let state = self.server.runner.state();
 		let sandbox_id = state.processes().get(id)?.value().clone();
 		let sandbox = state.sandboxes().get_by_id(&sandbox_id)?;
 		let process = sandbox.processes.get(id)?;
 		process.inner_token.borrow().clone()
+	}
+
+	/// Determine whether a process's location is this server's region, whose processes this runner controls and stores directly.
+	fn is_local_process_location(&self, location: &tg::Location) -> bool {
+		matches!(
+			location,
+			tg::Location::Local(tg::location::Local { region })
+				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
+		)
 	}
 
 	/// Get a session that authenticates as the runner.

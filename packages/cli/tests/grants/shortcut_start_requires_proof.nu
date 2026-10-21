@@ -36,6 +36,19 @@ let output = python3 $helper $socket $runner.token.token arg.json | complete
 failure $output "a runner should not start a process whose ID another runner derived"
 assert ($output.stderr | str contains 'did not derive') $output.stderr
 
+# Send a request that claims a process with the runner's token, and print the response.
+let claim_script = "
+import http.client, socket, sys
+path, token, process = sys.argv[1:]
+connection = http.client.HTTPConnection('localhost')
+connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+connection.sock.settimeout(30)
+connection.sock.connect(path)
+connection.request('GET', '/processes/' + process + '/status', headers={'Authorization': 'Bearer ' + token, 'X-Tg-Process': process})
+response = connection.getresponse()
+print(response.status, response.read().decode())
+"
+
 # The runner must not start the child without a proof, or with a token that is not the parent's.
 for shortcut in [null { parent: { id: $parent, token: $mallory.token }, sandbox: { token: $mallory.token } }] {
 	let start = { data: $data, kind: start, lease: $lease, shortcut: $shortcut } | compact
@@ -44,6 +57,14 @@ for shortcut in [null { parent: { id: $parent, token: $mallory.token }, sandbox:
 	failure $output "a runner should not start a shortcut child of a process that it does not run"
 	let expected = if $shortcut == null { 'must prove its parent and sandbox' } else { $parent }
 	assert ($output.stderr | str contains $expected) $output.stderr
+
+	# A request that claims the rejected child fails with the rejection instead of waiting for the child's control service.
+	let child = $output.stderr | lines | where ($it | str starts-with 'process ') | first | str replace 'process ' ''
+	let start = date now
+	let claim = python3 -c $claim_script $socket $runner.token.token $child | complete
+	let elapsed = (date now) - $start
+	assert ($claim.stdout | str contains 'rejected') $claim.stdout
+	assert ($elapsed < 5sec) $"the claim should fail quickly, but took ($elapsed)"
 }
 
 # Mallory runs her own process, whose token proves that her runner runs it.

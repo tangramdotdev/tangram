@@ -26,6 +26,7 @@ pub(crate) struct LocalRequest {
 
 /// The arg of a control service.
 pub(crate) struct Arg {
+	pub indexed: bool,
 	pub parent: Option<tg::process::Id>,
 	pub runner: Option<tg::runner::Id>,
 	pub syncs: bool,
@@ -88,16 +89,33 @@ enum Reply {
 /// The state of a control service.
 struct State {
 	id: tg::process::Id,
+	indexed: bool,
 	parent: Option<tg::process::Id>,
 	rejection: Option<tg::error::Data>,
 	runner: Option<tg::runner::Id>,
 	syncs: bool,
 }
 
+/// Observes nothing, because the control service records its own checkpoints.
+pub(crate) struct Observer;
+
+impl Reply {
+	fn send(self, response: &Response) {
+		match self {
+			Self::Local(reply) => {
+				reply.send(response.clone()).ok();
+			},
+			Self::Messenger(reply) => {
+				reply.send(response).ok();
+			},
+		}
+	}
+}
+
 impl State {
 	/// Get the response to a request.
-	fn response(&self, session: &Session, request: &Request) -> Response {
-		match self.response_inner(session, request) {
+	async fn response(&self, session: &Session, request: &Request) -> Response {
+		match self.response_inner(session, request).await {
 			Ok(response) => response,
 			Err(error) => {
 				let tg::Either::Left(error) = error.to_data_or_id() else {
@@ -111,7 +129,7 @@ impl State {
 		}
 	}
 
-	fn response_inner(&self, session: &Session, request: &Request) -> tg::Result<Response> {
+	async fn response_inner(&self, session: &Session, request: &Request) -> tg::Result<Response> {
 		// Reject every request for a process whose start was rejected.
 		if let Some(rejection) = &self.rejection {
 			let error = tg::Error::try_from(rejection.clone())
@@ -121,7 +139,7 @@ impl State {
 
 		let response = match request {
 			Request::Authorize(request) => {
-				self.authorize(&request.principal, false)?;
+				self.authorize(session, &request.principal, false).await?;
 				Response::default()
 			},
 			Request::Parent(_) => Response {
@@ -130,7 +148,7 @@ impl State {
 			},
 			Request::Sync(request) => {
 				let parent = request.kind == tg::sync::join::Kind::Command;
-				self.authorize(&request.principal, parent)?;
+				self.authorize(session, &request.principal, parent).await?;
 				if !self.syncs {
 					return Err(tg::error!(process = %self.id, "the process has no syncs"));
 				}
@@ -146,19 +164,32 @@ impl State {
 		Ok(response)
 	}
 
-	/// Verify that a principal is the process, the runner that started it, the root, or, if the parent is allowed, the process's parent.
-	fn authorize(&self, principal: &tg::Principal, parent: bool) -> tg::Result<()> {
+	/// Verify that a principal is the process, the runner that runs it, the root, or, if the parent is allowed, the process's parent or, for an indexed process, an ancestor that the index records.
+	async fn authorize(
+		&self,
+		session: &Session,
+		principal: &tg::Principal,
+		parent: bool,
+	) -> tg::Result<()> {
 		let authorized = match principal {
-			tg::Principal::Process(process) => {
-				process == &self.id || (parent && self.parent.as_ref() == Some(process))
-			},
+			tg::Principal::Process(process) if process == &self.id => true,
 			tg::Principal::Root => true,
+			tg::Principal::Process(process) if parent => {
+				self.parent.as_ref() == Some(process)
+					|| (self.indexed
+						&& session
+							.server
+							.index
+							.process_has_ancestor(&self.id, process)
+							.await?)
+			},
 			tg::Principal::Runner(runner) => self.runner.as_ref() == Some(runner),
 			_ => false,
 		};
 		if !authorized {
 			return Err(tg::error!(
 				unauthorized,
+				?principal,
 				process = %self.id,
 				"the principal may not act for the process"
 			));
@@ -176,6 +207,7 @@ impl Session {
 	) -> Sender {
 		let state = State {
 			id: id.clone(),
+			indexed: arg.indexed,
 			parent: arg.parent,
 			rejection: None,
 			runner: arg.runner,
@@ -190,11 +222,16 @@ impl Session {
 		id: &tg::process::Id,
 		error: &tg::Error,
 	) {
+		// Skip an unavailable error, because the client retries the start, and a rejection would fail the requests for a retried start that succeeds.
+		if error.kind() == Some(tg::error::Kind::Unavailable) {
+			return;
+		}
 		let tg::Either::Left(rejection) = error.to_data_or_id() else {
 			return;
 		};
 		let state = State {
 			id: id.clone(),
+			indexed: false,
 			parent: None,
 			rejection: Some(rejection),
 			runner: None,
@@ -289,12 +326,12 @@ impl Session {
 						return Err(tg::error!("the process control service stopped"));
 					};
 					let service::Incoming { reply, request } = incoming;
-					let response = state.response(self, &request);
+					let response = state.response(self, &request).await;
 					Reply::Messenger(reply).send(&response);
 				},
 				Some(local_request) = local_requests.recv() => {
 					let LocalRequest { reply, request } = local_request;
-					let response = state.response(self, &request);
+					let response = state.response(self, &request).await;
 					Reply::Local(reply).send(&response);
 				},
 			}
@@ -324,7 +361,7 @@ impl Session {
 		Ok(sync)
 	}
 
-	/// Verify with a process's control service that this session's principal may act for the process, waiting until a control connection for the process can answer.
+	/// Verify with a process's control service that a principal may act for the process, waiting until a control connection for the process can answer.
 	pub(crate) async fn authorize_with_process_control_service(
 		&self,
 		id: &tg::process::Id,
@@ -425,22 +462,6 @@ impl Server {
 		receiver.await.ok()
 	}
 }
-
-impl Reply {
-	fn send(self, response: &Response) {
-		match self {
-			Self::Local(reply) => {
-				reply.send(response.clone()).ok();
-			},
-			Self::Messenger(reply) => {
-				reply.send(response).ok();
-			},
-		}
-	}
-}
-
-/// Observes nothing, because the control service records its own checkpoints.
-pub(crate) struct Observer;
 
 impl service::Protocol for Protocol {
 	type Request = Request;
