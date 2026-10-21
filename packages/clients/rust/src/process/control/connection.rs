@@ -6,7 +6,7 @@ use {
 		task::{Context, Poll},
 	},
 	tangram_futures::task::Task,
-	tokio::sync::{mpsc, oneshot, watch},
+	tokio::sync::{mpsc, oneshot},
 };
 
 mod task;
@@ -20,7 +20,6 @@ pub struct Connection {
 #[derive(Clone)]
 pub struct Sender {
 	messages: mpsc::Sender<task::Message>,
-	outcome_sync: watch::Receiver<Option<tg::Referent<tg::sync::Id>>>,
 	updates: mpsc::UnboundedSender<task::Update>,
 }
 
@@ -67,16 +66,11 @@ impl Connection {
 		let (messages, message_receiver) = mpsc::channel(config.message_capacity);
 		let (updates, update_receiver) = mpsc::unbounded_channel();
 		let (events, receiver) = mpsc::channel(config.event_capacity);
-		let (outcome_sync_sender, outcome_sync) = watch::channel(None);
-		let state = task::State::new(input, high, low, events, outcome_sync_sender, config);
+		let state = task::State::new(input, high, low, events, config);
 		let task = Task::spawn(move |_| async move {
 			state.run(message_receiver, update_receiver).await;
 		});
-		let sender = Sender {
-			messages,
-			outcome_sync,
-			updates,
-		};
+		let sender = Sender { messages, updates };
 		Self {
 			receiver,
 			sender,
@@ -243,12 +237,6 @@ impl Sender {
 			receiver,
 			updates: self.updates.clone(),
 		})
-	}
-
-	/// Get the most recently refreshed outcome sync, if the server has sent one.
-	#[must_use]
-	pub fn outcome_sync(&self) -> Option<tg::Referent<tg::sync::Id>> {
-		self.outcome_sync.borrow().clone()
 	}
 
 	pub async fn wait_for_empty(&self) {

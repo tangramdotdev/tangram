@@ -355,22 +355,6 @@ impl Session {
 			}
 		});
 
-		// Send a refreshed sync when the connection opens and periodically, so that the client always holds an unexpired token.
-		let sync_task = syncs.as_ref().map(|syncs| {
-			let session = session.clone();
-			let control_sender = control_sender.clone();
-			let syncs = syncs.clone();
-			Task::spawn(move |_| async move {
-				session
-					.refresh_process_control_sync_task(&control_sender, &syncs)
-					.await
-					.inspect_err(|error| {
-						tracing::error!(error = %error.trace(), "failed to refresh the process control sync");
-					})
-					.ok();
-			})
-		});
-
 		let response_task = Task::spawn({
 			let session = session.clone();
 			let id = id.clone();
@@ -501,7 +485,6 @@ impl Session {
 		let stream = crate::control::priority_stream(receiver_high, receiver_low)
 			.attach(request_task)
 			.attach(response_task)
-			.attach(sync_task)
 			.attach(service)
 			.map(Ok)
 			.with_stopper(session.context.stopper.clone())
@@ -516,41 +499,11 @@ impl Session {
 				tg::error!(!error, "failed to publish the process control connection")
 			})?;
 
-		let header = tg::process::control::Header {
-			command_sync: syncs.as_ref().map(|syncs| syncs.command.clone()),
-			outcome_sync: syncs.map(|syncs| syncs.outcome),
-			token,
-		};
+		let header = tg::process::control::Header { token };
 
 		crate::checkpoint!(self.server, "process.control.header", process = %id).await;
 
 		Ok(Some((header, stream)))
-	}
-
-	async fn refresh_process_control_sync_task(
-		&self,
-		sender: &connection::Sender,
-		syncs: &Syncs,
-	) -> tg::Result<()> {
-		let period = self.server.config.sync.permission_time_to_live / 2;
-		let mut interval = tokio::time::interval(period);
-		loop {
-			interval.tick().await;
-			let command_sync = self.refresh_sync(syncs.command.node.clone())?;
-			let outcome_sync = self.refresh_sync(syncs.outcome.node.clone())?;
-			let notification = tg::process::control::SyncServerNotification {
-				command_sync,
-				outcome_sync,
-			};
-			let message = tg::process::control::ServerMessage::Notification(
-				tg::process::control::ServerNotification::Sync(notification),
-			);
-
-			// Stop refreshing once the connection closes.
-			if sender.send_low(message).await.is_err() {
-				return Ok(());
-			}
-		}
 	}
 
 	async fn index_process_control(&self, arg: IndexProcessControlArg) -> tg::Result<()> {

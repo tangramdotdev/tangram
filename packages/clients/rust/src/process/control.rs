@@ -66,16 +66,6 @@ pub enum Mode {
 	tangram_serialize::Serialize,
 )]
 pub struct Header {
-	/// The sync that pushes the process's command objects.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
-	pub command_sync: Option<tg::Referent<tg::sync::Id>>,
-
-	/// The sync that pushes the process's outcome objects.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
-	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
-
 	/// The process's authentication token, which the server mints for a runner's start of a process on the shortcut path.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
@@ -515,26 +505,7 @@ pub struct ServerAck {
 	tangram_serialize::Serialize,
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerNotification {
-	#[tangram_serialize(id = 0)]
-	Sync(SyncServerNotification),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct SyncServerNotification {
-	#[tangram_serialize(id = 0)]
-	pub command_sync: tg::Referent<tg::sync::Id>,
-
-	#[tangram_serialize(id = 1)]
-	pub outcome_sync: tg::Referent<tg::sync::Id>,
-}
+pub enum ServerNotification {}
 
 #[derive(
 	Clone,

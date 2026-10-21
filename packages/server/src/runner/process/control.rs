@@ -525,10 +525,10 @@ impl Session {
 						},
 					}
 				},
-				tg::process::control::ServerMessage::Notification(
-					tg::process::control::ServerNotification::Sync(_),
-				)
-				| tg::process::control::ServerMessage::Response(_) => {},
+				tg::process::control::ServerMessage::Notification(notification) => {
+					match notification {}
+				},
+				tg::process::control::ServerMessage::Response(_) => {},
 				tg::process::control::ServerMessage::Ack(_) => unreachable!(),
 			}
 		}

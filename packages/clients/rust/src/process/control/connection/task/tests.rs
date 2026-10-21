@@ -97,13 +97,11 @@ async fn cancellation_removes_requests_before_replay() {
 async fn start_requires_a_successful_response_before_resume() {
 	for success in [false, true] {
 		let (events, _receiver) = mpsc::channel(64);
-		let (sync, _) = watch::channel(None);
 		let mut state = State::new(
 			stream::pending().boxed(),
 			None,
 			None,
 			events,
-			sync,
 			Config::default(),
 		);
 		let value = serde_json::json!({

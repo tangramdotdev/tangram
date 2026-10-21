@@ -172,7 +172,7 @@ def early_finish():
                 checkpoint("wait", name, watches[name], 0)
             checkpoint("unwatch", "process.control.header", watches.pop("process.control.header"))
             sock, response, output = pending.result(timeout=10)
-            assert "command_sync" in output, output
+            assert "token" in output, output
             receive(response, "ack", request_id)
             close(sock, response)
             # End the synthetic writer's empty log.
@@ -189,7 +189,6 @@ def early_finish():
         sock, response, reconnected = connect(arg, output["token"])
     finally:
         checkpoint("unwatch", "process.control.index.started", watch)
-    assert "command_sync" in reconnected, reconnected
     request(sock, response, request_id, finish)
     close(sock, response)
     process = json.loads(subprocess.check_output(command + ["get", arg["id"]], timeout=10))

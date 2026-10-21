@@ -19,7 +19,6 @@ pub(super) struct State {
 	input: BoxStream<'static, tg::Result<tg::control::Event<ServerMessage>>>,
 	lease: Option<tg::process::Lease>,
 	low: Option<mpsc::Sender<ClientMessage>>,
-	outcome_sync: watch::Sender<Option<tg::Referent<tg::sync::Id>>>,
 	pending: IndexMap<String, Pending>,
 	start: Option<ClientRequest>,
 	untracked: VecDeque<(ClientMessage, Priority)>,
@@ -45,7 +44,6 @@ pub(super) enum Update {
 		low: mpsc::Sender<ClientMessage>,
 		sender: oneshot::Sender<Option<tg::process::Lease>>,
 	},
-	OutcomeSync(tg::Referent<tg::sync::Id>),
 	Remove(String),
 }
 
@@ -130,11 +128,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 						.try_get_process_control_stream(state.arg.clone(), input)
 						.await
 					{
-						Ok(Some((header, stream))) => {
-							// Store the reconnect header's outcome sync for the connection's outcome sync watch.
-							if let Some(sync) = &header.outcome_sync {
-								sender.updates.send(Update::OutcomeSync(sync.clone())).ok();
-							}
+						Ok(Some((_, stream))) => {
 							state.stream.replace(stream.boxed());
 							return Some((Ok(tg::control::Event::Reconnect), state));
 						},
@@ -177,7 +171,6 @@ impl State {
 		high: Option<mpsc::Sender<ClientMessage>>,
 		low: Option<mpsc::Sender<ClientMessage>>,
 		events: mpsc::Sender<tg::Result<tg::control::Event<ServerMessage>>>,
-		outcome_sync: watch::Sender<Option<tg::Referent<tg::sync::Id>>>,
 		config: Config,
 	) -> Self {
 		Self {
@@ -190,7 +183,6 @@ impl State {
 			input,
 			lease: None,
 			low,
-			outcome_sync,
 			pending: IndexMap::new(),
 			start: None,
 			untracked: VecDeque::new(),
@@ -341,9 +333,6 @@ impl State {
 				}
 				sender.send(self.lease).ok();
 			},
-			Update::OutcomeSync(sync) => {
-				self.outcome_sync.send_replace(Some(sync));
-			},
 			Update::Remove(id) => {
 				self.pending.shift_remove(&id);
 			},
@@ -440,11 +429,7 @@ impl State {
 					return Ok(());
 				}
 			},
-			ServerMessage::Notification(ServerNotification::Sync(notification)) => {
-				self.outcome_sync
-					.send_replace(Some(notification.outcome_sync.clone()));
-				return Ok(());
-			},
+			ServerMessage::Notification(notification) => match *notification {},
 		}
 		self.deliveries
 			.push_back(tg::control::Event::Message(message));
