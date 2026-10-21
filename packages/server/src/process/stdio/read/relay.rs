@@ -165,7 +165,7 @@ impl Session {
 				},
 				result = &mut ack_task => {
 					result
-						.map_err(|error| tg::error!(unavailable, !error, "the stdio acknowledgment task panicked"))?
+						.map_err(|error| tg::error!(!error, "the stdio acknowledgment task panicked"))?
 						.map_err(super::super::relay::error)?;
 					return Ok(());
 				},

@@ -173,7 +173,7 @@ impl Session {
 							(&mut relay)
 								.await
 								.map_err(|error| {
-									tg::error!(unavailable, !error, "the stdio relay task panicked")
+									tg::error!(!error, "the stdio relay task panicked")
 								})?
 								.map_err(super::super::relay::error)?;
 						}
@@ -189,7 +189,7 @@ impl Session {
 			tokio::select! {
 				result = &mut relay, if !relayed => {
 					result
-						.map_err(|error| tg::error!(unavailable, !error, "the stdio relay task panicked"))?
+						.map_err(|error| tg::error!(!error, "the stdio relay task panicked"))?
 						.map_err(super::super::relay::error)?;
 					relayed = true;
 				},

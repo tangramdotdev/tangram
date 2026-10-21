@@ -4,7 +4,6 @@ use {
 	futures::{prelude::*, stream::BoxStream},
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	std::ops::ControlFlow,
-	tangram_futures::write::Ext as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{
@@ -632,40 +631,7 @@ impl tg::Session {
 		let uri = Uri::builder().path("/sync").build().unwrap();
 
 		// Create the body.
-		let stream = stream.then(move |result| async move {
-			let frame = match result {
-				Ok(message) => {
-					let message = tangram_serialize::to_vec(&message).unwrap();
-					let message_len = message.len();
-					let len = u64::try_from(message_len).map_err(
-						|error| tg::error!(!error, len = %message_len, "sync frame length out of range"),
-					)?;
-					if len > max_frame_size {
-						return Err(tg::error!(
-							len = %len,
-							max = %max_frame_size,
-							"sync frame too large"
-						));
-					}
-					let mut bytes = Vec::with_capacity(9 + message.len());
-					bytes.write_uvarint(len).await.unwrap();
-					bytes.write_all(&message).await.unwrap();
-					hyper::body::Frame::data(bytes.into())
-				},
-				Err(error) => {
-					let mut trailers = http::HeaderMap::new();
-					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-					let json = error.state().object().map_or_else(
-						|| serde_json::to_string(&error.id()).unwrap(),
-						|object| serde_json::to_string(&object.to_data()).unwrap(),
-					);
-					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-					hyper::body::Frame::trailers(trailers)
-				},
-			};
-			Ok::<_, tg::Error>(frame)
-		});
-		let body = tangram_http::body::Boxed::with_stream(stream);
+		let body = crate::http::frame::encode(stream, max_frame_size);
 
 		// Send the request.
 		let mut request = http::request::Builder::default();
@@ -706,23 +672,6 @@ impl tg::Session {
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
-		if content_type.as_ref().is_some_and(|value| {
-			value.type_() == mime::TEXT && value.subtype() == mime::EVENT_STREAM
-		}) {
-			let mut reader = response.reader();
-			let header = tangram_http::body::header::get(
-				&mut reader,
-				self.client().http.max_header_length,
-				tangram_http::body::encoding::Encoding::Json,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
-			let stream = tangram_http::sse::decode(tokio::io::BufReader::new(reader))
-				.map_err(|error| tg::error!(!error, "failed to read the sync message"))
-				.and_then(|event| futures::future::ready(event.try_into()))
-				.boxed();
-			return Ok(ControlFlow::Break((header, stream)));
-		}
 		if content_type != Some(tg::sync::CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}

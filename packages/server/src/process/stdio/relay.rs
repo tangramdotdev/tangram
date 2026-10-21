@@ -43,13 +43,13 @@ pub(super) fn error(error: relay::Error) -> tg::Error {
 				.and_then(|error| error.try_into().ok())
 				.unwrap_or_else(|| tg::error!("the stdio relay was aborted"))
 		},
-		relay::Error::Closed => tg::error!(unavailable, "the stdio relay closed"),
+		relay::Error::Closed => tg::error!("the stdio relay closed"),
 		relay::Error::Messenger(source) => {
-			tg::error!(unavailable, !source, "the stdio relay failed")
+			tg::error!(!source, "the stdio relay failed")
 		},
 		relay::Error::Options(message) => tg::error!(%message, "invalid stdio relay options"),
-		relay::Error::Reset => tg::error!(unavailable, "the stdio relay was reset"),
-		relay::Error::Timeout => tg::error!(unavailable, "the stdio relay timed out"),
+		relay::Error::Reset => tg::error!("the stdio relay was reset"),
+		relay::Error::Timeout => tg::error!("the stdio relay timed out"),
 	}
 }
 

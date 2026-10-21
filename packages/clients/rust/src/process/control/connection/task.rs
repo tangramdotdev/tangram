@@ -69,7 +69,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 	let instance = instance.clone();
 	let stream_retry = instance.arg().stream_retry;
 
-	// Get the initial header and stream, retrying with backoff while the server is unavailable, so that a start whose header the client has not received is replayed.
+	// Get the initial header and stream, retrying with backoff while the request cannot reach a server, so that a start whose header the client has not received is replayed.
 	let mut retries = tangram_futures::retry::stream(stream_retry.clone()).boxed();
 	let (header, output_stream) = loop {
 		let (_, input) = sender.attach().await?;
@@ -97,12 +97,14 @@ pub(super) async fn open_stream<I: tg::Instance>(
 	// Yield events from the stream, reconnecting with backoff when the stream ends before the connection closes, which is how a stream reports a lost connection.
 	struct StreamState {
 		arg: Arg,
+		ended: bool,
 		error: Option<tg::Error>,
 		retries: Option<BoxStream<'static, ()>>,
 		stream: Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>,
 	}
 	let state = StreamState {
 		arg,
+		ended: false,
 		error: None,
 		retries: None,
 		stream: Some(output_stream.boxed()),
@@ -112,15 +114,23 @@ pub(super) async fn open_stream<I: tg::Instance>(
 		let sender = sender.clone();
 		let stream_retry = stream_retry.clone();
 		async move {
+			// End the stream after it yields an error.
+			if state.ended {
+				return None;
+			}
 			loop {
 				if state.stream.is_none() {
 					let (lease, input) = match sender.attach().await {
 						Ok(output) => output,
-						Err(error) => return Some((Err(error), state)),
+						Err(error) => {
+							state.ended = true;
+							return Some((Err(error), state));
+						},
 					};
 					if let Some(lease) = lease {
 						state.arg.mode = Mode::Resume { lease };
 					}
+
 					// Fail with the last error once the retries are exhausted.
 					let retries = state.retries.get_or_insert_with(|| {
 						tangram_futures::retry::stream(stream_retry.clone()).boxed()
@@ -130,6 +140,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 							.error
 							.take()
 							.unwrap_or_else(|| tg::error!("the control stream ended"));
+						state.ended = true;
 						return Some((Err(error), state));
 					}
 					match instance
@@ -143,6 +154,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 						},
 						Ok(ControlFlow::Break(None)) => {
 							let error = tg::error!("failed to find the process");
+							state.ended = true;
 							return Some((Err(error), state));
 						},
 						Ok(ControlFlow::Continue(error)) => {
@@ -151,6 +163,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 							continue;
 						},
 						Err(error) => {
+							state.ended = true;
 							return Some((Err(error), state));
 						},
 					}
@@ -161,6 +174,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 						return Some((Ok(tg::control::Event::Message(event)), state));
 					},
 					Some(Err(error)) => {
+						state.ended = true;
 						return Some((Err(error), state));
 					},
 					None => {

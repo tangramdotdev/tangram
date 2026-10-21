@@ -16,9 +16,13 @@ impl Error {
 	/// Get the kind without loading source objects.
 	#[must_use]
 	pub fn kind(&self) -> Option<tg::error::Kind> {
-		self.kind.or_else(|| match &self.source.as_ref()?.node {
-			tg::Either::Left(object) => object.kind(),
-			tg::Either::Right(error) => error.kind(),
+		// Inherit the source's kind, except that only an error's own kind can make it unavailable.
+		self.kind.or_else(|| {
+			let kind = match &self.source.as_ref()?.node {
+				tg::Either::Left(object) => object.kind(),
+				tg::Either::Right(error) => error.kind(),
+			};
+			kind.filter(|kind| *kind != tg::error::Kind::Unavailable)
 		})
 	}
 

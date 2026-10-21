@@ -52,10 +52,7 @@ pub(crate) async fn all<I: tg::Instance>(
 				&& retries.next().await.is_none()
 			{
 				let error = error.take().unwrap_or_else(|| {
-					tg::error!(
-						unavailable,
-						"the process stdio stream ended before completion"
-					)
+					tg::error!("the process stdio stream ended before completion")
 				});
 				return Err(error);
 			}

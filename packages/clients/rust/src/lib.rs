@@ -335,7 +335,9 @@ impl Client {
 			ttl: None,
 		};
 		let pool = self::http::Pool::new(options, || async {
-			Err(tg::error!("cannot create a connection for a stream client"))
+			Err(self::http::Error::Other(tg::error!(
+				"cannot create a connection for a stream client"
+			)))
 		});
 		pool.add(self::http::Connection::new(sender));
 		let service = Self::service(&version, &pool, &url, http);

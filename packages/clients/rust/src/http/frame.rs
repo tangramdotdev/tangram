@@ -92,7 +92,7 @@ where
 }
 
 /// Read a body's header, returning `None` if the body ended before its header, which happens when the connection is lost.
-pub(crate) async fn header<H, R>(
+async fn header<H, R>(
 	reader: &mut R,
 	max_header_length: u64,
 	encoding: tangram_http::body::encoding::Encoding,
@@ -115,10 +115,7 @@ where
 	}
 }
 
-pub(crate) fn decode_reader<T, R>(
-	reader: R,
-	max_frame_size: u64,
-) -> BoxStream<'static, tg::Result<T>>
+fn decode_reader<T, R>(reader: R, max_frame_size: u64) -> BoxStream<'static, tg::Result<T>>
 where
 	R: tokio::io::AsyncRead + Send + Unpin + 'static,
 	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
@@ -194,7 +191,7 @@ where
 }
 
 /// Split a body into a reader of its data and a receiver of its trailers, ending the reader when the body fails, because a lost connection ends the attempt and the caller reconnects.
-pub(crate) fn split_body(
+fn split_body(
 	body: Boxed,
 ) -> (
 	impl tokio::io::AsyncRead + Send + Unpin + 'static,

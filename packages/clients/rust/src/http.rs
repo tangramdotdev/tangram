@@ -21,7 +21,7 @@ use {
 
 pub(crate) mod frame;
 
-pub(crate) type Pool = tangram_pool::Pool<Connection, tg::Error>;
+pub(crate) type Pool = tangram_pool::Pool<Connection, Error>;
 
 pub(crate) type Service = BoxCloneSyncService<
 	http::Request<tangram_http::body::Boxed>,
@@ -35,7 +35,7 @@ pub(crate) struct Connection {
 
 struct Body {
 	body: tangram_http::body::Boxed,
-	guard: Option<tangram_pool::SharedGuard<Connection, tg::Error>>,
+	guard: Option<tangram_pool::SharedGuard<Connection, Error>>,
 }
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
@@ -65,8 +65,13 @@ impl tg::Client {
 					let url = url.clone();
 					async move {
 						match Self::connect_h2(&url, http).await {
-							Ok(sender) => Ok(ControlFlow::Break(Connection::new(sender))),
-							Err(error) => Ok(ControlFlow::Continue(error)),
+							Ok(ControlFlow::Break(sender)) => {
+								Ok(ControlFlow::Break(Connection::new(sender)))
+							},
+							Ok(ControlFlow::Continue(error)) => {
+								Ok(ControlFlow::Continue(Error::Connection(error)))
+							},
+							Err(error) => Err(Error::Other(error)),
 						}
 					}
 				})
@@ -90,10 +95,7 @@ impl tg::Client {
 				async move {
 					let request = with_origin(request, origin.as_deref())?;
 					let connection = loop {
-						let connection = pool
-							.get_shared(tangram_pool::Priority::default())
-							.await
-							.map_err(Error::Connection)?;
+						let connection = pool.get_shared(tangram_pool::Priority::default()).await?;
 						if connection.is_closed() {
 							connection.discard();
 							continue;
@@ -180,7 +182,11 @@ impl tg::Client {
 			let guard = self
 				.pool
 				.get_shared(tangram_pool::Priority::default())
-				.await?;
+				.await
+				.map_err(|error| match error {
+					Error::Connection(error) | Error::Other(error) => error,
+					Error::Hyper(source) => tg::error!(!source, "failed to connect"),
+				})?;
 			if guard.is_closed() {
 				guard.discard();
 				continue;
@@ -268,12 +274,16 @@ impl tg::Client {
 	async fn connect_h2(
 		url: &Uri,
 		http: tg::Http,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
+	) -> tg::Result<
+		ControlFlow<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>, tg::Error>,
+	> {
 		let connect_timeout = http.connect_timeout;
 		match url.scheme() {
 			Some("http+stdio") => {
 				let stream = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
-				Self::handshake_h2(stream, http).await
+				Ok(Self::handshake_h2(stream, http)
+					.await
+					.map_or_else(ControlFlow::Continue, ControlFlow::Break))
 			},
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -282,8 +292,13 @@ impl tg::Client {
 					.ok_or_else(|| tg::error!("invalid url"))?
 					.try_into()
 					.map_err(|_| tg::error!("invalid port"))?;
-				let stream = Self::connect_tcp(host, port, connect_timeout).await?;
-				Self::handshake_h2(stream, http).await
+				let stream = match Self::connect_tcp(host, port, connect_timeout).await {
+					Ok(stream) => stream,
+					Err(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				Ok(Self::handshake_h2(stream, http)
+					.await
+					.map_or_else(ControlFlow::Continue, ControlFlow::Break))
 			},
 			Some("https") => {
 				#[cfg(not(feature = "tls"))]
@@ -300,17 +315,32 @@ impl tg::Client {
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.try_into()
 						.map_err(|_| tg::error!("invalid port"))?;
-					let stream =
-						Self::connect_tcp_tls(host, port, vec![b"h2".into()], connect_timeout)
-							.await?;
+					let stream = match Self::connect_tcp_tls(
+						host,
+						port,
+						vec![b"h2".into()],
+						connect_timeout,
+					)
+					.await
+					{
+						Ok(stream) => stream,
+						Err(error) => return Ok(ControlFlow::Continue(error)),
+					};
 					Self::verify_alpn_protocol(&stream, b"h2")?;
-					Self::handshake_h2(stream, http).await
+					Ok(Self::handshake_h2(stream, http)
+						.await
+						.map_or_else(ControlFlow::Continue, ControlFlow::Break))
 				}
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				let stream = Self::connect_unix(Path::new(path)).await?;
-				Self::handshake_h2(stream, http).await
+				let stream = match Self::connect_unix(Path::new(path)).await {
+					Ok(stream) => stream,
+					Err(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				Ok(Self::handshake_h2(stream, http)
+					.await
+					.map_or_else(ControlFlow::Continue, ControlFlow::Break))
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -326,8 +356,13 @@ impl tg::Client {
 						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, port);
-					let stream = Self::connect_vsock(addr, connect_timeout).await?;
-					Self::handshake_h2(stream, http).await
+					let stream = match Self::connect_vsock(addr, connect_timeout).await {
+						Ok(stream) => stream,
+						Err(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					Ok(Self::handshake_h2(stream, http)
+						.await
+						.map_or_else(ControlFlow::Continue, ControlFlow::Break))
 				}
 			},
 			_ => Err(tg::error!(%url, "invalid url")),
@@ -558,13 +593,13 @@ impl tg::Client {
 			Err(Error::Other(error)) => return Err(error),
 		};
 
-		// Continue if the server responded that it is unavailable.
+		// Continue if the server responded that it is unavailable, including the server's error when the body has one.
 		if response.status() == http::StatusCode::SERVICE_UNAVAILABLE {
-			let error = response
-				.json::<tg::Error>()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
-			let error = tg::error!(!error, "the server is unavailable");
+			let error = if let Ok(error) = response.json::<tg::Error>().await {
+				tg::error!(!error, "the server is unavailable")
+			} else {
+				tg::error!("the server is unavailable")
+			};
 			return Ok(ControlFlow::Continue(error));
 		}
 		let response = response.map(Into::into);
@@ -641,45 +676,13 @@ impl tg::Session {
 
 	pub(crate) async fn send_with_retry<B>(
 		&self,
-		mut request: http::Request<B>,
+		request: http::Request<B>,
 	) -> tg::Result<http::Response<tangram_http::body::Boxed>>
 	where
 		B: http_body::Body<Data = bytes::Bytes> + Clone + Send + Unpin + 'static,
 		B::Error: Into<tangram_http::Error> + Clone + Send,
 	{
-		self.apply_context_headers(&mut request);
-		let session = self.clone();
-		tangram_futures::retry(&self.client().retry, || {
-			let session = session.clone();
-			let request = request.clone();
-			async move {
-				let request = request.boxed_body();
-				let future = session.client().service.clone().call(request);
-				match future.await {
-					Ok(response) => {
-						let response = response.map(Into::into);
-						Ok(ControlFlow::Break(response))
-					},
-					Err(Error::Hyper(error)) if is_retryable_error(&error) => {
-						Ok(ControlFlow::Continue(tg::error!(
-							unavailable,
-							!error,
-							"failed to send the request"
-						)))
-					},
-					Err(error) => Err(match error {
-						Error::Connection(error) | Error::Other(error) => error,
-						Error::Hyper(source) if is_transport_error(&source) => {
-							tg::error!(unavailable, source = source, "failed to send the request")
-						},
-						Error::Hyper(source) => {
-							tg::error!(source = source, "failed to send the request")
-						},
-					}),
-				}
-			}
-		})
-		.await
+		tangram_futures::retry(&self.client().retry, || self.send_attempt(request.clone())).await
 	}
 }
 

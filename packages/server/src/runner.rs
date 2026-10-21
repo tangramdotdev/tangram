@@ -432,6 +432,7 @@ impl Session {
 		loop {
 			let stop_future = stopper.wait();
 			let stop_future = pin!(stop_future);
+			let started = tokio::time::Instant::now();
 			let run_future = self.runner_task_inner(&id, &mut cleanup, stopper.clone());
 			let run_future = pin!(run_future);
 			let future::Either::Right((result, _)) = future::select(stop_future, run_future).await
@@ -440,12 +441,20 @@ impl Session {
 			};
 			self.server.runner.state.set_scheduler(None);
 
-			// Reconnect at once after a connection ends, with backoff while the scheduler cannot be reached, and after the restart delay after a failure.
+			// Reconnect at once after a connection that lasted a heartbeat interval ends, with backoff while the scheduler cannot be reached or a connection ends sooner, and after the restart delay after a failure.
+			let lasted = started.elapsed() >= self.server.config.runner.heartbeat_interval;
 			let delay = match result {
-				Ok(ControlFlow::Break(())) => {
+				Ok(ControlFlow::Break(())) if lasted => {
 					tracing::info!(runner = %id, "the runner control connection ended");
 					retries = None;
 					continue;
+				},
+				Ok(ControlFlow::Break(())) => {
+					tracing::warn!(runner = %id, "the runner control connection ended before a heartbeat interval");
+					let retries = retries.get_or_insert_with(|| {
+						tangram_futures::retry::stream(crate::Server::client_stream_retry()).boxed()
+					});
+					retries.next().boxed()
 				},
 				Ok(ControlFlow::Continue(error)) => {
 					tracing::warn!(error = %error.trace(), runner = %id, "failed to reach the scheduler");

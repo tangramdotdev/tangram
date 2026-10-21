@@ -545,11 +545,13 @@ pub trait Ext: tg::Instance {
 
 			// Yield events from the stream, reconnecting with backoff when the stream ends early, which is how a stream reports a lost connection.
 			struct State {
+				ended: bool,
 				error: Option<tg::Error>,
 				retries: Option<BoxStream<'static, ()>>,
 				stream: Option<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>>,
 			}
 			let state = State {
+				ended: false,
 				error: None,
 				retries: None,
 				stream: Some(output_stream.boxed()),
@@ -561,6 +563,10 @@ pub trait Ext: tg::Instance {
 				let create_state = create_state.clone();
 				let stream_retry = stream_retry.clone();
 				async move {
+					// End the stream after it yields an error.
+					if state.ended {
+						return None;
+					}
 					loop {
 						if state.stream.is_none() {
 							// A successful create confirms submission, not persistence.
@@ -570,6 +576,7 @@ pub trait Ext: tg::Instance {
 							}))
 							.chain(input_receiver.clone())
 							.boxed();
+
 							// Fail with the last error once the retries are exhausted.
 							let retries = state.retries.get_or_insert_with(|| {
 								tangram_futures::retry::stream(stream_retry.clone()).boxed()
@@ -578,6 +585,7 @@ pub trait Ext: tg::Instance {
 								let error = state.error.take().unwrap_or_else(|| {
 									tg::error!("the sandbox control stream ended")
 								});
+								state.ended = true;
 								return Some((Err(error), state));
 							}
 							match instance
@@ -594,7 +602,10 @@ pub trait Ext: tg::Instance {
 									state.error = Some(error);
 									continue;
 								},
-								Err(error) => return Some((Err(error), state)),
+								Err(error) => {
+									state.ended = true;
+									return Some((Err(error), state));
+								},
 							}
 						}
 						match state.stream.as_mut().unwrap().next().await {
@@ -602,7 +613,10 @@ pub trait Ext: tg::Instance {
 								state.retries.take();
 								return Some((Ok(tg::control::Event::Message(event)), state));
 							},
-							Some(Err(error)) => return Some((Err(error), state)),
+							Some(Err(error)) => {
+								state.ended = true;
+								return Some((Err(error), state));
+							},
 							None => {
 								state.stream.take();
 							},
@@ -744,10 +758,7 @@ pub trait Ext: tg::Instance {
 						});
 						if retries.next().await.is_none() {
 							let error = state.error.take().unwrap_or_else(|| {
-								tg::error!(
-									unavailable,
-									"the process stdio stream ended before completion"
-								)
+								tg::error!("the process stdio stream ended before completion")
 							});
 							return Err(error);
 						}
