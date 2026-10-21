@@ -18,7 +18,7 @@ wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
 let output = tg pull $id | complete
 failure $output
 # The local destination can return its header before the source fails, moving the same error into the stream.
-let stderr = $output.stderr | str replace --regex '-> failed to pull\n-> the request failed\n   status = 50[03] [A-Za-z ]+\n-> failed to start the pull\n' ''
+let stderr = $output.stderr | str replace --regex '-> failed to pull\n-> the request failed\n   status = 500 Internal Server Error\n-> failed to start the pull\n' ''
 snapshot --normalize-ids --redact [$remote.url $remote.directory ($remote.directory | path expand)] $stderr '
 	error an error occurred
 	-> failed to create the source stream
