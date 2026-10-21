@@ -1262,6 +1262,63 @@ export def wait_until [
 	}
 }
 
+# Watch a checkpoint and return a handle for the other checkpoint helpers. Without --url, the watch is on the server in $env.TANGRAM_URL.
+export def "checkpoint watch" [
+	name: string
+	--params: record
+	--token: string
+	--url: string
+] {
+	let connection = [
+		(if $url == null { [] } else { [--url $url] })
+		(if $token == null { [] } else { [--token $token] })
+	] | flatten
+	let params = $params | default {} | to json --raw
+	let watch = tg ...$connection checkpoint watch $name --params $params | from json | get watch
+
+	{ connection: $connection, name: $name, watch: $watch }
+}
+
+# Wait for a hit of a watched checkpoint and return it.
+export def "checkpoint wait" [
+	checkpoint: record
+	hit: int = 0
+	--timeout: duration = 30sec
+] {
+	let seconds = $timeout / 1sec | math ceil
+	let output = ^timeout $seconds tg ...$checkpoint.connection checkpoint wait $checkpoint.name $checkpoint.watch $hit | complete
+	if $output.exit_code != 0 {
+		error make {
+			msg: $'the checkpoint ($checkpoint.name) did not reach hit ($hit) within ($timeout)'
+			help: $output.stderr
+		}
+	}
+
+	$output.stdout | from json
+}
+
+# Let a held hit of a watched checkpoint continue.
+export def "checkpoint continue" [checkpoint: record, hit: int = 0] {
+	tg ...$checkpoint.connection checkpoint continue $checkpoint.name $checkpoint.watch $hit
+}
+
+# Wait for a hit of a watched checkpoint, let it continue, and return it.
+export def "checkpoint pass" [
+	checkpoint: record
+	hit: int = 0
+	--timeout: duration = 30sec
+] {
+	let result = checkpoint wait $checkpoint $hit --timeout $timeout
+	checkpoint continue $checkpoint $hit
+
+	$result
+}
+
+# Stop watching a checkpoint, which lets every held hit continue.
+export def "checkpoint unwatch" [checkpoint: record] {
+	tg ...$checkpoint.connection checkpoint unwatch $checkpoint.name $checkpoint.watch
+}
+
 # Wait for a process to exit. Unlike polling `ps`, this returns as soon as the process exits.
 export def wait_for_exit [
 	pid: int
