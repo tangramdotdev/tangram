@@ -1,8 +1,9 @@
 use {
 	crate::prelude::*,
 	futures::{TryFutureExt as _, future},
+	std::pin::pin,
 	tangram_http::{request::Ext as _, request::builder::Ext as _, response::Ext as _},
-	tokio::io::{AsyncBufRead, AsyncWrite},
+	tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt as _},
 };
 
 impl tg::Session {
@@ -42,11 +43,33 @@ impl tg::Session {
 			.map_err(|error| tg::error!(!error, "failed to perform the upgrade"))?;
 		let io = hyper_util::rt::TokioIo::new(io);
 		let (mut o, mut i) = tokio::io::split(io);
-		let input = tokio::io::copy(&mut input, &mut i)
-			.map_err(|error| tg::error!(!error, "failed to copy the input"));
+
+		// Copy the input until it ends, then shut down the write half so the server sees the end of the input.
+		let input = async move {
+			tokio::io::copy(&mut input, &mut i)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to copy the input"))?;
+			i.shutdown()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to shut down the input"))?;
+			Ok::<_, tg::Error>(())
+		};
+
+		// Copy the output until the server closes the connection.
 		let output = tokio::io::copy(&mut o, &mut output)
 			.map_err(|error| tg::error!(!error, "failed to copy the output"));
-		future::try_join(input, output).await?;
+
+		// Finish when the server closes the connection, because the server stops reading after the exit notification and the input may never end.
+		match future::select(pin!(input), pin!(output)).await {
+			future::Either::Left((result, output)) => {
+				result?;
+				output.await?;
+			},
+			future::Either::Right((result, _)) => {
+				result?;
+			},
+		}
+
 		Ok(())
 	}
 }
