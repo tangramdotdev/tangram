@@ -309,7 +309,7 @@ fn sysv_keys(paths: &[PathBuf]) -> Vec<String> {
 	keys
 }
 
-/// Stop the FSKit provider so that it does not keep stale mounts.
+/// Stop the `FSKit` provider so that it does not keep stale mounts.
 #[cfg(target_os = "macos")]
 async fn stop_fskit_provider(release: bool) {
 	let name = if release { "Tangram" } else { "Tangram Dev" };

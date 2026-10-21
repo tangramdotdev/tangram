@@ -295,14 +295,6 @@ export namespace Object {
 		}
 
 		async load(client = tg.client): Promise<tg.Object.Object> {
-			let object = await this.#loadInner(client);
-			for (let child of tg.Object.Object.children(object)) {
-				child.state.inheritTokens(this.#tokens);
-			}
-			return object;
-		}
-
-		async #loadInner(client = tg.client): Promise<tg.Object.Object> {
 			if (this.#object !== null) {
 				return this.#object;
 			}
@@ -342,6 +334,7 @@ export namespace Object {
 				if (tokens !== undefined && tokens !== null) {
 					child.state.inheritTokens(tokens);
 				}
+				child.state.inheritTokens(this.#tokens);
 			}
 
 			return this.#object;

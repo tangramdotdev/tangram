@@ -397,24 +397,6 @@ impl State {
 	pub async fn try_load_with_arg_with_instance<I>(
 		&self,
 		instance: &I,
-		arg: tg::object::get::Arg,
-	) -> tg::Result<Option<tg::object::Object>>
-	where
-		I: tg::Instance,
-	{
-		let object = self.try_load_inner(instance, arg).await?;
-		if let Some(object) = &object {
-			let tokens = self.tokens();
-			for child in object.children() {
-				child.inherit_tokens(&tokens);
-			}
-		}
-		Ok(object)
-	}
-
-	async fn try_load_inner<I>(
-		&self,
-		instance: &I,
 		mut arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::Object>>
 	where
@@ -478,21 +460,29 @@ impl State {
 		let data = tg::object::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
 		let object = tg::object::Object::try_from_data(data)?;
+
+		// Update the tokens.
+		let tokens = {
+			let mut inner = self.0.write().unwrap();
+			if !output.tokens.is_empty() {
+				output
+					.tokens
+					.inherit_with_resource(&inner.tokens, Some(&id.into()));
+				inner.tokens = output.tokens;
+			}
+			inner.tokens.clone()
+		};
+
+		// Inherit the tokens on the children.
 		for child in object.children() {
 			if let Some(child_output) = output.children.get(&child.id()) {
 				child.inherit_tokens(&child_output.tokens);
 			}
+			child.inherit_tokens(&tokens);
 		}
 
-		// Update the state.
-		let mut inner = self.0.write().unwrap();
-		if !output.tokens.is_empty() {
-			output
-				.tokens
-				.inherit_with_resource(&inner.tokens, Some(&id.into()));
-			inner.tokens = output.tokens;
-		}
-		inner.object.replace(object.clone());
+		// Store the object.
+		self.0.write().unwrap().object.replace(object.clone());
 
 		Ok(Some(object))
 	}
@@ -578,5 +568,42 @@ impl StoreTask {
 				inner.store.take();
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[tokio::test]
+	async fn accessing_a_loaded_object_does_not_copy_tokens_onto_children() {
+		// Create a loaded parent with a child and give the parent a token.
+		let key =
+			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+				.unwrap();
+		let child = tg::Directory::with_id(tg::directory::Id::new(b"child"));
+		let parent =
+			tg::Directory::with_entries(BTreeMap::from([("child".into(), child.clone().into())]));
+		let body = tg::authorization::Body {
+			expires_at: i64::MAX,
+			permissions: vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)],
+			resource: parent.id().into(),
+		};
+		let token = tg::authorization::Token::sign(body, &key).unwrap();
+		parent
+			.state()
+			.set_tokens(tg::authorization::Tokens::with_authorization([token]));
+
+		// Access the loaded parent.
+		let arg = tg::Arg {
+			url: Some("http://localhost:1".parse().unwrap()),
+			..tg::Arg::default()
+		};
+		let client = tg::Client::new(arg).unwrap();
+		parent.state().load_with_instance(&client).await.unwrap();
+
+		assert!(child.state().tokens().is_empty());
 	}
 }
