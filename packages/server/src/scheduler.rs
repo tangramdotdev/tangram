@@ -404,8 +404,17 @@ impl Session {
 					.map_err(|_| Some(tg::error!("expected an enqueue sandbox response")))?;
 				if response.enqueued {
 					tracing::info!(%sandbox, %scheduler, "enqueued the sandbox");
+					crate::checkpoint!(self.server, "scheduler.sandbox.enqueued", sandbox = %sandbox)
+						.await;
 					Ok(ControlFlow::Break(scheduler))
 				} else {
+					crate::checkpoint!(
+						self.server,
+						"scheduler.sandbox.declined",
+						sandbox = %sandbox,
+						scheduler = %scheduler,
+					)
+					.await;
 					declined_sender.send_if_modified(|declined| {
 						if declined.as_ref() == Some(&scheduler) {
 							return false;

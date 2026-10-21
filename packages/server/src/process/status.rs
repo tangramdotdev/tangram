@@ -22,6 +22,27 @@ impl Session {
 	pub async fn try_get_process_status_stream(
 		&self,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		arg: tg::process::status::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
+		let output = self
+			.try_get_process_status_stream_inner(process, arg)
+			.await?;
+
+		// Let tests observe that the request reached the server before it changes what the request observes.
+		if output.is_some() {
+			let process = match process {
+				tg::Either::Left(nonce) => nonce.to_string(),
+				tg::Either::Right(id) => id.to_string(),
+			};
+			crate::checkpoint!(self.server, "process.status.subscribed", process = %process).await;
+		}
+
+		Ok(output)
+	}
+
+	async fn try_get_process_status_stream_inner(
+		&self,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		mut arg: tg::process::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut process = process.clone();

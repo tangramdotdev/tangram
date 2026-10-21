@@ -20,6 +20,25 @@ impl Session {
 	pub async fn try_wait_process_future(
 		&self,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		arg: tg::process::wait::Arg,
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
+		let output = self.try_wait_process_future_inner(process, arg).await?;
+
+		// Let tests observe that the request reached the server before it changes what the request observes.
+		if output.is_some() {
+			let process = match process {
+				tg::Either::Left(nonce) => nonce.to_string(),
+				tg::Either::Right(id) => id.to_string(),
+			};
+			crate::checkpoint!(self.server, "process.wait.subscribed", process = %process).await;
+		}
+
+		Ok(output)
+	}
+
+	async fn try_wait_process_future_inner(
+		&self,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		mut arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		let mut process = process.clone();
@@ -816,19 +835,27 @@ impl Session {
 			session.context.stopper = None;
 			let checkpoint_id = id.clone();
 			let id = id.clone();
+			let server = self.server.clone();
 			let guard = scopeguard::guard((), move |()| {
-				if cancel.load(Ordering::SeqCst) {
-					let arg = tg::process::cancel::Arg {
-						location: location.clone(),
-						lease,
-					};
-					tokio::spawn(async move {
+				// Cancel the process if the wait did not complete, after a checkpoint that lets tests observe the decision.
+				let cancel = cancel.load(Ordering::SeqCst);
+				if !cancel && server.checkpoints.is_none() {
+					return;
+				}
+				let arg = tg::process::cancel::Arg {
+					location: location.clone(),
+					lease,
+				};
+				tokio::spawn(async move {
+					crate::checkpoint!(server, "process.wait.release", process = %id, cancel = %cancel)
+						.await;
+					if cancel {
 						session
 							.cancel_process(&tg::Either::Right(id.clone()), arg)
 							.await
 							.ok();
-					});
-				}
+					}
+				});
 			});
 			let server = self.server.clone();
 			let future = async move {

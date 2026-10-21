@@ -508,6 +508,15 @@ impl Session {
 		scopeguard::defer! {
 			processes_for_cleanup.remove(&id_for_cleanup);
 			server.runner.state.processes.remove(&id_for_cleanup);
+
+			// Let tests observe that the runner discarded the process state.
+			if server.checkpoints.is_some() {
+				let server = server.clone();
+				let id = id_for_cleanup.clone();
+				tokio::spawn(async move {
+					crate::checkpoint!(server, "runner.process.state.removed", process = %id).await;
+				});
+			}
 		}
 		crate::checkpoint!(
 			session.server,

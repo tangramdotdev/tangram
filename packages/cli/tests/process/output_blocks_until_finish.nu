@@ -14,11 +14,14 @@ let process = tg build --no-tokens --detach $path | referent node
 tg checkpoint wait runner.process.finish $watch 0 | ignore
 assert equal (tg process status --timeout 0 $process | from json) ["started"] "the process should not have finished"
 
-# Request the output while the process is held, then let the process finish.
+# Request the output while the process is held, wait for the request to reach the server, then let the process finish.
+let subscribed = checkpoint watch process.wait.subscribed --params { process: $process }
 let output = job spawn {
 	let id = job id
 	tg output $process | complete | job send --tag $id 0
 }
+checkpoint pass $subscribed
+checkpoint unwatch $subscribed
 tg checkpoint continue runner.process.finish $watch 0
 tg checkpoint unwatch runner.process.finish $watch
 

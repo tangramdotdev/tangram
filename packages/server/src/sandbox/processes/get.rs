@@ -26,6 +26,25 @@ struct LocalProcesses {
 impl Session {
 	pub async fn try_get_sandbox_processes_stream(
 		&self,
+		sandbox: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+		let output = self
+			.try_get_sandbox_processes_stream_inner(sandbox, arg)
+			.await?;
+
+		// Let tests observe that the request reached the server before it changes what the request observes.
+		if output.is_some() {
+			let sandbox = sandbox.clone();
+			crate::checkpoint!(self.server, "sandbox.processes.subscribed", sandbox = %sandbox)
+				.await;
+		}
+
+		Ok(output)
+	}
+
+	async fn try_get_sandbox_processes_stream_inner(
+		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {

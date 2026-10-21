@@ -528,6 +528,8 @@ impl Session {
 				}
 				let control = control_future.await;
 				let indexed = if control.as_ref().is_ok_and(&index_required) {
+					crate::checkpoint!(self.server, "process.get.index.required", process = %id)
+						.await;
 					get_index().await?
 				} else {
 					indexed
@@ -536,6 +538,8 @@ impl Session {
 			},
 			future::Either::Right((control, index_future)) => {
 				let indexed = if control.as_ref().is_ok_and(&index_required) {
+					crate::checkpoint!(self.server, "process.get.index.required", process = %id)
+						.await;
 					let indexed = index_future.await?;
 					if indexed.as_ref().is_some_and(index_complete) {
 						indexed

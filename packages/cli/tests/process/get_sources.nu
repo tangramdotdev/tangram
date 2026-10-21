@@ -76,10 +76,11 @@ let get_job = job spawn {
 	let output = tg --url $local_owner.url --token $root_token get $process | complete
 	$output | job send --tag $job_id 0
 }
+let required = checkpoint watch process.get.index.required --url $local_owner.url --token $root_token --params { process: $process }
 timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.get.index $watch 0 | ignore
 timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.control.response.published $response_watch 0 | ignore
-let premature = try { job recv --tag $get_job --timeout 200ms } catch { null }
-assert equal $premature null "a finished control response must consult the index"
+checkpoint pass $required
+checkpoint unwatch $required
 tg --url $local_owner.url --token $root_token checkpoint unwatch process.get.index $watch
 tg --url $local_owner.url --token $root_token checkpoint unwatch process.control.response.published $response_watch
 let output = job recv --tag $get_job --timeout 10sec

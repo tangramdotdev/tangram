@@ -47,11 +47,12 @@ for location in [local remote] {
 	let socket = $runner.url | str replace 'http+unix://' '' | url decode
 	let headers = { Authorization: $'Bearer ($root_token)' }
 	if $location == remote {
+		let removed = checkpoint watch runner.process.state.removed --url $runner.url --token $root_token --params { process: $process }
 		tg --url $runner.url --token $root_token checkpoint unwatch runner.process.control.retention.finished $retention_watch
-		wait_until {
-			let response = http get --allow-errors --full --max-time 10sec --unix-socket $socket --headers $headers $'http://localhost/processes/($process)?location=remote'
-			$response.status == 404
-		} --timeout 10sec "the remote runner state should expire"
+		checkpoint pass $removed
+		checkpoint unwatch $removed
+		let response = http get --allow-errors --full --max-time 10sec --unix-socket $socket --headers $headers $'http://localhost/processes/($process)?location=remote'
+		assert equal $response.status 404 "the remote runner state should expire"
 	}
 	let response = http get --allow-errors --full --max-time 10sec --unix-socket $owner_socket --headers $headers $'http://localhost/processes/($process)?location=local'
 	assert equal $response.status 404
