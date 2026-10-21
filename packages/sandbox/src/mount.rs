@@ -891,16 +891,17 @@ pub(crate) fn mount_tmpfs(target: &Path) -> tg::Result<()> {
 }
 
 fn mount_dev(target: &Path) -> tg::Result<()> {
-	// Open the host device nodes.
+	// Open the host device nodes, skipping the optional devices that the host lacks.
 	let mut devices = Vec::new();
-	for path in [
-		"/dev/null",
-		"/dev/zero",
-		"/dev/full",
-		"/dev/random",
-		"/dev/urandom",
-		"/dev/tty",
-		"/dev/net/tun",
+	for (path, optional) in [
+		("/dev/null", false),
+		("/dev/zero", false),
+		("/dev/full", false),
+		("/dev/random", false),
+		("/dev/urandom", false),
+		("/dev/tty", false),
+		("/dev/fuse", true),
+		("/dev/net/tun", true),
 	] {
 		let file = match std::fs::File::options()
 			.custom_flags(libc::O_PATH)
@@ -908,9 +909,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 			.open(path)
 		{
 			Ok(file) => file,
-			Err(error)
-				if path == "/dev/net/tun" && error.kind() == std::io::ErrorKind::NotFound =>
-			{
+			Err(error) if optional && error.kind() == std::io::ErrorKind::NotFound => {
 				continue;
 			},
 			Err(error) => return Err(tg::error!(!error, %path, "failed to open the device")),
