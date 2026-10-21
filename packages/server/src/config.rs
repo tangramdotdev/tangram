@@ -1016,9 +1016,13 @@ pub struct Process {
 
 	pub control_channel_capacity: usize,
 
+	pub control_service: tangram_messenger::service::Options,
+
 	pub default_children_page_size: u64,
 
 	pub default_log_read_size: u64,
+
+	pub id_proof_window: Duration,
 
 	pub local_control_channel_capacity: usize,
 
@@ -1184,12 +1188,6 @@ pub struct Runner {
 	pub overcommit: tg::runner::Overcommit,
 
 	pub process_control_channel_capacity: usize,
-
-	pub process_control_connection_pool_refresh_interval: Duration,
-
-	pub process_control_connection_pool_size: usize,
-
-	pub process_control_connection_pool_ttl: Duration,
 
 	pub process_state_ttl: Duration,
 
@@ -2705,8 +2703,17 @@ impl Default for Process {
 			connect: ProcessConnect::default(),
 			control: tg::process::control::Config::default(),
 			control_channel_capacity: 512,
+			control_service: tangram_messenger::service::Options {
+				attempt_ttl: Duration::from_secs(10),
+				heartbeat_interval: Duration::from_secs(1),
+				idle_timeout: Duration::from_secs(60),
+				recovery_timeout: Duration::from_secs(10),
+				request_timeout: Duration::from_secs(10),
+				retry_interval: Duration::from_secs(1),
+			},
 			default_children_page_size: 256,
 			default_log_read_size: 4096,
+			id_proof_window: Duration::from_mins(2),
 			local_control_channel_capacity: 256,
 			log_cache_partition_total: 1,
 			log_time_to_live: Duration::from_hours(1),
@@ -2855,9 +2862,6 @@ impl Default for Runner {
 			memory_sampling_interval: Duration::from_secs(1),
 			overcommit: tg::runner::Overcommit::default(),
 			process_control_channel_capacity: 256,
-			process_control_connection_pool_refresh_interval: Duration::from_millis(2500),
-			process_control_connection_pool_size: 8,
-			process_control_connection_pool_ttl: Duration::from_secs(5),
 			process_state_ttl: Duration::from_mins(1),
 			progress_channel_capacity: 16,
 			progress_log_delay: Duration::from_secs(2),

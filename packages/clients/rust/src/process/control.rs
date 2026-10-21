@@ -16,21 +16,14 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-control"
 #[derive(
 	Clone,
 	Debug,
-	Default,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
-	/// The sync that pushes the process's command objects, which a reconnect reuses.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
-	pub command_sync: Option<tg::Referent<tg::sync::Id>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
-	pub id: Option<tg::process::Id>,
+	#[tangram_serialize(id = 0)]
+	pub id: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
@@ -39,16 +32,15 @@ pub struct Arg {
 	#[tangram_serialize(id = 2)]
 	pub mode: Mode,
 
-	/// The sync that pushes the process's outcome objects, which a reconnect reuses.
+	/// The proof that the runner that opens the connection derived the process's ID, which a runner's start of a process on the shortcut path carries.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
-	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
+	pub proof: Option<tg::process::id::Proof>,
 }
 
 #[derive(
 	Clone,
 	Debug,
-	Default,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
@@ -63,9 +55,6 @@ pub enum Mode {
 	},
 	#[tangram_serialize(id = 1)]
 	Start(StartClientRequestArg),
-	#[default]
-	#[tangram_serialize(id = 2)]
-	Wait,
 }
 
 #[derive(
@@ -77,19 +66,7 @@ pub enum Mode {
 	tangram_serialize::Serialize,
 )]
 pub struct Header {
-	/// The sync that pushes the process's command objects.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
-	pub command_sync: Option<tg::Referent<tg::sync::Id>>,
-
-	/// The sync that pushes the process's outcome objects.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
-	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
-
-	#[tangram_serialize(id = 0)]
-	pub process: tg::Referent<tg::process::Id>,
-
+	/// The process's authentication token, which the server mints for a runner's start of a process on the shortcut path.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
@@ -275,9 +252,10 @@ pub struct Parent {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
 
-	/// The parent's process token.
-	#[tangram_serialize(id = 1)]
-	pub token: String,
+	/// The parent's process token, which is absent while the runner waits for it, in which case the parent's control service verifies that the runner started the parent.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 #[derive(
@@ -527,26 +505,7 @@ pub struct ServerAck {
 	tangram_serialize::Serialize,
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerNotification {
-	#[tangram_serialize(id = 0)]
-	Sync(SyncServerNotification),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct SyncServerNotification {
-	#[tangram_serialize(id = 0)]
-	pub command_sync: tg::Referent<tg::sync::Id>,
-
-	#[tangram_serialize(id = 1)]
-	pub outcome_sync: tg::Referent<tg::sync::Id>,
-}
+pub enum ServerNotification {}
 
 #[derive(
 	Clone,

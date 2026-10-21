@@ -51,7 +51,7 @@ impl Session {
 			return Ok(Some(Process {
 				debug: process.data.debug.clone(),
 				host: process.data.host.clone(),
-				inner_token: Some(process.inner_token.clone()),
+				inner_token: process.inner_token.borrow().clone(),
 				location: Some(sandbox.location.clone()),
 				retry: process.data.retry,
 				sandbox: process
@@ -132,25 +132,56 @@ impl Session {
 		}))
 	}
 
+	/// Get the token with which this session's principal authenticates to a remote, and the process that the token claims when it is a runner's token that acts for one of its processes.
 	pub(crate) async fn try_get_authenticated_principal_remote_token(
 		&self,
 		remote: &str,
-	) -> tg::Result<Option<String>> {
+	) -> tg::Result<(Option<String>, Option<tg::process::Id>)> {
 		match &self.context.principal {
 			tg::Principal::Process(id) => {
 				let Some(process) = self.try_get_authenticated_process(id).await? else {
-					return Ok(None);
+					return Ok((None, None));
 				};
 				let Some(location) = process.location.as_ref() else {
-					return Ok(None);
+					return Ok((None, None));
 				};
 				let tg::Location::Remote(location) = location else {
-					return Ok(None);
+					return Ok((None, None));
 				};
 				if location.name != remote {
-					return Ok(None);
+					return Ok((None, None));
 				}
-				Ok(process.inner_token)
+
+				// Use the token of a process that this runner runs, or, until a process on the shortcut path receives its token in its control connection's header, claim the process with the runner's token.
+				let receiver = self
+					.server
+					.runner
+					.state()
+					.processes()
+					.get(id)
+					.map(|sandbox| sandbox.value().clone())
+					.and_then(|sandbox| self.server.runner.state().sandboxes().get_by_id(&sandbox))
+					.and_then(|sandbox| {
+						sandbox
+							.processes
+							.get(id)
+							.map(|process| process.inner_token.clone())
+					});
+				let Some(receiver) = receiver else {
+					return Ok((process.inner_token, None));
+				};
+				let token = receiver.borrow().clone();
+				if let Some(token) = token {
+					return Ok((Some(token), None));
+				}
+
+				// Send the runner's token only to the runner's remote.
+				let runner = &self.server.config.runner;
+				if runner.remote.as_deref() != Some(remote) {
+					return Ok((None, None));
+				}
+				let token = runner.token.clone();
+				Ok((token, Some(id.clone())))
 			},
 			tg::Principal::Runner(id) => {
 				if !self
@@ -159,31 +190,32 @@ impl Session {
 					.roles
 					.contains(&crate::config::Role::Runner)
 				{
-					return Ok(None);
+					return Ok((None, None));
 				}
 				let runner = &self.server.config.runner;
 				if runner.remote.as_deref() != Some(remote) {
-					return Ok(None);
+					return Ok((None, None));
 				}
 				if runner.id.as_ref().is_some_and(|runner| runner != id) {
-					return Ok(None);
+					return Ok((None, None));
 				}
-				Ok(runner.token.clone())
+				Ok((runner.token.clone(), None))
 			},
 			tg::Principal::Sandbox(sandbox) => {
 				let Some(sandbox) = self.try_get_authenticated_sandbox(sandbox).await? else {
-					return Ok(None);
+					return Ok((None, None));
 				};
 				let tg::Location::Remote(location) = &sandbox.location else {
-					return Ok(None);
+					return Ok((None, None));
 				};
-				Ok((location.name == remote).then_some(sandbox.token).flatten())
+				let token = (location.name == remote).then_some(sandbox.token).flatten();
+				Ok((token, None))
 			},
 			tg::Principal::Anonymous
 			| tg::Principal::Group(_)
 			| tg::Principal::Organization(_)
 			| tg::Principal::Root
-			| tg::Principal::User(_) => Ok(None),
+			| tg::Principal::User(_) => Ok((None, None)),
 		}
 	}
 }
@@ -232,6 +264,39 @@ impl Server {
 		let token = token::Token::sign(body, private_key)?;
 
 		Ok(token.to_string())
+	}
+
+	/// Authenticate a request, and authenticate a runner's request that claims to act for one of its processes as the process, once the process's control service verifies that the runner started it.
+	pub(crate) async fn authenticate_with_process(
+		&self,
+		context: &crate::Context,
+		token: Option<&str>,
+		process: Option<tg::process::Id>,
+	) -> tg::Result<Entry> {
+		let authentication = self.authenticate(context.origin, token).await?;
+		let Some(process) = process else {
+			return Ok(authentication);
+		};
+		let tg::Principal::Runner(_) = &authentication.principal else {
+			return Err(tg::error!(
+				unauthorized,
+				"only a runner may claim to act for a process"
+			));
+		};
+		let context = crate::Context {
+			principal: authentication.principal.clone(),
+			..context.clone()
+		};
+		let session = self.session(&context);
+		session
+			.authorize_with_process_control_service(&process, &authentication.principal)
+			.await?;
+		let authentication = Entry {
+			billing_ready: authentication.billing_ready,
+			principal: tg::Principal::Process(process),
+		};
+
+		Ok(authentication)
 	}
 
 	pub(crate) async fn authenticate(
@@ -366,7 +431,7 @@ impl Server {
 					sandbox
 						.processes
 						.get(id)
-						.map(|process| process.inner_token == value)
+						.map(|process| process.inner_token.borrow().as_deref() == Some(value))
 				})
 				.unwrap_or(false),
 			tg::Principal::Sandbox(id) => self

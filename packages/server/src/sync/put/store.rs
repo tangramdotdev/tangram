@@ -268,7 +268,7 @@ impl Session {
 									.arg
 									.sync
 									.as_ref()
-									.and_then(|sync| sync.as_ref().right())
+									.and_then(tg::sync::Join::sync)
 									.map(|sync| &sync.node),
 							)
 							.await?;
@@ -657,7 +657,7 @@ impl Session {
 									.arg
 									.sync
 									.as_ref()
-									.and_then(|sync| sync.as_ref().right())
+									.and_then(tg::sync::Join::sync)
 									.map(|sync| &sync.node),
 							)
 							.await?;

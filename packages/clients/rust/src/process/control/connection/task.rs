@@ -19,7 +19,6 @@ pub(super) struct State {
 	input: BoxStream<'static, tg::Result<tg::control::Event<ServerMessage>>>,
 	lease: Option<tg::process::Lease>,
 	low: Option<mpsc::Sender<ClientMessage>>,
-	outcome_sync: watch::Sender<Option<tg::Referent<tg::sync::Id>>>,
 	pending: IndexMap<String, Pending>,
 	start: Option<ClientRequest>,
 	untracked: VecDeque<(ClientMessage, Priority)>,
@@ -45,7 +44,6 @@ pub(super) enum Update {
 		low: mpsc::Sender<ClientMessage>,
 		sender: oneshot::Sender<Option<tg::process::Lease>>,
 	},
-	OutcomeSync(tg::Referent<tg::sync::Id>),
 	Remove(String),
 }
 
@@ -70,20 +68,29 @@ pub(super) async fn open_stream<I: tg::Instance>(
 > {
 	let instance = instance.clone();
 	let stream_retry = instance.arg().stream_retry;
-	let (_, input) = sender.attach().await?;
 
-	// Get the initial header and stream.
-	let Some((header, output_stream)) = instance
-		.try_get_process_control_stream(arg.clone(), input)
-		.await?
-	else {
-		return Ok(None);
+	// Get the initial header and stream, retrying with backoff while the server is unavailable, so that a start whose header the client has not received is replayed.
+	let mut retries = tangram_futures::retry::stream(stream_retry.clone()).boxed();
+	let (header, output_stream) = loop {
+		let (_, input) = sender.attach().await?;
+		match instance
+			.try_get_process_control_stream(arg.clone(), input)
+			.await
+		{
+			Ok(Some(output)) => break output,
+			Ok(None) => return Ok(None),
+			Err(error) if error.kind() == Some(tg::error::Kind::Unavailable) => {
+				tracing::error!(error = %error.trace(), "failed to connect the control stream");
+				if retries.next().await.is_none() {
+					return Err(error);
+				}
+			},
+			Err(error) => return Err(error),
+		}
 	};
 	let instance = reconnect(&header);
 	let mut arg = arg;
-	arg.id = Some(header.process.node.clone());
-	arg.command_sync.clone_from(&header.command_sync);
-	arg.outcome_sync.clone_from(&header.outcome_sync);
+	arg.proof = None;
 	if let Mode::Start(start) = arg.mode {
 		arg.mode = Mode::Resume { lease: start.lease };
 	}
@@ -121,13 +128,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 						.try_get_process_control_stream(state.arg.clone(), input)
 						.await
 					{
-						Ok(Some((header, stream))) => {
-							// Store the reconnect header's syncs for the next reconnect, and its outcome sync for the connection's outcome sync watch.
-							if let Some(sync) = &header.outcome_sync {
-								sender.updates.send(Update::OutcomeSync(sync.clone())).ok();
-							}
-							state.arg.command_sync = header.command_sync;
-							state.arg.outcome_sync = header.outcome_sync;
+						Ok(Some((_, stream))) => {
 							state.stream.replace(stream.boxed());
 							return Some((Ok(tg::control::Event::Reconnect), state));
 						},
@@ -147,12 +148,6 @@ pub(super) async fn open_stream<I: tg::Instance>(
 				match state.stream.as_mut().unwrap().next().await {
 					Some(Ok(event)) => {
 						state.retries.take();
-						if let ServerMessage::Notification(ServerNotification::Sync(notification)) =
-							&event
-						{
-							state.arg.command_sync = Some(notification.command_sync.clone());
-							state.arg.outcome_sync = Some(notification.outcome_sync.clone());
-						}
 						return Some((Ok(tg::control::Event::Message(event)), state));
 					},
 					Some(Err(error)) => {
@@ -176,7 +171,6 @@ impl State {
 		high: Option<mpsc::Sender<ClientMessage>>,
 		low: Option<mpsc::Sender<ClientMessage>>,
 		events: mpsc::Sender<tg::Result<tg::control::Event<ServerMessage>>>,
-		outcome_sync: watch::Sender<Option<tg::Referent<tg::sync::Id>>>,
 		config: Config,
 	) -> Self {
 		Self {
@@ -189,7 +183,6 @@ impl State {
 			input,
 			lease: None,
 			low,
-			outcome_sync,
 			pending: IndexMap::new(),
 			start: None,
 			untracked: VecDeque::new(),
@@ -340,9 +333,6 @@ impl State {
 				}
 				sender.send(self.lease).ok();
 			},
-			Update::OutcomeSync(sync) => {
-				self.outcome_sync.send_replace(Some(sync));
-			},
 			Update::Remove(id) => {
 				self.pending.shift_remove(&id);
 			},
@@ -439,11 +429,7 @@ impl State {
 					return Ok(());
 				}
 			},
-			ServerMessage::Notification(ServerNotification::Sync(notification)) => {
-				self.outcome_sync
-					.send_replace(Some(notification.outcome_sync.clone()));
-				return Ok(());
-			},
+			ServerMessage::Notification(notification) => match *notification {},
 		}
 		self.deliveries
 			.push_back(tg::control::Event::Message(message));

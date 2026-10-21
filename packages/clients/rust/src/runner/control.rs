@@ -122,10 +122,6 @@ pub struct Process {
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub options: tg::referent::Options,
 
-	/// The sync that pushes the process's outcome objects.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcome_sync: Option<tg::Referent<tg::sync::Id>>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
 

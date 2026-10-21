@@ -3,11 +3,20 @@ use {tangram_client::prelude::*, tangram_futures::task::Stopper};
 #[derive(Clone, Debug)]
 pub struct Context {
 	pub billing_ready: bool,
+
 	pub id: Option<String>,
+
 	pub local_process_control: bool,
+
 	pub origin: Origin,
+
 	pub principal: tg::Principal,
+
+	/// The process that a runner's request acts for, which the process's control service verified.
+	pub process: Option<tg::process::Id>,
+
 	pub stopper: Option<Stopper>,
+
 	pub token: Option<String>,
 }
 
@@ -26,6 +35,7 @@ impl Context {
 			local_process_control: false,
 			origin: Origin::Host,
 			principal: tg::Principal::Root,
+			process: None,
 			stopper: None,
 			token: None,
 		}

@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Pooled connections replay initialization after a remote restart.
+# A pooled sandbox connection and a shortcut process's connection replay initialization after a remote restart.
 
 let root_token = random chars
 let remote = server spawn --preserve-keys --name remote --config {
@@ -15,7 +15,6 @@ let runner = server spawn --name runner --config {
 	roles: [api indexer runner],
 	runner: {
 		id: $created.data.id,
-		process_control_connection_pool_size: 1,
 		remote: 'default',
 		sandbox_control_connection_pool_size: 1,
 		token: $created.token.token,

@@ -76,7 +76,7 @@ impl Session {
 		let id = arg
 			.sync
 			.as_ref()
-			.and_then(|sync| sync.as_ref().right())
+			.and_then(tg::sync::Join::sync)
 			.map_or_else(tg::sync::Id::new, |sync| sync.node.clone());
 		let service = self.spawn_sync_service_task(graph.clone(), &id);
 		let state = Arc::new(State {

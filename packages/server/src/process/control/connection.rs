@@ -73,16 +73,6 @@ impl Connection {
 		}
 	}
 
-	pub(crate) fn acknowledge_now(&mut self, id: String) {
-		self.sender
-			.updates
-			.send(task::Update::Acknowledge {
-				id,
-				priority: Priority::High,
-			})
-			.ok();
-	}
-
 	pub(crate) async fn acknowledge_with_priority(
 		&mut self,
 		id: String,

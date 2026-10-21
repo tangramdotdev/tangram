@@ -379,6 +379,7 @@ impl Server {
 						local_process_control: false,
 						origin,
 						principal: tg::Principal::Anonymous,
+						process: None,
 						stopper: Some(stopper),
 						token: None,
 					};
@@ -569,9 +570,26 @@ impl Server {
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
 
-		// Authenticate.
+		// Authenticate, verifying a runner's claim to act for one of its processes.
 		let token = request.token(None).map(str::to_owned);
-		let result = self.authenticate(context.origin, token.as_deref()).await;
+		let process = request
+			.headers()
+			.get(tg::process::PROCESS_HEADER)
+			.map(|value| {
+				value
+					.to_str()
+					.ok()
+					.and_then(|value| value.parse::<tg::process::Id>().ok())
+					.ok_or_else(|| tg::error!(argument, "failed to parse the process header"))
+			})
+			.transpose();
+		let result = match process {
+			Ok(process) => self
+				.authenticate_with_process(&context, token.as_deref(), process.clone())
+				.await
+				.map(|authentication| (authentication, process)),
+			Err(error) => Err(error),
+		};
 		context.token = token;
 		let authentication = match result {
 			Ok(authentication) => authentication,
@@ -598,8 +616,10 @@ impl Server {
 				return response;
 			},
 		};
+		let (authentication, process) = authentication;
 		context.billing_ready = authentication.billing_ready.unwrap_or(false);
 		context.principal = authentication.principal;
+		context.process = process;
 
 		let session = self.session(&context);
 

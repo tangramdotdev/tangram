@@ -64,3 +64,28 @@ fn sse_preserves_messages_and_errors() {
 	let event = tangram_http::sse::Event::try_from(error).unwrap();
 	assert!(Message::try_from(event).is_err());
 }
+
+#[test]
+fn process_sync_ids_are_derived_from_the_process() {
+	let process = tg::process::Id::new();
+	let command = tg::sync::Id::with_process(&process, tg::sync::join::Kind::Command);
+	let outcome = tg::sync::Id::with_process(&process, tg::sync::join::Kind::Outcome);
+	assert_eq!(
+		command,
+		tg::sync::Id::with_process(&process, tg::sync::join::Kind::Command)
+	);
+	assert_eq!(
+		outcome,
+		tg::sync::Id::with_process(&process, tg::sync::join::Kind::Outcome)
+	);
+	assert_ne!(command, outcome);
+	let other = tg::process::Id::new();
+	assert_ne!(
+		command,
+		tg::sync::Id::with_process(&other, tg::sync::join::Kind::Command)
+	);
+	assert_ne!(
+		outcome,
+		tg::sync::Id::with_process(&other, tg::sync::join::Kind::Outcome)
+	);
+}

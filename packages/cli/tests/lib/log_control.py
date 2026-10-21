@@ -8,6 +8,8 @@ import sys
 import time
 import urllib.parse
 
+from process_id import process_id
+
 case, socket_path, tangram, url, parent, data_path = sys.argv[1:]
 with open(data_path) as file:
     finished = json.load(file)
@@ -51,6 +53,8 @@ def connect(arg, token=None, messages=()):
     value = {key: value for key, value in arg.items() if key not in ("id", "location")}
     mode = "start" if "data" in value else "resume"
     arg = {key: value for key, value in arg.items() if key in ("id", "location")}
+    # The client names the process, so a start without an ID gets a new one.
+    arg.setdefault("id", process_id())
     arg["mode"] = {"kind": mode, **value}
     sock, response = open_stream("/processes/control", arg, token, messages)
     length, shift = 0, 0
@@ -60,7 +64,9 @@ def connect(arg, token=None, messages=()):
         if byte < 128:
             break
         shift += 7
-    return sock, response, json.loads(response.read(length))
+    header = json.loads(response.read(length))
+    header["process"] = {"node": arg["id"]}
+    return sock, response, header
 
 
 def send(sock, event, value):
@@ -166,7 +172,7 @@ def early_finish():
                 checkpoint("wait", name, watches[name], 0)
             checkpoint("unwatch", "process.control.header", watches.pop("process.control.header"))
             sock, response, output = pending.result(timeout=10)
-            assert "command_sync" in output, output
+            assert "token" in output, output
             receive(response, "ack", request_id)
             close(sock, response)
             # End the synthetic writer's empty log.
@@ -183,7 +189,6 @@ def early_finish():
         sock, response, reconnected = connect(arg, output["token"])
     finally:
         checkpoint("unwatch", "process.control.index.started", watch)
-    assert "command_sync" in reconnected, reconnected
     request(sock, response, request_id, finish)
     close(sock, response)
     process = json.loads(subprocess.check_output(command + ["get", arg["id"]], timeout=10))

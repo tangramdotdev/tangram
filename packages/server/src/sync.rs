@@ -104,28 +104,31 @@ impl Session {
 	)> {
 		// Join the command sync of the connect that a nonce names, giving the requested nodes the sync's tokens.
 		let sync = match arg.sync.take() {
-			Some(tg::Either::Left(nonce)) => {
+			Some(tg::sync::Join::Connect(nonce)) => {
 				let sync = self
 					.try_resolve_process_command_sync(&nonce)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the command sync of the connect"))?;
-				for referent in &mut arg.get {
-					for token in sync.options.tokens.local_authorization() {
-						referent
-							.options
-							.tokens
-							.insert_local_authorization(token.clone());
-					}
-				}
+				Self::inherit_sync_tokens(&mut arg.get, &sync);
 				Some(sync)
 			},
-			Some(tg::Either::Right(sync)) => Some(sync),
+			Some(tg::sync::Join::Process(process)) => {
+				let sync = self
+					.try_resolve_process_control_sync(&process.id, process.kind)
+					.await?
+					.ok_or_else(
+						|| tg::error!(process = %process.id, "failed to find the sync of the process"),
+					)?;
+				Self::inherit_sync_tokens(&mut arg.get, &sync);
+				Some(sync)
+			},
+			Some(tg::sync::Join::Sync(sync)) => Some(sync),
 			None => None,
 		};
 
 		// Verify or create the sync before starting the transfer.
 		let sync = self.prepare_sync(sync)?;
-		arg.sync = Some(tg::Either::Right(sync.clone()));
+		arg.sync = Some(tg::sync::Join::Sync(sync.clone()));
 		let header = tg::sync::Header { sync: Some(sync) };
 
 		// Start the transfer.
@@ -183,6 +186,21 @@ impl Session {
 			.attach(task);
 
 		Ok((header, stream.boxed()))
+	}
+
+	/// Give the requested nodes the tokens of the sync that they join.
+	fn inherit_sync_tokens(
+		get: &mut [tg::Referent<tg::Selector<tg::Id>>],
+		sync: &tg::Referent<tg::sync::Id>,
+	) {
+		for referent in get {
+			for token in sync.options.tokens.local_authorization() {
+				referent
+					.options
+					.tokens
+					.insert_local_authorization(token.clone());
+			}
+		}
 	}
 
 	pub(crate) fn prepare_sync(

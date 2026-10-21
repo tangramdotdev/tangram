@@ -45,8 +45,9 @@ pub struct State {
 	pub data: tg::process::Data,
 	pub finish: Option<tg::process::control::FinishServerRequestArg>,
 	pub index_task: IndexTask,
-	pub inner_token: String,
+	pub inner_token: tokio::sync::watch::Receiver<Option<String>>,
 	pub leases: BTreeSet<tg::process::Lease>,
+	pub parent: Option<tg::process::Id>,
 	pub process: Option<tangram_sandbox::Process>,
 	pub stopper: tangram_futures::task::Stopper,
 }

@@ -190,7 +190,6 @@ impl Session {
 			id,
 			open: Vec::new(),
 			options,
-			outcome_sync: None,
 			parent,
 			token,
 		}
@@ -296,9 +295,8 @@ impl Session {
 			}
 		}
 
-		// Give the assignment the outcome sync and the connect's opens, and offer the opens to the connect's readers and writers.
+		// Give the assignment the connect's opens, and offer the opens to the connect's readers and writers.
 		let mut process = process;
-		process.outcome_sync = Some(self.prepare_sync(None)?);
 		if let Some(open) = output.open.take() {
 			process.open = open.requests();
 			open.offer();

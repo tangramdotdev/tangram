@@ -291,9 +291,9 @@ impl Session {
 		}
 		crate::checkpoint!(self.server, "process.connect.command.push.started").await;
 		let arg = crate::process::PushProcessObjectsArg {
+			join: Some(tg::sync::Join::Connect(nonce)),
 			location: location.clone(),
 			nodes,
-			nonce: Some(nonce),
 			process_command_objects: true,
 			sync: None,
 		};

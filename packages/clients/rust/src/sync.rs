@@ -18,9 +18,10 @@ use {
 #[cfg(test)]
 mod tests;
 
-pub use id::Id;
+pub use self::{id::Id, join::Join};
 
 pub mod id;
+pub mod join;
 pub mod service;
 
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.sync";
@@ -115,10 +116,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 14, default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
 
-	/// The sync that this sync joins, named by the nonce of the connect whose command sync it is, or by its referent.
+	/// The sync that this sync joins.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 15, default, skip_serializing_if = "Option::is_none")]
-	pub sync: Option<tg::Either<tg::process::Nonce, tg::Referent<tg::sync::Id>>>,
+	pub sync: Option<tg::sync::Join>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
