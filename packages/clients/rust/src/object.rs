@@ -1,3 +1,5 @@
+use crate::prelude::*;
+
 pub use self::{
 	availability::Availability,
 	data::Object as Data,
@@ -26,3 +28,30 @@ pub mod state;
 pub mod storage;
 pub mod touch;
 pub mod visit;
+
+/// The maximum number of unique children of an object.
+pub const MAX_CHILDREN: usize = 1_024;
+
+/// The maximum size of an object's serialized data in bytes.
+pub const MAX_SIZE: usize = 1_048_576;
+
+/// Check that an object's serialized size and its number of unique children are within the limits.
+pub fn check_limits(size: usize, children: usize) -> tg::Result<()> {
+	if size > MAX_SIZE {
+		return Err(tg::error!(
+			argument,
+			max = %MAX_SIZE,
+			%size,
+			"the object is too large"
+		));
+	}
+	if children > MAX_CHILDREN {
+		return Err(tg::error!(
+			argument,
+			%children,
+			max = %MAX_CHILDREN,
+			"the object has too many children"
+		));
+	}
+	Ok(())
+}

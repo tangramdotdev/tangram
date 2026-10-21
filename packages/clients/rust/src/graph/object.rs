@@ -1,8 +1,12 @@
 use {
 	super::Data,
 	crate::prelude::*,
+	num::ToPrimitive as _,
 	std::{collections::BTreeMap, path::PathBuf},
 };
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Debug)]
 pub struct Graph {
@@ -173,6 +177,70 @@ impl Node {
 }
 
 impl Directory {
+	/// Create a directory node with entries, splitting entries that do not fit in a leaf into leaves and branches as checkin does.
+	#[must_use]
+	pub fn with_entries(entries: BTreeMap<String, Edge<tg::Artifact>>) -> Self {
+		Self::with_entries_and_limits(
+			entries,
+			tg::directory::MAX_LEAF_ENTRIES,
+			tg::directory::MAX_BRANCH_CHILDREN,
+		)
+	}
+
+	fn with_entries_and_limits(
+		entries: BTreeMap<String, Edge<tg::Artifact>>,
+		max_leaf_entries: usize,
+		max_branch_children: usize,
+	) -> Self {
+		// Create a leaf if the entries fit in one.
+		if entries.len() <= max_leaf_entries {
+			return Self::Leaf(DirectoryLeaf { entries });
+		}
+
+		// Create a leaf for each chunk of the entries.
+		let entries = entries.into_iter().collect::<Vec<_>>();
+		let mut children = entries
+			.chunks(max_leaf_entries)
+			.map(|chunk| {
+				let count = chunk.len().to_u64().unwrap();
+				let last = chunk.last().unwrap().0.clone();
+				let entries = chunk.iter().cloned().collect();
+				let leaf = DirectoryLeaf { entries };
+				let directory =
+					tg::Directory::with_object(tg::directory::Object::Node(Self::Leaf(leaf)));
+				DirectoryChild {
+					count,
+					directory: Edge::Object(directory),
+					last,
+				}
+			})
+			.collect::<Vec<_>>();
+
+		// Create branches for each chunk of the children until the children fit in one branch.
+		while children.len() > max_branch_children {
+			children = children
+				.chunks(max_branch_children)
+				.map(|chunk| {
+					let count = chunk.iter().map(|child| child.count).sum();
+					let last = chunk.last().unwrap().last.clone();
+					let branch = DirectoryBranch {
+						children: chunk.to_vec(),
+					};
+					let directory = tg::Directory::with_object(tg::directory::Object::Node(
+						Self::Branch(branch),
+					));
+					DirectoryChild {
+						count,
+						directory: Edge::Object(directory),
+						last,
+					}
+				})
+				.collect();
+		}
+
+		Self::Branch(DirectoryBranch { children })
+	}
+
 	#[must_use]
 	pub fn to_data(&self) -> tg::graph::data::Directory {
 		match self {

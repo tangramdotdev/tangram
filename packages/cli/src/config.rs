@@ -602,9 +602,6 @@ pub struct Checkin {
 	pub checkout: Option<CheckinCheckout>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub directory: Option<CheckinDirectory>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub solve: Option<CheckinSolve>,
 }
 
@@ -625,17 +622,6 @@ pub struct CheckinCheckout {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
-}
-
-#[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct CheckinDirectory {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_branch_children: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_leaf_entries: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -2822,19 +2808,7 @@ pub struct Usage {
 #[serde(deny_unknown_fields)]
 pub struct Write {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub avg_leaf_size: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checkout_pointers: Option<bool>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_branch_children: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_leaf_size: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub min_leaf_size: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -3998,9 +3972,6 @@ fn resolve_checkin(source: Checkin) -> server::Checkin {
 	if let Some(source) = source.checkout {
 		target.checkout = resolve_checkin_checkout(source);
 	}
-	if let Some(source) = source.directory {
-		target.directory = resolve_checkin_directory(source);
-	}
 	if let Some(source) = source.solve {
 		target.solve = resolve_checkin_solve(source);
 	}
@@ -4022,17 +3993,6 @@ fn resolve_checkin_checkout(source: CheckinCheckout) -> server::CheckinCheckout 
 	}
 	if let Some(value) = source.concurrency {
 		target.concurrency = value;
-	}
-	target
-}
-
-fn resolve_checkin_directory(source: CheckinDirectory) -> server::CheckinDirectory {
-	let mut target = server::CheckinDirectory::default();
-	if let Some(value) = source.max_branch_children {
-		target.max_branch_children = value;
-	}
-	if let Some(value) = source.max_leaf_entries {
-		target.max_leaf_entries = value;
 	}
 	target
 }
@@ -6314,20 +6274,8 @@ fn resolve_watch(source: Watch) -> server::Watch {
 
 fn resolve_write(source: Write) -> server::Write {
 	let mut target = server::Write::default();
-	if let Some(value) = source.avg_leaf_size {
-		target.avg_leaf_size = value;
-	}
 	if let Some(value) = source.checkout_pointers {
 		target.checkout_pointers = value;
-	}
-	if let Some(value) = source.max_branch_children {
-		target.max_branch_children = value;
-	}
-	if let Some(value) = source.max_leaf_size {
-		target.max_leaf_size = value;
-	}
-	if let Some(value) = source.min_leaf_size {
-		target.min_leaf_size = value;
 	}
 	target
 }

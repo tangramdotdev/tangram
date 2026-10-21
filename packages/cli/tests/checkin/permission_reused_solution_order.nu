@@ -4,19 +4,12 @@ use ../lib/checkin.nu checkin-output
 # Reusing a tag solution observes the selected object with each referrer's location, independent of traversal order.
 
 let remote = server spawn --name remote --config {
-	checkin: {
-		directory: {
-			max_branch_children: 2
-			max_leaf_entries: 2
-		}
-	}
 	remotes: {}
 }
-let dependency_path = artifact {
-	a: dependency
-	b: dependency
-	c: dependency
-}
+
+# Create a dependency with 1,025 entries, one more than fit in a directory leaf, so that it is a branch directory.
+let entries = 0..<1_025 | each { |i| { name: ($i | into string), contents: 'dependency' } } | transpose --header-row --as-record
+let dependency_path = artifact $entries
 let dependency = tg --url $remote.url checkin --no-tokens --no-lock --root $dependency_path | referent node
 tg --url $remote.url tag -p dependency/1.0.0 $dependency
 

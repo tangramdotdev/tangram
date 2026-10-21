@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A single index item larger than NATS's default message limit must be split into byte fragments.
+# An index batch larger than NATS's default message limit must be split into byte fragments.
 if (which nats-server | is-empty) {
 	skip_test 'this test requires nats-server'
 }
@@ -18,17 +18,17 @@ let local = server spawn --config {
 	cache: { map_size: 268_435_456 },
 }
 
-# Unique children make the directory's single index item exceed one MiB.
-let entries = 0..<30_000 | each { |i|
-	let hash = $i | into string | fill --alignment right --character '0' --width 51
-	{ name: ($i | into string), id: $'fil_01($hash)0' }
-} | transpose --header-row --as-record
-let output = { entries: $entries } | to json --raw | tg --url $local.url object put --no-tokens --bytes --kind directory | complete
-success $output 'the large index item must fit within the NATS message limit'
-let id = $output.stdout | str trim
+# Put a tree of 8,192 files with unique contents, so that the index batch for the put exceeds one MiB.
+let directories = 0..<8 | each { |d|
+	let files = 0..<1_024 | each { |f| $'"($f)":' + 'tg.file("' + $'($d)_($f)' + '")' } | str join ','
+	$'"($d)":' + 'tg.directory({' + $files + '})'
+} | str join ','
+let output = 'tg.directory({' + $directories + '})' | tg --url $local.url put --no-tokens | complete
+success $output 'the large index batch must fit within the NATS message limit'
+let id = $output.stdout | referent node
 tg --url $local.url index
 let metadata = tg --url $local.url object metadata $id | from json
-assert ($metadata.node.size > 1_048_576) 'the large directory must be indexed'
+assert equal $metadata.subtree.count 16_393 'the large index batch must be indexed'
 
 server stop $local
 job kill $messenger

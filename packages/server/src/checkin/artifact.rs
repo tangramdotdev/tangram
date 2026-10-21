@@ -6,7 +6,6 @@ use {
 			graph::{Contents, Node, Petgraph, Variant},
 			path::Paths,
 		},
-		config::Checkin,
 	},
 	num::ToPrimitive as _,
 	std::{
@@ -18,7 +17,6 @@ use {
 };
 
 pub(super) struct CheckinCreateArtifactsArg<'a> {
-	pub config: &'a Checkin,
 	pub arg: &'a tg::checkin::Arg,
 	pub graph: &'a mut Graph,
 	pub paths: &'a Paths,
@@ -33,7 +31,6 @@ pub(super) struct CheckinCreateArtifactsArg<'a> {
 }
 
 struct CheckinCreateNodeArtifactArg<'a> {
-	config: &'a Checkin,
 	graph: &'a mut Graph,
 	paths: &'a Paths,
 	cache_args: &'a mut CacheArgs,
@@ -81,7 +78,6 @@ impl Session {
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) fn checkin_create_artifacts(arg: CheckinCreateArtifactsArg<'_>) -> tg::Result<()> {
 		let CheckinCreateArtifactsArg {
-			config,
 			arg,
 			graph,
 			paths,
@@ -113,7 +109,6 @@ impl Session {
 					.contains(&scc[0])
 			{
 				let arg = CheckinCreateNodeArtifactArg {
-					config,
 					graph,
 					paths,
 					cache_args,
@@ -333,7 +328,6 @@ impl Session {
 
 	fn checkin_create_node_artifact(arg: CheckinCreateNodeArtifactArg<'_>) -> tg::Result<()> {
 		let CheckinCreateNodeArtifactArg {
-			config,
 			graph,
 			paths,
 			cache_args,
@@ -386,7 +380,6 @@ impl Session {
 
 				// Build the directory structure, potentially as a tree for large directories.
 				let node = Self::checkin_create_directory(
-					config,
 					entries,
 					cache_args,
 					index_object_args,
@@ -852,6 +845,8 @@ impl Session {
 		let id = tg::object::Id::new(kind, &bytes);
 		let mut children_ids = BTreeSet::new();
 		data.children(&mut children_ids);
+		tg::object::check_limits(bytes.len(), children_ids.len())
+			.map_err(|error| tg::error!(!error, %id, "failed to check in the artifact"))?;
 		let children = children_ids.iter().map(|id| {
 			if let Some(nodes) = graph.ids.get(id) {
 				if let Some(index) = nodes.first() {
@@ -1374,7 +1369,6 @@ impl Session {
 	}
 
 	fn checkin_create_directory(
-		config: &Checkin,
 		entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 		cache_args: &mut CacheArgs,
 		index_object_args: &mut IndexObjectArgs,
@@ -1382,7 +1376,7 @@ impl Session {
 		touched_at: i64,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the entries fit in a single leaf, then return a leaf.
-		if entries.len() <= config.directory.max_leaf_entries {
+		if entries.len() <= tg::directory::MAX_LEAF_ENTRIES {
 			return Ok(tg::graph::data::Directory::Leaf(
 				tg::graph::data::DirectoryLeaf { entries },
 			));
@@ -1392,7 +1386,7 @@ impl Session {
 		let entries_vec: Vec<_> = entries.into_iter().collect();
 		let mut children = Vec::new();
 
-		for chunk in entries_vec.chunks(config.directory.max_leaf_entries) {
+		for chunk in entries_vec.chunks(tg::directory::MAX_LEAF_ENTRIES) {
 			let chunk_entries: BTreeMap<_, _> = chunk.iter().cloned().collect();
 			let count = chunk_entries.len().to_u64().unwrap();
 			let last = chunk_entries.keys().last().unwrap().clone();
@@ -1421,7 +1415,6 @@ impl Session {
 
 		// Create intermediate branches if needed.
 		Self::checkin_create_directory_branch(
-			config,
 			children,
 			cache_args,
 			index_object_args,
@@ -1432,7 +1425,6 @@ impl Session {
 
 	/// Recursively create branch nodes when there are too many children.
 	fn checkin_create_directory_branch(
-		config: &Checkin,
 		children: Vec<tg::graph::data::DirectoryChild>,
 		cache_args: &mut CacheArgs,
 		index_object_args: &mut IndexObjectArgs,
@@ -1440,7 +1432,7 @@ impl Session {
 		touched_at: i64,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the children fit in a single branch, return a branch.
-		if children.len() <= config.directory.max_branch_children {
+		if children.len() <= tg::directory::MAX_BRANCH_CHILDREN {
 			return Ok(tg::graph::data::Directory::Branch(
 				tg::graph::data::DirectoryBranch { children },
 			));
@@ -1449,7 +1441,7 @@ impl Session {
 		// Split children into chunks and create branch children.
 		let mut branch_children = Vec::new();
 
-		for chunk in children.chunks(config.directory.max_branch_children) {
+		for chunk in children.chunks(tg::directory::MAX_BRANCH_CHILDREN) {
 			let chunk_vec: Vec<_> = chunk.to_vec();
 			let count = chunk_vec.iter().map(|c| c.count).sum();
 			let last = chunk_vec.last().unwrap().last.clone();
@@ -1478,7 +1470,6 @@ impl Session {
 
 		// Recursively build if still too many children.
 		Self::checkin_create_directory_branch(
-			config,
 			branch_children,
 			cache_args,
 			index_object_args,

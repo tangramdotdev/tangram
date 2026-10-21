@@ -60,6 +60,12 @@ impl Session {
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 
+		// Get the children and check the object's limits.
+		let mut children = BTreeSet::new();
+		data.children(&mut children);
+		tg::object::check_limits(arg.bytes.len(), children.len())
+			.map_err(|error| tg::error!(!error, %id, "invalid object"))?;
+
 		let length = match &data {
 			tg::object::Data::Blob(blob) => Some(blob.length()),
 			_ => None,
@@ -73,8 +79,6 @@ impl Session {
 			length,
 			put,
 		};
-		let mut children = BTreeSet::new();
-		data.children(&mut children);
 		let permission = if self
 			.post_object_batch_authorize(
 				&arg.children,

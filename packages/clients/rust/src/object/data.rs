@@ -1,5 +1,8 @@
 use {super::Kind, crate::prelude::*, bytes::Bytes, std::collections::BTreeSet};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(
 	Clone,
 	Debug,
@@ -57,6 +60,13 @@ impl Object {
 			Kind::Command => Ok(Self::Command(tg::command::Data::deserialize(bytes)?)),
 			Kind::Error => Ok(Self::Error(tg::error::Data::deserialize(bytes)?)),
 		}
+	}
+
+	/// Check that the object's serialized size and its number of unique children are within the limits.
+	pub fn check_limits(&self, size: usize) -> tg::Result<()> {
+		let mut children = BTreeSet::new();
+		self.children(&mut children);
+		tg::object::check_limits(size, children.len())
 	}
 
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {

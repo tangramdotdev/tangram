@@ -6,6 +6,19 @@ use {
 	tangram_v8::{Serde, Serialize as _},
 };
 
+pub fn blob_chunk_lengths(
+	_state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	args: (Bytes,),
+) -> tg::Result<Serde<Vec<usize>>> {
+	let (bytes,) = args;
+	let lengths = tg::blob::chunks(&bytes)
+		.into_iter()
+		.map(|range| range.len())
+		.collect();
+	Ok(Serde(lengths))
+}
+
 pub async fn close(state: Rc<State>, args: (i32,)) -> tg::Result<()> {
 	let (fd,) = args;
 	state.host.close(fd).await
@@ -153,6 +166,7 @@ pub fn object_id(
 ) -> tg::Result<Serde<tg::object::Id>> {
 	let (Serde(data),) = args;
 	let bytes = data.serialize()?;
+	data.check_limits(bytes.len())?;
 	let id = tg::object::Id::new(data.kind(), &bytes);
 	Ok(Serde(id))
 }

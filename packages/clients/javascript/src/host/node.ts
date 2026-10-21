@@ -39,6 +39,7 @@ type StopperState = {
 };
 
 type Native = {
+	blobChunkLengths(bytes: Uint8Array): Array<number>;
 	objectId(input: string): string;
 	parseValue(input: string): string;
 	stringifyValue(input: string): string;
@@ -90,6 +91,10 @@ let http2Host: Host.Http2 = {
 
 export let host: Host = {
 	http2: http2Host,
+
+	blobChunkLengths(bytes: Uint8Array): Array<number> {
+		return getNative().blobChunkLengths(bytes);
+	},
 
 	checksum(
 		input: string | Uint8Array,

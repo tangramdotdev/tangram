@@ -1,6 +1,15 @@
 use {napi_derive::napi, tangram_client as tg};
 
 #[napi]
+#[must_use]
+pub fn blob_chunk_lengths(bytes: &[u8]) -> Vec<u32> {
+	tg::blob::chunks(bytes)
+		.into_iter()
+		.map(|range| range.len().try_into().unwrap())
+		.collect()
+}
+
+#[napi]
 pub fn object_id(input: String) -> napi::Result<String> {
 	let input = input.into_boxed_str();
 	object_id_inner(&input).map_err(|error| to_napi_error(&error))
@@ -28,6 +37,7 @@ fn object_id_inner(input: &str) -> tg::Result<String> {
 	let bytes = data
 		.serialize()
 		.map_err(|error| tg::error!(!error, "failed to serialize the object data"))?;
+	data.check_limits(bytes.len())?;
 	let id = tg::object::Id::new(data.kind(), &bytes);
 
 	Ok(id.to_string())

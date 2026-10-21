@@ -32,6 +32,11 @@ declare global {
 	function syscall(syscall: "encoding_yaml_encode", value: unknown): string;
 
 	function syscall(
+		syscall: "host_blob_chunk_lengths",
+		bytes: Uint8Array,
+	): Array<number>;
+
+	function syscall(
 		syscall: "host_checksum",
 		input: string | Uint8Array,
 		algorithm: tg.Checksum.Algorithm,

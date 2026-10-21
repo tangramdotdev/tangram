@@ -401,8 +401,6 @@ pub struct Checkin {
 
 	pub checkout: CheckinCheckout,
 
-	pub directory: CheckinDirectory,
-
 	pub solve: CheckinSolve,
 }
 
@@ -416,13 +414,6 @@ pub struct CheckinCheckout {
 	pub batch_size: usize,
 
 	pub concurrency: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct CheckinDirectory {
-	pub max_branch_children: usize,
-
-	pub max_leaf_entries: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1965,15 +1956,7 @@ pub struct Watch {
 
 #[derive(Clone, Debug)]
 pub struct Write {
-	pub avg_leaf_size: usize,
-
 	pub checkout_pointers: bool,
-
-	pub max_branch_children: usize,
-
-	pub max_leaf_size: usize,
-
-	pub min_leaf_size: usize,
 }
 
 impl Config {
@@ -2158,15 +2141,6 @@ impl Default for CheckinCheckout {
 		Self {
 			batch_size: 128,
 			concurrency: 8,
-		}
-	}
-}
-
-impl Default for CheckinDirectory {
-	fn default() -> Self {
-		Self {
-			max_branch_children: 128,
-			max_leaf_entries: 1024,
 		}
 	}
 }
@@ -3295,11 +3269,7 @@ impl Default for Watch {
 impl Default for Write {
 	fn default() -> Self {
 		Self {
-			avg_leaf_size: 65_536,
 			checkout_pointers: true,
-			max_branch_children: 1_024,
-			max_leaf_size: 131_072,
-			min_leaf_size: 4_096,
 		}
 	}
 }

@@ -15,6 +15,9 @@ if (typeof process !== "undefined" && process.versions?.node !== undefined) {
 export type Host = {
 	http2: tg.Host.Http2;
 
+	/** Get the lengths of the leaves that bytes are split into. */
+	blobChunkLengths(bytes: Uint8Array): Array<number>;
+
 	checksum(
 		input: string | Uint8Array,
 		algorithm: tg.Checksum.Algorithm,

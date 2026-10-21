@@ -4,6 +4,10 @@ import { http2 } from "./http2.ts";
 export let host: tg.Host = {
 	http2,
 
+	blobChunkLengths(bytes: Uint8Array): Array<number> {
+		return syscall("host_blob_chunk_lengths", bytes);
+	},
+
 	checksum(
 		input: string | Uint8Array,
 		algorithm: tg.Checksum.Algorithm,
