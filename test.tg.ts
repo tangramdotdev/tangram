@@ -28,7 +28,7 @@ export type CliArg = {
 	/** Arguments for building the CLI binary. */
 	build?: cargo.Arg;
 	env?: std.env.Arg;
-	/** Test name filters, as accepted by packages/cli/test.nu. */
+	/** Test name filters, as accepted by the runner in packages/cli/test. */
 	filters?: Array<string>;
 	host?: string;
 	jobs?: number;
@@ -79,17 +79,43 @@ export const testCli = async (arg: CliArg = {}) => {
 			host,
 			source: source_,
 		});
+
+	// Build the CLI test runner.
+	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
+	const { env: toolchainEnv, pre } = await toolchain({
+		build: host,
+		cargoLock,
+		host,
+		source: source_,
+	});
+	const runner = cargo.build({
+		env: toolchainEnv,
+		host,
+		packages: ["tangram_cli_test"],
+		parallelJobs: jobs,
+		pre,
+		source: source_,
+		useCargoVendor: false,
+	});
+
 	const options = tg.file(JSON.stringify({ filters, jobs, offline, timeout }));
-	const runner = tg.file`
-		def main [options_path: path, tangram_path: path] {
+	const script = tg.file`
+		def main [options_path: path, tangram_path: path, runner_path: path] {
 			let options = open --raw $options_path | from json
 			let offline = if $options.offline { ['--offline'] } else { [] }
+			let timeout = ($options.timeout | into duration) / 1sec | math ceil | into string
 			# The test servers have independent stores, so inherit rendered environment values.
 			for key in ($env | columns | where { $in starts-with 'TANGRAM_ENV_' }) {
 				hide-env $key
 			}
 			hide-env --ignore-errors TANGRAM_OUTPUT TANGRAM_TOKEN TANGRAM_URL
-			nu packages/cli/test.nu --no-cloud --no-clients --no-progress-details --preserve-failing-temps --tangram-path $tangram_path --jobs $options.jobs --timeout $options.timeout ...$offline ...$options.filters
+			# Put tangram, tg, and the runner on the path, and run the tests from this copy of the repository.
+			let bin_path = mktemp -d
+			^ln -s $tangram_path ($bin_path | path join tangram)
+			^ln -s $tangram_path ($bin_path | path join tg)
+			$env.PATH = $env.PATH | prepend [$bin_path $runner_path]
+			$env.TANGRAM_TEST_REPOSITORY_PATH = $env.PWD
+			tangram_cli_test run --no-clients --no-progress-details --preserve-failing-temps --jobs $options.jobs --timeout $timeout ...$offline -- ...$options.filters
 		}
 	`;
 	const output = await std.build`
@@ -98,7 +124,7 @@ export const testCli = async (arg: CliArg = {}) => {
 		chmod -R u+w work
 		cd work
 		status=0
-		nu ${runner} ${options} ${tangram}/bin/tangram > ${tg.output}/tests.log 2>&1 || status=$?
+		nu ${script} ${options} ${tangram}/bin/tangram ${runner}/bin > ${tg.output}/tests.log 2>&1 || status=$?
 		cat ${tg.output}/tests.log
 		exit "$status"
 	`

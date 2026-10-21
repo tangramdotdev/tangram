@@ -42,10 +42,13 @@ fn main() -> ExitCode {
 	}
 }
 
-/// Get the path to the repository.
+/// Get the path to the repository. `TANGRAM_TEST_REPOSITORY_PATH` overrides it for a runner built from another copy of the repository.
 #[must_use]
 pub fn repository_path() -> PathBuf {
-	PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
+	std::env::var_os("TANGRAM_TEST_REPOSITORY_PATH").map_or_else(
+		|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."),
+		PathBuf::from,
+	)
 }
 
 fn runtime() -> Result<tokio::runtime::Runtime> {
