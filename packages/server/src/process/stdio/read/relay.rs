@@ -37,9 +37,10 @@ impl Session {
 					tokens: arg.tokens.for_location(&location),
 					..arg
 				};
-				client
+				let result = client
 					.try_read_process_stdio(&tg::Either::Right(id.clone()), arg, input)
-					.await
+					.await;
+				tangram_futures::retry::once(result)
 					.map_err(|error| tg::error!(!error, region = %region, "failed to read stdin"))?
 					.map(futures::StreamExt::boxed)
 			},
@@ -63,9 +64,10 @@ impl Session {
 					tokens: arg.tokens.for_location(&location),
 					..arg
 				};
-				client
+				let result = client
 					.try_read_process_stdio(&tg::Either::Right(id.clone()), arg, input)
-					.await
+					.await;
+				tangram_futures::retry::once(result)
 					.map_err(|error| tg::error!(!error, remote = %remote, "failed to read stdin"))?
 					.map(futures::StreamExt::boxed)
 			},

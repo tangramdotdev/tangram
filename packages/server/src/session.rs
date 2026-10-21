@@ -1,7 +1,10 @@
 use {
 	crate::{Context, Server},
 	futures::{Stream, stream::BoxStream},
-	std::path::{Path, PathBuf},
+	std::{
+		ops::ControlFlow,
+		path::{Path, PathBuf},
+	},
 	tangram_client::prelude::*,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -227,10 +230,15 @@ impl tg::Instance for Session {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<(
-		tg::sync::Header,
-		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sync::Header,
+				impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+			),
+			tg::Error,
+		>,
+	> {
 		self.sync(arg, stream).await
 	}
 

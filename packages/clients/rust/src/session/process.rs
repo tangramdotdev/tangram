@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 impl tg::instance::Process for tg::Session {
@@ -9,10 +10,13 @@ impl tg::instance::Process for tg::Session {
 		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> tg::Result<
-		Option<(
-			tg::process::connect::Header,
-			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::connect::Header,
+				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			)>,
+			tg::Error,
+		>,
 	> {
 		self.try_get_process_connect_stream(arg, input).await
 	}
@@ -76,10 +80,13 @@ impl tg::instance::Process for tg::Session {
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<(
-				tg::process::control::Header,
-				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-			)>,
+			ControlFlow<
+				Option<(
+					tg::process::control::Header,
+					impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+				)>,
+				tg::Error,
+			>,
 		>,
 	> {
 		self.try_get_process_control_stream(arg, stream)
@@ -134,8 +141,13 @@ impl tg::instance::Process for tg::Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+			ControlFlow<
+				Option<
+					impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>>
+					+ Send
+					+ 'static,
+				>,
+				tg::Error,
 			>,
 		>,
 	> {
@@ -149,8 +161,11 @@ impl tg::instance::Process for tg::Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
+			ControlFlow<
+				Option<
+					impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
+				>,
+				tg::Error,
 			>,
 		>,
 	> {

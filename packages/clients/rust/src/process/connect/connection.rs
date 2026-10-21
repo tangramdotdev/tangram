@@ -1,9 +1,12 @@
 use {
 	super::*,
 	futures::{FutureExt as _, future::BoxFuture},
-	std::sync::{
-		Arc,
-		atomic::{AtomicBool, Ordering},
+	std::{
+		ops::ControlFlow,
+		sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		},
 	},
 	tangram_futures::task::Task,
 	tokio::sync::{Mutex, mpsc, oneshot, watch},
@@ -52,7 +55,8 @@ impl Connection {
 		Self,
 		BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
 	)> {
-		let (session, progress) = Session::open(instance, arg).await?;
+		let result = Session::open(instance, arg).await;
+		let (session, progress) = tangram_futures::retry::once(result)?;
 		let connection = Self::with_session(instance, session.clone());
 		let progress = progress
 			.then(move |event| {
@@ -99,9 +103,21 @@ impl Connection {
 		if !session.closed() {
 			return Ok(());
 		}
-		// Reopen the selected process.
+		// Reopen the selected process, retrying with backoff while the request cannot reach a server.
 		let arg = session.arg()?;
-		let (next, progress) = Session::open(&self.inner.instance, arg).await?;
+		let instance = &self.inner.instance;
+		let options = instance.arg().stream_retry;
+		let (next, progress) = tangram_futures::retry(&options, || {
+			let arg = arg.clone();
+			async move {
+				let result = Session::open(instance, arg).await;
+				if let Ok(ControlFlow::Continue(error)) = &result {
+					tracing::error!(error = %error.trace(), "failed to reopen the process connection");
+				}
+				result
+			}
+		})
+		.await?;
 		progress
 			.try_last()
 			.await?
@@ -146,10 +162,15 @@ impl Session {
 	async fn open<I: tg::Instance>(
 		instance: &I,
 		arg: Arg,
-	) -> tg::Result<(
-		Self,
-		BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				Self,
+				BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
+			),
+			tg::Error,
+		>,
+	> {
 		let config = instance.arg().process.connect;
 		let (sender, messages) = mpsc::channel(config.message_capacity);
 		let (update_sender, receiver) = mpsc::unbounded_channel();
@@ -157,7 +178,7 @@ impl Session {
 		let (output, output_receiver) = watch::channel(None);
 		let (outcome, outcome_receiver) = watch::channel(None);
 		let (status, _) = watch::channel(Status::default());
-		let state = task::State::open(
+		let state = match task::State::open(
 			instance,
 			arg,
 			config,
@@ -166,7 +187,11 @@ impl Session {
 			outcome,
 			status.clone(),
 		)
-		.await?;
+		.await?
+		{
+			ControlFlow::Break(state) => state,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let task = Task::spawn(move |_| async move {
 			state.run(messages, receiver, update_sender).await;
 		});
@@ -177,7 +202,9 @@ impl Session {
 			status,
 			task: Arc::new(task),
 		};
-		Ok((session, ReceiverStream::new(progress_receiver).boxed()))
+		let progress = ReceiverStream::new(progress_receiver).boxed();
+
+		Ok(ControlFlow::Break((session, progress)))
 	}
 
 	async fn start_request(

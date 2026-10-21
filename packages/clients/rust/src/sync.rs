@@ -3,16 +3,13 @@ use {
 	bytes::Bytes,
 	futures::{prelude::*, stream::BoxStream},
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
-	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
-	tangram_http::body::BodyStream,
+	std::ops::ControlFlow,
+	tangram_futures::write::Ext as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{
 		BytesBase64, CommaSeparatedString, is_default, is_false, is_true, return_true,
 	},
-	tokio::io::AsyncReadExt as _,
-	tokio_stream::wrappers::ReceiverStream,
-	tokio_util::io::StreamReader,
 };
 
 #[cfg(test)]
@@ -621,10 +618,15 @@ impl tg::Session {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<(
-		tg::sync::Header,
-		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sync::Header,
+				impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
+			),
+			tg::Error,
+		>,
+	> {
 		let max_frame_size = self.client().sync.max_frame_size;
 		let method = http::Method::POST;
 		let uri = Uri::builder().path("/sync").build().unwrap();
@@ -679,10 +681,17 @@ impl tg::Session {
 			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let response = self
-			.send(request)
+		let response = match self
+			.send_attempt(request)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?
+		{
+			ControlFlow::Break(response) => response,
+			ControlFlow::Continue(error) => {
+				let error = tg::error!(!error, "failed to send the request");
+				return Ok(ControlFlow::Continue(error));
+			},
+		};
 		if !response.status().is_success() {
 			let status = response.status();
 			let error = response
@@ -712,100 +721,25 @@ impl tg::Session {
 				.map_err(|error| tg::error!(!error, "failed to read the sync message"))
 				.and_then(|event| futures::future::ready(event.try_into()))
 				.boxed();
-			return Ok((header, stream));
+			return Ok(ControlFlow::Break((header, stream)));
 		}
 		if content_type != Some(tg::sync::CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
 
-		let mut stream = BodyStream::new(response.into_body());
-		let (data_sender, data_receiver) = tokio::sync::mpsc::channel(1);
-		let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
-		let task = Task::spawn(|_| async move {
-			while let Some(result) = stream.next().await {
-				match result {
-					Ok(frame) => {
-						if frame.is_data() {
-							let data = frame.into_data().unwrap();
-							data_sender.send(Ok(data)).await.ok();
-						} else if frame.is_trailers() {
-							let trailers = frame.into_trailers().unwrap();
-							trailer_sender.send(trailers).await.ok();
-						} else {
-							unreachable!()
-						}
-					},
-					Err(error) => {
-						data_sender.send(Err(error)).await.ok();
-					},
-				}
-			}
-		});
-
-		let mut reader =
-			StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
-		let header = tangram_http::body::header::get(
-			&mut reader,
+		// Decode the response, which ends early if the connection is lost.
+		let Some((header, stream)) = crate::http::frame::decode_with_header(
+			response.into_body(),
 			self.client().http.max_header_length,
-			tangram_http::body::encoding::Encoding::Tangram,
+			max_frame_size,
 		)
-		.await
-		.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
-		let data_messages = stream::try_unfold(reader, move |mut reader| async move {
-			let Some(len) = reader
-				.try_read_uvarint()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read the length"))?
-			else {
-				return Ok(None);
-			};
-			if len > max_frame_size {
-				return Err(tg::error!(
-					len = %len,
-					max = %max_frame_size,
-					"sync frame too large"
-				));
-			}
-			let len = usize::try_from(len).map_err(
-				|error| tg::error!(!error, len = %len, "sync frame length out of range"),
-			)?;
-			let mut bytes = vec![0; len];
-			reader
-				.read_exact(&mut bytes)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read the message"))?;
-			let message = tangram_serialize::from_slice(&bytes)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-			Ok(Some((message, reader)))
-		});
+		.await?
+		else {
+			let error = tg::error!("the sync stream ended before its header");
+			return Ok(ControlFlow::Continue(error));
+		};
 
-		let trailers = ReceiverStream::new(trailer_receiver);
-		let trailer_messages = trailers.then(|trailers| async move {
-			let event = trailers
-				.get("x-tg-event")
-				.ok_or_else(|| tg::error!("missing event"))?
-				.to_str()
-				.map_err(|error| tg::error!(!error, "invalid event"))?;
-			if let "error" = event {
-				let data = trailers
-					.get("x-tg-data")
-					.ok_or_else(|| tg::error!("missing data"))?
-					.to_str()
-					.map_err(|error| tg::error!(!error, "invalid data"))?;
-				let error = serde_json::from_str(data).map_err(|error| {
-					tg::error!(!error, "failed to deserialize the header value")
-				})?;
-				Err(error)
-			} else {
-				Err(tg::error!("invalid event"))
-			}
-		});
-
-		let stream = stream::select(data_messages, trailer_messages)
-			.attach(task)
-			.boxed();
-
-		Ok((header, stream))
+		Ok(ControlFlow::Break((header, stream)))
 	}
 }
 

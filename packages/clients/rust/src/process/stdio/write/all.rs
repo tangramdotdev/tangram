@@ -4,11 +4,17 @@ use {
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream,
 	},
-	std::collections::{BTreeMap, VecDeque},
+	std::{
+		collections::{BTreeMap, VecDeque},
+		ops::ControlFlow,
+	},
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-type Connecting = BoxFuture<'static, tg::Result<Option<BoxStream<'static, tg::Result<Output>>>>>;
+type Connecting = BoxFuture<
+	'static,
+	tg::Result<ControlFlow<Option<BoxStream<'static, tg::Result<Output>>>, tg::Error>>,
+>;
 
 struct Pending {
 	completion: Option<tokio::sync::oneshot::Sender<()>>,
@@ -70,7 +76,7 @@ pub(crate) async fn all<I: tg::Instance>(
 							ReceiverStream::new(receiver).boxed(),
 						)
 						.await?
-						.map(futures::StreamExt::boxed);
+						.map_break(|output| output.map(futures::StreamExt::boxed));
 					Ok(output)
 				}
 				.boxed(),
@@ -84,17 +90,15 @@ pub(crate) async fn all<I: tg::Instance>(
 			biased;
 			result = async { connecting.as_mut().unwrap().await }, if connecting.is_some() => {
 				connecting = None;
-				match result {
-					Ok(Some(stream)) => output = Some(stream),
-					Ok(None) => return Err(tg::error!("failed to find the process")),
-					// Retry the attempt if it failed with an unavailable error.
-					Err(attempt_error) if attempt_error.kind() == Some(tg::error::Kind::Unavailable) => {
+				match result? {
+					ControlFlow::Break(Some(stream)) => output = Some(stream),
+					ControlFlow::Break(None) => return Err(tg::error!("failed to find the process")),
+					ControlFlow::Continue(attempt_error) => {
 						tracing::error!(error = %attempt_error.trace(), "failed to reconnect the stdio write stream");
 						error = Some(attempt_error);
 						sender = None;
 						retries.get_or_insert_with(|| tangram_futures::retry::stream(stream_retry.clone()).boxed());
 					},
-					Err(error) => return Err(error),
 				}
 			},
 			message = async { output.as_mut().unwrap().next().await }, if output.is_some() => {

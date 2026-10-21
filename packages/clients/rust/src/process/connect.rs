@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{StreamExt as _, stream::BoxStream},
+	std::ops::ControlFlow,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::is_false,
@@ -355,9 +356,11 @@ impl tg::Session {
 		&self,
 		arg: Arg,
 		input: BoxStream<'static, tg::Result<ClientMessage>>,
-	) -> tg::Result<Option<(Header, BoxStream<'static, tg::Result<ServerMessage>>)>> {
+	) -> tg::Result<
+		ControlFlow<Option<(Header, BoxStream<'static, tg::Result<ServerMessage>>)>, tg::Error>,
+	> {
 		let max_frame_size = self.client().sync.max_frame_size;
-		let body = super::stdio::encode(input, max_frame_size);
+		let body = crate::http::frame::encode(input, max_frame_size);
 		let request = http::Request::builder()
 			.method(http::Method::POST)
 			.uri("/processes/connect")
@@ -373,12 +376,19 @@ impl tg::Session {
 			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let response = self
-			.send(request)
+		let response = match self
+			.send_attempt(request)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to connect to the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to connect to the process"))?
+		{
+			ControlFlow::Break(response) => response,
+			ControlFlow::Continue(error) => {
+				let error = tg::error!(!error, "failed to connect to the process");
+				return Ok(ControlFlow::Continue(error));
+			},
+		};
 		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		}
 		if !response.status().is_success() {
 			let error = response
@@ -393,13 +403,18 @@ impl tg::Session {
 		if content_type != Some(TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let (header, stream) = super::stdio::decode_with_header(
+		let Some((header, stream)) = crate::http::frame::decode_with_header(
 			response.into_body(),
 			self.client().http.max_header_length,
 			max_frame_size,
 		)
-		.await?;
-		Ok(Some((header, stream)))
+		.await?
+		else {
+			let error = tg::error!("the connect stream ended before its header");
+			return Ok(ControlFlow::Continue(error));
+		};
+
+		Ok(ControlFlow::Break(Some((header, stream))))
 	}
 }
 

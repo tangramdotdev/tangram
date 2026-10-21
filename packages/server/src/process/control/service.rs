@@ -222,10 +222,6 @@ impl Session {
 		id: &tg::process::Id,
 		error: &tg::Error,
 	) {
-		// Skip an unavailable error, because the client retries the start, and a rejection would fail the requests for a retried start that succeeds.
-		if error.kind() == Some(tg::error::Kind::Unavailable) {
-			return;
-		}
 		let tg::Either::Left(rejection) = error.to_data_or_id() else {
 			return;
 		};

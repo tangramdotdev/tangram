@@ -2,7 +2,7 @@ use {
 	super::*,
 	futures::TryStreamExt as _,
 	indexmap::IndexMap,
-	std::collections::VecDeque,
+	std::{collections::VecDeque, ops::ControlFlow},
 	tokio::sync::{mpsc, oneshot, watch},
 	tokio_stream::wrappers::ReceiverStream,
 };
@@ -58,12 +58,17 @@ impl State {
 		output: watch::Sender<Option<tg::process::spawn::Output>>,
 		outcome: watch::Sender<Option<tg::Result<tg::process::outcome::Data>>>,
 		status: watch::Sender<Status>,
-	) -> tg::Result<Self> {
+	) -> tg::Result<ControlFlow<Self, tg::Error>> {
 		let (sender, receiver) = mpsc::channel(config.input_capacity);
-		let (_, input) = instance
-			.get_process_connect_stream(arg, ReceiverStream::new(receiver).boxed())
-			.await?;
-		Ok(Self {
+		let input = match instance
+			.try_get_process_connect_stream(arg, ReceiverStream::new(receiver).boxed())
+			.await?
+		{
+			ControlFlow::Break(Some((_, input))) => input,
+			ControlFlow::Break(None) => return Err(tg::error!("failed to find the process")),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let state = Self {
 			config,
 			high: VecDeque::new(),
 			input,
@@ -75,7 +80,9 @@ impl State {
 			ready: false,
 			sender,
 			status,
-		})
+		};
+
+		Ok(ControlFlow::Break(state))
 	}
 
 	pub(super) async fn run(

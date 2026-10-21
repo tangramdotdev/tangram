@@ -3,7 +3,7 @@ use {
 	dashmap::DashSet,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	num::ToPrimitive as _,
-	std::sync::Arc,
+	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::{Ext as _, TryExt as _},
@@ -103,10 +103,13 @@ impl Session {
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<(
-			tg::process::control::Header,
-			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::control::Header,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+			tg::Error,
+		>,
 	> {
 		self.try_get_process_control_stream_inner(arg, stream)
 			.boxed()
@@ -118,10 +121,13 @@ impl Session {
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<(
-			tg::process::control::Header,
-			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::control::Header,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+			tg::Error,
+		>,
 	> {
 		let location = self.server.location(arg.location.as_ref())?;
 		let output = match location {
@@ -149,10 +155,13 @@ impl Session {
 		mut arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<(
-			tg::process::control::Header,
-			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::control::Header,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+			tg::Error,
+		>,
 	> {
 		// Authenticate the connection as its process, or as a runner that proves that it derived the process's ID, which starts a process on the shortcut path.
 		let local_process_control = self.context.local_process_control;
@@ -272,13 +281,10 @@ impl Session {
 					parent: start_parent,
 					sandbox,
 				};
-				// Enqueue initialization before acknowledging the start or accepting subsequent requests.
+				// Enqueue initialization before acknowledging the start or accepting subsequent requests, continuing if the index cannot accept it, so that the client retries the start.
 				let result = session.index_process_control(index_arg).boxed().await;
 				if let Err(error) = result {
-					if shortcut {
-						self.spawn_process_control_rejection_task(&id, &error);
-					}
-					return Err(error);
+					return Ok(ControlFlow::Continue(error));
 				}
 				lease
 			},
@@ -496,7 +502,7 @@ impl Session {
 
 		crate::checkpoint!(self.server, "process.control.header", process = %id).await;
 
-		Ok(Some((header, stream)))
+		Ok(ControlFlow::Break(Some((header, stream))))
 	}
 
 	async fn index_process_control(&self, arg: IndexProcessControlArg) -> tg::Result<()> {
@@ -802,10 +808,13 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 		region: String,
 	) -> tg::Result<
-		Option<(
-			tg::process::control::Header,
-			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::control::Header,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+			tg::Error,
+		>,
 	> {
 		let id = arg.id.clone();
 		let client = self.get_region_session_for_process(&region).await.map_err(
@@ -824,10 +833,15 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
 			)?;
-		let output = output.map(|(header, stream)| {
-			let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-			(header, stream)
+		let output = output.map_break(|output| {
+			output.map(|(header, stream)| {
+				let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+				(header, stream)
+			})
 		});
+		let output = output.map_continue(
+			|error| tg::error!(!error, region = %region, "failed to get the control stream"),
+		);
 		Ok(output)
 	}
 
@@ -838,10 +852,13 @@ impl Session {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<
-		Option<(
-			tg::process::control::Header,
-			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::control::Header,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+			tg::Error,
+		>,
 	> {
 		let id = arg.id.clone();
 		let session = self.get_remote_session_for_process(&remote).await.map_err(
@@ -890,12 +907,17 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
 			)?;
-		let Some((header, stream)) = output else {
-			return Ok(None);
-		};
-		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+		let output = output.map_break(|output| {
+			output.map(|(header, stream)| {
+				let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+				(header, stream)
+			})
+		});
+		let output = output.map_continue(
+			|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
+		);
 
-		Ok(Some((header, stream)))
+		Ok(output)
 	}
 
 	pub(crate) async fn request_process_control(
@@ -999,17 +1021,27 @@ impl Session {
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let stream = super::stdio::decode(request, input_encoding, max_frame_size);
 
-		// Get the response stream.
-		let Some((header, stream)) = self
+		// Get the response stream, responding that the server is unavailable if the stream could not reach a server.
+		let output = self
 			.try_get_process_control_stream_with_context(arg, stream)
 			.boxed()
-			.await?
-		else {
-			return Ok(http::Response::builder()
-				.not_found()
-				.empty()
-				.unwrap()
-				.boxed_body());
+			.await?;
+		let (header, stream) = match output {
+			ControlFlow::Break(Some(output)) => output,
+			ControlFlow::Break(None) => {
+				return Ok(http::Response::builder()
+					.not_found()
+					.empty()
+					.unwrap()
+					.boxed_body());
+			},
+			ControlFlow::Continue(error) => {
+				return Err(tg::error!(
+					unavailable,
+					!error,
+					"failed to get the control stream"
+				));
+			},
 		};
 
 		// Create the body.

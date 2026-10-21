@@ -1,5 +1,7 @@
 use {bytes::Bytes, tangram_client::prelude::*, tangram_messenger::relay};
 
+pub(super) use crate::__tangram_server_process_stdio_relay_attempt as attempt;
+
 /// A stdio protocol message from the side that reads the stdio data back to the side that writes it.
 pub(super) struct Ack(pub(super) tg::process::stdio::read::ClientMessage);
 
@@ -20,6 +22,17 @@ pub(super) fn abort(error: &tg::Error) -> Bytes {
 	serde_json::to_vec(&error.to_data_or_id())
 		.map(Bytes::from)
 		.unwrap_or_default()
+}
+
+/// Determine whether a relay error ends a relay that the relay's peer can reopen, which a closed, failed, reset, or timed out relay does.
+pub(super) fn is_retry(error: &relay::Error) -> bool {
+	match error {
+		relay::Error::Closed
+		| relay::Error::Messenger(_)
+		| relay::Error::Reset
+		| relay::Error::Timeout => true,
+		relay::Error::Aborted(_) | relay::Error::Options(_) => false,
+	}
 }
 
 pub(super) fn error(error: relay::Error) -> tg::Error {
@@ -72,4 +85,20 @@ impl tangram_messenger::Payload for Data {
 			.map_err(tangram_messenger::Error::deserialization)?;
 		Ok(Self(data))
 	}
+}
+
+/// Get the value of a relay result, continuing the attempt if the relay ended in a way that its peer can reopen and failing it otherwise.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __tangram_server_process_stdio_relay_attempt {
+	($result:expr) => {
+		match $result {
+			Ok(value) => value,
+			Err(error) if $crate::process::stdio::relay::is_retry(&error) => {
+				let error = $crate::process::stdio::relay::error(error);
+				return Ok(::std::ops::ControlFlow::Continue(error));
+			},
+			Err(error) => return Err($crate::process::stdio::relay::error(error)),
+		}
+	};
 }

@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, StreamExt as _, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
@@ -15,22 +16,26 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		)>,
 	> + Send {
 		async move {
-			self.try_get_process_connect_stream(arg, input)
-				.await?
+			let result = self.try_get_process_connect_stream(arg, input).await;
+			tangram_futures::retry::once(result)?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
 	}
 
+	/// Get a process's connect stream, continuing if the request could not reach a server.
 	fn try_get_process_connect_stream(
 		&self,
 		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<(
-				tg::process::connect::Header,
-				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
-			)>,
+			ControlFlow<
+				Option<(
+					tg::process::connect::Header,
+					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+				)>,
+				tg::Error,
+			>,
 		>,
 	> + Send;
 
@@ -133,16 +138,20 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::cancel::Output>>> + Send;
 
+	/// Get a process's control stream, continuing if the request could not reach a server.
 	fn try_get_process_control_stream(
 		&self,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<(
-				tg::process::control::Header,
-				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-			)>,
+			ControlFlow<
+				Option<(
+					tg::process::control::Header,
+					impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+				)>,
+				tg::Error,
+			>,
 		>,
 	> + Send;
 
@@ -204,6 +213,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::tty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
+	/// Read a process's stdio, continuing if the request could not reach a server.
 	fn try_read_process_stdio(
 		&self,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
@@ -211,8 +221,13 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+			ControlFlow<
+				Option<
+					impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>>
+					+ Send
+					+ 'static,
+				>,
+				tg::Error,
 			>,
 		>,
 	> + Send;
@@ -228,12 +243,13 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send {
 		async move {
-			self.try_write_process_stdio(process, arg, input)
-				.await?
+			let result = self.try_write_process_stdio(process, arg, input).await;
+			tangram_futures::retry::once(result)?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
 	}
 
+	/// Write a process's stdio, continuing if the request could not reach a server.
 	fn try_write_process_stdio(
 		&self,
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
@@ -241,8 +257,11 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
+			ControlFlow<
+				Option<
+					impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
+				>,
+				tg::Error,
 			>,
 		>,
 	> + Send;
@@ -300,10 +319,13 @@ impl tg::instance::Process for tg::Client {
 		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> tg::Result<
-		Option<(
-			tg::process::connect::Header,
-			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::connect::Header,
+				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			)>,
+			tg::Error,
+		>,
 	> {
 		self.session(&self.context)
 			.try_get_process_connect_stream(arg, input)
@@ -372,10 +394,13 @@ impl tg::instance::Process for tg::Client {
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<(
-			tg::process::control::Header,
-			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::control::Header,
+				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+			)>,
+			tg::Error,
+		>,
 	> {
 		self.session(&self.context)
 			.try_get_process_control_stream(arg, stream)
@@ -432,8 +457,11 @@ impl tg::instance::Process for tg::Client {
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<
-		Option<
-			impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+		ControlFlow<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+			>,
+			tg::Error,
 		>,
 	> {
 		self.session(&self.context)
@@ -447,7 +475,12 @@ impl tg::instance::Process for tg::Client {
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static>,
+		ControlFlow<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
+			>,
+			tg::Error,
+		>,
 	> {
 		self.session(&self.context)
 			.try_write_process_stdio(process, arg, input)

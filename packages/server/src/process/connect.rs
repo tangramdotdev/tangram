@@ -53,7 +53,10 @@ impl Session {
 		&self,
 		arg: tg::process::connect::Arg,
 		input: Input,
-	) -> BoxFuture<'_, tg::Result<Option<(tg::process::connect::Header, Output)>>> {
+	) -> BoxFuture<
+		'_,
+		tg::Result<ControlFlow<Option<(tg::process::connect::Header, Output)>, tg::Error>>,
+	> {
 		async move {
 			// Start answering the requests that locate the process by the connect's nonce.
 			let sender = arg
@@ -67,11 +70,13 @@ impl Session {
 
 			// Connect.
 			crate::checkpoint!(self.server, "process.connect.start").await;
-			let Some((header, output)) = self
+			let (header, output) = match self
 				.try_get_process_connect_stream_destination(arg, input, sender.as_ref())
 				.await?
-			else {
-				return Ok(None);
+			{
+				ControlFlow::Break(Some(output)) => output,
+				ControlFlow::Break(None) => return Ok(ControlFlow::Break(None)),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
 
 			// Tell the connect service the connect's command sync and the process it selects, and finish it when the connection ends.
@@ -99,7 +104,7 @@ impl Session {
 				None => output,
 			};
 
-			Ok(Some((header, output)))
+			Ok(ControlFlow::Break(Some((header, output))))
 		}
 		.boxed()
 	}
@@ -109,7 +114,7 @@ impl Session {
 		mut arg: tg::process::connect::Arg,
 		input: Input,
 		sender: Option<&crate::process::connect::service::Sender>,
-	) -> tg::Result<Option<(tg::process::connect::Header, Output)>> {
+	) -> tg::Result<ControlFlow<Option<(tg::process::connect::Header, Output)>, tg::Error>> {
 		// Resolve the destination.
 		let mut input = Some(input);
 		if arg.process.is_right() {
@@ -138,9 +143,10 @@ impl Session {
 			{
 				prepare_output.open = Some(sender.open(nonce, &arg.open));
 			}
-			return self
+			let output = self
 				.try_get_process_connect_stream_local(arg, &mut input, Some(prepare_output))
-				.await;
+				.await?;
+			return Ok(ControlFlow::Break(output));
 		}
 		// Tell the connect service the location of the server that the connect goes to, whose connect service answers for the nonce in its place.
 		if let Some(sender) = sender {
@@ -151,7 +157,7 @@ impl Session {
 			.boxed()
 			.await?;
 
-		Ok(Some(output))
+		Ok(ControlFlow::Break(Some(output)))
 	}
 
 	async fn connect_process_spawn(
@@ -215,8 +221,10 @@ impl Session {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => {
-				self.try_get_process_connect_stream_region(arg, &mut input, &region)
-					.await?
+				let result = self
+					.try_get_process_connect_stream_region(arg, &mut input, &region)
+					.await;
+				tangram_futures::retry::once(result)?
 			},
 			tg::Location::Local(tg::location::Local { region: None }) => unreachable!(),
 			tg::Location::Remote(remote) => {
@@ -224,8 +232,10 @@ impl Session {
 					name: remote.name,
 					regions: remote.region.map(|region| vec![region]),
 				};
-				self.try_get_process_connect_stream_remote(arg, &mut input, &remote)
-					.await?
+				let result = self
+					.try_get_process_connect_stream_remote(arg, &mut input, &remote)
+					.await;
+				tangram_futures::retry::once(result)?
 			},
 		}
 		.ok_or_else(|| tg::error!("failed to find the process"))?;
@@ -370,7 +380,7 @@ impl Session {
 		&self,
 		arg: tg::process::connect::Arg,
 		input: &mut Option<Input>,
-	) -> tg::Result<Option<(tg::process::connect::Header, Output)>> {
+	) -> tg::Result<ControlFlow<Option<(tg::process::connect::Header, Output)>, tg::Error>> {
 		if let tg::Either::Right(process) = &arg.process {
 			let wait_arg = tg::process::wait::Arg {
 				lease: None,
@@ -386,13 +396,14 @@ impl Session {
 				};
 				let output =
 					self.get_process_connect_stream_local(options, input.take().unwrap())?;
-				return Ok(Some(output));
+				return Ok(ControlFlow::Break(Some(output)));
 			}
 		}
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		let mut unavailable = None;
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
@@ -400,26 +411,36 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, "failed to connect to the local process"))?
 			{
-				return Ok(Some(output));
+				return Ok(ControlFlow::Break(Some(output)));
 			}
-			if let Some(output) = self
+			match self
 				.try_get_process_connect_stream_regions(arg.clone(), input, &local.regions)
 				.await
 				.map_err(|error| {
 					tg::error!(!error, "failed to connect to the process in another region")
 				})? {
-				return Ok(Some(output));
+				ControlFlow::Break(Some(output)) => return Ok(ControlFlow::Break(Some(output))),
+				ControlFlow::Break(None) => (),
+				ControlFlow::Continue(error) => unavailable = Some(error),
 			}
 		}
-		if let Some(output) = self
+		match self
 			.try_get_process_connect_stream_remotes(arg, input, &locations.remotes)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to connect to the process on a remote"))?
 		{
-			return Ok(Some(output));
+			ControlFlow::Break(Some(output)) => return Ok(ControlFlow::Break(Some(output))),
+			ControlFlow::Break(None) => (),
+			ControlFlow::Continue(error) => unavailable = Some(error),
 		}
 
-		Ok(None)
+		// Continue if a location that could have the process could not be reached.
+		let output = match unavailable {
+			Some(error) => ControlFlow::Continue(error),
+			None => ControlFlow::Break(None),
+		};
+
+		Ok(output)
 	}
 
 	async fn try_get_process_connect_stream_local(
@@ -462,17 +483,24 @@ impl Session {
 		arg: tg::process::connect::Arg,
 		input: &mut Option<Input>,
 		regions: &[String],
-	) -> tg::Result<Option<(tg::process::connect::Header, Output)>> {
+	) -> tg::Result<ControlFlow<Option<(tg::process::connect::Header, Output)>, tg::Error>> {
 		// A connection owns its lease, so only one successful attempt may remain open.
-		let mut result = Ok(None);
+		let mut result = Ok(ControlFlow::Break(None));
 		for region in regions {
 			match self
 				.try_get_process_connect_stream_region(arg.clone(), input, region)
 				.await
 			{
 				Err(error) => result = Err(error),
-				Ok(None) => (),
-				Ok(Some(output)) => return Ok(Some(output)),
+				Ok(ControlFlow::Break(None)) => (),
+				Ok(ControlFlow::Break(Some(output))) => {
+					return Ok(ControlFlow::Break(Some(output)));
+				},
+				Ok(ControlFlow::Continue(error)) => {
+					if result.is_ok() {
+						result = Ok(ControlFlow::Continue(error));
+					}
+				},
 			}
 		}
 		let output = result?;
@@ -484,7 +512,7 @@ impl Session {
 		arg: tg::process::connect::Arg,
 		input: &mut Option<Input>,
 		region: &str,
-	) -> tg::Result<Option<(tg::process::connect::Header, Output)>> {
+	) -> tg::Result<ControlFlow<Option<(tg::process::connect::Header, Output)>, tg::Error>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -493,14 +521,19 @@ impl Session {
 		});
 		let (arg, stream, sender) =
 			Self::connect_process_input(arg, location.clone(), location.clone().into());
-		let Some((header, output)) = client
+		let (header, output) = match client
 			.try_get_process_connect_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to connect to the process"),
-			)?
-		else {
-			return Ok(None);
+			)? {
+			ControlFlow::Break(Some(output)) => output,
+			ControlFlow::Break(None) => return Ok(ControlFlow::Break(None)),
+			ControlFlow::Continue(error) => {
+				let error =
+					tg::error!(!error, region = %region, "failed to connect to the process");
+				return Ok(ControlFlow::Continue(error));
+			},
 		};
 		if let Err(stream) = sender.send(input.take().unwrap()) {
 			*input = Some(stream);
@@ -539,7 +572,7 @@ impl Session {
 			.with_stopper(self.context.stopper.clone())
 			.boxed();
 
-		Ok(Some((header, output)))
+		Ok(ControlFlow::Break(Some((header, output))))
 	}
 
 	async fn try_get_process_connect_stream_remotes(
@@ -547,16 +580,23 @@ impl Session {
 		arg: tg::process::connect::Arg,
 		input: &mut Option<Input>,
 		remotes: &[crate::location::Remote],
-	) -> tg::Result<Option<(tg::process::connect::Header, Output)>> {
-		let mut result = Ok(None);
+	) -> tg::Result<ControlFlow<Option<(tg::process::connect::Header, Output)>, tg::Error>> {
+		let mut result = Ok(ControlFlow::Break(None));
 		for remote in remotes {
 			match self
 				.try_get_process_connect_stream_remote(arg.clone(), input, remote)
 				.await
 			{
 				Err(error) => result = Err(error),
-				Ok(None) => (),
-				Ok(Some(output)) => return Ok(Some(output)),
+				Ok(ControlFlow::Break(None)) => (),
+				Ok(ControlFlow::Break(Some(output))) => {
+					return Ok(ControlFlow::Break(Some(output)));
+				},
+				Ok(ControlFlow::Continue(error)) => {
+					if result.is_ok() {
+						result = Ok(ControlFlow::Continue(error));
+					}
+				},
 			}
 		}
 		let output = result?;
@@ -568,7 +608,7 @@ impl Session {
 		arg: tg::process::connect::Arg,
 		input: &mut Option<Input>,
 		remote: &crate::location::Remote,
-	) -> tg::Result<Option<(tg::process::connect::Header, Output)>> {
+	) -> tg::Result<ControlFlow<Option<(tg::process::connect::Header, Output)>, tg::Error>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
 			.await
@@ -586,14 +626,19 @@ impl Session {
 		)]);
 		let (arg, stream, sender) =
 			Self::connect_process_input(arg, location.clone(), arg_location);
-		let Some((header, output)) = client
+		let (header, output) = match client
 			.try_get_process_connect_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to connect to the process"),
-			)?
-		else {
-			return Ok(None);
+			)? {
+			ControlFlow::Break(Some(output)) => output,
+			ControlFlow::Break(None) => return Ok(ControlFlow::Break(None)),
+			ControlFlow::Continue(error) => {
+				let error =
+					tg::error!(!error, remote = %remote.name, "failed to connect to the process");
+				return Ok(ControlFlow::Continue(error));
+			},
 		};
 		if let Err(stream) = sender.send(input.take().unwrap()) {
 			*input = Some(stream);
@@ -632,7 +677,7 @@ impl Session {
 			.with_stopper(self.context.stopper.clone())
 			.boxed();
 
-		Ok(Some((header, output)))
+		Ok(ControlFlow::Break(Some((header, output))))
 	}
 
 	fn connect_process_input(
@@ -801,12 +846,22 @@ impl Session {
 		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let input = super::stdio::decode(request, input_encoding, max_frame_size);
-		let Some((header, output)) = self.try_get_process_connect_stream(arg, input).await? else {
-			return Ok(http::Response::builder()
-				.not_found()
-				.empty()
-				.unwrap()
-				.boxed_body());
+		let (header, output) = match self.try_get_process_connect_stream(arg, input).await? {
+			ControlFlow::Break(Some(output)) => output,
+			ControlFlow::Break(None) => {
+				return Ok(http::Response::builder()
+					.not_found()
+					.empty()
+					.unwrap()
+					.boxed_body());
+			},
+			ControlFlow::Continue(error) => {
+				return Err(tg::error!(
+					unavailable,
+					!error,
+					"failed to connect to the process"
+				));
+			},
 		};
 
 		// Create the response.

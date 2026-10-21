@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{FutureExt as _, Stream, StreamExt as _, stream::BoxStream},
+	std::ops::ControlFlow,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
@@ -221,19 +222,32 @@ where
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::sync::Header,
-			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::sync::Header,
+					impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
 				.sync(arg, stream)
-				.map(|result| result.map(|(header, stream)| (header, stream.left_stream())))
+				.map(|result| {
+					result.map(|flow| {
+						flow.map_break(|(header, stream)| (header, stream.left_stream()))
+					})
+				})
 				.left_future(),
 			tg::Either::Right(s) => s
 				.sync(arg, stream)
-				.map(|result| result.map(|(header, stream)| (header, stream.right_stream())))
+				.map(|result| {
+					result.map(|flow| {
+						flow.map_break(|(header, stream)| (header, stream.right_stream()))
+					})
+				})
 				.right_future(),
 		}
 	}

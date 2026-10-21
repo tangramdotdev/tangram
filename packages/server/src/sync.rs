@@ -2,6 +2,7 @@ use {
 	crate::Session,
 	futures::{prelude::*, stream::BoxStream},
 	std::{
+		ops::ControlFlow,
 		panic::AssertUnwindSafe,
 		sync::{Arc, Mutex},
 	},
@@ -36,10 +37,15 @@ impl Session {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<(
-		tg::sync::Header,
-		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sync::Header,
+				impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
+			),
+			tg::Error,
+		>,
+	> {
 		let arg = InnerArg {
 			arg,
 			..Default::default()
@@ -51,10 +57,15 @@ impl Session {
 		&self,
 		arg: InnerArg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<(
-		tg::sync::Header,
-		BoxStream<'static, tg::Result<tg::sync::Message>>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sync::Header,
+				BoxStream<'static, tg::Result<tg::sync::Message>>,
+			),
+			tg::Error,
+		>,
+	> {
 		let InnerArg {
 			arg,
 			get,
@@ -63,7 +74,7 @@ impl Session {
 		} = arg;
 		let location = self.server.location(arg.location.as_ref())?;
 
-		let (header, stream) = match location {
+		let output = match location {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
@@ -74,8 +85,8 @@ impl Session {
 			},
 			tg::Location::Local(_) => {
 				let (header, stream) = self.sync_local(arg, get, stream, trust).await?;
-				let stream = stream.with_stopper(self.context.stopper.clone());
-				(header, stream)
+				let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+				ControlFlow::Break((header, stream))
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
@@ -89,7 +100,7 @@ impl Session {
 			},
 		};
 
-		Ok((header, stream))
+		Ok(output)
 	}
 
 	async fn sync_local(
@@ -241,10 +252,15 @@ impl Session {
 		process: bool,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		region: String,
-	) -> tg::Result<(
-		tg::sync::Header,
-		BoxStream<'static, tg::Result<tg::sync::Message>>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sync::Header,
+				BoxStream<'static, tg::Result<tg::sync::Message>>,
+			),
+			tg::Error,
+		>,
+	> {
 		let client = if process {
 			self.get_region_session_for_process(&region).await
 		} else {
@@ -258,11 +274,13 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		let (header, stream) = client
+		let output = client
 			.sync(arg, stream)
 			.await
-			.map_err(|error| tg::error!(!error, region = %region, "failed to sync"))?;
-		Ok((header, stream.boxed()))
+			.map_err(|error| tg::error!(!error, region = %region, "failed to sync"))?
+			.map_break(|(header, stream)| (header, stream.boxed()))
+			.map_continue(|error| tg::error!(!error, region = %region, "failed to sync"));
+		Ok(output)
 	}
 
 	async fn sync_remote(
@@ -272,10 +290,15 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<(
-		tg::sync::Header,
-		BoxStream<'static, tg::Result<tg::sync::Message>>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sync::Header,
+				BoxStream<'static, tg::Result<tg::sync::Message>>,
+			),
+			tg::Error,
+		>,
+	> {
 		let client = if process {
 			self.get_remote_session_for_process(&remote).await
 		} else {
@@ -286,11 +309,13 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let (header, stream) = client
+		let output = client
 			.sync(arg, stream)
 			.await
-			.map_err(|error| tg::error!(!error, remote = %remote, "failed to sync"))?;
-		Ok((header, stream.boxed()))
+			.map_err(|error| tg::error!(!error, remote = %remote, "failed to sync"))?
+			.map_break(|(header, stream)| (header, stream.boxed()))
+			.map_continue(|error| tg::error!(!error, remote = %remote, "failed to sync"));
+		Ok(output)
 	}
 
 	async fn sync_task(
@@ -449,10 +474,17 @@ impl Session {
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let stream = crate::process::stdio::decode(request, input_encoding, max_frame_size);
 
-		let (header, stream) = self
+		// Start the sync, responding that the server is unavailable if the sync could not reach a server.
+		let output = self
 			.sync(arg, stream)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the sync"))?;
+		let (header, stream) = match output {
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => {
+				return Err(tg::error!(unavailable, !error, "failed to start the sync"));
+			},
+		};
 		crate::checkpoint!(self.server, "sync.request.response").await;
 
 		// Create the response body.

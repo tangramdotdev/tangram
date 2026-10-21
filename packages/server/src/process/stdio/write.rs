@@ -370,9 +370,8 @@ impl Session {
 			streams: arg.streams.clone(),
 			tokens: arg.tokens.for_location(&location),
 		};
-		let stream = client
-			.try_write_process_stdio(process, arg, input)
-			.await
+		let result = client.try_write_process_stdio(process, arg, input).await;
+		let stream = tangram_futures::retry::once(result)
 			.map_err(|error| tg::error!(!error, region = %region, "failed to write stdio"))?;
 
 		Ok(stream.map(futures::StreamExt::boxed))
@@ -399,9 +398,8 @@ impl Session {
 			streams: arg.streams.clone(),
 			tokens: arg.tokens.for_location(&location),
 		};
-		let stream = client
-			.try_write_process_stdio(process, arg, input)
-			.await
+		let result = client.try_write_process_stdio(process, arg, input).await;
+		let stream = tangram_futures::retry::once(result)
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to write stdio"))?;
 
 		Ok(stream.map(futures::StreamExt::boxed))

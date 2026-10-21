@@ -2,6 +2,7 @@ use {
 	super::Instance,
 	crate::prelude::*,
 	futures::{FutureExt as _, Stream, future::BoxFuture, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 impl Instance {
@@ -73,8 +74,12 @@ impl Instance {
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
-	{
+	) -> tg::Result<
+		ControlFlow<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>,
+			tg::Error,
+		>,
+	> {
 		self.0.try_read_process_stdio(process, arg, input).await
 	}
 
@@ -83,7 +88,12 @@ impl Instance {
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
+	) -> tg::Result<
+		ControlFlow<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>,
+			tg::Error,
+		>,
+	> {
 		self.0.try_write_process_stdio(process, arg, input).await
 	}
 
@@ -112,10 +122,13 @@ impl tg::instance::Process for Instance {
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<(
-				tg::process::connect::Header,
-				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
-			)>,
+			ControlFlow<
+				Option<(
+					tg::process::connect::Header,
+					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+				)>,
+				tg::Error,
+			>,
 		>,
 	> + Send {
 		self.0.try_get_process_connect_stream(arg, input)
@@ -184,16 +197,20 @@ impl tg::instance::Process for Instance {
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<(
-				tg::process::control::Header,
-				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-			)>,
+			ControlFlow<
+				Option<(
+					tg::process::control::Header,
+					impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+				)>,
+				tg::Error,
+			>,
 		>,
 	> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<(_, BoxStream<_>)>>>>(
-				self.0.try_get_process_control_stream(arg, stream),
-			)
+			std::mem::transmute::<
+				_,
+				BoxFuture<'_, tg::Result<ControlFlow<Option<(_, BoxStream<_>)>, tg::Error>>>,
+			>(self.0.try_get_process_control_stream(arg, stream))
 		}
 	}
 
@@ -254,8 +271,13 @@ impl tg::instance::Process for Instance {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+			ControlFlow<
+				Option<
+					impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>>
+					+ Send
+					+ 'static,
+				>,
+				tg::Error,
 			>,
 		>,
 	> {
@@ -269,8 +291,11 @@ impl tg::instance::Process for Instance {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
+			ControlFlow<
+				Option<
+					impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
+				>,
+				tg::Error,
 			>,
 		>,
 	> {

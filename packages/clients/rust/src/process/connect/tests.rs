@@ -1,6 +1,6 @@
 use {
 	super::*,
-	crate::process::stdio::{self, End, Stream, read::Output},
+	crate::process::stdio::{End, Stream, read::Output},
 	futures::TryStreamExt as _,
 	std::time::Duration,
 };
@@ -94,7 +94,7 @@ async fn handles_preserve_not_found() {
 		.await
 		.unwrap()
 		.unwrap();
-		assert!(output.is_none());
+		assert!(matches!(output, std::ops::ControlFlow::Break(None)));
 		let result = tokio::time::timeout(
 			Duration::from_secs(5),
 			instance.get_process_connect_stream(arg(), futures::stream::pending().boxed()),
@@ -412,7 +412,7 @@ async fn mock_server(
 								.await
 								.unwrap();
 						let body = tangram_http::body::Boxed::new(request.into_body());
-						let input = stdio::decode(body, 1024 * 1024).boxed();
+						let input = crate::http::frame::decode(body, 1024 * 1024).boxed();
 						let (output, receiver) = async_channel::unbounded();
 						let connection = MockConnection {
 							_input: input,
@@ -420,7 +420,7 @@ async fn mock_server(
 							output,
 						};
 						sender.send(connection).await.unwrap();
-						let body = stdio::encode(receiver.boxed(), 1024 * 1024);
+						let body = crate::http::frame::encode(receiver.boxed(), 1024 * 1024);
 						let body = tangram_http::body::header::set(
 							body,
 							&Header::default(),

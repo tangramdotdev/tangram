@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::stream::BoxStream,
-	std::time::Duration,
+	std::{ops::ControlFlow, time::Duration},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::is_default,
@@ -773,19 +773,22 @@ impl tg::Session {
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<(
-			tg::process::control::Header,
-			impl futures::Stream<Item = tg::Result<tg::process::control::ServerMessage>>
-			+ Send
-			+ 'static
-			+ use<>,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::control::Header,
+				impl futures::Stream<Item = tg::Result<tg::process::control::ServerMessage>>
+				+ Send
+				+ 'static
+				+ use<>,
+			)>,
+			tg::Error,
+		>,
 	> {
 		let method = http::Method::POST;
 		let path = "/processes/control";
 		let uri = Uri::builder().path(path).build().unwrap();
 		let max_frame_size = self.client().sync.max_frame_size;
-		let body = super::stdio::encode(stream, max_frame_size);
+		let body = crate::http::frame::encode(stream, max_frame_size);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -795,12 +798,19 @@ impl tg::Session {
 			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let response = self
-			.send(request)
+		let response = match self
+			.send_attempt(request)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?
+		{
+			ControlFlow::Break(response) => response,
+			ControlFlow::Continue(error) => {
+				let error = tg::error!(!error, "failed to send the request");
+				return Ok(ControlFlow::Continue(error));
+			},
+		};
 		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		}
 		if !response.status().is_success() {
 			let status = response.status();
@@ -817,13 +827,18 @@ impl tg::Session {
 		if content_type != Some(TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let (header, stream) = super::stdio::decode_with_header(
+		let Some((header, stream)) = crate::http::frame::decode_with_header(
 			response.into_body(),
 			self.client().http.max_header_length,
 			max_frame_size,
 		)
-		.await?;
-		Ok(Some((header, stream)))
+		.await?
+		else {
+			let error = tg::error!("the control stream ended before its header");
+			return Ok(ControlFlow::Continue(error));
+		};
+
+		Ok(ControlFlow::Break(Some((header, stream))))
 	}
 }
 

@@ -35,6 +35,14 @@ where
 	}
 }
 
+/// Get the output of an attempt that is not retried, failing with the error of an attempt that would be retried.
+pub fn once<T, E>(result: Result<ControlFlow<T, E>, E>) -> Result<T, E> {
+	match result? {
+		ControlFlow::Break(value) => Ok(value),
+		ControlFlow::Continue(error) => Err(error),
+	}
+}
+
 pub fn stream(options: Options) -> impl Stream<Item = ()> {
 	let max_retries = options.max_retries.to_usize().unwrap();
 	stream::unfold(

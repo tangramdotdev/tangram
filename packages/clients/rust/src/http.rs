@@ -11,13 +11,15 @@ use {
 		task::{Context, Poll},
 		time::Duration,
 	},
-	tangram_http::request::Ext as _,
+	tangram_http::{request::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	time::format_description::well_known::Rfc3339,
 	tokio::io::{AsyncRead, AsyncWrite},
 	tower::{Service as _, util::BoxCloneSyncService},
 	tower_http::ServiceBuilderExt as _,
 };
+
+pub(crate) mod frame;
 
 pub(crate) type Pool = tangram_pool::Pool<Connection, tg::Error>;
 
@@ -38,7 +40,11 @@ struct Body {
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
 pub(crate) enum Error {
+	/// A failure to get a connection or to receive a response in time.
+	Connection(tg::Error),
+
 	Hyper(hyper::Error),
+
 	Other(tg::Error),
 }
 
@@ -87,7 +93,7 @@ impl tg::Client {
 						let connection = pool
 							.get_shared(tangram_pool::Priority::default())
 							.await
-							.map_err(Error::Other)?;
+							.map_err(Error::Connection)?;
 						if connection.is_closed() {
 							connection.discard();
 							continue;
@@ -124,7 +130,7 @@ impl tg::Client {
 					async move {
 						match tokio::time::timeout(http.request_timeout, future).await {
 							Ok(result) => result,
-							Err(_) => Err(Error::Other(tg::error!(
+							Err(_) => Err(Error::Connection(tg::error!(
 								unavailable,
 								"the request timed out"
 							))),
@@ -518,14 +524,52 @@ impl tg::Client {
 		let request = request.boxed_body();
 		let future = self.service.clone().call(request);
 		let response = future.await.map_err(|error| match error {
+			Error::Connection(error) | Error::Other(error) => error,
 			Error::Hyper(source) if is_transport_error(&source) => {
 				tg::error!(unavailable, source = source, "failed to send the request")
 			},
 			Error::Hyper(source) => tg::error!(source = source, "failed to send the request"),
-			Error::Other(error) => error,
 		})?;
 		let response = response.map(Into::into);
 		Ok(response)
+	}
+
+	/// Send a request, continuing if the request failed to reach the server or the server responded that it is unavailable.
+	pub(crate) async fn send_attempt<B>(
+		&self,
+		request: http::Request<B>,
+	) -> tg::Result<ControlFlow<http::Response<tangram_http::body::Boxed>, tg::Error>>
+	where
+		B: http_body::Body<Data = bytes::Bytes> + Send + Unpin + 'static,
+		B::Error: Into<tangram_http::Error> + Send,
+	{
+		let request = request.boxed_body();
+		let future = self.service.clone().call(request);
+		let response = match future.await {
+			Ok(response) => response,
+			Err(Error::Connection(error)) => return Ok(ControlFlow::Continue(error)),
+			Err(Error::Hyper(source)) if is_transport_error(&source) => {
+				let error = tg::error!(unavailable, source = source, "failed to send the request");
+				return Ok(ControlFlow::Continue(error));
+			},
+			Err(Error::Hyper(source)) => {
+				return Err(tg::error!(source = source, "failed to send the request"));
+			},
+			Err(Error::Other(error)) => return Err(error),
+		};
+
+		// Continue if the server responded that it is unavailable.
+		if response.status() == http::StatusCode::SERVICE_UNAVAILABLE {
+			let error = response
+				.json::<tg::Error>()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
+			let error = tg::error!(!error, "the server is unavailable");
+			return Ok(ControlFlow::Continue(error));
+		}
+		let response = response.map(Into::into);
+
+		Ok(ControlFlow::Break(response))
 	}
 }
 
@@ -582,6 +626,19 @@ impl tg::Session {
 		self.client().send(request).await
 	}
 
+	/// Send a request, continuing if the request failed to reach the server or the server responded that it is unavailable.
+	pub(crate) async fn send_attempt<B>(
+		&self,
+		mut request: http::Request<B>,
+	) -> tg::Result<ControlFlow<http::Response<tangram_http::body::Boxed>, tg::Error>>
+	where
+		B: http_body::Body<Data = bytes::Bytes> + Send + Unpin + 'static,
+		B::Error: Into<tangram_http::Error> + Send,
+	{
+		self.apply_context_headers(&mut request);
+		self.client().send_attempt(request).await
+	}
+
 	pub(crate) async fn send_with_retry<B>(
 		&self,
 		mut request: http::Request<B>,
@@ -611,13 +668,13 @@ impl tg::Session {
 						)))
 					},
 					Err(error) => Err(match error {
+						Error::Connection(error) | Error::Other(error) => error,
 						Error::Hyper(source) if is_transport_error(&source) => {
 							tg::error!(unavailable, source = source, "failed to send the request")
 						},
 						Error::Hyper(source) => {
 							tg::error!(source = source, "failed to send the request")
 						},
-						Error::Other(error) => error,
 					}),
 				}
 			}

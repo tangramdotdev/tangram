@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{future::BoxFuture, prelude::*, stream::BoxStream},
+	std::ops::ControlFlow,
 	tangram_futures::{BoxAsyncBufRead, BoxAsyncRead, BoxAsyncWrite},
 };
 
@@ -119,10 +120,15 @@ pub trait Instance:
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<(
-			tg::sync::Header,
-			BoxStream<'static, tg::Result<tg::sync::Message>>,
-		)>,
+		tg::Result<
+			ControlFlow<
+				(
+					tg::sync::Header,
+					BoxStream<'static, tg::Result<tg::sync::Message>>,
+				),
+				tg::Error,
+			>,
+		>,
 	>;
 
 	fn try_get<'a>(
@@ -261,13 +267,18 @@ where
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<(
-			tg::sync::Header,
-			BoxStream<'static, tg::Result<tg::sync::Message>>,
-		)>,
+		tg::Result<
+			ControlFlow<
+				(
+					tg::sync::Header,
+					BoxStream<'static, tg::Result<tg::sync::Message>>,
+				),
+				tg::Error,
+			>,
+		>,
 	> {
 		self.sync(arg, stream)
-			.map_ok(|(header, stream)| (header, stream.boxed()))
+			.map_ok(|flow| flow.map_break(|(header, stream)| (header, stream.boxed())))
 			.boxed()
 	}
 

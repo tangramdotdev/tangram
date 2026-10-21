@@ -7,6 +7,7 @@ use {
 	num::ToPrimitive as _,
 	std::{
 		io::SeekFrom,
+		ops::ControlFlow,
 		pin::pin,
 		sync::{Arc, Mutex},
 	},
@@ -677,12 +678,18 @@ pub trait Ext: tg::Instance {
 				})
 			});
 			let ack_sender = ack_task.is_none().then_some(ack_sender);
+			// Open the read, leaving a read that could not reach a server to be reopened with the retries.
 			let input = read_process_stdio_acks(ack_receiver.clone());
-			let Some(output) = instance
+			let (output, error) = match instance
 				.try_read_process_stdio(&process, arg.clone(), input)
 				.await?
-			else {
-				return Ok(None);
+			{
+				ControlFlow::Break(Some(output)) => (Some(output.boxed()), None),
+				ControlFlow::Break(None) => return Ok(None),
+				ControlFlow::Continue(error) => {
+					tracing::error!(error = %error.trace(), "failed to open the stdio read stream");
+					(None, Some(error))
+				},
 			};
 			struct State<I> {
 				ack_receiver: tokio::sync::watch::Receiver<u64>,
@@ -707,10 +714,10 @@ pub trait Ext: tg::Instance {
 				arg,
 				combined,
 				ended: false,
-				error: None,
+				error,
 				forward,
 				instance,
-				output: Some(output.boxed()),
+				output,
 				position,
 				process,
 				retries: None,
@@ -752,19 +759,19 @@ pub trait Ext: tg::Instance {
 						match state
 							.instance
 							.try_read_process_stdio(&state.process, arg, input)
-							.await
+							.await?
 						{
-							Ok(Some(output)) => {
+							ControlFlow::Break(Some(output)) => {
 								state.output = Some(output.boxed());
 							},
-							Ok(None) => return Err(tg::error!("failed to find the process")),
-							// Retry the attempt if it failed with an unavailable error.
-							Err(error) if error.kind() == Some(tg::error::Kind::Unavailable) => {
+							ControlFlow::Break(None) => {
+								return Err(tg::error!("failed to find the process"));
+							},
+							ControlFlow::Continue(error) => {
 								tracing::error!(error = %error.trace(), "failed to reconnect the stdio read stream");
 								state.error = Some(error);
 								continue;
 							},
-							Err(error) => return Err(error),
 						}
 					}
 					let message = state.output.as_mut().unwrap().next().await;

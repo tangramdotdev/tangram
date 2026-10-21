@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{future::BoxFuture, prelude::*, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 pub trait Process: Send + Sync + 'static {
@@ -11,10 +12,13 @@ pub trait Process: Send + Sync + 'static {
 	) -> BoxFuture<
 		'_,
 		tg::Result<
-			Option<(
-				tg::process::connect::Header,
-				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
-			)>,
+			ControlFlow<
+				Option<(
+					tg::process::connect::Header,
+					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+				)>,
+				tg::Error,
+			>,
 		>,
 	>;
 
@@ -65,10 +69,13 @@ pub trait Process: Send + Sync + 'static {
 	) -> BoxFuture<
 		'a,
 		tg::Result<
-			Option<(
-				tg::process::control::Header,
-				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
-			)>,
+			ControlFlow<
+				Option<(
+					tg::process::control::Header,
+					BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+				)>,
+				tg::Error,
+			>,
 		>,
 	>;
 
@@ -106,7 +113,12 @@ pub trait Process: Send + Sync + 'static {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>,
+		tg::Result<
+			ControlFlow<
+				Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>,
+				tg::Error,
+			>,
+		>,
 	>;
 
 	fn try_write_process_stdio<'a>(
@@ -116,7 +128,12 @@ pub trait Process: Send + Sync + 'static {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>>,
+		tg::Result<
+			ControlFlow<
+				Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>,
+				tg::Error,
+			>,
+		>,
 	>;
 
 	fn try_touch_process<'a>(
@@ -146,10 +163,13 @@ where
 	) -> BoxFuture<
 		'_,
 		tg::Result<
-			Option<(
-				tg::process::connect::Header,
-				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
-			)>,
+			ControlFlow<
+				Option<(
+					tg::process::connect::Header,
+					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+				)>,
+				tg::Error,
+			>,
 		>,
 	> {
 		self.try_get_process_connect_stream(arg, input).boxed()
@@ -216,14 +236,19 @@ where
 	) -> BoxFuture<
 		'a,
 		tg::Result<
-			Option<(
-				tg::process::control::Header,
-				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
-			)>,
+			ControlFlow<
+				Option<(
+					tg::process::control::Header,
+					BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+				)>,
+				tg::Error,
+			>,
 		>,
 	> {
 		self.try_get_process_control_stream(arg, stream)
-			.map_ok(|option| option.map(|(header, stream)| (header, stream.boxed())))
+			.map_ok(|flow| {
+				flow.map_break(|option| option.map(|(header, stream)| (header, stream.boxed())))
+			})
 			.boxed()
 	}
 
@@ -274,10 +299,15 @@ where
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>,
+		tg::Result<
+			ControlFlow<
+				Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>,
+				tg::Error,
+			>,
+		>,
 	> {
 		self.try_read_process_stdio(process, arg, input)
-			.map_ok(|option| option.map(futures::StreamExt::boxed))
+			.map_ok(|flow| flow.map_break(|option| option.map(futures::StreamExt::boxed)))
 			.boxed()
 	}
 
@@ -288,10 +318,15 @@ where
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>>,
+		tg::Result<
+			ControlFlow<
+				Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>,
+				tg::Error,
+			>,
+		>,
 	> {
 		self.try_write_process_stdio(process, arg, input)
-			.map_ok(|option| option.map(futures::StreamExt::boxed))
+			.map_ok(|flow| flow.map_break(|option| option.map(futures::StreamExt::boxed)))
 			.boxed()
 	}
 

@@ -75,17 +75,16 @@ pub(super) async fn open_stream<I: tg::Instance>(
 		let (_, input) = sender.attach().await?;
 		match instance
 			.try_get_process_control_stream(arg.clone(), input)
-			.await
+			.await?
 		{
-			Ok(Some(output)) => break output,
-			Ok(None) => return Ok(None),
-			Err(error) if error.kind() == Some(tg::error::Kind::Unavailable) => {
+			ControlFlow::Break(Some(output)) => break output,
+			ControlFlow::Break(None) => return Ok(None),
+			ControlFlow::Continue(error) => {
 				tracing::error!(error = %error.trace(), "failed to connect the control stream");
 				if retries.next().await.is_none() {
 					return Err(error);
 				}
 			},
-			Err(error) => return Err(error),
 		}
 	};
 	let instance = reconnect(&header);
@@ -95,7 +94,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 		arg.mode = Mode::Resume { lease: start.lease };
 	}
 
-	// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
+	// Yield events from the stream, reconnecting with backoff when the stream ends before the connection closes, which is how a stream reports a lost connection.
 	struct StreamState {
 		arg: Arg,
 		retries: Option<BoxStream<'static, ()>>,
@@ -128,15 +127,15 @@ pub(super) async fn open_stream<I: tg::Instance>(
 						.try_get_process_control_stream(state.arg.clone(), input)
 						.await
 					{
-						Ok(Some((_, stream))) => {
+						Ok(ControlFlow::Break(Some((_, stream)))) => {
 							state.stream.replace(stream.boxed());
 							return Some((Ok(tg::control::Event::Reconnect), state));
 						},
-						Ok(None) => {
+						Ok(ControlFlow::Break(None)) => {
 							let error = tg::error!("failed to find the process");
 							return Some((Err(error), state));
 						},
-						Err(error) if error.kind() == Some(tg::error::Kind::Unavailable) => {
+						Ok(ControlFlow::Continue(error)) => {
 							tracing::error!(error = %error.trace(), "failed to reconnect the control stream");
 							continue;
 						},
@@ -151,8 +150,7 @@ pub(super) async fn open_stream<I: tg::Instance>(
 						return Some((Ok(tg::control::Event::Message(event)), state));
 					},
 					Some(Err(error)) => {
-						tracing::error!(error = %error.trace(), "the control stream returned an error");
-						state.stream.take();
+						return Some((Err(error), state));
 					},
 					None => {
 						state.stream.take();
