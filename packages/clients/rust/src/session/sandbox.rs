@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 impl tg::instance::Sandbox for tg::Session {
@@ -65,10 +66,15 @@ impl tg::instance::Sandbox for tg::Session {
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::sandbox::control::Header,
-			impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::sandbox::control::Header,
+					impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> {
 		self.get_sandbox_control_stream(arg, stream)
 	}

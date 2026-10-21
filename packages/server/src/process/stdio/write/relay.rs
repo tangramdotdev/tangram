@@ -7,6 +7,7 @@ use {
 	},
 	std::{
 		collections::VecDeque,
+		ops::ControlFlow,
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
@@ -172,7 +173,7 @@ impl Session {
 							(&mut relay)
 								.await
 								.map_err(|error| {
-									tg::error!(unavailable, !error, "the stdio relay task panicked")
+									tg::error!(!error, "the stdio relay task panicked")
 								})?
 								.map_err(super::super::relay::error)?;
 						}
@@ -188,7 +189,7 @@ impl Session {
 			tokio::select! {
 				result = &mut relay, if !relayed => {
 					result
-						.map_err(|error| tg::error!(unavailable, !error, "the stdio relay task panicked"))?
+						.map_err(|error| tg::error!(!error, "the stdio relay task panicked"))?
 						.map_err(super::super::relay::error)?;
 					relayed = true;
 				},
@@ -260,13 +261,13 @@ impl Session {
 					open.take(),
 				)
 				.await;
-			let attempt_error = match result {
-				Ok(()) => return Ok(()),
-				Err(error) => error,
+			let attempt_error = match result? {
+				ControlFlow::Break(()) => return Ok(()),
+				ControlFlow::Continue(error) => error,
 			};
 
-			// Return the error unless the relay failed, so that only a failed relay is replaced.
-			if attempt_error.kind() != Some(tg::error::Kind::Unavailable) || sender.is_closed() {
+			// Return the error if the writer is gone.
+			if sender.is_closed() {
 				return Err(attempt_error);
 			}
 
@@ -292,14 +293,14 @@ impl Session {
 		ended: &mut bool,
 		position: &mut u64,
 		open: Option<String>,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		// Open the relay, which sends the data and receives the runner's acknowledgments. A claimed open names the relay that the runner opened when the process started.
 		let claimed = open.is_some();
 		let open = open.unwrap_or_else(crate::control::id);
 		let send_subject = super::super::relay::data_subject(id, &open);
 		let receive_subject = super::super::relay::ack_subject(id, &open);
 		let options = self.server.config().process.stdio_relay;
-		let (relay_sender, receiver) = tangram_messenger::relay::open::<
+		let result = tangram_messenger::relay::open::<
 			super::super::relay::Data,
 			super::super::relay::Ack,
 			_,
@@ -309,8 +310,8 @@ impl Session {
 			receive_subject,
 			options,
 		)
-		.await
-		.map_err(super::super::relay::error)?;
+		.await;
+		let (relay_sender, receiver) = super::super::relay::attempt!(result);
 		let mut acks = receiver;
 		let (items_sender, items_receiver) = tokio::sync::mpsc::channel(1);
 		let items = ReceiverStream::new(items_receiver);
@@ -365,7 +366,7 @@ impl Session {
 				},
 				data = input.try_next(), if reading => {
 					let Some(data) = data? else {
-						return Ok(());
+						return Ok(ControlFlow::Break(()));
 					};
 					super::validate_write(&data, streams)?;
 					crate::checkpoint!(self.server, "process.stdio.write.request", close = %matches!(&data, Data::End(_)), stream = %tg::process::stdio::Stream::Stdin).await;
@@ -394,17 +395,23 @@ impl Session {
 					Some(Ok(super::super::relay::Ack(ClientMessage::Ack { position: acked }))) => {
 						Self::answer_process_stdio_relay_writes(sender, kept, position, acked).await?;
 					},
+					Some(Err(error)) if super::super::relay::is_retry(&error) => {
+						return Ok(ControlFlow::Continue(super::super::relay::error(error)));
+					},
 					Some(Err(error)) => return Err(super::super::relay::error(error)),
 
 					// The runner ends a claimed open's relay when stdin closes, because no open response reports it.
-					None if claimed => return Self::close_process_stdio_relay(sender, *position).await,
+					None if claimed => {
+						Self::close_process_stdio_relay(sender, *position).await?;
+						return Ok(ControlFlow::Break(()));
+					},
 
 					None => acks_open = false,
 				},
 				result = &mut relay, if !relayed => {
 					relayed = true;
-					let result = result.map_err(|error| tg::error!(unavailable, !error, "the stdio relay task panicked"))?;
-					result.map_err(super::super::relay::error)?;
+					let result = result.map_err(|error| tg::error!(!error, "the stdio relay task panicked"))?;
+					super::super::relay::attempt!(result);
 				},
 				result = &mut response => {
 					// An error means the runner's read failed, and success means stdin closed.
@@ -417,11 +424,13 @@ impl Session {
 						Self::answer_process_stdio_relay_writes(sender, kept, position, acked).await?;
 					}
 
-					return Self::close_process_stdio_relay(sender, *position).await;
+					Self::close_process_stdio_relay(sender, *position).await?;
+					return Ok(ControlFlow::Break(()));
 				},
 				result = wait.clone() => {
 					result?;
-					return Self::close_process_stdio_relay(sender, *position).await;
+					Self::close_process_stdio_relay(sender, *position).await?;
+					return Ok(ControlFlow::Break(()));
 				},
 			}
 		}

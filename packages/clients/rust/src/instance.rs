@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, StreamExt as _, stream::BoxStream},
-	std::sync::OnceLock,
+	std::{ops::ControlFlow, sync::OnceLock},
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
@@ -218,15 +218,21 @@ pub trait Instance:
 		)>,
 	> + Send;
 
+	/// Sync, continuing if the request could not reach a server.
 	fn sync(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::sync::Header,
-			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::sync::Header,
+					impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> + Send;
 
 	fn get(
@@ -386,10 +392,15 @@ impl tg::Instance for tg::Client {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<(
-		tg::sync::Header,
-		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sync::Header,
+				impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+			),
+			tg::Error,
+		>,
+	> {
 		self.session(&self.context).sync(arg, stream).await
 	}
 

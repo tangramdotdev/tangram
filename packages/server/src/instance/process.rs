@@ -1,6 +1,7 @@
 use {
 	crate::Server,
 	futures::{FutureExt as _, Stream, stream::BoxStream},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -10,10 +11,13 @@ impl tg::instance::Process for Server {
 		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> tg::Result<
-		Option<(
-			tg::process::connect::Header,
-			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::connect::Header,
+				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			)>,
+			tg::Error,
+		>,
 	> {
 		self.session(&self.context)
 			.try_get_process_connect_stream(arg, input)
@@ -82,10 +86,13 @@ impl tg::instance::Process for Server {
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<(
-			tg::process::control::Header,
-			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-		)>,
+		ControlFlow<
+			Option<(
+				tg::process::control::Header,
+				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+			)>,
+			tg::Error,
+		>,
 	> {
 		self.session(&self.context)
 			.try_get_process_control_stream_with_context(arg, stream)
@@ -143,8 +150,11 @@ impl tg::instance::Process for Server {
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<
-		Option<
-			impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+		ControlFlow<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+			>,
+			tg::Error,
 		>,
 	> {
 		self.session(&self.context)
@@ -158,7 +168,12 @@ impl tg::instance::Process for Server {
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static>,
+		ControlFlow<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::write::Output>> + Send + 'static,
+			>,
+			tg::Error,
+		>,
 	> {
 		self.session(&self.context)
 			.try_write_process_stdio(process, arg, input)

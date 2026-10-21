@@ -618,11 +618,11 @@ impl Session {
 
 					// Create the source future.
 					let source_future = async {
-						let source_output_stream = if let Some(source_session) = source_session {
+						let source_output = if let Some(source_session) = source_session {
 							source_session
 								.sync(source_arg, source_input_stream)
 								.await
-								.map(|(_, stream)| stream.boxed())
+								.map(|output| output.map_break(|(_, stream)| stream.boxed()))
 						} else {
 							let arg = crate::sync::InnerArg {
 								arg: source_arg,
@@ -632,11 +632,21 @@ impl Session {
 							session
 								.sync_inner(arg, source_input_stream)
 								.await
-								.map(|(_, stream)| stream.boxed())
+								.map(|output| output.map_break(|(_, stream)| stream.boxed()))
 						}
 						.map_err(|error| {
 							tg::error!(!error, "failed to create the source stream")
 						})?;
+
+						// End the attempt if the source could not be reached.
+						let source_output_stream = match source_output {
+							ControlFlow::Break(stream) => stream,
+							ControlFlow::Continue(error) => {
+								let error =
+									tg::error!(!error, "failed to create the source stream");
+								return Ok(ControlFlow::Continue(error));
+							},
+						};
 						let completed = forward(
 							source_output_stream.boxed(),
 							&source_output_sender,
@@ -656,7 +666,7 @@ impl Session {
 							},
 						)
 						.await?;
-						Ok(completed.then_some(()))
+						Ok(Self::push_or_pull_completion(completed, ()))
 					};
 
 					// Create the destination future.
@@ -667,12 +677,22 @@ impl Session {
 							trust,
 							..Default::default()
 						};
-						let (sync_header, destination_output_stream) = session
+						let destination_output = session
 							.sync_inner(inner_arg, destination_input_stream)
 							.await
 							.map_err(|error| {
 								tg::error!(!error, "failed to create the destination stream")
 							})?;
+
+						// End the attempt if the destination could not be reached.
+						let (sync_header, destination_output_stream) = match destination_output {
+							ControlFlow::Break(output) => output,
+							ControlFlow::Continue(error) => {
+								let error =
+									tg::error!(!error, "failed to create the destination stream");
+								return Ok(ControlFlow::Continue(error));
+							},
+						};
 
 						// Preserve the sync so the header remains valid across transfer retries.
 						*sync_state.lock().unwrap() = sync_header.sync.clone();
@@ -722,60 +742,54 @@ impl Session {
 							},
 						)
 						.await?;
-						Ok(completed.then_some((sync_header, get_output)))
+						Ok(Self::push_or_pull_completion(
+							completed,
+							(sync_header, get_output),
+						))
 					};
 
 					let completed = self::join(source_future, destination_future)
 						.boxed()
 						.await?;
-					if let Some(((), (sync_header, get_output))) = completed {
-						let mut output = output.lock().unwrap().clone();
-						output.nodes = session.create_sync_output_nodes(&arg)?;
-						if let Some(sync) = sync_header.sync {
-							let mut authorization_tokens = tg::authorization::Tokens::default();
-							for token in sync.options.tokens.local_authorization() {
-								authorization_tokens
-									.insert_authorization(destination.clone(), token.clone());
-							}
-							for node in &mut output.nodes {
-								node.options.tokens.inherit(&authorization_tokens);
-							}
+					let ((), (sync_header, get_output)) = match completed {
+						ControlFlow::Break(output) => output,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					let mut output = output.lock().unwrap().clone();
+					output.nodes = session.create_sync_output_nodes(&arg)?;
+					if let Some(sync) = sync_header.sync {
+						let mut authorization_tokens = tg::authorization::Tokens::default();
+						for token in sync.options.tokens.local_authorization() {
+							authorization_tokens
+								.insert_authorization(destination.clone(), token.clone());
 						}
-
-						// Add the destination's authorization tokens from the get output to the push output nodes.
-						if !get_empty && get_output.is_none() {
-							return Err(tg::error!("the destination did not send the get output"));
+						for node in &mut output.nodes {
+							node.options.tokens.inherit(&authorization_tokens);
 						}
-						let get_output_nodes =
-							get_output.into_iter().flat_map(|output| output.nodes);
-						for get_output_node in get_output_nodes {
-							let mut tokens = tg::authorization::Tokens::default();
-							for token in get_output_node.options.tokens.local_authorization() {
-								tokens.insert_authorization(destination.clone(), token.clone());
-							}
-							for node in &mut output.nodes {
-								if node.node == get_output_node.node {
-									node.options.tokens.inherit(&tokens);
-								}
-							}
-						}
-
-						Ok(ControlFlow::Break(output))
-					} else {
-						Ok(ControlFlow::Continue(tg::error!(
-							"sync ended before receiving all end messages"
-						)))
 					}
+
+					// Add the destination's authorization tokens from the get output to the push output nodes.
+					if !get_empty && get_output.is_none() {
+						return Err(tg::error!("the destination did not send the get output"));
+					}
+					let get_output_nodes = get_output.into_iter().flat_map(|output| output.nodes);
+					for get_output_node in get_output_nodes {
+						let mut tokens = tg::authorization::Tokens::default();
+						for token in get_output_node.options.tokens.local_authorization() {
+							tokens.insert_authorization(destination.clone(), token.clone());
+						}
+						for node in &mut output.nodes {
+							if node.node == get_output_node.node {
+								node.options.tokens.inherit(&tokens);
+							}
+						}
+					}
+
+					Ok(ControlFlow::Break(output))
 				}
 				.await;
 
-				// Retry the attempt if it failed with an unavailable error or ended early.
-				let result = match result {
-					Err(error) if error.kind() == Some(tg::error::Kind::Unavailable) => {
-						Ok(ControlFlow::Continue(error))
-					},
-					result => result,
-				};
+				// Retry the attempt if it ended before the sync completed.
 				if let Ok(ControlFlow::Continue(error)) = &result {
 					tracing::warn!(error = %error.trace(), "retrying the push or pull");
 					crate::checkpoint!(server, "push.attempt.failed").await;
@@ -803,6 +817,16 @@ impl Session {
 		progress.finish("bytes");
 
 		Ok(output)
+	}
+
+	/// Get the output of a side of a push or pull attempt, continuing if its stream ended before its end messages.
+	fn push_or_pull_completion<T>(completed: bool, output: T) -> ControlFlow<T, tg::Error> {
+		if completed {
+			ControlFlow::Break(output)
+		} else {
+			let error = tg::error!("sync ended before receiving all end messages");
+			ControlFlow::Continue(error)
+		}
 	}
 
 	fn push_or_pull_record_received_specifier(
@@ -1006,15 +1030,20 @@ async fn forward(
 }
 
 async fn join<L, R>(
-	left: impl Future<Output = tg::Result<Option<L>>> + Send,
-	right: impl Future<Output = tg::Result<Option<R>>> + Send,
-) -> tg::Result<Option<(L, R)>> {
+	left: impl Future<Output = tg::Result<ControlFlow<L, tg::Error>>> + Send,
+	right: impl Future<Output = tg::Result<ControlFlow<R, tg::Error>>> + Send,
+) -> tg::Result<ControlFlow<(L, R), tg::Error>> {
 	match future::try_select(left.boxed(), right.boxed()).await {
-		Ok(future::Either::Left((Some(left), right))) => {
-			Ok(right.await?.map(|right| (left, right)))
+		Ok(future::Either::Left((ControlFlow::Break(left), right))) => {
+			Ok(right.await?.map_break(|right| (left, right)))
 		},
-		Ok(future::Either::Right((Some(right), left))) => Ok(left.await?.map(|left| (left, right))),
-		Ok(future::Either::Left((None, _)) | future::Either::Right((None, _))) => Ok(None),
+		Ok(future::Either::Right((ControlFlow::Break(right), left))) => {
+			Ok(left.await?.map_break(|left| (left, right)))
+		},
+		Ok(
+			future::Either::Left((ControlFlow::Continue(error), _))
+			| future::Either::Right((ControlFlow::Continue(error), _)),
+		) => Ok(ControlFlow::Continue(error)),
 		Err(future::Either::Left((error, _)) | future::Either::Right((error, _))) => Err(error),
 	}
 }

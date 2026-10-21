@@ -1,6 +1,7 @@
 use {
 	crate::Server,
 	futures::{FutureExt as _, Stream, stream::BoxStream},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -64,10 +65,15 @@ impl tg::instance::Runner for Server {
 		&self,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
-	) -> tg::Result<(
-		tg::runner::control::Header,
-		impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::runner::control::Header,
+				impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
+			),
+			tg::Error,
+		>,
+	> {
 		self.session(&self.context)
 			.get_runner_control_stream_with_context(arg, stream)
 			.boxed()

@@ -5,7 +5,7 @@ use {
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, io::SeekFrom, time::Duration},
+	std::{collections::BTreeSet, io::SeekFrom, ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
@@ -34,8 +34,12 @@ impl Session {
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		mut arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
-	{
+	) -> tg::Result<
+		ControlFlow<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>,
+			tg::Error,
+		>,
+	> {
 		// Resolve the process, claiming the connect's open for a read that starts from the beginning.
 		let streams = if arg.position.is_none() && arg.length.is_none() {
 			arg.streams.clone()
@@ -52,7 +56,7 @@ impl Session {
 			)
 			.await?
 		else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		let open = output.open;
 		let id = process.clone().right();
@@ -97,14 +101,14 @@ impl Session {
 			.try_read_process_stdio_source(id.as_ref(), process, arg.clone(), &acks, open)
 			.await?
 		else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		let stream = self
 			.read_process_stdio_protocol(source)
 			.attach(ack_task)
 			.boxed();
 
-		Ok(Some(stream))
+		Ok(ControlFlow::Break(Some(stream)))
 	}
 
 	async fn try_read_process_stdio_source(
@@ -589,13 +593,13 @@ impl Session {
 					open.take(),
 				)
 				.await;
-			let attempt_error = match result {
-				Ok(()) => return Ok(()),
-				Err(error) => error,
+			let attempt_error = match result? {
+				ControlFlow::Break(()) => return Ok(()),
+				ControlFlow::Continue(error) => error,
 			};
 
-			// Return the error unless the relay failed, so that only a failed relay is replaced and a superseded read never takes over again.
-			if attempt_error.kind() != Some(tg::error::Kind::Unavailable) || sender.is_closed() {
+			// Return the error if the reader is gone, so that a superseded read never takes over again.
+			if sender.is_closed() {
 				return Err(attempt_error);
 			}
 
@@ -620,7 +624,7 @@ impl Session {
 		length: &mut Option<i64>,
 		acks: Acks,
 		open: Option<String>,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		// Open the relay before the read, so the runner's first bytes are not missed. A claimed open names the relay that the runner opened when the process started.
 		let timeout = arg.timeout;
 		let claimed = open.is_some();
@@ -628,15 +632,14 @@ impl Session {
 		let send_subject = super::relay::ack_subject(id, &request_id);
 		let receive_subject = super::relay::data_subject(id, &request_id);
 		let options = self.server.config().process.stdio_relay;
-		let (relay_sender, receiver) =
-			tangram_messenger::relay::open::<super::relay::Ack, super::relay::Data, _>(
-				&self.server.messenger,
-				send_subject,
-				receive_subject,
-				options,
-			)
-			.await
-			.map_err(super::relay::error)?;
+		let result = tangram_messenger::relay::open::<super::relay::Ack, super::relay::Data, _>(
+			&self.server.messenger,
+			send_subject,
+			receive_subject,
+			options,
+		)
+		.await;
+		let (relay_sender, receiver) = super::relay::attempt!(result);
 		let mut items = receiver;
 
 		// Send the reader's acknowledgments back to the runner.
@@ -663,17 +666,18 @@ impl Session {
 			let item = tokio::select! {
 				item = items.next() => item,
 				result = &mut ack_task => {
-					result
-						.map_err(|error| tg::error!(unavailable, !error, "the stdio acknowledgment task panicked"))?
-						.map_err(super::relay::error)?;
-					return Err(tg::error!(unavailable, "the stdio acknowledgments ended"));
+					let result = result
+						.map_err(|error| tg::error!(!error, "the stdio acknowledgment task panicked"))?;
+					super::relay::attempt!(result);
+					let error = tg::error!("the stdio acknowledgments ended");
+					return Ok(ControlFlow::Continue(error));
 				},
 				result = &mut response, if !opened => {
 					result?;
 					opened = true;
 					continue;
 				},
-				() = sender.closed() => return Ok(()),
+				() = sender.closed() => return Ok(ControlFlow::Break(())),
 			};
 			let message = match item {
 				Some(Ok(super::relay::Data(tg::process::stdio::write::Data::Chunk(mut chunk)))) => {
@@ -732,11 +736,12 @@ impl Session {
 						options.peer_timeout(),
 					);
 					future::join(drain, finish).await;
-					return Ok(());
+					return Ok(ControlFlow::Break(()));
 				},
-				Some(Err(error)) => {
-					return Err(super::relay::error(error));
+				Some(Err(error)) if super::relay::is_retry(&error) => {
+					return Ok(ControlFlow::Continue(super::relay::error(error)));
 				},
+				Some(Err(error)) => return Err(super::relay::error(error)),
 				None => {
 					// Respond with the read's limit or timeout when the relay ends without EOF, and otherwise fail the attempt, so that the relay is reopened.
 					let output = if length.is_some_and(|length| length <= 0) {
@@ -748,7 +753,8 @@ impl Session {
 							position: *position,
 						}
 					} else {
-						return Err(tg::error!(unavailable, "the stdio relay ended before EOF"));
+						let error = tg::error!("the stdio relay ended before EOF");
+						return Ok(ControlFlow::Continue(error));
 					};
 					sender
 						.send(Ok(tg::process::stdio::read::ServerMessage::Response(
@@ -763,11 +769,11 @@ impl Session {
 						options.peer_timeout(),
 					)
 					.await;
-					return Ok(());
+					return Ok(ControlFlow::Break(()));
 				},
 			};
 			if sender.send(Ok(message)).await.is_err() {
-				return Ok(());
+				return Ok(ControlFlow::Break(()));
 			}
 		}
 	}
@@ -1017,9 +1023,9 @@ impl Session {
 			})?;
 		let tangram_content_type = tg::process::stdio::TANGRAM_CONTENT_TYPE;
 		let output_encoding =
-			super::Encoding::from_accept(accept.as_ref(), tangram_content_type)
+			crate::http::frame::Encoding::from_accept(accept.as_ref(), tangram_content_type)
 				.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
-		let input_encoding = super::Encoding::from_content_type(
+		let input_encoding = crate::http::frame::Encoding::from_content_type(
 			content_type
 				.as_ref()
 				.ok_or_else(|| tg::error!(argument, "missing the content type"))?,
@@ -1035,16 +1041,22 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
 		let max_frame_size = self.server.config.sync.max_frame_size;
-		let input = super::decode(request, input_encoding, max_frame_size);
-		let Some(output) = self.try_read_process_stdio(&process, arg, input).await? else {
-			return Ok(http::Response::builder()
-				.not_found()
-				.empty()
-				.unwrap()
-				.boxed_body());
+		let input = crate::http::frame::decode(request, input_encoding, max_frame_size);
+		let output = match self.try_read_process_stdio(&process, arg, input).await? {
+			ControlFlow::Break(Some(output)) => output,
+			ControlFlow::Break(None) => {
+				return Ok(http::Response::builder()
+					.not_found()
+					.empty()
+					.unwrap()
+					.boxed_body());
+			},
+			ControlFlow::Continue(error) => {
+				return Err(tg::error!(unavailable, !error, "failed to read stdio"));
+			},
 		};
 		let content_type = output_encoding.content_type(tangram_content_type);
-		let body = super::encode(output, output_encoding, max_frame_size);
+		let body = crate::http::frame::encode(output, output_encoding, max_frame_size);
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)

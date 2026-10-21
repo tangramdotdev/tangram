@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	futures::{FutureExt as _, Stream, stream::BoxStream},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -59,10 +60,15 @@ impl tg::instance::Sandbox for Session {
 		&self,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> tg::Result<(
-		tg::sandbox::control::Header,
-		impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sandbox::control::Header,
+				impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+			),
+			tg::Error,
+		>,
+	> {
 		self.get_sandbox_control_stream_with_context(arg, stream)
 			.await
 	}

@@ -189,9 +189,8 @@ impl Session {
 				Ok(tg::sync::Message::End),
 			]);
 		let input = futures::stream::iter(messages).boxed();
-		let (_, output) = client
-			.sync(primary_region_arg, input)
-			.await
+		let result = client.sync(primary_region_arg, input).await;
+		let (_, output) = tangram_futures::retry::once(result)
 			.map_err(|error| tg::error!(!error, "failed to start the primary region sync"))?;
 		let mut output = std::pin::pin!(output);
 		let mut get_end_received = false;

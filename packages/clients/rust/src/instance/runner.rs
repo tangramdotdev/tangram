@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 pub trait Runner: Clone + Unpin + Send + Sync + 'static {
@@ -79,10 +80,15 @@ pub trait Runner: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::runner::control::Header,
-			impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::runner::control::Header,
+					impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> + Send;
 }
 
@@ -146,10 +152,15 @@ impl tg::instance::Runner for tg::Client {
 		&self,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
-	) -> tg::Result<(
-		tg::runner::control::Header,
-		impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::runner::control::Header,
+				impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
+			),
+			tg::Error,
+		>,
+	> {
 		self.session(&self.context)
 			.get_runner_control_stream(arg, stream)
 			.await

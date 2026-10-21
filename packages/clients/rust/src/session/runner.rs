@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 impl tg::instance::Runner for tg::Session {
@@ -56,10 +57,15 @@ impl tg::instance::Runner for tg::Session {
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::runner::control::Header,
-			impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::runner::control::Header,
+					impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> {
 		self.get_runner_control_stream(arg, stream)
 	}

@@ -335,7 +335,9 @@ impl Client {
 			ttl: None,
 		};
 		let pool = self::http::Pool::new(options, || async {
-			Err(tg::error!("cannot create a connection for a stream client"))
+			Err(self::http::Error::Other(tg::error!(
+				"cannot create a connection for a stream client"
+			)))
 		});
 		pool.add(self::http::Connection::new(sender));
 		let service = Self::service(&version, &pool, &url, http);
@@ -482,8 +484,9 @@ impl Default for Arg {
 			shared: usize::MAX,
 			ttl: None,
 		};
+		// Reconnect a stream for about ten seconds, so that a stream survives a server restart and fails once its server stays down.
 		let stream_retry = tangram_futures::retry::Options {
-			max_retries: u64::MAX,
+			max_retries: 16,
 			..Default::default()
 		};
 		Self {

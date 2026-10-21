@@ -2,6 +2,7 @@ use {
 	super::Stream,
 	crate::prelude::*,
 	futures::{TryStreamExt as _, stream::BoxStream},
+	std::ops::ControlFlow,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 };
@@ -119,11 +120,14 @@ impl tg::Session {
 		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 	) -> tg::Result<
-		Option<
-			impl futures::Stream<Item = tg::Result<tg::process::stdio::write::Output>>
-			+ Send
-			+ 'static
-			+ use<>,
+		ControlFlow<
+			Option<
+				impl futures::Stream<Item = tg::Result<tg::process::stdio::write::Output>>
+				+ Send
+				+ 'static
+				+ use<>,
+			>,
+			tg::Error,
 		>,
 	> {
 		if arg.streams.is_empty() {
@@ -132,7 +136,7 @@ impl tg::Session {
 		let max_frame_size = self.client().sync.max_frame_size;
 		let path = format!("/processes/{process}/stdio/write");
 		let uri = Uri::builder().path(&path).build().unwrap();
-		let body = super::encode(input, max_frame_size);
+		let body = crate::http::frame::encode(input, max_frame_size);
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
 			.uri(uri)
@@ -141,12 +145,19 @@ impl tg::Session {
 			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let response = self
-			.send(request)
+		let response = match self
+			.send_attempt(request)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?
+		{
+			ControlFlow::Break(response) => response,
+			ControlFlow::Continue(error) => {
+				let error = tg::error!(!error, "failed to send the request");
+				return Ok(ControlFlow::Continue(error));
+			},
+		};
 		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		}
 		if !response.status().is_success() {
 			let status = response.status();
@@ -163,9 +174,9 @@ impl tg::Session {
 		if content_type != Some(super::TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = super::decode(response.into_body(), max_frame_size);
+		let stream = crate::http::frame::decode(response.into_body(), max_frame_size);
 
-		Ok(Some(stream))
+		Ok(ControlFlow::Break(Some(stream)))
 	}
 }
 

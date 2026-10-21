@@ -7,6 +7,7 @@ use {
 	num::ToPrimitive as _,
 	std::{
 		io::SeekFrom,
+		ops::ControlFlow,
 		pin::pin,
 		sync::{Arc, Mutex},
 	},
@@ -530,10 +531,11 @@ pub trait Ext: tg::Instance {
 			});
 			input_task.detach();
 
-			// Get the initial header and stream.
-			let (header, output_stream) = instance
+			// Get the initial header and stream, without retrying, because a create that has no sandbox ID yet is not safe to repeat.
+			let result = instance
 				.get_sandbox_control_stream(arg.clone(), input_receiver.clone().boxed())
-				.await?;
+				.await;
+			let (header, output_stream) = tangram_futures::retry::once(result)?;
 			let stream_retry = instance.arg().stream_retry;
 			let instance = reconnect(&header);
 			let arg = tg::sandbox::control::Arg {
@@ -541,12 +543,16 @@ pub trait Ext: tg::Instance {
 				..arg
 			};
 
-			// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
+			// Yield events from the stream, reconnecting with backoff when the stream ends early, which is how a stream reports a lost connection.
 			struct State {
+				ended: bool,
+				error: Option<tg::Error>,
 				retries: Option<BoxStream<'static, ()>>,
 				stream: Option<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>>,
 			}
 			let state = State {
+				ended: false,
+				error: None,
 				retries: None,
 				stream: Some(output_stream.boxed()),
 			};
@@ -557,6 +563,10 @@ pub trait Ext: tg::Instance {
 				let create_state = create_state.clone();
 				let stream_retry = stream_retry.clone();
 				async move {
+					// End the stream after it yields an error.
+					if state.ended {
+						return None;
+					}
 					loop {
 						if state.stream.is_none() {
 							// A successful create confirms submission, not persistence.
@@ -566,21 +576,35 @@ pub trait Ext: tg::Instance {
 							}))
 							.chain(input_receiver.clone())
 							.boxed();
+
+							// Fail with the last error once the retries are exhausted.
 							let retries = state.retries.get_or_insert_with(|| {
 								tangram_futures::retry::stream(stream_retry.clone()).boxed()
 							});
-							retries.next().await?;
+							if retries.next().await.is_none() {
+								let error = state.error.take().unwrap_or_else(|| {
+									tg::error!("the sandbox control stream ended")
+								});
+								state.ended = true;
+								return Some((Err(error), state));
+							}
 							match instance
 								.get_sandbox_control_stream(arg.clone(), input)
 								.await
 							{
-								Ok((_, stream)) => {
+								Ok(ControlFlow::Break((_, stream))) => {
+									state.error = None;
 									state.stream.replace(stream.boxed());
 									return Some((Ok(tg::control::Event::Reconnect), state));
 								},
-								Err(error) => {
+								Ok(ControlFlow::Continue(error)) => {
 									tracing::error!(error = %error.trace(), "failed to reconnect the control stream");
+									state.error = Some(error);
 									continue;
+								},
+								Err(error) => {
+									state.ended = true;
+									return Some((Err(error), state));
 								},
 							}
 						}
@@ -590,8 +614,8 @@ pub trait Ext: tg::Instance {
 								return Some((Ok(tg::control::Event::Message(event)), state));
 							},
 							Some(Err(error)) => {
-								tracing::error!(error = %error.trace(), "the control stream returned an error");
-								state.stream.take();
+								state.ended = true;
+								return Some((Err(error), state));
 							},
 							None => {
 								state.stream.take();
@@ -677,12 +701,18 @@ pub trait Ext: tg::Instance {
 				})
 			});
 			let ack_sender = ack_task.is_none().then_some(ack_sender);
+			// Open the read, leaving a read that could not reach a server to be reopened with the retries.
 			let input = read_process_stdio_acks(ack_receiver.clone());
-			let Some(output) = instance
+			let (output, error) = match instance
 				.try_read_process_stdio(&process, arg.clone(), input)
 				.await?
-			else {
-				return Ok(None);
+			{
+				ControlFlow::Break(Some(output)) => (Some(output.boxed()), None),
+				ControlFlow::Break(None) => return Ok(None),
+				ControlFlow::Continue(error) => {
+					tracing::error!(error = %error.trace(), "failed to open the stdio read stream");
+					(None, Some(error))
+				},
 			};
 			struct State<I> {
 				ack_receiver: tokio::sync::watch::Receiver<u64>,
@@ -707,10 +737,10 @@ pub trait Ext: tg::Instance {
 				arg,
 				combined,
 				ended: false,
-				error: None,
+				error,
 				forward,
 				instance,
-				output: Some(output.boxed()),
+				output,
 				position,
 				process,
 				retries: None,
@@ -728,10 +758,7 @@ pub trait Ext: tg::Instance {
 						});
 						if retries.next().await.is_none() {
 							let error = state.error.take().unwrap_or_else(|| {
-								tg::error!(
-									unavailable,
-									"the process stdio stream ended before completion"
-								)
+								tg::error!("the process stdio stream ended before completion")
 							});
 							return Err(error);
 						}
@@ -752,19 +779,19 @@ pub trait Ext: tg::Instance {
 						match state
 							.instance
 							.try_read_process_stdio(&state.process, arg, input)
-							.await
+							.await?
 						{
-							Ok(Some(output)) => {
+							ControlFlow::Break(Some(output)) => {
 								state.output = Some(output.boxed());
 							},
-							Ok(None) => return Err(tg::error!("failed to find the process")),
-							// Retry the attempt if it failed with an unavailable error.
-							Err(error) if error.kind() == Some(tg::error::Kind::Unavailable) => {
+							ControlFlow::Break(None) => {
+								return Err(tg::error!("failed to find the process"));
+							},
+							ControlFlow::Continue(error) => {
 								tracing::error!(error = %error.trace(), "failed to reconnect the stdio read stream");
 								state.error = Some(error);
 								continue;
 							},
-							Err(error) => return Err(error),
 						}
 					}
 					let message = state.output.as_mut().unwrap().next().await;

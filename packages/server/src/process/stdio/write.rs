@@ -5,7 +5,7 @@ use {
 		future::{self, BoxFuture},
 		stream::BoxStream,
 	},
-	std::time::Duration,
+	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -38,7 +38,12 @@ impl Session {
 		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
 		mut arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
+	) -> tg::Result<
+		ControlFlow<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>,
+			tg::Error,
+		>,
+	> {
 		// Resolve the process, claiming the connect's open for the write.
 		let mut process = process.clone();
 		let Some(output) = self
@@ -50,7 +55,7 @@ impl Session {
 			)
 			.await?
 		else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		let open = output.open;
 		let id = process.clone().right();
@@ -77,7 +82,7 @@ impl Session {
 				Some(control.control_sender),
 				None,
 			);
-			return Ok(Some(stream));
+			return Ok(ControlFlow::Break(Some(stream)));
 		}
 		let location = self.server.location(arg.location.as_ref())?;
 		let output = match location {
@@ -89,9 +94,9 @@ impl Session {
 			},
 			tg::Location::Local(_) => {
 				let Some(id) = &id else {
-					return Ok(None);
+					return Ok(ControlFlow::Break(None));
 				};
-				if let Some(relay) = arg.id.as_deref() {
+				let output = if let Some(relay) = arg.id.as_deref() {
 					self.write_process_stdio_relay_local(id, relay, &arg.streams, input)?
 				} else if stdin {
 					self.try_write_process_stdio_local(
@@ -106,7 +111,8 @@ impl Session {
 				} else {
 					self.try_write_process_stdio_log_local(id, &arg.streams, input)
 						.await?
-				}
+				};
+				ControlFlow::Break(output)
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
@@ -357,7 +363,12 @@ impl Session {
 		arg: &tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		region: String,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
+	) -> tg::Result<
+		ControlFlow<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>,
+			tg::Error,
+		>,
+	> {
 		let client = self.get_region_session_for_process(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -370,12 +381,14 @@ impl Session {
 			streams: arg.streams.clone(),
 			tokens: arg.tokens.for_location(&location),
 		};
-		let stream = client
+		let output = client
 			.try_write_process_stdio(process, arg, input)
 			.await
-			.map_err(|error| tg::error!(!error, region = %region, "failed to write stdio"))?;
+			.map_err(|error| tg::error!(!error, region = %region, "failed to write stdio"))?
+			.map_break(|output| output.map(futures::StreamExt::boxed))
+			.map_continue(|error| tg::error!(!error, region = %region, "failed to write stdio"));
 
-		Ok(stream.map(futures::StreamExt::boxed))
+		Ok(output)
 	}
 
 	async fn try_write_process_stdio_remote(
@@ -385,7 +398,12 @@ impl Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>> {
+	) -> tg::Result<
+		ControlFlow<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Output>>>,
+			tg::Error,
+		>,
+	> {
 		let client = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
@@ -399,12 +417,14 @@ impl Session {
 			streams: arg.streams.clone(),
 			tokens: arg.tokens.for_location(&location),
 		};
-		let stream = client
+		let output = client
 			.try_write_process_stdio(process, arg, input)
 			.await
-			.map_err(|error| tg::error!(!error, remote = %remote, "failed to write stdio"))?;
+			.map_err(|error| tg::error!(!error, remote = %remote, "failed to write stdio"))?
+			.map_break(|output| output.map(futures::StreamExt::boxed))
+			.map_continue(|error| tg::error!(!error, remote = %remote, "failed to write stdio"));
 
-		Ok(stream.map(futures::StreamExt::boxed))
+		Ok(output)
 	}
 
 	pub(crate) async fn try_write_process_stdio_request(
@@ -424,9 +444,9 @@ impl Session {
 			})?;
 		let tangram_content_type = tg::process::stdio::TANGRAM_CONTENT_TYPE;
 		let output_encoding =
-			super::Encoding::from_accept(accept.as_ref(), tangram_content_type)
+			crate::http::frame::Encoding::from_accept(accept.as_ref(), tangram_content_type)
 				.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
-		let input_encoding = super::Encoding::from_content_type(
+		let input_encoding = crate::http::frame::Encoding::from_content_type(
 			content_type
 				.as_ref()
 				.ok_or_else(|| tg::error!(argument, "missing the content type"))?,
@@ -442,17 +462,23 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
 		let max_frame_size = self.server.config.sync.max_frame_size;
-		let input = super::decode(request, input_encoding, max_frame_size);
-		let Some(output) = self.try_write_process_stdio(&process, arg, input).await? else {
-			return Ok(http::Response::builder()
-				.not_found()
-				.empty()
-				.unwrap()
-				.boxed_body());
+		let input = crate::http::frame::decode(request, input_encoding, max_frame_size);
+		let output = match self.try_write_process_stdio(&process, arg, input).await? {
+			ControlFlow::Break(Some(output)) => output,
+			ControlFlow::Break(None) => {
+				return Ok(http::Response::builder()
+					.not_found()
+					.empty()
+					.unwrap()
+					.boxed_body());
+			},
+			ControlFlow::Continue(error) => {
+				return Err(tg::error!(unavailable, !error, "failed to write stdio"));
+			},
 		};
 		crate::checkpoint!(self.server, "process.stdio.write.response", process = %process).await;
 		let content_type = output_encoding.content_type(tangram_content_type);
-		let body = super::encode(output, output_encoding, max_frame_size);
+		let body = crate::http::frame::encode(output, output_encoding, max_frame_size);
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)

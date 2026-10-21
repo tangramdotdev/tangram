@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, future::BoxFuture, stream::BoxStream},
-	std::sync::Arc,
+	std::{ops::ControlFlow, sync::Arc},
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
@@ -167,10 +167,15 @@ impl tg::Instance for Instance {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::sync::Header,
-			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::sync::Header,
+					impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> {
 		self.0.sync(arg, stream)
 	}

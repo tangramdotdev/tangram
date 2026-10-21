@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
@@ -96,10 +97,15 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::sandbox::control::Header,
-			impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::sandbox::control::Header,
+					impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> + Send;
 }
 
@@ -164,10 +170,15 @@ impl tg::instance::Sandbox for tg::Client {
 		&self,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> tg::Result<(
-		tg::sandbox::control::Header,
-		impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sandbox::control::Header,
+				impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+			),
+			tg::Error,
+		>,
+	> {
 		self.session(&self.context)
 			.get_sandbox_control_stream(arg, stream)
 			.await

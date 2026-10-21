@@ -1,8 +1,8 @@
 use {
 	crate::Session,
 	dashmap::DashSet,
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
-	std::sync::Arc,
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
+	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -119,10 +119,15 @@ impl Session {
 		&self,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> tg::Result<(
-		tg::sandbox::control::Header,
-		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sandbox::control::Header,
+				BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
+			),
+			tg::Error,
+		>,
+	> {
 		let location = self.server.location(arg.location.as_ref())?;
 		let output = match location {
 			tg::Location::Local(tg::location::Local {
@@ -131,7 +136,10 @@ impl Session {
 				self.get_sandbox_control_stream_region(arg, stream, region)
 					.await?
 			},
-			tg::Location::Local(_) => self.get_sandbox_control_stream_local(arg, stream).await?,
+			tg::Location::Local(_) => {
+				let output = self.get_sandbox_control_stream_local(arg, stream).await?;
+				ControlFlow::Break(output)
+			},
 			tg::Location::Remote(tg::location::Remote { name, region }) => {
 				self.get_sandbox_control_stream_remote(arg, stream, name, region)
 					.await?
@@ -544,10 +552,15 @@ impl Session {
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 		region: String,
-	) -> tg::Result<(
-		tg::sandbox::control::Header,
-		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sandbox::control::Header,
+				BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
+			),
+			tg::Error,
+		>,
+	> {
 		let id = arg.id.clone();
 		let client = self.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, ?id, "failed to get the region client"),
@@ -561,14 +574,20 @@ impl Session {
 			),
 			..arg
 		};
-		let (header, stream) = client
+		let output = client
 			.get_sandbox_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
-			)?;
-		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-		Ok((header, stream))
+			)?
+			.map_break(|(header, stream)| {
+				let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+				(header, stream)
+			})
+			.map_continue(
+				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
+			);
+		Ok(output)
 	}
 
 	async fn get_sandbox_control_stream_remote(
@@ -577,10 +596,15 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<(
-		tg::sandbox::control::Header,
-		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sandbox::control::Header,
+				BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
+			),
+			tg::Error,
+		>,
+	> {
 		let id = arg.id.clone();
 		let session = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
@@ -592,14 +616,20 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let (header, stream) = session
+		let output = session
 			.get_sandbox_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
-			)?;
-		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-		Ok((header, stream))
+			)?
+			.map_break(|(header, stream)| {
+				let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+				(header, stream)
+			})
+			.map_continue(
+				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
+			);
+		Ok(output)
 	}
 
 	pub(crate) async fn request_sandbox_control(
@@ -676,58 +706,63 @@ impl Session {
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
+		// Get the accept and content type headers.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
-		match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR) | (mime::TEXT, mime::EVENT_STREAM)) => (),
-			Some((type_, subtype)) => {
-				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
-			},
-		}
+		let content_type = request
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()
+			.map_err(|error| {
+				tg::error!(argument, !error, "failed to parse the content type header")
+			})?;
+		let tangram_content_type = tg::sandbox::control::TANGRAM_CONTENT_TYPE;
+		let output_encoding =
+			crate::http::frame::Encoding::from_accept(accept.as_ref(), tangram_content_type)
+				.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
+		let input_encoding = crate::http::frame::Encoding::from_content_type(
+			content_type
+				.as_ref()
+				.ok_or_else(|| tg::error!(argument, "missing the content type"))?,
+			tangram_content_type,
+		)
+		.map_err(|error| tg::error!(argument, !error, "invalid content type"))?;
 
+		// Parse the arg.
 		let (arg, request) = request
 			.arg::<tg::sandbox::control::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
 
-		let stream = request
-			.sse()
-			.map_err(|error| tg::error!(!error, "failed to read a message"))
-			.and_then(|event| {
-				future::ready(
-					if event.event.as_deref().is_some_and(|event| event == "error") {
-						match event.try_into() {
-							Ok(error) | Err(error) => Err(error),
-						}
-					} else {
-						event.try_into()
-					},
-				)
-			})
-			.boxed();
+		// Decode the request stream.
+		let max_frame_size = self.server.config.sync.max_frame_size;
+		let stream = crate::http::frame::decode(request, input_encoding, max_frame_size);
 
-		let (header, stream) = self
+		// Get the response stream, responding that the server is unavailable if the stream could not reach a server.
+		let output = self
 			.get_sandbox_control_stream_with_context(arg, stream)
+			.boxed()
 			.await?;
+		let (header, stream) = match output {
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => {
+				return Err(tg::error!(
+					unavailable,
+					!error,
+					"failed to get the control stream"
+				));
+			},
+		};
 
-		let content_type = mime::TEXT_EVENT_STREAM;
-		let stream = stream.map(|result| match result {
-			Ok(event) => event.try_into(),
-			Err(error) => error.try_into(),
-		});
-		let body = BoxBody::with_sse_stream(stream);
-		let body = tangram_http::body::header::set(
-			body,
-			&header,
-			tangram_http::body::encoding::Encoding::Json,
-		)
-		.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
+		// Create the body.
+		let content_type = output_encoding.content_type(tangram_content_type);
+		let body = crate::http::frame::encode(stream, output_encoding, max_frame_size);
+		let body = tangram_http::body::header::set(body, &header, output_encoding.serialization())
+			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
+
+		// Create the response.
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)

@@ -1,166 +1,427 @@
 use {
 	crate::prelude::*,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::stream::BoxStream,
+	std::ops::ControlFlow,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.sandbox-control";
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientMessage {
+	#[tangram_serialize(id = 0)]
 	Ack(ClientAck),
+
+	#[tangram_serialize(id = 1)]
 	Notification(ClientNotification),
+
+	#[tangram_serialize(id = 2)]
 	Request(ClientRequest),
+
+	#[tangram_serialize(id = 3)]
 	Response(ClientResponse),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerMessage {
+	#[tangram_serialize(id = 0)]
 	Ack(ServerAck),
+
+	#[tangram_serialize(id = 1)]
 	Notification(ServerNotification),
+
+	#[tangram_serialize(id = 2)]
 	Request(ServerRequest),
+
+	#[tangram_serialize(id = 3)]
 	Response(ServerResponse),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct ClientAck {
+	#[tangram_serialize(id = 0)]
 	pub id: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientNotification {}
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct ClientRequest {
+	#[tangram_serialize(id = 0)]
 	pub arg: ClientRequestArg,
+
+	#[tangram_serialize(id = 1)]
 	pub id: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientRequestArg {
+	#[tangram_serialize(id = 0)]
 	Create(CreateClientRequestArg),
+
+	#[tangram_serialize(id = 1)]
 	Destroy(DestroyClientRequestArg),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct ClientResponse {
+	#[tangram_serialize(id = 0)]
 	pub error: Option<tg::error::Data>,
+
+	#[tangram_serialize(id = 1)]
 	pub id: String,
+
+	#[tangram_serialize(id = 2)]
 	pub output: Option<ClientResponseOutput>,
 }
 
-#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::TryUnwrap,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientResponseOutput {
+	#[tangram_serialize(id = 0)]
 	Destroy(DestroyClientResponseOutput),
+
+	#[tangram_serialize(id = 1)]
 	Get(GetClientResponseOutput),
+
+	#[tangram_serialize(id = 2)]
 	GetProcesses(GetProcessesClientResponseOutput),
+
+	#[tangram_serialize(id = 3)]
 	SpawnProcess(SpawnProcessClientResponseOutput),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct ServerAck {
+	#[tangram_serialize(id = 0)]
 	pub id: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerNotification {}
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct ServerRequest {
+	#[tangram_serialize(id = 0)]
 	pub arg: ServerRequestArg,
+
+	#[tangram_serialize(id = 1)]
 	pub id: String,
 }
 
-#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::TryUnwrap,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerRequestArg {
+	#[tangram_serialize(id = 0)]
 	Destroy(DestroyServerRequestArg),
+
+	#[tangram_serialize(id = 1)]
 	Get(GetServerRequestArg),
+
+	#[tangram_serialize(id = 2)]
 	GetProcesses(GetProcessesServerRequestArg),
+
+	#[tangram_serialize(id = 3)]
 	SpawnProcess(SpawnProcessServerRequestArg),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct ServerResponse {
+	#[tangram_serialize(id = 0)]
 	pub error: Option<tg::error::Data>,
+
+	#[tangram_serialize(id = 1)]
 	pub id: String,
+
+	#[tangram_serialize(id = 2)]
 	pub output: Option<ServerResponseOutput>,
 }
 
-#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::TryUnwrap,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerResponseOutput {
+	#[tangram_serialize(id = 0)]
 	Create(CreateServerResponseOutput),
+
+	#[tangram_serialize(id = 1)]
 	Destroy(DestroyServerResponseOutput),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct DestroyClientRequestArg {
+	#[tangram_serialize(id = 0)]
 	pub data: tg::sandbox::get::Output,
+
+	#[tangram_serialize(id = 1)]
 	pub processes: Vec<tg::process::Id>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct DestroyServerRequestArg {
+	#[tangram_serialize(id = 0)]
 	pub error: Option<tg::error::Data>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct DestroyClientResponseOutput {
+	#[tangram_serialize(id = 0)]
 	pub destroyed: bool,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct DestroyServerResponseOutput {}
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct CreateClientRequestArg {
+	#[tangram_serialize(id = 0)]
 	pub arg: tg::sandbox::create::Arg,
 
+	#[tangram_serialize(id = 1)]
 	pub created_at: i64,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub creator: Option<tg::Principal>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct CreateServerResponseOutput {}
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct GetServerRequestArg {}
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct GetClientResponseOutput {
+	#[tangram_serialize(id = 0)]
 	pub data: tg::sandbox::get::Output,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct GetProcessesServerRequestArg {
+	#[tangram_serialize(id = 0)]
 	pub length: u64,
+
+	#[tangram_serialize(id = 1)]
 	pub position: u64,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct GetProcessesClientResponseOutput {
+	#[tangram_serialize(id = 0)]
 	pub length: u64,
+
+	#[tangram_serialize(id = 1)]
 	pub processes: Vec<tg::process::Id>,
+
+	#[tangram_serialize(id = 2)]
 	pub status: tg::sandbox::Status,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct SpawnProcessServerRequestArg {
+	#[tangram_serialize(id = 0)]
 	pub process: tg::runner::control::Process,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct SpawnProcessClientResponseOutput {
+	#[tangram_serialize(id = 0)]
 	pub lease: tg::process::Lease,
 
+	#[tangram_serialize(id = 1)]
 	pub process: tg::Referent<tg::process::Id>,
 }
 
@@ -206,38 +467,41 @@ impl tg::Session {
 		&self,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> tg::Result<(
-		tg::sandbox::control::Header,
-		impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
-		+ Send
-		+ 'static
-		+ use<>,
-	)> {
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::sandbox::control::Header,
+				impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
+				+ Send
+				+ 'static
+				+ use<>,
+			),
+			tg::Error,
+		>,
+	> {
 		let method = http::Method::POST;
-		let path = "/sandboxes/control";
-		let uri = Uri::builder().path(path).build().unwrap();
-		let stream =
-			stream.map(
-				|result: tg::Result<tg::sandbox::control::ClientMessage>| match result {
-					Ok(message) => message.try_into(),
-					Err(error) => error.try_into(),
-				},
-			);
+		let uri = Uri::builder().path("/sandboxes/control").build().unwrap();
+		let max_frame_size = self.client().sync.max_frame_size;
+		let body = crate::http::frame::encode(stream, max_frame_size);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::TEXT_EVENT_STREAM.to_string(),
-			)
-			.arg(&arg, tangram_http::body::Boxed::with_sse_stream(stream))
+			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
+			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
+			.arg(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let response = self
-			.send(request)
+		let response = match self
+			.send_attempt(request)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?
+		{
+			ControlFlow::Break(response) => response,
+			ControlFlow::Continue(error) => {
+				let error = tg::error!(!error, "failed to send the request");
+				return Ok(ControlFlow::Continue(error));
+			},
+		};
 		if !response.status().is_success() {
 			let status = response.status();
 			let error = response
@@ -250,36 +514,23 @@ impl tg::Session {
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
-		if !matches!(
-			content_type
-				.as_ref()
-				.map(|content_type| (content_type.type_(), content_type.subtype())),
-			Some((mime::TEXT, mime::EVENT_STREAM)),
-		) {
+		if content_type != Some(TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let mut reader = response.reader();
-		let header = tangram_http::body::header::get(
-			&mut reader,
+
+		// Decode the response, which ends early if the connection is lost.
+		let Some((header, stream)) = crate::http::frame::decode_with_header(
+			response.into_body(),
 			self.client().http.max_header_length,
-			tangram_http::body::encoding::Encoding::Json,
+			max_frame_size,
 		)
-		.await
-		.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
-		let stream = tangram_http::sse::decode(reader)
-			.map_err(|error| tg::error!(!error, "failed to read a message"))
-			.and_then(|event| {
-				future::ready(
-					if event.event.as_deref().is_some_and(|event| event == "error") {
-						match event.try_into() {
-							Ok(error) | Err(error) => Err(error),
-						}
-					} else {
-						event.try_into()
-					},
-				)
-			});
-		Ok((header, stream))
+		.await?
+		else {
+			let error = tg::error!("the sandbox control stream ended before its header");
+			return Ok(ControlFlow::Continue(error));
+		};
+
+		Ok(ControlFlow::Break((header, stream)))
 	}
 }
 

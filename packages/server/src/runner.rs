@@ -1,7 +1,9 @@
 use {
 	crate::{Session, Shutdown},
 	futures::{
-		FutureExt as _, StreamExt as _, future, future::BoxFuture, stream::FuturesUnordered,
+		FutureExt as _, StreamExt as _, future,
+		future::BoxFuture,
+		stream::{BoxStream, FuturesUnordered},
 	},
 	std::{
 		ops::ControlFlow,
@@ -426,29 +428,56 @@ impl Session {
 		self.start_control_connection_pools();
 		self.start_sandbox_pool();
 		let mut cleanup = true;
+		let mut retries = None::<BoxStream<'static, ()>>;
 		loop {
 			let stop_future = stopper.wait();
 			let stop_future = pin!(stop_future);
+			let started = tokio::time::Instant::now();
 			let run_future = self.runner_task_inner(&id, &mut cleanup, stopper.clone());
 			let run_future = pin!(run_future);
 			let future::Either::Right((result, _)) = future::select(stop_future, run_future).await
 			else {
 				break;
 			};
-			tracing::info!(runner = %id, success = result.is_ok(), "the runner control connection ended");
 			self.server.runner.state.set_scheduler(None);
-			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), "the runner task failed");
-				let stop_future = stopper.wait();
-				let stop_future = pin!(stop_future);
-				let sleep_future = tokio::time::sleep(self.server.config.runner.restart_delay);
-				let sleep_future = pin!(sleep_future);
-				if matches!(
-					future::select(stop_future, sleep_future).await,
-					future::Either::Left(_)
-				) {
-					break;
-				}
+
+			// Reconnect at once after a connection that lasted a heartbeat interval ends, with backoff while the scheduler cannot be reached or a connection ends sooner, and after the restart delay after a failure.
+			let lasted = started.elapsed() >= self.server.config.runner.heartbeat_interval;
+			let delay = match result {
+				Ok(ControlFlow::Break(())) if lasted => {
+					tracing::info!(runner = %id, "the runner control connection ended");
+					retries = None;
+					continue;
+				},
+				Ok(ControlFlow::Break(())) => {
+					tracing::warn!(runner = %id, "the runner control connection ended before a heartbeat interval");
+					let retries = retries.get_or_insert_with(|| {
+						tangram_futures::retry::stream(crate::Server::client_stream_retry()).boxed()
+					});
+					retries.next().boxed()
+				},
+				Ok(ControlFlow::Continue(error)) => {
+					tracing::warn!(error = %error.trace(), runner = %id, "failed to reach the scheduler");
+					let retries = retries.get_or_insert_with(|| {
+						tangram_futures::retry::stream(crate::Server::client_stream_retry()).boxed()
+					});
+					retries.next().boxed()
+				},
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "the runner task failed");
+					retries = None;
+					tokio::time::sleep(self.server.config.runner.restart_delay)
+						.map(|()| Some(()))
+						.boxed()
+				},
+			};
+			let stop_future = stopper.wait();
+			let stop_future = pin!(stop_future);
+			if matches!(
+				future::select(stop_future, delay).await,
+				future::Either::Left(_)
+			) {
+				break;
 			}
 		}
 
@@ -551,7 +580,7 @@ impl Session {
 		id: &tg::runner::Id,
 		cleanup: &mut bool,
 		stopper: Stopper,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		// Get the location.
 		let location = self.server.config.runner.remote.as_ref().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
@@ -563,11 +592,15 @@ impl Session {
 			},
 		);
 
-		// Get the runner control stream.
-		let (header, mut control) = self
+		// Get the runner control stream, continuing if the scheduler could not be reached.
+		let (header, mut control) = match self
 			.run_get_runner_control_stream(id, &location, *cleanup)
 			.boxed()
-			.await?;
+			.await?
+		{
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 
 		tracing::info!(runner = %id, scheduler = %header.scheduler, previous_sandboxes = header.sandboxes.len(), "connected the runner to the scheduler");
 
@@ -590,7 +623,7 @@ impl Session {
 			.boxed()
 			.await?;
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn cleanup_runner_sandboxes(
@@ -696,13 +729,18 @@ impl Session {
 		id: &tg::runner::Id,
 		location: &tg::Location,
 		cleanup: bool,
-	) -> tg::Result<(
-		tg::runner::control::Header,
-		crate::control::Stream<
-			tg::runner::control::ServerMessage,
-			tg::runner::control::ClientMessage,
+	) -> tg::Result<
+		ControlFlow<
+			(
+				tg::runner::control::Header,
+				crate::control::Stream<
+					tg::runner::control::ServerMessage,
+					tg::runner::control::ClientMessage,
+				>,
+			),
+			tg::Error,
 		>,
-	)> {
+	> {
 		let capacity = self.server.config.runner.control_channel_capacity;
 		let (input, input_receiver) =
 			tokio::sync::mpsc::channel::<tg::runner::control::ClientMessage>(capacity);
@@ -720,18 +758,25 @@ impl Session {
 			location,
 			scheduler_ttl,
 		};
-		let (header, output_stream) = self
+		let output = self
 			.get_runner_control_stream_with_context(arg, input_stream)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect to the scheduler"))?;
+		let (header, output_stream) = match output {
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => {
+				let error = tg::error!(!error, "failed to connect to the scheduler");
+				return Ok(ControlFlow::Continue(error));
+			},
+		};
 		let output_stream = output_stream.boxed();
 		let stream = crate::control::Stream::new(
 			output_stream,
 			input,
 			crate::control::stream_options(&self.server.config.control),
 		);
-		Ok((header, stream))
+		Ok(ControlFlow::Break((header, stream)))
 	}
 
 	async fn run_handle_runner_control_stream(

@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 impl<L, R> tg::instance::Sandbox for tg::Either<L, R>
@@ -103,21 +104,26 @@ where
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::sandbox::control::Header,
-			impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
-			+ Send
-			+ 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::sandbox::control::Header,
+					impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
+					+ Send
+					+ 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
 				.get_sandbox_control_stream(arg, stream)
-				.map_ok(|(header, stream)| (header, stream.left_stream()))
+				.map_ok(|flow| flow.map_break(|(header, stream)| (header, stream.left_stream())))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.get_sandbox_control_stream(arg, stream)
-				.map_ok(|(header, stream)| (header, stream.right_stream()))
+				.map_ok(|flow| flow.map_break(|(header, stream)| (header, stream.right_stream())))
 				.right_future(),
 		}
 	}

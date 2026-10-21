@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, stream::BoxStream},
+	std::ops::ControlFlow,
 };
 
 impl<L, R> tg::instance::Runner for tg::Either<L, R>
@@ -78,19 +79,24 @@ where
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<(
-			tg::runner::control::Header,
-			impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
-		)>,
+		Output = tg::Result<
+			ControlFlow<
+				(
+					tg::runner::control::Header,
+					impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
+				),
+				tg::Error,
+			>,
+		>,
 	> + Send {
 		match self {
 			tg::Either::Left(s) => s
 				.get_runner_control_stream(arg, stream)
-				.map_ok(|(header, stream)| (header, stream.left_stream()))
+				.map_ok(|flow| flow.map_break(|(header, stream)| (header, stream.left_stream())))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.get_runner_control_stream(arg, stream)
-				.map_ok(|(header, stream)| (header, stream.right_stream()))
+				.map_ok(|flow| flow.map_break(|(header, stream)| (header, stream.right_stream())))
 				.right_future(),
 		}
 	}
