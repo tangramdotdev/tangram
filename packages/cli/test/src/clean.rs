@@ -38,10 +38,8 @@ pub async fn clean(args: Args) -> Result<ExitCode> {
 	temp_paths.retain(|path| *path != pool_path);
 	let keys = sysv_keys(&temp_paths);
 
-	// Clean the databases.
-	clean_postgres().await;
-	clean_scylla().await;
-	clean_foundationdb().await;
+	// Clean the databases concurrently.
+	tokio::join!(clean_postgres(), clean_scylla(), clean_foundationdb());
 
 	// Recreate the database pool.
 	if pool_path.exists() {
@@ -82,6 +80,10 @@ pub async fn clean(args: Args) -> Result<ExitCode> {
 }
 
 async fn clean_foundationdb() {
+	if !database::foundationdb_listening().await {
+		eprintln!("skipping FoundationDB cleanup because it is not running");
+		return;
+	}
 	let Ok(cluster_path) = database::cluster_path() else {
 		eprintln!("skipping FoundationDB cleanup because the cluster file could not be written");
 		return;

@@ -1,5 +1,5 @@
 use {
-	crate::test::{Output, SKIPPED},
+	crate::test::{Output, SKIPPED, Stop},
 	std::{
 		fmt::Write as _,
 		io::{IsTerminal as _, Write as _},
@@ -34,16 +34,16 @@ pub struct Running<'a> {
 	pub start: Instant,
 }
 
-/// Describe an exit code.
+/// Describe why a test failed. Only the runner's own interrupts and timeouts are described as such, because a test may exit with the same codes for other reasons.
 #[must_use]
-pub fn describe(code: i32) -> String {
-	match code {
-		124 => "timed out".to_owned(),
-		130 => "interrupted".to_owned(),
-		137 => "killed with SIGKILL".to_owned(),
-		143 => "terminated with SIGTERM".to_owned(),
-		code if code > 128 => format!("terminated by signal {}", code - 128),
-		_ => "failed".to_owned(),
+pub fn describe(output: &Output) -> String {
+	match (output.stop, output.code) {
+		(Some(Stop::Interrupted), _) => "interrupted".to_owned(),
+		(Some(Stop::TimedOut), _) => "timed out".to_owned(),
+		(None, 137) => "killed with SIGKILL".to_owned(),
+		(None, 143) => "terminated with SIGTERM".to_owned(),
+		(None, code) if code > 128 => format!("terminated by signal {}", code - 128),
+		(None, _) => "failed".to_owned(),
 	}
 }
 
@@ -173,7 +173,7 @@ impl Progress {
 			"\x1b[31m✗\x1b[0m"
 		};
 		let status = if output.failed() {
-			format!(" — exit {} ({})", output.code, describe(output.code))
+			format!(" — exit {} ({})", output.code, describe(output))
 		} else {
 			String::new()
 		};

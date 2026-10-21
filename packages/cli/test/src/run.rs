@@ -202,7 +202,7 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 			output.name,
 			progress::duration(output.duration),
 			output.code,
-			progress::describe(output.code)
+			progress::describe(output)
 		);
 	}
 	let preserved = results

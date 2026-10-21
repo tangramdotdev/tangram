@@ -14,9 +14,6 @@ use {
 /// The exit code that indicates a skipped test.
 pub const SKIPPED: i32 = 77;
 
-/// The exit code that indicates a timed out test.
-pub const TIMED_OUT: i32 = 124;
-
 /// The time to wait for the supervisor to clean up after it is asked to stop.
 const STOP: Duration = Duration::from_secs(15);
 
@@ -55,7 +52,15 @@ pub struct Output {
 	pub execution_duration: Duration,
 	pub log: String,
 	pub name: String,
+	pub stop: Option<Stop>,
 	pub temp_path: Option<PathBuf>,
+}
+
+/// The reason that the runner stopped a test.
+#[derive(Clone, Copy, Debug)]
+pub enum Stop {
+	Interrupted,
+	TimedOut,
 }
 
 /// Run a test. The stop receiver resolves when the run is interrupted.
@@ -75,6 +80,7 @@ pub async fn run(
 			execution_duration: Duration::ZERO,
 			log: format!("error: {error}\n"),
 			name: test.name,
+			stop: None,
 			temp_path: None,
 		},
 	}
@@ -156,15 +162,15 @@ async fn run_inner(
 	let mut child = command.spawn()?;
 
 	// Wait for the test to exit, time out, or be interrupted.
-	let code = tokio::select! {
-		status = child.wait() => code(status?),
+	let (code, stop) = tokio::select! {
+		status = child.wait() => (code(status?), None),
 		() = tokio::time::sleep(options.timeout) => {
 			terminate(&mut child).await;
-			TIMED_OUT
+			(124, Some(Stop::TimedOut))
 		},
 		_ = async { stop.wait_for(|stop| *stop).await.map(|_| ()) } => {
 			terminate(&mut child).await;
-			130
+			(130, Some(Stop::Interrupted))
 		},
 	};
 	let execution_duration = start.elapsed();
@@ -175,7 +181,7 @@ async fn run_inner(
 
 	// Read the output.
 	let mut output = std::fs::read_to_string(&output_path).unwrap_or_default();
-	if code == TIMED_OUT {
+	if matches!(stop, Some(Stop::TimedOut)) {
 		writeln!(output, "the test timed out after {:?}", options.timeout).unwrap();
 	}
 
@@ -212,6 +218,7 @@ async fn run_inner(
 		execution_duration,
 		log: output,
 		name: test.name.clone(),
+		stop,
 		temp_path: Some(temp_path),
 	};
 

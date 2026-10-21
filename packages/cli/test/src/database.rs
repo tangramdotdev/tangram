@@ -39,7 +39,7 @@ pub fn cluster_path() -> Result<PathBuf> {
 	{
 		return Ok(PathBuf::from(path));
 	}
-	let path = pool_path().join("fdb.cluster");
+	let path = std::env::temp_dir().join("tangram_test_fdb.cluster");
 	std::fs::write(&path, cluster_description())?;
 	Ok(path)
 }
@@ -95,7 +95,9 @@ pub async fn check() -> Result<()> {
 	let postgres = succeeds(&mut postgres, Duration::from_secs(5));
 	let mut foundationdb = foundationdb(&cluster_path, Duration::from_secs(8));
 	foundationdb.args(["--exec", "status minimal"]);
-	let foundationdb = succeeds(&mut foundationdb, Duration::from_secs(10));
+	let foundationdb = async {
+		foundationdb_listening().await && succeeds(&mut foundationdb, Duration::from_secs(10)).await
+	};
 	let nats = async {
 		let connect = async {
 			let mut stream = tokio::net::TcpStream::connect("127.0.0.1:4222")
@@ -166,6 +168,15 @@ pub fn foundationdb(cluster_path: &Path, timeout: Duration) -> Command {
 		]);
 		command
 	}
+}
+
+/// Determine whether anything is listening on the `FoundationDB` port, so that callers can skip `fdbcli`, which waits for its own timeout when the cluster is unavailable.
+pub async fn foundationdb_listening() -> bool {
+	let connect = tokio::net::TcpStream::connect("127.0.0.1:4500");
+	matches!(
+		tokio::time::timeout(Duration::from_millis(500), connect).await,
+		Ok(Ok(_))
+	)
 }
 
 /// Get the path of the database pool.
