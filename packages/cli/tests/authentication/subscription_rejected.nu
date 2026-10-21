@@ -22,7 +22,7 @@ let common = {
 let instance = instance --cloud --primary-region a --regions [{ name: a }, { name: b }] --config $common
 let a = server spawn --instance $instance --region a --name a --url (instance region url $instance a)
 let b = server spawn --instance $instance --region b --name b --url (instance region url $instance b)
-wait_until { open --raw $b.log | str contains 'disabling authentication caching' } 'the subscription rejection was not handled'
+wait_for_log $b 'disabling authentication caching'
 let runner = tg --url $a.url --token $root runner create | from json
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
 success (tg --url $b.url --token $token.token remote list | complete)

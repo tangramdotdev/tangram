@@ -32,9 +32,7 @@ let path = artifact { tangram.ts: 'export default () => "done";' }
 let process = tg --token $alice.token spawn $path | referent node
 tg --token $alice.token wait $process | ignore
 tg index
-wait_until {
-	(tg --token $alice.token pull --no-tokens --no-process-error-objects --no-process-output-objects $process | complete | get exit_code) == 0
-} --timeout 15sec "the process should be stored and locally authorized"
+success (tg --token $alice.token pull --no-tokens --no-process-error-objects --no-process-output-objects $process | complete) "the process should be stored and locally authorized"
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let response = http get --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)'
 let query = { 'tokens[local][0]': $response.tokens.local.0 } | url build-query

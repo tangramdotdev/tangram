@@ -15,7 +15,7 @@ let path = artifact {
 
 # Wait until the process is running, so that the server is signaled with work in flight.
 let process = tg build --no-tokens --detach $path | referent node
-wait_until { (tg log $process | complete).stdout | str contains 'started' } "the process must start"
+success (timeout 30s tg log --no-timeout --length 8 $process | complete) "the process must start"
 
 # Send SIGTERM to the server.
 let pid = open ($local.directory | path join 'lock') | into int

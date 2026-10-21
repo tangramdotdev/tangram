@@ -23,9 +23,8 @@ let build = job spawn {
 let hit = timeout 10s tg checkpoint wait process.wait.attach $watch 0 | from json
 let process = $hit.params.process
 tg checkpoint unwatch process.wait.attach $watch
-wait_until {
-	(tg log $process | complete).stdout | str contains 'ready'
-} 'the build should produce a log before cancellation' --timeout 15sec
+let log = timeout 15s tg log --no-timeout --stream stdout --length 6 $process | complete
+assert equal $log.stdout "ready\n" 'the build should produce a log before cancellation'
 let pid = job list | where id == $build | get 0.pids.0
 kill --signal 2 $pid
 let output = job recv --tag $build --timeout 10sec
@@ -37,7 +36,7 @@ assert equal (^ps -o pgid= -p $pid | str trim | into int) $pid
 ^kill --signal INT -- $'-($pid)'
 
 # Wait for the graceful shutdown to finish before inspecting the complete server log.
-wait_until { (open --raw $local.exit | str trim) != '' } 'the server should shut down gracefully' --timeout 30sec
-assert equal (open --raw $local.exit | str trim | into int) 0 'the server should exit successfully'
+let exit = ^tangram_cli_test_supervise wait --directory $local.supervisor --timeout 30 | str trim | into int
+assert equal $exit 0 'the server should exit successfully'
 let errors = open --raw $local.log | lines | each { from json } | where level == 'ERROR'
 assert ($errors | is-empty) ($errors | to json)

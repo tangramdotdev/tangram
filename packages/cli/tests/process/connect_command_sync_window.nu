@@ -51,6 +51,7 @@ let command = (
 )
 
 let ready = mktemp -d | path join ready
+^mkfifo $ready
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let run_watch = tg --url $runner.url checkpoint watch runner.process.run | from json | get watch
 let watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blob } | to json --raw) | from json | get watch
@@ -60,7 +61,7 @@ let run = job spawn {
  $output | job send --tag $job_id 0
 }
 success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | complete)
-wait_until { $ready | path exists }
+success (timeout 30s cat $ready | complete) "the client should send its requests while the command push is held"
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $watch
 tg --url $runner.url checkpoint unwatch runner.process.run $run_watch
 let output = job recv --tag $run --timeout 30sec

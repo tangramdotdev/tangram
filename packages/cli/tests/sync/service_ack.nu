@@ -22,12 +22,12 @@ let push_log = $env.TMPDIR | path join push.log
 '' | save --force $push_log
 let push = job spawn {
 	let job_id = job id
-	let output = tg --no-quiet --url $local.url push $blob o+e>| tee { save --force $push_log } | complete
+	let output = tg --no-quiet --url $local.url push $blob o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | ignore
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.subscribe $subscribe_watch 0 | ignore
-wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should print the referent with the authorization token for the sync'
+wait_for_log { log: $push_log } 'tokens[remote][0]'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
 let query = { 'tokens[local][0]': $sync } | url build-query

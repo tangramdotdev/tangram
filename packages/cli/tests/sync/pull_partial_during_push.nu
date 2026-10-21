@@ -47,14 +47,15 @@ let watch = (
 
 # Start alice's push and take the referent with the authorization token for the sync from its log.
 let push_log = $env.TMPDIR | path join push.log
+'' | save --force $push_log
 let push = job spawn {
 	let job_id = job id
-	let output = tg --no-quiet --url $alice_local.url push $directory o+e>| tee { save --force $push_log } | complete
+	let output = tg --no-quiet --url $alice_local.url push $directory o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
 let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | complete
 success $output "alice's push should reach the blob"
-wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should print the referent with the authorization token for the sync'
+wait_for_log { log: $push_log } 'tokens[remote][0]'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
 let referent = $push_lines | first | str trim | str replace --regex '^info ' ''
 

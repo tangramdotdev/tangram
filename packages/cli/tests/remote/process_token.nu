@@ -22,7 +22,7 @@ let path = artifact {
 	'
 }
 let parent = tg build --detach --verbose $path | from json
-wait_until { (tg log $parent.process | str trim | str length) > 0 } "the process should log its token"
+timeout 30s tg log --no-timeout --length 1 $parent.process | ignore
 let token = tg log $parent.process | str trim
 
 # Listing remotes with a process token uses the creator's remotes.

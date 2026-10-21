@@ -8,9 +8,9 @@ let output = tg spawn --sandbox --mount $"($mount):/target" --verbose --executab
 let process = $output.process
 let sandbox = tg process get $process | from json | get sandbox
 
-wait_until {
-	(tg log $process | complete).stdout | str contains 'ready'
-} 'the child should produce a log before the process is signaled'
+let output = timeout 30s tg log --no-timeout --length 6 $process | complete
+success $output 'the child should produce a log before the process is signaled'
+assert equal $output.stdout "ready\n"
 
 success (tg signal --signal KILL $process | complete)
 let output = timeout 10s tg wait $process | from json

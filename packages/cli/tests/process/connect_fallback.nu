@@ -7,9 +7,10 @@ let remote = server spawn --name remote
 let port = port
 let log = mktemp
 let ready = mktemp -d | path join ready
+^mkfifo $ready
 let socket = $remote.directory | path join socket
 let proxy = job spawn { node $proxy_path $socket $port $log $ready }
-wait_until { $ready | path exists }
+success (timeout 30s cat $ready | complete) "the proxy should listen"
 let local = server spawn --name local --config { remotes: { default: { url: $'http://127.0.0.1:($port)' } } }
 let path = artifact {
 	tangram.ts: '

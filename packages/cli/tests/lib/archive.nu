@@ -7,9 +7,9 @@ export def spawn_archive [] {
 	let job = job spawn --description archive {
 		bun run $archive_path $port_path
 	}
-	wait_until {
-		open --raw $port_path | str trim | is-not-empty
-	} 'the mock archive must start'
+	if not (wait_for_growth $port_path 0) {
+		error make { msg: 'the mock archive must start' }
+	}
 	let port = open --raw $port_path | str trim
 	{
 		config: {

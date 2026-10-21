@@ -21,7 +21,7 @@ let process = $build.process
 print -e $'built ($process)'
 
 # Wait until the process is running, so that the server is killed with work in flight.
-wait_until { (tg log $process | complete).stdout | str contains 'started' } "the process must start"
+success (timeout 30s tg log --no-timeout --length 8 $process | complete) "the process must start"
 print -e 'the process is running'
 
 # Kill the server.
@@ -29,8 +29,9 @@ let pid = open ($local.directory | path join 'lock') | into int
 print -e $'killing the server ($pid)'
 kill --signal 9 $pid
 wait_for_exit $pid "the server must stop"
-wait_until { open --raw $local.exit | str trim | is-not-empty } "the server supervisor must report completion"
-assert equal (open --raw $local.exit | str trim | into int) 137 "the supervisor must report the killed server's status"
+let output = ^tangram_cli_test_supervise wait --directory $local.supervisor --timeout 10 | complete
+success $output "the server supervisor must report completion"
+assert equal ($output.stdout | str trim | into int) 137 "the supervisor must report the killed server's status"
 print -e 'the server stopped'
 
 # The server must start again and be usable.

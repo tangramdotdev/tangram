@@ -9,7 +9,7 @@ let log = mktemp
 let messenger = job spawn {
 	^nats-server --addr 127.0.0.1 --port $port out+err> $log
 }
-wait_until { open --raw $log | str contains 'Server is ready' } 'NATS must start'
+wait_for_log { log: $log } 'Server is ready'
 let local = server spawn --config {
 	advanced: { single_process: false },
 	index: { map_size: 268_435_456 },

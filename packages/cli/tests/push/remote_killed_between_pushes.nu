@@ -10,7 +10,7 @@ let local = server spawn --name local --config {
 # Push an object.
 let a = tg put --no-tokens 'tg.file("a")' | referent node
 tg push $a
-wait_until { (tg --url $remote.url get $a --local | complete).exit_code == 0 } "the first object should be present on the remote"
+success (tg --url $remote.url get $a --local | complete) "the first object should be present on the remote"
 
 # Stop the remote server.
 server stop $remote

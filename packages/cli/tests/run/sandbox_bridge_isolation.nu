@@ -32,9 +32,9 @@ def test_backend [firewall: string] {
 	let listener_ip = tg run --no-tokens $'--sandbox=($listener_sandbox)' $address_command | str trim
 	let listener_command = tg build $module --arg-string r#'echo ready; while :; do printf 'HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok' | nc -l -p 8080; done'# | str trim
 	let listener = tg spawn --no-tokens $'--sandbox=($listener_sandbox)' $listener_command | referent node
-	wait_until {
-		(tg log $listener | complete).stdout | str contains 'ready'
-	} 'the listener should start'
+	let output = timeout 30s tg log --no-timeout --length 6 $listener | complete
+	success $output 'the listener should start'
+	assert equal $output.stdout "ready\n"
 
 	let client_command = tg build $module --arg-string $'nc -w 2 ($listener_ip) 8080' | str trim
 	let output = tg run --no-tokens $'--sandbox=($listener_sandbox)' $client_command | complete

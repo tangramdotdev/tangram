@@ -15,8 +15,8 @@ let path = artifact {
 	'
 }
 let parent = tg build --no-tokens --detach $path | referent node
-wait_until { (tg log $parent | str trim) != "" }
-let id = tg log $parent | str trim
+let length = ($parent | str length) + 1
+let id = timeout 30s tg log --no-timeout --length $length $parent | str trim
 let output = node $driver $tangram ($local.directory | path join socket) $id | complete
 success $output
 tg wait $parent | ignore

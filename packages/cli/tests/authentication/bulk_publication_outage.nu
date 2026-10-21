@@ -12,7 +12,6 @@ let local = server spawn --config {
 let users = [alice bob carol] | each { |name| tg --token $root login --verbose --name $name | from json }
 let target = tg --token $root put --no-tokens 'tg.file("replacement")' | referent node
 stop_nats $nats
-wait_until { try { http get $'($nats.monitor_url)/healthz' | ignore; false } catch { true } } 'NATS did not stop'
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let tags = $users | each { |user| { specifier: $user.user.specifier, target: { kind: object, id: $target } } }
 { force: true, tags: $tags }

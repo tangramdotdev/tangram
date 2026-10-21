@@ -11,7 +11,7 @@ export def test [case: string] {
 	let messenger = job spawn {
 		^nats-server --addr 127.0.0.1 --port $port out+err> $log
 	}
-	wait_until { open --raw $log | str contains 'Server is ready' } 'NATS must start'
+	wait_for_log { log: $log } 'Server is ready'
 	let store = { object_concurrency: 8, object_max_batch: 1 }
 	let root_token = random chars
 	let local = server spawn --config {

@@ -25,7 +25,7 @@ for internal in [true false] {
 		$output | job send --tag $job_id 0
 	}
 	timeout 10s tg --url $destination.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | ignore
-	wait_until { (open --raw $log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should provide an authorization token for the incoming sync'
+	wait_for_log { log: $log } 'tokens[remote]'
 	let referent = open --raw $log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' '' | str replace --all 'tokens[remote]' 'tokens[local]'
 	let path = $env.TMPDIR | path join $'checkout-($internal)'
 	let checkout = job spawn {

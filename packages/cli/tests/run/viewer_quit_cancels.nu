@@ -39,9 +39,6 @@ let run = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-wait_until {
-	(open --raw $pid_path | str trim | str length) > 0
-} "the PTY driver should publish the tg process ID"
 let hit = tg checkpoint wait process.wait.attach $watch 0 | from json
 let process = $hit.params.process
 let sandbox = tg process get $process | from json | get sandbox

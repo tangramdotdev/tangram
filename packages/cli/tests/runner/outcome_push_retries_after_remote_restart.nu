@@ -33,6 +33,7 @@ success (timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome
 
 # Stop the remote, release the push so that its first attempt fails, and then start the remote again.
 server stop $remote
+let finished = checkpoint watch runner.process.outcome.sync.finished --params { process: $process } --url $runner.url
 let failure_watch = tg --url $runner.url checkpoint watch push.attempt.failed | from json | get watch
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $outcome_watch
 success (timeout 30s tg --url $runner.url checkpoint wait push.attempt.failed $failure_watch 0 | complete) "the first outcome push attempt must fail"
@@ -40,7 +41,9 @@ tg --url $runner.url checkpoint unwatch push.attempt.failed $failure_watch
 let remote = server start $remote
 success (tg --url $remote.url health | complete)
 
-# The retried push delivers the output to the remote.
+# Wait for the retried push to finish, which delivers the output to the remote.
+checkpoint pass $finished | ignore
+checkpoint unwatch $finished
 let data = tg --url $remote.url --token $root_token process get $process | from json
 let output = $data.output.node.value | split row '?' | first
-wait_until --timeout 30sec { (tg --url $remote.url --token $root_token get $output | complete).exit_code == 0 } "the output must reach the remote after the outcome push is retried"
+success (tg --url $remote.url --token $root_token get $output | complete) "the output must reach the remote after the outcome push is retried"

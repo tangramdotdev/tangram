@@ -18,7 +18,7 @@ let watch = tg checkpoint watch process.wait.attach | from json | get watch
 let build = job spawn { tg build $path | complete }
 let hit = tg checkpoint wait process.wait.attach $watch 0 | from json
 tg checkpoint unwatch process.wait.attach $watch
-wait_until { (tg log $hit.params.process | complete).stdout | str contains 'ready' } 'the build must start'
+success (timeout 30s tg log --no-timeout --length 6 $hit.params.process | complete) 'the build must start'
 
 # Stop accepting requests while the build client remains connected.
 let server_pid = open --raw ($local.directory | path join lock) | str trim | into int
@@ -27,5 +27,6 @@ wait_until { (timeout 1s tg health | complete).exit_code != 0 } 'the server must
 
 # Disconnect the build only after the listener stops, so the wait guard sees a stopped server.
 kill --signal 2 (job list | where id == $build | get 0.pids.0)
-wait_until { (open --raw $local.exit | str trim) != '' } 'the server must shut down after the build disconnects' --timeout 10sec
-assert equal (open --raw $local.exit | str trim | into int) 0 'the server must exit successfully'
+let output = ^tangram_cli_test_supervise wait --directory $local.supervisor --timeout 10 | complete
+success $output 'the server must shut down after the build disconnects'
+assert equal ($output.stdout | str trim | into int) 0 'the server must exit successfully'

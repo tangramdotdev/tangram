@@ -12,7 +12,7 @@ tg --token $alice.token grant $eve.user.id write team
 
 let parent_path = artifact { tangram.ts: 'export default async () => { console.log(tg.process.env.TANGRAM_TOKEN); await tg.sleep(30); }' }
 let parent = tg --token $alice.token run --network=true --detach --verbose --owner team $parent_path | from json
-wait_until { (tg --token $alice.token log $parent.process | str trim | str length) > 0 } "the parent should log its token"
+timeout 30s tg --token $alice.token log --no-timeout --length 1 $parent.process | ignore
 let token = tg --token $alice.token log $parent.process | str trim
 
 let child_path = artifact { tangram.ts: 'export default async () => { await tg.sleep(30); }' }
@@ -28,5 +28,6 @@ failure (tg --token $eve.token process get $child | complete) "sandbox ownership
 tg --token $alice.token grant $eve.user.id process_parent $parent.process
 success (tg --token $eve.token process signal $child --signal KILL | complete) "an explicit parent grant should permit signaling a descendant process"
 
-wait_until { (tg --token $alice.token process status $child | from json | get 0) == "finished" } "the child should finish after Eve signals it"
+tg --token $alice.token process wait $child | complete | ignore
+assert equal (tg --token $alice.token process status $child | from json | get 0) "finished" "the child should finish after Eve signals it"
 tg --token $alice.token process signal $parent.process --signal KILL | complete | ignore

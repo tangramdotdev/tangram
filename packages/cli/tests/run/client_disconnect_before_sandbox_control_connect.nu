@@ -32,24 +32,22 @@ let run = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-wait_until {
-	(open --raw $pid_path | str trim | str length) > 0
-} "tg run should publish its process ID"
-let pid = open --raw $pid_path | str trim | into int
+# Wait for the run to reach sandbox control, which also means that the shell has written the run's process ID.
 let hit = tg checkpoint wait sandbox.control.connect $watch 0 | from json
 let sandbox = $hit.params.sandbox
+let pid = open --raw $pid_path | str trim | into int
 
 kill --signal 15 $pid
 let output = job recv --tag $run --timeout 10sec
 assert equal $output.exit_code (-15) "the actual tg process should be terminated by SIGTERM"
 
+# Let the sandbox connect and wait for its index write to complete.
+let submitted = checkpoint watch sandbox.control.index.submitted --params { sandbox: $sandbox }
 tg checkpoint continue sandbox.control.connect $watch 0
 tg checkpoint unwatch sandbox.control.connect $watch
-
-wait_until {
-	let output = tg sandbox get $sandbox | complete
-	$output.exit_code == 0
-} "the sandbox should connect after the checkpoint continues"
+checkpoint pass $submitted | ignore
+checkpoint unwatch $submitted
+tg index
 let state = tg sandbox get $sandbox | from json | get data
 assert equal $state.status "started" "the sandbox should remain running without a wait lease"
 

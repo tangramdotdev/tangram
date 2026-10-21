@@ -17,8 +17,12 @@ let path = artifact {
 	',
 }
 let parent = tg run --sandbox --detach --verbose $path | from json
-wait_until { (tg log $parent.process | lines | length) >= 2 } "the parent should log the child process ids"
-let children = tg log $parent.process | lines
+
+# Follow the parent's log until it contains both child process IDs.
+let length = (($parent.process | str length) + 1) * 2
+let output = timeout 30s tg log --no-timeout --length $length $parent.process | complete
+success $output "the parent should log the child process ids"
+let children = $output.stdout | lines
 
 let config = mktemp
 { client: { stream_retry: { backoff: 0.01, jitter: 0, max_delay: 0.05, max_retries: 3 } } } | to json | save -f $config
@@ -27,13 +31,14 @@ for case in [[kind command]; [read [process stdio read ($children | get 1) --str
 	let port = port
 	let log = mktemp
 	let ready = mktemp -d | path join ready
+	^mkfifo $ready
 	let socket = $server.directory | path join socket
 	let proxy = job spawn { node $proxy_path $socket $port $case.kind 1048576 $log $ready }
-	wait_until { $ready | path exists }
+	success (timeout 30s cat $ready | complete) "the proxy should listen"
 
 	# Stop the proxy once it resets the stream, so that every reconnect fails.
 	job spawn {
-		wait_until { (open --raw $log | str length) > 0 }
+		wait_for_growth $log 0 --timeout 30sec | ignore
 		job kill $proxy
 	} | ignore
 

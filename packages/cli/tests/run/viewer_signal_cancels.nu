@@ -37,11 +37,9 @@ for entry in ([
 		$output | job send --tag $job_id 0
 	}
 
-	wait_until {
-		(open --raw $pid_path | str trim | str length) > 0
-	} "tg run should publish its process ID"
-	let pid = open --raw $pid_path | str trim | into int
+	# Wait for the wait lease to attach, which also means that the shell has written the run's process ID.
 	let hit = tg checkpoint wait process.wait.attach $watch $entry.index | from json
+	let pid = open --raw $pid_path | str trim | into int
 	let process = $hit.params.process
 	let sandbox = tg process get $process | from json | get sandbox
 

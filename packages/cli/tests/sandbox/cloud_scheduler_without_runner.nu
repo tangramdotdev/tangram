@@ -23,7 +23,7 @@ let runner = server spawn --name runner --config {
 		token: $created.token.token,
 	},
 }
-wait_until { open --raw $runner.log | str contains 'the runner is ready to accept work' } 'the runner must register before the second scheduler starts'
+wait_for_log $runner 'the runner is ready to accept work'
 let scheduler = server spawn --instance $instance --name scheduler-without-runner --config {
 	roles: [scheduler],
 }

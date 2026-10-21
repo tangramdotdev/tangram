@@ -13,7 +13,8 @@ let started = tg --token $alice.token build --detach --verbose $path | from json
 let process = $started.process
 
 # Wait until the process has logged but is still running. The owner reads her own live log.
-wait_until { (tg --token $alice.token log $process | str trim | str length) > 0 } "the process should log before finishing"
+let log = timeout 30s tg --token $alice.token log --no-timeout --length 9 $process | str trim
+assert equal $log loghello "the process should log before finishing"
 
 # Eve with only the process node may see the process but not read its live log.
 tg --token $alice.token grant $eve.user.id process_node $process | ignore

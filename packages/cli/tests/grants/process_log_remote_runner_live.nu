@@ -37,9 +37,8 @@ let started = tg --url $local.url build --remote --detach --verbose $path | from
 let process = $started.process
 
 # Wait until the runner has written the log to the remote but the process is still running. The owner reads her own live log across servers.
-wait_until {
-	(tg --url $local.url log $process | complete | get stdout) =~ 'loghello'
-} "the runner should write the log to the remote before the process finishes" --timeout 30sec
+let log = timeout 30s tg --url $local.url log --no-timeout --length 9 $process | str trim
+assert equal $log loghello "the runner should write the log to the remote before the process finishes"
 assert ((tg --url $remote.url --token $alice.token get $process | from json | get log?) == null) "the log must still be live."
 
 # Eve with only the process node may see the process but not read its live log.

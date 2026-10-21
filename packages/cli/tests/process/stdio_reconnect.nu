@@ -33,9 +33,10 @@ for case in [[args kind server]; [[] write $solo] [[] read $solo] [[--remote] wr
 	let port = port
 	let log = mktemp
 	let ready = mktemp -d | path join ready
+	^mkfifo $ready
 	let socket = $case.server.directory | path join socket
 	let proxy = job spawn { node $proxy_path $socket $port $case.kind 1048576 $log $ready }
-	wait_until { $ready | path exists }
+	success (timeout 30s cat $ready | complete) "the proxy should listen"
 	let line = "" | fill --character x --width 4194304
 	let output = $"($line)\n" | timeout 60s tg --url $'http://127.0.0.1:($port)' run ...$case.args $path | complete
 	job kill $proxy

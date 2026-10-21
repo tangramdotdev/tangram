@@ -12,10 +12,13 @@ let server = server spawn --config {
 }
 
 let path = artifact {
-	tangram.ts: 'export default async function () { await tg.sleep(60); }'
+	tangram.ts: 'export default async function () { console.log("started"); await tg.sleep(60); }'
 }
 let spawned = tg build --detach --verbose $path | from json
-wait_until { (tg process status --timeout 0 $spawned.process | from json) == ["started"] } "the process should start"
+
+# Follow the log until the process reports that it is running.
+let output = timeout 30s tg log --no-timeout --length 8 $spawned.process | complete
+success $output "the process should start"
 tg cancel $spawned.process $spawned.lease
 
 let output = timeout 10s tg wait $spawned.process | complete

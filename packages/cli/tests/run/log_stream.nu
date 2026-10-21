@@ -22,8 +22,10 @@ let path = artifact {
 }
 let process = tg build --detach --verbose $path | from json
 
-# Wait for the first two log lines to be written.
-wait_until { (tg log $process.process --position 21 --length 20) == 'bbbbbbbbbbbbbbbbbbbb' } "the first two log lines should be written"
+# Follow the log until the first two log lines are written.
+let output = timeout 30s tg log --no-timeout $process.process --position 21 --length 20 | complete
+success $output "the first two log lines should be written"
+assert equal $output.stdout 'bbbbbbbbbbbbbbbbbbbb'
 
 # Check that we can read just one chunk forwards
 let output = tg log $process.process --position 0 --length 20

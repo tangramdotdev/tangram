@@ -8,6 +8,7 @@ let local_owner = server spawn --name local-owner --config {
 }
 let created = tg --url $local_owner.url runner create | from json
 let runner = server spawn --name runner --config {
+	advanced: { checkpoints: true },
 	control: { read_timeout: 0.25 },
 	remotes: { default: { url: $local_owner.url } },
 	roles: [api indexer runner],
@@ -22,6 +23,7 @@ let runner_socket = $runner.url | str replace 'http+unix://' '' | url decode
 let local_owner_socket = $local_owner.url | str replace 'http+unix://' '' | url decode
 let local_client_socket = $local_client.url | str replace 'http+unix://' '' | url decode
 let path = artifact { tangram.ts: 'export default () => "done";' }
+let removed = checkpoint watch runner.process.state.removed --url $runner.url
 let reader = job spawn {
 	let job_id = job id
 	http get --raw --max-time 30sec --unix-socket $runner_socket $'http://localhost/sandboxes/($sandbox)/processes?source=runner&size=1&length=2'
@@ -39,9 +41,12 @@ let second_chunk = job recv --tag $reader --timeout 10sec | str substring 6.. | 
 assert equal $second_chunk { data: [$second], position: 1 }
 assert equal (job recv --tag $reader --timeout 10sec) 'event: end'
 timeout 10s tg --url $local_owner.url wait --source=index $second | ignore
-wait_until {
-	(tg --url $runner.url process get --source=runner $first | complete | get exit_code) != 0
-} --timeout 10sec 'the individual runner process state should retire'
+
+# Wait for the runner to discard the state of both processes.
+let processes = [0 1] | each { |hit| checkpoint wait $removed $hit | get params.process }
+checkpoint unwatch $removed
+assert equal ($processes | sort) ([$first $second] | sort) 'the individual runner process state should retire'
+failure (tg --url $runner.url process get --source=runner $first | complete) 'the retired runner process state should not be found'
 tg --url $local_owner.url index
 for source in [auto runner] {
 	for socket in [$runner_socket $local_owner_socket $local_client_socket] {

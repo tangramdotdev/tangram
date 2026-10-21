@@ -28,7 +28,7 @@ tg index
 let list = tg sandbox list | from json
 assert ($list | where id == $create | is-empty) "the destroyed sandbox should leave the list"
 
-wait_until { (tg sandbox get $create | complete | get exit_code) != 0 } "the sandbox should be cleaned"
+tg clean
 let output = tg sandbox get $create | complete
 failure $output "the sandbox should be cleaned"
 snapshot --normalize $output.stderr '

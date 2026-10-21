@@ -18,7 +18,6 @@ let runner = tg --url $a.url --token $root runner create | from json
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
 success (tg --url $b.url --token $token.token remote list | complete)
 stop_nats $nats
-wait_until { try { http get $'($nats.monitor_url)/healthz' | ignore; false } catch { true } } 'NATS did not stop'
 success (tg --url $a.url --token $root runner token delete $runner.data.id $token.id | complete) 'publication failure must not report a committed deletion as failed'
 wait_until { (tg --url $b.url --token $token.token remote list | complete).exit_code != 0 } 'the disconnected server retained cached authentication' --timeout 5sec
 

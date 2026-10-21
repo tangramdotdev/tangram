@@ -49,11 +49,11 @@ for kind in [object process] {
 	'' | save --force $push_log
 	let push = job spawn {
 		let job_id = job id
-		let output = tg --no-quiet --url $local.url --token $root_token push $node $blocker o+e>| tee { save --force $push_log } | complete
+		let output = tg --no-quiet --url $local.url --token $root_token push $node $blocker o+e>| tee { save --append $push_log } | complete
 		$output | job send --tag $job_id 0
 	}
 	timeout 10s tg --url $url --token $root_token checkpoint wait $checkpoint $watch 0 | ignore
-	wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should print the complete referent with the authorization token for the sync'
+	wait_for_log { log: $push_log } 'tokens[remote]'
 	let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 	let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
 	let query = { 'tokens[local][0]': $sync } | url build-query

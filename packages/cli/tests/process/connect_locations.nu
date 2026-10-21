@@ -5,6 +5,7 @@ const proxy_path = path self ../lib/process_connect_proxy.mjs
 let port = port
 let log = mktemp
 let ready = mktemp -d | path join ready
+^mkfifo $ready
 let instance = instance --primary-region west --regions [
 	{ name: west }
 	{ name: east, url: $'http://127.0.0.1:($port)' }
@@ -12,7 +13,7 @@ let instance = instance --primary-region west --regions [
 let remote_east = server spawn --instance $instance --region east --name remote-east --directory (mktemp -d)
 let socket = $remote_east.directory | path join socket
 let proxy = job spawn { node $proxy_path $socket $port $log $ready }
-wait_until { $ready | path exists }
+success (timeout 30s cat $ready | complete) "the proxy should listen"
 let remote_west = server spawn --instance $instance --region west --name remote-west --directory (mktemp -d) --url (instance region url $instance west)
 let local_missing = server spawn --name local-missing
 let local = server spawn --name local --config {

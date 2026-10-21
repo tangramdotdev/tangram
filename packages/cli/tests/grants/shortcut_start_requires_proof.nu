@@ -69,7 +69,7 @@ for shortcut in [null { parent: { id: $parent, token: $mallory.token }, sandbox:
 
 # Mallory runs her own process, whose token proves that her runner runs it.
 let own = tg --token $mallory.token spawn --sandbox --verbose --executable /bin/sh -- -c 'echo "$TANGRAM_TOKEN"; sleep 60' | from json | get process | split row '?' | first
-wait_until { (tg --token $mallory.token log $own | complete).stdout | str trim | is-not-empty } "Mallory's process should print its token"
+timeout 30s tg --token $mallory.token log --no-timeout --length 1 $own | ignore
 let own_token = tg --token $mallory.token log $own | str trim
 
 # The runner must not start a child of its own process in Alice's sandbox with a token that is not the sandbox's.

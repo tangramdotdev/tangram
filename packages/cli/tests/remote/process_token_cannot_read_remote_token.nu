@@ -22,7 +22,7 @@ let path = artifact {
 	'
 }
 let process = tg --url $local.url --token $local_alice.token run --network=true --detach --verbose $path | from json
-wait_until { (tg --url $local.url --token $local_alice.token log $process.process | str trim | str length) > 0 } "the process should log its token"
+timeout 30s tg --url $local.url --token $local_alice.token log --no-timeout --length 1 $process.process | ignore
 let process_token = tg --url $local.url --token $local_alice.token log $process.process | str trim
 
 # The process can resolve the remote but must not receive its owner's credential.

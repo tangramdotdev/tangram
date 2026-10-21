@@ -16,7 +16,7 @@ let path = artifact {
 	'
 }
 let parent = tg --token $alice.token run --network=true --detach --verbose $path | from json
-wait_until { (tg --token $alice.token log $parent.process | str trim | str length) > 0 } "the parent should log the child process id"
+timeout 30s tg --token $alice.token log --no-timeout --length 1 $parent.process | ignore
 let child = tg --token $alice.token log $parent.process | str trim
 
 tg --token $alice.token grant $eve.user.id process_node $child

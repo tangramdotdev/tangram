@@ -112,7 +112,7 @@ def main():
     for _, _, _, relative in frozen:
         (library / relative).unlink()
 
-    # Precompile the library, so that the runtime loads bytecode instead of compiling every imported module when it starts.
+    # Precompile the library, so that imports load bytecode instead of compiling.
     for path in sorted(library.rglob("*.py")):
         relative = path.relative_to(library).as_posix()
         try:

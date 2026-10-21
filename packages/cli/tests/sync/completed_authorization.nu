@@ -20,10 +20,10 @@ let push_log = $env.TMPDIR | path join push.log
 '' | save --force $push_log
 let push = job spawn {
 	let job_id = job id
-	let output = tg --no-quiet --url $local_source.url push $file o+e>| tee { save --force $push_log } | complete
+	let output = tg --no-quiet --url $local_source.url push $file o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
-wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push must expose its authorization token before waiting for indexing'
+wait_for_log { log: $push_log } 'tokens[remote][0]'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let referent = $referent | str replace --all 'tokens[remote]' 'tokens[local]'
 let proof = $'http://localhost/($referent)' | url parse | get params | where {|param| $param.key =~ '^tokens\[' } | each {|param|

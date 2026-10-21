@@ -25,10 +25,8 @@ assert equal (tg wait --no-tokens $success_id | from json | get exit) 0
 let failure_id = tg build --detach --no-tokens $path true $secret | referent node
 assert equal (tg wait --no-tokens $failure_id | from json | get exit) 1
 
-wait_until {
-	let log = open --raw $local.log
-	($log | str contains 'destroyed the sandbox') and ($log | str contains 'received the process finish response')
-} 'the lifecycle events should reach the server log'
+wait_for_log $local 'destroyed the sandbox'
+wait_for_log $local 'received the process finish response'
 server stop $local
 let log = open --raw $local.log
 assert not ($log | str contains $secret)

@@ -19,7 +19,7 @@ let manage = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-wait_until { (stripe_requests $stripe | length) == 1 } "the customer request should start"
+assert (wait_for_growth $stripe.requests_path 0) "the customer request should start"
 let create = timeout 1s tg --token $root_token group create available | complete
 assert equal $create.exit_code 0 "an unrelated database write should not wait for Stripe"
 

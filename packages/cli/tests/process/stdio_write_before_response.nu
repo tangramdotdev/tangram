@@ -14,8 +14,12 @@ let path = artifact {
 	'
 }
 let parent = tg run --network=true --detach --verbose $path | from json
-wait_until { (tg log $parent.process | str trim | str length) > 0 } "the parent should log the child process id"
-let child = tg log $parent.process | lines | first | str trim
+
+# Follow the parent's log until it contains the child process ID.
+let length = ($parent.process | str length) + 1
+let output = timeout 30s tg log --no-timeout --length $length $parent.process | complete
+success $output "the parent should log the child process id"
+let child = $output.stdout | str trim
 
 # Hold the write response before it is returned, then observe the first write request arriving on the request body.
 let response_watch = tg checkpoint watch process.stdio.write.response | from json | get watch

@@ -10,13 +10,13 @@ let config_path = $local.config_path
 let directory = $local.directory
 let url = $local.url
 let remote = $'default=($remote_upstream.url)'
-let job = job spawn -d server {
-	tangram -c $config_path -d $directory -u $url --trusted-remotes default serve --remotes $remote
-}
-wait_until { (tg --url $url health | complete).exit_code == 0 } "the server should start"
+
+# Start the server under a supervisor, which waits for it to signal readiness.
+let supervisor = mktemp --directory
+track_supervisor $supervisor
+^tangram_cli_test_supervise start --description server --directory $supervisor --name local --ready-fd 3 -- tangram -c $config_path -d $directory -u $url --trusted-remotes default serve --remotes $remote --ready-fd 3 | from json | ignore
 
 let remote = tg --url $url remote get default | from json
 assert equal $remote.trusted true "the global option should mark the serve remote as trusted"
 
-tg -d $directory server stop
-try { job kill $job }
+server stop { supervisor: $supervisor }

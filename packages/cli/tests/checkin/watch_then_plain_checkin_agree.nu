@@ -2,7 +2,9 @@ use ../lib/test.nu *
 
 # A --watch checkin notices a real on-disk edit without a touch, and a plain checkin agrees with the watched one.
 
-let local = server spawn
+let local = server spawn --config {
+	tracing: { filter: 'tangram_server::watch=trace', stderr_format: 'json' },
+}
 
 let path = artifact {
 	tangram.ts: 'export default () => "one";'
@@ -11,12 +13,12 @@ let path = artifact {
 # Check in with --watch to register the watch and capture the initial id.
 let first = tg checkin --no-tokens $path --watch | referent node
 
-# Edit the file on disk and check in with --watch again. The watch observes the
-# edit through a filesystem event, which is delivered asynchronously, so poll
-# until a watched checkin reflects it without any tg watch touch.
+# Edit the file on disk, wait for the watch to remove the file's node in response to the filesystem event, and check in with --watch again.
 'export default () => "two";' | save --force ($path | path join tangram.ts)
-wait_until { (tg checkin --no-tokens $path --watch | referent node) != $first } "the watched checkin should reflect the on-disk edit"
+let removed = '"message":"removed","path":"Some(\"' + ($path | path join tangram.ts) + '\")"'
+wait_for_log $local $removed
 let watched = tg checkin --no-tokens $path --watch | referent node
+assert ($watched != $first) "the watched checkin should reflect the on-disk edit"
 
 # Check in again without --watch. It should agree with the watched checkin.
 let plain = tg checkin --no-tokens $path | referent node

@@ -39,7 +39,7 @@ let path = artifact {
 	'
 }
 let parent = tg --token $alice.token run --network=true --detach --verbose --owner team $path | from json
-wait_until { (tg --token $alice.token log $parent.process | str trim | str length) > 0 } "the process should log its token"
+timeout 30s tg --token $alice.token log --no-timeout --length 1 $parent.process | ignore
 let token = tg --token $alice.token log $parent.process | str trim
 
 let process_remotes = tg --token $token remote list | from json

@@ -42,10 +42,11 @@ let fifo_directory = mktemp -d
 let fifo_path = $fifo_directory | path join 'stdin'
 ^mkfifo $fifo_path
 let trigger_path = $fifo_directory | path join 'close'
+^mkfifo $trigger_path
 let pid_path = mktemp
 let tangram = which tg | where type == external | get path | first
 let writer = job spawn {
-	^bash -c 'exec 3> "$1"; while [ ! -e "$2" ]; do sleep 0.05; done; exec 3>&-' _ $fifo_path $trigger_path
+	^bash -c 'exec 3> "$1"; read -r < "$2"; exec 3>&-' _ $fifo_path $trigger_path
 }
 let run = job spawn {
 	let job_id = job id
@@ -56,14 +57,10 @@ let run = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-wait_until {
-	(open --raw $pid_path | str trim | str length) > 0
-} "tg run should publish its process ID"
-let pid = open --raw $pid_path | str trim | into int
-
-# Get the process while it is still running.
+# Get the process while it is still running. The attached wait lease also means that the shell has written the run's process ID.
 let hit = timeout 10s tg checkpoint wait process.wait.attach $attach_watch 0 | from json
 let process = $hit.params.process
+let pid = open --raw $pid_path | str trim | into int
 tg checkpoint continue process.wait.attach $attach_watch 0
 tg checkpoint unwatch process.wait.attach $attach_watch
 
@@ -103,7 +100,7 @@ success $output "a stdin write serviced after the sandbox is destroyed must retu
 tg checkpoint continue runner.process.control.retention.finished $retention_watch 0
 tg checkpoint unwatch runner.process.control.retention.finished $retention_watch
 
-touch $trigger_path
+^bash -c 'echo > "$1"' _ $trigger_path
 let output = try { job recv --tag $run --timeout 15sec } catch { null }
 if $output == null {
 	error make { msg: 'the run did not complete' }

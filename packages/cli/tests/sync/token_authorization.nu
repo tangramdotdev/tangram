@@ -28,13 +28,14 @@ let private_watch = tg --url $remote.url --token $root_token checkpoint watch sy
 let blocker_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blocker } | to json --raw) | from json | get watch
 let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.ack --params ({ node: $private } | to json --raw) | from json | get watch
 let push_log = $env.TMPDIR | path join push.log
+'' | save --force $push_log
 let push = job spawn {
 	let job_id = job id
-	let output = tg --no-quiet --url $alice_local.url push $private $blocker o+e>| tee { save --force $push_log } | complete
+	let output = tg --no-quiet --url $alice_local.url push $private $blocker o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $private_watch 0 | ignore
-wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should print its complete authorization token for the sync'
+wait_for_log { log: $push_log } 'tokens[remote]'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
 

@@ -47,13 +47,14 @@ let blob_watch = (
 # Alice pushes the directory. The push prints the referent with the authorization token for the sync as soon as the remote
 # starts the sync, so Alice can confer it to Bob before the push finishes.
 let push_log = $env.TMPDIR | path join push.log
+'' | save --force $push_log
 let push = job spawn {
 	let job_id = job id
-	let output = tg --no-quiet --url $alice_local.url push $directory o+e>| tee { save --force $push_log } | complete
+	let output = tg --no-quiet --url $alice_local.url push $directory o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
 tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blob_watch 0 | ignore
-wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should print the referent with the authorization token for the sync'
+wait_for_log { log: $push_log } 'tokens[remote][0]'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
 let referent = $push_lines | first | str trim | str replace --regex '^info ' ''
 

@@ -15,9 +15,10 @@ let remote = server spawn --name remote --config {
 let port = port
 let log = mktemp
 let ready = mktemp -d | path join ready
+^mkfifo $ready
 let socket = $remote.directory | path join socket
 let proxy = job spawn { node $proxy_path $socket $port read 1048576 $log $ready }
-wait_until { $ready | path exists }
+success (timeout 30s cat $ready | complete) "the proxy should listen"
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $'http://127.0.0.1:($port)' } },

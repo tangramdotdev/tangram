@@ -44,14 +44,15 @@ let watch = (
 
 # Alice pushes the process without its logs and takes the referent with the authorization token for the sync from stderr.
 let push_log = $env.TMPDIR | path join push.log
+'' | save --force $push_log
 let push = job spawn {
 	let job_id = job id
-	let output = tg --no-quiet --url $alice_local.url push $process o+e>| tee { save --force $push_log } | complete
+	let output = tg --no-quiet --url $alice_local.url push $process o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
 let output = timeout 30s tg --url $alice_local.url checkpoint wait sync.put.store.process $watch 0 | complete
 success $output "alice's push should reach the process"
-wait_until { ($push_log | path exists) and ((open --raw $push_log) | str contains 'tokens[remote][0]') } 'the push should print the referent with the authorization token for the sync'
+wait_for_log { log: $push_log } 'tokens[remote][0]'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
 let referent = $push_lines | first | str trim | str replace --regex '^info ' ''
 

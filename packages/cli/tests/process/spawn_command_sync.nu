@@ -101,7 +101,7 @@ for location in [remote 'local(east)'] {
 		tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store_watch
 		success (timeout 30s tg --url $local.url checkpoint wait process.spawn.command.push.finished $push_watch 0 | complete) "the command push should complete after the spawn response"
 		tg --url $local.url checkpoint unwatch process.spawn.command.push.finished $push_watch
-		wait_until { (tg --url $remote.url --token $root_token get $blob | complete).exit_code == 0 }
+		success (tg --url $remote.url --token $root_token get $blob | complete) "the remote should store the command blob once the push finishes"
 		tg --url $runner.url checkpoint unwatch runner.process.run $run_watch
 		let result = tg --url $remote.url --token $root_token process wait $output.process | from json
 		assert equal $result.exit 0 ($result | to json --raw)

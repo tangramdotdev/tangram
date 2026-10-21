@@ -76,10 +76,9 @@ let path = artifact {
 }
 
 let process = tg --url $local.url build --no-tokens --detach --remote $path | referent node
-wait_until {
-	let output = tg --url $local.url process log --stream stdout $process | complete
-	$output.exit_code == 0 and ($output.stdout | str contains "child spawn is pending")
-} "the child spawn was not enqueued"
+let output = timeout 30s tg --url $local.url process log --no-timeout --stream stdout --length 23 $process | complete
+success $output "the child spawn was not enqueued"
+assert equal $output.stdout "child spawn is pending\n"
 
 let pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 9 $pid

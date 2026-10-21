@@ -23,9 +23,9 @@ export def spawn_stripe [--customer-delay: duration = 0sec] {
 	let job = job spawn -d stripe {
 		^bun run $stripe_path $port_path $requests_path ($customer_delay_ms | into string) $customer_path
 	}
-	wait_until {
-		try { (open --raw $port_path | str trim | is-not-empty) } catch { false }
-	} "the mock Stripe server did not start"
+	if not (wait_for_growth $port_path 0) {
+		error make { msg: 'the mock Stripe server did not start' }
+	}
 	let port = open --raw $port_path | str trim
 	{
 		customer_path: $customer_path,

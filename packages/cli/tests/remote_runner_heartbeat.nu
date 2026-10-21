@@ -17,6 +17,7 @@ let remote = server spawn --name remote --cloud --preserve-keys --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
 
 let runner = server spawn --name runner --config {
+	advanced: { checkpoints: true }
 	runner: {
 		id: $created.data.id
 		remote: "default"
@@ -51,13 +52,24 @@ let path = artifact {
 	'
 }
 
+let connected = checkpoint watch runner.process.index.signal --url $runner.url
 let process = tg --url $local.url run --no-tokens --detach $path --remote | referent node
 let empty_process = tg --url $local.url run --no-tokens --detach $"($path)#empty" --remote | referent node
-wait_until {
-	let output = tg --url $remote.url --token $root_token log --timeout 0 $process | complete
-	$output.stdout == "stdout before expiration\n" and $output.stderr == "stderr before expiration\n"
+
+# Wait for the runner to connect each process's control and index it, and then for the remote to index the starts.
+let connected_processes = [0 1] | each { |hit| checkpoint pass $connected $hit | get params.process }
+checkpoint unwatch $connected
+assert equal ($connected_processes | sort) ([$process $empty_process] | sort)
+tg --url $remote.url --token $root_token index
+
+# Wait for the remote to receive each stream's log, reading exactly the expected length without a timeout.
+for stream in [stdout stderr] {
+	let expected = $"($stream) before expiration\n"
+	let length = $expected | str length --utf-8-bytes
+	let output = timeout 10 tg --url $remote.url --token $root_token log --no-timeout --stream $stream --length $length $process | complete
+	success $output
+	assert equal ($output | get $stream) $expected
 }
-wait_until { (tg --url $remote.url --token $root_token process status $empty_process | from json | first) == "started" }
 
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
