@@ -716,7 +716,6 @@ impl Session {
 		};
 		if !complete {
 			return Err(tg::error!(
-				unavailable,
 				"the stdio relay write ended before it was acknowledged"
 			));
 		}
@@ -833,9 +832,9 @@ impl Session {
 			}
 		}
 
-		// Fail a read that ends before EOF, so that the writer's server reopens it.
+		// Fail a read that ends before EOF.
 		if !ended {
-			return Err(tg::error!(unavailable, "the stdin relay ended before EOF"));
+			return Err(tg::error!("the stdin relay ended before EOF"));
 		}
 
 		Ok(())
