@@ -12,7 +12,9 @@ use {
 	sourcemap::SourceMap,
 	std::{
 		cell::{OnceCell, RefCell},
+		collections::HashMap,
 		future::poll_fn,
+		num::NonZeroI32,
 		rc::Rc,
 		sync::Arc,
 		task::Poll,
@@ -41,11 +43,13 @@ pub struct Runtime {
 struct State {
 	arg: crate::Arg,
 	global_source_map: OnceCell<SourceMap>,
-	graphs: Arc<crate::module::Graphs>,
+	graphs: Arc<tangram_compiler::graphs::Graphs>,
 	host: crate::host::Host,
 	http2: crate::http2::Http2,
 	instance: tg::instance::dynamic::Instance,
 	main_runtime_handle: tokio::runtime::Handle,
+	module_indices: RefCell<HashMap<String, usize>>,
+	module_indices_with_v8: RefCell<HashMap<NonZeroI32, Vec<usize>>>,
 	modules: RefCell<Vec<Module>>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, self::promise::Output>>>,
 	rejections: RefCell<Vec<Rejection>>,
@@ -140,11 +144,13 @@ impl Runtime {
 		let state = Rc::new(State {
 			arg,
 			global_source_map,
-			graphs: Arc::new(crate::module::Graphs::default()),
+			graphs: Arc::new(tangram_compiler::graphs::Graphs::default()),
 			host,
 			http2,
 			instance,
 			main_runtime_handle,
+			module_indices: RefCell::new(HashMap::new()),
+			module_indices_with_v8: RefCell::new(HashMap::new()),
 			modules,
 			promises,
 			rejections,
@@ -448,6 +454,23 @@ impl Runtime {
 }
 
 impl State {
+	/// Get the index of a module with the same identity, ignoring tokens.
+	fn module_index(&self, module: &tg::module::Data) -> Option<usize> {
+		let key = module.without_token().to_string();
+		self.module_indices.borrow().get(&key).copied()
+	}
+
+	/// Get the index of a compiled module, looking it up by the module's identity hash.
+	fn module_index_with_v8(&self, module: v8::Local<v8::Module>) -> Option<usize> {
+		let indices = self.module_indices_with_v8.borrow();
+		let modules = self.modules.borrow();
+		indices
+			.get(&module.get_identity_hash())?
+			.iter()
+			.copied()
+			.find(|index| modules[*index].v8.as_ref().is_some_and(|v8| v8 == &module))
+	}
+
 	#[must_use]
 	fn global_source_map(&self) -> &SourceMap {
 		self.global_source_map

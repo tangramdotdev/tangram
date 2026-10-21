@@ -3,7 +3,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// The graphs that the runtime has loaded, so that resolving and loading the modules of a graph loads the graph once.
+/// The graphs that a runtime has loaded, so that resolving and loading the modules of a graph loads the graph once.
 #[derive(Default)]
 pub struct Graphs(Mutex<HashMap<tg::graph::Id, tg::Graph, tg::id::BuildHasher>>);
 
@@ -67,16 +67,11 @@ impl Graphs {
 			return Ok(None);
 		}
 
-		// Create the referent, retaining the graph's authorization, as the server does.
+		// Create the referent, which inherits the referrer's tokens, including its token for the graph.
 		let mut referent = tg::Referent {
-			node: edge,
+			node: tg::module::data::Source::Edge(edge.to_data()),
 			options: dependency.0.options,
 		};
-		for child in referent.node.children() {
-			let options = child.to_referent().options;
-			referent.options.tokens.inherit(&options.tokens);
-		}
-		let mut referent = referent.map(|edge| tg::module::data::Source::Edge(edge.to_data()));
 		referent.inherit(&referrer.referent);
 
 		// Get the kind from the import, the path's extension, or the file's module field.
@@ -103,16 +98,17 @@ impl Graphs {
 		Ok(Some(module))
 	}
 
-	/// Load a JavaScript or TypeScript module that is a file in a graph without the instance, returning `None` when the instance must load it.
+	/// Load a module that is a file in a graph and is written in the language without the instance, returning `None` when the instance must load it.
 	pub async fn try_load_module<I>(
 		&self,
 		instance: &I,
 		module: &tg::module::Data,
+		language: tg::module::load::Language,
 	) -> Option<tg::module::load::Output>
 	where
 		I: tg::Instance,
 	{
-		self.try_load_module_inner(instance, module)
+		self.try_load_module_inner(instance, module, language)
 			.await
 			.ok()
 			.flatten()
@@ -122,14 +118,18 @@ impl Graphs {
 		&self,
 		instance: &I,
 		module: &tg::module::Data,
+		language: tg::module::load::Language,
 	) -> tg::Result<Option<tg::module::load::Output>>
 	where
 		I: tg::Instance,
 	{
-		// Only load JavaScript and TypeScript modules.
+		// Only load modules written in the language.
 		if !matches!(
-			module.kind,
-			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript
+			(language, module.kind),
+			(
+				tg::module::load::Language::JavaScript,
+				tg::module::Kind::JavaScript | tg::module::Kind::TypeScript
+			) | (tg::module::load::Language::Python, tg::module::Kind::Python)
 		) {
 			return Ok(None);
 		}
@@ -144,8 +144,7 @@ impl Graphs {
 		let text = contents.text_with_instance(instance).await?;
 
 		// Prepare the text as the server does.
-		let language = Some(tg::module::load::Language::JavaScript);
-		let text = tangram_compiler::load::module(module, &text, language)?;
+		let text = crate::load::module(module, &text, Some(language))?;
 
 		// Create the output.
 		let output = tg::module::load::Output {
@@ -157,7 +156,7 @@ impl Graphs {
 	}
 
 	/// Get the file that a local referent points to in a graph, using the loaded graph if there is one.
-	fn try_get_file(
+	pub fn try_get_file(
 		&self,
 		referent: &tg::Referent<tg::module::data::Source>,
 	) -> Option<(tg::Graph, tg::File)> {
@@ -177,15 +176,18 @@ impl Graphs {
 			return None;
 		}
 
-		// Get or insert the graph, adding the referent's tokens.
+		// Get the graph, or insert it with the referent's tokens, which the graph uses when it is loaded.
 		let graph = self
 			.0
 			.lock()
 			.unwrap()
 			.entry(pointer.graph.clone())
-			.or_insert_with(|| tg::Graph::with_id(pointer.graph.clone()))
+			.or_insert_with(|| {
+				let graph = tg::Graph::with_id(pointer.graph.clone());
+				graph.state().set_tokens(referent.options.tokens.clone());
+				graph
+			})
 			.clone();
-		graph.state().inherit_tokens(&referent.options.tokens);
 
 		// Create the file.
 		let pointer = tg::graph::Pointer {

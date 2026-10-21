@@ -3,10 +3,10 @@ use {
 	std::{
 		ffi::CString,
 		path::{Path, PathBuf},
-		sync::{Mutex, mpsc},
+		sync::{Arc, Mutex, mpsc},
 	},
 	tangram_client::prelude::*,
-	tangram_compiler::python::resolve::prepare_module,
+	tangram_compiler::python::resolve::{Resolver, prepare_module_with_graphs},
 };
 
 mod import;
@@ -35,6 +35,7 @@ pub struct Outcome {
 struct Host {
 	instance: tg::instance::dynamic::Instance,
 	main_runtime_handle: tokio::runtime::Handle,
+	resolver: Arc<Resolver>,
 }
 
 pub fn run(arg: Arg) -> tg::Result<Outcome> {
@@ -43,10 +44,17 @@ pub fn run(arg: Arg) -> tg::Result<Outcome> {
 		.lock()
 		.map_err(|_| tg::error!("the python runtime lock is poisoned"))?;
 
+	// Create the resolver, which keeps the graphs that the runtime loads for the whole run.
+	let resolver = Arc::new(Resolver::new(arg.instance.clone()));
+
 	// Preserve the entry's graph pointer before creating the process context and module cache.
 	let module = arg
 		.main_runtime_handle
-		.block_on(prepare_module(&arg.instance, arg.module))
+		.block_on(prepare_module_with_graphs(
+			&arg.instance,
+			resolver.graphs(),
+			arg.module,
+		))
 		.map_err(|error| tg::error!(!error, "failed to prepare the python entry module"))?;
 
 	// Serialize the process context.
@@ -62,6 +70,7 @@ pub fn run(arg: Arg) -> tg::Result<Outcome> {
 	let host = Host {
 		instance: arg.instance,
 		main_runtime_handle: arg.main_runtime_handle,
+		resolver,
 	};
 
 	// Initialize and execute Python on the calling runtime thread.
@@ -122,9 +131,8 @@ impl Host {
 			.map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
 		let (sender, receiver) = mpsc::channel();
 		self.main_runtime_handle.spawn({
-			let instance = self.instance.clone();
+			let resolver = self.resolver.clone();
 			async move {
-				let resolver = tangram_compiler::python::resolve::Resolver::new(instance);
 				let result = resolver.resolve(request).await.and_then(|output| {
 					serde_json::to_string(&output).map_err(|error| {
 						tg::error!(!error, "failed to serialize the python resolution")
@@ -145,8 +153,9 @@ impl Host {
 		let (sender, receiver) = mpsc::channel();
 		self.main_runtime_handle.spawn({
 			let instance = self.instance.clone();
+			let resolver = self.resolver.clone();
 			async move {
-				let result = load_module(instance, module).await;
+				let result = load_module(instance, &resolver, module).await;
 				let _ = sender.send(result);
 			}
 		});
@@ -196,13 +205,24 @@ fn serialize_module(module: tg::module::Data) -> tg::Result<String> {
 
 async fn load_module(
 	instance: tg::instance::dynamic::Instance,
+	resolver: &Resolver,
 	module: tg::module::Data,
 ) -> tg::Result<String> {
-	let arg = tg::module::load::Arg {
-		language: Some(tg::module::load::Language::Python),
-		module,
+	// Load the module without the instance if possible.
+	let language = tg::module::load::Language::Python;
+	let output = if let Some(output) = resolver
+		.graphs()
+		.try_load_module(&instance, &module, language)
+		.await
+	{
+		output
+	} else {
+		let arg = tg::module::load::Arg {
+			language: Some(language),
+			module,
+		};
+		instance.load_module(arg).await?
 	};
-	let output = instance.load_module(arg).await?;
 	let output = serde_json::to_string(&output)
 		.map_err(|error| tg::error!(!error, "failed to serialize the python module load output"))?;
 	Ok(output)
