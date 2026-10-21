@@ -544,14 +544,12 @@ async fn process_status_does_not_regress() {
 	)
 	.await
 	.unwrap();
-	assert!(
-		put_process(
-			&index,
-			process_arg(id.clone(), tg::process::Status::Started)
-		)
-		.await
-		.is_err()
-	);
+	put_process(
+		&index,
+		process_arg(id.clone(), tg::process::Status::Started),
+	)
+	.await
+	.unwrap();
 	let (_, data) = index.try_get_process_with_data(&id).await.unwrap().unwrap();
 	assert!(data.unwrap().status.is_finished());
 }

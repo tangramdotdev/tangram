@@ -12,10 +12,14 @@ impl Session {
 		crate::checkpoint!(self.server, "process.control.finish", id = %id).await;
 		let data = arg.data.clone();
 
+		// Record the location with the finished write, so that it does not depend on the started write being indexed first.
+		let location = tg::Location::Local(tg::location::Local {
+			region: self.server.config.region.clone(),
+		});
 		let options = crate::process::put::Options {
 			command_sync,
 			defer_index: true,
-			location: None,
+			location: Some(location),
 			outcome_sync,
 			store_data: true,
 		};

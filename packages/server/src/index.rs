@@ -302,8 +302,13 @@ impl Server {
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "failed to index a batch");
 					}
-					crate::checkpoint!(server, "index.batch.finished", command_object_permission)
-						.await;
+					crate::checkpoint!(
+						server,
+						"index.batch.finished",
+						command_object_permission,
+						finished_process
+					)
+					.await;
 
 					result
 				}
