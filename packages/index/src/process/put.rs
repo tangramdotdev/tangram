@@ -114,6 +114,20 @@ impl Arg {
 		if self.command_id != existing.command_id {
 			return Ok(Err(tg::error!("cannot replace an existing process")));
 		}
+
+		// Accept the process's own write of its unfinished data after its finished data, which the index can receive out of order, because the put preserves the finished data.
+		if self.principal == tg::Principal::Process(self.id.clone())
+			&& self.data.as_ref().is_some_and(|data| {
+				!data.status.is_finished()
+					&& data.error.is_none()
+					&& data.exit.is_none()
+					&& data.finished_at.is_none()
+					&& data.log.is_none()
+					&& data.output.is_none()
+			}) {
+			return Ok(Ok(()));
+		}
+
 		if let (Some(data), Some(existing)) = (&self.data, existing_data) {
 			let mut data = data.clone().without_location_and_tokens();
 			data.children = None;
@@ -127,6 +141,7 @@ impl Arg {
 				return Ok(Err(tg::error!("cannot replace an existing process")));
 			}
 		}
+
 		Ok(Ok(()))
 	}
 
