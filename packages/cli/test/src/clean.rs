@@ -256,10 +256,29 @@ async fn tangram_processes() -> Vec<libc::pid_t> {
 			if !matches!(name, "tangram" | "tg") || pid == current {
 				return None;
 			}
-			let resolved = std::fs::canonicalize(&executable).ok()?;
+			let resolved = executable_path(pid)?;
 			(resolved.file_name()? == "tangram").then_some(pid)
 		})
 		.collect()
+}
+
+/// Get the path of a process's executable, which does not depend on how its first argument was written.
+#[cfg(target_os = "linux")]
+fn executable_path(pid: libc::pid_t) -> Option<PathBuf> {
+	std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
+/// Get the path of a process's executable, which does not depend on how its first argument was written.
+#[cfg(target_os = "macos")]
+fn executable_path(pid: libc::pid_t) -> Option<PathBuf> {
+	let mut buffer = vec![0u8; 4096];
+	let size = u32::try_from(buffer.len()).ok()?;
+	// SAFETY: The buffer is valid for writes of its length.
+	let length = unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), size) };
+	let length = usize::try_from(length).ok().filter(|length| *length > 0)?;
+	buffer.truncate(length);
+	let path = <std::ffi::OsString as std::os::unix::ffi::OsStringExt>::from_vec(buffer);
+	Some(PathBuf::from(path))
 }
 
 /// Compute the `SysV` IPC keys of the LMDB lock files under the paths.
