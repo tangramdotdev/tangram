@@ -16,23 +16,22 @@ let runner = server spawn --config {
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
-def --wrapped checkpoint [...args] { tg --url $remote.url --token $root checkpoint ...$args }
 
 # Hold the process's started and finished writes, and its sandbox's destroyed write so that no other write is in flight.
-let started = checkpoint watch index.batch --params '{"started_process":true}' | from json | get watch
-let finished = checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
-let destroyed = checkpoint watch index.batch --params '{"destroyed_sandbox":true}' | from json | get watch
+let started = checkpoint watch index.batch --params { started_process: true } --url $remote.url --token $root
+let finished = checkpoint watch index.batch --params { finished_process: true } --url $remote.url --token $root
+let destroyed = checkpoint watch index.batch --params { destroyed_sandbox: true } --url $remote.url --token $root
 let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
 tg --url $remote.url --token $alice.token build --detach $path | ignore
-for watch in [$started $finished $destroyed] { checkpoint wait index.batch $watch 0 | ignore }
+for checkpoint in [$started $finished $destroyed] { checkpoint wait $checkpoint | ignore }
 
 # Index the finished write, then the started write.
-let committed = checkpoint watch index.batch.finished --params '{"finished_process":true}' | from json | get watch
-checkpoint unwatch index.batch $finished
-checkpoint wait index.batch.finished $committed 0 | ignore
-checkpoint unwatch index.batch.finished $committed
-checkpoint unwatch index.batch $started
-checkpoint unwatch index.batch $destroyed
+let committed = checkpoint watch index.batch.finished --params { finished_process: true } --url $remote.url --token $root
+checkpoint unwatch $finished
+checkpoint wait $committed | ignore
+checkpoint unwatch $committed
+checkpoint unwatch $started
+checkpoint unwatch $destroyed
 tg --url $remote.url --token $root index
 
 # The process must be charged to alice.
