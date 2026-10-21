@@ -117,7 +117,7 @@ impl Session {
 					{
 						let mut graph = state.graph.lock().unwrap();
 						graph.update_object_local(arg);
-						graph.update_checkout_object(&message.id, &data);
+						graph.update_checkout_object(&message.id, &data)?;
 					}
 
 					// Close the queue if necessary.

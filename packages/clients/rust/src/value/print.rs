@@ -504,19 +504,41 @@ where
 	fn graph_object(&mut self, object: &tg::graph::Object) -> Result {
 		self.call_start("graph")?;
 		self.start_map()?;
-		if !object.nodes.is_empty() {
-			self.map_entry("nodes", |s| {
-				s.start_array()?;
-				for node in &object.nodes {
-					s.array_value(|s| match node {
-						tg::graph::Node::Directory(directory) => s.directory_node(directory, true),
-						tg::graph::Node::File(file) => s.file_node(file, true),
-						tg::graph::Node::Symlink(symlink) => s.symlink_node(symlink, true),
+		match object {
+			tg::graph::Object::Leaf(leaf) => {
+				if !leaf.nodes.is_empty() {
+					self.map_entry("nodes", |s| {
+						s.start_array()?;
+						for node in &leaf.nodes {
+							s.array_value(|s| match node {
+								tg::graph::Node::Directory(directory) => {
+									s.directory_node(directory, true)
+								},
+								tg::graph::Node::File(file) => s.file_node(file, true),
+								tg::graph::Node::Symlink(symlink) => s.symlink_node(symlink, true),
+							})?;
+						}
+						s.finish_array()?;
+						Ok(())
 					})?;
 				}
-				s.finish_array()?;
-				Ok(())
-			})?;
+			},
+			tg::graph::Object::Branch(branch) => {
+				self.map_entry("children", |s| {
+					s.start_array()?;
+					for child in &branch.children {
+						s.array_value(|s| {
+							s.start_map()?;
+							s.map_entry("count", |s| s.number(child.count.to_f64().unwrap()))?;
+							s.map_entry("graph", |s| s.graph(&child.graph))?;
+							s.finish_map()?;
+							Ok(())
+						})?;
+					}
+					s.finish_array()?;
+					Ok(())
+				})?;
+			},
 		}
 		self.finish_map()?;
 		self.call_finish()?;

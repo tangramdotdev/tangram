@@ -57,7 +57,7 @@ type IndexCheckoutArgs = Vec<tangram_index::checkout::put::Arg>;
 
 type CacheArgs = IndexMap<tg::object::Id, crate::cache::object::put::Arg, tg::id::BuildHasher>;
 
-type GraphData = IndexMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>;
+type GraphData = IndexMap<tg::graph::Id, tg::graph::data::Leaf, tg::id::BuildHasher>;
 
 #[derive(Clone, Copy)]
 enum WatchObservation {

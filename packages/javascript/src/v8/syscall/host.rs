@@ -159,6 +159,16 @@ pub async fn mkdtemp(state: Rc<State>, _args: (Option<String>,)) -> tg::Result<S
 	state.host.mkdtemp().await
 }
 
+pub fn graph_leaf_counts(
+	_state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	args: (Serde<tg::graph::data::Leaf>,),
+) -> tg::Result<Serde<Vec<usize>>> {
+	let (Serde(leaf),) = args;
+	let counts = tg::graph::data::Leaf::counts(&leaf.nodes);
+	Ok(Serde(counts))
+}
+
 pub fn object_id(
 	_state: Rc<State>,
 	_scope: &mut v8::PinScope<'_, '_>,

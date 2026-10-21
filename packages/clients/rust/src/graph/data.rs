@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	bytes::Bytes,
+	num::ToPrimitive as _,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -9,6 +10,53 @@ use {
 	tangram_uri::Uri,
 	tangram_util::serde::is_false,
 };
+
+#[cfg(test)]
+mod tests;
+
+/// The maximum total serialized size of the nodes in a graph leaf, which leaves room for the leaf's framing within the object size limit.
+const MAX_LEAF_NODES_SIZE: usize = tg::object::MAX_SIZE - 1_024;
+
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(untagged)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Graph {
+	#[tangram_serialize(id = 0)]
+	Leaf(Leaf),
+
+	#[tangram_serialize(id = 1)]
+	Branch(Branch),
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Leaf {
+	#[tangram_serialize(id = 0)]
+	pub nodes: Vec<tg::graph::data::Node>,
+}
 
 #[derive(
 	Clone,
@@ -20,9 +68,29 @@ use {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Graph {
+#[serde(deny_unknown_fields)]
+pub struct Branch {
 	#[tangram_serialize(id = 0)]
-	pub nodes: Vec<tg::graph::data::Node>,
+	pub children: Vec<Child>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Child {
+	#[tangram_serialize(id = 0)]
+	pub count: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub graph: tg::graph::Id,
 }
 
 #[derive(
@@ -400,6 +468,16 @@ impl Dependency {
 
 impl Graph {
 	#[must_use]
+	pub fn without_location_and_tokens(self) -> Self {
+		match self {
+			Self::Leaf(leaf) => Self::Leaf(leaf.without_location_and_tokens()),
+			Self::Branch(branch) => Self::Branch(branch),
+		}
+	}
+}
+
+impl Leaf {
+	#[must_use]
 	pub fn without_location_and_tokens(mut self) -> Self {
 		self.nodes = self
 			.nodes
@@ -501,17 +579,117 @@ impl Graph {
 	}
 
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
-		for node in &self.nodes {
-			match node {
-				tg::graph::data::Node::Directory(directory) => directory.children(children),
-				tg::graph::data::Node::File(file) => file.children(children),
-				tg::graph::data::Node::Symlink(symlink) => symlink.children(children),
-			}
+		match self {
+			Self::Leaf(leaf) => leaf.children(children),
+			Self::Branch(branch) => branch.children(children),
+		}
+	}
+
+	/// Get the number of nodes in the graph.
+	#[must_use]
+	pub fn count(&self) -> u64 {
+		match self {
+			Self::Leaf(leaf) => leaf.nodes.len().to_u64().unwrap(),
+			Self::Branch(branch) => branch.children.iter().map(|child| child.count).sum(),
+		}
+	}
+
+	/// Get whether any of the graph's own file nodes have solvable dependencies, which is false for a branch, whose nodes are in its leaves.
+	#[must_use]
+	pub fn solvable(&self) -> bool {
+		match self {
+			Self::Leaf(leaf) => leaf
+				.nodes
+				.iter()
+				.any(|node| node.try_unwrap_file_ref().is_ok_and(File::solvable)),
+			Self::Branch(_) => false,
+		}
+	}
+
+	/// Get whether all of the graph's own file nodes have solved dependencies, which is true for a branch, whose nodes are in its leaves.
+	#[must_use]
+	pub fn solved(&self) -> bool {
+		match self {
+			Self::Leaf(leaf) => leaf
+				.nodes
+				.iter()
+				.all(|node| node.try_unwrap_file_ref().map_or(true, File::solved)),
+			Self::Branch(_) => true,
 		}
 	}
 }
 
+impl Leaf {
+	/// Split nodes into consecutive leaves that are each within the object limits.
+	#[must_use]
+	pub fn split(nodes: Vec<Node>) -> Vec<Self> {
+		let counts = Self::counts(&nodes);
+		let mut nodes = nodes.into_iter();
+		counts
+			.into_iter()
+			.map(|count| Self {
+				nodes: nodes.by_ref().take(count).collect(),
+			})
+			.collect()
+	}
+
+	/// Get the number of nodes in each of the consecutive leaves that nodes are split into, so that each leaf is within the object limits.
+	#[must_use]
+	pub fn counts(nodes: &[Node]) -> Vec<usize> {
+		let mut counts = Vec::new();
+		let mut count = 0;
+		let mut size = 0;
+		let mut children = BTreeSet::new();
+		for node in nodes {
+			// Get the node's size and children.
+			let node_size = tangram_serialize::to_vec(node).unwrap().len();
+			let mut node_children = BTreeSet::new();
+			node.children(&mut node_children);
+
+			// Start a new leaf if the node does not fit in the current one.
+			let union = children.union(&node_children).count();
+			if count > 0
+				&& (size + node_size > MAX_LEAF_NODES_SIZE || union > tg::object::MAX_CHILDREN)
+			{
+				counts.push(count);
+				count = 0;
+				size = 0;
+				children.clear();
+			}
+
+			// Add the node to the current leaf.
+			count += 1;
+			size += node_size;
+			children.extend(node_children);
+		}
+		if count > 0 || counts.is_empty() {
+			counts.push(count);
+		}
+		counts
+	}
+
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		for node in &self.nodes {
+			node.children(children);
+		}
+	}
+}
+
+impl Branch {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		children.extend(self.children.iter().map(|child| child.graph.clone().into()));
+	}
+}
+
 impl Node {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		match self {
+			Self::Directory(directory) => directory.children(children),
+			Self::File(file) => file.children(children),
+			Self::Symlink(symlink) => symlink.children(children),
+		}
+	}
+
 	#[must_use]
 	pub fn kind(&self) -> tg::artifact::Kind {
 		match self {
@@ -582,7 +760,7 @@ impl Symlink {
 }
 
 impl Edge<tg::object::Id> {
-	pub fn kind(&self, graph: Option<&Graph>) -> tg::Result<tg::object::Kind> {
+	pub fn kind(&self, graph: Option<&Leaf>) -> tg::Result<tg::object::Kind> {
 		let kind = match self {
 			Edge::Index(index) => graph
 				.ok_or_else(|| tg::error!("missing graph"))?
@@ -599,7 +777,7 @@ impl Edge<tg::object::Id> {
 }
 
 impl Edge<tg::artifact::Id> {
-	pub fn artifact_kind(&self, graph: Option<&Graph>) -> tg::Result<tg::artifact::Kind> {
+	pub fn artifact_kind(&self, graph: Option<&Leaf>) -> tg::Result<tg::artifact::Kind> {
 		let kind = match self {
 			Edge::Index(index) => graph
 				.ok_or_else(|| tg::error!("missing graph"))?
@@ -615,7 +793,7 @@ impl Edge<tg::artifact::Id> {
 }
 
 impl<T> Edge<T> {
-	pub fn resolve(self, graph_id: &tg::graph::Id, graph: &Graph) -> tg::Result<Self> {
+	pub fn resolve(self, graph_id: &tg::graph::Id, graph: &Leaf) -> tg::Result<Self> {
 		let Self::Index(index) = self else {
 			return Ok(self);
 		};

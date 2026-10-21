@@ -296,7 +296,7 @@ impl Session {
 						{
 							let mut graph = state.graph.lock().unwrap();
 							graph.update_object_local(arg);
-							graph.update_checkout_object(&node.id, &data);
+							graph.update_checkout_object(&node.id, &data)?;
 						}
 						if self.sync_get_checkout_pointers_enabled()
 							&& matches!(data, tg::object::Data::Blob(_))
@@ -400,7 +400,7 @@ impl Session {
 				{
 					let mut graph = state.graph.lock().unwrap();
 					graph.update_object_local(arg);
-					graph.update_checkout_object(&id, &data);
+					graph.update_checkout_object(&id, &data)?;
 				}
 				let mut children = BTreeSet::new();
 				data.children(&mut children);

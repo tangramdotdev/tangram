@@ -40,6 +40,7 @@ type StopperState = {
 
 type Native = {
 	blobChunkLengths(bytes: Uint8Array): Array<number>;
+	graphLeafCounts(input: string): Array<number>;
 	objectId(input: string): string;
 	parseValue(input: string): string;
 	stringifyValue(input: string): string;
@@ -223,6 +224,10 @@ export let host: Host = {
 
 	async getxattr(path: string, name: string): Promise<Uint8Array | null> {
 		return await readXattr(path, name);
+	},
+
+	graphLeafCounts(data: tg.Graph.Data.Leaf): Array<number> {
+		return getNative().graphLeafCounts(JSON.stringify(data));
 	},
 
 	async listxattr(path: string): Promise<Array<string>> {

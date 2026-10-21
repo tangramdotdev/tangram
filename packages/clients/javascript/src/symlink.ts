@@ -203,7 +203,7 @@ export class Symlink {
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined && graph !== null);
-				let node = (await graph.nodes(client))[object.index];
+				let node = await graph.node(object.index, client);
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "symlink");
 				if (node.artifact === null) {
@@ -249,8 +249,7 @@ export class Symlink {
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined && graph !== null);
-				let nodes = await graph.nodes(client);
-				let node = nodes[object.index];
+				let node = await graph.node(object.index, client);
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "symlink");
 				return node.path ?? null;

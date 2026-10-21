@@ -538,24 +538,25 @@ impl Session {
 			Self::checkin_create_graph_node(graph, paths, &scc_positions, &mut nodes, *index)?;
 		}
 
-		// Create the graph object.
-		let data = tg::graph::Data { nodes }.into();
-		let (id, _, _) = Self::checkin_create_artifact(
+		// Split the directory nodes with more entries than fit in a leaf into nodes appended after the unique representatives.
+		Self::checkin_split_graph_directories(&mut nodes);
+
+		// Create the graph objects.
+		let leaf = tg::graph::data::Leaf { nodes };
+		let id = Self::checkin_create_graph_objects(
 			graph,
-			&data,
+			leaf.clone(),
 			&unique_indices,
+			next,
 			cache_args,
 			index_object_args,
 			time_to_touch,
 			touched_at,
 		)?;
-		graph_data.insert(
-			id.unwrap_graph_ref().clone(),
-			data.try_unwrap_graph().unwrap(),
-		);
+		graph_data.insert(id.clone(), leaf);
 
 		// Set edges and ids for all original nodes in the graph.
-		let graph_id = tg::graph::Id::try_from(id).unwrap();
+		let graph_id = id;
 		let graph_object_id = tg::object::Id::from(graph_id.clone());
 		let graph_index = graph.get_or_create_object_node(&graph_object_id, next);
 		for (local, global_indices) in all_indices_by_position.iter().enumerate() {
@@ -611,6 +612,204 @@ impl Session {
 		}
 
 		Ok(())
+	}
+
+	/// Create the objects for a graph's nodes, splitting the nodes into leaves and nesting the leaves in branches when they do not fit in one object, and return the root graph's ID.
+	#[expect(clippy::too_many_arguments)]
+	fn checkin_create_graph_objects(
+		graph: &mut Graph,
+		leaf: tg::graph::data::Leaf,
+		unique_indices: &[usize],
+		next: usize,
+		cache_args: &mut CacheArgs,
+		index_object_args: &mut IndexObjectArgs,
+		time_to_touch: std::time::Duration,
+		touched_at: i64,
+	) -> tg::Result<tg::graph::Id> {
+		// Split the nodes into leaves.
+		let leaves = tg::graph::data::Leaf::split(leaf.nodes);
+
+		// Create a single leaf if the nodes fit in one.
+		if leaves.len() == 1 {
+			let leaf = leaves.into_iter().next().unwrap();
+			let data = tg::graph::Data::Leaf(leaf).into();
+			let (id, _, _) = Self::checkin_create_artifact(
+				graph,
+				&data,
+				unique_indices,
+				cache_args,
+				index_object_args,
+				time_to_touch,
+				touched_at,
+			)?;
+			let id = tg::graph::Id::try_from(id).unwrap();
+			return Ok(id);
+		}
+
+		// Create the leaves, passing each leaf the unique representatives among its nodes.
+		let mut children = Vec::with_capacity(leaves.len());
+		let mut start = 0;
+		for leaf in leaves {
+			let count = leaf.nodes.len();
+			let end = start + count;
+			let scc =
+				&unique_indices[start.min(unique_indices.len())..end.min(unique_indices.len())];
+			let data = tg::graph::Data::Leaf(leaf).into();
+			let child = Self::checkin_create_graph_object(
+				graph,
+				&data,
+				scc,
+				next,
+				cache_args,
+				index_object_args,
+				time_to_touch,
+				touched_at,
+			)?;
+			children.push(tg::graph::data::Child {
+				count: count.to_u64().unwrap(),
+				graph: child,
+			});
+			start = end;
+		}
+
+		// Nest the children in branches until they fit in one branch.
+		while children.len() > tg::graph::MAX_BRANCH_CHILDREN {
+			let mut branches = Vec::new();
+			for chunk in children.chunks(tg::graph::MAX_BRANCH_CHILDREN) {
+				let count = chunk.iter().map(|child| child.count).sum();
+				let branch = tg::graph::data::Branch {
+					children: chunk.to_vec(),
+				};
+				let data = tg::graph::Data::Branch(branch).into();
+				let child = Self::checkin_create_graph_object(
+					graph,
+					&data,
+					&[],
+					next,
+					cache_args,
+					index_object_args,
+					time_to_touch,
+					touched_at,
+				)?;
+				branches.push(tg::graph::data::Child {
+					count,
+					graph: child,
+				});
+			}
+			children = branches;
+		}
+
+		// Create the root branch.
+		let branch = tg::graph::data::Branch { children };
+		let data = tg::graph::Data::Branch(branch).into();
+		let (id, _, _) = Self::checkin_create_artifact(
+			graph,
+			&data,
+			&[],
+			cache_args,
+			index_object_args,
+			time_to_touch,
+			touched_at,
+		)?;
+		let id = tg::graph::Id::try_from(id).unwrap();
+
+		Ok(id)
+	}
+
+	/// Create a leaf or inner branch of a graph and record its metadata and storage, so that its parent branch can compute its own.
+	#[expect(clippy::too_many_arguments)]
+	fn checkin_create_graph_object(
+		graph: &mut Graph,
+		data: &tg::object::Data,
+		scc: &[usize],
+		next: usize,
+		cache_args: &mut CacheArgs,
+		index_object_args: &mut IndexObjectArgs,
+		time_to_touch: std::time::Duration,
+		touched_at: i64,
+	) -> tg::Result<tg::graph::Id> {
+		let (id, stored, metadata) = Self::checkin_create_artifact(
+			graph,
+			data,
+			scc,
+			cache_args,
+			index_object_args,
+			time_to_touch,
+			touched_at,
+		)?;
+		let index = graph.get_or_create_object_node(&id, next);
+		let node = graph.nodes.get_mut(&index).unwrap();
+		node.metadata = Some(metadata);
+		node.storage = if stored {
+			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE
+		} else {
+			tg::object::storage::Set::NODE
+		};
+		let id = tg::graph::Id::try_from(id).unwrap();
+		Ok(id)
+	}
+
+	/// Split each directory node with more entries than fit in a leaf into a branch node whose leaf and branch nodes are appended to the nodes, so that the appended nodes' indices are determined by the order of the nodes.
+	fn checkin_split_graph_directories(nodes: &mut Vec<tg::graph::data::Node>) {
+		for index in 0..nodes.len() {
+			// Take the entries of a directory leaf that does not fit in one leaf.
+			let tg::graph::data::Node::Directory(tg::graph::data::Directory::Leaf(leaf)) =
+				&mut nodes[index]
+			else {
+				continue;
+			};
+			if leaf.entries.len() <= tg::directory::MAX_LEAF_ENTRIES {
+				continue;
+			}
+			let entries = std::mem::take(&mut leaf.entries)
+				.into_iter()
+				.collect::<Vec<_>>();
+
+			// Append a leaf node for each chunk of the entries.
+			let mut children = Vec::new();
+			for chunk in entries.chunks(tg::directory::MAX_LEAF_ENTRIES) {
+				let count = chunk.len().to_u64().unwrap();
+				let last = chunk.last().unwrap().0.clone();
+				let entries = chunk.iter().cloned().collect();
+				let leaf = tg::graph::data::DirectoryLeaf { entries };
+				let directory = tg::graph::data::Edge::Index(nodes.len());
+				nodes.push(tg::graph::data::Node::Directory(
+					tg::graph::data::Directory::Leaf(leaf),
+				));
+				children.push(tg::graph::data::DirectoryChild {
+					count,
+					directory,
+					last,
+				});
+			}
+
+			// Append branch nodes for each chunk of the children until the children fit in one branch.
+			while children.len() > tg::directory::MAX_BRANCH_CHILDREN {
+				let mut branches = Vec::new();
+				for chunk in children.chunks(tg::directory::MAX_BRANCH_CHILDREN) {
+					let count = chunk.iter().map(|child| child.count).sum();
+					let last = chunk.last().unwrap().last.clone();
+					let branch = tg::graph::data::DirectoryBranch {
+						children: chunk.to_vec(),
+					};
+					let directory = tg::graph::data::Edge::Index(nodes.len());
+					nodes.push(tg::graph::data::Node::Directory(
+						tg::graph::data::Directory::Branch(branch),
+					));
+					branches.push(tg::graph::data::DirectoryChild {
+						count,
+						directory,
+						last,
+					});
+				}
+				children = branches;
+			}
+
+			// Replace the directory with a branch.
+			let branch = tg::graph::data::DirectoryBranch { children };
+			nodes[index] =
+				tg::graph::data::Node::Directory(tg::graph::data::Directory::Branch(branch));
+		}
 	}
 
 	fn checkin_create_graph_node(

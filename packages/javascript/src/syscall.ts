@@ -74,6 +74,11 @@ declare global {
 	function syscall(syscall: "host_is_tty", fd: number): boolean;
 
 	function syscall(
+		syscall: "host_graph_leaf_counts",
+		data: tg.Graph.Data.Leaf,
+	): Array<number>;
+
+	function syscall(
 		syscall: "host_magic",
 		value: Function,
 	): tg.Host.MagicOutput;

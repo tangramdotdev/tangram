@@ -11,7 +11,7 @@ use {
 };
 
 impl Session {
-	pub(crate) fn checkin_try_read_lock(path: &Path) -> tg::Result<Option<tg::graph::Data>> {
+	pub(crate) fn checkin_try_read_lock(path: &Path) -> tg::Result<Option<tg::graph::data::Leaf>> {
 		// Try to read the lock contents.
 		let contents = if path.is_dir() {
 			let lockfile_path = path.join(tg::module::LOCKFILE_FILE_NAME);
@@ -35,7 +35,7 @@ impl Session {
 		};
 
 		// Deserialize the lock.
-		let lock = serde_json::from_slice::<tg::graph::Data>(&contents).map_err(
+		let lock = serde_json::from_slice::<tg::graph::data::Leaf>(&contents).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to deserialize the lock"),
 		)?;
 
@@ -65,11 +65,11 @@ impl Session {
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
 		next: usize,
-		lock: Option<Arc<tg::graph::Data>>,
+		lock: Option<Arc<tg::graph::data::Leaf>>,
 		root: &Path,
 		reserve_lock_write: impl FnOnce() -> tg::Result<Option<crate::watch::LockWriteGuard>>,
 	) -> tg::Result<(
-		Option<Arc<tg::graph::Data>>,
+		Option<Arc<tg::graph::data::Leaf>>,
 		Option<crate::watch::LockWriteGuard>,
 	)> {
 		// Get the root node.
@@ -232,7 +232,7 @@ impl Session {
 		Ok((expected, lock_write_guard))
 	}
 
-	fn checkin_lock_changed(graph: &Graph, next: usize, lock: &tg::graph::Data) -> bool {
+	fn checkin_lock_changed(graph: &Graph, next: usize, lock: &tg::graph::data::Leaf) -> bool {
 		graph.nodes.range(next..).any(|(_, node)| {
 			if let Some(lock_index) = node.lock_index {
 				let lock_node = lock.nodes.get(lock_index).unwrap();
@@ -311,7 +311,7 @@ impl Session {
 		graph: &Graph,
 		root: &Path,
 		source_dependencies: bool,
-	) -> tg::graph::Data {
+	) -> tg::graph::data::Leaf {
 		// Get the root node index.
 		let root_index = *graph.paths.get(root).unwrap();
 
@@ -440,13 +440,16 @@ impl Session {
 		}
 
 		// Create the lock.
-		let lock = tg::graph::Data { nodes };
+		let lock = tg::graph::data::Leaf { nodes };
 
 		// Strip the lock.
 		Self::strip_lock(lock, source_dependencies)
 	}
 
-	pub(crate) fn strip_lock(lock: tg::graph::Data, source_dependencies: bool) -> tg::graph::Data {
+	pub(crate) fn strip_lock(
+		lock: tg::graph::data::Leaf,
+		source_dependencies: bool,
+	) -> tg::graph::data::Leaf {
 		// Run Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&Petgraph(&lock));
 
@@ -580,11 +583,11 @@ impl Session {
 			}
 		}
 
-		tg::graph::Data { nodes }
+		tg::graph::data::Leaf { nodes }
 	}
 }
 
-struct Petgraph<'a>(&'a tg::graph::Data);
+struct Petgraph<'a>(&'a tg::graph::data::Leaf);
 
 impl petgraph::visit::GraphBase for Petgraph<'_> {
 	type EdgeId = (usize, usize);

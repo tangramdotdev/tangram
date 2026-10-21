@@ -649,9 +649,38 @@ fn graph_inner(input: &mut Input) -> ModalResult<tg::Object> {
 		(whitespace, opt(","), whitespace, "}"),
 	)
 	.try_map(|entries: Vec<(String, tg::Value)>| {
+		let mut children = None;
 		let mut nodes = Vec::new();
 		for (key, value) in entries {
 			match key.as_str() {
+				"children" => {
+					let value = value
+						.try_unwrap_array_ref()
+						.map_err(|_| tg::error!("expected array for children"))?;
+					let mut children_ = Vec::new();
+					for child in value {
+						let child = child
+							.try_unwrap_map_ref()
+							.map_err(|_| tg::error!("expected object for graph child"))?;
+						let count = child
+							.get("count")
+							.ok_or_else(|| tg::error!("missing count in graph child"))?
+							.try_unwrap_number_ref()
+							.map_err(|_| tg::error!("expected number for count"))?
+							.to_u64()
+							.ok_or_else(|| tg::error!("count must be a positive integer"))?;
+						let graph = child
+							.get("graph")
+							.ok_or_else(|| tg::error!("missing graph in graph child"))?
+							.try_unwrap_object_ref()
+							.map_err(|_| tg::error!("expected graph object for graph"))?
+							.try_unwrap_graph_ref()
+							.map_err(|_| tg::error!("expected graph object for graph"))?
+							.clone();
+						children_.push(tg::graph::Child { count, graph });
+					}
+					children = Some(children_);
+				},
 				"nodes" => {
 					let value = value
 						.try_unwrap_array_ref()
@@ -669,7 +698,14 @@ fn graph_inner(input: &mut Input) -> ModalResult<tg::Object> {
 				},
 			}
 		}
-		let object = tg::graph::Object { nodes };
+		let object = if let Some(children) = children {
+			if !nodes.is_empty() {
+				return Err(tg::error!("expected either nodes or children in graph"));
+			}
+			tg::graph::Object::Branch(tg::graph::Branch { children })
+		} else {
+			tg::graph::Object::Leaf(tg::graph::Leaf { nodes })
+		};
 		Ok(tg::Graph::with_object(object).into())
 	})
 	.parse_next(input)

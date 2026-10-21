@@ -641,23 +641,29 @@ impl Session {
 	pub(crate) async fn graph_ids(
 		&self,
 		graph: &tg::graph::Id,
-		data: Option<&tg::graph::Data>,
+		data: Option<&tg::graph::data::Leaf>,
 	) -> tg::Result<Vec<tg::artifact::Id>> {
-		let data = if let Some(data) = data {
-			data.clone()
-		} else {
-			tg::Graph::with_id(graph.clone())
-				.data_with_instance(self)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
-		};
 		let graph = tg::Graph::with_id(graph.clone());
-		let mut nodes = Vec::with_capacity(data.nodes.len());
-		for (index, node) in data.nodes.into_iter().enumerate() {
+		let kinds = if let Some(data) = data {
+			data.nodes
+				.iter()
+				.map(tg::graph::data::Node::kind)
+				.collect::<Vec<_>>()
+		} else {
+			graph
+				.nodes_with_instance(self)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the graph nodes"))?
+				.iter()
+				.map(tg::graph::Node::kind)
+				.collect()
+		};
+		let mut nodes = Vec::with_capacity(kinds.len());
+		for (index, kind) in kinds.into_iter().enumerate() {
 			let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
 				graph: graph.clone(),
 				index,
-				kind: node.kind(),
+				kind,
 			});
 			nodes.push(artifact.id());
 		}

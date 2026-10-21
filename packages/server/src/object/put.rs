@@ -98,18 +98,7 @@ impl Session {
 				tg::file::Data::Pointer(_) => (false, true),
 				tg::file::Data::Node(node) => (node.solvable(), node.solved()),
 			},
-			tg::object::Data::Graph(graph) => {
-				graph
-					.nodes
-					.iter()
-					.fold((false, true), |(solvable, solved), node| {
-						if let tg::graph::data::Node::File(file) = node {
-							(solvable || file.solvable(), solved && file.solved())
-						} else {
-							(solvable, solved)
-						}
-					})
-			},
+			tg::object::Data::Graph(graph) => (graph.solvable(), graph.solved()),
 			_ => (false, true),
 		};
 

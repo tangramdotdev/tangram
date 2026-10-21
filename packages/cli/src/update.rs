@@ -162,7 +162,7 @@ pub(crate) fn normalize_root(path: PathBuf) -> PathBuf {
 	}
 }
 
-pub(crate) async fn try_read_lock(path: PathBuf) -> tg::Result<Option<tg::graph::Data>> {
+pub(crate) async fn try_read_lock(path: PathBuf) -> tg::Result<Option<tg::graph::data::Leaf>> {
 	tokio::task::spawn_blocking(move || {
 		let contents = if path.is_dir() {
 			let lockfile_path = path.join(tg::module::LOCKFILE_FILE_NAME);
@@ -186,7 +186,7 @@ pub(crate) async fn try_read_lock(path: PathBuf) -> tg::Result<Option<tg::graph:
 		};
 
 		// Deserialize the lock.
-		let lock = serde_json::from_slice::<tg::graph::Data>(&contents).map_err(
+		let lock = serde_json::from_slice::<tg::graph::data::Leaf>(&contents).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to deserialize the lock"),
 		)?;
 
@@ -214,8 +214,8 @@ fn try_read_lockfile(path: &Path) -> tg::Result<Option<Vec<u8>>> {
 }
 
 fn create_updates(
-	old: Option<&tg::graph::Data>,
-	new: Option<&tg::graph::Data>,
+	old: Option<&tg::graph::data::Leaf>,
+	new: Option<&tg::graph::data::Leaf>,
 	root: &Path,
 ) -> Vec<Update> {
 	let old_deps = old
@@ -240,7 +240,7 @@ fn create_updates(
 	updates
 }
 
-fn create_graph(lock: &tg::graph::Data, path: PathBuf) -> Graph {
+fn create_graph(lock: &tg::graph::data::Leaf, path: PathBuf) -> Graph {
 	let mut nodes = vec![None; lock.nodes.len()];
 	let mut stack = vec![(0, tg::referent::Options::with_path(path), Vec::new())];
 	while let Some((index, options, path)) = stack.pop() {

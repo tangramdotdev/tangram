@@ -370,8 +370,7 @@ export class Directory {
 		if (tg.Graph.Pointer.is(object)) {
 			let graph = object.graph;
 			tg.assert(graph !== undefined && graph !== null);
-			let nodes = await graph.nodes(client);
-			let node = nodes[object.index];
+			let node = await graph.node(object.index, client);
 			tg.assert(
 				node !== undefined && node.kind === "directory",
 				"expected a directory",

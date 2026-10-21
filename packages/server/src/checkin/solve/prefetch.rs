@@ -170,7 +170,7 @@ impl Session {
 		&self,
 		prefetch: &Prefetch,
 		graph: &Graph,
-		lock: &tg::graph::Data,
+		lock: &tg::graph::data::Leaf,
 		next: usize,
 	) {
 		let options = ObjectOptions::default();

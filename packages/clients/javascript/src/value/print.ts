@@ -347,9 +347,24 @@ export class Printer {
 
 	private graphObject(object: tg.Graph.Object): string {
 		let entries: { [key: string]: Print } = {};
-		if (object.nodes.length > 0) {
-			entries.nodes = () =>
-				this.array(object.nodes.map((node) => () => this.graphNode(node)));
+		if ("nodes" in object) {
+			let nodes = object.nodes;
+			if (nodes.length > 0) {
+				entries.nodes = () =>
+					this.array(nodes.map((node) => () => this.graphNode(node)));
+			}
+		} else {
+			let children = object.children;
+			entries.children = () =>
+				this.array(
+					children.map(
+						(child) => () =>
+							this.map({
+								count: () => this.value(child.count),
+								graph: () => this.value(child.graph),
+							}),
+					),
+				);
 		}
 		return this.call("graph", this.map(entries));
 	}

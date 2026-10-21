@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         DirectoryNode,
         FileNode,
         Graph,
+        GraphLeafValue,
         GraphNode,
         GraphValue,
         SymlinkNode,
@@ -362,10 +363,23 @@ class Printer:
 
     def graph_object(self, object_: GraphValue) -> str:
         entries = {}
-        nodes = object_["nodes"]
-        if nodes:
-            entries["nodes"] = lambda: self.array(
-                [lambda node=node: self.graph_node(node) for node in nodes]
+        if "nodes" in object_:
+            leaf = cast("GraphLeafValue", object_)
+            nodes = [lambda node=node: self.graph_node(node) for node in leaf["nodes"]]
+            if nodes:
+                entries["nodes"] = lambda: self.array(nodes)
+        else:
+            children = object_["children"]
+            entries["children"] = lambda: self.array(
+                [
+                    lambda child=child: self.map(
+                        {
+                            "count": lambda: self.value(child["count"]),
+                            "graph": lambda: self.value(child["graph"]),
+                        }
+                    )
+                    for child in children
+                ]
             )
         return self.call("graph", self.map(entries))
 

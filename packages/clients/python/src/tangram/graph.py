@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ from typing import (
 
 import tangram as tg
 
+from . import _native
 from .builder import Builder
 from .mutation import UNSET
 from .object import Object
@@ -33,6 +35,8 @@ if TYPE_CHECKING:
     from .file import File
     from .symlink import Symlink
 
+# The maximum number of children of a graph branch.
+MAX_BRANCH_CHILDREN = 1024
 
 type ArtifactValue = Directory | File | Symlink
 
@@ -112,8 +116,20 @@ class GraphArgObject(TypedDict, total=False):
     nodes: Unresolved[list[GraphNodeInput] | None]
 
 
-class GraphValue(TypedDict):
+class GraphLeafValue(TypedDict):
     nodes: list[GraphNode]
+
+
+class GraphChild(TypedDict):
+    count: int
+    graph: Graph
+
+
+class GraphBranchValue(TypedDict):
+    children: list[GraphChild]
+
+
+type GraphValue = GraphLeafValue | GraphBranchValue
 
 
 class GraphConstructorArg(TypedDict, total=False):
@@ -196,8 +212,20 @@ type GraphDataNode = (
 )
 
 
-class GraphData(TypedDict):
+class GraphDataLeaf(TypedDict):
     nodes: list[GraphDataNode]
+
+
+class GraphDataChild(TypedDict):
+    count: int
+    graph: str
+
+
+class GraphDataBranch(TypedDict):
+    children: list[GraphDataChild]
+
+
+type GraphData = GraphDataLeaf | GraphDataBranch
 
 
 class Graph(Object):
@@ -318,7 +346,39 @@ class Graph(Object):
                 )
             else:
                 raise AssertionError("unreachable")
-        return cls.with_object({"nodes": nodes})
+        return cls.with_nodes(cast(list[GraphNode], nodes))
+
+    @classmethod
+    def with_nodes(cls, nodes: list[GraphNode]) -> Self:
+        """Create a graph with nodes, splitting them into leaves like checkin."""
+        # Get the number of nodes in each leaf.
+        data = {"nodes": [Node.to_data(node) for node in nodes]}
+        counts = _native.graph_leaf_counts(json.dumps(data, allow_nan=False))
+
+        # Create a single leaf if the nodes fit in one.
+        if len(counts) == 1:
+            return cls.with_object({"nodes": nodes})
+
+        # Create the leaves.
+        children: list[GraphChild] = []
+        offset = 0
+        for count in counts:
+            leaf = Graph.with_object({"nodes": nodes[offset : offset + count]})
+            children.append({"count": count, "graph": leaf})
+            offset += count
+
+        # Nest the children in branches until they fit in one branch.
+        while len(children) > MAX_BRANCH_CHILDREN:
+            branches: list[GraphChild] = []
+            for start in range(0, len(children), MAX_BRANCH_CHILDREN):
+                chunk = children[start : start + MAX_BRANCH_CHILDREN]
+                count = sum(child["count"] for child in chunk)
+                branch = Graph.with_object({"children": chunk})
+                branches.append({"count": count, "graph": branch})
+            children = branches
+
+        # Create the root branch.
+        return cls.with_object({"children": children})
 
     @classmethod
     async def arg(cls, *args, client: Client | None = None):
@@ -409,21 +469,48 @@ class Graph(Object):
 
     @tg.property
     async def nodes(self, client: Client | None = None) -> list[GraphNode]:
-        return (await self.load(client))["nodes"]
+        """Get the graph's nodes in order, loading every leaf of a branched graph."""
+        value = await self.load(client)
+        if "nodes" in value:
+            return cast(GraphLeafValue, value)["nodes"]
+        nodes: list[GraphNode] = []
+        for child in value["children"]:
+            nodes.extend(await self._child_graph(child["graph"]).nodes(client))
+        return nodes
+
+    async def node(self, index: int, client: Client | None = None) -> GraphNode | None:
+        """Get the node at an index, loading only the leaf that contains it."""
+        graph = self
+        offset = index
+        while True:
+            value = await graph.load(client)
+            if "nodes" in value:
+                nodes = cast(GraphLeafValue, value)["nodes"]
+                return nodes[offset] if 0 <= offset < len(nodes) else None
+            for child in value["children"]:
+                if offset < child["count"]:
+                    graph = graph._child_graph(child["graph"])
+                    break
+                offset -= child["count"]
+            else:
+                return None
+
+    def _child_graph(self, graph: Graph) -> Graph:
+        # Inherit this graph's location and tokens.
+        Object.inherit_location(graph, self.state.location)
+        Object.inherit_tokens(graph, self.state.tokens)
+        return graph
 
     async def get(
         self, index: int, client: Client | None = None
     ) -> Directory | File | Symlink:
-        nodes = await self.nodes(client)
-        if (
-            not is_number(index)
-            or int(index) != index
-            or index < 0
-            or index >= len(nodes)
-        ):
+        if not is_number(index) or int(index) != index or index < 0:
             raise AssertionError("invalid graph index")
         index = int(index)
-        artifact = self.pointer(index, nodes[index]["kind"]).artifact()
+        node = await self.node(index, client)
+        if node is None:
+            raise AssertionError("invalid graph index")
+        artifact = self.pointer(index, node["kind"]).artifact()
         Object.inherit_location(artifact, self.state.location)
         Object.inherit_tokens(artifact, self.state.tokens)
         return artifact
@@ -646,15 +733,37 @@ class Dependency:
 class GraphObject:
     @staticmethod
     def to_data(object_: GraphValue) -> GraphData:
-        return {"nodes": [Node.to_data(node) for node in object_["nodes"]]}
+        if "nodes" in object_:
+            nodes = cast(GraphLeafValue, object_)["nodes"]
+            return {"nodes": [Node.to_data(node) for node in nodes]}
+        children = object_["children"]
+        return {
+            "children": [
+                {"count": child["count"], "graph": child["graph"].id}
+                for child in children
+            ]
+        }
 
     @staticmethod
     def from_data(data: GraphData) -> GraphValue:
-        return {"nodes": [Node.from_data(node) for node in data["nodes"]]}
+        if "nodes" in data:
+            nodes = cast(GraphDataLeaf, data)["nodes"]
+            return {"nodes": [Node.from_data(node) for node in nodes]}
+        children = data["children"]
+        return {
+            "children": [
+                {"count": child["count"], "graph": Graph.with_id(child["graph"])}
+                for child in children
+            ]
+        }
 
     @staticmethod
     def children(object_: GraphValue) -> list[Object]:
-        return [child for node in object_["nodes"] for child in Node.children(node)]
+        if "nodes" in object_:
+            nodes = cast(GraphLeafValue, object_)["nodes"]
+            return [child for node in nodes for child in Node.children(node)]
+        children = object_["children"]
+        return [child["graph"] for child in children]
 
 
 class Node:
@@ -1004,17 +1113,22 @@ class GraphDataNamespace:
 
     @staticmethod
     def children(data: GraphData) -> list[str]:
-        return [
-            id for node in data["nodes"] for id in GraphDataNodeNamespace.children(node)
-        ]
+        if "nodes" in data:
+            nodes = cast(GraphDataLeaf, data)["nodes"]
+            return [
+                id for node in nodes for id in GraphDataNodeNamespace.children(node)
+            ]
+        return [child["graph"] for child in data["children"]]
 
     @staticmethod
     def without_location_and_tokens(data: GraphData) -> GraphData:
+        if "nodes" not in data:
+            return data
+        nodes = cast(GraphDataLeaf, data)["nodes"]
         return {
-            **data,
             "nodes": [
                 GraphDataNodeNamespace.without_location_and_tokens(node)
-                for node in data["nodes"]
+                for node in nodes
             ],
         }
 

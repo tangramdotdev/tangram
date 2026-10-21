@@ -101,7 +101,7 @@ impl Session {
 		&self,
 		artifact: &tg::artifact::Id,
 		dependencies: bool,
-	) -> tg::Result<tg::graph::Data> {
+	) -> tg::Result<tg::graph::data::Leaf> {
 		// Create the state.
 		let mut state = State {
 			dependencies,
@@ -127,7 +127,7 @@ impl Session {
 			.collect::<tg::Result<_>>()?;
 
 		// Create the lock.
-		let lock = tg::graph::Data { nodes };
+		let lock = tg::graph::data::Leaf { nodes };
 
 		// Strip the lock.
 		let lock = Self::strip_lock(lock, false);
@@ -149,17 +149,8 @@ impl Session {
 				// If this graph has not been visited, process ALL nodes in the graph.
 				if state.visited_graphs.insert(graph_id.clone()) {
 					// Load the graph data.
-					let (_size, data) = self
-						.server
-						.cache
-						.try_get_object_data_sync(&graph_id.clone().into())
-						.map_err(
-							|error| tg::error!(!error, %graph_id, "failed to get the graph object"),
-						)?
-						.ok_or_else(|| tg::error!(%graph_id, "failed to find the graph"))?;
-					let graph_data: tg::graph::Data = data
-						.try_into()
-						.map_err(|_| tg::error!(%graph_id, "expected graph data"))?;
+					let graph_data =
+						crate::graph::get_leaf(&self.server.cache, &state.graphs, graph_id)?;
 
 					// Process all nodes in the graph.
 					self.checkout_create_lock_graph(state, graph_id, &graph_data)?;
@@ -362,7 +353,7 @@ impl Session {
 		&self,
 		state: &mut State,
 		graph_id: &tg::graph::Id,
-		graph_data: &tg::graph::Data,
+		graph_data: &tg::graph::data::Leaf,
 	) -> tg::Result<HashMap<usize, usize, fnv::FnvBuildHasher>> {
 		// Maps graph_node_index -> lock_node_index.
 		let mut graph_to_lock: HashMap<usize, usize, fnv::FnvBuildHasher> = HashMap::default();
