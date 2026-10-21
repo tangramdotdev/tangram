@@ -3,6 +3,7 @@
 import _frozen_importlib as bootstrap
 import _frozen_importlib_external as external
 import _imp
+import marshal
 import sys
 
 PREFIX = "/tangram/python/"
@@ -149,6 +150,9 @@ class Loader(external.SourceLoader):
     def get_code(self, fullname):
         if self.frozen is not None:
             return bootstrap.FrozenImporter.get_code(self.frozen)
+        bytecode = self.assets.get(self.filename + "c")
+        if bytecode is not None:
+            return marshal.loads(bytecode)
         return compile(
             self.get_data(PREFIX + self.filename),
             self.get_filename(fullname),

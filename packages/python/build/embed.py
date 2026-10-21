@@ -3,6 +3,7 @@
 import csv
 import importlib.metadata
 import json
+import marshal
 import shutil
 import subprocess
 import sys
@@ -110,6 +111,20 @@ def main():
     frozen = json.loads((output / "frozen.json").read_text())
     for _, _, _, relative in frozen:
         (library / relative).unlink()
+
+    # Precompile the library, so that the runtime loads bytecode instead of compiling every imported module when it starts.
+    for path in sorted(library.rglob("*.py")):
+        relative = path.relative_to(library).as_posix()
+        try:
+            code = compile(
+                path.read_bytes(),
+                "/tangram/python/" + relative,
+                "exec",
+                dont_inherit=True,
+            )
+        except SyntaxError:
+            continue
+        path.with_suffix(".pyc").write_bytes(marshal.dumps(code))
 
     # Replace the built-in initialization table with the supported native modules.
     build = metadata["build_info"]
