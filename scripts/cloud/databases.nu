@@ -153,7 +153,9 @@ if [ "$platform" = linux ]; then
 	fdbcli=(fdbcli -C "$state/fdb.cluster")
 else
 	docker rm --force --volumes tangram_cloud_foundationdb tangram_cloud_scylla >/dev/null 2>&1
-	start foundationdb docker run --rm --name tangram_cloud_foundationdb --publish 127.0.0.1:4500:4500 --env FDB_NETWORKING_MODE=host --env FDB_PORT=4500 "$foundationdb_image"
+	# Store FoundationDB's data and logs in the host state directory, because ScyllaDB can saturate the virtual machine's disk for long enough that FoundationDB exits with a disk IO timeout.
+	mkdir -p "$state/fdb/data" "$state/fdb/logs"
+	start foundationdb docker run --rm --name tangram_cloud_foundationdb --publish 127.0.0.1:4500:4500 --env FDB_NETWORKING_MODE=host --env FDB_PORT=4500 --volume "$state/fdb/data:/var/fdb/data" --volume "$state/fdb/logs:/var/fdb/logs" "$foundationdb_image"
 	# Advertise the published address so that clients connect through it, because connections to the container address stall under sustained load on OrbStack and are not routed at all by Docker Desktop.
 	start scylla docker run --rm --name tangram_cloud_scylla --publish 127.0.0.1:9042:9042 "$scylla_image" "${scylla_args[@]}" --broadcast-rpc-address=127.0.0.1 --overprovisioned=1
 	fdbcli=(docker exec tangram_cloud_foundationdb fdbcli)
