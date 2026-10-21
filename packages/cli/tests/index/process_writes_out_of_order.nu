@@ -27,7 +27,7 @@ tg --url $remote.url --token $alice.token build --detach $path | ignore
 for watch in [$started $finished $destroyed] { checkpoint wait index.batch $watch 0 | ignore }
 
 # Index the finished write, then the started write.
-let committed = checkpoint watch index.batch.finished | from json | get watch
+let committed = checkpoint watch index.batch.finished --params '{"finished_process":true}' | from json | get watch
 checkpoint unwatch index.batch $finished
 checkpoint wait index.batch.finished $committed 0 | ignore
 checkpoint unwatch index.batch.finished $committed
