@@ -281,10 +281,17 @@ impl Session {
 					parent: start_parent,
 					sandbox,
 				};
-				// Enqueue initialization before acknowledging the start or accepting subsequent requests, continuing if the index cannot accept it, so that the client retries the start.
+				// Enqueue initialization before acknowledging the start or accepting subsequent requests. Continue if the index cannot accept the batch, so that the client retries the start, and reject the start for any other error.
 				let result = session.index_process_control(index_arg).boxed().await;
-				if let Err(error) = result {
-					return Ok(ControlFlow::Continue(error));
+				match result {
+					Ok(ControlFlow::Break(())) => (),
+					Ok(ControlFlow::Continue(error)) => return Ok(ControlFlow::Continue(error)),
+					Err(error) => {
+						if shortcut {
+							self.spawn_process_control_rejection_task(&id, &error);
+						}
+						return Err(error);
+					},
 				}
 				lease
 			},
@@ -505,7 +512,11 @@ impl Session {
 		Ok(ControlFlow::Break(Some((header, stream))))
 	}
 
-	async fn index_process_control(&self, arg: IndexProcessControlArg) -> tg::Result<()> {
+	/// Prepare and submit a start's index batch, continuing if the index cannot accept the batch, and failing for any other error.
+	async fn index_process_control(
+		&self,
+		arg: IndexProcessControlArg,
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		let IndexProcessControlArg {
 			assign,
 			data,
@@ -607,16 +618,16 @@ impl Session {
 			)?);
 		}
 
-		// Submit the prepared batch without waiting for its index commit.
+		// Submit the prepared batch without waiting for its index commit, continuing if the index cannot accept it.
 		let index_arg = tangram_index::batch::Arg { items };
-		session
-			.server
-			.index_batch(index_arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the process"))?;
+		let result = session.server.index_batch(index_arg).await;
+		if let Err(error) = result {
+			let error = tg::error!(!error, "failed to index the process");
+			return Ok(ControlFlow::Continue(error));
+		}
 		crate::checkpoint!(self.server, "process.control.index.submitted", process = %id).await;
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	/// Verify that a runner derived a process's ID within the proof window.
