@@ -31,6 +31,7 @@ impl Session {
 		let mut context = client.context().clone();
 		context.set_token(self.region_token());
 		context.set_process(self.context.process.clone());
+		context.set_sandbox(self.context.sandbox.clone());
 		let session = client.session(&context);
 		Ok(session)
 	}
@@ -48,6 +49,7 @@ impl Session {
 		let mut context = client.context().clone();
 		context.set_token(self.region_token());
 		context.set_process(self.context.process.clone());
+		context.set_sandbox(self.context.sandbox.clone());
 		let session = client.session(&context);
 		let response = session.send(request).await?;
 

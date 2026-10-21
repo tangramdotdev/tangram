@@ -500,42 +500,36 @@ pub trait Ext: tg::Instance {
 	> + Send {
 		async move {
 			let instance = self.clone();
-			let deferred = arg.create.is_none();
-			#[derive(Default)]
-			struct CreateState {
-				create: Option<tg::sandbox::control::ClientRequest>,
-			}
-			let create_state = Arc::new(Mutex::new(CreateState::default()));
 
 			// Create a channel for buffering events from the input.
 			let (input_sender, input_receiver) = async_channel::bounded(1);
 
 			// Create the input task. This will read events from the input stream and write them to the input channel. It is detached so that it forwards the remaining events when the request stream is dropped. It completes when the input stream ends or all of the receivers are dropped.
-			let mut input_task = Task::spawn({
-				let create_state = create_state.clone();
-				move |_| async move {
-					let mut input = pin!(stream);
-					while let Some(event) = input.next().await {
-						if deferred
-							&& let Ok(tg::sandbox::control::ClientMessage::Request(request)) =
-								&event && let tg::sandbox::control::ClientRequestArg::Create(_) =
-							&request.arg
-						{
-							create_state.lock().unwrap().create.replace(request.clone());
-						}
-						if input_sender.send(event).await.is_err() {
-							break;
-						}
+			let mut input_task = Task::spawn(move |_| async move {
+				let mut input = pin!(stream);
+				while let Some(event) = input.next().await {
+					if input_sender.send(event).await.is_err() {
+						break;
 					}
 				}
 			});
 			input_task.detach();
 
-			// Get the initial header and stream, without retrying, because a create that has no sandbox ID yet is not safe to repeat.
-			let result = instance
-				.get_sandbox_control_stream(arg.clone(), input_receiver.clone().boxed())
-				.await;
-			let (header, output_stream) = tangram_futures::retry::once(result)?;
+			// Get the initial header and stream, retrying with backoff while the request cannot reach a server, which is safe because the arg names the sandbox.
+			let options = instance.arg().stream_retry;
+			let (header, output_stream) = tangram_futures::retry(&options, || {
+				let instance = &instance;
+				let arg = arg.clone();
+				let input = input_receiver.clone().boxed();
+				async move {
+					let result = instance.get_sandbox_control_stream(arg, input).await;
+					if let Ok(ControlFlow::Continue(error)) = &result {
+						tracing::error!(error = %error.trace(), "failed to connect the control stream");
+					}
+					result
+				}
+			})
+			.await?;
 			let stream_retry = instance.arg().stream_retry;
 			let instance = reconnect(&header);
 			let arg = tg::sandbox::control::Arg {
@@ -560,7 +554,6 @@ pub trait Ext: tg::Instance {
 				let instance = instance.clone();
 				let arg = arg.clone();
 				let input_receiver = input_receiver.clone();
-				let create_state = create_state.clone();
 				let stream_retry = stream_retry.clone();
 				async move {
 					// End the stream after it yields an error.
@@ -569,13 +562,7 @@ pub trait Ext: tg::Instance {
 					}
 					loop {
 						if state.stream.is_none() {
-							// A successful create confirms submission, not persistence.
-							let create = create_state.lock().unwrap().create.clone();
-							let input = stream::iter(create.map(|request| {
-								Ok(tg::sandbox::control::ClientMessage::Request(request))
-							}))
-							.chain(input_receiver.clone())
-							.boxed();
+							let input = input_receiver.clone().boxed();
 
 							// Fail with the last error once the retries are exhausted.
 							let retries = state.retries.get_or_insert_with(|| {

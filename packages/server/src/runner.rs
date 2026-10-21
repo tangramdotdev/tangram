@@ -2,25 +2,20 @@ use {
 	crate::{Session, Shutdown},
 	futures::{
 		FutureExt as _, StreamExt as _, future,
-		future::BoxFuture,
 		stream::{BoxStream, FuturesUnordered},
 	},
 	std::{
 		ops::ControlFlow,
 		pin::pin,
 		sync::{
-			Arc, Mutex,
+			Mutex,
 			atomic::{AtomicU64, Ordering},
 		},
-		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::{Stopper, Task},
 };
-
-#[cfg(test)]
-mod tests;
 
 pub(crate) mod assets;
 pub(crate) mod capacity;
@@ -37,8 +32,6 @@ pub mod token;
 type RunnerSender =
 	crate::control::Sender<tg::runner::control::ServerMessage, tg::runner::control::ClientMessage>;
 
-type CreateControlConnection<T> = Arc<dyn Fn() -> BoxFuture<'static, tg::Result<T>> + Send + Sync>;
-
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
@@ -48,31 +41,10 @@ pub(super) struct Config {
 
 	pub overcommit: tg::runner::Overcommit,
 
-	pub sandbox_control_connection_pool_refresh_interval: Duration,
-
-	pub sandbox_control_connection_pool_size: usize,
-
-	pub sandbox_control_connection_pool_ttl: Duration,
-
 	pub sandbox_pool_size: usize,
 }
 
-struct ControlConnectionPoolEntry<T> {
-	connection: Mutex<Option<T>>,
-}
-
-struct ControlConnectionPool<T: Send + 'static> {
-	name: &'static str,
-	notify: Arc<tokio::sync::Notify>,
-	pool: Mutex<Option<tangram_pool::Pool<ControlConnectionPoolEntry<T>, tg::Error>>>,
-	refresh_interval: Duration,
-	size: usize,
-	task: Mutex<Option<Task<()>>>,
-	ttl: Duration,
-}
-
 pub struct Runner {
-	sandbox_control_connection_pool: ControlConnectionPool<self::sandbox::SandboxControlConnection>,
 	sandbox_pool: self::sandbox::Pool,
 	state: State,
 	task: Mutex<Option<Task<()>>>,
@@ -150,27 +122,13 @@ impl Runner {
 			),
 		};
 		let task = Mutex::new(None);
-		let sandbox_control_connection_pool = ControlConnectionPool::new(
-			"sandbox",
-			config.sandbox_control_connection_pool_refresh_interval,
-			config.sandbox_control_connection_pool_size,
-			config.sandbox_control_connection_pool_ttl,
-		);
 		let sandbox_pool = self::sandbox::Pool::new(config.sandbox_pool_size);
 
 		Self {
-			sandbox_control_connection_pool,
 			sandbox_pool,
 			state,
 			task,
 		}
-	}
-
-	#[must_use]
-	fn sandbox_control_connection_pool(
-		&self,
-	) -> &ControlConnectionPool<self::sandbox::SandboxControlConnection> {
-		&self.sandbox_control_connection_pool
 	}
 
 	#[must_use]
@@ -181,116 +139,6 @@ impl Runner {
 	#[must_use]
 	pub(crate) fn task(&self) -> &Mutex<Option<Task<()>>> {
 		&self.task
-	}
-}
-
-impl<T: Send + 'static> ControlConnectionPool<T> {
-	#[must_use]
-	fn new(name: &'static str, refresh_interval: Duration, size: usize, ttl: Duration) -> Self {
-		Self {
-			name,
-			notify: Arc::new(tokio::sync::Notify::new()),
-			pool: Mutex::new(None),
-			refresh_interval,
-			size,
-			task: Mutex::new(None),
-			ttl,
-		}
-	}
-
-	fn start<F, Fut>(&self, create: F)
-	where
-		F: Fn() -> Fut + Send + Sync + 'static,
-		Fut: Future<Output = tg::Result<T>> + Send + 'static,
-	{
-		let create: CreateControlConnection<T> = Arc::new(move || create().boxed());
-		let create_for_pool = create.clone();
-		let options = tangram_pool::Options {
-			max: self.size.max(1),
-			min: 0,
-			shared: 1,
-			ttl: Some(self.ttl),
-		};
-		let pool = tangram_pool::Pool::new(options, move || {
-			let create = create_for_pool.clone();
-			async move {
-				let connection = create().await?;
-				Ok(ControlConnectionPoolEntry {
-					connection: Mutex::new(Some(connection)),
-				})
-			}
-		});
-		self.pool.lock().unwrap().replace(pool.clone());
-		if self.size == 0 || self.ttl.is_zero() {
-			return;
-		}
-		let interval = self.refresh_interval;
-		let name = self.name;
-		let notify = self.notify.clone();
-		let size = self.size;
-		let task = Task::spawn(move |stopper| async move {
-			loop {
-				while pool.available() < size {
-					let result = tokio::select! {
-						biased;
-						() = stopper.wait() => return,
-						result = create() => result,
-					};
-					let connection = match result {
-						Ok(connection) => connection,
-						Err(error) => {
-							tracing::warn!(
-								error = %error.trace(),
-								kind = name,
-								"failed to add a control connection to the pool",
-							);
-							break;
-						},
-					};
-					let entry = ControlConnectionPoolEntry {
-						connection: Mutex::new(Some(connection)),
-					};
-					pool.add(entry);
-				}
-				tokio::select! {
-					() = notify.notified() => {},
-					() = stopper.wait() => break,
-					() = tokio::time::sleep(interval) => {},
-				}
-			}
-		});
-		self.task.lock().unwrap().replace(task);
-	}
-
-	async fn take(&self) -> tg::Result<T> {
-		let pool = self
-			.pool
-			.lock()
-			.unwrap()
-			.clone()
-			.ok_or_else(|| tg::error!("the control connection pool is not running"))?;
-		let guard = pool.get_exclusive(tangram_pool::Priority::High).await?;
-		let connection = guard
-			.connection
-			.lock()
-			.unwrap()
-			.take()
-			.expect("the control connection pool entry was empty");
-		guard.discard();
-		self.notify.notify_one();
-
-		Ok(connection)
-	}
-
-	async fn shutdown(&self) {
-		let task = self.task.lock().unwrap().take();
-		if let Some(task) = task {
-			task.stop();
-			task.wait().await.ok();
-		}
-		if let Some(pool) = self.pool.lock().unwrap().take() {
-			pool.clear();
-		}
 	}
 }
 
@@ -425,7 +273,6 @@ impl Session {
 			.lock()
 			.unwrap()
 			.replace(id.clone());
-		self.start_control_connection_pools();
 		self.start_sandbox_pool();
 		let mut cleanup = true;
 		let mut retries = None::<BoxStream<'static, ()>>;
@@ -488,7 +335,6 @@ impl Session {
 			.expect("the shutdown mode was not set");
 
 		// Stop the pools.
-		self.shutdown_control_connection_pools().await;
 		self.shutdown_sandbox_pool(shutdown).await;
 
 		// Shut down the sandbox tasks.
@@ -538,29 +384,6 @@ impl Session {
 				tracing::error!(?error, "a sandbox task panicked");
 			}
 		}
-	}
-
-	fn start_control_connection_pools(&self) {
-		let context = crate::Context {
-			token: self.server.config.runner.token.clone(),
-			..self.context.clone()
-		};
-		let session = self.server.session(&context);
-		self.server
-			.runner
-			.sandbox_control_connection_pool()
-			.start(move || {
-				let session = session.clone();
-				async move { session.create_sandbox_control_connection().await }
-			});
-	}
-
-	async fn shutdown_control_connection_pools(&self) {
-		self.server
-			.runner
-			.sandbox_control_connection_pool()
-			.shutdown()
-			.await;
 	}
 
 	pub(crate) fn start_sandbox_pool(&self) {

@@ -1874,17 +1874,6 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandbox_channel_capacity: Option<usize>,
 
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub sandbox_control_connection_pool_refresh_interval: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub sandbox_control_connection_pool_size: Option<usize>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub sandbox_control_connection_pool_ttl: Option<Duration>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandbox_pool_size: Option<usize>,
 
@@ -2155,10 +2144,17 @@ pub struct Sandbox {
 	pub control_channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub control_service: Option<Service>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default_processes_page_size: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub http2: Option<tangram_http::http2::Config>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id_proof_window: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub network: Option<SandboxNetwork>,
@@ -5465,15 +5461,6 @@ fn resolve_runner(source: Runner) -> tg::Result<server::Runner> {
 	if let Some(value) = source.restart_delay {
 		target.restart_delay = value;
 	}
-	if let Some(value) = source.sandbox_control_connection_pool_refresh_interval {
-		target.sandbox_control_connection_pool_refresh_interval = value;
-	}
-	if let Some(value) = source.sandbox_control_connection_pool_size {
-		target.sandbox_control_connection_pool_size = value;
-	}
-	if let Some(value) = source.sandbox_control_connection_pool_ttl {
-		target.sandbox_control_connection_pool_ttl = value;
-	}
 	if let Some(value) = source.sandbox_pool_size {
 		target.sandbox_pool_size = value;
 	}
@@ -5690,6 +5677,9 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	if let Some(value) = source.control_channel_capacity {
 		target.control_channel_capacity = value;
 	}
+	if let Some(source) = source.control_service {
+		resolve_service(source, &mut target.control_service);
+	}
 	if let Some(value) = source.default_processes_page_size {
 		target.default_processes_page_size = value;
 	}
@@ -5698,6 +5688,9 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 			.validate()
 			.map_err(|error| tg::error!(source = error, "invalid sandbox HTTP/2 configuration"))?;
 		target.http2 = value;
+	}
+	if let Some(value) = source.id_proof_window {
+		target.id_proof_window = value;
 	}
 	if let Some(source) = source.network {
 		target.network = resolve_sandbox_network(source);

@@ -32,9 +32,25 @@ def process_id():
 
 def derived_process_id(runner):
     # Derive an ID from a runner's ID and a random salt, and return it with its proof.
+    return derived_id("pcs_00", "tangram process id v1", runner)
+
+
+def sandbox_id():
+    # Create an ID with a random UUIDv7 body.
+    body = uuidv7(int(time.time() * 1000), os.urandom(10))
+    return "sbx_00" + encode(body)
+
+
+def derived_sandbox_id(runner):
+    # Derive an ID from a runner's ID and a random salt, and return it with its proof.
+    return derived_id("sbx_00", "tangram sandbox id v1", runner)
+
+
+def derived_id(prefix, context, runner):
+    # Derive a UUIDv7 body from the hash of a runner's ID and a random salt under the context.
     runner_bytes = bytes([0, 0, 13, 0]) + decode(runner[6:])
     salt = os.urandom(16)
-    hash = blake3.derive_key("tangram process id v1", runner_bytes + salt)
+    hash = blake3.derive_key(context, runner_bytes + salt)
     body = uuidv7(int(time.time() * 1000), hash)
     proof = {"kind": "v1", "value": {"salt": encode(salt)}}
-    return "pcs_00" + encode(body), proof
+    return prefix + encode(body), proof

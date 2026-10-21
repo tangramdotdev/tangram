@@ -382,6 +382,7 @@ impl Server {
 						origin,
 						principal: tg::Principal::Anonymous,
 						process: None,
+						sandbox: None,
 						stopper: Some(stopper),
 						token: None,
 					};
@@ -585,12 +586,28 @@ impl Server {
 					.ok_or_else(|| tg::error!(argument, "failed to parse the process header"))
 			})
 			.transpose();
-		let result = match process {
-			Ok(process) => self
-				.authenticate_with_process(&context, token.as_deref(), process.clone())
+		let sandbox = request
+			.headers()
+			.get(tg::sandbox::SANDBOX_HEADER)
+			.map(|value| {
+				value
+					.to_str()
+					.ok()
+					.and_then(|value| value.parse::<tg::sandbox::Id>().ok())
+					.ok_or_else(|| tg::error!(argument, "failed to parse the sandbox header"))
+			})
+			.transpose();
+		let result = match (process, sandbox) {
+			(Ok(process), Ok(sandbox)) => self
+				.authenticate_with_claim(
+					&context,
+					token.as_deref(),
+					process.clone(),
+					sandbox.clone(),
+				)
 				.await
-				.map(|authentication| (authentication, process)),
-			Err(error) => Err(error),
+				.map(|authentication| (authentication, process, sandbox)),
+			(Err(error), _) | (_, Err(error)) => Err(error),
 		};
 		context.token = token;
 		let authentication = match result {
@@ -618,10 +635,11 @@ impl Server {
 				return response;
 			},
 		};
-		let (authentication, process) = authentication;
+		let (authentication, process, sandbox) = authentication;
 		context.billing_ready = authentication.billing_ready.unwrap_or(false);
 		context.principal = authentication.principal;
 		context.process = process;
+		context.sandbox = sandbox;
 
 		let session = self.session(&context);
 

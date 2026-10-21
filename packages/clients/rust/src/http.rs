@@ -639,6 +639,11 @@ impl tg::Session {
 				.entry(tg::process::PROCESS_HEADER)
 				.or_insert_with(|| http::HeaderValue::from_str(&process.to_string()).unwrap());
 		}
+		if let Some(sandbox) = self.context().sandbox() {
+			headers
+				.entry(tg::sandbox::SANDBOX_HEADER)
+				.or_insert_with(|| http::HeaderValue::from_str(&sandbox.to_string()).unwrap());
+		}
 	}
 
 	pub async fn send<B>(

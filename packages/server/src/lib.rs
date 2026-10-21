@@ -212,6 +212,14 @@ pub struct State {
 
 	sandbox_assets: self::runner::assets::Assets,
 
+	sandbox_control_clients:
+		tangram_messenger::service::Clients<self::sandbox::control::service::Protocol, Messenger>,
+
+	sandbox_control_service_tasks: tangram_futures::task::Set<tg::Result<()>>,
+
+	sandbox_control_services:
+		DashMap<tg::sandbox::Id, self::sandbox::control::service::Local, fnv::FnvBuildHasher>,
+
 	sandbox_tasks: self::sandbox::Tasks,
 
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
@@ -343,12 +351,6 @@ impl Server {
 			(
 				"runner progress update interval",
 				config.runner.progress_update_interval,
-			),
-			(
-				"runner sandbox control connection pool refresh interval",
-				config
-					.runner
-					.sandbox_control_connection_pool_refresh_interval,
 			),
 			(
 				"sync metadata poll interval",
@@ -1414,16 +1416,6 @@ impl Server {
 
 			overcommit: config.runner.overcommit,
 
-			sandbox_control_connection_pool_refresh_interval: config
-				.runner
-				.sandbox_control_connection_pool_refresh_interval,
-
-			sandbox_control_connection_pool_size: config
-				.runner
-				.sandbox_control_connection_pool_size,
-
-			sandbox_control_connection_pool_ttl: config.runner.sandbox_control_connection_pool_ttl,
-
 			sandbox_pool_size,
 		};
 		let runner = self::runner::Runner::new(runner_config);
@@ -1872,6 +1864,15 @@ impl Server {
 		)
 		.map_err(|source| tg::error!(!source, "failed to create the process control clients"))?;
 
+		// Create the sandbox control clients.
+		let sandbox_control_clients = tangram_messenger::service::Clients::new(
+			messenger.clone(),
+			"sandboxes.control.service",
+			config.sandbox.control_service,
+			Arc::new(self::sandbox::control::service::Observer),
+		)
+		.map_err(|source| tg::error!(!source, "failed to create the sandbox control clients"))?;
+
 		// Create the server.
 		let server = Self(Arc::new(State {
 			archive,
@@ -1962,6 +1963,12 @@ impl Server {
 			runner,
 
 			sandbox_assets,
+
+			sandbox_control_clients,
+
+			sandbox_control_service_tasks: tangram_futures::task::Set::default(),
+
+			sandbox_control_services: DashMap::default(),
 
 			sandbox_tasks,
 
@@ -2472,6 +2479,11 @@ impl Server {
 				server.process_control_service_tasks.stop_all();
 				server.process_control_service_tasks.wait().await;
 
+				// Stop the sandbox control clients and drain the sandbox control service tasks.
+				server.sandbox_control_clients.stop();
+				server.sandbox_control_service_tasks.stop_all();
+				server.sandbox_control_service_tasks.wait().await;
+
 				// Finish the archive tasks after their producers have stopped.
 				server.archive_tasks.wait().await;
 
@@ -2757,6 +2769,7 @@ impl Drop for Owned {
 		self.sync_service_tasks.abort_all();
 		self.process_connect_service_tasks.abort_all();
 		self.process_control_service_tasks.abort_all();
+		self.sandbox_control_service_tasks.abort_all();
 		self.sync_index_tasks.abort_all();
 		self.archive_tasks.abort_all();
 		self.checkout_graph_tasks.abort_all();

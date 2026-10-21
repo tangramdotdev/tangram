@@ -1198,12 +1198,6 @@ pub struct Runner {
 
 	pub sandbox_channel_capacity: usize,
 
-	pub sandbox_control_connection_pool_refresh_interval: Duration,
-
-	pub sandbox_control_connection_pool_size: usize,
-
-	pub sandbox_control_connection_pool_ttl: Duration,
-
 	pub sandbox_pool_size: usize,
 
 	pub sandbox_state_ttl: Duration,
@@ -1550,9 +1544,13 @@ pub struct Sandbox {
 
 	pub control_channel_capacity: usize,
 
+	pub control_service: tangram_messenger::service::Options,
+
 	pub default_processes_page_size: u64,
 
 	pub http2: tangram_http::http2::Config,
+
+	pub id_proof_window: Duration,
 
 	pub network: SandboxNetwork,
 
@@ -2845,9 +2843,6 @@ impl Default for Runner {
 			resources: RunnerResources::default(),
 			restart_delay: Duration::from_secs(1),
 			sandbox_channel_capacity: 256,
-			sandbox_control_connection_pool_refresh_interval: Duration::from_millis(2500),
-			sandbox_control_connection_pool_size: 1,
-			sandbox_control_connection_pool_ttl: Duration::from_secs(5),
 			sandbox_pool_size: 1,
 			sandbox_state_ttl: Duration::from_mins(1),
 			sandboxes: None,
@@ -2909,8 +2904,17 @@ impl Default for Sandbox {
 			cgroup_cleanup_timeout: Duration::from_secs(5),
 			connect_timeout: Duration::from_secs(5),
 			control_channel_capacity: 256,
+			control_service: tangram_messenger::service::Options {
+				attempt_ttl: Duration::from_secs(10),
+				heartbeat_interval: Duration::from_secs(1),
+				idle_timeout: Duration::from_secs(60),
+				recovery_timeout: Duration::from_secs(10),
+				request_timeout: Duration::from_secs(10),
+				retry_interval: Duration::from_secs(1),
+			},
 			default_processes_page_size: 256,
 			http2: tangram_http::http2::Config::default(),
+			id_proof_window: Duration::from_mins(2),
 			network: SandboxNetwork::default(),
 			nice: 5,
 			process_permission_time_to_live: default_process_permission_time_to_live(),

@@ -678,9 +678,24 @@ impl Session {
 				let sandbox_id = data.sandbox.as_ref().ok_or_else(|| {
 					tg::error!("a process on the shortcut path must have a sandbox")
 				})?;
-				let principal = tg::Principal::Sandbox(sandbox_id.clone());
-				self.verify_process_control_start_token(&sandbox.token, principal)
+				if let Some(token) = &sandbox.token {
+					let principal = tg::Principal::Sandbox(sandbox_id.clone());
+					self.verify_process_control_start_token(token, principal)
+						.await?;
+				} else {
+					// Verify with the sandbox's control service that the runner that starts the process hosts its sandbox.
+					let tg::Principal::Runner(_) = &self.context.principal else {
+						return Err(tg::error!(
+							unauthorized,
+							"a sandbox without a token requires a runner"
+						));
+					};
+					self.authorize_with_sandbox_control_service(
+						sandbox_id,
+						&self.context.principal,
+					)
 					.await?;
+				}
 				Ok((Some(parent.id), sandbox.create))
 			},
 			(true, None) => Err(tg::error!(

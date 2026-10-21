@@ -104,9 +104,6 @@ pub struct ClientRequest {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientRequestArg {
-	#[tangram_serialize(id = 0)]
-	Create(CreateClientRequestArg),
-
 	#[tangram_serialize(id = 1)]
 	Destroy(DestroyClientRequestArg),
 }
@@ -248,9 +245,6 @@ pub struct ServerResponse {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerResponseOutput {
-	#[tangram_serialize(id = 0)]
-	Create(CreateServerResponseOutput),
-
 	#[tangram_serialize(id = 1)]
 	Destroy(DestroyServerResponseOutput),
 }
@@ -306,36 +300,6 @@ pub struct DestroyClientResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct DestroyServerResponseOutput {}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct CreateClientRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub arg: tg::sandbox::create::Arg,
-
-	#[tangram_serialize(id = 1)]
-	pub created_at: i64,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
-	pub creator: Option<tg::Principal>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct CreateServerResponseOutput {}
 
 #[derive(
 	Clone,
@@ -441,6 +405,10 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	/// The proof that the runner that opens the connection derived the sandbox's ID.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub proof: Option<tg::sandbox::id::Proof>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub runner: Option<tg::runner::Id>,

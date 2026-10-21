@@ -42,7 +42,7 @@ pub struct State {
 	pub processes: Arc<crate::process::Processes>,
 	pub sandbox: Option<tangram_sandbox::Sandbox>,
 	pub status: tg::sandbox::Status,
-	pub token: String,
+	pub token: tokio::sync::watch::Receiver<Option<String>>,
 	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,
 	pub usage: Option<tg::sandbox::Usage>,
 	pub(crate) vfs: Option<crate::vfs::provider::Weak>,
