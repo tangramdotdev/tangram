@@ -20,7 +20,7 @@ snapshot --normalize --redact [$id $remote.url $remote.directory ($remote.direct
 	error an error occurred
 	-> failed to push
 	-> the request failed
-	   status = 503 Service Unavailable
+	   status = 500 Internal Server Error
 	-> failed to start the push
 	-> failed to create the destination stream
 	-> failed to sync
