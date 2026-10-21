@@ -1,3 +1,6 @@
+import bubblewrap from "bubblewrap" with {
+	source: "../packages/packages/bubblewrap.tg.ts",
+};
 import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
 import cargoNextest from "cargo-nextest" with {
 	source: "../packages/packages/cargo-nextest.tg.ts",
@@ -5,6 +8,9 @@ import cargoNextest from "cargo-nextest" with {
 import curl from "curl" with { source: "../packages/packages/curl.tg.ts" };
 import delta from "delta" with { source: "../packages/packages/delta.tg.ts" };
 import fd from "fd" with { source: "../packages/packages/fd.tg.ts" };
+import libfuse from "libfuse" with {
+	source: "../packages/packages/libfuse.tg.ts",
+};
 import nodejs from "nodejs" with { source: "../packages/packages/nodejs.tg.ts" };
 import nushell from "nushell" with {
 	source: "../packages/packages/nushell.tg.ts",
@@ -16,6 +22,9 @@ import { cargo } from "rust" with {
 	source: "../packages/packages/rust",
 };
 import * as std from "std" with { source: "../packages/packages/std" };
+import utilLinux from "util-linux" with {
+	source: "../packages/packages/util-linux.tg.ts",
+};
 
 import source from "." with { type: "directory" };
 
@@ -138,12 +147,15 @@ export const testCli = async (arg: CliArg = {}) => {
 				std.sdk({ host }),
 				std.sdkModule.dependencies.python.build({ host }),
 				std.utils.attr.build({ host }),
+				bubblewrap({ host }),
 				curl({ host }),
 				delta({ host, parallelJobs: jobs }),
+				libfuse({ host }),
 				nodejs({ host }),
 				nushell({ host, parallelJobs: jobs }),
 				fd({ host, parallelJobs: jobs }),
 				pasta(host),
+				utilLinux({ host }),
 				procps({ host }),
 				bun({ host }),
 				{
