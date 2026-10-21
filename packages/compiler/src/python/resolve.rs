@@ -13,7 +13,7 @@ pub struct Resolver {
 	dependency_paths: Mutex<HashMap<tg::file::Id, Arc<DependencyPaths>>>,
 	graphs: Graphs,
 	instance: tg::instance::dynamic::Instance,
-	paths: BTreeSet<PathBuf>,
+	paths: Mutex<BTreeSet<PathBuf>>,
 	prepared: Mutex<HashMap<String, tg::module::Data>>,
 }
 
@@ -149,16 +149,8 @@ pub fn module_file(graphs: &Graphs, module: &tg::module::Data) -> tg::Result<tg:
 	Ok(file)
 }
 
-/// Recover package placement from the module's checked-in self-reference.
-pub async fn prepare_module(
-	instance: &tg::instance::dynamic::Instance,
-	module: tg::module::Data,
-) -> tg::Result<tg::module::Data> {
-	prepare_module_with_graphs(instance, &Graphs::default(), module).await
-}
-
 /// Recover package placement from the module's checked-in self-reference, using the graphs that have been loaded.
-pub async fn prepare_module_with_graphs(
+async fn prepare_module_with_graphs(
 	instance: &tg::instance::dynamic::Instance,
 	graphs: &Graphs,
 	mut module: tg::module::Data,
@@ -227,25 +219,15 @@ impl Resolver {
 			dependency_paths: Mutex::new(HashMap::new()),
 			graphs: Graphs::default(),
 			instance,
-			paths: BTreeSet::new(),
+			paths: Mutex::new(BTreeSet::new()),
 			prepared: Mutex::new(HashMap::new()),
 		}
 	}
 
-	/// Include unsaved editor files in the filesystem view used by relative imports.
+	/// Set the unsaved editor files in the filesystem view used by relative imports.
 	#[cfg(feature = "ty")]
-	#[must_use]
-	pub(crate) fn with_paths(
-		instance: tg::instance::dynamic::Instance,
-		paths: BTreeSet<PathBuf>,
-	) -> Self {
-		Self {
-			dependency_paths: Mutex::new(HashMap::new()),
-			graphs: Graphs::default(),
-			instance,
-			paths,
-			prepared: Mutex::new(HashMap::new()),
-		}
+	pub(crate) fn set_paths(&self, paths: BTreeSet<PathBuf>) {
+		*self.paths.lock().unwrap() = paths;
 	}
 
 	/// Get the graphs that this resolver has loaded.
@@ -603,13 +585,15 @@ impl Resolver {
 	) -> tg::Result<Option<tg::module::Data>> {
 		if let tg::module::data::Source::Path(source) = &module.referent.node {
 			let target = tangram_util::path::normalize(source.parent().unwrap().join(&path));
-			let exists = match kind {
-				tg::module::Kind::Python => self.paths.contains(&target),
-				tg::module::Kind::Directory => self
-					.paths
-					.iter()
-					.any(|path| path != &target && path.starts_with(&target)),
-				_ => false,
+			let exists = {
+				let paths = self.paths.lock().unwrap();
+				match kind {
+					tg::module::Kind::Python => paths.contains(&target),
+					tg::module::Kind::Directory => paths
+						.iter()
+						.any(|path| path != &target && path.starts_with(&target)),
+					_ => false,
+				}
 			};
 			if exists {
 				let module = tg::module::Data {
@@ -657,7 +641,7 @@ impl Resolver {
 	}
 
 	/// Prepare a module, reusing the result for a module with the same identity, which only differs in its tokens.
-	async fn prepare_module(&self, module: tg::module::Data) -> tg::Result<tg::module::Data> {
+	pub async fn prepare_module(&self, module: tg::module::Data) -> tg::Result<tg::module::Data> {
 		let key = module.without_token().to_string();
 		let prepared = self.prepared.lock().unwrap().get(&key).cloned();
 		if let Some(mut prepared) = prepared {

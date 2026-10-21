@@ -6,7 +6,7 @@ use {
 		sync::{Arc, Mutex, mpsc},
 	},
 	tangram_client::prelude::*,
-	tangram_compiler::python::resolve::{Resolver, prepare_module_with_graphs},
+	tangram_compiler::python::resolve::Resolver,
 };
 
 mod import;
@@ -50,11 +50,7 @@ pub fn run(arg: Arg) -> tg::Result<Outcome> {
 	// Preserve the entry's graph pointer before creating the process context and module cache.
 	let module = arg
 		.main_runtime_handle
-		.block_on(prepare_module_with_graphs(
-			&arg.instance,
-			resolver.graphs(),
-			arg.module,
-		))
+		.block_on(resolver.prepare_module(arg.module))
 		.map_err(|error| tg::error!(!error, "failed to prepare the python entry module"))?;
 
 	// Serialize the process context.

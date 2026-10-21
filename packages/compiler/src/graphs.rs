@@ -176,18 +176,19 @@ impl Graphs {
 			return None;
 		}
 
-		// Get the graph, or insert it with the referent's tokens, which the graph uses when it is loaded.
+		// Get or insert the graph.
 		let graph = self
 			.0
 			.lock()
 			.unwrap()
 			.entry(pointer.graph.clone())
-			.or_insert_with(|| {
-				let graph = tg::Graph::with_id(pointer.graph.clone());
-				graph.state().set_tokens(referent.options.tokens.clone());
-				graph
-			})
+			.or_insert_with(|| tg::Graph::with_id(pointer.graph.clone()))
 			.clone();
+
+		// Add the referent's tokens to a graph that has not been loaded, so that a failed load can be retried with newer tokens.
+		if graph.state().object().is_none() {
+			graph.state().inherit_tokens(&referent.options.tokens);
+		}
 
 		// Create the file.
 		let pointer = tg::graph::Pointer {
