@@ -153,13 +153,16 @@ mod python {
 
 	pub fn build() {
 		for path in [
-			"../clients/python/src",
 			"../python/build/library.py",
 			"../clients/python/pyproject.toml",
 			"../../uv.lock",
 		] {
 			println!("cargo:rerun-if-changed={path}");
 		}
+		let manifest_directory = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+		tangram_python_build::rerun_if_client_changed(
+			&manifest_directory.join("../clients/python/src"),
+		);
 		let output = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("python");
 		if output.exists() {
 			std::fs::remove_dir_all(&output).unwrap();

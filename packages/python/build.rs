@@ -13,12 +13,15 @@ fn main() {
 		"build.rs",
 		"build",
 		"src",
-		"../clients/python/src",
 		"../clients/python/pyproject.toml",
 		"../../uv.lock",
 	] {
 		println!("cargo:rerun-if-changed={path}");
 	}
+	let manifest_directory = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+	tangram_python_build::rerun_if_client_changed(
+		&manifest_directory.join("../clients/python/src"),
+	);
 	for name in [
 		"OBJCOPY",
 		"TANGRAM_PYTHON_DISTRIBUTION",
@@ -28,7 +31,6 @@ fn main() {
 	}
 	let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
 	let output = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-	let manifest_directory = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
 	let relative_library = relative_path(&manifest_directory, &output.join("library"));
 	println!(
 		"cargo:rustc-env=TANGRAM_PYTHON_LIBRARY={}",
