@@ -160,6 +160,9 @@ export def container_id_maps [] {
 			uid_map: { count: 65_536, host: 100_000 },
 		}
 	}
+	if not ('/etc/subuid' | path exists) or not ('/etc/subgid' | path exists) {
+		skip_test 'this test requires subordinate uid and gid ranges'
+	}
 	let user = id -un | str trim
 	let uid_ranges = open --raw /etc/subuid | lines | parse '{name}:{host}:{count}' | where name == $user
 	let gid_ranges = open --raw /etc/subgid | lines | parse '{name}:{host}:{count}' | where name == $user
