@@ -245,7 +245,12 @@ export def stop [session: record] {
 			(notification "exit" null)
 		] | str join "" | timeout 2 bash -c 'cat > "$1"' _ $session.input | ignore
 	}
-	^tangram_cli_test_supervise stop --directory $session.supervisor --timeout 1
+
+	# Wait for the language server to exit after the exit notification, and stop it if it does not.
+	let output = ^tangram_cli_test_supervise wait --directory $session.supervisor --timeout 5 | complete
+	if $output.exit_code != 0 {
+		^tangram_cli_test_supervise stop --directory $session.supervisor --timeout 1
+	}
 	try { rm --recursive --force $session.directory }
 }
 
