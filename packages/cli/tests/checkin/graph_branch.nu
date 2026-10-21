@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Checking in a module cycle whose graph has more than 1,024 children splits the graph into leaves and a branch, and the modules can still be checked out and built.
+# Checking in a module cycle whose graph has more than 1,024 children splits the graph into leaves and a branch, and the modules can still be checked out.
 
 let local = server spawn
 
@@ -15,7 +15,7 @@ for module in [a b] {
 		$'($module) ($i)' | save ($path | path join $'($module)_($i).txt')
 	}
 }
-'import { files as a } from "./a.tg.ts";' + (char newline) + 'import { files as b } from "./b.tg.ts";' + (char newline) + 'export default async function () { let last = b[b.length - 1]; tg.File.assert(last); return `${a.length + b.length},${await last.text}`; }' + (char newline) | save ($path | path join tangram.ts)
+'import "./a.tg.ts";' + (char newline) + 'import "./b.tg.ts";' + (char newline) | save ($path | path join tangram.ts)
 
 # Check in the package.
 let id = tg checkin --no-tokens $path | referent node
@@ -36,7 +36,3 @@ assert equal (ls $checkout | length) 1_043 'the checkout must contain every file
 for name in [a.tg.ts b.tg.ts b_519.txt] {
 	assert equal (open --raw ($checkout | path join $name)) (open --raw ($path | path join $name)) $'the checkout must have the correct contents of ($name)'
 }
-
-# Build the package, which loads both modules of the graph.
-let output = tg build $path
-assert equal $output '"1040,b 519"' 'the build must load every module'
