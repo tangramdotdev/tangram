@@ -149,7 +149,8 @@ impl Session {
 				// If this graph has not been visited, process ALL nodes in the graph.
 				if state.visited_graphs.insert(graph_id.clone()) {
 					// Load the graph data.
-					let graph_data = crate::graph::get_leaf(&self.server.cache, &state.graphs, graph_id)?;
+					let graph_data =
+						crate::graph::get_leaf(&self.server.cache, &state.graphs, graph_id)?;
 
 					// Process all nodes in the graph.
 					self.checkout_create_lock_graph(state, graph_id, &graph_data)?;

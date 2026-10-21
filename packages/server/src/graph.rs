@@ -81,7 +81,13 @@ pub fn get_leaf(
 				nodes.extend(leaf.nodes.iter().cloned());
 			},
 			tg::graph::Data::Branch(branch) => {
-				stack.extend(branch.children.iter().rev().map(|child| child.graph.clone()));
+				stack.extend(
+					branch
+						.children
+						.iter()
+						.rev()
+						.map(|child| child.graph.clone()),
+				);
 			},
 		}
 	}
