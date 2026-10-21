@@ -91,9 +91,11 @@ async fn permission_capture_queue_coalesces_and_preserves_new_attempts() {
 			.put_tags(std::slice::from_ref(&tag_arg))
 			.await
 			.unwrap();
-		let capture = tangram_index::permission::capture::put::Arg {
+		let capture = tangram_index::permission::capture::Capture {
+			expires_at: i64::MAX,
 			principal: tg::Principal::Root,
 			resource: tg::Referent::with_node(object.clone().into()),
+			sources: std::collections::BTreeSet::new(),
 			subject: tag.clone().into(),
 			version: Some("first".into()),
 		};

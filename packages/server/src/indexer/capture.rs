@@ -6,7 +6,7 @@ use {
 	tangram_futures::task::Stopper,
 	tangram_index::{
 		Index as _,
-		permission::capture::{Entry, put, requested_permissions},
+		permission::capture::{Capture, Entry, requested_permissions},
 	},
 };
 
@@ -71,6 +71,22 @@ impl Indexer {
 				}
 				continue;
 			}
+
+			// Wait for the permission updates that caused these attempts before verifying access.
+			let result = tokio::select! {
+				() = stopper.wait() => return Ok(()),
+				result = self.server.index_inner() => result,
+			};
+			if let Err(error) = result {
+				tracing::error!(error = %error.trace(), "failed to wait for indexing before capturing permissions");
+				tokio::select! {
+					() = stopper.wait() => return Ok(()),
+					() = tokio::time::sleep(config.retry_delay) => {},
+				}
+				continue;
+			}
+
+			// Capture the permissions for each entry.
 			let mut failed = false;
 			for entry in entries {
 				let result = tokio::select! {
@@ -97,25 +113,31 @@ impl Indexer {
 	}
 
 	async fn permission_capture_entry(&self, entry: &Entry) -> tg::Result<()> {
-		let records = self
+		let captures = self
 			.server
 			.index
 			.get_permission_captures(&entry.resource)
 			.await?;
-		if records.is_empty() {
-			return Ok(());
-		}
 
-		// Wait for the permission updates that caused this attempt before verifying access.
-		self.server.index_inner().await?;
-		for arg in records {
-			self.permission_capture_record(&arg).boxed().await?;
+		// Run every unexpired capture so that one failing capture does not delay the others.
+		let now = self.server.clock.unix_timestamp()?;
+		let mut error = None;
+		for capture in captures {
+			if capture.expires_at <= now {
+				continue;
+			}
+			if let Err(source) = self.permission_capture_record(&capture).boxed().await {
+				error.get_or_insert(source);
+			}
+		}
+		if let Some(error) = error {
+			return Err(error);
 		}
 
 		Ok(())
 	}
 
-	async fn permission_capture_record(&self, arg: &put::Arg) -> tg::Result<()> {
+	async fn permission_capture_record(&self, arg: &Capture) -> tg::Result<()> {
 		if let Some(version) = &arg.version {
 			let id = tg::tag::Id::try_from(arg.subject.clone())?;
 			let mut tags = self.server.index.try_get_tags(&[id]).await?;
@@ -208,7 +230,7 @@ impl Indexer {
 
 	async fn capture_permissions(
 		&self,
-		arg: &put::Arg,
+		arg: &Capture,
 		resource: &tg::Id,
 		permissions: tg::authorization::permission::Set,
 	) -> tg::Result<()> {
@@ -300,7 +322,7 @@ impl Indexer {
 	async fn permission_capture_checkpoint_with_resource(
 		&self,
 		name: &str,
-		arg: &put::Arg,
+		arg: &Capture,
 		resource: &tg::Id,
 	) {
 		if let Some(version) = &arg.version {

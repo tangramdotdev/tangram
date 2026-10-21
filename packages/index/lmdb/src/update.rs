@@ -2259,13 +2259,57 @@ impl Index {
 		kind: &Kind,
 		version: u64,
 	) -> tg::Result<()> {
-		if matches!(kind, Kind::Permission(_)) {
+		// Notify the capture worker only when the subject's permissions can extend the authority of a pending capture's principal. Group, organization, public, and sync permissions can reach any principal. Process and tag permissions can reach any principal, but cannot extend a capture into the same process or tag. Other permissions reach only the subject itself.
+		if let Kind::Permission(subject) = kind {
 			let resource = match id {
 				tg::Either::Left(id) => id.clone().into(),
 				tg::Either::Right(id) => id.clone().into(),
 			};
-			let arg = tangram_index::permission::capture::enqueue::Arg { resource };
-			Self::enqueue_permission_capture_with_transaction(db, subspace, transaction, &arg)?;
+			let pending = match subject {
+				tg::authorization::Subject::Group(_)
+				| tg::authorization::Subject::Organization(_)
+				| tg::authorization::Subject::Public
+				| tg::authorization::Subject::Sync(_) => Self::has_permission_captures_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&resource,
+				)?,
+				tg::authorization::Subject::Process(process) => {
+					Self::has_permission_captures_for_other_subjects_with_transaction(
+						db,
+						subspace,
+						transaction,
+						&resource,
+						&process.clone().into(),
+					)?
+				},
+				tg::authorization::Subject::Tag(tag) => {
+					Self::has_permission_captures_for_other_subjects_with_transaction(
+						db,
+						subspace,
+						transaction,
+						&resource,
+						&tag.clone().into(),
+					)?
+				},
+				tg::authorization::Subject::Root
+				| tg::authorization::Subject::Runner(_)
+				| tg::authorization::Subject::Sandbox(_)
+				| tg::authorization::Subject::User(_) => {
+					Self::has_permission_captures_for_source_with_transaction(
+						db,
+						subspace,
+						transaction,
+						&resource,
+						subject,
+					)?
+				},
+			};
+			if pending {
+				let arg = tangram_index::permission::capture::enqueue::Arg { resource };
+				Self::enqueue_permission_capture_with_transaction(db, subspace, transaction, &arg)?;
+			}
 		}
 
 		match id {

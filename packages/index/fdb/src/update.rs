@@ -3412,21 +3412,59 @@ impl Index {
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		if matches!(kind, Kind::Permission(_)) {
+		// Notify the capture worker only when the subject's permissions can extend the authority of a pending capture's principal. Group, organization, public, and sync permissions can reach any principal. Process and tag permissions can reach any principal, but cannot extend a capture into the same process or tag. Other permissions reach only the subject itself. The reads conflict with a concurrent capture write, so a capture written during this transaction cannot miss the notification.
+		if let Kind::Permission(subject) = kind {
 			let resource = match id {
 				tg::Either::Left(id) => id.clone().into(),
 				tg::Either::Right(id) => id.clone().into(),
 			};
-			let arg = tangram_index::permission::capture::enqueue::Arg { resource };
-			crate::propagate!(
-				Self::enqueue_permission_capture_with_transaction(
-					txn,
-					subspace,
-					&arg,
-					partition_total
-				)
-				.await
-			);
+			let pending = match subject {
+				tg::authorization::Subject::Group(_)
+				| tg::authorization::Subject::Organization(_)
+				| tg::authorization::Subject::Public
+				| tg::authorization::Subject::Sync(_) => crate::propagate!(
+					Self::has_permission_captures_with_transaction(txn, subspace, &resource).await
+				),
+				tg::authorization::Subject::Process(process) => crate::propagate!(
+					Self::has_permission_captures_for_other_subjects_with_transaction(
+						txn,
+						subspace,
+						&resource,
+						&process.clone().into()
+					)
+					.await
+				),
+				tg::authorization::Subject::Tag(tag) => crate::propagate!(
+					Self::has_permission_captures_for_other_subjects_with_transaction(
+						txn,
+						subspace,
+						&resource,
+						&tag.clone().into()
+					)
+					.await
+				),
+				tg::authorization::Subject::Root
+				| tg::authorization::Subject::Runner(_)
+				| tg::authorization::Subject::Sandbox(_)
+				| tg::authorization::Subject::User(_) => crate::propagate!(
+					Self::has_permission_captures_for_source_with_transaction(
+						txn, subspace, &resource, subject
+					)
+					.await
+				),
+			};
+			if pending {
+				let arg = tangram_index::permission::capture::enqueue::Arg { resource };
+				crate::propagate!(
+					Self::enqueue_permission_capture_with_transaction(
+						txn,
+						subspace,
+						&arg,
+						partition_total
+					)
+					.await
+				);
+			}
 		}
 
 		match id {

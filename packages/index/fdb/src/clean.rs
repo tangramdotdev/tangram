@@ -119,7 +119,16 @@ impl Index {
 			)
 			.await
 		);
-		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations);
+		let captures = crate::propagate!(
+			Self::delete_expired_permission_captures(
+				txn,
+				subspace,
+				now,
+				batch_size.saturating_sub(permissions + delegations)
+			)
+			.await
+		);
+		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations + captures);
 
 		// Preserve the numeric kind order when timestamps tie.
 		let cutoffs = [
@@ -254,7 +263,8 @@ impl Index {
 			)
 			.await
 		);
-		output.done = delegations == 0
+		output.done = captures == 0
+			&& delegations == 0
 			&& permissions == 0
 			&& candidates.is_empty()
 			&& propagated_versions == 0;

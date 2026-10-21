@@ -126,31 +126,32 @@ impl Session {
 					sources.insert(tg::authorization::Subject::Sync(sync));
 				}
 			}
-			for source in sources {
-				if source == subject {
+			for source in &sources {
+				if *source == subject {
 					continue;
 				}
 				let arg = tangram_index::delegation::put::Arg {
 					expires_at,
 					resource: resource.node.clone(),
-					source,
+					source: source.clone(),
 					subject: subject.clone(),
 					version: version.clone(),
 				};
 				items.push(tangram_index::batch::Item::PutDelegation(arg));
 			}
 			resource.options.tokens = tg::authorization::Tokens::with_authorization(tokens);
-			pending.push(resource);
+			pending.push((resource, sources, expires_at));
 		}
-		let captures =
-			pending
-				.into_iter()
-				.map(move |root| tangram_index::permission::capture::put::Arg {
-					principal: principal.clone(),
-					resource: root,
-					subject: resource.clone(),
-					version: version.clone(),
-				});
+		let captures = pending.into_iter().map(move |(root, sources, expires_at)| {
+			tangram_index::permission::capture::Capture {
+				expires_at,
+				principal: principal.clone(),
+				resource: root,
+				sources,
+				subject: resource.clone(),
+				version: version.clone(),
+			}
+		});
 		for capture in captures {
 			let enqueue = tangram_index::permission::capture::enqueue::Arg {
 				resource: capture.resource.node.clone(),

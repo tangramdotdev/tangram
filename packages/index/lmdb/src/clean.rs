@@ -100,7 +100,14 @@ impl Index {
 			now,
 			batch_size.saturating_sub(permissions),
 		)?;
-		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations);
+		let captures = Self::delete_expired_permission_captures(
+			db,
+			subspace,
+			transaction,
+			now,
+			batch_size.saturating_sub(permissions + delegations),
+		)?;
+		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations + captures);
 
 		// Preserve the numeric kind order when timestamps tie.
 		let cutoffs = [
@@ -212,7 +219,8 @@ impl Index {
 			transaction,
 			remaining_batch_size,
 		)?;
-		output.done = delegations == 0
+		output.done = captures == 0
+			&& delegations == 0
 			&& permissions == 0
 			&& candidates.is_empty()
 			&& propagated_versions == 0;

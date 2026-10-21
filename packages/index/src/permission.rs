@@ -46,7 +46,7 @@ pub trait Index {
 	fn get_permission_captures(
 		&self,
 		resource: &tg::Id,
-	) -> impl Future<Output = tg::Result<Vec<crate::permission::capture::put::Arg>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<crate::permission::capture::Capture>>> + Send;
 
 	fn enqueue_permission_capture(
 		&self,

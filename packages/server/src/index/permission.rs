@@ -4,7 +4,7 @@ impl Index {
 	pub async fn get_permission_captures(
 		&self,
 		resource: &tg::Id,
-	) -> tg::Result<Vec<index::permission::capture::put::Arg>> {
+	) -> tg::Result<Vec<index::permission::capture::Capture>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.get_permission_captures(resource).await,
@@ -85,7 +85,7 @@ impl index::permission::Index for Index {
 	async fn get_permission_captures(
 		&self,
 		resource: &tg::Id,
-	) -> tg::Result<Vec<index::permission::capture::put::Arg>> {
+	) -> tg::Result<Vec<index::permission::capture::Capture>> {
 		self.get_permission_captures(resource).await
 	}
 

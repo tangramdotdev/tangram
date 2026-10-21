@@ -1,7 +1,25 @@
-use tangram_client::prelude::*;
+use {std::collections::BTreeSet, tangram_client::prelude::*};
 
 pub mod enqueue;
-pub mod put;
+
+/// A pending capture of a principal's permissions on a resource for a tag or process.
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub struct Capture {
+	#[tangram_serialize(id = 0)]
+	pub expires_at: i64,
+	#[tangram_serialize(id = 1)]
+	pub principal: tg::Principal,
+	#[tangram_serialize(id = 2)]
+	pub resource: tg::Referent<tg::Id>,
+	#[tangram_serialize(id = 3)]
+	pub sources: BTreeSet<tg::authorization::Subject>,
+	#[tangram_serialize(id = 4)]
+	pub subject: tg::Id,
+	#[tangram_serialize(id = 5)]
+	pub version: Option<String>,
+}
 
 #[derive(Clone, Debug)]
 pub struct Entry {
@@ -39,4 +57,38 @@ pub fn validate_permissions(
 		));
 	}
 	Ok(())
+}
+
+impl Capture {
+	/// Identifies the capture by its contents other than its expiration so that repeated captures extend one record.
+	pub fn digest(&self) -> tg::Result<[u8; 32]> {
+		let mut hasher = blake3::Hasher::new();
+		let principal = tangram_serialize::to_vec(&self.principal);
+		let resource = tangram_serialize::to_vec(&self.resource);
+		let sources = tangram_serialize::to_vec(&self.sources);
+		let subject = tangram_serialize::to_vec(&self.subject);
+		let version = tangram_serialize::to_vec(&self.version);
+		for bytes in [principal, resource, sources, subject, version] {
+			let bytes =
+				bytes.map_err(|error| tg::error!(!error, "failed to serialize the capture"))?;
+			hasher.update(&bytes);
+		}
+		let digest = *hasher.finalize().as_bytes();
+		Ok(digest)
+	}
+
+	pub fn validate(&self) -> tg::Result<()> {
+		match self.subject.kind() {
+			tg::id::Kind::Process if self.version.is_none() => {},
+			tg::id::Kind::Tag if self.version.is_some() => {},
+			_ => return Err(tg::error!("invalid permission capture subject or version")),
+		}
+		if !self.resource.node.kind().is_object()
+			&& (self.subject.kind() == tg::id::Kind::Process
+				|| self.resource.node.kind() != tg::id::Kind::Process)
+		{
+			return Err(tg::error!("invalid permission capture resource"));
+		}
+		Ok(())
+	}
 }

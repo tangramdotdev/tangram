@@ -1,8 +1,9 @@
 use {
 	super::new_index,
 	crate::{Config, Index},
+	std::collections::BTreeSet,
 	tangram_client::prelude::*,
-	tangram_index::permission::capture::{enqueue, put},
+	tangram_index::permission::capture::{Capture, enqueue},
 };
 
 #[tokio::test]
@@ -72,10 +73,8 @@ async fn permission_capture_records_preserve_sources_and_conditional_deletion() 
 		.await
 		.unwrap();
 	assert_eq!(records.len(), 2);
-	assert_eq!(
-		records[0].resource.options.tokens,
-		first.resource.options.tokens
-	);
+	assert!(records.contains(&first));
+	assert!(records.contains(&second));
 	let batch = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::DeletePermissionCapture(first)],
 	};
@@ -447,17 +446,19 @@ fn root(object: tg::object::Id) -> tg::Referent<tg::Id> {
 	tg::Referent::with_node(object.into())
 }
 
-fn arg(destination: (tg::Id, Option<String>), roots: Vec<tg::Referent<tg::Id>>) -> put::Arg {
+fn arg(destination: (tg::Id, Option<String>), roots: Vec<tg::Referent<tg::Id>>) -> Capture {
 	let (subject, version) = destination;
-	put::Arg {
+	Capture {
+		expires_at: 1_000,
 		principal: tg::Principal::Root,
 		resource: roots.into_iter().next().unwrap(),
+		sources: BTreeSet::new(),
 		subject,
 		version,
 	}
 }
 
-async fn enqueue(index: &Index, arg: put::Arg) {
+async fn enqueue(index: &Index, arg: Capture) {
 	let mut items = vec![tangram_index::batch::Item::PutPermissionCapture(
 		arg.clone(),
 	)];
@@ -539,4 +540,141 @@ async fn terminal_capture_removes_all_contexts_and_the_reverse_key() {
 		index.db.prefix_iter(&transaction, &prefix).unwrap().count(),
 		0
 	);
+}
+
+#[tokio::test]
+async fn permission_updates_notify_capture_only_for_subjects_that_can_extend_authority() {
+	let (_directory, index) = new_index();
+
+	// Add a capture for a user without a notification.
+	let object = object_id(b"notify");
+	let process = tg::process::Id::new();
+	let user = tg::user::Id::new();
+	let mut capture = arg((process.clone().into(), None), vec![root(object.clone())]);
+	capture.principal = tg::Principal::User(user.clone());
+	capture.sources = BTreeSet::from([tg::authorization::Subject::User(user.clone())]);
+	let batch = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutPermissionCapture(capture)],
+	};
+	index.batch(batch).await.unwrap().unwrap();
+
+	// Verify that permissions for an unrelated user and for the capture subject do not notify the worker.
+	let other = tg::authorization::Subject::User(tg::user::Id::new());
+	assert!(!notified(&index, &object, other).await);
+	let subject = tg::authorization::Subject::Process(process);
+	assert!(!notified(&index, &object, subject).await);
+
+	// Verify that permissions for the source and for subjects that can reach the principal notify the worker.
+	let subjects = [
+		tg::authorization::Subject::User(user),
+		tg::authorization::Subject::Group(tg::group::Id::new()),
+		tg::authorization::Subject::Process(tg::process::Id::new()),
+		tg::authorization::Subject::Sync(tg::sync::Id::new()),
+	];
+	for subject in subjects {
+		assert!(notified(&index, &object, subject).await);
+	}
+}
+
+#[tokio::test]
+async fn permission_captures_extend_and_expire() {
+	let (_directory, index) = new_index();
+	let object = object_id(b"expire");
+	let user = tg::user::Id::new();
+	let resource = tg::Id::from(object.clone());
+	let source = tg::authorization::Subject::User(user.clone());
+
+	// Put a capture and then the same capture with a later expiration.
+	let mut capture = arg(
+		(tg::process::Id::new().into(), None),
+		vec![root(object.clone())],
+	);
+	capture.expires_at = 10;
+	capture.principal = tg::Principal::User(user);
+	capture.sources = BTreeSet::from([source.clone()]);
+	let mut extended = capture.clone();
+	extended.expires_at = 30;
+	let batch = tangram_index::batch::Arg {
+		items: vec![
+			tangram_index::batch::Item::PutPermissionCapture(capture),
+			tangram_index::batch::Item::PutPermissionCapture(extended.clone()),
+		],
+	};
+	index.batch(batch).await.unwrap().unwrap();
+	assert_eq!(
+		index.get_permission_captures(&resource).await.unwrap(),
+		vec![extended.clone()]
+	);
+
+	// Clean before the later expiration and verify that the capture remains.
+	clean(&index, 20).await;
+	assert_eq!(
+		index.get_permission_captures(&resource).await.unwrap(),
+		vec![extended]
+	);
+
+	// Clean after the later expiration and verify that the capture and its source key are removed.
+	clean(&index, 40).await;
+	assert_eq!(
+		index.get_permission_captures(&resource).await.unwrap(),
+		Vec::new()
+	);
+	let transaction = index.env.read_txn().unwrap();
+	assert!(
+		!Index::has_permission_captures_for_source_with_transaction(
+			&index.db,
+			&index.subspace,
+			&transaction,
+			&resource,
+			&source,
+		)
+		.unwrap()
+	);
+}
+
+async fn clean(index: &Index, now: i64) {
+	let arg = tangram_index::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: i64::MIN,
+		max_process_touched_at: i64::MIN,
+		max_sandbox_touched_at: i64::MIN,
+		now,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	index.clean(arg).await.unwrap();
+}
+
+async fn notified(
+	index: &Index,
+	object: &tg::object::Id,
+	subject: tg::authorization::Subject,
+) -> bool {
+	// Grant permissions to the subject and index them.
+	let source = tangram_index::permission::Source::Direct {
+		expires_at: Some(i64::MAX),
+	};
+	let arg = tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: None,
+		permissions: subtree(),
+		resource: object.clone().into(),
+		source,
+		subject,
+		time_to_touch: None,
+		version: None,
+	};
+	write_permissions(index, vec![arg]).await;
+	index
+		.update_batch(tangram_index::update::Kind::Permission, 100)
+		.await
+		.unwrap();
+
+	// Read and complete the notifications.
+	let entries = index.permission_capture_batch(8, 0, 1).await.unwrap();
+	for entry in &entries {
+		index.complete_permission_capture(entry).await.unwrap();
+	}
+
+	!entries.is_empty()
 }

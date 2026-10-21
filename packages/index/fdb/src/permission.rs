@@ -79,7 +79,7 @@ impl Index {
 	pub async fn get_permission_captures(
 		&self,
 		resource: &tg::Id,
-	) -> tg::Result<Vec<tangram_index::permission::capture::put::Arg>> {
+	) -> tg::Result<Vec<tangram_index::permission::capture::Capture>> {
 		let request = tangram_index::read::Request::GetPermissionCaptures {
 			resource: resource.clone(),
 		};
@@ -322,7 +322,7 @@ impl tangram_index::permission::Index for Index {
 	async fn get_permission_captures(
 		&self,
 		resource: &tg::Id,
-	) -> tg::Result<Vec<tangram_index::permission::capture::put::Arg>> {
+	) -> tg::Result<Vec<tangram_index::permission::capture::Capture>> {
 		self.get_permission_captures(resource).await
 	}
 

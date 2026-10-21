@@ -11,13 +11,13 @@ pub struct Arg {
 pub enum Item {
 	#[tangram_serialize(id = 33)]
 	CapturePermission {
-		capture: crate::permission::capture::put::Arg,
+		capture: crate::permission::capture::Capture,
 		permission: crate::permission::put::Arg,
 	},
 
 	#[tangram_serialize(id = 34)]
 	ContinuePermissionCapture {
-		capture: crate::permission::capture::put::Arg,
+		capture: crate::permission::capture::Capture,
 		resource: tg::Referent<tg::Id>,
 	},
 
@@ -43,7 +43,7 @@ pub enum Item {
 	DeletePermission(crate::permission::delete::Arg),
 
 	#[tangram_serialize(id = 32)]
-	DeletePermissionCapture(crate::permission::capture::put::Arg),
+	DeletePermissionCapture(crate::permission::capture::Capture),
 
 	#[tangram_serialize(id = 5)]
 	DeleteSandbox(tg::sandbox::Id),
@@ -88,7 +88,7 @@ pub enum Item {
 	PutPermission(crate::permission::put::Arg),
 
 	#[tangram_serialize(id = 31)]
-	PutPermissionCapture(crate::permission::capture::put::Arg),
+	PutPermissionCapture(crate::permission::capture::Capture),
 
 	#[tangram_serialize(id = 15)]
 	PutProcess(crate::process::put::Arg),

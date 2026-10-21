@@ -294,9 +294,11 @@ async fn stale_capture_cannot_restore_cleaned_process_records_or_permissions() {
 	let id = tg::process::Id::new();
 	let data = process_data(tg::process::Status::Finished, String::new());
 	let resource: tg::Id = tg::file::Id::new(b"capture-race").into();
-	let capture = tangram_index::permission::capture::put::Arg {
+	let capture = tangram_index::permission::capture::Capture {
+		expires_at: i64::MAX,
 		principal: tg::Principal::Anonymous,
 		resource: tg::Referent::with_node(resource.clone()),
+		sources: std::collections::BTreeSet::new(),
 		subject: id.clone().into(),
 		version: None,
 	};

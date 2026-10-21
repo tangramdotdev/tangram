@@ -15,9 +15,32 @@ pub enum Key {
 	Object(crate::object::Key),
 	Organization(crate::organization::Key),
 	Permission(crate::permission::Key),
-	PermissionCapture { resource: tg::Id, subject: tg::Id },
-	PermissionCaptureQueue { partition: u64, resource: tg::Id },
-	PermissionCaptureSubject { resource: tg::Id, subject: tg::Id },
+	PermissionCapture {
+		digest: [u8; 32],
+		resource: tg::Id,
+		subject: tg::Id,
+	},
+	PermissionCaptureExpiresAt {
+		digest: [u8; 32],
+		expires_at: i64,
+		resource: tg::Id,
+		subject: tg::Id,
+	},
+	PermissionCaptureQueue {
+		partition: u64,
+		resource: tg::Id,
+	},
+	PermissionCaptureSource {
+		digest: [u8; 32],
+		resource: tg::Id,
+		source: tg::authorization::Subject,
+		subject: tg::Id,
+	},
+	PermissionCaptureSubject {
+		digest: [u8; 32],
+		resource: tg::Id,
+		subject: tg::Id,
+	},
 	Process(crate::process::Key),
 	Runner(crate::runner::Key),
 	Sandbox(crate::sandbox::Key),
@@ -97,6 +120,8 @@ pub enum Kind {
 	PermissionCaptureQueue = 90,
 	PermissionCapture = 91,
 	PermissionCaptureSubject = 92,
+	PermissionCaptureSource = 93,
+	PermissionCaptureExpiresAt = 94,
 }
 
 impl fdbt::TuplePack for Key {
@@ -106,16 +131,39 @@ impl fdbt::TuplePack for Key {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
-			Key::PermissionCapture { resource, subject } => (
+			Key::PermissionCapture {
+				digest,
+				resource,
+				subject,
+			} => (
 				Kind::PermissionCapture.to_i32().unwrap(),
 				resource.to_bytes().as_ref(),
 				subject.to_bytes().as_ref(),
+				digest.as_slice(),
 			)
 				.pack(w, tuple_depth),
-			Key::PermissionCaptureSubject { resource, subject } => (
+			Key::PermissionCaptureSubject {
+				digest,
+				resource,
+				subject,
+			} => (
 				Kind::PermissionCaptureSubject.to_i32().unwrap(),
 				subject.to_bytes().as_ref(),
 				resource.to_bytes().as_ref(),
+				digest.as_slice(),
+			)
+				.pack(w, tuple_depth),
+			Key::PermissionCaptureExpiresAt {
+				digest,
+				expires_at,
+				resource,
+				subject,
+			} => (
+				Kind::PermissionCaptureExpiresAt.to_i32().unwrap(),
+				*expires_at,
+				resource.to_bytes().as_ref(),
+				subject.to_bytes().as_ref(),
+				digest.as_slice(),
 			)
 				.pack(w, tuple_depth),
 			Key::PermissionCaptureQueue {
@@ -125,6 +173,19 @@ impl fdbt::TuplePack for Key {
 				Kind::PermissionCaptureQueue.to_i32().unwrap(),
 				*partition,
 				resource.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+			Key::PermissionCaptureSource {
+				digest,
+				resource,
+				source,
+				subject,
+			} => (
+				Kind::PermissionCaptureSource.to_i32().unwrap(),
+				resource.to_bytes().as_ref(),
+				source.to_string(),
+				subject.to_bytes().as_ref(),
+				digest.as_slice(),
 			)
 				.pack(w, tuple_depth),
 			Key::Delegation(crate::delegation::Key::Delegation {
@@ -721,21 +782,92 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, resource): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, subject): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, digest): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource)
 					.map_err(|_| fdbt::PackError::Message("invalid capture resource".into()))?;
 				let subject = tg::Id::from_slice(&subject)
 					.map_err(|_| fdbt::PackError::Message("invalid capture subject".into()))?;
-				Ok((input, Key::PermissionCapture { resource, subject }))
+				let digest = digest
+					.try_into()
+					.map_err(|_| fdbt::PackError::Message("invalid capture digest".into()))?;
+				Ok((
+					input,
+					Key::PermissionCapture {
+						digest,
+						resource,
+						subject,
+					},
+				))
+			},
+			Kind::PermissionCaptureExpiresAt => {
+				let (input, expires_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, resource): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, subject): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, digest): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let resource = tg::Id::from_slice(&resource)
+					.map_err(|_| fdbt::PackError::Message("invalid capture resource".into()))?;
+				let subject = tg::Id::from_slice(&subject)
+					.map_err(|_| fdbt::PackError::Message("invalid capture subject".into()))?;
+				let digest = digest
+					.try_into()
+					.map_err(|_| fdbt::PackError::Message("invalid capture digest".into()))?;
+				Ok((
+					input,
+					Key::PermissionCaptureExpiresAt {
+						digest,
+						expires_at,
+						resource,
+						subject,
+					},
+				))
+			},
+			Kind::PermissionCaptureSource => {
+				let (input, resource): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, source): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, subject): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, digest): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let resource = tg::Id::from_slice(&resource)
+					.map_err(|_| fdbt::PackError::Message("invalid capture resource".into()))?;
+				let source = source
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid capture source".into()))?;
+				let subject = tg::Id::from_slice(&subject)
+					.map_err(|_| fdbt::PackError::Message("invalid capture subject".into()))?;
+				let digest = digest
+					.try_into()
+					.map_err(|_| fdbt::PackError::Message("invalid capture digest".into()))?;
+				Ok((
+					input,
+					Key::PermissionCaptureSource {
+						digest,
+						resource,
+						source,
+						subject,
+					},
+				))
 			},
 			Kind::PermissionCaptureSubject => {
 				let (input, subject): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, resource): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, digest): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let subject = tg::Id::from_slice(&subject)
 					.map_err(|_| fdbt::PackError::Message("invalid capture subject".into()))?;
 				let resource = tg::Id::from_slice(&resource)
 					.map_err(|_| fdbt::PackError::Message("invalid capture resource".into()))?;
-				Ok((input, Key::PermissionCaptureSubject { resource, subject }))
+				let digest = digest
+					.try_into()
+					.map_err(|_| fdbt::PackError::Message("invalid capture digest".into()))?;
+				Ok((
+					input,
+					Key::PermissionCaptureSubject {
+						digest,
+						resource,
+						subject,
+					},
+				))
 			},
 			Kind::DelegationSubject => {
 				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;

@@ -17,6 +17,7 @@ workspace = true
 doctest = false
 
 [dependencies]
+blake3 = { workspace = true }
 derive_more = { workspace = true }
 foundationdb-tuple = { workspace = true }
 futures = { workspace = true }

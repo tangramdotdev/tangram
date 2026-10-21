@@ -116,7 +116,7 @@ pub enum Request {
 pub enum Response {
 	ContainsIds(Vec<bool>),
 	GetIndexers(Vec<crate::indexer::Indexer>),
-	GetPermissionCaptures(Vec<crate::permission::capture::put::Arg>),
+	GetPermissionCaptures(Vec<crate::permission::capture::Capture>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSubjectsForPrincipal(Vec<tg::authorization::Subject>),
 	GetTransactionId(u64),
