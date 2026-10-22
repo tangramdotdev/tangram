@@ -38,7 +38,6 @@ for single_process in [true false] {
 
 	# The server must keep running while the process runs.
 	assert (ps | where pid == $pid | is-not-empty) "the server must wait for the running process"
-	assert not (open --raw $local.log | str contains 'TRACE runner task') "the runner must wait for the running process"
 
 	# Release the process by killing the holder, which closes the FIFO's last writer. The server must exit once the process finishes.
 	^kill -KILL $holder

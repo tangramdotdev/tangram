@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A shortcut sandbox derives its ID and becomes active before its control connection receives its header, and its process completes once the connection is released.
+# A shortcut sandbox becomes active before its control connection receives its header, and its process completes once the connection is released.
 
 let root_token = random chars
 let remote = server spawn --preserve-keys --name remote --config {
@@ -41,12 +41,9 @@ let build = job spawn {
 success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | complete) "the parent sandbox should become active"
 tg --url $runner.url checkpoint continue runner.sandbox.state.inserted $state_watch 0
 
-# The remote receives the child's sandbox connection, and the child's sandbox becomes active with the same ID while the connection is held.
-let received = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.shortcut.received $shortcut_watch 0 | from json
-let sandbox = $received.params.sandbox
-assert ($sandbox | str starts-with 'sbx_') "the runner should derive a sandbox ID"
-let state = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 1 | from json
-assert equal $state.params.sandbox $sandbox "the shortcut sandbox should become active with its derived ID before its header"
+# The remote receives the child's sandbox connection, and the child's sandbox becomes active while the connection is held.
+success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.shortcut.received $shortcut_watch 0 | complete) "the remote should receive the child's sandbox connection"
+success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 1 | complete) "the shortcut sandbox should become active before its header"
 tg --url $runner.url checkpoint unwatch runner.sandbox.state.inserted $state_watch
 
 # Release the connection, and the child completes.

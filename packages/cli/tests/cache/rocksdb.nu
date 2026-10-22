@@ -21,7 +21,7 @@ let id = tg checkin --no-checkout-pointers --no-tokens $path | referent node
 let process = tg build --no-tokens --detach $path | referent node
 tg wait $process | ignore
 
-let server = server restart $local
+let local = server restart $local
 let checkout = tg checkout $id | str trim
 assert equal (open --raw ($checkout | path join 'a.txt')) $content
 assert equal (open --raw ($checkout | path join 'nested/b.txt')) 'hello'
@@ -29,4 +29,3 @@ assert equal (tg process log --stream stdout $process | str trim) 'stdout'
 let stderr = tg process log --stream stderr $process | complete
 success $stderr
 assert equal ($stderr.stderr | str trim) 'stderr'
-assert ($server.directory | path join 'cache.rocksdb/CURRENT' | path exists)

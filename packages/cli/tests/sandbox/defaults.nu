@@ -2,42 +2,59 @@ use ../lib/test.nu *
 
 # Omitted resources are unlimited, configured defaults are enforced, and explicit requests take precedence.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux cgroups' }
-if (id -u | into int) == 0 { skip_test 'this test requires unprivileged pasta networking' }
-if (which pasta | is-empty) { skip_test 'this test requires pasta' }
+let cpus = ^nproc | str trim | into int
+if $cpus < 3 { skip_test 'this test requires at least three CPUs' }
+
+let module = artifact {
+	tangram.ts: '
+		import busybox from "busybox";
+		export default (script: string) => tg.command({
+			executable: "/bin/sh",
+			args: ["-c", script],
+		}).env(tg.build(busybox));
+	',
+}
 
 for case in [
-	{ scheduler: {}, cpu: max, memory: max },
-	{ scheduler: { default_cpu: 1 }, cpu: '1000000', memory: max },
-	{ scheduler: { default_memory: 268435456 }, cpu: max, memory: '268435456' },
-	{ scheduler: { default_cpu: 1, default_memory: 268435456 }, cpu: '1000000', memory: '268435456' },
+	{ scheduler: {}, cpu: $cpus, memory: null },
+	{ scheduler: { default_cpu: 1 }, cpu: 1, memory: null },
+	{ scheduler: { default_memory: 268435456 }, cpu: $cpus, memory: 268435456 },
+	{ scheduler: { default_cpu: 1, default_memory: 268435456 }, cpu: 1, memory: 268435456 },
 ] {
-	let local = server spawn --config {
+	let local = server spawn --busybox --config {
 		runner: { backend: { kind: builtin }, sandbox_pool_size: 0 },
 		scheduler: $case.scheduler,
 	}
-	let server_pid = glob ($local.directory | path join '**/lock')
-		| each { |path| open --raw $path | str trim }
-		| where { |pid| (^ps -o command= -p $pid | complete).stdout | str contains $local.directory }
-		| first
+	let nproc = tg build $module --arg-string 'nproc' | str trim
 
 	for explicit in [false true] {
-		let args = if $explicit { [--cpu '0.5' --memory 134217728] } else { [] }
-		let sandbox = tg sandbox create --network --no-tokens --no-ttl ...$args | referent node
-		# Wait for the runner to finish starting the sandbox, because the sandbox can connect before its pasta helper starts.
-		wait_for_log $local $'the sandbox is ready, sandbox=($sandbox)'
-		let helpers = ^pgrep -P $server_pid -f '(^|/)pasta([.[:space:]]|$)' | lines
-		assert equal ($helpers | length) 1
-		let helper = $helpers | first
-		let cgroup = open --raw $'/proc/($helper)/cgroup' | str trim | str replace '0::' '' | path dirname
-		let path = $'/sys/fs/cgroup($cgroup)'
-		let cpu = if ($path | path join cpu.max | path exists) { open --raw ($path | path join cpu.max) | split row ' ' | first } else { max }
-		let memory = open --raw ($path | path join memory.max) | str trim
-		assert equal $cpu (if $explicit { '500000' } else { $case.cpu })
-		if not $explicit and $case.cpu == max and ($path | path join cpuset.cpus | path exists) {
-			assert equal (open --raw ($path | path join cpuset.cpus) | str trim) '' 'an unlimited sandbox must not be pinned to a subset of CPUs'
-		}
-		assert equal $memory (if $explicit { '134217728' } else { $case.memory })
+		let args = if $explicit { [--cpu 2 --memory 134217728] } else { [] }
+		let cpu = if $explicit { 2 } else { $case.cpu }
+		let memory = if $explicit { 134217728 } else { $case.memory }
+
+		# Check the number of CPUs available to a process in the sandbox.
+		let sandbox = tg sandbox create --no-tokens --no-ttl ...$args | referent node
+		let output = tg run --no-tokens $'--sandbox=($sandbox)' $nproc | complete
+		success $output 'the process should report its CPUs'
+		assert equal ($output.stdout | str trim | into int) $cpu 'the process should see the expected number of CPUs'
 		tg sandbox destroy $sandbox
+		tg sandbox wait $sandbox | ignore
+
+		# Allocate more memory than the expected limit, or a large amount of memory when the sandbox is unlimited.
+		let size = if $memory == null { 402653184 } else { $memory * 3 // 2 }
+		let allocate = tg build $module --arg-string $'dd if=/dev/zero of=/dev/null bs=($size) count=1' | str trim
+		let sandbox = tg sandbox create --no-tokens --no-ttl ...$args | referent node
+		let process = tg spawn --no-tokens $'--sandbox=($sandbox)' $allocate | referent node
+		let output = tg wait $process | complete
+		success $output 'the process should finish'
+		let outcome = $output.stdout | from json
+		if $memory == null {
+			assert equal $outcome.exit 0 'an unlimited sandbox should allow the allocation'
+		} else {
+			let error = tg get --depth inf --no-tokens $outcome.error
+			assert ($error | str contains 'the sandbox exceeded its memory max') 'the sandbox should not allow an allocation beyond its memory max'
+		}
+		tg sandbox destroy $sandbox | complete | ignore
 		tg sandbox wait $sandbox | ignore
 	}
 	server stop $local

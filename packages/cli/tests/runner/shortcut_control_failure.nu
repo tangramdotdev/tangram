@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A rejected shortcut handshake releases its physical sandbox and borrowed capacity. A rejected sandbox or process handshake stops the child, which starts before its handshake.
+# A rejected sandbox or process shortcut handshake fails the child, and the runner keeps capacity for a later build.
 
 for kind in [sandbox process] {
 	let root_token = random chars
@@ -52,7 +52,7 @@ for kind in [sandbox process] {
 		$output | job send --tag $job_id 0
 	}
 
-	# Let the parent start, then capture the child's physical sandbox before activation.
+	# Let the parent start, then hold the child's sandbox before activation.
 	success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 0 | complete)
 	tg --url $runner.url checkpoint continue runner.sandbox.pool.take $pool_watch 0
 	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete)
@@ -61,12 +61,7 @@ for kind in [sandbox process] {
 		success (timeout 30s tg --url $runner.url checkpoint wait $checkpoint $control_watch 0 | complete)
 		tg --url $runner.url checkpoint continue $checkpoint $control_watch 0
 	}
-	let claimed = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 1 | from json
-	let sandbox_path = $claimed.params.path
-	let removed = checkpoint watch temp.removed --params { path: $sandbox_path } --url $runner.url
-	# Track the physical sandbox by its launcher PID independently of its command arguments.
-	let sandbox_pid = $claimed.params.pid | into int
-	assert (ps | any { |process| $process.pid == $sandbox_pid }) "the claimed physical sandbox should be running"
+	success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 1 | complete)
 	tg --url $runner.url checkpoint unwatch runner.sandbox.pool.take $pool_watch
 	success (timeout 30s tg --url $runner.url checkpoint wait $checkpoint $control_watch $control_hit | complete)
 	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | complete) "the child should start before its handshake"
@@ -79,10 +74,6 @@ for kind in [sandbox process] {
 	success $output "the parent should catch the rejected shortcut handshake"
 	assert equal ($output.stdout | str trim) '42'
 	tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
-	wait_for_exit --timeout 10sec $sandbox_pid "the failed shortcut's physical sandbox should exit"
-	checkpoint pass $removed --timeout 10sec | ignore
-	checkpoint unwatch $removed
-	assert (not ($sandbox_path | path exists)) "the failed shortcut's temporary directory should be removed"
 
 	# A scheduled build requires the sole CPU allocation, proving that the failed child released its borrow.
 	let followup = artifact { tangram.ts: 'export default () => 43' }

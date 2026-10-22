@@ -11,7 +11,7 @@ let end = tg checkpoint watch process.stdio.log.end | from json | get watch
 let path = artifact {
 	tangram.ts: '
 		export default function () { return tg.build(child); }
-		export function child() {}
+		export function child() { console.log("hello"); }
 	',
 }
 let id = tg build --no-tokens --detach $path | referent node
@@ -19,11 +19,12 @@ timeout 10s tg checkpoint wait index.batch $batch 0 | ignore
 
 # EOF must reach persistence while the child's initial index write is pending.
 let child = timeout 10s tg checkpoint wait process.stdio.log.end $end 0 | from json | get params.process
-assert ($child != $id)
 tg checkpoint unwatch process.stdio.log.end $end
 tg checkpoint unwatch index.batch $batch
 tg checkpoint unwatch runner.process.finish $finish
 timeout 10s tg wait --source=index $child | ignore
 timeout 10s tg wait --source=index $id | ignore
 success (timeout 10s tg index | complete)
-assert ((tg get $child | from json | get log?) | is-not-empty)
+let output = tg log $child | complete
+success $output
+assert equal $output.stdout "hello\n"

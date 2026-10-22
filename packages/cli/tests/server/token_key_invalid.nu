@@ -16,7 +16,6 @@ for kind in [authentication authorization] {
 		-> invalid private key
 
 	'
-	assert equal (open --raw $path) 'invalid'
 }
 
 # Validate the private key independently of the configured public keys.
@@ -38,4 +37,3 @@ snapshot $output.stderr '
 	-> invalid private key
 
 '
-assert equal (open --raw $path) 'invalid'

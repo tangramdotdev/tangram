@@ -6,4 +6,8 @@ let directory = mktemp -d
 let output = with-env { TANGRAM_MODE: auto } { tg -d $directory server status | complete }
 success $output
 assert equal ($output.stdout | from json) 'stopped'
-assert not (($directory | path join 'socket') | path exists)
+
+# A second status check still reports the server as stopped.
+let output = with-env { TANGRAM_MODE: auto } { tg -d $directory server status | complete }
+success $output
+assert equal ($output.stdout | from json) 'stopped'

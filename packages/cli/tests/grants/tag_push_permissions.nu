@@ -35,10 +35,4 @@ tg --url $remote.url --token $alice.token grant $bob.user.id tag_read $tag.id | 
 tg --url $remote.url --token $alice.token index
 let destination = tg --url $remote.url --token $bob.token get $process | from json
 assert equal $destination.status finished
-let target = tg --url $remote.url --token $bob.token children --verbose $tag.id | from json | get data.0
-let permissions = $target.options.tokens.local | each {|token|
-	$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json | get permissions
-} | flatten
-assert ($permissions | any {|permission| $permission == 'process_node' or $permission == 'process_subtree' }) "the imported tag must confer access to the process node."
-assert (not ($permissions | any {|permission| $permission == 'process_node_output_objects' or $permission == 'process_subtree_output_objects' })) "the imported tag must not confer access to the untransferred output objects."
 failure (tg --url $remote.url --token $bob.token get $output | complete) "the destination must not expose the untransferred output."

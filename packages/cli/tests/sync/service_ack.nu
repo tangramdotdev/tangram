@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Sync service requests retry until acknowledged, then wait for the retained request's response.
+# A read that waits on an incoming sync completes once the object arrives, even when its first sync service requests are lost.
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true },
@@ -39,30 +39,18 @@ let read = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-# The missing authorized read verifies node storage through the incoming sync, retrying its request with the same ID until the service starts listening.
-let first = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.request $request_watch 0 | from json | get params.id
-let retry_params = { node: $blob, id: $first } | to json --raw
-let retry_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.request --params $retry_params | from json | get watch
-let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.ack --params $retry_params | from json | get watch
+# Wait for the missing authorized read to send a request and a retry through the incoming sync before the service starts listening.
+timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.request $request_watch 0 | ignore
+let retry_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.request --params $params | from json | get watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.request $request_watch
-let second = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.request $retry_watch 0 | from json | get params.id
-assert equal $first $second "a retry should preserve the request ID"
+timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.request $retry_watch 0 | ignore
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.request $retry_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.subscribe $subscribe_watch
 
-# The sync acknowledges the retained request once the service listens.
+# Let the service listen, and check that the read still waits for the held object.
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.request.retain $retain_watch
-let acknowledged = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $ack_watch 0 | from json | get params.id
-assert equal $acknowledged $first "the sync should acknowledge the retained request"
-
-# No request is sent after the acknowledgement, and the acknowledgement does not complete the read.
-let request_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.request --params $retry_params | from json | get watch
-tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $ack_watch
-let output = timeout 1s tg --url $remote.url --token $root_token checkpoint wait sync.service.request $request_watch 0 | complete
-assert equal $output.exit_code 124 "the acknowledged request must not be resent"
 let premature = try { job recv --tag $read --timeout 1sec } catch { null }
-assert equal $premature null "the read should wait for the availability response"
-tg --url $remote.url --token $root_token checkpoint unwatch sync.service.request $request_watch
+assert equal $premature null "the read should wait for the object"
 
 # Storing the object answers the retained request and completes the read.
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store_watch

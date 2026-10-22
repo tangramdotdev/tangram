@@ -1,7 +1,7 @@
 use ../lib/test.nu *
-use ../lib/checkin.nu checkin-output
+use ../lib/checkin.nu reference-access
 
-# An embedded graph token proves subtree permission for a pointer with solving disabled.
+# An embedded graph token lets a checked-in file's reference grant another user read access to a pointer dependency with solving disabled.
 
 let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
@@ -9,6 +9,7 @@ let local = server spawn --config {
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
+let eve = tg login --verbose --name eve | from json
 
 let graph = (
 	tg --token $alice.token put --no-tokens '
@@ -41,5 +42,5 @@ let directory = artifact {
 	input: (file --xattrs { "user.tangram.dependencies": $dependencies } pointer)
 }
 let path = $directory | path join input
-let output = checkin-output $local $path --no-solve --token $bob.token
-assert equal $output.permissions [object_subtree] "the embedded graph token should prove subtree permission"
+let reference = tg --token $bob.token checkin --no-lock --root --no-solve $path | str trim
+assert equal (reference-access $reference --token $eve.token) subtree "the embedded graph token should make the reference grant the subtree"

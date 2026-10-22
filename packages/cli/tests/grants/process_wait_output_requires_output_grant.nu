@@ -32,8 +32,6 @@ tg --token $alice.token grant $eve.user.id process_node $process
 let everesult = tg --token $eve.token wait $process | from json
 assert ($everesult.exit == 0) "Eve should see the process exit."
 assert_output $everesult.output
-let params = $'http://localhost/($everesult.output.value)' | url parse | get params
-assert ($params | is-empty) "a process node grant must not expose output capabilities."
 failure (tg --token $eve.token cat $everesult.output.value | complete) "a node grant must not authorize reading the output"
 
 # Granting Eve the output permission authorizes the object.

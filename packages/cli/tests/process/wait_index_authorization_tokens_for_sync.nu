@@ -16,6 +16,7 @@ let runner = server spawn --name runner --config {
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json
+let carol = tg --url $remote.url login --verbose --name carol | from json
 
 for field in [output error log] {
 	let operation = if $field == log { 'get' } else { 'wait' }
@@ -39,11 +40,15 @@ for field in [output error log] {
 	# Force the index path so a live runner response cannot supply the token.
 	let output = timeout 30s tg --url $remote.url --token $root_token $operation --source=index $process | from json
 	let object = if $field == output { $output.output.value } else if $field == error { $output.error } else { $output.log }
-	let params = $'http://localhost/($object)' | url parse | get params
-	assert ($params | where {|param| $param.key starts-with 'tokens[' } | any {|param|
-		let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-		($body.resource | str starts-with 'syn_') and ('sync_read' in $body.permissions)
-	}) "the indexed outcome must carry the authorization token for the sync"
+
+	# Read the output or error as another user while the outcome sync is held, which succeeds only through the sync.
+	let read_job = if $field != log {
+		failure (timeout 10s tg --url $remote.url --token $carol.token get ($object | split row '?' | first) | complete) "another user must not read the result without a token while the outcome sync is held"
+		job spawn {
+			let job_id = job id
+			timeout 30s tg --url $remote.url --token $carol.token get $object | complete | job send --tag $job_id 0
+		}
+	}
 
 	# Hold the control response so an automatic wait must return the indexed outcome.
 	let control_watch = tg --url $remote.url --token $root_token checkpoint watch process.get.control | from json | get watch
@@ -81,4 +86,8 @@ for field in [output error log] {
 	tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $push_watch
 	let read = timeout 30s tg --url $remote.url --token $alice.token get $authorized_object | complete
 	success $read "the indexed authorization token for the sync must allow reading the result"
+	if $read_job != null {
+		let read = job recv --tag $read_job --timeout 30sec
+		success $read "the indexed outcome must carry an authorization token that allows another user to read the result through the sync"
+	}
 }

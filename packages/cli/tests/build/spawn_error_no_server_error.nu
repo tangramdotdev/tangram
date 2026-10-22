@@ -1,8 +1,8 @@
 use ../lib/test.nu *
 
-# A sandbox spawn failure finishes the process log without reporting a control or sandbox task failure.
+# A sandbox spawn failure fails the process and finishes its log.
 
-let local = server spawn --config { tracing: { stderr_format: 'json' } }
+let local = server spawn
 
 let id = tg build --no-tokens --detach --executable /tangram-missing-executable | referent node
 let output = tg output $id | complete
@@ -14,5 +14,3 @@ let output = timeout 10 tg log --no-timeout $id | complete
 success $output
 assert equal $output.stdout ''
 assert equal $output.stderr ''
-
-snapshot (server_errors $local) ''

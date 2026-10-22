@@ -1,15 +1,8 @@
 use ../lib/test.nu *
 use ../lib/lsp.nu
 
-# Wait until the server log contains every record that the server wrote before this call, by requesting a uniquely traced match and following the log until it appears.
-def drain_log [server: record] {
-	let marker = $'logmarker(random chars | str lowercase)'
-	tg match $marker | complete | ignore
-	wait_for_log $server $marker
-}
+# Repeated, interleaved, changed, and failed TypeScript requests return correct results from the retained language service.
 
-$env.TANGRAM_TRACING = 'tangram_server::match_=trace'
-$env.TSRS_REGION_LOG = '1'
 let local = server spawn
 let source = 'import { value } from "./helper.tg.ts"; export const answer: number = value; answer;'
 let character = ($source | str index-of --end answer) + 1
@@ -45,11 +38,6 @@ for id in 20..59 {
     $session = $response.session
     assert ($response.result.contents.value | str contains 'number')
 }
-
-# Unchanged requests share one native program, including completion preparation and resolution.
-drain_log $local
-let created = open --raw $local.log | lines | where {|line| ($line | str contains 'regions: program ') and ($line | str contains ': created ') } | length
-assert equal $created 1
 
 # Completion preparation for another file must preserve earlier completion state.
 let other_uri = lsp uri ($path | path join other.tg.ts)

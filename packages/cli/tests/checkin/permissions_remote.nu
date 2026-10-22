@@ -1,8 +1,8 @@
 use ../lib/test.nu *
-use ../lib/checkin.nu checkin-output
 
-# A trusted remote localizes its permission token, while an untrusted remote does not.
+# A trusted remote lets a checked-in file's reference grant another user read access to its dependency, while an untrusted remote does not.
 
+let root_token = random chars
 let remote = server spawn --name remote --config { remotes: {} }
 let dependency_path = artifact { value: remote }
 let dependency = tg --url $remote.url checkin --no-tokens --no-lock --root $dependency_path | referent node
@@ -18,18 +18,29 @@ def dependency_file [dependency: string, contents: string] {
 	$directory | path join input
 }
 
-# A trusted remote proves subtree permission from the fetched root token without fetching descendants for permission discovery.
+# A trusted remote lets the reference grant the dependency.
 let remote_trusted = server spawn --name remote-trusted --config {
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 	remotes: { default: { trusted: true, url: $remote.url } }
 }
+let eve = tg --url $remote_trusted.url login --verbose --name eve | from json
 let path = dependency_file $dependency trusted
-let output = checkin-output $remote_trusted $path
-assert equal $output.permissions [object_subtree] "a trusted remote token should produce a subtree checkin token"
+let reference = tg --url $remote_trusted.url --token $root_token checkin --no-lock --root $path | str trim
 
-# An untrusted remote can provide the dependency bytes but cannot prove local subtree permission.
+# Store the dependency locally, then read it as another user through the reference.
+tg --url $remote_trusted.url --token $root_token get --depth=inf $reference | ignore
+success (tg --url $remote_trusted.url --token $eve.token get --depth=inf $reference | complete) "a trusted remote should make the reference grant the dependency"
+
+# An untrusted remote can provide the dependency bytes, but the reference does not grant the dependency.
 let remote_untrusted = server spawn --name remote-untrusted --config {
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 	remotes: { default: { url: $remote.url } }
 }
+let eve = tg --url $remote_untrusted.url login --verbose --name eve | from json
 let path = dependency_file $dependency untrusted
-let output = checkin-output $remote_untrusted $path
-assert equal $output.permissions [object_node] "an untrusted remote token should produce a node-only checkin token"
+let reference = tg --url $remote_untrusted.url --token $root_token checkin --no-lock --root $path | str trim
+
+# Store the dependency locally, then read it as another user through the reference.
+tg --url $remote_untrusted.url --token $root_token get --depth=inf $reference | ignore
+success (tg --url $remote_untrusted.url --token $eve.token get $reference | complete) "an untrusted remote should make the reference grant the checked in file"
+failure (tg --url $remote_untrusted.url --token $eve.token get --depth=inf $reference | complete) "an untrusted remote should not make the reference grant the dependency"

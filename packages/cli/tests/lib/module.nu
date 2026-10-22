@@ -21,8 +21,11 @@ export def resolve-module-background [socket: string, token: string, referrer: r
 	}
 }
 
-export def token-resources [module: record] {
-	$module.referent.options.tokens.local | each { |token|
-		$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json | get resource
-	}
+# Read an object as a user through only the tokens that a resolved module carries.
+export def read-with-module-tokens [token: string, id: string, module: record] {
+	let query = $module.referent.options.tokens.local
+		| enumerate
+		| each { |entry| $'tokens[local][($entry.index)]=($entry.item | url encode --all)' }
+		| str join '&'
+	tg --token $token get $'($id)?($query)' | complete
 }

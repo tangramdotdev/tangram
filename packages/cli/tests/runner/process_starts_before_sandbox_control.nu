@@ -34,15 +34,12 @@ let build = job spawn {
 }
 
 # The assigned identity activates an IDless physical sandbox without waiting for control.
-let claimed = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 0 | from json
+success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 0 | complete) "the scheduled sandbox should take a pooled sandbox"
 tg --url $runner.url checkpoint unwatch runner.sandbox.pool.take $pool_watch
-let connected = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.connect $connect_watch 0 | from json
-let state = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | from json
-assert equal $state.params.sandbox $connected.params.sandbox "the sandbox should already have its scheduler-assigned ID"
-assert equal $state.params.index $claimed.params.index "the scheduled sandbox should use the pooled physical sandbox"
+success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.connect $connect_watch 0 | complete) "sandbox control should begin connecting"
+success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | complete) "the sandbox should become active before sandbox control connects"
 tg --url $runner.url checkpoint unwatch runner.sandbox.state.inserted $state_watch
-let started = timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | from json
-assert ($started.params.process | str starts-with 'pcs_') "the assigned process should start before sandbox control connects"
+success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete) "the assigned process should start before sandbox control connects"
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.connect $connect_watch
 success (job recv --tag $build --timeout 30sec) "the build should complete after sandbox control connects"

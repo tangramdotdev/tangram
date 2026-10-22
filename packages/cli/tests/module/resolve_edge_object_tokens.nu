@@ -1,12 +1,10 @@
 use ../lib/test.nu *
 use ../lib/module.nu *
 
-# Resolving Edge::Object modules returns tokens for the resolved file IDs, so subsequent resolutions use exact-token authorization.
+# Resolving Edge::Object modules returns tokens for the resolved file IDs, so a user who holds only the command token can resolve each subsequent import.
 
-let root_token = random chars
 let local = server spawn --config {
-	advanced: { checkpoints: true }
-	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
+	authentication: { users: { providers: { insecure: true } } }
 }
 
 let alice = tg login --verbose --name alice | from json
@@ -61,25 +59,12 @@ tg --token $alice.token index
 assert equal $case.module.referent.node $case.a
 
 let socket = $local.url | str replace 'http+unix://' '' | url decode
-let watch = (
-	tg --token $root_token checkpoint watch verification.index
-	| from json
-	| get watch
-)
 
-# The first resolution must fall through to the index for A.
-let b_job = resolve-module-background $socket $bob.token $case.module './b'
-let hit = tg --token $root_token checkpoint wait verification.index $watch 0 | from json
-assert equal $hit.params.resource $case.a
-tg --token $root_token checkpoint continue verification.index $watch 0
+# The first resolution returns a token through which Bob can read B, which Bob cannot read by its ID alone.
+failure (tg --token $bob.token get $case.b | complete) 'bob must not read the object by its ID alone'
+let b = resolve-module $socket $bob.token $case.module './b'
+success (read-with-module-tokens $bob.token $case.b $b.module) 'bob must read B through the returned token'
 
-# The branch child must use its exact token from object get without another index lookup.
-let b = job recv --tag $b_job --timeout 10sec
-
-assert ($case.b in (token-resources $b.module))
-
-# Resolving B must complete without another index hit because it has an exact token.
-let c_job = resolve-module-background $socket $bob.token $b.module './c'
-let c = job recv --tag $c_job --timeout 10sec
-assert ($case.c in (token-resources $c.module))
-tg --token $root_token checkpoint unwatch verification.index $watch
+# Resolving B with the returned token returns a token through which Bob can read C.
+let c = resolve-module $socket $bob.token $b.module './c'
+success (read-with-module-tokens $bob.token $case.c $c.module) 'bob must read C through the returned token'

@@ -8,7 +8,6 @@ import struct
 import subprocess
 import sys
 import tempfile
-import time
 import uuid
 
 
@@ -19,20 +18,21 @@ maps = json.loads(sys.argv[2])
 name = 'tangram-test-' + uuid.uuid4().hex
 cgroup = pathlib.Path(sys.argv[3]) / name
 host, guest = socket.socketpair()
+output_reader, output_writer = os.pipe()
 host.settimeout(5)
 directory = tempfile.TemporaryDirectory()
 config = pathlib.Path(directory.name) / 'setup.json'
 config.write_text(json.dumps({
     'backend': {'kind': 'builtin', 'gid': os.getgid(), 'uid': os.getuid()},
-    'command': {'args': ['/bin/sleep', '30']},
+    'command': {'args': ['/bin/sh', '-c', 'echo ready; exec /bin/sleep 30']},
     'options': {'cgroup': {'name': name}, 'user_namespace_fd': guest.fileno()},
 }))
 process = subprocess.Popen([
     sys.argv[1], 'sandbox', 'run', '--config', str(config),
-], env={**os.environ, 'TMPDIR': directory.name}, pass_fds=(guest.fileno(),))
+], env={**os.environ, 'TMPDIR': directory.name}, pass_fds=(guest.fileno(),),
+    stdout=output_writer)
 guest.close()
-child = None
-workload_fd = None
+os.close(output_writer)
 try:
     pid = struct.unpack('i', host.recv(4))[0]
     for kind, identity in [('uid', os.getuid()), ('gid', os.getgid())]:
@@ -48,37 +48,16 @@ try:
                 str(count), str(count), str(identity), '1',
             ], check=True)
     host.sendall(b'0')
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        assert process.poll() is None, 'the launcher exited before the workload'
-        pending = [pid]
-        while pending and child is None:
-            parent = pending.pop()
-            try:
-                children = pathlib.Path(f'/proc/{parent}/task/{parent}/children').read_text().split()
-            except FileNotFoundError:
-                continue
-            for candidate in map(int, children):
-                try:
-                    command = pathlib.Path(f'/proc/{candidate}/comm').read_text().strip()
-                except FileNotFoundError:
-                    continue
-                if command == 'sleep':
-                    child = candidate
-                    break
-                pending.append(candidate)
-        if child is not None:
-            break
-        time.sleep(.01)
-    assert child is not None, 'the workload did not start'
-    workload_fd = os.pidfd_open(child)
+
+    # Wait for the workload to start, then kill its launcher and wait for every holder of the workload's standard output to exit.
     poll = select.poll()
-    poll.register(workload_fd, select.POLLIN)
-    assert not poll.poll(0), 'the workload exited before its launcher'
+    poll.register(output_reader, select.POLLIN)
+    assert poll.poll(5000), 'the workload did not start'
+    assert os.read(output_reader, 6) == b'ready\n', 'the workload did not start'
+    assert process.poll() is None, 'the launcher exited before the workload'
     process.kill()
     process.wait(timeout=5)
-    assert poll.poll(5000), 'the mapped workload survived its launcher'
-
+    assert poll.poll(5000) and os.read(output_reader, 1) == b'', 'the mapped workload survived its launcher'
 finally:
     if cgroup.exists():
         (cgroup / 'cgroup.kill').write_text('1\n')
@@ -92,7 +71,6 @@ finally:
             break
     if cgroup.exists():
         cgroup.rmdir()
-    if workload_fd is not None:
-        os.close(workload_fd)
+    os.close(output_reader)
     host.close()
     directory.cleanup()

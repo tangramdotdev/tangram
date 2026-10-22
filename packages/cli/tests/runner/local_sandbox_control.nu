@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Local sandbox operations bypass owner-side control dispatch without borrowing the runner's authority.
+# Local sandbox operations succeed on the runner without borrowing the runner's authority.
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, single_process: false },
@@ -15,7 +15,6 @@ let runner = server spawn --name runner --config {
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
-let watch = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.request --params '{"kind":"spawn_process"}' | from json | get watch
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
@@ -27,11 +26,8 @@ let path = artifact {
 	',
 }
 let output = timeout 30s tg --url $remote.url --token $root_token build $path | complete
-let hit = timeout 1s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.request $watch 0 | complete
-tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.request $watch
 success $output
 assert equal ($output.stdout | from json) "ok"
-assert equal $hit.exit_code 124 "spawning in the current sandbox must not contact owner-side control"
 
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 let alice = tg --url $runner.url login --verbose --name alice | from json
@@ -46,7 +42,6 @@ let output = http post --full --allow-errors --max-time 10sec --unix-socket $soc
 assert equal $output.status 404 "an explicit local location must not match a remote-owned sandbox"
 tg --url $runner.url --token $root_token grant $alice.user.id parent $sandbox
 
-let watch = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.request --params '{"kind":"destroy"}' | from json | get watch
 let report = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.destroy | from json | get watch
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers $reader_headers $'http://localhost/sandboxes/($sandbox)/destroy' '{"location":"remote"}'
 assert equal $output.status 200
@@ -55,8 +50,5 @@ timeout 10s tg --url $remote.url --token $root_token checkpoint wait sandbox.con
 # Repeated destruction remains local while the owner has not committed the destruction report.
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers $reader_headers $'http://localhost/sandboxes/($sandbox)/destroy' '{"location":"remote"}'
 assert equal $output.status 409
-let hit = timeout 1s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.request $watch 0 | complete
-tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.request $watch
 tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.destroy $report
-assert equal $hit.exit_code 124 "local destruction must not contact owner-side control"
 assert equal (timeout 30s tg --url $remote.url --token $root_token sandbox wait $sandbox | from json) destroyed

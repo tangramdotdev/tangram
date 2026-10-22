@@ -1,24 +1,23 @@
 use ../lib/test.nu *
 
-# A built file retains its subtree token without redundant process authorization.
+# A built file's printed reference carries the authorization to read it, so another user can read the file through the reference but not through its bare ID.
+
 let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
 let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
 let path = artifact {
 	tangram.ts: 'export default () => tg.file("Hello, World!");'
 }
 tg --token $alice.token build $path | ignore
 let output = tg --token $alice.token build $path | str trim
-let uri = $'http://localhost/($output)' | url parse
-let tokens = $uri.params | where key starts-with 'tokens[local]' | each {|token| $token.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json }
-let object_tokens = $tokens | where resource == ($uri.path | str substring 1..)
-assert equal ($object_tokens | length) 1
-assert equal $object_tokens.0.permissions [object_subtree]
-assert ($tokens | all {|token| $token.resource == ($uri.path | str substring 1..) or ($token.resource | str starts-with 'syn_') })
 assert equal (tg --token $alice.token read $output) 'Hello, World!'
+assert equal (tg --token $bob.token read $output) 'Hello, World!'
+let id = $output | referent node
+failure (tg --token $bob.token read $id | complete) 'another user should not read the file without its tokens'
 
-# Reading a child build exercises token inheritance in the JavaScript client.
+# A reference printed by the JavaScript client for a child build output carries the inherited authorization.
 let wrapper = artifact {
 	tangram.ts: '
 		export default async () => {
@@ -33,9 +32,4 @@ let printed = tg --token $alice.token build $wrapper | from json
 assert ($printed | str starts-with $'(char --integer 27)[94mfil_')
 assert ($printed | str contains $'(char --integer 27)[0m(char --integer 27)[38;5;244m?')
 let reference = $printed | ansi strip
-let uri = $'http://localhost/($reference)' | url parse
-let tokens = $uri.params | where key starts-with 'tokens[local]' | each {|token| $token.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json }
-let object_tokens = $tokens | where resource == ($uri.path | str substring 1..)
-assert equal ($object_tokens | length) 1
-assert equal $object_tokens.0.permissions [object_subtree]
-assert ($tokens | all {|token| $token.resource == ($uri.path | str substring 1..) or ($token.resource | str starts-with 'syn_') })
+assert equal (tg --token $bob.token read $reference) 'Hello, World!'

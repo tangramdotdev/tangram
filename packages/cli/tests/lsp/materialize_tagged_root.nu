@@ -12,7 +12,6 @@ let dep_path = artifact {
 }
 tg tag dep $dep_path
 let tag_path = $local.directory | path join store dep
-assert (not ($tag_path | path exists --no-symlink)) "expected putting the tag not to create its store entry"
 
 let path = artifact {
 	tangram.ts: '

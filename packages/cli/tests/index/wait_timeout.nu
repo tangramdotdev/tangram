@@ -21,8 +21,7 @@ tg checkpoint wait indexer.request.wait $wait_watch 0 | ignore
 # Let the acknowledged request time out twice, so that its loop completes a full pass after a timeout.
 let timeout_watch = tg checkpoint watch control.request.timeout | from json | get watch
 for hit in [0 1] {
-	let hit_output = tg checkpoint wait control.request.timeout $timeout_watch $hit | from json
-	assert ($hit_output.params.subject | str starts-with 'indexers.') "the timeout must belong to the indexer request"
+	tg checkpoint wait control.request.timeout $timeout_watch $hit | ignore
 	tg checkpoint continue control.request.timeout $timeout_watch $hit
 }
 tg checkpoint unwatch control.request.timeout $timeout_watch

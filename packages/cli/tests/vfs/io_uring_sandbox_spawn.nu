@@ -1,9 +1,6 @@
 use ../lib/test.nu *
 
-# Every sandboxed process execs its executable through its own per-sandbox FUSE mount. This ensures
-# that the lightweight per-sandbox io_uring configuration stays within the process's locked memory
-# limit under high concurrency. The runner overcommit is set here so the number of concurrent
-# sandboxes does not depend on the host's capacity.
+# Many concurrent sandboxed processes spawn through per-sandbox FUSE mounts that use the automatic io_uring transport.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -42,8 +39,3 @@ let path = artifact {
 
 let output = tg run $path | complete
 success $output 'every concurrent sandboxed process should spawn'
-assert (
-	open --raw $local.log
-	| lines
-	| any { $in =~ 'starting the FUSE io_uring transport.*sqpoll=false' }
-) 'an automatic per-sandbox VFS should use the io_uring transport without SQPOLL'

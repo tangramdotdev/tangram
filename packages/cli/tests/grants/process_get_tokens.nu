@@ -1,9 +1,6 @@
 use ../lib/test.nu *
 
-# Process get derives scoped tokens without searches, including metadata and availability reads.
-def token-body [token: string] {
-	$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-}
+# Process get returns scoped tokens that let a user without grants read the authorized objects when searches are disabled, including with metadata and availability reads.
 def get-process [socket: string, user_token: string, process: string, token: string = '', metadata: bool = false, availability: bool = false] {
 	let query = { metadata: $metadata, availability: $availability, source: index }
 	let query = if ($token | is-empty) { $query } else { $query | insert 'tokens[local][0]' $token }
@@ -44,8 +41,6 @@ tg --token $root grant $owner.user.id process_parent $parent | ignore
 tg --token $root index
 let scoped = (get-process $socket $reader.token $parent '' true true).tokens.local.0
 let full = (get-process $socket $owner.token $parent '' true true).tokens.local.0
-assert ('process_node_command_objects' in (token-body $scoped).permissions)
-assert ('process_parent' in (token-body $full).permissions)
 
 let inline = 'pcs_00081061050r3gg28a1c60t3gf60'
 let inline_command = { node: {
@@ -69,17 +64,8 @@ $config | upsert verification.permissions { initial: $searches, final: $searches
 let local = server start $local
 for flags in [[false false] [true false] [false true] [true true]] {
 	let result = get-process $socket $stranger.token $parent $scoped $flags.0 $flags.1
-	let permissions = (token-body $result.tokens.local.0).permissions
-	assert ('process_node_command_objects' in $permissions)
-	assert ('process_node_output_objects' in $permissions)
-	assert not ('process_node_log_objects' in $permissions)
-	let command_token = object-token $result.data.command
-	assert equal (token-body $command_token).resource $command
-	assert ('object_subtree' in (token-body $command_token).permissions) 'node command permissions must authorize the command object subtree'
-	let output_token = object-token $result.data.output.node.value
-	assert equal (token-body $output_token).resource $output
-	assert ('object_subtree' in (token-body $output_token).permissions)
-	assert ((token-body $output_token).expires_at <= (token-body $scoped).expires_at)
+	success (tg --token $stranger.token get --bytes $result.data.command | complete) 'node command permissions must authorize the command object'
+	success (tg --token $stranger.token get --depth inf $result.data.output.node.value | complete) 'node output permissions must authorize the output object subtree'
 	assert not ($result.data.log | str contains 'tokens')
 	assert not ($result.data.error | str contains 'tokens')
 	assert not ($result.data.children.0.process | str contains 'tokens')
@@ -92,26 +78,19 @@ for flags in [[false false] [true false] [false true] [true true]] {
 	}
 }
 let result = get-process $socket $stranger.token $parent $full
-let log_token = object-token $result.data.log
-assert equal (token-body $log_token).resource $log
-assert ('object_subtree' in (token-body $log_token).permissions)
-let error_token = object-token $result.data.error
-assert equal (token-body $error_token).resource $error
-assert ('object_subtree' in (token-body $error_token).permissions)
+object-token $result.data.error | ignore
+success (tg --token $stranger.token cat $result.data.log | complete) 'the derived log token must authorize the log'
 let child_token = object-token $result.data.children.0.process
-assert equal (token-body $child_token).resource $child
-assert ('process_subtree' in (token-body $child_token).permissions)
-assert ('process_subtree_command_objects' in (token-body $child_token).permissions)
-assert not ('process_parent' in (token-body $child_token).permissions)
-assert ((token-body $child_token).expires_at <= (token-body $full).expires_at)
 let child_result = get-process $socket $stranger.token $child $child_token
-assert ('object_subtree' in (token-body (object-token $child_result.data.output.node.value)).permissions)
+success (tg --token $stranger.token get --bytes $child_result.data.command | complete) 'the derived child token must authorize the child command'
+success (tg --token $stranger.token get --depth inf $child_result.data.output.node.value | complete) 'the derived child token must authorize the child output subtree'
 success (tg --token $stranger.token get --bytes $result.data.command | complete) 'the derived command token must work without a search'
 success (tg --token $stranger.token get --bytes $result.data.output.node.value | complete) 'the derived output token must work without a search'
 
-
 let result = get-process $socket $stranger.token $inline $inline_token
 for referent in [$result.data.command.node.args.0.value.value $result.data.command.node.env.INPUT.value.value] {
-	assert ('object_subtree' in (token-body (object-token $referent)).permissions) 'inline command object references must receive subtree tokens'
+	success (tg --token $stranger.token get --depth inf $referent | complete) 'inline command object references must authorize their subtrees'
 }
-assert ('object_subtree' in (token-body $result.data.command.node.stdin.options.tokens.local.0).permissions)
+let stdin = $result.data.command.node.stdin
+let stdin = $'($stdin.node)?tokens[local][0]=($stdin.options.tokens.local.0 | url encode --all)'
+success (tg --token $stranger.token cat $stdin | complete) 'the inline command stdin must authorize its blob'

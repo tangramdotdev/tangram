@@ -1,9 +1,26 @@
 {
   "kind": "directory",
   "entries": {
+    ".tangram": {
+      "kind": "directory",
+      "entries": {
+        "store": {
+          "kind": "directory",
+          "entries": {
+            "fil_016v4jk5zqc9neeshx69mak5wf1nez6js2qadw87g90846w8fzjk20": {
+              "kind": "file",
+              "contents": "hello from artifact",
+              "xattrs": {
+                "user.tangram.token": "<token>"
+              }
+            }
+          }
+        }
+      }
+    },
     "link": {
       "kind": "symlink",
-      "path": "../fil_016v4jk5zqc9neeshx69mak5wf1nez6js2qadw87g90846w8fzjk20"
+      "path": ".tangram/store/fil_016v4jk5zqc9neeshx69mak5wf1nez6js2qadw87g90846w8fzjk20"
     }
   }
 }

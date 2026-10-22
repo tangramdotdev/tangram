@@ -1,13 +1,10 @@
 use ../lib/test.nu *
 
-# Releasing a child lease is idempotent. If a child handle releases its lease
-# before parent completion, the parent's cleanup release is a no-op and logs no
-# error.
+# Cancelling one of two handles to a deduplicated child leaves the parent able to finish, and the child is cancelled once the parent finishes.
 
-let local = server spawn --config { tracing: { stderr_format: 'json' } }
+let local = server spawn
 
-# The two spawns deduplicate to one child holding two leases, so cancelling the
-# first leaves the child running until the parent finishes.
+# The two spawns deduplicate to one child holding two leases, so cancelling the first leaves the child running until the parent finishes.
 let path = artifact {
 	tangram.ts: '
 		export const slow = async () => {
@@ -24,6 +21,12 @@ let path = artifact {
 	'
 }
 
-tg build $path | ignore
+let id = tg build --no-tokens --detach $path | referent node
+let output = tg output $id | complete
+success $output
+assert equal ($output.stdout | str trim) '"done"'
 
-snapshot (server_errors $local) ''
+# The child is finished with an error after the parent releases its remaining lease.
+let child = tg children $id | from json | where $it starts-with pcs_ | get 0
+let output = timeout 10s tg wait $child | from json
+assert equal $output.exit 1

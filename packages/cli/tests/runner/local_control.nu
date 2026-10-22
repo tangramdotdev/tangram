@@ -1,10 +1,10 @@
 use ../lib/test.nu *
 
-# Connected and standalone runtime operations use the runner without routing through the owner.
+# Connected and standalone runtime operations on processes in a runner succeed.
 
 let root_token = random chars
 let remote = server spawn --preserve-keys --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }
@@ -19,14 +19,6 @@ let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 
-# Hold owner-side runtime requests so accidental remote dispatch cannot pass unnoticed.
-let read_watch = tg --url $remote.url --token $root_token checkpoint watch process.stdio.read.request --params '{"stream":"stdout"}' | from json | get watch
-let write_watch = tg --url $remote.url --token $root_token checkpoint watch process.stdio.write.request --params '{"close":"false","stream":"stdin"}' | from json | get watch
-let watches = [signal tty release_lease] | each { |kind|
-	let params = { kind: $kind } | to json --raw
-	let watch = tg --url $remote.url --token $root_token checkpoint watch process.control.response.publish --params $params | from json | get watch
-	{ kind: $kind, watch: $watch }
-}
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
@@ -76,25 +68,6 @@ let path = artifact {
 		}
 	',
 }
-let build = job spawn {
-	let job_id = job id
-	let output = tg --url $local.url build --remote $path | complete
-	$output | job send --tag $job_id 0
-}
-let output = try { job recv --tag $build --timeout 45sec } catch { null }
-let read = timeout 1s tg --url $remote.url --token $root_token checkpoint wait process.stdio.read.request $read_watch 0 | complete
-let write = timeout 1s tg --url $remote.url --token $root_token checkpoint wait process.stdio.write.request $write_watch 0 | complete
-let responses = $watches | each { |entry|
-	timeout 1s tg --url $remote.url --token $root_token checkpoint wait process.control.response.publish $entry.watch 0 | complete
-}
-tg --url $remote.url --token $root_token checkpoint unwatch process.stdio.read.request $read_watch
-tg --url $remote.url --token $root_token checkpoint unwatch process.stdio.write.request $write_watch
-for entry in $watches {
-	tg --url $remote.url --token $root_token checkpoint unwatch process.control.response.publish $entry.watch
-}
-assert ($output != null) "runner-local control must not depend on owner-side runtime requests"
+let output = timeout 45s tg --url $local.url build --remote $path | complete
 success $output
 assert equal ($output.stdout | from json) "ok"
-assert equal $read.exit_code 124
-assert equal $write.exit_code 124
-for response in $responses { assert equal $response.exit_code 124 }

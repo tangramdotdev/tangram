@@ -1,9 +1,6 @@
 use ../lib/test.nu *
 
 # Capture must finish verification before preserving a partial exact token's permissions.
-def token-body [token: string] {
-	$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-}
 
 let root_token = random chars
 let local = server spawn --now '2026-01-01T00:00:00Z' --config {
@@ -15,6 +12,7 @@ let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
+let carol = tg login --verbose --name carol | from json
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let missing = 'fil_010000000000000000000000000000000000000000000000000000'
 let expression = 'tg.directory({"file":tg.file({"contents":"best","dependencies":{"missing":{"node":MISSING}}})})'
@@ -24,12 +22,10 @@ let file = tg --token $alice.token children $directory | from json | get 0 | spl
 tg --token $root_token index
 let object = http get --headers { Accept: application/json, Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($file)'
 let node_token = $object.tokens.local.0
-assert equal (token-body $node_token).permissions [object_node]
 tg --token $root_token grant $alice.user.id object_subtree $directory | ignore
 tg --token $root_token index
 let object = http get --headers { Accept: application/json, Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
 let subtree_token = $object.tokens.local.0
-assert ('object_subtree' in (token-body $subtree_token).permissions)
 
 let params = { resource: $file } | to json --raw
 let written = tg --token $root_token checkpoint watch permission_capture.written --params $params | from json | get watch
@@ -45,8 +41,7 @@ let module = artifact { tangram.ts: $source }
 let process = tg --token $alice.token build --no-tokens --detach $module | referent node
 let finished = tg --token $alice.token wait $process | from json
 assert equal $finished.exit 0
-let hit = timeout 30s tg --token $root_token checkpoint wait permission_capture.written $written 0 | from json
-assert equal $hit.params.process $process
+timeout 30s tg --token $root_token checkpoint wait permission_capture.written $written 0 | ignore
 
 # Hold capture before descent, then remove temporary permissions and delegations.
 tg --token $alice.token grant $bob.user.id process_node_output_objects $process | ignore
@@ -55,6 +50,8 @@ tg --token $root_token index
 advance_time $local 2min
 tg --token $root_token clean
 tg --token $root_token index
-let object = http get --headers { Accept: application/json, Authorization: $'Bearer ($bob.token)' } --unix-socket $socket $'http://localhost/objects/($file)'
-assert ('object_subtree' in (token-body $object.tokens.local.0).permissions) 'capture must preserve the subtree proof found after its initial node proof'
+
+# Bob can delegate the file subtree only if capture preserved the subtree permission.
+let delegated = tg --token $bob.token grant $carol.user.id object_subtree $file | complete
+success $delegated "capture must preserve the subtree proof found after its initial node proof."
 tg --token $root_token checkpoint unwatch permission_capture.written $written

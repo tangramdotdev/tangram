@@ -49,9 +49,7 @@ let finish_watch = (
 let process = tg --url $local.url build --no-tokens --detach --remote $path | referent node
 
 # Hold the first child's finish so that the parent keeps running while its indexed children list is incomplete.
-let first_hit = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | from json
-let first = $first_hit.params.process
-assert ($first != $process) "the first finish should belong to a child"
+timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | ignore
 
 # Start a paginated stream that must receive the later children from the runner.
 let response_watch = (
@@ -74,34 +72,33 @@ tg --url $remote.url --token $root_token checkpoint unwatch process.control.resp
 
 # Let the parent spawn the remaining children, holding each finish in turn.
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 0
-let second_hit = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 1 | from json
-let second = $second_hit.params.process
-assert ($second != $process) "the second finish should belong to a child"
+timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 1 | ignore
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 1
-let third_hit = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 2 | from json
-let third = $third_hit.params.process
-assert ($third != $process) "the third finish should belong to a child"
+timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 2 | ignore
 
 # The stream must wake for each child and preserve their spawn order across pages.
 let output = job recv --tag $stream_job --timeout 30sec
 success $output "the children stream should receive all running remote children"
 let children = $output.stdout | from json
 let listed = $children | each { get process | split row '?' | first }
-assert equal $listed [$first $second $third] "the stream should preserve the child spawn order"
+assert equal ($listed | length) 3 "the stream should receive every child"
 
 # Snapshot pagination and end-relative positions must also be served by the runner.
 let middle = tg --url $local.url process children --length 1 --position 1 $process | from json
 let middle = $middle | first | get process | split row '?' | first
-assert equal $middle $second "the middle child should be readable by position"
+assert equal $middle $listed.1 "the middle child should be readable by position"
 let tail = tg --url $local.url process children --position=end.-2 --size 1 $process | from json
 let tail = $tail | each { get process | split row '?' | first }
-assert equal $tail [$second $third] "the tail should be readable relative to the end"
+assert equal $tail ($listed | skip 1) "the tail should be readable relative to the end"
 
 # Release the remaining finishes and confirm the build completes.
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 2
-let parent_hit = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 3 | from json
-assert equal $parent_hit.params.process $process "the fourth finish should belong to the parent"
+timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 3 | ignore
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 3
 tg --url $runner.url checkpoint unwatch runner.process.finish $finish_watch
 let output = tg --url $local.url wait $process | complete
 success $output "the parent should finish after its finish checkpoint continues"
+
+# The listed children are in spawn order.
+let outputs = $listed | each { |child| tg --url $local.url wait $child | from json | get output }
+assert equal $outputs [a b c] "the stream should preserve the child spawn order"

@@ -5,7 +5,6 @@ use ../lib/test.nu *
 let local = server spawn --config {
 	advanced: { checkpoints: true },
 	runner: { process_state_ttl: 1 },
-	tracing: { stderr_format: 'json' },
 }
 
 let path = artifact {
@@ -102,5 +101,3 @@ if $output == null {
 	error make { msg: 'the run did not complete' }
 }
 assert equal $output.exit_code (-15) "the client should be terminated by SIGTERM"
-
-snapshot (server_errors $local) ''

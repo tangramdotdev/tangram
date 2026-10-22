@@ -21,7 +21,6 @@ let local = server spawn --busybox --config {
 	runner: {
 		backend: ({ kind: builtin } | merge $maps),
 	},
-	tracing: { stderr_format: 'json' },
 }
 
 let script = 'while IFS= read -r line; do echo "$line"; done < /proc/self/uid_map; while IFS= read -r line; do echo "$line"; done < /proc/self/gid_map'
@@ -68,6 +67,3 @@ for network in ['false' 'true'] {
 	assert equal (open --raw ($path | path join nested link)) 'private'
 	assert equal (^stat -c %a ($path | path join nested file) | str trim) '555'
 }
-
-# Sandbox teardown must remove private and read-only files without leaving errors.
-assert equal (server_errors $local) []

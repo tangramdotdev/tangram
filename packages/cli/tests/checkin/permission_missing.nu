@@ -1,7 +1,6 @@
 use ../lib/test.nu *
-use ../lib/checkin.nu checkin-output
 
-# Solving fails when an explicit dependency is unavailable. Without solving, it remains opaque.
+# Solving fails when an explicit dependency is unavailable. Without solving, the checkin succeeds.
 
 let local = server spawn --config { remotes: {} }
 let dependency = "dir_01jtktnnk7yqqp1vvf0dceavydpwazedzb30w8y1wcvx4nh1kcxet0"
@@ -10,12 +9,6 @@ let directory = artifact {
 	input: (file --xattrs { "user.tangram.dependencies": $dependencies } missing)
 }
 let path = $directory | path join input
-let failed = try {
-	checkin-output $local $path | ignore
-	false
-} catch {
-	true
-}
-assert $failed "the checkin should fail when the dependency is unavailable"
-let output = checkin-output $local $path --no-solve
-assert equal $output.permissions [object_node] "the checkin token should confer only node permission"
+failure (tg checkin --no-lock --root $path | complete) "the checkin should fail when the dependency is unavailable"
+let reference = tg checkin --no-lock --root --no-solve $path | str trim
+assert equal (tg read $reference) 'missing' "the checkin should succeed without solving"

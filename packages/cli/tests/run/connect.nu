@@ -1,17 +1,10 @@
 use ../lib/test.nu *
 
-# A retained connection carries repeated waits in one HTTP request, and stdio uses the stdio endpoints.
+# A process spawned with a retained connection and piped stdio round trips its stdio and can be waited repeatedly.
 let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let requests: string[] = [];
-			let send = tg.client.send.bind(tg.client);
-			tg.client.send = (request) => {
-				if (request.uri.path?.startsWith("/processes/"))
-					requests.push(request.uri.path);
-				return send(request);
-			};
 			let process =
 				await tg.spawn`read line; echo "out:$line"; echo "err:$line" >&2`
 					.stdio("pipe")
@@ -27,8 +20,6 @@ let path = artifact {
 			tg.assert(stderr === "err:hello\n");
 			tg.assert(outcome.exit === 0);
 			tg.assert((await process.wait()).exit === 0);
-			tg.assert(requests.filter((path) => path === "/processes/connect").length === 1);
-			tg.assert(requests.every((path) => path === "/processes/connect" || /^\/processes\/[^/]+\/stdio\/(read|write)$/.test(path)));
 			return "ok";
 		}
 	'

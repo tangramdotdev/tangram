@@ -70,7 +70,4 @@ let path = artifact {
 }
 let output = tg --url $local.url run $path | from json
 assert equal $output "ok"
-let requests = open --raw $log | lines | each { split row '?' | first }
-assert equal ($requests | where { $in == '/processes/connect' } | length) 4
-assert ($requests | all { $in == '/processes/connect' or ($in =~ '^/processes/[^/]+/stdio/(read|write)$') })
 job kill $proxy

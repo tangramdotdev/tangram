@@ -45,16 +45,14 @@ let spawn = job spawn {
 	let events = http post --raw --max-time 30sec --unix-socket $remote_socket --headers { Authorization: $'Bearer ($eve.token)', 'Content-Type': 'application/json' } 'http://localhost/processes/spawn' $arg
 	$events | job send --tag $job_id 0
 }
-let indexed = timeout 30s tg --url $runner.url --token $runner_root checkpoint wait runner.process.index.started $indexing 0 | from json
+timeout 30s tg --url $runner.url --token $runner_root checkpoint wait runner.process.index.started $indexing 0 | ignore
 tg --url $runner.url --token $runner_root checkpoint unwatch runner.process.index.started $indexing
 let events = job recv --tag $spawn --timeout 30sec
 assert (not ($events | str contains 'event: error')) "the remote must accept the inline command."
 let spawned = $events | lines | where { $in starts-with 'data: ' } | last | str substring 6.. | from json
 let process = $spawned.process
-assert equal $indexed.params.process $process
 tg --url $remote.url --token $eve.token wait $process | ignore
-let hit = timeout 30s tg --url $runner.url --token $runner_root checkpoint wait permission_capture.advanced $advanced 0 | from json
-assert equal $hit.params.process $process
+timeout 30s tg --url $runner.url --token $runner_root checkpoint wait permission_capture.advanced $advanced 0 | ignore
 tg --url $runner.url --token $runner_root checkpoint unwatch permission_capture.advanced $advanced
 tg --url $runner.url --token $runner_root wait --local --source=index $process | ignore
 tg --url $runner.url --token $runner_root index

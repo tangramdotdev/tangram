@@ -1,13 +1,15 @@
 use ../lib/test.nu *
 
-# Without solving, an unproven dependency must not gain subtree authority through the file token.
-let local = server spawn --config { vfs: false }
-let dependency = tg put --no-tokens 'tg.file("dependency")' | referent node
+# Without solving, a destructively checked-in file with an unproven dependency leaves a checkout that another user cannot check in.
+let local = server spawn --config {
+	authentication: { users: { providers: { insecure: true } } }
+	vfs: false
+}
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
+let dependency = tg --token $alice.token put --no-tokens 'tg.file("dependency")' | referent node
 let path = artifact (file --xattrs { 'user.tangram.dependencies': ([$dependency] | to json) } 'output')
-let id = tg checkin --no-tokens --destructive --no-ignore --no-solve $path | referent node
-let checkout = $local.checkout_directory | path join $id
-let token = xattr_read user.tangram.token $checkout
-let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-assert equal $body.resource $id
-assert equal $body.permissions [object_node]
+let id = tg --token $alice.token checkin --no-tokens --destructive --no-ignore --no-solve $path | referent node
+let checkout = tg --token $alice.token checkout $id | str trim
+failure (tg --token $bob.token checkin --no-tokens $checkout | complete) 'the checkout should not grant the unproven dependency'
 server stop $local

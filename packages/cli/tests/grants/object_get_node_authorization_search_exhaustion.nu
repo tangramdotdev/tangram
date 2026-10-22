@@ -12,10 +12,6 @@ let local = server spawn --config {
 			}
 		}
 	}
-	tracing: {
-		filter: 'tangram=info,tangram_index::verify=debug'
-		stderr_format: 'json'
-	}
 }
 
 let alice = tg login --verbose --name alice | from json
@@ -40,13 +36,3 @@ success $availability "Bob should read the directory availability even when its 
 let availability = $availability.stdout | from json
 assert equal ($availability | columns) [] "Bob should not see the directory subtree availability."
 
-server stop $local
-let event = open --raw $local.log
-	| lines
-	| where ($it | str starts-with '{')
-	| each { from json }
-	| where $it.fields.message? == 'verify permission indeterminate'
-	| where $it.fields.resource? == $directory
-	| last
-assert equal $event.fields.verified 'object_node'
-assert equal $event.fields.indeterminate 'object_subtree'

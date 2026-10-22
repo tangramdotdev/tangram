@@ -7,7 +7,7 @@ if $nu.os-info.name != 'linux' {
 }
 
 let local = server spawn --busybox
-let cgroup_parent = container_cgroup_parent [cpu memory]
+container_cgroup_parent [cpu memory] | ignore
 let sandbox = tg sandbox create --cpu 1 --memory 268435456 --no-tokens | referent node
 
 let script = r#'
@@ -16,9 +16,7 @@ let script = r#'
 	test "$(cat /sys/fs/cgroup/memory.max)" = max
 	test "$(cat /proc/self/cgroup)" = 0::/init
 	/opt/tangram/bin/tangram sandbox run --cgroup nested --cgroup-cpu 1 --cgroup-memory 134217728 -- /bin/sh -c 'echo nested'
-	# Leave a child cgroup for sandbox teardown to remove.
-	mkdir /sys/fs/cgroup/nested
-'# | str replace --all '/sys/fs/cgroup/nested' $'/sys/fs/cgroup/($sandbox)'
+'#
 let command = artifact {
 	tangram.ts: '
 		import busybox from "busybox";
@@ -30,14 +28,12 @@ let command = artifact {
 let output = tg run $command --arg-string $script --arg-string $sandbox | complete
 success $output 'a resource-limited nested container should run'
 assert equal ($output.stdout | str trim) 'nested'
-let cgroup_paths = ls $cgroup_parent | where type == dir | get name | where { |path|
-	$path | path join guest $sandbox | path exists
-}
-assert equal ($cgroup_paths | length) 1 'the nested cgroup should remain until sandbox teardown'
-let cgroup_path = $cgroup_paths | first
-assert equal (open --raw ($cgroup_path | path join memory.max) | str trim) '268435456' 'the sandbox cgroup should retain the memory limit'
-assert not ((open --raw ($cgroup_path | path join cpu.max) | str trim) starts-with 'max') 'the sandbox cgroup should retain the CPU limit'
 
-tg sandbox destroy $sandbox
-tg wait $sandbox
-assert not ($cgroup_path | path exists) 'sandbox teardown should remove the delegated cgroup hierarchy'
+# A process that exceeds the outer memory limit after the nested container ran is killed for exceeding the sandbox memory.
+let script = 'value=x; while :; do value="$value$value"; done'
+let process = tg spawn $"--sandbox=($sandbox)" --verbose --executable /bin/sh -- -c $script | from json | get process
+let output = timeout 60s tg wait $process | complete
+success $output 'the process should finish after an OOM kill'
+let outcome = $output.stdout | from json
+let error = tg get --depth inf --no-tokens $outcome.error
+assert ($error | str contains 'the sandbox exceeded its memory max') $error

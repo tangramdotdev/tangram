@@ -21,8 +21,5 @@ let object = {
 
 # Optional subtree authorization must not prevent storing the supplied parent node.
 let output = http post --max-time 10sec --content-type application/json --headers { Authorization: $'Bearer ($bob.token)' } --unix-socket $socket http://localhost/objects/batch ({ objects: [$object] } | to json --raw) | from json
-let token = $'http://localhost/($output.objects.0)' | url parse | get params | where key == 'tokens[local][0]' | first | get value
-let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-assert equal $body.permissions [object_node]
 success (tg --token $bob.token get --depth 1 $output.objects.0 | complete) 'Bob should be able to read the parent node'
 failure (tg --token $bob.token get $child | complete) 'storing the parent must not authorize its private child'

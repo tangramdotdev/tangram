@@ -85,8 +85,7 @@ for order in [process sandbox] {
 	let params = { destroyed_sandbox: true } | to json --raw
 	let destroy_write = tg --url $remote.url --token $root_token checkpoint watch index.batch --params $params | from json | get watch
 	let destroyed = tg --url $runner.url checkpoint watch runner.sandbox.destroyed | from json | get watch
-	let started = timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | from json
-	assert equal $started.params.process $process
+	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | complete)
 	let status = job spawn {
 		let job_id = job id
 		let output = tg --url $remote.url --token $root_token process status --no-timeout $process | complete

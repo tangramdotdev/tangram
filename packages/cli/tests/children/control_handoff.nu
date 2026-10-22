@@ -18,10 +18,9 @@ let runner = server spawn --name runner --config {
 let finish_watch = tg --url $runner.url checkpoint watch runner.process.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default async () => { await tg.build(child); }; export function child() { return "child"; }' }
 let process = tg --url $local_owner.url --token $root_token build --no-tokens --detach $path | referent node
-let child = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | from json | get params.process
+timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | ignore
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 0
-let parent = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 1 | from json | get params.process
-assert equal $parent $process
+timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 1 | ignore
 
 # Incomplete indexed children and a missing process use the same fallback when control is unavailable.
 for id in [$process pcs_010000000000000000000000000000000000000000000000000000] {
@@ -67,5 +66,6 @@ tg --url $local_owner.url --token $root_token checkpoint unwatch process.get.ind
 let output = job recv --tag $get_job --timeout 10sec
 success $output "the request must recover from the unavailable control response using the completed index"
 let children = $output.stdout | from json | each { get process | split row '?' | first }
-assert equal $children [$child]
+assert equal ($children | length) 1
+assert equal (tg --url $local_owner.url --token $root_token wait $children.0 | from json | get output) child
 tg --url $local_owner.url --token $root_token checkpoint unwatch process.get.control $control_watch

@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Putting a process records permissions authorized by supplied tokens without searching for object or process permissions.
+# Putting a process with references that have no authorizing tokens succeeds and returns a token without searching for object or process permissions.
 let searches = {
 	ancestor: { max_depth: 0, max_edges: 0, max_nodes: 0 }
 	descendant: { max_depth: 0, max_edges: 0, max_nodes: 0 }
@@ -27,5 +27,3 @@ let data = {
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let response = http put --raw --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } --content-type application/json $'http://localhost/processes/($process)' { data: $data } | from json
 assert (($response | get --optional tokens.local | default [] | length) > 0) "the put must return a node token without searching"
-let body = $response.tokens.local.0 | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-assert equal $body.permissions [process_node] "references without authorizing tokens must not confer field permissions"

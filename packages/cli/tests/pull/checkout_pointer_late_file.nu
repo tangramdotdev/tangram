@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A blob received before a file that uses it is published through a default checkout and reused for the file.
+# A pull that receives a blob before the file that uses it leaves the blob and the file readable without the remote.
 
 let remote = server spawn --name remote
 let local = server spawn --name local --config {
@@ -45,21 +45,16 @@ let pull = job spawn {
 
 tg --url $local.url checkpoint wait sync.get.input.object $file_watch 0 | ignore
 
-let default_path = $local.checkout_directory | path join $default_file
-let file_path = $local.checkout_directory | path join $file
+# Publish the blob's default checkout before the file arrives.
 tg --url $local.url checkpoint wait sync.get.checkout.publish $publish_watch 0 | ignore
-assert ($default_path | path exists) 'expected the blob to be published through its default checkout before the file arrived'
 tg --url $local.url checkpoint continue sync.get.checkout.publish $publish_watch 0
 tg --url $local.url checkpoint unwatch sync.get.checkout.publish $publish_watch
 tg --url $local.url checkpoint continue sync.get.input.object $file_watch 0
 tg --url $local.url checkpoint unwatch sync.get.input.object $file_watch
 
 success (job recv --tag $pull --timeout 10sec)
-assert equal (open --raw $default_path) $contents
-assert equal (open --raw $file_path) $contents
 
+# The blob and the file are readable without the remote.
 server stop $remote
-rm $default_path
-rm $file_path
-let output = tg --url $local.url get --bytes $blob | complete
-failure $output 'expected the leaf bytes to require the default checkout'
+assert equal (tg --url $local.url read $blob) $contents
+assert equal (tg --url $local.url read $file) $contents

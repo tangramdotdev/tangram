@@ -95,23 +95,8 @@ for location in [local remote] {
 		let node_output_objects = $node_output_objects | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
 		let node_object = if $field == output { $node_output_objects.output.value } else { $node_output_objects.error }
 		assert equal ($node_object | split row '?' | first) $object_id
-		let node_params = $'http://localhost/($node_object)' | url parse | get params
-		assert ($node_params | all {|param| $param.key !~ '^tokens' }) "a live node reader must not receive output or error capabilities"
-		let params = $'http://localhost/($object)' | url parse | get params
-		if $field == output and not $case.inherited {
-			assert ($params | any {|param| $param.key == 'tokens[local][0]' }) "a live output reader must retain the output's authorization token"
-		}
-		for param in ($params | where {|param| $param.key =~ '^tokens\[' }) {
-			let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-			if not ($body.resource | str starts-with "syn_") {
-				assert equal $body.resource $object_id "the live response must not expose an ancestor's authorization token"
-			}
-		}
-		if $location == remote {
-			assert ($params | all {|param| $param.key !~ '^tokens\[remote\]' }) "the runner must not receive the server's process sync token"
-			if $field == error {
-				assert ($output.output? == null) "an error-only outcome must not contain output objects"
-			}
+		if $location == remote and $field == error {
+			assert ($output.output? == null) "an error-only outcome must not contain output objects"
 		}
 		# An authorized read uses the runner's indexed grant before the control finish request completes.
 		let read_job = job spawn {
@@ -130,6 +115,10 @@ for location in [local remote] {
 		assert ($read.stdout | str contains (if $field == output { 'output' } else { 'runner error' }))
 		tg --url $local_owner.url --token $root_token checkpoint unwatch process.control.finish $control_watch
 		failure (tg --url $runner.url --token $bob.token get $object_id | complete) "node permission must not grant access to the object"
+		failure (tg --url $runner.url --token $bob.token get $node_object | complete) "a live node reader must not receive output or error capabilities"
+		if $field == output and not $case.inherited {
+			success (tg --url $runner.url --token $bob.token get $object | complete) "a live output reader must retain the output's authorization token"
+		}
 		if $field == output {
 			tg --url $local_owner.url --token $root_token wait --source=index $process | ignore
 			tg --url $local_owner.url --token $root_token index

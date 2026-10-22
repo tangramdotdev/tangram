@@ -21,7 +21,6 @@ let process = $output.stdout | from json | get process
 let log = timeout 30s tg log --no-timeout --length 6 $process | str trim
 assert equal $log ready 'the process should produce a log before its sandbox is killed'
 
-assert (ps | any { |process| $process.pid == $pid }) 'the sandbox launcher should be running'
 kill --signal 9 $pid
 success (timeout 30s tg wait $process | complete) 'the process should finish after its sandbox is killed'
 

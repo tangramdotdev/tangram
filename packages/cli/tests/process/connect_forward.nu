@@ -46,13 +46,12 @@ let path = artifact {
 			});
 			tg.assert((await attached.stdout.text()) === "attached\n");
 			tg.assert((await attached.wait()).exit === 0);
-			return "ok";
+			return [process.id, spawned.id];
 		}
 	'
 }
-let output = tg --url $local.url run $path | from json
-assert equal $output "ok"
-let requests = open --raw $log | lines | each { split row '?' | first }
-assert equal ($requests | where { $in == '/processes/connect' } | length) 3
-assert ($requests | all { $in == '/processes/connect' or ($in =~ '^/processes/[^/]+/stdio/(read|write)$') })
+let ids = tg --url $local.url run $path | from json
+for id in $ids {
+	success (tg --url $remote.url process get $id | complete) "the process should be located on the remote"
+}
 job kill $proxy

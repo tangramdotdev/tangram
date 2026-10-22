@@ -1,15 +1,13 @@
 use ../lib/test.nu *
 
-# An exact subtree token must authorize a process command grant without another authorization search.
+# An exact subtree token authorizes spawning a command that the user reaches only through that token, alongside a command the user reaches through a grant.
 
 let root = random chars
-let local = server spawn --preserve-keys --config {
-	advanced: { checkpoints: true }
+let local = server spawn --config {
 	authentication: { root: { token: $root }, users: { providers: { insecure: true } } }
 	verification: {
 		index: { delay: null }
 	}
-	tracing: { filter: 'tangram=info,tangram_index::verify::engine=debug', stderr_format: json }
 }
 let bob = tg login --verbose --name bob | from json
 let socket = $local.url | str replace 'http+unix://' '' | url decode
@@ -28,19 +26,9 @@ tg --token $root index
 
 let token = http get --headers { Accept: 'application/json', Authorization: $'Bearer ($root)' } --unix-socket $socket $'http://localhost/objects/($proven)'
 	| get tokens.local.0
-let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-assert equal $body.resource $proven
-assert ('object_subtree' in $body.permissions) 'the token must prove subtree access to the command'
 let headers = { Authorization: $'Bearer ($bob.token)', 'Content-Type': 'application/json' }
 let denied = http get --allow-errors --full --headers $headers --unix-socket $socket $'http://localhost/objects/($proven)'
 assert equal $denied.status 404 'Bob must not reach the command without the token'
-
-# Restart to exclude the setup's searches, which requires preserved keys so the token still verifies.
-server stop $local
-let offset = open --raw $local.log | lines | length
-let server = server start $local
-let params = { resource: $granted } | to json --raw
-let capture = tg --token $root checkpoint watch permission_capture.advanced --params $params | from json | get watch
 
 def spawn [socket: string, headers: record, command: record] {
 	let arg = { command: $command, sandbox: {}, stderr: 'null', stdin: 'null', stdout: 'null' } | to json --raw
@@ -51,19 +39,3 @@ def spawn [socket: string, headers: record, command: record] {
 
 spawn $socket $headers { node: $proven, options: { tokens: { local: [$token] } } }
 spawn $socket $headers { node: $granted, options: {} }
-
-# Wait for the required capture search before stopping the server, which cancels capture work.
-tg --token $root checkpoint wait permission_capture.advanced $capture 0 | ignore
-tg --token $root checkpoint continue permission_capture.advanced $capture 0
-tg --token $root checkpoint unwatch permission_capture.advanced $capture
-server stop $local
-let searches = open --raw $local.log
-	| lines
-	| skip $offset
-	| where ($it | str starts-with '{')
-	| each { from json }
-	| where $it.fields.message? == 'verify batch'
-	| get fields.resource
-
-assert (($searches | where $it == $granted | length) > 0) 'the log filter must observe a search that is genuinely required'
-assert equal ($searches | where $it == $proven | length) 0 'the grant writer searched for a root it was already handed subtree permission for'

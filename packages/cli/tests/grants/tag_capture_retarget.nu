@@ -5,7 +5,6 @@ use ../lib/test.nu *
 let root_token = random chars
 let local = server spawn --config {
 	advanced: { checkpoints: true }
-	database: { kind: sqlite, path: "database.sqlite3" }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 }
 let alice = tg login --verbose --name alice | from json
@@ -22,20 +21,14 @@ let advance = tg --token $root_token checkpoint watch permission_capture.advance
 let advanced = tg --token $root_token checkpoint watch permission_capture.advanced --params $params | from json | get watch
 tg --token $alice.token tag put race $old --public
 tg --token $root_token index
-let hit = timeout 30s tg --token $root_token checkpoint wait permission_capture.advance $advance 0 | from json
+timeout 30s tg --token $root_token checkpoint wait permission_capture.advance $advance 0 | ignore
 let before = tg --token $alice.token tag get race | from json
-assert equal $hit.params.tag $before.id
-let database = $local.directory | path join database.sqlite3
-let before_version = open $database | query db "select version from tags" | get version.0
-assert equal $hit.params.version $before_version
 
 # Replace the target while the old job has already computed the permissions it wants to write.
 tg --token $alice.token tag put --force race $replacement --public
 tg --token $root_token index
 let after = tg --token $alice.token tag get race | from json
 assert equal $after.id $before.id
-let after_version = open $database | query db "select version from tags" | get version.0
-assert ($after_version != $before_version)
 assert equal $after.target.id $replacement
 failure (tg --token $bob.token get $old | complete) "retargeting must clear the old delegation and permissions."
 

@@ -43,8 +43,6 @@ assert equal $output.status 404
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers { Accept: 'text/event-stream' } $'http://localhost/processes/($process)/wait?($query)' ''
 assert equal $output.status 404
 
-let params = { kind: release_lease, process: $process } | to json --raw
-let response_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.response.publish --params $params | from json | get watch
 let cancel_job = job spawn {
 	let job_id = job id
 	# Use the endpoint directly because the CLI resolves a location before cancelling.
@@ -53,9 +51,6 @@ let cancel_job = job spawn {
 	$output | job send --tag $job_id 0
 }
 let output = job recv --tag $cancel_job --timeout 10sec
-let remote_response = timeout 1s tg --url $remote.url --token $root_token checkpoint wait process.control.response.publish $response_watch 0 | complete
-tg --url $remote.url --token $root_token checkpoint unwatch process.control.response.publish $response_watch
-assert equal $remote_response.exit_code 124 "cancellation should not require the remote control connection"
 assert equal $output.status 200 "cancellation without a location should use runner state"
 assert ($output.body | from json | get released)
 success (tg --url $runner.url cancel --remote $process $spawned.lease | complete) "explicit remote cancellation must still succeed"

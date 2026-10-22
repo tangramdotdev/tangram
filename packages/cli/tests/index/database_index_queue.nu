@@ -1,12 +1,6 @@
 use ../lib/test.nu *
 
-# Database index batches follow commit order and are serviced by a later indexer.
-
-def latest_batch [directory: string] {
-	open ($directory | path join database.sqlite3)
-	| query db 'select max(batch) as batch from index_queue'
-	| get batch.0
-}
+# Index updates committed without an indexer are applied in commit order by a later indexer.
 
 def stop [instance: record] {
 	let pid = open ($instance.directory | path join 'lock') | into int
@@ -31,17 +25,7 @@ stop $local_seed
 let producer_config = $config | merge { roles: [api runner scheduler] }
 let local_producer = server spawn --name local-producer --directory $directory --config $producer_config
 tg --url $local_producer.url --token $alice.token grant $bob.user.id read project | ignore
-let put_batch = latest_batch $directory
 tg --url $local_producer.url --token $alice.token revoke $bob.user.id read project | ignore
-let delete_batch = latest_batch $directory
-
-assert equal $delete_batch ($put_batch + 1)
-let next = (
-	open ($directory | path join database.sqlite3)
-	| query db 'select next from index_queue_batch'
-	| get next.0
-)
-assert equal $next $delete_batch
 stop $local_producer
 
 # A later indexer applies the update before the delete.

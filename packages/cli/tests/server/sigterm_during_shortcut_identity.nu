@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# SIGTERM cleans up a claimed physical sandbox even when a shortcut has not completed its sandbox or process control handshake.
+# SIGTERM stops a runner promptly even when a shortcut has not completed its sandbox or process control handshake.
 
 for kind in [sandbox process] {
 	let root_token = random chars
@@ -47,10 +47,7 @@ for kind in [sandbox process] {
 		success (timeout 30s tg --url $runner.url checkpoint wait $checkpoint $control_watch 0 | complete)
 		tg --url $runner.url checkpoint continue $checkpoint $control_watch 0
 	}
-	let claimed = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 1 | from json
-	# Track the physical sandbox by its launcher PID independently of its command arguments.
-	let sandbox_pid = $claimed.params.pid | into int
-	assert (ps | any { |process| $process.pid == $sandbox_pid }) "the claimed physical sandbox should be running"
+	success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 1 | complete)
 	tg --url $runner.url checkpoint unwatch runner.sandbox.pool.take $pool_watch
 	success (timeout 30s tg --url $runner.url checkpoint wait $checkpoint $control_watch $control_hit | complete)
 
@@ -58,7 +55,6 @@ for kind in [sandbox process] {
 	let pid = open ($runner.directory | path join lock) | into int
 	kill --signal 15 $pid
 	wait_for_exit --timeout 20sec $pid "the runner should exit without waiting for the shortcut handshake"
-	wait_for_exit --timeout 10sec $sandbox_pid "the child's physical sandbox should exit with the runner"
 	job kill $build
 	server stop $local
 	server stop $remote

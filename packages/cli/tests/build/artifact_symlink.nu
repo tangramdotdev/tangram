@@ -18,5 +18,6 @@ let id = tg build --no-tokens $path
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot --name object $object
 
-tg checkout $id
-snapshot --name checkout --path ($local.directory | path join "store" | path join ($id | str trim))
+let path = mktemp --directory | path join checkout
+tg checkout $id --path $path
+snapshot --name checkout --path $path

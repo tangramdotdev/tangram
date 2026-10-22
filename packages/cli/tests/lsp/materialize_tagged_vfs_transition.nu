@@ -44,7 +44,6 @@ stop $local
 
 let local = server spawn --directory $server_path --config { vfs: true }
 tg tag delete dep | ignore
-assert (($server_path | path join 'checkouts/dep') | path exists --no-symlink) 'expected the VFS not to maintain the backing tag checkout'
 stop $local
 
 server spawn --directory $server_path | ignore

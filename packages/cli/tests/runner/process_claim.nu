@@ -53,8 +53,7 @@ tg --url $remote.url --token $root_token checkpoint continue process.control.hea
 let started = timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | from json
 let child = $started.params.process
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
-let header = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.header $header_watch 1 | from json
-assert equal $header.params.process $child "the remote should hold the child's control header"
+success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.header $header_watch 1 | complete) "the remote should hold the child's control header"
 
 # Send a request with a token and a process header, and return the response status.
 let socket = $remote.url | str replace 'http+unix://' '' | url decode

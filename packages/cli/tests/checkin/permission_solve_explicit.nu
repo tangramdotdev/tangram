@@ -1,20 +1,24 @@
 use ../lib/test.nu *
-use ../lib/checkin.nu checkin-output
+use ../lib/checkin.nu reference-access
 
-# Solving an explicit unsolved artifact retrieves its permissions as part of the normal solve traversal.
+# Solving an explicit unsolved artifact produces a reference that grants another user read access to the solved subtree.
 
-let local = server spawn
+let local = server spawn --config {
+	authentication: { users: { providers: { insecure: true } } }
+}
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 let target = artifact {
 	tangram.ts: 'export default 1;'
 }
-tg tag -p dependency/1.0.0 $target
+tg --token $alice.token tag -p dependency/1.0.0 $target
 
 let dependency_path = artifact {
 	tangram.ts: 'import dependency from "dependency/^1"; export default dependency;'
 }
-let dependency = tg checkin --no-tokens --no-lock --no-solve --root $dependency_path | referent node
-let metadata = tg metadata $dependency | from json
+let dependency = tg --token $alice.token checkin --no-tokens --no-lock --no-solve --root $dependency_path | referent node
+let metadata = tg --token $alice.token metadata $dependency | from json
 assert equal $metadata.subtree.solvable true "the dependency should be solvable"
 assert equal $metadata.subtree.solved false "the dependency should be unsolved"
 
@@ -23,7 +27,7 @@ let directory = artifact {
 	input: (file --xattrs { "user.tangram.dependencies": $dependencies } explicit)
 }
 let path = $directory | path join input
-let output = checkin-output $local $path
-assert equal $output.permissions [object_subtree] "the solved artifact should have subtree permission"
-let object = tg get --depth=inf --no-tokens --pretty $output.reference
+let reference = tg --token $alice.token checkin --no-lock --root $path | str trim
+assert equal (reference-access $reference --token $eve.token) subtree "the reference should grant the solved subtree"
+let object = tg --token $eve.token get --depth=inf --pretty $reference
 assert ($object | str contains '"tag": "dependency/1.0.0"') "the explicit dependency should be solved"

@@ -1,22 +1,16 @@
 use ../lib/test.nu *
-use ../lib/checkin.nu checkin-output
 
-# Store subpaths retain their root and carry exact tokens for both artifacts.
-
-def token-body [token: string] {
-	$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-}
+# Store subpaths retain their root, and their references grant another user read access to both the artifact and its root.
 
 let root_token = random chars
-let local = server spawn --now 2026-01-01T00:00:00Z --config {
-	advanced: { checkpoints: true }
+let local = server spawn --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
-	object: { permission_time_to_live: 60 }
 	remotes: {}
 	vfs: false
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
+let eve = tg login --verbose --name eve | from json
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let directory = tg --token $alice.token put --no-tokens 'tg.directory({
 	"artifact_link": tg.symlink({ "artifact": tg.directory({ "program": tg.file("contents") }) }),
@@ -33,7 +27,6 @@ let directory = tg --token $alice.token put --no-tokens 'tg.directory({
 tg --token $alice.token index
 let first = http get --headers { Accept: 'application/json', Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
 let proof = $first.tokens.local.0
-let expiration = (token-body $proof).expires_at
 
 # Canonicalize physical parents, then use the root proof to resolve and authorize the artifact.
 let root = tg --token $alice.token checkout $directory | str trim
@@ -42,8 +35,6 @@ xattr_write user.tangram.token $proof $root
 let alias = mktemp --directory
 ln -s $root ($alias | path join root)
 ln -s $root $'($root).tg.ts'
-advance_time $local 1sec
-let watch = tg --token $root_token checkpoint watch verification.index | from json | get watch
 mut resolved = ''
 for case in [
 	{ input: $'($root)/bin/program', path: 'bin/program' },
@@ -52,35 +43,31 @@ for case in [
 	{ input: $'($alias)/root/bin/program', path: 'bin/program' },
 	{ input: $'($root)/final_link', path: 'final_link' },
 ] {
-	let output = checkin-output $local $case.input --token $bob.token
-	let uri = $'http://localhost/($output.reference)' | url parse
+	let reference = tg --token $bob.token checkin $case.input | str trim
+	let artifact = $reference | referent node
+	let uri = $'http://localhost/($reference)' | url parse
 	assert equal ($uri.params | where key == id | first | get value) $directory
 	assert equal ($uri.params | where key == path | first | get value) $case.path
-	let tokens = $uri.params | where key starts-with 'tokens[local]' | get value
-	assert equal ($tokens | length) 2
-	assert equal ($tokens | each { token-body $in | get resource } | sort) ([$output.artifact $directory] | sort)
-	for token in $tokens {
-		let body = token-body $token
-		assert equal $body.permissions [object_subtree]
-		assert equal $body.expires_at $expiration
-		let reference = $'($body.resource)?tokens[local][0]=($token | url encode --all)'
-		success (tg --token $bob.token object get --bytes $reference | complete)
+
+	# The reference's tokens grant another user read access to both the artifact and its root.
+	let tokens = $uri.params | where key starts-with 'tokens[local]' | each { |param| $'($param.key)=($param.value | url encode --all)' } | str join '&'
+	for id in [$artifact $directory] {
+		success (tg --token $eve.token get --depth=inf $'($id)?($tokens)' | complete)
 	}
 	if $resolved != '' {
-		assert equal $output.artifact $resolved
+		assert equal $artifact $resolved
 	}
-	$resolved = $output.artifact
+	$resolved = $artifact
 }
 
-# The root itself has no containing root or subpath and needs only one token.
+# The root itself has no containing root or subpath, and its reference grants another user read access to it.
 for path in [$root $'($root).tg.ts'] {
-	let output = checkin-output $local $path --token $bob.token
-	assert equal $output.artifact $directory
-	let params = $'http://localhost/($output.reference)' | url parse | get params
+	let reference = tg --token $bob.token checkin $path | str trim
+	assert equal ($reference | referent node) $directory
+	let params = $'http://localhost/($reference)' | url parse | get params
 	assert ($params | where key in [id path] | is-empty)
-	assert equal ($params | where key starts-with 'tokens[local]' | length) 1
+	success (tg --token $eve.token get --depth=inf $reference | complete)
 }
-tg --token $root_token checkpoint unwatch verification.index $watch
 
 # Following an intermediate artifact symlink changes the containing root.
 let target = tg --token $root_token put --no-tokens 'tg.directory({ "program": tg.file("contents") })' | referent node
@@ -89,9 +76,9 @@ for case in [
 	{ input: 'artifact_link/program', id: $target, path: 'program' },
 	{ input: 'artifact_path_link/program', id: $target_parent, path: 'bin/program' },
 ] {
-	let output = checkin-output $local $'($root)/($case.input)' --token $alice.token
-	let params = $'http://localhost/($output.reference)' | url parse | get params
-	assert equal $output.artifact $resolved
+	let reference = tg --token $alice.token checkin $'($root)/($case.input)' | str trim
+	let params = $'http://localhost/($reference)' | url parse | get params
+	assert equal ($reference | referent node) $resolved
 	assert equal ($params | where key == id | first | get value) $case.id
 	assert equal ($params | where key == path | first | get value) $case.path
 }

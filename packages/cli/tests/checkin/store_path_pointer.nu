@@ -29,6 +29,5 @@ let output = checkin-output $local $path --token $alice.token
 let params = $'http://localhost/($output.reference)' | url parse | get params
 assert equal ($params | where key == id | first | get value) $directory_id
 assert equal ($params | where key == path | first | get value) program
-assert equal ($params | where key starts-with 'tokens[local]' | length) 2
 let contents = tg --token $bob.token read $output.reference
 assert equal $contents contents

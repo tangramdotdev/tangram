@@ -39,17 +39,18 @@ export def checkin-output [
 		error make { msg: 'the checkin failed' }
 	}
 	let uri = $"http://localhost/($event.artifact)" | url parse
-	let token = $uri.params | where key == 'tokens[local][0]' | first | get value
-	let permissions = (
-		$token
-		| split row '.'
-		| get 1
-		| decode base64
-		| decode utf-8
-		| from json
-		| get permissions
-	)
 	let artifact = $uri.path | str substring 1..
 
-	{ artifact: $artifact, permissions: $permissions, reference: $event.artifact }
+	{ artifact: $artifact, reference: $event.artifact }
+}
+
+# Return the access that a reference grants to a user without other permissions: `subtree` when the artifact's descendants are readable through it, `node` when only the artifact is, or `none`.
+export def reference-access [reference: string, --token: string] {
+	if (tg --token $token get --depth=inf $reference | complete).exit_code == 0 {
+		return 'subtree'
+	}
+	if (tg --token $token get $reference | complete).exit_code == 0 {
+		return 'node'
+	}
+	'none'
 }

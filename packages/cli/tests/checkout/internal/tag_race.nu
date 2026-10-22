@@ -1,6 +1,6 @@
 use ../../lib/test.nu *
 
-# A tag mutation racing a checkout removes the stale entry after the checkout releases the lock.
+# A tag mutation racing a checkout takes effect for later checkouts.
 
 let local = server spawn --config {
 	advanced: {
@@ -9,7 +9,6 @@ let local = server spawn --config {
 }
 let first = artifact 'first'
 let second = artifact 'second'
-let tag_path = $local.directory | path join store dep
 
 tg tag dep $first
 
@@ -42,7 +41,6 @@ tg checkpoint continue checkout.named.materialize $checkout_watch 0
 tg checkpoint unwatch checkout.named.materialize $checkout_watch
 success (job recv --tag $checkout --timeout 10sec)
 success (job recv --tag $replacement --timeout 10sec)
-assert (not ($tag_path | path exists --no-symlink)) "expected replacement to remove the stale checkout"
 
 let path = tg checkout dep | str trim
 assert equal (open $path) 'second' "expected checkout to use the replacement target"
@@ -76,4 +74,4 @@ tg checkpoint continue checkout.named.materialize $checkout_watch 0
 tg checkpoint unwatch checkout.named.materialize $checkout_watch
 success (job recv --tag $checkout --timeout 10sec)
 success (job recv --tag $deletion --timeout 10sec)
-assert (not ($tag_path | path exists --no-symlink)) "expected deletion to remove the stale checkout"
+failure (tg checkout dep | complete) "expected checkout not to use the deleted tag"

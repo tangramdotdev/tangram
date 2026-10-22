@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A runner-created cancellation error should retain its tokens when authorization searches are disabled.
+# A canceled process finishes and is indexed when authorization searches are disabled.
 
 let server = server spawn --config {
 	verification: {
@@ -28,5 +28,3 @@ let output = timeout 10s tg index | complete
 success $output "the cancellation error should be indexed without an authorization search"
 let indexed = tg process get --source index $spawned.process | from json
 assert equal $indexed.status finished "the canceled process should be finished in the index"
-server stop $server
-assert not ((open --raw $server.log) | str contains 'authorization search exhausted') "indexing the cancellation error should not exhaust authorization"

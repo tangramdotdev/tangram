@@ -2,10 +2,6 @@ use ../lib/test.nu *
 
 # A capture write prepared before deletion must not restore a deleted tag's target permissions.
 
-def token-body [token: string] {
-	$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-}
-
 let root_token = random chars
 let local = server spawn --config {
 	advanced: { checkpoints: true }
@@ -25,13 +21,9 @@ let advance = tg --token $root_token checkpoint watch permission_capture.advance
 let advanced = tg --token $root_token checkpoint watch permission_capture.advanced --params $params | from json | get watch
 tg --token $alice.token tag put deleting $target --public
 tg --token $root_token index
-let hit = timeout 30s tg --token $root_token checkpoint wait permission_capture.advance $advance 0 | from json
+timeout 30s tg --token $root_token checkpoint wait permission_capture.advance $advance 0 | ignore
 let tag = http get --headers { Accept: application/json, Authorization: $'Bearer ($bob.token)' } --unix-socket $socket 'http://localhost/tags/deleting'
 let token = $tag.tokens.local.0
-let body = token-body $token
-assert equal $body.resource $tag.data.id
-assert equal $body.permissions [tag_read]
-assert equal $hit.params.tag $tag.data.id
 let reference = $'($target)?tokens[local][0]=($token | url encode --all)'
 success (tg --token $bob.token get $reference | complete) "the retained tag-read proof must initially authorize the delegated target."
 

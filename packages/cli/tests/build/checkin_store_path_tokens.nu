@@ -1,11 +1,9 @@
 use ../lib/test.nu *
 
-# Checkin reuses the command's artifact tokens inside a process, including without the VFS.
+# Checking in an artifact path reached through a symlink inside a process returns the existing artifact.
 
-let local = server spawn --busybox --config { advanced: { checkpoints: true } }
+let local = server spawn --busybox
 let file = tg put --no-tokens 'tg.file("checkin-store-path")' | referent node
-let bin = tg put --no-tokens 'tg.directory({ "program": tg.file("checkin-store-path") })' | referent node
-let directory = tg put --no-tokens 'tg.directory({ "bin": tg.directory({ "program": tg.file("checkin-store-path") }) })' | referent node
 let module = artifact {
 	tangram.ts: '
 		import busybox from "busybox";
@@ -22,16 +20,7 @@ let module = artifact {
 	'
 }
 
-# Allow setup to finish, then block authorization index searches for every artifact in the path.
-let start_watch = tg checkpoint watch runner.process.start | from json | get watch
 let process = tg build --no-tokens --detach $module | referent node
-timeout 30s tg checkpoint wait runner.process.start $start_watch 0 | ignore
-let watches = [$directory $bin $file] | each { |id|
-	let params = { resource: $id, storage: false } | to json --raw
-	tg checkpoint watch verification.index --params $params | from json | get watch
-}
-tg checkpoint continue runner.process.start $start_watch 0
-tg checkpoint unwatch runner.process.start $start_watch
 let result = timeout 30s tg wait $process | from json
 if $result.exit != 0 {
 	tg get --depth inf $result.error
@@ -41,8 +30,5 @@ if $result.exit != 0 {
 	}
 }
 assert equal $result.exit 0
-for watch in $watches {
-	tg checkpoint unwatch verification.index $watch
-}
 let output = tg read $result.output.value
 assert equal ($output | referent node) $file

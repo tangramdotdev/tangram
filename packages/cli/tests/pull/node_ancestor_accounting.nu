@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A named node remains pending while its ancestor requests are registered.
+# A pull stores a named node's ancestor even when the pulled process finishes storing while the ancestor request is outstanding.
 
 let remote = server spawn --cloud --name remote --config {
 	advanced: {
@@ -63,10 +63,7 @@ tg --url $local.url checkpoint wait sync.get.store.process $store_watch 0 | igno
 tg --url $remote.url checkpoint continue sync.put.database.node.send $send_watch 0
 tg --url $local.url checkpoint wait sync.get.input.node.ancestor $ancestor_watch 0 | ignore
 tg --url $local.url checkpoint continue sync.get.store.process $store_watch 0
-let store_end_hit = (
-	tg --url $local.url checkpoint wait sync.get.store.process.end $store_end_watch 0
-	| from json
-)
+tg --url $local.url checkpoint wait sync.get.store.process.end $store_end_watch 0 | ignore
 tg --url $local.url checkpoint continue sync.get.store.process.end $store_end_watch 0
 tg --url $local.url checkpoint continue sync.get.input.node.ancestor $ancestor_watch 0
 tg --url $local.url checkpoint unwatch sync.get.input.node.ancestor $ancestor_watch
@@ -74,5 +71,4 @@ tg --url $local.url checkpoint unwatch sync.get.store.process $store_watch
 tg --url $local.url checkpoint unwatch sync.get.store.process.end $store_end_watch
 tg --url $remote.url checkpoint unwatch sync.put.database.node.send $send_watch
 success (job recv --tag $pull --timeout 10sec)
-assert not $store_end_hit.params.end
 assert equal (tg --url $local.url group get --local ancestor | from json | get id) $parent.id

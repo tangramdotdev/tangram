@@ -67,11 +67,6 @@ if $output == null {
 }
 success $output "the build must return its output before the command sync completes"
 let file = $output.stdout | str trim
-let params = $'http://localhost/($file)' | url parse | get params
-assert ($params | where {|param| $param.key starts-with 'tokens[' } | any {|param|
-	let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-	($body.resource | str starts-with 'syn_') and ('sync_read' in $body.permissions)
-}) "the output must carry sync authorization"
 
 # Release the command sync.
 tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 0

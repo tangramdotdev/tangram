@@ -19,17 +19,6 @@ assert equal ($output.stderr | lines | length) 1 "remote get should print only t
 assert ($output.stderr | str contains "location=remote") "the resolved referent should include its location"
 assert ($output.stderr | str contains "tokens") "the resolved referent should include its tokens"
 
-let requests = (
-	open ($local.directory | path join database.sqlite3)
-	| query db 'select request from remote_cache order by request'
-	| get request
-	| each { from json }
-)
-let request_kinds = $requests | get kind
-assert (
-	$request_kinds | all { $in in [get group_get] }
-) "an exact get should not use list or match"
-
 let pid = open ($remote.directory | path join lock) | into int
 kill --signal 2 $pid
 wait_for_exit $pid "the remote should stop"

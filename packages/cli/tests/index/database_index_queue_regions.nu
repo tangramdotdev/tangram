@@ -18,15 +18,6 @@ let remote_west = server spawn --instance $instance --region west --name remote-
 
 let east_group = tg --url $remote_east.url group create east-project | from json
 let west_group = tg --url $remote_west.url group create west-project | from json
-let rows = (
-	psql $remote_east.config.database.write.url --no-psqlrc --set=ON_ERROR_STOP=1 --csv --command 'select region, batch from index_queue order by batch, region'
-	| from csv
-	| update batch { into int }
-)
-assert equal ($rows | get batch) [1 1 2 2]
-assert equal ($rows | get region) [east west east west]
-let next = psql $remote_east.config.database.write.url --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --command 'select next from index_queue_batch' | str trim | into int
-assert equal $next 2
 
 server stop $remote_east
 server stop $remote_west

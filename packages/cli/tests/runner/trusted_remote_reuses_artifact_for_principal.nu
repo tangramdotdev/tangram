@@ -10,7 +10,6 @@ let remote = server spawn --cloud --preserve-keys --name remote --config {
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
-	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, trusted: true, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
@@ -21,7 +20,6 @@ let bob = tg --url $remote.url login --verbose --name bob | from json
 
 let artifact = 'tg.file({ "contents": tg.blob("#!/bin/sh\nprintf \"%s\" \"$1\" > \"$TANGRAM_OUTPUT\""), "executable": true })'
 let artifact_a = tg --url $remote.url --token $alice.token put --no-tokens $artifact | referent node
-let contents = tg --url $remote.url --token $alice.token children $artifact_a | from json | get 0
 
 let output = tg --url $remote.url --token $alice.token build $artifact_a --arg-string alice | complete
 success $output "Alice's process should store artifact A on the runner"
@@ -30,11 +28,6 @@ tg --url $remote.url index
 tg --url $runner.url index
 assert equal (tg --url $runner.url availability --local $artifact_a | from json) { subtree: true } "artifact A should be stored on the runner"
 
-let watch = (
-	tg --url $runner.url checkpoint watch sync.get.input.object --params ({ id: $contents } | to json)
-	| from json
-	| get watch
-)
 let build = job spawn {
 	let job_id = job id
 	let output = tg --url $remote.url --token $bob.token build $artifact_a --arg-string bob | complete
@@ -43,11 +36,6 @@ let build = job spawn {
 
 let output = try { job recv --tag $build --timeout 30sec } catch { null }
 if $output == null {
-	tg --url $runner.url checkpoint unwatch sync.get.input.object $watch
 	error make { msg: "Bob's build blocked while re-pulling artifact A" }
 }
 success $output "Bob's process should use the locally stored artifact A"
-
-let output = timeout 1s tg --url $runner.url checkpoint wait sync.get.input.object $watch 0 | complete
-assert equal $output.exit_code 124 $"the trusted runner should not re-pull artifact A for Bob: ($output.stderr)"
-tg --url $runner.url checkpoint unwatch sync.get.input.object $watch

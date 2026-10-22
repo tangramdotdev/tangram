@@ -1,12 +1,10 @@
 use ../lib/test.nu *
 use ../lib/module.nu *
 
-# Resolving Edge::Pointer modules returns a token for their graph ID, so subsequent resolutions use exact-token authorization.
+# Resolving Edge::Pointer modules returns a token for their graph ID, so a user who holds only the command token can resolve each subsequent import.
 
-let root_token = random chars
 let local = server spawn --config {
-	advanced: { checkpoints: true }
-	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
+	authentication: { users: { providers: { insecure: true } } }
 }
 
 let alice = tg login --verbose --name alice | from json
@@ -61,23 +59,12 @@ tg --token $alice.token index
 assert equal $case.module.referent.node $'graph=($case.graph)&index=0&kind=file'
 
 let socket = $local.url | str replace 'http+unix://' '' | url decode
-let watch = (
-	tg --token $root_token checkpoint watch verification.index
-	| from json
-	| get watch
-)
 
-# The first resolution must fall through to the index for the graph containing A.
-let b_job = resolve-module-background $socket $bob.token $case.module './b'
-let hit = tg --token $root_token checkpoint wait verification.index $watch 0 | from json
-assert equal $hit.params.resource $case.graph
-tg --token $root_token checkpoint continue verification.index $watch 0
-let b = job recv --tag $b_job --timeout 10sec
+# The first resolution returns a token through which Bob can read the dependency graph, which Bob cannot read by its ID alone.
+failure (tg --token $bob.token get $case.dependencyGraph | complete) 'bob must not read the object by its ID alone'
+let b = resolve-module $socket $bob.token $case.module './b'
+success (read-with-module-tokens $bob.token $case.dependencyGraph $b.module) 'bob must read the dependency graph through the returned token'
 
-assert ($case.dependencyGraph in (token-resources $b.module))
-
-# Resolving B must complete without another index hit because it has an exact graph token.
-let c_job = resolve-module-background $socket $bob.token $b.module './c'
-let c = job recv --tag $c_job --timeout 10sec
-assert ($case.dependencyGraph in (token-resources $c.module))
-tg --token $root_token checkpoint unwatch verification.index $watch
+# Resolving B with the returned token returns a token through which Bob can read the dependency graph.
+let c = resolve-module $socket $bob.token $b.module './c'
+success (read-with-module-tokens $bob.token $case.dependencyGraph $c.module) 'bob must read the dependency graph through the returned token'

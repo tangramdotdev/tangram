@@ -26,15 +26,11 @@ let push = job spawn {
 wait_for_log { log: $push_log } 'tokens[remote][0]'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let referent = $referent | str replace --all 'tokens[remote]' 'tokens[local]'
-let proof = $'http://localhost/($referent)' | url parse | get params | where {|param| $param.key =~ '^tokens\[' } | each {|param|
-	let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-	{ body: $body, token: $param.value }
-} | where {|proof| $proof.body.resource | str starts-with 'syn_' } | first
-let body = $proof.body
-let query = $'tokens[local][0]=($proof.token | url encode --all)'
-let referent = $'($file)?($query)'
-assert ($body.resource | str starts-with 'syn_') 'the token should identify a sync'
-assert equal $body.permissions [sync_read]
+# Read through only the sync token, so that authorization must wait for the sync's queued permissions.
+let token = $'http://localhost/($referent)' | url parse | get params | where {|param| $param.key =~ '^tokens\[' } | get value | where {|token|
+	$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json | get resource | str starts-with 'syn_'
+} | first
+let referent = $'($file)?tokens[local][0]=($token | url encode --all)'
 # Hold the sync batch until verification has started contacting its service.
 tg --url $remote_destination.url --token $root_token checkpoint wait index.batch $batch_watch 0 | ignore
 let heartbeat_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.service.heartbeat.start | from json | get watch

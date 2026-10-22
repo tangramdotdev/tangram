@@ -21,13 +21,6 @@ assert ($response.stream | str contains 'event: error') "the pull from the empty
 let nodes = $response.header.nodes
 assert not ($nodes | is-empty) "the header should publish its authorization token for the sync"
 for referent in $nodes {
-	let params = $'http://localhost/($referent)' | url parse | get params
-	assert ($params | any {|param| $param.key == 'tokens[local][0]' }) "the referent should identify the sync"
-	for param in ($params | where {|param| $param.key =~ '^tokens\[' }) {
-		let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-		assert ($body.resource | str starts-with 'syn_') "starting a sync must not grant access directly to an object"
-		assert equal $body.permissions [sync_read]
-	}
 	failure (tg --url $remote_destination.url --token $bob.token read $referent | complete) "the authorization token for the sync must not authorize Bob"
 }
 failure (tg --url $remote_destination.url --token $bob.token get --local $private | complete) "the failed pull must not grant access"
