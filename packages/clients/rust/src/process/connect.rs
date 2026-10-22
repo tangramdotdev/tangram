@@ -372,6 +372,18 @@ impl tg::Session {
 		} else {
 			request
 		};
+
+		// Send the connect over the connection of its nonce or process, so that its correlated requests reach the same server.
+		let affinity = match (&arg.nonce, &arg.process) {
+			(Some(nonce), _) => Some(crate::http::Affinity::Nonce(*nonce)),
+			(None, tg::Either::Right(id)) => Some(crate::http::Affinity::Process(id.clone())),
+			(None, tg::Either::Left(_)) => None,
+		};
+		let request = if let Some(affinity) = affinity {
+			request.extension(affinity)
+		} else {
+			request
+		};
 		let request = request
 			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?

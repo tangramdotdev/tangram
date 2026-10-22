@@ -134,6 +134,9 @@ impl Session {
 		self.server
 			.sandbox_control_services
 			.insert(id.clone(), local);
+		self.server
+			.sandbox_control_services_changed
+			.notify_waiters();
 
 		// Spawn the task, and remove its local channel when it exits.
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -245,37 +248,48 @@ impl Server {
 		id: &tg::sandbox::Id,
 		request: Request,
 	) -> tg::Result<Option<Response>> {
-		// Ask this server's own control service over the local channel, or ask over the messenger.
-		let response = if let Some(response) = self
-			.request_sandbox_control_service_local(id, &request)
-			.await
-		{
-			response
-		} else {
-			let mut request = self
-				.sandbox_control_clients
-				.request(&subject(id), request)
-				.map_err(|source| {
-					tg::error!(
-						!source,
-						"failed to send the sandbox control service request"
-					)
-				})?;
-			match request.wait().await {
-				Ok(response) => response,
-				Err(service::Error::Timeout) => return Ok(None),
-				Err(service::Error::Stopped) => {
-					return Err(tg::error!(
-						code = tg::error::Code::Cancellation,
-						"the server is stopping"
-					));
+		// Ask this server's own control service over the local channel. Otherwise, ask over the messenger while watching for the control service to start on this server, so that a request that arrives before its control connection is answered over the local channel once the control connection starts.
+		let mut messenger = None;
+		let response = loop {
+			let started = self.sandbox_control_services_changed.notified();
+			let mut started = std::pin::pin!(started);
+			started.as_mut().enable();
+			if let Some(response) = self
+				.request_sandbox_control_service_local(id, &request)
+				.await
+			{
+				break response;
+			}
+			if messenger.is_none() {
+				let pending = self
+					.sandbox_control_clients
+					.request(&subject(id), request.clone())
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to send the sandbox control service request"
+						)
+					})?;
+				messenger = Some(pending);
+			}
+			let pending = messenger.as_mut().unwrap();
+			tokio::select! {
+				result = pending.wait() => {
+					let response = match result {
+						Ok(response) => response,
+						Err(service::Error::Timeout) => return Ok(None),
+						Err(service::Error::Stopped) => {
+							return Err(tg::error!(
+								code = tg::error::Code::Cancellation,
+								"the server is stopping"
+							));
+						},
+						Err(error) => return Err(tg::error!(!error, "the sandbox control service request failed")),
+					};
+					crate::checkpoint!(self, "sandbox.control.service.messenger", sandbox = %id).await;
+					break response;
 				},
-				Err(error) => {
-					return Err(tg::error!(
-						!error,
-						"the sandbox control service request failed"
-					));
-				},
+				() = &mut started => {},
 			}
 		};
 

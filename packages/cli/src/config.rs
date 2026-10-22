@@ -99,11 +99,19 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub region: Option<String>,
 
+	/// Configure the clients that the server creates for its regions.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub region_client: Option<ServerClient>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub regions: Option<Vec<Region>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote_cache: Option<RemoteCache>,
+
+	/// Configure the clients that the server creates for its remotes.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote_client: Option<ServerClient>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<BTreeMap<String, Remote>>,
@@ -1784,6 +1792,15 @@ pub struct Remote {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
+}
+
+/// The configuration of the clients that a server creates for its remotes or its regions.
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerClient {
+	/// Configure the client connection pool.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pool: Option<Pool>,
 }
 
 #[serde_as]
@@ -3525,8 +3542,14 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 				.collect::<tg::Result<_>>()?,
 		);
 	}
+	if let Some(source) = &source.region_client {
+		target.region_client = resolve_server_client(source);
+	}
 	if let Some(source) = source.remote_cache {
 		target.remote_cache = resolve_remote_cache(source);
+	}
+	if let Some(source) = &source.remote_client {
+		target.remote_client = resolve_server_client(source);
 	}
 	if let Some(remotes) = source.remotes {
 		target.remotes = Some(
@@ -5385,6 +5408,14 @@ fn resolve_remote(source: Remote) -> tg::Result<server::Remote> {
 	};
 
 	Ok(target)
+}
+
+fn resolve_server_client(source: &ServerClient) -> server::Client {
+	let mut target = server::Client::default();
+	if let Some(pool) = &source.pool {
+		target.pool = resolve_client_pool(pool);
+	}
+	target
 }
 
 fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {

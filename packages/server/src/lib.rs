@@ -190,6 +190,8 @@ pub struct State {
 		fnv::FnvBuildHasher,
 	>,
 
+	process_connect_services_changed: tokio::sync::Notify,
+
 	process_control_clients:
 		tangram_messenger::service::Clients<self::process::control::service::Protocol, Messenger>,
 
@@ -197,6 +199,8 @@ pub struct State {
 
 	process_control_services:
 		DashMap<tg::process::Id, self::process::control::service::Local, fnv::FnvBuildHasher>,
+
+	process_control_services_changed: tokio::sync::Notify,
 
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 
@@ -219,6 +223,8 @@ pub struct State {
 
 	sandbox_control_services:
 		DashMap<tg::sandbox::Id, self::sandbox::control::service::Local, fnv::FnvBuildHasher>,
+
+	sandbox_control_services_changed: tokio::sync::Notify,
 
 	sandbox_tasks: self::sandbox::Tasks,
 
@@ -1944,11 +1950,15 @@ impl Server {
 
 			process_connect_services: DashMap::default(),
 
+			process_connect_services_changed: tokio::sync::Notify::new(),
+
 			process_control_clients,
 
 			process_control_service_tasks: tangram_futures::task::Set::default(),
 
 			process_control_services: DashMap::default(),
+
+			process_control_services_changed: tokio::sync::Notify::new(),
 
 			regions,
 
@@ -1969,6 +1979,8 @@ impl Server {
 			sandbox_control_service_tasks: tangram_futures::task::Set::default(),
 
 			sandbox_control_services: DashMap::default(),
+
+			sandbox_control_services_changed: tokio::sync::Notify::new(),
 
 			sandbox_tasks,
 

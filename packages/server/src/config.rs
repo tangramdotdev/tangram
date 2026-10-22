@@ -57,9 +57,13 @@ pub struct Config {
 
 	pub region: Option<String>,
 
+	pub region_client: Client,
+
 	pub regions: Option<Vec<Region>>,
 
 	pub remote_cache: RemoteCache,
+
+	pub remote_client: Client,
 
 	pub remotes: Option<BTreeMap<String, Remote>>,
 
@@ -1145,6 +1149,12 @@ pub struct Remote {
 	pub url: Uri,
 }
 
+/// The configuration of the clients that a server creates for its remotes or its regions.
+#[derive(Clone, Debug)]
+pub struct Client {
+	pub pool: tangram_pool::Options,
+}
+
 #[derive(Clone, Debug)]
 pub struct RemoteCache {
 	pub time_to_live: Duration,
@@ -1998,8 +2008,10 @@ impl Default for Config {
 			progress: Progress::default(),
 			read: Read::default(),
 			region: None,
+			region_client: Client::default(),
 			regions: None,
 			remote_cache: RemoteCache::default(),
+			remote_client: Client::default(),
 			remotes: None,
 			roles: default_roles(),
 			runner: Runner::default(),
@@ -2147,6 +2159,14 @@ impl Default for CheckinSolve {
 	fn default() -> Self {
 		Self {
 			prefetch_concurrency: 16,
+		}
+	}
+}
+
+impl Default for Client {
+	fn default() -> Self {
+		Self {
+			pool: tg::Arg::default().pool,
 		}
 	}
 }

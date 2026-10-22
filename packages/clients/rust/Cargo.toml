@@ -77,5 +77,6 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+weak-table = { workspace = true }
 winnow = { workspace = true }
 xattr = { workspace = true }

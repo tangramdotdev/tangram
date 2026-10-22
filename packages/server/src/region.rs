@@ -123,6 +123,7 @@ impl Server {
 			url: Some(region_config.url.clone()),
 			version: Some(self.version.clone()),
 			token: None,
+			pool: self.config().region_client.pool,
 			reconnect,
 			retry,
 			stream_retry: Self::client_stream_retry(),

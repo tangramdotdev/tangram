@@ -643,6 +643,18 @@ impl tg::Session {
 				http::header::CONTENT_TYPE,
 				tg::sync::CONTENT_TYPE.to_string(),
 			);
+
+		// Send a sync that joins a connect or a process over the connection of its nonce or process, so that the server that resolves the join answers it over its local channel.
+		let affinity = match &arg.sync {
+			Some(tg::sync::Join::Connect(nonce)) => Some(crate::http::Affinity::Nonce(*nonce)),
+			Some(tg::sync::Join::Process(process)) => {
+				Some(crate::http::Affinity::Process(process.id.clone()))
+			},
+			Some(tg::sync::Join::Sync(_)) | None => None,
+		};
+		if let Some(affinity) = affinity {
+			request = request.extension(affinity);
+		}
 		let request = request
 			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
