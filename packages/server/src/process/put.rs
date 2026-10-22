@@ -128,7 +128,7 @@ impl Session {
 			outcome_sync,
 			store_data,
 		} = options;
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 
 		// Associate the command and outcome objects with their syncs, both for the permission capture and in the stored data.
 		let mut token_data = arg.data.clone();

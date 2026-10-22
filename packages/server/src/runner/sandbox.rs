@@ -284,7 +284,7 @@ impl Session {
 
 		// Create the sandbox concurrently with its control stream.
 		let create_future = self.create_sandbox_with_pool(arg.clone());
-		let created_at = self.server.clock.unix_timestamp()?;
+		let created_at = self.server.clock.unix_timestamp();
 		let capacity = self.server.config.runner.sandbox_channel_capacity;
 		let (input, input_receiver) = tokio::sync::mpsc::channel(capacity);
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
@@ -1314,7 +1314,7 @@ impl Session {
 			self.index_remote_sandbox(
 				&id,
 				&location,
-				self.server.clock.unix_timestamp()?,
+				self.server.clock.unix_timestamp(),
 				Some(&data),
 				Some(&processes),
 			)
@@ -1538,7 +1538,7 @@ impl Session {
 			data.tokens.clear();
 			data
 		});
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let sandbox = tangram_index::sandbox::put::Arg {
 			account: None,
 			created_at,

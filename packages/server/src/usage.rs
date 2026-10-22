@@ -90,7 +90,7 @@ impl Session {
 		if !self.server.config.usage.enabled {
 			return Err(tg::error!("usage tracking is disabled"));
 		}
-		let now = self.server.clock.now()?;
+		let now = self.server.clock.now();
 		let aggregate = self.server.index.get_usage(account, period, now).await?;
 		let output = usage_output(account, period, aggregate);
 		Ok(output)

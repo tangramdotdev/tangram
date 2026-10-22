@@ -17,7 +17,7 @@ impl Session {
 		id: &tg::Id,
 	) -> tg::Result<Option<tg::authorization::Token>> {
 		let permission = Self::read_permission_for_resource(id)?;
-		let expires_at = self.server.clock.unix_timestamp()?
+		let expires_at = self.server.clock.unix_timestamp()
 			+ self
 				.server
 				.config
@@ -30,7 +30,7 @@ impl Session {
 	}
 
 	pub(crate) fn add_tokens_to_value_data(&self, data: &mut tg::value::Data) -> tg::Result<()> {
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let expires_at = now
 			+ self
 				.server
@@ -50,7 +50,7 @@ impl Session {
 	where
 		T: Clone + Into<tg::Id>,
 	{
-		let expires_at = self.server.clock.unix_timestamp()?
+		let expires_at = self.server.clock.unix_timestamp()
 			+ self
 				.server
 				.config

@@ -6,6 +6,7 @@ use {
 };
 
 mod checkpoint;
+mod clock;
 mod grant;
 mod group;
 mod module;
@@ -20,13 +21,14 @@ mod user;
 mod watch;
 
 pub use self::{
-	checkpoint::Checkpoint, grant::Grant, group::Group, module::Module, object::Object,
-	organization::Organization, process::Process, remote::Remote, runner::Runner, sandbox::Sandbox,
-	tag::Tag, user::User, watch::Watch,
+	checkpoint::Checkpoint, clock::Clock, grant::Grant, group::Group, module::Module,
+	object::Object, organization::Organization, process::Process, remote::Remote, runner::Runner,
+	sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
 };
 
 pub trait Instance:
 	Checkpoint
+	+ Clock
 	+ Grant
 	+ Group
 	+ Module

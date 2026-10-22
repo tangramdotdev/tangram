@@ -355,7 +355,7 @@ impl Session {
 		&self,
 		authorization_expires_at: Option<i64>,
 	) -> tg::Result<i64> {
-		let created_at = self.server.clock.unix_timestamp()?;
+		let created_at = self.server.clock.unix_timestamp();
 		let time_to_live = i64::try_from(
 			self.server.config.process.permission_time_to_live.as_secs(),
 		)

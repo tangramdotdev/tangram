@@ -338,7 +338,7 @@ impl Session {
 			let expires_at = self
 				.server
 				.clock
-				.unix_timestamp()?
+				.unix_timestamp()
 				.checked_add(
 					i64::try_from(time_to_live.as_secs())
 						.map_err(|error| tg::error!(!error, "invalid permission time to live"))?,

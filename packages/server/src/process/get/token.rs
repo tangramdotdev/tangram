@@ -60,7 +60,7 @@ impl Session {
 		let object_expires_at = self
 			.server
 			.clock
-			.unix_timestamp()?
+			.unix_timestamp()
 			.checked_add(object_time_to_live)
 			.ok_or_else(|| tg::error!("the object permission expiration overflowed"))?
 			.min(expires_at);

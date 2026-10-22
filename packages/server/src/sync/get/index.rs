@@ -193,7 +193,7 @@ impl Session {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the objects, then get their storage and metadata.
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_objects(
 				&state.graph,
@@ -378,7 +378,7 @@ impl Session {
 		state: &State,
 		id: &tg::object::Id,
 	) -> tg::Result<bool> {
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let (mut objects, mut permissions) = self
 			.sync_get_touch_authorized_objects(
 				&state.graph,
@@ -474,7 +474,7 @@ impl Session {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the processes, then get their storage and metadata.
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let (mut outputs, permissions) = self
 			.sync_get_touch_authorized_processes_with_data(
 				&state.graph,
@@ -702,7 +702,7 @@ impl Session {
 
 		// Create the index args and update the graph with the permissions being written.
 		let account = self.usage_account(&self.context.principal).await?;
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let (
 			permission_capture_items,
 			put_checkout_args,
@@ -835,7 +835,7 @@ impl Session {
 		}
 
 		// Create the sandbox and permission args.
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let mut put_sandbox_args = Vec::with_capacity(messages.len());
 		for message in messages {
 			let account = match message.data.data.owner.as_ref() {
@@ -934,7 +934,7 @@ impl Session {
 		}
 		let indices = sccs.into_iter().flatten().collect::<Vec<_>>();
 
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 
 		// Create the permission args.
 		let mut put_permission_args = Vec::new();

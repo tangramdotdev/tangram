@@ -119,7 +119,7 @@ impl Session {
 		} else {
 			(None, None)
 		};
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let child_id = &child.process.node;
 		let parent_arg = parent_data
 			.map(|(parent_data, location)| -> tg::Result<_> {

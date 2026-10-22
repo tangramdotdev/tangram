@@ -171,7 +171,7 @@ impl Session {
 					return Err(tg::error!("expected process permissions"));
 				};
 
-				let touched_at = self.server.clock.unix_timestamp()?;
+				let touched_at = self.server.clock.unix_timestamp();
 				let (mut outputs, _) = self
 					.sync_get_touch_authorized_processes(
 						&state.graph,

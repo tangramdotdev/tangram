@@ -50,7 +50,7 @@ impl Session {
 
 		// Create the state.
 		let state = crate::user::login::create_token();
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 
 		// Update the login.
 		self.server
@@ -236,7 +236,7 @@ impl Session {
 
 	async fn claim_github_login_state(&self, state: &str) -> tg::Result<(String, bool)> {
 		// Claim the login state.
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let (code, claimed) = self
 			.server
 			.database
@@ -404,7 +404,7 @@ impl Session {
 					.join(",")
 			})
 			.unwrap_or_default();
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let expires_at = token
 			.expires_in()
 			.map(|duration| now + i64::try_from(duration.as_secs()).unwrap_or(i64::MAX));
@@ -477,7 +477,7 @@ impl Session {
 
 	async fn finish_login_with_error(&self, code: &str, error: String) -> tg::Result<()> {
 		// Fail the login.
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		self.server
 			.database
 			.run(|transaction| {
@@ -517,7 +517,7 @@ impl Session {
 
 	async fn upsert_github_identity(&self, identity: GithubIdentity) -> tg::Result<()> {
 		// Upsert the GitHub identity.
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		self.server
 			.database
 			.run(|transaction| {

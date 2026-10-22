@@ -295,7 +295,7 @@ impl Server {
 	}
 
 	fn create_authentication_token(&self, principal: token::Principal) -> tg::Result<String> {
-		let issued_at = self.clock.unix_timestamp()?;
+		let issued_at = self.clock.unix_timestamp();
 		let ttl = i64::try_from(self.config.authentication.tokens.ttl.as_secs())
 			.map_err(|_| tg::error!("invalid authentication token ttl"))?;
 		let expires_at = issued_at
@@ -314,7 +314,7 @@ impl Server {
 			.private_key
 			.as_ref()
 			.ok_or_else(|| tg::error!("missing the authentication token private key"))?;
-		let issued_at = self.clock.unix_timestamp()?;
+		let issued_at = self.clock.unix_timestamp();
 		let body = token::Body {
 			expires_at,
 			issued_at,
@@ -494,7 +494,7 @@ impl Server {
 
 	fn authenticate_token(&self, value: &str) -> Option<tg::Principal> {
 		let token = value.parse::<token::Token>().ok()?;
-		let now = self.clock.unix_timestamp().ok()?;
+		let now = self.clock.unix_timestamp();
 		let clock_skew = self.config.authentication.tokens.clock_skew;
 		token.validate_at(now, clock_skew).ok()?;
 		let principal = token.body.principal.clone().into();

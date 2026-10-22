@@ -278,7 +278,7 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		let created_at = self.server.clock.unix_timestamp()?;
+		let created_at = self.server.clock.unix_timestamp();
 		let time_to_live = i64::try_from(self.server.config.sync.permission_time_to_live.as_secs())
 			.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
 		let expires_at = created_at

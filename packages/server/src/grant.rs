@@ -251,7 +251,7 @@ impl Session {
 		if matches!(subject, tg::authorization::Subject::Tag(_)) {
 			return Err(tg::error!("a tag cannot be a grant subject"));
 		}
-		let created_at = self.server.clock.unix_timestamp()?;
+		let created_at = self.server.clock.unix_timestamp();
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}

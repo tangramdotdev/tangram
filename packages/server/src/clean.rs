@@ -104,7 +104,7 @@ impl Session {
 			tags: 0,
 		};
 		let batch_size = self.server.config.indexer.cleaning.batch_size;
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let object_time_to_live = Duration::from_secs(0);
 		let process_time_to_live = Duration::from_secs(0);
 		let sandbox_time_to_live = Duration::from_secs(0);

@@ -69,6 +69,7 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
+jiff = { workspace = true }
 libc = { workspace = true }
 liblzma = { workspace = true }
 maml = { workspace = true }

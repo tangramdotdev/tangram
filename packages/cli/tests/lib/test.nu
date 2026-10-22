@@ -817,6 +817,13 @@ export def --env "server spawn" [
 	} else {
 		$config | upsert vfs { kind: $forced_vfs_kind }
 	}
+	# Start the server's virtual clock at the requested time, and give an authenticated server a root token so that the test library can control the clock.
+	let config = if $now == null { $config } else { $config | upsert advanced (($config.advanced? | default {}) | upsert clock { start: $now }) }
+	let config = if $now != null and $config.authentication? != null and $config.authentication.root?.token? == null {
+		$config | upsert authentication ($config.authentication | upsert root { token: (random chars) })
+	} else {
+		$config
+	}
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'
 	$config | to json | save -f $config_path
@@ -828,6 +835,7 @@ export def --env "server spawn" [
 	# Create a path for the server's captured output.
 	let log_path = ($config_path | path dirname | path join 'log')
 	touch $log_path
+	# Record the virtual clock's time, so that a restarted server resumes from it.
 	let clock_path = if $now == null {
 		null
 	} else {
@@ -927,14 +935,17 @@ export def --env "server start" [server: record] {
 		(($names | str join "\n") + "\n") | save --append ($root | path join 'posix_semaphores')
 	}
 
+	# Resume the virtual clock from its latest recorded time.
+	if $server.clock? != null {
+		let now = open --raw $server.clock | str trim
+		$config | upsert advanced.clock.start $now | to json | save -f $server.config_path
+	}
+
 	# Record VFS intent before launch so cleanup still finds it after a crash.
 	mark_vfs_cleanup $server
 
 	# Create the environment.
 	mut environment = {}
-	if $server.clock? != null {
-		$environment = $environment | upsert TANGRAM_TEST_CLOCK $server.clock
-	}
 	let macos_app_group_socket = create_macos_app_group_socket_path $server
 	if $macos_app_group_socket != null {
 		$environment = $environment | upsert TANGRAM_MACOS_APP_GROUP_SOCKET $macos_app_group_socket
@@ -1018,26 +1029,33 @@ def remove_macos_app_group_socket [path] {
 	}
 }
 
-# Set a server's simulated wall clock.
+# Set a server's virtual clock.
 export def set_time [server: record, now: string] {
-	let clock_path = $server.clock?
-	if $clock_path == null {
-		error make { msg: 'the server does not have a test clock' }
-	}
-	let temporary_path = $clock_path + $'.((random chars) | str lowercase)'
-	$now | save -f $temporary_path
-	mv -f $temporary_path $clock_path
+	clock $server set $now
 }
 
-# Advance a server's simulated wall clock.
+# Advance a server's virtual clock.
 export def advance_time [server: record, duration: duration] {
-	let clock_path = $server.clock?
-	if $clock_path == null {
-		error make { msg: 'the server does not have a test clock' }
+	let milliseconds = $duration / 1ms | math round
+	clock $server advance $'($milliseconds)ms'
+}
+
+# Advance the virtual clocks of several servers by the same duration.
+export def advance_times [servers: list<record>, duration: duration] {
+	for server in $servers {
+		advance_time $server $duration
 	}
-	let now = open --raw $clock_path | str trim | into datetime
-	let now = ($now + $duration) | format date '%Y-%m-%dT%H:%M:%SZ'
-	set_time $server $now
+}
+
+# Run a clock command against a server with its root token, and record the resulting time so that a restart resumes from it.
+def clock [server: record, ...args: string] {
+	if $server.clock? == null {
+		error make { msg: 'the server does not have a virtual clock' }
+	}
+	let token = $server.config.authentication?.root?.token?
+	let token_args = if $token == null { [] } else { [--token $token] }
+	let output = tg --url $server.url ...$token_args clock ...$args | from json
+	$output.now | save -f $server.clock
 }
 
 # Stop a server, so that its output is complete, and return the distinct errors

@@ -39,7 +39,7 @@ impl Indexer {
 				return Ok(());
 			}
 			crate::checkpoint!(self.server, "indexer.usage.aggregation.batch").await;
-			let now = self.server.clock.now()?;
+			let now = self.server.clock.now();
 			let arg = tangram_index::usage::aggregate::Arg {
 				batch_size: config.batch_size,
 				now,
@@ -91,7 +91,7 @@ impl Indexer {
 			if stopper.stopped() {
 				return Ok(());
 			}
-			let now = self.server.clock.now()?;
+			let now = self.server.clock.now();
 			let arg = tangram_index::usage::expire::Arg {
 				batch_size: config.batch_size,
 				day_time_to_live: usage.day_time_to_live,

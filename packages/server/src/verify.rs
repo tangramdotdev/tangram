@@ -735,7 +735,7 @@ impl Session {
 							let arg = &mut index_args[request.index_position];
 							// A child's storage does not prove the parent's storage.
 							if arg.resource == tg::Selector::Id(request.arg.node.clone()) { stored[request.position].insert(storage); }
-							let now = self.server.clock.unix_timestamp()?;
+							let now = self.server.clock.unix_timestamp();
 							for body in output.tokens() {
 								if body.resource != request.arg.node {
 									return Err(tg::error!("received an authorization body for the wrong resource from a sync"));
@@ -1101,7 +1101,7 @@ impl Session {
 		}
 
 		// Skip a process whose ID is outside the proof window, since a process that is still starting has a recent ID.
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let now = now.to_u64().unwrap_or_default() * 1000;
 		let window = self.server.config.process.id_proof_window;
 		let window = window.as_millis().try_into().unwrap_or(u64::MAX);

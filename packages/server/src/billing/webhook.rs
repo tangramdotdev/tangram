@@ -37,7 +37,7 @@ impl Session {
 		};
 
 		// Store the projection and event.
-		let created_at = self.server.clock.unix_timestamp()?;
+		let created_at = self.server.clock.unix_timestamp();
 		let event = event.id;
 		crate::checkpoint!(self.server, "billing.webhook.store", %event).await;
 		let server = self.server.clone();
@@ -233,7 +233,7 @@ impl Session {
 			.billing
 			.as_ref()
 			.ok_or_else(|| tg::error!("billing is not configured"))?;
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let event = match billing.try_parse_webhook(&headers, &body, now) {
 			Ok(Some(event)) => event,
 			Ok(None) => return Ok(http::Response::builder().ok().empty().unwrap().boxed_body()),

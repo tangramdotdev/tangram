@@ -228,7 +228,7 @@ impl Server {
 		reason: &str,
 	) -> tg::Result<()> {
 		tracing::warn!(sandbox = %id, reason, "finishing the runner sandbox");
-		let now = self.clock.unix_timestamp()?;
+		let now = self.clock.unix_timestamp();
 		let error = tg::error::Data {
 			code: Some(tg::error::Code::Internal),
 			message: Some(reason.to_owned()),
@@ -269,7 +269,7 @@ impl Server {
 				data.cacheable = false;
 				data.set_error(Some(tg::Either::Left(error.clone())));
 				data.exit = Some(1);
-				data.finished_at = Some(self.clock.unix_timestamp()?);
+				data.finished_at = Some(self.clock.unix_timestamp());
 				data.status = tg::process::Status::Finished;
 				let mut context = self.context.clone();
 				context.principal = tg::Principal::Process(process.clone());

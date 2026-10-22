@@ -208,7 +208,7 @@ impl Indexer {
 				_ => return Err(tg::error!("invalid permission capture resource")),
 			};
 			let permission = tangram_index::permission::put::Arg {
-				created_at: self.server.clock.unix_timestamp()?,
+				created_at: self.server.clock.unix_timestamp(),
 				creator,
 				permissions,
 				resource: resource.clone(),

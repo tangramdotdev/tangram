@@ -21,7 +21,7 @@ impl Session {
 		}
 
 		// Create the nodes with authorization tokens for permissions derived from the graph.
-		let expires_at = self.server.clock.unix_timestamp()?
+		let expires_at = self.server.clock.unix_timestamp()
 			+ self
 				.server
 				.config

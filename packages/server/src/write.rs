@@ -40,7 +40,7 @@ impl Session {
 		reader: impl AsyncRead,
 	) -> tg::Result<tg::write::Output> {
 		// Get the timestamps.
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let permission_expires_at = touched_at
 			+ self
 				.server

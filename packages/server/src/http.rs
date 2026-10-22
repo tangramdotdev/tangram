@@ -707,6 +707,13 @@ impl Server {
 				.panic_checkpoint_request(request, checkpoint)
 				.boxed(),
 
+			// Clock.
+			(http::Method::GET, ["clock"]) => session.get_clock_request(request).boxed(),
+			(http::Method::POST, ["clock", "advance"]) => {
+				session.advance_clock_request(request).boxed()
+			},
+			(http::Method::POST, ["clock", "set"]) => session.set_clock_request(request).boxed(),
+
 			// Grants.
 			(http::Method::GET, ["grants"]) => session.list_grants_request(request).boxed(),
 			(http::Method::POST, ["grants"]) => session.create_grant_request(request).boxed(),

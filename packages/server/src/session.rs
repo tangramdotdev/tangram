@@ -10,6 +10,7 @@ use {
 };
 
 mod checkpoint;
+mod clock;
 mod grant;
 mod group;
 mod module;

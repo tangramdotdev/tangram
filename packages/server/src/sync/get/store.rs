@@ -268,7 +268,7 @@ impl Session {
 			.collect::<tg::Result<_>>()?;
 
 		// Write the processes to the index.
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let put_processes: Vec<_> = batch
 			.iter()
 			.map(|(id, data, metadata)| {

@@ -65,7 +65,7 @@ impl Session {
 
 		// Preserve proofs already established by the sync and capture any remaining permissions later.
 		let tag_permissions = self.sync_get_database_tag_permissions(graph, &nodes)?;
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 
 		// Sort the nodes so that parents are written before their children.
 		nodes.sort_by_key(Self::sync_get_database_node_depth);

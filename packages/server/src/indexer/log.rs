@@ -64,7 +64,7 @@ impl Indexer {
 		config: &crate::config::IndexerLogCache,
 		partition: u64,
 	) -> tg::Result<usize> {
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let arg = tangram_cache::log::cache::get::Arg {
 			batch_size: config.batch_size,
 			now,

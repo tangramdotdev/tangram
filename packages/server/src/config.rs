@@ -176,6 +176,8 @@ pub enum Role {
 pub struct Advanced {
 	pub checkpoints: bool,
 
+	pub clock: Option<Clock>,
+
 	pub disable_version_check: bool,
 
 	pub internal_error_locations: bool,
@@ -187,6 +189,11 @@ pub struct Advanced {
 	pub single_process: bool,
 
 	pub version_check_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct Clock {
+	pub start: jiff::Timestamp,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2119,6 +2126,7 @@ impl Default for Advanced {
 	fn default() -> Self {
 		Self {
 			checkpoints: false,
+			clock: None,
 			disable_version_check: false,
 			internal_error_locations: false,
 			preserve_temp_directories: false,

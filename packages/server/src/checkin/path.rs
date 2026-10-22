@@ -75,7 +75,7 @@ impl Session {
 		if !authorization.permissions.contains(subtree) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let time_to_live = i64::try_from(
 			self.server.config.object.permission_time_to_live.as_secs(),
 		)
