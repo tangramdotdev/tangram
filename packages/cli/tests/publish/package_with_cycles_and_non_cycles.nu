@@ -122,34 +122,36 @@ let packages = [
 	["test-main/1.0.0", $main_id]
 ]
 
-for package in $packages {
-	let tag = $package.tag
-	let id = $package.id
+# Read every package's tag and object from both servers concurrently.
+let results = $packages | par-each --keep-order { |package|
+	let local_object = tg object get --no-tokens $package.id
+	let local_tag = tg tag get $package.tag | from json | get target.id
+	let remote_object = tg --url $remote.url object get --no-tokens $package.id
+	let remote_tag = tg --url $remote.url tag get $package.tag | from json | get target.id
+	{ local_object: $local_object, local_tag: $local_tag, remote_object: $remote_object, remote_tag: $remote_tag }
+}
 
-	# Verify tag on local.
-	let local_tag = tg tag get $tag | from json | get target.id
-	assert equal $local_tag $id $"Local tag for ($tag) does not match expected ID."
-
-	# Verify tag on remote.
-	let remote_tag = tg --url $remote.url tag get $tag | from json | get target.id
-	assert equal $remote_tag $id $"Remote tag for ($tag) does not match expected ID."
-
-	# Verify object synced.
-	let local_obj = tg object get --no-tokens $id
-	let remote_obj = tg --url $remote.url object get --no-tokens $id
-	assert equal $local_obj $remote_obj $"Object for ($tag) not synced between local and remote."
+# Verify that each package is tagged on both servers and that its object is synced.
+for pair in ($packages | zip $results) {
+	let package = $pair.0
+	let result = $pair.1
+	assert equal $result.local_tag $package.id $"Local tag for ($package.tag) does not match expected ID."
+	assert equal $result.remote_tag $package.id $"Remote tag for ($package.tag) does not match expected ID."
+	assert equal $result.local_object $result.remote_object $"Object for ($package.tag) not synced between local and remote."
 }
 
 # Index servers.
 tg --url $remote.url index
 tg index
 
-# Verify metadata is synced for all packages.
-for package in $packages {
-	let tag = $package.tag
-	let id = $package.id
+# Read every package's metadata from both servers concurrently.
+let results = $packages | par-each --keep-order { |package|
+	let local = tg object metadata $package.id | from json
+	let remote = tg --url $remote.url object metadata $package.id | from json
+	{ local: $local, remote: $remote }
+}
 
-	let local_metadata = tg object metadata $id | from json
-	let remote_metadata = tg --url $remote.url object metadata $id | from json
-	assert equal $local_metadata $remote_metadata $"Metadata for ($tag) not synced between local and remote."
+# Verify that the metadata is synced for all packages.
+for pair in ($packages | zip $results) {
+	assert equal $pair.1.local $pair.1.remote $"Metadata for ($pair.0.tag) not synced between local and remote."
 }

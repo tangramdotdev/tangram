@@ -74,10 +74,11 @@ tg --url $primary.url tag put retained-parent $parent
 tg --url $primary.url index
 tg --url $secondary.url index
 assert equal (tg --url $secondary.url tag get retained-parent | from json | get target.id) $parent
+let delete = checkpoint watch --url $secondary.url cleaning.process.delete --params { process: $process_sentinel }
 advance_time $secondary 2hr
-wait_until {
-	(tg --url $secondary.url process get --source=index --location='local(secondary)' $process_sentinel | complete).exit_code != 0
-} "process GC should collect the unreferenced process while retaining the cached child"
+checkpoint pass $delete | ignore
+checkpoint unwatch $delete
+failure (tg --url $secondary.url process get --source=index --location='local(secondary)' $process_sentinel | complete) "process GC should collect the unreferenced process while retaining the cached child"
 
 # Touching the cache hit retains the child beyond its original TTL.
 success (tg --url $primary.url process get --source=index --local $parent | complete)
@@ -87,13 +88,20 @@ for id in [$file $blob] {
 }
 
 # The peer copy should expire independently while the primary parent remains tagged.
+let delete = checkpoint watch --url $secondary.url cleaning.object.delete
 advance_time $secondary 25hr
-wait_until {
-	(tg --url $secondary.url process get --source=index --location='local(secondary)' $child | complete).exit_code != 0
-} "the peer cached child should expire without an orphan parent reference"
+
+# Wait for cleaning to delete the child's output graph, which the child retains until cleaning deletes it, passing deletions of other objects along the way.
+mut remaining = [$file $blob]
+mut hit = 0
+while ($remaining | is-not-empty) {
+	let object = checkpoint pass $delete $hit | get params.object
+	$remaining = $remaining | where { $in != $object }
+	$hit += 1
+}
+checkpoint unwatch $delete
+failure (tg --url $secondary.url process get --source=index --location='local(secondary)' $child | complete) "the peer cached child should expire without an orphan parent reference"
 for id in [$file $blob] {
-	wait_until {
-		(tg --url $secondary.url object get --bytes --location='local(secondary)' $id | complete).exit_code != 0
-	} "the cached child's output should expire with the peer child"
+	failure (tg --url $secondary.url object get --bytes --location='local(secondary)' $id | complete) "the cached child's output should expire with the peer child"
 }
 success (tg --url $primary.url process get --source=index --local $parent | complete) "the parent should remain retained by its tag"

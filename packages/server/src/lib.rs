@@ -1652,28 +1652,44 @@ impl Server {
 				#[cfg(feature = "nats")]
 				{
 					let cache = authentication_cache.clone();
+					let checkpoints = checkpoints.clone();
 					let events = authentication_cache_events.clone();
 					let mut options =
 						async_nats::ConnectOptions::new().event_callback(move |event| {
 							let cache = cache.clone();
+							let checkpoints = checkpoints.clone();
 							let events = events.clone();
 							async move {
-								match event {
+								// Name the event, logging errors.
+								let event = match event {
 									async_nats::Event::ClientError(error) => {
 										tracing::error!(%error, "the messenger client failed; disabling authentication caching");
+										"client_error"
 									},
-									async_nats::Event::Closed
-									| async_nats::Event::Connected
-									| async_nats::Event::Disconnected
-									| async_nats::Event::Draining
-									| async_nats::Event::SlowConsumer(_) => {},
+									async_nats::Event::Closed => "closed",
+									async_nats::Event::Connected => "connected",
+									async_nats::Event::Disconnected => "disconnected",
+									async_nats::Event::Draining => "draining",
 									async_nats::Event::LameDuckMode => return,
 									async_nats::Event::ServerError(error) => {
 										tracing::error!(%error, "the messenger server failed; disabling authentication caching");
+										"server_error"
 									},
-								}
+									async_nats::Event::SlowConsumer(_) => "slow_consumer",
+								};
+
+								// Mark the authentication cache not ready and notify its subscriber.
 								cache.set_ready(false);
 								let _ = events.send(());
+
+								// Hit the checkpoint for the authentication cache becoming not ready.
+								if let Some(checkpoints) = &checkpoints {
+									let mut params = tg::checkpoint::Params::new();
+									params.insert("event".to_owned(), event.into());
+									checkpoints
+										.hit("authentication.cache.unready", params)
+										.await;
+								}
 							}
 						});
 					if let (Some(username), Some(password)) = (&nats.username, &nats.password) {

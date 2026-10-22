@@ -7,6 +7,7 @@ skip_if_no_cloud
 let nats = spawn_nats
 let root = random chars
 let common = {
+	advanced: { checkpoints: true },
 	authentication: { cache: { ttl: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
 	database: { index_queue: { wakeup_interval: 0.01 } },
 	messenger: { kind: nats, url: $nats.url },
@@ -17,19 +18,21 @@ let b = server spawn --instance $instance --region b --name b --url (instance re
 let runner = tg --url $a.url --token $root runner create | from json
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
 success (tg --url $b.url --token $token.token remote list | complete)
+let unready = checkpoint watch authentication.cache.unready --params { event: disconnected } --token $root --url $b.url
 stop_nats $nats
+checkpoint pass $unready | ignore
+checkpoint unwatch $unready
 success (tg --url $a.url --token $root runner token delete $runner.data.id $token.id | complete) 'publication failure must not report a committed deletion as failed'
-wait_until { (tg --url $b.url --token $token.token remote list | complete).exit_code != 0 } 'the disconnected server retained cached authentication' --timeout 5sec
+failure (tg --url $b.url --token $token.token remote list | complete) 'the disconnected server retained cached authentication'
 
+let readies = [$a $b] | each { |server| checkpoint watch authentication.cache.ready --token $root --url $server.url }
 let restarted = spawn_nats --listen-port $nats.port
-wait_until {
-	try {
-		let subscriptions = http get $'($restarted.monitor_url)/subsz?subs=1'
-		($subscriptions.subscriptions_list | where subject == $'($instance.id).authentication.invalidate' | length) == 2
-	} catch { false }
-} 'authentication subscriptions did not recover'
+$readies | each { |ready| checkpoint pass $ready; checkpoint unwatch $ready } | ignore
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
 success (tg --url $b.url --token $token.token remote list | complete)
+let invalidated = checkpoint watch authentication.cache.invalidated --params { kind: token } --token $root --url $b.url
 tg --url $a.url --token $root runner token delete $runner.data.id $token.id
-wait_until { (tg --url $b.url --token $token.token remote list | complete).exit_code != 0 } 'the recovered subscription did not invalidate the token' --timeout 5sec
+checkpoint pass $invalidated | ignore
+checkpoint unwatch $invalidated
+failure (tg --url $b.url --token $token.token remote list | complete) 'the recovered subscription did not invalidate the token'
 stop_nats $restarted

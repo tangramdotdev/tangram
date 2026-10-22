@@ -245,6 +245,7 @@ impl Server {
 			if let Some(started) = started.take() {
 				let _ = started.send(());
 			}
+			crate::checkpoint!(self, "authentication.cache.ready").await;
 			loop {
 				tokio::select! {
 					_ = events.recv() => break,
@@ -257,10 +258,15 @@ impl Server {
 							},
 							None => break,
 						};
+						let (kind, id) = match &invalidation {
+							Invalidation::Principal(principal) => ("principal", principal.to_string()),
+							Invalidation::Token(hash) => ("token", blake3::Hash::from_bytes(*hash).to_hex().to_string()),
+						};
 						if let Err(error) = self.authentication_cache.invalidate(invalidation).await {
 							tracing::error!(error = %error.trace(), "failed to invalidate an authentication entry");
 							break;
 						}
+						crate::checkpoint!(self, "authentication.cache.invalidated", id = %id, kind = %kind).await;
 					},
 				}
 			}

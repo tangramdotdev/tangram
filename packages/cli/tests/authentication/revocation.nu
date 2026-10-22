@@ -8,6 +8,7 @@ let stripe = spawn_stripe
 let root = random chars
 let secret = 'whsec_mock'
 let common = {
+	advanced: { checkpoints: true },
 	authentication: { cache: { ttl: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: $secret } },
 	database: { index_queue: { wakeup_interval: 0.01 } },
@@ -22,22 +23,34 @@ assert equal (send_stripe_webhook $a $secret $ready) 200
 
 let token = tg --url $a.url --token $alice.token user token create | from json
 success (tg --url $b.url --token $token.token remote list | complete)
+let invalidated = checkpoint watch authentication.cache.invalidated --params { kind: token } --token $root --url $b.url
 tg --url $a.url --token $alice.token user token delete $token.id
-wait_until { (tg --url $b.url --token $token.token remote list | complete).exit_code != 0 } 'the other region retained the deleted user token' --timeout 5sec
+checkpoint pass $invalidated | ignore
+checkpoint unwatch $invalidated
+failure (tg --url $b.url --token $token.token remote list | complete) 'the other region retained the deleted user token'
 
 success (tg --url $b.url --token $alice.token remote list | complete)
+let invalidated = checkpoint watch authentication.cache.invalidated --params { kind: token } --token $root --url $b.url
 tg --url $a.url --token $alice.token logout
-wait_until { (tg --url $b.url --token $alice.token remote list | complete).exit_code != 0 } 'the other region retained the logged-out session' --timeout 5sec
+checkpoint pass $invalidated | ignore
+checkpoint unwatch $invalidated
+failure (tg --url $b.url --token $alice.token remote list | complete) 'the other region retained the logged-out session'
 
 let runner = tg --url $a.url --token $root runner create | from json
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
 success (tg --url $b.url --token $token.token remote list | complete)
+let invalidated = checkpoint watch authentication.cache.invalidated --params { kind: token } --token $root --url $b.url
 tg --url $a.url --token $root runner token delete $runner.data.id $token.id
-wait_until { (tg --url $b.url --token $token.token remote list | complete).exit_code != 0 } 'the other region retained the deleted runner token' --timeout 5sec
+checkpoint pass $invalidated | ignore
+checkpoint unwatch $invalidated
+failure (tg --url $b.url --token $token.token remote list | complete) 'the other region retained the deleted runner token'
 
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
 success (tg --url $b.url --token $token.token remote list | complete)
+let invalidated = checkpoint watch authentication.cache.invalidated --params { id: $runner.data.id, kind: principal } --token $root --url $b.url
 tg --url $a.url --token $root runner delete $runner.data.id
-wait_until { (tg --url $b.url --token $token.token remote list | complete).exit_code != 0 } 'the other region retained the deleted runner principal' --timeout 5sec
+checkpoint pass $invalidated | ignore
+checkpoint unwatch $invalidated
+failure (tg --url $b.url --token $token.token remote list | complete) 'the other region retained the deleted runner principal'
 
 stop_stripe $stripe

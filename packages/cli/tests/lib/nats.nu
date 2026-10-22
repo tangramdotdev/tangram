@@ -20,7 +20,7 @@ export def spawn_nats [--config: record, --listen-port: int] {
 	let port = $output | parse --regex 'Listening for client connections on 127\.0\.0\.1:(?<port>\d+)' | get 0.port | into int
 	let monitor_url = $'http://127.0.0.1:($monitor_port)'
 
-	{ config_path: $config_path, job: $job, pid_path: $pid_path, monitor_url: $monitor_url, port: $port, url: $'nats://127.0.0.1:($port)' }
+	{ config_path: $config_path, job: $job, log: $log, pid_path: $pid_path, monitor_url: $monitor_url, port: $port, url: $'nats://127.0.0.1:($port)' }
 }
 
 # Stop NATS and wait for its process to exit.
@@ -30,8 +30,10 @@ export def stop_nats [nats: record] {
 	wait_for_exit $pid 'NATS did not stop'
 }
 
+# Reload the NATS configuration and wait for NATS to log that it reloaded.
 export def reload_nats [nats: record, config: record] {
 	let pid = open --raw $nats.pid_path | str trim
 	$config | to json | save --force $nats.config_path
 	^kill -HUP ($pid | into string)
+	wait_for_log { log: $nats.log } 'Reloaded server configuration'
 }

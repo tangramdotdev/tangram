@@ -15,6 +15,7 @@ let nats = spawn_nats --config {
 }
 let root = random chars
 let common = {
+	advanced: { checkpoints: true },
 	authentication: { cache: { ttl: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
 	database: { index_queue: { wakeup_interval: 0.01 } },
 	messenger: { kind: nats, password: test, url: $nats.url, username: test },
@@ -42,6 +43,9 @@ wait_until {
 assert equal (http get $'($nats.monitor_url)/connz' | get connections | get cid | sort) $connections 'permission recovery should not require reconnecting'
 let token = tg --url $a.url --token $root runner token create $runner.data.id | from json
 success (tg --url $b.url --token $token.token remote list | complete)
+let invalidated = checkpoint watch authentication.cache.invalidated --params { kind: token } --token $root --url $b.url
 tg --url $a.url --token $root runner token delete $runner.data.id $token.id
-wait_until { (tg --url $b.url --token $token.token remote list | complete).exit_code != 0 } 'the restored subscription did not invalidate the token' --timeout 5sec
+checkpoint pass $invalidated | ignore
+checkpoint unwatch $invalidated
+failure (tg --url $b.url --token $token.token remote list | complete) 'the restored subscription did not invalidate the token'
 stop_nats $nats

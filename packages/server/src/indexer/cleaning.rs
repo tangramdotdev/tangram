@@ -95,14 +95,16 @@ impl Indexer {
 			let results = future::join_all(futures).await;
 			let mut done = true;
 			let mut failed = false;
+			let mut objects = Vec::new();
+			let mut processes = Vec::new();
+			let mut sandboxes = Vec::new();
 			for result in results {
 				match result {
 					Ok(output) => {
 						done &= output.done;
-						for process in output.processes {
-							crate::checkpoint!(self.server, "cleaning.process.delete", process = %process)
-								.await;
-						}
+						objects.extend(output.objects.into_iter().map(|object| object.id));
+						processes.extend(output.processes);
+						sandboxes.extend(output.sandboxes);
 					},
 					Err(error) => {
 						failed = true;
@@ -110,6 +112,20 @@ impl Indexer {
 					},
 				}
 			}
+
+			// Hit the deletion checkpoints in retention order, so that a sandbox precedes its processes and a process precedes its objects.
+			for sandbox in sandboxes {
+				crate::checkpoint!(self.server, "cleaning.sandbox.delete", sandbox = %sandbox)
+					.await;
+			}
+			for process in processes {
+				crate::checkpoint!(self.server, "cleaning.process.delete", process = %process)
+					.await;
+			}
+			for object in objects {
+				crate::checkpoint!(self.server, "cleaning.object.delete", object = %object).await;
+			}
+
 			if done || failed {
 				tokio::select! {
 					() = stopper.wait() => return Ok(()),

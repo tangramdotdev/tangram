@@ -16,7 +16,8 @@ assert ($local.config.indexer?.id? == null)
 let output = 0x[00 68 65 6c 6c 6f] | timeout 10 tg object put --no-tokens --bytes --kind blob | complete
 success $output
 let id = $output.stdout | referent node
-wait_until { http get $'($archive.url)/requests' | length | $in == 1 } 'the upload must start'
+let requests = http get --max-time 30sec $'($archive.url)/requests?count=1'
+assert equal ($requests | length) 1 'the upload must start'
 
 # Indexing must return while the upload is pending.
 let output = timeout 10 tg index | complete
@@ -24,8 +25,8 @@ success $output
 
 # A failed upload must retry the same object and put without blocking indexing.
 http post $'($archive.url)/respond' '503' | ignore
-wait_until { http get $'($archive.url)/requests' | length | $in == 2 } 'the upload must retry'
-let requests = http get $'($archive.url)/requests'
+let requests = http get --max-time 30sec $'($archive.url)/requests?count=2'
+assert equal ($requests | length) 2 'the upload must retry'
 assert equal $requests.0 $requests.1
 assert equal $requests.0.path $'/($id)'
 let output = timeout 10 tg index | complete

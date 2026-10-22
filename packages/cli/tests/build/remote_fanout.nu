@@ -49,6 +49,9 @@ let release_watches = $runners | each { |runner|
 	| get watch
 }
 
+# Hold each process as it finishes, so that the children overlap across the runners.
+let finish_watches = $runners | each { |runner| checkpoint watch runner.process.finish --url $runner.url }
+
 # Start the local server.
 let config = {
 	remotes: {
@@ -70,8 +73,7 @@ let path = artifact {
 			}
 			return Promise.all(children);
 		}
-		export async function child(n: number) {
-			await tg.sleep(0.5);
+		export function child(n: number) {
 			return n;
 		}
 	'
@@ -79,6 +81,10 @@ let path = artifact {
 
 # Run a remote build
 let id = tg build --no-tokens --remote --detach $path | referent node
+
+# Wait for every runner to hold a finishing child, which proves that the children run concurrently, and then let them finish.
+$finish_watches | par-each { |watch| checkpoint wait $watch } | ignore
+$finish_watches | each { |watch| checkpoint unwatch $watch } | ignore
 let output = timeout 10s tg wait $id | complete
 for entry in ($runners | enumerate) {
 	let watch = $release_watches | get $entry.index

@@ -1319,6 +1319,24 @@ export def "checkpoint unwatch" [checkpoint: record] {
 	tg ...$checkpoint.connection checkpoint unwatch $checkpoint.name $checkpoint.watch
 }
 
+# Index a server and wait for usage aggregation to apply every usage change that indexing recorded. The server must run a single usage aggregation partition.
+export def aggregate_usage [
+	--token: string
+	--url: string
+] {
+	let connection = [
+		(if $url == null { [] } else { [--url $url] })
+		(if $token == null { [] } else { [--token $token] })
+	] | flatten
+	tg ...$connection index
+
+	# Pass two batches, so that a complete batch starts after indexing finishes.
+	let checkpoint = checkpoint watch indexer.usage.aggregation.batch --token $token --url $url
+	checkpoint pass $checkpoint 0 | ignore
+	checkpoint pass $checkpoint 1 | ignore
+	checkpoint unwatch $checkpoint
+}
+
 # Wait for a process to exit. Unlike polling `ps`, this returns as soon as the process exits.
 export def wait_for_exit [
 	pid: int

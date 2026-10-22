@@ -6,7 +6,8 @@ let local = server spawn
 let path = artifact {
 	tangram.ts: 'export default () => { if (tg.process.env.VALUE === "fail") { throw new Error("failed"); } return tg.process.env.VALUE; };',
 }
-for operation in [spawn build] {
+# Check both operations concurrently.
+[spawn build] | par-each { |operation|
 	let original = if $operation == spawn {
 		tg spawn --network --env-string VALUE=original $path | str trim
 	} else {
@@ -35,7 +36,7 @@ for operation in [spawn build] {
 	let built_data = tg get $built | from json
 	assert ($built != $original)
 	assert ($built_data.sandbox != $original_data.sandbox)
-}
+} | ignore
 
 # A failed process can be used as a reference without inheriting its outcome.
 let failed = tg spawn --env-string VALUE=fail $path | str trim

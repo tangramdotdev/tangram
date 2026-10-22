@@ -27,13 +27,12 @@ let watch = (
 	| from json
 	| get watch
 )
-let pid_path = mktemp
-let trigger_path = $pid_path + ".quit"
+let trigger_path = mktemp --directory | path join trigger
 let tangram = which tg | where type == external | get path | first
 let run = job spawn {
 	let job_id = job id
 	let output = (
-		^python3 $driver $pid_path $trigger_path $tangram run --sandbox --stderr log --stdin null --stdout log --view fullscreen $path
+		^python3 $driver $trigger_path $tangram run --sandbox --stderr log --stdin null --stdout log --view fullscreen $path
 		| complete
 	)
 	$output | job send --tag $job_id 0
@@ -43,7 +42,7 @@ let hit = tg checkpoint wait process.wait.attach $watch 0 | from json
 let process = $hit.params.process
 let sandbox = tg process get $process | from json | get sandbox
 
-touch $trigger_path
+"q" | save --append $trigger_path
 tg checkpoint continue process.wait.attach $watch 0
 tg checkpoint unwatch process.wait.attach $watch
 let output = job recv --tag $run --timeout 10sec

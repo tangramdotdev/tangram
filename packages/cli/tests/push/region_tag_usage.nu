@@ -16,8 +16,10 @@ let regions = [
 	{ name: a },
 	{ name: b },
 ]
+let root_token = random chars
 let common = {
-	authentication: { users: { providers: { insecure: true } } },
+	advanced: { checkpoints: true },
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	database: { index_queue: { wakeup_interval: 0.01 } },
 	usage: true,
 }
@@ -39,9 +41,9 @@ let object = tg --url $local.url put --no-tokens 'tg.file("hello")' | referent n
 tg --url $local.url tag put owned $object
 tg --url $local.url push --remote=b owned
 
-wait_until {
-	(tg --url $remote_region_b.url --token $alice.token user usage --location='local(b)' | from json | get object_count) >= 1
-} "Alice's tag should charge storage in region B"
+aggregate_usage --token $root_token --url $remote_region_b.url
+let usage = tg --url $remote_region_b.url --token $alice.token user usage --location='local(b)' | from json
+assert ($usage.object_count >= 1) "Alice's tag should charge storage in region B"
 let tag = tg --url $remote_region_b.url --token $alice.token tag get owned | from json
 assert (target_permissions $remote_region_b.url $alice.token $tag.id | any { |permission| $permission in ['object_node' 'object_subtree'] }) "the tag should retain Alice's target permissions"
 let usage = tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json
@@ -52,9 +54,9 @@ assert equal $usage.object_count 0 "the tag must not charge storage for an absen
 # Bob's normal push accounting and must charge her usage.
 tg --url $local.url push --remote=a $object
 success (tg --url $remote_region_a.url --token $alice.token object get --bytes --local $object | complete) "Alice's tag should grant access to the object in region A"
-wait_until {
-	(tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json | get object_count) >= 1
-} "the existing tag should charge Alice when its target arrives in region A"
+aggregate_usage --token $root_token --url $remote_region_a.url
+let usage = tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json
+assert ($usage.object_count >= 1) "the existing tag should charge Alice when its target arrives in region A"
 
 # A tag with no target permissions must not charge its owner in either region.
 let region_a_usage = tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json

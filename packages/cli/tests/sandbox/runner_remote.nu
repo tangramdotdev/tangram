@@ -54,6 +54,8 @@ let wait_job = job spawn {
 	| ignore
 }
 assert equal (job recv --tag $wait_job --timeout 10sec) 'data: "started"'
+let delete = checkpoint watch --url $remote.url --token $root_token cleaning.sandbox.delete --params { sandbox: $sandbox }
+let removed = checkpoint watch --url $runner.url runner.sandbox.state.removed --params { sandbox: $sandbox }
 tg --url $remote.url --token $root_token sandbox destroy $sandbox
 success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.destroy $destroy_watch 0 | complete) "the control destroy handler must reach the checkpoint"
 assert equal (job recv --tag $wait_job --timeout 10sec) 'data: "destroyed"'
@@ -62,11 +64,13 @@ tg --url $remote.url --token $root_token checkpoint continue sandbox.control.des
 tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.destroy $destroy_watch
 
 # Wait for both index expiry and remote runner state expiry before expecting missing reads.
-wait_until { (tg --url $remote.url --token $root_token sandbox get $sandbox | complete | get exit_code) != 0 } --timeout 15sec "the sandbox should expire"
-wait_until {
-	let status = http get --allow-errors --full --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/status?location=remote&timeout=0'
-	$status.status == 404
-} --timeout 10sec "the remote runner state should expire"
+checkpoint pass $delete | ignore
+checkpoint unwatch $delete
+checkpoint pass $removed | ignore
+checkpoint unwatch $removed
+failure (tg --url $remote.url --token $root_token sandbox get $sandbox | complete) "the sandbox should expire"
+let status = http get --allow-errors --full --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/status?location=remote&timeout=0'
+assert equal $status.status 404 "the remote runner state should expire"
 let output = timeout 10s tg --url $runner.url sandbox wait --remote $sandbox | complete
 failure $output
 assert ($output.stderr | str contains "failed to find the sandbox")

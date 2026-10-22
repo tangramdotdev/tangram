@@ -180,8 +180,6 @@ impl Server {
 		origin: Origin,
 		stopper: Stopper,
 	) {
-		#[cfg(not(feature = "tls"))]
-		let _ = config;
 		#[cfg(feature = "tls")]
 		let tls = if matches!(config.url.scheme(), Some("https")) {
 			let Some(tls_config) = config.tls.as_ref() else {
@@ -312,6 +310,9 @@ impl Server {
 				}
 			});
 		}
+
+		// Log that the listener stopped accepting connections.
+		tracing::info!("stopped listening on {}", config.url);
 
 		// Wait for all tasks to finish.
 		task_tracker.close();

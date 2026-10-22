@@ -817,7 +817,8 @@ impl Session {
 			.lock()
 			.unwrap()
 			.insert_checkout(artifact.clone(), dependencies);
-		Self::sync_get_checkout_publish(state, &root, artifact).await?;
+		Self::sync_get_checkout_publish(state, &root, artifact.clone()).await?;
+		crate::checkpoint!(self.server, "sync.get.checkout.publish", artifact = %artifact).await;
 
 		Ok(())
 	}

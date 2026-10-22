@@ -5,6 +5,7 @@ use ../lib/test.nu *
 skip_if_no_cloud
 
 let local = server spawn --cloud --now '2026-01-01T00:00:00Z' --config {
+	advanced: { checkpoints: true },
 	indexer: { cleaning: { poll_interval: 0.01 } },
 	object: { ttl: 60, ttt: 0 },
 }
@@ -24,8 +25,10 @@ tg index
 assert equal (rows $keyspace) 2 'each put must store a row'
 
 # Clean the object.
+let delete = checkpoint watch cleaning.object.delete --params { object: ($id | referent node) }
 advance_time $local 2min
-wait_until { (rows $keyspace) < 2 } 'cleaning must delete the object'
+checkpoint pass $delete | ignore
+checkpoint unwatch $delete
 assert equal (rows $keyspace) 0 'cleaning must delete the rows of both puts'
 let output = tg object get $id | complete
 failure $output 'the cleaned object must not be readable'

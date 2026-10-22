@@ -1,12 +1,11 @@
 import os
 import pty
-import select
 import sys
-import time
+import threading
 
 
 def drain(fd):
-    while select.select([fd], [], [], 0)[0]:
+    while True:
         try:
             if not os.read(fd, 4096):
                 return
@@ -15,28 +14,23 @@ def drain(fd):
 
 
 def main():
-    pid_path = sys.argv[1]
-    trigger_path = sys.argv[2]
-    command = sys.argv[3:]
+    trigger_path = sys.argv[1]
+    command = sys.argv[2:]
+    os.mkfifo(trigger_path)
     pid, fd = pty.fork()
     if pid == 0:
         os.execvp(command[0], command)
 
-    with open(pid_path, "w", encoding="utf-8") as file:
-        file.write(str(pid))
-        file.flush()
+    # Drain the terminal output in the background so the child never blocks.
+    threading.Thread(target=drain, args=(fd,), daemon=True).start()
 
-    while not os.path.exists(trigger_path):
-        drain(fd)
-        time.sleep(0.01)
+    # Wait for the trigger to be written to the FIFO, then type q.
+    with open(trigger_path, "rb") as trigger:
+        trigger.read(1)
     os.write(fd, b"q\n")
 
-    while True:
-        drain(fd)
-        result, status = os.waitpid(pid, os.WNOHANG)
-        if result == pid:
-            break
-        time.sleep(0.01)
+    # Wait for the child to exit.
+    _, status = os.waitpid(pid, 0)
     exit_code = os.waitstatus_to_exitcode(status)
 
     return exit_code if exit_code >= 0 else 128 - exit_code

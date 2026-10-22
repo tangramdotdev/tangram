@@ -31,6 +31,11 @@ let file_watch = (
 	| from json
 	| get watch
 )
+let publish_watch = (
+	tg --url $local.url checkpoint watch sync.get.checkout.publish --params ({ artifact: $default_file } | to json)
+	| from json
+	| get watch
+)
 
 let pull = job spawn {
 	let job_id = job id
@@ -42,9 +47,10 @@ tg --url $local.url checkpoint wait sync.get.input.object $file_watch 0 | ignore
 
 let default_path = $local.checkout_directory | path join $default_file
 let file_path = $local.checkout_directory | path join $file
-wait_until {
-	$default_path | path exists
-} 'expected the blob to be published through its default checkout before the file arrived'
+tg --url $local.url checkpoint wait sync.get.checkout.publish $publish_watch 0 | ignore
+assert ($default_path | path exists) 'expected the blob to be published through its default checkout before the file arrived'
+tg --url $local.url checkpoint continue sync.get.checkout.publish $publish_watch 0
+tg --url $local.url checkpoint unwatch sync.get.checkout.publish $publish_watch
 tg --url $local.url checkpoint continue sync.get.input.object $file_watch 0
 tg --url $local.url checkpoint unwatch sync.get.input.object $file_watch
 

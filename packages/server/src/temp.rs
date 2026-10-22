@@ -1,6 +1,7 @@
 use {
 	crate::Server,
 	std::path::{Path, PathBuf},
+	tangram_client::prelude::*,
 	tangram_util::fs::remove,
 };
 
@@ -46,6 +47,7 @@ impl Temp {
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
 			Err(error) => return Err(error),
 		}
+		crate::checkpoint!(self.server, "temp.removed", path = %self.path.display()).await;
 		self.preserve = true;
 		#[cfg(target_os = "linux")]
 		if let Some(project_id) = self.filesystem_project_id.take() {
@@ -103,6 +105,7 @@ impl Drop for Temp {
 						let parent = path.parent().unwrap().to_owned();
 						tokio::spawn(Self::release_filesystem_project_id(parent, project_id));
 					}
+					crate::checkpoint!(server, "temp.removed", path = %path.display()).await;
 				}
 			});
 		}

@@ -2,8 +2,10 @@ use ../lib/test.nu *
 
 # Organization usage is available by id and specifier.
 
+let root_token = random chars
 let local = server spawn --config {
-	authentication: { users: { providers: { insecure: true } } },
+	advanced: { checkpoints: true },
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	usage: true,
 }
 let alice = tg login --verbose --name alice | from json
@@ -18,10 +20,8 @@ assert ($by_id.process_count == 0)
 
 let object = tg put --no-tokens 'tg.file("owned through a tag")' | referent node
 tg tag put -p acme/owned $object
-wait_until {
-	(tg organization usage $organization.id | from json | get object_count) >= 1
-} "the tag should add the object to the organization's storage"
+aggregate_usage --token $root_token
 
 let usage = tg organization usage $organization.id | from json
-assert ($usage.object_count >= 1)
+assert ($usage.object_count >= 1) "the tag should add the object to the organization's storage"
 assert ($usage.object_size > 0)

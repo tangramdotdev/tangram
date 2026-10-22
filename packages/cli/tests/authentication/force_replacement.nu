@@ -8,6 +8,7 @@ let stripe = spawn_stripe
 let root = random chars
 let secret = 'whsec_mock'
 let common = {
+	advanced: { checkpoints: true },
 	authentication: { cache: { ttl: 60 }, root: { token: $root }, users: { providers: { insecure: true } } },
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: $secret } },
 	database: { index_queue: { wakeup_interval: 0.01 } },
@@ -21,8 +22,10 @@ let target = tg --url $a.url --token $root put --no-tokens 'tg.file("replacement
 for mode in [single batch sync] {
 	let user = tg --url $a.url login --verbose --email $'($mode)@example.com' --name $mode | from json
 	with-env { BROWSER: 'false' } { tg --url $a.url --token $user.token user billing manage }
+	let invalidations = [$a $b] | each { |server| checkpoint watch authentication.cache.invalidated --params { id: $user.user.id, kind: principal } --token $root --url $server.url }
 	let ready = { data: { object: { id: cus_mock } }, id: $'evt_ready_($mode)', type: customer.updated }
 	assert equal (send_stripe_webhook $a $secret $ready) 200
+	$invalidations | each { |invalidated| checkpoint pass $invalidated 0 } | ignore
 	success (tg --url $a.url --token $user.token remote list | complete)
 	success (tg --url $b.url --token $user.token remote list | complete)
 	match $mode {
@@ -39,8 +42,9 @@ for mode in [single batch sync] {
 			tg --url $source.url push --force $mode
 		},
 	}
+	$invalidations | each { |invalidated| checkpoint pass $invalidated 1; checkpoint unwatch $invalidated } | ignore
 	for server in [$a $b] {
-		wait_until { (tg --url $server.url --token $user.token remote list | complete).exit_code != 0 } $'($mode) replacement retained the deleted user token' --timeout 5sec
+		failure (tg --url $server.url --token $user.token remote list | complete) $'($mode) replacement retained the deleted user token'
 	}
 }
 stop_stripe $stripe

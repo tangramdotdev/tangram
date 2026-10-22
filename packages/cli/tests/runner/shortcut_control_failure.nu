@@ -63,6 +63,7 @@ for kind in [sandbox process] {
 	}
 	let claimed = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 1 | from json
 	let sandbox_path = $claimed.params.path
+	let removed = checkpoint watch temp.removed --params { path: $sandbox_path } --url $runner.url
 	# Track the physical sandbox by its launcher PID independently of its command arguments.
 	let sandbox_pid = $claimed.params.pid | into int
 	assert (ps | any { |process| $process.pid == $sandbox_pid }) "the claimed physical sandbox should be running"
@@ -79,7 +80,9 @@ for kind in [sandbox process] {
 	assert equal ($output.stdout | str trim) '42'
 	tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 	wait_for_exit --timeout 10sec $sandbox_pid "the failed shortcut's physical sandbox should exit"
-	wait_until --timeout 10sec { not ($sandbox_path | path exists) } "the failed shortcut's temporary directory should be removed"
+	checkpoint pass $removed --timeout 10sec | ignore
+	checkpoint unwatch $removed
+	assert (not ($sandbox_path | path exists)) "the failed shortcut's temporary directory should be removed"
 
 	# A scheduled build requires the sole CPU allocation, proving that the failed child released its borrow.
 	let followup = artifact { tangram.ts: 'export default () => 43' }

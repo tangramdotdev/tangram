@@ -413,8 +413,18 @@ impl Session {
 		};
 		self.server.runner.state.sandboxes.insert(index, entry);
 		let server = self.server.clone();
+		let id_for_cleanup = id.clone();
 		scopeguard::defer! {
 			server.runner.state.sandboxes.remove(index);
+
+			// Let tests observe that the runner discarded the sandbox state.
+			if server.checkpoints.is_some() {
+				let server = server.clone();
+				let id = id_for_cleanup.clone();
+				tokio::spawn(async move {
+					crate::checkpoint!(server, "runner.sandbox.state.removed", sandbox = %id).await;
+				});
+			}
 		}
 		crate::checkpoint!(self.server, "runner.sandbox.state.inserted", index, sandbox = %id)
 			.await;

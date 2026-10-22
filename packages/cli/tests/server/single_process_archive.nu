@@ -12,7 +12,8 @@ let local = server spawn --cloud --config {
 }
 let output = 'hello' | timeout 10 tg write --no-tokens | complete
 success $output
-wait_until { http get $'($archive.url)/requests' | length | $in == 1 } 'the upload must start'
+let requests = http get --max-time 30sec $'($archive.url)/requests?count=1'
+assert equal ($requests | length) 1 'the upload must start'
 
 let stop = job spawn {
 	let id = job id

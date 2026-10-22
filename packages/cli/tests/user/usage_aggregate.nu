@@ -11,8 +11,10 @@ def sum_usage [left: record, right: record] {
 	$output
 }
 
+let root_token = random chars
 let common = {
-	authentication: { users: { providers: { insecure: true } } },
+	advanced: { checkpoints: true },
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	database: { index_queue: { wakeup_interval: 0.01 } },
 	usage: true,
 }
@@ -25,11 +27,11 @@ let object_a = tg --url $region_a.url --token $alice.token put 'tg.file("a")' | 
 let object_b = tg --url $region_b.url --token $alice.token put 'tg.file("a larger regional object")' | str trim
 tg --url $region_a.url --token $alice.token tag put acme/a $object_a
 tg --url $region_b.url --token $alice.token tag put --location='local(b)' acme/b $object_b
-wait_until {
-	let count_a = tg --url $region_a.url --token $alice.token organization usage --location='local(a)' acme | from json | get object_count
-	let count_b = tg --url $region_b.url --token $alice.token organization usage --location='local(b)' acme | from json | get object_count
-	$count_a >= 1 and $count_b >= 1
-} "both regions should record the organization's storage"
+aggregate_usage --token $root_token --url $region_a.url
+aggregate_usage --token $root_token --url $region_b.url
+let count_a = tg --url $region_a.url --token $alice.token organization usage --location='local(a)' acme | from json | get object_count
+let count_b = tg --url $region_b.url --token $alice.token organization usage --location='local(b)' acme | from json | get object_count
+assert ($count_a >= 1 and $count_b >= 1) "both regions should record the organization's storage"
 
 let local = server spawn --name local --config {
 	remotes: {

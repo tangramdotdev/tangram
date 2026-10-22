@@ -19,8 +19,12 @@ let refusals = [
 	['--no-create-tag-ancestors=true']
 	[--create-tag-ancestors --no-create-tag-ancestors]
 ]
-for flags in $refusals {
-	let refused = tg build ...$flags --tag refused/builds/1.0.0/default $path | complete
+let outputs = $refusals | par-each --keep-order { |flags|
+	tg build ...$flags --tag refused/builds/1.0.0/default $path | complete
+}
+for pair in ($refusals | zip $outputs) {
+	let flags = $pair.0
+	let refused = $pair.1
 	failure $refused $"building with ($flags | str join ' ') should fail when the ancestors do not exist"
 	assert ($refused.stderr | str contains "the parent does not exist")
 }
@@ -34,7 +38,7 @@ let creations = [
 	{ root: negated, flags: ['--no-create-tag-ancestors=false'] }
 	{ root: override, flags: [--no-create-tag-ancestors --create-tag-ancestors] }
 ]
-for creation in $creations {
+$creations | par-each { |creation|
 	let specifier = $"($creation.root)/builds/1.0.0/default"
 	let output = tg build ...$creation.flags --tag $specifier $path | complete
 	success $output $"building with ($creation.flags | str join ' ') should create the tag's ancestors"
@@ -50,4 +54,4 @@ for creation in $creations {
 	assert equal $builds.parent $root.id "each ancestor should hold the one above it"
 	assert equal $version.parent $builds.id "the whole chain should exist"
 	assert equal $tag.parent $version.id "the tag should hold the last ancestor"
-}
+} | ignore
