@@ -875,9 +875,14 @@ impl Provider {
 		if !matches!(artifact.id.kind(), tg::artifact::Kind::Directory) {
 			return Ok(None);
 		}
-		let artifact = self
-			.directory_lookup_entry_inner(&artifact, name, None)
-			.await?;
+		let snapshot = self.directory_snapshot(parent).await?;
+		let artifact = match &snapshot.entries {
+			Some(entries) => Self::directory_snapshot_entry_artifact(entries, name),
+			None => {
+				self.directory_lookup_entry_inner(&artifact, name, None)
+					.await?
+			},
+		};
 		let Some(artifact) = artifact else {
 			return Ok(None);
 		};
@@ -1253,8 +1258,13 @@ impl Provider {
 			if !matches!(artifact.id.kind(), tg::artifact::Kind::Directory) {
 				return Ok(None);
 			}
-			let artifact =
-				self.directory_lookup_entry_sync_inner(&artifact, name, None, transaction)?;
+			let snapshot = self.directory_snapshot_sync_inner(parent, transaction)?;
+			let artifact = match &snapshot.entries {
+				Some(entries) => Self::directory_snapshot_entry_artifact(entries, name),
+				None => {
+					self.directory_lookup_entry_sync_inner(&artifact, name, None, transaction)?
+				},
+			};
 			let Some(artifact) = artifact else {
 				return Ok(None);
 			};
@@ -2827,6 +2837,19 @@ impl Provider {
 		}
 
 		Ok(entries)
+	}
+
+	fn directory_snapshot_entry_artifact(
+		entries: &[DirectorySnapshotEntry],
+		name: &str,
+	) -> Option<ArtifactState> {
+		// Search the entries after the "." and ".." entries, which are sorted by name.
+		let entries = entries.get(2..)?;
+		let index = entries
+			.binary_search_by(|entry| entry.name.as_str().cmp(name))
+			.ok()?;
+
+		entries[index].artifact.clone()
 	}
 
 	async fn directory_lookup_entry_inner(
