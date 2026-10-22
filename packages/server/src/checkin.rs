@@ -186,7 +186,7 @@ impl Session {
 		let progress = crate::progress::Handle::new(capacity);
 
 		// Spawn the task.
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let path = arg.path.clone();
 		let task = Task::spawn({
 			let session = self.clone();
@@ -571,7 +571,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get reference path edges"))?;
 
 		// Set the touch time.
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 
 		// Create the output collections.
 		let mut cache_args = IndexMap::default();

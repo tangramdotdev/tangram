@@ -216,7 +216,7 @@ impl Session {
 		}
 
 		// Bound the tokens by the lifetime of the proof accepted during authorization.
-		let created_at = self.server.clock.unix_timestamp()?;
+		let created_at = self.server.clock.unix_timestamp();
 		let time_to_live = i64::try_from(
 			self.server.config.object.permission_time_to_live.as_secs(),
 		)

@@ -185,7 +185,7 @@ impl Session {
 						"a sandbox control connection's runner must be its principal"
 					));
 				}
-				let now = self.server.clock.unix_timestamp()?;
+				let now = self.server.clock.unix_timestamp();
 				let now = now.to_u64().unwrap_or_default() * 1000;
 				let window = self.server.config.sandbox.id_proof_window;
 				proof.verify_recent(&id, runner, now, window)?;
@@ -220,7 +220,7 @@ impl Session {
 		let created_at = if let Some(created_at) = arg.created_at {
 			created_at
 		} else {
-			self.server.clock.unix_timestamp()?
+			self.server.clock.unix_timestamp()
 		};
 		let runner = arg.runner;
 

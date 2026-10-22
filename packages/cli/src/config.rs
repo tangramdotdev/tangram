@@ -325,6 +325,9 @@ pub struct Advanced {
 	pub checkpoints: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub clock: Option<AdvancedClock>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub disable_version_check: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -342,6 +345,12 @@ pub struct Advanced {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version_check_interval: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdvancedClock {
+	pub start: jiff::Timestamp,
 }
 
 #[serde_as]
@@ -3666,6 +3675,9 @@ fn resolve_advanced(source: Advanced) -> server::Advanced {
 	let mut target = server::Advanced::default();
 	if let Some(value) = source.checkpoints {
 		target.checkpoints = value;
+	}
+	if let Some(clock) = source.clock {
+		target.clock = Some(server::Clock { start: clock.start });
 	}
 	if let Some(value) = source.disable_version_check {
 		target.disable_version_check = value;

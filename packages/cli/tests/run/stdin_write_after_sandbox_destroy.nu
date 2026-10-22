@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A stdin write that is in flight when a cancelled process's sandbox is destroyed returns EOF instead of repeatedly retrying at the same position.
 
-let local = server spawn --config {
+let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
 	runner: { process_state_ttl: 1 },
 }
@@ -75,11 +75,17 @@ let write = job spawn {
 tg checkpoint wait --timeout 10s runner.process.control.stdin.write $stdin_watch 0 | ignore
 
 # Disconnect the client so that the wait lease is dropped and the sandbox is destroyed while the sandbox process is still running.
+let retention = checkpoint watch clock.sleep --params { duration: '1s' }
 kill --signal 15 $pid
 let output = tg checkpoint wait --timeout 10s runner.sandbox.destroyed $destroyed_watch 0 | complete
 success $output "the sandbox should be destroyed while the stdin write is held"
 tg checkpoint continue runner.sandbox.destroyed $destroyed_watch 0
 tg checkpoint unwatch runner.sandbox.destroyed $destroyed_watch
+
+# Advance the clock past the process state retention window once it starts.
+checkpoint pass $retention | ignore
+checkpoint unwatch $retention
+advance_time $local 1sec
 
 # Hold the retention window open so that the held write is not aborted before it is serviced.
 let output = tg checkpoint wait --timeout 10s runner.process.control.retention.finished $retention_watch 0 | complete

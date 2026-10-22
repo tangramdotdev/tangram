@@ -15,13 +15,13 @@ impl Indexer {
 			if stopper.stopped() {
 				return Ok(());
 			}
-			let now = self.server.clock.unix_timestamp()?;
+			let now = self.server.clock.unix_timestamp();
 			if let Err(error) = self.clean_billing_webhooks(now).await {
 				tracing::error!(error = %error.trace(), "failed to clean the billing webhook events");
 			}
 			tokio::select! {
 				() = stopper.wait() => return Ok(()),
-				() = tokio::time::sleep(poll_interval) => {},
+				() = self.server.clock.sleep(poll_interval) => {},
 			}
 		}
 	}

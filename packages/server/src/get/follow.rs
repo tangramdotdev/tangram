@@ -782,7 +782,7 @@ impl Session {
 		let expires_at = self
 			.server
 			.clock
-			.unix_timestamp()?
+			.unix_timestamp()
 			.checked_add(
 				i64::try_from(time_to_live.as_secs())
 					.map_err(|error| tg::error!(!error, "invalid permission time to live"))?,
@@ -850,7 +850,7 @@ impl Session {
 			return Err(tg::error!("invalid tag target"));
 		};
 		let expires_at =
-			self.server.clock.unix_timestamp()? + time_to_live.as_secs().to_i64().unwrap();
+			self.server.clock.unix_timestamp() + time_to_live.as_secs().to_i64().unwrap();
 		let token = self.create_token(target.clone(), permissions, expires_at)?;
 
 		Ok(token)

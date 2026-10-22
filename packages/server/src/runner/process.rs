@@ -1269,7 +1269,7 @@ impl Session {
 				None
 			},
 		};
-		data.finished_at = Some(self.server.clock.unix_timestamp()?);
+		data.finished_at = Some(self.server.clock.unix_timestamp());
 		data.set_output(outcome.output.as_ref().map(tg::Value::to_data));
 		data.status = tg::process::Status::Finished;
 		Self::validate_process_data(&data)?;
@@ -1659,7 +1659,7 @@ impl Session {
 						tg::process::stdio::Stream::Stdout => &mut stdout_position,
 					};
 					let timestamp = clock
-						.unix_timestamp()?
+						.unix_timestamp()
 						.checked_sub(started_at)
 						.ok_or_else(|| tg::error!("the log timestamp is too small"))?;
 					let chunk = tg::process::stdio::Chunk {
@@ -1819,7 +1819,7 @@ impl Session {
 			.sandbox
 			.as_ref()
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children: None,

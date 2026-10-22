@@ -45,7 +45,7 @@ impl Session {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<tg::object::put::Output> {
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let permission_expires_at = now
 			+ self
 				.server

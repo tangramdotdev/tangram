@@ -346,9 +346,7 @@ impl Session {
 	}
 
 	pub(crate) fn verify_token(&self, token: &tg::authorization::Token) -> bool {
-		let Ok(now) = self.server.clock.unix_timestamp() else {
-			return false;
-		};
+		let now = self.server.clock.unix_timestamp();
 		let Some(public_key) = self
 			.server
 			.authorization_tokens

@@ -52,7 +52,7 @@ impl Session {
 			return self.create_runner_token_primary_region(runner, arg).await;
 		}
 		self.get_authorized_runner(runner).await?;
-		let created_at = self.server.clock.unix_timestamp()?;
+		let created_at = self.server.clock.unix_timestamp();
 		let (id, token) = crate::token::create();
 		let token_hash = crate::token::hash(&token);
 		let runner = runner.clone();

@@ -6,6 +6,7 @@ use {
 };
 
 mod checkpoint;
+mod clock;
 mod either;
 mod ext;
 mod grant;
@@ -22,9 +23,9 @@ mod user;
 mod watch;
 
 pub use self::{
-	checkpoint::Checkpoint, ext::Ext, grant::Grant, group::Group, module::Module, object::Object,
-	organization::Organization, process::Process, remote::Remote, runner::Runner, sandbox::Sandbox,
-	tag::Tag, user::User, watch::Watch,
+	checkpoint::Checkpoint, clock::Clock, ext::Ext, grant::Grant, group::Group, module::Module,
+	object::Object, organization::Organization, process::Process, remote::Remote, runner::Runner,
+	sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
 };
 
 pub mod dynamic;
@@ -60,6 +61,7 @@ pub(crate) fn instance() -> tg::Result<&'static tg::Client> {
 /// Allows shared code to run against clients and servers, bypassing transport when using a server directly.
 pub trait Instance:
 	Checkpoint
+	+ Clock
 	+ Grant
 	+ Group
 	+ Module

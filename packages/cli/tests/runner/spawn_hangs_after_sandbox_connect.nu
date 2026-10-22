@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A spawn whose runner dies after the sandbox connects but before the process connects must observe destruction without waiting for the control read timeout.
 let root_token = random chars
-let remote = server spawn --name remote --config {
+let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true, single_process: false },
 	authentication: { root: { token: $root_token } },
 	control: { read_timeout: 60 },
@@ -37,6 +37,9 @@ kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 tg --url $remote.url --token $root_token checkpoint continue process.spawn.connection.wait $wait_watch 0
 tg --url $remote.url --token $root_token checkpoint unwatch process.spawn.connection.wait $wait_watch
+
+# Advance the remote's clock past the runner ttl so that the scheduler expires the dead runner.
+advance_time $remote 4sec
 
 let output = try { job recv --tag $build --timeout 15sec } catch { null }
 assert ($output != null) "the spawn must return after the runner dies before the process connects"

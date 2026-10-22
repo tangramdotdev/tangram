@@ -11,7 +11,6 @@ let common = {
 	checkouts: true,
 	database: { index_queue: { wakeup_interval: 0.01 } },
 	index: { kind: lmdb, map_size: 10_485_760 },
-	indexer: { cleaning: { poll_interval: 0.01 } },
 	roles: [api indexer scheduler runner],
 }
 let instance = instance --cloud --primary-region primary --regions [{ name: primary }, { name: secondary }] --config $common

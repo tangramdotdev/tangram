@@ -69,7 +69,7 @@ impl Session {
 		}
 
 		// Check the local storage.
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let object_ids = arg
 			.nodes
 			.iter()
@@ -168,7 +168,7 @@ impl Session {
 		}
 
 		// Sign tokens for the verified permissions, bounded by the authorization proofs.
-		let created_at = self.server.clock.unix_timestamp()?;
+		let created_at = self.server.clock.unix_timestamp();
 		let mut nodes = Vec::with_capacity(arg.nodes.len());
 		for ((node, authorization), permissions) in arg.nodes.iter().zip(outputs).zip(required) {
 			let time_to_live = if node.node.kind().is_object() {

@@ -69,7 +69,7 @@ impl Indexer {
 				}
 			}
 
-			let now = self.server.clock.unix_timestamp()?;
+			let now = self.server.clock.unix_timestamp();
 			let (object_time_to_live, process_time_to_live, sandbox_time_to_live) = match mode {
 				CleanMode::Capacity => (Duration::ZERO, Duration::ZERO, Duration::ZERO),
 				CleanMode::Ttl => (
@@ -129,7 +129,7 @@ impl Indexer {
 			if done || failed {
 				tokio::select! {
 					() = stopper.wait() => return Ok(()),
-					() = tokio::time::sleep(config.poll_interval) => {},
+					() = self.server.clock.sleep(config.poll_interval) => {},
 				}
 			}
 		}

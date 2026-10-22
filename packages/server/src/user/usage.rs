@@ -63,7 +63,7 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let now = self.server.clock.now()?;
+		let now = self.server.clock.now();
 		let tokens = arg.tokens.clone();
 		let period = arg.period(now)?;
 		let output = self.get_usage_regions(&account, period, &tokens).await?;
@@ -84,7 +84,7 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let now = self.server.clock.now()?;
+		let now = self.server.clock.now();
 		let period = arg.period(now)?;
 		let output = self.get_usage_local(&account, period).await?;
 		Ok(Some(output))

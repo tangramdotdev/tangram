@@ -24,7 +24,7 @@ pub(super) struct Runner {
 	pub capacity: tg::runner::control::Capacity,
 	pub committed: tg::runner::Capacity,
 	pub connection_index: u64,
-	pub heartbeat_at: tokio::time::Instant,
+	pub heartbeat_at: crate::clock::Instant,
 	pub heartbeat_index: u64,
 	pub host: String,
 	pub owner: Option<tg::Id>,
@@ -54,10 +54,10 @@ impl Runners {
 		}
 	}
 
-	pub fn expired(&self, now: tokio::time::Instant, ttl: Duration) -> Vec<(tg::runner::Id, u64)> {
+	pub fn expired(&self, now: crate::clock::Instant, ttl: Duration) -> Vec<(tg::runner::Id, u64)> {
 		self.entries
 			.iter()
-			.filter(|(_, runner)| now.duration_since(runner.heartbeat_at) > ttl)
+			.filter(|(_, runner)| now - runner.heartbeat_at > ttl)
 			.map(|(id, runner)| (id.clone(), runner.connection_index))
 			.collect()
 	}
@@ -86,7 +86,7 @@ impl State {
 			capacity: request.capacity,
 			committed: tg::runner::Capacity::default(),
 			connection_index,
-			heartbeat_at: tokio::time::Instant::now(),
+			heartbeat_at: scheduler.server.clock.instant(),
 			heartbeat_index: 0,
 			host: request.host.clone(),
 			owner: None,
@@ -228,7 +228,7 @@ impl Server {
 		reason: &str,
 	) -> tg::Result<()> {
 		tracing::warn!(sandbox = %id, reason, "finishing the runner sandbox");
-		let now = self.clock.unix_timestamp()?;
+		let now = self.clock.unix_timestamp();
 		let error = tg::error::Data {
 			code: Some(tg::error::Code::Internal),
 			message: Some(reason.to_owned()),
@@ -269,7 +269,7 @@ impl Server {
 				data.cacheable = false;
 				data.set_error(Some(tg::Either::Left(error.clone())));
 				data.exit = Some(1);
-				data.finished_at = Some(self.clock.unix_timestamp()?);
+				data.finished_at = Some(self.clock.unix_timestamp());
 				data.status = tg::process::Status::Finished;
 				let mut context = self.context.clone();
 				context.principal = tg::Principal::Process(process.clone());

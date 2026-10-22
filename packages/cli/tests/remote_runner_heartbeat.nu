@@ -13,7 +13,7 @@ let config = {
 		runner_ttl: 3,
 	},
 }
-let remote = server spawn --name remote --cloud --preserve-keys --config $config
+let remote = server spawn --name remote --cloud --preserve-keys --now '2026-01-01T00:00:00Z' --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
 
 let runner = server spawn --name runner --config {
@@ -75,8 +75,9 @@ for stream in [stdout stderr] {
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 
-# Wait for the runner to stop.
+# Wait for the runner to stop, and advance the remote's clock past the runner ttl so that the scheduler expires the runner.
 wait_for_exit $pid
+advance_time $remote 4sec
 
 let output = tg --url $local.url process wait $process | complete
 snapshot $output.stdout '

@@ -23,7 +23,7 @@ impl Session {
 			Some(owner) => self.usage_account(owner).await?,
 			None => None,
 		};
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let location = tg::Location::Local(tg::location::Local {
 			region: self.server.config.region.clone(),
 		});

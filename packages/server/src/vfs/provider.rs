@@ -1292,11 +1292,7 @@ impl Provider {
 		let Some(principal) = principal else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
-		let now = self
-			.server
-			.clock
-			.unix_timestamp()
-			.map_err(|error| Self::map_cache_sync_error(&error))?;
+		let now = self.server.clock.unix_timestamp();
 		let resource = tg::Id::from(id.clone());
 		let expires_at = tokens
 			.lock()
@@ -1365,11 +1361,7 @@ impl Provider {
 			.map_err(|error| Self::map_cache_sync_error(&error))?
 		{
 			let mut tokens = tokens.lock().unwrap();
-			let now = self
-				.server
-				.clock
-				.unix_timestamp()
-				.map_err(|error| Self::map_cache_sync_error(&error))?;
+			let now = self.server.clock.unix_timestamp();
 			Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
 			tokens.insert_local_authorization(token);
 		}
@@ -1386,11 +1378,7 @@ impl Provider {
 	}
 
 	fn token_expiration(&self, expiration: Option<i64>) -> std::io::Result<i64> {
-		let now = self
-			.server
-			.clock
-			.unix_timestamp()
-			.map_err(|error| Self::map_cache_sync_error(&error))?;
+		let now = self.server.clock.unix_timestamp();
 		let ttl = i64::try_from(self.server.config.object.permission_time_to_live.as_secs())
 			.map_err(std::io::Error::other)?;
 		let expires_at = now
@@ -2781,7 +2769,7 @@ impl Provider {
 							graph.as_ref(),
 							None,
 						)?;
-						let artifact = self.branch_child(&directory, artifact)?;
+						let artifact = self.branch_child(&directory, artifact);
 						stack.push((artifact, graph.clone()));
 					}
 				},
@@ -2828,7 +2816,7 @@ impl Provider {
 							graph.as_ref(),
 							None,
 						)?;
-						let artifact = self.branch_child(&directory, artifact)?;
+						let artifact = self.branch_child(&directory, artifact);
 						children.push((artifact, graph.clone(), offset));
 					}
 					stack.extend(children.into_iter().rev());
@@ -2887,18 +2875,14 @@ impl Provider {
 						graph.as_ref(),
 						None,
 					)?;
-					directory = self.branch_child(&directory, artifact)?;
+					directory = self.branch_child(&directory, artifact);
 					default_graph = graph;
 				},
 			}
 		}
 	}
 
-	fn branch_child(
-		&self,
-		parent: &ArtifactState,
-		child: ArtifactState,
-	) -> std::io::Result<ArtifactState> {
+	fn branch_child(&self, parent: &ArtifactState, child: ArtifactState) -> ArtifactState {
 		// Reuse the child so that the child tokens it registers persist across traversals.
 		let parent_tokens = child.tokens.lock().unwrap().clone();
 		let mut children = parent.branch_children.lock().unwrap();
@@ -2911,11 +2895,7 @@ impl Provider {
 
 		// Replace the expired tokens when the parent renews its tokens for the child.
 		if entry.parent_tokens != parent_tokens {
-			let now = self
-				.server
-				.clock
-				.unix_timestamp()
-				.map_err(|error| Self::map_cache_sync_error(&error))?;
+			let now = self.server.clock.unix_timestamp();
 			let mut tokens = entry.artifact.tokens.lock().unwrap();
 			Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
 			Self::insert_tokens(&mut tokens, &parent_tokens);
@@ -2923,7 +2903,7 @@ impl Provider {
 			entry.parent_tokens = parent_tokens;
 		}
 
-		Ok(entry.artifact.clone())
+		entry.artifact.clone()
 	}
 
 	async fn directory_node_inner(
@@ -3116,11 +3096,7 @@ impl Provider {
 		authorization: crate::authorization::Output,
 		data: &tg::object::Data,
 	) -> std::io::Result<()> {
-		let now = self
-			.server
-			.clock
-			.unix_timestamp()
-			.map_err(|error| Self::map_cache_sync_error(&error))?;
+		let now = self.server.clock.unix_timestamp();
 		if children_expires_at.is_some_and(|expires_at| {
 			expires_at
 				.lock()
@@ -3645,7 +3621,7 @@ impl Provider {
 							graph.as_ref(),
 							transaction,
 						)?;
-						let artifact = self.branch_child(&directory, artifact)?;
+						let artifact = self.branch_child(&directory, artifact);
 						stack.push((artifact, graph.clone()));
 					}
 				},
@@ -3698,7 +3674,7 @@ impl Provider {
 							graph.as_ref(),
 							transaction,
 						)?;
-						let artifact = self.branch_child(&directory, artifact)?;
+						let artifact = self.branch_child(&directory, artifact);
 						children.push((artifact, graph.clone(), offset));
 					}
 					stack.extend(children.into_iter().rev());
@@ -3746,7 +3722,7 @@ impl Provider {
 						graph.as_ref(),
 						transaction,
 					)?;
-					directory = self.branch_child(&directory, artifact)?;
+					directory = self.branch_child(&directory, artifact);
 					default_graph = graph;
 				},
 			}
@@ -4116,7 +4092,7 @@ impl Nodes {
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<()> {
 		let mut state = self.state.lock().unwrap();
-		let now = session.server.clock.unix_timestamp()?;
+		let now = session.server.clock.unix_timestamp();
 		Provider::retain_tokens(
 			&mut state.nodes.get_mut(&vfs::ROOT_NODE_ID).unwrap().tokens,
 			|token| token.body.expires_at >= now,
@@ -4135,7 +4111,7 @@ impl Nodes {
 		session: &Session,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<()> {
-		let now = session.server.clock.unix_timestamp()?;
+		let now = session.server.clock.unix_timestamp();
 		let state = self.state.lock().unwrap();
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,

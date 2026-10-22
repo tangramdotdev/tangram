@@ -554,7 +554,7 @@ impl Session {
 				.usage_account(&tg::Principal::Sandbox(sandbox_id.clone()))
 				.await?
 		};
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let location = tg::Location::Local(tg::location::Local {
 			region: self.server.config.region.clone(),
 		});
@@ -637,7 +637,7 @@ impl Session {
 		runner: &tg::runner::Id,
 		proof: &tg::process::id::Proof,
 	) -> tg::Result<()> {
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let now = now.to_u64().unwrap_or_default() * 1000;
 		let window = self.server.config.process.id_proof_window;
 		proof.verify_recent(id, runner, now, window)?;

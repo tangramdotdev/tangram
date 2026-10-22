@@ -41,7 +41,7 @@ impl Session {
 		}
 		self.pull_ancestors(&arg.specifier, arg.ancestors.pull)
 			.await?;
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let options = self.server.config.verification.write_retry.clone().into();
 		let session = self.clone();
 		tangram_futures::retry(&options, || {

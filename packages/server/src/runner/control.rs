@@ -201,7 +201,7 @@ impl Session {
 							};
 							tracing::debug!(connection_index, index = heartbeat.heartbeat_index, "forwarding the runner heartbeat");
 							outstanding.insert(heartbeat.heartbeat_index);
-							unacknowledged_at.get_or_insert_with(tokio::time::Instant::now);
+							unacknowledged_at.get_or_insert_with(|| server.clock.instant());
 							if heartbeat_acks_ended {
 								break;
 							}
@@ -249,7 +249,7 @@ impl Session {
 						},
 						() = async {
 							match deadline {
-								Some(deadline) => tokio::time::sleep_until(deadline).await,
+								Some(deadline) => server.clock.sleep_until(deadline).await,
 								None => future::pending().await,
 							}
 						} => break,

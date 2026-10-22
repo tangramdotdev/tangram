@@ -149,7 +149,7 @@ impl Session {
 		let Some(entry) = self.try_get_remote_cache(remote, request).await? else {
 			return Ok(None);
 		};
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let age = u64::try_from((now - entry.timestamp).max(0))
 			.map(Duration::from_secs)
 			.map_err(|error| tg::error!(!error, "invalid remote cache age"))?;
@@ -170,7 +170,7 @@ impl Session {
 		request: &Request,
 		response: &Response,
 	) -> tg::Result<()> {
-		let timestamp = self.server.clock.unix_timestamp()?;
+		let timestamp = self.server.clock.unix_timestamp();
 		self.put_remote_cache(remote, request, response, timestamp)
 			.await
 	}
@@ -363,10 +363,8 @@ pub(crate) fn tokens_valid(
 	tokens: &[tg::authorization::Token],
 	clock: &crate::clock::Clock,
 ) -> bool {
-	tokens.is_empty()
-		|| clock
-			.unix_timestamp()
-			.is_ok_and(|now| tokens.iter().all(|token| token.body.expires_at > now))
+	let now = clock.unix_timestamp();
+	tokens.is_empty() || tokens.iter().all(|token| token.body.expires_at > now)
 }
 
 pub(crate) fn remove_expired_tokens(
@@ -375,7 +373,7 @@ pub(crate) fn remove_expired_tokens(
 ) {
 	let now = clock.unix_timestamp();
 	for token in tokens.remove_local_authorization() {
-		if now.as_ref().is_ok_and(|now| token.body.expires_at > *now) {
+		if token.body.expires_at > now {
 			tokens.insert_local_authorization(token);
 		}
 	}
@@ -387,7 +385,7 @@ mod tests {
 
 	#[test]
 	fn expiration_preserves_other_proofs() {
-		let clock = crate::clock::Clock::new();
+		let clock = crate::clock::Clock::new(None, None);
 		let resource = tg::process::Id::new();
 		let token = |expires_at| tg::authorization::Token {
 			body: tg::authorization::Body {

@@ -277,11 +277,11 @@ impl Server {
 		arg: &tg::sync::service::Arg,
 		result: tg::Result<Option<tg::sync::service::Output>>,
 	) -> tg::sync::service::Response {
-		let result = result.and_then(|mut output| {
+		let result = result.map(|mut output| {
 			if let Some(output) = &mut output {
-				self.sync_service_add_token(arg, output)?;
+				self.sync_service_add_token(arg, output);
 			}
-			Ok(output)
+			output
 		});
 		match result {
 			Ok(output) => tg::sync::service::Response {
@@ -305,12 +305,12 @@ impl Server {
 		&self,
 		arg: &tg::sync::service::Arg,
 		output: &mut tg::sync::service::Output,
-	) -> tg::Result<()> {
+	) {
 		let permissions = output.permissions().iter().collect::<Vec<_>>();
 		if permissions.is_empty() {
-			return Ok(());
+			return;
 		}
-		let expires_at = self.clock.unix_timestamp()?
+		let expires_at = self.clock.unix_timestamp()
 			+ i64::try_from(self.config.sync.permission_time_to_live.as_secs()).unwrap();
 		let body = tg::authorization::Body {
 			expires_at,
@@ -321,7 +321,6 @@ impl Server {
 			tg::sync::service::Output::Object(output) => output.tokens.push(body),
 			tg::sync::service::Output::Process(output) => output.tokens.push(body),
 		}
-		Ok(())
 	}
 }
 

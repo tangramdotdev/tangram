@@ -1522,8 +1522,7 @@ impl Server {
 		let diagnostics = Mutex::new(Vec::new());
 
 		// Create the clock.
-		let clock = self::clock::Clock::new();
-		clock.now()?;
+		let clock = self::clock::Clock::new(config.advanced.clock.as_ref(), checkpoints.clone());
 
 		// Create the index.
 		let index = match &config.index {
@@ -2024,7 +2023,7 @@ impl Server {
 
 		// Start usage tracking.
 		if server.config.usage.enabled {
-			server.index.start_usage(server.clock.now()?).await?;
+			server.index.start_usage(server.clock.now()).await?;
 		}
 
 		// Destroy unfinished sandboxes if single process mode is enabled.

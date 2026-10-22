@@ -422,7 +422,7 @@ impl Session {
 				.iter()
 				.all(|entry| actual.get(&entry.node.id) == Some(&entry.node))
 			{
-				let touched_at = self.server.clock.unix_timestamp()?;
+				let touched_at = self.server.clock.unix_timestamp();
 				let mut batch = tangram_index::batch::Arg::default();
 				for entry in &entries {
 					let node = &entry.node;
@@ -1337,7 +1337,7 @@ impl Session {
 		}
 
 		// Index the checkout.
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let arg = tangram_index::checkout::put::Arg {
 			dependencies: dependencies.iter().cloned().map(Into::into).collect(),
 			id: item.id.into(),

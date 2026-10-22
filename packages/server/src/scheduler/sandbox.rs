@@ -478,7 +478,11 @@ impl State {
 		self.queue.wake();
 	}
 
-	pub(super) fn handle_heartbeat(&mut self, notification: &HeartbeatNotification) -> bool {
+	pub(super) fn handle_heartbeat(
+		&mut self,
+		notification: &HeartbeatNotification,
+		now: crate::clock::Instant,
+	) -> bool {
 		let Some(runner) = self.runners.entries.get_mut(&notification.runner) else {
 			return false;
 		};
@@ -515,7 +519,7 @@ impl State {
 		}
 		runner.capacity = notification.capacity;
 		runner.committed = tg::runner::Capacity::default();
-		runner.heartbeat_at = tokio::time::Instant::now();
+		runner.heartbeat_at = now;
 		runner.heartbeat_index = notification.heartbeat_index;
 		runner.ready = runner.capacity.total.sandboxes != 0;
 		self.queue.wake();
@@ -931,9 +935,10 @@ impl State {
 			sandbox.retrying = true;
 			let duration = scheduler.config.create_sandbox_timeout;
 			let sandbox = id.clone();
+			let sleep = scheduler.server.clock.sleep(duration);
 			self.operations.push(
 				async move {
-					tokio::time::sleep(duration).await;
+					sleep.await;
 					Operation::RetrySandbox { sandbox }
 				}
 				.boxed(),

@@ -6,8 +6,9 @@ def --wrapped usage [token: string, ...period: string] {
 	tg --token $token usage ...$period | from json
 }
 
+let root_token = random chars
 let local = server spawn --now '2025-12-29T00:00:00Z' --config {
-	authentication: { users: { providers: { insecure: true } } },
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer runner scheduler],
 	# Retain the original deltas and hours while the clock advances into February.
 	usage: { delta_time_to_live: 5184000, hour_time_to_live: 5184000 },

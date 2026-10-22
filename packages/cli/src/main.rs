@@ -21,6 +21,7 @@ mod checksum;
 mod children;
 mod clean;
 mod client;
+mod clock;
 mod compress;
 mod decompress;
 mod document;
@@ -304,6 +305,9 @@ enum Command {
 	Children(self::children::Args),
 
 	Clean(self::clean::Args),
+
+	#[command(hide = true)]
+	Clock(self::clock::Args),
 
 	Compress(self::compress::Args),
 
@@ -697,6 +701,8 @@ impl Cli {
 			Command::Children(args) => self.command_children(args).boxed_local(),
 
 			Command::Clean(args) => self.command_clean(args).boxed_local(),
+
+			Command::Clock(args) => self.command_clock(args).boxed_local(),
 
 			Command::Compress(args) => self.command_compress(args).boxed_local(),
 

@@ -488,7 +488,7 @@ impl Session {
 		if !data.status.is_finished() {
 			return Ok(true);
 		}
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let time_to_index = self
 			.server
 			.config
@@ -513,7 +513,7 @@ impl Session {
 		let Some(account) = self.usage_account(&self.context.principal).await? else {
 			return Ok(true);
 		};
-		let touched_at = self.server.clock.unix_timestamp()?;
+		let touched_at = self.server.clock.unix_timestamp();
 		let process = self
 			.server
 			.index
@@ -534,7 +534,7 @@ impl Session {
 		id: tg::process::Id,
 		data: tg::process::Data,
 	) -> tg::Result<super::local::Output> {
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let token = self.create_process_wait_token(&id, now)?;
 		Ok(super::local::Output {
 			allocation: None,
@@ -587,7 +587,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid tty"))
 			})
 			.transpose()?;
-		let now = self.server.clock.unix_timestamp()?;
+		let now = self.server.clock.unix_timestamp();
 		let id = tg::process::Id::new();
 		let checksum = tg::process::Checksum {
 			actual: Some(actual_checksum),

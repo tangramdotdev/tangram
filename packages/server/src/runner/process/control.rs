@@ -262,7 +262,7 @@ impl Session {
 		tokio::select! {
 			result = stdio_task => result?,
 			() = retention_stopper.wait() => {},
-			() = tokio::time::sleep(retention_ttl) => {},
+			() = self.server.clock.sleep(retention_ttl) => {},
 		}
 
 		crate::checkpoint!(self.server, "runner.process.control.retention.finished").await;

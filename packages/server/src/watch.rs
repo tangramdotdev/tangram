@@ -503,10 +503,11 @@ impl Watch {
 			let server = server.clone();
 			async move |_stop| {
 				// Wait for the TTL to expire.
-				tokio::time::sleep(ttl).await;
+				server.clock.sleep(ttl).await;
 
 				// Delete the watch.
 				server.watches.remove_if(&key, |_, watch| watch.id == id);
+				crate::checkpoint!(server, "watch.removed").await;
 			}
 		})
 	}

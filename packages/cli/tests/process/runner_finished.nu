@@ -8,7 +8,6 @@ for location in [local remote] {
 		advanced: { checkpoints: true, single_process: false },
 		authentication: { root: { token: $root_token } },
 		control: { read_timeout: 0.25 },
-		indexer: { cleaning: { poll_interval: 0.01 } },
 		process: { time_to_live: 2 },
 		sandbox: { time_to_live: 2 },
 		roles: (if $location == local { [api indexer runner scheduler] } else { [api indexer scheduler] }),

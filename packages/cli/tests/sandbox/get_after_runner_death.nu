@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # A sandbox get issued after its runner dies must observe destruction without waiting for the control read timeout.
 let root_token = random chars
-let remote = server spawn --name remote --config {
-	advanced: { single_process: false },
+let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
+	advanced: { checkpoints: true, single_process: false },
 	authentication: { root: { token: $root_token } },
 	control: { read_timeout: 60 },
 	roles: [api indexer scheduler],
@@ -33,7 +33,15 @@ let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid
 wait_for_exit $runner_pid
 
-# Allow the runner TTL and the next scheduler cleanup tick, but not the control read timeout.
-let output = timeout 15s tg --url $remote.url --token $root_token sandbox get $sandbox | complete
+# Wait for the get to read the index and wait on the runner's control, then advance the remote's clock past the runner ttl so that the scheduler expires the runner.
+let index = checkpoint watch sandbox.get.index --params { sandbox: $sandbox } --token $root_token --url $remote.url
+let get = job spawn {
+	let job_id = job id
+	tg --url $remote.url --token $root_token sandbox get $sandbox | complete | job send --tag $job_id 0
+}
+checkpoint pass $index | ignore
+checkpoint unwatch $index
+advance_time $remote 4sec
+let output = job recv --tag $get --timeout 15sec
 success $output "the sandbox get must complete before the control read timeout"
 assert equal ($output.stdout | from json | get data.status) "destroyed" "the pending get must observe destruction once the runner expires"
