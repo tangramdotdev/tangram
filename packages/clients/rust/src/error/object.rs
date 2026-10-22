@@ -1,4 +1,8 @@
-use {super::Data, crate::prelude::*, std::collections::BTreeMap};
+use {
+	super::Data,
+	crate::prelude::*,
+	std::{collections::BTreeMap, fmt, path::PathBuf},
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Error {
@@ -13,6 +17,74 @@ pub struct Error {
 }
 
 impl Error {
+	/// Create an error at a location in the internal source, as the `tg::error!` macro does.
+	#[doc(hidden)]
+	#[must_use]
+	pub fn with_internal_location(symbol: &str, file: &str, line: u32, column: u32) -> Self {
+		let symbol = symbol.strip_suffix("::Marker").unwrap_or(symbol).to_owned();
+		let position = tg::Position {
+			line: line - 1,
+			character: column - 1,
+		};
+		let range = tg::Range {
+			start: position,
+			end: position,
+		};
+		let location = tg::error::Location {
+			symbol: Some(symbol),
+			file: tg::error::File::Internal(PathBuf::from(file)),
+			range,
+		};
+		Self {
+			location: Some(location),
+			message: Some(String::new()),
+			..Default::default()
+		}
+	}
+
+	/// Set a value with its display representation.
+	#[doc(hidden)]
+	pub fn set_display_value(&mut self, name: &str, value: &dyn fmt::Display) {
+		self.values.insert(name.to_owned(), value.to_string());
+	}
+
+	/// Set a value with its debug representation.
+	#[doc(hidden)]
+	pub fn set_debug_value(&mut self, name: &str, value: &dyn fmt::Debug) {
+		self.values.insert(name.to_owned(), format!("{value:?}"));
+	}
+
+	/// Set the message from format arguments.
+	#[doc(hidden)]
+	pub fn set_message(&mut self, arguments: fmt::Arguments<'_>) {
+		let message = arguments
+			.as_str()
+			.map_or_else(|| fmt::format(arguments), ToOwned::to_owned);
+		self.message = Some(message);
+	}
+
+	/// Set the source.
+	#[doc(hidden)]
+	pub fn set_source(
+		&mut self,
+		source: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+	) {
+		self.set_boxed_source(source.into());
+	}
+
+	fn set_boxed_source(&mut self, source: Box<dyn std::error::Error + Send + Sync + 'static>) {
+		let source = tg::Error::from(source);
+		let node = match source.state().object() {
+			Some(object) => {
+				let object = object.unwrap_error_ref().as_ref().clone();
+				tg::Either::Left(Box::new(object))
+			},
+			None => tg::Either::Right(Box::new(source)),
+		};
+		let source = tg::Referent::with_node(node);
+		self.source.replace(source);
+	}
+
 	/// Get the kind without loading source objects.
 	#[must_use]
 	pub fn kind(&self) -> Option<tg::error::Kind> {

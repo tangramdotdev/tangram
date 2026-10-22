@@ -54,7 +54,7 @@ pub trait Index {
 		length: u64,
 	) -> impl Future<Output = tg::Result<Vec<tg::process::Id>>> + Send {
 		self.try_get_sandbox_processes(id, position, length)
-			.map(|result| {
+			.map(move |result| {
 				result.and_then(|option| {
 					option.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))
 				})

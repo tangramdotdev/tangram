@@ -251,47 +251,27 @@ impl TryFrom<tangram_http::sse::Event> for Error {
 #[macro_export]
 macro_rules! error {
 	({ $object:ident }, %$name:ident, $($arg:tt)*) => {
-		$object.values.insert(stringify!($name).to_owned(), $name.to_string());
+		$object.set_display_value(stringify!($name), &$name);
 		$crate::error!({ $object }, $($arg)*)
 	};
 	({ $object:ident }, ?$name:ident, $($arg:tt)*) => {
-		$object.values.insert(stringify!($name).to_owned(), format!("{:?}", $name));
+		$object.set_debug_value(stringify!($name), &$name);
 		$crate::error!({ $object }, $($arg)*)
 	};
 	({ $object:ident }, $name:ident = %$value:expr, $($arg:tt)*) => {
-		$object.values.insert(stringify!($name).to_owned(), $value.to_string());
+		$object.set_display_value(stringify!($name), &$value);
 		$crate::error!({ $object }, $($arg)*)
 	};
 	({ $object:ident }, $name:ident = ?$value:expr, $($arg:tt)*) => {
-		$object.values.insert(stringify!($name).to_owned(), format!("{:?}", $value));
+		$object.set_debug_value(stringify!($name), &$value);
 		$crate::error!({ $object }, $($arg)*)
 	};
 	({ $object:ident }, !$source:ident, $($arg:tt)*) => {
-		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
-		let source_handle = $crate::Error::from(source);
-		let source_node = match source_handle.state().object() {
-			Some(source_arc) => {
-				let source_obj = source_arc.unwrap_error_ref().as_ref().clone();
-				$crate::Either::Left(std::boxed::Box::new(source_obj))
-			},
-			None => $crate::Either::Right(std::boxed::Box::new(source_handle)),
-		};
-		let source = $crate::Referent::with_node(source_node);
-		$object.source.replace(source);
+		$object.set_source($source);
 		$crate::error!({ $object }, $($arg)*)
 	};
 	({ $object:ident }, source = $source:expr, $($arg:tt)*) => {
-		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
-		let source_handle = $crate::Error::from(source);
-		let source_node = match source_handle.state().object() {
-			Some(source_arc) => {
-				let source_obj = source_arc.unwrap_error_ref().as_ref().clone();
-				$crate::Either::Left(std::boxed::Box::new(source_obj))
-			},
-			None => $crate::Either::Right(std::boxed::Box::new(source_handle)),
-		};
-		let source = $crate::Referent::with_node(source_node);
-		$object.source.replace(source);
+		$object.set_source($source);
 		$crate::error!({ $object }, $($arg)*)
 	};
 	({ $object:ident }, kind = $kind:expr, $($arg:tt)*) => {
@@ -311,7 +291,7 @@ macro_rules! error {
 		$crate::error!({ $object }, $($arg)*)
 	};
 	({ $object:ident }, $($arg:tt)*) => {
-		$object.message = Some(format!($($arg)*));
+		$object.set_message(format_args!($($arg)*));
 	};
 	(argument, $($arg:tt)*) => {
 		$crate::error!(kind = $crate::error::Kind::Argument, $($arg)*)
@@ -332,23 +312,13 @@ macro_rules! error {
 		$crate::error!(kind = $crate::error::Kind::Unavailable, $($arg)*)
 	};
 	($($arg:tt)*) => {{
-		let mut object = $crate::error::Object {
-			code: None,
-			diagnostics: None,
-			kind: None,
-			location: Some($crate::error::Location {
-				symbol: Some($crate::function!().to_owned()),
-				file: $crate::error::File::Internal(format!("{}", ::std::file!()).parse().unwrap()),
-				range: $crate::Range {
-					start: $crate::Position { line: line!() - 1, character: column!() - 1 },
-					end: $crate::Position { line: line!() - 1, character: column!() - 1 }
-				}
-			}),
-			message: Some(String::new()),
-			source: None,
-			stack: None,
-			values: ::std::collections::BTreeMap::new(),
-		};
+		struct Marker;
+		let mut object = $crate::error::Object::with_internal_location(
+			::std::any::type_name::<Marker>(),
+			::std::file!(),
+			::std::line!(),
+			::std::column!(),
+		);
 		$crate::error!({ object }, $($arg)*);
 		object.kind = object.kind();
 		$crate::Error::with_object(object)
