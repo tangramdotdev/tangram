@@ -299,14 +299,13 @@ impl Session {
 			trusted,
 			url,
 		} = output.data;
-		// Use the pool that the config sets for a remote with this name and URL.
+		// Use the pool that the config sets for a remote with this URL, since clients are shared by URL.
 		let pool = self
 			.server
 			.config()
 			.remotes
 			.as_ref()
-			.and_then(|remotes| remotes.get(remote))
-			.filter(|config| config.url == url)
+			.and_then(|remotes| remotes.values().find(|config| config.url == url))
 			.map_or_else(|| tg::Arg::default().pool, |config| config.client.pool);
 		let client = self
 			.server

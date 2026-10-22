@@ -369,6 +369,9 @@ impl Session {
 				entry.insert(local_sender.clone());
 			},
 		}
+		self.server
+			.process_connect_services_changed
+			.notify_waiters();
 
 		// Spawn the task, and remove its local channel when it exits.
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -412,30 +415,45 @@ impl Server {
 		nonce: &tg::process::Nonce,
 		request: Request,
 	) -> tg::Result<Option<Response>> {
-		// Ask this server's own connect service over the local channel, or ask over the messenger.
-		let response = if let Some(response) = self
-			.request_process_connect_service_local(nonce, &request)
-			.await
-		{
-			response
-		} else {
-			crate::checkpoint!(self, "process.connect.service.messenger", nonce = %nonce).await;
-			let mut request = self
-				.process_connect_clients
-				.request(&subject(nonce), request)
-				.map_err(|source| {
-					tg::error!(!source, "failed to send the connect service request")
-				})?;
-			match request.wait().await {
-				Ok(response) => response,
-				Err(service::Error::Timeout) => return Ok(None),
-				Err(service::Error::Stopped) => {
-					return Err(tg::error!(
-						code = tg::error::Code::Cancellation,
-						"the server is stopping"
-					));
+		// Ask this server's own connect service over the local channel. Otherwise, ask over the messenger while watching for the connect service to start on this server, so that a request that arrives before its connect is answered over the local channel once the connect starts.
+		let mut messenger = None;
+		let response = loop {
+			let started = self.process_connect_services_changed.notified();
+			let mut started = std::pin::pin!(started);
+			started.as_mut().enable();
+			if let Some(response) = self
+				.request_process_connect_service_local(nonce, &request)
+				.await
+			{
+				break response;
+			}
+			if messenger.is_none() {
+				let pending = self
+					.process_connect_clients
+					.request(&subject(nonce), request.clone())
+					.map_err(|source| {
+						tg::error!(!source, "failed to send the connect service request")
+					})?;
+				messenger = Some(pending);
+			}
+			let pending = messenger.as_mut().unwrap();
+			tokio::select! {
+				result = pending.wait() => {
+					let response = match result {
+						Ok(response) => response,
+						Err(service::Error::Timeout) => return Ok(None),
+						Err(service::Error::Stopped) => {
+							return Err(tg::error!(
+								code = tg::error::Code::Cancellation,
+								"the server is stopping"
+							));
+						},
+						Err(error) => return Err(tg::error!(!error, "the connect service request failed")),
+					};
+					crate::checkpoint!(self, "process.connect.service.messenger", nonce = %nonce).await;
+					break response;
 				},
-				Err(error) => return Err(tg::error!(!error, "the connect service request failed")),
+				() = &mut started => {},
 			}
 		};
 
