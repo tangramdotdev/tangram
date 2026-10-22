@@ -82,13 +82,6 @@ unsafe_derive_deserialize = "allow"
 unused_async = "allow"
 unused_async_trait_impl = "allow"
 
-[profile.dev.package."*"]
-opt-level = 3
-
-[profile.fast]
-inherits = "release"
-lto = "off"
-
 [workspace.dependencies]
 anstream = "1"
 astral-tokio-tar = "0.7"
