@@ -13,7 +13,7 @@ def main [
 		error make { msg: $"the following programs are missing from PATH: ($missing | str join ', ')" }
 	}
 
-	# Check that the database ports are available, because `nu packages/cli/test.nu --databases` binds the same ports.
+	# Check that the database ports are available, because `bun run test:databases` binds the same ports.
 	let endpoints = [
 		{ name: PostgreSQL, port: 5432 },
 		{ name: FoundationDB, port: 4500 },

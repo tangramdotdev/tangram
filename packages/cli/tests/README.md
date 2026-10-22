@@ -19,7 +19,7 @@ install Docker, PostgreSQL, and `nats-server`. Then start the shared databases i
 a separate terminal:
 
 ```sh
-nu packages/cli/test.nu --databases
+bun run test:databases
 ```
 
 The command runs every database as a native process on Linux. On macOS, it runs
