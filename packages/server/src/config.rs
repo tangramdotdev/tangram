@@ -57,9 +57,13 @@ pub struct Config {
 
 	pub region: Option<String>,
 
+	pub region_client: Client,
+
 	pub regions: Option<Vec<Region>>,
 
 	pub remote_cache: RemoteCache,
+
+	pub remote_client: Client,
 
 	pub remotes: Option<BTreeMap<String, Remote>>,
 
@@ -1105,8 +1109,6 @@ pub struct Read {
 
 #[derive(Clone, Debug)]
 pub struct Region {
-	pub client: Client,
-
 	pub name: String,
 
 	pub reconnect: Option<Reconnect>,
@@ -1140,8 +1142,6 @@ pub struct Retry {
 
 #[derive(Clone, Debug)]
 pub struct Remote {
-	pub client: Client,
-
 	pub token: Option<String>,
 
 	pub trusted: bool,
@@ -1149,7 +1149,7 @@ pub struct Remote {
 	pub url: Uri,
 }
 
-/// The configuration of the client that a server creates for a remote or a region.
+/// The configuration of the clients that a server creates for its remotes or its regions.
 #[derive(Clone, Debug)]
 pub struct Client {
 	pub pool: tangram_pool::Options,
@@ -2008,8 +2008,10 @@ impl Default for Config {
 			progress: Progress::default(),
 			read: Read::default(),
 			region: None,
+			region_client: Client::default(),
 			regions: None,
 			remote_cache: RemoteCache::default(),
+			remote_client: Client::default(),
 			remotes: None,
 			roles: default_roles(),
 			runner: Runner::default(),

@@ -299,17 +299,9 @@ impl Session {
 			trusted,
 			url,
 		} = output.data;
-		// Use the pool that the config sets for a remote with this URL, since clients are shared by URL.
-		let pool = self
-			.server
-			.config()
-			.remotes
-			.as_ref()
-			.and_then(|remotes| remotes.values().find(|config| config.url == url))
-			.map_or_else(|| tg::Arg::default().pool, |config| config.client.pool);
 		let client = self
 			.server
-			.get_or_create_remote_client(url, pool)
+			.get_or_create_remote_client(url)
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let mut context = client.context().clone();
 		let principal_token = self
@@ -383,24 +375,16 @@ impl Session {
 }
 
 impl Server {
-	pub(crate) fn get_or_create_remote_client(
-		&self,
-		url: Uri,
-		pool: tangram_pool::Options,
-	) -> tg::Result<tg::Client> {
+	pub(crate) fn get_or_create_remote_client(&self, url: Uri) -> tg::Result<tg::Client> {
 		if let Some(client) = self.remote_clients.get(&url) {
 			return Ok(client.clone());
 		}
-		let client = self.create_remote_client(url.clone(), pool)?;
+		let client = self.create_remote_client(url.clone())?;
 		self.remote_clients.insert(url, client.clone());
 		Ok(client)
 	}
 
-	pub(crate) fn create_remote_client(
-		&self,
-		url: Uri,
-		pool: tangram_pool::Options,
-	) -> tg::Result<tg::Client> {
+	pub(crate) fn create_remote_client(&self, url: Uri) -> tg::Result<tg::Client> {
 		tg::Client::new(tg::Arg {
 			http: tg::Http {
 				http2: self.config().http.http2,
@@ -409,7 +393,7 @@ impl Server {
 			url: Some(url),
 			version: Some(self.version.clone()),
 			token: None,
-			pool,
+			pool: self.config().remote_client.pool,
 			stream_retry: Self::client_stream_retry(),
 			sync: tg::sync::Config {
 				max_frame_size: self.config().sync.max_frame_size,

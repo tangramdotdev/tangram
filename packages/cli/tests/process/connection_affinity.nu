@@ -34,13 +34,15 @@ let watches = [$first $second] | each { |server|
 let client = { pool: { max: 8, shared: 1 } }
 let created = tg --url $first.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
-	remotes: { default: { client: $client, token: $created.token.token, url: $url } },
+	remote_client: $client,
+	remotes: { default: { token: $created.token.token, url: $url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
 let alice = tg --url $first.url login --verbose --name alice | from json
 let local = server spawn --name local --config {
-	remotes: { default: { client: $client, token: $alice.token, url: $url } },
+	remote_client: $client,
+	remotes: { default: { token: $alice.token, url: $url } },
 }
 
 # Run sandboxed processes through the local server's connect, so that each one has connect, control, and sandbox control requests to correlate.
