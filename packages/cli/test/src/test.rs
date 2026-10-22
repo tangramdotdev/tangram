@@ -29,6 +29,7 @@ pub struct Test {
 pub struct Options {
 	pub cloud: bool,
 	pub cluster_path: Option<PathBuf>,
+	pub database_run: Option<String>,
 	pub fskit: bool,
 	pub kernel_path: Option<PathBuf>,
 	pub no_capture: bool,
@@ -254,7 +255,9 @@ async fn cleanup(test: &Test, options: &Options, temp_path: &Path, code: i32) ->
 	}
 
 	// Reset the cloud database instances.
-	if let (true, Some(cluster_path)) = (options.cloud, &options.cluster_path) {
+	if let (true, Some(cluster_path), Some(run)) =
+		(options.cloud, &options.cluster_path, &options.database_run)
+	{
 		let instances = std::fs::read_to_string(temp_path.join("instances")).unwrap_or_default();
 		let mut instances = instances
 			.lines()
@@ -265,7 +268,7 @@ async fn cleanup(test: &Test, options: &Options, temp_path: &Path, code: i32) ->
 		let results = futures::future::join_all(
 			instances
 				.iter()
-				.map(|instance| database::reset(instance, cluster_path)),
+				.map(|instance| database::reset(instance, cluster_path, run)),
 		)
 		.await;
 		for result in results {
@@ -331,6 +334,10 @@ fn environment(options: &Options, temp_path: &Path) -> Vec<(String, String)> {
 			} else {
 				String::new()
 			},
+		),
+		(
+			"TANGRAM_TEST_DATABASE_RUN".to_owned(),
+			options.database_run.clone().unwrap_or_default(),
 		),
 		(
 			"TANGRAM_TEST_FDB_CLUSTER".to_owned(),

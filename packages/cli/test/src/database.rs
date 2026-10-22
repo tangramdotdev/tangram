@@ -179,52 +179,25 @@ pub async fn foundationdb_listening() -> bool {
 	)
 }
 
+/// A test run's ownership of the database pool leases it acquires, held through an exclusive lock on the run's lock file for the whole run.
+pub struct Run {
+	id: String,
+	_lock: std::fs::File,
+}
+
 /// Get the path of the database pool.
 #[must_use]
 pub fn pool_path() -> PathBuf {
 	std::env::temp_dir().join("tangram_test_database_pool")
 }
 
-/// Remove the leases whose owner process no longer exists.
+/// Remove the leases of runs that have exited, and the lock files of those runs.
 pub async fn reclaim() -> Result<()> {
-	let pool_path = pool_path();
-	let mut count = 0;
-	let mut read_dir = tokio::fs::read_dir(&pool_path).await?;
-	while let Some(entry) = read_dir.next_entry().await? {
-		let name = entry.file_name();
-		let Some(name) = name.to_str() else {
-			continue;
-		};
-		if !name.starts_with("pool") {
-			continue;
-		}
-		let lease_path = entry.path().join("lease");
-		let Ok(lease) = tokio::fs::read_to_string(&lease_path).await else {
-			continue;
-		};
-		let mut lines = lease.lines();
-		let owner = lines.next().and_then(|pid| pid.parse::<u32>().ok());
-		let start = lines
-			.next()
-			.map(str::trim)
-			.filter(|start| !start.is_empty());
-		if let (Some(owner), Some(start)) = (owner, start)
-			&& process_start(owner).await.as_deref() == Some(start)
-		{
-			continue;
-		}
-		if tokio::fs::remove_file(&lease_path).await.is_ok() {
-			count += 1;
-		}
-	}
-	if count > 0 {
-		eprintln!("reclaimed {count} stale database pool leases");
-	}
-	Ok(())
+	reclaim_in(&pool_path()).await
 }
 
 /// Reset a database pool instance and release its lease, retrying once.
-pub async fn reset(instance: &str, cluster_path: &Path) -> Result<()> {
+pub async fn reset(instance: &str, cluster_path: &Path, run: &str) -> Result<()> {
 	let mut error = None;
 	for attempt in 0..2 {
 		if attempt > 0 {
@@ -244,10 +217,7 @@ pub async fn reset(instance: &str, cluster_path: &Path) -> Result<()> {
 		)
 		.into());
 	}
-	let lease_path = pool_path().join(instance).join("lease");
-	tokio::fs::remove_file(&lease_path).await.map_err(|error| {
-		format!("failed to release the lease for database pool instance {instance}: {error}")
-	})?;
+	release_in(&pool_path(), instance, run).await?;
 	Ok(())
 }
 
@@ -271,6 +241,29 @@ pub fn which(program: &str) -> Option<PathBuf> {
 	std::env::split_paths(&path)
 		.map(|directory| directory.join(program))
 		.find(|path| path.is_file())
+}
+
+impl Run {
+	/// Create a run and take its lock. The lock file is locked under a temporary name and then renamed into place, so that another run's reclaim never sees it unlocked.
+	pub fn new(pool_path: &Path) -> Result<Self> {
+		let runs_path = pool_path.join("runs");
+		std::fs::create_dir_all(&runs_path)?;
+		let nanos = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)?
+			.as_nanos();
+		let id = format!("{}-{nanos}", std::process::id());
+		let temporary_path = runs_path.join(format!(".{id}.lock"));
+		let lock = std::fs::File::create(&temporary_path)?;
+		lock.lock()?;
+		std::fs::rename(&temporary_path, runs_path.join(format!("{id}.lock")))?;
+		let run = Self { id, _lock: lock };
+		Ok(run)
+	}
+
+	#[must_use]
+	pub fn id(&self) -> &str {
+		&self.id
+	}
 }
 
 async fn reset_once(instance: &str, cluster_path: &Path) -> Result<()> {
@@ -330,20 +323,161 @@ async fn reset_once(instance: &str, cluster_path: &Path) -> Result<()> {
 	Ok(())
 }
 
-/// Get the start time of a process in the format that the lease records.
-async fn process_start(pid: u32) -> Option<String> {
-	let output = Command::new("ps")
-		.args(["-o", "lstart=", "-p", &pid.to_string()])
-		.stderr(Stdio::null())
-		.output()
-		.await
-		.ok()?;
-	let start = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-	(!start.is_empty()).then_some(start)
+async fn reclaim_in(pool_path: &Path) -> Result<()> {
+	// Remove the leases whose runs are not alive.
+	let mut count = 0;
+	let mut read_dir = tokio::fs::read_dir(pool_path).await?;
+	while let Some(entry) = read_dir.next_entry().await? {
+		let name = entry.file_name();
+		let Some(name) = name.to_str() else {
+			continue;
+		};
+		if !name.starts_with("pool") {
+			continue;
+		}
+		let lease_path = entry.path().join("lease");
+		let Ok(owner) = tokio::fs::read_to_string(&lease_path).await else {
+			continue;
+		};
+		if run_alive(pool_path, owner.trim()) {
+			continue;
+		}
+		if tokio::fs::remove_file(&lease_path).await.is_ok() {
+			count += 1;
+		}
+	}
+	if count > 0 {
+		eprintln!("reclaimed {count} stale database pool leases");
+	}
+
+	// Remove the lock files of runs that have exited.
+	let runs_path = pool_path.join("runs");
+	if let Ok(mut read_dir) = tokio::fs::read_dir(&runs_path).await {
+		while let Some(entry) = read_dir.next_entry().await? {
+			let path = entry.path();
+			if path.extension().is_none_or(|extension| extension != "lock") {
+				continue;
+			}
+			let Ok(file) = std::fs::File::open(&path) else {
+				continue;
+			};
+			if file.try_lock().is_ok() {
+				tokio::fs::remove_file(&path).await.ok();
+			}
+		}
+	}
+
+	Ok(())
+}
+
+/// Release a lease only if it still names the run, so that a run never deletes a lease that another run acquired after a reclaim.
+async fn release_in(pool_path: &Path, instance: &str, run: &str) -> Result<()> {
+	let lease_path = pool_path.join(instance).join("lease");
+	let owner = tokio::fs::read_to_string(&lease_path).await.map_err(|error| {
+		format!("failed to read the lease for database pool instance {instance}, which may have been reclaimed by another run: {error}")
+	})?;
+	if owner.trim() != run {
+		return Err(format!(
+			"the lease for database pool instance {instance} is owned by run {}, not this run",
+			owner.trim()
+		)
+		.into());
+	}
+	tokio::fs::remove_file(&lease_path).await.map_err(|error| {
+		format!("failed to release the lease for database pool instance {instance}: {error}")
+	})?;
+	Ok(())
+}
+
+/// Determine whether a run is alive, which is the case when its lock file exists and its lock is held.
+fn run_alive(pool_path: &Path, run: &str) -> bool {
+	if run.is_empty() || run.contains('/') {
+		return false;
+	}
+	let path = pool_path.join("runs").join(format!("{run}.lock"));
+	let Ok(file) = std::fs::File::open(&path) else {
+		return false;
+	};
+	matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
 }
 
 async fn succeeds(command: &mut Command, timeout: Duration) -> bool {
 	output(command, timeout)
 		.await
 		.is_ok_and(|output| output.status.success())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn pool() -> PathBuf {
+		let nanos = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap()
+			.as_nanos();
+		let pool_path =
+			std::env::temp_dir().join(format!("tangram_test_pool_{}_{nanos}", std::process::id()));
+		std::fs::create_dir_all(pool_path.join("pool0000")).unwrap();
+		pool_path
+	}
+
+	#[tokio::test]
+	async fn reclaim_keeps_a_lease_whose_run_is_alive_after_its_test_process_exits() {
+		let pool_path = pool();
+		let run = Run::new(&pool_path).unwrap();
+		let lease_path = pool_path.join("pool0000/lease");
+		tokio::fs::write(&lease_path, format!("{}\n", run.id()))
+			.await
+			.unwrap();
+
+		// The test process that acquired the lease has exited, but the run is still cleaning up.
+		reclaim_in(&pool_path).await.unwrap();
+		let kept = lease_path.exists();
+		tokio::fs::remove_dir_all(&pool_path).await.unwrap();
+		assert!(kept, "the lease of a live run must not be reclaimed");
+	}
+
+	#[tokio::test]
+	async fn reclaim_removes_the_lease_and_lock_file_of_an_exited_run() {
+		let pool_path = pool();
+		let run = Run::new(&pool_path).unwrap();
+		let id = run.id().to_owned();
+		let lease_path = pool_path.join("pool0000/lease");
+		tokio::fs::write(&lease_path, format!("{id}\n"))
+			.await
+			.unwrap();
+		drop(run);
+
+		reclaim_in(&pool_path).await.unwrap();
+		let lease = lease_path.exists();
+		let lock = pool_path.join("runs").join(format!("{id}.lock")).exists();
+		tokio::fs::remove_dir_all(&pool_path).await.unwrap();
+		assert!(!lease, "the lease of an exited run must be reclaimed");
+		assert!(!lock, "the lock file of an exited run must be removed");
+	}
+
+	#[tokio::test]
+	async fn release_deletes_only_a_lease_that_names_the_run() {
+		let pool_path = pool();
+		let run = Run::new(&pool_path).unwrap();
+		let other = Run::new(&pool_path).unwrap();
+		let lease_path = pool_path.join("pool0000/lease");
+		tokio::fs::write(&lease_path, format!("{}\n", other.id()))
+			.await
+			.unwrap();
+
+		let foreign = release_in(&pool_path, "pool0000", run.id()).await;
+		let kept = lease_path.exists();
+		let own = release_in(&pool_path, "pool0000", other.id()).await;
+		let released = !lease_path.exists();
+		let missing = release_in(&pool_path, "pool0000", other.id()).await;
+		tokio::fs::remove_dir_all(&pool_path).await.unwrap();
+		assert!(
+			foreign.is_err() && kept,
+			"a run must not release another run's lease"
+		);
+		assert!(own.is_ok() && released, "a run must release its own lease");
+		assert!(missing.is_err(), "releasing a reclaimed lease must fail");
+	}
 }
