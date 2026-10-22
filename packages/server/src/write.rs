@@ -656,6 +656,7 @@ impl Session {
 		let arg = arg.unwrap_or_default();
 
 		// Write.
+		crate::checkpoint!(self.server, "write.request").await;
 		let output = self
 			.write(arg, request.reader())
 			.await
