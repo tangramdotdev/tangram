@@ -21,9 +21,9 @@ let create = job spawn {
 	let output = tg --url $remote.url --token $root_token sandbox create --no-tokens | complete
 	$output | job send --tag $job_id 0
 }
-let sandbox = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | from json | get params.sandbox
+let sandbox = tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.state.inserted $state_watch 0 | from json | get params.sandbox
 tg --url $runner.url checkpoint unwatch runner.sandbox.state.inserted $state_watch
-timeout 10s tg --url $runner.url checkpoint wait runner.sandbox.control.connect $control_watch 0 | ignore
+tg --url $runner.url checkpoint wait --timeout 10s runner.sandbox.control.connect $control_watch 0 | ignore
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
 let status = job spawn {
 	let job_id = job id

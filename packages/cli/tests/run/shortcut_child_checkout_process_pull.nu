@@ -70,7 +70,7 @@ let initial_run = job spawn {
 	let output = tg --url $local.url run --cached=false --no-tty --remote --user $alice.user.id $module | complete
 	$output | job send --tag $job_id 0
 }
-let output = timeout 30s tg --url $runner.url checkpoint wait index.batch.finished $initial_index_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s index.batch.finished $initial_index_watch 0 | complete
 success $output "the initial child command permissions should finish indexing"
 tg --url $runner.url checkpoint continue index.batch.finished $initial_index_watch 0
 tg --url $runner.url checkpoint unwatch index.batch.finished $initial_index_watch
@@ -96,11 +96,11 @@ let run = job spawn {
 	let output = tg --url $local.url run --cached=false --no-tty --remote --user $alice.user.id $module | complete
 	$output | job send --tag $job_id 0
 }
-let output = timeout 30s tg --url $runner.url checkpoint wait index.batch.finished $index_batch_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s index.batch.finished $index_batch_watch 0 | complete
 success $output "the child command permissions should finish indexing"
 tg --url $runner.url checkpoint continue index.batch.finished $index_batch_watch 0
 tg --url $runner.url checkpoint unwatch index.batch.finished $index_batch_watch
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $command_sync_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.command.sync.started $command_sync_watch 0 | complete
 success $output "the child command sync should start"
 tg --url $runner.url checkpoint continue runner.process.command.sync.started $command_sync_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $command_sync_watch

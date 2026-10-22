@@ -45,7 +45,7 @@ let push_watch = (
 
 # Start the build and wait for it to reach its outcome sync.
 let process = tg --url $alice_local.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $push_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $push_watch 0 | complete
 success $output "the build should reach its outcome sync"
 
 # The process finishes before its push, and its wait names the output with the authorization token for the sync.

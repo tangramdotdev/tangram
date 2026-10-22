@@ -114,7 +114,7 @@ let read_watch = (
 # Release the read immediately because proven permissions can let it precede the storage request.
 let read = job spawn {
 	let job_id = job id
-	let output = timeout 60s tg --url $remote.url --token $root_token checkpoint wait sync.put.store.object $read_watch 0 | complete
+	let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 60s sync.put.store.object $read_watch 0 | complete
 	tg --url $remote.url --token $root_token checkpoint unwatch sync.put.store.object $read_watch
 	$output | job send --tag $job_id 0
 }
@@ -133,11 +133,11 @@ let wait = job spawn {
 	let output = tg --url $local.url wait $parent | complete
 	$output | job send --tag $job_id 0
 }
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blob_watch 0 | complete
+let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $blob_watch 0 | complete
 success $output "the producer's push should reach its output blob"
 
 # The consumer asks the producer's sync to notify it when the blob is stored.
-let output = timeout 20s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $ack_watch 0 | complete
+let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 20s sync.service.ack $ack_watch 0 | complete
 success $output "the producer's sync should acknowledge the consumer's request"
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $ack_watch
 

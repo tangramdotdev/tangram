@@ -33,8 +33,8 @@ let pushed_watch = tg --url $runner.url checkpoint watch runner.process.command.
 let started_watch = tg --url $runner.url checkpoint watch runner.process.control.start.succeeded | from json | get watch
 let spawned = tg --url $local.url build --remote --detach --verbose $path | from json
 let process = $spawned.process | split row '?' | first
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $push_watch 0 | complete) "the child's command push should start"
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.start.succeeded $started_watch 0 | complete) "the child's control connection should start"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.command.sync.started $push_watch 0 | complete) "the child's command push should start"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.start.succeeded $started_watch 0 | complete) "the child's control connection should start"
 tg --url $runner.url checkpoint unwatch runner.process.control.start.succeeded $started_watch
 
 # Crash and restart the remote without removing its runners, so that the child's control connection reconnects with a resume.
@@ -45,7 +45,7 @@ let remote = server start $remote
 
 # Release the push, which must still be authorized as the child's parent.
 tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $push_watch
-let pushed = timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.finished $pushed_watch 0 | complete
+let pushed = tg --url $runner.url checkpoint wait --timeout 60s runner.process.command.sync.finished $pushed_watch 0 | complete
 tg --url $runner.url checkpoint unwatch runner.process.command.sync.finished $pushed_watch
 success $pushed "the child's command push should succeed after its control connection reconnects"
 let output = timeout 60s tg --url $local.url wait --remote $process | complete

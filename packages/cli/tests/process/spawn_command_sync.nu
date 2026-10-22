@@ -91,15 +91,15 @@ for location in [remote 'local(east)'] {
 			let output = http post --raw --max-time 30sec --unix-socket $socket --headers { 'Content-Type': 'application/json', Authorization: $'Bearer ($root_token)' } 'http://localhost/processes/spawn' $arg
 			$output | job send --tag $job_id 0
 		}
-		success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete) "the push should reach the held command object"
-		success (timeout 30s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete) "the process should be scheduled"
+		success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $store_watch 0 | complete) "the push should reach the held command object"
+		success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.state.inserted $state_watch 0 | complete) "the process should be scheduled"
 		tg --url $runner.url checkpoint unwatch runner.process.state.inserted $state_watch
 		let events = job recv --tag $spawn --timeout 30sec
 		assert (not ($events | str contains 'event: error')) "the direct spawn request should succeed"
 		let output = $events | lines | where { $in starts-with 'data: ' } | last | str substring 6.. | from json
 		# The direct spawn client has exited while the command graph is still in flight.
 		tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store_watch
-		success (timeout 30s tg --url $local.url checkpoint wait process.spawn.command.push.finished $push_watch 0 | complete) "the command push should complete after the spawn response"
+		success (tg --url $local.url checkpoint wait --timeout 30s process.spawn.command.push.finished $push_watch 0 | complete) "the command push should complete after the spawn response"
 		tg --url $local.url checkpoint unwatch process.spawn.command.push.finished $push_watch
 		success (tg --url $remote.url --token $root_token get $blob | complete) "the remote should store the command blob once the push finishes"
 		tg --url $runner.url checkpoint unwatch runner.process.run $run_watch

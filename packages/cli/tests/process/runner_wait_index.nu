@@ -46,7 +46,7 @@ for location in [local remote] {
 		let path = artifact { tangram.ts: $source }
 		let spawned = tg --url $local_owner.url --token $root_token build --detach --verbose $path | from json
 		let process = $spawned.process | split row '?' | first
-		success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | complete) "the runner must reach the finish checkpoint"
+		success (tg --url $runner.url --token $root_token checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | complete) "the runner must reach the finish checkpoint"
 		tg --url $runner.url --token $root_token grant $alice.user.id process_node $process | ignore
 		tg --url $runner.url --token $root_token grant $alice.user.id $'process_node_($field)_objects' $process | ignore
 		if $case.both {
@@ -63,21 +63,21 @@ for location in [local remote] {
 			let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream', Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)/wait?($query)' ''
 			$output | job send --tag $job_id 0
 		}
-		success (timeout 10s tg --url $runner.url --token $root_token checkpoint wait process.wait.attach $attach_watch 0 | complete) "the reader must attach before completion"
+		success (tg --url $runner.url --token $root_token checkpoint wait --timeout 10s process.wait.attach $attach_watch 0 | complete) "the reader must attach before completion"
 		let node_wait_job = job spawn {
 			let job_id = job id
 			let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream', Authorization: $'Bearer ($bob.token)' } $'http://localhost/processes/($process)/wait?($query)' ''
 			$output | job send --tag $job_id 0
 		}
-		success (timeout 10s tg --url $runner.url --token $root_token checkpoint wait process.wait.attach $attach_watch 1 | complete) "the node reader must attach before completion"
+		success (tg --url $runner.url --token $root_token checkpoint wait --timeout 10s process.wait.attach $attach_watch 1 | complete) "the node reader must attach before completion"
 		tg --url $runner.url --token $root_token checkpoint unwatch process.wait.attach $attach_watch
 		let batch_params = '{"finished_process":true}'
 		let batch_watch = tg --url $runner.url --token $root_token checkpoint watch index.batch --params $batch_params | from json | get watch
 		tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
-		success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait index.batch $batch_watch 0 | complete) "the finished-process batch must reach the checkpoint"
+		success (tg --url $runner.url --token $root_token checkpoint wait --timeout 30s index.batch $batch_watch 0 | complete) "the finished-process batch must reach the checkpoint"
 		let premature = try { job recv --tag $wait_job --timeout 1sec } catch { null }
 		tg --url $runner.url --token $root_token checkpoint unwatch index.batch $batch_watch
-		success (timeout 30s tg --url $local_owner.url --token $root_token checkpoint wait process.control.finish $control_watch 0 | complete) "the control finish handler must reach the checkpoint"
+		success (tg --url $local_owner.url --token $root_token checkpoint wait --timeout 30s process.control.finish $control_watch 0 | complete) "the control finish handler must reach the checkpoint"
 		let output = if $premature != null { $premature } else {
 			try { job recv --tag $wait_job --timeout 10sec } catch {
 				error make { msg: $'($location) ($field) wait did not return after the finished-process batch was indexed' }

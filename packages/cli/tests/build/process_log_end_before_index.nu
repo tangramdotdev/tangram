@@ -15,10 +15,10 @@ let path = artifact {
 	',
 }
 let id = tg build --no-tokens --detach $path | referent node
-timeout 10s tg checkpoint wait index.batch $batch 0 | ignore
+tg checkpoint wait --timeout 10s index.batch $batch 0 | ignore
 
 # EOF must reach persistence while the child's initial index write is pending.
-let child = timeout 10s tg checkpoint wait process.stdio.log.end $end 0 | from json | get params.process
+let child = tg checkpoint wait --timeout 10s process.stdio.log.end $end 0 | from json | get params.process
 tg checkpoint unwatch process.stdio.log.end $end
 tg checkpoint unwatch index.batch $batch
 tg checkpoint unwatch runner.process.finish $finish

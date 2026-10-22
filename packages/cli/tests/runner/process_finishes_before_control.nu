@@ -24,16 +24,16 @@ for checkpoint in [runner.process.control.connect process.control.header] {
 	}
 
 	# Store the output while the connection or initial indexing is held.
-	success (timeout 30s tg --url $local.url checkpoint wait $checkpoint $control_watch 0 | complete) "should reach $checkpoint"
-	success (timeout 30s tg --url $local.url checkpoint wait runner.process.output.stored $stored_watch 0 | complete) "output collection should not wait for control"
+	success (tg --url $local.url checkpoint wait --timeout 30s $checkpoint $control_watch 0 | complete) "should reach $checkpoint"
+	success (tg --url $local.url checkpoint wait --timeout 30s runner.process.output.stored $stored_watch 0 | complete) "output collection should not wait for control"
 	tg --url $local.url checkpoint unwatch runner.process.output.stored $stored_watch
-	success (timeout 30s tg --url $local.url checkpoint wait runner.process.finished $finished_watch 0 | complete) "completion should not wait for the control connection or indexing"
+	success (tg --url $local.url checkpoint wait --timeout 30s runner.process.finished $finished_watch 0 | complete) "completion should not wait for the control connection or indexing"
 	tg --url $local.url checkpoint unwatch runner.process.finished $finished_watch
-	success (timeout 30s tg --url $local.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish should be queued before control returns"
+	success (tg --url $local.url checkpoint wait --timeout 30s runner.process.control.finish.sent $sent_watch 0 | complete) "Finish should be queued before control returns"
 	tg --url $local.url checkpoint unwatch runner.process.control.finish.sent $sent_watch
 	tg --url $local.url checkpoint unwatch $checkpoint $control_watch
 
-	success (timeout 30s tg --url $local.url checkpoint wait process.control.finish $received_watch 0 | complete) "the runner should send Finish"
+	success (tg --url $local.url checkpoint wait --timeout 30s process.control.finish $received_watch 0 | complete) "the runner should send Finish"
 	tg --url $local.url checkpoint unwatch process.control.finish $received_watch
 	let output = job recv --tag $build --timeout 30sec
 	success $output "the build should complete after control is released"

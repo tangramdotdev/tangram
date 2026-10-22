@@ -34,7 +34,7 @@ let carol = tg login --verbose --name carol | from json
 let kept = tg --token $alice.token put --no-tokens 'tg.file("keep")' | referent node
 let watch = tg --token $root_token checkpoint watch permission_capture.written --params ({ resource: $kept } | to json --raw) | from json | get watch
 tg --token $alice.token tag keep $kept
-success (timeout 10s tg --token $root_token checkpoint wait permission_capture.written $watch 0 | complete)
+success (tg --token $root_token checkpoint wait --timeout 10s permission_capture.written $watch 0 | complete)
 tg --token $root_token checkpoint unwatch permission_capture.written $watch
 tg --token $alice.token put --no-tokens 'tg.file("remove")' | referent node
 tg --token $bob.token put --no-tokens 'tg.file("remove")' | referent node

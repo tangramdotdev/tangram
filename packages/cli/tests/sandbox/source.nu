@@ -40,7 +40,7 @@ for remote_runner in [false true] {
 	# Retained runner completion takes precedence over the unfinished owner index.
 	let watch = tg --url $local_owner.url checkpoint watch sandbox.control.destroy | from json | get watch
 	tg --url $local_owner.url sandbox destroy $sandbox
-	timeout 10s tg --url $local_owner.url checkpoint wait sandbox.control.destroy $watch 0 | ignore
+	tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.control.destroy $watch 0 | ignore
 	assert equal (tg --url $runner.url sandbox get --source=runner $sandbox | from json | get data.status) destroyed
 	assert equal (tg --url $runner.url sandbox get $sandbox | from json | get data.status) destroyed
 	assert equal (tg --url $local_owner.url sandbox get --source=index $sandbox | from json | get data.status) started
@@ -56,7 +56,7 @@ for remote_runner in [false true] {
 		let output = timeout 20s tg --url $local_client.url sandbox wait --source=index $sandbox | complete
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $local_owner.url checkpoint wait sandbox.get.index $index 0 | ignore
+	tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.get.index $index 0 | ignore
 	tg --url $local_owner.url checkpoint unwatch sandbox.get.index $index
 	assert equal (try { job recv --tag $waiter --timeout 300ms } catch { null }) null
 	tg --url $local_owner.url checkpoint unwatch sandbox.control.destroy $watch

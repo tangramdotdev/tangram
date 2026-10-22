@@ -14,13 +14,13 @@ let first = job spawn {
 	let process = tg spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node
 	$process | job send --tag $job_id 0
 }
-timeout 10s tg checkpoint wait runner.process.state.insert $watch 0 | ignore
+tg checkpoint wait --timeout 10s runner.process.state.insert $watch 0 | ignore
 let second = job spawn {
 	let job_id = job id
 	let process = tg spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node
 	$process | job send --tag $job_id 0
 }
-timeout 10s tg checkpoint wait runner.process.state.insert $watch 1 | ignore
+tg checkpoint wait --timeout 10s runner.process.state.insert $watch 1 | ignore
 tg checkpoint continue runner.process.state.insert $watch 1
 let second = job recv --tag $second --timeout 10sec
 let reader = job spawn {

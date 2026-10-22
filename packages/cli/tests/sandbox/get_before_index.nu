@@ -18,14 +18,14 @@ let creator = job spawn {
 	let output = timeout 20s tg --url $local_owner.url sandbox create --no-tokens | complete
 	$output | job send --tag $job_id 0
 }
-let sandbox = timeout 10s tg --url $local_owner.url checkpoint wait sandbox.control.connect $connect 0 | from json | get params.sandbox
+let sandbox = tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.control.connect $connect 0 | from json | get params.sandbox
 let index = tg --url $local_owner.url checkpoint watch sandbox.get.index | from json | get watch
 let reader = job spawn {
 	let job_id = job id
 	let output = timeout 20s tg --url $local_owner.url sandbox get $sandbox | complete
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $local_owner.url checkpoint wait sandbox.get.index $index 0 | ignore
+tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.get.index $index 0 | ignore
 tg --url $local_owner.url checkpoint unwatch sandbox.get.index $index
 assert equal (try { job recv --tag $reader --timeout 300ms } catch { null }) null
 tg --url $local_owner.url checkpoint unwatch sandbox.control.connect $connect

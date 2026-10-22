@@ -45,7 +45,7 @@ tg --url $runner.url --token $root_token grant $alice.user.id parent $sandbox
 let report = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.destroy | from json | get watch
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers $reader_headers $'http://localhost/sandboxes/($sandbox)/destroy' '{"location":"remote"}'
 assert equal $output.status 200
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.destroy $report 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sandbox.control.destroy $report 0 | ignore
 
 # Repeated destruction remains local while the owner has not committed the destruction report.
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers $reader_headers $'http://localhost/sandboxes/($sandbox)/destroy' '{"location":"remote"}'

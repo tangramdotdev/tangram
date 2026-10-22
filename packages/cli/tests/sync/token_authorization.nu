@@ -34,7 +34,7 @@ let push = job spawn {
 	let output = tg --no-quiet --url $alice_local.url push $private $blocker o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $private_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.get.store.object $private_watch 0 | ignore
 wait_for_log { log: $push_log } 'tokens[remote]'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
@@ -50,7 +50,7 @@ let read = job spawn {
 	} $'http://localhost/objects/($private)?($query)'
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $ack_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.service.ack $ack_watch 0 | ignore
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $ack_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $private_watch
 # The concurrent storage lookup saw missing bytes; the authorized read retries after availability is proven.
@@ -60,7 +60,7 @@ let output = http get --allow-errors --full --max-time 10sec --unix-socket $sock
 	Authorization: $'Bearer ($bob.token)',
 } $'http://localhost/objects/($private)?($query)'
 assert equal $output.status 200
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blocker_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.get.store.object $blocker_watch 0 | ignore
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $blocker_watch
 success (job recv --tag $push --timeout 10sec) "Alice's push must finish"
 

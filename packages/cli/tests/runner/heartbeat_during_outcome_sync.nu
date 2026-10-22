@@ -51,7 +51,7 @@ let build = job spawn {
 	let output = tg --url $local.url build --remote $path | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $sync_watch 0 | complete) 'the runner should reach the outcome sync'
+success (tg --url $runner.url checkpoint wait --timeout 60s runner.process.outcome.sync.started $sync_watch 0 | complete) 'the runner should reach the outcome sync'
 
 # Wait for the runner's expiry in the background.
 let expired_watch = tg --url $remote.url --token $root_token checkpoint watch scheduler.runner.expired --params ({ runner: $created.data.id } | to json --raw) | from json | get watch
@@ -63,22 +63,22 @@ let expired = job spawn {
 # Hold the remote's sync input so the rest of the outcome stays unread in the connection.
 let input_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.input.object | from json | get watch
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $sync_watch
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.input.object $input_watch 0 | complete) 'the remote should receive an outcome object'
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.input.object $input_watch 0 | complete) 'the remote should receive an outcome object'
 
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.succeeded $finish_watch 0 | complete) 'Finish should be acknowledged while the outcome sync is held'
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.finish.succeeded $finish_watch 0 | complete) 'Finish should be acknowledged while the outcome sync is held'
 tg --url $runner.url checkpoint unwatch runner.process.control.finish.succeeded $finish_watch
 
 # Observe repeated heartbeats over several runner TTLs while the outcome sync is held.
 let heartbeat_watch = tg --url $remote.url --token $root_token checkpoint watch runner.control.heartbeat.received --params ({ runner: $created.data.id } | to json --raw) | from json | get watch
 for index in 0..8 {
-	success (timeout 5s tg --url $remote.url --token $root_token checkpoint wait runner.control.heartbeat.received $heartbeat_watch $index | complete) 'heartbeats should continue while the sync window is full'
+	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 5s runner.control.heartbeat.received $heartbeat_watch $index | complete) 'heartbeats should continue while the sync window is full'
 	tg --url $remote.url --token $root_token checkpoint continue runner.control.heartbeat.received $heartbeat_watch $index
 }
 tg --url $remote.url --token $root_token checkpoint unwatch runner.control.heartbeat.received $heartbeat_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.input.object $input_watch
 let output = job recv --tag $build --timeout 120sec
 success $output 'the build should finish once outcome sync resumes'
-success (timeout 120s tg --url $runner.url checkpoint wait runner.process.outcome.sync.finished $finished_watch 0 | complete) 'outcome sync should complete after its input resumes'
+success (tg --url $runner.url checkpoint wait --timeout 120s runner.process.outcome.sync.finished $finished_watch 0 | complete) 'outcome sync should complete after its input resumes'
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.finished $finished_watch
 
 # The runner must not have expired at any point, so the expiry wait ends without a hit when it is unwatched.

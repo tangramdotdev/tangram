@@ -57,7 +57,7 @@ for case in [
 	set_time $server '2026-01-01T00:00:40Z'
 	let watch = tg --token $root_token checkpoint watch runner.process.start | from json | get watch
 	let process = tg --token $root_token run --no-tokens $'--sandbox=($sandbox)' --detach $reference | referent node
-	let output = timeout 30s tg --token $root_token checkpoint wait runner.process.start $watch 0 | complete
+	let output = tg --token $root_token checkpoint wait --timeout 30s runner.process.start $watch 0 | complete
 	success $output "the process must reach the start checkpoint"
 	# Index the started process while its input authorization token is still valid.
 	let output = timeout 30s tg --token $root_token index | complete

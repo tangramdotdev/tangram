@@ -30,7 +30,7 @@ let build = job spawn {
 	let output = tg --url $local.url build --remote $path | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait verification.index.wait $watch 0 | complete) 'verification should reach the blocked index attempt'
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s verification.index.wait $watch 0 | complete) 'verification should reach the blocked index attempt'
 let output = job recv --tag $build --timeout 10sec
 success $output 'the sync should authorize the build without waiting for indexing'
 assert equal ($output.stdout | str trim) '1'

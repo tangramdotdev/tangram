@@ -21,7 +21,7 @@ let reader = job spawn {
 	let output = timeout 10s tg --url $local_owner.url sandbox get $sandbox | complete
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $local_owner.url checkpoint wait sandbox.get.control $watch 0 | ignore
+tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.get.control $watch 0 | ignore
 tg --url $runner.url sandbox destroy $sandbox
 let output = job recv --tag $reader --timeout 15sec
 success $output

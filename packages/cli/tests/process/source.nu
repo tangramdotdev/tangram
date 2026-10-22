@@ -22,7 +22,7 @@ for remote_runner in [false true] {
 	let finish = tg --url $runner.url checkpoint watch runner.process.control.finish.request | from json | get watch
 	let path = artifact { tangram.ts: 'export default () => { console.log("source log"); return "done"; };' }
 	let process = tg --url $local_owner.url build --no-tokens --detach $path | referent node
-	timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.request $finish 0 | ignore
+	tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.finish.request $finish 0 | ignore
 
 	# Runner reads observe completion while the authoritative index is started; the client caches the finished record.
 	for url in [$local_owner.url $local_client.url] {
@@ -45,7 +45,7 @@ for remote_runner in [false true] {
 		let output = timeout 30s tg --url $local_owner.url wait --source=index $process | complete
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $local_owner.url checkpoint wait process.get.index $watch 0 | ignore
+	tg --url $local_owner.url checkpoint wait --timeout 10s process.get.index $watch 0 | ignore
 	tg --url $local_owner.url checkpoint unwatch process.get.index $watch
 	assert equal (try { job recv --tag $waiter --timeout 300ms } catch { null }) null
 	tg --url $runner.url checkpoint unwatch runner.process.control.finish.request $finish

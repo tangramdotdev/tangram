@@ -22,7 +22,7 @@ let reader = job spawn {
 	let output = http get --raw --max-time 15sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/processes'
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $local_owner.url checkpoint wait sandbox.get.index $watch 0 | ignore
+tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.get.index $watch 0 | ignore
 tg --url $local_owner.url checkpoint unwatch sandbox.get.index $watch
 tg --url $runner.url sandbox destroy $sandbox
 let output = job recv --tag $reader --timeout 10sec

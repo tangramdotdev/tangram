@@ -72,24 +72,24 @@ let build = job spawn {
 }
 
 # The shortcut child connects its sandbox control and its process control.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.control.connect $sandbox_sent_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.control.connect $sandbox_sent_watch 0 | complete
 success $output "the shortcut child should connect its sandbox control"
 tg --url $runner.url checkpoint continue runner.sandbox.control.connect $sandbox_sent_watch 0
 tg --url $runner.url checkpoint unwatch runner.sandbox.control.connect $sandbox_sent_watch
 
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.control.start.sent $process_sent_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.start.sent $process_sent_watch 0 | complete
 success $output "the shortcut child should start its process control connection"
 tg --url $runner.url checkpoint continue runner.process.control.start.sent $process_sent_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.control.start.sent $process_sent_watch
 
 # The remote receives both starts and is held there.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.shortcut.received $sandbox_start_watch 0 | complete
+let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sandbox.control.shortcut.received $sandbox_start_watch 0 | complete
 success $output "the remote should receive the sandbox start"
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.start.received $process_start_watch 0 | complete
+let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.start.received $process_start_watch 0 | complete
 success $output "the remote should receive the process start"
 
 # The child finishes on the runner while the remote has not started its sandbox or process.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | complete
 success $output "the child should finish before the remote starts its sandbox and process"
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.finish $finish_watch

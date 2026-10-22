@@ -45,7 +45,7 @@ advance_time $secondary 23hr
 # The parent must reuse that exact process from the peer cache rather than execute a new child.
 let watch = tg --url $secondary.url checkpoint watch process.spawn.child.add --params ({ cached: true, child: $child } | to json --raw) | from json | get watch
 let parent = tg --url $primary.url build --no-tokens --detach $path | referent node
-timeout 30s tg --url $secondary.url checkpoint wait process.spawn.child.add $watch 0 | ignore
+tg --url $secondary.url checkpoint wait --timeout 30s process.spawn.child.add $watch 0 | ignore
 tg --url $secondary.url checkpoint continue process.spawn.child.add $watch 0
 tg --url $secondary.url checkpoint unwatch process.spawn.child.add $watch
 let outcome = tg --url $primary.url wait --source=index $parent | from json

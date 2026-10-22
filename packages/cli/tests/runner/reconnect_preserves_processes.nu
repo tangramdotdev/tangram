@@ -29,7 +29,7 @@ let path = artifact {
 let exit_watch = tg --url $runner.url checkpoint watch runner.process.exit | from json | get watch
 let id = tg --url $local.url build --no-tokens --remote --detach $path | referent node
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.exit $exit_watch 0 | complete) "the process must run on the runner"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.exit $exit_watch 0 | complete) "the process must run on the runner"
 
 # Restart the remote while the runner holds the process.
 let remote_pid = open ($remote.directory | path join 'lock') | into int

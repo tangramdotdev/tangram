@@ -11,8 +11,8 @@ for mode in [--eager --lazy] {
 		let source = if $empty { 'export default function () {}' } else { 'export default function () { console.log("stdout"); console.error("stderr"); return "output"; }' }
 		let path = artifact { tangram.ts: $source }
 		let process = tg build --no-tokens --detach $path | referent node
-		timeout 10s tg checkpoint wait runner.process.log.finish $log_watch 0 | ignore
-		timeout 10s tg checkpoint wait runner.process.output.stored $output_watch 0 | ignore
+		tg checkpoint wait --timeout 10s runner.process.log.finish $log_watch 0 | ignore
+		tg checkpoint wait --timeout 10s runner.process.output.stored $output_watch 0 | ignore
 		let held = tg get $process | from json
 		assert equal $held.log? null
 		assert not equal $held.status finished "Finish must wait for the log blob"

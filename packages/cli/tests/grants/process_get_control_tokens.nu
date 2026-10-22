@@ -31,7 +31,7 @@ let output_watch = tg --url $runner.url checkpoint watch runner.process.outcome.
 let path = artifact { tangram.ts: 'export default () => tg.file("control-sync-output");' }
 let spawned = tg --url $remote.url --token $root build --detach --verbose $path | from json
 let process = $spawned.process | referent node
-timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $output_watch 0 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $output_watch 0 | ignore
 tg --url $remote.url --token $root wait --source=runner $process | ignore
 tg --url $remote.url --token $root grant $reader.user.id process_node $process | ignore
 tg --url $remote.url --token $root index

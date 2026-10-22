@@ -19,7 +19,7 @@ let build = job spawn {
 }
 
 # Wait for output from the running build before sending the first Ctrl-C.
-let hit = timeout 10s tg checkpoint wait process.wait.attach $watch 0 | from json
+let hit = tg checkpoint wait --timeout 10s process.wait.attach $watch 0 | from json
 let process = $hit.params.process
 tg checkpoint unwatch process.wait.attach $watch
 let log = timeout 15s tg log --no-timeout --stream stdout --length 6 $process | complete

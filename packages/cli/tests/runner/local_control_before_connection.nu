@@ -24,7 +24,7 @@ let spawn = job spawn {
 	let output = tg --url $remote.url --token $root_token run --sandbox --stdin pipe --stdout null --stderr null $file | complete
 	$output | job send --tag $job_id 0
 }
-let state = timeout 10s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete
+let state = tg --url $runner.url checkpoint wait --timeout 10s runner.process.state.inserted $state_watch 0 | complete
 if $state.exit_code != 0 {
 	let output = job recv --tag $spawn --timeout 1sec
 	success $output
@@ -32,11 +32,11 @@ if $state.exit_code != 0 {
 }
 let process = $state.stdout | from json | get params.process
 tg --url $runner.url checkpoint unwatch runner.process.state.inserted $state_watch
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.connect $control_watch 0 | complete)
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.connect $control_watch 0 | complete)
 
 # Write stdin directly on the runner while the owner connection is blocked.
 success ("ready\n" | timeout 10s tg --url $runner.url process stdio write $process --stream stdin | complete)
-success (timeout 10s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete) "local stdio must not wait for the control connection"
+success (tg --url $runner.url checkpoint wait --timeout 10s runner.process.finished $finished_watch 0 | complete) "local stdio must not wait for the control connection"
 tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
 tg --url $runner.url checkpoint unwatch runner.process.control.connect $control_watch
 let output = job recv --tag $spawn --timeout 30sec

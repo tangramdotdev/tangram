@@ -57,7 +57,7 @@ let run = job spawn {
 }
 
 # Get the process while it is still running. The attached wait lease also means that the shell has written the run's process ID.
-let hit = timeout 10s tg checkpoint wait process.wait.attach $attach_watch 0 | from json
+let hit = tg checkpoint wait --timeout 10s process.wait.attach $attach_watch 0 | from json
 let process = $hit.params.process
 let pid = open --raw $pid_path | str trim | into int
 tg checkpoint continue process.wait.attach $attach_watch 0
@@ -72,17 +72,17 @@ let write = job spawn {
 	)
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg checkpoint wait runner.process.control.stdin.write $stdin_watch 0 | ignore
+tg checkpoint wait --timeout 10s runner.process.control.stdin.write $stdin_watch 0 | ignore
 
 # Disconnect the client so that the wait lease is dropped and the sandbox is destroyed while the sandbox process is still running.
 kill --signal 15 $pid
-let output = timeout 10s tg checkpoint wait runner.sandbox.destroyed $destroyed_watch 0 | complete
+let output = tg checkpoint wait --timeout 10s runner.sandbox.destroyed $destroyed_watch 0 | complete
 success $output "the sandbox should be destroyed while the stdin write is held"
 tg checkpoint continue runner.sandbox.destroyed $destroyed_watch 0
 tg checkpoint unwatch runner.sandbox.destroyed $destroyed_watch
 
 # Hold the retention window open so that the held write is not aborted before it is serviced.
-let output = timeout 10s tg checkpoint wait runner.process.control.retention.finished $retention_watch 0 | complete
+let output = tg checkpoint wait --timeout 10s runner.process.control.retention.finished $retention_watch 0 | complete
 success $output "process control should reach the end of its retention window"
 
 # Release the write, which is now serviced after the sandbox connection is gone.

@@ -42,7 +42,7 @@ for authority in [remote local] {
 			let output = $events | lines | where { $in starts-with 'data: ' } | last | str substring 6.. | from json
 			$output | job send --tag $job_id 0
 		}
-		timeout 30s tg --url $runner.url --token $runner_root checkpoint wait runner.process.state.inserted $watch 0 | ignore
+		tg --url $runner.url --token $runner_root checkpoint wait --timeout 30s runner.process.state.inserted $watch 0 | ignore
 		tg --url $runner.url --token $runner_root checkpoint unwatch runner.process.state.inserted $watch
 		let spawned = job recv --tag $spawn --timeout 30sec
 		let process = $spawned.process

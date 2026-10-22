@@ -42,9 +42,9 @@ assert equal ($finished.output.value | split row '?' | first) $directory
 
 tg --token $alice.token grant $bob.user.id process_node_output_objects $process | ignore
 tg --token $root_token index
-timeout 30s tg --token $root_token checkpoint wait permission_capture.write $write 0 | ignore
+tg --token $root_token checkpoint wait --timeout 30s permission_capture.write $write 0 | ignore
 tg --token $root_token checkpoint continue permission_capture.write $write 0
-timeout 30s tg --token $root_token checkpoint wait permission_capture.written $written 0 | ignore
+tg --token $root_token checkpoint wait --timeout 30s permission_capture.written $written 0 | ignore
 tg --token $root_token checkpoint unwatch permission_capture.write $write
 tg --token $root_token checkpoint unwatch permission_capture.written $written
 

@@ -54,7 +54,7 @@ let run = job spawn {
 	let output = tg --url $local.url process spawn --no-tokens --cached=false --sandbox --no-tty --remote --user $alice.user.id $command | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete) "the command push should reach the executable blob"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $store_watch 0 | complete) "the command push should reach the executable blob"
 let output = job recv --tag $run --timeout 30sec
 success $output "spawn should return while the command push is blocked"
 
@@ -62,13 +62,13 @@ success $output "spawn should return while the command push is blocked"
 let failure_watch = tg --url $local.url checkpoint watch push.attempt.failed | from json | get watch
 let pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 15 $pid
-success (timeout 30s tg --url $local.url checkpoint wait push.attempt.failed $failure_watch 0 | complete) "the command push attempt must fail when the remote terminates"
+success (tg --url $local.url checkpoint wait --timeout 30s push.attempt.failed $failure_watch 0 | complete) "the command push attempt must fail when the remote terminates"
 kill --signal 9 $pid
 wait_for_exit $pid "the remote must exit after it is killed"
 let remote = server start $remote
 tg --url $local.url checkpoint unwatch push.attempt.failed $failure_watch
 
 # The retried push must complete.
-let finished = timeout 60s tg --url $local.url checkpoint wait process.connect.command.push.finished $push_watch 0 | complete
+let finished = tg --url $local.url checkpoint wait --timeout 60s process.connect.command.push.finished $push_watch 0 | complete
 tg --url $local.url checkpoint unwatch process.connect.command.push.finished $push_watch
 success $finished "the command push should complete after the remote restarts"

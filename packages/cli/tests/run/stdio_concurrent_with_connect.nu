@@ -19,10 +19,10 @@ let run = job spawn {
 	let job_id = job id
 	tg run --sandbox $path | complete | job send --tag $job_id 0
 }
-success (timeout 30s tg checkpoint wait process.connect.start $start_watch 0 | complete) "the connect should start"
+success (tg checkpoint wait --timeout 30s process.connect.start $start_watch 0 | complete) "the connect should start"
 
 # The stdio read reaches the server and waits for the process while the connect is held.
-success (timeout 30s tg checkpoint wait process.connect.service.retain $retain_watch 0 | complete) "the stdio read should wait for the connect's process"
+success (tg checkpoint wait --timeout 30s process.connect.service.retain $retain_watch 0 | complete) "the stdio read should wait for the connect's process"
 tg checkpoint unwatch process.connect.service.retain $retain_watch
 
 # Release the connect, and the run prints its output.

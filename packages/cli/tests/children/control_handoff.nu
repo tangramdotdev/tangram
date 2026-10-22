@@ -18,9 +18,9 @@ let runner = server spawn --name runner --config {
 let finish_watch = tg --url $runner.url checkpoint watch runner.process.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default async () => { await tg.build(child); }; export function child() { return "child"; }' }
 let process = tg --url $local_owner.url --token $root_token build --no-tokens --detach $path | referent node
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 0
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 1 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 1 | ignore
 
 # Incomplete indexed children and a missing process use the same fallback when control is unavailable.
 for id in [$process pcs_010000000000000000000000000000000000000000000000000000] {
@@ -32,7 +32,7 @@ for id in [$process pcs_010000000000000000000000000000000000000000000000000000] 
 		let output = tg --url $local_owner.url --token $root_token process children $id | complete
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.get.index $index_watch 0 | ignore
+	tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.get.index $index_watch 0 | ignore
 	tg --url $local_owner.url --token $root_token checkpoint unwatch process.get.index $index_watch
 	let output = job recv --tag $get_job --timeout 5sec
 	failure $output "an unavailable indexed children list must be treated as a missing process"
@@ -53,13 +53,13 @@ let get_job = job spawn {
 	let output = tg --url $local_owner.url --token $root_token process children $process | complete
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.get.index $index_watch 0 | ignore
-timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.get.control $control_watch 0 | ignore
+tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.get.index $index_watch 0 | ignore
+tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.get.control $control_watch 0 | ignore
 
 # Complete the process before letting the request decide whether to wait for control.
 let submitted_watch = tg --url $local_owner.url --token $root_token checkpoint watch process.control.finish.submitted --params ({ process: $process } | to json --raw) | from json | get watch
 tg --url $runner.url checkpoint unwatch runner.process.finish $finish_watch
-timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.control.finish.submitted $submitted_watch 0 | ignore
+tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.control.finish.submitted $submitted_watch 0 | ignore
 tg --url $local_owner.url --token $root_token index
 tg --url $local_owner.url --token $root_token checkpoint unwatch process.control.finish.submitted $submitted_watch
 tg --url $local_owner.url --token $root_token checkpoint unwatch process.get.index $index_watch

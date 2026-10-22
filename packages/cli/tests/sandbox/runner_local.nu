@@ -22,7 +22,7 @@ let wait_job = job spawn {
 assert equal (job recv --tag $wait_job --timeout 10sec) 'data: "started"'
 let destroy_watch = tg checkpoint watch sandbox.control.destroy | from json | get watch
 tg sandbox destroy $sandbox
-timeout 30s tg checkpoint wait sandbox.control.destroy $destroy_watch 0 | ignore
+tg checkpoint wait --timeout 30s sandbox.control.destroy $destroy_watch 0 | ignore
 assert equal (job recv --tag $wait_job --timeout 10sec) 'data: "destroyed"'
 assert equal (job recv --tag $wait_job --timeout 10sec) 'event: end'
 

@@ -19,7 +19,7 @@ for method in [status wait] {
 	let source = ['export default () => ' ($method | to json) ';'] | str join
 	let path = artifact { tangram.ts: $source }
 	let process = tg --url $local_owner.url spawn --no-tokens $path | referent node
-	timeout 10s tg --url $runner.url checkpoint wait runner.process.finish $finish 0 | ignore
+	tg --url $runner.url checkpoint wait --timeout 10s runner.process.finish $finish 0 | ignore
 	tg --url $local_owner.url index
 	let watch = tg --url $local_owner.url checkpoint watch process.get.control | from json | get watch
 	let reader = job spawn {
@@ -27,7 +27,7 @@ for method in [status wait] {
 		let output = if $method == status { timeout 10s tg --url $local_owner.url process status --no-timeout $process | complete } else { timeout 10s tg --url $local_owner.url wait $process | complete }
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $local_owner.url checkpoint wait process.get.control $watch 0 | ignore
+	tg --url $local_owner.url checkpoint wait --timeout 10s process.get.control $watch 0 | ignore
 	tg --url $runner.url checkpoint unwatch runner.process.finish $finish
 	let output = job recv --tag $reader --timeout 15sec
 	success $output

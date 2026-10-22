@@ -41,15 +41,15 @@ for case in [
 	}
 	# Let several items through before failing the relay, so the new relay must skip what was already delivered.
 	for index in 0..4 {
-		timeout 30s tg --url $remote.url --token $root_token checkpoint wait $checkpoint $watch $index | ignore
+		tg --url $remote.url --token $root_token checkpoint wait --timeout 30s $checkpoint $watch $index | ignore
 		tg --url $remote.url --token $root_token checkpoint continue $checkpoint $watch $index
 	}
-	let hit = timeout 30s tg --url $remote.url --token $root_token checkpoint wait $checkpoint $watch 5 | from json
+	let hit = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s $checkpoint $watch 5 | from json
 	tg --url $remote.url --token $root_token checkpoint panic $checkpoint --params ({ open: $hit.params.open } | to json --raw)
 	tg --url $remote.url --token $root_token checkpoint unwatch $checkpoint $watch
 
 	# The failed relay must be reopened.
-	success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait $case.reopen $reopen_watch 0 | complete) "the relay must be reopened"
+	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s $case.reopen $reopen_watch 0 | complete) "the relay must be reopened"
 	tg --url $remote.url --token $root_token checkpoint unwatch $case.reopen $reopen_watch
 	let output = job recv --tag $run --timeout 60sec
 	success $output

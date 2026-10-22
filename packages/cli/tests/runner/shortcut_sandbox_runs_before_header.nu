@@ -38,12 +38,12 @@ let build = job spawn {
 }
 
 # Let the scheduled parent's sandbox become active.
-success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | complete) "the parent sandbox should become active"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.state.inserted $state_watch 0 | complete) "the parent sandbox should become active"
 tg --url $runner.url checkpoint continue runner.sandbox.state.inserted $state_watch 0
 
 # The remote receives the child's sandbox connection, and the child's sandbox becomes active while the connection is held.
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.shortcut.received $shortcut_watch 0 | complete) "the remote should receive the child's sandbox connection"
-success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 1 | complete) "the shortcut sandbox should become active before its header"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sandbox.control.shortcut.received $shortcut_watch 0 | complete) "the remote should receive the child's sandbox connection"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.state.inserted $state_watch 1 | complete) "the shortcut sandbox should become active before its header"
 tg --url $runner.url checkpoint unwatch runner.sandbox.state.inserted $state_watch
 
 # Release the connection, and the child completes.

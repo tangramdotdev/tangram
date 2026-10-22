@@ -31,7 +31,7 @@ for field in [output error log] {
 	let path = artifact { tangram.ts: $source }
 	let spawned = tg --url $remote.url --token $root_token build --detach --verbose $path | from json
 	let process = $spawned.process | split row '?' | first
-	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $push_watch 0 | complete) "the outcome sync must be held"
+	success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $push_watch 0 | complete) "the outcome sync must be held"
 	tg --url $remote.url --token $root_token grant $alice.user.id process_node,process_node_output_objects,process_node_error_objects,process_node_log_objects $process | ignore
 	tg --url $remote.url --token $root_token grant $bob.user.id process_node $process | ignore
 	tg --url $remote.url --token $root_token index

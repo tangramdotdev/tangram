@@ -53,14 +53,14 @@ let build = job spawn {
 }
 
 # Hold process control before it connects. The assigned process must load its remote command and start.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.state.inserted $state_watch 0 | complete
 success $output "the assigned process state should be stored before process control connects"
 tg --url $runner.url checkpoint continue runner.process.state.inserted $state_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.state.inserted $state_watch
 
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.control.connect $control_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.connect $control_watch 0 | complete
 success $output "process control should reach the connection checkpoint"
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $start_watch 0 | complete
 success $output "the assigned process should start before process control connects"
 
 tg --url $runner.url checkpoint continue runner.process.start $start_watch 0

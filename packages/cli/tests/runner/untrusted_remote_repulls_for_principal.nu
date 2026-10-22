@@ -42,7 +42,7 @@ let build = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-let output = timeout 30s tg --url $runner.url checkpoint wait sync.get.input.object $watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s sync.get.input.object $watch 0 | complete
 success $output "Bob's process should re-pull artifact A's contents from an untrusted remote"
 tg --url $runner.url checkpoint continue sync.get.input.object $watch 0
 tg --url $runner.url checkpoint unwatch sync.get.input.object $watch

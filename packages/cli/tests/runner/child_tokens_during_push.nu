@@ -52,7 +52,7 @@ let build = job spawn {
 	let output = timeout 60s tg --url $local.url build --remote $path | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store 0 | complete) 'the push should reach the held blob'
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $store 0 | complete) 'the push should reach the held blob'
 let output = job recv --tag $build --timeout 90sec
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store
 success $output 'the child should be authorized by its tokens while the parent command push is in progress'

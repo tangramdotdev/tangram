@@ -22,7 +22,7 @@ let local = server spawn --name local --config {
 let watch = tg --url $runner.url checkpoint watch runner.process.outcome.sync.finished | from json | get watch
 let path = artifact { tangram.ts: 'export default async () => { throw await tg.error({ message: "expected build failure", stack: null }); };' }
 let process = tg --url $local.url build --remote --detach $path
-success (timeout 15s tg --url $runner.url checkpoint wait runner.process.outcome.sync.finished $watch 0 | complete) 'the runner should successfully push the error'
+success (tg --url $runner.url checkpoint wait --timeout 15s runner.process.outcome.sync.finished $watch 0 | complete) 'the runner should successfully push the error'
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.finished $watch
 let output = timeout 15s tg --url $local.url process output $process | complete
 assert ($output.stderr | str contains 'expected build failure') 'the original build error should be readable'

@@ -61,17 +61,17 @@ let build = job spawn {
 }
 
 # Record the scheduled grandparent and the shortcut parent.
-let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.state.inserted $inserted_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.state.inserted $inserted_watch 0 | complete
 success $output "the grandparent should enter the runner state"
 tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 0
-let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.state.inserted $inserted_watch 1 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.state.inserted $inserted_watch 1 | complete
 success $output "the parent should enter the runner state"
 let parent = $output.stdout | from json | get params.process
 tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 1
 
 # Hold command sync and require the server to process Start independently.
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 0 | complete) "the parent should reach its command sync"
-let started = timeout 30s tg --url $runner.url checkpoint wait runner.process.control.start.succeeded $start_watch 0 | complete
+success (tg --url $runner.url checkpoint wait --timeout 60s runner.process.command.sync.started $sync_watch 0 | complete) "the parent should reach its command sync"
+let started = tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.start.succeeded $start_watch 0 | complete
 success $started "Start must succeed while command sync is paused"
 assert equal ($started.stdout | from json | get params.process) $parent
 tg --url $runner.url checkpoint unwatch runner.process.control.start.succeeded $start_watch

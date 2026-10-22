@@ -21,7 +21,7 @@ let run = job spawn {
 	let output = ^bash -c 'exec "$1" run --sandbox --stdin pipe --executable /bin/sh -- -c "exit 0" < "$2"' _ $tangram $fifo_path | complete
 	$output | job send --tag $job_id 0
 }
-let hit = timeout 30s tg checkpoint wait runner.process.exited $exited_watch 0 | from json
+let hit = tg checkpoint wait --timeout 30s runner.process.exited $exited_watch 0 | from json
 let process = $hit.params.process
 
 # Close the process's stdin.

@@ -73,12 +73,12 @@ let build = job spawn {
 }
 # Both producer transfers must remain unfinished when the consumer needs their contents.
 for watch in $watches {
-	success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $watch.store 0 | complete) 'both producers must start pushing'
+	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $watch.store 0 | complete) 'both producers must start pushing'
 }
 let ack_tag = random int 1000000..2000000
 for watch in $watches {
 	job spawn {
-		let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $watch.ack 0 | complete
+		let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.service.ack $watch.ack 0 | complete
 		{ output: $output, watch: $watch } | job send --tag $ack_tag 0
 	} | ignore
 }

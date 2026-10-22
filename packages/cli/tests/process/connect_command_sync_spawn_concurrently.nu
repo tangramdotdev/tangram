@@ -69,8 +69,8 @@ let run = job spawn {
 	let output = tg --url $local.url process spawn --no-tokens --cached=false --sandbox --no-tty --remote --user $alice.user.id $command | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete) "the command transfer should reach the executable blob"
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete) "the process should be scheduled while the command transfer is blocked"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $store_watch 0 | complete) "the command transfer should reach the executable blob"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.state.inserted $state_watch 0 | complete) "the process should be scheduled while the command transfer is blocked"
 tg --url $runner.url checkpoint unwatch runner.process.state.inserted $state_watch
 let output = job recv --tag $run --timeout 30sec
 success $output "spawn should return while the command transfer is blocked"
@@ -78,7 +78,7 @@ let process = $output.stdout | referent node
 
 # The client has exited, but the command transfer must continue in the background.
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store_watch
-success (timeout 30s tg --url $local.url checkpoint wait process.connect.command.push.finished $push_watch 0 | complete) "the command transfer should finish after the spawn client exits"
+success (tg --url $local.url checkpoint wait --timeout 30s process.connect.command.push.finished $push_watch 0 | complete) "the command transfer should finish after the spawn client exits"
 tg --url $local.url checkpoint unwatch process.connect.command.push.finished $push_watch
 tg --url $runner.url checkpoint unwatch runner.process.run $run_watch
 let output = tg --url $local.url process wait $process | from json

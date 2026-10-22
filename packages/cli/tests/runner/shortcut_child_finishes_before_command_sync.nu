@@ -56,11 +56,11 @@ let run = job spawn {
 }
 
 # The child's command sync and spawn reply are held while it runs to completion.
-let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.command.sync.started $sync_watch 0 | complete
 success $output "the child should reach its command sync"
-let output = timeout 60s tg --url $runner.url checkpoint wait process.spawn.child.add $spawn_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 60s process.spawn.child.add $spawn_watch 0 | complete
 success $output "the child spawn should reach its reply"
-let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.finished $finished_watch 0 | complete
 success $output "the child should finish while command sync and the spawn reply are held"
 tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 0
 
@@ -69,7 +69,7 @@ tg --url $runner.url checkpoint continue process.spawn.child.add $spawn_watch 0
 tg --url $runner.url checkpoint unwatch process.spawn.child.add $spawn_watch
 
 # The parent finishes only after the child's outcome reaches the guest client.
-let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 1 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.finished $finished_watch 1 | complete
 success $output "the parent should finish"
 tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 1
 tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch

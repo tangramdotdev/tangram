@@ -31,14 +31,14 @@ let build = job spawn {
 	let output = tg --url $local.url build --remote $file | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $sync_watch 0 | complete) "the runner should reach the outcome sync"
-let received = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $received_watch 0 | complete
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $sync_watch 0 | complete) "the runner should reach the outcome sync"
+let received = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.finish $received_watch 0 | complete
 success $received "the remote should receive Finish while the outcome sync is blocked"
 let process = $received.stdout | from json | get params.id
 
 # Let the server process Finish while outcome sync remains paused.
 tg --url $remote.url --token $root_token checkpoint unwatch process.control.finish $received_watch
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.succeeded $finished_watch 0 | complete) "Finish must succeed while outcome sync is paused"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.finish.succeeded $finished_watch 0 | complete) "Finish must succeed while outcome sync is paused"
 tg --url $runner.url checkpoint unwatch runner.process.control.finish.succeeded $finished_watch
 let output = job recv --tag $build --timeout 30sec
 success $output "the build must return its outcome before sync completes"
@@ -63,7 +63,7 @@ assert ($output == null) "the output must remain unavailable while sync is pause
 
 # Release sync and require the previously returned referent to become readable.
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $sync_watch
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.finished $synced_watch 0 | complete) "the outcome sync should complete"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.finished $synced_watch 0 | complete) "the outcome sync should complete"
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.finished $synced_watch
 let output = job recv --tag $read --timeout 30sec
 success $output "the output read must complete after sync"

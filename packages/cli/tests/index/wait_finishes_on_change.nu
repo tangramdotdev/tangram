@@ -15,8 +15,8 @@ let request = job spawn {
 	let output = tg --url $local.url index | complete
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $local.url checkpoint wait index.batch $batch_watch 0 | ignore
-timeout 10s tg --url $local.url checkpoint wait indexer.request.wait $wait_watch 0 | ignore
+tg --url $local.url checkpoint wait --timeout 10s index.batch $batch_watch 0 | ignore
+tg --url $local.url checkpoint wait --timeout 10s indexer.request.wait $wait_watch 0 | ignore
 tg --url $local.url checkpoint continue indexer.request.wait $wait_watch 0
 tg --url $local.url checkpoint unwatch indexer.request.wait $wait_watch
 

@@ -44,16 +44,16 @@ let build = job spawn {
 }
 
 # Release the scheduled parent's start and control header.
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete) "the parent should start"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $start_watch 0 | complete) "the parent should start"
 tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.header $header_watch 0 | complete) "the parent should receive its control header"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.header $header_watch 0 | complete) "the parent should receive its control header"
 tg --url $remote.url --token $root_token checkpoint continue process.control.header $header_watch 0
 
 # Hold the child's control header, so that the child's control service answers while the runner has no token for the child.
-let started = timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | from json
+let started = tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $start_watch 1 | from json
 let child = $started.params.process
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.header $header_watch 1 | complete) "the remote should hold the child's control header"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.header $header_watch 1 | complete) "the remote should hold the child's control header"
 
 # Send a request with a token and a process header, and return the response status.
 let socket = $remote.url | str replace 'http+unix://' '' | url decode

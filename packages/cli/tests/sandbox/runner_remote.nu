@@ -25,10 +25,10 @@ let create_job = job spawn {
 	let output = tg --url $remote.url --token $root_token sandbox create --no-tokens | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | complete) "the runner must insert the sandbox state"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.state.inserted $state_watch 0 | complete) "the runner must insert the sandbox state"
 tg --url $runner.url checkpoint continue runner.sandbox.state.inserted $state_watch 0
 tg --url $runner.url checkpoint unwatch runner.sandbox.state.inserted $state_watch
-let sandbox = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.connect $connect_watch 0 | from json | get params.sandbox
+let sandbox = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sandbox.control.connect $connect_watch 0 | from json | get params.sandbox
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
 let query = { location: 'remote(hint)' } | url build-query
 let output = http get --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)?($query)'
@@ -57,7 +57,7 @@ assert equal (job recv --tag $wait_job --timeout 10sec) 'data: "started"'
 let delete = checkpoint watch --url $remote.url --token $root_token cleaning.sandbox.delete --params { sandbox: $sandbox }
 let removed = checkpoint watch --url $runner.url runner.sandbox.state.removed --params { sandbox: $sandbox }
 tg --url $remote.url --token $root_token sandbox destroy $sandbox
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.destroy $destroy_watch 0 | complete) "the control destroy handler must reach the checkpoint"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sandbox.control.destroy $destroy_watch 0 | complete) "the control destroy handler must reach the checkpoint"
 assert equal (job recv --tag $wait_job --timeout 10sec) 'data: "destroyed"'
 assert equal (job recv --tag $wait_job --timeout 10sec) 'event: end'
 tg --url $remote.url --token $root_token checkpoint continue sandbox.control.destroy $destroy_watch 0

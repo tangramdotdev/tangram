@@ -11,13 +11,13 @@ let control_watch = tg checkpoint watch runner.process.control.finished | from j
 let path = artifact { tangram.ts: 'export default () => "done";' }
 let first = tg build --detach --verbose $path | from json
 let process = $first.process | split row '?' | first
-timeout 30s tg checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 tg index
 
 let batch_watch = tg checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
 tg checkpoint unwatch runner.process.finish $finish_watch
-timeout 30s tg checkpoint wait index.batch $batch_watch 0 | ignore
-timeout 30s tg checkpoint wait runner.process.control.finished $control_watch 0 | ignore
+tg checkpoint wait --timeout 30s index.batch $batch_watch 0 | ignore
+tg checkpoint wait --timeout 30s runner.process.control.finished $control_watch 0 | ignore
 
 let output = timeout 10s tg build --detach --verbose $path | complete
 success $output "the finished cached process must not require a live control channel"

@@ -13,7 +13,7 @@ for source in ['export default () => tg.file("control output");' 'export default
 	let id = tg build --no-tokens --detach $path | referent node
 
 	# Wait for control to record the finished process data.
-	success (timeout 30s tg checkpoint wait process.control.finish.submitted $watch 0 | complete) "control must record the finished process"
+	success (tg checkpoint wait --timeout 30s process.control.finish.submitted $watch 0 | complete) "control must record the finished process"
 	tg checkpoint unwatch process.control.finish.submitted $watch
 	let data = mktemp
 	tg get $id | save -f $data

@@ -10,7 +10,7 @@ let spawn = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-let claimed = timeout 10s tg checkpoint wait runner.sandbox.pool.take $watch 0 | from json
+let claimed = tg checkpoint wait --timeout 10s runner.sandbox.pool.take $watch 0 | from json
 let pid = $claimed.params.pid | into int
 tg checkpoint unwatch runner.sandbox.pool.take $watch
 

@@ -25,8 +25,8 @@ let push = job spawn {
 	let output = tg --no-quiet --url $local.url push $blob o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | ignore
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.subscribe $subscribe_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.get.store.object $store_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.service.subscribe $subscribe_watch 0 | ignore
 wait_for_log { log: $push_log } 'tokens[remote][0]'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
@@ -40,10 +40,10 @@ let read = job spawn {
 }
 
 # Wait for the missing authorized read to send a request and a retry through the incoming sync before the service starts listening.
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.request $request_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.service.request $request_watch 0 | ignore
 let retry_watch = tg --url $remote.url --token $root_token checkpoint watch sync.service.request --params $params | from json | get watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.request $request_watch
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.request $retry_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.service.request $retry_watch 0 | ignore
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.request $retry_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.subscribe $subscribe_watch
 

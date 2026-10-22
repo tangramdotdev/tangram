@@ -11,7 +11,7 @@ let cancel_watch = tg checkpoint watch process.cancel.runner | from json | get w
 let control_watch = tg checkpoint watch runner.process.control.finished | from json | get watch
 let path = artifact { tangram.ts: 'export default () => "done";' }
 let spawned = tg build --detach --verbose $path | from json
-success (timeout 30s tg checkpoint wait runner.process.finish $finish_watch 0 | complete)
+success (tg checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | complete)
 tg index
 let batch_watch = tg checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
 let cancel = job spawn {
@@ -19,10 +19,10 @@ let cancel = job spawn {
 	let output = tg cancel $spawned.process $spawned.lease | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 10s tg checkpoint wait process.cancel.runner $cancel_watch 0 | complete)
+success (tg checkpoint wait --timeout 10s process.cancel.runner $cancel_watch 0 | complete)
 tg checkpoint unwatch runner.process.finish $finish_watch
-success (timeout 10s tg checkpoint wait index.batch $batch_watch 0 | complete)
-success (timeout 10s tg checkpoint wait runner.process.control.finished $control_watch 0 | complete)
+success (tg checkpoint wait --timeout 10s index.batch $batch_watch 0 | complete)
+success (tg checkpoint wait --timeout 10s runner.process.control.finished $control_watch 0 | complete)
 tg checkpoint unwatch process.cancel.runner $cancel_watch
 let output = job recv --tag $cancel --timeout 5sec
 success $output "cancellation must succeed after local control retires while the index is stale"

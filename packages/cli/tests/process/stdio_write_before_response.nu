@@ -29,8 +29,8 @@ let write = job spawn {
 	let output = "hello\n" | tg process stdio write $child --stream stdin | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 30s tg checkpoint wait process.stdio.write.response $response_watch 0 | complete) "the write response should be held"
-success (timeout 30s tg checkpoint wait process.stdio.write.request $request_watch 0 | complete) "the first write should arrive before the response headers"
+success (tg checkpoint wait --timeout 30s process.stdio.write.response $response_watch 0 | complete) "the write response should be held"
+success (tg checkpoint wait --timeout 30s process.stdio.write.request $request_watch 0 | complete) "the first write should arrive before the response headers"
 tg checkpoint unwatch process.stdio.write.request $request_watch
 tg checkpoint unwatch process.stdio.write.response $response_watch
 let output = job recv --tag $write --timeout 30sec

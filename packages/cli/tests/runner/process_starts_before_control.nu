@@ -32,14 +32,14 @@ let build = job spawn {
 }
 
 # Observe the stored state, then hold process control before it connects. The process must still reach the sandbox start.
-let output = timeout 5s tg --url $local.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete
+let output = tg --url $local.url checkpoint wait --timeout 5s runner.process.state.inserted $state_watch 0 | complete
 success $output "the process state should be stored before process control connects"
 tg --url $local.url checkpoint continue runner.process.state.inserted $state_watch 0
 tg --url $local.url checkpoint unwatch runner.process.state.inserted $state_watch
 
-let output = timeout 5s tg --url $local.url checkpoint wait runner.process.control.connect $control_watch 0 | complete
+let output = tg --url $local.url checkpoint wait --timeout 5s runner.process.control.connect $control_watch 0 | complete
 success $output "process control should reach the connection checkpoint"
-let output = timeout 5s tg --url $local.url checkpoint wait runner.process.start $start_watch 0 | complete
+let output = tg --url $local.url checkpoint wait --timeout 5s runner.process.start $start_watch 0 | complete
 success $output "the process should start before process control connects"
 
 tg --url $local.url checkpoint continue runner.process.start $start_watch 0

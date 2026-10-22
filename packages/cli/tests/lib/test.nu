@@ -1286,7 +1286,7 @@ export def "checkpoint wait" [
 	--timeout: duration = 30sec
 ] {
 	let seconds = $timeout / 1sec | math ceil
-	let output = ^timeout $seconds tg ...$checkpoint.connection checkpoint wait $checkpoint.name $checkpoint.watch $hit | complete
+	let output = tg ...$checkpoint.connection checkpoint wait --timeout $'($seconds)s' $checkpoint.name $checkpoint.watch $hit | complete
 	if $output.exit_code != 0 {
 		error make {
 			msg: $'the checkpoint ($checkpoint.name) did not reach hit ($hit) within ($timeout)'

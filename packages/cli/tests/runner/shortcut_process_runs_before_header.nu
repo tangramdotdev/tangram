@@ -43,13 +43,13 @@ let build = job spawn {
 }
 
 # Release the scheduled parent's start and control header.
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete) "the parent should start"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $start_watch 0 | complete) "the parent should start"
 tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.header $header_watch 0 | complete) "the parent should receive its control header"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.header $header_watch 0 | complete) "the parent should receive its control header"
 tg --url $remote.url --token $root_token checkpoint continue process.control.header $header_watch 0
 
 # Wait for the child to start, and watch its output and Finish.
-let started = timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | from json
+let started = tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $start_watch 1 | from json
 let child = $started.params.process
 let params = { process: $child } | to json --raw
 let stored_watch = tg --url $runner.url checkpoint watch runner.process.output.stored --params $params | from json | get watch
@@ -57,10 +57,10 @@ let sent_watch = tg --url $runner.url checkpoint watch runner.process.control.fi
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 
 # The remote holds the child's control header while the child stores its output and sends Finish.
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.header $header_watch 1 | complete) "the remote should hold the child's control header"
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.output.stored $stored_watch 0 | complete) "the child should store its output before its control header returns"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.header $header_watch 1 | complete) "the remote should hold the child's control header"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.output.stored $stored_watch 0 | complete) "the child should store its output before its control header returns"
 tg --url $runner.url checkpoint unwatch runner.process.output.stored $stored_watch
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "the child should send Finish before its control header returns"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.finish.sent $sent_watch 0 | complete) "the child should send Finish before its control header returns"
 tg --url $runner.url checkpoint unwatch runner.process.control.finish.sent $sent_watch
 tg --url $remote.url --token $root_token checkpoint unwatch process.control.header $header_watch
 

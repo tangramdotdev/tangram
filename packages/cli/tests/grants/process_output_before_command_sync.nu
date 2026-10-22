@@ -57,7 +57,7 @@ let build = job spawn {
 }
 
 # Hold the command sync.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.command.sync.started $sync_watch 0 | complete
 success $output "the runner must sync the child command on the shortcut path"
 
 # The runner-backed wait can return the output while the command sync is held.

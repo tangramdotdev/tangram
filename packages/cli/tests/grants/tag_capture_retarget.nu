@@ -21,7 +21,7 @@ let advance = tg --token $root_token checkpoint watch permission_capture.advance
 let advanced = tg --token $root_token checkpoint watch permission_capture.advanced --params $params | from json | get watch
 tg --token $alice.token tag put race $old --public
 tg --token $root_token index
-timeout 30s tg --token $root_token checkpoint wait permission_capture.advance $advance 0 | ignore
+tg --token $root_token checkpoint wait --timeout 30s permission_capture.advance $advance 0 | ignore
 let before = tg --token $alice.token tag get race | from json
 
 # Replace the target while the old job has already computed the permissions it wants to write.
@@ -33,7 +33,7 @@ assert equal $after.target.id $replacement
 failure (tg --token $bob.token get $old | complete) "retargeting must clear the old delegation and permissions."
 
 tg --token $root_token checkpoint continue permission_capture.advance $advance 0
-timeout 30s tg --token $root_token checkpoint wait permission_capture.advanced $advanced 0 | ignore
+tg --token $root_token checkpoint wait --timeout 30s permission_capture.advanced $advanced 0 | ignore
 tg --token $root_token checkpoint unwatch permission_capture.advance $advance
 tg --token $root_token checkpoint unwatch permission_capture.advanced $advanced
 

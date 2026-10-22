@@ -12,7 +12,7 @@ for cache in [lmdb rocksdb fjall] {
 	let path = artifact { tangram.ts: 'export default function () { console.log("stdout"); console.error("stderr"); }' }
 	let process = tg build --no-tokens --detach $path | referent node
 	timeout 10s tg wait $process | ignore
-	timeout 10s tg checkpoint wait indexer.log_cache.delete $watch 0 | ignore
+	tg checkpoint wait --timeout 10s indexer.log_cache.delete $watch 0 | ignore
 	let data = tg get --no-tokens $process | from json
 	assert ($data.log? | is-not-empty)
 	let output = tg log --no-timeout $process | complete

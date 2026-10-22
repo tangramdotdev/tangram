@@ -22,7 +22,7 @@ let pull = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-let output = timeout 30s tg --url $local.url checkpoint wait push.source.remote.resolved $watch 0 | complete
+let output = tg --url $local.url checkpoint wait --timeout 30s push.source.remote.resolved $watch 0 | complete
 success $output "the pull should resolve the source remote"
 
 tg --url $local.url remote put default $local_replacement.url

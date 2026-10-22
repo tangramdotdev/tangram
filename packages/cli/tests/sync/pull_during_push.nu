@@ -85,7 +85,7 @@ let pull = job spawn {
 }
 
 # The pull reaches the blob before it has arrived.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.put.store.object $queue_watch 0 | complete
+let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.put.store.object $queue_watch 0 | complete
 if $output.exit_code != 0 {
 	let pull_output = try { job recv --tag $pull --timeout 1sec } catch { null }
 	error make { msg: $"the pull should reach the held blob while the push is in progress:\n($pull_output)" }

@@ -24,7 +24,7 @@ tg --token $root_token index
 # Hold the error object's index batch before the runner stores the error.
 let object_watch = tg --token $root_token checkpoint watch index.batch --params '{"finished_process":false}' | from json | get watch
 tg --token $root_token cancel $process $spawned.lease
-timeout 10s tg --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 10s runner.process.finish $finish_watch 0 | ignore
 
 # Attach the wait before preparing the finished-process permissions.
 let params = { process: $process } | to json --raw
@@ -36,18 +36,18 @@ let wait_job = job spawn {
 	let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream', Authorization: $'Bearer ($bob.token)' } $'http://localhost/processes/($process)/wait?($query)' ''
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --token $root_token checkpoint wait process.wait.attach $attach_watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 10s process.wait.attach $attach_watch 0 | ignore
 tg --token $root_token checkpoint unwatch process.wait.attach $attach_watch
 let process_watch = tg --token $root_token checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
 tg --token $root_token checkpoint unwatch runner.process.finish $finish_watch
-timeout 10s tg --token $root_token checkpoint wait index.batch $object_watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 10s index.batch $object_watch 0 | ignore
 let output = job recv --tag $wait_job --timeout 10sec
 let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
 assert equal $output.exit 1 "the runner wait must return before permission preparation completes"
 tg --token $root_token checkpoint unwatch index.batch $object_watch
-timeout 10s tg --token $root_token checkpoint wait index.batch $process_watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 10s index.batch $process_watch 0 | ignore
 assert (not ($output.error | str contains 'tokens')) "waiting must not mint error capabilities"
-timeout 10s tg --token $root_token checkpoint wait process.control.finish $control_watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 10s process.control.finish $control_watch 0 | ignore
 
 # Authorization must wait for the finished-process batch.
 let read_job = job spawn {

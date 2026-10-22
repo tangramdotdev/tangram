@@ -49,7 +49,7 @@ let push_watch = (
 
 # Start the first build and wait for it to reach its outcome sync.
 let process = tg --url $local_first.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $push_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $push_watch 0 | complete
 success $output "the first build should reach its outcome sync"
 
 # The second build must be a cache hit for the first process while its outcome sync is held.

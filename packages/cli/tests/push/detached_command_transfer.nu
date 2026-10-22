@@ -32,9 +32,9 @@ let build = job spawn {
 }
 
 # The process finishes while the end of the command transfer is held.
-let output = timeout 60s tg --url $local.url checkpoint wait sync.put.end $transfer_watch 0 | complete
+let output = tg --url $local.url checkpoint wait --timeout 60s sync.put.end $transfer_watch 0 | complete
 success $output "the command transfer should send its objects"
-let output = timeout 60s tg --url $remote.url checkpoint wait runner.process.output.stored $finish_watch 0 | complete
+let output = tg --url $remote.url checkpoint wait --timeout 60s runner.process.output.stored $finish_watch 0 | complete
 success $output "the process should finish while the end of the command transfer is held"
 tg --url $remote.url checkpoint continue runner.process.output.stored $finish_watch 0
 tg --url $remote.url checkpoint unwatch runner.process.output.stored $finish_watch

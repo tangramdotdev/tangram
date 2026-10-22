@@ -31,9 +31,9 @@ let build = job spawn {
 }
 
 # Hold process control before it connects, then allow the process to start and wait for the runner to start it.
-let output = timeout 10s tg checkpoint wait runner.process.control.connect $control_watch 0 | complete
+let output = tg checkpoint wait --timeout 10s runner.process.control.connect $control_watch 0 | complete
 success $output "process control must reach the connection checkpoint"
-let output = timeout 10s tg checkpoint wait runner.process.start $start_watch 0 | complete
+let output = tg checkpoint wait --timeout 10s runner.process.start $start_watch 0 | complete
 success $output "the process must reach the start checkpoint"
 tg checkpoint continue runner.process.start $start_watch 0
 tg checkpoint unwatch runner.process.start $start_watch

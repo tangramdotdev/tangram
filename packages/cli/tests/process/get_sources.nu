@@ -20,7 +20,7 @@ let finish_watch = tg --url $runner.url --token $root_token checkpoint watch run
 let retention_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.control.retention.finished | from json | get watch
 let path = artifact { tangram.ts: 'export default () => { console.log("finished log"); return "done"; };' }
 let process = tg --url $local_owner.url --token $root_token build --no-tokens --detach $path | referent node
-timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg --url $runner.url --token $root_token checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 let params = { process: $process } | to json --raw
 
 # Hold the index response, forcing each operation to use its live control response.
@@ -31,7 +31,7 @@ for operation in [get status children] {
 		let output = tg --url $local_owner.url --token $root_token process $operation $process | complete
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.get.index $watch 0 | ignore
+	tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.get.index $watch 0 | ignore
 	let output = job recv --tag $get_job --timeout 10sec
 	success $output $'a live ($operation) must not wait for the index'
 	let output = $output.stdout | from json
@@ -43,7 +43,7 @@ for operation in [get status children] {
 
 # Retain finished control state while the owner transfers its finished log.
 tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
-timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.control.retention.finished $retention_watch 0 | ignore
+tg --url $runner.url --token $root_token checkpoint wait --timeout 30s runner.process.control.retention.finished $retention_watch 0 | ignore
 tg --url $local_owner.url --token $root_token index
 let indexed = tg --url $local_owner.url --token $root_token get $process | from json
 assert ($indexed.log? | is-not-empty) "the finished index must contain a finished log"
@@ -56,7 +56,7 @@ for operation in [status wait] {
 		let output = tg --url $local_owner.url --token $root_token process $operation $process | complete
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.get.index $watch 0 | ignore
+	tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.get.index $watch 0 | ignore
 	let output = job recv --tag $get_job --timeout 10sec
 	success $output $'a finished ($operation) must not wait for the index'
 	let output = $output.stdout | from json
@@ -77,8 +77,8 @@ let get_job = job spawn {
 	$output | job send --tag $job_id 0
 }
 let required = checkpoint watch process.get.index.required --url $local_owner.url --token $root_token --params { process: $process }
-timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.get.index $watch 0 | ignore
-timeout 10s tg --url $local_owner.url --token $root_token checkpoint wait process.control.response.published $response_watch 0 | ignore
+tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.get.index $watch 0 | ignore
+tg --url $local_owner.url --token $root_token checkpoint wait --timeout 10s process.control.response.published $response_watch 0 | ignore
 checkpoint pass $required
 checkpoint unwatch $required
 tg --url $local_owner.url --token $root_token checkpoint unwatch process.get.index $watch

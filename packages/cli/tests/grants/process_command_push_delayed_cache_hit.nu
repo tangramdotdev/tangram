@@ -74,10 +74,10 @@ let build = job spawn {
 }
 
 # Hold every command sync until dep, foo, and bar have finished, then release them all by unwatching.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $push_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.command.sync.started $push_watch 0 | complete
 success $output "the runner must push a child command on the shortcut path"
 for index in 0..2 {
-	let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch $index | complete
+	let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.finished $finished_watch $index | complete
 	success $output "dep, foo, and bar must finish while the command synces are held"
 	tg --url $runner.url checkpoint continue runner.process.finished $finished_watch $index
 }

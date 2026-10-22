@@ -73,17 +73,17 @@ let run = job spawn {
 }
 
 # The command transfer reaches the scheduler but remains blocked before the executable is complete.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete
+let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $store_watch 0 | complete
 success $output "the command push should reach the executable blob"
 
 # The scheduler assigns the process while the command transfer is still blocked.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 30s runner.process.state.inserted $state_watch 0 | complete
 success $output "the process should be scheduled before the command push finishes"
 tg --url $runner.url checkpoint continue runner.process.state.inserted $state_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.state.inserted $state_watch
 
 # The runner uses the authorization token for the command sync to request the executable from the in-flight push.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.service.request.retain $retain_watch 0 | complete
+let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.service.request.retain $retain_watch 0 | complete
 success $output "the runner should request the in-flight executable with its authorization token for the sync"
 tg --url $remote.url --token $root_token checkpoint continue sync.service.request.retain $retain_watch 0
 tg --url $remote.url --token $root_token checkpoint unwatch sync.service.request.retain $retain_watch

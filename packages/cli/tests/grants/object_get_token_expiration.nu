@@ -35,7 +35,7 @@ let job = job spawn {
 	let output = get-object $socket $bob.token $child --token $first.tokens.local.0
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --token $root_token checkpoint wait verification.index $watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 10s verification.index $watch 0 | ignore
 advance_time $local 3sec
 tg --token $root_token checkpoint continue verification.index $watch 0
 let delayed = job recv --tag $job --timeout 10sec

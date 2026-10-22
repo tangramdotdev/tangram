@@ -45,12 +45,12 @@ let run = job spawn {
 	let job_id = job id
 	tg --url $remote.url --token $alice.token run --cached=false --no-tty --sandbox --stdin null $command | complete | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.header $header_watch 0 | complete) "the runner should connect process control"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.header $header_watch 0 | complete) "the runner should connect process control"
 
 # The client's read claims the open, and the runner writes the process's stdout to it, while its process control connection is held.
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.stdio.read.open.claimed $claimed_watch 0 | complete) "the client's read should claim the open"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.stdio.read.open.claimed $claimed_watch 0 | complete) "the client's read should claim the open"
 tg --url $remote.url --token $root_token checkpoint unwatch process.stdio.read.open.claimed $claimed_watch
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.stdio.write.response $write_watch 0 | complete) "the runner should open stdout before process control connects"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.stdio.write.response $write_watch 0 | complete) "the runner should open stdout before process control connects"
 tg --url $remote.url --token $root_token checkpoint unwatch process.stdio.write.response $write_watch
 
 # Release the header, and the run completes with its output.

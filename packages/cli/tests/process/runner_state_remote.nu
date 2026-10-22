@@ -27,7 +27,7 @@ let path = artifact {
 }
 let spawned = tg --url $local.url build --remote --detach --verbose $path | from json
 let process = $spawned.process | split row '?' | first
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 
 # Preserve the remote capability alongside any locally issued capability.
 let remote_socket = $remote.url | str replace 'http+unix://' '' | url decode
@@ -64,7 +64,7 @@ let wait_job = job spawn {
 	let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream' } $'http://localhost/processes/($process)/wait?($wait_query)' ''
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $runner.url checkpoint wait process.wait.attach $attach_watch 0 | ignore
+tg --url $runner.url checkpoint wait --timeout 10s process.wait.attach $attach_watch 0 | ignore
 tg --url $runner.url checkpoint unwatch process.wait.attach $attach_watch
 let snapshot = tg --url $runner.url process status --remote --timeout 0 $process | from json
 assert equal $snapshot [started]
@@ -72,7 +72,7 @@ assert equal $snapshot [started]
 # The remote cannot publish completion until both runner readers have returned.
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.finish $finish_watch
-timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $remote_finish_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.finish $remote_finish_watch 0 | ignore
 assert equal (job recv --tag $status_job --timeout 10sec) 'data: "finished"'
 assert equal (job recv --tag $status_job --timeout 10sec) 'event: end'
 let output = job recv --tag $wait_job --timeout 10sec

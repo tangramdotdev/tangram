@@ -24,7 +24,7 @@ let finish_watch = tg --url $runner.url --token $runner_root checkpoint watch ru
 let path = artifact { tangram.ts: 'export default () => tg.file("private output");' }
 let spawned = tg --url $remote.url --token $remote_root build --detach --no-tokens --verbose $path | from json
 let process = $spawned.process
-timeout 30s tg --url $runner.url --token $runner_root checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg --url $runner.url --token $runner_root checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 
 let remote_socket = $remote.url | str replace 'http+unix://' '' | url decode
 let runner_socket = $runner.url | str replace 'http+unix://' '' | url decode
@@ -64,7 +64,7 @@ let remote_job = job spawn {
 	let output = http get --unix-socket $runner_socket --headers $headers $'http://localhost/processes/($process)?($query)'
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $remote.url --token $remote_root checkpoint wait process.control.response.publish $response_watch 0 | ignore
+tg --url $remote.url --token $remote_root checkpoint wait --timeout 10s process.control.response.publish $response_watch 0 | ignore
 
 # A local node capability can read the same state without the remote or an index authorization search.
 let index_watch = tg --url $runner.url --token $runner_root checkpoint watch verification.index --params $params | from json | get watch
@@ -105,7 +105,7 @@ let waits = $targets | each { |target|
 		let response = http post --raw --max-time 30sec --unix-socket $socket --headers $headers $'http://localhost/processes/($process)/wait?($query)' ''
 		$response | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $target.server.url --token $target.root checkpoint wait process.wait.attach $attach_watch 0 | ignore
+	tg --url $target.server.url --token $target.root checkpoint wait --timeout 10s process.wait.attach $attach_watch 0 | ignore
 	tg --url $target.server.url --token $target.root checkpoint unwatch process.wait.attach $attach_watch
 	{ index_watch: $index_watch, job: $wait_job, target: $target }
 }

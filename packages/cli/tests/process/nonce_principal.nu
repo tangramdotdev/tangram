@@ -32,7 +32,7 @@ let wait = job spawn {
 	let job_id = job id
 	node $script wait $socket $nonce $bob.token | complete | job send --tag $job_id 0
 }
-success (timeout 30s tg --token $root checkpoint wait process.connect.service.heartbeat.request $watch 0 | complete) "the wait should look for the nonce's owner"
+success (tg --token $root checkpoint wait --timeout 30s process.connect.service.heartbeat.request $watch 0 | complete) "the wait should look for the nonce's owner"
 tg --token $root checkpoint unwatch process.connect.service.heartbeat.request $watch
 
 # Spawn the process as alice through a connect with the nonce.

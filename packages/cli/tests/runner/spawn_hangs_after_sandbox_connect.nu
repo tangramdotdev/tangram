@@ -29,8 +29,8 @@ let build = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.connect $connect_watch 0 | complete) "the runner must reach the process control connect checkpoint"
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.spawn.connection.wait $wait_watch 0 | complete) "the spawner must reach the connection wait checkpoint"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.connect $connect_watch 0 | complete) "the runner must reach the process control connect checkpoint"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.spawn.connection.wait $wait_watch 0 | complete) "the spawner must reach the connection wait checkpoint"
 
 let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid

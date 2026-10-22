@@ -21,7 +21,7 @@ let advance = tg --token $root_token checkpoint watch permission_capture.advance
 let advanced = tg --token $root_token checkpoint watch permission_capture.advanced --params $params | from json | get watch
 tg --token $alice.token tag put deleting $target --public
 tg --token $root_token index
-timeout 30s tg --token $root_token checkpoint wait permission_capture.advance $advance 0 | ignore
+tg --token $root_token checkpoint wait --timeout 30s permission_capture.advance $advance 0 | ignore
 let tag = http get --headers { Accept: application/json, Authorization: $'Bearer ($bob.token)' } --unix-socket $socket 'http://localhost/tags/deleting'
 let token = $tag.tokens.local.0
 let reference = $'($target)?tokens[local][0]=($token | url encode --all)'
@@ -32,7 +32,7 @@ tg --token $alice.token tag delete deleting | ignore
 tg --token $root_token index
 failure (tg --token $bob.token get $reference | complete) "deletion must remove the tag's existing target access."
 tg --token $root_token checkpoint continue permission_capture.advance $advance 0
-timeout 30s tg --token $root_token checkpoint wait permission_capture.advanced $advanced 0 | ignore
+tg --token $root_token checkpoint wait --timeout 30s permission_capture.advanced $advanced 0 | ignore
 tg --token $root_token checkpoint unwatch permission_capture.advance $advance
 tg --token $root_token checkpoint unwatch permission_capture.advanced $advanced
 

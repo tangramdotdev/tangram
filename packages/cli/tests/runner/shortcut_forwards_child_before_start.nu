@@ -61,14 +61,14 @@ let build = job spawn {
 }
 
 # The shortcut process runs and forwards its child spawn while its own start is held.
-success (timeout 60s tg --url $remote.url --token $root_token checkpoint wait process.control.start.received $start_watch 0 | complete) "the server should receive Start"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 60s process.control.start.received $start_watch 0 | complete) "the server should receive Start"
 
 # Let the grandchild that borrows the lease on the runner start if it is ready.
-let started = timeout 2s tg --url $remote.url --token $root_token checkpoint wait process.control.start.received $start_watch 1 | complete
+let started = tg --url $remote.url --token $root_token checkpoint wait --timeout 2s process.control.start.received $start_watch 1 | complete
 if $started.exit_code == 0 {
 	tg --url $remote.url --token $root_token checkpoint continue process.control.start.received $start_watch 1
 }
-let finished = timeout 2s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete
+let finished = tg --url $runner.url checkpoint wait --timeout 2s runner.process.finished $finished_watch 0 | complete
 if $finished.exit_code == 0 {
 	tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 0
 }

@@ -44,10 +44,10 @@ let run = job spawn {
 	let job_id = job id
 	tg --url $local.url run --cached=false --no-tty --remote --user $alice.user.id $command | complete | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.connect.start $start_watch 0 | complete) "the destination's connect should start"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.connect.start $start_watch 0 | complete) "the destination's connect should start"
 
 # The command push reaches the destination and waits for the command sync while the connect is held.
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.connect.service.retain $retain_watch 0 | complete) "the command push should wait for the connect's command sync"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.connect.service.retain $retain_watch 0 | complete) "the command push should wait for the connect's command sync"
 tg --url $remote.url --token $root_token checkpoint unwatch process.connect.service.retain $retain_watch
 
 # Release the connect, and the run completes.

@@ -13,7 +13,7 @@ let job = job spawn {
 	let job_id = job id
 	tg sandbox create --no-tokens --no-ttl | job send --tag $job_id 0
 }
-success (timeout 30s tg checkpoint wait runner.sandbox.pool.take $watch 0 | complete) 'the sandbox should come from the warm pool'
+success (tg checkpoint wait --timeout 30s runner.sandbox.pool.take $watch 0 | complete) 'the sandbox should come from the warm pool'
 
 # Hold the claim before assignment while the physical sandbox remains alive.
 sleep 10sec

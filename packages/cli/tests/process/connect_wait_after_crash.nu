@@ -34,9 +34,9 @@ let build = job spawn {
 	let output = tg --url $local.url build --remote $path | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.run $run_watch 0 | complete) "the parent should run"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.run $run_watch 0 | complete) "the parent should run"
 tg --url $runner.url checkpoint continue runner.process.run $run_watch 0
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.run $run_watch 1 | complete) "the child should run"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.run $run_watch 1 | complete) "the child should run"
 tg --url $runner.url checkpoint unwatch runner.process.run $run_watch
 
 # Crash and restart the remote without removing its runners while the child runs.

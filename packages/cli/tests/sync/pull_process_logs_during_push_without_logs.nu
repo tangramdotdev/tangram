@@ -50,7 +50,7 @@ let push = job spawn {
 	let output = tg --no-quiet --url $alice_local.url push $process o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
-let output = timeout 30s tg --url $alice_local.url checkpoint wait sync.put.store.process $watch 0 | complete
+let output = tg --url $alice_local.url checkpoint wait --timeout 30s sync.put.store.process $watch 0 | complete
 success $output "alice's push should reach the process"
 wait_for_log { log: $push_log } 'tokens[remote][0]'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }

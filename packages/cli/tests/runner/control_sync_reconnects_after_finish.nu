@@ -20,8 +20,8 @@ let synced = tg --url $runner.url checkpoint watch runner.process.outcome.sync.f
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let path = artifact { tangram.ts: 'export default () => tg.file("reconnected outcome");' }
 let process = tg --url $remote.url --token $alice.token build --detach --no-tokens $path | referent node
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $watch 0 | complete)
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.succeeded $finished 0 | complete)
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $watch 0 | complete)
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.finish.succeeded $finished 0 | complete)
 tg --url $runner.url checkpoint unwatch runner.process.control.finish.succeeded $finished
 let outcome = timeout 30s tg --url $remote.url --token $alice.token wait --source=index $process | from json
 assert equal $outcome.exit 0
@@ -33,7 +33,7 @@ wait_for_exit $remote_pid "the server must exit"
 let remote = server start $remote
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $watch
 
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.outcome.sync.finished $synced 0 | complete) "the outcome sync must complete after reconnect"
+success (tg --url $runner.url checkpoint wait --timeout 60s runner.process.outcome.sync.finished $synced 0 | complete) "the outcome sync must complete after reconnect"
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.finished $synced
 
 # The server must recover the outcome IDs from its index without another Finish.

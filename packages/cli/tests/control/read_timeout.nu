@@ -21,7 +21,7 @@ let reader = job spawn {
 	let output = timeout 5s tg --url $local_owner.url sandbox get $sandbox | complete
 	$output | job send --tag $job_id 0
 }
-timeout 5s tg --url $local_owner.url checkpoint wait sandbox.control.request $watch 0 | ignore
+tg --url $local_owner.url checkpoint wait --timeout 5s sandbox.control.request $watch 0 | ignore
 let output = job recv --tag $reader --timeout 10sec
 success $output
 assert equal ($output.stdout | from json | get data.status) started

@@ -24,7 +24,7 @@ for internal in [true false] {
 		let output = tg --no-quiet --url $source.url push $directory o+e>| tee { save --force $log } | complete
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $destination.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | ignore
+	tg --url $destination.url --token $root_token checkpoint wait --timeout 10s sync.get.store.object $watch 0 | ignore
 	wait_for_log { log: $log } 'tokens[remote]'
 	let referent = open --raw $log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' '' | str replace --all 'tokens[remote]' 'tokens[local]'
 	let path = $env.TMPDIR | path join $'checkout-($internal)'
@@ -37,7 +37,7 @@ for internal in [true false] {
 		}
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $destination.url --token $root_token checkpoint wait sync.service.request $request_watch 0 | ignore
+	tg --url $destination.url --token $root_token checkpoint wait --timeout 10s sync.service.request $request_watch 0 | ignore
 	tg --url $destination.url --token $root_token checkpoint unwatch sync.service.request $request_watch
 	let premature = try { job recv --tag $checkout --timeout 1sec } catch { null }
 	assert equal $premature null 'checkout must wait for the stored subtree'

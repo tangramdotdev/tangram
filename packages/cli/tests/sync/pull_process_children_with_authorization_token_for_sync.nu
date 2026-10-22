@@ -42,8 +42,8 @@ let push = job spawn {
 	let output = tg --no-quiet --url $alice_local.url push --no-process-error-objects --no-process-output-objects $process $blocker o+e>| tee { save --append $push_log } | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.process $stored_watch 0 | complete) 'the process should be stored'
-success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blocker_watch 0 | complete) 'the unrelated object should keep the push open'
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.get.store.process $stored_watch 0 | complete) 'the process should be stored'
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.get.store.object $blocker_watch 0 | complete) 'the unrelated object should keep the push open'
 wait_for_log { log: $push_log } 'tokens[remote]'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 

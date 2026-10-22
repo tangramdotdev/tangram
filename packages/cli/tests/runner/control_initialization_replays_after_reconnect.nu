@@ -37,9 +37,9 @@ let spawned = tg --url $local.url build --remote --detach --verbose --user $alic
 let process = $spawned.process | split row '?' | first
 
 # The remote receives both requests and is held before indexing either.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.shortcut.received $sandbox_start_watch 0 | complete
+let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sandbox.control.shortcut.received $sandbox_start_watch 0 | complete
 success $output "the remote should receive the sandbox connection"
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.start.received $process_start_watch 0 | complete
+let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.start.received $process_start_watch 0 | complete
 success $output "the remote should receive the process start"
 
 # Crash the remote without gracefully removing its runners, then replay the unacknowledged initialization.

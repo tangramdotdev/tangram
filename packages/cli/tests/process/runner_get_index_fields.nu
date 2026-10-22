@@ -22,7 +22,7 @@ tg --url $runner.url --token $alice.token remote put default $remote.url
 let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default () => "output";' }
 let process = tg --url $remote.url --token $root_token build --no-tokens --detach $path | referent node
-timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg --url $runner.url --token $root_token checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
 let local = http get --unix-socket $socket --headers { Authorization: $'Bearer ($root_token)' } $'http://localhost/processes/($process)?location=remote'
 let remote_socket = $remote.url | str replace 'http+unix://' '' | url decode
@@ -38,8 +38,8 @@ let read_job = job spawn {
 	let output = http get --max-time 30sec --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)?($query)'
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait process.metadata $metadata_watch 0 | ignore
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait process.availability $availability_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s process.metadata $metadata_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 10s process.availability $availability_watch 0 | ignore
 tg --url $remote.url --token $root_token checkpoint unwatch process.metadata $metadata_watch
 tg --url $remote.url --token $root_token checkpoint unwatch process.availability $availability_watch
 let output = job recv --tag $read_job --timeout 10sec

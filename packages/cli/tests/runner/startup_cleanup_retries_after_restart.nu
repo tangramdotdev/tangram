@@ -34,7 +34,7 @@ let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 wait_for_exit $pid "the runner must exit"
 let runner = server start $runner
-success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait runner.control.destroy_sandbox $watch 0 | complete) "startup must clean up the old sandbox"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s runner.control.destroy_sandbox $watch 0 | complete) "startup must clean up the old sandbox"
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 
 # Interrupt the runner before cleanup is acknowledged, so startup must retry using the index.

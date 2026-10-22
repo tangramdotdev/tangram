@@ -57,7 +57,7 @@ let run = job spawn {
 }
 
 # Get the process while it is still running. The attached wait lease also means that the shell has written the run's process ID.
-let hit = timeout 10s tg checkpoint wait process.wait.attach $attach_watch 0 | from json
+let hit = tg checkpoint wait --timeout 10s process.wait.attach $attach_watch 0 | from json
 let process = $hit.params.process
 let pid = open --raw $pid_path | str trim | into int
 tg checkpoint continue process.wait.attach $attach_watch 0
@@ -72,16 +72,16 @@ let close = job spawn {
 	)
 	$output | job send --tag $job_id 0
 }
-let output = timeout 10s tg checkpoint wait process.stdio.write.request $write_watch 0 | complete
+let output = tg checkpoint wait --timeout 10s process.stdio.write.request $write_watch 0 | complete
 success $output "the stdin close should reach the server"
 
 # Disconnect the client, destroy the sandbox, and wait until its process control task has exited.
 kill --signal 15 $pid
-let output = timeout 10s tg checkpoint wait runner.sandbox.destroyed $destroyed_watch 0 | complete
+let output = tg checkpoint wait --timeout 10s runner.sandbox.destroyed $destroyed_watch 0 | complete
 success $output "the sandbox should be destroyed while the stdin close is held"
 tg checkpoint continue runner.sandbox.destroyed $destroyed_watch 0
 tg checkpoint unwatch runner.sandbox.destroyed $destroyed_watch
-let output = timeout 10s tg checkpoint wait runner.process.control.finished $control_finished_watch 0 | complete
+let output = tg checkpoint wait --timeout 10s runner.process.control.finished $control_finished_watch 0 | complete
 success $output "the process control task should finish while the stdin close is held"
 tg checkpoint continue runner.process.control.finished $control_finished_watch 0
 tg checkpoint unwatch runner.process.control.finished $control_finished_watch

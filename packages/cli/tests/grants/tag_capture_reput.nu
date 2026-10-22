@@ -22,7 +22,7 @@ let params = { resource: $directory } | to json --raw
 let advanced = tg --url $remote.url --token $root_token checkpoint watch permission_capture.advanced --params $params | from json | get watch
 tg --url $remote.url --token $alice.token tag put later $directory
 tg --url $remote.url --token $root_token index
-timeout 30s tg --url $remote.url --token $root_token checkpoint wait permission_capture.advanced $advanced 0 | from json | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 30s permission_capture.advanced $advanced 0 | from json | ignore
 tg --url $remote.url --token $root_token checkpoint continue permission_capture.advanced $advanced 0
 tg --url $remote.url --token $root_token checkpoint unwatch permission_capture.advanced $advanced
 let before = tg --url $remote.url --token $alice.token tag get later | from json
@@ -37,7 +37,7 @@ tg --url $remote.url --token $root_token index
 let written = tg --url $remote.url --token $root_token checkpoint watch permission_capture.written --params $params | from json | get watch
 tg --url $remote.url --token $alice.token tag put later $directory
 tg --url $remote.url --token $root_token index
-timeout 30s tg --url $remote.url --token $root_token checkpoint wait permission_capture.written $written 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 30s permission_capture.written $written 0 | ignore
 tg --url $remote.url --token $root_token checkpoint unwatch permission_capture.written $written
 let after = tg --url $remote.url --token $alice.token tag get later | from json
 assert equal $after.id $before.id

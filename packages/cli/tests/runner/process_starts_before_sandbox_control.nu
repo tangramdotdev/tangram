@@ -34,12 +34,12 @@ let build = job spawn {
 }
 
 # The assigned identity activates an IDless physical sandbox without waiting for control.
-success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 0 | complete) "the scheduled sandbox should take a pooled sandbox"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.pool.take $pool_watch 0 | complete) "the scheduled sandbox should take a pooled sandbox"
 tg --url $runner.url checkpoint unwatch runner.sandbox.pool.take $pool_watch
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.connect $connect_watch 0 | complete) "sandbox control should begin connecting"
-success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | complete) "the sandbox should become active before sandbox control connects"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sandbox.control.connect $connect_watch 0 | complete) "sandbox control should begin connecting"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.state.inserted $state_watch 0 | complete) "the sandbox should become active before sandbox control connects"
 tg --url $runner.url checkpoint unwatch runner.sandbox.state.inserted $state_watch
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete) "the assigned process should start before sandbox control connects"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $start_watch 0 | complete) "the assigned process should start before sandbox control connects"
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.connect $connect_watch
 success (job recv --tag $build --timeout 30sec) "the build should complete after sandbox control connects"

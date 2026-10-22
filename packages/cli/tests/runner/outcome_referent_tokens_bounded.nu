@@ -43,8 +43,8 @@ let watch = tg --url $runner.url checkpoint watch runner.process.outcome.sync.fi
 let referent = tg --url $local.url build --remote --detach $path | str trim
 let process = $referent | referent node
 success (tg --url $local.url wait $referent | complete) 'the build should finish'
-let command_sync = timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $command_watch 0 | from json | get params.sync
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.outcome.sync.finished $watch 0 | complete) 'the runner should push the outcome'
+let command_sync = tg --url $runner.url checkpoint wait --timeout 60s runner.process.command.sync.started $command_watch 0 | from json | get params.sync
+success (tg --url $runner.url checkpoint wait --timeout 60s runner.process.outcome.sync.finished $watch 0 | complete) 'the runner should push the outcome'
 tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $command_watch
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.finished $watch
 tg --url $remote.url --token $root_token index

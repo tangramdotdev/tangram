@@ -49,7 +49,7 @@ let finish_watch = (
 let process = tg --url $local.url build --no-tokens --detach --remote $path | referent node
 
 # Hold the first child's finish so that the parent keeps running while its indexed children list is incomplete.
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 
 # Start a paginated stream that must receive the later children from the runner.
 let response_watch = (
@@ -72,9 +72,9 @@ tg --url $remote.url --token $root_token checkpoint unwatch process.control.resp
 
 # Let the parent spawn the remaining children, holding each finish in turn.
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 0
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 1 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 1 | ignore
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 1
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 2 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 2 | ignore
 
 # The stream must wake for each child and preserve their spawn order across pages.
 let output = job recv --tag $stream_job --timeout 30sec
@@ -93,7 +93,7 @@ assert equal $tail ($listed | skip 1) "the tail should be readable relative to t
 
 # Release the remaining finishes and confirm the build completes.
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 2
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 3 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 3 | ignore
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 3
 tg --url $runner.url checkpoint unwatch runner.process.finish $finish_watch
 let output = tg --url $local.url wait $process | complete

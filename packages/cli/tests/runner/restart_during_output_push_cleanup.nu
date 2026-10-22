@@ -41,7 +41,7 @@ export const child = async () => await tg.file("restart during output push");
 let blob = tg --url $local.url put --no-tokens 'tg.blob("restart during output push")' | referent node
 let store = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blob } | to json --raw) | from json | get watch
 let id = tg --url $local.url build --remote --detach $path | referent node
-success (timeout 60s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store 0 | complete) "the runner must push the child's output"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 60s sync.get.store.object $store 0 | complete) "the runner must push the child's output"
 
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid

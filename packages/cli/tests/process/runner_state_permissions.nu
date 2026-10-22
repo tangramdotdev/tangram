@@ -15,7 +15,7 @@ let finish_watch = tg --token $root_token checkpoint watch process.control.finis
 let path = artifact { tangram.ts: 'export default () => tg.file("output");' }
 let spawned = tg --token $alice.token build --detach --no-tokens --verbose $path | from json
 let process = $spawned.process
-timeout 30s tg --token $root_token checkpoint wait runner.process.finish $runner_finish_watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 30s runner.process.finish $runner_finish_watch 0 | ignore
 tg --token $alice.token grant $bob.user.id process_node $process | ignore
 
 success (tg --token $bob.token process get $process | complete)
@@ -75,10 +75,10 @@ let wait_job = job spawn {
 	let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream', Authorization: $'Bearer ($bob.token)' } $'http://localhost/processes/($process)/wait?($query)' ''
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --token $root_token checkpoint wait process.wait.attach $attach_watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 10s process.wait.attach $attach_watch 0 | ignore
 tg --token $root_token checkpoint unwatch process.wait.attach $attach_watch
 tg --token $root_token checkpoint unwatch runner.process.finish $runner_finish_watch
-timeout 30s tg --token $root_token checkpoint wait process.control.finish $finish_watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 30s process.control.finish $finish_watch 0 | ignore
 let result = job recv --tag $wait_job --timeout 10sec
 let result = $result | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
 assert equal $result.exit 0

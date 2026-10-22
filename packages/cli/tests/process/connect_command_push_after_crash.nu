@@ -54,7 +54,7 @@ let run = job spawn {
 	let output = tg --url $local.url process spawn --no-tokens --cached=false --sandbox --no-tty --remote --user $alice.user.id $command | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete) "the command push should reach the executable blob"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $store_watch 0 | complete) "the command push should reach the executable blob"
 let output = job recv --tag $run --timeout 30sec
 success $output "spawn should return while the command push is blocked"
 
@@ -69,6 +69,6 @@ if $nu.os-info.name == "linux" {
 let remote = server start $remote
 
 # The retried push must complete.
-let finished = timeout 60s tg --url $local.url checkpoint wait process.connect.command.push.finished $push_watch 0 | complete
+let finished = tg --url $local.url checkpoint wait --timeout 60s process.connect.command.push.finished $push_watch 0 | complete
 tg --url $local.url checkpoint unwatch process.connect.command.push.finished $push_watch
 success $finished "the command push should complete after the remote crashes"

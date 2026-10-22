@@ -22,17 +22,17 @@ let run_watch = tg --url $runner.url checkpoint watch runner.process.start | fro
 let path = artifact { tangram.ts: 'export default async () => tg.run(await tg.file({ contents: "#!/bin/sh\nprintf 42", executable: true })).sandbox(true);' }
 let spawned = tg --url $local.url build --remote --detach --verbose --user $alice.user.id $path | from json
 let parent = $spawned.process | split row '?' | first
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $run_watch 0 | complete)
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $run_watch 0 | complete)
 tg --url $remote.url --token $root_token index
 let start_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.start.received | from json | get watch
 let reply_watch = tg --url $runner.url checkpoint watch runner.process.control.start.succeeded | from json | get watch
 tg --url $runner.url checkpoint continue runner.process.start $run_watch 0
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.start.received $start_watch 0 | complete)
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.start.received $start_watch 0 | complete)
 let write_watch = tg --url $remote.url --token $root_token checkpoint watch index.batch | from json | get watch
 tg --url $remote.url --token $root_token checkpoint unwatch process.control.start.received $start_watch
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait index.batch $write_watch 0 | complete)
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.start.succeeded $reply_watch 0 | complete)
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $run_watch 1 | complete)
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s index.batch $write_watch 0 | complete)
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.control.start.succeeded $reply_watch 0 | complete)
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $run_watch 1 | complete)
 
 # Kill rather than gracefully drain the queued write.
 let pid = open --raw ($remote.directory | path join lock) | str trim | into int

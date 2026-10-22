@@ -42,9 +42,9 @@ let build = job spawn {
 	let output = tg --url $local.url build --remote $file | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait verification.index.wait $watch 0 | complete) 'verification should reach the blocked index attempt'
-success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete) 'the upload should reach the held blob'
-let graph_request = timeout 10s tg --url $remote.url --token $root_token checkpoint wait verification.index $graph_watch 0 | complete
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s verification.index.wait $watch 0 | complete) 'verification should reach the blocked index attempt'
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.get.store.object $store_watch 0 | complete) 'the upload should reach the held blob'
+let graph_request = tg --url $remote.url --token $root_token checkpoint wait --timeout 10s verification.index $graph_watch 0 | complete
 success $graph_request 'the runner should request the backing graph'
 let token_resource = $graph_request.stdout | from json | get params.token_resource
 assert ($token_resource | str contains 'syn_') 'the graph request should retain the authorization token for the sync'

@@ -10,7 +10,7 @@ let spawn = job spawn {
 	let output = tg run $'--sandbox=($sandbox)' $path | complete
 	$output | job send --tag $job_id 0
 }
-timeout 30s tg checkpoint wait runner.process.control.connect $watch 0 | ignore
+tg checkpoint wait --timeout 30s runner.process.control.connect $watch 0 | ignore
 success (timeout 10s tg sandbox destroy $sandbox | complete) "destruction must not wait for a pending process connection"
 let output = timeout 10s tg sandbox destroy $sandbox | complete
 failure $output

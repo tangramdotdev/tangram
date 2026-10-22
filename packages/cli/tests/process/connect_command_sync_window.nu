@@ -60,7 +60,7 @@ let run = job spawn {
  let output = node $script $socket $command $ready | complete
  $output | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | complete)
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $watch 0 | complete)
 success (timeout 30s cat $ready | complete) "the client should send its requests while the command push is held"
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $watch
 tg --url $runner.url checkpoint unwatch runner.process.run $run_watch

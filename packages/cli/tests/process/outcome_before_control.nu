@@ -44,10 +44,10 @@ let run = job spawn {
 	let job_id = job id
 	tg --url $remote.url --token $alice.token run --cached=false --no-tty --sandbox --stdin null $command | complete | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.header $header_watch 0 | complete) "the runner should connect process control"
+success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.header $header_watch 0 | complete) "the runner should connect process control"
 
 # The runner pushes the outcome under the assignment's outcome sync while its process control connection is held.
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $outcome_watch 0 | complete) "the runner should push the outcome before process control connects"
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $outcome_watch 0 | complete) "the runner should push the outcome before process control connects"
 tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $outcome_watch
 
 # Release the header, and the run completes with its output.

@@ -33,7 +33,7 @@ let path = artifact {
 }
 let finish_watch = tg --url $runner.url checkpoint watch runner.process.finish | from json | get watch
 let process = tg --url $local.url build --no-tokens --remote --detach $path | referent node
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 
 # Hold control reads on the remote so children can only arrive from runner state.
 let response_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.response.publish --params '{"kind":"get_children"}' | from json | get watch
@@ -53,9 +53,9 @@ assert equal ($snapshot | length) 1
 assert ($snapshot.0.process | str contains 'location=remote') "the child must keep its remote location"
 
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 0
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 1 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 1 | ignore
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 1
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 2 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 2 | ignore
 
 let second_chunk = job recv --tag $stream_job --timeout 10sec | str substring 6.. | from json
 let third_chunk = job recv --tag $stream_job --timeout 10sec | str substring 6.. | from json
@@ -73,12 +73,12 @@ assert equal $empty []
 
 tg --url $remote.url --token $root_token checkpoint unwatch process.control.response.publish $response_watch
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 2
-timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 3 | ignore
+tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 3 | ignore
 let params = { id: $process } | to json --raw
 let remote_finish_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.finish --params $params | from json | get watch
 tg --url $runner.url checkpoint continue runner.process.finish $finish_watch 3
 tg --url $runner.url checkpoint unwatch runner.process.finish $finish_watch
-timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $remote_finish_watch 0 | ignore
+tg --url $remote.url --token $root_token checkpoint wait --timeout 30s process.control.finish $remote_finish_watch 0 | ignore
 assert equal (job recv --tag $stream_job --timeout 10sec) 'event: end' "the attached children stream must end before remote completion is published"
 tg --url $remote.url --token $root_token checkpoint unwatch process.control.finish $remote_finish_watch
 let output = timeout 30s tg --url $local.url wait $process | complete

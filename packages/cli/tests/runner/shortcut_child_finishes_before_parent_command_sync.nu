@@ -50,27 +50,27 @@ let build = job spawn {
 }
 
 # Record the scheduled grandparent and the shortcut parent.
-let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.state.inserted $inserted_watch 0 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.state.inserted $inserted_watch 0 | complete
 success $output "the grandparent should enter the runner state"
 tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 0
-let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.state.inserted $inserted_watch 1 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.state.inserted $inserted_watch 1 | complete
 success $output "the parent should enter the runner state"
 let parent = $output.stdout | from json | get params.process
 tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 1
 
 # Hold the parent's command sync while Start proceeds independently.
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 0 | complete) "the parent should reach its command sync"
+success (tg --url $runner.url checkpoint wait --timeout 60s runner.process.command.sync.started $sync_watch 0 | complete) "the parent should reach its command sync"
 
 # Let the child's command sync proceed while its parent's command sync is held.
-let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.state.inserted $inserted_watch 2 | complete
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.state.inserted $inserted_watch 2 | complete
 success $output "the child should enter the runner state"
 let child = $output.stdout | from json | get params.process
 tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 2
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 1 | complete) "the child should reach its command sync"
+success (tg --url $runner.url checkpoint wait --timeout 60s runner.process.command.sync.started $sync_watch 1 | complete) "the child should reach its command sync"
 tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 1
 
 # The child runs to completion while the parent's command sync is held.
-let finished = timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete
+let finished = tg --url $runner.url checkpoint wait --timeout 30s runner.process.finished $finished_watch 0 | complete
 success $finished "the child should finish while its parent command sync is held"
 assert equal ($finished.stdout | from json | get params.process) $child "the child should finish first"
 tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 0

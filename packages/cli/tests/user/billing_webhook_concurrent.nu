@@ -24,7 +24,7 @@ let first = job spawn {
 	let status = send_stripe_webhook $local $webhook_secret $event
 	$status | job send --tag $id 0
 }
-success (timeout 10s tg --token $root_token checkpoint wait billing.webhook.store $watch 0 | complete)
+success (tg --token $root_token checkpoint wait --timeout 10s billing.webhook.store $watch 0 | complete)
 
 { id: 'cus_mock', invoice_settings: { default_payment_method: null } } | to json | save --force $stripe.customer_path
 let second = job spawn {
@@ -32,7 +32,7 @@ let second = job spawn {
 	let status = send_stripe_webhook $local $webhook_secret $event
 	$status | job send --tag $id 0
 }
-success (timeout 10s tg --token $root_token checkpoint wait billing.webhook.store $watch 1 | complete)
+success (tg --token $root_token checkpoint wait --timeout 10s billing.webhook.store $watch 1 | complete)
 
 tg --token $root_token checkpoint continue billing.webhook.store $watch 1
 assert equal (job recv --tag $second --timeout 10sec) 200

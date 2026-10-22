@@ -52,7 +52,7 @@ for kind in [object process] {
 		let output = tg --no-quiet --url $local.url --token $root_token push $node $blocker o+e>| tee { save --append $push_log } | complete
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $url --token $root_token checkpoint wait $checkpoint $watch 0 | ignore
+	tg --url $url --token $root_token checkpoint wait --timeout 10s $checkpoint $watch 0 | ignore
 	wait_for_log { log: $push_log } 'tokens[remote]'
 	let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 	let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
@@ -69,7 +69,7 @@ for kind in [object process] {
 		}
 	}
 	let attempts = 0..3 | each {|index|
-		let attempt = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $ack_watch $index | from json | get params.attempt
+		let attempt = tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.service.ack $ack_watch $index | from json | get params.attempt
 		tg --url $remote.url --token $root_token checkpoint continue sync.service.ack $ack_watch $index
 		$attempt
 	}
@@ -79,7 +79,7 @@ for kind in [object process] {
 		let output = http get --max-time 30sec --unix-socket $socket --headers $headers $'http://localhost/objects/($blocker)?($query)'
 		$output | job send --tag $job_id 0
 	}
-	timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.service.ack $blocker_ack_watch 0 | ignore
+	tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.service.ack $blocker_ack_watch 0 | ignore
 	tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $ack_watch
 	tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $blocker_ack_watch
 	tg --url $url --token $root_token checkpoint unwatch $checkpoint $watch
@@ -93,7 +93,7 @@ for kind in [object process] {
 			assert equal $output.data.output.node 5
 		}
 	}
-	timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blocker_watch 0 | ignore
+	tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.get.store.object $blocker_watch 0 | ignore
 	let premature = try { job recv --tag $blocked_read --timeout 1sec } catch { null }
 	assert equal $premature null 'the unrelated read must remain pending'
 	let premature = try { job recv --tag $push --timeout 1sec } catch { null }

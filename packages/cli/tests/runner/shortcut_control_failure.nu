@@ -53,18 +53,18 @@ for kind in [sandbox process] {
 	}
 
 	# Let the parent start, then hold the child's sandbox before activation.
-	success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 0 | complete)
+	success (tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.pool.take $pool_watch 0 | complete)
 	tg --url $runner.url checkpoint continue runner.sandbox.pool.take $pool_watch 0
-	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete)
+	success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $start_watch 0 | complete)
 	tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 	if $kind == 'process' {
-		success (timeout 30s tg --url $runner.url checkpoint wait $checkpoint $control_watch 0 | complete)
+		success (tg --url $runner.url checkpoint wait --timeout 30s $checkpoint $control_watch 0 | complete)
 		tg --url $runner.url checkpoint continue $checkpoint $control_watch 0
 	}
-	success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 1 | complete)
+	success (tg --url $runner.url checkpoint wait --timeout 30s runner.sandbox.pool.take $pool_watch 1 | complete)
 	tg --url $runner.url checkpoint unwatch runner.sandbox.pool.take $pool_watch
-	success (timeout 30s tg --url $runner.url checkpoint wait $checkpoint $control_watch $control_hit | complete)
-	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | complete) "the child should start before its handshake"
+	success (tg --url $runner.url checkpoint wait --timeout 30s $checkpoint $control_watch $control_hit | complete)
+	success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.start $start_watch 1 | complete) "the child should start before its handshake"
 	tg --url $runner.url checkpoint continue runner.process.start $start_watch 1
 
 	# Reject only new runner-authenticated connections; the parent's assigned control streams remain valid.

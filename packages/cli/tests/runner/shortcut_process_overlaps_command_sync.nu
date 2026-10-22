@@ -26,10 +26,10 @@ let run = job spawn {
 	let output = tg --url $local.url run --no-tty --remote --user $alice.user.id $path | complete
 	$output | job send --tag $job_id 0
 }
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $push 0 | complete)
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished 0 | complete)
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.command.sync.started $push 0 | complete)
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.finished $finished 0 | complete)
 tg --url $runner.url checkpoint continue runner.process.finished $finished 0
-success (timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished 1 | complete)
+success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.finished $finished 1 | complete)
 tg --url $runner.url checkpoint unwatch runner.process.finished $finished
 tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $push
 let output = job recv --tag $run --timeout 30sec
