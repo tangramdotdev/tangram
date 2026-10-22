@@ -5,6 +5,10 @@ use {
 		convert::Infallible,
 		path::Path,
 		pin::{Pin, pin},
+		sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		},
 		task::Poll,
 		time::Duration,
 	},
@@ -644,6 +648,18 @@ impl Server {
 
 		let session = self.session(&context);
 
+		// Record whether reading the request body fails, so that an error caused by the client is not logged as a server error.
+		let body_failed = Arc::new(AtomicBool::new(false));
+		let request = request.map({
+			let body_failed = body_failed.clone();
+			move |body| {
+				BoxBody::new(body.map_err(move |error| {
+					body_failed.store(true, Ordering::Relaxed);
+					error
+				}))
+			}
+		});
+
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
 			(http::Method::POST, ["check"]) => session.check_request(request).boxed(),
@@ -965,7 +981,11 @@ impl Server {
 
 		// Handle an error.
 		let mut response = response.unwrap_or_else(|error| {
-			tracing::error!(error = %error.trace());
+			if body_failed.load(Ordering::Relaxed) {
+				tracing::debug!(error = %error.trace(), "failed to read the request body");
+			} else {
+				tracing::error!(error = %error.trace());
+			}
 			let status = match error.kind() {
 				Some(tg::error::Kind::Argument) => http::StatusCode::BAD_REQUEST,
 				Some(tg::error::Kind::Internal) | None => http::StatusCode::INTERNAL_SERVER_ERROR,
