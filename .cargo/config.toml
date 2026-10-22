@@ -5,6 +5,7 @@ RUSTY_V8_MIRROR = "https://github.com/denoland/rusty_v8/releases/download"
 
 [profile.dev]
 debug = "line-tables-only"
+split-debuginfo = "unpacked"
 
 [profile.dev.package."*"]
 debug = false
