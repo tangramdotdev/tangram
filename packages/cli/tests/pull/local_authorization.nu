@@ -2,8 +2,9 @@ use ../lib/test.nu *
 
 # Local pulls return bounded capabilities for the permissions they actually verify.
 
+let root_token = random chars
 let local = server spawn --now 2026-01-01T00:00:00Z --config {
-	authentication: { users: { providers: { insecure: true } } },
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	object: { permission_time_to_live: 3600 },
 }
 let alice = tg login --verbose --name alice | from json

@@ -13,7 +13,11 @@ let path = artifact {
 	tangram.ts: ''
 }
 
+# Check in with a watch, and wait for its TTL timer to start.
+let ttl = checkpoint watch clock.sleep --params { duration: '1s' }
 let id = tg checkin --no-tokens $path --watch | referent node
+checkpoint pass $ttl | ignore
+checkpoint unwatch $ttl
 let object = tg get $id --blobs --depth=inf --no-tokens --pretty
 snapshot $object '
 	tg.directory({

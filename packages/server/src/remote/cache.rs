@@ -385,7 +385,7 @@ mod tests {
 
 	#[test]
 	fn expiration_preserves_other_proofs() {
-		let clock = crate::clock::Clock::new(None);
+		let clock = crate::clock::Clock::new(None, None);
 		let resource = tg::process::Id::new();
 		let token = |expires_at| tg::authorization::Token {
 			body: tg::authorization::Body {

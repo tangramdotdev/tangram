@@ -8,7 +8,7 @@ fn clock() -> Clock {
 	let config = crate::config::Clock {
 		start: "2026-01-01T00:00:00Z".parse().unwrap(),
 	};
-	Clock::new(Some(&config))
+	Clock::new(Some(&config), None)
 }
 
 #[tokio::test]

@@ -817,13 +817,8 @@ export def --env "server spawn" [
 	} else {
 		$config | upsert vfs { kind: $forced_vfs_kind }
 	}
-	# Start the server's virtual clock at the requested time, and give an authenticated server a root token so that the test library can control the clock.
+	# Start the server's virtual clock at the requested time.
 	let config = if $now == null { $config } else { $config | upsert advanced (($config.advanced? | default {}) | upsert clock { start: $now }) }
-	let config = if $now != null and $config.authentication? != null and $config.authentication.root?.token? == null {
-		$config | upsert authentication ($config.authentication | upsert root { token: (random chars) })
-	} else {
-		$config
-	}
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'
 	$config | to json | save -f $config_path

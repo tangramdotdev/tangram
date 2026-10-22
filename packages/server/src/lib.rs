@@ -1522,7 +1522,7 @@ impl Server {
 		let diagnostics = Mutex::new(Vec::new());
 
 		// Create the clock.
-		let clock = self::clock::Clock::new(config.advanced.clock.as_ref());
+		let clock = self::clock::Clock::new(config.advanced.clock.as_ref(), checkpoints.clone());
 
 		// Create the index.
 		let index = match &config.index {

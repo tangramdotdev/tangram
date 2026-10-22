@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A stdin close held until the process control task exits observes the finished process instead of retrying forever against the retired control connection.
 
-let local = server spawn --config {
+let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
 	runner: { process_state_ttl: 1 },
 }
@@ -76,11 +76,17 @@ let output = tg checkpoint wait --timeout 10s process.stdio.write.request $write
 success $output "the stdin close should reach the server"
 
 # Disconnect the client, destroy the sandbox, and wait until its process control task has exited.
+let retention = checkpoint watch clock.sleep --params { duration: '1s' }
 kill --signal 15 $pid
 let output = tg checkpoint wait --timeout 10s runner.sandbox.destroyed $destroyed_watch 0 | complete
 success $output "the sandbox should be destroyed while the stdin close is held"
 tg checkpoint continue runner.sandbox.destroyed $destroyed_watch 0
 tg checkpoint unwatch runner.sandbox.destroyed $destroyed_watch
+
+# Advance the clock past the process state retention window once it starts.
+checkpoint pass $retention | ignore
+checkpoint unwatch $retention
+advance_time $local 1sec
 let output = tg checkpoint wait --timeout 10s runner.process.control.finished $control_finished_watch 0 | complete
 success $output "the process control task should finish while the stdin close is held"
 tg checkpoint continue runner.process.control.finished $control_finished_watch 0

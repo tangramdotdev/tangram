@@ -29,6 +29,7 @@ pub(crate) struct Real {
 }
 
 pub(crate) struct Virtual {
+	checkpoints: Option<Arc<crate::checkpoint::State>>,
 	state: Mutex<VirtualState>,
 }
 
@@ -83,7 +84,10 @@ pub(crate) struct Elapsed;
 
 impl Clock {
 	#[must_use]
-	pub fn new(config: Option<&crate::config::Clock>) -> Self {
+	pub fn new(
+		config: Option<&crate::config::Clock>,
+		checkpoints: Option<Arc<crate::checkpoint::State>>,
+	) -> Self {
 		let Some(config) = config else {
 			let origin = tokio::time::Instant::now();
 			return Self::Real(Real { origin });
@@ -95,6 +99,7 @@ impl Clock {
 			waiters: BTreeMap::new(),
 		};
 		let clock = Virtual {
+			checkpoints,
 			state: Mutex::new(state),
 		};
 		Self::Virtual(Arc::new(clock))
@@ -263,6 +268,22 @@ impl Virtual {
 		state.next += 1;
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		state.waiters.insert(key, sender);
+		let duration = deadline.0.saturating_sub(state.elapsed);
+		drop(state);
+
+		// Hit the checkpoint for the registered sleep, so that a test can advance the clock past it.
+		if let Some(checkpoints) = self.checkpoints.clone() {
+			let duration = jiff::SignedDuration::try_from(duration).map_or_else(
+				|_| format!("{duration:?}"),
+				|duration| format!("{duration:#}"),
+			);
+			tokio::spawn(async move {
+				let mut params = tg::checkpoint::Params::new();
+				params.insert("duration".to_owned(), duration.as_str().into());
+				checkpoints.hit("clock.sleep", params).await;
+			});
+		}
+
 		Sleep {
 			inner: SleepInner::Virtual(VirtualSleep {
 				clock: self.clone(),
