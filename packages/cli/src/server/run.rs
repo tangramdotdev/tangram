@@ -82,6 +82,7 @@ impl Cli {
 					.parse()
 					.map_err(|error| tg::error!(!error, %remote, "invalid remote URL"))?;
 				let entry = tangram_server::config::Remote {
+					client: tangram_server::config::Client::default(),
 					token: None,
 					trusted: false,
 					url,

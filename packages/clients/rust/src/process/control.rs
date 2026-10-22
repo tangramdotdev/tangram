@@ -790,9 +790,11 @@ impl tg::Session {
 		let uri = Uri::builder().path(path).build().unwrap();
 		let max_frame_size = self.client().sync.max_frame_size;
 		let body = crate::http::frame::encode(stream, max_frame_size);
+		let affinity = crate::http::Affinity::Process(arg.id.clone());
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.extension(affinity)
 			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
 			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
 			.header(tangram_http::body::arg::HEADER, "true")

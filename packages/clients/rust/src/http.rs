@@ -8,6 +8,7 @@ use {
 		path::Path,
 		pin::Pin,
 		str::FromStr,
+		sync::{Arc, Mutex, Weak},
 		task::{Context, Poll},
 		time::Duration,
 	},
@@ -21,6 +22,10 @@ use {
 
 pub(crate) mod frame;
 
+type Affinities = Arc<Mutex<weak_table::WeakValueHashMap<Affinity, Weak<Guard>>>>;
+
+type Guard = tangram_pool::SharedGuard<Connection, Error>;
+
 pub(crate) type Pool = tangram_pool::Pool<Connection, Error>;
 
 pub(crate) type Service = BoxCloneSyncService<
@@ -29,13 +34,21 @@ pub(crate) type Service = BoxCloneSyncService<
 	Error,
 >;
 
+/// The key of a group of correlated requests, which the client sends over one connection, so that one server answers them all over its local channel.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum Affinity {
+	Nonce(tg::process::Nonce),
+	Process(tg::process::Id),
+	Sandbox(tg::sandbox::Id),
+}
+
 pub(crate) struct Connection {
 	sender: hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>,
 }
 
 struct Body {
 	body: tangram_http::body::Boxed,
-	guard: Option<tangram_pool::SharedGuard<Connection, Error>>,
+	guard: Option<Arc<Guard>>,
 }
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
@@ -49,6 +62,16 @@ pub(crate) enum Error {
 
 	/// A failure to receive a response in time, after which the server may have handled the request.
 	Timeout(tg::Error),
+}
+
+impl Affinity {
+	#[must_use]
+	pub(crate) fn with_process(process: &tg::Either<tg::process::Nonce, tg::process::Id>) -> Self {
+		match process {
+			tg::Either::Left(nonce) => Self::Nonce(*nonce),
+			tg::Either::Right(id) => Self::Process(id.clone()),
+		}
+	}
 }
 
 impl tg::Client {
@@ -90,21 +113,17 @@ impl tg::Client {
 			},
 			_ => None,
 		};
+		let affinities = Affinities::default();
 		let service = tower::service_fn({
 			let pool = pool.clone();
-			move |request| {
+			move |request: http::Request<tangram_http::body::Boxed>| {
+				let affinities = affinities.clone();
 				let pool = pool.clone();
 				let origin = origin.clone();
 				async move {
 					let request = with_origin(request, origin.as_deref())?;
-					let connection = loop {
-						let connection = pool.get_shared(tangram_pool::Priority::default()).await?;
-						if connection.is_closed() {
-							connection.discard();
-							continue;
-						}
-						break connection;
-					};
+					let affinity = request.extensions().get::<Affinity>().cloned();
+					let connection = Self::connection(&pool, &affinities, affinity).await?;
 					match connection.send(request).await {
 						Ok(response) => {
 							let response = response.map(|body| {
@@ -117,7 +136,9 @@ impl tg::Client {
 							Ok(response)
 						},
 						Err(error) => {
-							if is_retryable_error(&error) {
+							if is_retryable_error(&error)
+								&& let Ok(connection) = Arc::try_unwrap(connection)
+							{
 								connection.discard();
 							}
 							Err(Error::Hyper(error))
@@ -175,6 +196,44 @@ impl tg::Client {
 			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
 			.service(service);
 		Service::new(service)
+	}
+
+	/// Get a connection for a request, which is the open connection of the request's affinity if it has one.
+	async fn connection(
+		pool: &Pool,
+		affinities: &Affinities,
+		affinity: Option<Affinity>,
+	) -> Result<Arc<Guard>, Error> {
+		// Use the open connection of the affinity.
+		if let Some(affinity) = &affinity
+			&& let Some(connection) = affinities.lock().unwrap().get(affinity)
+			&& !connection.is_closed()
+		{
+			return Ok(connection);
+		}
+
+		// Get an open connection from the pool.
+		let connection = loop {
+			let connection = pool.get_shared(tangram_pool::Priority::default()).await?;
+			if connection.is_closed() {
+				connection.discard();
+				continue;
+			}
+			break Arc::new(connection);
+		};
+
+		// Store the connection for the affinity, unless a concurrent request stored an open connection first.
+		if let Some(affinity) = affinity {
+			let mut affinities = affinities.lock().unwrap();
+			if let Some(existing) = affinities.get(&affinity)
+				&& !existing.is_closed()
+			{
+				return Ok(existing);
+			}
+			affinities.insert(affinity, connection.clone());
+		}
+
+		Ok(connection)
 	}
 
 	pub async fn connect(&self) -> tg::Result<()> {
@@ -644,6 +703,18 @@ impl tg::Session {
 				.entry(tg::sandbox::SANDBOX_HEADER)
 				.or_insert_with(|| http::HeaderValue::from_str(&sandbox.to_string()).unwrap());
 		}
+
+		// Send a request that claims a process or a sandbox over the connection of the process or sandbox, so that the server that verifies the claim answers it over its local channel.
+		let affinity = match (self.context().process(), self.context().sandbox()) {
+			(Some(process), _) => Some(Affinity::Process(process.clone())),
+			(None, Some(sandbox)) => Some(Affinity::Sandbox(sandbox.clone())),
+			(None, None) => None,
+		};
+		if let Some(affinity) = affinity
+			&& request.extensions().get::<Affinity>().is_none()
+		{
+			request.extensions_mut().insert(affinity);
+		}
 	}
 
 	pub async fn send<B>(
@@ -722,9 +793,10 @@ impl http_body::Body for Body {
 				this.guard.take();
 			},
 			Poll::Ready(Some(Err(_))) => {
-				// Discard the connection if the stream error closed it.
+				// Discard the connection if the stream error closed it and no other request in its affinity holds it.
 				if let Some(guard) = this.guard.take()
 					&& guard.is_closed()
+					&& let Ok(guard) = Arc::try_unwrap(guard)
 				{
 					guard.discard();
 				}

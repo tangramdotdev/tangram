@@ -309,6 +309,7 @@ vhost-user-backend = "0.22"
 vm-memory = { version = "0.17", features = ["backend-atomic", "backend-mmap"] }
 vt100 = "0.16"
 waitpid-any = "0.3"
+weak-table = "0.4"
 webbrowser = "1"
 winnow = "1"
 xattr = { version = "1" }

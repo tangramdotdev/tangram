@@ -419,6 +419,7 @@ impl Server {
 		{
 			response
 		} else {
+			crate::checkpoint!(self, "process.connect.service.messenger", nonce = %nonce).await;
 			let mut request = self
 				.process_connect_clients
 				.request(&subject(nonce), request)

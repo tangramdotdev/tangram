@@ -1719,6 +1719,10 @@ pub struct Read {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Region {
+	/// Configure the client that the server creates for the region.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub client: Option<ServerClient>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 
@@ -1776,6 +1780,10 @@ pub struct Retry {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Remote {
+	/// Configure the client that the server creates for the remote.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub client: Option<ServerClient>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 
@@ -1784,6 +1792,15 @@ pub struct Remote {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
+}
+
+/// The configuration of the client that a server creates for a remote or a region.
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerClient {
+	/// Configure the client connection pool.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pool: Option<Pool>,
 }
 
 #[serde_as]
@@ -5274,11 +5291,17 @@ fn resolve_read(source: Read) -> server::Read {
 }
 
 fn resolve_region(source: Region) -> tg::Result<server::Region> {
+	let client = source
+		.client
+		.as_ref()
+		.map(resolve_server_client)
+		.unwrap_or_default();
 	let name = required(source.name, "regions[].name")?;
 	let reconnect = source.reconnect.map(resolve_reconnect).transpose()?;
 	let retry = source.retry.map(resolve_retry).transpose()?;
 	let url = required(source.url, "regions[].url")?;
 	let target = server::Region {
+		client,
 		name,
 		reconnect,
 		retry,
@@ -5375,16 +5398,30 @@ fn resolve_retry_with_default(source: Retry, mut target: server::Retry) -> serve
 }
 
 fn resolve_remote(source: Remote) -> tg::Result<server::Remote> {
+	let client = source
+		.client
+		.as_ref()
+		.map(resolve_server_client)
+		.unwrap_or_default();
 	let token = source.token;
 	let trusted = source.trusted.unwrap_or_default();
 	let url = required(source.url, "remotes.*.url")?;
 	let target = server::Remote {
+		client,
 		token,
 		trusted,
 		url,
 	};
 
 	Ok(target)
+}
+
+fn resolve_server_client(source: &ServerClient) -> server::Client {
+	let mut target = server::Client::default();
+	if let Some(pool) = &source.pool {
+		target.pool = resolve_client_pool(pool);
+	}
+	target
 }
 
 fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {

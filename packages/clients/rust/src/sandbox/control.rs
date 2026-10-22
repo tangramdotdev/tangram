@@ -455,7 +455,13 @@ impl tg::Session {
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
-			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
+			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE);
+		let request = if let Some(id) = &arg.id {
+			request.extension(crate::http::Affinity::Sandbox(id.clone()))
+		} else {
+			request
+		};
+		let request = request
 			.arg(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();

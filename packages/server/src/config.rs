@@ -1105,6 +1105,8 @@ pub struct Read {
 
 #[derive(Clone, Debug)]
 pub struct Region {
+	pub client: Client,
+
 	pub name: String,
 
 	pub reconnect: Option<Reconnect>,
@@ -1138,11 +1140,19 @@ pub struct Retry {
 
 #[derive(Clone, Debug)]
 pub struct Remote {
+	pub client: Client,
+
 	pub token: Option<String>,
 
 	pub trusted: bool,
 
 	pub url: Uri,
+}
+
+/// The configuration of the client that a server creates for a remote or a region.
+#[derive(Clone, Debug)]
+pub struct Client {
+	pub pool: tangram_pool::Options,
 }
 
 #[derive(Clone, Debug)]
@@ -2147,6 +2157,14 @@ impl Default for CheckinSolve {
 	fn default() -> Self {
 		Self {
 			prefetch_concurrency: 16,
+		}
+	}
+}
+
+impl Default for Client {
+	fn default() -> Self {
+		Self {
+			pool: tg::Arg::default().pool,
 		}
 	}
 }

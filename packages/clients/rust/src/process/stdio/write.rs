@@ -137,9 +137,11 @@ impl tg::Session {
 		let path = format!("/processes/{process}/stdio/write");
 		let uri = Uri::builder().path(&path).build().unwrap();
 		let body = crate::http::frame::encode(input, max_frame_size);
+		let affinity = crate::http::Affinity::with_process(process);
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
 			.uri(uri)
+			.extension(affinity)
 			.header(http::header::ACCEPT, super::TANGRAM_CONTENT_TYPE)
 			.header(http::header::CONTENT_TYPE, super::TANGRAM_CONTENT_TYPE)
 			.arg_with_tangram(&arg, body)

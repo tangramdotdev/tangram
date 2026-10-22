@@ -252,6 +252,7 @@ impl Server {
 		{
 			response
 		} else {
+			crate::checkpoint!(self, "sandbox.control.service.messenger", sandbox = %id).await;
 			let mut request = self
 				.sandbox_control_clients
 				.request(&subject(id), request)

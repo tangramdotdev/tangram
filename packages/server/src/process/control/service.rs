@@ -402,6 +402,7 @@ impl Server {
 		{
 			response
 		} else {
+			crate::checkpoint!(self, "process.control.service.messenger", process = %id).await;
 			let mut request = self
 				.process_control_clients
 				.request(&subject(id), request)
