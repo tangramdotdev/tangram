@@ -6,6 +6,9 @@ use {
 	tangram_server_core::Session,
 };
 
+#[cfg(test)]
+mod tests;
+
 /// The component.
 #[derive(Clone, Default)]
 pub struct Component {}
@@ -804,15 +807,10 @@ impl Component {
 			resource.options.tokens = tg::authorization::Tokens::with_authorization(tokens);
 			pending.push(resource);
 		}
-		if !pending.is_empty() && session.server.config.indexer.permission_capture.enabled {
-			let arg = tangram_index::permission::capture::enqueue::Arg {
-				id: uuid::Uuid::now_v7().as_bytes().to_vec(),
-				principal,
-				resource,
-				roots: pending,
-				version,
-			};
-			items.push(tangram_index::batch::Item::EnqueuePermissionCapture(arg));
+		if session.server.config.indexer.permission_capture.enabled {
+			items.extend(enqueue_permission_capture_items(
+				principal, resource, version, pending,
+			));
 		}
 
 		Ok(items)
@@ -1003,4 +1001,40 @@ impl tangram_server_core::authorization::Component for Component {
 	) -> bool {
 		Self::verify_token(session, token)
 	}
+}
+
+/// Enqueue one permission capture entry per root, so that each entry's size is bounded by one root and its tokens.
+fn enqueue_permission_capture_items(
+	principal: tg::Principal,
+	resource: tg::Id,
+	version: Option<String>,
+	mut roots: Vec<tg::Referent<tg::Id>>,
+) -> Vec<tangram_index::batch::Item> {
+	// Clone the shared fields for every root but the last, which takes them.
+	let Some(last) = roots.pop() else {
+		return Vec::new();
+	};
+	let mut items = roots
+		.into_iter()
+		.map(|root| {
+			let arg = tangram_index::permission::capture::enqueue::Arg {
+				id: uuid::Uuid::now_v7().as_bytes().to_vec(),
+				principal: principal.clone(),
+				resource: resource.clone(),
+				roots: vec![root],
+				version: version.clone(),
+			};
+			tangram_index::batch::Item::EnqueuePermissionCapture(arg)
+		})
+		.collect::<Vec<_>>();
+	let arg = tangram_index::permission::capture::enqueue::Arg {
+		id: uuid::Uuid::now_v7().as_bytes().to_vec(),
+		principal,
+		resource,
+		roots: vec![last],
+		version,
+	};
+	items.push(tangram_index::batch::Item::EnqueuePermissionCapture(arg));
+
+	items
 }

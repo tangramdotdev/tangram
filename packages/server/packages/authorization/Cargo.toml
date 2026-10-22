@@ -25,3 +25,6 @@ tangram_server_authorization_common = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_server_grant_common = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+tangram_serialize = { workspace = true }

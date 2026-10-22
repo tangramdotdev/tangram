@@ -13,6 +13,8 @@ use {
 	tangram_client::prelude::*,
 };
 
+const SIZE_LIMIT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
 pub(super) type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
 pub(super) type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
 pub(super) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
@@ -1006,6 +1008,45 @@ impl Index {
 		}
 	}
 
+	/// Describe a batch that exceeds the `FoundationDB` key or value size limit, naming its largest item, so that it is clear that indexing cannot proceed until a fix is rolled out.
+	fn size_limit_error(
+		error: fdb::FdbError,
+		items_or_requests: &tg::Either<&[tangram_index::batch::Item], &[Request]>,
+	) -> tg::Error {
+		let items = match items_or_requests {
+			tg::Either::Left(items) => items.iter().collect::<Vec<_>>(),
+			tg::Either::Right(requests) => requests
+				.iter()
+				.filter_map(|request| match request {
+					Request::Batch(arg) => Some(arg.items.iter()),
+					_ => None,
+				})
+				.flatten()
+				.collect(),
+		};
+		let largest = items
+			.into_iter()
+			.filter_map(|item| {
+				let size = tangram_serialize::to_vec(item).ok()?.len();
+				Some((item, size))
+			})
+			.max_by_key(|(_, size)| *size);
+		let Some((item, size)) = largest else {
+			return tg::error!(
+				!error,
+				"a batch exceeds the FoundationDB key or value size limit, so indexing cannot proceed until a fix is rolled out"
+			);
+		};
+		let kind = batch_item_kind(item);
+
+		tg::error!(
+			!error,
+			%kind,
+			%size,
+			"a batch item exceeds the FoundationDB key or value size limit, so indexing cannot proceed until a fix is rolled out"
+		)
+	}
+
 	async fn execute_ordered_batch(
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
@@ -1126,6 +1167,34 @@ impl Index {
 	}
 
 	async fn execute_transaction_with(
+		database: &fdb::Database,
+		subspace: &fdbt::Subspace,
+		items_or_requests: tg::Either<&[tangram_index::batch::Item], &[Request]>,
+		config: ExecutionConfig<'_>,
+		priority_batch: bool,
+	) -> Result<Vec<Response>, TransactionError> {
+		// Retry a transaction that exceeds the size limit instead of failing it, so that no index write is dropped and indexing halts loudly until a fix is rolled out.
+		loop {
+			let result = Self::execute_transaction_with_inner(
+				database,
+				subspace,
+				items_or_requests.clone(),
+				config,
+				priority_batch,
+			)
+			.await;
+			match result {
+				Err(TransactionError::FoundationDb(error)) if Self::is_size_limit(error) => {
+					let error = Self::size_limit_error(error, &items_or_requests);
+					tracing::error!(error = %error.trace(), "failed to execute a batch, retrying");
+					tokio::time::sleep(SIZE_LIMIT_RETRY_DELAY).await;
+				},
+				result => return result,
+			}
+		}
+	}
+
+	async fn execute_transaction_with_inner(
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
 		items_or_requests: tg::Either<&[tangram_index::batch::Item], &[Request]>,
@@ -1547,6 +1616,10 @@ impl Index {
 		error.code() == 1007
 	}
 
+	fn is_size_limit(error: fdb::FdbError) -> bool {
+		matches!(error.code(), 2102 | 2103)
+	}
+
 	fn is_split_error(error: fdb::FdbError) -> bool {
 		Self::is_transaction_too_large(error) || Self::is_transaction_too_old(error)
 	}
@@ -1618,6 +1691,36 @@ impl Metrics {
 			transaction_too_large,
 			transactions,
 		}
+	}
+}
+
+fn batch_item_kind(item: &tangram_index::batch::Item) -> &'static str {
+	match item {
+		tangram_index::batch::Item::DeleteCheckout(_) => "delete_checkout",
+		tangram_index::batch::Item::DeleteDelegations(_) => "delete_delegations",
+		tangram_index::batch::Item::DeleteGroup(_) => "delete_group",
+		tangram_index::batch::Item::DeleteGroupMember(_) => "delete_group_member",
+		tangram_index::batch::Item::DeleteOrganization(_) => "delete_organization",
+		tangram_index::batch::Item::DeleteOrganizationMember(_) => "delete_organization_member",
+		tangram_index::batch::Item::DeletePermission(_) => "delete_permission",
+		tangram_index::batch::Item::DeleteSandbox(_) => "delete_sandbox",
+		tangram_index::batch::Item::DeleteTag(_) => "delete_tag",
+		tangram_index::batch::Item::DeleteUser(_) => "delete_user",
+		tangram_index::batch::Item::EnqueuePermissionCapture(_) => "enqueue_permission_capture",
+		tangram_index::batch::Item::PutAccountObject(_) => "put_account_object",
+		tangram_index::batch::Item::PutAccountProcess(_) => "put_account_process",
+		tangram_index::batch::Item::PutCheckout(_) => "put_checkout",
+		tangram_index::batch::Item::PutDelegation(_) => "put_delegation",
+		tangram_index::batch::Item::PutGroup(_) => "put_group",
+		tangram_index::batch::Item::PutGroupMember(_) => "put_group_member",
+		tangram_index::batch::Item::PutObject(_) => "put_object",
+		tangram_index::batch::Item::PutOrganization(_) => "put_organization",
+		tangram_index::batch::Item::PutOrganizationMember(_) => "put_organization_member",
+		tangram_index::batch::Item::PutPermission(_) => "put_permission",
+		tangram_index::batch::Item::PutProcess(_) => "put_process",
+		tangram_index::batch::Item::PutSandbox(_) => "put_sandbox",
+		tangram_index::batch::Item::PutTag(_) => "put_tag",
+		tangram_index::batch::Item::PutUser(_) => "put_user",
 	}
 }
 

@@ -10772,6 +10772,7 @@ dependencies = [
  "num",
  "tangram_client",
  "tangram_index",
+ "tangram_serialize",
  "tangram_server_authorization_common",
  "tangram_server_core",
  "tangram_server_grant_common",
