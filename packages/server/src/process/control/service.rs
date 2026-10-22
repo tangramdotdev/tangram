@@ -237,8 +237,9 @@ impl Session {
 
 		// Keep answering for the service's attempt time to live.
 		let ttl = self.server.config.process.control_service.attempt_ttl;
+		let sleep = self.server.clock.sleep(ttl);
 		tokio::spawn(async move {
-			tokio::time::sleep(ttl).await;
+			sleep.await;
 			drop(sender);
 		});
 	}

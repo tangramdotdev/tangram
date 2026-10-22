@@ -6,7 +6,6 @@ skip_if_no_cloud
 
 let local = server spawn --cloud --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
-	indexer: { cleaning: { poll_interval: 0.01 } },
 	object: { ttl: 60, ttt: 0 },
 }
 let keyspace = open $local.config_path | get cache.keyspace

@@ -89,7 +89,7 @@ impl Indexer {
 			if should_sleep {
 				tokio::select! {
 					() = stopper.wait() => return Ok(()),
-					() = tokio::time::sleep(cache.poll_interval) => {},
+					() = self.server.clock.sleep(cache.poll_interval) => {},
 				}
 			}
 		}

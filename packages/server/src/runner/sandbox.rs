@@ -1041,7 +1041,7 @@ impl Session {
 				result = &mut ready_connection, if reusable && !ready => {
 					result?;
 					if pending.is_empty() && process_events.is_empty() && let Some(ttl) = ttl {
-						timer_future.replace(tokio::time::sleep(ttl).boxed());
+						timer_future.replace(self.server.clock.sleep(ttl).boxed());
 					}
 					let event = ReadyEvent { connected_event: None, sandbox: id.clone() };
 					event_sender.send(Ok(Event::Ready(event))).ok();
@@ -1176,7 +1176,7 @@ impl Session {
 									break;
 								}
 								if let Some(ttl) = ttl {
-									timer_future.replace(tokio::time::sleep(ttl).boxed());
+									timer_future.replace(self.server.clock.sleep(ttl).boxed());
 								}
 							}
 						},
@@ -1417,7 +1417,7 @@ impl Session {
 
 		// Retain the sandbox state and control stream.
 		let retention_ttl = self.server.config.runner.sandbox_state_ttl;
-		let retention_future = tokio::time::sleep(retention_ttl);
+		let retention_future = self.server.clock.sleep(retention_ttl);
 		let mut retention_future = pin!(retention_future);
 		loop {
 			tokio::select! {

@@ -21,7 +21,7 @@ impl Indexer {
 			}
 			tokio::select! {
 				() = stopper.wait() => return Ok(()),
-				() = tokio::time::sleep(poll_interval) => {},
+				() = self.server.clock.sleep(poll_interval) => {},
 			}
 		}
 	}

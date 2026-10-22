@@ -1,8 +1,3 @@
-#![allow(
-	dead_code,
-	reason = "the timers are used once the policy timers are converted to the clock"
-)]
-
 use {
 	crate::Session,
 	std::{
@@ -310,20 +305,6 @@ impl Interval {
 				};
 
 				deadline
-			},
-		}
-	}
-
-	pub fn reset(&mut self) {
-		match &mut self.inner {
-			IntervalInner::Real { interval, .. } => interval.reset(),
-			IntervalInner::Virtual {
-				clock,
-				next,
-				period,
-				..
-			} => {
-				*next = Instant(clock.state.lock().unwrap().elapsed) + *period;
 			},
 		}
 	}

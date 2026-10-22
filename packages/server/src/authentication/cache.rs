@@ -222,7 +222,7 @@ impl Server {
 					if let Some(started) = started.take() {
 						let _ = started.send(());
 					}
-					tokio::time::sleep(Duration::from_secs(1)).await;
+					self.clock.sleep(Duration::from_secs(1)).await;
 					continue;
 				},
 				Err(_) => {
@@ -271,7 +271,7 @@ impl Server {
 				}
 			}
 			self.authentication_cache.set_ready(false);
-			tokio::time::sleep(Duration::from_secs(1)).await;
+			self.clock.sleep(Duration::from_secs(1)).await;
 		}
 	}
 }

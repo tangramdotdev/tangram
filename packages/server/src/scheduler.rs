@@ -334,7 +334,7 @@ impl Session {
 		let mut heartbeats = pin!(heartbeats);
 		let ttl = self.server.config.scheduler.heartbeat_ttl;
 		loop {
-			match tokio::time::timeout(ttl, heartbeats.try_next()).await {
+			match self.server.clock.timeout(ttl, heartbeats.try_next()).await {
 				Ok(Ok(Some(_))) => {},
 				Ok(Ok(None)) => {
 					return Err(tg::error!(
@@ -691,7 +691,7 @@ impl Server {
 			let result = self.scheduler_task_inner(config, &mut started).await;
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), "the scheduler task failed");
-				tokio::time::sleep(config.restart_delay).await;
+				self.clock.sleep(config.restart_delay).await;
 			}
 		}
 	}
@@ -769,9 +769,9 @@ impl Scheduler {
 
 	async fn message_handler_task(&self, mut stream: MessageStream) -> tg::Result<()> {
 		let mut state = State::new();
-		let mut cleaner_interval = tokio::time::interval(self.config.runner_ttl);
+		let mut cleaner_interval = self.server.clock.interval(self.config.runner_ttl);
 		cleaner_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-		let mut heartbeat_interval = tokio::time::interval(self.config.heartbeat_interval);
+		let mut heartbeat_interval = self.server.clock.interval(self.config.heartbeat_interval);
 		heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
 			let event = self
@@ -806,8 +806,8 @@ impl Scheduler {
 		&self,
 		state: &mut State,
 		stream: &mut MessageStream,
-		cleaner_interval: &mut tokio::time::Interval,
-		heartbeat_interval: &mut tokio::time::Interval,
+		cleaner_interval: &mut crate::clock::Interval,
+		heartbeat_interval: &mut crate::clock::Interval,
 	) -> tg::Result<Event> {
 		let event = tokio::select! {
 			_ = cleaner_interval.tick() => Event::CleanerTick,
@@ -840,7 +840,7 @@ impl Scheduler {
 					state.handle_borrowable_capacity(self, notification);
 				},
 				Notification::Heartbeat(notification) => {
-					if state.handle_heartbeat(&notification) {
+					if state.handle_heartbeat(&notification, self.server.clock.instant()) {
 						self.publish_runner_heartbeat_ack(state, &notification);
 					}
 				},
@@ -860,9 +860,10 @@ impl Scheduler {
 			return;
 		}
 		let duration = self.config.inbox_ttl;
+		let sleep = self.server.clock.sleep(duration);
 		state.operations.push(
 			async move {
-				tokio::time::sleep(duration).await;
+				sleep.await;
 				Operation::ExpireRequest { id: ack.id }
 			}
 			.boxed(),
@@ -1063,7 +1064,7 @@ impl Scheduler {
 	}
 
 	fn handle_cleaner_tick(&self, state: &mut State) {
-		let now = tokio::time::Instant::now();
+		let now = self.server.clock.instant();
 		let expired = state.runners.expired(now, self.config.runner_ttl);
 		for (runner, connection_index) in expired {
 			tracing::warn!(%runner, connection_index, ttl_ms = self.config.runner_ttl.as_millis(), "the runner heartbeat expired");

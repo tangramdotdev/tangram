@@ -279,7 +279,7 @@ impl Session {
 		loop {
 			let stop_future = stopper.wait();
 			let stop_future = pin!(stop_future);
-			let started = tokio::time::Instant::now();
+			let started = self.server.clock.instant();
 			let run_future = self.runner_task_inner(&id, &mut cleanup, stopper.clone());
 			let run_future = pin!(run_future);
 			let future::Either::Right((result, _)) = future::select(stop_future, run_future).await
@@ -289,7 +289,8 @@ impl Session {
 			self.server.runner.state.set_scheduler(None);
 
 			// Reconnect at once after a connection that lasted a heartbeat interval ends, with backoff while the scheduler cannot be reached or a connection ends sooner, and after the restart delay after a failure.
-			let lasted = started.elapsed() >= self.server.config.runner.heartbeat_interval;
+			let lasted = self.server.clock.instant() - started
+				>= self.server.config.runner.heartbeat_interval;
 			let delay = match result {
 				Ok(ControlFlow::Break(())) if lasted => {
 					tracing::info!(runner = %id, "the runner control connection ended");
@@ -313,7 +314,9 @@ impl Session {
 				Err(error) => {
 					tracing::error!(error = %error.trace(), "the runner task failed");
 					retries = None;
-					tokio::time::sleep(self.server.config.runner.restart_delay)
+					self.server
+						.clock
+						.sleep(self.server.config.runner.restart_delay)
 						.map(|()| Some(()))
 						.boxed()
 				},
@@ -461,7 +464,10 @@ impl Session {
 		let sender = control.sender();
 		let destroy = self.destroy_runner_sandboxes(sandboxes, sender.clone());
 		let mut destroy = pin!(destroy);
-		let mut interval = tokio::time::interval(self.server.config.runner.heartbeat_interval);
+		let mut interval = self
+			.server
+			.clock
+			.interval(self.server.config.runner.heartbeat_interval);
 		loop {
 			let message = tokio::select! {
 				result = &mut destroy => {
@@ -614,7 +620,10 @@ impl Session {
 	) -> tg::Result<()> {
 		let sender = control.sender();
 
-		let mut interval = tokio::time::interval(self.server.config.runner.heartbeat_interval);
+		let mut interval = self
+			.server
+			.clock
+			.interval(self.server.config.runner.heartbeat_interval);
 
 		// Process the messages the scheduler sends to this runner.
 		loop {

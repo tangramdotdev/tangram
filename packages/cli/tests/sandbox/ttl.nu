@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A sandbox defaults to a five-minute ttl, supports an explicitly infinite ttl, and is destroyed after its ttl expires.
 
-let local = server spawn --name local --config { advanced: { checkpoints: true }, indexer: { cleaning: {} }, runner: { sandbox_state_ttl: 0 }, sandbox: { ttl: 0 } }
+let local = server spawn --name local --now '2026-01-01T00:00:00Z' --config { advanced: { checkpoints: true }, indexer: { cleaning: {} }, runner: { sandbox_state_ttl: 0 }, sandbox: { ttl: 0 } }
 
 let default = tg sandbox create --no-tokens | referent node
 let sandbox = tg sandbox get $default | from json | get data
@@ -21,7 +21,11 @@ let removed = checkpoint watch runner.sandbox.state.removed --params { sandbox: 
 let output = tg sandbox get $id | complete
 success $output
 
-# Wait for the sandbox to expire, for cleaning to delete it from the index, and for the runner to discard its state.
+# Advance the clock past the ttl once the sandbox is ready, wait for the sandbox to be destroyed, and advance past the cleaning interval so that cleaning deletes it from the index and the runner discards its state.
+wait_for_log $local $'the sandbox is ready, sandbox=($id)'
+advance_time $local 1sec
+tg sandbox wait $id | ignore
+advance_time $local 1sec
 checkpoint pass $delete | ignore
 checkpoint unwatch $delete
 checkpoint pass $removed | ignore
