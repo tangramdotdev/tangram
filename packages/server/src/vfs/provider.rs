@@ -232,6 +232,12 @@ impl Provider {
 		Ok(())
 	}
 
+	/// Get the tokens that authorize an artifact at the root of the mount.
+	#[must_use]
+	pub fn root_tokens(&self, id: &tg::artifact::Id) -> tg::authorization::Tokens {
+		self.nodes.root_artifact(id).tokens.lock().unwrap().clone()
+	}
+
 	pub fn handle_batch(
 		&self,
 		requests: Vec<vfs::Request>,

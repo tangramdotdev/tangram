@@ -52,15 +52,23 @@ impl Session {
 		id: tg::artifact::Id,
 		path: &Path,
 	) -> tg::Result<tg::checkin::Output> {
-		// Recover proofs from the physical checkout and the authenticated origin sandbox.
+		// Recover proofs from the physical checkout, the authenticated origin sandbox, and its VFS.
 		let checkout_path = self.server.checkout_path().join(id.to_string());
 		let mut tokens = Self::checkin_read_file_tokens(&checkout_path)?;
 		let sandbox = self.try_get_checkin_origin_sandbox()?;
 		if let Some(sandbox) = &sandbox
 			&& let Some(state) = self.server.runner.state().sandboxes().get_by_id(sandbox)
-			&& let Some(token) = state.tokens.get(&id)
 		{
-			tokens.insert_local_authorization(token.clone());
+			if let Some(token) = state.tokens.get(&id) {
+				tokens.insert_local_authorization(token.clone());
+			}
+			if let Some(vfs) = state
+				.vfs
+				.as_ref()
+				.and_then(crate::vfs::provider::Weak::upgrade)
+			{
+				tokens.inherit(&vfs.root_tokens(&id));
+			}
 		}
 
 		// Authorize the root and bound both returned tokens by the accepted proof.
