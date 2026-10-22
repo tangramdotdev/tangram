@@ -6,6 +6,8 @@ if (id -u | into int) == 0 { skip_test 'this test requires unprivileged pasta ne
 if (which pasta | is-empty) { skip_test 'this test requires pasta' }
 let local = server spawn --config { runner: { resources: { max_pids: 256 }, sandbox_pool_size: 0 } }
 let sandbox = tg sandbox create --network --no-tokens --no-ttl | referent node
+# Wait for the runner to finish starting the sandbox, because the sandbox can connect before its pasta helper starts.
+wait_for_log $local $'the sandbox is ready, sandbox=($sandbox)'
 let server_pid = glob ($local.directory | path join '**/lock')
     | each { |path| open --raw $path | str trim }
     | where { |pid| (^ps -o command= -p $pid | complete).stdout | str contains $local.directory }

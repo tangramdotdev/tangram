@@ -23,6 +23,8 @@ for case in [
 	for explicit in [false true] {
 		let args = if $explicit { [--cpu '0.5' --memory 134217728] } else { [] }
 		let sandbox = tg sandbox create --network --no-tokens --no-ttl ...$args | referent node
+		# Wait for the runner to finish starting the sandbox, because the sandbox can connect before its pasta helper starts.
+		wait_for_log $local $'the sandbox is ready, sandbox=($sandbox)'
 		let helpers = ^pgrep -P $server_pid -f '(^|/)pasta([.[:space:]]|$)' | lines
 		assert equal ($helpers | length) 1
 		let helper = $helpers | first
