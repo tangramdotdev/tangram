@@ -5,10 +5,6 @@ use {
 		convert::Infallible,
 		path::Path,
 		pin::{Pin, pin},
-		sync::{
-			Arc,
-			atomic::{AtomicBool, Ordering},
-		},
 		task::Poll,
 		time::Duration,
 	},
@@ -23,6 +19,9 @@ use {
 	tokio::io::{AsyncRead, AsyncWrite, ReadBuf},
 	tower::ServiceExt as _,
 };
+
+#[cfg(test)]
+mod tests;
 
 pub(crate) mod frame;
 
@@ -648,17 +647,8 @@ impl Server {
 
 		let session = self.session(&context);
 
-		// Record whether reading the request body fails, so that an error caused by the client is not logged as a server error.
-		let body_failed = Arc::new(AtomicBool::new(false));
-		let request = request.map({
-			let body_failed = body_failed.clone();
-			move |body| {
-				BoxBody::new(body.map_err(move |error| {
-					body_failed.store(true, Ordering::Relaxed);
-					error
-				}))
-			}
-		});
+		// Classify request body failures before the handlers add error context.
+		let request = request.map(|body| BoxBody::new(body.map_err(request_body_error)));
 
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
@@ -981,7 +971,7 @@ impl Server {
 
 		// Handle an error.
 		let mut response = response.unwrap_or_else(|error| {
-			if body_failed.load(Ordering::Relaxed) {
+			if is_request_body_error(&error) {
 				tracing::debug!(error = %error.trace(), "failed to read the request body");
 			} else {
 				tracing::error!(error = %error.trace());
@@ -1070,4 +1060,20 @@ impl AsyncWrite for Stream {
 			Self::Vsock(stream) => Pin::new(stream).poll_shutdown(cx),
 		}
 	}
+}
+
+fn request_body_error(error: tangram_http::Error) -> tg::Error {
+	let error = tg::error!(
+		code = tg::error::Code::RequestBody,
+		!error,
+		"failed to read the request body"
+	);
+	error
+}
+
+fn is_request_body_error(error: &tg::Error) -> bool {
+	let error = error as &dyn std::error::Error;
+	std::iter::successors(Some(error), |error| error.source())
+		.filter_map(|error| error.downcast_ref::<tg::Error>())
+		.any(|error| matches!(error.code(), Some(tg::error::Code::RequestBody)))
 }

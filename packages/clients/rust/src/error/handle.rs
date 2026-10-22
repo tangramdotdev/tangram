@@ -307,6 +307,12 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 		match value.downcast::<Error>() {
 			Ok(error) => *error,
 			Err(error) => {
+				if let Some(error) = error
+					.downcast_ref::<std::io::Error>()
+					.and_then(std::io::Error::get_ref)
+				{
+					return Self::from(error as &dyn std::error::Error);
+				}
 				let source = error.source().map(|s| {
 					let error: Error = s.into();
 					let options = error.to_referent().options;
@@ -342,6 +348,12 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 
 impl From<&(dyn std::error::Error + 'static)> for Error {
 	fn from(value: &(dyn std::error::Error + 'static)) -> Self {
+		if let Some(error) = value
+			.downcast_ref::<std::io::Error>()
+			.and_then(std::io::Error::get_ref)
+		{
+			return Self::from(error as &dyn std::error::Error);
+		}
 		let source = value.source().map(|s| {
 			let error: Error = s.into();
 			let options = error.to_referent().options;
@@ -359,7 +371,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 			tg::Referent::new(node, options)
 		});
 		let mut object = Object {
-			code: None,
+			code: value.downcast_ref::<Self>().and_then(Self::code),
 			kind: value.downcast_ref::<Self>().and_then(Self::kind),
 			message: Some(value.to_string()),
 			location: None,

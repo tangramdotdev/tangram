@@ -1054,8 +1054,7 @@ def clock [server: record, ...args: string] {
 }
 
 # Stop a server, so that its output is complete, and return the distinct errors
-# it logged as '<target> <message>', or as '<target>' for an error without a
-# message. The server must have been spawned with
+# it logged as '<target> <message>'. The server must have been spawned with
 # `--config { tracing: { stderr_format: 'json' } }`.
 export def server_errors [server: record] {
 	server stop $server
@@ -1064,7 +1063,7 @@ export def server_errors [server: record] {
 		| each { try { from json } catch { null } }
 		| compact
 		| where { |event| try { $event.level? == 'ERROR' } catch { false } }
-		| each { |event| [$event.target $event.fields.message?] | compact | str join ' ' }
+		| each { |event| $"($event.target) ($event.fields.message)" }
 		| uniq
 		| sort
 }

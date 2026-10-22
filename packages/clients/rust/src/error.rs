@@ -41,6 +41,9 @@ pub enum Code {
 
 	#[tangram_serialize(id = 3)]
 	Internal,
+
+	#[tangram_serialize(id = 5)]
+	RequestBody,
 }
 
 /// A transport-independent error classification.

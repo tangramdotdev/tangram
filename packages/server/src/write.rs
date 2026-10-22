@@ -16,6 +16,9 @@ use {
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug)]
 pub struct Output {
 	pub bytes: Option<Bytes>,
@@ -171,11 +174,7 @@ impl Session {
 		// Create the leaves and write or store them if necessary.
 		let mut blobs = Vec::new();
 		let mut puts = FuturesUnordered::new();
-		while let Some(chunk) = stream
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read from the reader"))?
-		{
+		while let Some(chunk) = stream.try_next().await.map_err(read_error)? {
 			// Create the leaf.
 			let blob = Self::write_inner_leaf(&chunk);
 
@@ -277,8 +276,7 @@ impl Session {
 		// Create the leaves and write or store them if necessary.
 		let mut blobs = Vec::new();
 		for chunk in &mut chunker {
-			let chunk =
-				chunk.map_err(|error| tg::error!(!error, "failed to read from the reader"))?;
+			let chunk = chunk.map_err(read_error)?;
 
 			// Create the leaf.
 			let blob = Self::write_inner_leaf(&chunk);
@@ -656,7 +654,6 @@ impl Session {
 		let arg = arg.unwrap_or_default();
 
 		// Write.
-		crate::checkpoint!(self.server, "write.request").await;
 		let output = self
 			.write(arg, request.reader())
 			.await
@@ -684,4 +681,11 @@ impl Session {
 		let response = response.body(body).unwrap();
 		Ok(response)
 	}
+}
+
+fn read_error(error: fastcdc::v2020::Error) -> tg::Error {
+	// Preserve the I/O source that the chunker's error does not expose.
+	let error = std::io::Error::from(error);
+	let error = tg::error!(!error, "failed to read from the reader");
+	error
 }
