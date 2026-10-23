@@ -101,8 +101,8 @@ tg build './tangram.ts#standalone' --checkout=./target/standalone
 ./target/standalone/bin/tangram --help
 ```
 
-The output contains `bin/tangram` and a relative `bin/tg` symlink. It runs without a Tangram wrapper or artifact store, using the operating system's runtime libraries. The default Cargo profile is `release`; pass `-A '{"profile":"dev"}'` for a development build. Run `tg run './tangram.ts#testStandalone'` to build and test a relocated copy on the native host with a clean environment.
+The output contains `bin/tangram` and a relative `bin/tg` symlink. It runs without a Tangram wrapper or artifact store, using system libraries. GNU/Linux builds require glibc 2.39 or later.
 
-Linux builds target glibc 2.39 or later. The final linker uses this baseline even when the build SDK provides a newer glibc.
+The default Cargo profile is `release`; pass `-A '{"profile":"dev"}'` for a development build. Feature options are supported, but cross compilation, the rustc proxy, and FoundationDB are not.
 
-The export accepts the build's feature options and separate `build` and `host` triples. Both triples must currently match the native machine. Cross compilation, the rustc proxy, and bundling the FoundationDB client library are not yet supported by this export.
+Run `tg run './tangram.ts#testStandalone'` to test a relocated copy on the native host with a clean environment.

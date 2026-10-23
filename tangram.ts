@@ -22,7 +22,7 @@ import zlib from "zlib-ng" with {
 };
 import * as std from "std" with { source: "../packages/packages/std" };
 import { $ } from "std" with { source: "../packages/packages/std" };
-import * as libc from "std/sdk/libc" with {
+import { interpreterName, libc } from "std/sdk/libc" with {
 	source: "../packages/packages/std/sdk/libc.tg.ts",
 };
 
@@ -179,14 +179,7 @@ const buildInner = async (merged: Arg, wrap: boolean) => {
 	const env = std.env.arg(
 		...envs,
 		env_ ?? null,
-		wrap
-			? null
-			: standaloneEnv(
-					build,
-					host,
-					python.then((env) => env.TANGRAM_PYTHON_HOST_DISTRIBUTION),
-					sdk,
-				),
+		wrap ? null : standaloneEnv(build, host, python, sdk),
 	);
 	const output = cargo.build({
 		...merged,
@@ -201,14 +194,15 @@ const buildInner = async (merged: Arg, wrap: boolean) => {
 		source: source_,
 		useCargoVendor: true,
 	});
+	const executable = output
+		.then((directory) => directory.get("bin/tangram"))
+		.then(tg.File.expect);
 	if (!wrap) {
-		const executable = await output
-			.then((directory) => directory.get("bin/tangram"))
-			.then(tg.File.expect);
-		await assertStandalone(executable, host);
+		const file = await executable;
+		await assertStandalone(file, host);
 		return tg.directory({
 			"bin/tangram": tg.file({
-				contents: executable.contents,
+				contents: file.contents,
 				executable: true,
 			}),
 			"bin/tg": tg.symlink("tangram"),
@@ -231,10 +225,7 @@ const buildInner = async (merged: Arg, wrap: boolean) => {
 	}
 
 	// Wrap and return.
-	const unwrapped = output
-		.then((dir) => dir.get("bin/tangram"))
-		.then(tg.File.expect);
-	const wrapped = std.wrap(unwrapped, { host, libraryPaths });
+	const wrapped = std.wrap(executable, { host, libraryPaths });
 	const directory = await tg.directory(output, {
 		["bin/tangram"]: wrapped,
 		["bin/tg"]: tg.symlink("tangram"),
@@ -350,7 +341,7 @@ export const testStandalone = async (...args: tg.Args<Arg>) => {
 const standaloneEnv = async (
 	build: string,
 	host: string,
-	python: tg.Unresolved<tg.Directory>,
+	python: ReturnType<typeof libpython>,
 	sdkArg?: std.sdk.Arg,
 ) => {
 	// Use a separate target linker so Cargo's build scripts and proc macros retain the sandbox SDK.
@@ -363,28 +354,24 @@ const standaloneEnv = async (
 		target: host,
 	});
 	const compiler = std.triple.os(host) === "darwin" ? "clang" : "gcc";
-	const flags: tg.Args<tg.Template.Arg> = [
-		tg`-C linker=${sdk}/bin/${compiler}`,
-	];
+	const flags = [tg`-C linker=${sdk}/bin/${compiler}`];
 	if (std.triple.os(host) === "linux") {
-		const arch = std.triple.arch(host);
-		const interpreter =
-			std.triple.environment(host) === "musl"
-				? `/lib/ld-musl-${arch}.so.1`
-				: arch === "aarch64"
-					? "/lib/ld-linux-aarch64.so.1"
-					: "/lib64/ld-linux-x86-64.so.2";
-		flags.push(`-C link-arg=-Wl,--dynamic-linker,${interpreter}`);
+		const musl = std.triple.environment(host) === "musl";
+		const libDir =
+			!musl && std.triple.arch(host) === "x86_64" ? "/lib64" : "/lib";
+		flags.push(
+			tg`-C link-arg=-Wl,--dynamic-linker,${libDir}/${interpreterName(host)}`,
+		);
 
 		// Link against the supported glibc baseline instead of the SDK's newer runtime.
-		if (std.triple.environment(host) !== "musl") {
+		if (!musl) {
+			const distribution = (await python).TANGRAM_PYTHON_HOST_DISTRIBUTION;
 			const target = rustTriple(host);
-			const sysroot = await libc
-				.libc({
-					build,
-					env: { PATH: tg.Mutation.prefix(tg`${python}/install/bin`, ":") },
-					host: std.triple.create(target, { environmentVersion: "2.39" }),
-				})
+			const sysroot = await libc({
+				build,
+				env: { PATH: tg.Mutation.prefix(tg`${distribution}/install/bin`, ":") },
+				host: std.triple.create(target, { environmentVersion: "2.39" }),
+			})
 				.then((directory) => directory.get(target))
 				.then(tg.Directory.expect);
 			flags.push(
@@ -424,7 +411,7 @@ const assertStandalone = async (executable: tg.File, host: string) => {
 			"the standalone executable must use a system dynamic linker",
 		);
 		const libraries = new Set([
-			libc.interpreterName(host),
+			interpreterName(host),
 			"libc.so",
 			"libc.so.6",
 			"libdl.so.2",
