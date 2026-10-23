@@ -21,15 +21,14 @@ struct Batch {
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 enum Kind {
-	Archive,
-	Index,
+	Queue,
 	Wait,
 }
 
 impl Limits {
 	#[must_use]
 	pub(in crate::indexer) fn has_queue_requests(&self) -> bool {
-		self.active.len(Kind::Archive) != 0 || self.active.len(Kind::Index) != 0
+		self.active.len(Kind::Queue) != 0
 	}
 
 	pub(super) fn try_insert(
@@ -38,28 +37,25 @@ impl Limits {
 		config: &crate::config::IndexerRequest,
 	) -> tg::Result<bool> {
 		let inserted = match &request.arg {
-			RequestArg::Archive(_) => self.active.try_insert(
-				request.id.clone(),
-				Kind::Archive,
-				config.archive_concurrency,
-			),
+			RequestArg::Archive(_) => {
+				self.active
+					.try_insert(request.id.clone(), Kind::Queue, config.enqueue_batch_capacity)
+			},
 			RequestArg::Index(arg) => {
 				if arg.fragments == 0 || arg.fragment >= arg.fragments {
 					return Err(tg::error!("invalid index fragment count or position"));
 				}
 				let count = usize::try_from(arg.fragments)
 					.ok()
-					.filter(|count| *count <= config.index_concurrency)
-					.ok_or_else(|| {
-						tg::error!("the batch exceeds the indexer request index concurrency")
-					})?;
+					.filter(|count| *count <= config.enqueue_batch_capacity)
+					.ok_or_else(|| tg::error!("the batch exceeds the indexer enqueue batch capacity"))?;
 				if !self.batches.contains_key(&arg.batch) {
 					// Reserve every fragment before accepting a partial batch.
 					if !self.active.try_reserve(
 						format!("batch:{}", tg::id::ENCODING.encode(&arg.batch.value())),
-						Kind::Index,
+						Kind::Queue,
 						count,
-						config.index_concurrency,
+						config.enqueue_batch_capacity,
 					) {
 						return Ok(false);
 					}
@@ -133,7 +129,7 @@ mod tests {
 	fn reserves_missing_fragments_and_releases_complete_batches() {
 		let mut pending = Limits::default();
 		let config = crate::config::IndexerRequest {
-			index_concurrency: 3,
+			enqueue_batch_capacity: 3,
 			..Default::default()
 		};
 		let last = fragment("last", 0, 2, 3);
@@ -155,7 +151,7 @@ mod tests {
 	fn releases_partial_batches_after_errors_and_rejects_duplicate_fragments() {
 		let mut pending = Limits::default();
 		let config = crate::config::IndexerRequest {
-			index_concurrency: 2,
+			enqueue_batch_capacity: 2,
 			..Default::default()
 		};
 		let first = fragment("first", 0, 0, 2);
@@ -174,7 +170,7 @@ mod tests {
 	fn keeps_wait_capacity_independent() {
 		let mut pending = Limits::default();
 		let config = crate::config::IndexerRequest {
-			index_concurrency: 1,
+			enqueue_batch_capacity: 1,
 			wait_concurrency: 1,
 			..Default::default()
 		};

@@ -1,9 +1,10 @@
 use {
-	super::Indexer,
+	super::{Indexer, State},
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		ops::ControlFlow,
+		sync::Mutex,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
@@ -17,9 +18,7 @@ pub(super) type CheckpointSender =
 
 pub(super) type CompletionReceiver = tokio::sync::mpsc::UnboundedReceiver<Completion>;
 pub(super) type CompletionSender = tokio::sync::mpsc::UnboundedSender<Completion>;
-pub(super) type ArchiveMessageReceiver = tokio::sync::mpsc::Receiver<ArchiveMessage>;
 pub(super) type ArchiveMessageSender = tokio::sync::mpsc::Sender<ArchiveMessage>;
-pub(super) type IndexMessageReceiver = tokio::sync::mpsc::Receiver<IndexMessage>;
 pub(super) type IndexMessageSender = tokio::sync::mpsc::Sender<IndexMessage>;
 
 pub(super) struct Output {
@@ -61,11 +60,14 @@ pub(super) enum IndexMessage {
 }
 
 struct Queue {
-	// The completed ranges have exclusive ends and are disjoint and nonadjacent.
+	// The completed and sent ranges have exclusive ends and are disjoint and nonadjacent.
 	completed: BTreeMap<u64, u64>,
+	deletes: BTreeSet<u64>,
 	read_sequence: u64,
 	reservation_pending: bool,
 	reserved_sequence_end: u64,
+	sent: BTreeMap<u64, u64>,
+	sent_sequence: u64,
 	write_sequence: u64,
 }
 
@@ -91,6 +93,12 @@ struct BatchFragment {
 
 pub(super) struct IndexBatch {
 	fragments: Vec<crate::cache::index::queue::Fragment>,
+	sequences: Vec<u64>,
+}
+
+struct ReaderBatch {
+	fragments: BTreeMap<u64, crate::cache::index::queue::Fragment>,
+	len: u64,
 	sequences: Vec<u64>,
 }
 
@@ -120,7 +128,8 @@ impl Queues {
 			indexer.archive_read_sequence,
 			indexer.archive_write_sequence,
 		);
-		let index = Queue::new(indexer.index_read_sequence, indexer.index_write_sequence);
+		let mut index = Queue::new(indexer.index_read_sequence, indexer.index_write_sequence);
+		index.sent_sequence = indexer.index_read_sequence;
 		Self {
 			archive,
 			batches: Batches::default(),
@@ -128,61 +137,14 @@ impl Queues {
 		}
 	}
 
-	#[tracing::instrument(name = "indexer.recover_queues", level = "info", skip_all, fields(indexer = %indexer.id(), archive_start = self.archive.read_sequence, archive_end = self.archive.reserved_sequence_end, index_start = self.index.read_sequence, index_end = self.index.reserved_sequence_end), err(level = "debug"))]
-	pub async fn recover(
-		&mut self,
-		indexer: &Indexer,
-		archive_sender: &ArchiveMessageSender,
-		index_sender: &IndexMessageSender,
-	) -> tg::Result<()> {
+	#[tracing::instrument(name = "indexer.recover_queues", level = "info", skip_all, fields(indexer = %indexer.id(), index_start = self.index.read_sequence, index_end = self.index.reserved_sequence_end), err(level = "debug"))]
+	pub async fn recover(&mut self, indexer: &Indexer) -> tg::Result<()> {
 		tracing::debug!(
-			archive_start = self.archive.read_sequence,
-			archive_end = self.archive.reserved_sequence_end,
 			index_start = self.index.read_sequence,
 			index_end = self.index.reserved_sequence_end,
 			"recovering the queues"
 		);
 		let batch_size = indexer.server.config.object.queue_recovery_batch_size;
-		let mut sequence_start = self.archive.read_sequence;
-		while sequence_start < self.archive.reserved_sequence_end {
-			let sequence_end = sequence_start
-				.saturating_add(batch_size)
-				.min(self.archive.reserved_sequence_end);
-			let arg = crate::cache::archive::queue::get::batch::Arg {
-				indexer: indexer.id().clone(),
-				sequence_end,
-				sequence_start,
-			};
-			let entries = indexer
-				.server
-				.cache
-				.get_archive_queue_entries(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to recover archive queue entries"))?;
-			tracing::debug!(
-				count = entries.len(),
-				sequence_start,
-				sequence_end,
-				"recovered the archive queue batch"
-			);
-			let sequences = entries
-				.iter()
-				.map(|entry| entry.sequence)
-				.collect::<BTreeSet<_>>();
-			for sequence in sequence_start..sequence_end {
-				if !sequences.contains(&sequence) {
-					self.archive.complete(sequence);
-				}
-			}
-			for entry in entries {
-				archive_sender
-					.send(ArchiveMessage::Process(entry))
-					.await
-					.map_err(|_| tg::error!("the archive queue task stopped"))?;
-			}
-			sequence_start = sequence_end;
-		}
-
 		let mut sequence_start = self.index.read_sequence;
 		while sequence_start < self.index.reserved_sequence_end {
 			let sequence_end = sequence_start
@@ -221,18 +183,13 @@ impl Queues {
 				.collect::<BTreeSet<_>>();
 			for sequence in sequence_start..sequence_end {
 				if !sequences.contains(&sequence) {
-					self.index.complete(sequence);
+					self.mark_sent(Kind::Index, [sequence], false);
 				}
 			}
 			for fragment in fragments {
 				let timeout = indexer.server.config.object.index_queue.batch_timeout;
 				let output = self.insert_index_fragment(fragment, None, timeout);
-				for message in output.messages {
-					index_sender
-						.send(message)
-						.await
-						.map_err(|_| tg::error!("the index queue task stopped"))?;
-				}
+				self.mark_sent_index_messages(output.messages);
 			}
 			sequence_start = sequence_end;
 		}
@@ -325,6 +282,34 @@ impl Queues {
 				}
 			},
 		}
+	}
+
+	pub fn mark_sent(&mut self, kind: Kind, sequences: impl IntoIterator<Item = u64>, delete: bool) {
+		let queue = self.queue_mut(kind);
+		for sequence in sequences {
+			if delete {
+				queue.deletes.insert(sequence);
+			}
+			queue.send(sequence);
+		}
+	}
+
+	pub fn mark_sent_index_messages(&mut self, messages: Vec<IndexMessage>) {
+		for message in messages {
+			match message {
+				IndexMessage::Delete(sequences) => self.mark_sent(Kind::Index, sequences, true),
+				IndexMessage::Process(batch) => self.mark_sent(Kind::Index, batch.sequences, false),
+			}
+		}
+	}
+
+	#[must_use]
+	pub fn take_sent_sequences(&mut self, kind: Kind) -> (u64, BTreeSet<u64>) {
+		let queue = self.queue_mut(kind);
+		let end = queue.sent_sequence;
+		let pending = queue.deletes.split_off(&end);
+		let deletes = std::mem::replace(&mut queue.deletes, pending);
+		(end, deletes)
 	}
 
 	pub fn insert_index_fragment(
@@ -520,30 +505,41 @@ impl Queue {
 	fn new(read_sequence: u64, write_sequence: u64) -> Self {
 		Self {
 			completed: BTreeMap::new(),
+			deletes: BTreeSet::new(),
 			read_sequence,
 			reservation_pending: false,
 			reserved_sequence_end: write_sequence,
+			sent: BTreeMap::new(),
+			sent_sequence: write_sequence,
 			write_sequence,
 		}
 	}
 
 	fn complete(&mut self, sequence: u64) {
-		if sequence < self.read_sequence {
-			return;
-		}
+		insert_sequence(&mut self.read_sequence, &mut self.completed, sequence);
+	}
 
-		// Merge the following range, then extend an existing range or advance the read sequence.
-		let end = sequence + 1;
-		let end = self.completed.remove(&end).unwrap_or(end);
-		if let Some((_, previous_end)) = self.completed.range_mut(..=sequence).next_back()
-			&& *previous_end >= sequence
-		{
-			*previous_end = (*previous_end).max(end);
-		} else if sequence == self.read_sequence {
-			self.read_sequence = end;
-		} else {
-			self.completed.insert(sequence, end);
-		}
+	fn send(&mut self, sequence: u64) {
+		insert_sequence(&mut self.sent_sequence, &mut self.sent, sequence);
+	}
+}
+
+fn insert_sequence(contiguous: &mut u64, ranges: &mut BTreeMap<u64, u64>, sequence: u64) {
+	if sequence < *contiguous {
+		return;
+	}
+
+	// Merge the following range, then extend an existing range or advance the contiguous sequence.
+	let end = sequence + 1;
+	let end = ranges.remove(&end).unwrap_or(end);
+	if let Some((_, previous_end)) = ranges.range_mut(..=sequence).next_back()
+		&& *previous_end >= sequence
+	{
+		*previous_end = (*previous_end).max(end);
+	} else if sequence == *contiguous {
+		*contiguous = end;
+	} else {
+		ranges.insert(sequence, end);
 	}
 }
 
@@ -612,7 +608,8 @@ impl Indexer {
 
 	pub(super) async fn archive_queue_task(
 		&self,
-		receiver: ArchiveMessageReceiver,
+		state: &Mutex<State>,
+		changed: &tokio::sync::Notify,
 		sender: CompletionSender,
 		stopper: Stopper,
 	) -> tg::Result<()> {
@@ -620,7 +617,10 @@ impl Indexer {
 			stopper.wait().await;
 			return Ok(());
 		}
-		ReceiverStream::new(receiver)
+		let (message_sender, message_receiver) =
+			tokio::sync::mpsc::channel(self.server.config.object.archive_queue.concurrency);
+		let reader = self.archive_queue_reader(state, changed, &message_sender, &sender);
+		let processor = ReceiverStream::new(message_receiver)
 			.take_until(stopper.wait())
 			.map(Ok)
 			.try_for_each_concurrent(
@@ -636,13 +636,90 @@ impl Indexer {
 						Ok(())
 					}
 				},
-			)
-			.await
+			);
+		tokio::select! {
+			result = reader => result,
+			result = processor => result,
+		}
+	}
+
+	async fn archive_queue_reader(
+		&self,
+		state: &Mutex<State>,
+		changed: &tokio::sync::Notify,
+		sender: &ArchiveMessageSender,
+		completions: &CompletionSender,
+	) -> tg::Result<()> {
+		let batch_size = self.server.config.object.queue_recovery_batch_size;
+		let mut sequence_start = state.lock().unwrap().queues.read_sequences().0;
+		loop {
+			let notified = changed.notified();
+			let (sent_end, deletes) = state
+				.lock()
+				.unwrap()
+				.queues
+				.take_sent_sequences(Kind::Archive);
+			if sequence_start >= sent_end {
+				notified.await;
+				continue;
+			}
+			while sequence_start < sent_end {
+				let sequence_end = sequence_start.saturating_add(batch_size).min(sent_end);
+				let mut entries = self
+					.get_archive_queue_entries_with_retry(sequence_start, sequence_end)
+					.await?
+					.into_iter()
+					.map(|entry| (entry.sequence, entry))
+					.collect::<BTreeMap<_, _>>();
+				for sequence in sequence_start..sequence_end {
+					let message = if deletes.contains(&sequence) {
+						Some(ArchiveMessage::Delete(sequence))
+					} else {
+						entries.remove(&sequence).map(ArchiveMessage::Process)
+					};
+					if let Some(message) = message {
+						sender
+							.send(message)
+							.await
+							.map_err(|_| tg::error!("the archive queue task stopped"))?;
+					} else {
+						completions
+							.send(Completion::Archive(sequence))
+							.map_err(|_| tg::error!("the queue completion task stopped"))?;
+					}
+				}
+				sequence_start = sequence_end;
+			}
+		}
+	}
+
+	async fn get_archive_queue_entries_with_retry(
+		&self,
+		sequence_start: u64,
+		sequence_end: u64,
+	) -> tg::Result<Vec<crate::cache::archive::queue::Entry>> {
+		tangram_futures::retry(&self.retry_options(), || async {
+			let arg = crate::cache::archive::queue::get::batch::Arg {
+				indexer: self.id().clone(),
+				sequence_end,
+				sequence_start,
+			};
+			match self.server.cache.get_archive_queue_entries(arg).await {
+				Ok(entries) => Ok(ControlFlow::Break(entries)),
+				Err(error) => {
+					tracing::error!(error = %error.trace(), sequence_start, sequence_end, "failed to read archive queue entries");
+
+					Ok(ControlFlow::Continue(error))
+				},
+			}
+		})
+		.await
 	}
 
 	pub(super) async fn index_queue_task(
 		&self,
-		receiver: IndexMessageReceiver,
+		state: &Mutex<State>,
+		changed: &tokio::sync::Notify,
 		sender: CompletionSender,
 		stopper: Stopper,
 	) -> tg::Result<()> {
@@ -650,7 +727,10 @@ impl Indexer {
 			stopper.wait().await;
 			return Ok(());
 		}
-		ReceiverStream::new(receiver)
+		let (message_sender, message_receiver) =
+			tokio::sync::mpsc::channel(self.server.config.object.index_queue.concurrency);
+		let reader = self.index_queue_reader(state, changed, &message_sender, &sender);
+		let processor = ReceiverStream::new(message_receiver)
 			.take_until(stopper.wait())
 			.map(Ok)
 			.try_for_each_concurrent(
@@ -666,8 +746,103 @@ impl Indexer {
 						Ok(())
 					}
 				},
-			)
-			.await
+			);
+		tokio::select! {
+			result = reader => result,
+			result = processor => result,
+		}
+	}
+
+	async fn index_queue_reader(
+		&self,
+		state: &Mutex<State>,
+		changed: &tokio::sync::Notify,
+		sender: &IndexMessageSender,
+		completions: &CompletionSender,
+	) -> tg::Result<()> {
+		let batch_size = self.server.config.object.queue_recovery_batch_size;
+		let mut sequence_start = state.lock().unwrap().queues.read_sequences().1;
+		let mut batches = BTreeMap::<_, ReaderBatch>::new();
+		loop {
+			let notified = changed.notified();
+			let (sent_end, deletes) = state
+				.lock()
+				.unwrap()
+				.queues
+				.take_sent_sequences(Kind::Index);
+			if sequence_start >= sent_end {
+				notified.await;
+				continue;
+			}
+			while sequence_start < sent_end {
+				let sequence_end = sequence_start.saturating_add(batch_size).min(sent_end);
+				let mut fragments = self
+					.get_index_queue_fragments_with_retry(sequence_start, sequence_end)
+					.await?
+					.into_iter()
+					.map(|fragment| (fragment.sequence, fragment))
+					.collect::<BTreeMap<_, _>>();
+				for sequence in sequence_start..sequence_end {
+					let message = if deletes.contains(&sequence) {
+						Some(IndexMessage::Delete(vec![sequence]))
+					} else if let Some(fragment) = fragments.remove(&sequence) {
+						let id = fragment.batch;
+						let batch = batches.entry(id).or_insert_with(|| ReaderBatch {
+							fragments: BTreeMap::new(),
+							len: fragment.fragments,
+							sequences: Vec::new(),
+						});
+						batch.sequences.push(sequence);
+						batch.fragments.entry(fragment.fragment).or_insert(fragment);
+						if u64::try_from(batch.fragments.len()).ok() == Some(batch.len) {
+							let batch = batches.remove(&id).unwrap();
+							Some(IndexMessage::Process(IndexBatch {
+								fragments: batch.fragments.into_values().collect(),
+								sequences: batch.sequences,
+							}))
+						} else {
+							continue;
+						}
+					} else {
+						None
+					};
+					if let Some(message) = message {
+						sender
+							.send(message)
+							.await
+							.map_err(|_| tg::error!("the index queue task stopped"))?;
+					} else {
+						completions
+							.send(Completion::Index(vec![sequence]))
+							.map_err(|_| tg::error!("the queue completion task stopped"))?;
+					}
+				}
+				sequence_start = sequence_end;
+			}
+		}
+	}
+
+	async fn get_index_queue_fragments_with_retry(
+		&self,
+		sequence_start: u64,
+		sequence_end: u64,
+	) -> tg::Result<Vec<crate::cache::index::queue::Fragment>> {
+		tangram_futures::retry(&self.retry_options(), || async {
+			let arg = crate::cache::index::queue::get::batch::Arg {
+				indexer: self.id().clone(),
+				sequence_end,
+				sequence_start,
+			};
+			match self.server.cache.get_index_queue_fragments(arg).await {
+				Ok(fragments) => Ok(ControlFlow::Break(fragments)),
+				Err(error) => {
+					tracing::error!(error = %error.trace(), sequence_start, sequence_end, "failed to read index queue fragments");
+
+					Ok(ControlFlow::Continue(error))
+				},
+			}
+		})
+		.await
 	}
 
 	async fn process_archive_message(&self, message: ArchiveMessage) -> tg::Result<Completion> {

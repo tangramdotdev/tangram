@@ -48,7 +48,6 @@ impl Indexer {
 
 	pub(in crate::indexer) async fn batch_expiration_task(
 		&self,
-		index_sender: &queue::IndexMessageSender,
 		state: &Mutex<State>,
 		changed: &tokio::sync::Notify,
 	) -> tg::Result<()> {
@@ -63,18 +62,16 @@ impl Indexer {
 				}
 			};
 			tokio::select! { () = notified => continue, () = sleep => {} }
-			let output = state
-				.lock()
-				.unwrap()
-				.queues
-				.expire_index_batches(self.server.config.object.index_queue.batch_timeout);
-			for message in output.messages {
-				index_sender
-					.send(message)
-					.await
-					.map_err(|_| tg::error!("the index queue task stopped"))?;
-			}
-			for (sender, result) in output.responses {
+			let responses = {
+				let mut state = state.lock().unwrap();
+				let output = state
+					.queues
+					.expire_index_batches(self.server.config.object.index_queue.batch_timeout);
+				state.queues.mark_sent_index_messages(output.messages);
+				output.responses
+			};
+			changed.notify_waiters();
+			for (sender, result) in responses {
 				sender.send(result).ok();
 			}
 		}
@@ -120,7 +117,6 @@ impl Indexer {
 	pub(in crate::indexer) async fn drain_queues(
 		state: &Mutex<State>,
 		changed: &tokio::sync::Notify,
-		index_sender: &queue::IndexMessageSender,
 	) -> tg::Result<()> {
 		state.lock().unwrap().available = false;
 		loop {
@@ -134,20 +130,14 @@ impl Indexer {
 			}
 			notified.await;
 		}
-		let (target_sequences, output) = {
+		let (target_sequences, responses) = {
 			let mut state = state.lock().unwrap();
-			(
-				state.queues.target_sequences(),
-				state.queues.abandon_incomplete_batches(),
-			)
+			let output = state.queues.abandon_incomplete_batches();
+			state.queues.mark_sent_index_messages(output.messages);
+			(state.queues.target_sequences(), output.responses)
 		};
-		for message in output.messages {
-			index_sender
-				.send(message)
-				.await
-				.map_err(|_| tg::error!("the index queue task stopped"))?;
-		}
-		for (sender, result) in output.responses {
+		changed.notify_waiters();
+		for (sender, result) in responses {
 			sender.send(result).ok();
 		}
 		loop {

@@ -1085,6 +1085,12 @@ pub struct IndexerRequest {
 	pub concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub enqueue_batch_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub enqueue_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub index_concurrency: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -4628,6 +4634,12 @@ fn resolve_indexer_request(source: IndexerRequest) -> server::IndexerRequest {
 	if let Some(value) = source.channel_capacity {
 		target.channel_capacity = value;
 	}
+	if let Some(value) = source.enqueue_batch_capacity {
+		target.enqueue_batch_capacity = value;
+	}
+	if let Some(value) = source.enqueue_batch_size {
+		target.enqueue_batch_size = value;
+	}
 	if let Some(value) = source.index_concurrency {
 		target.index_concurrency = value;
 	}
@@ -6607,6 +6619,8 @@ mod tests {
 			"indexer": { "request": {
 				"archive_concurrency": 2,
 				"concurrency": 3,
+				"enqueue_batch_capacity": 7,
+				"enqueue_batch_size": 8,
 				"index_concurrency": 4,
 				"wait_concurrency": 5,
 			}},
@@ -6616,6 +6630,8 @@ mod tests {
 		let target = resolve_server_config(&source).unwrap();
 		assert_eq!(target.indexer.request.archive_concurrency, 2);
 		assert_eq!(target.indexer.request.concurrency, 3);
+		assert_eq!(target.indexer.request.enqueue_batch_capacity, 7);
+		assert_eq!(target.indexer.request.enqueue_batch_size, 8);
 		assert_eq!(target.indexer.request.index_concurrency, 4);
 		assert_eq!(target.indexer.request.wait_concurrency, 5);
 		assert_eq!(target.scheduler.request_concurrency, 6);

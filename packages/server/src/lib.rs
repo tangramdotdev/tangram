@@ -990,6 +990,8 @@ impl Server {
 
 			if indexer.request.archive_concurrency == 0
 				|| indexer.request.concurrency == 0
+				|| indexer.request.enqueue_batch_capacity == 0
+				|| indexer.request.enqueue_batch_size == 0
 				|| indexer.request.index_concurrency == 0
 				|| indexer.request.wait_concurrency == 0
 			{

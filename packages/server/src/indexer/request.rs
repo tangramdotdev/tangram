@@ -1,6 +1,6 @@
 use {
 	super::{Indexer, State, queue, wait},
-	futures::{StreamExt as _, TryStreamExt as _, future},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future},
 	std::{
 		ops::ControlFlow,
 		sync::{Arc, Mutex},
@@ -80,9 +80,7 @@ pub(crate) enum ResponseOutput {
 }
 
 pub(super) struct RequestTaskArgs {
-	pub archive_sender: queue::ArchiveMessageSender,
 	pub changed: Arc<tokio::sync::Notify>,
-	pub index_sender: queue::IndexMessageSender,
 	pub ready: tokio::sync::oneshot::Sender<()>,
 	pub state: Arc<Mutex<State>>,
 	pub stopper: Stopper,
@@ -90,19 +88,22 @@ pub(super) struct RequestTaskArgs {
 }
 
 struct HandleIndexerRequestArgs {
-	archive_sender: queue::ArchiveMessageSender,
 	guard: Guard,
-	index_sender: queue::IndexMessageSender,
+	index_writes: Arc<tokio::sync::Semaphore>,
 	request: Request,
 	sender: crate::control::Sender<ServerMessage, ClientMessage>,
 	wait_sender: wait::Sender,
 }
 
+struct ArchiveRequest {
+	arg: ArchiveRequestArg,
+	guard: Guard,
+	id: String,
+}
+
 struct HandleRequestsArgs {
-	archive_sender: queue::ArchiveMessageSender,
 	changed: Arc<tokio::sync::Notify>,
 	control: crate::control::Stream<ServerMessage, ClientMessage>,
-	index_sender: queue::IndexMessageSender,
 	state: Arc<Mutex<State>>,
 	stopper: Stopper,
 	wait_sender: wait::Sender,
@@ -199,9 +200,7 @@ impl crate::Server {
 impl Indexer {
 	pub(super) async fn request_task(&self, args: RequestTaskArgs) -> tg::Result<()> {
 		let RequestTaskArgs {
-			archive_sender,
 			changed,
-			index_sender,
 			ready,
 			state,
 			stopper,
@@ -227,10 +226,8 @@ impl Indexer {
 			.send(())
 			.map_err(|()| tg::error!("failed to signal indexer request readiness"))?;
 		let args = HandleRequestsArgs {
-			archive_sender,
 			changed,
 			control,
-			index_sender,
 			state,
 			stopper,
 			wait_sender,
@@ -244,14 +241,16 @@ impl Indexer {
 
 	async fn handle_requests(&self, args: HandleRequestsArgs) -> tg::Result<()> {
 		let HandleRequestsArgs {
-			archive_sender,
 			changed,
 			mut control,
-			index_sender,
 			state,
 			stopper,
 			wait_sender,
 		} = args;
+
+		let config = &self.server.config.indexer.request;
+		let archive_writes = Arc::new(tokio::sync::Semaphore::new(config.archive_concurrency));
+		let index_writes = Arc::new(tokio::sync::Semaphore::new(config.index_concurrency));
 
 		// Accept each request once and track its handler until it finishes.
 		let mut requests = tokio::task::JoinSet::new();
@@ -265,56 +264,80 @@ impl Indexer {
 				},
 				message = control.recv_without_ack() => message?,
 			};
-			let Some(message) = message else {
-				return Err(tg::error!("the indexer request stream ended"));
-			};
-			let ServerMessage::Request(request) = message else {
-				continue;
-			};
-			let accepted = {
-				let mut state = state.lock().unwrap();
-				if !state.available && !matches!(request.arg, RequestArg::Wait) {
-					Err(tg::error!("the indexer is unavailable"))
-				} else {
-					let accepted = state
-						.limits
-						.try_insert(&request, &self.server.config.indexer.request);
-					if matches!(accepted, Ok(true)) && !matches!(request.arg, RequestArg::Wait) {
-						state.writes += 1;
-					}
-					accepted
-				}
-			};
-			if !matches!(accepted, Ok(true)) {
-				let result = accepted.map(|_| ResponseOutput::Busy);
-				control
-					.sender()
-					.try_send_untracked(ClientMessage::Response(Self::response(
-						request.id, result,
-					)));
-				continue;
+			let mut messages = vec![message];
+			while messages.len() < config.enqueue_batch_size {
+				let Some(message) = control.recv_without_ack().now_or_never() else {
+					break;
+				};
+				messages.push(message?);
 			}
-			control.acknowledge_now(request.id.clone());
-			let guard = Guard {
-				changed: changed.clone(),
-				id: request.id.clone(),
-				state: state.clone(),
-				writing: !matches!(request.arg, RequestArg::Wait),
-			};
-			let wait_sender = wait_sender.clone();
-			let archive_sender = archive_sender.clone();
-			let index_sender = index_sender.clone();
-			let indexer = self.clone();
-			let sender = control.sender();
-			let args = HandleIndexerRequestArgs {
-				archive_sender,
-				guard,
-				index_sender,
-				request,
-				sender,
-				wait_sender,
-			};
-			requests.spawn(async move { indexer.handle_indexer_request(args).await });
+			let mut archive_requests = Vec::new();
+			for message in messages {
+				let Some(message) = message else {
+					return Err(tg::error!("the indexer request stream ended"));
+				};
+				let ServerMessage::Request(request) = message else {
+					continue;
+				};
+				let accepted = {
+					let mut state = state.lock().unwrap();
+					if !state.available && !matches!(request.arg, RequestArg::Wait) {
+						Err(tg::error!("the indexer is unavailable"))
+					} else {
+						let accepted = state.limits.try_insert(&request, config);
+						if matches!(accepted, Ok(true)) && !matches!(request.arg, RequestArg::Wait) {
+							state.writes += 1;
+						}
+						accepted
+					}
+				};
+				if !matches!(accepted, Ok(true)) {
+					let result = accepted.map(|_| ResponseOutput::Busy);
+					control
+						.sender()
+						.try_send_untracked(ClientMessage::Response(Self::response(
+							request.id, result,
+						)));
+					continue;
+				}
+				control.acknowledge_now(request.id.clone());
+				let guard = Guard {
+					changed: changed.clone(),
+					id: request.id.clone(),
+					state: state.clone(),
+					writing: !matches!(request.arg, RequestArg::Wait),
+				};
+				if let RequestArg::Archive(arg) = request.arg {
+					archive_requests.push(ArchiveRequest {
+						arg,
+						guard,
+						id: request.id,
+					});
+					continue;
+				}
+				let wait_sender = wait_sender.clone();
+				let index_writes = index_writes.clone();
+				let indexer = self.clone();
+				let sender = control.sender();
+				let args = HandleIndexerRequestArgs {
+					guard,
+					index_writes,
+					request,
+					sender,
+					wait_sender,
+				};
+				requests.spawn(async move { indexer.handle_indexer_request(args).await });
+			}
+			if !archive_requests.is_empty() {
+				let archive_writes = archive_writes.clone();
+				let indexer = self.clone();
+				let sender = control.sender();
+				requests.spawn(async move {
+					indexer
+						.handle_archive_requests(archive_requests, &archive_writes, &sender)
+						.await
+				});
+			}
 		}
 
 		// The queues are drained and indexing has finished when the shutdown task stops reception.
@@ -324,21 +347,17 @@ impl Indexer {
 
 	async fn handle_indexer_request(&self, args: HandleIndexerRequestArgs) -> tg::Result<()> {
 		let HandleIndexerRequestArgs {
-			archive_sender,
 			mut guard,
-			index_sender,
+			index_writes,
 			request,
 			sender,
 			wait_sender,
 		} = args;
 		let result = match request.arg {
-			RequestArg::Archive(arg) => self
-				.handle_archive_request(&guard.state, &guard.changed, &archive_sender, arg)
-				.await
-				.map(|()| ResponseOutput::Archive),
+			RequestArg::Archive(_) => Err(tg::error!("expected a batched archive request")),
 			RequestArg::Index(arg) => {
 				let result = self
-					.handle_index_request(&guard.state, &guard.changed, &index_sender, arg)
+					.handle_index_request(&guard.state, &guard.changed, &index_writes, arg)
 					.await;
 				guard.finish_write();
 				match result {
@@ -377,26 +396,48 @@ impl Indexer {
 		}
 	}
 
+	async fn handle_archive_requests(
+		&self,
+		requests: Vec<ArchiveRequest>,
+		writes: &tokio::sync::Semaphore,
+		sender: &crate::control::Sender<ServerMessage, ClientMessage>,
+	) -> tg::Result<()> {
+		future::join_all(requests.into_iter().map(|request| async move {
+			let ArchiveRequest { arg, mut guard, id } = request;
+			let result = self
+				.handle_archive_request(&guard.state, &guard.changed, writes, arg)
+				.await
+				.map(|()| ResponseOutput::Archive);
+			guard.finish_write();
+			sender.send_now(ClientMessage::Response(Self::response(id, result)));
+		}))
+		.await;
+		Ok(())
+	}
+
 	#[tracing::instrument(name = "archive.enqueue", level = "debug", skip_all, fields(indexer = %self.id(), object = %arg.object), err(level = "debug"))]
 	async fn handle_archive_request(
 		&self,
 		state: &Mutex<State>,
 		changed: &tokio::sync::Notify,
-		archive_sender: &queue::ArchiveMessageSender,
+		writes: &tokio::sync::Semaphore,
 		arg: ArchiveRequestArg,
 	) -> tg::Result<()> {
 		let sequence = Self::allocate_sequence(state, changed, queue::Kind::Archive)
 			.instrument(tracing::debug_span!("archive.reserve_sequence"))
 			.await?;
+		let permit = writes
+			.acquire()
+			.instrument(tracing::debug_span!("archive.acquire_write", sequence))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to acquire an archive write"))?;
 		let entry = crate::cache::archive::queue::Entry {
 			indexer: self.id().clone(),
 			object: arg.object,
 			put: arg.put,
 			sequence,
 		};
-		let arg = crate::cache::archive::queue::put::Arg {
-			entry: entry.clone(),
-		};
+		let arg = crate::cache::archive::queue::put::Arg { entry };
 		let result = self
 			.server
 			.cache
@@ -404,16 +445,13 @@ impl Indexer {
 			.instrument(tracing::debug_span!("archive.store_queue_entry", sequence))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put an archive queue entry"));
-		let message = if result.is_ok() {
-			queue::ArchiveMessage::Process(entry)
-		} else {
-			queue::ArchiveMessage::Delete(sequence)
-		};
-		archive_sender
-			.send(message)
-			.instrument(tracing::debug_span!("archive.submit_queue_entry", sequence))
-			.await
-			.map_err(|_| tg::error!("the archive queue task stopped"))?;
+		drop(permit);
+		state
+			.lock()
+			.unwrap()
+			.queues
+			.mark_sent(queue::Kind::Archive, [sequence], result.is_err());
+		changed.notify_waiters();
 		result?;
 		Ok(())
 	}
@@ -422,10 +460,14 @@ impl Indexer {
 		&self,
 		state: &Mutex<State>,
 		changed: &tokio::sync::Notify,
-		index_sender: &queue::IndexMessageSender,
+		writes: &tokio::sync::Semaphore,
 		arg: IndexRequestArg,
 	) -> tg::Result<tokio::sync::oneshot::Receiver<tg::Result<()>>> {
 		let sequence = Self::allocate_sequence(state, changed, queue::Kind::Index).await?;
+		let permit = writes
+			.acquire()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to acquire an index write"))?;
 		let fragment = crate::cache::index::queue::Fragment {
 			batch: arg.batch,
 			fragment: arg.fragment,
@@ -437,30 +479,30 @@ impl Indexer {
 		let arg = crate::cache::index::queue::put::Arg {
 			fragment: fragment.clone(),
 		};
-		if let Err(source) = self.server.cache.put_index_queue_fragment(arg).await {
-			index_sender
-				.send(queue::IndexMessage::Delete(vec![sequence]))
-				.await
-				.map_err(|_| tg::error!("the index queue task stopped"))?;
+		let result = self.server.cache.put_index_queue_fragment(arg).await;
+		drop(permit);
+		if let Err(source) = result {
+			state
+				.lock()
+				.unwrap()
+				.queues
+				.mark_sent(queue::Kind::Index, [sequence], true);
+			changed.notify_waiters();
 			return Err(tg::error!(!source, "failed to put an index queue fragment"));
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let output = {
 			let mut state = state.lock().unwrap();
-			state.queues.insert_index_fragment(
+			let output = state.queues.insert_index_fragment(
 				fragment,
 				Some(sender),
 				self.server.config.object.index_queue.batch_timeout,
-			)
+			);
+			state.queues.mark_sent_index_messages(output.messages);
+			output.responses
 		};
 		changed.notify_waiters();
-		for message in output.messages {
-			index_sender
-				.send(message)
-				.await
-				.map_err(|_| tg::error!("the index queue task stopped"))?;
-		}
-		for (sender, result) in output.responses {
+		for (sender, result) in output {
 			sender.send(result).ok();
 		}
 		Ok(receiver)

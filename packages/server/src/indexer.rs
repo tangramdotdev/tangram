@@ -39,7 +39,6 @@ struct Indexer {
 struct ShutdownArgs<'a> {
 	changed: &'a tokio::sync::Notify,
 	checkpoints: &'a queue::CheckpointSender,
-	index_sender: &'a queue::IndexMessageSender,
 	state: &'a Mutex<State>,
 	tasks: Tasks,
 }
@@ -113,36 +112,13 @@ impl Server {
 			None
 		};
 		let (completion_sender, completion_receiver) = tokio::sync::mpsc::unbounded_channel();
-		let (archive_sender, archive_receiver) =
-			tokio::sync::mpsc::channel(self.config.object.archive_queue.concurrency);
-		let (index_sender, index_receiver) =
-			tokio::sync::mpsc::channel(self.config.object.index_queue.concurrency);
 		let indexer = Indexer {
 			id,
 			server: self.clone(),
 		};
-		let archive_queue_task = SharedTask::spawn({
-			let completion_sender = completion_sender.clone();
-			let indexer = indexer.clone();
-			move |stopper| async move {
-				indexer
-					.archive_queue_task(archive_receiver, completion_sender, stopper)
-					.await
-			}
-		});
-		let index_queue_task = SharedTask::spawn({
-			let indexer = indexer.clone();
-			move |stopper| async move {
-				indexer
-					.index_queue_task(index_receiver, completion_sender, stopper)
-					.await
-			}
-		});
 		let queues = if let Some(state) = &indexer_state {
 			let mut queues = queue::Queues::new(state);
-			queues
-				.recover(&indexer, &archive_sender, &index_sender)
-				.await?;
+			queues.recover(&indexer).await?;
 			queues.reserve_initial_sequences(&indexer).await?;
 			queues
 		} else {
@@ -158,6 +134,31 @@ impl Server {
 		let state = Arc::new(Mutex::new(state));
 		let changed = Arc::new(tokio::sync::Notify::new());
 		let (checkpoint_sender, checkpoint_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+		// Spawn the archive queue task.
+		let archive_queue_task = SharedTask::spawn({
+			let completion_sender = completion_sender.clone();
+			let indexer = indexer.clone();
+			let changed = changed.clone();
+			let state = state.clone();
+			move |stopper| async move {
+				indexer
+					.archive_queue_task(&state, &changed, completion_sender, stopper)
+					.await
+			}
+		});
+
+		// Spawn the index queue task.
+		let index_queue_task = SharedTask::spawn({
+			let indexer = indexer.clone();
+			let changed = changed.clone();
+			let state = state.clone();
+			move |stopper| async move {
+				indexer
+					.index_queue_task(&state, &changed, completion_sender, stopper)
+					.await
+			}
+		});
 
 		// Spawn the archive sequence reservations task.
 		let archive_sequence_reservations_task = SharedTask::spawn({
@@ -178,7 +179,6 @@ impl Server {
 
 		// Spawn the batch expiration task.
 		let batch_expiration_task = SharedTask::spawn({
-			let index_sender = index_sender.clone();
 			let indexer = indexer.clone();
 			let changed = changed.clone();
 			let state = state.clone();
@@ -188,7 +188,7 @@ impl Server {
 					return Ok(());
 				}
 				tokio::select! {
-					result = indexer.batch_expiration_task(&index_sender, &state, &changed) => result,
+					result = indexer.batch_expiration_task(&state, &changed) => result,
 					() = stopper.wait() => Ok(()),
 				}
 			}
@@ -439,15 +439,12 @@ impl Server {
 		let (ready_sender, ready_receiver) = tokio::sync::oneshot::channel();
 		let request_task = tangram_futures::task::Shared::spawn({
 			let wait_sender = wait_sender.clone();
-			let index_sender = index_sender.clone();
 			let indexer = indexer.clone();
 			let changed = changed.clone();
 			let state = state.clone();
 			move |stopper| async move {
 				let args = request::RequestTaskArgs {
-					archive_sender,
 					changed,
-					index_sender,
 					ready: ready_sender,
 					state,
 					stopper,
@@ -533,7 +530,6 @@ impl Server {
 		let args = ShutdownArgs {
 			changed: &changed,
 			checkpoints: &checkpoint_sender,
-			index_sender: &index_sender,
 			state: &state,
 			tasks,
 		};
@@ -577,7 +573,6 @@ impl Indexer {
 		let ShutdownArgs {
 			changed,
 			checkpoints,
-			index_sender,
 			state,
 			tasks,
 		} = args;
@@ -652,7 +647,7 @@ impl Indexer {
 		self.server.index_tasks.wait().await;
 		self.server.archive_tasks.wait().await;
 		if self.id.is_some() {
-			Self::drain_queues(state, changed, index_sender).await?;
+			Self::drain_queues(state, changed).await?;
 		}
 
 		// Deletion certifies that the private queues are drained; shared work remains durable.
