@@ -64,7 +64,10 @@ impl Component {
 				region,
 			}) => {
 				let client = session
-					.get_remote_session_for_process(&remote)
+					.server
+					.components
+					.remote
+					.get_remote_session_for_process(session, &remote)
 					.await
 					.map_err(
 						|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),

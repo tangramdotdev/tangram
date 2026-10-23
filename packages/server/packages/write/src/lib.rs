@@ -112,12 +112,15 @@ impl Component {
 			.await?;
 		session
 			.server
-			.put_object_batch_and_index(cache_args, index_arg)
+			.components
+			.object
+			.put_object_batch_and_index(&session.server, cache_args, index_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store and index the blob"))?;
 
 		// Create the output.
-		let token = session.create_token(
+		let token = session.server.components.authorization.create_token(
+			session,
 			blob.id.clone().into(),
 			vec![tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
@@ -136,8 +139,14 @@ impl Component {
 		reader: impl AsyncRead,
 		destination: Option<&Destination>,
 	) -> tg::Result<Output> {
-		self.write_inner_with_instance(reader, destination, 1, |arg| session.server.put_object(arg))
-			.await
+		self.write_inner_with_instance(reader, destination, 1, |arg| {
+			session
+				.server
+				.components
+				.object
+				.put_object_with_server(&session.server, arg)
+		})
+		.await
 	}
 
 	async fn write_inner_with_instance<F>(

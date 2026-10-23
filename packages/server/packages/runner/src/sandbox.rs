@@ -177,8 +177,9 @@ impl Component {
 			},
 			tg::sandbox::control::ServerRequestArg::Get(_) => session
 				.server
+				.components
 				.runner
-				.state
+				.state()
 				.try_get_sandbox(id)
 				.map(|data| {
 					tg::sandbox::control::ClientResponseOutput::Get(
@@ -188,8 +189,9 @@ impl Component {
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 			tg::sandbox::control::ServerRequestArg::GetProcesses(arg) => session
 				.server
+				.components
 				.runner
-				.state
+				.state()
 				.sandboxes
 				.get_by_id(id)
 				.map(|sandbox| {
@@ -210,7 +212,7 @@ impl Component {
 		Ok(())
 	}
 
-	#[tracing::instrument(name = "sandbox.lifecycle", level = "info", skip_all, fields(runner = session.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = arg.id.as_ref().map(ToString::to_string)), err(level = "debug"))]
+	#[tracing::instrument(name = "sandbox.lifecycle", level = "info", skip_all, fields(runner = self.state.id().as_ref().map(ToString::to_string), sandbox = arg.id.as_ref().map(ToString::to_string)), err(level = "debug"))]
 	async fn sandbox_task(&self, session: &Session, arg: SandboxTaskArg) -> tg::Result<()> {
 		let SandboxTaskArg {
 			allocation,
@@ -233,8 +235,9 @@ impl Component {
 		// Use the sandbox's ID and token from its assignment, or, on the shortcut path, derive the ID and receive the token in the control connection's header.
 		let runner = session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.id()
 			.ok_or_else(|| tg::error!("missing the runner id"))?;
 		let (id, token, proof) = match (id, token) {
@@ -320,7 +323,7 @@ impl Component {
 			}
 		};
 		tracing::Span::current().record("sandbox", tracing::field::display(&id));
-		tracing::info!(runner = session.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = %id, "created the sandbox");
+		tracing::info!(runner = self.state.id().as_ref().map(ToString::to_string), sandbox = %id, "created the sandbox");
 		let process = process
 			.map(|process| Self::prepare_process(process, &id))
 			.transpose()?;
@@ -334,7 +337,7 @@ impl Component {
 			arg: arg.clone(),
 			created_at,
 			creator: creator.clone(),
-			runner: session.server.runner.state.id(),
+			runner: self.state.id(),
 		});
 
 		// Take the sandbox's CPU minimum from its lender, and record its CPU share so that its borrowers can take theirs from it.
@@ -397,11 +400,11 @@ impl Component {
 			#[cfg(not(target_os = "linux"))]
 			vfs: None,
 		};
-		session.server.runner.state.sandboxes.insert(index, entry);
+		self.state.sandboxes.insert(index, entry);
 		let server = session.server.clone();
 		let id_for_cleanup = id.clone();
 		scopeguard::defer! {
-			drop(server.runner.state.sandboxes.remove(index));
+			drop(server.components.runner.state().sandboxes.remove(index));
 
 			// Let tests observe that the runner discarded the sandbox state.
 			if server.checkpoints.is_some() {
@@ -482,8 +485,9 @@ impl Component {
 		.shared();
 		let state = session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.sandboxes
 			.get(index)
 			.expect("the sandbox state was not found")
@@ -545,7 +549,7 @@ impl Component {
 		session: &Session,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<CreateSandboxOutput> {
-		if let Some(task) = session.server.runner.sandbox_pool.take(&arg, self, session) {
+		if let Some(task) = self.sandbox_pool.take(&arg, self, session) {
 			match task.wait().await {
 				Ok(Ok(output)) => {
 					tangram_server_core::checkpoint!(
@@ -646,7 +650,7 @@ impl Component {
 					&& (resources.max_filesystem_inodes.is_some()
 						|| resources.max_filesystem_size.is_some()) =>
 			{
-				let project_id = session.server.runner.state.create_filesystem_project_id()?;
+				let project_id = self.state.create_filesystem_project_id()?;
 				resources.filesystem_project_id = Some(project_id.value());
 				Some(project_id)
 			},
@@ -665,7 +669,7 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
 		// Create the sandbox index.
-		let index = session.server.runner.state.create_sandbox_index();
+		let index = self.state.create_sandbox_index();
 
 		// Start an unbound per-sandbox VFS that denies access until its principal is set.
 		#[cfg(target_os = "linux")]
@@ -810,10 +814,10 @@ impl Component {
 			cpu_affinity: session.server.config.runner.cpu_affinity,
 
 			#[cfg(target_os = "linux")]
-			cpu_shares: Some(session.server.runner.state.cpu_shares.clone()),
+			cpu_shares: Some(self.state.cpu_shares.clone()),
 
 			#[cfg(target_os = "linux")]
-			cpu_threads: Some(session.server.runner.state.cpu_threads.clone()),
+			cpu_threads: Some(self.state.cpu_threads.clone()),
 
 			dns: config.network.dns.clone(),
 
@@ -839,7 +843,7 @@ impl Component {
 			index,
 
 			#[cfg(target_os = "linux")]
-			ip_pool: session.server.ip_pool.clone(),
+			ip_pool: self.ip_pool.clone(),
 
 			memory: arg.memory,
 
@@ -867,7 +871,7 @@ impl Component {
 			storage: arg.storage,
 
 			#[cfg(target_os = "linux")]
-			storage_pool: Some(session.server.runner.state.storage_pool.clone()),
+			storage_pool: Some(self.state.storage_pool.clone()),
 
 			store_path: store_source,
 
@@ -1094,8 +1098,9 @@ impl Component {
 							});
 							let sandbox = session
 								.server
+								.components
 								.runner
-								.state
+								.state()
 								.sandboxes
 								.get_by_id(&id)
 								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
@@ -1120,14 +1125,15 @@ impl Component {
 						tg::sandbox::control::ServerRequestArg::Get(_) => {
 							let data = session
 								.server
+								.components
 								.runner
-								.state
+								.state()
 								.try_get_sandbox(&id)
 								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 							let output = tg::sandbox::control::GetClientResponseOutput { data };
 							Ok(tg::sandbox::control::ClientResponseOutput::Get(output))
 						},
-						tg::sandbox::control::ServerRequestArg::GetProcesses(arg) => session.server.runner.state.sandboxes.get_by_id(&id)
+						tg::sandbox::control::ServerRequestArg::GetProcesses(arg) => session.server.components.runner.state().sandboxes.get_by_id(&id)
 							.map(|sandbox| tg::sandbox::control::ClientResponseOutput::GetProcesses(sandbox.processes(arg.position, arg.length)))
 							.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 						tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
@@ -1241,8 +1247,9 @@ impl Component {
 			let allocation = {
 				let mut state = session
 					.server
+					.components
 					.runner
-					.state
+					.state()
 					.sandboxes
 					.get_mut_by_id(&id)
 					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
@@ -1276,8 +1283,9 @@ impl Component {
 			drop(allocation.lock().await.take());
 			let mut state = session
 				.server
+				.components
 				.runner
-				.state
+				.state()
 				.sandboxes
 				.get_mut_by_id(&id)
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
@@ -1294,8 +1302,9 @@ impl Component {
 			let (data, processes) = {
 				let mut state = session
 					.server
+					.components
 					.runner
-					.state
+					.state()
 					.sandboxes
 					.get_mut_by_id(&id)
 					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
@@ -1457,8 +1466,9 @@ impl Component {
 		} = arg;
 		let runner = session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.id()
 			.ok_or_else(|| tg::error!("missing the runner id"))?;
 		let arg = tg::sandbox::control::Arg {
@@ -1568,7 +1578,9 @@ impl Component {
 		};
 		session
 			.server
-			.index_batch(arg)
+			.components
+			.indexer
+			.index_batch(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to index the remote sandbox"))?;
 

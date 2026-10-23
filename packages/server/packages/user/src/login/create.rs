@@ -40,7 +40,12 @@ impl Component {
 			},
 			tg::Location::Local(_) => self.create_login_local(session, arg).await,
 			tg::Location::Remote(remote) => {
-				let client = session.get_remote_session(&remote.name).await?;
+				let client = session
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
+					.await?;
 				let arg = tg::user::login::create::Arg {
 					location: Some(
 						tg::Location::Local(tg::location::Local {

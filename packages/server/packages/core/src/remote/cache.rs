@@ -1,4 +1,4 @@
-use {crate::Session, tangram_client::prelude::*};
+use tangram_client::prelude::*;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
@@ -124,42 +124,6 @@ pub fn remove_expired_tokens(tokens: &mut tg::authorization::Tokens, clock: &cra
 		if token.body.expires_at > now {
 			tokens.insert_local_authorization(token);
 		}
-	}
-}
-
-impl Session {
-	pub async fn try_get_cached_remote_response(
-		&self,
-		remote: &str,
-		request: &Request,
-		ttl: tg::remote::cache::Ttl,
-	) -> tg::Result<Option<Response>> {
-		self.server
-			.components
-			.remote
-			.try_get_cached_remote_response(self, remote, request, ttl)
-			.await
-	}
-
-	pub async fn put_cached_remote_response(
-		&self,
-		remote: &str,
-		request: &Request,
-		response: &Response,
-	) -> tg::Result<()> {
-		self.server
-			.components
-			.remote
-			.put_cached_remote_response(self, remote, request, response)
-			.await
-	}
-
-	pub async fn invalidate_remote_cache(&self, remote: &str) {
-		self.server
-			.components
-			.remote
-			.invalidate_remote_cache(self, remote)
-			.await;
 	}
 }
 

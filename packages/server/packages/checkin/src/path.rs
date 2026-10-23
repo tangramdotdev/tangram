@@ -59,7 +59,13 @@ impl Component {
 		let mut tokens = Self::checkin_read_file_tokens(&checkout_path)?;
 		let sandbox = Self::try_get_checkin_origin_sandbox(session)?;
 		if let Some(sandbox) = &sandbox
-			&& let Some(state) = session.server.runner.state().sandboxes().get_by_id(sandbox)
+			&& let Some(state) = session
+				.server
+				.components
+				.runner
+				.state()
+				.sandboxes()
+				.get_by_id(sandbox)
 		{
 			if let Some(token) = state.tokens.get(&id) {
 				tokens.insert_local_authorization(token.clone());
@@ -97,7 +103,12 @@ impl Component {
 		let expires_at = authorization
 			.expires_at
 			.map_or(expires_at, |expiration| expiration.min(expires_at));
-		let root_token = session.create_token(id.clone().into(), vec![subtree], expires_at)?;
+		let root_token = session.server.components.authorization.create_token(
+			session,
+			id.clone().into(),
+			vec![subtree],
+			expires_at,
+		)?;
 		if let Some(token) = &root_token {
 			referent
 				.options
@@ -127,9 +138,12 @@ impl Component {
 		// Return exact tokens for the resolved artifact and its containing root.
 		referent.options.tokens.clear();
 		if referent.options.id.is_some()
-			&& let Some(token) =
-				session.create_token(referent.node.clone().into(), vec![subtree], expires_at)?
-		{
+			&& let Some(token) = session.server.components.authorization.create_token(
+				session,
+				referent.node.clone().into(),
+				vec![subtree],
+				expires_at,
+			)? {
 			referent.options.tokens.insert_local_authorization(token);
 		}
 		if let Some(token) = root_token {
@@ -138,6 +152,7 @@ impl Component {
 		if let Some(sandbox) = &sandbox
 			&& let Some(mut state) = session
 				.server
+				.components
 				.runner
 				.state()
 				.sandboxes()
@@ -406,7 +421,10 @@ impl Component {
 		let mut stack = vec![id.clone()];
 		while let Some(id) = stack.pop() {
 			let output = session
-				.try_get_object_local(&id.clone().into(), false, false, &[])
+				.server
+				.components
+				.object
+				.try_get_object_local(session, &id.clone().into(), false, false, &[])
 				.await?
 				.ok_or_else(|| tg::error!(%id, "graph not found"))?;
 			let data = tg::graph::Data::deserialize(output.bytes)
@@ -433,7 +451,10 @@ impl Component {
 		Option<(tg::graph::Id, tg::graph::data::Leaf)>,
 	)> {
 		let output = session
-			.try_get_object_local(&id.clone().into(), false, false, &[])
+			.server
+			.components
+			.object
+			.try_get_object_local(session, &id.clone().into(), false, false, &[])
 			.await?
 			.ok_or_else(|| tg::error!("directory not found"))?;
 		let data = tg::directory::Data::deserialize(output.bytes)

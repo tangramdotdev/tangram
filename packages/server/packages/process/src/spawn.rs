@@ -90,7 +90,12 @@ impl Component {
 		// Get the authenticated process.
 		let authenticated_process = match &session.context.principal {
 			tg::Principal::Process(process) => {
-				session.try_get_authenticated_process(process).await?
+				session
+					.server
+					.components
+					.authentication
+					.try_get_authenticated_process(session, process)
+					.await?
 			},
 			_ => None,
 		};
@@ -363,7 +368,15 @@ impl Component {
 		if !Self::spawn_process_runner_matches_location(session, location) {
 			return None;
 		}
-		arg.scheduler = Some(session.server.runner.state().wait_for_scheduler().await);
+		arg.scheduler = Some(
+			session
+				.server
+				.components
+				.runner
+				.state()
+				.wait_for_scheduler()
+				.await,
+		);
 		let parent = arg.parent.as_ref()?;
 		if arg.cached == Some(true) {
 			return None;
@@ -515,7 +528,8 @@ impl Component {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		session.create_token(
+		session.server.components.authorization.create_token(
+			session,
 			id.clone().into(),
 			vec![tg::authorization::Permission::Process(
 				tg::authorization::permission::process::Permission::Parent,
@@ -585,7 +599,10 @@ impl Component {
 		region: Option<String>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let client = session
-			.get_remote_session_for_process(&remote)
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, &remote)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
@@ -714,12 +731,17 @@ impl Component {
 		location: &tg::Location,
 		trusted: bool,
 	) -> tg::Result<()> {
-		session.update_tokens_and_location(
-			&mut output.tokens,
-			Some(&mut output.location),
-			location,
-			trusted,
-		)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut output.tokens,
+				Some(&mut output.location),
+				location,
+				trusted,
+			)?;
 		if let Some(outcome) = &mut output.outcome {
 			Self::update_outcome_referents_for_location(session, outcome, location, trusted)?;
 		}

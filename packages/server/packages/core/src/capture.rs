@@ -67,7 +67,12 @@ impl Session {
 					.iter()
 					.filter(|token| token.body.resource != resource.node);
 				for token in exact.chain(other) {
-					if !self.verify_token(token) {
+					if !self
+						.server
+						.components
+						.authorization
+						.verify_token(self, token)
+					{
 						continue;
 					}
 					if token.body.resource == resource.node {
@@ -120,7 +125,12 @@ impl Session {
 			};
 			sources.insert(source);
 			for token in &tokens {
-				if let Some(sync) = self.try_get_sync_id_from_token(token) {
+				if let Some(sync) = self
+					.server
+					.components
+					.authorization
+					.try_get_sync_id_from_token(self, token)
+				{
 					sources.insert(tg::authorization::Subject::Sync(sync));
 				}
 			}

@@ -22,8 +22,37 @@ pub struct State {
 impl Component {
 	#[must_use]
 	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> Self {
-		let cache = arg.authentication_cache.clone();
-		let cache_events = arg.authentication_cache_events.clone();
+		// Create the cache.
+		let cache = Arc::new(Cache::new(&arg.config.authentication.cache));
+		let (cache_events, _) = tokio::sync::broadcast::channel(16);
+
+		// Listen for the messenger's connection events.
+		arg.messenger.add_listener({
+			let cache = cache.clone();
+			let checkpoints = arg.checkpoints.cloned();
+			let events = cache_events.clone();
+			move |event| {
+				let cache = cache.clone();
+				let checkpoints = checkpoints.clone();
+				let events = events.clone();
+				Box::pin(async move {
+					// Mark the authentication cache not ready and notify its subscriber.
+					cache.set_ready(false);
+					let _ = events.send(());
+
+					// Hit the checkpoint for the authentication cache becoming not ready.
+					if let Some(checkpoints) = &checkpoints {
+						let mut params = tg::checkpoint::Params::new();
+						params.insert("event".to_owned(), event.into());
+						checkpoints
+							.hit("authentication.cache.unready", params)
+							.await;
+					}
+				})
+			}
+		});
+
+		// Create the state.
 		let cache_subscriber = Mutex::new(None);
 		let state = State {
 			cache,

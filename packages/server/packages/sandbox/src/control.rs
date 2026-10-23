@@ -188,7 +188,9 @@ impl Component {
 				proof.verify_recent(&id, runner, now, window)?;
 				let token = session
 					.server
-					.create_sandbox_authentication_token(id.clone())?;
+					.components
+					.authentication
+					.create_sandbox_authentication_token(&session.server, id.clone())?;
 				Some(token)
 			},
 			(tg::Principal::Sandbox(sandbox), _) => {
@@ -239,7 +241,9 @@ impl Component {
 		};
 		session
 			.server
-			.index_batch(arg)
+			.components
+			.indexer
+			.index_batch(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the sandbox"))?;
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.index.submitted", sandbox = %id).await;
@@ -538,9 +542,15 @@ impl Component {
 		>,
 	> {
 		let id = arg.id.clone();
-		let client = session.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
+			)?;
 		let context = client.context().clone();
 		context.set_token(session.context.token.clone());
 		let client = client.client().session(&context);

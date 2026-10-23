@@ -172,6 +172,7 @@ impl Component {
 			loop {
 				let status = session
 					.server
+					.components
 					.runner
 					.state()
 					.sandboxes()
@@ -530,9 +531,15 @@ impl Component {
 		tokens: &tg::authorization::Tokens,
 		source: tg::sandbox::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
 			region: None,

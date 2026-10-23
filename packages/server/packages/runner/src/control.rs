@@ -538,9 +538,15 @@ impl Component {
 		>,
 	> {
 		let id = arg.id.clone();
-		let client = session.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		let arg = tg::runner::control::Arg {
 			location: Some(
@@ -578,17 +584,27 @@ impl Component {
 						&& let tg::runner::control::ServerRequestArg::CreateSandbox(arg) =
 							&mut request.arg && let Some(process) = &mut arg.process
 					{
-						session.update_process_data_referents_for_location(
-							&mut process.data,
-							&location,
-							trusted,
-						)?;
-						session.update_tokens_and_location(
-							&mut process.options.tokens,
-							Some(&mut process.options.location),
-							&location,
-							trusted,
-						)?;
+						session
+							.server
+							.components
+							.authorization
+							.update_process_data_referents_for_location(
+								&session,
+								&mut process.data,
+								&location,
+								trusted,
+							)?;
+						session
+							.server
+							.components
+							.authorization
+							.update_tokens_and_location(
+								&session,
+								&mut process.options.tokens,
+								Some(&mut process.options.location),
+								&location,
+								trusted,
+							)?;
 					}
 					Ok(message)
 				}

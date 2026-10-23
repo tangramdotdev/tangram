@@ -58,11 +58,16 @@ impl Component {
 				.roles
 				.contains(&tangram_server_core::config::Role::Runner)
 			{
-				Some(session.server.runner.state().capacity().get())
+				Some(session.server.components.runner.state().capacity().get())
 			} else {
 				None
 			};
-			let started = session.server.runner.state().started_process_count();
+			let started = session
+				.server
+				.components
+				.runner
+				.state()
+				.started_process_count();
 
 			Some(tg::health::Processes { capacity, started })
 		} else {

@@ -328,6 +328,7 @@ impl crate::Server {
 			return Ok(None);
 		};
 		let sandbox = self
+			.components
 			.runner
 			.state()
 			.sandboxes()
@@ -400,7 +401,13 @@ impl crate::Session {
 		location: Option<&tg::location::Arg>,
 	) -> Option<control::local::Local> {
 		let runner = self.try_get_sandbox_runner_inner(id, location)?;
-		let sandbox = self.server.runner.state().sandboxes().get(runner.index)?;
+		let sandbox = self
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes()
+			.get(runner.index)?;
 		let sender = &sandbox.control_sender;
 		(!sender.is_closed()).then(|| sender.clone())
 	}
@@ -411,7 +418,13 @@ impl crate::Session {
 		id: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
 	) -> Option<Runner> {
-		let sandbox = self.server.runner.state().sandboxes().get_by_id(id)?;
+		let sandbox = self
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes()
+			.get_by_id(id)?;
 		// Regions guide subsequent routing, but do not constrain a runner state match.
 		let location_arg = if let Some(location) = location {
 			let components = location

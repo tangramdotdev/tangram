@@ -203,7 +203,12 @@ impl Component {
 			if !permissions.permissions.contains(permission) {
 				continue;
 			}
-			if let Some(token) = session.create_read_token(&item.id.clone().into())? {
+			if let Some(token) = session
+				.server
+				.components
+				.authorization
+				.create_read_token(session, &item.id.clone().into())?
+			{
 				item.tokens.insert_local_authorization(token);
 			}
 			authorized.push(item);
@@ -248,7 +253,11 @@ impl Component {
 			|error| tg::error!(!error, region = %region, "failed to list the sandboxes"),
 		)?;
 		for item in &mut output.data {
-			session.update_tokens_and_location(&mut item.tokens, None, &location, false)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(session, &mut item.tokens, None, &location, false)?;
 		}
 		Ok(output)
 	}
@@ -274,9 +283,15 @@ impl Component {
 		remote: &tangram_server_core::location::Remote,
 		owner: Option<&tg::Principal>,
 	) -> tg::Result<tg::sandbox::list::Output> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		let arg = tg::sandbox::list::Arg {
 			cursor: None,
@@ -296,7 +311,11 @@ impl Component {
 			region: None,
 		});
 		for item in &mut output.data {
-			session.update_tokens_and_location(&mut item.tokens, None, &location, trusted)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(session, &mut item.tokens, None, &location, trusted)?;
 		}
 		Ok(output)
 	}

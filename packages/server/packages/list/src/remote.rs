@@ -39,9 +39,15 @@ impl Component {
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
 	) -> tg::Result<Vec<tg::list::Entry>> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		let query = query.with_remote(&remote);
 		let request = match &query {
@@ -64,7 +70,10 @@ impl Component {
 			remote: remote.name.clone(),
 		};
 		if let Some(response) = session
-			.try_get_cached_remote_response(&remote.name, &request, ttl)
+			.server
+			.components
+			.remote
+			.try_get_cached_remote_response(session, &remote.name, &request, ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
@@ -141,7 +150,10 @@ impl Component {
 			_ => unreachable!(),
 		};
 		session
-			.put_cached_remote_response(&remote.name, &request, &response)
+			.server
+			.components
+			.remote
+			.put_cached_remote_response(session, &remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		let entries = entries
@@ -169,19 +181,29 @@ impl Component {
 			name: remote.to_owned(),
 			region,
 		});
-		session.update_tokens_and_location(
-			&mut entry.node.options.tokens,
-			Some(&mut entry.node.options.location),
-			&location,
-			trusted,
-		)?;
-		if let Some(target) = &mut entry.target {
-			session.update_tokens_and_location(
-				&mut target.options.tokens,
-				Some(&mut target.options.location),
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut entry.node.options.tokens,
+				Some(&mut entry.node.options.location),
 				&location,
 				trusted,
 			)?;
+		if let Some(target) = &mut entry.target {
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut target.options.tokens,
+					Some(&mut target.options.location),
+					&location,
+					trusted,
+				)?;
 		}
 		Ok(())
 	}

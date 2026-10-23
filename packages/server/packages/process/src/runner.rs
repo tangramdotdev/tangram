@@ -19,7 +19,7 @@ impl Component {
 		id: &tg::process::Id,
 		location: Option<&tg::location::Arg>,
 	) -> Option<Control> {
-		let state = session.server.runner.state();
+		let state = session.server.components.runner.state();
 		let sandbox = state.try_get_process_sandbox(id)?;
 		let runner = session.try_get_sandbox_runner_inner(&sandbox, location)?;
 		let sandbox = state.sandboxes().get(runner.index)?;
@@ -66,7 +66,7 @@ impl Component {
 		location: Option<&tg::location::Arg>,
 	) -> Option<Runner> {
 		// Get the process.
-		let state = session.server.runner.state();
+		let state = session.server.components.runner.state();
 		let sandbox = state.try_get_process_sandbox(id)?;
 		let runner = session.try_get_sandbox_runner_inner(&sandbox, location)?;
 		let sandbox = state.sandboxes().get(runner.index)?;

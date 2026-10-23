@@ -86,7 +86,10 @@ impl Component {
 		arg: tg::organization::create::Arg,
 	) -> tg::Result<ControlFlow<tg::organization::create::Output>> {
 		let ids_by_specifier = session
-			.try_get_ids_and_ancestors_for_specifiers(std::slice::from_ref(&arg.specifier))
+			.server
+			.components
+			.node
+			.try_get_ids_and_ancestors_for_specifiers(session, std::slice::from_ref(&arg.specifier))
 			.await?;
 		let component = self.clone();
 		let session = session.clone();
@@ -217,9 +220,15 @@ impl Component {
 		mut arg: tg::organization::create::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<tg::organization::create::Output> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		arg.location = Some(
 			tg::Location::Local(tg::location::Local {
@@ -230,14 +239,24 @@ impl Component {
 		let mut output = client.create_organization(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the organization"),
 		)?;
-		session.invalidate_remote_cache(&remote.name).await;
+		session
+			.server
+			.components
+			.remote
+			.invalidate_remote_cache(session, &remote.name)
+			.await;
 		let location = tg::Location::Remote(remote);
-		session.update_tokens_and_location(
-			&mut output.tokens,
-			Some(&mut output.location),
-			&location,
-			trusted,
-		)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut output.tokens,
+				Some(&mut output.location),
+				&location,
+				trusted,
+			)?;
 
 		Ok(output)
 	}
@@ -325,7 +344,11 @@ impl Component {
 			}
 		}
 		let tokens = tg::authorization::Tokens::with_authorization(
-			session.create_read_token(&id.clone().into())?,
+			session
+				.server
+				.components
+				.authorization
+				.create_read_token(session, &id.clone().into())?,
 		);
 		let data = tg::organization::Data {
 			id,

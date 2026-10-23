@@ -165,8 +165,6 @@ pub struct State {
 
 	pub authorization_tokens: Tokens,
 
-	pub billing: Option<self::billing::Billing>,
-
 	pub cache: self::cache::Cache,
 
 	pub checkout_lock: self::checkout::Lock,
@@ -191,9 +189,6 @@ pub struct State {
 
 	pub index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 
-	#[cfg(target_os = "linux")]
-	pub ip_pool: tangram_sandbox::network::ip::Pool,
-
 	library: Mutex<Option<Arc<Temp>>>,
 
 	lock: Mutex<Option<tokio::fs::File>>,
@@ -205,8 +200,6 @@ pub struct State {
 	pub path: PathBuf,
 
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
-
-	pub runner: self::runner::Runner,
 
 	pub shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
 

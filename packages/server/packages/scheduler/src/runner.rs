@@ -176,7 +176,7 @@ impl Scheduler {
 				.roles
 				.contains(&tangram_server_core::config::Role::Runner)
 				&& self.server.config.runner.id.is_none()
-				&& self.server.runner.state().id().as_ref() == Some(&request.runner) =>
+				&& self.server.components.runner.state().id().as_ref() == Some(&request.runner) =>
 			{
 				None
 			},

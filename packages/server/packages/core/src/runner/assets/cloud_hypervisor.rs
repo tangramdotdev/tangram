@@ -103,7 +103,7 @@ impl Assets {
 			)
 		})?;
 		let id = tg::sandbox::Id::new();
-		let index = server.runner.state.create_sandbox_index();
+		let index = server.components.runner.state().create_sandbox_index();
 		tracing::info!(
 			snapshot = %snapshot_path.display(),
 			sandbox = %id,

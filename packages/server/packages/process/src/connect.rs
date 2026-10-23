@@ -341,7 +341,12 @@ impl Component {
 			.await;
 		}
 		if let tg::Location::Remote(remote) = location {
-			session.invalidate_remote_cache(&remote.name).await;
+			session
+				.server
+				.components
+				.remote
+				.invalidate_remote_cache(session, &remote.name)
+				.await;
 		}
 		result
 	}
@@ -651,7 +656,10 @@ impl Component {
 		remote: &tangram_server_core::location::Remote,
 	) -> tg::Result<ControlFlow<Option<(tg::process::connect::Header, Output)>, tg::Error>> {
 		let client = session
-			.get_remote_session_for_process(&remote.name)
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, &remote.name)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
@@ -776,12 +784,17 @@ impl Component {
 				),
 			) => {
 				if let Some(data) = &mut diagnostic.location {
-					session.update_tokens_and_location(
-						&mut data.module.referent.options.tokens,
-						Some(&mut data.module.referent.options.location),
-						location,
-						trusted,
-					)?;
+					session
+						.server
+						.components
+						.authorization
+						.update_tokens_and_location(
+							session,
+							&mut data.module.referent.options.tokens,
+							Some(&mut data.module.referent.options.location),
+							location,
+							trusted,
+						)?;
 				}
 			},
 			tg::process::connect::ServerMessage::Notification(
@@ -805,7 +818,13 @@ impl Component {
 			},
 			tg::process::connect::ServerMessage::Response(response) => {
 				if let Some(error) = &mut response.error {
-					session.update_error_data_referents_for_location(error, location, trusted)?;
+					session
+						.server
+						.components
+						.authorization
+						.update_error_data_referents_for_location(
+							session, error, location, trusted,
+						)?;
 				}
 			},
 		}

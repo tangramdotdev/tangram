@@ -49,7 +49,12 @@ impl Component {
 				.await;
 			}
 			if let tg::Location::Remote(remote) = location {
-				session.invalidate_remote_cache(&remote.name).await;
+				session
+					.server
+					.components
+					.remote
+					.invalidate_remote_cache(&session, &remote.name)
+					.await;
 			}
 		});
 		task.detach();

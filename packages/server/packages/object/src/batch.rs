@@ -38,12 +38,17 @@ impl Component {
 			},
 		};
 		for object in &mut output.objects {
-			session.update_tokens_and_location(
-				&mut object.options.tokens,
-				Some(&mut object.options.location),
-				&location,
-				trusted,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut object.options.tokens,
+					Some(&mut object.options.location),
+					&location,
+					trusted,
+				)?;
 		}
 
 		Ok(output)
@@ -229,7 +234,8 @@ impl Component {
 				} else {
 					tg::authorization::permission::object::Permission::Node
 				};
-				let token = session.create_token(
+				let token = session.server.components.authorization.create_token(
+					session,
 					object.id.clone().into(),
 					vec![tg::authorization::Permission::Object(permission)],
 					permission_expires_at,
@@ -290,10 +296,14 @@ impl Component {
 				return Ok(false);
 			}
 			let resource = tg::Selector::Id(child.node.clone().into());
-			if !tokens
-				.iter()
-				.any(|token| session.authorize_token(&resource, permission.into(), token))
-			{
+			if !tokens.iter().any(|token| {
+				session.server.components.authorization.authorize_token(
+					session,
+					&resource,
+					permission.into(),
+					token,
+				)
+			}) {
 				authorization_args.push((child.clone(), permission.into()));
 			}
 		}
@@ -335,9 +345,15 @@ impl Component {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<(tg::object::batch::Output, bool)> {
-		let client = session.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		let arg = tg::object::batch::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),

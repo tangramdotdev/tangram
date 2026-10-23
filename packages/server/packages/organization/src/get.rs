@@ -121,9 +121,15 @@ impl Component {
 		let cacheable = arg.tokens.is_empty();
 		let ttl = arg.ttl;
 		let location = tg::Location::Remote(remote.clone());
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		arg.cached = false;
 		arg.tokens = arg.tokens.for_location(&location);
@@ -144,7 +150,10 @@ impl Component {
 		);
 		if let Some(tangram_server_core::remote::cache::Response::OrganizationGet(response)) =
 			session
-				.try_get_cached_remote_response(&remote.name, &request, ttl)
+				.server
+				.components
+				.remote
+				.try_get_cached_remote_response(session, &remote.name, &request, ttl)
 				.await?
 		{
 			let mut output = response.output;
@@ -160,12 +169,17 @@ impl Component {
 						&mut output.tokens,
 						&session.server.clock,
 					);
-					session.update_tokens_and_location(
-						&mut output.tokens,
-						Some(&mut output.location),
-						&location,
-						trusted,
-					)?;
+					session
+						.server
+						.components
+						.authorization
+						.update_tokens_and_location(
+							session,
+							&mut output.tokens,
+							Some(&mut output.location),
+							&location,
+							trusted,
+						)?;
 					output.tokens.inherit(&tokens);
 				}
 
@@ -189,16 +203,24 @@ impl Component {
 		);
 		if cacheable {
 			session
-				.put_cached_remote_response(&remote.name, &request, &response)
+				.server
+				.components
+				.remote
+				.put_cached_remote_response(session, &remote.name, &request, &response)
 				.await?;
 		}
 		if let Some(output) = &mut output {
-			session.update_tokens_and_location(
-				&mut output.tokens,
-				Some(&mut output.location),
-				&location,
-				trusted,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut output.tokens,
+					Some(&mut output.location),
+					&location,
+					trusted,
+				)?;
 			output.tokens.inherit(&tokens);
 		}
 

@@ -1,10 +1,20 @@
 use {
 	futures::{StreamExt as _, TryStreamExt as _},
+	std::{
+		pin::Pin,
+		sync::{Arc, Mutex},
+	},
 	tangram_messenger::{self as messenger, Messenger as _},
 };
 
 #[cfg(test)]
 mod tests;
+
+/// A listener for the messenger's connection events, which receives the name of each event.
+pub type Listener = Arc<dyn Fn(&'static str) -> ListenerFuture + Send + Sync>;
+
+/// The future returned by a listener, which must be `Sync` because the NATS event callback's future must be `Sync`.
+pub type ListenerFuture = Pin<Box<dyn Future<Output = ()> + Send + Sync>>;
 
 #[derive(Clone)]
 enum Inner {
@@ -17,8 +27,13 @@ enum Inner {
 pub struct Messenger {
 	inner: Inner,
 	instance: Option<String>,
+	listeners: Listeners,
 	region: Option<String>,
 }
+
+/// The listeners for the messenger's connection events.
+#[derive(Clone, Default)]
+pub struct Listeners(Arc<Mutex<Vec<Listener>>>);
 
 impl Messenger {
 	#[must_use]
@@ -28,9 +43,11 @@ impl Messenger {
 		region: Option<String>,
 	) -> Self {
 		let inner = Inner::Memory(tangram_messenger_memory::Messenger::new(config));
+		let listeners = Listeners::default();
 		Self {
 			inner,
 			instance,
+			listeners,
 			region,
 		}
 	}
@@ -39,6 +56,7 @@ impl Messenger {
 	#[must_use]
 	pub fn nats(
 		client: async_nats::Client,
+		listeners: Listeners,
 		instance: Option<String>,
 		region: Option<String>,
 	) -> Self {
@@ -46,8 +64,16 @@ impl Messenger {
 		Self {
 			inner,
 			instance,
+			listeners,
 			region,
 		}
+	}
+
+	pub fn add_listener<F>(&self, listener: F)
+	where
+		F: Fn(&'static str) -> ListenerFuture + Send + Sync + 'static,
+	{
+		self.listeners.add(listener);
 	}
 
 	#[must_use]
@@ -144,6 +170,22 @@ impl Messenger {
 				message
 			})
 			.boxed()
+	}
+}
+
+impl Listeners {
+	pub fn add<F>(&self, listener: F)
+	where
+		F: Fn(&'static str) -> ListenerFuture + Send + Sync + 'static,
+	{
+		self.0.lock().unwrap().push(Arc::new(listener));
+	}
+
+	pub async fn notify(&self, event: &'static str) {
+		let listeners = self.0.lock().unwrap().clone();
+		for listener in listeners {
+			listener(event).await;
+		}
 	}
 }
 

@@ -30,13 +30,38 @@ pub mod token;
 pub struct Component(Arc<State>);
 
 pub struct State {
+	#[cfg(target_os = "linux")]
+	pub ip_pool: tangram_sandbox::network::ip::Pool,
+
 	pub sandbox_assets: tangram_server_core::runner::assets::Assets,
+
+	pub sandbox_pool: tangram_server_core::runner::pool::Pool,
+
 	pub sandbox_tasks: tangram_futures::task::Map<String, ()>,
+
+	pub state: tangram_server_core::runner::State,
+
 	pub task: Mutex<Option<Task<()>>>,
 }
 
 impl Component {
 	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Self> {
+		// Create the runner state, warming sandboxes only on runners.
+		let config = Self::create_config(arg.config, arg.path)?;
+		let sandbox_pool = tangram_server_core::runner::pool::Pool::new(config.sandbox_pool_size);
+		let state = tangram_server_core::runner::State::new(config);
+
+		// Create the IP pool.
+		#[cfg(target_os = "linux")]
+		let ip_pool = tangram_sandbox::network::ip::Pool::new(
+			arg.config
+				.sandbox
+				.network
+				.ip_ranges
+				.iter()
+				.map(|range| (range.min.to_bits(), range.max.to_bits())),
+		);
+
 		// Create the sandbox tasks.
 		let sandbox_tasks = tangram_futures::task::Map::default();
 
@@ -52,13 +77,129 @@ impl Component {
 
 		// Create the state.
 		let state = State {
+			#[cfg(target_os = "linux")]
+			ip_pool,
+
 			sandbox_assets,
+
+			sandbox_pool,
+
 			sandbox_tasks,
+
+			state,
+
 			task,
 		};
 		let component = Self(Arc::new(state));
 
 		Ok(component)
+	}
+
+	fn create_config(
+		config: &tangram_server_core::Config,
+		path: &std::path::Path,
+	) -> tg::Result<tangram_server_core::runner::Config> {
+		// Get the available parallelism.
+		let parallelism =
+			std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+
+		// Compute the capacity.
+		let capacity = if config
+			.roles
+			.contains(&tangram_server_core::config::Role::Runner)
+		{
+			let runner = &config.runner;
+			let cpus = runner
+				.cpus
+				.unwrap_or_else(|| u64::try_from(parallelism).unwrap());
+			#[cfg(target_os = "linux")]
+			let (physical_memory, physical_storage) = tangram_sandbox::capacity::detect(path)?;
+			#[cfg(not(target_os = "linux"))]
+			let (physical_memory, physical_storage) = (1_073_741_824_u64.saturating_mul(cpus), 0);
+			let memory = runner.memory.unwrap_or(physical_memory * 3 / 4);
+			let storage = runner.storage.unwrap_or(physical_storage * 3 / 4);
+			if memory > physical_memory || storage > physical_storage {
+				return Err(tg::error!(
+					"the runner resource capacity exceeds its available backing"
+				));
+			}
+			let memory = tg::sandbox::Resource::new(
+				memory,
+				memory
+					.checked_mul(runner.overcommit.memory)
+					.ok_or_else(|| tg::error!("the memory overcommit capacity overflowed"))?,
+			);
+			let storage = tg::sandbox::Resource::new(
+				storage,
+				storage
+					.checked_mul(runner.overcommit.storage)
+					.ok_or_else(|| tg::error!("the storage overcommit capacity overflowed"))?,
+			);
+
+			let max = cpus
+				.checked_mul(runner.overcommit.cpu)
+				.and_then(|value| value.checked_mul(1000))
+				.ok_or_else(|| tg::error!("the CPU capacity is too large"))?;
+			let max = tg::sandbox::Amount::from_millis(max);
+			if cpus > u64::try_from(parallelism).unwrap() {
+				return Err(tg::error!(
+					"the runner CPU capacity exceeds its available hardware threads"
+				));
+			}
+			let min = cpus
+				.checked_mul(1000)
+				.ok_or_else(|| tg::error!("the CPU capacity is too large"))?;
+			let min = tg::sandbox::Amount::from_millis(min);
+			let sandboxes = runner.sandboxes.unwrap_or(cpus);
+			if sandboxes == 0 {
+				return Err(tg::error!(
+					"the runner sandbox capacity must be greater than zero"
+				));
+			}
+			let capacity = tg::runner::Capacity {
+				cpu: tg::sandbox::Cpu::new(min, max),
+				memory,
+				sandboxes,
+				storage,
+			};
+			if capacity.cpu.max.is_none_or(|max| max.millis() == 0) {
+				return Err(tg::error!(
+					"the runner CPU capacity must be greater than zero"
+				));
+			}
+
+			if capacity.memory.max.is_none_or(|max| max == 0) {
+				return Err(tg::error!(
+					"the runner memory capacity must be greater than zero"
+				));
+			}
+
+			capacity
+		} else {
+			tg::runner::Capacity::default()
+		};
+
+		// Create the config, warming sandboxes only on runners.
+		let sandbox_pool_size = if config
+			.roles
+			.contains(&tangram_server_core::config::Role::Runner)
+		{
+			config.runner.sandbox_pool_size
+		} else {
+			0
+		};
+		let runner_config = tangram_server_core::runner::Config {
+			capacity,
+
+			#[cfg(target_os = "linux")]
+			filesystem_project_ids: config.runner.resources.filesystem_project_ids,
+
+			overcommit: config.runner.overcommit,
+
+			sandbox_pool_size,
+		};
+
+		Ok(runner_config)
 	}
 
 	fn spawn_runner_task(&self, server: &Server) -> Option<Task<()>> {
@@ -243,8 +384,9 @@ impl Component {
 	) {
 		session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.id
 			.lock()
 			.unwrap()
@@ -262,7 +404,7 @@ impl Component {
 			else {
 				break;
 			};
-			session.server.runner.state.set_scheduler(None);
+			session.server.components.runner.state().set_scheduler(None);
 
 			// Reconnect at once after a connection that lasted a heartbeat interval ends, with backoff while the scheduler cannot be reached or a connection ends sooner, and after the restart delay after a failure.
 			let lasted = started.elapsed() >= session.server.config.runner.heartbeat_interval;
@@ -317,7 +459,7 @@ impl Component {
 			.expect("the shutdown mode was not set");
 
 		// Stop the pools.
-		self.shutdown_sandbox_pool(session, shutdown).await;
+		self.shutdown_sandbox_pool(shutdown).await;
 
 		// Shut down the sandbox tasks.
 		let sandboxes = match shutdown {
@@ -328,8 +470,9 @@ impl Component {
 			Shutdown::Terminate => {
 				let sandboxes = session
 					.server
+					.components
 					.runner
-					.state
+					.state()
 					.sandboxes
 					.iter()
 					.filter_map(|sandbox| {
@@ -369,16 +512,15 @@ impl Component {
 	}
 
 	pub fn start_sandbox_pool(&self, session: &Session) {
-		session.server.runner.sandbox_pool.start(self, session);
+		self.sandbox_pool.start(self, session);
 	}
 
-	pub(crate) async fn shutdown_sandbox_pool(&self, session: &Session, shutdown: Shutdown) {
-		session.server.runner.sandbox_pool.shutdown(shutdown).await;
+	pub(crate) async fn shutdown_sandbox_pool(&self, shutdown: Shutdown) {
+		self.sandbox_pool.shutdown(shutdown).await;
 	}
 
-	pub async fn stop_sandbox_pool(&self, session: &Session) {
-		self.shutdown_sandbox_pool(session, Shutdown::Interrupt)
-			.await;
+	pub async fn stop_sandbox_pool(&self) {
+		self.shutdown_sandbox_pool(Shutdown::Interrupt).await;
 	}
 
 	async fn runner_task_inner(
@@ -422,8 +564,9 @@ impl Component {
 		tracing::info!(runner = %id, "the runner is ready to accept work");
 		session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.set_scheduler(Some(header.scheduler));
 
 		// Handle new sandbox requests.
@@ -610,7 +753,7 @@ impl Component {
 				() = async {
 					tokio::select! {
 						_ = interval.tick() => {},
-						() = session.server.runner.state.capacity.wait_for_change() => {},
+						() = session.server.components.runner.state().capacity.wait_for_change() => {},
 					}
 				} => {
 					let heartbeat = Self::create_runner_heartbeat(session, index, false);
@@ -713,20 +856,22 @@ impl Component {
 		// Publish the snapshot index before reading the state so later capacity hints can reject older snapshots.
 		session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.heartbeat_index
 			.store(index, Ordering::Release);
 		let capacity = if cleanup {
 			tg::runner::control::Capacity::default()
 		} else {
-			session.server.runner.state.capacity.get()
+			session.server.components.runner.state().capacity.get()
 		};
 		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_cpu_min = capacity.available.cpu.min.millis(), available_cpu_max = ?capacity.available.cpu.max.map(tg::sandbox::Amount::millis), available_memory = ?capacity.available.memory, "sending the runner heartbeat");
 		let sandboxes = session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.sandboxes
 			.iter()
 			.filter(|sandbox| !cleanup && sandbox.allocation.is_some())
@@ -897,15 +1042,16 @@ impl tangram_server_core::runner::Component for Component {
 		self.start_sandbox_pool(session);
 	}
 
+	fn state(&self) -> &tangram_server_core::runner::State {
+		&self.state
+	}
+
 	fn stop_runner_task(&self) {
 		self.stop_runner_task();
 	}
 
-	fn stop_sandbox_pool<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-	) -> BoxFuture<'a, ()> {
-		self.stop_sandbox_pool(session).boxed()
+	fn stop_sandbox_pool(&self) -> BoxFuture<'_, ()> {
+		self.stop_sandbox_pool().boxed()
 	}
 
 	fn try_get_process_inner_token<'a>(

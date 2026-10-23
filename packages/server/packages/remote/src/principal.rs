@@ -199,13 +199,22 @@ impl Component {
 		let owner = match principal {
 			tg::Principal::Process(id) => session
 				.server
+				.components
 				.runner
 				.state()
 				.try_get_process_sandbox(id)
-				.and_then(|sandbox| session.server.runner.state().try_get_sandbox(&sandbox))
+				.and_then(|sandbox| {
+					session
+						.server
+						.components
+						.runner
+						.state()
+						.try_get_sandbox(&sandbox)
+				})
 				.map(|sandbox| sandbox.data.owner),
 			tg::Principal::Sandbox(id) => session
 				.server
+				.components
 				.runner
 				.state()
 				.try_get_sandbox(id)

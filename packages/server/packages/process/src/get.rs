@@ -644,7 +644,10 @@ impl Component {
 			return Ok(Some(process));
 		}
 		session
-			.index()
+			.server
+			.components
+			.indexer
+			.index(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()
@@ -672,7 +675,10 @@ impl Component {
 			return Ok(Some(output));
 		}
 		session
-			.index()
+			.server
+			.components
+			.indexer
+			.index(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()
@@ -821,13 +827,27 @@ impl Component {
 		else {
 			return Ok(None);
 		};
-		session.update_tokens_and_location(
-			&mut output.tokens,
-			Some(&mut output.location),
-			&location,
-			false,
-		)?;
-		session.update_process_data_referents_for_location(&mut output.data, &location, false)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut output.tokens,
+				Some(&mut output.location),
+				&location,
+				false,
+			)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_process_data_referents_for_location(
+				session,
+				&mut output.data,
+				&location,
+				false,
+			)?;
 		Ok(Some(output))
 	}
 
@@ -977,7 +997,10 @@ impl Component {
 			tokens,
 		} = arg;
 		let client = session
-			.get_remote_session_for_process(&remote.name)
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, &remote.name)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
@@ -1013,13 +1036,27 @@ impl Component {
 			name: remote.name.clone(),
 			region,
 		});
-		session.update_tokens_and_location(
-			&mut output.tokens,
-			Some(&mut output.location),
-			&location,
-			trusted,
-		)?;
-		session.update_process_data_referents_for_location(&mut output.data, &location, trusted)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut output.tokens,
+				Some(&mut output.location),
+				&location,
+				trusted,
+			)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_process_data_referents_for_location(
+				session,
+				&mut output.data,
+				&location,
+				trusted,
+			)?;
 		Ok(Some(output))
 	}
 

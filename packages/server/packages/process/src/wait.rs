@@ -716,7 +716,10 @@ impl Component {
 		)>,
 	> {
 		let client = session
-			.get_remote_session_for_process(&remote.name)
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, &remote.name)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
@@ -778,20 +781,35 @@ impl Component {
 		if let Some(error) = &mut outcome.error {
 			match error {
 				tg::Either::Left(error) => {
-					session.update_error_data_referents_for_location(error, location, trusted)?;
+					session
+						.server
+						.components
+						.authorization
+						.update_error_data_referents_for_location(
+							session, error, location, trusted,
+						)?;
 				},
 				tg::Either::Right(error) => {
-					session.update_tokens_and_location(
-						&mut error.options.tokens,
-						Some(&mut error.options.location),
-						location,
-						trusted,
-					)?;
+					session
+						.server
+						.components
+						.authorization
+						.update_tokens_and_location(
+							session,
+							&mut error.options.tokens,
+							Some(&mut error.options.location),
+							location,
+							trusted,
+						)?;
 				},
 			}
 		}
 		if let Some(value) = &mut outcome.output {
-			session.update_value_data_referents_for_location(value, location, trusted)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_value_data_referents_for_location(session, value, location, trusted)?;
 		}
 		Ok(())
 	}
@@ -885,6 +903,7 @@ impl Component {
 		};
 		session
 			.server
+			.components
 			.runner
 			.state()
 			.try_update_process(parent, |process| {

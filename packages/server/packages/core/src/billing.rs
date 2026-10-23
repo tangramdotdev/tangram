@@ -11,6 +11,8 @@ pub trait Component: crate::component::Lifecycle {
 		owner: Option<&'a tg::Principal>,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
+	fn provider(&self) -> Option<&Billing>;
+
 	fn request<'a>(
 		&'a self,
 		session: &'a Session,

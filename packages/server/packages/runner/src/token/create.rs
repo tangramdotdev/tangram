@@ -33,7 +33,12 @@ impl Component {
 				self.create_runner_token_local(session, runner, arg).await
 			},
 			tg::Location::Remote(remote) => {
-				let client = session.get_remote_session(&remote.name).await?;
+				let client = session
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
+					.await?;
 				arg.location = Some(
 					tg::Location::Local(tg::location::Local {
 						region: remote.region,

@@ -11,7 +11,7 @@ pub use {
 pub fn components(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Components> {
 	let authentication = Arc::new(tangram_server_authentication::Component::new(arg));
 	let authorization = Arc::new(tangram_server_authorization::Component::new());
-	let billing = Arc::new(tangram_server_billing::Component::new());
+	let billing = Arc::new(tangram_server_billing::Component::new(arg));
 	let check = Arc::new(tangram_server_check::Component::new());
 	let checkin = Arc::new(tangram_server_checkin::Component::new());
 	let checkout = Arc::new(tangram_server_checkout::Component::new());

@@ -264,7 +264,12 @@ impl Component {
 				.local_authorization()
 				.iter()
 				.any(|token| {
-					session.try_get_sync_id_from_token(token).as_ref() == Some(&sync.node)
+					session
+						.server
+						.components
+						.authorization
+						.try_get_sync_id_from_token(session, token)
+						.as_ref() == Some(&sync.node)
 				});
 			if !authorized {
 				return Err(tg::error!("invalid sync authorization"));
@@ -284,7 +289,11 @@ impl Component {
 		session: &Session,
 		id: tg::sync::Id,
 	) -> tg::Result<tg::Referent<tg::sync::Id>> {
-		let token = session.create_read_token(&id.clone().into())?;
+		let token = session
+			.server
+			.components
+			.authorization
+			.create_read_token(session, &id.clone().into())?;
 		let sync = tg::Referent::with_node_and_local_tokens(id, token);
 		Ok(sync)
 	}
@@ -345,9 +354,19 @@ impl Component {
 		>,
 	> {
 		let client = if process {
-			session.get_remote_session_for_process(&remote).await
+			session
+				.server
+				.components
+				.remote
+				.get_remote_session_for_process(session, &remote)
+				.await
 		} else {
-			session.get_remote_session(&remote).await
+			session
+				.server
+				.components
+				.remote
+				.get_remote_session(session, &remote)
+				.await
 		}
 		.map_err(|error| tg::error!(!error, remote = %remote, "failed to get the remote client"))?;
 		let arg = tg::sync::Arg {

@@ -357,12 +357,16 @@ impl Component {
 			return Ok(session.context.principal.clone());
 		};
 		let process = session
-			.try_get_authenticated_process(id)
+			.server
+			.components
+			.authentication
+			.try_get_authenticated_process(session, id)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the authenticated process"))?;
 		let sandbox = process.sandbox;
 		let owner = if let Some(sandbox) = session
 			.server
+			.components
 			.runner
 			.state()
 			.sandboxes()
@@ -807,7 +811,10 @@ impl Component {
 		region: Option<&str>,
 	) -> tg::Result<Option<Output>> {
 		let client = session
-			.get_remote_session_for_process(remote)
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, remote)
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let trusted = client.trusted();

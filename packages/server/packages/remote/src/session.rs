@@ -54,7 +54,10 @@ impl Component {
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let mut context = client.context().clone();
 		let principal_token = session
-			.try_get_authenticated_principal_remote_token(remote)
+			.server
+			.components
+			.authentication
+			.try_get_authenticated_principal_remote_token(session, remote)
 			.await?;
 		context.set_token(principal_token.token.or(token));
 		context.set_process(principal_token.process);

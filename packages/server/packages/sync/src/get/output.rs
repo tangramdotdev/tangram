@@ -88,7 +88,12 @@ impl Component {
 		if permissions.is_empty() {
 			return Ok(tg::Referent::with_node(id.clone()));
 		}
-		let token = session.create_token(id.clone(), permissions.iter().collect(), expires_at)?;
+		let token = session.server.components.authorization.create_token(
+			session,
+			id.clone(),
+			permissions.iter().collect(),
+			expires_at,
+		)?;
 		let node = tg::Referent::with_node_and_local_tokens(id.clone(), token);
 
 		Ok(node)

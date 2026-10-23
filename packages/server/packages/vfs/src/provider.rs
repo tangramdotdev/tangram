@@ -236,10 +236,13 @@ impl Provider {
 	pub fn seed_tokens(&self, session: &Session, tokens: &tg::authorization::Tokens) {
 		let mut tokens = tokens.clone();
 		let authorization = tokens.remove_local_authorization();
-		for token in authorization
-			.into_iter()
-			.filter(|token| session.verify_token(token))
-		{
+		for token in authorization.into_iter().filter(|token| {
+			session
+				.server
+				.components
+				.authorization
+				.verify_token(session, token)
+		}) {
 			tokens.insert_local_authorization(token);
 		}
 		self.insert_tokens(&tokens, true);
@@ -1442,7 +1445,8 @@ impl Provider {
 		let session = self.session();
 		if let Ok(expires_at) = self.authorize(authority, id)
 			&& let Ok(expires_at) = self.token_expiration(expires_at)
-			&& let Ok(Some(token)) = session.create_token(
+			&& let Ok(Some(token)) = session.server.components.authorization.create_token(
+				&session,
 				id.clone().into(),
 				vec![tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
@@ -3159,7 +3163,9 @@ impl Provider {
 		self.authorize_inner(authority, id).await?;
 		if let Some(output) = self
 			.server
-			.try_get_object_local(id, false)
+			.components
+			.object
+			.try_get_object_local_with_server(&self.server, id, false)
 			.await
 			.map_err(|error| Self::map_cache_sync_error(&error))?
 		{
@@ -3172,9 +3178,12 @@ impl Provider {
 			tokens,
 			..Default::default()
 		};
+		let session = self.session();
 		let output = self
-			.session()
-			.try_get_object(id, arg)
+			.server
+			.components
+			.object
+			.try_get_object(&session, id, arg)
 			.await
 			.map_err(|error| Self::map_cache_sync_error(&error))?;
 		let Some(output) = output else {

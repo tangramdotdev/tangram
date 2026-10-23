@@ -105,7 +105,10 @@ impl Component {
 		}
 		let tokens = output.referent.options.tokens;
 		let mut index_output = session
-			.try_get_nodes_from_index(std::slice::from_ref(id), &[])
+			.server
+			.components
+			.node
+			.try_get_nodes_from_index(session, std::slice::from_ref(id), &[])
 			.await?;
 		let specifier = index_output.specifiers.pop().unwrap();
 		let Some(specifier) = specifier else {
@@ -192,12 +195,17 @@ impl Component {
 			}
 		}
 		if let Some(output) = &mut output {
-			session.update_tokens_and_location(
-				&mut output.referent.options.tokens,
-				Some(&mut output.referent.options.location),
-				&source,
-				false,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut output.referent.options.tokens,
+					Some(&mut output.referent.options.location),
+					&source,
+					false,
+				)?;
 		}
 
 		Ok(output)
@@ -236,12 +244,21 @@ impl Component {
 				reference: reference.clone(),
 			},
 		);
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		if let Some(tangram_server_core::remote::cache::Response::Get(response)) = session
-			.try_get_cached_remote_response(&remote.name, &request, arg.ttl)
+			.server
+			.components
+			.remote
+			.try_get_cached_remote_response(session, &remote.name, &request, arg.ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
@@ -259,12 +276,17 @@ impl Component {
 						&session.server.clock,
 					);
 					let location = tg::Location::Remote(remote.clone());
-					session.update_tokens_and_location(
-						&mut output.referent.options.tokens,
-						Some(&mut output.referent.options.location),
-						&location,
-						trusted,
-					)?;
+					session
+						.server
+						.components
+						.authorization
+						.update_tokens_and_location(
+							session,
+							&mut output.referent.options.tokens,
+							Some(&mut output.referent.options.location),
+							&location,
+							trusted,
+						)?;
 				}
 
 				return Ok(output);
@@ -289,17 +311,25 @@ impl Component {
 			},
 		);
 		session
-			.put_cached_remote_response(&remote.name, &request, &response)
+			.server
+			.components
+			.remote
+			.put_cached_remote_response(session, &remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		if let Some(output) = &mut output {
 			let location = tg::Location::Remote(remote);
-			session.update_tokens_and_location(
-				&mut output.referent.options.tokens,
-				Some(&mut output.referent.options.location),
-				&location,
-				trusted,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut output.referent.options.tokens,
+					Some(&mut output.referent.options.location),
+					&location,
+					trusted,
+				)?;
 		}
 
 		Ok(output)
@@ -611,12 +641,17 @@ impl Component {
 			}
 		}
 		if let Some(output) = &mut output {
-			session.update_tokens_and_location(
-				&mut output.referent.options.tokens,
-				Some(&mut output.referent.options.location),
-				&source,
-				false,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut output.referent.options.tokens,
+					Some(&mut output.referent.options.location),
+					&source,
+					false,
+				)?;
 		}
 
 		Ok(output)
@@ -662,14 +697,23 @@ impl Component {
 				reference: reference.clone(),
 			},
 		);
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 
 		// Get a cached response.
 		if let Some(tangram_server_core::remote::cache::Response::Get(response)) = session
-			.try_get_cached_remote_response(&remote.name, &request, ttl)
+			.server
+			.components
+			.remote
+			.try_get_cached_remote_response(session, &remote.name, &request, ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
@@ -687,12 +731,17 @@ impl Component {
 						&session.server.clock,
 					);
 					let location = tg::Location::Remote(remote.clone());
-					session.update_tokens_and_location(
-						&mut output.referent.options.tokens,
-						Some(&mut output.referent.options.location),
-						&location,
-						trusted,
-					)?;
+					session
+						.server
+						.components
+						.authorization
+						.update_tokens_and_location(
+							session,
+							&mut output.referent.options.tokens,
+							Some(&mut output.referent.options.location),
+							&location,
+							trusted,
+						)?;
 				}
 				let output = output.map(|output| tg::get::Output {
 					referent: output.referent,
@@ -729,18 +778,26 @@ impl Component {
 			},
 		);
 		session
-			.put_cached_remote_response(&remote.name, &request, &response)
+			.server
+			.components
+			.remote
+			.put_cached_remote_response(session, &remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		let output = output
 			.map(|mut output| {
 				let location = tg::Location::Remote(remote);
-				session.update_tokens_and_location(
-					&mut output.referent.options.tokens,
-					Some(&mut output.referent.options.location),
-					&location,
-					trusted,
-				)?;
+				session
+					.server
+					.components
+					.authorization
+					.update_tokens_and_location(
+						session,
+						&mut output.referent.options.tokens,
+						Some(&mut output.referent.options.location),
+						&location,
+						trusted,
+					)?;
 				Ok::<_, tg::Error>(output)
 			})
 			.transpose()?;
@@ -788,7 +845,10 @@ impl Component {
 		};
 		if !indexed.as_ref().is_some_and(matches) {
 			session
-				.index()
+				.server
+				.components
+				.indexer
+				.index(session)
 				.await?
 				.try_last()
 				.await
@@ -850,7 +910,12 @@ impl Component {
 			.chain(verified.expires_at)
 			.fold(expires_at, i64::min);
 		let permissions = verified.permissions.iter().collect();
-		let token = session.create_token(target.clone(), permissions, expires_at)?;
+		let token = session.server.components.authorization.create_token(
+			session,
+			target.clone(),
+			permissions,
+			expires_at,
+		)?;
 
 		Ok(token)
 	}
@@ -910,7 +975,12 @@ impl Component {
 		};
 		let expires_at =
 			session.server.clock.unix_timestamp() + time_to_live.as_secs().to_i64().unwrap();
-		let token = session.create_token(target.clone(), permissions, expires_at)?;
+		let token = session.server.components.authorization.create_token(
+			session,
+			target.clone(),
+			permissions,
+			expires_at,
+		)?;
 
 		Ok(token)
 	}

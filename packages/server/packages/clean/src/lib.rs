@@ -73,12 +73,7 @@ impl Component {
 		progress: &tg::progress::Handle<tg::clean::Output>,
 	) -> tg::Result<tg::clean::Output> {
 		// Stop the sandbox pool.
-		session
-			.server
-			.components
-			.runner
-			.stop_sandbox_pool(session)
-			.await;
+		session.server.components.runner.stop_sandbox_pool().await;
 
 		// Run the clean task.
 		let result = self.clean_task_inner(session, progress).await;

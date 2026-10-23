@@ -597,7 +597,10 @@ impl Server {
 			.transpose();
 		let result = match (process, sandbox) {
 			(Ok(process), Ok(sandbox)) => self
+				.components
+				.authentication
 				.authenticate_with_claim(
+					self,
 					&context,
 					token.as_deref(),
 					process.clone(),

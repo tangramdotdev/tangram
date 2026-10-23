@@ -229,9 +229,12 @@ impl Component {
 		// Create the token for the object using the existing authorization result.
 		let permissions = authorization.permissions;
 		let resource = tg::Id::from(id.clone());
-		if let Some(token) =
-			session.create_token(resource, permissions.iter().collect(), expires_at)?
-		{
+		if let Some(token) = session.server.components.authorization.create_token(
+			session,
+			resource,
+			permissions.iter().collect(),
+			expires_at,
+		)? {
 			output.tokens.insert_local_authorization(token);
 		}
 		let subtree = tg::authorization::Permission::Object(
@@ -247,9 +250,12 @@ impl Component {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		for id in children {
-			if let Some(token) =
-				session.create_token(id.clone().into(), vec![subtree], expires_at)?
-			{
+			if let Some(token) = session.server.components.authorization.create_token(
+				session,
+				id.clone().into(),
+				vec![subtree],
+				expires_at,
+			)? {
 				let tokens = tg::authorization::Tokens::with_authorization(Some(token));
 				let child = tg::object::get::Child { tokens };
 				output.children.insert(id, child);
@@ -514,7 +520,10 @@ impl Component {
 			},
 			tg::Location::Remote(remote) => {
 				let client = session
-					.get_remote_session_for_process(&remote.name)
+					.server
+					.components
+					.remote
+					.get_remote_session_for_process(session, &remote.name)
 					.await
 					.map_err(|error| {
 						tg::error!(
@@ -555,9 +564,23 @@ impl Component {
 			}
 		}
 		if let Some(output) = &mut output {
-			session.update_tokens_and_location(&mut output.tokens, None, &source, trusted)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(session, &mut output.tokens, None, &source, trusted)?;
 			for child in output.children.values_mut() {
-				session.update_tokens_and_location(&mut child.tokens, None, &source, trusted)?;
+				session
+					.server
+					.components
+					.authorization
+					.update_tokens_and_location(
+						session,
+						&mut child.tokens,
+						None,
+						&source,
+						trusted,
+					)?;
 			}
 		}
 		Ok(output)

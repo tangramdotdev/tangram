@@ -93,7 +93,10 @@ impl Component {
 		touched_at: i64,
 	) -> tg::Result<ControlFlow<()>> {
 		let ids_by_specifier = session
-			.try_get_ids_and_ancestors_for_specifiers(specifiers)
+			.server
+			.components
+			.node
+			.try_get_ids_and_ancestors_for_specifiers(session, specifiers)
 			.await?;
 		self.authorize_tag_puts(session, specifiers, arg.force, &ids_by_specifier)
 			.await?;
@@ -126,7 +129,12 @@ impl Component {
 			ControlFlow::Break(users) => users,
 			ControlFlow::Continue(()) => return Ok(ControlFlow::Continue(())),
 		};
-		session.server.invalidate_user_authentication(&users).await;
+		session
+			.server
+			.components
+			.authentication
+			.invalidate_user_authentication(&session.server, &users)
+			.await;
 
 		Ok(ControlFlow::Break(()))
 	}
@@ -284,9 +292,15 @@ impl Component {
 		mut arg: tg::tag::batch::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<()> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		for item in &mut arg.tags {
 			item.tokens = item
 				.tokens
@@ -302,7 +316,12 @@ impl Component {
 			.post_tag_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tags"))?;
-		session.invalidate_remote_cache(&remote.name).await;
+		session
+			.server
+			.components
+			.remote
+			.invalidate_remote_cache(session, &remote.name)
+			.await;
 
 		Ok(())
 	}

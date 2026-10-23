@@ -26,7 +26,8 @@ impl Session {
 	where
 		T: Clone + Into<tg::Id>,
 	{
-		let token = self.create_token(
+		let token = self.server.components.authorization.create_token(
+			self,
 			referent.node.clone().into(),
 			vec![tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,

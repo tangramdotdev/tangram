@@ -97,13 +97,19 @@ impl Component {
 		let id = match selector {
 			tg::Selector::Id(id) => {
 				let mut contains = session
-					.contains_ids_from_index(std::slice::from_ref(id))
+					.server
+					.components
+					.node
+					.contains_ids_from_index(session, std::slice::from_ref(id))
 					.await?;
 				contains.pop().unwrap().then(|| id.clone())
 			},
 			tg::Selector::Specifier(specifier) => {
 				let mut ids = session
-					.try_get_ids_for_specifiers_from_index(std::slice::from_ref(specifier))
+					.server
+					.components
+					.node
+					.try_get_ids_for_specifiers_from_index(session, std::slice::from_ref(specifier))
 					.await?;
 				ids.pop().unwrap()
 			},
@@ -124,7 +130,12 @@ impl Component {
 			return Ok(None);
 		}
 		let mut tokens = tg::authorization::Tokens::with_authorization(tokens.to_vec());
-		if let Some(token) = session.create_read_token(&id)? {
+		if let Some(token) = session
+			.server
+			.components
+			.authorization
+			.create_read_token(session, &id)?
+		{
 			tokens.insert_local_authorization(token);
 		}
 		let options = tg::referent::Options {
@@ -183,12 +194,17 @@ impl Component {
 			}
 		}
 		if let Some(output) = &mut output {
-			session.update_tokens_and_location(
-				&mut output.referent.options.tokens,
-				Some(&mut output.referent.options.location),
-				&source,
-				false,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut output.referent.options.tokens,
+					Some(&mut output.referent.options.location),
+					&source,
+					false,
+				)?;
 		}
 		if let Some(output) = &output
 			&& !matches!(output.referent.node, tg::get::Node::Id(_))
@@ -216,9 +232,15 @@ impl Component {
 				_ => None,
 			}),
 		});
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		let location = tg::location::Arg(vec![tg::location::arg::Component::Local(
 			tg::location::arg::LocalComponent {
@@ -249,7 +271,10 @@ impl Component {
 
 		// Get a cached response.
 		if let Some(tangram_server_core::remote::cache::Response::Get(response)) = session
-			.try_get_cached_remote_response(&remote.name, &request, ttl)
+			.server
+			.components
+			.remote
+			.try_get_cached_remote_response(session, &remote.name, &request, ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
@@ -274,12 +299,17 @@ impl Component {
 						name: remote.name.clone(),
 						region,
 					});
-					session.update_tokens_and_location(
-						&mut output.referent.options.tokens,
-						Some(&mut output.referent.options.location),
-						&location,
-						trusted,
-					)?;
+					session
+						.server
+						.components
+						.authorization
+						.update_tokens_and_location(
+							session,
+							&mut output.referent.options.tokens,
+							Some(&mut output.referent.options.location),
+							&location,
+							trusted,
+						)?;
 				}
 				if let Some(output) = &output
 					&& !matches!(output.referent.node, tg::get::Node::Id(_))
@@ -329,7 +359,10 @@ impl Component {
 		);
 		if tokens.is_empty() {
 			session
-				.put_cached_remote_response(&remote.name, &request, &response)
+				.server
+				.components
+				.remote
+				.put_cached_remote_response(session, &remote.name, &request, &response)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		}
@@ -342,12 +375,17 @@ impl Component {
 				name: remote.name.clone(),
 				region,
 			});
-			session.update_tokens_and_location(
-				&mut output.referent.options.tokens,
-				Some(&mut output.referent.options.location),
-				&location,
-				trusted,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut output.referent.options.tokens,
+					Some(&mut output.referent.options.location),
+					&location,
+					trusted,
+				)?;
 		}
 		if let Some(output) = &output
 			&& !matches!(output.referent.node, tg::get::Node::Id(_))

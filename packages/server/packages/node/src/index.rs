@@ -27,7 +27,10 @@ impl Component {
 
 		// Wait for indexing to catch up.
 		session
-			.index()
+			.server
+			.components
+			.indexer
+			.index(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()
@@ -93,7 +96,10 @@ impl Component {
 
 		// Wait for indexing to catch up.
 		session
-			.index()
+			.server
+			.components
+			.indexer
+			.index(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()

@@ -293,7 +293,9 @@ impl Component {
 						// If the subtree is unavailable, then enqueue the children.
 						let bytes = session
 							.server
-							.try_get_object_local(&node.id, false)
+							.components
+							.object
+							.try_get_object_local_with_server(&session.server, &node.id, false)
 							.await
 							.map_err(|error| tg::error!(!error, "failed to get the object"))?
 							.ok_or_else(|| tg::error!("expected the object to exist"))?
@@ -396,7 +398,9 @@ impl Component {
 			}
 			let outputs = session
 				.server
-				.try_get_object_batch_local(&objects, false)
+				.components
+				.object
+				.try_get_object_batch_local_with_server(&session.server, &objects, false)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the existing objects"))?;
 			for (id, output) in std::iter::zip(objects, outputs) {

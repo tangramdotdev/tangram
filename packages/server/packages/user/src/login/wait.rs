@@ -40,7 +40,12 @@ impl Component {
 			},
 			tg::Location::Local(_) => self.wait_login_local(session, &arg.code).await,
 			tg::Location::Remote(remote) => {
-				let client = session.get_remote_session(&remote.name).await?;
+				let client = session
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
+					.await?;
 				let arg = tg::user::login::wait::Arg {
 					code: arg.code,
 					location: Some(
@@ -52,7 +57,10 @@ impl Component {
 				};
 				let mut output = client.wait_login(arg).await?;
 				session
-					.set_remote_token(&remote.name, Some(output.token.clone()))
+					.server
+					.components
+					.remote
+					.set_remote_token(session, &remote.name, Some(output.token.clone()))
 					.await
 					.map_err(
 						|error| tg::error!(!error, remote = %remote.name, "failed to save the remote login"),

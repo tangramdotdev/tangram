@@ -44,9 +44,15 @@ impl Component {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
 		};
-		session.server.index_batch(arg).await.map_err(
-			|error| tg::error!(!error, %id, "failed to put the destroyed sandbox in the index"),
-		)?;
+		session
+			.server
+			.components
+			.indexer
+			.index_batch(&session.server, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to put the destroyed sandbox in the index"),
+			)?;
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.destroy.submitted", sandbox = %id).await;
 
 		Ok(tg::sandbox::control::DestroyServerResponseOutput {})

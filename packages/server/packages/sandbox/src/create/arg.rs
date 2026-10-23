@@ -7,7 +7,13 @@ impl Component {
 		arg: &tg::sandbox::create::Arg,
 		parent: &tg::sandbox::Id,
 	) -> tg::Result<()> {
-		let parent = if let Some(parent) = session.server.runner.state().try_get_sandbox(parent) {
+		let parent = if let Some(parent) = session
+			.server
+			.components
+			.runner
+			.state()
+			.try_get_sandbox(parent)
+		{
 			parent
 		} else {
 			self.try_get_sandbox_from_index(session, parent)

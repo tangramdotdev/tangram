@@ -295,7 +295,10 @@ impl Component {
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = session
-			.get_remote_session_for_process(&remote.name)
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, &remote.name)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, %process, "failed to get the remote client"),

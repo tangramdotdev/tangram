@@ -47,7 +47,10 @@ impl Component {
 			return Err(tg::error!("unauthorized"));
 		}
 		session
-			.pull_ancestors(&arg.specifier, arg.ancestors.pull)
+			.server
+			.components
+			.node
+			.pull_ancestors(session, &arg.specifier, arg.ancestors.pull)
 			.await?;
 		let options = session
 			.server
@@ -84,7 +87,10 @@ impl Component {
 		arg: tg::group::create::Arg,
 	) -> tg::Result<ControlFlow<tg::group::create::Output>> {
 		let ids_by_specifier = session
-			.try_get_ids_and_ancestors_for_specifiers(std::slice::from_ref(&arg.specifier))
+			.server
+			.components
+			.node
+			.try_get_ids_and_ancestors_for_specifiers(session, std::slice::from_ref(&arg.specifier))
 			.await?;
 		let permission = tg::authorization::Permission::Group(
 			tg::authorization::permission::group::Permission::Write,
@@ -227,9 +233,15 @@ impl Component {
 		mut arg: tg::group::create::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<tg::group::create::Output> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		arg.location = Some(
 			tg::Location::Local(tg::location::Local {
@@ -240,14 +252,24 @@ impl Component {
 		let mut output = client.create_group(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the group"),
 		)?;
-		session.invalidate_remote_cache(&remote.name).await;
+		session
+			.server
+			.components
+			.remote
+			.invalidate_remote_cache(session, &remote.name)
+			.await;
 		let location = tg::Location::Remote(remote);
-		session.update_tokens_and_location(
-			&mut output.tokens,
-			Some(&mut output.location),
-			&location,
-			trusted,
-		)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut output.tokens,
+				Some(&mut output.location),
+				&location,
+				trusted,
+			)?;
 
 		Ok(output)
 	}
@@ -282,7 +304,12 @@ impl Component {
 				};
 				let data = group.ok_or_else(|| tg::error!("failed to find the group"))?;
 				let mut tokens = tg::authorization::Tokens::default();
-				if let Some(token) = session.create_read_token(&id.clone().into())? {
+				if let Some(token) = session
+					.server
+					.components
+					.authorization
+					.create_read_token(session, &id.clone().into())?
+				{
 					tokens.insert_local_authorization(token);
 				}
 				let group = tg::group::create::Output {
@@ -328,7 +355,12 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 		let mut tokens = tg::authorization::Tokens::default();
-		if let Some(token) = session.create_read_token(&group.id.clone().into())? {
+		if let Some(token) = session
+			.server
+			.components
+			.authorization
+			.create_read_token(session, &group.id.clone().into())?
+		{
 			tokens.insert_local_authorization(token);
 		}
 		let group = tg::group::create::Output {

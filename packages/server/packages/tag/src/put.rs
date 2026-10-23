@@ -45,7 +45,10 @@ impl Component {
 			return Err(tg::error!("unauthorized"));
 		}
 		session
-			.pull_ancestors(&arg.specifier, arg.ancestors.pull)
+			.server
+			.components
+			.node
+			.pull_ancestors(session, &arg.specifier, arg.ancestors.pull)
 			.await?;
 		let touched_at = session.server.clock.unix_timestamp();
 		let options = session
@@ -88,7 +91,10 @@ impl Component {
 	) -> tg::Result<ControlFlow<()>> {
 		let specifiers = std::slice::from_ref(&arg.specifier);
 		let ids_by_specifier = session
-			.try_get_ids_and_ancestors_for_specifiers(specifiers)
+			.server
+			.components
+			.node
+			.try_get_ids_and_ancestors_for_specifiers(session, specifiers)
 			.await?;
 		self.authorize_tag_puts(session, specifiers, arg.force, &ids_by_specifier)
 			.await?;
@@ -122,7 +128,12 @@ impl Component {
 			ControlFlow::Break(users) => users,
 			ControlFlow::Continue(()) => return Ok(ControlFlow::Continue(())),
 		};
-		session.server.invalidate_user_authentication(&users).await;
+		session
+			.server
+			.components
+			.authentication
+			.invalidate_user_authentication(&session.server, &users)
+			.await;
 
 		Ok(ControlFlow::Break(()))
 	}
@@ -348,7 +359,11 @@ impl Component {
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
 			match session
+				.server
+				.components
+				.node
 				.delete_named_nodes_with_transaction(
+					session,
 					transaction,
 					&replaced_ids_and_specifiers,
 					batch,
@@ -578,9 +593,15 @@ impl Component {
 		mut arg: tg::tag::put::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<()> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		arg.tokens = arg
 			.tokens
 			.for_location(&tg::Location::Remote(remote.clone()));
@@ -594,7 +615,12 @@ impl Component {
 			.put_tag(arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tag"))?;
-		session.invalidate_remote_cache(&remote.name).await;
+		session
+			.server
+			.components
+			.remote
+			.invalidate_remote_cache(session, &remote.name)
+			.await;
 
 		Ok(())
 	}

@@ -791,7 +791,10 @@ impl Component {
 		remote: &tangram_server_core::location::Remote,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let client = session
-			.get_remote_session_for_process(&remote.name)
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, &remote.name)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
@@ -841,9 +844,13 @@ impl Component {
 				let mut event = event?;
 				if let tg::process::children::get::Event::Chunk(chunk) = &mut event {
 					for child in &mut chunk.data {
-						session.update_process_child_referent_for_location(
-							child, &location, trusted,
-						)?;
+						session
+							.server
+							.components
+							.authorization
+							.update_process_child_referent_for_location(
+								&session, child, &location, trusted,
+							)?;
 					}
 				}
 
