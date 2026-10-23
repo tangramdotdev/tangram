@@ -11,7 +11,9 @@ impl Component {
 		progress.spinner("storing", "storing");
 		session
 			.server
-			.put_object_batch(args)
+			.components
+			.object
+			.put_object_batch(&session.server, args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the objects"))?;
 		progress.finish("storing");

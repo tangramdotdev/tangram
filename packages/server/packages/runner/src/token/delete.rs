@@ -37,7 +37,12 @@ impl Component {
 					.await
 			},
 			tg::Location::Remote(remote) => {
-				let client = session.get_remote_session(&remote.name).await?;
+				let client = session
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
+					.await?;
 				arg.location = Some(
 					tg::Location::Local(tg::location::Local {
 						region: remote.region,
@@ -80,7 +85,10 @@ impl Component {
 		if let Some(hash) = deleted {
 			session
 				.server
+				.components
+				.authentication
 				.invalidate_authentication(
+					&session.server,
 					tangram_server_core::authentication::cache::Invalidation::Token(hash),
 				)
 				.await;

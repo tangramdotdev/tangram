@@ -250,7 +250,10 @@ impl Component {
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
 		let outputs = session
-			.try_get_object_batch_local(objects, permissions, metadata)
+			.server
+			.components
+			.object
+			.try_get_object_batch_local(session, objects, permissions, metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
 		let location: tg::location::Arg =
@@ -310,7 +313,11 @@ impl Component {
 								.update_node_local_verified(&object.node.clone().into(), &output)?;
 						}
 						let mut outputs = session
+							.server
+							.components
+							.object
 							.try_get_object_batch_local(
+								session,
 								std::slice::from_ref(object),
 								std::slice::from_ref(permissions),
 								metadata,
@@ -318,7 +325,8 @@ impl Component {
 							.await?;
 						Ok(outputs.pop().flatten())
 					};
-					let region_future = session.try_get_object_regions(
+					let region_future = session.server.components.object.try_get_object_regions(
+						session,
 						&object.node,
 						&regions,
 						metadata,

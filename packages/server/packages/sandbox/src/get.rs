@@ -145,6 +145,7 @@ impl Component {
 		}
 		let Some(mut output) = session
 			.server
+			.components
 			.runner
 			.state()
 			.sandboxes()
@@ -156,7 +157,12 @@ impl Component {
 
 		// The runner's capabilities belong to the runner, not to the caller.
 		output.tokens.clear();
-		if let Some(token) = session.create_read_token(&id.clone().into())? {
+		if let Some(token) = session
+			.server
+			.components
+			.authorization
+			.create_read_token(session, &id.clone().into())?
+		{
 			output.tokens.insert_local_authorization(token);
 		}
 		Ok(Some(output))
@@ -186,7 +192,12 @@ impl Component {
 			return Ok(None);
 		};
 		output.tokens.clear();
-		if let Some(token) = session.create_read_token(&id.clone().into())? {
+		if let Some(token) = session
+			.server
+			.components
+			.authorization
+			.create_read_token(session, &id.clone().into())?
+		{
 			output.tokens.insert_local_authorization(token);
 		}
 		Ok(Some(output))
@@ -377,7 +388,10 @@ impl Component {
 			return Ok(Some(sandbox));
 		}
 		session
-			.index()
+			.server
+			.components
+			.indexer
+			.index(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()
@@ -472,12 +486,17 @@ impl Component {
 		else {
 			return Ok(None);
 		};
-		session.update_tokens_and_location(
-			&mut output.tokens,
-			Some(&mut output.location),
-			&location,
-			false,
-		)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut output.tokens,
+				Some(&mut output.location),
+				&location,
+				false,
+			)?;
 		Ok(Some(output))
 	}
 
@@ -560,16 +579,25 @@ impl Component {
 				id: id.clone(),
 			},
 		);
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 
 		// Get a cached response.
 		if source.is_auto()
 			&& let Some(tangram_server_core::remote::cache::Response::SandboxGet(response)) =
 				session
-					.try_get_cached_remote_response(&remote.name, &request, ttl)
+					.server
+					.components
+					.remote
+					.try_get_cached_remote_response(session, &remote.name, &request, ttl)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 			&& let Some(mut output) = response.output
@@ -606,7 +634,10 @@ impl Component {
 				},
 			);
 			session
-				.put_cached_remote_response(&remote.name, &request, &response)
+				.server
+				.components
+				.remote
+				.put_cached_remote_response(session, &remote.name, &request, &response)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		}
@@ -631,12 +662,17 @@ impl Component {
 			name: remote.name.clone(),
 			region,
 		});
-		session.update_tokens_and_location(
-			&mut output.tokens,
-			Some(&mut output.location),
-			&location,
-			trusted,
-		)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut output.tokens,
+				Some(&mut output.location),
+				&location,
+				trusted,
+			)?;
 		Ok(())
 	}
 

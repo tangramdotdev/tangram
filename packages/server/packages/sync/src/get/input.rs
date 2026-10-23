@@ -456,7 +456,10 @@ impl Component {
 			tg::node::AncestorsPull::Always => {},
 			tg::node::AncestorsPull::Missing => {
 				let ids = session
-					.try_get_ids_for_specifiers_from_index(&ancestor_specifiers)
+					.server
+					.components
+					.node
+					.try_get_ids_for_specifiers_from_index(session, &ancestor_specifiers)
 					.await?;
 				let local = ids.last().cloned().flatten();
 				match local {
@@ -467,7 +470,13 @@ impl Component {
 			},
 			tg::node::AncestorsPull::Never => {
 				let mut ids = session
-					.try_get_ids_for_specifiers_from_index(std::slice::from_ref(&parent_specifier))
+					.server
+					.components
+					.node
+					.try_get_ids_for_specifiers_from_index(
+						session,
+						std::slice::from_ref(&parent_specifier),
+					)
 					.await?;
 				match ids.pop().unwrap() {
 					None => return Err(tg::error!("the parent does not exist")),

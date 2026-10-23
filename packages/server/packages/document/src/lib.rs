@@ -107,9 +107,15 @@ impl Component {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<tg::document::Output> {
-		let client = session.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
+			)?;
 		let arg = tg::document::Arg {
 			location: Some(region.as_deref().map_or_else(
 				|| tg::Location::Local(tg::location::Local::default()).into(),

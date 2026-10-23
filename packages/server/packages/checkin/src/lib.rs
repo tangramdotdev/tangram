@@ -282,7 +282,8 @@ impl Component {
 						.as_secs()
 						.to_i64()
 						.unwrap();
-				let token = match session.create_token(
+				let token = match session.server.components.authorization.create_token(
+					&session,
 					id.clone().into(),
 					vec![tg::authorization::Permission::Object(permission)],
 					expires_at,
@@ -318,7 +319,13 @@ impl Component {
 		id: &tg::object::Id,
 		token: &tg::authorization::Token,
 	) {
-		if token.body.resource != tg::Id::from(id.clone()) || !session.verify_token(token) {
+		if token.body.resource != tg::Id::from(id.clone())
+			|| !session
+				.server
+				.components
+				.authorization
+				.verify_token(session, token)
+		{
 			return;
 		}
 
@@ -835,7 +842,9 @@ impl Component {
 		} else {
 			session
 				.server
-				.index_batch(index_arg)
+				.components
+				.indexer
+				.index_batch(&session.server, index_arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the checkin"))?;
 		}

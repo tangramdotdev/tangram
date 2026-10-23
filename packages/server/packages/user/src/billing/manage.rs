@@ -52,8 +52,10 @@ impl Component {
 		};
 		let billing = session
 			.server
+			.components
 			.billing
-			.clone()
+			.provider()
+			.cloned()
 			.ok_or_else(|| tg::error!("billing is not configured"))?;
 
 		let user = user.clone();
@@ -99,7 +101,13 @@ impl Component {
 		billing: &tangram_server_core::billing::Billing,
 	) -> tg::Result<ControlFlow<String>> {
 		let selector = tg::Selector::Id(user.clone().into());
-		let Some((id, specifier)) = session.try_resolve_named_node(&selector).await? else {
+		let Some((id, specifier)) = session
+			.server
+			.components
+			.node
+			.try_resolve_named_node(session, &selector)
+			.await?
+		else {
 			return Err(tg::error!("failed to find the user"));
 		};
 		let ids_by_specifier = BTreeMap::from([(specifier, Some(id))]);
@@ -303,9 +311,15 @@ impl Component {
 		mut arg: tg::user::billing::manage::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<tg::user::billing::manage::Output> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		arg.location = Some(
 			tg::Location::Local(tg::location::Local {
 				region: remote.region.clone(),

@@ -118,7 +118,9 @@ impl Component {
 			let mut file = None;
 			let Some(output) = session
 				.server
-				.try_get_object_sync(&id.clone().into(), &mut file)
+				.components
+				.object
+				.try_get_object_sync(&session.server, &id.clone().into(), &mut file)
 				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			else {
 				return Err(tg::error!(%id, "failed to get the blob object"));
@@ -181,7 +183,9 @@ fn read_sync(
 		} else {
 			let Some(output) = session
 				.server
-				.try_get_object_sync(&id.unwrap(), checkout_file)
+				.components
+				.object
+				.try_get_object_sync(&session.server, &id.unwrap(), checkout_file)
 				.map_err(|error| tg::error!(!error, "failed to get the object"))?
 			else {
 				return Err(tg::error!("failed to get the blob object"));

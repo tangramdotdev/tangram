@@ -100,7 +100,10 @@ impl Component {
 			.map(|tag| tag.specifier.clone())
 			.collect::<Vec<_>>();
 		let ids_by_specifier = session
-			.try_get_ids_and_ancestors_for_specifiers(&specifiers)
+			.server
+			.components
+			.node
+			.try_get_ids_and_ancestors_for_specifiers(session, &specifiers)
 			.await?;
 		for tag in &tags {
 			let expected = Some(tg::Id::from(tag.id.clone()));
@@ -383,9 +386,15 @@ impl Component {
 		mut arg: tg::tag::delete::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<tg::tag::delete::Output> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		arg.location = Some(
 			tg::Location::Local(tg::location::Local {
 				region: remote.region.clone(),
@@ -395,7 +404,12 @@ impl Component {
 		let output = client.delete_tags(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to delete the tags"),
 		)?;
-		session.invalidate_remote_cache(&remote.name).await;
+		session
+			.server
+			.components
+			.remote
+			.invalidate_remote_cache(session, &remote.name)
+			.await;
 
 		Ok(output)
 	}

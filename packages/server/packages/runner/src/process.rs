@@ -278,7 +278,7 @@ impl Component {
 		}
 	}
 
-	#[tracing::instrument(name = "process.lifecycle", level = "info", skip_all, fields(parent = arg.process.parent.as_ref().map(ToString::to_string), process = arg.process.id.as_ref().map(ToString::to_string), runner = session.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = tracing::field::Empty), err(level = "debug"))]
+	#[tracing::instrument(name = "process.lifecycle", level = "info", skip_all, fields(parent = arg.process.parent.as_ref().map(ToString::to_string), process = arg.process.id.as_ref().map(ToString::to_string), runner = self.state.id().as_ref().map(ToString::to_string), sandbox = tracing::field::Empty), err(level = "debug"))]
 	async fn process_task(&self, session: &Session, arg: ProcessTaskArg) -> tg::Result<()> {
 		let ProcessTaskArg {
 			event_sender,
@@ -309,13 +309,22 @@ impl Component {
 			.tokens
 			.local_authorization()
 			.iter()
-			.any(|token| session.verify_local_token(token));
+			.any(|token| {
+				session
+					.server
+					.components
+					.authorization
+					.verify_local_token(session, token)
+			});
 		if local {
 			command_options.location = Some(tg::Location::Local(tg::location::Local::default()));
 		} else {
 			let trusted = match &location {
 				tg::Location::Remote(remote) => session
-					.get_remote_session(&remote.name)
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
 					.await
 					.map_err(
 						|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
@@ -323,12 +332,17 @@ impl Component {
 					.trusted(),
 				tg::Location::Local(_) => false,
 			};
-			session.update_tokens_and_location(
-				&mut command_options.tokens,
-				Some(&mut command_options.location),
-				&location,
-				trusted,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut command_options.tokens,
+					Some(&mut command_options.location),
+					&location,
+					trusted,
+				)?;
 		}
 		state.command.options = command_options;
 		let process_stopper = Stopper::new();
@@ -377,8 +391,9 @@ impl Component {
 				// Derive the ID.
 				let runner = session
 					.server
+					.components
 					.runner
-					.state
+					.state()
 					.id()
 					.ok_or_else(|| tg::error!("the runner has no id"))?;
 				let (id, proof) = tg::process::Id::with_runner(&runner);
@@ -394,7 +409,7 @@ impl Component {
 				let sandbox_token = state
 					.sandbox
 					.as_ref()
-					.and_then(|sandbox| session.server.runner.state.sandboxes.get_by_id(sandbox))
+					.and_then(|sandbox| self.state.sandboxes.get_by_id(sandbox))
 					.map(|sandbox| sandbox.token.borrow().clone())
 					.ok_or_else(|| tg::error!(%id, "missing the process's sandbox"))?;
 				let sandbox = tg::process::control::Sandbox {
@@ -431,7 +446,7 @@ impl Component {
 
 		tracing::Span::current().record("process", tracing::field::display(&id));
 		tracing::Span::current().record("sandbox", state.sandbox.as_ref().map(ToString::to_string));
-		tracing::info!(parent = parent.as_ref().map(ToString::to_string), process = %id, runner = session.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = state.sandbox.as_ref().map(ToString::to_string), "initialized the process");
+		tracing::info!(parent = parent.as_ref().map(ToString::to_string), process = %id, runner = self.state.id().as_ref().map(ToString::to_string), sandbox = state.sandbox.as_ref().map(ToString::to_string), "initialized the process");
 		let context = tangram_server_core::context::Context {
 			principal: tg::Principal::Process(id.clone()),
 			token: inner_token.borrow().clone(),
@@ -496,14 +511,16 @@ impl Component {
 		}
 		session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.processes
 			.insert(id.clone(), sandbox_id.clone());
 		if let Some(mut sandbox) = session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.sandboxes
 			.get_mut_by_id(&sandbox_id)
 		{
@@ -517,7 +534,7 @@ impl Component {
 		let server = session.server.clone();
 		scopeguard::defer! {
 			processes_for_cleanup.remove(&id_for_cleanup);
-			server.runner.state.processes.remove(&id_for_cleanup);
+			server.components.runner.state().processes.remove(&id_for_cleanup);
 
 			// Let tests observe that the runner discarded the process state.
 			if server.checkpoints.is_some() {
@@ -544,8 +561,9 @@ impl Component {
 			let token = ENCODING.encode(&bytes);
 			match session
 				.server
+				.components
 				.runner
-				.state
+				.state()
 				.process_for_token
 				.entry(token.clone())
 			{
@@ -560,8 +578,9 @@ impl Component {
 		let token_for_cleanup = token.clone();
 		scopeguard::defer! {
 			server_for_token_cleanup
+				.components
 				.runner
-				.state
+				.state()
 				.process_for_token
 				.remove(&token_for_cleanup);
 		}
@@ -585,7 +604,9 @@ impl Component {
 				// Check whether the command is available locally.
 				let command_id: tg::object::Id = command.id().into();
 				let local = server
-					.try_get_object_local(&command_id, false)
+					.components
+					.object
+					.try_get_object_local_with_server(&server, &command_id, false)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the local command"))?
 					.is_some();
@@ -1829,7 +1850,7 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 	) -> Option<String> {
-		let state = session.server.runner.state();
+		let state = session.server.components.runner.state();
 		let sandbox_id = state.processes().get(id)?.value().clone();
 		let sandbox = state.sandboxes().get_by_id(&sandbox_id)?;
 		let process = sandbox.processes.get(id)?;
@@ -1849,8 +1870,9 @@ impl Component {
 	fn runner_session(session: &Session) -> Session {
 		let principal = session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.id()
 			.map_or(tg::Principal::Root, tg::Principal::Runner);
 		let context = Context {
@@ -1862,7 +1884,7 @@ impl Component {
 	}
 
 	fn try_get_process_session(session: &Session, id: &tg::process::Id) -> Option<Session> {
-		let state = session.server.runner.state();
+		let state = session.server.components.runner.state();
 		let sandbox_id = state.processes().get(id)?.value().clone();
 		let sandbox = state.sandboxes().get_by_id(&sandbox_id)?;
 		let origin = Origin::Sandbox(*sandbox.key());
@@ -2467,8 +2489,9 @@ impl Component {
 		// Seed the VFS with the tokens already carried by the command's artifact inputs.
 		let vfs = session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.sandboxes
 			.get_by_id(sandbox)
 			.and_then(|state| state.vfs.clone());
@@ -2493,11 +2516,21 @@ impl Component {
 					let resource =
 						tg::Selector::Id(tg::object::Id::from(artifact.node.clone()).into());
 					session
-						.authorize_token(&resource, permissions, token)
+						.server
+						.components
+						.authorization
+						.authorize_token(session, &resource, permissions, token)
 						.then(|| (artifact.node.clone(), token.clone()))
 				})
 		});
-		if let Some(mut state) = session.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
+		if let Some(mut state) = session
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes
+			.get_mut_by_id(sandbox)
+		{
 			state.tokens.extend(tokens);
 		}
 		if session.server.components.vfs.mounted() {

@@ -230,7 +230,10 @@ impl Component {
 			..Default::default()
 		};
 		let output = session
-			.try_get_object(&key.id, arg)
+			.server
+			.components
+			.object
+			.try_get_object(session, &key.id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, id = %key.id, "failed to get the object"))?;
 		let Some(output) = output else {

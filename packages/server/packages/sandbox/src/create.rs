@@ -54,7 +54,12 @@ impl Component {
 		if matches!(session.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		session.authorize_owner(arg.owner.as_ref()).await?;
+		session
+			.server
+			.components
+			.authorization
+			.authorize_owner(session, arg.owner.as_ref())
+			.await?;
 
 		arg = tangram_server_core::sandbox::normalize_sandbox_create_arg(arg)?;
 		if arg.host.is_none() {
@@ -92,7 +97,9 @@ impl Component {
 		tracing::info!(sandbox = %id, "scheduling the sandbox");
 		let token = session
 			.server
-			.create_sandbox_authentication_token(id.clone())?;
+			.components
+			.authentication
+			.create_sandbox_authentication_token(&session.server, id.clone())?;
 
 		// Schedule the sandbox and wait for its connection.
 		let mut connection_future = self.subscribe_sandbox_connection(session, &id).await?;
@@ -228,9 +235,15 @@ impl Component {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		let client = session.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.clone(),
@@ -243,12 +256,17 @@ impl Component {
 		let mut output = client.create_sandbox(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to create the sandbox"),
 		)?;
-		session.update_tokens_and_location(
-			&mut output.tokens,
-			Some(&mut output.location),
-			&location,
-			trusted,
-		)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut output.tokens,
+				Some(&mut output.location),
+				&location,
+				trusted,
+			)?;
 
 		Ok(output)
 	}

@@ -233,9 +233,19 @@ impl Component {
 			tg::Location::Local(_) => None,
 			tg::Location::Remote(remote) => {
 				let client = if process {
-					session.get_remote_session_for_process(&remote.name).await
+					session
+						.server
+						.components
+						.remote
+						.get_remote_session_for_process(session, &remote.name)
+						.await
 				} else {
-					session.get_remote_session(&remote.name).await
+					session
+						.server
+						.components
+						.remote
+						.get_remote_session(session, &remote.name)
+						.await
 				}
 				.map_err(|error| {
 					tg::error!(
@@ -417,7 +427,10 @@ impl Component {
 								tokens: node.options.tokens.clone(),
 							};
 							let metadata = session
-								.try_get_object_metadata(&object, metadata_arg)
+								.server
+								.components
+								.object
+								.try_get_object_metadata(&session, &object, metadata_arg)
 								.await?
 								.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
 							if metadata.subtree.count.is_some() && metadata.subtree.size.is_some() {
@@ -842,7 +855,12 @@ impl Component {
 		.await?;
 
 		if let tg::Location::Remote(remote) = &destination {
-			session.invalidate_remote_cache(&remote.name).await;
+			session
+				.server
+				.components
+				.remote
+				.invalidate_remote_cache(&session, &remote.name)
+				.await;
 		}
 		for name in [
 			"groups",
@@ -979,12 +997,21 @@ impl Component {
 						| tg::id::Kind::Tag
 						| tg::id::Kind::User
 				) {
-					let token = session.create_read_token(&id)?;
+					let token = session
+						.server
+						.components
+						.authorization
+						.create_read_token(session, &id)?;
 					return Ok(tg::Referent::with_node_and_local_tokens(id, token));
 				} else {
 					return Ok(tg::Referent::with_node(id));
 				};
-				let token = session.create_token(id.clone(), permissions, expires_at)?;
+				let token = session.server.components.authorization.create_token(
+					session,
+					id.clone(),
+					permissions,
+					expires_at,
+				)?;
 				let node = tg::Referent::with_node_and_local_tokens(id, token);
 				Ok(node)
 			})

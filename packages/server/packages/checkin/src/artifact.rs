@@ -1391,7 +1391,9 @@ impl Component {
 		// Store and index the object.
 		session
 			.server
-			.put_object_and_index(cache_arg, arg)
+			.components
+			.object
+			.put_object_and_index(&session.server, cache_arg, arg)
 			.await
 			.map_err(|error| {
 				tg::error!(!error, "failed to store and index the reference artifact")

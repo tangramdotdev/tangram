@@ -81,6 +81,7 @@ impl Component {
 		}
 		let Some((status, control_sender)) = session
 			.server
+			.components
 			.runner
 			.state()
 			.sandboxes()
@@ -184,6 +185,7 @@ impl Component {
 			if runner
 				&& session
 					.server
+					.components
 					.runner
 					.state()
 					.sandboxes()
@@ -351,9 +353,15 @@ impl Component {
 		arg: &tg::sandbox::destroy::Arg,
 		remote: &tangram_server_core::location::Remote,
 	) -> tg::Result<Option<bool>> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
+			)?;
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
 			region: None,

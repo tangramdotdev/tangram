@@ -33,6 +33,7 @@ impl Component {
 		};
 		let Some(parent_sandbox) = session
 			.server
+			.components
 			.runner
 			.state()
 			.try_get_process_sandbox(&parent)
@@ -43,6 +44,7 @@ impl Component {
 		};
 		let parent_sandbox = session
 			.server
+			.components
 			.runner
 			.state()
 			.sandboxes()
@@ -207,7 +209,9 @@ impl Component {
 		let arg = tangram_index::batch::Arg { items };
 		session
 			.server
-			.index_batch(arg)
+			.components
+			.indexer
+			.index_batch(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the process child"))?;
 

@@ -494,8 +494,13 @@ impl Component {
 					.contains(permission)
 			};
 			if authorized {
-				let tokens =
-					tg::authorization::Tokens::with_authorization(session.create_read_token(&id)?);
+				let tokens = tg::authorization::Tokens::with_authorization(
+					session
+						.server
+						.components
+						.authorization
+						.create_read_token(session, &id)?,
+				);
 				if let Some(target) = &mut entry.target {
 					target.options.tokens = tokens.clone();
 				}

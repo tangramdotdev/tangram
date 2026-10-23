@@ -36,12 +36,17 @@ impl Component {
 					.await?
 			},
 		};
-		session.update_tokens_and_location(
-			&mut output.object.options.tokens,
-			Some(&mut output.object.options.location),
-			&location,
-			trusted,
-		)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(
+				session,
+				&mut output.object.options.tokens,
+				Some(&mut output.object.options.location),
+				&location,
+				trusted,
+			)?;
 
 		Ok(output)
 	}
@@ -168,7 +173,8 @@ impl Component {
 		self.put_object_and_index(&session.server, put_arg, arg)
 			.await?;
 
-		let token = session.create_token(
+		let token = session.server.components.authorization.create_token(
+			session,
 			id.clone().into(),
 			vec![tg::authorization::Permission::Object(permission)],
 			permission_expires_at,
@@ -209,9 +215,15 @@ impl Component {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<(tg::object::put::Output, bool)> {
-		let client = session.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, %id, remote = %remote, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, remote = %remote, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		let arg = tg::object::put::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
@@ -337,7 +349,9 @@ impl Component {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 			server
-				.index_batch(index)
+				.components
+				.indexer
+				.index_batch(server, index)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the object"))?;
 
@@ -345,7 +359,7 @@ impl Component {
 		}
 
 		let object_put = self.put_object_inner(server, object);
-		let index_put = server.index_batch(index);
+		let index_put = server.components.indexer.index_batch(server, index);
 		let (object_result, index_result) = future::join(object_put, index_put).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 		index_result.map_err(|error| tg::error!(!error, "failed to index the object"))?;
@@ -423,7 +437,9 @@ impl Component {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 			server
-				.index_batch(index)
+				.components
+				.indexer
+				.index_batch(server, index)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
 
@@ -431,7 +447,7 @@ impl Component {
 		}
 
 		let object_put = self.put_object_batch_inner(server, objects);
-		let index_put = server.index_batch(index);
+		let index_put = server.components.indexer.index_batch(server, index);
 		let (object_result, index_result) = future::join(object_put, index_put).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 		index_result.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;

@@ -207,9 +207,14 @@ impl Component {
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Subtree,
 		);
-		tokens
-			.iter()
-			.any(|token| session.authorize_token(&resource, permission.into(), token))
+		tokens.iter().any(|token| {
+			session.server.components.authorization.authorize_token(
+				session,
+				&resource,
+				permission.into(),
+				token,
+			)
+		})
 	}
 
 	fn process_output_has_subtree_permission(
@@ -330,9 +335,14 @@ impl Component {
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
-		tokens
-			.iter()
-			.any(|token| session.authorize_token(&resource, permission.into(), token))
+		tokens.iter().any(|token| {
+			session.server.components.authorization.authorize_token(
+				session,
+				&resource,
+				permission.into(),
+				token,
+			)
+		})
 	}
 
 	pub(crate) async fn request(

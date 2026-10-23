@@ -106,7 +106,13 @@ impl Component {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
 			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
 		};
-		let Some((id, specifier)) = session.try_resolve_named_node(&selector).await? else {
+		let Some((id, specifier)) = session
+			.server
+			.components
+			.node
+			.try_resolve_named_node(session, &selector)
+			.await?
+		else {
 			return Ok(ControlFlow::Break(None));
 		};
 		let Ok(organization) = tg::organization::Id::try_from(id.clone()) else {
@@ -250,9 +256,15 @@ impl Component {
 		mut arg: tg::organization::delete::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<()>> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
 			region: None,
@@ -270,7 +282,12 @@ impl Component {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to delete the organization"),
 			)?;
-		session.invalidate_remote_cache(&remote.name).await;
+		session
+			.server
+			.components
+			.remote
+			.invalidate_remote_cache(session, &remote.name)
+			.await;
 
 		Ok(output)
 	}

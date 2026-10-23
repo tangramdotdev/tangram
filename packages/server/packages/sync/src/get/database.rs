@@ -170,7 +170,12 @@ impl Component {
 			ControlFlow::Break(output) => output,
 			ControlFlow::Continue(()) => return Ok(ControlFlow::Continue(())),
 		};
-		session.server.invalidate_user_authentication(&users).await;
+		session
+			.server
+			.components
+			.authentication
+			.invalidate_user_authentication(&session.server, &users)
+			.await;
 
 		Ok(ControlFlow::Break(specifiers))
 	}
@@ -336,7 +341,11 @@ impl Component {
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
 			match session
+				.server
+				.components
+				.node
 				.delete_named_nodes_with_transaction(
+					session,
 					transaction,
 					&replaced_ids_and_specifiers,
 					&mut batch,
@@ -736,7 +745,13 @@ impl Component {
 		}
 		let mut permissions = BTreeSet::new();
 		for token in &message.tokens {
-			if token.body.resource != message.target || !session.verify_token(token) {
+			if token.body.resource != message.target
+				|| !session
+					.server
+					.components
+					.authorization
+					.verify_token(session, token)
+			{
 				return Err(tg::error!("invalid tag target token"));
 			}
 			let valid = if message.target.kind().is_object() {

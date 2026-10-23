@@ -42,7 +42,10 @@ impl Component {
 			.map(|node| node.specifier.clone())
 			.collect::<Vec<_>>();
 		let outputs = session
-			.try_get_ids_for_specifiers_from_index(&specifiers)
+			.server
+			.components
+			.node
+			.try_get_ids_for_specifiers_from_index(session, &specifiers)
 			.await?;
 
 		// Route resolved specifiers and report missing specifiers.

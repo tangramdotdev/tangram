@@ -58,8 +58,10 @@ impl Component {
 	) -> tg::Result<tg::organization::billing::manage::Output> {
 		let billing = session
 			.server
+			.components
 			.billing
-			.clone()
+			.provider()
+			.cloned()
 			.ok_or_else(|| tg::error!("billing is not configured"))?;
 		let organization = organization.clone();
 		let tokens = tokens.clone();
@@ -115,7 +117,13 @@ impl Component {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
 			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
 		};
-		let Some((id, specifier)) = session.try_resolve_named_node(&selector).await? else {
+		let Some((id, specifier)) = session
+			.server
+			.components
+			.node
+			.try_resolve_named_node(session, &selector)
+			.await?
+		else {
 			return Err(tg::error!("failed to find the organization"));
 		};
 		let organization = tg::organization::Id::try_from(id.clone())
@@ -327,9 +335,15 @@ impl Component {
 		mut arg: tg::organization::billing::manage::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<tg::organization::billing::manage::Output> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
 			region: None,

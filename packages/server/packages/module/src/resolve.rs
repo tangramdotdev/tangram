@@ -413,7 +413,11 @@ impl Component {
 			.filter(|token| {
 				token.body.resource == authorization_resource
 					&& token.body.authorizes(permission)
-					&& session.verify_token(token)
+					&& session
+						.server
+						.components
+						.authorization
+						.verify_token(session, token)
 			})
 			.max_by_key(|token| token.body.expires_at)
 		else {
@@ -422,7 +426,8 @@ impl Component {
 		let token = if authorization_token.body.resource == resource {
 			Some(authorization_token.clone())
 		} else {
-			session.create_token(
+			session.server.components.authorization.create_token(
+				session,
 				resource,
 				vec![permission],
 				authorization_token.body.expires_at,

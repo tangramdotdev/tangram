@@ -110,9 +110,11 @@ pub trait Component: crate::component::Lifecycle {
 
 	fn start_sandbox_pool<'a>(&'a self, session: &'a Session) -> ();
 
+	fn state(&self) -> &State;
+
 	fn stop_runner_task(&self);
 
-	fn stop_sandbox_pool<'a>(&'a self, session: &'a Session) -> BoxFuture<'a, ()>;
+	fn stop_sandbox_pool(&self) -> BoxFuture<'_, ()>;
 
 	fn try_get_process_inner_token<'a>(
 		&'a self,
@@ -131,11 +133,6 @@ pub struct Config {
 	pub overcommit: tg::runner::Overcommit,
 
 	pub sandbox_pool_size: usize,
-}
-
-pub struct Runner {
-	pub sandbox_pool: crate::runner::pool::Pool,
-	pub state: State,
 }
 
 pub struct State {
@@ -170,11 +167,11 @@ pub struct State {
 	pub scheduler: tokio::sync::watch::Sender<Option<tg::scheduler::Id>>,
 }
 
-impl Runner {
+impl State {
 	#[must_use]
 	pub fn new(config: Config) -> Self {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
-		let state = State {
+		Self {
 			capacity: crate::runner::capacity::Pool::new(config.capacity, config.overcommit),
 
 			#[cfg(target_os = "linux")]
@@ -210,22 +207,9 @@ impl Runner {
 				4096,
 				4096,
 			),
-		};
-		let sandbox_pool = crate::runner::pool::Pool::new(config.sandbox_pool_size);
-
-		Self {
-			sandbox_pool,
-			state,
 		}
 	}
 
-	#[must_use]
-	pub fn state(&self) -> &State {
-		&self.state
-	}
-}
-
-impl State {
 	#[must_use]
 	pub fn heartbeat_index(&self) -> u64 {
 		self.heartbeat_index.load(Ordering::Acquire)

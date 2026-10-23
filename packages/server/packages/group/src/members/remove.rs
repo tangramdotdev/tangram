@@ -183,9 +183,15 @@ impl Component {
 		mut arg: tg::group::members::remove::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<()>> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
 			region: None,
@@ -203,7 +209,12 @@ impl Component {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to remove the group member"),
 			)?;
-		session.invalidate_remote_cache(&remote.name).await;
+		session
+			.server
+			.components
+			.remote
+			.invalidate_remote_cache(session, &remote.name)
+			.await;
 
 		Ok(output)
 	}

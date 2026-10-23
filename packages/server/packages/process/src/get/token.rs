@@ -18,9 +18,12 @@ impl Component {
 		// Bound newly created tokens by the lifetime of the accepted authorization.
 		let expires_at = Self::process_get_token_expires_at(session, authorization.expires_at)?;
 		let permissions = authorization.permissions;
-		if let Some(token) =
-			session.create_token(id.clone().into(), permissions.iter().collect(), expires_at)?
-		{
+		if let Some(token) = session.server.components.authorization.create_token(
+			session,
+			id.clone().into(),
+			permissions.iter().collect(),
+			expires_at,
+		)? {
 			output.tokens.insert_local_authorization(token);
 		}
 
@@ -34,7 +37,8 @@ impl Component {
 			.collect::<Vec<_>>();
 		if !child_permissions.is_empty() {
 			for child in output.data.children.iter_mut().flatten() {
-				if let Some(token) = session.create_token(
+				if let Some(token) = session.server.components.authorization.create_token(
+					session,
 					child.process.node.clone().into(),
 					child_permissions.clone(),
 					expires_at,
@@ -113,7 +117,14 @@ impl Component {
 			&& let Some(output) = &mut data.output
 		{
 			session
-				.add_tokens_to_value_data_with_expires_at(&mut output.node, object_expires_at)?;
+				.server
+				.components
+				.authorization
+				.add_tokens_to_value_data_with_expires_at(
+					session,
+					&mut output.node,
+					object_expires_at,
+				)?;
 		}
 
 		Ok(())
@@ -127,7 +138,14 @@ impl Component {
 		for diagnostic in data.diagnostics.iter_mut().flatten() {
 			if let Some(location) = &mut diagnostic.location {
 				session
-					.add_tokens_to_module_data_with_expires_at(&mut location.module, expires_at)?;
+					.server
+					.components
+					.authorization
+					.add_tokens_to_module_data_with_expires_at(
+						session,
+						&mut location.module,
+						expires_at,
+					)?;
 			}
 		}
 		for location in data
@@ -136,7 +154,11 @@ impl Component {
 			.chain(data.stack.iter_mut().flatten())
 		{
 			if let tg::error::data::File::Module(module) = &mut location.file {
-				session.add_tokens_to_module_data_with_expires_at(module, expires_at)?;
+				session
+					.server
+					.components
+					.authorization
+					.add_tokens_to_module_data_with_expires_at(session, module, expires_at)?;
 			}
 		}
 		if let Some(source) = &mut data.source {

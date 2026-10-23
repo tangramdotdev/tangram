@@ -211,8 +211,12 @@ impl Component {
 				.expires_at
 				.map_or(expires_at, |expiration| expiration.min(expires_at));
 			let id = node.node.clone();
-			let token =
-				session.create_token(id.clone(), permissions.iter().collect(), expires_at)?;
+			let token = session.server.components.authorization.create_token(
+				session,
+				id.clone(),
+				permissions.iter().collect(),
+				expires_at,
+			)?;
 			let node = tg::Referent::with_node_and_local_tokens(id, token);
 			nodes.push(node);
 		}

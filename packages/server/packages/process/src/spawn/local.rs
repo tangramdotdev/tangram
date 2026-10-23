@@ -73,11 +73,17 @@ impl Component {
 		requested: tg::runner::Capacity,
 	) -> Option<tangram_server_core::runner::capacity::Allocation> {
 		if let Some(parent) = parent
-			&& let Some(sandbox) = session.server.runner.state().sandboxes().get_by_id(parent)
+			&& let Some(sandbox) = session
+				.server
+				.components
+				.runner
+				.state()
+				.sandboxes()
+				.get_by_id(parent)
 			&& let Some(allocation) = sandbox.allocation.clone()
 			&& let Ok(parent) = allocation.try_lock_owned()
 			&& let Some(allocation) = tangram_server_core::runner::capacity::Allocation::try_borrow(
-				session.server.runner.state().capacity(),
+				session.server.components.runner.state().capacity(),
 				parent,
 				requested,
 			) {
@@ -85,6 +91,7 @@ impl Component {
 		}
 		session
 			.server
+			.components
 			.runner
 			.state()
 			.capacity()
@@ -101,10 +108,15 @@ impl Component {
 			let parent = parent?;
 			return session
 				.server
+				.components
 				.runner
 				.state()
 				.reservations()
-				.try_acquire(session.server.runner.state().capacity(), parent, requested)
+				.try_acquire(
+					session.server.components.runner.state().capacity(),
+					parent,
+					requested,
+				)
 				.or_else(|| Self::try_acquire_parent_sandbox_capacity(session, parent, requested));
 		}
 
@@ -118,6 +130,7 @@ impl Component {
 	) -> Option<tangram_server_core::runner::capacity::Allocation> {
 		let sandbox = session
 			.server
+			.components
 			.runner
 			.state()
 			.sandboxes()
@@ -126,7 +139,7 @@ impl Component {
 		let parent = allocation.try_lock_owned().ok()?;
 
 		tangram_server_core::runner::capacity::Allocation::try_borrow(
-			session.server.runner.state().capacity(),
+			session.server.components.runner.state().capacity(),
 			parent,
 			requested,
 		)
@@ -141,6 +154,7 @@ impl Component {
 	) -> tg::Result<()> {
 		let sandbox = session
 			.server
+			.components
 			.runner
 			.state()
 			.sandboxes()
@@ -153,12 +167,14 @@ impl Component {
 		drop(sandbox);
 		let runner = session
 			.server
+			.components
 			.runner
 			.state()
 			.id()
 			.ok_or_else(|| tg::error!("failed to find the runner id"))?;
 		let sandbox = session
 			.server
+			.components
 			.runner
 			.state()
 			.sandboxes()
@@ -172,7 +188,13 @@ impl Component {
 		drop(sandbox);
 
 		loop {
-			let scheduler = session.server.runner.state().wait_for_scheduler().await;
+			let scheduler = session
+				.server
+				.components
+				.runner
+				.state()
+				.wait_for_scheduler()
+				.await;
 			if capacity.try_borrow(requested).is_none() {
 				return Ok(());
 			}
@@ -181,7 +203,7 @@ impl Component {
 			let notification = tg::process::control::BorrowableCapacityClientNotification {
 				available: false,
 				capacity,
-				heartbeat_index: session.server.runner.state().heartbeat_index(),
+				heartbeat_index: session.server.components.runner.state().heartbeat_index(),
 				parent: parent_sandbox.clone(),
 				runner: runner.clone(),
 				scheduler: scheduler.clone(),
@@ -191,6 +213,7 @@ impl Component {
 			let allocation = allocation.clone().lock_owned().await;
 			let Some((capacity, mut reservation)) = session
 				.server
+				.components
 				.runner
 				.state()
 				.reservations()
@@ -199,7 +222,7 @@ impl Component {
 				let notification = tg::process::control::BorrowableCapacityClientNotification {
 					available: false,
 					capacity: tg::runner::Capacity::default(),
-					heartbeat_index: session.server.runner.state().heartbeat_index(),
+					heartbeat_index: session.server.components.runner.state().heartbeat_index(),
 					parent: parent_sandbox.clone(),
 					runner: runner.clone(),
 					scheduler: scheduler.clone(),
@@ -211,7 +234,7 @@ impl Component {
 			let notification = tg::process::control::BorrowableCapacityClientNotification {
 				available: true,
 				capacity,
-				heartbeat_index: session.server.runner.state().heartbeat_index(),
+				heartbeat_index: session.server.components.runner.state().heartbeat_index(),
 				parent: parent_sandbox.clone(),
 				runner: runner.clone(),
 				scheduler: scheduler.clone(),
@@ -222,6 +245,7 @@ impl Component {
 			let wait_future = pin!(wait_future);
 			let scheduler_change_future = session
 				.server
+				.components
 				.runner
 				.state()
 				.wait_for_scheduler_change(&scheduler);
@@ -334,7 +358,12 @@ impl Component {
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<()> {
 		if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
-			session.authorize_owner(sandbox.owner.as_ref()).await?;
+			session
+				.server
+				.components
+				.authorization
+				.authorize_owner(session, sandbox.owner.as_ref())
+				.await?;
 		}
 		Ok(())
 	}
@@ -406,8 +435,12 @@ impl Component {
 						.authorize(sandbox.clone(), permission)
 						.await?
 						.into_result()?;
-					let sandbox = if let Some(sandbox) =
-						session.server.runner.state().try_get_sandbox(&sandbox.node)
+					let sandbox = if let Some(sandbox) = session
+						.server
+						.components
+						.runner
+						.state()
+						.try_get_sandbox(&sandbox.node)
 					{
 						sandbox
 					} else {
@@ -428,6 +461,7 @@ impl Component {
 		let owner = if let Some(parent_sandbox) = parent_sandbox {
 			let parent = session
 				.server
+				.components
 				.runner
 				.state()
 				.try_get_sandbox(parent_sandbox);
@@ -483,7 +517,9 @@ impl Component {
 		let token = Self::create_process_wait_token(session, &id, now)?;
 		let process_token = session
 			.server
-			.create_process_authentication_token(id.clone())?;
+			.components
+			.authentication
+			.create_process_authentication_token(&session.server, id.clone())?;
 
 		// Resolve the sandbox and terminal settings.
 		let (sandbox, sandbox_arg, sandbox_token) = match &spawn_arg.sandbox {
@@ -506,7 +542,9 @@ impl Component {
 				let sandbox = tg::sandbox::Id::new();
 				let token = session
 					.server
-					.create_sandbox_authentication_token(sandbox.clone())?;
+					.components
+					.authentication
+					.create_sandbox_authentication_token(&session.server, sandbox.clone())?;
 				(sandbox, Some(sandbox_arg), Some(token))
 			},
 			Some(tg::Either::Right(sandbox)) => (sandbox.node.clone(), None, None),
@@ -589,9 +627,15 @@ impl Component {
 		}
 		if !items.is_empty() {
 			let arg = tangram_index::batch::Arg { items };
-			session.server.index_batch(arg).await.map_err(
-				|error| tg::error!(!error, %id, "failed to write the process permissions"),
-			)?;
+			session
+				.server
+				.components
+				.indexer
+				.index_batch(&session.server, arg)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to write the process permissions"),
+				)?;
 		}
 
 		Ok(output)
@@ -608,7 +652,11 @@ impl Component {
 		) && let Some(outcome) = &mut output.outcome
 		{
 			if let Some(output) = &mut outcome.output {
-				session.add_tokens_to_value_data(output)?;
+				session
+					.server
+					.components
+					.authorization
+					.add_tokens_to_value_data(session, output)?;
 			}
 			if let Some(tg::Either::Right(error)) = &mut outcome.error {
 				session.add_token_to_object_referent(error)?;

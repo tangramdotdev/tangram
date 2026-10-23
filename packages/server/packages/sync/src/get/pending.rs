@@ -154,7 +154,10 @@ impl Component {
 		// Flush the queued metadata before looking for a local fallback.
 		tangram_server_core::checkpoint!(session.server, "sync.get.pending.index", id = %id).await;
 		session
-			.index()
+			.server
+			.components
+			.indexer
+			.index(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()

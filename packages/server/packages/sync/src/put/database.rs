@@ -390,7 +390,12 @@ impl Component {
 			let expires_at = authorization
 				.expires_at
 				.map_or(expires_at, |expiration| expires_at.min(expiration));
-			let token = session.create_token(tag.into(), vec![permission], expires_at)?;
+			let token = session.server.components.authorization.create_token(
+				session,
+				tag.into(),
+				vec![permission],
+				expires_at,
+			)?;
 			let node = tg::Referent::with_node_and_local_tokens(id, token);
 
 			return Ok(ControlFlow::Break(vec![node]));

@@ -207,7 +207,12 @@ impl Session {
 		}
 		let mut principal = match principal {
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
-				let Some(principal) = self.try_resolve_remote_context_principal(principal).await?
+				let Some(principal) = self
+					.server
+					.components
+					.remote
+					.try_resolve_remote_context_principal(self, principal)
+					.await?
 				else {
 					return Ok(None);
 				};

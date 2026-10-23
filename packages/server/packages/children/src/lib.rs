@@ -257,7 +257,12 @@ impl Component {
 				tg::error!(!error, "failed to convert the permission time to live")
 			})?)
 			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
-		let token = session.create_token(id.clone(), permissions.iter().collect(), expires_at)?;
+		let token = session.server.components.authorization.create_token(
+			session,
+			id.clone(),
+			permissions.iter().collect(),
+			expires_at,
+		)?;
 		let mut tokens = options.tokens;
 		if let Some(token) = token {
 			tokens.insert_local_authorization(token);
@@ -280,7 +285,10 @@ impl Component {
 			return Ok(children);
 		}
 		session
-			.index()
+			.server
+			.components
+			.indexer
+			.index(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()
@@ -308,7 +316,10 @@ impl Component {
 			return Ok(output.unwrap().nodes);
 		}
 		session
-			.index()
+			.server
+			.components
+			.indexer
+			.index(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()
@@ -337,12 +348,17 @@ impl Component {
 		let client = session.get_region_session(region).await?;
 		let mut output = client.children(arg).await?;
 		for node in &mut output.data {
-			session.update_tokens_and_location(
-				&mut node.options.tokens,
-				Some(&mut node.options.location),
-				&location,
-				false,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut node.options.tokens,
+					Some(&mut node.options.location),
+					&location,
+					false,
+				)?;
 		}
 
 		Ok(output)
@@ -359,16 +375,26 @@ impl Component {
 			region: remote.region.clone(),
 		}));
 		arg.node.options.tokens = arg.node.options.tokens.for_location(&location);
-		let client = session.get_remote_session(&remote.name).await?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await?;
 		let trusted = client.trusted();
 		let mut output = client.children(arg).await?;
 		for node in &mut output.data {
-			session.update_tokens_and_location(
-				&mut node.options.tokens,
-				Some(&mut node.options.location),
-				&location,
-				trusted,
-			)?;
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(
+					session,
+					&mut node.options.tokens,
+					Some(&mut node.options.location),
+					&location,
+					trusted,
+				)?;
 		}
 
 		Ok(output)

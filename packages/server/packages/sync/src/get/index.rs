@@ -131,7 +131,10 @@ impl Component {
 						.await;
 				}
 				session
-					.index()
+					.server
+					.components
+					.indexer
+					.index(session)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to index"))?
 					.try_last()
@@ -331,7 +334,9 @@ impl Component {
 					// Get the object.
 					let bytes = session
 						.server
-						.try_get_object_local(&node.id, false)
+						.components
+						.object
+						.try_get_object_local_with_server(&session.server, &node.id, false)
 						.await
 						.map_err(
 							|error| tg::error!(!error, id = %node.id, "failed to get the object locally"),
@@ -445,7 +450,9 @@ impl Component {
 		}
 		let stored = session
 			.server
-			.try_get_object_local(id, false)
+			.components
+			.object
+			.try_get_object_local_with_server(&session.server, id, false)
 			.await?
 			.is_some();
 		Ok(stored)
@@ -851,7 +858,13 @@ impl Component {
 		};
 		tangram_server_core::checkpoint!(session.server, "sync.get.index.enqueue", sync = %sync)
 			.await;
-		match session.server.index_batch(arg).await {
+		match session
+			.server
+			.components
+			.indexer
+			.index_batch(&session.server, arg)
+			.await
+		{
 			Ok(()) => Ok(ControlFlow::Break(())),
 			Err(error) => {
 				let error = tg::error!(!error, "failed to index the sync");
@@ -943,7 +956,13 @@ impl Component {
 					None
 				} else {
 					if token.is_none() {
-						token = Some(session.create_read_token(&sync.clone().into())?);
+						token = Some(
+							session
+								.server
+								.components
+								.authorization
+								.create_read_token(session, &sync.clone().into())?,
+						);
 					}
 					token.clone().flatten()
 				};

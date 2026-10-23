@@ -175,7 +175,7 @@ impl Component {
 			.await?;
 
 		// Remove the cleaned nodes from retained runner state.
-		let runner = server.runner.state();
+		let runner = server.components.runner.state();
 		for process in &output.processes {
 			runner.remove_process(process);
 		}

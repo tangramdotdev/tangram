@@ -182,9 +182,15 @@ impl Component {
 		mut arg: tg::usage::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<tg::usage::Output>> {
-		let client = session.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
 		let location = tg::Location::Remote(remote.clone());
 		arg.tokens = arg.tokens.for_location(&location);
 		arg.location = Some(

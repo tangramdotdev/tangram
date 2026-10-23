@@ -72,7 +72,10 @@ impl Component {
 		for user in users {
 			session
 				.server
+				.components
+				.authentication
 				.invalidate_authentication(
+					&session.server,
 					tangram_server_core::authentication::cache::Invalidation::Principal(
 						tg::Principal::User(user),
 					),
@@ -256,9 +259,8 @@ impl Component {
 			.bytes()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the billing webhook body"))?;
-		let billing = session
-			.server
-			.billing
+		let billing = self
+			.provider
 			.as_ref()
 			.ok_or_else(|| tg::error!("billing is not configured"))?;
 		let now = session.server.clock.unix_timestamp();

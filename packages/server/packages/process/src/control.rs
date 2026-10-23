@@ -176,13 +176,17 @@ impl Component {
 				Self::verify_process_control_proof(session, &id, runner, &proof)?;
 				let token = session
 					.server
-					.create_process_authentication_token(id.clone())?;
+					.components
+					.authentication
+					.create_process_authentication_token(&session.server, id.clone())?;
 				(true, Some(runner.clone()), Some(token))
 			},
 			(tg::Principal::Root, None) => {
 				let token = session
 					.server
-					.create_process_authentication_token(id.clone())?;
+					.components
+					.authentication
+					.create_process_authentication_token(&session.server, id.clone())?;
 				(shortcut_start, None, Some(token))
 			},
 			_ => {
@@ -215,7 +219,14 @@ impl Component {
 		let lease = match arg.mode {
 			tg::process::control::Mode::Resume { lease } => {
 				if local_process_control {
-					process_session.index().await?.try_last().await?;
+					process_session
+						.server
+						.components
+						.indexer
+						.index(&process_session)
+						.await?
+						.try_last()
+						.await?;
 				}
 				let process = self.get_process_from_index(&process_session, &id).await?;
 				process
@@ -644,7 +655,12 @@ impl Component {
 
 		// Submit the prepared batch without waiting for its index commit, continuing if the index cannot accept it.
 		let index_arg = tangram_index::batch::Arg { items };
-		let result = session.server.index_batch(index_arg).await;
+		let result = session
+			.server
+			.components
+			.indexer
+			.index_batch(&session.server, index_arg)
+			.await;
 		if let Err(error) = result {
 			let error = tg::error!(!error, "failed to index the process");
 			return Ok(ControlFlow::Continue(error));
@@ -755,7 +771,9 @@ impl Component {
 		// Authenticate the token and require it to authenticate as the principal.
 		let authentication = session
 			.server
-			.authenticate(session.context.origin, Some(token))
+			.components
+			.authentication
+			.authenticate(&session.server, session.context.origin, Some(token))
 			.await?;
 		if authentication.principal != principal {
 			return Err(tg::error!(
@@ -929,7 +947,10 @@ impl Component {
 	> {
 		let id = arg.id.clone();
 		let client = session
-			.get_remote_session_for_process(&remote)
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, &remote)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),

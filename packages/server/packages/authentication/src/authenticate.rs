@@ -20,6 +20,7 @@ impl Component {
 	) -> tg::Result<Option<Process>> {
 		if let Some(sandbox) = session
 			.server
+			.components
 			.runner
 			.state()
 			.processes()
@@ -27,6 +28,7 @@ impl Component {
 			.map(|sandbox| sandbox.value().clone())
 			&& let Some(sandbox) = session
 				.server
+				.components
 				.runner
 				.state()
 				.sandboxes()
@@ -94,7 +96,14 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<Sandbox>> {
-		if let Some(sandbox) = session.server.runner.state().sandboxes().get_by_id(id) {
+		if let Some(sandbox) = session
+			.server
+			.components
+			.runner
+			.state()
+			.sandboxes()
+			.get_by_id(id)
+		{
 			let location = sandbox.location.clone();
 			return Ok(Some(Sandbox {
 				location,
@@ -157,6 +166,7 @@ impl Component {
 				// Use the token of a process that this runner runs, or, until a process on the shortcut path receives its token in its control connection's header, claim the process with the runner's token.
 				let receiver = session
 					.server
+					.components
 					.runner
 					.state()
 					.processes()
@@ -165,6 +175,7 @@ impl Component {
 					.and_then(|sandbox| {
 						session
 							.server
+							.components
 							.runner
 							.state()
 							.sandboxes()
@@ -241,6 +252,7 @@ impl Component {
 				// Until a sandbox that this runner hosts receives its token in its control connection's header, claim the sandbox with the runner's token, sending it only to the runner's remote.
 				if session
 					.server
+					.components
 					.runner
 					.state()
 					.sandboxes()
@@ -426,13 +438,14 @@ impl Component {
 
 		if let Some((sandbox_index, id)) = token.and_then(|token| {
 			server
+				.components
 				.runner
 				.state()
 				.process_for_token()
 				.get(token)
 				.map(|process| process.value().clone())
 		}) {
-			let state = server.runner.state();
+			let state = server.components.runner.state();
 			let Some(sandbox) = state.sandboxes().get(sandbox_index) else {
 				return Ok(Entry {
 					billing_ready: None,
@@ -511,11 +524,19 @@ impl Component {
 		let principal = token.body.principal.clone().into();
 		let matches = match &principal {
 			tg::Principal::Process(id) => server
+				.components
 				.runner
 				.state()
 				.processes()
 				.get(id)
-				.and_then(|sandbox| server.runner.state().sandboxes().get_by_id(sandbox.value()))
+				.and_then(|sandbox| {
+					server
+						.components
+						.runner
+						.state()
+						.sandboxes()
+						.get_by_id(sandbox.value())
+				})
 				.and_then(|sandbox| {
 					sandbox
 						.processes
@@ -524,6 +545,7 @@ impl Component {
 				})
 				.unwrap_or(false),
 			tg::Principal::Sandbox(id) => server
+				.components
 				.runner
 				.state()
 				.sandboxes()

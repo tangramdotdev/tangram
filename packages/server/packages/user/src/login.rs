@@ -79,7 +79,10 @@ impl Component {
 	) -> tg::Result<ControlFlow<tg::user::Data>> {
 		let specifier = self.login_user_specifier(session, arg).await?;
 		let ids_by_specifier = session
-			.try_get_ids_and_ancestors_for_specifiers(std::slice::from_ref(&specifier))
+			.server
+			.components
+			.node
+			.try_get_ids_and_ancestors_for_specifiers(session, std::slice::from_ref(&specifier))
 			.await?;
 		let component = self.clone();
 		let session = session.clone();

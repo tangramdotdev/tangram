@@ -36,8 +36,17 @@ impl Component {
 				self.logout_local(session).await?;
 			},
 			tg::Location::Remote(remote) => {
-				session.verify_request_can_mutate_remotes()?;
-				let client = session.get_remote_session(&remote.name).await?;
+				session
+					.server
+					.components
+					.remote
+					.verify_request_can_mutate_remotes(session)?;
+				let client = session
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
+					.await?;
 				arg.location = Some(
 					tg::Location::Local(tg::location::Local {
 						region: remote.region,
@@ -48,7 +57,12 @@ impl Component {
 					.logout(arg)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to log out of the remote"))?;
-				session.set_remote_token(&remote.name, None).await?;
+				session
+					.server
+					.components
+					.remote
+					.set_remote_token(session, &remote.name, None)
+					.await?;
 			},
 		}
 		Ok(())
@@ -83,7 +97,10 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to parse the token hash"))?;
 		session
 			.server
+			.components
+			.authentication
 			.invalidate_authentication(
+				&session.server,
 				tangram_server_core::authentication::cache::Invalidation::Token(*hash.as_bytes()),
 			)
 			.await;

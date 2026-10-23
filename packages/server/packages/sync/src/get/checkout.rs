@@ -795,7 +795,11 @@ impl Component {
 					.components
 					.checkout
 					.internal_xattr_capabilities(&session.server)?;
-				let token = session.create_permanent_object_token(&artifact)?;
+				let token = session
+					.server
+					.components
+					.authorization
+					.create_permanent_object_token(&session, &artifact)?;
 				let xattrs = tg::file::xattrs::Arg {
 					dependencies: None,
 					required: &[],

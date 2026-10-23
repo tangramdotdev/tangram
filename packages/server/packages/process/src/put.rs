@@ -47,7 +47,11 @@ impl Component {
 					.await?
 			},
 		};
-		session.update_tokens_and_location(&mut output.tokens, None, &location, trusted)?;
+		session
+			.server
+			.components
+			.authorization
+			.update_tokens_and_location(session, &mut output.tokens, None, &location, trusted)?;
 
 		Ok(output)
 	}
@@ -265,7 +269,12 @@ impl Component {
 				.collect(),
 		};
 		let result = if defer_index {
-			session.server.index_batch(arg).await
+			session
+				.server
+				.components
+				.indexer
+				.index_batch(&session.server, arg)
+				.await
 		} else {
 			session
 				.server
@@ -297,7 +306,12 @@ impl Component {
 			let token = if permissions.is_empty() {
 				None
 			} else {
-				session.create_token(id.clone().into(), permissions, permission_expires_at)?
+				session.server.components.authorization.create_token(
+					session,
+					id.clone().into(),
+					permissions,
+					permission_expires_at,
+				)?
 			};
 			tg::authorization::Tokens::with_authorization(token)
 		};
@@ -337,9 +351,15 @@ impl Component {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<(tg::process::put::Output, bool)> {
-		let client = session.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
-		)?;
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
+			)?;
 		let trusted = client.trusted();
 		let location = region.as_deref().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),

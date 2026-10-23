@@ -242,7 +242,8 @@ impl Component {
 			} else {
 				tg::authorization::permission::object::Permission::Node
 			};
-			let token = session.create_token(
+			let token = session.server.components.authorization.create_token(
+				session,
 				id.clone().into(),
 				vec![tg::authorization::Permission::Object(permission)],
 				i64::MAX,
@@ -405,7 +406,11 @@ impl Component {
 			// Set the dependency and file token xattrs.
 			let artifact = tg::artifact::Id::try_from(id.clone())
 				.map_err(|_| tg::error!(%id, "expected an artifact id"))?;
-			let token = session.create_permanent_object_token(&artifact)?;
+			let token = session
+				.server
+				.components
+				.authorization
+				.create_permanent_object_token(session, &artifact)?;
 			let xattrs = tg::file::xattrs::Arg {
 				dependencies: (!references.is_empty()).then_some(references.as_slice()),
 				required: &[],

@@ -182,7 +182,11 @@ impl Component {
 						}) {
 						continue;
 					}
-					let valid = session.verify_token(token);
+					let valid = session
+						.server
+						.components
+						.authorization
+						.verify_token(session, token);
 					verified[index] = Some(valid);
 					if !valid {
 						continue;
@@ -280,6 +284,7 @@ impl Component {
 				&& let Ok(process) = tg::process::Id::try_from(id.clone())
 				&& match session
 					.server
+					.components
 					.runner
 					.state()
 					.try_get_process_sandbox(&process)
@@ -316,7 +321,11 @@ impl Component {
 			if let tg::Selector::Id(id) = &resource {
 				let mut syncs = BTreeMap::new();
 				for token in &tokens {
-					if let Some(sync) = session.try_get_sync_id_from_token(token)
+					if let Some(sync) = session
+						.server
+						.components
+						.authorization
+						.try_get_sync_id_from_token(session, token)
 						&& current_sync != Some(&sync)
 					{
 						syncs.entry(sync).or_insert(token);
@@ -372,7 +381,13 @@ impl Component {
 			let mut tokens: Vec<_> = std::iter::zip(tokens, verified)
 				.filter_map(|(token, verified)| {
 					verified
-						.unwrap_or_else(|| session.verify_token(&token))
+						.unwrap_or_else(|| {
+							session
+								.server
+								.components
+								.authorization
+								.verify_token(session, &token)
+						})
 						.then_some(token.body)
 				})
 				.collect();
@@ -799,7 +814,10 @@ impl Component {
 		let index_wait = async {
 			tangram_server_core::checkpoint!(session.server, "verification.index.wait").await;
 			session
-				.index()
+				.server
+				.components
+				.indexer
+				.index(session)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index"))?
 				.try_last()
@@ -982,7 +1000,7 @@ impl Component {
 		process: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Id>> {
 		// Use the parent of a process that this runner runs.
-		let state = session.server.runner.state();
+		let state = session.server.components.runner.state();
 		if let Some(sandbox) = state
 			.processes()
 			.get(process)

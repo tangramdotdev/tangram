@@ -99,8 +99,9 @@ impl Component {
 		};
 		session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.try_update_process(id, |process| {
 				let lease = if process.data.status.is_finished() || process.stopper.stopped() {
 					None
@@ -126,8 +127,9 @@ impl Component {
 		};
 		session
 			.server
+			.components
 			.runner
-			.state
+			.state()
 			.try_update_process(id, |process| {
 				if process.data.status.is_finished() {
 					return tg::process::control::ReleaseLeaseClientResponseOutput {
@@ -449,16 +451,18 @@ impl Component {
 								tg::Principal::Process(process_id) => {
 									let sandbox = session
 										.server
+										.components
 										.runner
-										.state
+										.state()
 										.try_get_process_sandbox(process_id)
 										.ok_or_else(
 											|| tg::error!(%process_id, "failed to find the process sandbox"),
 										)?;
 									let sandbox = session
 										.server
+										.components
 										.runner
-										.state
+										.state()
 										.sandboxes
 										.get_by_id(&sandbox)
 										.ok_or_else(
@@ -485,8 +489,9 @@ impl Component {
 							let result = match &session.context.principal {
 								tg::Principal::Process(process) => session
 									.server
+									.components
 									.runner
-									.state
+									.state()
 									.try_get_process(process)
 									.map(|data| {
 										tg::process::control::ClientResponseOutput::Get(
@@ -508,8 +513,9 @@ impl Component {
 							let result = match &session.context.principal {
 								tg::Principal::Process(process) => session
 									.server
+									.components
 									.runner
-									.state
+									.state()
 									.try_get_process_children(process, arg.position, arg.length)
 									.map(tg::process::control::ClientResponseOutput::GetChildren)
 									.ok_or_else(

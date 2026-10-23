@@ -9,8 +9,6 @@ use {
 };
 
 pub struct Arg<'a> {
-	pub authentication_cache: &'a Arc<crate::authentication::cache::Cache>,
-	pub authentication_cache_events: &'a tokio::sync::broadcast::Sender<()>,
 	pub checkpoints: Option<&'a Arc<checkpoint::State>>,
 	pub config: &'a Config,
 	pub messenger: &'a Messenger,

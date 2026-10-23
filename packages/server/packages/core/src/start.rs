@@ -192,9 +192,6 @@ impl Server {
 		// Create the archive tasks.
 		let archive_tasks = tangram_futures::task::Set::default();
 
-		// Create the runner.
-		let runner = Self::create_runner(&config, &path, parallelism)?;
-
 		// Create the database.
 		let database = Self::create_database(&config, &path, parallelism).await?;
 
@@ -216,32 +213,9 @@ impl Server {
 		// Create the library.
 		let library = Mutex::new(None);
 
-		// Create the authentication cache.
-		let authentication_cache = Arc::new(crate::authentication::cache::Cache::new(
-			&config.authentication.cache,
-		));
-		let (authentication_cache_events, _) = tokio::sync::broadcast::channel(16);
-
 		// Create the messenger.
-		let messenger = Self::create_messenger(
-			&config,
-			&authentication_cache,
-			&authentication_cache_events,
-			checkpoints.as_ref(),
-		)
-		.await?;
+		let messenger = Self::create_messenger(&config).await?;
 		let notifications = crate::notification::Notifications::new(messenger.clone(), &config);
-
-		// Create the IP pool.
-		#[cfg(target_os = "linux")]
-		let ip_pool = tangram_sandbox::network::ip::Pool::new(
-			config
-				.sandbox
-				.network
-				.ip_ranges
-				.iter()
-				.map(|range| (range.min.to_bits(), range.max.to_bits())),
-		);
 
 		// Create the regions.
 		let regions = DashMap::default();
@@ -280,13 +254,8 @@ impl Server {
 		)
 		.await?;
 
-		// Create the billing provider.
-		let billing = config.billing.as_ref().map(crate::billing::Billing::new);
-
 		// Create the components.
 		let arg = crate::component::Arg {
-			authentication_cache: &authentication_cache,
-			authentication_cache_events: &authentication_cache_events,
 			checkpoints: checkpoints.as_ref(),
 			config: &config,
 			messenger: &messenger,
@@ -305,8 +274,6 @@ impl Server {
 			authentication_tokens,
 
 			authorization_tokens,
-
-			billing,
 
 			cache,
 
@@ -332,9 +299,6 @@ impl Server {
 
 			index_tasks,
 
-			#[cfg(target_os = "linux")]
-			ip_pool,
-
 			library,
 
 			lock,
@@ -347,8 +311,6 @@ impl Server {
 
 			regions,
 
-			runner,
-
 			shutdown,
 
 			tangram_path,
@@ -359,105 +321,6 @@ impl Server {
 		};
 
 		Ok(state)
-	}
-
-	fn create_runner(
-		config: &Config,
-		path: &Path,
-		parallelism: usize,
-	) -> tg::Result<crate::runner::Runner> {
-		// Compute the capacity.
-		let capacity = if config.roles.contains(&crate::config::Role::Runner) {
-			let runner = &config.runner;
-			let cpus = runner
-				.cpus
-				.unwrap_or_else(|| u64::try_from(parallelism).unwrap());
-			#[cfg(target_os = "linux")]
-			let (physical_memory, physical_storage) = tangram_sandbox::capacity::detect(path)?;
-			#[cfg(not(target_os = "linux"))]
-			let (physical_memory, physical_storage) = (1_073_741_824_u64.saturating_mul(cpus), 0);
-			let memory = runner.memory.unwrap_or(physical_memory * 3 / 4);
-			let storage = runner.storage.unwrap_or(physical_storage * 3 / 4);
-			if memory > physical_memory || storage > physical_storage {
-				return Err(tg::error!(
-					"the runner resource capacity exceeds its available backing"
-				));
-			}
-			let memory = tg::sandbox::Resource::new(
-				memory,
-				memory
-					.checked_mul(runner.overcommit.memory)
-					.ok_or_else(|| tg::error!("the memory overcommit capacity overflowed"))?,
-			);
-			let storage = tg::sandbox::Resource::new(
-				storage,
-				storage
-					.checked_mul(runner.overcommit.storage)
-					.ok_or_else(|| tg::error!("the storage overcommit capacity overflowed"))?,
-			);
-
-			let max = cpus
-				.checked_mul(runner.overcommit.cpu)
-				.and_then(|value| value.checked_mul(1000))
-				.ok_or_else(|| tg::error!("the CPU capacity is too large"))?;
-			let max = tg::sandbox::Amount::from_millis(max);
-			if cpus > u64::try_from(parallelism).unwrap() {
-				return Err(tg::error!(
-					"the runner CPU capacity exceeds its available hardware threads"
-				));
-			}
-			let min = cpus
-				.checked_mul(1000)
-				.ok_or_else(|| tg::error!("the CPU capacity is too large"))?;
-			let min = tg::sandbox::Amount::from_millis(min);
-			let sandboxes = runner.sandboxes.unwrap_or(cpus);
-			if sandboxes == 0 {
-				return Err(tg::error!(
-					"the runner sandbox capacity must be greater than zero"
-				));
-			}
-			let capacity = tg::runner::Capacity {
-				cpu: tg::sandbox::Cpu::new(min, max),
-				memory,
-				sandboxes,
-				storage,
-			};
-			if capacity.cpu.max.is_none_or(|max| max.millis() == 0) {
-				return Err(tg::error!(
-					"the runner CPU capacity must be greater than zero"
-				));
-			}
-
-			if capacity.memory.max.is_none_or(|max| max == 0) {
-				return Err(tg::error!(
-					"the runner memory capacity must be greater than zero"
-				));
-			}
-
-			capacity
-		} else {
-			tg::runner::Capacity::default()
-		};
-
-		// Create the runner, warming sandboxes only on runners.
-		let sandbox_pool_size = if config.roles.contains(&crate::config::Role::Runner) {
-			config.runner.sandbox_pool_size
-		} else {
-			0
-		};
-		let runner_config = crate::runner::Config {
-			capacity,
-
-			#[cfg(target_os = "linux")]
-			filesystem_project_ids: config.runner.resources.filesystem_project_ids,
-
-			overcommit: config.runner.overcommit,
-
-			sandbox_pool_size,
-		};
-		let runner = crate::runner::Runner::new(runner_config);
-
-		Ok(runner)
 	}
 
 	async fn create_database(
@@ -645,12 +508,7 @@ impl Server {
 		Ok(index)
 	}
 
-	async fn create_messenger(
-		config: &Config,
-		authentication_cache: &Arc<crate::authentication::cache::Cache>,
-		authentication_cache_events: &tokio::sync::broadcast::Sender<()>,
-		checkpoints: Option<&Arc<crate::checkpoint::State>>,
-	) -> tg::Result<Messenger> {
+	async fn create_messenger(config: &Config) -> tg::Result<Messenger> {
 		let instance = config.instance.clone();
 		let region = config.region.clone();
 		let messenger = match &config.messenger {
@@ -663,26 +521,18 @@ impl Server {
 			crate::config::Messenger::Nats(nats) => {
 				#[cfg(not(feature = "nats"))]
 				{
-					let _ = (
-						nats,
-						authentication_cache,
-						authentication_cache_events,
-						checkpoints,
-					);
+					let _ = nats;
 					return Err(tg::error!(
 						"this version of tangram was not compiled with nats support"
 					));
 				}
 				#[cfg(feature = "nats")]
 				{
-					let cache = authentication_cache.clone();
-					let checkpoints = checkpoints.cloned();
-					let events = authentication_cache_events.clone();
-					let mut options =
-						async_nats::ConnectOptions::new().event_callback(move |event| {
-							let cache = cache.clone();
-							let checkpoints = checkpoints.clone();
-							let events = events.clone();
+					let listeners = crate::messenger::Listeners::default();
+					let mut options = async_nats::ConnectOptions::new().event_callback({
+						let listeners = listeners.clone();
+						move |event| {
+							let listeners = listeners.clone();
 							async move {
 								// Name the event, logging errors.
 								let event = match event {
@@ -702,20 +552,11 @@ impl Server {
 									async_nats::Event::SlowConsumer(_) => "slow_consumer",
 								};
 
-								// Mark the authentication cache not ready and notify its subscriber.
-								cache.set_ready(false);
-								let _ = events.send(());
-
-								// Hit the checkpoint for the authentication cache becoming not ready.
-								if let Some(checkpoints) = &checkpoints {
-									let mut params = tg::checkpoint::Params::new();
-									params.insert("event".to_owned(), event.into());
-									checkpoints
-										.hit("authentication.cache.unready", params)
-										.await;
-								}
+								// Notify the listeners.
+								listeners.notify(event).await;
 							}
-						});
+						}
+					});
 					if let (Some(username), Some(password)) = (&nats.username, &nats.password) {
 						options = options.user_and_password(username.clone(), password.clone());
 					}
@@ -731,7 +572,7 @@ impl Server {
 						.connect(nats.url.to_string())
 						.await
 						.map_err(|error| tg::error!(!error, "failed to create the NATS client"))?;
-					Messenger::nats(client, instance, region)
+					Messenger::nats(client, listeners, instance, region)
 				}
 			},
 		};

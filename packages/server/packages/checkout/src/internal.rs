@@ -146,7 +146,10 @@ impl Component {
 			return Ok(());
 		}
 		session
-			.index()
+			.server
+			.components
+			.indexer
+			.index(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()
@@ -881,7 +884,9 @@ impl Component {
 		};
 		session
 			.server
-			.index_batch(arg)
+			.components
+			.indexer
+			.index_batch(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the checkout"))?;
 
@@ -1011,7 +1016,9 @@ impl Component {
 		};
 		session
 			.server
-			.index_batch(arg)
+			.components
+			.indexer
+			.index_batch(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the checkouts"))?;
 
@@ -1140,7 +1147,12 @@ impl Component {
 		state.visiting.remove(id);
 
 		// Retain the exact directory authorization token on the physical checkout.
-		if let Some(token) = session.create_permanent_object_token(id)? {
+		if let Some(token) = session
+			.server
+			.components
+			.authorization
+			.create_permanent_object_token(session, id)?
+		{
 			tg::file::xattrs::write_token(path, &token)?;
 		}
 
@@ -1198,7 +1210,11 @@ impl Component {
 			let item =
 				Self::checkout_internal_get_item(session, &state.graphs, edge, graph.as_ref())
 					.map_err(|error| tg::error!(!error, "failed to get the item"))?;
-			session.add_permanent_token_to_object_reference(&mut reference, &item.id)?;
+			session
+				.server
+				.components
+				.authorization
+				.add_permanent_token_to_object_reference(session, &mut reference, &item.id)?;
 			references.push(reference);
 
 			// Collect the dependency if it is not the root artifact.
@@ -1263,7 +1279,11 @@ impl Component {
 			let required = [tg::file::xattrs::Required::Module(
 				module.as_ref().map(String::as_bytes),
 			)];
-			let token = session.create_permanent_object_token(id)?;
+			let token = session
+				.server
+				.components
+				.authorization
+				.create_permanent_object_token(session, id)?;
 			let xattrs = tg::file::xattrs::Arg {
 				dependencies: (!references.is_empty()).then_some(references.as_slice()),
 				required: &required,
@@ -1343,7 +1363,12 @@ impl Component {
 
 		// Retain the symlink authorization token on macOS, where symlink xattrs are supported.
 		#[cfg(target_os = "macos")]
-		if let Some(token) = session.create_permanent_object_token(&item.id)? {
+		if let Some(token) = session
+			.server
+			.components
+			.authorization
+			.create_permanent_object_token(session, &item.id)?
+		{
 			tg::file::xattrs::write_token(path, &token)?;
 		}
 

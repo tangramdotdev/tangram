@@ -176,6 +176,7 @@ impl Component {
 					.min(arg.length.map_or(u64::MAX, |length| length - read));
 				let output = session
 					.server
+					.components
 					.runner
 					.state()
 					.sandboxes()
@@ -683,7 +684,10 @@ impl Component {
 		remote: &tangram_server_core::location::Remote,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
 		let client = session
-			.get_remote_session_for_process(&remote.name)
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, &remote.name)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),

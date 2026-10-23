@@ -35,7 +35,12 @@ impl Component {
 				self.try_get_user(session, &selector, entry).await
 			},
 			tg::Location::Remote(remote) => {
-				let client = session.get_remote_session(&remote.name).await?;
+				let client = session
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
+					.await?;
 				let arg = tg::user::current::Arg {
 					location: Some(
 						tg::Location::Local(tg::location::Local {

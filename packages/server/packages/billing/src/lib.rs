@@ -1,5 +1,6 @@
 use {
 	futures::{FutureExt as _, future::BoxFuture},
+	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_http::body::Boxed as BoxBody,
 	tangram_index::prelude::*,
@@ -9,13 +10,27 @@ use {
 mod webhook;
 
 /// The component.
-#[derive(Clone, Default)]
-pub struct Component {}
+#[derive(Clone)]
+pub struct Component(Arc<State>);
+
+pub struct State {
+	pub provider: Option<tangram_server_core::billing::Billing>,
+}
 
 impl Component {
 	#[must_use]
-	pub fn new() -> Self {
-		Self::default()
+	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> Self {
+		// Create the billing provider.
+		let provider = arg
+			.config
+			.billing
+			.as_ref()
+			.map(tangram_server_core::billing::Billing::new);
+
+		// Create the state.
+		let state = State { provider };
+
+		Self(Arc::new(state))
 	}
 
 	pub(crate) async fn request(
@@ -39,7 +54,7 @@ impl Component {
 		session: &Session,
 		owner: Option<&tg::Principal>,
 	) -> tg::Result<()> {
-		if session.server.billing.is_none() {
+		if self.provider.is_none() {
 			return Ok(());
 		}
 		let Some(owner) = owner else {
@@ -137,6 +152,14 @@ impl Component {
 	}
 }
 
+impl std::ops::Deref for Component {
+	type Target = State;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
+
 impl tangram_server_core::component::Lifecycle for Component {}
 
 impl tangram_server_core::billing::Component for Component {
@@ -146,6 +169,10 @@ impl tangram_server_core::billing::Component for Component {
 		owner: Option<&'a tg::Principal>,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.verify_billing(session, owner).boxed()
+	}
+
+	fn provider(&self) -> Option<&tangram_server_core::billing::Billing> {
+		self.provider.as_ref()
 	}
 
 	fn request<'a>(
