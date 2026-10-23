@@ -2654,6 +2654,11 @@ pub struct Vfs {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub passthrough: Option<VfsPassthrough>,
 
+	/// The maximum time to wait for a trusted remote to authorize a process's input, including while the remote finishes receiving the input's subtree.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote_subtree_timeout: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sqpoll: Option<bool>,
 }
@@ -6172,6 +6177,9 @@ fn resolve_vfs(source: Vfs) -> server::Vfs {
 	}
 	if let Some(value) = source.passthrough {
 		target.passthrough = resolve_vfs_passthrough(value);
+	}
+	if let Some(value) = source.remote_subtree_timeout {
+		target.remote_subtree_timeout = value;
 	}
 	if let Some(value) = source.sqpoll {
 		target.sqpoll = value;

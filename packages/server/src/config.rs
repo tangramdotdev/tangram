@@ -1866,6 +1866,8 @@ pub struct Vfs {
 
 	pub passthrough: VfsPassthrough,
 
+	pub remote_subtree_timeout: Duration,
+
 	pub sqpoll: bool,
 }
 
@@ -3220,6 +3222,7 @@ impl Default for Vfs {
 			kind: VfsKind::Auto,
 			nfs: VfsNfs::default(),
 			passthrough: VfsPassthrough::Auto,
+			remote_subtree_timeout: Duration::from_mins(1),
 			sqpoll: true,
 		}
 	}

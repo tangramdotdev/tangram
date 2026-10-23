@@ -2345,7 +2345,7 @@ impl Session {
 			})
 			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
 
-		// Seed the VFS with the tokens already carried by the command's artifact inputs.
+		// Seed the VFS with the command's artifact inputs and their tokens.
 		let vfs = self
 			.server
 			.runner
@@ -2355,6 +2355,7 @@ impl Session {
 			.and_then(|state| state.vfs.as_ref()?.upgrade());
 		if let Some(vfs) = vfs {
 			for artifact in &artifacts {
+				vfs.seed_input(artifact.node.clone().into());
 				vfs.seed_tokens(self, &artifact.options.tokens);
 			}
 		}

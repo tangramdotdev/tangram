@@ -654,6 +654,7 @@ impl Server {
 				vfs.nfs.lease_reaper_interval,
 			),
 			("vfs nfs lease time", vfs.nfs.lease_time),
+			("vfs remote subtree timeout", vfs.remote_subtree_timeout),
 		];
 		if let self::config::RunnerBackend::CloudHypervisor(vm) = &config.runner.backend {
 			durations.extend([
