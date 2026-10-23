@@ -36,10 +36,10 @@ scylla_schema_path=$3
 operation_timeout=30
 mkdir -p -- "$pool_path"
 
-owner_pid=$PPID
-owner_start=$(ps -o lstart= -p "$owner_pid" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' || true)
-if [ -z "$owner_start" ]; then
-	echo "failed to identify the database lease owner process $owner_pid" >&2
+# Record the test run as the lease owner, so that the lease stays owned while the run resets the instance after the test exits.
+owner=${TANGRAM_TEST_DATABASE_RUN:-}
+if [ -z "$owner" ]; then
+	echo "the database lease owner is not set" >&2
 	exit 1
 fi
 
@@ -49,7 +49,7 @@ try_lease_existing() {
 			continue
 		fi
 		temporary_lease_path=$(mktemp "$slot_path/.lease.XXXXXX")
-		printf '%s\n%s\n' "$owner_pid" "$owner_start" > "$temporary_lease_path"
+		printf '%s\n' "$owner" > "$temporary_lease_path"
 		if ln "$temporary_lease_path" "$slot_path/lease" 2>/dev/null; then
 			rm -f -- "$temporary_lease_path"
 			basename "$slot_path"
@@ -109,7 +109,7 @@ cleanup_provision() {
 }
 trap cleanup_provision EXIT
 
-printf '%s\n%s\n' "$owner_pid" "$owner_start" > "$temporary_slot_path/lease"
+printf '%s\n' "$owner" > "$temporary_slot_path/lease"
 run_phase() {
 	phase=$1
 	shift

@@ -220,7 +220,7 @@ provision_database_pool() {
 			batch_end=$database_pool_size
 		fi
 		for ((index = batch_start; index < batch_end; index++)); do
-			TANGRAM_TEST_DATABASE_PROVISION_CONCURRENT=1 bash -c "$database_pool_acquire_script" _ "$database_pool_path" "$postgres_schema_path" "$scylla_schema_path" >/dev/null &
+			TANGRAM_TEST_DATABASE_PROVISION_CONCURRENT=1 TANGRAM_TEST_DATABASE_RUN=provision bash -c "$database_pool_acquire_script" _ "$database_pool_path" "$postgres_schema_path" "$scylla_schema_path" >/dev/null &
 			provision_pids+=("$!")
 		done
 		failed=false

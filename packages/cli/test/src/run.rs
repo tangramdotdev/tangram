@@ -130,19 +130,21 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		return Err("no tests matched the provided filters".into());
 	}
 
-	// Check the cloud databases and reclaim the leases of exited runs.
-	let cluster_path = if args.cloud {
+	// Check the cloud databases, take this run's lock on its database pool leases, and reclaim the leases of exited runs.
+	let (cluster_path, database_run) = if args.cloud {
 		database::check().await?;
+		let run = database::Run::new(&database::pool_path())?;
 		database::reclaim().await?;
-		Some(database::cluster_path()?)
+		(Some(database::cluster_path()?), Some(run))
 	} else {
-		None
+		(None, None)
 	};
 
 	// Create the options.
 	let options = Arc::new(Options {
 		cloud: args.cloud,
 		cluster_path,
+		database_run: database_run.as_ref().map(|run| run.id().to_owned()),
 		fskit: args.fskit,
 		kernel_path: args.kernel_path.clone(),
 		no_capture: args.no_capture,
