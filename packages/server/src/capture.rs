@@ -140,7 +140,7 @@ impl Session {
 			resource.options.tokens = tg::authorization::Tokens::with_authorization(tokens);
 			pending.push(resource);
 		}
-		if !pending.is_empty() {
+		if !pending.is_empty() && self.server.config.indexer.permission_capture.enabled {
 			let arg = tangram_index::permission::capture::enqueue::Arg {
 				id: uuid::Uuid::now_v7().as_bytes().to_vec(),
 				principal,

@@ -968,7 +968,7 @@ pub struct Indexer {
 	pub object_cache_partitions: Option<IndexerPartitions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub permission_capture: Option<IndexerPermissionCapture>,
+	pub permission_capture: Option<BoolOr<IndexerPermissionCapture>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request: Option<IndexerRequest>,
@@ -4558,23 +4558,30 @@ fn resolve_indexer_cache(source: IndexerCache) -> server::IndexerCache {
 }
 
 fn resolve_indexer_permission_capture(
-	source: IndexerPermissionCapture,
+	source: BoolOr<IndexerPermissionCapture>,
 ) -> server::IndexerPermissionCapture {
 	let mut target = server::IndexerPermissionCapture::default();
-	if let Some(value) = source.batch_size {
-		target.batch_size = value;
-	}
-	if let Some(value) = source.concurrency {
-		target.concurrency = value;
-	}
-	if let Some(value) = source.delegation_time_to_live {
-		target.delegation_time_to_live = value;
-	}
-	if let Some(value) = source.poll_interval {
-		target.poll_interval = value;
-	}
-	if let Some(value) = source.retry_delay {
-		target.retry_delay = value;
+	let (enabled, source) = match source {
+		BoolOr::Bool(enabled) => (enabled, None),
+		BoolOr::Value(source) => (true, Some(source)),
+	};
+	target.enabled = enabled;
+	if let Some(source) = source {
+		if let Some(value) = source.batch_size {
+			target.batch_size = value;
+		}
+		if let Some(value) = source.concurrency {
+			target.concurrency = value;
+		}
+		if let Some(value) = source.delegation_time_to_live {
+			target.delegation_time_to_live = value;
+		}
+		if let Some(value) = source.poll_interval {
+			target.poll_interval = value;
+		}
+		if let Some(value) = source.retry_delay {
+			target.retry_delay = value;
+		}
 	}
 
 	target

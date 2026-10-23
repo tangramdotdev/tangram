@@ -679,6 +679,7 @@ pub struct IndexerPermissionCapture {
 	pub batch_size: usize,
 	pub concurrency: usize,
 	pub delegation_time_to_live: Duration,
+	pub enabled: bool,
 	pub poll_interval: Duration,
 	pub retry_delay: Duration,
 }
@@ -2427,6 +2428,7 @@ impl Default for IndexerPermissionCapture {
 			batch_size: 16,
 			concurrency: 4,
 			delegation_time_to_live: Duration::from_hours(168),
+			enabled: true,
 			poll_interval: Duration::from_secs(1),
 			retry_delay: Duration::from_secs(1),
 		}

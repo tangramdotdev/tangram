@@ -269,6 +269,10 @@ impl Server {
 			let indexer = indexer.clone();
 			let config = config.clone();
 			move |stopper| async move {
+				if !config.permission_capture.enabled {
+					stopper.wait().await;
+					return Ok(());
+				}
 				indexer
 					.permission_capture_task(
 						&config.permission_capture,
