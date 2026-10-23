@@ -68,23 +68,19 @@ async fn draining_waits_for_writes_queue_completions_and_handlers() {
 		state: state.clone(),
 		writing: true,
 	};
-	let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
-	sender
-		.send(queue::IndexMessage::Delete(vec![99]))
-		.await
-		.unwrap();
-	let drain = Indexer::drain_queues(&state, &changed, &sender);
+	let drain = Indexer::drain_queues(&state, &changed);
 	tokio::pin!(drain);
 	assert!(futures::poll!(&mut drain).is_pending());
 	assert!(!state.lock().unwrap().available);
 	guard.finish_write();
 	assert!(futures::poll!(&mut drain).is_pending());
 	assert!(state.try_lock().is_ok());
-	receiver.recv().await.unwrap();
-	assert!(futures::poll!(&mut drain).is_pending());
-	assert!(
-		matches!(receiver.recv().await.unwrap(), queue::IndexMessage::Delete(sequences) if sequences == vec![sequence])
-	);
+	let (_, deletes) = state
+		.lock()
+		.unwrap()
+		.queues
+		.take_sent_sequences(queue::Kind::Index);
+	assert_eq!(deletes, std::collections::BTreeSet::from([sequence]));
 	assert!(response_receiver.await.unwrap().is_err());
 	state
 		.lock()

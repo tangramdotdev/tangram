@@ -707,6 +707,7 @@ pub struct IndexerPartitions {
 
 #[derive(Clone, Debug)]
 pub struct IndexerRequest {
+	/// The maximum number of concurrent archive queue writes.
 	pub archive_concurrency: usize,
 
 	pub channel_capacity: usize,
@@ -714,7 +715,13 @@ pub struct IndexerRequest {
 	/// The maximum number of concurrent message publications.
 	pub concurrency: usize,
 
-	/// The maximum number of pending fragments, reserved for whole batches.
+	/// The maximum number of pending archive entries and index fragments, reserved for whole batches.
+	pub enqueue_batch_capacity: usize,
+
+	/// The maximum number of requests received at once.
+	pub enqueue_batch_size: usize,
+
+	/// The maximum number of concurrent index queue writes.
 	pub index_concurrency: usize,
 
 	pub poll_interval: Duration,
@@ -2455,10 +2462,12 @@ impl Default for IndexerPartitions {
 impl Default for IndexerRequest {
 	fn default() -> Self {
 		Self {
-			archive_concurrency: 64,
+			archive_concurrency: 256,
 			channel_capacity: 256,
 			concurrency: 64,
-			index_concurrency: 4096,
+			enqueue_batch_capacity: 65_536,
+			enqueue_batch_size: 256,
+			index_concurrency: 256,
 			poll_interval: Duration::from_millis(10),
 			response_ttl: Duration::from_mins(1),
 			retry: message_retry_default(),
