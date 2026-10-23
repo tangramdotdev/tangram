@@ -7,7 +7,7 @@ use {
 	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
 	std::{
-		collections::BTreeMap,
+		collections::{BTreeMap, HashMap},
 		ops::Deref,
 		os::fd::OwnedFd,
 		os::unix::{ffi::OsStrExt as _, fs::FileExt as _},
@@ -15,7 +15,7 @@ use {
 		pin::pin,
 		sync::{
 			Arc, Mutex,
-			atomic::{AtomicU64, Ordering},
+			atomic::{AtomicI64, AtomicU64, Ordering},
 		},
 	},
 	tangram_client::prelude::*,
@@ -41,6 +41,7 @@ pub struct Provider(Arc<Inner>);
 pub struct Weak(std::sync::Weak<Inner>);
 
 pub struct Inner {
+	authorizations: Mutex<Authorizations>,
 	directory_handles: DashMap<u64, DirectorySnapshot, fnv::FnvBuildHasher>,
 	directory_snapshot_cache_capacity: usize,
 	directory_snapshot_loads: DashMap<u64, Arc<tokio::sync::Mutex<()>>, fnv::FnvBuildHasher>,
@@ -53,6 +54,15 @@ pub struct Inner {
 	principal: Mutex<Option<tg::Principal>>,
 	runtime: tokio::runtime::Handle,
 	server: Server,
+}
+
+/// The tokens given to the provider, and the objects known to be authorized.
+#[derive(Default)]
+struct Authorizations {
+	expirations: HashMap<tg::object::Id, i64>,
+	pruned: usize,
+	syncs: tg::authorization::Tokens,
+	tokens: HashMap<tg::Id, tg::authorization::Tokens>,
 }
 
 #[derive(Clone)]
@@ -95,7 +105,6 @@ struct Node {
 	name: Option<String>,
 	named: Option<NamedNodeInfo>,
 	parent: u64,
-	tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone)]
@@ -109,16 +118,16 @@ struct NodeInfo {
 
 #[derive(Clone)]
 struct ArtifactState {
-	branch_children: Arc<Mutex<BTreeMap<tg::artifact::Id, BranchChild>>>,
-	children_expires_at: Arc<Mutex<Option<i64>>>,
+	authority: Arc<Authority>,
 	data: Option<tg::artifact::data::Artifact>,
 	id: tg::artifact::Id,
-	tokens: Arc<Mutex<tg::authorization::Tokens>>,
 }
 
-struct BranchChild {
-	artifact: ArtifactState,
-	parent_tokens: tg::authorization::Tokens,
+/// A link in the chain of objects through which an artifact was reached. An object is authorized while it or an object earlier in its chain is authorized.
+struct Authority {
+	expires_at: AtomicI64,
+	id: tg::object::Id,
+	parent: Mutex<Option<Arc<Authority>>>,
 }
 
 #[derive(Clone)]
@@ -157,8 +166,9 @@ struct SnapshotLoad<'a> {
 }
 
 pub struct FileHandle {
+	authority: Arc<Authority>,
 	blob: tg::blob::Id,
-	tokens: Arc<Mutex<tg::authorization::Tokens>>,
+	tokens: Mutex<Option<tg::authorization::Tokens>>,
 }
 
 impl Provider {
@@ -184,7 +194,9 @@ impl Provider {
 		let principal = Mutex::new(principal);
 		let runtime = tokio::runtime::Handle::current();
 		let server = server.clone();
+		let authorizations = Mutex::new(Authorizations::default());
 		let provider = Inner {
+			authorizations,
 			directory_handles,
 			directory_snapshot_cache_capacity,
 			directory_snapshot_loads,
@@ -215,11 +227,7 @@ impl Provider {
 		self.principal.lock().unwrap().replace(principal);
 	}
 
-	pub fn seed_tokens(
-		&self,
-		session: &Session,
-		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<()> {
+	pub fn seed_tokens(&self, session: &Session, tokens: &tg::authorization::Tokens) {
 		let mut tokens = tokens.clone();
 		let authorization = tokens.remove_local_authorization();
 		for token in authorization
@@ -228,14 +236,14 @@ impl Provider {
 		{
 			tokens.insert_local_authorization(token);
 		}
-		self.nodes.insert_tokens(session, &tokens)?;
-		Ok(())
+		self.insert_tokens(&tokens, true);
 	}
 
 	/// Get the tokens that authorize an artifact at the root of the mount.
 	#[must_use]
 	pub fn root_tokens(&self, id: &tg::artifact::Id) -> tg::authorization::Tokens {
-		self.nodes.root_artifact(id).tokens.lock().unwrap().clone()
+		let artifact = self.nodes.root_artifact(id);
+		self.tokens(&artifact.authority, &id.clone().into())
 	}
 
 	pub fn handle_batch(
@@ -567,7 +575,7 @@ impl Provider {
 				return Ok(None);
 			}
 			let references =
-				self.file_dependency_references(&artifact.tokens, &file, graph.as_ref(), None)?;
+				self.file_dependency_references(&artifact.authority, &file, graph.as_ref(), None)?;
 			let xattrs = tg::file::xattrs::encode_dependencies(
 				&references,
 				tg::file::xattrs::MAX_VALUE_SIZE,
@@ -615,7 +623,7 @@ impl Provider {
 				return Ok(None);
 			}
 			let references = self.file_dependency_references(
-				&artifact.tokens,
+				&artifact.authority,
 				&file,
 				graph.as_ref(),
 				transaction,
@@ -648,22 +656,38 @@ impl Provider {
 		&self,
 		artifact: &ArtifactState,
 	) -> std::io::Result<Option<tg::authorization::Token>> {
-		self.authorize(&artifact.tokens, &artifact.id.clone().into())?;
-		let token = artifact
-			.tokens
-			.lock()
-			.unwrap()
+		self.authorize(&artifact.authority, &artifact.id.clone().into())?;
+		let resource = tg::Id::from(artifact.id.clone());
+		let token = self
+			.tokens(&artifact.authority, &artifact.id.clone().into())
 			.local_authorization()
 			.iter()
-			.filter(|token| token.body.resource == artifact.id.clone().into())
+			.filter(|token| token.body.resource == resource)
 			.max_by_key(|token| token.body.expires_at)
 			.cloned();
 		Ok(token)
 	}
 
+	/// Determine whether a token for an artifact can be handed out, without signing one.
+	fn can_create_artifact_token(&self, artifact: &ArtifactState) -> std::io::Result<bool> {
+		self.authorize(&artifact.authority, &artifact.id.clone().into())?;
+		if self.server.authorization_tokens.private_key.is_some() {
+			return Ok(true);
+		}
+		let resource = tg::Id::from(artifact.id.clone());
+		let available = self
+			.authorizations
+			.lock()
+			.unwrap()
+			.tokens
+			.get(&resource)
+			.is_some_and(|tokens| !tokens.local_authorization().is_empty());
+		Ok(available)
+	}
+
 	fn file_dependency_references(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		file: &tg::graph::data::File,
 		graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
@@ -672,13 +696,14 @@ impl Provider {
 		for (reference, dependency) in &file.dependencies {
 			let mut reference = reference.clone();
 			let Some(dependency) =
-				self.file_dependency_artifact(tokens, dependency.as_ref(), graph, transaction)?
+				self.file_dependency_artifact(authority, dependency.as_ref(), graph, transaction)?
 			else {
 				references.push(reference);
 				continue;
 			};
+			let tokens = self.tokens(&dependency.authority, &dependency.id.clone().into());
 			let mut options = reference.options().clone();
-			options.tokens.inherit(&dependency.tokens.lock().unwrap());
+			options.tokens.inherit(&tokens);
 			reference.set_options(options);
 			references.push(reference);
 		}
@@ -688,7 +713,7 @@ impl Provider {
 
 	fn file_dependency_artifact(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		dependency: Option<&tg::graph::data::Dependency>,
 		graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
@@ -699,7 +724,7 @@ impl Provider {
 		let Ok(edge) = tg::graph::data::Edge::<tg::artifact::Id>::try_from(edge.clone()) else {
 			return Ok(None);
 		};
-		let artifact = self.artifact_from_edge_inner(tokens, edge, graph, transaction)?;
+		let artifact = self.artifact_from_edge_inner(authority, edge, graph, transaction)?;
 		Ok(Some(artifact))
 	}
 
@@ -715,7 +740,7 @@ impl Provider {
 		let mut names = Vec::new();
 		if !file.dependencies.is_empty() {
 			let references =
-				self.file_dependency_references(&artifact.tokens, &file, graph.as_ref(), None)?;
+				self.file_dependency_references(&artifact.authority, &file, graph.as_ref(), None)?;
 			let xattrs = tg::file::xattrs::encode_dependencies(
 				&references,
 				tg::file::xattrs::MAX_VALUE_SIZE,
@@ -726,8 +751,7 @@ impl Provider {
 		if file.module.is_some() {
 			names.push(tg::file::xattrs::MODULE_NAME.to_owned());
 		}
-		let token = self.artifact_token(&artifact)?;
-		if token.is_some() {
+		if self.can_create_artifact_token(&artifact)? {
 			names.push(tg::file::xattrs::TOKEN_NAME.to_owned());
 		}
 		Ok(names)
@@ -753,7 +777,7 @@ impl Provider {
 		let mut names = Vec::new();
 		if !file.dependencies.is_empty() {
 			let references = self.file_dependency_references(
-				&artifact.tokens,
+				&artifact.authority,
 				&file,
 				graph.as_ref(),
 				transaction,
@@ -768,8 +792,7 @@ impl Provider {
 		if file.module.is_some() {
 			names.push(tg::file::xattrs::MODULE_NAME.to_owned());
 		}
-		let token = self.artifact_token(&artifact)?;
-		if token.is_some() {
+		if self.can_create_artifact_token(&artifact)? {
 			names.push(tg::file::xattrs::TOKEN_NAME.to_owned());
 		}
 		Ok(names)
@@ -823,7 +846,7 @@ impl Provider {
 				Ok(tg::store::path::Component::Id { id, .. }) => {
 					let artifact = self.nodes.root_artifact(&id);
 					if self
-						.authorize_inner(&artifact.tokens, &id.clone().into())
+						.authorize_inner(&artifact.authority, &id.clone().into())
 						.await
 						.is_err()
 					{
@@ -930,7 +953,7 @@ impl Provider {
 			NamedNodeEntry::Directory => return Ok(None),
 			NamedNodeEntry::Symlink(target) => {
 				let depth = self.nodes.get_sync(parent)?.depth + 1;
-				self.register_target_tokens(&target)?;
+				self.register_target_tokens(&target);
 				let target_path = Self::build_tag_target(depth, &target.node, suffix);
 				let size = target_path.len().to_u64().unwrap();
 				(
@@ -1093,14 +1116,12 @@ impl Provider {
 		Ok(children)
 	}
 
-	fn register_target_tokens(&self, target: &tg::Referent<tg::Id>) -> std::io::Result<()> {
-		self.seed_tokens(&self.session(), &target.options.tokens)
-			.map_err(|error| Self::map_cache_sync_error(&error))?;
-		Ok(())
+	fn register_target_tokens(&self, target: &tg::Referent<tg::Id>) {
+		self.seed_tokens(&self.session(), &target.options.tokens);
 	}
 
 	fn session(&self) -> Session {
-		// Fetch as the mount principal with the tokens retained by its nodes.
+		// Fetch as the mount principal.
 		let context = Context {
 			billing_ready: false,
 			id: None,
@@ -1242,7 +1263,7 @@ impl Provider {
 			// Return not found if the principal is not authorized to access the artifact.
 			let artifact = self.nodes.root_artifact(&id);
 			if self
-				.authorize_sync(&artifact.tokens, &id.clone().into())
+				.authorize_sync(&artifact.authority, &id.clone().into())
 				.is_err()
 			{
 				return Ok(None);
@@ -1286,66 +1307,93 @@ impl Provider {
 		Ok(Some(id))
 	}
 
+	/// Authorize an object reached through an authority, returning the expiration of the authorization.
 	fn authorize(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Authority,
 		id: &tg::object::Id,
-	) -> std::io::Result<crate::authorization::Output> {
+	) -> std::io::Result<Option<i64>> {
 		let principal = self.principal.lock().unwrap().clone();
-		let subtree = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
 		let Some(principal) = principal else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
+		if matches!(principal, tg::Principal::Root) {
+			return Ok(None);
+		}
 		let now = self.server.clock.unix_timestamp();
-		let resource = tg::Id::from(id.clone());
-		let expires_at = tokens
+		let expires_at = self
+			.authorizations
 			.lock()
 			.unwrap()
-			.local_authorization()
-			.iter()
-			.find(|token| {
-				token.body.resource == resource
-					&& token.body.expires_at >= now
-					&& token.body.authorizes(subtree)
-			})
-			.map(|token| token.body.expires_at);
-		if expires_at.is_none() && !matches!(principal, tg::Principal::Root) {
-			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+			.expirations
+			.get(id)
+			.copied()
+			.filter(|expires_at| *expires_at >= now);
+		if let Some(expires_at) = expires_at {
+			return Ok(Some(expires_at));
 		}
-		let output = crate::authorization::Output {
-			expires_at,
-			outcome: crate::authorization::Outcome::Satisfied,
-			permissions: subtree.into(),
+		let Some(expires_at) = self.authority_expiration(authority, now) else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
-		Ok(output)
+		Ok(Some(expires_at))
+	}
+
+	/// Get the expiration of the authorization of an authority's chain, remembering it on each link walked.
+	fn authority_expiration(&self, authority: &Authority, now: i64) -> Option<i64> {
+		// Walk the chain until a link is authorized.
+		let mut walked = Vec::new();
+		let mut link: Option<Arc<Authority>> = None;
+		let expires_at = loop {
+			let current = link.as_deref().unwrap_or(authority);
+			let expires_at = current.expires_at.load(Ordering::Relaxed);
+			if expires_at >= now {
+				break expires_at;
+			}
+			let expires_at = self
+				.authorizations
+				.lock()
+				.unwrap()
+				.expirations
+				.get(&current.id)
+				.copied()
+				.filter(|expires_at| *expires_at >= now);
+			if let Some(expires_at) = expires_at {
+				break expires_at;
+			}
+			let parent = current.parent()?;
+			walked.extend(link.replace(parent));
+		};
+
+		// Remember the expiration on the links that were walked.
+		authority.expires_at.store(expires_at, Ordering::Relaxed);
+		for link in walked {
+			link.expires_at.store(expires_at, Ordering::Relaxed);
+		}
+
+		Some(expires_at)
 	}
 
 	async fn authorize_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Authority,
 		id: &tg::object::Id,
-	) -> std::io::Result<crate::authorization::Output> {
-		if let Ok(output) = self.authorize(tokens, id) {
-			return Ok(output);
+	) -> std::io::Result<Option<i64>> {
+		if let Ok(expires_at) = self.authorize(authority, id) {
+			return Ok(expires_at);
 		}
 		if self.principal.lock().unwrap().is_none() {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		}
 
-		// Fall back to the existing authorization path when the available tokens are insufficient.
-		let mut available = self.nodes.state.lock().unwrap().nodes[&vfs::ROOT_NODE_ID]
-			.tokens
-			.clone();
-		available.inherit(&tokens.lock().unwrap());
-		let resource = tg::Referent::with_node_and_tokens(id.clone(), available);
+		// Search for an authorization with the tokens given to the provider.
+		let tokens = self.given_tokens(authority, id);
+		let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 		let requested = tg::authorization::permission::Set::from(permission);
-		let session = self.session();
-		let output = session
+		let output = self
+			.session()
 			.authorize_with_permissions(
 				resource,
 				requested,
@@ -1360,27 +1408,106 @@ impl Provider {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		}
 
-		// Retain the result on the node so subsequent accesses can use its token.
+		// Remember the authorization, so that the object and the objects reached through it are not searched again.
 		let expires_at = self.token_expiration(output.expires_at)?;
-		if let Some(token) = session
-			.create_token(id.clone().into(), vec![permission], expires_at)
-			.map_err(|error| Self::map_cache_sync_error(&error))?
-		{
-			let mut tokens = tokens.lock().unwrap();
-			let now = self.server.clock.unix_timestamp();
-			Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
-			tokens.insert_local_authorization(token);
-		}
-		Ok(output)
+		self.authorizations
+			.lock()
+			.unwrap()
+			.expirations
+			.entry(id.clone())
+			.and_modify(|existing| *existing = (*existing).max(expires_at))
+			.or_insert(expires_at);
+
+		Ok(Some(expires_at))
 	}
 
 	fn authorize_sync(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Authority,
 		id: &tg::object::Id,
-	) -> std::io::Result<crate::authorization::Output> {
-		self.authorize(tokens, id)
-			.or_else(|_| self.runtime.block_on(self.authorize_inner(tokens, id)))
+	) -> std::io::Result<Option<i64>> {
+		self.authorize(authority, id)
+			.or_else(|_| self.runtime.block_on(self.authorize_inner(authority, id)))
+	}
+
+	/// Get the tokens to hand out for an object reached through an authority, signing a token for the object when it is authorized.
+	fn tokens(&self, authority: &Authority, id: &tg::object::Id) -> tg::authorization::Tokens {
+		let mut tokens = self.given_tokens(authority, id);
+		let session = self.session();
+		if let Ok(expires_at) = self.authorize(authority, id)
+			&& let Ok(expires_at) = self.token_expiration(expires_at)
+			&& let Ok(Some(token)) = session.create_token(
+				id.clone().into(),
+				vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				)],
+				expires_at,
+			) {
+			tokens.insert_local_authorization(token);
+		}
+		tokens.normalize(Some(&id.clone().into()));
+		tokens
+	}
+
+	/// Get the tokens given to the provider for an object and the objects in its authority's chain.
+	fn given_tokens(
+		&self,
+		authority: &Authority,
+		id: &tg::object::Id,
+	) -> tg::authorization::Tokens {
+		let mut ids = vec![id.clone(), authority.id.clone()];
+		let mut link = authority.parent();
+		while let Some(current) = link {
+			ids.push(current.id.clone());
+			link = current.parent();
+		}
+		let authorizations = self.authorizations.lock().unwrap();
+		let mut tokens = authorizations.syncs.clone();
+		for id in ids {
+			if let Some(given) = authorizations.tokens.get(&id.into()) {
+				tokens.inherit(given);
+			}
+		}
+		tokens
+	}
+
+	/// Retain tokens given to the provider. Verified local subtree tokens also authorize their objects.
+	fn insert_tokens(&self, tokens: &tg::authorization::Tokens, verified: bool) {
+		let now = self.server.clock.unix_timestamp();
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let mut authorizations = self.authorizations.lock().unwrap();
+		for (location, entry) in tokens.iter() {
+			for token in &entry.authorization {
+				if token.body.expires_at < now {
+					continue;
+				}
+				if token.body.resource.kind() == tg::id::Kind::Sync {
+					authorizations
+						.syncs
+						.insert_authorization(location.clone(), token.clone());
+					continue;
+				}
+				authorizations
+					.tokens
+					.entry(token.body.resource.clone())
+					.or_default()
+					.insert_authorization(location.clone(), token.clone());
+				if verified
+					&& matches!(location, tg::Location::Local(_))
+					&& token.body.authorizes(subtree)
+					&& let Ok(id) = tg::object::Id::try_from(token.body.resource.clone())
+				{
+					authorizations
+						.expirations
+						.entry(id)
+						.and_modify(|existing| *existing = (*existing).max(token.body.expires_at))
+						.or_insert(token.body.expires_at);
+				}
+			}
+		}
+		authorizations.prune(now);
 	}
 
 	fn token_expiration(&self, expiration: Option<i64>) -> std::io::Result<i64> {
@@ -1427,8 +1554,9 @@ impl Provider {
 
 		// Create the file handle.
 		let file_handle = FileHandle {
+			authority: artifact.authority,
 			blob,
-			tokens: artifact.tokens.clone(),
+			tokens: Mutex::new(None),
 		};
 
 		// Insert the file handle.
@@ -1481,13 +1609,12 @@ impl Provider {
 
 		// Insert the file handle.
 		let id = self.handle_count.fetch_add(1, Ordering::Relaxed);
-		self.file_handles.insert(
-			id,
-			FileHandle {
-				blob,
-				tokens: artifact.tokens.clone(),
-			},
-		);
+		let file_handle = FileHandle {
+			authority: artifact.authority,
+			blob,
+			tokens: Mutex::new(None),
+		};
+		self.file_handles.insert(id, file_handle);
 
 		Ok((id, backing_fd))
 	}
@@ -1809,11 +1936,26 @@ impl Provider {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
 
-		self.authorize_inner(&file_handle.tokens, &file_handle.blob.clone().into())
-			.await?;
+		let blob: tg::object::Id = file_handle.blob.clone().into();
+		self.authorize_inner(&file_handle.authority, &blob).await?;
+
+		// Get the handle's tokens, signing them on the first read and after they expire.
+		let now = self.server.clock.unix_timestamp();
+		let tokens = file_handle.tokens.lock().unwrap().clone().filter(|tokens| {
+			tokens
+				.local_authorization()
+				.iter()
+				.all(|token| token.body.expires_at >= now)
+		});
+		let tokens = if let Some(tokens) = tokens {
+			tokens
+		} else {
+			let tokens = self.tokens(&file_handle.authority, &blob);
+			file_handle.tokens.lock().unwrap().replace(tokens.clone());
+			tokens
+		};
 
 		// Create the stream.
-		let tokens = file_handle.tokens.lock().unwrap().clone();
 		let options = tg::read::Options {
 			length: Some(length),
 			position: Some(std::io::SeekFrom::Start(position)),
@@ -1865,7 +2007,7 @@ impl Provider {
 
 		let mut bytes = Vec::with_capacity(length.to_usize().unwrap());
 		self.read_blob_range_sync_inner(
-			&file_handle.tokens,
+			&file_handle.authority,
 			&file_handle.blob,
 			position,
 			length,
@@ -2037,7 +2179,7 @@ impl Provider {
 				.await?;
 			for child in &children {
 				if let Some(target) = &child.target {
-					self.register_target_tokens(target)?;
+					self.register_target_tokens(target);
 				}
 			}
 			let children = children
@@ -2104,7 +2246,7 @@ impl Provider {
 			))?;
 			for child in &children {
 				if let Some(target) = &child.target {
-					self.register_target_tokens(target)?;
+					self.register_target_tokens(target);
 				}
 			}
 			let children = children
@@ -2180,10 +2322,10 @@ impl Provider {
 			}
 			let (node, attrs) = if let Some(artifact) = &entry.artifact {
 				let artifact = if self
-					.authorize(&artifact.tokens, &artifact.id.clone().into())
+					.authorize(&artifact.authority, &artifact.id.clone().into())
 					.is_ok()
 				{
-					artifact.snapshot()
+					artifact.clone()
 				} else {
 					let parent = self
 						.get(directory.node)
@@ -2209,7 +2351,7 @@ impl Provider {
 				(node, attrs)
 			} else if let Some(named_node) = entry.named {
 				let attrs = if let Some(target) = &named_node.target {
-					self.register_target_tokens(target)?;
+					self.register_target_tokens(target);
 					let target = Self::build_tag_target(directory.depth + 1, &target.node, None);
 					let size = target.len().to_u64().unwrap();
 					vfs::Attrs::new(vfs::AttrsInner::Symlink { size }).cacheable(false)
@@ -2309,10 +2451,10 @@ impl Provider {
 			}
 			let (node, attrs) = if let Some(artifact) = &entry.artifact {
 				let artifact = if self
-					.authorize(&artifact.tokens, &artifact.id.clone().into())
+					.authorize(&artifact.authority, &artifact.id.clone().into())
 					.is_ok()
 				{
-					artifact.snapshot()
+					artifact.clone()
 				} else {
 					let parent = self
 						.get_sync(directory.node)?
@@ -2338,7 +2480,7 @@ impl Provider {
 				(node, attrs)
 			} else if let Some(named_node) = entry.named {
 				let attrs = if let Some(target) = &named_node.target {
-					self.register_target_tokens(target)?;
+					self.register_target_tokens(target);
 					let target = Self::build_tag_target(directory.depth + 1, &target.node, None);
 					let size = target.len().to_u64().unwrap();
 					vfs::Attrs::new(vfs::AttrsInner::Symlink { size }).cacheable(false)
@@ -2386,7 +2528,7 @@ impl Provider {
 			let Some(target) = named_node.target else {
 				return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 			};
-			self.register_target_tokens(&target)?;
+			self.register_target_tokens(&target);
 			return Ok(Self::build_tag_target(
 				depth,
 				&target.node,
@@ -2409,8 +2551,8 @@ impl Provider {
 		let artifact = match symlink.artifact {
 			Some(edge) => {
 				let target =
-					self.artifact_from_edge_inner(&artifact.tokens, edge, graph.as_ref(), None)?;
-				self.register_dependency(id, &target)?;
+					self.artifact_from_edge_inner(&artifact.authority, edge, graph.as_ref(), None)?;
+				self.register_dependency(id, &target);
 				Some(target.id)
 			},
 			None => None,
@@ -2439,7 +2581,7 @@ impl Provider {
 			let Some(target) = named_node.target else {
 				return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 			};
-			self.register_target_tokens(&target)?;
+			self.register_target_tokens(&target);
 			return Ok(Self::build_tag_target(
 				depth,
 				&target.node,
@@ -2460,12 +2602,12 @@ impl Provider {
 		let artifact = match symlink.artifact {
 			Some(edge) => {
 				let target = self.artifact_from_edge_inner(
-					&artifact.tokens,
+					&artifact.authority,
 					edge,
 					graph.as_ref(),
 					transaction,
 				)?;
-				self.register_dependency(id, &target)?;
+				self.register_dependency(id, &target);
 				Some(target.id)
 			},
 			None => None,
@@ -2480,7 +2622,7 @@ impl Provider {
 	async fn get(&self, id: u64) -> std::io::Result<NodeInfo> {
 		let node = self.nodes.get_sync(id)?;
 		if let Some(artifact) = &node.artifact {
-			self.authorize_inner(&artifact.tokens, &artifact.id.clone().into())
+			self.authorize_inner(&artifact.authority, &artifact.id.clone().into())
 				.await?;
 		}
 		Ok(node)
@@ -2489,7 +2631,7 @@ impl Provider {
 	fn get_sync(&self, id: u64) -> std::io::Result<NodeInfo> {
 		let node = self.nodes.get_sync(id)?;
 		if let Some(artifact) = &node.artifact {
-			self.authorize_sync(&artifact.tokens, &artifact.id.clone().into())?;
+			self.authorize_sync(&artifact.authority, &artifact.id.clone().into())?;
 		}
 		Ok(node)
 	}
@@ -2504,7 +2646,7 @@ impl Provider {
 	) -> std::io::Result<()> {
 		for dependency in dependencies.values() {
 			let Some(dependency) = self.file_dependency_artifact(
-				&artifact.tokens,
+				&artifact.authority,
 				dependency.as_ref(),
 				graph,
 				transaction,
@@ -2512,18 +2654,13 @@ impl Provider {
 			else {
 				continue;
 			};
-			self.register_dependency(source, &dependency)?;
+			self.register_dependency(source, &dependency);
 		}
 		Ok(())
 	}
 
-	fn register_dependency(&self, source: u64, dependency: &ArtifactState) -> std::io::Result<()> {
+	fn register_dependency(&self, source: u64, dependency: &ArtifactState) {
 		self.nodes.insert_dependency(source, dependency);
-		let tokens = dependency.tokens.lock().unwrap().clone();
-		self.nodes
-			.refresh_node_tokens(&self.session(), &tokens)
-			.map_err(|error| Self::map_cache_sync_error(&error))?;
-		Ok(())
 	}
 
 	fn build_symlink_target(
@@ -2576,7 +2713,8 @@ impl Provider {
 			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::File) => {
 				let (file, _) = self.file_node_inner(artifact).await?;
 				let size = if let Some(contents) = file.contents.as_ref() {
-					self.blob_length_inner(&artifact.tokens, contents).await?
+					self.blob_length_inner(&artifact.authority, contents)
+						.await?
 				} else {
 					0
 				};
@@ -2593,7 +2731,7 @@ impl Provider {
 				let artifact = match symlink.artifact {
 					Some(edge) => Some(
 						self.artifact_from_edge_inner(
-							&artifact.tokens,
+							&artifact.authority,
 							edge,
 							graph.as_ref(),
 							None,
@@ -2613,7 +2751,7 @@ impl Provider {
 
 	fn artifact_from_directory_edge_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		edge: tg::graph::data::Edge<tg::directory::Id>,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
@@ -2622,23 +2760,23 @@ impl Provider {
 			tg::graph::data::Edge::Index(index) => {
 				let graph =
 					default_graph.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOSYS))?;
-				let node = self.graph_node_sync_inner(tokens, graph, index, transaction)?;
+				let node = self.graph_node_sync_inner(authority, graph, index, transaction)?;
 				let pointer = tg::graph::data::Pointer {
 					graph: graph.clone(),
 					index,
 					kind: node.kind(),
 				};
 				self.artifact_from_pointer_inner(
-					tokens,
+					authority,
 					&pointer,
 					Some(tg::artifact::Kind::Directory),
 				)
 			},
 			tg::graph::data::Edge::Object(directory) => {
-				Ok(Self::artifact(directory.into(), tokens))
+				Ok(Self::artifact(directory.into(), authority))
 			},
 			tg::graph::data::Edge::Pointer(pointer) => self.artifact_from_pointer_inner(
-				tokens,
+				authority,
 				&pointer,
 				Some(tg::artifact::Kind::Directory),
 			),
@@ -2647,7 +2785,7 @@ impl Provider {
 
 	fn artifact_from_edge_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
@@ -2656,24 +2794,24 @@ impl Provider {
 			tg::graph::data::Edge::Index(index) => {
 				let graph =
 					default_graph.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOSYS))?;
-				let node = self.graph_node_sync_inner(tokens, graph, index, transaction)?;
+				let node = self.graph_node_sync_inner(authority, graph, index, transaction)?;
 				let pointer = tg::graph::data::Pointer {
 					graph: graph.clone(),
 					index,
 					kind: node.kind(),
 				};
-				self.artifact_from_pointer_inner(tokens, &pointer, None)
+				self.artifact_from_pointer_inner(authority, &pointer, None)
 			},
-			tg::graph::data::Edge::Object(id) => Ok(Self::artifact(id, tokens)),
+			tg::graph::data::Edge::Object(id) => Ok(Self::artifact(id, authority)),
 			tg::graph::data::Edge::Pointer(pointer) => {
-				self.artifact_from_pointer_inner(tokens, &pointer, None)
+				self.artifact_from_pointer_inner(authority, &pointer, None)
 			},
 		}
 	}
 
 	fn artifact_from_pointer_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		pointer: &tg::graph::data::Pointer,
 		expected_kind: Option<tg::artifact::Kind>,
 	) -> std::io::Result<ArtifactState> {
@@ -2696,24 +2834,9 @@ impl Provider {
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 		let id = tg::artifact::Id::new(kind, &bytes);
-		let authorization = self.authorize(tokens, &graph.clone().into())?;
-		let mut artifact = Self::artifact(id, tokens);
-		artifact.data = Some(data.clone());
-		{
-			let graph_tokens =
-				Self::tokens_for_resource(&tokens.lock().unwrap(), &graph.clone().into());
-			Self::insert_tokens(&mut artifact.tokens.lock().unwrap(), &graph_tokens);
-		}
-		self.register_data(
-			Some(&artifact.children_expires_at),
-			&artifact.tokens,
-			&artifact.id.clone().into(),
-			authorization,
-			&data.into(),
-		)?;
-		// Retain the pointer token on the source so later traversals can reuse it.
-		let incoming = artifact.tokens.lock().unwrap().clone();
-		Self::insert_tokens(&mut tokens.lock().unwrap(), &incoming);
+		self.authorize(authority, &graph.into())?;
+		let mut artifact = Self::artifact(id, authority);
+		artifact.data = Some(data);
 		Ok(artifact)
 	}
 
@@ -2721,25 +2844,13 @@ impl Provider {
 		&self,
 		artifact: &ArtifactState,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
-		let authorization = self
-			.authorize_inner(&artifact.tokens, &artifact.id.clone().into())
+		self.authorize_inner(&artifact.authority, &artifact.id.clone().into())
 			.await?;
-		let data = artifact.data.clone();
-		if let Some(data) = data {
-			self.register_data(
-				Some(&artifact.children_expires_at),
-				&artifact.tokens,
-				&artifact.id.clone().into(),
-				authorization,
-				&data.clone().into(),
-			)?;
+		if let Some(data) = artifact.data.clone() {
 			return Ok(data);
 		}
 		let id: tg::object::Id = artifact.id.clone().into();
-		let Some(data) = self
-			.try_get_data_inner(Some(&artifact.children_expires_at), &artifact.tokens, &id)
-			.await?
-		else {
+		let Some(data) = self.try_get_data_inner(&artifact.authority, &id).await? else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
 		data.try_into().map_err(|_| {
@@ -2756,26 +2867,25 @@ impl Provider {
 		let mut entries = BTreeMap::new();
 		let mut stack = vec![(directory.clone(), default_graph.cloned())];
 		while let Some((directory, default_graph)) = stack.pop() {
-			let tokens = directory.tokens.clone();
+			let authority = directory.authority.clone();
 			let (directory_data, graph) = self.directory_node_inner(&directory).await?;
 			let graph = graph.or(default_graph);
 			match directory_data {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
 						let artifact =
-							self.artifact_from_edge_inner(&tokens, edge, graph.as_ref(), None)?;
+							self.artifact_from_edge_inner(&authority, edge, graph.as_ref(), None)?;
 						entries.insert(name, artifact);
 					}
 				},
 				tg::graph::data::Directory::Branch(branch) => {
 					for child in branch.children.into_iter().rev() {
 						let artifact = self.artifact_from_directory_edge_inner(
-							&tokens,
+							&authority,
 							child.directory,
 							graph.as_ref(),
 							None,
 						)?;
-						let artifact = self.branch_child(&directory, artifact);
 						stack.push((artifact, graph.clone()));
 					}
 				},
@@ -2797,7 +2907,7 @@ impl Provider {
 			let Some((directory, default_graph, offset)) = stack.pop() else {
 				break;
 			};
-			let tokens = directory.tokens.clone();
+			let authority = directory.authority.clone();
 			let (directory_data, graph) = self.directory_node_inner(&directory).await?;
 			let graph = graph.or(default_graph);
 			match directory_data {
@@ -2806,7 +2916,7 @@ impl Provider {
 					let limit = limit.saturating_sub(entries.len());
 					for (name, edge) in leaf.entries.into_iter().skip(offset).take(limit) {
 						let artifact =
-							self.artifact_from_edge_inner(&tokens, edge, graph.as_ref(), None)?;
+							self.artifact_from_edge_inner(&authority, edge, graph.as_ref(), None)?;
 						entries.push((name, artifact));
 					}
 				},
@@ -2817,12 +2927,11 @@ impl Provider {
 						Self::directory_children_range(branch.children, offset, limit)
 					{
 						let artifact = self.artifact_from_directory_edge_inner(
-							&tokens,
+							&authority,
 							edge,
 							graph.as_ref(),
 							None,
 						)?;
-						let artifact = self.branch_child(&directory, artifact);
 						children.push((artifact, graph.clone(), offset));
 					}
 					stack.extend(children.into_iter().rev());
@@ -2855,7 +2964,7 @@ impl Provider {
 		let mut directory = directory.clone();
 		let mut default_graph = default_graph.cloned();
 		loop {
-			let tokens = directory.tokens.clone();
+			let authority = directory.authority.clone();
 			let (directory_data, graph) = self.directory_node_inner(&directory).await?;
 			let graph = graph.or(default_graph);
 			match directory_data {
@@ -2864,7 +2973,7 @@ impl Provider {
 						return Ok(None);
 					};
 					let artifact =
-						self.artifact_from_edge_inner(&tokens, edge, graph.as_ref(), None)?;
+						self.artifact_from_edge_inner(&authority, edge, graph.as_ref(), None)?;
 					return Ok(Some(artifact));
 				},
 				tg::graph::data::Directory::Branch(branch) => {
@@ -2876,47 +2985,23 @@ impl Provider {
 						return Ok(None);
 					};
 					let artifact = self.artifact_from_directory_edge_inner(
-						&tokens,
+						&authority,
 						child.directory,
 						graph.as_ref(),
 						None,
 					)?;
-					directory = self.branch_child(&directory, artifact);
+					directory = artifact;
 					default_graph = graph;
 				},
 			}
 		}
 	}
 
-	fn branch_child(&self, parent: &ArtifactState, child: ArtifactState) -> ArtifactState {
-		// Reuse the child so that the child tokens it registers persist across traversals.
-		let parent_tokens = child.tokens.lock().unwrap().clone();
-		let mut children = parent.branch_children.lock().unwrap();
-		let entry = children
-			.entry(child.id.clone())
-			.or_insert_with(|| BranchChild {
-				artifact: child,
-				parent_tokens: parent_tokens.clone(),
-			});
-
-		// Replace the expired tokens when the parent renews its tokens for the child.
-		if entry.parent_tokens != parent_tokens {
-			let now = self.server.clock.unix_timestamp();
-			let mut tokens = entry.artifact.tokens.lock().unwrap();
-			Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
-			Self::insert_tokens(&mut tokens, &parent_tokens);
-			drop(tokens);
-			entry.parent_tokens = parent_tokens;
-		}
-
-		entry.artifact.clone()
-	}
-
 	async fn directory_node_inner(
 		&self,
 		directory: &ArtifactState,
 	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
-		let tokens = directory.tokens.clone();
+		let authority = directory.authority.clone();
 		let data = self.artifact_data_inner(directory).await?;
 		let tg::artifact::data::Artifact::Directory(directory) = data else {
 			tracing::error!("expected directory data");
@@ -2925,7 +3010,7 @@ impl Provider {
 		match directory {
 			tg::directory::Data::Node(node) => Ok((node, None)),
 			tg::directory::Data::Pointer(pointer) => {
-				let (node, graph) = self.resolve_graph_node_inner(&tokens, &pointer).await?;
+				let (node, graph) = self.resolve_graph_node_inner(&authority, &pointer).await?;
 				let tg::graph::data::Node::Directory(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected directory node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -2939,7 +3024,7 @@ impl Provider {
 		&self,
 		file: &ArtifactState,
 	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
-		let tokens = file.tokens.clone();
+		let authority = file.authority.clone();
 		let data = self.artifact_data_inner(file).await?;
 		let tg::artifact::data::Artifact::File(file) = data else {
 			tracing::error!("expected file data");
@@ -2948,7 +3033,7 @@ impl Provider {
 		match file {
 			tg::file::Data::Node(node) => Ok((node, None)),
 			tg::file::Data::Pointer(pointer) => {
-				let (node, graph) = self.resolve_graph_node_inner(&tokens, &pointer).await?;
+				let (node, graph) = self.resolve_graph_node_inner(&authority, &pointer).await?;
 				let tg::graph::data::Node::File(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected file node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -2960,11 +3045,11 @@ impl Provider {
 
 	async fn graph_data_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		graph: &tg::graph::Id,
 	) -> std::io::Result<tg::graph::Data> {
 		let id: tg::object::Id = graph.clone().into();
-		let Some(data) = self.try_get_data_inner(None, tokens, &id).await? else {
+		let Some(data) = self.try_get_data_inner(authority, &id).await? else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
 		data.try_into().map_err(|_| {
@@ -2976,14 +3061,14 @@ impl Provider {
 	/// Get the node at an index of a graph, loading only the leaf that contains it.
 	async fn graph_node_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		graph: &tg::graph::Id,
 		index: usize,
 	) -> std::io::Result<tg::graph::data::Node> {
 		let mut current = graph.clone();
 		let mut offset = index;
 		loop {
-			let data = self.graph_data_inner(tokens, &current).await?;
+			let data = self.graph_data_inner(authority, &current).await?;
 			match Self::graph_node_step(data, &mut offset) {
 				GraphNodeStep::Child(child) => current = child,
 				GraphNodeStep::Node(node) => return Ok(node),
@@ -2997,11 +3082,13 @@ impl Provider {
 
 	async fn resolve_graph_node_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		pointer: &tg::graph::data::Pointer,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
 		let graph = pointer.graph.clone();
-		let node = self.graph_node_inner(tokens, &graph, pointer.index).await?;
+		let node = self
+			.graph_node_inner(authority, &graph, pointer.index)
+			.await?;
 		if node.kind() != pointer.kind {
 			tracing::error!(
 				graph = %graph,
@@ -3018,7 +3105,7 @@ impl Provider {
 		&self,
 		symlink: &ArtifactState,
 	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
-		let tokens = symlink.tokens.clone();
+		let authority = symlink.authority.clone();
 		let data = self.artifact_data_inner(symlink).await?;
 		let tg::artifact::data::Artifact::Symlink(symlink) = data else {
 			tracing::error!("expected symlink data");
@@ -3027,7 +3114,7 @@ impl Provider {
 		match symlink {
 			tg::symlink::Data::Node(node) => Ok((node, None)),
 			tg::symlink::Data::Pointer(pointer) => {
-				let (node, graph) = self.resolve_graph_node_inner(&tokens, &pointer).await?;
+				let (node, graph) = self.resolve_graph_node_inner(&authority, &pointer).await?;
 				let tg::graph::data::Node::Symlink(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected symlink node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -3037,140 +3124,33 @@ impl Provider {
 		}
 	}
 
-	fn artifact(id: tg::artifact::Id, tokens: &Mutex<tg::authorization::Tokens>) -> ArtifactState {
-		let tokens = Self::tokens_for_resource(&tokens.lock().unwrap(), &id.clone().into());
+	fn artifact(id: tg::artifact::Id, parent: &Arc<Authority>) -> ArtifactState {
+		let authority = Authority {
+			expires_at: AtomicI64::new(i64::MIN),
+			id: id.clone().into(),
+			parent: Mutex::new(Some(parent.clone())),
+		};
 		ArtifactState {
-			branch_children: Arc::default(),
-			children_expires_at: Arc::default(),
+			authority: Arc::new(authority),
 			data: None,
 			id,
-			tokens: Arc::new(Mutex::new(tokens)),
 		}
 	}
 
-	fn register_output(
-		tokens: &Mutex<tg::authorization::Tokens>,
-		output: &tg::object::get::Output,
-	) {
-		let mut tokens = tokens.lock().unwrap();
-		tokens.inherit(&output.tokens);
+	/// Retain the tokens returned with an object.
+	fn register_output(&self, output: &tg::object::get::Output) {
+		self.insert_tokens(&output.tokens, false);
 		for child in output.children.values() {
-			tokens.inherit(&child.tokens);
+			self.insert_tokens(&child.tokens, false);
 		}
-	}
-
-	fn insert_tokens(tokens: &mut tg::authorization::Tokens, incoming: &tg::authorization::Tokens) {
-		tokens.inherit(incoming);
-	}
-
-	fn retain_tokens(
-		tokens: &mut tg::authorization::Tokens,
-		predicate: impl Fn(&tg::authorization::Token) -> bool,
-	) {
-		let mut retained = tg::authorization::Tokens::default();
-		for (location, entry) in tokens.iter() {
-			let mut entry = entry.clone();
-			entry.authorization.retain(&predicate);
-			if !entry.is_empty() {
-				retained.set(location.clone(), entry);
-			}
-		}
-		*tokens = retained;
-	}
-
-	fn tokens_for_resource(
-		tokens: &tg::authorization::Tokens,
-		resource: &tg::Id,
-	) -> tg::authorization::Tokens {
-		let mut tokens = tokens.clone();
-		let local = tokens.remove_local_authorization();
-		for token in local
-			.into_iter()
-			.filter(|token| &token.body.resource == resource)
-		{
-			tokens.insert_local_authorization(token);
-		}
-		tokens.normalize(Some(resource));
-		tokens
-	}
-
-	fn register_data(
-		&self,
-		children_expires_at: Option<&Mutex<Option<i64>>>,
-		tokens: &Mutex<tg::authorization::Tokens>,
-		id: &tg::object::Id,
-		authorization: crate::authorization::Output,
-		data: &tg::object::Data,
-	) -> std::io::Result<()> {
-		let now = self.server.clock.unix_timestamp();
-		if children_expires_at.is_some_and(|expires_at| {
-			expires_at
-				.lock()
-				.unwrap()
-				.is_some_and(|expires_at| expires_at >= now)
-		}) {
-			return Ok(());
-		}
-		let mut children = std::collections::BTreeSet::new();
-		data.children(&mut children);
-		let current = tokens.lock().unwrap();
-		let resources = current
-			.local_authorization()
-			.iter()
-			.filter(|token| token.body.expires_at >= now)
-			.map(|token| &token.body.resource)
-			.collect::<std::collections::BTreeSet<_>>();
-		let has_token = |id: &tg::object::Id| resources.contains(&tg::Id::from(id.clone()));
-		if has_token(id) && children.iter().all(has_token) {
-			if let Some(expires_at) = children_expires_at {
-				*expires_at.lock().unwrap() = current
-					.local_authorization()
-					.iter()
-					.map(|token| token.body.expires_at)
-					.min();
-			}
-			return Ok(());
-		}
-		let parent = (!has_token(id)).then_some(id);
-		drop(current);
-		let expires_at = self.token_expiration(authorization.expires_at)?;
-		let session = self.session();
-		let mut incoming = Vec::new();
-		for id in children.iter().chain(parent) {
-			if let Some(token) = session
-				.create_token(
-					id.clone().into(),
-					authorization.permissions.iter().collect(),
-					expires_at,
-				)
-				.map_err(|error| Self::map_cache_sync_error(&error))?
-			{
-				incoming.push(token);
-			}
-		}
-		let mut tokens = tokens.lock().unwrap();
-		Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
-		Self::insert_tokens(
-			&mut tokens,
-			&tg::authorization::Tokens::with_authorization(incoming),
-		);
-		if let Some(expires_at) = children_expires_at {
-			*expires_at.lock().unwrap() = tokens
-				.local_authorization()
-				.iter()
-				.map(|token| token.body.expires_at)
-				.min();
-		}
-		Ok(())
 	}
 
 	async fn try_get_data_inner(
 		&self,
-		children_expires_at: Option<&Mutex<Option<i64>>>,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<tg::object::Data>> {
-		let authorization = self.authorize_inner(tokens, id).await?;
+		self.authorize_inner(authority, id).await?;
 		if let Some(output) = self
 			.server
 			.try_get_object_local(id, false)
@@ -3179,12 +3159,11 @@ impl Provider {
 		{
 			let data = tg::object::Data::deserialize(id.kind(), output.bytes)
 				.map_err(|error| Self::map_cache_sync_error(&error))?;
-			self.register_data(children_expires_at, tokens, id, authorization, &data)?;
 			return Ok(Some(data));
 		}
-		let request_tokens = tokens.lock().unwrap().clone();
+		let tokens = self.tokens(authority, id);
 		let arg = tg::object::get::Arg {
-			tokens: request_tokens,
+			tokens,
 			..Default::default()
 		};
 		let output = self
@@ -3195,7 +3174,7 @@ impl Provider {
 		let Some(output) = output else {
 			return Ok(None);
 		};
-		Self::register_output(tokens, &output);
+		self.register_output(&output);
 		let data = tg::object::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|error| Self::map_cache_sync_error(&error))?;
 		Ok(Some(data))
@@ -3203,7 +3182,7 @@ impl Provider {
 
 	async fn blob_length_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		id: &tg::blob::Id,
 	) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
@@ -3238,7 +3217,7 @@ impl Provider {
 			})?;
 			return Self::blob_length_from_data(&id, data);
 		}
-		let Some(data) = self.try_get_data_inner(None, tokens, &id).await? else {
+		let Some(data) = self.try_get_data_inner(authority, &id).await? else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
 		Self::blob_length_from_data(&id, data)
@@ -3263,25 +3242,12 @@ impl Provider {
 		artifact: &ArtifactState,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
-		let authorization = self.authorize_sync(&artifact.tokens, &artifact.id.clone().into())?;
-		let data = artifact.data.clone();
-		if let Some(data) = data {
-			self.register_data(
-				Some(&artifact.children_expires_at),
-				&artifact.tokens,
-				&artifact.id.clone().into(),
-				authorization,
-				&data.clone().into(),
-			)?;
+		self.authorize_sync(&artifact.authority, &artifact.id.clone().into())?;
+		if let Some(data) = artifact.data.clone() {
 			return Ok(data);
 		}
 		let id: tg::object::Id = artifact.id.clone().into();
-		let output = self.try_get_data(
-			Some(&artifact.children_expires_at),
-			&artifact.tokens,
-			&id,
-			transaction,
-		)?;
+		let output = self.try_get_data(&artifact.authority, &id, transaction)?;
 		let Some((_, data)) = output else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
@@ -3293,12 +3259,12 @@ impl Provider {
 
 	fn graph_data_sync_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		graph: &tg::graph::Id,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<tg::graph::Data> {
 		let id: tg::object::Id = graph.clone().into();
-		let output = self.try_get_data(None, tokens, &id, transaction)?;
+		let output = self.try_get_data(authority, &id, transaction)?;
 		let Some((_, data)) = output else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
@@ -3311,7 +3277,7 @@ impl Provider {
 	/// Get the node at an index of a graph, loading only the leaf that contains it.
 	fn graph_node_sync_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		graph: &tg::graph::Id,
 		index: usize,
 		transaction: Option<&Transaction<'_>>,
@@ -3319,7 +3285,7 @@ impl Provider {
 		let mut current = graph.clone();
 		let mut offset = index;
 		loop {
-			let data = self.graph_data_sync_inner(tokens, &current, transaction)?;
+			let data = self.graph_data_sync_inner(authority, &current, transaction)?;
 			match Self::graph_node_step(data, &mut offset) {
 				GraphNodeStep::Child(child) => current = child,
 				GraphNodeStep::Node(node) => return Ok(node),
@@ -3353,12 +3319,12 @@ impl Provider {
 
 	fn resolve_graph_node_sync_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		pointer: &tg::graph::data::Pointer,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
 		let graph = pointer.graph.clone();
-		let node = self.graph_node_sync_inner(tokens, &graph, pointer.index, transaction)?;
+		let node = self.graph_node_sync_inner(authority, &graph, pointer.index, transaction)?;
 		if node.kind() != pointer.kind {
 			tracing::error!(
 				graph = %graph,
@@ -3402,7 +3368,7 @@ impl Provider {
 		directory: &ArtifactState,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
-		let tokens = directory.tokens.clone();
+		let authority = directory.authority.clone();
 		let data = self.artifact_data_sync_inner(directory, transaction)?;
 		let tg::artifact::data::Artifact::Directory(directory) = data else {
 			tracing::error!("expected directory data");
@@ -3412,7 +3378,7 @@ impl Provider {
 			tg::directory::Data::Node(node) => Ok((node, None)),
 			tg::directory::Data::Pointer(pointer) => {
 				let (node, graph) =
-					self.resolve_graph_node_sync_inner(&tokens, &pointer, transaction)?;
+					self.resolve_graph_node_sync_inner(&authority, &pointer, transaction)?;
 				let tg::graph::data::Node::Directory(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected directory node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -3424,7 +3390,7 @@ impl Provider {
 
 	fn read_blob_range_sync_inner(
 		&self,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Arc<Authority>,
 		id: &tg::blob::Id,
 		position: u64,
 		length: u64,
@@ -3435,7 +3401,7 @@ impl Provider {
 			return Ok(());
 		}
 		let object_id: tg::object::Id = id.clone().into();
-		let authorization = self.authorize_sync(tokens, &object_id)?;
+		self.authorize_sync(authority, &object_id)?;
 		let object = self.try_get_object(&object_id, transaction)?;
 		let Some(object) = object else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
@@ -3450,7 +3416,6 @@ impl Provider {
 					);
 					std::io::Error::from_raw_os_error(libc::EIO)
 				})?;
-			self.register_data(None, tokens, &object_id, authorization, &data)?;
 			let tg::object::Data::Blob(blob) = data else {
 				tracing::error!(id = %object_id, "expected blob data");
 				return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -3480,7 +3445,7 @@ impl Provider {
 						}
 						let child_length = std::cmp::min(remaining, child.length - child_position);
 						self.read_blob_range_sync_inner(
-							tokens,
+							authority,
 							&child.blob,
 							child_position,
 							child_length,
@@ -3549,7 +3514,7 @@ impl Provider {
 		file: &ArtifactState,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
-		let tokens = file.tokens.clone();
+		let authority = file.authority.clone();
 		let data = self.artifact_data_sync_inner(file, transaction)?;
 		let tg::artifact::data::Artifact::File(file) = data else {
 			tracing::error!("expected file data");
@@ -3559,7 +3524,7 @@ impl Provider {
 			tg::file::Data::Node(node) => Ok((node, None)),
 			tg::file::Data::Pointer(pointer) => {
 				let (node, graph) =
-					self.resolve_graph_node_sync_inner(&tokens, &pointer, transaction)?;
+					self.resolve_graph_node_sync_inner(&authority, &pointer, transaction)?;
 				let tg::graph::data::Node::File(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected file node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -3574,7 +3539,7 @@ impl Provider {
 		symlink: &ArtifactState,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
-		let tokens = symlink.tokens.clone();
+		let authority = symlink.authority.clone();
 		let data = self.artifact_data_sync_inner(symlink, transaction)?;
 		let tg::artifact::data::Artifact::Symlink(symlink) = data else {
 			tracing::error!("expected symlink data");
@@ -3584,7 +3549,7 @@ impl Provider {
 			tg::symlink::Data::Node(node) => Ok((node, None)),
 			tg::symlink::Data::Pointer(pointer) => {
 				let (node, graph) =
-					self.resolve_graph_node_sync_inner(&tokens, &pointer, transaction)?;
+					self.resolve_graph_node_sync_inner(&authority, &pointer, transaction)?;
 				let tg::graph::data::Node::Symlink(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected symlink node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -3603,7 +3568,7 @@ impl Provider {
 		let mut entries = BTreeMap::new();
 		let mut stack = vec![(directory.clone(), default_graph.cloned())];
 		while let Some((directory, default_graph)) = stack.pop() {
-			let tokens = directory.tokens.clone();
+			let authority = directory.authority.clone();
 			let (directory_data, graph) =
 				self.directory_node_sync_inner(&directory, transaction)?;
 			let graph = graph.or(default_graph);
@@ -3611,7 +3576,7 @@ impl Provider {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
 						let artifact = self.artifact_from_edge_inner(
-							&tokens,
+							&authority,
 							edge,
 							graph.as_ref(),
 							transaction,
@@ -3622,12 +3587,11 @@ impl Provider {
 				tg::graph::data::Directory::Branch(branch) => {
 					for child in branch.children.into_iter().rev() {
 						let artifact = self.artifact_from_directory_edge_inner(
-							&tokens,
+							&authority,
 							child.directory,
 							graph.as_ref(),
 							transaction,
 						)?;
-						let artifact = self.branch_child(&directory, artifact);
 						stack.push((artifact, graph.clone()));
 					}
 				},
@@ -3650,7 +3614,7 @@ impl Provider {
 			let Some((directory, default_graph, offset)) = stack.pop() else {
 				break;
 			};
-			let tokens = directory.tokens.clone();
+			let authority = directory.authority.clone();
 			let (directory_data, graph) =
 				self.directory_node_sync_inner(&directory, transaction)?;
 			let graph = graph.or(default_graph);
@@ -3660,7 +3624,7 @@ impl Provider {
 					let limit = limit.saturating_sub(entries.len());
 					for (name, edge) in leaf.entries.into_iter().skip(offset).take(limit) {
 						let artifact = self.artifact_from_edge_inner(
-							&tokens,
+							&authority,
 							edge,
 							graph.as_ref(),
 							transaction,
@@ -3675,12 +3639,11 @@ impl Provider {
 						Self::directory_children_range(branch.children, offset, limit)
 					{
 						let artifact = self.artifact_from_directory_edge_inner(
-							&tokens,
+							&authority,
 							edge,
 							graph.as_ref(),
 							transaction,
 						)?;
-						let artifact = self.branch_child(&directory, artifact);
 						children.push((artifact, graph.clone(), offset));
 					}
 					stack.extend(children.into_iter().rev());
@@ -3701,7 +3664,7 @@ impl Provider {
 		let mut directory = directory.clone();
 		let mut default_graph = default_graph.cloned();
 		loop {
-			let tokens = directory.tokens.clone();
+			let authority = directory.authority.clone();
 			let (directory_data, graph) =
 				self.directory_node_sync_inner(&directory, transaction)?;
 			let graph = graph.or(default_graph);
@@ -3710,8 +3673,12 @@ impl Provider {
 					let Some(edge) = leaf.entries.get(name).cloned() else {
 						return Ok(None);
 					};
-					let artifact =
-						self.artifact_from_edge_inner(&tokens, edge, graph.as_ref(), transaction)?;
+					let artifact = self.artifact_from_edge_inner(
+						&authority,
+						edge,
+						graph.as_ref(),
+						transaction,
+					)?;
 					return Ok(Some(artifact));
 				},
 				tg::graph::data::Directory::Branch(branch) => {
@@ -3723,12 +3690,12 @@ impl Provider {
 						return Ok(None);
 					};
 					let artifact = self.artifact_from_directory_edge_inner(
-						&tokens,
+						&authority,
 						child.directory,
 						graph.as_ref(),
 						transaction,
 					)?;
-					directory = self.branch_child(&directory, artifact);
+					directory = artifact;
 					default_graph = graph;
 				},
 			}
@@ -3771,7 +3738,7 @@ impl Provider {
 				let artifact = match symlink.artifact {
 					Some(edge) => Some(
 						self.artifact_from_edge_inner(
-							&artifact.tokens,
+							&artifact.authority,
 							edge,
 							graph.as_ref(),
 							transaction,
@@ -3858,16 +3825,12 @@ impl Provider {
 
 	fn try_get_data(
 		&self,
-		children_expires_at: Option<&Mutex<Option<i64>>>,
-		tokens: &Mutex<tg::authorization::Tokens>,
+		authority: &Authority,
 		id: &tg::object::Id,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
-		let authorization = self.authorize_sync(tokens, id)?;
+		self.authorize_sync(authority, id)?;
 		let output = self.try_get_data_local(id, transaction)?;
-		if let Some((_, data)) = &output {
-			self.register_data(children_expires_at, tokens, id, authorization, data)?;
-		}
 		Ok(output)
 	}
 
@@ -3939,15 +3902,59 @@ impl Provider {
 	}
 }
 
-impl ArtifactState {
-	fn snapshot(&self) -> Self {
-		Self {
-			branch_children: Arc::default(),
-			children_expires_at: Arc::default(),
-			data: self.data.clone(),
-			id: self.id.clone(),
-			tokens: Arc::new(Mutex::new(self.tokens.lock().unwrap().clone())),
+impl Authority {
+	fn parent(&self) -> Option<Arc<Self>> {
+		self.parent.lock().unwrap().clone()
+	}
+
+	/// Authorize this authority through the path that reached another authority for the same object, unless that path passes through this authority.
+	fn adopt(&self, incoming: &Self) {
+		if std::ptr::eq(self, incoming) {
+			return;
 		}
+		let Some(parent) = incoming.parent() else {
+			return;
+		};
+		let mut link = Some(parent.clone());
+		while let Some(current) = link {
+			if std::ptr::eq(current.as_ref(), self) {
+				return;
+			}
+			link = current.parent();
+		}
+		self.parent.lock().unwrap().replace(parent);
+		self.expires_at.store(i64::MIN, Ordering::Relaxed);
+	}
+}
+
+impl Authorizations {
+	/// Remove the expired tokens and authorizations once the retained tokens have doubled since the last pruning.
+	fn prune(&mut self, now: i64) {
+		let count = self.expirations.len() + self.tokens.len();
+		if count < self.pruned.saturating_mul(2).max(1024) {
+			return;
+		}
+		self.expirations.retain(|_, expires_at| *expires_at >= now);
+		for tokens in self.tokens.values_mut() {
+			Self::retain_unexpired(tokens, now);
+		}
+		self.tokens.retain(|_, tokens| !tokens.is_empty());
+		Self::retain_unexpired(&mut self.syncs, now);
+		self.pruned = self.expirations.len() + self.tokens.len();
+	}
+
+	fn retain_unexpired(tokens: &mut tg::authorization::Tokens, now: i64) {
+		let mut retained = tg::authorization::Tokens::default();
+		for (location, entry) in tokens.iter() {
+			let mut entry = entry.clone();
+			entry
+				.authorization
+				.retain(|token| token.body.expires_at >= now);
+			if !entry.is_empty() {
+				retained.set(location.clone(), entry);
+			}
+		}
+		*tokens = retained;
 	}
 }
 
@@ -4085,180 +4092,10 @@ impl Nodes {
 			name: None,
 			named: None,
 			parent: vfs::ROOT_NODE_ID,
-			tokens: tg::authorization::Tokens::default(),
 		};
 		nodes.insert(vfs::ROOT_NODE_ID, entry);
 		let state = Mutex::new(State { next: 1000, nodes });
 		Self { state }
-	}
-
-	fn insert_tokens(
-		&self,
-		session: &Session,
-		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<()> {
-		let mut state = self.state.lock().unwrap();
-		let now = session.server.clock.unix_timestamp();
-		Provider::retain_tokens(
-			&mut state.nodes.get_mut(&vfs::ROOT_NODE_ID).unwrap().tokens,
-			|token| token.body.expires_at >= now,
-		);
-		Provider::insert_tokens(
-			&mut state.nodes.get_mut(&vfs::ROOT_NODE_ID).unwrap().tokens,
-			tokens,
-		);
-		drop(state);
-		self.refresh_node_tokens(session, tokens)?;
-		Ok(())
-	}
-
-	fn refresh_node_tokens(
-		&self,
-		session: &Session,
-		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<()> {
-		let now = session.server.clock.unix_timestamp();
-		let state = self.state.lock().unwrap();
-		let subtree = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-		// Retain remote authorization on existing artifacts without renewing it locally.
-		for (location, entry) in tokens.iter().filter(|(location, _)| location.is_remote()) {
-			for token in &entry.authorization {
-				let name = token.body.resource.to_string();
-				let mut pending = state.nodes[&vfs::ROOT_NODE_ID]
-					.children
-					.iter()
-					.filter(|(component, _)| {
-						*component == &name
-							|| component
-								.strip_prefix(&name)
-								.is_some_and(|suffix| suffix.starts_with('.'))
-					})
-					.map(|(_, id)| *id)
-					.collect::<Vec<_>>();
-				while let Some(id) = pending.pop() {
-					let node = &state.nodes[&id];
-					for artifact in node.artifact.iter().chain(&node.dependencies) {
-						let mut tokens = artifact.tokens.lock().unwrap();
-						Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
-						tokens.insert_authorization(location.clone(), token.clone());
-					}
-					pending.extend(
-						node.children
-							.values()
-							.filter(|child| state.nodes[child].parent == id),
-					);
-				}
-			}
-		}
-
-		let mut pending = Vec::new();
-		for token in tokens
-			.local_authorization()
-			.iter()
-			.filter(|token| token.body.authorizes(subtree))
-		{
-			let name = token.body.resource.to_string();
-			for (component, id) in state.nodes[&vfs::ROOT_NODE_ID]
-				.children
-				.range(name.clone()..)
-			{
-				if component != &name
-					&& !component
-						.strip_prefix(&name)
-						.is_some_and(|suffix| suffix.starts_with('.'))
-				{
-					break;
-				}
-				pending.push((*id, token.clone()));
-			}
-		}
-		while let Some((id, token)) = pending.pop() {
-			let node = state.nodes.get(&id).unwrap();
-			let incoming = tg::authorization::Tokens::with_authorization([token.clone()]);
-			for dependency in &node.dependencies {
-				if token.body.resource == dependency.id.clone().into() {
-					let mut tokens = dependency.tokens.lock().unwrap();
-					Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
-					Provider::insert_tokens(&mut tokens, &incoming);
-				}
-			}
-			let Some(artifact) = &node.artifact else {
-				continue;
-			};
-			if token.body.resource != artifact.id.clone().into() {
-				continue;
-			}
-			let expires_at = token.body.expires_at;
-			let mut tokens = artifact.tokens.lock().unwrap();
-			let improved = !tokens
-				.local_authorization()
-				.iter()
-				.any(|existing| existing.covers(&token) && existing.body.expires_at >= expires_at);
-			if improved {
-				Self::refresh_tokens(session, &mut tokens, expires_at)?;
-			}
-			Provider::insert_tokens(&mut tokens, &incoming);
-			if !improved {
-				continue;
-			}
-			for dependency in &node.dependencies {
-				Self::refresh_tokens(session, &mut dependency.tokens.lock().unwrap(), expires_at)?;
-				if let Some(dependency_id) = state.nodes[&vfs::ROOT_NODE_ID]
-					.children
-					.get(&dependency.id.to_string())
-					&& *dependency_id != id
-					&& let Some(token) = session.create_token(
-						dependency.id.clone().into(),
-						vec![subtree],
-						expires_at,
-					)? {
-					pending.push((*dependency_id, token));
-				}
-			}
-			for child in node.children.values() {
-				let child_node = &state.nodes[child];
-				if child_node.parent != id {
-					continue;
-				}
-				let Some(artifact) = &child_node.artifact else {
-					continue;
-				};
-				if let Some(token) =
-					session.create_token(artifact.id.clone().into(), vec![subtree], expires_at)?
-				{
-					pending.push((*child, token));
-				}
-			}
-		}
-		Ok(())
-	}
-
-	fn refresh_tokens(
-		session: &Session,
-		tokens: &mut tg::authorization::Tokens,
-		expires_at: i64,
-	) -> tg::Result<()> {
-		let mut renewed = Vec::new();
-		for token in tokens.local_authorization() {
-			if token.body.expires_at >= expires_at {
-				renewed.push(token.clone());
-				continue;
-			}
-			if let Some(token) = session.create_token(
-				token.body.resource.clone(),
-				token.body.permissions.clone(),
-				expires_at,
-			)? {
-				renewed.push(token);
-			}
-		}
-		tokens.remove_local_authorization();
-		for token in renewed {
-			tokens.insert_local_authorization(token);
-		}
-		Ok(())
 	}
 
 	fn root_artifact(&self, id: &tg::artifact::Id) -> ArtifactState {
@@ -4279,19 +4116,18 @@ impl Nodes {
 				.iter()
 				.find(|artifact| &artifact.id == id)
 			{
-				let artifact = artifact.snapshot();
-				let tokens = Provider::tokens_for_resource(&root.tokens, &id.clone().into());
-				Provider::insert_tokens(&mut artifact.tokens.lock().unwrap(), &tokens);
-				return artifact;
+				return artifact.clone();
 			}
 		}
-		let tokens = Provider::tokens_for_resource(&root.tokens, &id.clone().into());
+		let authority = Authority {
+			expires_at: AtomicI64::new(i64::MIN),
+			id: id.clone().into(),
+			parent: Mutex::new(None),
+		};
 		ArtifactState {
-			branch_children: Arc::default(),
-			children_expires_at: Arc::default(),
+			authority: Arc::new(authority),
 			data: None,
 			id: id.clone(),
-			tokens: Arc::new(Mutex::new(tokens)),
 		}
 	}
 
@@ -4300,26 +4136,34 @@ impl Nodes {
 		let Some(node) = state.nodes.get_mut(&source) else {
 			return;
 		};
-		let dependency = artifact.snapshot();
 		if let Some(existing) = node
 			.dependencies
-			.iter_mut()
+			.iter()
 			.find(|dependency| dependency.id == artifact.id)
 		{
-			Provider::insert_tokens(
-				&mut existing.tokens.lock().unwrap(),
-				&dependency.tokens.lock().unwrap(),
-			);
+			existing.authority.adopt(&artifact.authority);
 		} else {
-			node.dependencies.push(dependency);
+			node.dependencies.push(artifact.clone());
 		}
-		state
+		let entry = *state
 			.nodes
 			.get_mut(&vfs::ROOT_NODE_ID)
 			.unwrap()
 			.children
 			.entry(artifact.id.to_string())
 			.or_insert(source);
+
+		// Authorize an artifact already loaded at the root through the path that reached the dependency, so that its loaded descendants are authorized as well.
+		if let Some(node) = state.nodes.get(&entry) {
+			let loaded = node
+				.artifact
+				.iter()
+				.chain(&node.dependencies)
+				.filter(|loaded| loaded.id == artifact.id);
+			for loaded in loaded {
+				loaded.authority.adopt(&artifact.authority);
+			}
+		}
 	}
 
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
@@ -4535,12 +4379,12 @@ impl Nodes {
 			&& state.nodes[&id].parent == parent
 			&& state.nodes[&id].name.as_deref() == Some(name)
 		{
-			if let Some(existing) = &state.nodes[&id].artifact {
-				let incoming = artifact.tokens.lock().unwrap().clone();
-				Provider::insert_tokens(&mut existing.tokens.lock().unwrap(), &incoming);
+			// Authorize the existing node through the most recent path that reached it.
+			let node = state.nodes.get_mut(&id).unwrap();
+			if let Some(existing) = &node.artifact {
+				existing.authority.adopt(&artifact.authority);
 			}
 			if remember {
-				let node = state.nodes.get_mut(&id).unwrap();
 				node.lookup_count = node.lookup_count.saturating_add(1);
 			}
 			return Ok(id);
@@ -4563,7 +4407,6 @@ impl Nodes {
 			name: Some(name.to_owned()),
 			named: None,
 			parent,
-			tokens: tg::authorization::Tokens::default(),
 		};
 		state.nodes.insert(id, entry);
 		state
@@ -4620,7 +4463,6 @@ impl Nodes {
 			name: Some(name.to_owned()),
 			named: Some(named_node),
 			parent,
-			tokens: tg::authorization::Tokens::default(),
 		};
 		state.nodes.insert(id, entry);
 		state
@@ -4841,27 +4683,19 @@ impl vfs::Provider for Provider {
 #[cfg(test)]
 mod tests {
 	use {
-		super::{ArtifactState, Nodes, Provider},
-		std::sync::{Arc, Mutex},
+		super::{ArtifactState, Authority, Nodes, Provider},
+		std::sync::{Arc, Mutex, atomic::AtomicI64},
 		tangram_client::prelude::*,
 		tangram_vfs as vfs,
 	};
 
 	#[test]
-	fn forget_releases_tokens_and_dependencies() {
+	fn forget_releases_authorities_and_dependencies() {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let source_id = source.id.clone();
-		let source_tokens = Arc::downgrade(&source.tokens);
-		let root_tokens = source.tokens.lock().unwrap().clone();
-		nodes
-			.state
-			.lock()
-			.unwrap()
-			.nodes
-			.get_mut(&vfs::ROOT_NODE_ID)
-			.unwrap()
-			.tokens = root_tokens;
+		let source_authority = Arc::downgrade(&source.authority);
+		let dependency = Provider::artifact(file_id(b"target"), &source.authority);
 		let inode = nodes
 			.get_or_insert_child(
 				vfs::ROOT_NODE_ID,
@@ -4872,15 +4706,14 @@ mod tests {
 				true,
 			)
 			.unwrap();
-		let dependency = artifact(b"target");
 		let dependency_id = dependency.id.clone();
 		nodes.insert_dependency(inode, &dependency);
 		drop(dependency);
 		let dependency = nodes.root_artifact(&dependency_id);
-		assert!(!dependency.tokens.lock().unwrap().is_empty());
+		assert!(dependency.authority.parent().is_some());
 		drop(dependency);
 		assert_eq!(nodes.forget(inode, 1), vec![inode]);
-		assert!(source_tokens.upgrade().is_none());
+		assert!(source_authority.upgrade().is_none());
 		assert_eq!(nodes.state.lock().unwrap().nodes.len(), 1);
 		assert!(
 			nodes.state.lock().unwrap().nodes[&vfs::ROOT_NODE_ID]
@@ -4890,26 +4723,10 @@ mod tests {
 		assert!(
 			nodes
 				.root_artifact(&dependency_id)
-				.tokens
-				.lock()
-				.unwrap()
-				.is_empty()
+				.authority
+				.parent()
+				.is_none()
 		);
-
-		let source = nodes.root_artifact(&source_id);
-		assert!(!source.tokens.lock().unwrap().is_empty());
-		let inode = nodes
-			.get_or_insert_child(
-				vfs::ROOT_NODE_ID,
-				&source_id.to_string(),
-				source,
-				1,
-				None,
-				true,
-			)
-			.unwrap();
-		assert_eq!(nodes.forget(inode, 1), vec![inode]);
-		assert_eq!(nodes.state.lock().unwrap().nodes.len(), 1);
 	}
 
 	#[test]
@@ -4917,15 +4734,15 @@ mod tests {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let source_id = source.id.to_string();
+		let dependency = Provider::artifact(file_id(b"target"), &source.authority);
 		let source = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &source_id, source, 1, None, true)
 			.unwrap();
-		let dependency = artifact(b"target");
 		let dependency_id = dependency.id.clone();
 		nodes.insert_dependency(source, &dependency);
 		drop(dependency);
 		let dependency = nodes.root_artifact(&dependency_id);
-		let tokens = Arc::downgrade(&dependency.tokens);
+		let authority = Arc::downgrade(&dependency.authority);
 		let dependency = nodes
 			.get_or_insert_child(
 				vfs::ROOT_NODE_ID,
@@ -4938,41 +4755,14 @@ mod tests {
 			.unwrap();
 		assert_ne!(source, dependency);
 		nodes.forget(source, 1);
-		assert!(tokens.upgrade().is_some());
+		assert!(authority.upgrade().is_some());
 		assert_eq!(
 			nodes.lookup_sync(vfs::ROOT_NODE_ID, &dependency_id.to_string()),
 			Some(dependency)
 		);
 		nodes.forget(dependency, 1);
-		assert!(tokens.upgrade().is_none());
+		assert!(authority.upgrade().is_none());
 		assert_eq!(nodes.state.lock().unwrap().nodes.len(), 1);
-	}
-
-	#[test]
-	fn snapshots_do_not_retain_loaded_inode_tokens() {
-		let nodes = Nodes::new();
-		let artifact = artifact(b"snapshot");
-		let name = artifact.id.to_string();
-		let entries = std::collections::BTreeMap::from([(name.clone(), artifact)]);
-		let snapshot = Provider::create_directory_snapshot(
-			vfs::ROOT_NODE_ID,
-			vfs::ROOT_NODE_ID,
-			0,
-			Some(entries),
-			true,
-		);
-		let artifact = snapshot.entries.as_ref().unwrap()[2]
-			.artifact
-			.as_ref()
-			.unwrap()
-			.snapshot();
-		let tokens = Arc::downgrade(&artifact.tokens);
-		let inode = nodes
-			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, artifact, 1, None, true)
-			.unwrap();
-		nodes.forget(inode, 1);
-		assert!(tokens.upgrade().is_none());
-		assert!(snapshot.entries.as_ref().unwrap()[2].artifact.is_some());
 	}
 
 	#[test]
@@ -4980,6 +4770,7 @@ mod tests {
 		let nodes = Nodes::new();
 		let first = artifact(b"first");
 		let name = first.id.to_string();
+		let dependency = Provider::artifact(file_id(b"shared"), &first.authority);
 		let first = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, first, 1, None, true)
 			.unwrap();
@@ -4988,15 +4779,14 @@ mod tests {
 		let second = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, second, 1, None, true)
 			.unwrap();
-		let dependency = artifact(b"shared");
 		let id = dependency.id.clone();
 		nodes.insert_dependency(first, &dependency);
 		nodes.insert_dependency(second, &dependency);
 		drop(dependency);
 		nodes.forget(first, 1);
-		assert!(!nodes.root_artifact(&id).tokens.lock().unwrap().is_empty());
+		assert!(nodes.root_artifact(&id).authority.parent().is_some());
 		nodes.forget(second, 1);
-		assert!(nodes.root_artifact(&id).tokens.lock().unwrap().is_empty());
+		assert!(nodes.root_artifact(&id).authority.parent().is_none());
 		assert!(
 			nodes.state.lock().unwrap().nodes[&vfs::ROOT_NODE_ID]
 				.children
@@ -5009,15 +4799,14 @@ mod tests {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let name = source.id.to_string();
+		let dependency = Provider::artifact(file_id(b"target"), &source.authority);
 		let source = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, source, 1, None, true)
 			.unwrap();
-		let dependency = artifact(b"target");
 		let id = dependency.id.clone();
 		nodes.insert_dependency(source, &dependency);
 		drop(dependency);
 		let dependency = nodes.root_artifact(&id);
-		let tokens = Arc::downgrade(&dependency.tokens);
 		let dependency = nodes
 			.get_or_insert_child(
 				vfs::ROOT_NODE_ID,
@@ -5029,8 +4818,7 @@ mod tests {
 			)
 			.unwrap();
 		nodes.forget(dependency, 1);
-		assert!(tokens.upgrade().is_none());
-		assert!(!nodes.root_artifact(&id).tokens.lock().unwrap().is_empty());
+		assert!(nodes.root_artifact(&id).authority.parent().is_some());
 		nodes.forget(source, 1);
 		assert_eq!(nodes.state.lock().unwrap().nodes.len(), 1);
 		assert!(
@@ -5041,55 +4829,52 @@ mod tests {
 	}
 
 	#[test]
-	fn existing_children_inherit_tokens() {
+	fn existing_children_adopt_the_incoming_path() {
 		let nodes = Nodes::new();
-		let original = artifact(b"tokens");
-		let mut entry = original.tokens.lock().unwrap().local_entry();
-		entry.authorization[0].body.expires_at = 300;
-		entry.authorization[0].body.permissions = vec![tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
-		)];
+		let original = artifact(b"authority");
 		let name = original.id.to_string();
-		original.tokens.lock().unwrap().set_local(entry);
-		let mut expected = original.tokens.lock().unwrap().clone();
+		let authority = original.authority.clone();
 		let inode = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, original, 1, None, true)
 			.unwrap();
-		let incoming = artifact(b"tokens");
-		let entry = incoming.tokens.lock().unwrap().clone();
-		expected.inherit(&entry);
+		let source = artifact(b"source");
+		let incoming = Provider::artifact(file_id(b"authority"), &source.authority);
 		let existing = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, incoming, 1, None, true)
 			.unwrap();
 		assert_eq!(inode, existing);
 		let artifact = nodes.get_sync(inode).unwrap().artifact.unwrap();
-		assert_eq!(*artifact.tokens.lock().unwrap(), expected);
+		assert!(Arc::ptr_eq(&artifact.authority, &authority));
+		assert!(Arc::ptr_eq(
+			&artifact.authority.parent().unwrap(),
+			&source.authority
+		));
+	}
+
+	#[test]
+	fn adopting_a_path_through_itself_keeps_the_existing_path() {
+		let source = artifact(b"source");
+		let child = Provider::artifact(file_id(b"child"), &source.authority);
+		let looped = Provider::artifact(file_id(b"source"), &child.authority);
+		source.authority.adopt(&looped.authority);
+		assert!(source.authority.parent().is_none());
 	}
 
 	fn artifact(bytes: &[u8]) -> ArtifactState {
-		let id: tg::artifact::Id = tg::file::Id::new(bytes).into();
-		let token = tg::authorization::Token {
-			body: tg::authorization::Body {
-				expires_at: 100,
-				permissions: vec![tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				)],
-				resource: id.clone().into(),
-			},
-			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Ed25519,
-				key: "test".into(),
-			},
-			signature: vec![0; 64],
+		let id = file_id(bytes);
+		let authority = Authority {
+			expires_at: AtomicI64::new(i64::MIN),
+			id: id.clone().into(),
+			parent: Mutex::new(None),
 		};
 		ArtifactState {
-			branch_children: Arc::default(),
-			children_expires_at: Arc::default(),
+			authority: Arc::new(authority),
 			data: None,
 			id,
-			tokens: Arc::new(Mutex::new(tg::authorization::Tokens::with_authorization([
-				token,
-			]))),
 		}
+	}
+
+	fn file_id(bytes: &[u8]) -> tg::artifact::Id {
+		tg::file::Id::new(bytes).into()
 	}
 }

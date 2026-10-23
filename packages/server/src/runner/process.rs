@@ -2355,7 +2355,7 @@ impl Session {
 			.and_then(|state| state.vfs.as_ref()?.upgrade());
 		if let Some(vfs) = vfs {
 			for artifact in &artifacts {
-				vfs.seed_tokens(self, &artifact.options.tokens)?;
+				vfs.seed_tokens(self, &artifact.options.tokens);
 			}
 		}
 
