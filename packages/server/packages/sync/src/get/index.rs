@@ -1,0 +1,1292 @@
+use {
+	crate::{
+		Component,
+		get::State,
+		graph::{Graph, Node, UpdateObjectLocalArg, UpdateProcessLocalArg},
+	},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
+	num::ToPrimitive as _,
+	std::{
+		collections::BTreeSet,
+		ops::ControlFlow,
+		sync::{Arc, Mutex},
+	},
+	tangram_cache::prelude::*,
+	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
+	tangram_index::prelude::*,
+	tangram_server_core::Session,
+	tokio_stream::wrappers::ReceiverStream,
+};
+
+pub struct ObjectNode {
+	pub id: tg::object::Id,
+	pub missing: bool,
+}
+
+pub struct ProcessNode {
+	pub id: tg::process::Id,
+	pub missing: bool,
+}
+
+impl Component {
+	pub(super) async fn sync_get_index(
+		&self,
+		session: &Session,
+		state: Arc<State>,
+		checkout_sender: tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
+		index_object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
+		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessNode>,
+	) -> tg::Result<()> {
+		// Create the retry queue.
+		let capacity = session.server.config.sync.get.channel_capacity;
+		let (retry_sender, mut retry_receiver) =
+			tokio::sync::mpsc::channel::<tg::Either<ObjectNode, ProcessNode>>(capacity);
+
+		// Create the objects future.
+		let object_batch_size = session.server.config.sync.get.index.object_batch_size;
+		let object_batch_timeout = session.server.config.sync.get.index.object_batch_timeout;
+		let object_concurrency = session.server.config.sync.get.index.object_concurrency;
+		let object_retry_sender = retry_sender.clone();
+		let object_checkout_sender = checkout_sender.clone();
+		let object_component = self.clone();
+		let object_session = session.clone();
+		let object_state = state.clone();
+		let objects_future = tokio_stream::StreamExt::chunks_timeout(
+			ReceiverStream::new(index_object_receiver),
+			object_batch_size,
+			object_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(object_concurrency, move |nodes| {
+			let checkout_sender = object_checkout_sender.clone();
+			let retry_sender = object_retry_sender.clone();
+			let component = object_component.clone();
+			let session = object_session.clone();
+			let state = object_state.clone();
+			async move {
+				component
+					.sync_get_index_object_batch(
+						&session,
+						&state,
+						&checkout_sender,
+						nodes,
+						Some(&retry_sender),
+					)
+					.await
+			}
+		});
+
+		// Create the processes future.
+		let process_batch_size = session.server.config.sync.get.index.process_batch_size;
+		let process_batch_timeout = session.server.config.sync.get.index.process_batch_timeout;
+		let process_concurrency = session.server.config.sync.get.index.process_concurrency;
+		let process_retry_sender = retry_sender.clone();
+		let process_component = self.clone();
+		let process_session = session.clone();
+		let process_state = state.clone();
+		let processes_future = tokio_stream::StreamExt::chunks_timeout(
+			ReceiverStream::new(index_process_receiver),
+			process_batch_size,
+			process_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(process_concurrency, move |nodes| {
+			let retry_sender = process_retry_sender.clone();
+			let component = process_component.clone();
+			let session = process_session.clone();
+			let state = process_state.clone();
+			async move {
+				component
+					.sync_get_index_process_batch(&session, &state, nodes, Some(&retry_sender))
+					.await
+			}
+		});
+
+		// Create the retries future.
+		drop(retry_sender);
+		let retries_future = async {
+			while let Some(node) = retry_receiver.recv().await {
+				// Drain the retry queue.
+				let mut objects = Vec::new();
+				let mut processes = Vec::new();
+				match node {
+					tg::Either::Left(node) => objects.push(node),
+					tg::Either::Right(node) => processes.push(node),
+				}
+				while let Ok(node) = retry_receiver.try_recv() {
+					match node {
+						tg::Either::Left(node) => objects.push(node),
+						tg::Either::Right(node) => processes.push(node),
+					}
+				}
+
+				// Index before retrying the nodes.
+				for node in &objects {
+					tangram_server_core::checkpoint!(session.server, "sync.get.index.object.retry", id = %node.id)
+						.await;
+				}
+				for node in &processes {
+					tangram_server_core::checkpoint!(session.server, "sync.get.index.process.retry", id = %node.id)
+						.await;
+				}
+				session
+					.index()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?
+					.try_last()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?;
+
+				// Retry the nodes.
+				let objects_future = async {
+					if objects.is_empty() {
+						return Ok(());
+					}
+					self.sync_get_index_object_batch(
+						session,
+						&state,
+						&checkout_sender,
+						objects,
+						None,
+					)
+					.await
+				};
+				let processes_future = async {
+					if processes.is_empty() {
+						return Ok(());
+					}
+					self.sync_get_index_process_batch(session, &state, processes, None)
+						.await
+				};
+				futures::try_join!(objects_future, processes_future)?;
+			}
+
+			Ok(())
+		};
+
+		// Join the objects, processes, and retries futures.
+		futures::try_join!(objects_future, processes_future, retries_future)?;
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_index_object_batch(
+		&self,
+		session: &Session,
+		state: &State,
+		checkout_sender: &tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
+		nodes: Vec<ObjectNode>,
+		retry_sender: Option<&tokio::sync::mpsc::Sender<tg::Either<ObjectNode, ProcessNode>>>,
+	) -> tg::Result<()> {
+		for node in &nodes {
+			tangram_server_core::checkpoint!(session.server, "sync.get.index.object.filter", id = %node.id).await;
+		}
+
+		// Separate the available nodes. Missing nodes still need the local index as a fallback.
+		let (available_nodes, nodes): (Vec<_>, Vec<_>) = {
+			let graph = state.graph.lock().unwrap();
+			nodes.into_iter().partition(|node| {
+				!node.missing && graph.get_object_local_availability(&node.id).subtree
+			})
+		};
+		for node in available_nodes {
+			if Self::sync_get_checkout_pointers_enabled(session) {
+				self.sync_get_queue_checkout_object(
+					session,
+					state,
+					checkout_sender,
+					node.id.clone(),
+				)
+				.await?;
+			}
+			Self::sync_get_index_send_object_available(state, &node.id).await?;
+		}
+		if nodes.is_empty() {
+			Self::sync_get_index_close_queue_if_end(state);
+
+			return Ok(());
+		}
+
+		for node in &nodes {
+			tangram_server_core::checkpoint!(session.server, "sync.get.index.object", id = %node.id)
+				.await;
+		}
+
+		// Get the ids.
+		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
+
+		// Authorize and touch the objects, then get their storage and metadata.
+		let touched_at = session.server.clock.unix_timestamp();
+		let (outputs, permissions) = self
+			.sync_get_touch_authorized_objects(
+				session,
+				&state.graph,
+				&state.id,
+				&ids,
+				touched_at,
+				session.server.config.object.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch and get object metadata"))?;
+
+		for ((node, output), permissions) in
+			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
+		{
+			// Send a missing object to the retry queue.
+			if node.missing
+				&& output.is_none()
+				&& let Some(retry_sender) = retry_sender
+			{
+				retry_sender
+					.send(tg::Either::Left(node))
+					.await
+					.map_err(|_| tg::error!("failed to send the object to the retry queue"))?;
+				continue;
+			}
+
+			// Update the graph.
+			let arg = UpdateObjectLocalArg {
+				data: None,
+				id: &node.id,
+				marked: None,
+				metadata: output.as_ref().map(|object| object.metadata.clone()),
+				permissions,
+				put: output.as_ref().map(|object| object.put),
+				requested: None,
+				storage: output.as_ref().map(|object| object.storage),
+			};
+			state.graph.lock().unwrap().update_object_local(arg);
+			let mut availability = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_object_local_availability(&node.id);
+
+			// Send the object's availability.
+			if availability.subtree {
+				if Self::sync_get_checkout_pointers_enabled(session) {
+					self.sync_get_queue_checkout_object(
+						session,
+						state,
+						checkout_sender,
+						node.id.clone(),
+					)
+					.await?;
+				}
+				Self::sync_get_index_send_object_available(state, &node.id).await?;
+			}
+
+			if node.missing {
+				// Wait for an incoming sync to supply the missing object.
+				let entry = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_node_local_tokens(&tg::Id::from(node.id.clone()));
+				let stored = if output.is_none() {
+					tangram_server_core::checkpoint!(session.server, "sync.get.index.object.wait", id = %node.id)
+						.await;
+					let tokens = tg::authorization::Tokens::with_local_entry(entry.clone());
+					let resource = tg::Referent::with_node_and_tokens(node.id.clone(), tokens);
+					let permissions = tg::authorization::permission::Set::Object(
+						tg::authorization::permission::object::Set::NODE,
+					);
+					let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
+					let output = session
+						.verify(resource, permissions, storage, Some(&state.id))
+						.await?
+						.check_exhaustion()?;
+					if output.outcome == tangram_server_core::authorization::Outcome::Satisfied {
+						state
+							.graph
+							.lock()
+							.unwrap()
+							.update_node_local_verified(&node.id.clone().into(), &output)?;
+						self.sync_get_index_touch_object(session, state, &node.id)
+							.await?
+					} else {
+						false
+					}
+				} else {
+					false
+				};
+
+				// If the object is not stored, then error.
+				if output.is_none() && !stored {
+					return Err(tg::error!(id = %node.id, "failed to find the object"));
+				}
+				availability = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_object_local_availability(&node.id);
+
+				if availability.subtree {
+					Self::sync_get_index_send_object_available(state, &node.id).await?;
+				}
+
+				// If the object's subtree is unavailable, then enqueue the children.
+				if !availability.subtree {
+					// Get the object.
+					let bytes = session
+						.server
+						.try_get_object_local(&node.id, false)
+						.await
+						.map_err(
+							|error| tg::error!(!error, id = %node.id, "failed to get the object locally"),
+						)?
+						.ok_or_else(|| tg::error!(id = %node.id, "expected the object to exist"))?
+						.bytes;
+					let data = tg::object::Data::deserialize(node.id.kind(), bytes).map_err(
+						|error| tg::error!(!error, id = %node.id, "failed to deserialize the object"),
+					)?;
+
+					// Update the graph.
+					let arg = UpdateObjectLocalArg {
+						data: Some(&data),
+						id: &node.id,
+						marked: None,
+						metadata: None,
+						permissions: None,
+						put: None,
+						requested: None,
+						storage: None,
+					};
+					{
+						let mut graph = state.graph.lock().unwrap();
+						graph.update_object_local(arg);
+						graph.update_checkout_object(&node.id, &data)?;
+					}
+					if Self::sync_get_checkout_pointers_enabled(session)
+						&& matches!(&data, tg::object::Data::Blob(_))
+					{
+						let node = super::checkout::ObjectNode {
+							bytes: None,
+							id: node.id.unwrap_blob_ref().clone(),
+							metadata: output.as_ref().map(|object| object.metadata.clone()),
+							put: uuid::Uuid::now_v7().into_bytes(),
+						};
+						checkout_sender.send(node).await.map_err(|_| {
+							tg::error!("failed to send the blob to the checkout task")
+						})?;
+					}
+
+					// Enqueue the children.
+					let remote_tokens = state
+						.graph
+						.lock()
+						.unwrap()
+						.get_node_remote_tokens(&tg::Id::from(node.id.clone()));
+					Self::sync_get_enqueue_object_children(
+						state,
+						&node.id,
+						&data,
+						None,
+						&entry,
+						&remote_tokens,
+					);
+					if state
+						.graph
+						.lock()
+						.unwrap()
+						.get_object_local_availability(&node.id)
+						.subtree
+					{
+						Self::sync_get_index_send_object_available(state, &node.id).await?;
+					}
+				}
+			}
+		}
+
+		Self::sync_get_index_close_queue_if_end(state);
+
+		Ok(())
+	}
+
+	async fn sync_get_index_touch_object(
+		&self,
+		session: &Session,
+		state: &State,
+		id: &tg::object::Id,
+	) -> tg::Result<bool> {
+		let touched_at = session.server.clock.unix_timestamp();
+		let (mut objects, mut permissions) = self
+			.sync_get_touch_authorized_objects(
+				session,
+				&state.graph,
+				&state.id,
+				std::slice::from_ref(id),
+				touched_at,
+				session.server.config.object.time_to_touch,
+			)
+			.await?;
+		let Some(permissions) = permissions.pop().flatten() else {
+			return Ok(false);
+		};
+		let required = tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::NODE,
+		);
+		if !permissions.contains(required) {
+			return Ok(false);
+		}
+		if let Some(object) = objects.pop().flatten() {
+			let arg = UpdateObjectLocalArg {
+				data: None,
+				id,
+				marked: None,
+				metadata: Some(object.metadata),
+				permissions: Some(permissions),
+				put: Some(object.put),
+				requested: None,
+				storage: Some(object.storage),
+			};
+			state.graph.lock().unwrap().update_object_local(arg);
+		}
+		let stored = session
+			.server
+			.try_get_object_local(id, false)
+			.await?
+			.is_some();
+		Ok(stored)
+	}
+
+	pub(super) async fn sync_get_index_send_object_available(
+		state: &State,
+		id: &tg::object::Id,
+	) -> tg::Result<()> {
+		let message = tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Object(
+			tg::sync::GetAvailableObjectMessage { id: id.clone() },
+		));
+		state
+			.sender
+			.send(Ok(message))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the available message"))?;
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_index_process_batch(
+		&self,
+		session: &Session,
+		state: &State,
+		nodes: Vec<ProcessNode>,
+		retry_sender: Option<&tokio::sync::mpsc::Sender<tg::Either<ObjectNode, ProcessNode>>>,
+	) -> tg::Result<()> {
+		for node in &nodes {
+			tangram_server_core::checkpoint!(session.server, "sync.get.index.process.filter", id = %node.id).await;
+		}
+
+		// Separate the available nodes. Missing nodes still need the local index as a fallback.
+		let (available_nodes, nodes): (Vec<_>, Vec<_>) = {
+			let graph = state.graph.lock().unwrap();
+			nodes.into_iter().partition(|node| {
+				if node.missing {
+					return false;
+				}
+				let availability = graph.get_process_local_availability(&node.id);
+
+				graph.process_available(&availability)
+			})
+		};
+		for node in available_nodes {
+			let availability = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_process_local_availability(&node.id);
+			Self::sync_get_index_send_process_available(state, &node.id, &availability).await?;
+		}
+		if nodes.is_empty() {
+			Self::sync_get_index_close_queue_if_end(state);
+
+			return Ok(());
+		}
+
+		for node in &nodes {
+			tangram_server_core::checkpoint!(session.server, "sync.get.index.process", id = %node.id)
+				.await;
+		}
+
+		// Get the ids.
+		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
+
+		// Authorize and touch the processes, then get their storage and metadata.
+		let touched_at = session.server.clock.unix_timestamp();
+		let arg = super::SyncGetTouchAuthorizedProcessesWithDataArg {
+			graph: &state.graph,
+			ids: &ids,
+			sync: &state.id,
+			sync_arg: &state.arg,
+			time_to_touch: session.server.config.process.time_to_touch,
+			touched_at,
+		};
+		let (mut outputs, permissions) = self
+			.sync_get_touch_authorized_processes_with_data(session, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch and get process metadata"))?;
+		if state.arg.process_children {
+			for (id, output) in std::iter::zip(&ids, &mut outputs) {
+				let Some((process, data)) = output else {
+					continue;
+				};
+				let children_set = process.set.children;
+				session
+					.server
+					.components
+					.process
+					.set_process_children_from_index(session, id, children_set, data)
+					.await?;
+			}
+		}
+
+		for ((node, output), permissions) in
+			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
+		{
+			// Send a missing process to the retry queue.
+			if node.missing
+				&& output.is_none()
+				&& let Some(retry_sender) = retry_sender
+			{
+				retry_sender
+					.send(tg::Either::Right(node))
+					.await
+					.map_err(|_| tg::error!("failed to send the process to the retry queue"))?;
+				continue;
+			}
+
+			// Update the graph.
+			let arg = UpdateProcessLocalArg {
+				data: output.as_ref().map(|(_, data)| data),
+				id: &node.id,
+				marked: None,
+				metadata: output.as_ref().map(|(process, _)| process.metadata.clone()),
+				permissions,
+				requested: None,
+				storage: output.as_ref().map(|(process, _)| process.storage),
+			};
+			state.graph.lock().unwrap().update_process_local(arg);
+			let availability = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_process_local_availability(&node.id);
+
+			// Send the process's availability.
+			Self::sync_get_index_send_process_available(state, &node.id, &availability).await?;
+
+			if node.missing {
+				// If the process is not stored, then error.
+				if output.is_none() {
+					return Err(tg::error!(id = %node.id, "failed to find the process"));
+				}
+
+				let data = output.as_ref().map(|(_, data)| data.clone()).ok_or_else(
+					|| tg::error!(id = %node.id, "expected the process data to be set"),
+				)?;
+
+				// Update the graph.
+				let arg = UpdateProcessLocalArg {
+					data: Some(&data),
+					id: &node.id,
+					marked: None,
+					metadata: None,
+					permissions: None,
+					requested: None,
+					storage: None,
+				};
+				state.graph.lock().unwrap().update_process_local(arg);
+
+				// Enqueue the children.
+				let id = tg::Id::from(node.id.clone());
+				let (local_tokens, remote_tokens) = {
+					let graph = state.graph.lock().unwrap();
+					(
+						graph.get_node_local_tokens(&id),
+						graph.get_node_remote_tokens(&id),
+					)
+				};
+				Self::sync_get_enqueue_process_children(
+					state,
+					&node.id,
+					&data,
+					Some(&availability),
+					&local_tokens,
+					&remote_tokens,
+				);
+			}
+		}
+
+		Self::sync_get_index_close_queue_if_end(state);
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_index_send_process_available(
+		state: &State,
+		id: &tg::process::Id,
+		availability: &tg::process::Availability,
+	) -> tg::Result<()> {
+		if !Graph::process_any_available(availability) {
+			return Ok(());
+		}
+		let message = tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Process(
+			tg::sync::GetAvailableProcessMessage {
+				id: id.clone(),
+				node_command_available: availability.node_command_objects,
+				node_error_available: availability.node_error_objects,
+				node_log_available: availability.node_log_objects,
+				node_output_available: availability.node_output_objects,
+				subtree_available: availability.subtree,
+				subtree_command_available: availability.subtree_command_objects,
+				subtree_error_available: availability.subtree_error_objects,
+				subtree_log_available: availability.subtree_log_objects,
+				subtree_output_available: availability.subtree_output_objects,
+			},
+		));
+		state
+			.sender
+			.send(Ok(message))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the available message"))?;
+
+		Ok(())
+	}
+
+	fn sync_get_index_close_queue_if_end(state: &State) {
+		if state.graph.lock().unwrap().end_local() {
+			state.queue.close();
+		}
+	}
+
+	pub(super) async fn sync_get_index_put(
+		&self,
+		session: &Session,
+		graph: Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
+	) -> tg::Result<()> {
+		let put_sandbox_args = self
+			.sync_get_index_sandbox_args(session, &graph, sync)
+			.boxed()
+			.await?;
+		let arg = tangram_index::batch::Arg {
+			items: put_sandbox_args
+				.into_iter()
+				.map(tangram_index::batch::Item::PutSandbox)
+				.collect(),
+		};
+		session.server.index.batch(arg).await??;
+		self.sync_get_index_put_inner(session, graph, sync).await?;
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_index_put_partial(
+		&self,
+		session: &Session,
+		graph: Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
+	) -> tg::Result<()> {
+		self.sync_get_index_put_inner(session, graph, sync).await?;
+
+		Ok(())
+	}
+
+	async fn sync_get_index_put_inner(
+		&self,
+		session: &Session,
+		graph: Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
+	) -> tg::Result<()> {
+		let options = session.server.config.sync.retry.clone().into();
+		tangram_futures::retry(&options, || {
+			self.sync_get_index_put_attempt(session, graph.clone(), sync)
+		})
+		.await?;
+
+		Ok(())
+	}
+
+	async fn sync_get_index_put_attempt(
+		&self,
+		session: &Session,
+		graph: Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
+		// Flush the cache.
+		session
+			.server
+			.cache
+			.flush()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to flush the cache"))?;
+
+		// Authorize process objects whose subtrees were already stored locally.
+		let process_objects = {
+			let graph = graph.lock().unwrap();
+			let mut process_objects = BTreeSet::new();
+			for (_, node) in graph.nodes() {
+				let Node::Process(process) = node else {
+					continue;
+				};
+				if !process.marked() {
+					continue;
+				}
+				for (object_index, _) in process.objects().map(Vec::as_slice).unwrap_or_default() {
+					let (id, object) = graph.nodes().get_index(*object_index).unwrap();
+					let stored = object
+						.unwrap_object_ref()
+						.local_storage()
+						.contains(tg::object::storage::Set::SUBTREE);
+					if stored {
+						process_objects.insert(tg::object::Id::try_from(id.clone())?);
+					}
+				}
+			}
+			process_objects.into_iter().collect::<Vec<_>>()
+		};
+		self.sync_get_authorize_objects(session, &graph, sync, &process_objects)
+			.await?;
+
+		// Create the index args and update the graph with the permissions being written.
+		let account = session.usage_account(&session.context.principal).await?;
+		let touched_at = session.server.clock.unix_timestamp();
+		let (
+			permission_capture_items,
+			put_checkout_args,
+			mut put_permission_args,
+			put_object_args,
+			put_process_args,
+			storage_roots,
+		) = {
+			let mut graph = graph.lock().unwrap();
+			let args = Self::sync_get_index_create_args(session, &graph, sync)
+				.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
+			for arg in &args.0 {
+				match arg.resource.kind() {
+					tg::id::Kind::Process => graph.update_process_local_permissions(
+						&arg.resource.clone().try_into()?,
+						arg.permissions,
+					),
+					_ => graph.update_object_local_permissions(
+						&arg.resource.clone().try_into()?,
+						arg.permissions,
+					),
+				}
+			}
+			let permission_capture_items =
+				Self::sync_get_index_permission_capture_items(session, &graph, sync, touched_at)?;
+			let put_checkout_args = graph
+				.checkouts()
+				.iter()
+				.map(|(id, dependencies)| tangram_index::checkout::put::Arg {
+					dependencies: dependencies.clone(),
+					id: id.clone().into(),
+					touched_at,
+				})
+				.collect::<Vec<_>>();
+			let storage_roots = graph.remote_roots().iter().cloned().collect::<Vec<_>>();
+			(
+				permission_capture_items,
+				put_checkout_args,
+				args.0,
+				args.1,
+				args.2,
+				storage_roots,
+			)
+		};
+		if let Some(arg) = Self::sync_get_create_permission(session, &sync.clone().into(), None)? {
+			put_permission_args.push(arg);
+		}
+
+		// Return process write errors to sync before enqueueing object and permission writes.
+		let arg = tangram_index::batch::Arg {
+			items: put_process_args
+				.into_iter()
+				.map(tangram_index::batch::Item::PutProcess)
+				.collect(),
+		};
+		session.server.index.batch(arg).await??;
+
+		// Index the objects and permissions.
+		let arg = tangram_index::batch::Arg {
+			items: put_checkout_args
+				.into_iter()
+				.map(tangram_index::batch::Item::PutCheckout)
+				.chain(
+					put_object_args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutObject),
+				)
+				.chain(
+					put_permission_args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutPermission),
+				)
+				.chain(permission_capture_items)
+				.chain(account.into_iter().flat_map(|account| {
+					storage_roots.iter().filter_map(move |id| match id.kind() {
+						tg::id::Kind::Process => {
+							Some(tangram_index::batch::Item::PutAccountProcess(
+								tangram_index::usage::storage::put::ProcessArg {
+									account: account.clone(),
+									process: id.clone().try_into().unwrap(),
+									touched_at,
+								},
+							))
+						},
+						_ => tg::object::Id::try_from(id.clone()).ok().map(|object| {
+							tangram_index::batch::Item::PutAccountObject(
+								tangram_index::usage::storage::put::ObjectArg {
+									account: account.clone(),
+									object,
+									touched_at,
+								},
+							)
+						}),
+					})
+				}))
+				.collect(),
+		};
+		tangram_server_core::checkpoint!(session.server, "sync.get.index.enqueue", sync = %sync)
+			.await;
+		match session.server.index_batch(arg).await {
+			Ok(()) => Ok(ControlFlow::Break(())),
+			Err(error) => {
+				let error = tg::error!(!error, "failed to index the sync");
+				Ok(ControlFlow::Continue(error))
+			},
+		}
+	}
+
+	async fn sync_get_index_sandbox_args(
+		&self,
+		session: &Session,
+		graph: &Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
+	) -> tg::Result<Vec<tangram_index::sandbox::put::Arg>> {
+		// Get the sandbox messages.
+		let messages = graph
+			.lock()
+			.unwrap()
+			.local_messages()
+			.into_iter()
+			.filter_map(|message| match message {
+				tg::sync::PutNodeMessage::Sandbox(message) => Some(message),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		if messages.is_empty() {
+			return Ok(Vec::new());
+		}
+		if matches!(session.context.principal, tg::Principal::Anonymous) {
+			return Err(tg::error!("unauthorized"));
+		}
+
+		// Create the sandbox and permission args.
+		let touched_at = session.server.clock.unix_timestamp();
+		let mut put_sandbox_args = Vec::with_capacity(messages.len());
+		for message in messages {
+			let account = match message.data.data.owner.as_ref() {
+				Some(owner) => session.usage_account(owner).await?,
+				None => None,
+			};
+			let permissions = [
+				Self::sync_get_create_permission(session, &message.id.clone().into(), Some(sync))?,
+				Self::sync_get_create_permission(session, &message.id.clone().into(), None)?,
+			]
+			.into_iter()
+			.flatten()
+			.collect();
+			put_sandbox_args.push(tangram_index::sandbox::put::Arg {
+				account,
+				created_at: message.created_at,
+				data: Some(message.data),
+				id: message.id,
+				location: None,
+				permissions,
+				principal: session.context.principal.clone(),
+				processes: Some(message.processes),
+				runner: None,
+				touched_at,
+			});
+		}
+
+		Ok(put_sandbox_args)
+	}
+
+	fn sync_get_index_permission_capture_items(
+		session: &Session,
+		graph: &Graph,
+		sync: &tg::sync::Id,
+		created_at: i64,
+	) -> tg::Result<Vec<tangram_index::batch::Item>> {
+		let mut token = None;
+		let mut items = Vec::new();
+		for (id, node) in graph.nodes() {
+			let Node::Process(node) = node else {
+				continue;
+			};
+			if !node.marked() {
+				continue;
+			}
+			let process = tg::process::Id::try_from(id.clone())?;
+			let mut roots = Vec::new();
+			for (index, _) in node.objects().map(Vec::as_slice).unwrap_or_default() {
+				let (id, _) = graph.nodes().get_index(*index).unwrap();
+				let permissions = graph.object_local_permissions(&id.clone().try_into()?);
+				let subtree = tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				);
+				let tokens = if permissions.contains(subtree) {
+					None
+				} else {
+					if token.is_none() {
+						token = Some(session.create_read_token(&sync.clone().into())?);
+					}
+					token.clone().flatten()
+				};
+				let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens);
+				let root = (resource, permissions);
+				roots.push(root);
+			}
+			let destination = process.clone().into();
+			let source = tg::Principal::Process(process);
+			items.extend(
+				session.create_capture_permissions_batch_items_with_permissions(
+					destination,
+					None,
+					roots,
+					source,
+					created_at,
+				)?,
+			);
+		}
+		Ok(items)
+	}
+
+	fn sync_get_index_create_args(
+		session: &Session,
+		graph: &Graph,
+		sync: &tg::sync::Id,
+	) -> tg::Result<(
+		Vec<tangram_index::permission::put::Arg>,
+		Vec<tangram_index::object::put::Arg>,
+		Vec<tangram_index::process::put::Arg>,
+	)> {
+		// Get a reverse topological ordering using Tarjan's algorithm.
+		let sccs = petgraph::algo::tarjan_scc(graph);
+		for scc in &sccs {
+			if scc.len() > 1 {
+				return Err(tg::error!("the graph had a cycle"));
+			}
+		}
+		let indices = sccs.into_iter().flatten().collect::<Vec<_>>();
+
+		let touched_at = session.server.clock.unix_timestamp();
+
+		// Create the permission args.
+		let mut put_permission_args = Vec::new();
+		let permission_subject = tg::authorization::Subject::Sync(sync.clone());
+		let expires_at = touched_at
+			+ session
+				.server
+				.config
+				.sync
+				.permission_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let mut object_covered = vec![false; graph.nodes().len()];
+		let mut process_covered =
+			vec![tg::authorization::permission::process::Set::empty(); graph.nodes().len()];
+		for index in indices.iter().rev().copied() {
+			let (id, node) = graph.nodes().get_index(index).unwrap();
+			match node {
+				Node::Group(_)
+				| Node::Organization(_)
+				| Node::Sandbox(_)
+				| Node::Tag(_)
+				| Node::User(_) => {},
+				Node::Object(node) => {
+					let id = tg::object::Id::try_from(id.clone())?;
+					let proven = graph.object_local_permissions(&id);
+					let node_permission = tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Node,
+					);
+					let availability = node
+						.local_availability()
+						.is_some_and(|availability| availability.subtree);
+					let mut subtree = false;
+					if (node.marked() || proven.contains(node_permission)) && !object_covered[index]
+					{
+						let permissions = Graph::object_permissions(availability);
+						subtree = availability;
+						put_permission_args.push(tangram_index::permission::put::Arg {
+							created_at: touched_at,
+							creator: Some(session.context.principal.clone()),
+							permissions: tg::authorization::permission::Set::Object(permissions),
+							resource: id.into(),
+							source: tangram_index::permission::Source::Direct {
+								expires_at: Some(expires_at),
+							},
+							subject: permission_subject.clone(),
+							time_to_touch: Some(
+								session.server.config.object.permission_time_to_touch,
+							),
+							version: None,
+						});
+					}
+					let covered = object_covered[index] || subtree;
+					if covered && let Some(children) = node.children() {
+						for child in children {
+							object_covered[*child] = true;
+						}
+					}
+				},
+				Node::Process(node) => {
+					let tg::authorization::permission::Set::Process(mut permissions) =
+						graph.process_local_permissions(&id.clone().try_into()?)
+					else {
+						return Err(tg::error!("expected process permissions"));
+					};
+					Self::sync_get_index_remove_process_permissions_covered_by_ancestors(
+						&mut permissions,
+						process_covered[index],
+					);
+					if !permissions.is_empty() {
+						put_permission_args.push(tangram_index::permission::put::Arg {
+							created_at: touched_at,
+							creator: Some(session.context.principal.clone()),
+							permissions: tg::authorization::permission::Set::Process(permissions),
+							resource: tg::process::Id::try_from(id.clone())?.into(),
+							source: tangram_index::permission::Source::Direct {
+								expires_at: Some(expires_at),
+							},
+							subject: permission_subject.clone(),
+							time_to_touch: Some(
+								session.server.config.process.permission_time_to_touch,
+							),
+							version: None,
+						});
+					}
+					let subtree_permissions =
+						Self::sync_get_index_process_subtree_permissions(permissions);
+					let mut covered = process_covered[index];
+					covered.insert(subtree_permissions);
+					if let Some(children) = node.children() {
+						for child in children {
+							process_covered[*child].insert(covered);
+						}
+					}
+				},
+			}
+		}
+
+		// Create the args.
+		let mut put_object_args = Vec::new();
+		let mut put_process_args = Vec::new();
+		let mut visited = std::collections::HashSet::new();
+		let mut stack = graph
+			.nodes()
+			.iter()
+			.enumerate()
+			.filter_map(|(index, (_, node))| node.parents().is_empty().then_some(index))
+			.collect::<Vec<_>>();
+		while let Some(index) = stack.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+			let (id, node) = graph.nodes().get_index(index).unwrap();
+			match node {
+				Node::Group(node)
+				| Node::Organization(node)
+				| Node::Sandbox(node)
+				| Node::Tag(node)
+				| Node::User(node) => {
+					if let Some(children) = node.children() {
+						stack.extend(children.iter().copied());
+					}
+				},
+				Node::Object(node) => {
+					let id = tg::object::Id::try_from(id.clone())?;
+					if node.marked() {
+						let put = node.put().ok_or_else(
+							|| tg::error!(%id, "the stored object was missing its put"),
+						)?;
+						let children = node
+							.children()
+							.unwrap()
+							.iter()
+							.map(|index| {
+								graph
+									.nodes()
+									.get_index(*index)
+									.unwrap()
+									.0
+									.clone()
+									.try_into()
+							})
+							.collect::<tg::Result<std::collections::BTreeSet<_>>>()?;
+						let metadata = node.metadata().cloned().unwrap();
+						let storage = node.local_storage();
+						let checkout = graph.checkout_objects().get(&id).cloned();
+						let arg = tangram_index::object::put::Arg {
+							checkout,
+							children,
+							id,
+							metadata,
+							put,
+							storage,
+							time_to_touch: session.server.config.object.time_to_touch,
+							touched_at,
+						};
+						put_object_args.push(arg);
+					}
+					if let Some(children) = node.children() {
+						stack.extend(children.iter().copied());
+					}
+				},
+				Node::Process(node) => {
+					let id = tg::process::Id::try_from(id.clone())?;
+					if node.marked() {
+						let data = node
+							.data()
+							.ok_or_else(|| tg::error!("expected the process data to be set"))?;
+						let children = data
+							.children
+							.clone()
+							.ok_or_else(|| tg::error!("expected the process children to be set"))?;
+						let command_id = data.command.command_id()?.into();
+						let storage = node.local_storage();
+						let metadata = node.metadata().cloned().unwrap();
+						let objects = node
+							.objects()
+							.unwrap()
+							.iter()
+							.copied()
+							.map(|(index, kind)| {
+								let id: tg::object::Id = graph
+									.nodes()
+									.get_index(index)
+									.unwrap()
+									.0
+									.clone()
+									.try_into()?;
+								Ok((id, kind))
+							})
+							.collect::<tg::Result<Vec<_>>>()?;
+						let mut command_objects = Vec::new();
+						let mut error_objects = Vec::new();
+						let mut log_object = None;
+						let mut output_objects = Vec::new();
+						for (object, kind) in objects {
+							match kind {
+								tangram_index::process::object::Kind::Command => {
+									command_objects.push(object);
+								},
+								tangram_index::process::object::Kind::Error => {
+									error_objects.push(object);
+								},
+								tangram_index::process::object::Kind::Log => {
+									log_object = Some(object);
+								},
+								tangram_index::process::object::Kind::Output => {
+									output_objects.push(object);
+								},
+							}
+						}
+						let arg = tangram_index::process::put::Arg {
+							cached: false,
+							children: Some(children),
+							command: Some(command_objects),
+							command_id,
+							data: Some(data.clone().without_location_and_tokens()),
+							error: Some((!error_objects.is_empty()).then_some(error_objects)),
+							id: id.clone(),
+							location: None,
+							log: Some(log_object),
+							metadata,
+							options: tg::referent::Options::default(),
+							output: Some((!output_objects.is_empty()).then_some(output_objects)),
+							parent: None,
+							permissions: Vec::new(),
+							principal: session.context.principal.clone(),
+							sandbox: None,
+							storage,
+							time_to_touch: session.server.config.process.time_to_touch,
+							touched_at,
+						};
+						put_process_args.push(arg);
+					}
+					if let Some(children) = node.children() {
+						stack.extend(children.iter().copied());
+					}
+					if let Some(objects) = node.objects() {
+						stack.extend(objects.iter().map(|(index, _)| *index));
+					}
+				},
+			}
+		}
+
+		Ok((put_permission_args, put_object_args, put_process_args))
+	}
+
+	fn sync_get_index_remove_process_permissions_covered_by_ancestors(
+		permissions: &mut tg::authorization::permission::process::Set,
+		covered: tg::authorization::permission::process::Set,
+	) {
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE);
+		}
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_COMMAND_OBJECTS);
+			permissions
+				.remove(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS);
+		}
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS);
+		}
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_LOG_OBJECTS);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS);
+		}
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS);
+		}
+	}
+
+	fn sync_get_index_process_subtree_permissions(
+		permissions: tg::authorization::permission::process::Set,
+	) -> tg::authorization::permission::process::Set {
+		let mut subtree_permissions = tg::authorization::permission::process::Set::empty();
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE) {
+			subtree_permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
+		}
+		if permissions
+			.contains(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS)
+		{
+			subtree_permissions
+				.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS);
+		}
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS)
+		{
+			subtree_permissions
+				.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS);
+		}
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS) {
+			subtree_permissions
+				.insert(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS);
+		}
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS)
+		{
+			subtree_permissions
+				.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS);
+		}
+		subtree_permissions
+	}
+}

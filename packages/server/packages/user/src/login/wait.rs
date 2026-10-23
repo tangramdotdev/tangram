@@ -1,0 +1,250 @@
+use {
+	crate::Component,
+	futures::FutureExt as _,
+	indoc::formatdoc,
+	std::{ops::ControlFlow, time::Duration},
+	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
+	tangram_server_core::Session,
+};
+
+enum WaitLogin {
+	Pending { expires_at: i64, interval: u64 },
+	Output(tg::user::login::wait::Output),
+}
+
+impl Component {
+	pub(crate) async fn wait_login(
+		&self,
+		session: &Session,
+		arg: tg::user::login::wait::Arg,
+	) -> tg::Result<tg::user::login::wait::Output> {
+		session.verify_request_with_network_access()?;
+
+		// Get the location.
+		let location = session
+			.server
+			.account_location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+
+		// Await the login.
+		if location.is_local() && !session.server.config.accounts {
+			return Err(tg::error!("local account management is disabled"));
+		}
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != session.server.config.region.as_deref() => {
+				self.wait_login_region(session, arg, region).await
+			},
+			tg::Location::Local(_) => self.wait_login_local(session, &arg.code).await,
+			tg::Location::Remote(remote) => {
+				let client = session.get_remote_session(&remote.name).await?;
+				let arg = tg::user::login::wait::Arg {
+					code: arg.code,
+					location: Some(
+						tg::Location::Local(tg::location::Local {
+							region: remote.region.clone(),
+						})
+						.into(),
+					),
+				};
+				let mut output = client.wait_login(arg).await?;
+				session
+					.set_remote_token(&remote.name, Some(output.token.clone()))
+					.await
+					.map_err(
+						|error| tg::error!(!error, remote = %remote.name, "failed to save the remote login"),
+					)?;
+				output.location = Some(tg::Location::Remote(remote));
+				Ok(output)
+			},
+		}
+	}
+
+	async fn wait_login_region(
+		&self,
+		session: &Session,
+		mut arg: tg::user::login::wait::Arg,
+		region: String,
+	) -> tg::Result<tg::user::login::wait::Output> {
+		let client = session.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		arg.location = Some(location.into());
+		let output = client
+			.wait_login(arg)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to await the login"))?;
+		Ok(output)
+	}
+
+	async fn wait_login_local(
+		&self,
+		session: &Session,
+		code: &str,
+	) -> tg::Result<tg::user::login::wait::Output> {
+		// Await the login.
+		loop {
+			match self.try_wait_login_local(session, code).await? {
+				WaitLogin::Pending {
+					expires_at,
+					interval,
+				} => {
+					let now = session.server.clock.unix_timestamp();
+					if now > expires_at {
+						return Err(tg::error!("the login has expired"));
+					}
+					tokio::time::sleep(Duration::from_secs(interval.max(1))).await;
+				},
+				WaitLogin::Output(output) => {
+					return Ok(output);
+				},
+			}
+		}
+	}
+
+	async fn try_wait_login_local(&self, session: &Session, code: &str) -> tg::Result<WaitLogin> {
+		let code = code.to_owned();
+		let component = self.clone();
+		let session = session.clone();
+		session
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let code = code.clone();
+				let component = component.clone();
+				let session = session.clone();
+				async move {
+					component
+						.try_wait_login_local_with_transaction(&session, transaction, &code)
+						.await
+				}
+				.boxed()
+			})
+			.await
+	}
+
+	async fn try_wait_login_local_with_transaction(
+		&self,
+		session: &Session,
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		code: &str,
+	) -> tg::Result<ControlFlow<WaitLogin, tangram_server_core::database::Error>> {
+		// Get the login.
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			error: Option<String>,
+			expires_at: i64,
+			interval: i64,
+			status: String,
+			token: Option<String>,
+			user: Option<String>,
+		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				select error, expires_at, interval, status, token, "user"
+				from logins
+				where code = {p}1;
+			"#
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![code])
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let Some(row) = row else {
+			return Err(tg::error!("invalid login code"));
+		};
+
+		// Check the expiration time.
+		let now = session.server.clock.unix_timestamp();
+		if now > row.expires_at {
+			return Err(tg::error!("the login has expired"));
+		}
+
+		// Create the output.
+		let output = match row.status.as_str() {
+			"started" => WaitLogin::Pending {
+				expires_at: row.expires_at,
+				interval: u64::try_from(row.interval).unwrap_or(1),
+			},
+			"finished" => {
+				if let Some(error) = row.error {
+					return Err(tg::error!("{error}"));
+				}
+				let token = row.token.ok_or_else(|| tg::error!("missing login token"))?;
+				let user = row
+					.user
+					.ok_or_else(|| tg::error!("missing login user"))?
+					.parse::<tg::user::Id>()?;
+				let user = match tangram_server_core::user::try_get_user_with_transaction(
+					transaction,
+					&user,
+				)
+				.await?
+				{
+					ControlFlow::Break(user) => user,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
+				.ok_or_else(|| tg::error!("missing login user"))?;
+				let location = Some(tg::Location::Local(tg::location::Local::default()));
+				WaitLogin::Output(tg::user::login::wait::Output {
+					location,
+					token,
+					user,
+				})
+			},
+			_ => return Err(tg::error!("invalid login status")),
+		};
+		Ok(ControlFlow::Break(output))
+	}
+
+	pub(crate) async fn wait_login_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+	) -> tg::Result<http::Response<BoxBody>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
+
+		// Get the arg.
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.ok_or_else(|| tg::error!(argument, "missing query params"))?;
+
+		// Await the login.
+		let output = self.wait_login(session, arg).await?;
+
+		// Create the response.
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let body = serde_json::to_vec(&output).unwrap();
+				(Some(content_type), BoxBody::with_bytes(body))
+			},
+			Some((type_, subtype)) => {
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
+			},
+		};
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap().boxed_body();
+
+		Ok(response)
+	}
+}

@@ -1,0 +1,61 @@
+use {
+	crate::Component,
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	std::pin::pin,
+	tangram_client::prelude::*,
+	tangram_server_core::Session,
+};
+
+impl Component {
+	pub async fn pull_tag(
+		&self,
+		session: &Session,
+		pattern: tg::specifier::Pattern,
+		location: Option<tg::location::Arg>,
+	) -> tg::Result<()> {
+		let list = session
+			.match_all(tg::match_::Arg {
+				cached: false,
+				cursor: None,
+				groups: false,
+				limit: None,
+				location,
+				organizations: false,
+				pattern: pattern.clone(),
+				reverse: false,
+				tags: true,
+				tokens: tg::authorization::Tokens::default(),
+				ttl: tg::remote::cache::Ttl::default(),
+				users: false,
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to list entries"))?
+			.data;
+		list.into_iter()
+			.filter_map(|entry| {
+				if entry.kind() != tg::id::Kind::Tag {
+					return None;
+				}
+				let location = entry.node.options.location;
+				let target = entry.target?;
+				let tg::Referent { node, options } = target;
+				let directory = node.left()?.try_unwrap_directory().ok()?;
+				let session = session.clone();
+				let location = options.location.clone().or(location)?;
+				Some(async move {
+					let arg = tg::pull::Arg {
+						source: Some(location),
+						nodes: vec![tg::Referent::new(directory.into(), options)],
+						..Default::default()
+					};
+					let (_, stream) = session.pull(arg).await?;
+					let mut stream = pin!(stream);
+					while stream.try_next().await?.is_some() {}
+					Ok::<_, tg::Error>(())
+				})
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await
+	}
+}

@@ -1,0 +1,211 @@
+use {
+	crate::Indexer,
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
+	std::{collections::BTreeMap, sync::Mutex},
+	tangram_client::prelude::*,
+	tangram_futures::task::Stopper,
+	tangram_server_core::Server,
+};
+
+#[cfg(test)]
+mod tests;
+
+pub(super) type Receiver = tokio::sync::mpsc::Receiver<Request>;
+pub(super) type Sender = tokio::sync::mpsc::Sender<Request>;
+
+type TaskWaits = FuturesUnordered<futures::future::BoxFuture<'static, Vec<String>>>;
+
+struct State {
+	task_waits: TaskWaits,
+	waits: BTreeMap<String, Request>,
+}
+
+pub(super) struct Request {
+	id: String,
+	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
+	state: RequestState,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum RequestState {
+	Queues,
+	QueuesPending { index_sequence: u64 },
+	Tasks,
+	TasksPending,
+}
+
+impl Indexer {
+	#[tracing::instrument(name = "indexer.wait", level = "info", skip_all, fields(%id), err)]
+	pub(crate) async fn wait_for_indexing(
+		&self,
+		wait_sender: &Sender,
+		id: String,
+	) -> tg::Result<()> {
+		tangram_server_core::checkpoint!(
+			self.server,
+			"indexer.request.receive",
+			request = id.clone()
+		)
+		.await;
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request {
+			id,
+			sender,
+			state: RequestState::Tasks,
+		};
+		wait_sender
+			.send(request)
+			.await
+			.map_err(|_| tg::error!("the indexer wait task stopped"))?;
+		receiver
+			.await
+			.map_err(|_| tg::error!("the indexer wait task stopped"))??;
+		Ok(())
+	}
+
+	pub(super) async fn wait_task(
+		&self,
+		queues: &Mutex<super::IndexerState>,
+		changed: &tokio::sync::Notify,
+		mut receiver: Receiver,
+		stopper: Stopper,
+	) -> tg::Result<()> {
+		let mut state = State::new();
+		let mut interval = tokio::time::interval(self.server.config.indexer.request.poll_interval);
+		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+		loop {
+			// Register before reading progress so changes during the reads wake the next pass.
+			let notified = changed.notified();
+			tokio::pin!(notified);
+			notified.as_mut().enable();
+
+			// Advance every request as far as the current queue state allows.
+			state.waits.retain(|_, request| !request.sender.is_closed());
+			if !state
+				.waits
+				.values()
+				.any(|request| matches!(request.state, RequestState::TasksPending))
+			{
+				state.task_waits.clear();
+			}
+			if !state.waits.is_empty() {
+				state.start_task_wait(&self.server);
+				let (read, target) = {
+					let state = queues.lock().unwrap();
+					(
+						state.queues.read_sequences().1,
+						state.queues.target_sequences().1,
+					)
+				};
+				tracing::debug!(
+					read,
+					target,
+					waits = state.waits.len(),
+					"read the private index queue progress"
+				);
+				state.poll_queues(self.server.config.advanced.multi_server, read, target);
+			}
+
+			// Wake on new requests, task wait completion, queue changes, or the fallback tick.
+			tokio::select! {
+				() = stopper.wait() => return Ok(()),
+				request = receiver.recv(), if state.waits.len() < self.server.config.indexer.request.wait_concurrency => {
+					let request = request.ok_or_else(|| tg::error!("the indexer wait request channel closed"))?;
+					state.waits.insert(request.id.clone(), request);
+				},
+				Some(ids) = state.task_waits.next(), if !state.task_waits.is_empty() => {
+					state.handle_task_wait(ids);
+				},
+				() = &mut notified, if !state.waits.is_empty() => {},
+				_ = interval.tick(), if !state.waits.is_empty() => {},
+			}
+		}
+	}
+}
+
+impl State {
+	fn new() -> Self {
+		Self {
+			task_waits: TaskWaits::new(),
+			waits: BTreeMap::new(),
+		}
+	}
+
+	fn poll_queues(&mut self, multi_server: bool, read: u64, target: u64) {
+		// Capture the private index queue cutoff for the next batch of requests.
+		for request in self.waits.values_mut() {
+			if matches!(request.state, RequestState::Queues) {
+				request.state = RequestState::QueuesPending {
+					index_sequence: target,
+				};
+			}
+		}
+
+		// Finish each request once the index queue has passed its cutoff.
+		let ids = self
+			.waits
+			.iter()
+			.filter_map(|(id, request)| {
+				let RequestState::QueuesPending { index_sequence } = request.state else {
+					return None;
+				};
+				(!multi_server || read >= index_sequence).then(|| id.clone())
+			})
+			.collect::<Vec<_>>();
+		for id in ids {
+			if let Some(request) = self.waits.remove(&id) {
+				request.sender.send(Ok(())).ok();
+			}
+		}
+	}
+
+	fn start_task_wait(&mut self, server: &Server) {
+		if !self.task_waits.is_empty() {
+			return;
+		}
+		let ids = self
+			.waits
+			.iter_mut()
+			.filter_map(|(id, request)| {
+				if !matches!(request.state, RequestState::Tasks) {
+					return None;
+				}
+				request.state = RequestState::TasksPending;
+				Some(id.clone())
+			})
+			.collect::<Vec<_>>();
+		if ids.is_empty() {
+			return;
+		}
+		let server = server.clone();
+		self.task_waits.push(
+			async move {
+				let request = ids.first().unwrap().clone();
+				tangram_server_core::checkpoint!(server, "indexer.request.wait", request,).await;
+				tracing::debug!("waiting for object puts before indexing");
+				server
+					.components
+					.object
+					.wait_remote_object_put_tasks()
+					.await;
+				tracing::debug!("waiting for index tasks");
+				server.index_tasks.wait().await;
+				tracing::debug!("finished waiting for index tasks");
+
+				ids
+			}
+			.boxed(),
+		);
+	}
+
+	fn handle_task_wait(&mut self, ids: Vec<String>) {
+		for id in ids {
+			let Some(request) = self.waits.get_mut(&id) else {
+				continue;
+			};
+			if matches!(request.state, RequestState::TasksPending) {
+				request.state = RequestState::Queues;
+			}
+		}
+	}
+}

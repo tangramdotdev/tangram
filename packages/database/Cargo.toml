@@ -26,7 +26,7 @@ itertools = { workspace = true }
 num = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tangram_database_macro = { path = "macro" }
+tangram_database_macro = { path = "packages/macro" }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_pool = { workspace = true }

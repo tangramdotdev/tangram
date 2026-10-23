@@ -1,0 +1,1900 @@
+use {
+	crate::{
+		Component,
+		{
+			CacheArgs, Graph, GraphData, IndexCheckoutArgs, IndexObjectArgs,
+			path::Paths,
+			{Contents, Node, Petgraph, Variant},
+		},
+	},
+	num::ToPrimitive as _,
+	std::{
+		collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
+		hash::{Hash, Hasher},
+		path::Path,
+	},
+	tangram_client::prelude::*,
+	tangram_server_core::Session,
+};
+
+pub(super) struct CheckinCreateArtifactsArg<'a> {
+	pub arg: &'a tg::checkin::Arg,
+	pub graph: &'a mut Graph,
+	pub paths: &'a Paths,
+	pub next: usize,
+	pub cache_args: &'a mut CacheArgs,
+	pub index_object_args: &'a mut IndexObjectArgs,
+	pub index_checkout_args: &'a mut IndexCheckoutArgs,
+	pub graph_data: &'a mut GraphData,
+	pub root: &'a Path,
+	pub time_to_touch: std::time::Duration,
+	pub touched_at: i64,
+}
+
+struct CheckinCreateNodeArtifactArg<'a> {
+	graph: &'a mut Graph,
+	paths: &'a Paths,
+	cache_args: &'a mut CacheArgs,
+	index_object_args: &'a mut IndexObjectArgs,
+	index: usize,
+	time_to_touch: std::time::Duration,
+	touched_at: i64,
+}
+
+struct CheckinCreateGraphArg<'a> {
+	graph: &'a mut Graph,
+	paths: &'a Paths,
+	cache_args: &'a mut CacheArgs,
+	index_object_args: &'a mut IndexObjectArgs,
+	graph_data: &'a mut GraphData,
+	next: usize,
+	scc: &'a [usize],
+	time_to_touch: std::time::Duration,
+	touched_at: i64,
+}
+
+struct CheckinCreateGraphObjectsArg<'a> {
+	cache_args: &'a mut CacheArgs,
+	graph: &'a mut Graph,
+	index_object_args: &'a mut IndexObjectArgs,
+	leaf: tg::graph::data::Leaf,
+	next: usize,
+	time_to_touch: std::time::Duration,
+	touched_at: i64,
+	unique_indices: &'a [usize],
+}
+
+struct CheckinCreateGraphObjectArg<'a> {
+	cache_args: &'a mut CacheArgs,
+	data: &'a tg::object::Data,
+	graph: &'a mut Graph,
+	index_object_args: &'a mut IndexObjectArgs,
+	next: usize,
+	scc: &'a [usize],
+	time_to_touch: std::time::Duration,
+	touched_at: i64,
+}
+
+struct CheckinCreatePointerArtifactArg<'a> {
+	graph: &'a mut Graph,
+	cache_args: &'a mut CacheArgs,
+	index_object_args: &'a mut IndexObjectArgs,
+	graph_id: &'a tg::graph::Id,
+	local: usize,
+	global: usize,
+	time_to_touch: std::time::Duration,
+	touched_at: i64,
+}
+
+struct CheckinUpdateBlobCheckoutPointersArg<'a> {
+	arg: &'a tg::checkin::Arg,
+	graph: &'a Graph,
+	cache_args: &'a mut CacheArgs,
+	index_object_args: &'a mut IndexObjectArgs,
+	index_checkout_args: &'a mut IndexCheckoutArgs,
+	root: &'a Path,
+	sccs: &'a [Vec<usize>],
+	touched_at: i64,
+}
+
+impl Component {
+	#[tracing::instrument(level = "trace", skip_all)]
+	pub(super) fn checkin_create_artifacts(arg: CheckinCreateArtifactsArg<'_>) -> tg::Result<()> {
+		let CheckinCreateArtifactsArg {
+			arg,
+			graph,
+			paths,
+			next,
+			cache_args,
+			index_object_args,
+			index_checkout_args,
+			graph_data,
+			root,
+			time_to_touch,
+			touched_at,
+		} = arg;
+		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
+		let mut sccs = petgraph::algo::tarjan_scc(&Petgraph { graph, next });
+		for scc in &mut sccs {
+			if scc.len() > 1 {
+				scc.reverse();
+			}
+		}
+
+		// Create objects for each strongly connected component. If the strongly connected component has only one node with no cycle, then create a node artifact. Otherwise, create a graph and one reference artifact for each node.
+		for scc in &sccs {
+			if scc.len() == 1
+				&& !graph
+					.nodes
+					.get(&scc[0])
+					.unwrap()
+					.children()
+					.contains(&scc[0])
+			{
+				let arg = CheckinCreateNodeArtifactArg {
+					graph,
+					paths,
+					cache_args,
+					index_object_args,
+					index: scc[0],
+					time_to_touch,
+					touched_at,
+				};
+				Self::checkin_create_node_artifact(arg)?;
+			} else {
+				let arg = CheckinCreateGraphArg {
+					graph,
+					paths,
+					cache_args,
+					index_object_args,
+					graph_data,
+					next,
+					scc,
+					time_to_touch,
+					touched_at,
+				};
+				Self::checkin_create_graph(arg)?;
+			}
+		}
+
+		// Update blob checkout pointers now that artifact IDs are known.
+		let update_arg = CheckinUpdateBlobCheckoutPointersArg {
+			arg,
+			graph,
+			cache_args,
+			index_object_args,
+			index_checkout_args,
+			root,
+			sccs: &sccs,
+			touched_at,
+		};
+		Self::checkin_update_blob_checkout_pointers(update_arg);
+
+		// Create a reference artifact for the path if necessary.
+		let index = graph.paths.get(&arg.path).copied().unwrap();
+		let node = graph.nodes.get(&index).unwrap();
+		if let tg::graph::data::Edge::Pointer(pointer) = node.edge.as_ref().unwrap().clone() {
+			let arg = CheckinCreatePointerArtifactArg {
+				graph,
+				cache_args,
+				index_object_args,
+				graph_id: &pointer.graph,
+				local: pointer.index,
+				global: index,
+				time_to_touch,
+				touched_at,
+			};
+			Self::checkin_create_pointer_artifact(arg)?;
+		}
+
+		Ok(())
+	}
+
+	pub(super) fn checkin_compute_permissions(
+		graph: &mut Graph,
+		index_object_args: &IndexObjectArgs,
+		next: usize,
+	) -> tg::Result<()> {
+		// Record the newly created objects.
+		for (id, object) in index_object_args {
+			let index = graph.get_or_create_object_node(id, next);
+			let node = graph.nodes.get_mut(&index).unwrap();
+			node.metadata = Some(object.metadata.clone());
+			node.object_complete = true;
+			node.permissions
+				.insert(tg::authorization::permission::object::Set::NODE);
+			node.storage = object.storage;
+		}
+
+		// Record the newly created objects' children.
+		for (id, object) in index_object_args {
+			let parent = *graph.ids.get(id).unwrap().last().unwrap();
+			for id in &object.children {
+				let child = graph.get_or_create_object_node(id, next);
+				graph.add_object_edge(parent, child);
+			}
+		}
+
+		// Propagate observed subtree permissions through the new object edges.
+		let mut propagated = vec![false; graph.next - next];
+		let mut queue = graph
+			.nodes
+			.range(next..)
+			.filter(|(index, node)| {
+				node.id
+					.as_ref()
+					.and_then(|id| graph.try_get_object_node(id))
+					== Some(**index)
+					&& node
+						.permissions
+						.contains(tg::authorization::permission::object::Set::SUBTREE)
+			})
+			.map(|(index, _)| *index)
+			.collect::<VecDeque<_>>();
+		while let Some(index) = queue.pop_front() {
+			let propagated = &mut propagated[index - next];
+			if *propagated {
+				continue;
+			}
+			*propagated = true;
+			let children = graph
+				.nodes
+				.get(&index)
+				.unwrap()
+				.object_children
+				.iter()
+				.copied()
+				.collect::<Vec<_>>();
+			for child in children {
+				let child_node = graph.nodes.get(&child).unwrap();
+				let child = graph
+					.try_get_object_node(child_node.id.as_ref().unwrap())
+					.unwrap();
+				let child_node = graph.nodes.get(&child).unwrap();
+				if child_node
+					.permissions
+					.contains(tg::authorization::permission::object::Set::SUBTREE)
+				{
+					continue;
+				}
+				let permissions = &mut graph.nodes.get_mut(&child).unwrap().permissions;
+				permissions.insert(tg::authorization::permission::object::Set::NODE);
+				permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+				queue.push_back(child);
+			}
+		}
+
+		// Build the dependency counts and reverse edges for complete objects.
+		let mut complete_count = 0;
+		let mut parents = vec![Vec::new(); graph.next - next];
+		let mut pending = vec![0; graph.next - next];
+		for (index, node) in graph.nodes.range(next..) {
+			if !node.object_complete
+				|| node
+					.id
+					.as_ref()
+					.and_then(|id| graph.try_get_object_node(id))
+					!= Some(*index)
+			{
+				continue;
+			}
+			complete_count += 1;
+			for child in &node.object_children {
+				let child_node = graph.nodes.get(child).unwrap();
+				let child = graph
+					.try_get_object_node(child_node.id.as_ref().unwrap())
+					.unwrap();
+				let child_node = graph.nodes.get(&child).unwrap();
+				if child_node.object_complete {
+					parents[child - next].push(*index);
+					pending[*index - next] += 1;
+				}
+			}
+		}
+
+		// Propagate permissions from children to parents.
+		let mut queue = graph
+			.nodes
+			.range(next..)
+			.filter_map(|(index, node)| {
+				(node.object_complete
+					&& node
+						.id
+						.as_ref()
+						.and_then(|id| graph.try_get_object_node(id))
+						== Some(*index)
+					&& pending[*index - next] == 0)
+					.then_some(*index)
+			})
+			.collect::<VecDeque<_>>();
+		let mut processed_count = 0;
+		while let Some(index) = queue.pop_front() {
+			let node = graph.nodes.get(&index).unwrap();
+			let subtree = node
+				.permissions
+				.contains(tg::authorization::permission::object::Set::NODE)
+				&& node.object_children.iter().all(|child| {
+					let child = graph.nodes.get(child).unwrap();
+					let child = graph
+						.try_get_object_node(child.id.as_ref().unwrap())
+						.unwrap();
+					graph
+						.nodes
+						.get(&child)
+						.unwrap()
+						.permissions
+						.contains(tg::authorization::permission::object::Set::SUBTREE)
+				});
+			if subtree {
+				graph
+					.nodes
+					.get_mut(&index)
+					.unwrap()
+					.permissions
+					.insert(tg::authorization::permission::object::Set::SUBTREE);
+			}
+			processed_count += 1;
+
+			for &parent in &parents[index - next] {
+				pending[parent - next] -= 1;
+				if pending[parent - next] == 0 {
+					queue.push_back(parent);
+				}
+			}
+		}
+		if processed_count != complete_count {
+			return Err(tg::error!("the object graph contains a cycle"));
+		}
+
+		Ok(())
+	}
+
+	fn checkin_create_node_artifact(arg: CheckinCreateNodeArtifactArg<'_>) -> tg::Result<()> {
+		let CheckinCreateNodeArtifactArg {
+			graph,
+			paths,
+			cache_args,
+			index_object_args,
+			index,
+			time_to_touch,
+			touched_at,
+		} = arg;
+		// Get the node.
+		let node = graph.nodes.get(&index).unwrap();
+
+		// Create the object.
+		let data = match &node.variant {
+			Variant::Directory(directory) => {
+				let entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>> = directory
+					.entries
+					.iter()
+					.map(|(name, edge)| {
+						let name = name.clone();
+						let edge = match edge {
+							tg::graph::data::Edge::Index(target_index) => {
+								let node = graph.nodes.get(target_index).unwrap();
+								let edge = node.edge.as_ref().unwrap().clone();
+								match edge {
+									tg::graph::data::Edge::Index(index) => {
+										tg::graph::data::Edge::Index(index)
+									},
+									tg::graph::data::Edge::Pointer(pointer) => {
+										tg::graph::data::Edge::Pointer(pointer)
+									},
+									tg::graph::data::Edge::Object(id) => {
+										let id = id
+											.try_into()
+											.map_err(|_| tg::error!("expected an artifact"))?;
+										tg::graph::data::Edge::Object(id)
+									},
+								}
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								tg::graph::data::Edge::Pointer(pointer.clone())
+							},
+							tg::graph::data::Edge::Object(id) => {
+								let id = id.clone();
+								tg::graph::data::Edge::Object(id)
+							},
+						};
+						Ok::<_, tg::Error>((name, edge))
+					})
+					.collect::<tg::Result<_>>()?;
+
+				// Build the directory structure, potentially as a tree for large directories.
+				let node = Self::checkin_create_directory(
+					entries,
+					cache_args,
+					index_object_args,
+					time_to_touch,
+					touched_at,
+				)?;
+				tg::directory::Data::Node(node).into()
+			},
+
+			Variant::File(file) => {
+				let contents = match &file.contents {
+					Some(Contents::Id { id, .. }) => id.clone(),
+					Some(Contents::Write(output)) => output.id.clone(),
+					None => return Err(tg::error!("expected the contents to be set")),
+				};
+				let dependencies = file
+					.dependencies
+					.iter()
+					.map(|(reference, option)| {
+						let reference = reference.clone();
+						let Some(dependency) = option else {
+							return Ok((reference, None));
+						};
+						let edge = if let Some(edge) = paths.get(&(index, reference.clone())) {
+							Some(edge.clone())
+						} else {
+							dependency.node().clone()
+						};
+						let edge = match edge {
+							Some(tg::graph::data::Edge::Index(target_index)) => {
+								let node = graph.nodes.get(&target_index).unwrap();
+								Some(node.edge.as_ref().unwrap().clone())
+							},
+							Some(edge) => Some(edge),
+							None => None,
+						};
+						let referent = dependency.0.clone().map(|_| edge);
+						Ok((reference, Some(tg::graph::data::Dependency(referent))))
+					})
+					.collect::<tg::Result<_>>()?;
+				let executable = file.executable;
+				let module = file.module;
+				let data = tg::file::data::Node {
+					contents: Some(contents),
+					dependencies,
+					executable,
+					module,
+				};
+				tg::file::Data::Node(data).into()
+			},
+			Variant::Object => unreachable!(),
+
+			Variant::Symlink(symlink) => {
+				let artifact = match &symlink.artifact {
+					Some(edge) => {
+						let edge = match edge {
+							tg::graph::data::Edge::Index(target_index) => {
+								let node = graph.nodes.get(target_index).unwrap();
+								let edge = node.edge.as_ref().unwrap().clone();
+								match edge {
+									tg::graph::data::Edge::Index(index) => {
+										tg::graph::data::Edge::Index(index)
+									},
+									tg::graph::data::Edge::Pointer(pointer) => {
+										tg::graph::data::Edge::Pointer(pointer)
+									},
+									tg::graph::data::Edge::Object(id) => {
+										let id = id
+											.try_into()
+											.map_err(|_| tg::error!("expected an artifact"))?;
+										tg::graph::data::Edge::Object(id)
+									},
+								}
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								tg::graph::data::Edge::Pointer(pointer.clone())
+							},
+							tg::graph::data::Edge::Object(id) => {
+								let id = id.clone();
+								tg::graph::data::Edge::Object(id)
+							},
+						};
+						Some(edge)
+					},
+					None => None,
+				};
+				let path = symlink.path.clone();
+				let data = tg::symlink::data::Node { artifact, path };
+				tg::symlink::Data::Node(data).into()
+			},
+		};
+		let (id, stored, metadata) = Self::checkin_create_artifact(
+			graph,
+			&data,
+			&[index],
+			cache_args,
+			index_object_args,
+			time_to_touch,
+			touched_at,
+		)?;
+
+		// Update the node.
+		let node = graph.nodes.get_mut(&index).unwrap();
+		node.storage = if stored {
+			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE
+		} else {
+			tg::object::storage::Set::NODE
+		};
+		node.metadata = Some(metadata);
+		node.edge.replace(tg::graph::data::Edge::Object(id.clone()));
+		graph.insert_id(index, id);
+
+		Ok(())
+	}
+
+	fn checkin_create_graph(arg: CheckinCreateGraphArg<'_>) -> tg::Result<()> {
+		let CheckinCreateGraphArg {
+			graph,
+			paths,
+			cache_args,
+			index_object_args,
+			graph_data,
+			next,
+			scc,
+			time_to_touch,
+			touched_at,
+		} = arg;
+		// Run WL to compute canonical labels for all nodes in the SCC.
+		let canonical_labels = Self::checkin_graph_canonical_labels(graph, paths, scc)?;
+
+		// Group nodes by their WL label.
+		let mut label_groups: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
+		for &index in scc {
+			label_groups
+				.entry(canonical_labels[&index])
+				.or_default()
+				.push(index);
+		}
+
+		// Build mappings from groups.
+		let mut scc_positions: BTreeMap<usize, usize> = BTreeMap::new();
+		let mut unique_indices: Vec<usize> = Vec::new();
+		let mut all_indices_by_position: Vec<Vec<usize>> = Vec::new();
+
+		for (position, (_label, group)) in label_groups.into_iter().enumerate() {
+			unique_indices.push(group[0]);
+			all_indices_by_position.push(group.clone());
+			for &index in &group {
+				scc_positions.insert(index, position);
+			}
+		}
+
+		// Create the nodes using only the unique representatives.
+		let mut nodes = Vec::with_capacity(unique_indices.len());
+		for index in &unique_indices {
+			Self::checkin_create_graph_node(graph, paths, &scc_positions, &mut nodes, *index)?;
+		}
+
+		// Split the directory nodes with more entries than fit in a leaf into nodes appended after the unique representatives.
+		Self::checkin_split_graph_directories(&mut nodes);
+
+		// Create the graph objects.
+		let leaf = tg::graph::data::Leaf { nodes };
+		let arg = CheckinCreateGraphObjectsArg {
+			cache_args,
+			graph,
+			index_object_args,
+			leaf: leaf.clone(),
+			next,
+			time_to_touch,
+			touched_at,
+			unique_indices: &unique_indices,
+		};
+		let id = Self::checkin_create_graph_objects(arg)?;
+		graph_data.insert(id.clone(), leaf);
+
+		// Set edges and ids for all original nodes in the graph.
+		let graph_id = id;
+		let graph_object_id = tg::object::Id::from(graph_id.clone());
+		let graph_index = graph.get_or_create_object_node(&graph_object_id, next);
+		for (local, global_indices) in all_indices_by_position.iter().enumerate() {
+			for &global in global_indices {
+				let node = graph.nodes.get_mut(&global).unwrap();
+				let artifact_kind = node.variant.kind();
+				let data = match &node.variant {
+					Variant::Directory(_) => {
+						let pointer = tg::graph::data::Pointer {
+							graph: graph_id.clone(),
+							index: local,
+							kind: artifact_kind,
+						};
+						tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
+					},
+					Variant::File(_) => {
+						let pointer = tg::graph::data::Pointer {
+							graph: graph_id.clone(),
+							index: local,
+							kind: artifact_kind,
+						};
+						tg::object::Data::File(tg::file::Data::Pointer(pointer))
+					},
+					Variant::Object => unreachable!(),
+					Variant::Symlink(_) => {
+						let pointer = tg::graph::data::Pointer {
+							graph: graph_id.clone(),
+							index: local,
+							kind: artifact_kind,
+						};
+						tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer))
+					},
+				};
+				let data = data.without_location_and_tokens();
+				let kind = data.kind();
+				let bytes = data
+					.serialize()
+					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
+				let id = tg::object::Id::new(kind, &bytes);
+				node.edge
+					.replace(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+						graph: graph_id.clone(),
+						index: local,
+						kind: artifact_kind,
+					}));
+				graph.insert_id(global, id);
+				let node = graph.nodes.get_mut(&global).unwrap();
+				node.object_complete = true;
+				node.permissions
+					.insert(tg::authorization::permission::object::Set::NODE);
+				graph.add_object_edge(global, graph_index);
+			}
+		}
+
+		Ok(())
+	}
+
+	/// Create the objects for a graph's nodes, splitting the nodes into leaves and nesting the leaves in branches when they do not fit in one object, and return the root graph's ID.
+	fn checkin_create_graph_objects(
+		arg: CheckinCreateGraphObjectsArg<'_>,
+	) -> tg::Result<tg::graph::Id> {
+		let CheckinCreateGraphObjectsArg {
+			cache_args,
+			graph,
+			index_object_args,
+			leaf,
+			next,
+			time_to_touch,
+			touched_at,
+			unique_indices,
+		} = arg;
+
+		// Split the nodes into leaves.
+		let leaves = tg::graph::data::Leaf::split(leaf.nodes);
+
+		// Create a single leaf if the nodes fit in one.
+		if leaves.len() == 1 {
+			let leaf = leaves.into_iter().next().unwrap();
+			let data = tg::graph::Data::Leaf(leaf).into();
+			let (id, _, _) = Self::checkin_create_artifact(
+				graph,
+				&data,
+				unique_indices,
+				cache_args,
+				index_object_args,
+				time_to_touch,
+				touched_at,
+			)?;
+			let id = tg::graph::Id::try_from(id).unwrap();
+			return Ok(id);
+		}
+
+		// Create the leaves, passing each leaf the unique representatives among its nodes.
+		let mut children = Vec::with_capacity(leaves.len());
+		let mut start = 0;
+		for leaf in leaves {
+			let count = leaf.nodes.len();
+			let end = start + count;
+			let scc =
+				&unique_indices[start.min(unique_indices.len())..end.min(unique_indices.len())];
+			let data = tg::graph::Data::Leaf(leaf).into();
+			let arg = CheckinCreateGraphObjectArg {
+				cache_args,
+				data: &data,
+				graph,
+				index_object_args,
+				next,
+				scc,
+				time_to_touch,
+				touched_at,
+			};
+			let child = Self::checkin_create_graph_object(arg)?;
+			children.push(tg::graph::data::Child {
+				count: count.to_u64().unwrap(),
+				graph: child,
+			});
+			start = end;
+		}
+
+		// Nest the children in branches until they fit in one branch.
+		while children.len() > tg::graph::MAX_BRANCH_CHILDREN {
+			let mut branches = Vec::new();
+			for chunk in children.chunks(tg::graph::MAX_BRANCH_CHILDREN) {
+				let count = chunk.iter().map(|child| child.count).sum();
+				let branch = tg::graph::data::Branch {
+					children: chunk.to_vec(),
+				};
+				let data = tg::graph::Data::Branch(branch).into();
+				let arg = CheckinCreateGraphObjectArg {
+					cache_args,
+					data: &data,
+					graph,
+					index_object_args,
+					next,
+					scc: &[],
+					time_to_touch,
+					touched_at,
+				};
+				let child = Self::checkin_create_graph_object(arg)?;
+				branches.push(tg::graph::data::Child {
+					count,
+					graph: child,
+				});
+			}
+			children = branches;
+		}
+
+		// Create the root branch.
+		let branch = tg::graph::data::Branch { children };
+		let data = tg::graph::Data::Branch(branch).into();
+		let (id, _, _) = Self::checkin_create_artifact(
+			graph,
+			&data,
+			&[],
+			cache_args,
+			index_object_args,
+			time_to_touch,
+			touched_at,
+		)?;
+		let id = tg::graph::Id::try_from(id).unwrap();
+
+		Ok(id)
+	}
+
+	/// Create a leaf or inner branch of a graph and record its metadata and storage, so that its parent branch can compute its own.
+	fn checkin_create_graph_object(
+		arg: CheckinCreateGraphObjectArg<'_>,
+	) -> tg::Result<tg::graph::Id> {
+		let CheckinCreateGraphObjectArg {
+			cache_args,
+			data,
+			graph,
+			index_object_args,
+			next,
+			scc,
+			time_to_touch,
+			touched_at,
+		} = arg;
+		let (id, stored, metadata) = Self::checkin_create_artifact(
+			graph,
+			data,
+			scc,
+			cache_args,
+			index_object_args,
+			time_to_touch,
+			touched_at,
+		)?;
+		let index = graph.get_or_create_object_node(&id, next);
+		let node = graph.nodes.get_mut(&index).unwrap();
+		node.metadata = Some(metadata);
+		node.storage = if stored {
+			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE
+		} else {
+			tg::object::storage::Set::NODE
+		};
+		let id = tg::graph::Id::try_from(id).unwrap();
+		Ok(id)
+	}
+
+	/// Split each directory node with more entries than fit in a leaf into a branch node whose leaf and branch nodes are appended to the nodes, so that the appended nodes' indices are determined by the order of the nodes.
+	fn checkin_split_graph_directories(nodes: &mut Vec<tg::graph::data::Node>) {
+		for index in 0..nodes.len() {
+			// Take the entries of a directory leaf that does not fit in one leaf.
+			let tg::graph::data::Node::Directory(tg::graph::data::Directory::Leaf(leaf)) =
+				&mut nodes[index]
+			else {
+				continue;
+			};
+			if leaf.entries.len() <= tg::directory::MAX_LEAF_ENTRIES {
+				continue;
+			}
+			let entries = std::mem::take(&mut leaf.entries)
+				.into_iter()
+				.collect::<Vec<_>>();
+
+			// Append a leaf node for each chunk of the entries.
+			let mut children = Vec::new();
+			for chunk in entries.chunks(tg::directory::MAX_LEAF_ENTRIES) {
+				let count = chunk.len().to_u64().unwrap();
+				let last = chunk.last().unwrap().0.clone();
+				let entries = chunk.iter().cloned().collect();
+				let leaf = tg::graph::data::DirectoryLeaf { entries };
+				let directory = tg::graph::data::Edge::Index(nodes.len());
+				nodes.push(tg::graph::data::Node::Directory(
+					tg::graph::data::Directory::Leaf(leaf),
+				));
+				children.push(tg::graph::data::DirectoryChild {
+					count,
+					directory,
+					last,
+				});
+			}
+
+			// Append branch nodes for each chunk of the children until the children fit in one branch.
+			while children.len() > tg::directory::MAX_BRANCH_CHILDREN {
+				let mut branches = Vec::new();
+				for chunk in children.chunks(tg::directory::MAX_BRANCH_CHILDREN) {
+					let count = chunk.iter().map(|child| child.count).sum();
+					let last = chunk.last().unwrap().last.clone();
+					let branch = tg::graph::data::DirectoryBranch {
+						children: chunk.to_vec(),
+					};
+					let directory = tg::graph::data::Edge::Index(nodes.len());
+					nodes.push(tg::graph::data::Node::Directory(
+						tg::graph::data::Directory::Branch(branch),
+					));
+					branches.push(tg::graph::data::DirectoryChild {
+						count,
+						directory,
+						last,
+					});
+				}
+				children = branches;
+			}
+
+			// Replace the directory with a branch.
+			let branch = tg::graph::data::DirectoryBranch { children };
+			nodes[index] =
+				tg::graph::data::Node::Directory(tg::graph::data::Directory::Branch(branch));
+		}
+	}
+
+	fn checkin_create_graph_node(
+		graph: &Graph,
+		paths: &Paths,
+		scc_positions: &BTreeMap<usize, usize>,
+		nodes: &mut Vec<tg::graph::data::Node>,
+		index: usize,
+	) -> tg::Result<()> {
+		let node = graph.nodes.get(&index).unwrap();
+		let node = match &node.variant {
+			Variant::Directory(directory) => {
+				let entries = directory
+					.entries
+					.iter()
+					.map(|(name, edge)| {
+						let name = name.clone();
+						let edge = match edge {
+							tg::graph::data::Edge::Index(target_index) => {
+								if let Some(&scc_index) = scc_positions.get(target_index) {
+									tg::graph::data::Edge::Index(scc_index)
+								} else {
+									let node = graph.nodes.get(target_index).unwrap();
+									let edge = node.edge.as_ref().unwrap().clone();
+									match edge {
+										tg::graph::data::Edge::Index(index) => {
+											tg::graph::data::Edge::Index(index)
+										},
+										tg::graph::data::Edge::Pointer(pointer) => {
+											tg::graph::data::Edge::Pointer(pointer)
+										},
+										tg::graph::data::Edge::Object(id) => {
+											let id = id
+												.try_into()
+												.map_err(|_| tg::error!("expected an artifact"))?;
+											tg::graph::data::Edge::Object(id)
+										},
+									}
+								}
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								tg::graph::data::Edge::Pointer(pointer.clone())
+							},
+							tg::graph::data::Edge::Object(id) => {
+								let id = id.clone();
+								tg::graph::data::Edge::Object(id)
+							},
+						};
+						Ok::<_, tg::Error>((name, edge))
+					})
+					.collect::<tg::Result<_>>()?;
+				let leaf = tg::graph::data::DirectoryLeaf { entries };
+				let data = tg::graph::data::Directory::Leaf(leaf);
+				tg::graph::data::Node::Directory(data)
+			},
+			Variant::File(file) => {
+				let contents = match &file.contents {
+					Some(Contents::Id { id, .. }) => id.clone(),
+					Some(Contents::Write(output)) => output.id.clone(),
+					None => return Err(tg::error!("expected the contents to be set")),
+				};
+				// Apply path options to dependencies using the paths map.
+				let dependencies = file
+					.dependencies
+					.iter()
+					.map(|(reference, option)| {
+						let Some(dependency) = option else {
+							return Ok((reference.clone(), None));
+						};
+						let edge = if let Some(edge) = paths.get(&(index, reference.clone())) {
+							Some(edge.clone())
+						} else {
+							dependency.node().clone()
+						};
+						let edge = match edge {
+							Some(tg::graph::data::Edge::Index(target_index)) => {
+								if let Some(&scc_index) = scc_positions.get(&target_index) {
+									let _kind =
+										graph.nodes.get(&target_index).unwrap().variant.kind();
+									Some(tg::graph::data::Edge::Index(scc_index))
+								} else {
+									let node = graph.nodes.get(&target_index).unwrap();
+									Some(node.edge.as_ref().unwrap().clone())
+								}
+							},
+							Some(edge) => Some(edge),
+							None => None,
+						};
+						let referent = tg::Referent {
+							node: edge,
+							options: dependency.options.clone(),
+						};
+						Ok((
+							reference.clone(),
+							Some(tg::graph::data::Dependency(referent)),
+						))
+					})
+					.collect::<tg::Result<_>>()?;
+				let executable = file.executable;
+				let module = file.module;
+				let data = tg::graph::data::File {
+					contents: Some(contents),
+					dependencies,
+					executable,
+					module,
+				};
+				tg::graph::data::Node::File(data)
+			},
+			Variant::Object => unreachable!(),
+			Variant::Symlink(symlink) => {
+				let artifact = if let Some(edge) = &symlink.artifact {
+					let edge = match edge {
+						tg::graph::data::Edge::Index(target_index) => {
+							if let Some(&scc_index) = scc_positions.get(target_index) {
+								tg::graph::data::Edge::Index(scc_index)
+							} else {
+								let node = graph.nodes.get(target_index).unwrap();
+								let edge = node.edge.as_ref().unwrap().clone();
+								match edge {
+									tg::graph::data::Edge::Index(index) => {
+										tg::graph::data::Edge::Index(index)
+									},
+									tg::graph::data::Edge::Pointer(pointer) => {
+										tg::graph::data::Edge::Pointer(pointer)
+									},
+									tg::graph::data::Edge::Object(id) => {
+										let id = id
+											.try_into()
+											.map_err(|_| tg::error!("expected an artifact"))?;
+										tg::graph::data::Edge::Object(id)
+									},
+								}
+							}
+						},
+						tg::graph::data::Edge::Pointer(pointer) => {
+							tg::graph::data::Edge::Pointer(pointer.clone())
+						},
+						tg::graph::data::Edge::Object(id) => {
+							let id = id.clone();
+							tg::graph::data::Edge::Object(id)
+						},
+					};
+					Some(edge)
+				} else {
+					None
+				};
+				let path = symlink.path.clone();
+				let data = tg::graph::data::Symlink { artifact, path };
+				tg::graph::data::Node::Symlink(data)
+			},
+		};
+		nodes.push(node);
+		Ok(())
+	}
+
+	fn checkin_create_pointer_artifact(arg: CheckinCreatePointerArtifactArg<'_>) -> tg::Result<()> {
+		let CheckinCreatePointerArtifactArg {
+			graph,
+			cache_args,
+			index_object_args,
+			graph_id,
+			local,
+			global,
+			time_to_touch,
+			touched_at,
+		} = arg;
+		let node = graph.nodes.get(&global).unwrap();
+		let artifact_kind = node.variant.kind();
+		let data = match &node.variant {
+			Variant::Directory(_) => {
+				let pointer = tg::graph::data::Pointer {
+					graph: graph_id.clone(),
+					index: local,
+					kind: artifact_kind,
+				};
+				tg::directory::Data::Pointer(pointer).into()
+			},
+			Variant::File(_) => {
+				let pointer = tg::graph::data::Pointer {
+					graph: graph_id.clone(),
+					index: local,
+					kind: artifact_kind,
+				};
+				tg::file::Data::Pointer(pointer).into()
+			},
+			Variant::Object => unreachable!(),
+			Variant::Symlink(_) => {
+				let pointer = tg::graph::data::Pointer {
+					graph: graph_id.clone(),
+					index: local,
+					kind: artifact_kind,
+				};
+				tg::symlink::Data::Pointer(pointer).into()
+			},
+		};
+		let (_id, stored, metadata) = Self::checkin_create_artifact(
+			graph,
+			&data,
+			&[global],
+			cache_args,
+			index_object_args,
+			time_to_touch,
+			touched_at,
+		)?;
+
+		// Update the node.
+		let node = graph.nodes.get_mut(&global).unwrap();
+		node.storage = if stored {
+			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE
+		} else {
+			tg::object::storage::Set::NODE
+		};
+		node.metadata = Some(metadata);
+
+		Ok(())
+	}
+
+	fn checkin_create_artifact(
+		graph: &Graph,
+		data: &tg::object::Data,
+		scc: &[usize],
+		cache_args: &mut CacheArgs,
+		index_object_args: &mut IndexObjectArgs,
+		time_to_touch: std::time::Duration,
+		touched_at: i64,
+	) -> tg::Result<(tg::object::Id, bool, tg::object::Metadata)> {
+		let data = data.clone().without_location_and_tokens();
+		let kind = data.kind();
+		let bytes = data
+			.serialize()
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
+		let id = tg::object::Id::new(kind, &bytes);
+		let mut children_ids = BTreeSet::new();
+		data.children(&mut children_ids);
+		tg::object::check_limits(bytes.len(), children_ids.len())
+			.map_err(|error| tg::error!(!error, %id, "failed to check in the artifact"))?;
+		let children = children_ids.iter().map(|id| {
+			if let Some(nodes) = graph.ids.get(id) {
+				if let Some(index) = nodes.first() {
+					let node = graph.nodes.get(index).unwrap();
+					(
+						node.storage.contains(tg::object::storage::Set::SUBTREE),
+						node.metadata.clone(),
+					)
+				} else {
+					(false, None)
+				}
+			} else if let Ok(id) = id.try_unwrap_blob_ref() {
+				scc.iter()
+					.find_map(|&index| {
+						let node = graph.nodes.get(&index)?;
+						let file = node.variant.try_unwrap_file_ref().ok()?;
+						file.contents.as_ref().and_then(|contents| match contents {
+							Contents::Id {
+								id: id_,
+								metadata,
+								storage,
+							} if id_ == id => Some((
+								storage.contains(tg::object::storage::Set::SUBTREE),
+								metadata.clone(),
+							)),
+							Contents::Write(output) if &output.id == id => {
+								Some((true, Some(output.metadata.clone())))
+							},
+							_ => None,
+						})
+					})
+					.unwrap_or((false, None))
+			} else {
+				(false, None)
+			}
+		});
+		let mut stored = true;
+		let (node_solvable, node_solved) = if matches!(
+			data,
+			tg::object::Data::Directory(tg::directory::Data::Pointer(_))
+				| tg::object::Data::File(tg::file::Data::Pointer(_))
+				| tg::object::Data::Symlink(tg::symlink::Data::Pointer(_))
+		) {
+			(false, true)
+		} else {
+			scc.iter()
+				.fold((false, true), |(solvable, solved), &index| {
+					let node = graph.nodes.get(&index).unwrap();
+					if let Variant::File(file) = &node.variant {
+						let file_solvable =
+							file.dependencies.keys().any(tg::Reference::is_solvable);
+						let file_solved = file
+							.dependencies
+							.iter()
+							.filter(|(reference, _)| reference.is_solvable())
+							.all(|(_, option)| option.is_some());
+						(solvable || file_solvable, solved && file_solved)
+					} else {
+						(solvable, solved)
+					}
+				})
+		};
+		let mut metadata = tg::object::Metadata {
+			node: tg::object::metadata::Node {
+				size: bytes.len().to_u64().unwrap(),
+				solvable: node_solvable,
+				solved: node_solved,
+			},
+			subtree: tg::object::metadata::Subtree {
+				count: Some(1),
+				depth: Some(1),
+				size: Some(bytes.len().to_u64().unwrap()),
+				solvable: Some(node_solvable),
+				solved: Some(node_solved),
+			},
+		};
+		for (child_stored, child_metadata) in children {
+			stored = stored && child_stored;
+			metadata.subtree.solvable = metadata
+				.subtree
+				.solvable
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.solvable))
+				.map(|(a, b)| a || b);
+			metadata.subtree.solved = metadata
+				.subtree
+				.solved
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.solved))
+				.map(|(a, b)| a && b);
+			metadata.subtree.count = metadata
+				.subtree
+				.count
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.count))
+				.map(|(a, b)| a + b);
+			metadata.subtree.depth = metadata
+				.subtree
+				.depth
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.depth))
+				.map(|(a, b)| a.max(1 + b));
+			metadata.subtree.size = metadata
+				.subtree
+				.size
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.size))
+				.map(|(a, b)| a + b);
+		}
+
+		// Create the cache arg.
+		let put = uuid::Uuid::now_v7().into_bytes();
+		let cache_arg = tangram_cache::object::put::Arg {
+			bytes: Some(bytes),
+			checkout_pointer: None,
+			id: id.clone(),
+			length: None,
+			put,
+		};
+
+		// Create the index message.
+		let index_message = tangram_index::object::put::Arg {
+			checkout: None,
+			children: children_ids,
+			id: id.clone(),
+			metadata: metadata.clone(),
+			put,
+			storage: if stored {
+				tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE
+			} else {
+				tg::object::storage::Set::NODE
+			},
+			time_to_touch,
+			touched_at,
+		};
+
+		// Insert into maps.
+		cache_args.insert(id.clone(), cache_arg);
+		index_object_args.insert(id.clone(), index_message);
+
+		Ok((id, stored, metadata))
+	}
+
+	fn checkin_update_blob_checkout_pointers(arg: CheckinUpdateBlobCheckoutPointersArg<'_>) {
+		let CheckinUpdateBlobCheckoutPointersArg {
+			arg,
+			graph,
+			cache_args,
+			index_object_args,
+			index_checkout_args,
+			root,
+			sccs,
+			touched_at,
+		} = arg;
+		// Skip if checkout pointers are disabled.
+		if !arg.options.checkout_pointers {
+			return;
+		}
+
+		for scc in sccs {
+			for index in scc {
+				// Get the node.
+				let node = graph.nodes.get(index).unwrap();
+
+				// Visit only files with write output.
+				let Variant::File(file) = &node.variant else {
+					continue;
+				};
+				let Some(Contents::Write(output)) = file.contents.as_ref() else {
+					continue;
+				};
+
+				// Get the artifact and path.
+				let (artifact, path) = if arg.options.destructive {
+					let root_index = graph.paths.get(root).unwrap();
+					let root_node = graph.nodes.get(root_index).unwrap();
+					let id = root_node.id.as_ref().unwrap().clone();
+					let Ok(path) = node
+						.path
+						.as_ref()
+						.unwrap()
+						.strip_prefix(root)
+						.map(Path::to_owned)
+					else {
+						continue;
+					};
+					let path = if path == Path::new("") {
+						None
+					} else {
+						Some(path)
+					};
+					(id.clone().try_into().unwrap(), path)
+				} else {
+					let id: tg::artifact::Id =
+						node.id.as_ref().unwrap().clone().try_into().unwrap();
+					(id, None)
+				};
+
+				// Create a checkout message for this artifact.
+				if !arg.options.destructive {
+					let dependencies = Self::checkin_get_checkout_dependencies(graph, *index);
+					index_checkout_args.push(tangram_index::checkout::put::Arg {
+						dependencies,
+						id: artifact.clone().into(),
+						touched_at,
+					});
+				}
+
+				// Update checkout pointers for the blob and its children.
+				let mut stack = vec![output.as_ref()];
+				while let Some(output) = stack.pop() {
+					let id: tg::object::Id = output.id.clone().into();
+
+					// Create and set the checkout pointer.
+					let checkout_pointer = tangram_cache::object::checkout::Pointer {
+						artifact: artifact.clone(),
+						length: output.length,
+						path: path.clone(),
+						position: output.position,
+					};
+					cache_args.get_mut(&id).unwrap().checkout_pointer = Some(checkout_pointer);
+					index_object_args.get_mut(&id).unwrap().checkout = Some(artifact.clone());
+
+					// Add children to the stack.
+					stack.extend(output.children.iter());
+				}
+			}
+		}
+	}
+
+	pub(super) async fn checkin_store_and_index_pointer_artifact(
+		&self,
+		session: &Session,
+		node: &Node,
+		pointer: &tg::graph::data::Pointer,
+		object_permissions: tg::authorization::permission::object::Set,
+	) -> tg::Result<tg::artifact::Id> {
+		// Create the pointer artifact data.
+		let data: tg::object::Data = match &node.variant {
+			Variant::Directory(_) => tg::directory::Data::Pointer(pointer.clone()).into(),
+			Variant::File(_) => tg::file::Data::Pointer(pointer.clone()).into(),
+			Variant::Object => unreachable!(),
+			Variant::Symlink(_) => tg::symlink::Data::Pointer(pointer.clone()).into(),
+		};
+
+		// Serialize and compute the ID.
+		let data = data.without_location_and_tokens();
+		let bytes = data
+			.serialize()
+			.map_err(|error| tg::error!(!error, "failed to serialize the reference artifact"))?;
+		let id = tg::object::Id::new(data.kind(), &bytes);
+		let touched_at = session.server.clock.unix_timestamp();
+
+		// Store the object.
+		let put = uuid::Uuid::now_v7().into_bytes();
+		let cache_arg = tangram_cache::object::put::Arg {
+			bytes: Some(bytes),
+			checkout_pointer: None,
+			id: id.clone(),
+			length: None,
+			put,
+		};
+		// Create the index arg.
+		let mut children = std::collections::BTreeSet::new();
+		data.children(&mut children);
+		let put_object_arg = tangram_index::object::put::Arg {
+			checkout: None,
+			children,
+			id: id.clone(),
+			metadata: node.metadata.clone().unwrap_or_default(),
+			put,
+			storage: node.storage,
+			time_to_touch: session.server.config.object.time_to_touch,
+			touched_at,
+		};
+		let permission_subject = match &session.context.principal {
+			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
+			tg::Principal::Root => None,
+			principal => Some(principal.try_to_subject()?),
+		};
+		let put_permission_arg = permission_subject.map(|subject| {
+			let expires_at = touched_at
+				+ session
+					.server
+					.config
+					.object
+					.permission_time_to_live
+					.as_secs()
+					.to_i64()
+					.unwrap();
+			let permission = if object_permissions
+				.contains(tg::authorization::permission::object::Set::SUBTREE)
+			{
+				tg::authorization::permission::object::Permission::Subtree
+			} else {
+				tg::authorization::permission::object::Permission::Node
+			};
+			let permissions = tg::authorization::Permission::Object(permission).into();
+			tangram_index::permission::put::Arg {
+				created_at: touched_at,
+				creator: Some(session.context.principal.clone()),
+				permissions,
+				resource: id.clone().into(),
+				source: tangram_index::permission::Source::Direct {
+					expires_at: Some(expires_at),
+				},
+				subject,
+				time_to_touch: Some(session.server.config.object.permission_time_to_touch),
+				version: None,
+			}
+		});
+		let arg = tangram_index::batch::Arg {
+			items: std::iter::once(tangram_index::batch::Item::PutObject(put_object_arg))
+				.chain(put_permission_arg.map(tangram_index::batch::Item::PutPermission))
+				.collect(),
+		};
+		// Store and index the object.
+		session
+			.server
+			.put_object_and_index(cache_arg, arg)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to store and index the reference artifact")
+			})?;
+
+		let id = id.try_into().unwrap();
+
+		Ok(id)
+	}
+
+	fn checkin_graph_node_initial_label(
+		graph: &Graph,
+		paths: &Paths,
+		scc: &[usize],
+		index: usize,
+	) -> tg::Result<Vec<u8>> {
+		// Create the node data with normalized references.
+		let node = graph.nodes.get(&index).unwrap();
+		let data = match &node.variant {
+			Variant::File(file) => {
+				let contents = match &file.contents {
+					Some(Contents::Id { id, .. }) => Some(id.clone()),
+					Some(Contents::Write(output)) => Some(output.id.clone()),
+					None => None,
+				};
+				let dependencies = file
+					.dependencies
+					.iter()
+					.map(|(reference, option)| {
+						let dep = option.as_ref().map(|dependency| {
+							let edge = paths
+								.get(&(index, reference.clone()))
+								.cloned()
+								.or_else(|| dependency.node().clone());
+							let edge = match edge {
+								Some(tg::graph::data::Edge::Index(target_index))
+									if scc.contains(&target_index) =>
+								{
+									None
+								},
+								Some(tg::graph::data::Edge::Index(target_index)) => {
+									let node = graph.nodes.get(&target_index).unwrap();
+									let id = node.id.as_ref().unwrap();
+									Some(tg::graph::data::Edge::Object(id.clone()))
+								},
+								other => other,
+							};
+							tg::graph::data::Dependency(tg::Referent {
+								node: edge,
+								options: dependency.options.clone(),
+							})
+						});
+						(reference.clone(), dep)
+					})
+					.collect();
+				tg::graph::data::Node::File(tg::graph::data::File {
+					contents,
+					dependencies,
+					executable: file.executable,
+					module: file.module,
+				})
+			},
+			Variant::Directory(directory) => {
+				let entries = directory
+					.entries
+					.iter()
+					.map(|(name, edge)| {
+						let edge = match edge {
+							tg::graph::data::Edge::Index(target_index)
+								if scc.contains(target_index) =>
+							{
+								tg::graph::data::Edge::Index(0)
+							},
+							tg::graph::data::Edge::Index(target_index) => {
+								let node = graph.nodes.get(target_index).unwrap();
+								let id = node.id.as_ref().unwrap().clone().try_into().unwrap();
+								tg::graph::data::Edge::Object(id)
+							},
+							other => other.clone(),
+						};
+						(name.clone(), edge)
+					})
+					.collect();
+				tg::graph::data::Node::Directory(tg::graph::data::Directory::Leaf(
+					tg::graph::data::DirectoryLeaf { entries },
+				))
+			},
+			Variant::Object => unreachable!(),
+			Variant::Symlink(symlink) => {
+				let artifact = symlink.artifact.as_ref().map(|edge| {
+					let edge: tg::graph::data::Edge<tg::artifact::Id> = match edge {
+						tg::graph::data::Edge::Index(target_index)
+							if scc.contains(target_index) =>
+						{
+							tg::graph::data::Edge::Index(0)
+						},
+						tg::graph::data::Edge::Index(target_index) => {
+							let node = graph.nodes.get(target_index).unwrap();
+							let id = node.id.as_ref().unwrap().clone().try_into().unwrap();
+							tg::graph::data::Edge::Object(id)
+						},
+						other => other.clone(),
+					};
+					edge
+				});
+				tg::graph::data::Node::Symlink(tg::graph::data::Symlink {
+					artifact,
+					path: symlink.path.clone(),
+				})
+			},
+		};
+
+		// Serialize the node data.
+		let bytes = tangram_serialize::to_vec(&data)
+			.map_err(|error| tg::error!(!error, "failed to serialize the node"))?;
+
+		Ok(bytes)
+	}
+
+	/// Compute canonical labels for all nodes in the SCC using the Weisfeiler-Lehman algorithm.
+	fn checkin_graph_canonical_labels(
+		graph: &Graph,
+		paths: &Paths,
+		scc: &[usize],
+	) -> tg::Result<BTreeMap<usize, u64>> {
+		// Helper to hash bytes.
+		fn hash_bytes(bytes: &[u8]) -> u64 {
+			let mut hasher = fnv::FnvHasher::default();
+			bytes.hash(&mut hasher);
+			hasher.finish()
+		}
+
+		// Compute initial labels from node content.
+		let mut labels: BTreeMap<usize, u64> = BTreeMap::new();
+		for &index in scc {
+			let bytes = Self::checkin_graph_node_initial_label(graph, paths, scc, index)?;
+			labels.insert(index, hash_bytes(&bytes));
+		}
+
+		// Create the neighbors.
+		let scc_set: BTreeSet<usize> = scc.iter().copied().collect();
+		let mut neighbors: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+		for &index in scc {
+			let node = graph.nodes.get(&index).unwrap();
+			let mut node_neighbors = Vec::new();
+			match &node.variant {
+				Variant::File(file) => {
+					for (reference, option) in &file.dependencies {
+						let edge = paths
+							.get(&(index, reference.clone()))
+							.cloned()
+							.or_else(|| option.as_ref().and_then(|d| d.node().clone()));
+						if let Some(tg::graph::data::Edge::Index(target_index)) = edge
+							&& scc_set.contains(&target_index)
+						{
+							node_neighbors.push(target_index);
+						}
+					}
+				},
+				Variant::Directory(directory) => {
+					for edge in directory.entries.values() {
+						if let tg::graph::data::Edge::Index(target_index) = edge
+							&& scc_set.contains(target_index)
+						{
+							node_neighbors.push(*target_index);
+						}
+					}
+				},
+				Variant::Object => unreachable!(),
+				Variant::Symlink(symlink) => {
+					if let Some(tg::graph::data::Edge::Index(target_index)) = &symlink.artifact
+						&& scc_set.contains(target_index)
+					{
+						node_neighbors.push(*target_index);
+					}
+				},
+			}
+			neighbors.insert(index, node_neighbors);
+		}
+
+		// Run WL iterations until convergence.
+		loop {
+			let mut new_labels: BTreeMap<usize, u64> = BTreeMap::new();
+			for &index in scc {
+				// Collect and sort neighbor labels.
+				let mut neighbor_labels: Vec<u64> =
+					neighbors[&index].iter().map(|&n| labels[&n]).collect();
+				neighbor_labels.sort_unstable();
+
+				// Hash the node's label with its sorted neighbor labels.
+				let mut hasher = fnv::FnvHasher::default();
+				labels[&index].hash(&mut hasher);
+				neighbor_labels.hash(&mut hasher);
+				new_labels.insert(index, hasher.finish());
+			}
+
+			// Check for convergence: same number of distinct labels.
+			let old_distinct: BTreeSet<u64> = labels.values().copied().collect();
+			let new_distinct: BTreeSet<u64> = new_labels.values().copied().collect();
+			if old_distinct.len() == new_distinct.len() {
+				break;
+			}
+			labels = new_labels;
+		}
+
+		Ok(labels)
+	}
+
+	fn checkin_create_directory(
+		entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
+		cache_args: &mut CacheArgs,
+		index_object_args: &mut IndexObjectArgs,
+		time_to_touch: std::time::Duration,
+		touched_at: i64,
+	) -> tg::Result<tg::graph::data::Directory> {
+		// If the entries fit in a single leaf, then return a leaf.
+		if entries.len() <= tg::directory::MAX_LEAF_ENTRIES {
+			return Ok(tg::graph::data::Directory::Leaf(
+				tg::graph::data::DirectoryLeaf { entries },
+			));
+		}
+
+		// Split entries into chunks and create leaf children.
+		let entries_vec: Vec<_> = entries.into_iter().collect();
+		let mut children = Vec::new();
+
+		for chunk in entries_vec.chunks(tg::directory::MAX_LEAF_ENTRIES) {
+			let chunk_entries: BTreeMap<_, _> = chunk.iter().cloned().collect();
+			let count = chunk_entries.len().to_u64().unwrap();
+			let last = chunk_entries.keys().last().unwrap().clone();
+
+			// Create the leaf directory.
+			let leaf = tg::graph::data::DirectoryLeaf {
+				entries: chunk_entries,
+			};
+			let leaf_data = tg::graph::data::Directory::Leaf(leaf);
+
+			// Create the leaf directory node and get its ID.
+			let id = Self::checkin_create_directory_node(
+				&leaf_data,
+				cache_args,
+				index_object_args,
+				time_to_touch,
+				touched_at,
+			)?;
+
+			children.push(tg::graph::data::DirectoryChild {
+				directory: tg::graph::data::Edge::Object(id),
+				count,
+				last,
+			});
+		}
+
+		// Create intermediate branches if needed.
+		Self::checkin_create_directory_branch(
+			children,
+			cache_args,
+			index_object_args,
+			time_to_touch,
+			touched_at,
+		)
+	}
+
+	/// Recursively create branch nodes when there are too many children.
+	fn checkin_create_directory_branch(
+		children: Vec<tg::graph::data::DirectoryChild>,
+		cache_args: &mut CacheArgs,
+		index_object_args: &mut IndexObjectArgs,
+		time_to_touch: std::time::Duration,
+		touched_at: i64,
+	) -> tg::Result<tg::graph::data::Directory> {
+		// If the children fit in a single branch, return a branch.
+		if children.len() <= tg::directory::MAX_BRANCH_CHILDREN {
+			return Ok(tg::graph::data::Directory::Branch(
+				tg::graph::data::DirectoryBranch { children },
+			));
+		}
+
+		// Split children into chunks and create branch children.
+		let mut branch_children = Vec::new();
+
+		for chunk in children.chunks(tg::directory::MAX_BRANCH_CHILDREN) {
+			let chunk_vec: Vec<_> = chunk.to_vec();
+			let count = chunk_vec.iter().map(|c| c.count).sum();
+			let last = chunk_vec.last().unwrap().last.clone();
+
+			// Create the branch.
+			let branch_data =
+				tg::graph::data::Directory::Branch(tg::graph::data::DirectoryBranch {
+					children: chunk_vec,
+				});
+
+			// Store the branch and get its ID.
+			let id = Self::checkin_create_directory_node(
+				&branch_data,
+				cache_args,
+				index_object_args,
+				time_to_touch,
+				touched_at,
+			)?;
+
+			branch_children.push(tg::graph::data::DirectoryChild {
+				directory: tg::graph::data::Edge::Object(id),
+				count,
+				last,
+			});
+		}
+
+		// Recursively build if still too many children.
+		Self::checkin_create_directory_branch(
+			branch_children,
+			cache_args,
+			index_object_args,
+			time_to_touch,
+			touched_at,
+		)
+	}
+
+	/// Create a directory node and return its ID.
+	fn checkin_create_directory_node(
+		directory: &tg::graph::data::Directory,
+		cache_args: &mut CacheArgs,
+		index_object_args: &mut IndexObjectArgs,
+		time_to_touch: std::time::Duration,
+		touched_at: i64,
+	) -> tg::Result<tg::directory::Id> {
+		// Create the directory data.
+		let data: tg::object::Data = tg::directory::Data::Node(directory.clone()).into();
+		let data = data.without_location_and_tokens();
+		let kind = data.kind();
+		let bytes = data
+			.serialize()
+			.map_err(|error| tg::error!(!error, "failed to serialize the directory"))?;
+		let id = tg::object::Id::new(kind, &bytes);
+
+		// Collect children IDs.
+		let mut children_ids = BTreeSet::new();
+		data.children(&mut children_ids);
+
+		// Compute metadata by aggregating from children.
+		let node_size = bytes.len().to_u64().unwrap();
+		let mut metadata = tg::object::Metadata {
+			node: tg::object::metadata::Node {
+				size: node_size,
+				solvable: false,
+				solved: true,
+			},
+			subtree: tg::object::metadata::Subtree {
+				count: Some(1),
+				depth: Some(1),
+				size: Some(node_size),
+				solvable: Some(false),
+				solved: Some(true),
+			},
+		};
+
+		// Aggregate metadata from children.
+		for child_id in &children_ids {
+			let child_metadata = index_object_args.get(child_id).map(|msg| &msg.metadata);
+
+			metadata.subtree.count = metadata
+				.subtree
+				.count
+				.zip(child_metadata.and_then(|m| m.subtree.count))
+				.map(|(a, b)| a + b);
+			metadata.subtree.depth = metadata
+				.subtree
+				.depth
+				.zip(child_metadata.and_then(|m| m.subtree.depth))
+				.map(|(a, b)| a.max(1 + b));
+			metadata.subtree.size = metadata
+				.subtree
+				.size
+				.zip(child_metadata.and_then(|m| m.subtree.size))
+				.map(|(a, b)| a + b);
+			metadata.subtree.solvable = metadata
+				.subtree
+				.solvable
+				.zip(child_metadata.and_then(|m| m.subtree.solvable))
+				.map(|(a, b)| a || b);
+			metadata.subtree.solved = metadata
+				.subtree
+				.solved
+				.zip(child_metadata.and_then(|m| m.subtree.solved))
+				.map(|(a, b)| a && b);
+		}
+
+		// Create the cache arg.
+		let put = uuid::Uuid::now_v7().into_bytes();
+		let cache_arg = tangram_cache::object::put::Arg {
+			bytes: Some(bytes),
+			checkout_pointer: None,
+			id: id.clone(),
+			length: None,
+			put,
+		};
+
+		// Create the index message.
+		let index_message = tangram_index::object::put::Arg {
+			checkout: None,
+			children: children_ids,
+			id: id.clone(),
+			metadata,
+			put,
+			storage: tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
+			time_to_touch,
+			touched_at,
+		};
+
+		// Insert into maps.
+		cache_args.insert(id.clone(), cache_arg);
+		index_object_args.insert(id.clone(), index_message);
+
+		Ok(id.try_into().unwrap())
+	}
+
+	pub(super) fn checkin_get_checkout_dependencies(
+		graph: &Graph,
+		root_index: usize,
+	) -> Vec<tg::Id> {
+		let mut dependencies = Vec::new();
+		let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
+		let mut stack = vec![root_index];
+
+		while let Some(index) = stack.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+
+			let Some(node) = graph.nodes.get(&index) else {
+				continue;
+			};
+
+			match &node.variant {
+				Variant::Directory(directory) => {
+					for edge in directory.entries.values() {
+						match edge {
+							tg::graph::data::Edge::Object(id) => {
+								if let Some(index) = graph.artifacts.get(id) {
+									stack.push(*index);
+								}
+							},
+							tg::graph::data::Edge::Index(target_index) => {
+								stack.push(*target_index);
+							},
+							tg::graph::data::Edge::Pointer(_) => {},
+						}
+					}
+				},
+				Variant::File(file) => {
+					for dependency in file.dependencies.values().flatten() {
+						if let Some(edge) = &dependency.node {
+							match edge {
+								tg::graph::data::Edge::Object(id) => {
+									if let Ok(artifact_id) = tg::artifact::Id::try_from(id.clone())
+									{
+										dependencies.push(artifact_id.into());
+									}
+								},
+								tg::graph::data::Edge::Index(target_index) => {
+									if let Some(dependency_node) = graph.nodes.get(target_index)
+										&& let Some(id) = &dependency_node.artifact
+									{
+										dependencies.push(id.clone().into());
+									}
+								},
+								tg::graph::data::Edge::Pointer(_) => {},
+							}
+						}
+					}
+				},
+				Variant::Object => {},
+				Variant::Symlink(symlink) => {
+					if let Some(edge) = &symlink.artifact {
+						match edge {
+							tg::graph::data::Edge::Object(id) => {
+								dependencies.push(id.clone().into());
+							},
+							tg::graph::data::Edge::Index(target_index) => {
+								if let Some(dependency_node) = graph.nodes.get(target_index)
+									&& let Some(id) = &dependency_node.artifact
+								{
+									dependencies.push(id.clone().into());
+								}
+							},
+							tg::graph::data::Edge::Pointer(_) => {},
+						}
+					}
+				},
+			}
+		}
+
+		let root_artifact = graph
+			.nodes
+			.get(&root_index)
+			.and_then(|node| node.artifact.clone());
+		dependencies.sort();
+		dependencies.dedup();
+		if let Some(root_artifact) = root_artifact {
+			let root_artifact = tg::Id::from(root_artifact);
+			dependencies.retain(|id| id != &root_artifact);
+		}
+
+		dependencies
+	}
+}

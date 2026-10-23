@@ -1,0 +1,392 @@
+use {
+	crate::Component, std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*,
+	tangram_futures::task::Task,
+};
+
+/// Spawn and await a process.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[command(flatten)]
+	pub options: Options,
+
+	/// The reference to the command, artifact, or process.
+	#[arg(index = 1, value_terminator = "--")]
+	pub reference: Option<tg::Reference>,
+
+	/// Set arguments.
+	#[arg(index = 2, trailing_var_arg = true)]
+	pub trailing: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+#[group(skip)]
+pub struct Options {
+	/// Whether to check out the output.
+	#[arg(
+		id = "run.checkout",
+		long = "checkout",
+		require_equals = true,
+		short = 'c'
+	)]
+	pub checkout: Option<Option<PathBuf>>,
+
+	/// Whether to overwrite an existing file system object at the path.
+	#[arg(
+		id = "run.checkout_force",
+		long = "checkout-force",
+		requires = "run.checkout"
+	)]
+	pub checkout_force: bool,
+
+	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
+	#[arg(id = "run.detach", long = "detach", short = 'd')]
+	pub detach: bool,
+
+	#[command(flatten)]
+	pub print: tangram_cli_core::print::Options,
+
+	#[command(flatten)]
+	pub spawn: crate::spawn::Options,
+
+	/// Print the full spawn output instead of just the process ID.
+	#[arg(id = "run.verbose", long = "verbose", short = 'v')]
+	pub verbose: bool,
+
+	/// The view to display if the process's stdio is not attached.
+	#[arg(id = "run.view", long = "view")]
+	pub view: Option<View>,
+}
+
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	clap::ValueEnum,
+	derive_more::IsVariant,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum View {
+	None,
+	Inline,
+	Fullscreen,
+}
+
+impl Component<'_> {
+	pub async fn command_run(&mut self, args: Args) -> tg::Result<()> {
+		let checkout = args.options.checkout.is_some();
+		let detach = args.options.detach;
+		let print = args.options.print.clone();
+		let verbose = args.options.verbose;
+
+		// Run.
+		let output = self.run(args).await?;
+
+		// Print the output.
+		if detach && !verbose {
+			let string = output
+				.try_unwrap_string()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a string"))?;
+			let referent = string
+				.parse::<tg::Referent<tg::Either<u32, tg::process::Id>>>()
+				.map_err(|error| tg::error!(!error, "failed to parse the process referent"))?;
+			Cli::print_referent(&referent, &print);
+		} else if checkout {
+			Cli::print_display(output);
+		} else if (detach && verbose) || !output.is_null() {
+			self.print_value(&output, print, None).await?;
+		}
+
+		Ok(())
+	}
+
+	pub(crate) async fn run(&mut self, args: Args) -> tg::Result<tg::Value> {
+		let client = self.client().await?;
+
+		let Args {
+			mut options,
+			reference,
+			trailing,
+		} = args;
+
+		// If detach is set, then set stdio if necessary.
+		if options.detach {
+			match options.spawn.stdin {
+				None => {
+					options.spawn.stdin = Some(tg::process::Stdio::Null);
+				},
+				Some(tg::process::Stdio::Null) => (),
+				Some(_) => {
+					return Err(tg::error!("invalid stdin with detach"));
+				},
+			}
+			match options.spawn.stdout {
+				None => {
+					options.spawn.stdout = Some(tg::process::Stdio::Log);
+				},
+				Some(tg::process::Stdio::Null | tg::process::Stdio::Log) => (),
+				Some(_) => {
+					return Err(tg::error!("invalid stdout with detach"));
+				},
+			}
+			match options.spawn.stderr {
+				None => {
+					options.spawn.stderr = Some(tg::process::Stdio::Log);
+				},
+				Some(tg::process::Stdio::Null | tg::process::Stdio::Log) => (),
+				Some(_) => {
+					return Err(tg::error!("invalid stderr with detach"));
+				},
+			}
+		}
+
+		// Determine the connection mode.
+		let mode = if options.detach {
+			tg::process::connect::Mode::Spawn
+		} else {
+			tg::process::connect::Mode::Run
+		};
+
+		// Spawn the process.
+		let print = (!options.detach).then(|| options.print.clone());
+		let process = Box::pin(self.spawn(options.spawn, reference, trailing, print, mode)).await?;
+
+		// If the detach flag is set, then return the process referent.
+		if options.detach {
+			process.node().detach().await?;
+			if options.verbose {
+				let output = tg::process::spawn::Output {
+					cached: process.node().cached().unwrap_or(false),
+					command: None,
+					lease: process.node().lease().copied(),
+					location: process
+						.node()
+						.location()
+						.and_then(|location| location.to_location()),
+					outcome: process.node().outcome_data(),
+					process: process.node().id().cloned(),
+					tokens: process.node().tokens(),
+				};
+				let value = serde_json::to_value(output)
+					.map_err(|error| tg::error!(!error, "failed to serialize the output"))?
+					.into();
+				return Ok(value);
+			}
+			return Ok(process.node().to_referent().to_string().into());
+		}
+
+		// Spawn the view task if necessary.
+		let (view_task, view_receiver, view_ready_receiver) = match options.view {
+			None | Some(View::None) => (None, None, None),
+			Some(view) => {
+				let (exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
+				let (view_sender, view_receiver) = tokio::sync::oneshot::channel();
+				let (view_ready_sender, view_ready_receiver) = tokio::sync::oneshot::channel();
+				let client = client.clone();
+				let root = process.clone().map(tangram_cli_viewer::Item::Process);
+				let config = self.viewer_config();
+				let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
+					let local_set = tokio::task::LocalSet::new();
+					let runtime = tokio::runtime::Builder::new_current_thread()
+						.enable_all()
+						.build()
+						.map_err(|error| {
+							tg::error!(!error, "failed to create the tokio runtime")
+						})?;
+					let _exit_sender = exit_sender;
+					let outcome = local_set.block_on(&runtime, async move {
+						let viewer_options = tangram_cli_viewer::Options {
+							collapse_process_children: true,
+							config,
+							depth: None,
+							expand_groups: false,
+							expand_metadata: false,
+							expand_objects: false,
+							expand_organizations: false,
+							expand_processes: true,
+							expand_sandboxes: false,
+							expand_tags: false,
+							expand_users: false,
+							expand_values: false,
+							show_process_commands: false,
+						};
+						let mut viewer = tangram_cli_viewer::Viewer::new(
+							&client,
+							root,
+							exit_receiver,
+							viewer_options,
+						)?;
+						view_ready_sender.send(()).ok();
+						let outcome = match view {
+							View::Fullscreen => viewer.run_fullscreen(stop, true).await?,
+							View::Inline => viewer.run_inline(stop, false).await?,
+							View::None => unreachable!(),
+						};
+
+						Ok::<_, tg::Error>(outcome)
+					})?;
+					view_sender.send(outcome).ok();
+
+					Ok(())
+				});
+				(Some(task), Some(view_receiver), Some(view_ready_receiver))
+			},
+		};
+		if let Some(view_ready_receiver) = view_ready_receiver {
+			view_ready_receiver.await.ok();
+		}
+
+		// Await the process or a request to exit from the viewer.
+		let mut wait_future = Box::pin(
+			process
+				.node()
+				.wait_with_instance(&client, tg::process::wait::Options::default()),
+		);
+		let outcome = if let Some(mut view_receiver) = view_receiver {
+			tokio::select! {
+				result = &mut wait_future => result,
+				result = &mut view_receiver => {
+					match result {
+						Err(_) | Ok(tangram_cli_viewer::Outcome::Finished) => wait_future.await,
+						Ok(outcome) => {
+							drop(wait_future);
+							if let Some(view_task) = view_task {
+								Self::stop_view_task(view_task).await;
+							}
+							match outcome {
+								tangram_cli_viewer::Outcome::Finished => unreachable!(),
+								tangram_cli_viewer::Outcome::Interrupt => {
+									self.exit.replace(130.into());
+								},
+								tangram_cli_viewer::Outcome::Quit => (),
+								tangram_cli_viewer::Outcome::Terminate => {
+									self.exit.replace(143.into());
+								},
+							}
+							return Ok(tg::Value::Null);
+						},
+					}
+				},
+			}
+		} else {
+			wait_future.await
+		}
+		.map_err(|error| tg::error!(!error, "failed to await the process"));
+
+		// Stop and await the view task before handling a wait error, so that the viewer cannot keep the CLI running.
+		if let Some(view_task) = view_task {
+			Self::stop_view_task(view_task).await;
+		}
+		let outcome = outcome?;
+
+		// If verbose, return the outcome.
+		if options.verbose {
+			let data = outcome.to_data();
+			let value = serde_json::to_value(&data)
+				.map_err(|error| tg::error!(!error, "failed to serialize the outcome"))?
+				.into();
+			return Ok(value);
+		}
+
+		// Set the exit.
+		if outcome.exit != 0 {
+			self.exit.replace(outcome.exit.into());
+		}
+
+		// Handle an error.
+		if let Some(error) = outcome.error {
+			let error_options = error.to_referent().options;
+			let error = error
+				.to_data_or_id()
+				.map_left(|data| {
+					Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
+						tg::error::Object {
+							message: Some("invalid error".to_owned()),
+							..Default::default()
+						}
+					}))
+				})
+				.map_right(|id| Box::new(tg::Error::with_id(id)));
+			let mut source = process.clone().map(|_| error);
+			source.options.location = error_options.location;
+			source.options.tokens = error_options.tokens;
+			let error = tg::Error::with_object(tg::error::Object {
+				message: Some("the process failed".to_owned()),
+				source: Some(source),
+				values: [("id".to_owned(), process.node().id().to_string())].into(),
+				..Default::default()
+			});
+			return Err(error);
+		}
+
+		// Handle non-zero exit.
+		if outcome.exit >= 1 && outcome.exit < 128 {
+			return Err(tg::error!("the process exited with code {}", outcome.exit));
+		}
+		if outcome.exit >= 128 {
+			return Err(tg::error!(
+				"the process exited with signal {}",
+				outcome.exit - 128
+			));
+		}
+
+		// Get the output.
+		let output = outcome.output.unwrap_or(tg::Value::Null);
+
+		// Check out the output if requested.
+		if let Some(path) = options.checkout.clone() {
+			let artifact: tg::Artifact = output
+				.try_into()
+				.map_err(|_| tg::error!("expected an artifact"))?;
+			let path = if let Some(path) = path {
+				let path = tangram_util::fs::canonicalize_parent(path)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+				Some(path)
+			} else {
+				None
+			};
+			let id = artifact.id();
+			let options = tg::checkout::Options {
+				dependencies: true,
+				extension: None,
+				force: options.checkout_force,
+				lock: None,
+				path,
+			};
+			let stream = artifact
+				.checkout_with_instance(&client, options)
+				.await
+				.map_err(
+					|error| tg::error!(!error, artifact = %id, "failed to create the checkout stream"),
+				)?;
+			let tg::checkout::Output { mut paths } =
+				self.render_progress_stream(stream).await.map_err(
+					|error| tg::error!(!error, artifact = %id, "failed to check out the artifact"),
+				)?;
+			let path = paths.pop().unwrap();
+			let value = path.display().to_string().into();
+			return Ok(value);
+		}
+
+		Ok(output)
+	}
+
+	async fn stop_view_task(view_task: Task<tg::Result<()>>) {
+		view_task.stop();
+		match view_task.wait().await {
+			Ok(Ok(())) => {},
+			Ok(Err(error)) => {
+				tracing::warn!(?error, "failed to render the viewer");
+				Cli::print_warning_message("failed to render the viewer");
+			},
+			Err(error) => {
+				tracing::warn!(?error, "the viewer task panicked");
+				Cli::print_warning_message("failed to render the viewer");
+			},
+		}
+	}
+}

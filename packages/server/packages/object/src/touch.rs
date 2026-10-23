@@ -1,0 +1,260 @@
+use {
+	crate::Component,
+	futures::{StreamExt as _, stream::FuturesUnordered},
+	tangram_client::prelude::*,
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
+	tangram_index::prelude::*,
+	tangram_server_core::Session,
+};
+
+impl Component {
+	pub async fn try_touch_object(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		arg: tg::object::touch::Arg,
+	) -> tg::Result<Option<()>> {
+		let locations = session
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_touch_object_local(session, id, arg.tokens.local_authorization())
+					.await
+					.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?
+			{
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_touch_object_regions(session, id, &local.regions, &arg.tokens)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to touch the object in another region"),
+				)? {
+				return Ok(Some(output));
+			}
+		}
+
+		if let Some(output) = self
+			.try_touch_object_remotes(session, id, &locations.remotes, &arg.tokens)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the object in a remote"))?
+		{
+			return Ok(Some(output));
+		}
+
+		Ok(None)
+	}
+
+	async fn try_touch_object_local(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		tokens: &[tg::authorization::Token],
+	) -> tg::Result<Option<()>> {
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
+		if !session
+			.authorize(resource, permission)
+			.await?
+			.check_exhaustion()?
+			.permissions
+			.contains(permission)
+		{
+			return Ok(None);
+		}
+		let touched_at = session.server.clock.unix_timestamp();
+		let account = session.usage_account(&session.context.principal).await?;
+		let Some(_) = session
+			.server
+			.index
+			.touch_object_with_account(
+				id,
+				account.as_ref(),
+				touched_at,
+				session.server.config.object.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	async fn try_touch_object_regions(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		regions: &[String],
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<()>> {
+		let mut futures = regions
+			.iter()
+			.map(|region| self.try_touch_object_region(session, id, region, tokens))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(error) => {
+					result = Err(error);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_touch_object_region(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		region: &str,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<()>> {
+		let client = session.get_region_session(region).await.map_err(
+			|error| tg::error!(!error, %id, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::object::touch::Arg {
+			location: Some(location.clone().into()),
+			tokens: tokens.for_location(&location),
+		};
+		let Some(()) = client.try_touch_object(id, arg).await.map_err(
+			|error| tg::error!(!error, %id, region = %region, "failed to touch the object"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	async fn try_touch_object_remotes(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		remotes: &[tangram_server_core::location::Remote],
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<()>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_touch_object_remote(session, id, remote, tokens))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(error) => {
+					result = Err(error);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_touch_object_remote(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		remote: &tangram_server_core::location::Remote,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<()>> {
+		let client = session.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		let arg = tg::object::touch::Arg {
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+			tokens: tokens.for_location(&location),
+		};
+		let Some(()) = client.try_touch_object(id, arg).await.map_err(
+			|error| tg::error!(!error, %id, remote = %remote.name, "failed to touch the object"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	pub(crate) async fn try_touch_object_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+		id: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
+
+		// Parse the object id.
+		let id = id
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the object id"))?;
+
+		// Get the arg.
+		let arg = request
+			.json_or_default()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+
+		// Touch the object.
+		let Some(()) = self
+			.try_touch_object(session, &id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?
+		else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
+
+		// Create the response.
+		match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR)) => (),
+			Some((type_, subtype)) => {
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
+			},
+		}
+
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
+	}
+}

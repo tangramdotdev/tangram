@@ -1,0 +1,191 @@
+use {
+	futures::FutureExt as _,
+	std::{
+		collections::BTreeMap,
+		io::Write as _,
+		os::fd::{FromRawFd as _, RawFd},
+		path::PathBuf,
+	},
+	tangram_cli_core::{Cli, RemoteOptions},
+	tangram_client::prelude::*,
+	tangram_server_core::{Owned as Server, Shutdown},
+	tangram_uri::Uri,
+};
+
+/// Run the server in the foreground.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	/// The path to the config file.
+	#[arg(long, short)]
+	pub config: Option<PathBuf>,
+
+	/// Override the `directory` key in the config.
+	#[arg(long, short)]
+	pub directory: Option<PathBuf>,
+
+	#[arg(hide = true, long)]
+	pub ready_fd: Option<RawFd>,
+
+	#[command(flatten)]
+	pub remotes: RemoteOptions,
+
+	/// The token.
+	pub token: Option<String>,
+
+	/// Override the tracing filter.
+	#[arg(long)]
+	pub tracing: Option<String>,
+
+	/// Override the HTTP listener URL in the config.
+	#[arg(long, short)]
+	pub url: Option<Uri>,
+}
+
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let tokio_single_threaded = cli
+		.config
+		.as_ref()
+		.is_some_and(|config| config.tokio_single_threaded);
+
+	// Get the server config.
+	let mut config = crate::config::resolve_config(cli)?;
+
+	// Get the directory.
+	let directory = cli.directory_path();
+
+	// Set the directory and version.
+	config.directory = Some(directory);
+	config.version = Some(tangram_cli_core::version());
+
+	// Set the URL.
+	if let Some(url) = &cli.args.url {
+		let listener = tangram_server_core::config::HttpListener {
+			url: url.clone(),
+			tls: None,
+		};
+		config.http.listeners = vec![listener];
+	}
+
+	// Set the remotes.
+	if let Some(remotes) = cli.args.remotes.values() {
+		let mut output = BTreeMap::new();
+		for remote in remotes {
+			let (name, url) = remote
+				.split_once('=')
+				.ok_or_else(|| tg::error!(%remote, "invalid remote"))?;
+			if name.is_empty() {
+				return Err(tg::error!(%remote, "invalid remote"));
+			}
+			let url = url
+				.parse()
+				.map_err(|error| tg::error!(!error, %remote, "invalid remote URL"))?;
+			let entry = tangram_server_core::config::Remote {
+				token: None,
+				trusted: false,
+				url,
+			};
+			output.insert(name.to_owned(), entry);
+		}
+		config.remotes = Some(output);
+	}
+
+	// Set the trusted remotes.
+	if let Some(trusted) = cli.args.remotes.trusted() {
+		let remotes = config
+			.remotes
+			.as_mut()
+			.ok_or_else(|| tg::error!("failed to find the trusted remotes"))?;
+		for remote in remotes.values_mut() {
+			remote.trusted = false;
+		}
+		for name in trusted {
+			let remote = remotes
+				.get_mut(name)
+				.ok_or_else(|| tg::error!(%name, "failed to find the trusted remote"))?;
+			remote.trusted = true;
+		}
+	}
+
+	let ready_fd = args.ready_fd;
+
+	let future = async move {
+		let mut interrupt =
+			tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
+		let mut terminate =
+			tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+
+		// Start the server.
+		let server: Server = tokio::select! {
+			result = tangram_server_core::Server::start(config, tangram_server::components).boxed() => {
+				result.map_err(|error| tg::error!(!error, "failed to start the server"))?
+			},
+			_ = interrupt.recv() => {
+				return Ok::<_, tg::Error>(());
+			},
+			_ = terminate.recv() => {
+				return Ok::<_, tg::Error>(());
+			},
+		};
+
+		if let Some(ready_fd) = ready_fd {
+			let ready_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(ready_fd) };
+			let mut ready = std::fs::File::from(ready_fd);
+			ready
+				.write_all(&[0x00])
+				.map_err(|error| tg::error!(!error, "failed to write the ready signal"))?;
+			ready
+				.flush()
+				.map_err(|error| tg::error!(!error, "failed to flush the ready signal"))?;
+		}
+
+		let shutdown = tokio::select! {
+			result = server.wait() => {
+				result.unwrap();
+				None
+			},
+			_ = interrupt.recv() => {
+				Some(Shutdown::Interrupt)
+			},
+			_ = terminate.recv() => {
+				Some(Shutdown::Terminate)
+			},
+		};
+
+		if let Some(shutdown) = shutdown {
+			server.shutdown(shutdown);
+			tokio::select! {
+				result = server.wait() => {
+					result.unwrap();
+				},
+				_ = interrupt.recv() => {
+					std::process::exit(130);
+				},
+				_ = terminate.recv() => {
+					std::process::exit(130);
+				}
+			}
+		}
+		drop(server);
+
+		Ok::<_, tg::Error>(())
+	};
+
+	if tokio_single_threaded {
+		future.boxed().await?;
+	} else {
+		tokio::task::spawn_blocking(move || {
+			let runtime = tokio::runtime::Builder::new_multi_thread()
+				.enable_all()
+				.build()
+				.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
+			let result = runtime.block_on(future);
+			drop(runtime);
+			result
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the server runtime task panicked"))??;
+	}
+
+	Ok(())
+}

@@ -9,6 +9,13 @@ use {
 	tokio::io::AsyncReadExt as _,
 };
 
+mod handle;
+
+pub use self::handle::Handle;
+
+/// The default capacity of a progress handle's channel.
+pub const DEFAULT_CHANNEL_CAPACITY: usize = 1024;
+
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
 	pub interval: Duration,

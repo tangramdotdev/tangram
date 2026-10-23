@@ -1,0 +1,53 @@
+use {
+	std::{fs::OpenOptions, path::Path},
+	tangram_client::prelude::*,
+	xattr::FileExt as _,
+};
+
+const PROBE_XATTR_NAME: &str = "user.tangram.probe";
+
+pub fn probe(directory: &Path) -> tg::Result<tg::file::xattrs::Options> {
+	// Create the probe file.
+	let name = format!(".tangram-xattr-probe-{}", uuid::Uuid::now_v7());
+	let path = directory.join(name);
+	let file = OpenOptions::new()
+		.create_new(true)
+		.write(true)
+		.open(&path)
+		.map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to create the xattr probe file"),
+		)?;
+	std::fs::remove_file(&path).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to unlink the xattr probe file"),
+	)?;
+
+	// Find a supported value size.
+	let value = vec![0; tg::file::xattrs::MAX_VALUE_SIZE];
+	let mut max_value_size = value.len();
+	loop {
+		match file.set_xattr(PROBE_XATTR_NAME, &value[..max_value_size]) {
+			Ok(()) => break,
+			Err(error) if is_capacity_error(&error) && max_value_size > 1 => {
+				max_value_size /= 2;
+			},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					path = %path.display(),
+					"failed to probe the xattr value size"
+				));
+			},
+		}
+	}
+
+	let options = tg::file::xattrs::Options { max_value_size };
+
+	Ok(options)
+}
+
+fn is_capacity_error(error: &std::io::Error) -> bool {
+	matches!(
+		error.raw_os_error(),
+		Some(libc::E2BIG | libc::EDQUOT | libc::ENOSPC | libc::ERANGE)
+	)
+}

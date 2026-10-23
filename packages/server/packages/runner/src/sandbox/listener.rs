@@ -1,0 +1,205 @@
+use {crate::Component, std::path::Path, tangram_client::prelude::*};
+
+impl Component {
+	#[cfg(target_os = "macos")]
+	pub(super) async fn run_create_listener(
+		root_path: &Path,
+		isolation: &tangram_sandbox::Backend,
+		_resources: &tangram_sandbox::Resources,
+		_listener_port: Option<u32>,
+	) -> tg::Result<(
+		tangram_server_core::http::Listener,
+		tangram_uri::Uri,
+		Option<std::path::PathBuf>,
+	)> {
+		match isolation {
+			tangram_sandbox::Backend::Builtin
+			| tangram_sandbox::Backend::Bubblewrap { .. }
+			| tangram_sandbox::Backend::Gvisor { .. } => {
+				Err(tg::error!("container isolation is not supported on macos"))
+			},
+			tangram_sandbox::Backend::Seatbelt => Self::run_create_unix_listener(root_path).await,
+			tangram_sandbox::Backend::CloudHypervisor(_) => {
+				Err(tg::error!("vm isolation is not supported on macos"))
+			},
+		}
+	}
+
+	#[cfg(target_os = "linux")]
+	pub(super) async fn run_create_listener(
+		root_path: &Path,
+		isolation: &tangram_sandbox::Backend,
+		resources: &tangram_sandbox::Resources,
+		listener_port: Option<u32>,
+	) -> tg::Result<(
+		tangram_server_core::http::Listener,
+		tangram_uri::Uri,
+		Option<std::path::PathBuf>,
+	)> {
+		match isolation {
+			tangram_sandbox::Backend::Builtin
+			| tangram_sandbox::Backend::Bubblewrap { .. }
+			| tangram_sandbox::Backend::Gvisor { .. } => {
+				let output = Self::run_create_unix_listener(root_path).await?;
+				if resources.uid_map.is_some() {
+					// Restrict host access before allowing the mapped workload to connect to its API socket.
+					let permissions =
+						<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(
+							0o700,
+						);
+					tokio::fs::set_permissions(root_path, permissions.clone())
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "failed to restrict the sandbox directory")
+						})?;
+					let path = output.2.as_ref().unwrap();
+					tokio::fs::set_permissions(path.parent().unwrap(), permissions)
+						.await
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								"failed to restrict the sandbox API socket directory"
+							)
+						})?;
+					let permissions =
+						<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(
+							0o666,
+						);
+					tokio::fs::set_permissions(path, permissions)
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "failed to set the sandbox API socket permissions")
+						})?;
+				}
+				Ok(output)
+			},
+			tangram_sandbox::Backend::Seatbelt => {
+				Err(tg::error!("seatbelt isolation is not supported on linux"))
+			},
+			tangram_sandbox::Backend::CloudHypervisor(_) => {
+				#[cfg(not(feature = "vsock"))]
+				{
+					let _ = listener_port;
+					Err(tg::error!("vsock is not enabled"))
+				}
+				#[cfg(feature = "vsock")]
+				{
+					let port = listener_port
+						.ok_or_else(|| tg::error!("missing the vm isolation configuration"))?;
+					let socket = format!(
+						"{}_{port}",
+						tangram_sandbox::cloud_hypervisor::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME
+					);
+					let path = root_path.join("vm").join(socket);
+					tokio::fs::create_dir_all(path.parent().unwrap())
+						.await
+						.map_err(|error| tg::error!(!error, "failed to create the vm directory"))?;
+					let host_url = unix_url(&path)?;
+					let listener = tangram_server_core::Server::listen(&host_url)
+						.await
+						.map_err(|error| tg::error!(!error, url = %host_url, "failed to listen"))?;
+					let guest_url = format!(
+						"http+vsock://{}:{port}",
+						tangram_sandbox::cloud_hypervisor::VMADDR_CID_HOST
+					)
+					.parse::<tangram_uri::Uri>()
+					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?;
+					Ok((listener, guest_url, None))
+				}
+			},
+		}
+	}
+
+	async fn run_create_unix_listener(
+		root_path: &Path,
+	) -> tg::Result<(
+		tangram_server_core::http::Listener,
+		tangram_uri::Uri,
+		Option<std::path::PathBuf>,
+	)> {
+		let host_socket_path =
+			tangram_sandbox::Sandbox::host_tangram_socket_path_from_root(root_path);
+		let guest_socket_path =
+			tangram_sandbox::Sandbox::guest_tangram_socket_path_from_root(root_path);
+		let max_socket_path_len = if cfg!(target_os = "macos") {
+			100
+		} else {
+			usize::MAX
+		};
+		let host_socket_path_string = host_socket_path
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid socket path"))?;
+		let guest_socket_path_string = guest_socket_path
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid socket path"))?;
+
+		tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the host path"))?;
+		let host_url = if host_socket_path_string.len() <= max_socket_path_len {
+			unix_url(&host_socket_path)?
+		} else {
+			"http://localhost:0"
+				.parse::<tangram_uri::Uri>()
+				.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
+		};
+		let listener = tangram_server_core::Server::listen(&host_url)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to listen"))?;
+		let guest_url = match &listener {
+			tangram_server_core::http::Listener::Tcp(tcp) => {
+				let port = tcp
+					.local_addr()
+					.map_err(|error| tg::error!(!error, "failed to get the listener address"))?
+					.port();
+				format!("http://localhost:{port}")
+					.parse::<tangram_uri::Uri>()
+					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
+			},
+
+			tangram_server_core::http::Listener::Unix { .. } => tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(guest_socket_path_string)
+				.path("")
+				.build()
+				.map_err(|error| tg::error!(!error, "failed to build the guest URL"))?,
+
+			#[cfg(feature = "vsock")]
+			tangram_server_core::http::Listener::Vsock(vsock) => {
+				let addr = vsock
+					.local_addr()
+					.map_err(|error| tg::error!(!error, "failed to get the listener address"))?;
+				format!("http+vsock://{}:{}", addr.cid(), addr.port())
+					.parse::<tangram_uri::Uri>()
+					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
+			},
+		};
+		let host_socket_path = match &listener {
+			tangram_server_core::http::Listener::Tcp(_) => host_socket_path,
+			tangram_server_core::http::Listener::Unix { guard, .. } => {
+				if guard.indirect() {
+					tokio::fs::remove_file(guard.entry())
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "failed to remove the socket symlink")
+						})?;
+				}
+				guard.path().to_owned()
+			},
+			#[cfg(feature = "vsock")]
+			tangram_server_core::http::Listener::Vsock(_) => host_socket_path,
+		};
+
+		Ok((listener, guest_url, Some(host_socket_path)))
+	}
+}
+
+fn unix_url(path: &std::path::Path) -> tg::Result<tangram_uri::Uri> {
+	let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
+	tangram_uri::Uri::builder()
+		.scheme("http+unix")
+		.authority(path)
+		.path("")
+		.build()
+		.map_err(|error| tg::error!(!error, "failed to build the URL"))
+}

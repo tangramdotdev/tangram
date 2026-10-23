@@ -1,0 +1,121 @@
+[package]
+name = "tangram_server_core"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.cargo-shear]
+ignored = ["tokio-postgres"]
+
+[features]
+fjall = ["tangram_server_cache/fjall"]
+foundationdb = [
+	"dep:tangram_index_fdb",
+	"tangram_sandbox/foundationdb",
+	"tangram_server_index/foundationdb",
+]
+javascript = ["tangram_compiler/javascript"]
+lmdb = ["dep:tangram_index_lmdb", "tangram_server_cache/lmdb", "tangram_server_index/lmdb"]
+nats = ["dep:async-nats", "tangram_server_messenger/nats"]
+postgres = ["dep:tokio-postgres", "dep:tangram_database_postgres", "tangram_server_database/postgres"]
+python = ["tangram_compiler/python"]
+rocksdb = ["tangram_server_cache/rocksdb"]
+scylla = ["tangram_server_cache/scylla"]
+sqlite = ["dep:tangram_database_sqlite", "tangram_server_database/sqlite"]
+tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls", "tangram_database_postgres?/tls", "tangram_server_database/tls"]
+tsrs = ["javascript", "tangram_compiler/tsrs"]
+turso = ["dep:turso", "dep:tangram_database_turso", "tangram_server_database/turso"]
+ty = ["python", "tangram_compiler/ty"]
+vsock = ["dep:tokio-vsock", "tangram_client/vsock", "tangram_sandbox/vsock"]
+
+[lib]
+doctest = false
+test = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-nats = { workspace = true, optional = true }
+aws-lc-rs = { workspace = true }
+blake3 = { workspace = true }
+bytes = { workspace = true }
+dashmap = { workspace = true }
+data-encoding = { workspace = true }
+data-encoding-macro = { workspace = true }
+derive_more = { workspace = true }
+fnv = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+indexmap = { workspace = true }
+indoc = { workspace = true }
+libc = { workspace = true }
+mime = { workspace = true }
+num = { workspace = true }
+opentelemetry = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+scopeguard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tangram_archive = { workspace = true }
+tangram_archive_s3 = { workspace = true }
+tangram_billing = { workspace = true }
+tangram_billing_stripe = { workspace = true }
+tangram_cache = { workspace = true }
+tangram_client = { workspace = true }
+tangram_compiler = { workspace = true }
+tangram_database = { workspace = true }
+tangram_database_postgres = { workspace = true, optional = true }
+tangram_database_sqlite = { workspace = true, optional = true }
+tangram_database_turso = { workspace = true, optional = true }
+tangram_futures = { workspace = true }
+tangram_http = { workspace = true }
+tangram_ignore = { workspace = true }
+tangram_index = { workspace = true }
+tangram_index_fdb = { workspace = true, optional = true }
+tangram_index_lmdb = { workspace = true, optional = true }
+tangram_messenger = { workspace = true }
+tangram_messenger_memory = { workspace = true }
+tangram_pool = { workspace = true }
+tangram_sandbox = { workspace = true }
+tangram_server_authentication_types = { workspace = true }
+tangram_server_cache = { workspace = true }
+tangram_server_checkin_graph = { workspace = true }
+tangram_server_checkpoint_types = { workspace = true }
+tangram_server_clock_types = { workspace = true }
+tangram_server_config = { workspace = true }
+tangram_server_control = { workspace = true }
+tangram_server_database = { workspace = true }
+tangram_server_directory = { workspace = true }
+tangram_server_graph = { workspace = true }
+tangram_server_index = { workspace = true }
+tangram_server_messenger = { workspace = true }
+tangram_server_read_types = { workspace = true }
+tangram_server_watch_types = { workspace = true }
+tangram_serialize = { workspace = true }
+tangram_uri = { workspace = true }
+tangram_util = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tokio-vsock = { workspace = true, optional = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+turso = { workspace = true, optional = true }
+uuid = { workspace = true }
+xattr = { workspace = true }

@@ -1,51 +1,169 @@
 [workspace]
-default-members = ["packages/cli"]
+default-members = [
+  "packages/cli",
+  "packages/cli/packages/archive",
+  "packages/cli/packages/availability",
+  "packages/cli/packages/builtin",
+  "packages/cli/packages/bundle",
+  "packages/cli/packages/check",
+  "packages/cli/packages/checkin",
+  "packages/cli/packages/checkout",
+  "packages/cli/packages/checkpoint",
+  "packages/cli/packages/checksum",
+  "packages/cli/packages/children",
+  "packages/cli/packages/clean",
+  "packages/cli/packages/clock",
+  "packages/cli/packages/compress",
+  "packages/cli/packages/decompress",
+  "packages/cli/packages/document",
+  "packages/cli/packages/download",
+  "packages/cli/packages/extract",
+  "packages/cli/packages/format",
+  "packages/cli/packages/get",
+  "packages/cli/packages/grants",
+  "packages/cli/packages/group",
+  "packages/cli/packages/health",
+  "packages/cli/packages/id",
+  "packages/cli/packages/index",
+  "packages/cli/packages/init",
+  "packages/cli/packages/javascript",
+  "packages/cli/packages/list",
+  "packages/cli/packages/lsp",
+  "packages/cli/packages/match",
+  "packages/cli/packages/metadata",
+  "packages/cli/packages/new",
+  "packages/cli/packages/object",
+  "packages/cli/packages/organization",
+  "packages/cli/packages/outdated",
+  "packages/cli/packages/process",
+  "packages/cli/packages/publish",
+  "packages/cli/packages/pull",
+  "packages/cli/packages/push",
+  "packages/cli/packages/put",
+  "packages/cli/packages/python",
+  "packages/cli/packages/read",
+  "packages/cli/packages/remote",
+  "packages/cli/packages/repl",
+  "packages/cli/packages/runner",
+  "packages/cli/packages/sandbox",
+  "packages/cli/packages/shell",
+  "packages/cli/packages/tag",
+  "packages/cli/packages/tangram",
+  "packages/cli/packages/touch",
+  "packages/cli/packages/tree",
+  "packages/cli/packages/update",
+  "packages/cli/packages/usage",
+  "packages/cli/packages/user",
+  "packages/cli/packages/view",
+  "packages/cli/packages/viewer",
+  "packages/cli/packages/wait",
+  "packages/cli/packages/watch",
+  "packages/cli/packages/write",
+]
 members = [
   "packages/archive",
-  "packages/archive/s3",
+  "packages/archive/packages/s3",
   "packages/billing",
-  "packages/billing/stripe",
+  "packages/billing/packages/stripe",
   "packages/cache",
-  "packages/cache/fjall",
-  "packages/cache/lmdb",
-  "packages/cache/memory",
-  "packages/cache/rocksdb",
-  "packages/cache/scylla",
+  "packages/cache/packages/fjall",
+  "packages/cache/packages/lmdb",
+  "packages/cache/packages/memory",
+  "packages/cache/packages/rocksdb",
+  "packages/cache/packages/scylla",
   "packages/cli",
-  "packages/cli/test",
+  "packages/cli/packages/core",
+  "packages/cli/packages/server",
+  "packages/cli/packages/test",
   "packages/clients/javascript/native",
   "packages/clients/python/native",
   "packages/clients/rust",
   "packages/compiler",
   "packages/database",
-  "packages/database/postgres",
-  "packages/database/sqlite",
-  "packages/database/turso",
+  "packages/database/packages/postgres",
+  "packages/database/packages/sqlite",
+  "packages/database/packages/turso",
   "packages/either",
   "packages/fdb",
   "packages/futures",
   "packages/http",
   "packages/ignore",
   "packages/index",
-  "packages/index/fdb",
-  "packages/index/lmdb",
+  "packages/index/packages/fdb",
+  "packages/index/packages/lmdb",
   "packages/javascript",
-	"packages/messenger",
-  "packages/messenger/memory",
-  "packages/messenger/nats",
+  "packages/messenger",
+  "packages/messenger/packages/memory",
+  "packages/messenger/packages/nats",
   "packages/pool",
   "packages/python",
-  "packages/python/build",
+  "packages/python/packages/build",
   "packages/quickjs",
   "packages/sandbox",
   "packages/scylla/client",
   "packages/serialize",
   "packages/server",
+  "packages/server/packages/authentication",
+  "packages/server/packages/authentication/packages/types",
+  "packages/server/packages/authorization",
+  "packages/server/packages/billing",
+  "packages/server/packages/cache",
+  "packages/server/packages/check",
+  "packages/server/packages/checkin",
+  "packages/server/packages/checkin/packages/graph",
+  "packages/server/packages/checkout",
+  "packages/server/packages/checkpoint",
+  "packages/server/packages/checkpoint/packages/types",
+  "packages/server/packages/checksum",
+  "packages/server/packages/children",
+  "packages/server/packages/clean",
+  "packages/server/packages/clock",
+  "packages/server/packages/clock/packages/types",
+  "packages/server/packages/config",
+  "packages/server/packages/control",
+  "packages/server/packages/core",
+  "packages/server/packages/database",
+  "packages/server/packages/directory",
+  "packages/server/packages/document",
+  "packages/server/packages/format",
+  "packages/server/packages/get",
+  "packages/server/packages/grant",
+  "packages/server/packages/graph",
+  "packages/server/packages/group",
+  "packages/server/packages/health",
+  "packages/server/packages/index",
+  "packages/server/packages/indexer",
+  "packages/server/packages/list",
+  "packages/server/packages/log",
+  "packages/server/packages/lsp",
+  "packages/server/packages/match",
+  "packages/server/packages/messenger",
+  "packages/server/packages/module",
+  "packages/server/packages/node",
+  "packages/server/packages/object",
+  "packages/server/packages/organization",
+  "packages/server/packages/process",
+  "packages/server/packages/pull",
+  "packages/server/packages/push",
+  "packages/server/packages/read",
+  "packages/server/packages/read/packages/types",
+  "packages/server/packages/remote",
+  "packages/server/packages/runner",
+  "packages/server/packages/sandbox",
+  "packages/server/packages/scheduler",
+  "packages/server/packages/sync",
+  "packages/server/packages/tag",
+  "packages/server/packages/user",
+  "packages/server/packages/verify",
+  "packages/server/packages/vfs",
+  "packages/server/packages/watch",
+  "packages/server/packages/watch/packages/types",
+  "packages/server/packages/write",
   "packages/uri",
   "packages/util",
   "packages/v8",
   "packages/vfs",
-  "packages/vfs/provider",
+  "packages/vfs/packages/provider",
   "packages/zed",
 ]
 resolver = "2"
@@ -168,9 +286,9 @@ opentelemetry-appender-tracing = "0.33"
 opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 owo-colors = "4"
-oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
-oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
-oxc_formatter_core = { git = "https://github.com/oxc-project/oxc" }
+oxc = { git = "https://github.com/tangramdotdev/oxc", features = ["full"] }
+oxc_formatter = { git = "https://github.com/tangramdotdev/oxc" }
+oxc_formatter_core = { git = "https://github.com/tangramdotdev/oxc" }
 percent-encoding = "2"
 pep440_rs = "0.7.3"
 petgraph = "0.8"
@@ -219,41 +337,157 @@ syn = { version = "3", features = ["full"] }
 syntect = "5"
 sync_wrapper = "1"
 tangram_archive = { path = "packages/archive" }
-tangram_archive_s3 = { path = "packages/archive/s3" }
+tangram_archive_s3 = { path = "packages/archive/packages/s3" }
 tangram_billing = { path = "packages/billing" }
-tangram_billing_stripe = { path = "packages/billing/stripe" }
+tangram_billing_stripe = { path = "packages/billing/packages/stripe" }
 tangram_cache = { path = "packages/cache" }
-tangram_cache_fjall = { path = "packages/cache/fjall" }
-tangram_cache_lmdb = { path = "packages/cache/lmdb" }
-tangram_cache_memory = { path = "packages/cache/memory" }
-tangram_cache_rocksdb = { path = "packages/cache/rocksdb" }
-tangram_cache_scylla = { path = "packages/cache/scylla" }
+tangram_cache_fjall = { path = "packages/cache/packages/fjall" }
+tangram_cache_lmdb = { path = "packages/cache/packages/lmdb" }
+tangram_cache_memory = { path = "packages/cache/packages/memory" }
+tangram_cache_rocksdb = { path = "packages/cache/packages/rocksdb" }
+tangram_cache_scylla = { path = "packages/cache/packages/scylla" }
+tangram_cli_archive = { path = "packages/cli/packages/archive" }
+tangram_cli_availability = { path = "packages/cli/packages/availability" }
+tangram_cli_builtin = { path = "packages/cli/packages/builtin" }
+tangram_cli_bundle = { path = "packages/cli/packages/bundle" }
+tangram_cli_check = { path = "packages/cli/packages/check" }
+tangram_cli_checkin = { path = "packages/cli/packages/checkin" }
+tangram_cli_checkout = { path = "packages/cli/packages/checkout" }
+tangram_cli_checkpoint = { path = "packages/cli/packages/checkpoint" }
+tangram_cli_checksum = { path = "packages/cli/packages/checksum" }
+tangram_cli_children = { path = "packages/cli/packages/children" }
+tangram_cli_clean = { path = "packages/cli/packages/clean" }
+tangram_cli_clock = { path = "packages/cli/packages/clock" }
+tangram_cli_compress = { path = "packages/cli/packages/compress" }
+tangram_cli_core = { path = "packages/cli/packages/core" }
+tangram_cli_decompress = { path = "packages/cli/packages/decompress" }
+tangram_cli_document = { path = "packages/cli/packages/document" }
+tangram_cli_download = { path = "packages/cli/packages/download" }
+tangram_cli_extract = { path = "packages/cli/packages/extract" }
+tangram_cli_format = { path = "packages/cli/packages/format" }
+tangram_cli_get = { path = "packages/cli/packages/get" }
+tangram_cli_grants = { path = "packages/cli/packages/grants" }
+tangram_cli_group = { path = "packages/cli/packages/group" }
+tangram_cli_health = { path = "packages/cli/packages/health" }
+tangram_cli_id = { path = "packages/cli/packages/id" }
+tangram_cli_index = { path = "packages/cli/packages/index" }
+tangram_cli_init = { path = "packages/cli/packages/init" }
+tangram_cli_javascript = { path = "packages/cli/packages/javascript" }
+tangram_cli_list = { path = "packages/cli/packages/list" }
+tangram_cli_lsp = { path = "packages/cli/packages/lsp" }
+tangram_cli_match = { path = "packages/cli/packages/match" }
+tangram_cli_metadata = { path = "packages/cli/packages/metadata" }
+tangram_cli_new = { path = "packages/cli/packages/new" }
+tangram_cli_object = { path = "packages/cli/packages/object" }
+tangram_cli_organization = { path = "packages/cli/packages/organization" }
+tangram_cli_outdated = { path = "packages/cli/packages/outdated" }
+tangram_cli_process = { path = "packages/cli/packages/process" }
+tangram_cli_publish = { path = "packages/cli/packages/publish" }
+tangram_cli_pull = { path = "packages/cli/packages/pull" }
+tangram_cli_push = { path = "packages/cli/packages/push" }
+tangram_cli_put = { path = "packages/cli/packages/put" }
+tangram_cli_python = { path = "packages/cli/packages/python" }
+tangram_cli_read = { path = "packages/cli/packages/read" }
+tangram_cli_remote = { path = "packages/cli/packages/remote" }
+tangram_cli_repl = { path = "packages/cli/packages/repl" }
+tangram_cli_runner = { path = "packages/cli/packages/runner" }
+tangram_cli_sandbox = { path = "packages/cli/packages/sandbox" }
+tangram_cli_server = { path = "packages/cli/packages/server" }
+tangram_cli_shell = { path = "packages/cli/packages/shell" }
+tangram_cli_tag = { path = "packages/cli/packages/tag" }
+tangram_cli_tangram = { path = "packages/cli/packages/tangram" }
+tangram_cli_touch = { path = "packages/cli/packages/touch" }
+tangram_cli_tree = { path = "packages/cli/packages/tree" }
+tangram_cli_update = { path = "packages/cli/packages/update" }
+tangram_cli_usage = { path = "packages/cli/packages/usage" }
+tangram_cli_user = { path = "packages/cli/packages/user" }
+tangram_cli_view = { path = "packages/cli/packages/view" }
+tangram_cli_viewer = { path = "packages/cli/packages/viewer" }
+tangram_cli_wait = { path = "packages/cli/packages/wait" }
+tangram_cli_watch = { path = "packages/cli/packages/watch" }
+tangram_cli_write = { path = "packages/cli/packages/write" }
 tangram_client = { path = "packages/clients/rust" }
 tangram_compiler = { path = "packages/compiler" }
 tangram_database = { path = "packages/database" }
-tangram_database_postgres = { path = "packages/database/postgres" }
-tangram_database_sqlite = { path = "packages/database/sqlite" }
-tangram_database_turso = { path = "packages/database/turso" }
+tangram_database_postgres = { path = "packages/database/packages/postgres" }
+tangram_database_sqlite = { path = "packages/database/packages/sqlite" }
+tangram_database_turso = { path = "packages/database/packages/turso" }
 tangram_either = { path = "packages/either" }
 tangram_fdb = { path = "packages/fdb" }
 tangram_futures = { path = "packages/futures" }
 tangram_http = { path = "packages/http" }
 tangram_ignore = { path = "packages/ignore" }
 tangram_index = { path = "packages/index" }
-tangram_index_fdb = { path = "packages/index/fdb" }
-tangram_index_lmdb = { path = "packages/index/lmdb" }
+tangram_index_fdb = { path = "packages/index/packages/fdb" }
+tangram_index_lmdb = { path = "packages/index/packages/lmdb" }
 tangram_javascript = { path = "packages/javascript" }
 tangram_messenger = { path = "packages/messenger" }
-tangram_messenger_memory = { path = "packages/messenger/memory" }
-tangram_messenger_nats = { path = "packages/messenger/nats" }
+tangram_messenger_memory = { path = "packages/messenger/packages/memory" }
+tangram_messenger_nats = { path = "packages/messenger/packages/nats" }
 tangram_pool = { path = "packages/pool" }
 tangram_python = { path = "packages/python" }
-tangram_python_build = { path = "packages/python/build" }
+tangram_python_build = { path = "packages/python/packages/build" }
 tangram_python_native = { path = "packages/clients/python/native" }
 tangram_quickjs = { path = "packages/quickjs" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }
+tangram_server_authentication = { path = "packages/server/packages/authentication" }
+tangram_server_authentication_types = { path = "packages/server/packages/authentication/packages/types" }
+tangram_server_authorization = { path = "packages/server/packages/authorization" }
+tangram_server_billing = { path = "packages/server/packages/billing" }
+tangram_server_cache = { path = "packages/server/packages/cache" }
+tangram_server_check = { path = "packages/server/packages/check" }
+tangram_server_checkin = { path = "packages/server/packages/checkin" }
+tangram_server_checkin_graph = { path = "packages/server/packages/checkin/packages/graph" }
+tangram_server_checkout = { path = "packages/server/packages/checkout" }
+tangram_server_checkpoint = { path = "packages/server/packages/checkpoint" }
+tangram_server_checkpoint_types = { path = "packages/server/packages/checkpoint/packages/types" }
+tangram_server_checksum = { path = "packages/server/packages/checksum" }
+tangram_server_children = { path = "packages/server/packages/children" }
+tangram_server_clean = { path = "packages/server/packages/clean" }
+tangram_server_clock = { path = "packages/server/packages/clock" }
+tangram_server_clock_types = { path = "packages/server/packages/clock/packages/types" }
+tangram_server_config = { path = "packages/server/packages/config" }
+tangram_server_control = { path = "packages/server/packages/control" }
+tangram_server_core = { path = "packages/server/packages/core" }
+tangram_server_database = { path = "packages/server/packages/database" }
+tangram_server_directory = { path = "packages/server/packages/directory" }
+tangram_server_document = { path = "packages/server/packages/document" }
+tangram_server_format = { path = "packages/server/packages/format" }
+tangram_server_get = { path = "packages/server/packages/get" }
+tangram_server_grant = { path = "packages/server/packages/grant" }
+tangram_server_graph = { path = "packages/server/packages/graph" }
+tangram_server_group = { path = "packages/server/packages/group" }
+tangram_server_health = { path = "packages/server/packages/health" }
+tangram_server_index = { path = "packages/server/packages/index" }
+tangram_server_indexer = { path = "packages/server/packages/indexer" }
+tangram_server_list = { path = "packages/server/packages/list" }
+tangram_server_log = { path = "packages/server/packages/log" }
+tangram_server_lsp = { path = "packages/server/packages/lsp" }
+tangram_server_match = { path = "packages/server/packages/match" }
+tangram_server_messenger = { path = "packages/server/packages/messenger" }
+tangram_server_module = { path = "packages/server/packages/module" }
+tangram_server_node = { path = "packages/server/packages/node" }
+tangram_server_object = { path = "packages/server/packages/object" }
+tangram_server_organization = { path = "packages/server/packages/organization" }
+tangram_server_process = { path = "packages/server/packages/process" }
+tangram_server_pull = { path = "packages/server/packages/pull" }
+tangram_server_push = { path = "packages/server/packages/push" }
+tangram_server_read = { path = "packages/server/packages/read" }
+tangram_server_read_types = { path = "packages/server/packages/read/packages/types" }
+tangram_server_remote = { path = "packages/server/packages/remote" }
+tangram_server_runner = { path = "packages/server/packages/runner" }
+tangram_server_sandbox = { path = "packages/server/packages/sandbox" }
+tangram_server_scheduler = { path = "packages/server/packages/scheduler" }
+tangram_server_sync = { path = "packages/server/packages/sync" }
+tangram_server_tag = { path = "packages/server/packages/tag" }
+tangram_server_user = { path = "packages/server/packages/user" }
+tangram_server_verify = { path = "packages/server/packages/verify" }
+tangram_server_vfs = { path = "packages/server/packages/vfs" }
+tangram_server_watch = { path = "packages/server/packages/watch" }
+tangram_server_watch_types = { path = "packages/server/packages/watch/packages/types" }
+tangram_server_write = { path = "packages/server/packages/write" }
 tangram_uri = { path = "packages/uri" }
 tangram_util = { path = "packages/util" }
 tangram_v8 = { path = "packages/v8" }

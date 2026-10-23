@@ -11,7 +11,7 @@ use {
 fn main() {
 	for path in [
 		"build.rs",
-		"build",
+		"packages/build",
 		"src",
 		"../clients/python/pyproject.toml",
 		"../../uv.lock",
@@ -101,7 +101,7 @@ fn main() {
 	let packages = tangram_python_build::packages(&python, &root, &output);
 	let status = Command::new(&python)
 		.args(["-B", "-E", "-s"])
-		.arg("build/embed.py")
+		.arg("packages/build/embed.py")
 		.arg(&distribution)
 		.arg(&host_distribution)
 		.arg(&output)

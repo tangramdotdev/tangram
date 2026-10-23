@@ -3,457 +3,211 @@
 use {
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
-	std::path::PathBuf,
+	tangram_cli_core::Cli,
 	tangram_client::prelude::*,
-	tangram_uri::Uri,
 };
-
-mod archive;
-mod availability;
-mod browser;
-mod builtin;
-mod bundle;
-mod check;
-mod checkin;
-mod checkout;
-mod checkpoint;
-mod checksum;
-mod children;
-mod clean;
-mod client;
-mod clock;
-mod compress;
-mod decompress;
-mod document;
-mod download;
-mod error;
-mod extract;
-mod format;
-mod get;
-mod grants;
-mod group;
-mod health;
-mod id;
-mod index;
-mod init;
-#[cfg(any(feature = "quickjs", feature = "v8"))]
-mod javascript;
-mod list;
-mod location;
-mod lsp;
-mod match_;
-mod metadata;
-mod new;
-mod node;
-mod object;
-mod organization;
-mod outdated;
-mod print;
-mod process;
-mod progress;
-mod publish;
-mod pull;
-mod push;
-mod put;
-#[cfg(feature = "cpython")]
-mod python;
-mod read;
-mod remote;
-#[cfg(any(feature = "quickjs", feature = "v8"))]
-mod repl;
-mod runner;
-mod sandbox;
-mod server;
-mod shell;
-mod tag;
-mod tangram;
-mod telemetry;
-mod theme;
-mod touch;
-mod tracing;
-mod tree;
-mod update;
-mod usage;
-mod user;
-mod view;
-mod viewer;
-mod wait;
-mod watch;
-mod write;
-
-pub use self::config::Config;
-
-pub mod config;
-
-pub struct Cli {
-	args: Args,
-	client: Option<tg::Client>,
-	config: Option<Config>,
-	exit: Option<std::process::ExitCode>,
-	health: Option<tg::Health>,
-	matches: clap::ArgMatches,
-}
 
 #[derive(Clone, Debug, clap::Parser)]
 #[command(
 	about = "Tangram is a build system and package manager.",
 	arg_required_else_help = true,
-	before_help = before_help(),
+	before_help = tangram_cli_core::before_help(),
 	disable_help_subcommand = true,
 	name = "tangram",
-	version = version(),
+	version = tangram_cli_core::version(),
 )]
 struct Args {
 	#[command(subcommand)]
 	command: Command,
 
-	/// The path to the config file.
-	#[arg(env = "TANGRAM_CONFIG", long, short)]
-	config: Option<PathBuf>,
-
-	/// Override the `directory` key in the config.
-	#[arg(env = "TANGRAM_DIRECTORY", long, short)]
-	directory: Option<PathBuf>,
-
-	/// The mode.
-	#[arg(default_value_t, env = "TANGRAM_MODE", long, short)]
-	mode: Mode,
-
-	#[clap(flatten)]
-	quiet: Quiet,
-
 	#[command(flatten)]
-	remotes: RemoteOptions,
-
-	#[arg(env = "TANGRAM_TOKEN", long)]
-	token: Option<String>,
-
-	/// Override the tracing filter.
-	#[arg(env = "TANGRAM_TRACING", long)]
-	tracing: Option<String>,
-
-	/// Override the HTTP listener URL in the config.
-	#[arg(env = "TANGRAM_URL", long, short)]
-	url: Option<Uri>,
-}
-
-#[derive(Clone, Debug, Default, clap::Args)]
-pub struct RemoteOptions {
-	/// Override the `remotes` key in the config.
-	#[arg(
-		conflicts_with_all = ["main.remotes.remotes", "main.remotes.trusted_remotes"],
-		id = "main.remotes.no_remotes",
-		long = "no-remotes"
-	)]
-	disabled: bool,
-
-	/// Mark remotes as trusted.
-	#[arg(
-		conflicts_with = "main.remotes.no_remotes",
-		id = "main.remotes.trusted_remotes",
-		long = "trusted-remotes",
-		value_delimiter = ','
-	)]
-	trusted: Option<Vec<String>>,
-
-	/// Override the `remotes` key in the config.
-	#[arg(
-		conflicts_with = "main.remotes.no_remotes",
-		id = "main.remotes.remotes",
-		long = "remotes",
-		short = 'r',
-		value_delimiter = ','
-	)]
-	values: Option<Vec<String>>,
-}
-
-impl RemoteOptions {
-	pub fn overlay(&mut self, options: &Self) {
-		if options.disabled {
-			*self = options.clone();
-			return;
-		}
-		if options.trusted.is_some() || options.values.is_some() {
-			self.disabled = false;
-		}
-		if let Some(trusted) = &options.trusted {
-			self.trusted = Some(trusted.clone());
-		}
-		if let Some(values) = &options.values {
-			self.values = Some(values.clone());
-		}
-	}
-
-	#[must_use]
-	pub fn values(&self) -> Option<&[String]> {
-		if self.disabled {
-			Some(&[])
-		} else {
-			self.values.as_deref()
-		}
-	}
-
-	#[must_use]
-	pub fn trusted(&self) -> Option<&[String]> {
-		self.trusted.as_deref()
-	}
-}
-
-#[derive(Clone, Debug, Default, clap::Args)]
-struct Quiet {
-	/// Whether to show progress and other helpful information.
-	#[arg(
-		default_missing_value = "true",
-		id = "main.quiet.quiet",
-		long = "quiet",
-		num_args = 0..=1,
-		overrides_with = "main.quiet.no_quiet",
-		require_equals = true,
-		short = 'q',
-	)]
-	quiet: Option<bool>,
-
-	#[arg(
-		default_missing_value = "true",
-		id = "main.quiet.no_quiet",
-		long = "no-quiet",
-		num_args = 0..=1,
-		overrides_with = "main.quiet.quiet",
-		require_equals = true,
-	)]
-	no_quiet: Option<bool>,
-}
-
-impl Quiet {
-	fn get(&self) -> bool {
-		self.quiet
-			.or(self.no_quiet.map(|value| !value))
-			.or_else(|| {
-				std::env::var("TANGRAM_QUIET")
-					.ok()
-					.and_then(|value| value.parse().ok())
-			})
-			.unwrap_or(false)
-	}
-}
-
-fn before_help() -> String {
-	let version = version();
-	let logo = include_str!("tangram.ascii").trim_end();
-	format!("Tangram {version}\n\n{logo}")
-}
-
-fn version() -> String {
-	let mut version = env!("CARGO_PKG_VERSION").to_owned();
-	if let Some(commit) = option_env!("TANGRAM_CLI_COMMIT_HASH") {
-		version.push('+');
-		version.push_str(commit);
-	}
-	version
-}
-
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Default,
-	clap::ValueEnum,
-	derive_more::Display,
-	derive_more::FromStr,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-#[display(rename_all = "snake_case")]
-#[from_str(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-enum Mode {
-	#[default]
-	Auto,
-
-	Client,
+	global: tangram_cli_core::Args,
 }
 
 #[derive(Clone, Debug, clap::Subcommand)]
 enum Command {
-	Archive(self::archive::Args),
+	Archive(tangram_cli_archive::Args),
 
-	Availability(self::availability::Args),
+	Availability(tangram_cli_availability::Args),
 
 	#[command(alias = "b")]
-	Build(self::process::build::Args),
+	Build(tangram_cli_process::build::Args),
 
 	#[command(hide = true)]
-	Builtin(self::builtin::Args),
+	Builtin(tangram_cli_builtin::Args),
 
-	Bundle(self::bundle::Args),
+	Bundle(tangram_cli_bundle::Args),
 
-	Cancel(self::process::cancel::Args),
+	Cancel(tangram_cli_process::cancel::Args),
 
-	Check(self::check::Args),
+	Check(tangram_cli_check::Args),
 
 	#[command(hide = true)]
-	Checkpoint(self::checkpoint::Args),
+	Checkpoint(tangram_cli_checkpoint::Args),
 
 	#[command(alias = "ci")]
-	Checkin(self::checkin::Args),
+	Checkin(tangram_cli_checkin::Args),
 
 	#[command(alias = "co")]
-	Checkout(self::checkout::Args),
+	Checkout(tangram_cli_checkout::Args),
 
-	Checksum(self::checksum::Args),
+	Checksum(tangram_cli_checksum::Args),
 
-	Children(self::children::Args),
+	Children(tangram_cli_children::Args),
 
-	Clean(self::clean::Args),
+	Clean(tangram_cli_clean::Args),
 
 	#[command(hide = true)]
-	Clock(self::clock::Args),
+	Clock(tangram_cli_clock::Args),
 
-	Compress(self::compress::Args),
+	Compress(tangram_cli_compress::Args),
 
-	Decompress(self::decompress::Args),
+	Decompress(tangram_cli_decompress::Args),
 
 	#[command(alias = "doc")]
-	Document(self::document::Args),
+	Document(tangram_cli_document::Args),
 
-	Download(self::download::Args),
+	Download(tangram_cli_download::Args),
 
-	Exec(self::process::exec::Args),
+	Exec(tangram_cli_process::exec::Args),
 
-	Extract(self::extract::Args),
+	Extract(tangram_cli_extract::Args),
 
-	Format(self::format::Args),
+	Format(tangram_cli_format::Args),
 
-	Get(self::get::Args),
+	Get(tangram_cli_get::Args),
 
-	Grant(self::grants::create::Args),
+	Grant(tangram_cli_grants::create::Args),
 
-	Grants(self::grants::Args),
+	Grants(tangram_cli_grants::Args),
 
 	#[command(alias = "groups")]
-	Group(self::group::Args),
+	Group(tangram_cli_group::Args),
 
-	Health(self::health::Args),
+	Health(tangram_cli_health::Args),
 
 	#[command(hide = true)]
-	Id(self::id::Args),
+	Id(tangram_cli_id::Args),
 
-	Index(self::index::Args),
+	Index(tangram_cli_index::Args),
 
-	Init(self::init::Args),
+	Init(tangram_cli_init::Args),
 
 	#[cfg(any(feature = "quickjs", feature = "v8"))]
 	#[command(name = "javascript", alias = "js", hide = true)]
-	JavaScript(self::javascript::Args),
+	JavaScript(tangram_cli_javascript::Args),
 
 	#[command(alias = "ls")]
-	List(self::list::Args),
+	List(tangram_cli_list::Args),
 
-	Login(self::user::login::Args),
+	Login(tangram_cli_user::login::Args),
 
-	Log(self::process::stdio::read::Args),
+	Log(tangram_cli_process::stdio::read::Args),
 
-	Logout(self::user::logout::Args),
+	Logout(tangram_cli_user::logout::Args),
 
-	Lsp(self::lsp::Args),
+	Lsp(tangram_cli_lsp::Args),
 
-	Match(self::match_::Args),
+	Match(tangram_cli_match::Args),
 
-	Metadata(self::metadata::Args),
+	Metadata(tangram_cli_metadata::Args),
 
-	New(self::new::Args),
+	New(tangram_cli_new::Args),
 
 	#[command(alias = "obj")]
-	Object(self::object::Args),
+	Object(tangram_cli_object::Args),
 
 	#[command(alias = "org")]
-	Organization(self::organization::Args),
+	Organization(tangram_cli_organization::Args),
 
-	Outdated(self::outdated::Args),
+	Outdated(tangram_cli_outdated::Args),
 
-	Output(self::process::output::Args),
+	Output(tangram_cli_process::output::Args),
 
 	#[command(alias = "pcs")]
-	Process(self::process::Args),
+	Process(tangram_cli_process::Args),
 
-	Ps(self::sandbox::list::Args),
+	Ps(tangram_cli_sandbox::list::Args),
 
-	Publish(self::publish::Args),
+	Publish(tangram_cli_publish::Args),
 
-	Pull(self::pull::Args),
+	Pull(tangram_cli_pull::Args),
 
-	Push(self::push::Args),
+	Push(tangram_cli_push::Args),
 
 	#[command(alias = "add")]
-	Put(self::put::Args),
+	Put(tangram_cli_put::Args),
 
 	#[cfg(feature = "cpython")]
 	#[command(alias = "py")]
-	Python(self::python::Args),
+	Python(tangram_cli_python::Args),
 
 	#[command(alias = "cat")]
-	Read(self::read::Args),
+	Read(tangram_cli_read::Args),
 
-	Remote(self::remote::Args),
+	Remote(tangram_cli_remote::Args),
 
-	Revoke(self::grants::delete::Args),
+	Revoke(tangram_cli_grants::delete::Args),
 
 	#[cfg(any(feature = "quickjs", feature = "v8"))]
-	Repl(self::repl::Args),
+	Repl(tangram_cli_repl::Args),
 
 	#[command(alias = "r")]
-	Run(self::process::run::Args),
+	Run(tangram_cli_process::run::Args),
 
-	Runner(self::runner::Args),
+	Runner(tangram_cli_runner::Args),
 
 	#[command(alias = "sbx")]
-	Sandbox(self::sandbox::Args),
+	Sandbox(tangram_cli_sandbox::Args),
 
 	#[command(name = "self")]
-	Self_(self::tangram::Args),
+	Self_(tangram_cli_tangram::Args),
 
-	Shell(self::shell::Args),
+	Shell(tangram_cli_shell::Args),
 
-	Serve(self::server::run::Args),
+	Serve(tangram_cli_server::run::Args),
 
-	Server(self::server::Args),
+	Server(tangram_cli_server::Args),
 
 	#[command(alias = "kill")]
-	Signal(self::process::signal::Args),
+	Signal(tangram_cli_process::signal::Args),
 
-	Spawn(self::process::spawn::Args),
+	Spawn(tangram_cli_process::spawn::Args),
 
-	Tag(self::tag::Args),
+	Tag(tangram_cli_tag::Args),
 
-	Touch(self::touch::Args),
+	Touch(tangram_cli_touch::Args),
 
 	#[command(hide = true)]
-	Tree(self::tree::Args),
+	Tree(tangram_cli_tree::Args),
 
-	Update(self::update::Args),
+	Update(tangram_cli_update::Args),
 
-	User(self::user::Args),
+	User(tangram_cli_user::Args),
 
-	Usage(self::usage::Args),
+	Usage(tangram_cli_usage::Args),
 
-	View(self::view::Args),
+	View(tangram_cli_view::Args),
 
-	Wait(self::wait::Args),
+	Wait(tangram_cli_wait::Args),
 
-	Watch(self::watch::Args),
+	Watch(tangram_cli_watch::Args),
 
-	Whoami(self::user::whoami::Args),
+	Whoami(tangram_cli_user::whoami::Args),
 
-	Write(self::write::Args),
+	Write(tangram_cli_write::Args),
 }
 
 fn main() -> std::process::ExitCode {
 	// Parse the args.
-	let matches = Args::command().get_matches();
+	let command = Args::command();
+	let matches = command.clone().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();
-	if let Command::Sandbox(self::sandbox::Args { command }) = args.command.clone() {
+	if let Command::Sandbox(tangram_cli_sandbox::Args { command }) = args.command.clone() {
 		let result = match command {
-			self::sandbox::Command::Run(args) => Some(Cli::command_sandbox_run(args)),
+			tangram_cli_sandbox::Command::Run(args) => {
+				Some(tangram_cli_sandbox::Component::command_sandbox_run(args))
+			},
 			_ => None,
 		};
 		if let Some(result) = result {
@@ -470,53 +224,64 @@ fn main() -> std::process::ExitCode {
 		.enable_all()
 		.build()
 		.unwrap();
-	runtime.block_on(main_inner(matches, args))
+	runtime.block_on(main_inner(command, matches, args))
 }
 
-async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::ExitCode {
+async fn main_inner(
+	command: clap::Command,
+	matches: clap::ArgMatches,
+	args: Args,
+) -> std::process::ExitCode {
 	// Create the CLI.
-	let mut cli = Cli {
-		args,
-		client: None,
-		config: None,
-		exit: None,
-		health: None,
-		matches,
-	};
+	let mut cli = Cli::new(args.global, command, matches);
+	let command = args.command;
 
 	// Handle internal commands.
-	let result = match cli.args.command.clone() {
-		Command::Builtin(command_args) => Some(cli.command_builtin(command_args).await),
+	let result = match command.clone() {
+		Command::Builtin(command_args) => Some(
+			tangram_cli_builtin::Component::new(&mut cli)
+				.command_builtin(command_args)
+				.await,
+		),
 
 		#[cfg(any(feature = "quickjs", feature = "v8"))]
 		Command::JavaScript(command_args) => {
 			#[cfg(feature = "v8")]
 			if command_args.engine.is_auto() || command_args.engine.is_v_8() {
-				Cli::initialize_v8(0);
+				tangram_cli_javascript::initialize_v8(0);
 			}
-			let result = cli.command_javascript(command_args).await;
+			let result = tangram_cli_javascript::Component::new(&mut cli)
+				.command_javascript(command_args)
+				.await;
 			Some(result)
 		},
 
 		#[cfg(feature = "cpython")]
-		Command::Python(command_args) => Some(cli.command_python(command_args).await),
+		Command::Python(command_args) => Some(
+			tangram_cli_python::Component::new(&mut cli)
+				.command_python(command_args)
+				.await,
+		),
 
-		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Serve(command_args),
+		Command::Sandbox(tangram_cli_sandbox::Args {
+			command: tangram_cli_sandbox::Command::Serve(command_args),
 			..
 		}) => {
 			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
-			let result = cli.command_sandbox_serve(command_args).await;
+			let result = tangram_cli_sandbox::Component::new(&mut cli)
+				.command_sandbox_serve(command_args)
+				.await;
 			Some(result)
 		},
 
-		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Init(command_args),
+		Command::Sandbox(tangram_cli_sandbox::Args {
+			command: tangram_cli_sandbox::Command::Init(command_args),
 		}) => {
 			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
-			let result = Cli::command_sandbox_init(command_args).map(|exit| {
-				cli.exit = Some(exit);
-			});
+			let result =
+				tangram_cli_sandbox::Component::command_sandbox_init(command_args).map(|exit| {
+					cli.exit = Some(exit);
+				});
 			Some(result)
 		},
 
@@ -541,10 +306,10 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 
 	// Override args from the serve args.
 	if let Command::Serve(serve_args)
-	| Command::Server(self::server::Args {
-		command: self::server::Command::Run(serve_args),
+	| Command::Server(tangram_cli_server::Args {
+		command: tangram_cli_server::Command::Run(serve_args),
 		..
-	}) = &cli.args.command
+	}) = &command
 	{
 		if let Some(config) = serve_args.config.clone() {
 			cli.args.config = Some(config);
@@ -572,10 +337,10 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 	};
 
 	let server = matches!(
-		&cli.args.command,
+		&command,
 		Command::Serve(_)
-			| Command::Server(self::server::Args {
-				command: self::server::Command::Run(_),
+			| Command::Server(tangram_cli_server::Args {
+				command: tangram_cli_server::Command::Run(_),
 				..
 			})
 	);
@@ -598,7 +363,7 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 			.config
 			.as_ref()
 			.and_then(|config| config.index.as_ref())
-			.is_some_and(|index| matches!(index, self::config::Index::Fdb(_)))
+			.is_some_and(|index| matches!(index, tangram_cli_core::config::Index::Fdb(_)))
 	{
 		Some(unsafe { foundationdb::boot() })
 	} else {
@@ -616,7 +381,7 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 	let initialize_v8 = server || {
 		#[cfg(feature = "v8")]
 		{
-			match &cli.args.command {
+			match &command {
 				Command::JavaScript(args) => args.engine.is_auto() || args.engine.is_v_8(),
 				Command::Repl(args) => args.engine.is_auto() || args.engine.is_v_8(),
 				_ => false,
@@ -634,7 +399,7 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 			.as_ref()
 			.and_then(|config| config.v8_thread_pool_size)
 			.unwrap_or(0);
-		Cli::initialize_v8(thread_pool_size);
+		tangram_cli_javascript::initialize_v8(thread_pool_size);
 	}
 
 	// Initialize telemetry and tracing.
@@ -646,7 +411,7 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 	);
 
 	// Run the command.
-	let result = cli.command(cli.args.clone()).await;
+	let result = run(&mut cli, command).await;
 
 	// Handle the result.
 	let exit = match result {
@@ -672,265 +437,511 @@ async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::Exit
 	exit
 }
 
-impl Cli {
-	// Run the command.
-	async fn command(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Archive(args) => self.command_archive(args).boxed_local(),
-
-			Command::Availability(args) => self.command_availability(args).boxed_local(),
-
-			Command::Build(args) => self.command_build(args).boxed_local(),
-
-			Command::Builtin(args) => self.command_builtin(args).boxed_local(),
-
-			Command::Bundle(args) => self.command_bundle(args).boxed_local(),
-
-			Command::Cancel(args) => self.command_process_cancel(args).boxed_local(),
-
-			Command::Check(args) => self.command_check(args).boxed_local(),
-
-			Command::Checkpoint(args) => self.command_checkpoint(args).boxed_local(),
-
-			Command::Checkin(args) => self.command_checkin(args).boxed_local(),
-
-			Command::Checkout(args) => self.command_checkout(args).boxed_local(),
-
-			Command::Checksum(args) => self.command_checksum(args).boxed_local(),
-
-			Command::Children(args) => self.command_children(args).boxed_local(),
-
-			Command::Clean(args) => self.command_clean(args).boxed_local(),
-
-			Command::Clock(args) => self.command_clock(args).boxed_local(),
-
-			Command::Compress(args) => self.command_compress(args).boxed_local(),
-
-			Command::Decompress(args) => self.command_decompress(args).boxed_local(),
-
-			Command::Document(args) => self.command_document(args).boxed_local(),
-
-			Command::Download(args) => self.command_download(args).boxed_local(),
-
-			Command::Exec(args) => self.command_process_exec(args).boxed_local(),
-
-			Command::Extract(args) => self.command_extract(args).boxed_local(),
-
-			Command::Format(args) => self.command_format(args).boxed_local(),
-
-			Command::Get(args) => self.command_get(args).boxed_local(),
-
-			Command::Grant(args) => self.command_grants_create(args).boxed_local(),
-
-			Command::Grants(args) => self.command_grants(args).boxed_local(),
-
-			Command::Group(args) => self.command_group(args).boxed_local(),
-
-			Command::Health(args) => self.command_health(args).boxed_local(),
-
-			Command::Id(args) => self.command_id(args).boxed_local(),
-
-			Command::Index(args) => self.command_index(args).boxed_local(),
-
-			Command::Init(args) => self.command_init(args).boxed_local(),
-
-			#[cfg(any(feature = "quickjs", feature = "v8"))]
-			Command::JavaScript(args) => self.command_javascript(args).boxed_local(),
-
-			Command::List(args) => self.command_list(args).boxed_local(),
-
-			Command::Login(args) => self.command_user_login(args).boxed_local(),
-
-			Command::Log(args) => self.command_process_stdio_read(args).boxed_local(),
-
-			Command::Logout(args) => self.command_user_logout(args).boxed_local(),
-
-			Command::Lsp(args) => self.command_lsp(args).boxed_local(),
-
-			Command::Match(args) => self.command_match(args).boxed_local(),
-
-			Command::Metadata(args) => self.command_metadata(args).boxed_local(),
-
-			Command::New(args) => self.command_new(args).boxed_local(),
-
-			Command::Object(args) => self.command_object(args).boxed_local(),
-
-			Command::Organization(args) => self.command_organization(args).boxed_local(),
-
-			Command::Outdated(args) => self.command_outdated(args).boxed_local(),
-
-			Command::Output(args) => self.command_process_output(args).boxed_local(),
-
-			Command::Process(args) => self.command_process(args).boxed_local(),
-
-			Command::Ps(args) => self.command_sandbox_list(args).boxed_local(),
-
-			Command::Publish(args) => self.command_publish(args).boxed_local(),
-
-			Command::Pull(args) => self.command_pull(args).boxed_local(),
-
-			Command::Push(args) => self.command_push(args).boxed_local(),
-
-			#[cfg(feature = "cpython")]
-			Command::Python(args) => self.command_python(args).boxed_local(),
-
-			Command::Put(args) => self.command_put(args).boxed_local(),
-
-			Command::Read(args) => self.command_read(args).boxed_local(),
-
-			Command::Remote(args) => self.command_remote(args).boxed_local(),
-
-			Command::Revoke(args) => self.command_grants_delete(args).boxed_local(),
-
-			#[cfg(any(feature = "quickjs", feature = "v8"))]
-			Command::Repl(args) => self.command_repl(args).boxed_local(),
-
-			Command::Run(args) => self.command_run(args).boxed_local(),
-
-			Command::Runner(args) => self.command_runner(args).boxed_local(),
-
-			Command::Sandbox(args) => self.command_sandbox(args).boxed_local(),
-
-			Command::Self_(args) => self.command_tangram(args).boxed_local(),
-
-			Command::Shell(args) => self.command_shell(args).boxed_local(),
-
-			Command::Serve(args) => self.command_server_run(args).boxed_local(),
-
-			Command::Server(args) => self.command_server(args).boxed_local(),
-
-			Command::Signal(args) => self.command_process_signal(args).boxed_local(),
-
-			Command::Spawn(args) => self.command_process_spawn(args).boxed_local(),
-
-			Command::Tag(args) => self.command_tag(args).boxed_local(),
-
-			Command::Touch(args) => self.command_touch(args).boxed_local(),
-
-			Command::Tree(args) => self.command_tree(args).boxed_local(),
-
-			Command::Update(args) => self.command_update(args).boxed_local(),
-
-			Command::User(args) => self.command_user(args).boxed_local(),
-
-			Command::Usage(args) => self.command_usage(args).boxed_local(),
-
-			Command::View(args) => self.command_view(args).boxed_local(),
-
-			Command::Wait(args) => self.command_wait(args).boxed_local(),
-
-			Command::Watch(args) => self.command_watch(args).boxed_local(),
-
-			Command::Whoami(args) => self.command_user_whoami(args).boxed_local(),
-
-			Command::Write(args) => self.command_write(args).boxed_local(),
-		}
-		.await
-	}
-
-	fn config_path(&self) -> PathBuf {
-		self.args.config.clone().unwrap_or_else(|| {
-			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
-		})
-	}
-
-	fn directory_path(&self) -> PathBuf {
-		self.args
-			.directory
-			.clone()
-			.or_else(|| {
-				self.config
-					.as_ref()
-					.and_then(|config| config.directory.clone())
-			})
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"))
-	}
-
-	/// Initialize miette.
-	fn initialize_miette() {
-		miette::set_hook(Box::new(|_| {
-			let theme = miette::GraphicalTheme {
-				characters: miette::ThemeCharacters::unicode(),
-				styles: miette::ThemeStyles {
-					error: owo_colors::style().red(),
-					highlights: vec![owo_colors::style().red()],
-					link: owo_colors::style().blue(),
-					linum: owo_colors::style().dimmed(),
-					warning: owo_colors::style().yellow(),
-					..miette::ThemeStyles::none()
-				},
-			};
-			let highlighter = miette::highlighters::SyntectHighlighter::new_themed(
-				crate::theme::tangram(),
-				false,
-			);
-			let handler = miette::GraphicalReportHandler::new()
-				.with_theme(theme)
-				.with_syntax_highlighting(highlighter);
-
-			Box::new(handler)
-		}))
-		.unwrap();
-	}
-
-	/// Initialize V8.
-	#[cfg(feature = "v8")]
-	fn initialize_v8(thread_pool_size: u32) {
-		// Set the ICU data.
-		v8::icu::set_common_data_78(deno_core_icudata::ICU_DATA).unwrap();
-
-		// Initialize the platform.
-		let platform = v8::new_default_platform(thread_pool_size, true);
-		v8::V8::initialize_platform(platform.make_shared());
-
-		// Initialize V8.
-		v8::V8::initialize();
-	}
-
-	fn set_file_descriptor_limit() -> tg::Result<()> {
-		let mut rlimit_nofile = libc::rlimit {
-			rlim_cur: 0,
-			rlim_max: 0,
-		};
-		let ret = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut rlimit_nofile) };
-		if ret != 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to get the file descriptor limit"
-			));
-		}
-		rlimit_nofile.rlim_cur = rlimit_nofile.rlim_max;
-		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const rlimit_nofile) };
-		if ret != 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to set the file descriptor limit"
-			));
-		}
-		Ok(())
-	}
-
-	#[cfg(any(feature = "cpython", feature = "quickjs", feature = "v8"))]
-	async fn spawn_thread<F, T>(f: F) -> tg::Result<T>
-	where
-		F: FnOnce() -> tg::Result<T> + Send + 'static,
-		T: Send + 'static,
-	{
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		std::thread::spawn(move || {
-			let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
-				.map_err(|payload| {
-					let message = payload
-						.downcast_ref::<&str>()
-						.map(|message| (*message).to_owned())
-						.or_else(|| payload.downcast_ref::<String>().cloned());
-					tg::error!(?message, "the thread panicked")
-				})
-				.and_then(|result| result);
-			sender.send(result).ok();
-		});
-		receiver
-			.await
-			.map_err(|error| tg::error!(!error, "failed to receive the thread result"))?
+// Run the command.
+async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
+	match command {
+		Command::Archive(args) => {
+			tangram_cli_archive::Component::new(cli)
+				.command_archive(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Availability(args) => {
+			tangram_cli_availability::Component::new(cli)
+				.command_availability(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Build(args) => {
+			tangram_cli_process::Component::new(cli)
+				.command_build(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Builtin(args) => {
+			tangram_cli_builtin::Component::new(cli)
+				.command_builtin(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Bundle(args) => {
+			tangram_cli_bundle::Component::new(cli)
+				.command_bundle(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Cancel(args) => {
+			tangram_cli_process::Component::new(cli)
+				.command_process_cancel(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Check(args) => {
+			tangram_cli_check::Component::new(cli)
+				.command_check(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Checkpoint(args) => {
+			tangram_cli_checkpoint::Component::new(cli)
+				.command_checkpoint(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Checkin(args) => {
+			tangram_cli_checkin::Component::new(cli)
+				.command_checkin(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Checkout(args) => {
+			tangram_cli_checkout::Component::new(cli)
+				.command_checkout(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Checksum(args) => {
+			tangram_cli_checksum::Component::new(cli)
+				.command_checksum(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Children(args) => {
+			tangram_cli_children::Component::new(cli)
+				.command_children(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Clean(args) => {
+			tangram_cli_clean::Component::new(cli)
+				.command_clean(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Clock(args) => {
+			tangram_cli_clock::Component::new(cli)
+				.command_clock(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Compress(args) => {
+			tangram_cli_compress::Component::new(cli)
+				.command_compress(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Decompress(args) => {
+			tangram_cli_decompress::Component::new(cli)
+				.command_decompress(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Document(args) => {
+			tangram_cli_document::Component::new(cli)
+				.command_document(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Download(args) => {
+			tangram_cli_download::Component::new(cli)
+				.command_download(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Exec(args) => {
+			tangram_cli_process::Component::new(cli)
+				.command_process_exec(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Extract(args) => {
+			tangram_cli_extract::Component::new(cli)
+				.command_extract(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Format(args) => {
+			tangram_cli_format::Component::new(cli)
+				.command_format(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Get(args) => {
+			tangram_cli_get::Component::new(cli)
+				.command_get(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Grant(args) => {
+			tangram_cli_grants::Component::new(cli)
+				.command_grants_create(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Grants(args) => {
+			tangram_cli_grants::Component::new(cli)
+				.command_grants(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Group(args) => {
+			tangram_cli_group::Component::new(cli)
+				.command_group(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Health(args) => {
+			tangram_cli_health::Component::new(cli)
+				.command_health(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Id(args) => {
+			tangram_cli_id::Component::new(cli)
+				.command_id(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Index(args) => {
+			tangram_cli_index::Component::new(cli)
+				.command_index(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Init(args) => {
+			tangram_cli_init::Component::new(cli)
+				.command_init(args)
+				.boxed_local()
+				.await
+		},
+
+		#[cfg(any(feature = "quickjs", feature = "v8"))]
+		Command::JavaScript(args) => {
+			tangram_cli_javascript::Component::new(cli)
+				.command_javascript(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::List(args) => {
+			tangram_cli_list::Component::new(cli)
+				.command_list(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Login(args) => {
+			tangram_cli_user::Component::new(cli)
+				.command_user_login(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Log(args) => {
+			tangram_cli_process::Component::new(cli)
+				.command_process_stdio_read(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Logout(args) => {
+			tangram_cli_user::Component::new(cli)
+				.command_user_logout(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Lsp(args) => {
+			tangram_cli_lsp::Component::new(cli)
+				.command_lsp(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Match(args) => {
+			tangram_cli_match::Component::new(cli)
+				.command_match(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Metadata(args) => {
+			tangram_cli_metadata::Component::new(cli)
+				.command_metadata(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::New(args) => {
+			tangram_cli_new::Component::new(cli)
+				.command_new(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Object(args) => {
+			tangram_cli_object::Component::new(cli)
+				.command_object(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Organization(args) => {
+			tangram_cli_organization::Component::new(cli)
+				.command_organization(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Outdated(args) => {
+			tangram_cli_outdated::Component::new(cli)
+				.command_outdated(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Output(args) => {
+			tangram_cli_process::Component::new(cli)
+				.command_process_output(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Process(args) => {
+			tangram_cli_process::Component::new(cli)
+				.command_process(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Ps(args) => {
+			tangram_cli_sandbox::Component::new(cli)
+				.command_sandbox_list(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Publish(args) => {
+			tangram_cli_publish::Component::new(cli)
+				.command_publish(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Pull(args) => {
+			tangram_cli_pull::Component::new(cli)
+				.command_pull(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Push(args) => {
+			tangram_cli_push::Component::new(cli)
+				.command_push(args)
+				.boxed_local()
+				.await
+		},
+
+		#[cfg(feature = "cpython")]
+		Command::Python(args) => {
+			tangram_cli_python::Component::new(cli)
+				.command_python(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Put(args) => {
+			tangram_cli_put::Component::new(cli)
+				.command_put(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Read(args) => {
+			tangram_cli_read::Component::new(cli)
+				.command_read(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Remote(args) => {
+			tangram_cli_remote::Component::new(cli)
+				.command_remote(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Revoke(args) => {
+			tangram_cli_grants::Component::new(cli)
+				.command_grants_delete(args)
+				.boxed_local()
+				.await
+		},
+
+		#[cfg(any(feature = "quickjs", feature = "v8"))]
+		Command::Repl(args) => {
+			tangram_cli_repl::Component::new(cli)
+				.command_repl(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Run(args) => {
+			tangram_cli_process::Component::new(cli)
+				.command_run(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Runner(args) => {
+			tangram_cli_runner::Component::new(cli)
+				.command_runner(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Sandbox(args) => {
+			tangram_cli_sandbox::Component::new(cli)
+				.command_sandbox(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Self_(args) => {
+			tangram_cli_tangram::Component::new(cli)
+				.command_tangram(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Shell(args) => {
+			tangram_cli_shell::Component::new(cli)
+				.command_shell(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Serve(args) => tangram_cli_server::run::run(cli, args).boxed_local().await,
+
+		Command::Server(args) => tangram_cli_server::server(cli, args).boxed_local().await,
+
+		Command::Signal(args) => {
+			tangram_cli_process::Component::new(cli)
+				.command_process_signal(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Spawn(args) => {
+			tangram_cli_process::Component::new(cli)
+				.command_process_spawn(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Tag(args) => {
+			tangram_cli_tag::Component::new(cli)
+				.command_tag(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Touch(args) => {
+			tangram_cli_touch::Component::new(cli)
+				.command_touch(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Tree(args) => {
+			tangram_cli_tree::Component::new(cli)
+				.command_tree(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Update(args) => {
+			tangram_cli_update::Component::new(cli)
+				.command_update(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::User(args) => {
+			tangram_cli_user::Component::new(cli)
+				.command_user(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Usage(args) => {
+			tangram_cli_usage::Component::new(cli)
+				.command_usage(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::View(args) => {
+			tangram_cli_view::Component::new(cli)
+				.command_view(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Wait(args) => {
+			tangram_cli_wait::Component::new(cli)
+				.command_wait(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Watch(args) => {
+			tangram_cli_watch::Component::new(cli)
+				.command_watch(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Whoami(args) => {
+			tangram_cli_user::Component::new(cli)
+				.command_user_whoami(args)
+				.boxed_local()
+				.await
+		},
+
+		Command::Write(args) => {
+			tangram_cli_write::Component::new(cli)
+				.command_write(args)
+				.boxed_local()
+				.await
+		},
 	}
 }

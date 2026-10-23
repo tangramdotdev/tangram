@@ -1,0 +1,1002 @@
+use {
+	crate::{Component, Directory, File, Graph, Node, Symlink, Variant},
+	std::{
+		collections::BTreeMap,
+		os::unix::fs::PermissionsExt as _,
+		path::{Path, PathBuf},
+	},
+	tangram_client::prelude::*,
+	tangram_ignore as ignore,
+	tangram_server_core::Session,
+};
+
+struct State<'a> {
+	arg: &'a tg::checkin::Arg,
+	fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
+	graph: &'a mut Graph,
+	ignorer: Option<ignore::Ignorer>,
+	lock: Option<&'a tg::graph::data::Leaf>,
+	next: usize,
+	progress: tg::progress::Handle<super::TaskOutput>,
+	root: &'a Path,
+	store_path: Option<&'a Path>,
+}
+
+struct Item {
+	path: PathBuf,
+	parent: Option<Parent>,
+}
+
+struct Parent {
+	index: usize,
+	variant: ParentVariant,
+}
+
+enum ParentVariant {
+	DirectoryEntry(String),
+	FileDependency(tg::Reference),
+	SymlinkArtifact,
+}
+
+pub(super) struct CheckinInputArg<'a> {
+	pub arg: &'a tg::checkin::Arg,
+	pub fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
+	pub graph: &'a mut Graph,
+	pub ignorer: Option<ignore::Ignorer>,
+	pub lock: Option<&'a tg::graph::data::Leaf>,
+	pub next: usize,
+	pub progress: tg::progress::Handle<super::TaskOutput>,
+	pub root: &'a Path,
+	pub store_path: Option<&'a Path>,
+}
+
+impl Component {
+	#[tracing::instrument(level = "trace", skip_all)]
+	pub(super) fn checkin_input(session: &Session, arg: CheckinInputArg<'_>) -> tg::Result<()> {
+		let CheckinInputArg {
+			arg,
+			fixup_sender,
+			graph,
+			ignorer,
+			lock,
+			next,
+			progress,
+			root,
+			store_path,
+		} = arg;
+		// Start the progress indicators.
+		progress.spinner("traversing", "traversing");
+		progress.start(
+			"artifacts".to_owned(),
+			"artifacts".to_owned(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+		progress.start(
+			"bytes".to_owned(),
+			"bytes".to_owned(),
+			tg::progress::IndicatorFormat::Bytes,
+			Some(0),
+			None,
+		);
+
+		// Create the state.
+		let mut state = State {
+			arg,
+			fixup_sender,
+			graph,
+			ignorer,
+			lock,
+			next,
+			progress,
+			root,
+			store_path,
+		};
+
+		// Add the root path to the stack.
+		let item = Item {
+			path: root.to_owned(),
+			parent: None,
+		};
+		let mut stack = vec![item];
+
+		// Collect the store path entries.
+		let store_entries = if let Some(store_path) = store_path {
+			let read_dir = std::fs::read_dir(store_path).map_err(
+				|error| tg::error!(!error, path = %store_path.display(), "failed to read the store directory"),
+			)?;
+			let mut entries = Vec::new();
+			for entry in read_dir {
+				let entry = entry
+					.map_err(|error| tg::error!(!error, "failed to get the directory entry"))?;
+				entries.push((entry.path(), entry.file_name()));
+			}
+			entries
+		} else {
+			Vec::new()
+		};
+
+		// Add the store path entries to the stack.
+		for (path, _) in &store_entries {
+			stack.push(Item {
+				path: path.clone(),
+				parent: None,
+			});
+		}
+
+		// Visit.
+		while let Some(item) = stack.pop() {
+			Self::checkin_visit(session, &mut state, &mut stack, item)?;
+		}
+
+		// Set the artifacts for store path entries.
+		for (path, name) in store_entries {
+			if let Some(index) = state.graph.paths.get(&path)
+				&& let Some(name) = name.to_str()
+				&& let Ok(id) = name.parse::<tg::artifact::Id>()
+			{
+				let node = state.graph.nodes.get_mut(index).unwrap();
+				node.artifact = Some(id.clone());
+				state.graph.artifacts.insert(id, *index);
+			}
+		}
+
+		// Set the solvable and solved fields for all new nodes.
+		let petgraph = crate::Petgraph {
+			graph: state.graph,
+			next,
+		};
+		let sccs = petgraph::algo::tarjan_scc(&petgraph);
+		for scc in &sccs {
+			let solvable = scc.iter().any(|index| {
+				// Get the node.
+				let node = state.graph.nodes.get(index).unwrap();
+
+				// Check if the node has solvable dependencies.
+				if let Variant::File(file) = &node.variant
+					&& file.dependencies.keys().any(tg::Reference::is_solvable)
+				{
+					return true;
+				}
+
+				// Check if the node has solvable children.
+				node.children()
+					.iter()
+					.any(|&child| state.graph.nodes.get(&child).unwrap().solvable)
+			});
+
+			// Set solvable and solved if necessary.
+			if solvable {
+				for index in scc {
+					let node = state.graph.nodes.get_mut(index).unwrap();
+					node.solvable = true;
+					node.solved = false;
+				}
+			}
+		}
+
+		// Finish the progress indicators.
+		state.progress.finish("traversing");
+		state.progress.finish("artifacts");
+		state.progress.finish("bytes");
+
+		Ok(())
+	}
+
+	fn checkin_visit(
+		session: &Session,
+		state: &mut State,
+		stack: &mut Vec<Item>,
+		item: Item,
+	) -> tg::Result<()> {
+		// Check if the path has been visited.
+		if let Some(existing_index) = state.graph.paths.get(&item.path) {
+			// Update the parent's edge to point to the existing node.
+			if let Some(parent) = item.parent {
+				Self::checkin_input_update_parent_edge(state, parent, *existing_index)?;
+			}
+			return Ok(());
+		}
+
+		// Get the metadata.
+		let metadata = std::fs::symlink_metadata(&item.path).map_err(
+			|error| tg::error!(!error, path = %item.path.display(), "failed to get the metadata"),
+		)?;
+
+		// Skip ignored files, unless the path is in the store path.
+		if !state
+			.store_path
+			.is_some_and(|store_path| item.path.starts_with(store_path))
+			&& state
+				.ignorer
+				.as_mut()
+				.map(|ignorer| {
+					let root = if item.path.starts_with(state.root) {
+						Some(state.root)
+					} else {
+						None
+					};
+					ignorer.matches(root, &item.path, Some(metadata.is_dir()))
+				})
+				.transpose()
+				.map_err(|error| tg::error!(!error, "failed to ignore"))?
+				.is_some_and(|ignore| ignore)
+		{
+			return Ok(());
+		}
+
+		// Create the variant.
+		let variant = if metadata.is_dir() {
+			Variant::Directory(Directory {
+				entries: BTreeMap::new(),
+			})
+		} else if metadata.is_file() {
+			Variant::File(File {
+				contents: None,
+				dependencies: BTreeMap::new(),
+				executable: metadata.permissions().mode() & 0o111 != 0,
+				module: None,
+			})
+		} else if metadata.is_symlink() {
+			let path = std::fs::read_link(&item.path)
+				.map_err(|error| tg::error!(!error, "failed to read the symlink"))?;
+			Variant::Symlink(Symlink {
+				artifact: None,
+				path: Some(path),
+			})
+		} else {
+			return Err(tg::error!(?metadata, "invalid file type"));
+		};
+
+		// Get the node index.
+		let index = state.graph.next;
+		state.graph.next += 1;
+
+		// Update the path.
+		state.graph.paths.insert(&item.path, index);
+
+		// Get the lock index.
+		let lock_index = Self::checkin_input_get_lock_index(state, item.parent.as_ref());
+
+		// Create the node.
+		let node = Node {
+			artifact: None,
+			edge: None,
+			id: None,
+			lock_index,
+			metadata: None,
+			object_children: im::HashSet::default(),
+			object_complete: false,
+			path: Some(item.path),
+			path_metadata: Some(metadata.clone()),
+			permissions: tg::authorization::permission::object::Set::empty(),
+			referrers: im::HashSet::default(),
+			solvable: false,
+			solved: true,
+			storage: tg::object::storage::Set::NODE,
+			variant,
+		};
+		state.graph.nodes.insert(index, Box::new(node));
+
+		// Update the parent's edge to point to this node.
+		if let Some(parent) = item.parent {
+			Self::checkin_input_update_parent_edge(state, parent, index)?;
+		}
+
+		match &state.graph.nodes.get(&index).unwrap().variant {
+			Variant::Directory(_) => {
+				Self::checkin_visit_directory(state, stack, index)?;
+			},
+			Variant::File(_) => {
+				Self::checkin_visit_file(session, state, stack, index)?;
+			},
+			Variant::Object => unreachable!(),
+			Variant::Symlink(_) => {
+				Self::checkin_visit_symlink(session, state, stack, index)?;
+			},
+		}
+
+		// Send the message to the fixup task.
+		if let Some(sender) = &state.fixup_sender {
+			let node = state.graph.nodes.get(&index).unwrap();
+			let message = super::fixup::Message {
+				path: node.path.as_ref().unwrap().clone(),
+				metadata: node.path_metadata.as_ref().unwrap().clone(),
+			};
+			sender.send(message).ok();
+		}
+
+		// Update the progress.
+		state.progress.increment("artifacts", 1);
+		if metadata.is_file() {
+			state.progress.increment("bytes", metadata.len());
+		}
+
+		Ok(())
+	}
+
+	fn checkin_visit_directory(
+		state: &mut State,
+		stack: &mut Vec<Item>,
+		index: usize,
+	) -> tg::Result<()> {
+		// Read the entries.
+		let path = state
+			.graph
+			.nodes
+			.get(&index)
+			.unwrap()
+			.path
+			.as_ref()
+			.unwrap();
+		let read_dir = std::fs::read_dir(path).map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to read the directory"),
+		)?;
+		let mut names = Vec::new();
+		for result in read_dir {
+			let entry =
+				result.map_err(|error| tg::error!(!error, "failed to get the directory entry"))?;
+			let name = entry
+				.file_name()
+				.to_str()
+				.ok_or_else(|| tg::error!("expected the entry name to be a string"))?
+				.to_owned();
+			if name == ".tangram" {
+				continue;
+			}
+			names.push(name);
+		}
+
+		// Sort the entries.
+		names.sort_unstable();
+
+		// Push items for children onto the stack.
+		for name in names {
+			let parent = Parent {
+				index,
+				variant: ParentVariant::DirectoryEntry(name.clone()),
+			};
+			let path = state
+				.graph
+				.nodes
+				.get(&index)
+				.unwrap()
+				.path
+				.as_ref()
+				.unwrap()
+				.join(&name);
+			stack.push(Item {
+				path,
+				parent: Some(parent),
+			});
+		}
+
+		Ok(())
+	}
+
+	fn checkin_visit_file(
+		session: &Session,
+		state: &mut State,
+		stack: &mut Vec<Item>,
+		index: usize,
+	) -> tg::Result<()> {
+		let path = state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.path
+			.as_ref()
+			.unwrap()
+			.to_owned();
+
+		// Get the dependencies.
+		let mut dependencies = BTreeMap::new();
+		let file_tokens = Self::checkin_read_file_tokens(&path)?;
+		if let Some(references) = Self::checkin_read_dependencies_xattr(&path)? {
+			// Create the dependencies and push items for path dependencies.
+			for mut reference in references {
+				let mut options = reference.options().clone();
+				options.tokens.inherit(&file_tokens);
+				reference.set_options(options);
+				let reference_path = if state.arg.options.source_dependencies {
+					reference
+						.options()
+						.source
+						.as_ref()
+						.or(reference.node().try_unwrap_path_ref().ok())
+				} else {
+					reference.node().try_unwrap_path_ref().ok()
+				};
+				if let Some(reference_path) = reference_path {
+					let parent = Parent {
+						index,
+						variant: ParentVariant::FileDependency(reference.clone()),
+					};
+					let referent = path.parent().unwrap().join(reference_path);
+					let referent = tangram_util::fs::canonicalize_sync(&referent).map_err(
+						|error| tg::error!(!error, path = %referent.display(), "failed to canonicalize the path"),
+					)?;
+					stack.push(Item {
+						path: referent,
+						parent: Some(parent),
+					});
+					dependencies.insert(reference, None);
+				} else if let Some(edge) = reference_node_to_object_edge(reference.node()) {
+					if let tg::graph::data::Edge::Index(_) = &edge {
+						return Err(tg::error!(node = %reference.node(), "expected a graph"));
+					}
+					if let Some(id) = object_edge_root(&edge) {
+						for token in reference.options().tokens.local_authorization() {
+							Self::checkin_merge_object_token(
+								session,
+								state.graph,
+								state.next,
+								&id,
+								token,
+							);
+						}
+					}
+					let get = reference.options().get.clone();
+					let options = if get.is_some() {
+						let id = match &edge {
+							tg::graph::data::Edge::Object(id) => Some(id.clone()),
+							tg::graph::data::Edge::Index(_) | tg::graph::data::Edge::Pointer(_) => {
+								None
+							},
+						};
+						tg::referent::Options {
+							id,
+							path: get,
+							..Default::default()
+						}
+					} else {
+						tg::referent::Options::default()
+					};
+					let dependency = tg::graph::data::Dependency(tg::Referent {
+						node: Some(edge),
+						options,
+					});
+					dependencies.insert(reference, Some(dependency));
+				} else {
+					dependencies.insert(reference, None);
+				}
+			}
+		} else if let Some(kind) = Self::checkin_detect_module_kind(&path)? {
+			// Update the node.
+			state
+				.graph
+				.nodes
+				.get_mut(&index)
+				.unwrap()
+				.variant
+				.unwrap_file_mut()
+				.module
+				.replace(kind);
+
+			// Read the module.
+			let contents = std::fs::read(&path).map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to read the module"),
+			)?;
+			let text = String::from_utf8(contents).map_err(
+				|error| tg::error!(!error, path = %path.display(), "the module is not valid utf-8"),
+			)?;
+
+			// Analyze.
+			let module = tg::module::Data {
+				kind,
+				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.clone())),
+			};
+			let analysis = tangram_compiler::Compiler::analyze(&module, &text)?;
+			for diagnostic in analysis.diagnostics {
+				state.progress.diagnostic(diagnostic);
+			}
+
+			// Create the dependencies and push items for path dependencies.
+			for import in analysis.imports {
+				let mut reference = import.reference;
+				let mut options = reference.options().clone();
+				options.tokens.inherit(&file_tokens);
+				reference.set_options(options);
+				let reference_path = if state.arg.options.source_dependencies {
+					reference
+						.options()
+						.source
+						.as_ref()
+						.or(reference.node().try_unwrap_path_ref().ok())
+				} else {
+					reference.node().try_unwrap_path_ref().ok()
+				};
+				if let Some(reference_path) = reference_path {
+					let parent = Parent {
+						index,
+						variant: ParentVariant::FileDependency(reference.clone()),
+					};
+					let referent = path.parent().unwrap().join(reference_path);
+					let result = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
+						tangram_util::fs::canonicalize_parent_sync(&referent).map_err(
+							|error| tg::error!(!error, path = %referent.display(), "failed to canonicalize the path"),
+						)
+					} else {
+						tangram_util::fs::canonicalize_sync(&referent).map_err(
+							|error| tg::error!(!error, path = %referent.display(), "failed to canonicalize the path"),
+						)
+					};
+					dependencies.insert(reference, None);
+					let referent = match result {
+						Ok(referent) => referent,
+						Err(error) => {
+							if state.arg.options.unsolved_dependencies {
+								continue;
+							}
+							return Err(error);
+						},
+					};
+					stack.push(Item {
+						path: referent,
+						parent: Some(parent),
+					});
+				} else if let Some(edge) = reference_node_to_object_edge(reference.node()) {
+					if let tg::graph::data::Edge::Index(_) = &edge {
+						return Err(tg::error!(node = %reference.node(), "expected a graph"));
+					}
+					if let Some(id) = object_edge_root(&edge) {
+						for token in reference.options().tokens.local_authorization() {
+							Self::checkin_merge_object_token(
+								session,
+								state.graph,
+								state.next,
+								&id,
+								token,
+							);
+						}
+					}
+					let get = reference.options().get.clone();
+					let options = if get.is_some() {
+						let id = match &edge {
+							tg::graph::data::Edge::Object(id) => Some(id.clone()),
+							tg::graph::data::Edge::Index(_) | tg::graph::data::Edge::Pointer(_) => {
+								None
+							},
+						};
+						tg::referent::Options {
+							id,
+							path: get,
+							..Default::default()
+						}
+					} else {
+						tg::referent::Options::default()
+					};
+					let dependency = tg::graph::data::Dependency(tg::Referent {
+						node: Some(edge),
+						options,
+					});
+					dependencies.insert(reference, Some(dependency));
+				} else {
+					dependencies.insert(reference, None);
+				}
+			}
+		}
+
+		// Spawn tasks to pull the tag dependencies.
+		for reference in dependencies.keys() {
+			if let Ok(pattern) = reference.node().try_unwrap_specifier_ref() {
+				tokio::spawn({
+					let session = session.clone();
+					let pattern = pattern.clone();
+					let location = reference.options().location.clone();
+					async move {
+						session
+							.server
+							.components
+							.tag
+							.pull_tag(&session, pattern.clone(), location)
+							.await
+							.ok();
+					}
+				});
+			}
+		}
+
+		// Update the graph.
+		state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.variant
+			.unwrap_file_mut()
+			.dependencies = dependencies;
+
+		Ok(())
+	}
+
+	fn checkin_read_dependencies_xattr(path: &Path) -> tg::Result<Option<Vec<tg::Reference>>> {
+		tg::file::xattrs::read_dependencies_for_checkin(path)
+	}
+
+	pub(super) fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::authorization::Tokens> {
+		let Some(token) = tg::file::xattrs::read_token(path)? else {
+			return Ok(tg::authorization::Tokens::default());
+		};
+		let tokens = tg::authorization::Tokens::with_authorization(Some(token));
+
+		Ok(tokens)
+	}
+
+	fn checkin_visit_symlink(
+		session: &Session,
+		state: &mut State,
+		stack: &mut Vec<Item>,
+		index: usize,
+	) -> tg::Result<()> {
+		// Read the symlink.
+		let path = state
+			.graph
+			.nodes
+			.get(&index)
+			.unwrap()
+			.path
+			.as_ref()
+			.unwrap()
+			.clone();
+		let mut target = std::fs::read_link(&path)
+			.map_err(|error| tg::error!(!error, "failed to read the symlink"))?;
+
+		// If the target is absolute, then get the host path if necessary.
+		if target.is_absolute() {
+			target = session.host_path_for_guest_path(&target)?;
+		}
+
+		// Canonicalize the target.
+		let Ok(absolute_target) =
+			tangram_util::fs::canonicalize_parent_sync(path.parent().unwrap().join(&target))
+		else {
+			return Ok(());
+		};
+
+		// Check for an artifact symlink.
+		let checkout_path = session.server.checkout_path();
+		let store_path = session.server.store_path();
+		let target_in_artifact_path = absolute_target
+			.strip_prefix(&checkout_path)
+			.map(|path| (&checkout_path, path))
+			.or_else(|_| {
+				absolute_target
+					.strip_prefix(&store_path)
+					.map(|path| (&store_path, path))
+			});
+		if let Ok((artifact_path, path_in_artifact_path)) = target_in_artifact_path {
+			// Get the artifact.
+			let mut components = path_in_artifact_path.components();
+			let Some(artifact) = components.next().and_then(|component| {
+				if let std::path::Component::Normal(component) = component {
+					component.to_str()?.parse::<tg::artifact::Id>().ok()
+				} else {
+					None
+				}
+			}) else {
+				return Ok(());
+			};
+
+			// Get the path in the entry.
+			let path_in_entry = components.collect();
+			let path_in_entry = if path_in_entry == Path::new("") {
+				None
+			} else {
+				Some(path_in_entry)
+			};
+
+			// If this is a destructive checkin and the target is absolute, make it relative.
+			if state.arg.options.destructive && target.is_absolute() {
+				let mut source = artifact_path.join("_");
+				if let Ok(path) = path.strip_prefix(state.root) {
+					source.push(path);
+				}
+				let src = source
+					.parent()
+					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
+				let dst = &absolute_target;
+				let target = tangram_util::path::diff(src, dst)
+					.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
+					.ok_or_else(|| tg::error!("expected the paths to differ"))?;
+				Self::checkin_replace_symlink(state, &path, &target)?;
+			}
+
+			// Update the node.
+			let node = state.graph.nodes.get_mut(&index).unwrap();
+			let symlink = node.variant.unwrap_symlink_mut();
+			symlink.artifact = Some(tg::graph::data::Edge::Object(artifact));
+			symlink.path = path_in_entry;
+
+			return Ok(());
+		}
+
+		// If the target is in the store directory, then treat it as an artifact symlink.
+		if let Some(store_path) = &state.store_path
+			&& let Ok(path_in_store_path) = absolute_target.strip_prefix(store_path)
+		{
+			// Get the artifact.
+			let mut components = path_in_store_path.components();
+			let Some(artifact) = components.next().and_then(|component| {
+				if let std::path::Component::Normal(component) = component {
+					component.to_str()?.parse::<tg::artifact::Id>().ok()
+				} else {
+					None
+				}
+			}) else {
+				return Ok(());
+			};
+
+			// Get the path in the entry.
+			let path_in_entry = components.collect();
+			let path_in_entry = if path_in_entry == Path::new("") {
+				None
+			} else {
+				Some(path_in_entry)
+			};
+
+			// If this is a destructive checkin and the target is absolute, make it relative.
+			if state.arg.options.destructive && target.is_absolute() {
+				let mut source = store_path.join("_");
+				if let Ok(path) = path.strip_prefix(state.root) {
+					source.push(path);
+				}
+				let src = source
+					.parent()
+					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
+				let dst = &absolute_target;
+				let target = tangram_util::path::diff(src, dst)
+					.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
+					.ok_or_else(|| tg::error!("expected the paths to differ"))?;
+				Self::checkin_replace_symlink(state, &path, &target)?;
+			}
+
+			// Update the path.
+			let node = state.graph.nodes.get_mut(&index).unwrap();
+			let symlink = node.variant.unwrap_symlink_mut();
+			symlink.path = path_in_entry;
+
+			// Add the artifact to the stack.
+			let parent = Parent {
+				index,
+				variant: ParentVariant::SymlinkArtifact,
+			};
+			let entry_path = store_path.join(artifact.to_string());
+			stack.push(Item {
+				path: entry_path,
+				parent: Some(parent),
+			});
+
+			return Ok(());
+		}
+
+		// Update the symlink.
+		state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.variant
+			.unwrap_symlink_mut()
+			.path = Some(target);
+
+		Ok(())
+	}
+
+	fn checkin_replace_symlink(state: &State, path: &Path, target: &Path) -> tg::Result<()> {
+		match std::fs::remove_file(path) {
+			Ok(()) => (),
+			Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+				Self::checkin_make_parent_writable(state, path)?;
+				std::fs::remove_file(path)
+					.map_err(|error| tg::error!(!error, "failed to remove the symlink"))?;
+			},
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to remove the symlink"));
+			},
+		}
+		match std::os::unix::fs::symlink(target, path) {
+			Ok(()) => (),
+			Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+				Self::checkin_make_parent_writable(state, path)?;
+				std::os::unix::fs::symlink(target, path)
+					.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
+			},
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to create the symlink"));
+			},
+		}
+		Ok(())
+	}
+
+	fn checkin_make_parent_writable(state: &State, path: &Path) -> tg::Result<()> {
+		let parent = path.parent().unwrap();
+		if let Some(index) = state.graph.paths.get(parent)
+			&& let Some(metadata) = state
+				.graph
+				.nodes
+				.get(index)
+				.and_then(|node| node.path_metadata.as_ref())
+		{
+			let mode = metadata.permissions().mode();
+			let permissions = std::fs::Permissions::from_mode(mode | 0o222);
+			std::fs::set_permissions(parent, permissions)
+				.map_err(|error| tg::error!(!error, "failed to set the parent permissions"))?;
+		} else {
+			let mut permissions = std::fs::symlink_metadata(parent)
+				.map_err(|error| tg::error!(!error, "failed to get the parent permissions"))?
+				.permissions();
+			if permissions.mode() & 0o222 == 0 {
+				permissions.set_mode(permissions.mode() | 0o222);
+				std::fs::set_permissions(parent, permissions)
+					.map_err(|error| tg::error!(!error, "failed to set the parent permissions"))?;
+			}
+		}
+		Ok(())
+	}
+
+	fn checkin_input_update_parent_edge(
+		state: &mut State,
+		parent: Parent,
+		child_index: usize,
+	) -> tg::Result<()> {
+		let child_node = state.graph.nodes.get_mut(&child_index).unwrap();
+		child_node.referrers.insert(parent.index);
+		match parent.variant {
+			ParentVariant::DirectoryEntry(name) => {
+				let edge: tg::graph::data::Edge<tg::artifact::Id> =
+					tg::graph::data::Edge::Index(child_index);
+				state
+					.graph
+					.nodes
+					.get_mut(&parent.index)
+					.unwrap()
+					.variant
+					.unwrap_directory_mut()
+					.entries
+					.insert(name, edge);
+			},
+
+			ParentVariant::FileDependency(reference) => {
+				let edge: tg::graph::data::Edge<tg::object::Id> =
+					tg::graph::data::Edge::Index(child_index);
+				let path = state
+					.graph
+					.nodes
+					.get(&child_index)
+					.unwrap()
+					.path
+					.as_ref()
+					.unwrap();
+				let parent_path = state
+					.graph
+					.nodes
+					.get(&parent.index)
+					.unwrap()
+					.path
+					.as_ref()
+					.unwrap();
+				let path = tangram_util::path::diff(parent_path.parent().unwrap(), path)
+					.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
+					.unwrap_or_else(|| ".".into());
+				let path = if let Some(get) = reference.options().get.as_ref() {
+					path.join(get)
+				} else {
+					path
+				};
+				let options = tg::referent::Options::with_path(path);
+				let dependency = tg::graph::data::Dependency(tg::Referent {
+					node: Some(edge),
+					options,
+				});
+				state
+					.graph
+					.nodes
+					.get_mut(&parent.index)
+					.unwrap()
+					.variant
+					.unwrap_file_mut()
+					.dependencies
+					.get_mut(&reference)
+					.unwrap()
+					.replace(dependency);
+			},
+
+			ParentVariant::SymlinkArtifact => {
+				let edge: tg::graph::data::Edge<tg::artifact::Id> =
+					tg::graph::data::Edge::Index(child_index);
+				state
+					.graph
+					.nodes
+					.get_mut(&parent.index)
+					.unwrap()
+					.variant
+					.unwrap_symlink_mut()
+					.artifact
+					.replace(edge);
+			},
+		}
+		Ok(())
+	}
+
+	fn checkin_input_get_lock_index(state: &State, parent: Option<&Parent>) -> Option<usize> {
+		let Some(lock) = &state.lock else {
+			return None;
+		};
+		let Some(parent) = parent else {
+			return if lock.nodes.is_empty() { None } else { Some(0) };
+		};
+		let parent_lock_index = state.graph.nodes.get(&parent.index).unwrap().lock_index?;
+		let parent_node = &lock.nodes[parent_lock_index];
+		match &parent.variant {
+			ParentVariant::DirectoryEntry(name) => {
+				let directory = parent_node.try_unwrap_directory_ref().ok()?;
+				let leaf = directory
+					.try_unwrap_leaf_ref()
+					.expect("lock directories must be leaves");
+				Some(*leaf.entries.get(name)?.try_unwrap_index_ref().ok()?)
+			},
+			ParentVariant::FileDependency(reference) => Some(
+				*parent_node
+					.try_unwrap_file_ref()
+					.ok()?
+					.dependencies
+					.get(reference)?
+					.as_ref()?
+					.node()
+					.as_ref()?
+					.try_unwrap_index_ref()
+					.ok()?,
+			),
+			ParentVariant::SymlinkArtifact => Some(
+				*parent_node
+					.try_unwrap_symlink_ref()
+					.ok()?
+					.artifact
+					.as_ref()?
+					.try_unwrap_index_ref()
+					.ok()?,
+			),
+		}
+	}
+
+	fn checkin_detect_module_kind(path: &Path) -> tg::Result<Option<tg::module::Kind>> {
+		let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+			return Ok(None);
+		};
+		if name == "tangram.js" || name.ends_with(".tg.js") {
+			return Ok(Some(tg::module::Kind::JavaScript));
+		}
+		if name == "tangram.ts" || name.ends_with(".tg.ts") {
+			return Ok(Some(tg::module::Kind::TypeScript));
+		}
+		if name == "tangram.py" || name.ends_with(".tg.py") {
+			return Ok(Some(tg::module::Kind::Python));
+		}
+		tg::file::xattrs::read_module(path)
+	}
+}
+
+fn reference_node_to_object_edge(
+	node: &tg::reference::Node,
+) -> Option<tg::graph::data::Edge<tg::object::Id>> {
+	match node {
+		tg::reference::Node::Id(id) => tg::object::Id::try_from(id.clone())
+			.ok()
+			.map(tg::graph::data::Edge::Object),
+		tg::reference::Node::Pointer(pointer) => {
+			Some(tg::graph::data::Edge::Pointer(pointer.clone()))
+		},
+		tg::reference::Node::Path(_) | tg::reference::Node::Specifier(_) => None,
+	}
+}
+
+fn object_edge_root(edge: &tg::graph::data::Edge<tg::object::Id>) -> Option<tg::object::Id> {
+	match edge {
+		tg::graph::data::Edge::Object(id) => Some(id.clone()),
+		tg::graph::data::Edge::Index(_) => None,
+		tg::graph::data::Edge::Pointer(pointer) => Some(pointer.graph.clone().into()),
+	}
+}

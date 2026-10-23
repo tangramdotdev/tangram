@@ -1,0 +1,27 @@
+[package]
+name = "tangram_server_clock_types"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+jiff = { workspace = true }
+tangram_client = { workspace = true }
+tangram_server_checkpoint_types = { workspace = true }
+tangram_server_config = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }

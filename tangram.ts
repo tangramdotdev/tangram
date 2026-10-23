@@ -509,7 +509,7 @@ const getRustyV8Version = async (lockfile: tg.File) => {
 
 const libpython = async (source: tg.Directory, build: string, host: string) => {
 	const manifest = await source
-		.get("packages/python/build/distributions.json")
+		.get("packages/python/packages/build/distributions.json")
 		.then(tg.File.expect)
 		.then((file) => file.text)
 		.then((text) => JSON.parse(text) as PythonDistributions);
@@ -564,7 +564,7 @@ const libpython = async (source: tg.Directory, build: string, host: string) => {
 	const workspace = tg.directory({
 		"uv.lock": source.get("uv.lock"),
 	});
-	const script = source.get("packages/python/build/packages.py");
+	const script = source.get("packages/python/packages/build/packages.py");
 	const packages = await std.build`
 		packages=$(${python} -I ${script} ${workspace} "$PWD/packages" ${python})
 		cp -R "$packages" ${tg.output}

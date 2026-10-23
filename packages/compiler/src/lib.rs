@@ -143,7 +143,7 @@ impl Compiler {
 		version: String,
 	) -> Shared {
 		#[cfg(not(any(feature = "tsrs", feature = "ty")))]
-		let _ = main_runtime_handle;
+		drop(main_runtime_handle);
 		let documents = DashMap::default();
 		let requests = DashMap::new();
 		let request_id = AtomicI32::new(1);
