@@ -22,6 +22,9 @@ import zlib from "zlib-ng" with {
 };
 import * as std from "std" with { source: "../packages/packages/std" };
 import { $ } from "std" with { source: "../packages/packages/std" };
+import * as libc from "std/sdk/libc" with {
+	source: "../packages/packages/std/sdk/libc.tg.ts",
+};
 
 import source from "." with { type: "directory" };
 
@@ -120,12 +123,13 @@ const buildInner = async (merged: Arg, wrap: boolean) => {
 	const build = build_ ?? host;
 	const features = featureList(merged);
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
+	const python = libpython(source_, build, host);
 
 	// Collect environment.
 	const envs: tg.Args<std.env.Arg> = [
 		bunEnvArg(build),
 		librustyv8(cargoLock, build, host),
-		libpython(source_, build, host),
+		python,
 		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
 		openssl({ build, host }),
 		sandboxRootfs(host),
@@ -133,7 +137,12 @@ const buildInner = async (merged: Arg, wrap: boolean) => {
 
 	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp.
 	if (std.triple.os(host) === "linux") {
-		envs.push(libcapNg({ build, host }), libseccomp({ build, host }));
+		const capNg = libcapNg({ build, host });
+		const seccomp = libseccomp({ build, host });
+		envs.push(capNg, seccomp, {
+			LIBCAPNG_LIB_PATH: tg`${capNg}/lib`,
+			LIBSECCOMP_LIB_PATH: tg`${seccomp}/lib`,
+		});
 	}
 
 	if (build !== host) {
@@ -170,7 +179,14 @@ const buildInner = async (merged: Arg, wrap: boolean) => {
 	const env = std.env.arg(
 		...envs,
 		env_ ?? null,
-		wrap ? null : standaloneEnv(build, host, sdk),
+		wrap
+			? null
+			: standaloneEnv(
+					build,
+					host,
+					python.then((env) => env.TANGRAM_PYTHON_HOST_DISTRIBUTION),
+					sdk,
+				),
 	);
 	const output = cargo.build({
 		...merged,
@@ -334,6 +350,7 @@ export const testStandalone = async (...args: tg.Args<Arg>) => {
 const standaloneEnv = async (
 	build: string,
 	host: string,
+	python: tg.Unresolved<tg.Directory>,
 	sdkArg?: std.sdk.Arg,
 ) => {
 	// Use a separate target linker so Cargo's build scripts and proc macros retain the sandbox SDK.
@@ -346,7 +363,9 @@ const standaloneEnv = async (
 		target: host,
 	});
 	const compiler = std.triple.os(host) === "darwin" ? "clang" : "gcc";
-	const flags = [];
+	const flags: tg.Args<tg.Template.Arg> = [
+		tg`-C linker=${sdk}/bin/${compiler}`,
+	];
 	if (std.triple.os(host) === "linux") {
 		const arch = std.triple.arch(host);
 		const interpreter =
@@ -356,6 +375,23 @@ const standaloneEnv = async (
 					? "/lib/ld-linux-aarch64.so.1"
 					: "/lib64/ld-linux-x86-64.so.2";
 		flags.push(`-C link-arg=-Wl,--dynamic-linker,${interpreter}`);
+
+		// Link against the supported glibc baseline instead of the SDK's newer runtime.
+		if (std.triple.environment(host) !== "musl") {
+			const target = rustTriple(host);
+			const sysroot = await libc
+				.libc({
+					build,
+					env: { PATH: tg.Mutation.prefix(tg`${python}/install/bin`, ":") },
+					host: std.triple.create(target, { environmentVersion: "2.39" }),
+				})
+				.then((directory) => directory.get(target))
+				.then(tg.Directory.expect);
+			flags.push(
+				tg`-C link-arg=--sysroot=${sysroot}`,
+				tg`-L native=${sysroot}/lib`,
+			);
+		}
 	}
 	return {
 		CARGO_ENCODED_RUSTFLAGS: tg.Mutation.unset<string>(),
@@ -363,10 +399,7 @@ const standaloneEnv = async (
 		LIBSECCOMP_LINK_TYPE: "static",
 		OPENSSL_STATIC: "1",
 		PKG_CONFIG_ALL_STATIC: "1",
-		RUSTFLAGS: tg.Mutation.suffix(
-			tg`-C linker=${sdk}/bin/${compiler} ${flags.join(" ")}`,
-			" ",
-		),
+		RUSTFLAGS: tg.Mutation.suffix(tg.Template.join(" ", ...flags), " "),
 	};
 };
 
@@ -391,6 +424,7 @@ const assertStandalone = async (executable: tg.File, host: string) => {
 			"the standalone executable must use a system dynamic linker",
 		);
 		const libraries = new Set([
+			libc.interpreterName(host),
 			"libc.so",
 			"libc.so.6",
 			"libdl.so.2",
