@@ -4,10 +4,10 @@ use {
 	crate::{Server, Session, context::Context},
 	bytes::Bytes,
 	dashmap::DashMap,
-	futures::TryStreamExt as _,
+	futures::{StreamExt as _, TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::{
-		collections::{BTreeMap, HashMap},
+		collections::{BTreeMap, HashMap, HashSet},
 		ops::Deref,
 		os::fd::OwnedFd,
 		os::unix::{ffi::OsStrExt as _, fs::FileExt as _},
@@ -17,6 +17,7 @@ use {
 			Arc, Mutex,
 			atomic::{AtomicI64, AtomicU64, Ordering},
 		},
+		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
@@ -52,14 +53,16 @@ pub struct Inner {
 	nodes: Nodes,
 	origin: crate::Origin,
 	principal: Mutex<Option<tg::Principal>>,
+	remote_subtree_timeout: Duration,
 	runtime: tokio::runtime::Handle,
 	server: Server,
 }
 
-/// The tokens given to the provider, and the objects known to be authorized.
+/// The tokens given to the provider, the objects known to be authorized, and the inputs of the provider's processes.
 #[derive(Default)]
 struct Authorizations {
 	expirations: HashMap<tg::object::Id, i64>,
+	inputs: HashSet<tg::object::Id>,
 	pruned: usize,
 	syncs: tg::authorization::Tokens,
 	tokens: HashMap<tg::Id, tg::authorization::Tokens>,
@@ -192,6 +195,7 @@ impl Provider {
 		let file_handles = DashMap::default();
 		let handle_count = AtomicU64::new(1000);
 		let principal = Mutex::new(principal);
+		let remote_subtree_timeout = config.remote_subtree_timeout;
 		let runtime = tokio::runtime::Handle::current();
 		let server = server.clone();
 		let authorizations = Mutex::new(Authorizations::default());
@@ -207,6 +211,7 @@ impl Provider {
 			nodes,
 			origin,
 			principal,
+			remote_subtree_timeout,
 			runtime,
 			server,
 		};
@@ -225,6 +230,11 @@ impl Provider {
 	#[cfg(target_os = "linux")]
 	pub fn set_principal(&self, principal: tg::Principal) {
 		self.principal.lock().unwrap().replace(principal);
+	}
+
+	/// Record an input whose authorization may be obtained from a remote.
+	pub fn seed_input(&self, id: tg::object::Id) {
+		self.authorizations.lock().unwrap().inputs.insert(id);
 	}
 
 	pub fn seed_tokens(&self, session: &Session, tokens: &tg::authorization::Tokens) {
@@ -1392,7 +1402,7 @@ impl Provider {
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 		let requested = tg::authorization::permission::Set::from(permission);
-		let output = self
+		let result = self
 			.session()
 			.authorize_with_permissions(
 				resource,
@@ -1402,14 +1412,22 @@ impl Provider {
 				None,
 			)
 			.await
-			.and_then(crate::authorization::Output::check_exhaustion)
-			.map_err(|error| Self::map_cache_sync_error(&error))?;
-		if !output.permissions.contains(permission) {
-			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
-		}
+			.and_then(crate::authorization::Output::check_exhaustion);
+		let expires_at = match result {
+			Ok(output) if output.permissions.contains(permission) => output.expires_at,
+			result => {
+				let Some(expires_at) = self.authorize_remotes(authority, id).await else {
+					return match result {
+						Ok(_) => Err(std::io::Error::from_raw_os_error(libc::ENOENT)),
+						Err(error) => Err(Self::map_cache_sync_error(&error)),
+					};
+				};
+				Some(expires_at)
+			},
+		};
 
 		// Remember the authorization, so that the object and the objects reached through it are not searched again.
-		let expires_at = self.token_expiration(output.expires_at)?;
+		let expires_at = self.token_expiration(expires_at)?;
 		self.authorizations
 			.lock()
 			.unwrap()
@@ -1419,6 +1437,87 @@ impl Provider {
 			.or_insert(expires_at);
 
 		Ok(Some(expires_at))
+	}
+
+	/// Obtain a command input's authorization from a remote, bounding requests and retries by the timeout.
+	async fn authorize_remotes(&self, authority: &Authority, id: &tg::object::Id) -> Option<i64> {
+		// Authorize only inputs with a remote, so that a lookup of any other object fails without waiting.
+		if !self.authorizations.lock().unwrap().inputs.contains(id) {
+			return None;
+		}
+
+		// Ask each remote that holds tokens for the input, and use the first authorization.
+		let tokens = self.given_tokens(authority, id);
+		let mut futures = tokens
+			.iter()
+			.filter_map(|(location, _)| match location {
+				tg::Location::Local(_) => None,
+				tg::Location::Remote(remote) => Some(self.authorize_remote(authority, id, remote)),
+			})
+			.collect::<FuturesUnordered<_>>();
+		let future = async {
+			while let Some(result) = futures.next().await {
+				match result {
+					Ok(Some(expires_at)) => return Some(expires_at),
+					Ok(None) => {},
+					Err(error) => {
+						tracing::debug!(error = %error.trace(), %id, "failed to authorize the input with a remote");
+					},
+				}
+			}
+			None
+		};
+
+		// Bound the requests and retries by the timeout.
+		let expires_at = tokio::time::timeout(self.remote_subtree_timeout, future)
+			.await
+			.ok()
+			.flatten()?;
+
+		Some(expires_at)
+	}
+
+	async fn authorize_remote(
+		&self,
+		authority: &Authority,
+		id: &tg::object::Id,
+		remote: &tg::location::Remote,
+	) -> tg::Result<Option<i64>> {
+		// Require a trusted remote so its tokens can authorize local access.
+		let session = self.session();
+		let client = session.get_remote_session_for_process(&remote.name).await?;
+		if !client.trusted() {
+			return Ok(None);
+		}
+
+		// Get the input until the remote can authorize its subtree.
+		let mut delay = Duration::from_millis(10);
+		loop {
+			let arg = tg::object::get::Arg {
+				availability: true,
+				location: Some(tg::Location::Remote(remote.clone()).into()),
+				tokens: self.given_tokens(authority, id),
+				..Default::default()
+			};
+			let Some(output) = session.try_get_object(id, arg).await? else {
+				return Ok(None);
+			};
+			self.seed_tokens(&session, &output.tokens);
+			if let Ok(Some(expires_at)) = self.authorize(authority, id) {
+				return Ok(Some(expires_at));
+			}
+
+			// Wait for incomplete or unindexed subtrees, but stop if a complete subtree lacks authorization.
+			if output
+				.availability
+				.is_some_and(|availability| availability.subtree)
+			{
+				return Ok(None);
+			}
+			crate::checkpoint!(self.server, "vfs.authorization.wait", %id).await;
+			tokio::time::sleep(delay).await;
+			delay = (delay * 2).min(Duration::from_secs(1));
+		}
 	}
 
 	fn authorize_sync(
