@@ -234,7 +234,7 @@ impl Server {
 		if arg.is_empty() {
 			return Ok(());
 		}
-		if !self.config.advanced.single_process {
+		if self.config.advanced.multi_server {
 			let config = &self.config.object.index_queue;
 			let bytes: bytes::Bytes = arg.serialize()?.into();
 			let fragments = bytes
@@ -435,7 +435,7 @@ impl Session {
 			.config
 			.roles
 			.contains(&crate::config::Role::Indexer)
-			&& self.server.config.advanced.single_process
+			&& !self.server.config.advanced.multi_server
 		{
 			return Err(tg::error!("cannot index when the indexer is disabled"));
 		}

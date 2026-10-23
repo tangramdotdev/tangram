@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # Once the sandbox connects, scheduler heartbeat expiration must not cancel a spawn that is still waiting for its process connection.
 let root_token = random chars
 let remote = server spawn --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 	scheduler: { heartbeat_interval: 60, heartbeat_ttl: 3 },

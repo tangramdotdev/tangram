@@ -97,7 +97,7 @@ impl Indexer {
 					waits = state.waits.len(),
 					"read the private index queue progress"
 				);
-				state.poll_queues(self.server.config.advanced.single_process, read, target);
+				state.poll_queues(self.server.config.advanced.multi_server, read, target);
 			}
 
 			// Wake on new requests, task wait completion, queue changes, or the fallback tick.
@@ -125,7 +125,7 @@ impl State {
 		}
 	}
 
-	fn poll_queues(&mut self, single_process: bool, read: u64, target: u64) {
+	fn poll_queues(&mut self, multi_server: bool, read: u64, target: u64) {
 		// Capture the private index queue cutoff for the next batch of requests.
 		for request in self.waits.values_mut() {
 			if matches!(request.state, RequestState::Queues) {
@@ -143,7 +143,7 @@ impl State {
 				let RequestState::QueuesPending { index_sequence } = request.state else {
 					return None;
 				};
-				(single_process || read >= index_sequence).then(|| id.clone())
+				(!multi_server || read >= index_sequence).then(|| id.clone())
 			})
 			.collect::<Vec<_>>();
 		for id in ids {

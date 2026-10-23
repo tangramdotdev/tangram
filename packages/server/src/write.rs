@@ -53,7 +53,7 @@ impl Session {
 
 		// Create the destination.
 		let destination =
-			if self.server.checkouts_enabled() && self.server.config.advanced.single_directory {
+			if self.server.checkouts_enabled() && !self.server.config.advanced.multi_server {
 				Destination::Temp(Temp::new(&self.server))
 			} else {
 				Destination::Cache

@@ -413,7 +413,7 @@ impl Session {
 			.map(|entry| entry.node.id.clone())
 			.collect::<Vec<_>>();
 		for attempt in 0..2 {
-			let guard = self.server.checkout_lock.acquire().await?;
+			let guard = self.server.checkout_lock.acquire().await;
 			if !self.server.named_checkout_maintenance_enabled() {
 				return Ok(());
 			}

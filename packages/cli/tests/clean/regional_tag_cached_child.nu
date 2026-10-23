@@ -6,7 +6,7 @@ skip_if_no_cloud
 
 # Create isolated regions with shared tag metadata and separate object stores.
 let common = {
-	advanced: { checkpoints: true, single_directory: true },
+	advanced: { checkpoints: true },
 	cache: { kind: lmdb, map_size: 10_485_760 },
 	checkouts: true,
 	database: { index_queue: { wakeup_interval: 0.01 } },

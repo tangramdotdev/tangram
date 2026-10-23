@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let root_token = random chars
 let local = server spawn --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 }
 let alice = tg login --verbose --name alice | from json
@@ -13,7 +13,8 @@ let carol = tg login --verbose --name carol | from json
 let runner_finish_watch = tg --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let finish_watch = tg --token $root_token checkpoint watch process.control.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default () => tg.file("output");' }
-let spawned = tg --token $alice.token build --detach --no-tokens --verbose $path | from json
+let id = checkin push $local $path --token $alice.token
+let spawned = tg --token $alice.token build --detach --no-tokens --verbose $id | from json
 let process = $spawned.process
 tg --token $root_token checkpoint wait --timeout 30s runner.process.finish $runner_finish_watch 0 | ignore
 tg --token $alice.token grant $bob.user.id process_node $process | ignore

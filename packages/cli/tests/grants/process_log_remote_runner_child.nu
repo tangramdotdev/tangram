@@ -6,7 +6,7 @@ let root_token = random chars
 
 # The remote authenticates users and schedules work but holds no runner role, so the build can only complete by way of the separate runner.
 let remote = server spawn --name remote --cloud --preserve-keys --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }

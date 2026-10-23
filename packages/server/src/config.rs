@@ -182,11 +182,9 @@ pub struct Advanced {
 
 	pub internal_error_locations: bool,
 
+	pub multi_server: bool,
+
 	pub preserve_temp_directories: bool,
-
-	pub single_directory: bool,
-
-	pub single_process: bool,
 
 	pub version_check_interval: Duration,
 }
@@ -2130,9 +2128,8 @@ impl Default for Advanced {
 			clock: None,
 			disable_version_check: false,
 			internal_error_locations: false,
+			multi_server: false,
 			preserve_temp_directories: false,
-			single_directory: true,
-			single_process: true,
 			version_check_interval: Duration::from_hours(1),
 		}
 	}

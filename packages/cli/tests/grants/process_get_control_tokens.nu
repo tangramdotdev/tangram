@@ -15,7 +15,7 @@ def output-referent [result: record] {
 
 let root = random chars
 let remote = server spawn --name remote --config {
-	advanced: { single_process: false }
+	advanced: { multi_server: true }
 	authentication: { root: { token: $root }, users: { providers: { insecure: true } } }
 	roles: [api indexer scheduler]
 }
@@ -29,7 +29,8 @@ let runner = server spawn --name runner --config {
 let reader = tg --url $remote.url login --verbose --name reader | from json
 let output_watch = tg --url $runner.url checkpoint watch runner.process.outcome.sync.started | from json | get watch
 let path = artifact { tangram.ts: 'export default () => tg.file("control-sync-output");' }
-let spawned = tg --url $remote.url --token $root build --detach --verbose $path | from json
+let id = checkin push $remote $path --token $root
+let spawned = tg --url $remote.url --token $root build --detach --verbose $id | from json
 let process = $spawned.process | referent node
 tg --url $runner.url checkpoint wait --timeout 30s runner.process.outcome.sync.started $output_watch 0 | ignore
 tg --url $remote.url --token $root wait --source=runner $process | ignore

@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 }
@@ -17,7 +17,8 @@ let runner = server spawn --name runner --config {
 let path = artifact {
 	tangram.ts: 'export default async () => { console.log("ready"); await tg.sleep(120); };',
 }
-let spawned = tg --url $remote.url --token $root_token spawn --verbose $path | from json
+let id = checkin push $remote $path --token $root_token
+let spawned = tg --url $remote.url --token $root_token spawn --verbose $id | from json
 let process = $spawned.process
 let log = timeout 30s tg --url $remote.url --token $root_token process log --no-timeout --length 6 $process | str trim
 assert equal $log ready

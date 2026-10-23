@@ -825,9 +825,9 @@ impl Server {
 		// Validate the indexer configuration.
 		if config.roles.contains(&self::config::Role::Indexer) {
 			let indexer = &config.indexer;
-			if !config.advanced.single_process && indexer.id.is_none() {
+			if config.advanced.multi_server && indexer.id.is_none() {
 				return Err(tg::error!(
-					"the indexer ID is required in multi-process mode"
+					"the indexer ID is required in multi-server mode"
 				));
 			}
 			if indexer.cleaning.enabled {
@@ -1827,13 +1827,7 @@ impl Server {
 		let vfs = Mutex::new(None);
 
 		// Create the checkout lock.
-		let checkout_lock_path = if config.checkouts && config.vfs.is_some() {
-			path.join("checkouts.lock")
-		} else {
-			path.join("store.lock")
-		};
-		let checkout_lock =
-			self::checkout::Lock::new(&checkout_lock_path, config.advanced.single_process);
+		let checkout_lock = self::checkout::Lock::new();
 
 		// Create the watches.
 		let next_watch_id = AtomicU64::new(0);
@@ -2026,8 +2020,8 @@ impl Server {
 			server.index.start_usage(server.clock.now()).await?;
 		}
 
-		// Destroy unfinished sandboxes if single process mode is enabled.
-		if server.config().advanced.single_process {
+		// Destroy unfinished sandboxes if multi-server mode is disabled.
+		if !server.config().advanced.multi_server {
 			let result = server.destroy_unfinished_sandboxes().await;
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");
@@ -2051,7 +2045,7 @@ impl Server {
 
 		// Initialize the checkouts directory and start the VFS if enabled.
 		if server.checkouts_enabled() {
-			let checkout_guard = server.checkout_lock.acquire().await?;
+			let checkout_guard = server.checkout_lock.acquire().await;
 			let store_path = server.store_path();
 			let checkout_path = server.path.join("checkouts");
 			let vfs_kind = match server.config.vfs.clone().unwrap_or_default().kind {

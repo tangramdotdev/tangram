@@ -5,7 +5,7 @@ use ../lib/test.nu *
 for location in [local remote] {
 	let root_token = random chars
 	let local_owner = server spawn --name $'local-owner-($location)' --config {
-		advanced: { single_process: false },
+		advanced: { multi_server: true },
 		authentication: { root: { token: $root_token } },
 		roles: (if $location == local { [api indexer runner scheduler] } else { [api indexer scheduler] }),
 		runner: { process_state_ttl: 0 },
@@ -21,12 +21,13 @@ for location in [local remote] {
 		$local_owner
 	}
 	let path = artifact { tangram.ts: 'export default () => tg.file("done");' }
-	let first = tg --url $local_owner.url --token $root_token build --no-tokens --detach --checksum 'sha256:0000000000000000000000000000000000000000000000000000000000000000' $path | referent node
+	let id = checkin push $local_owner $path --token $root_token
+	let first = tg --url $local_owner.url --token $root_token build --no-tokens --detach --checksum 'sha256:0000000000000000000000000000000000000000000000000000000000000000' $id | referent node
 	tg --url $local_owner.url --token $root_token wait $first | ignore
 	tg --url $local_owner.url --token $root_token index | ignore
 
 	# Reusing a checksum mismatch creates a new result without assigning a sandbox.
-	let second = tg --url $local_owner.url --token $root_token build --no-tokens --detach --cached=true --checksum 'sha256:1111111111111111111111111111111111111111111111111111111111111111' $path | referent node
+	let second = tg --url $local_owner.url --token $root_token build --no-tokens --detach --cached=true --checksum 'sha256:1111111111111111111111111111111111111111111111111111111111111111' $id | referent node
 	tg --url $local_owner.url --token $root_token wait $second | ignore
 	let first_data = tg --url $local_owner.url --token $root_token get $first | from json
 	let second_data = tg --url $local_owner.url --token $root_token get $second | from json

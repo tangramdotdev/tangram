@@ -84,15 +84,8 @@ impl Session {
 		}
 
 		// Validate the arg.
-		if !self.server.config.advanced.single_directory {
-			return Err(tg::error!(
-				"check-in is not supported in multi-directory mode"
-			));
-		}
-		if arg.options.watch && !self.server.config.advanced.single_process {
-			return Err(tg::error!(
-				"the watch option is not supported in multi-process mode"
-			));
+		if self.server.config.advanced.multi_server {
+			return Err(tg::error!("check-in is not supported in multi-server mode"));
 		}
 
 		// Canonicalize against the mounted store, whose parents exist even without a physical checkout.

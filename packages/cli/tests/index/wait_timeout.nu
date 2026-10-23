@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An acknowledged request to await indexing must survive its acknowledgment timeout without being replaced.
 let local = server spawn --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	indexer: { request: { timeout: 0.05 } },
 }
 let receive_watch = tg checkpoint watch indexer.request.receive | from json | get watch

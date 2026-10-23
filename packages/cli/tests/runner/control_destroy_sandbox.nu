@@ -10,7 +10,7 @@ if $nu.os-info.name == 'linux' and ($quota_root | is-empty) {
 const driver = path self ../lib/runner_control_destroy_sandbox.py
 let root_token = random chars
 let remote = server spawn --name remote --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 	scheduler: { runner_ttl: 300 },

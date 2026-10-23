@@ -6,7 +6,7 @@ let root_token = random chars
 
 # Spawn the remote with checkpoints enabled and create the runner.
 let remote = server spawn --preserve-keys --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }

@@ -279,7 +279,7 @@ impl Server {
 	}
 
 	async fn delete_named_checkouts_inner(&self, named: Vec<tg::Id>) -> tg::Result<()> {
-		let guard = self.checkout_lock.acquire().await?;
+		let guard = self.checkout_lock.acquire().await;
 		if !self.named_checkout_maintenance_enabled() {
 			return Ok(());
 		}

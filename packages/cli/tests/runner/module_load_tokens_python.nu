@@ -6,7 +6,7 @@ vfs skip_unless_supported
 # A loaded module must retain the tokens needed to push a child command.
 let root_token = random chars
 let remote = server spawn --preserve-keys --name remote --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 	verification: { permissions: { initial: false, final: false } },

@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let root_token = random chars
 let local_owner = server spawn --name local-owner --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 }
@@ -19,7 +19,8 @@ let finish_watch = tg --url $runner.url checkpoint watch runner.process.finish |
 let index_watch = tg --url $local_owner.url --token $root_token checkpoint watch process.cancel.index | from json | get watch
 let control_watch = tg --url $local_owner.url --token $root_token checkpoint watch process.cancel.control | from json | get watch
 let path = artifact { tangram.ts: 'export default () => "done";' }
-let spawned = tg --url $local_owner.url --token $root_token build --detach --verbose $path | from json
+let id = checkin push $local_owner $path --token $root_token
+let spawned = tg --url $local_owner.url --token $root_token build --detach --verbose $id | from json
 success (tg --url $runner.url checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | complete)
 let cancel = job spawn {
 	let job_id = job id

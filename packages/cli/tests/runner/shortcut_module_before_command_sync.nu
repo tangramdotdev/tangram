@@ -15,7 +15,7 @@ let searches = {
 
 # Spawn the remote and create the runner.
 let remote = server spawn --preserve-keys --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 	verification: { permissions: { initial: $searches, final: $searches } },
@@ -56,7 +56,8 @@ let path = artifact {
 }
 let build = job spawn {
 	let job_id = job id
-	let output = tg --url $remote.url --token $alice.token build $path | complete
+	let id = checkin push $remote $path --token $alice.token
+	let output = tg --url $remote.url --token $alice.token build $id | complete
 	$output | job send --tag $job_id 0
 }
 

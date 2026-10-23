@@ -334,13 +334,10 @@ pub struct Advanced {
 	pub internal_error_locations: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub multi_server: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub preserve_temp_directories: Option<bool>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub single_directory: Option<bool>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub single_process: Option<bool>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3685,14 +3682,11 @@ fn resolve_advanced(source: Advanced) -> server::Advanced {
 	if let Some(value) = source.internal_error_locations {
 		target.internal_error_locations = value;
 	}
+	if let Some(value) = source.multi_server {
+		target.multi_server = value;
+	}
 	if let Some(value) = source.preserve_temp_directories {
 		target.preserve_temp_directories = value;
-	}
-	if let Some(value) = source.single_directory {
-		target.single_directory = value;
-	}
-	if let Some(value) = source.single_process {
-		target.single_process = value;
 	}
 	if let Some(value) = source.version_check_interval {
 		target.version_check_interval = value;

@@ -1,9 +1,9 @@
 use ../lib/test.nu *
 
-# Indexing uses the index queue when the server is not in single process mode.
+# Indexing uses the index queue when the server is in multi-server mode.
 
 let local = server spawn --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	database: {
 		kind: 'sqlite',
 		path: 'database.sqlite3',
@@ -29,7 +29,7 @@ let path = artifact {
 		export default function () { return "hello"; }
 	'
 }
-let id = tg --url $local.url checkin --no-tokens $path | referent node
+let id = checkin push $local $path
 
 tg --url $local.url index
 let metadata = tg --url $local.url object metadata $id | from json

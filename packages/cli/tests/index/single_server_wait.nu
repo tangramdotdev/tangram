@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The memory messenger must keep an acknowledged request alive past its acknowledgment timeout.
 let local = server spawn --config {
-	advanced: { checkpoints: true, single_process: true },
+	advanced: { checkpoints: true },
 	indexer: { request: { timeout: 0.05 } },
 }
 let url = $local.url

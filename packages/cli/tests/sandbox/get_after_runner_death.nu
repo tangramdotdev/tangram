@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A sandbox get issued after its runner dies must observe destruction without waiting for the control read timeout.
 let root_token = random chars
 let remote = server spawn --name remote --now '2026-01-01T00:00:00Z' --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	control: { read_timeout: 60 },
 	roles: [api indexer scheduler],

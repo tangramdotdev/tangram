@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An empty indexer list must not imply that pending indexing work is complete.
 let local = server spawn --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	roles: [api],
 }
 tg --url $local.url group create project | ignore

@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # Reconnecting to the server without restarting the runner preserves its running processes.
 let root_token = random chars
 let remote = server spawn --name remote --preserve-keys --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 }

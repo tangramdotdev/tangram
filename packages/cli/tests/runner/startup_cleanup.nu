@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A restarted runner destroys its previous sandboxes and finishes their processes before the scheduler TTL expires.
 let root_token = random chars
 let remote = server spawn --name remote --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 	scheduler: { runner_ttl: 300 },

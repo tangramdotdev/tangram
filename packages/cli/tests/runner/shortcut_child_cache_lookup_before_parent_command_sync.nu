@@ -10,7 +10,7 @@ let root_token = random chars
 
 # Spawn the remote and create the runner.
 let remote = server spawn --preserve-keys --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }
@@ -44,7 +44,8 @@ let path = artifact {
 }
 
 # Build the child once so the remote can reuse it.
-let output = timeout 60s tg --url $remote.url --token $root_token build $"($path)#first" | complete
+let id = checkin push $remote $path --token $root_token
+let output = timeout 60s tg --url $remote.url --token $root_token build $"($id)#first" | complete
 success $output "the first build should succeed"
 assert equal ($output.stdout | str trim) '42'
 
@@ -59,7 +60,7 @@ let runner = server spawn --name runner-fresh --config $runner_config
 # Hold the parent's command sync while Start proceeds independently, and watch the parent finish.
 let sync_watch = tg --url $runner.url checkpoint watch runner.process.command.sync.started | from json | get watch
 let finished_watch = tg --url $runner.url checkpoint watch runner.process.finished | from json | get watch
-let spawned = tg --url $remote.url --token $root_token build --detach --verbose $"($path)#second" | from json
+let spawned = tg --url $remote.url --token $root_token build --detach --verbose $"($id)#second" | from json
 let grandparent = $spawned.process | split row '?' | first
 success (tg --url $runner.url checkpoint wait --timeout 60s runner.process.command.sync.started $sync_watch 0 | complete) "the parent should reach its command sync"
 

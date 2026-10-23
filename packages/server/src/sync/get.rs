@@ -41,7 +41,7 @@ impl Session {
 	pub(super) fn sync_get_checkout_pointers_enabled(&self) -> bool {
 		self.server.config.sync.get.checkout_pointers
 			&& self.server.checkouts_enabled()
-			&& self.server.config.advanced.single_directory
+			&& !self.server.config.advanced.multi_server
 	}
 
 	pub(super) async fn sync_get(

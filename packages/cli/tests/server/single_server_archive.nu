@@ -1,12 +1,12 @@
 use ../lib/test.nu *
 use ../lib/archive.nu *
 
-# Graceful shutdown waits for a single-process blob batch to finish archiving.
+# Graceful shutdown waits for a single-server blob batch to finish archiving.
 skip_if_no_cloud
 let archive = spawn_archive
 let local = server spawn --cloud --config {
-	advanced: { single_directory: false, single_process: true },
 	archive: $archive.config,
+	checkouts: false,
 	object: { put_timeout: 5 },
 	roles: [api indexer],
 }

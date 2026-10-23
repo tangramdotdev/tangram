@@ -5,7 +5,7 @@ const connect_helper = path self '../lib/process_connect.mjs'
 let remote_root = random chars
 let runner_root = random chars
 let remote = server spawn --name remote --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: { root: { token: $remote_root }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }

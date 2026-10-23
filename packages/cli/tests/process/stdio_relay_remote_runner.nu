@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 }

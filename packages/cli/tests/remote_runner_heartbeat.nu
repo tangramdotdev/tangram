@@ -5,7 +5,7 @@ use lib/test.nu *
 let root_token = random chars
 let config = {
 	advanced: {
-		single_process: false,
+		multi_server: true,
 	},
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],

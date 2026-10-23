@@ -80,14 +80,16 @@ impl Server {
 		config: &crate::config::Indexer,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		let id =
-			if self.config.advanced.single_process {
-				None
-			} else {
-				Some(config.id.clone().ok_or_else(|| {
-					tg::error!("the indexer ID is required in multi-process mode")
-				})?)
-			};
+		let id = if self.config.advanced.multi_server {
+			Some(
+				config
+					.id
+					.clone()
+					.ok_or_else(|| tg::error!("the indexer ID is required in multi-server mode"))?,
+			)
+		} else {
+			None
+		};
 		let indexer_state = if let Some(id) = &id {
 			let arg = tangram_index::indexer::get::Arg { id: id.clone() };
 			Some(

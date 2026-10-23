@@ -1,12 +1,7 @@
 use {
 	crate::Session,
 	futures::{StreamExt as _, stream, stream::BoxStream},
-	std::{
-		fs::File,
-		os::fd::AsRawFd as _,
-		path::{Path, PathBuf},
-		sync::Arc,
-	},
+	std::{path::PathBuf, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
@@ -15,22 +10,10 @@ mod external;
 pub(super) mod internal;
 pub(crate) mod xattrs;
 
-pub(super) enum Lock {
-	File {
-		mutex: tokio::sync::Mutex<()>,
-		path: PathBuf,
-	},
-	Mutex(tokio::sync::Mutex<()>),
-}
+pub(super) struct Lock(tokio::sync::Mutex<()>);
 
-pub(super) enum Guard<'a> {
-	File {
-		_file: File,
-		_guard: tokio::sync::MutexGuard<'a, ()>,
-	},
-	Mutex {
-		_guard: tokio::sync::MutexGuard<'a, ()>,
-	},
+pub(super) struct Guard<'a> {
+	_guard: tokio::sync::MutexGuard<'a, ()>,
 }
 
 struct InternalOutput {
@@ -70,52 +53,13 @@ pub(super) struct NamedNode {
 
 impl Lock {
 	#[must_use]
-	pub fn new(path: &Path, single_process: bool) -> Self {
-		if single_process {
-			Self::Mutex(tokio::sync::Mutex::new(()))
-		} else {
-			Self::File {
-				mutex: tokio::sync::Mutex::new(()),
-				path: path.to_owned(),
-			}
-		}
+	pub fn new() -> Self {
+		Self(tokio::sync::Mutex::new(()))
 	}
 
-	pub async fn acquire(&self) -> tg::Result<Guard<'_>> {
-		match self {
-			Self::File { mutex, path } => {
-				let guard = mutex.lock().await;
-				let path = path.clone();
-				let file = tokio::task::spawn_blocking(move || {
-					let file = std::fs::OpenOptions::new()
-						.create(true)
-						.read(true)
-						.truncate(false)
-						.write(true)
-						.open(path)?;
-					// SAFETY: The file descriptor is valid and remains open for the duration of the lock.
-					let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-					if result != 0 {
-						return Err(std::io::Error::last_os_error());
-					}
-
-					Ok::<_, std::io::Error>(file)
-				})
-				.await
-				.map_err(|error| tg::error!(!error, "the checkout lock task panicked"))?
-				.map_err(|error| tg::error!(!error, "failed to acquire the checkout lock file"))?;
-
-				Ok(Guard::File {
-					_file: file,
-					_guard: guard,
-				})
-			},
-			Self::Mutex(mutex) => {
-				let guard = mutex.lock().await;
-
-				Ok(Guard::Mutex { _guard: guard })
-			},
-		}
+	pub async fn acquire(&self) -> Guard<'_> {
+		let guard = self.0.lock().await;
+		Guard { _guard: guard }
 	}
 }
 

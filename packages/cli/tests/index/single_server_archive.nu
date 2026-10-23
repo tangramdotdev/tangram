@@ -1,11 +1,10 @@
 use ../lib/test.nu *
 use ../lib/archive.nu *
 
-# Single-process indexing completes independently of background archiving, including retries after an upload failure.
+# Single-server indexing completes independently of background archiving, including retries after an upload failure.
 skip_if_no_cloud
 let archive = spawn_archive
 let local = server spawn --cloud --config {
-	advanced: { single_directory: false, single_process: true },
 	archive: $archive.config,
 	object: { put_timeout: 5 },
 	roles: [api indexer],

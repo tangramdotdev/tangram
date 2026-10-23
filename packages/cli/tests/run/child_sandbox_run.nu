@@ -8,7 +8,7 @@ let remote_directory = mktemp -d
 let indexer_directory = mktemp -d
 let regions = [{ name: 'a' }]
 let common = {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 }
 let instance = instance --cloud --primary-region a --regions $regions --config $common

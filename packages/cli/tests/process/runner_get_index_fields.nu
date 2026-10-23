@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let root_token = random chars
 let instance = instance --primary-region a --regions [{ name: a }]
 let remote = server spawn --instance $instance --region a --url (instance region url $instance a) --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }
@@ -21,7 +21,8 @@ let alice = tg --url $runner.url login --verbose --name alice | from json
 tg --url $runner.url --token $alice.token remote put default $remote.url
 let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default () => "output";' }
-let process = tg --url $remote.url --token $root_token build --no-tokens --detach $path | referent node
+let id = checkin push $remote $path --token $root_token
+let process = tg --url $remote.url --token $root_token build --no-tokens --detach $id | referent node
 tg --url $runner.url --token $root_token checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
 let local = http get --unix-socket $socket --headers { Authorization: $'Bearer ($root_token)' } $'http://localhost/processes/($process)?location=remote'

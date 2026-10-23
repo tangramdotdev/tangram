@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let directory = mktemp -d
 let root_token = random chars
 let config = {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: {
 		root: { token: $root_token },
 		users: { providers: { insecure: true } },
@@ -24,13 +24,14 @@ let path = artifact {
 		}
 	',
 }
-let build = tg --url $local.url --token $alice.token build --detach --verbose $path | from json
+let id = checkin push $local $path --token $alice.token
+let build = tg --url $local.url --token $alice.token build --detach --verbose $id | from json
 let command = tg --url $local.url --token $alice.token wait $build.process | from json | get output.value
 tg --url $local.url --token $alice.token grant $alice.user.id object_subtree $command | ignore
 tg --url $local.url --token $alice.token index
 let config = (
 	$local.config
-	| upsert advanced.single_process true
+	| upsert advanced.multi_server false
 	| upsert verification.tokens null
 	| upsert roles [api runner scheduler]
 )

@@ -37,7 +37,7 @@ impl Server {
 		poll_interval: std::time::Duration,
 		stopper: Stopper,
 	) {
-		if self.config.advanced.single_process {
+		if !self.config.advanced.multi_server {
 			return;
 		}
 		let mut interval = tokio::time::interval(poll_interval);

@@ -14,8 +14,8 @@ let path = artifact {
 # Trace the shutdown, so that the test can observe when the server begins to wait for its runner.
 $env.TANGRAM_TRACING = 'info,tangram_server[shutdown]=trace'
 
-for single_process in [true false] {
-	let local = server spawn --config { advanced: { single_process: $single_process } }
+for multi_server in [false true] {
+	let local = server spawn --config { advanced: { multi_server: $multi_server } }
 
 	# Hold a FIFO open for writing before the process starts, in a holder process that records its pid, so that the process's read blocks until the test kills the holder.
 	let directory = mktemp --directory
@@ -28,7 +28,8 @@ for single_process in [true false] {
 	let holder = open --raw $held | str trim | into int
 
 	# Spawn a process that blocks reading the FIFO in its mount, and wait for it to start.
-	let process = tg --url $local.url spawn --sandbox --mount $'($directory):/target' --no-tokens --verbose $path | from json | get process
+	let id = checkin push $local $path
+	let process = tg --url $local.url spawn --sandbox --mount $'($directory):/target' --no-tokens --verbose $id | from json | get process
 	wait_for_log $local 'started the process, command='
 
 	# Send SIGINT to the server and wait for its shutdown to reach the runner.

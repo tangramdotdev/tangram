@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # Local sandbox operations succeed on the runner without borrowing the runner's authority.
 let root_token = random chars
 let remote = server spawn --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }
@@ -25,7 +25,8 @@ let path = artifact {
 		}
 	',
 }
-let output = timeout 30s tg --url $remote.url --token $root_token build $path | complete
+let id = checkin push $remote $path --token $root_token
+let output = timeout 30s tg --url $remote.url --token $root_token build $id | complete
 success $output
 assert equal ($output.stdout | from json) "ok"
 

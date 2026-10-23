@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let remote_root = random chars
 let runner_root = random chars
 let remote = server spawn --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $remote_root }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }
@@ -22,7 +22,8 @@ let remote_alice = tg --url $remote.url login --verbose --name alice | from json
 tg --url $runner.url --token $alice.token remote put default $remote.url
 let finish_watch = tg --url $runner.url --token $runner_root checkpoint watch runner.process.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default () => tg.file("private output");' }
-let spawned = tg --url $remote.url --token $remote_root build --detach --no-tokens --verbose $path | from json
+let id = checkin push $remote $path --token $remote_root
+let spawned = tg --url $remote.url --token $remote_root build --detach --no-tokens --verbose $id | from json
 let process = $spawned.process
 tg --url $runner.url --token $runner_root checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 

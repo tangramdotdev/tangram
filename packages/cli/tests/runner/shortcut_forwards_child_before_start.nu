@@ -10,7 +10,7 @@ let root_token = random chars
 
 # Spawn the remote and create the runner.
 let remote = server spawn --preserve-keys --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	control: { read_timeout: 60 },
 	roles: [api indexer scheduler],
@@ -56,7 +56,8 @@ let path = artifact {
 }
 let build = job spawn {
 	let job_id = job id
-	let output = tg --url $remote.url --token $root_token build $path | complete
+	let id = checkin push $remote $path --token $root_token
+	let output = tg --url $remote.url --token $root_token build $id | complete
 	$output | job send --tag $job_id 0
 }
 

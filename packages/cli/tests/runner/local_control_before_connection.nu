@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A scheduled process accepts local stdio before process control connects.
 let root_token = random chars
 let remote = server spawn --name remote --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 }

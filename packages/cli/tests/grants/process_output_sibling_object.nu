@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A child can name a sibling's output without gaining access to it.
 
 let local = server spawn --config {
-	advanced: { single_process: false },
+	advanced: { multi_server: true },
 	authentication: { users: { providers: { insecure: true } } },
 }
 let alice = tg login --verbose --name alice | from json
@@ -24,7 +24,8 @@ let path = artifact {
 	'
 }
 
-let build = tg --token $alice.token build --detach --verbose $path | from json
+let id = checkin push $local $path --token $alice.token
+let build = tg --token $alice.token build --detach --verbose $id | from json
 let outcome = tg --token $alice.token wait $build.process | from json
 assert equal $outcome.exit 0 "the parent may return the output it received from the consumer."
 

@@ -679,10 +679,7 @@ export def --env "server spawn" [
 		track_database_pool_instance $storage_instance
 		let partition_offset = $storage_instance | str replace 'pool' '' | into int
 
-		let advanced = $default_config.advanced | merge {
-			single_directory: false,
-			single_process: false,
-		}
+		let advanced = $default_config.advanced | merge { multi_server: true }
 		let config = {
 			advanced: $advanced,
 			database: {
@@ -757,8 +754,8 @@ export def --env "server spawn" [
 		$config
 	}
 	let roles = $config.roles? | default [api indexer runner scheduler]
-	let single_process = $config.advanced.single_process? | default true
-	let config = if (not $single_process) and ('indexer' in $roles) and ($config.indexer?.id? == null) {
+	let multi_server = $config.advanced.multi_server? | default false
+	let config = if $multi_server and ('indexer' in $roles) and ($config.indexer?.id? == null) {
 		let id = bytes build 0x[00 00 10 00] (random binary 16) | tg id | into string
 		$config | upsert indexer.id $id
 	} else {
@@ -910,6 +907,16 @@ export def --env "server spawn" [
 	}
 
 	$server
+}
+
+# Check in a path on a temporary single server and push it to a server in multi-server mode, which does not support check-in.
+export def "checkin push" [server: record, path: string, --token: string] {
+	let remote = if $token == null { { url: $server.url } } else { { token: $token, url: $server.url } }
+	let checkin = server spawn --name checkin --config { remotes: { default: $remote } }
+	let id = tg --url $checkin.url checkin --no-tokens $path | referent node
+	tg --url $checkin.url push $id | ignore
+	server stop $checkin
+	$id
 }
 
 export def --env "server start" [server: record] {

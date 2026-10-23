@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let root_token = random chars
 let local_owner = server spawn --name local-owner --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
 	roles: [api indexer scheduler],
 }
@@ -19,7 +19,8 @@ let runner = server spawn --name runner --config {
 let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let retention_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.control.retention.finished | from json | get watch
 let path = artifact { tangram.ts: 'export default () => { console.log("finished log"); return "done"; };' }
-let process = tg --url $local_owner.url --token $root_token build --no-tokens --detach $path | referent node
+let id = checkin push $local_owner $path --token $root_token
+let process = tg --url $local_owner.url --token $root_token build --no-tokens --detach $id | referent node
 tg --url $runner.url --token $root_token checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 let params = { process: $process } | to json --raw
 

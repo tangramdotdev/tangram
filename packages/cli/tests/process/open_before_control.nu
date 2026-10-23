@@ -6,7 +6,7 @@ let root_token = random chars
 
 # Spawn a scheduler with checkpoints enabled and no local runner.
 let remote = server spawn --name remote --config {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
 }

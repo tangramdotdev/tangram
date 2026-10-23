@@ -120,7 +120,7 @@ impl Indexer {
 				continue;
 			}
 			crate::checkpoint!(self.server, "indexer.database_index_queue.named_node").await;
-			let guard = self.server.checkout_lock.acquire().await?;
+			let guard = self.server.checkout_lock.acquire().await;
 			if !self.server.named_checkout_maintenance_enabled() {
 				self.index_database_queue_batch(arg).await?;
 				continue;

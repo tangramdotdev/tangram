@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let directory = mktemp -d
 let config = {
-	advanced: { checkpoints: true, single_process: false },
+	advanced: { checkpoints: true, multi_server: true },
 	indexer: { id: 'idx_0000000000000000000000000000' },
 	object: { index_queue: { fragment_size: 64 } },
 }

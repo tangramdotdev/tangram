@@ -106,7 +106,7 @@ impl Server {
 	}
 
 	async fn wait_for_indexers(&self) -> tg::Result<()> {
-		if self.config.advanced.single_process {
+		if !self.config.advanced.multi_server {
 			self.send_indexer_request(None, crate::indexer::RequestArg::Wait)
 				.await??
 				.try_unwrap_wait()
@@ -300,7 +300,7 @@ impl State {
 		}
 
 		// Pending shared work needs a surviving indexer after the private waits finish.
-		if !server.config.advanced.single_process
+		if server.config.advanced.multi_server
 			&& self.waits.values().any(|request| {
 				matches!(
 					request.state,

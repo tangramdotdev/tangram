@@ -5,14 +5,14 @@ use ../lib/test.nu *
 for location in [local remote] {
 	let root_token = random chars
 	let local_owner = server spawn --name $'local-owner-($location)' --config {
-		advanced: { checkpoints: true, single_process: ($location == local) },
+		advanced: { checkpoints: true, multi_server: ($location != local) },
 		authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 		roles: (if $location == local { [api indexer runner scheduler] } else { [api indexer scheduler] }),
 	}
 	let runner = if $location == remote {
 		let created = tg --url $local_owner.url --token $root_token runner create | from json
 		server spawn --name runner --config {
-			advanced: { checkpoints: true, single_process: true },
+			advanced: { checkpoints: true },
 			authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 			remotes: { default: { token: $root_token, url: $local_owner.url } },
 			roles: [api indexer runner],
@@ -44,7 +44,8 @@ for location in [local remote] {
 		}
 		let source = $source + $"\n// ($location) ($case.both)"
 		let path = artifact { tangram.ts: $source }
-		let spawned = tg --url $local_owner.url --token $root_token build --detach --verbose $path | from json
+		let id = checkin push $local_owner $path --token $root_token
+		let spawned = tg --url $local_owner.url --token $root_token build --detach --verbose $id | from json
 		let process = $spawned.process | split row '?' | first
 		success (tg --url $runner.url --token $root_token checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | complete) "the runner must reach the finish checkpoint"
 		tg --url $runner.url --token $root_token grant $alice.user.id process_node $process | ignore

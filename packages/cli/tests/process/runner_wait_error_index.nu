@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let root_token = random chars
 let local = server spawn --config {
-	advanced: { checkpoints: true, single_process: true },
+	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 }
 let alice = tg login --verbose --name alice | from json

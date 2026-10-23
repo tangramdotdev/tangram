@@ -316,7 +316,7 @@ impl Server {
 		object: crate::cache::object::put::Arg,
 		index: tangram_index::batch::Arg,
 	) -> tg::Result<()> {
-		if self.config.advanced.single_process {
+		if !self.config.advanced.multi_server {
 			self.put_object_inner(object)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the object"))?;
@@ -354,7 +354,7 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the object"));
 		}
-		if self.config.advanced.single_process {
+		if !self.config.advanced.multi_server {
 			return self.put_object_batch_inner(vec![arg]).await;
 		}
 
@@ -391,7 +391,7 @@ impl Server {
 		objects: Vec<crate::cache::object::put::Arg>,
 		index: tangram_index::batch::Arg,
 	) -> tg::Result<()> {
-		if self.config.advanced.single_process {
+		if !self.config.advanced.multi_server {
 			self.put_object_batch_inner(objects)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
@@ -436,7 +436,7 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the objects"));
 		}
-		if self.config.advanced.single_process {
+		if !self.config.advanced.multi_server {
 			let archive_args = Self::object_archive_args(&args);
 			self.cache
 				.put_object_batch(args)
