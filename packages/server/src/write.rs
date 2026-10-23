@@ -348,7 +348,7 @@ impl Session {
 		let bytes = vec![0];
 		let id = tg::blob::Id::new(&bytes);
 		Output {
-			bytes: None,
+			bytes: Some(bytes.into()),
 			children: Vec::new(),
 			data: None,
 			id,
