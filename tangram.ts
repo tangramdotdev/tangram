@@ -79,6 +79,32 @@ export default run;
 
 export const build = async (...args: tg.Args<Arg>) => {
 	const merged = await mergeArgs(args);
+	return buildInner(merged, true);
+};
+
+/** Build a native executable that runs after checkout without a Tangram wrapper or artifact store. */
+export const standalone = async (...args: tg.Args<Arg>) => {
+	const merged = await mergeArgs(args);
+	const build = merged.build ?? std.triple.host();
+	const host = merged.host ?? build;
+	if (
+		rustTriple(build) !== rustTriple(host) ||
+		rustTriple(build) !== rustTriple(std.triple.host())
+	) {
+		throw new Error("standalone builds currently require a native host");
+	}
+	if (merged.foundationdb || merged.features?.includes("foundationdb")) {
+		throw new Error(
+			"standalone builds do not yet bundle the FoundationDB client library",
+		);
+	}
+	if (merged.proxy) {
+		throw new Error("standalone builds do not yet support the rustc proxy");
+	}
+	return buildInner({ ...merged, build, host }, false);
+};
+
+const buildInner = async (merged: Arg, wrap: boolean) => {
 	const {
 		build: build_,
 		captureStderr = false,
@@ -141,8 +167,13 @@ export const build = async (...args: tg.Args<Arg>) => {
 	}
 
 	// Build tangram.
-	const env = std.env.arg(...envs, env_ ?? null);
+	const env = std.env.arg(
+		...envs,
+		env_ ?? null,
+		wrap ? null : standaloneEnv(build, host, sdk),
+	);
 	const output = cargo.build({
+		...merged,
 		...(await std.triple.rotate({ build, host })),
 		captureStderr,
 		disableDefaultFeatures,
@@ -154,6 +185,19 @@ export const build = async (...args: tg.Args<Arg>) => {
 		source: source_,
 		useCargoVendor: true,
 	});
+	if (!wrap) {
+		const executable = await output
+			.then((directory) => directory.get("bin/tangram"))
+			.then(tg.File.expect);
+		await assertStandalone(executable, host);
+		return tg.directory({
+			"bin/tangram": tg.file({
+				contents: executable.contents,
+				executable: true,
+			}),
+			"bin/tg": tg.symlink("tangram"),
+		});
+	}
 
 	// Add xz library path.
 	const libraryPaths = [];
@@ -268,7 +312,106 @@ export const testProxy = async () => {
 	await assertHelp(build({ profile: "dev", proxy: true }));
 };
 
+export const testStandalone = async (...args: tg.Args<Arg>) => {
+	const directory = await standalone(...args);
+	// Run a copy with no artifact dependencies or wrapper environment.
+	const output = await tg.run`
+		set -eu
+		/bin/mkdir -p ${tg.output}
+		/bin/cp -R ${directory}/bin ${tg.output}/bin
+		/usr/bin/env -i PATH=/usr/bin:/bin ${tg.output}/bin/tangram --help > ${tg.output}/help
+		/usr/bin/env -i PATH=/usr/bin:/bin ${tg.output}/bin/tg --version
+	`
+		.then(tg.Directory.expect)
+		.then((directory) => directory.get("help"))
+		.then(tg.File.expect)
+		.then((file) => file.text);
+	tg.assert(output.includes("Usage:"));
+};
+
 // Internal helpers.
+
+const standaloneEnv = async (
+	build: string,
+	host: string,
+	sdkArg?: std.sdk.Arg,
+) => {
+	// Use a separate target linker so Cargo's build scripts and proc macros retain the sandbox SDK.
+	const sdk = await std.sdk({
+		...std.sdk.argObject(sdkArg),
+		host: build,
+		proxyInstallNameTool: false,
+		proxyLinker: false,
+		proxyStrip: false,
+		target: host,
+	});
+	const compiler = std.triple.os(host) === "darwin" ? "clang" : "gcc";
+	const flags = [];
+	if (std.triple.os(host) === "linux") {
+		const arch = std.triple.arch(host);
+		const interpreter =
+			std.triple.environment(host) === "musl"
+				? `/lib/ld-musl-${arch}.so.1`
+				: arch === "aarch64"
+					? "/lib/ld-linux-aarch64.so.1"
+					: "/lib64/ld-linux-x86-64.so.2";
+		flags.push(`-C link-arg=-Wl,--dynamic-linker,${interpreter}`);
+	}
+	return {
+		CARGO_ENCODED_RUSTFLAGS: tg.Mutation.unset<string>(),
+		LIBCAPNG_LINK_TYPE: "static",
+		LIBSECCOMP_LINK_TYPE: "static",
+		OPENSSL_STATIC: "1",
+		PKG_CONFIG_ALL_STATIC: "1",
+		RUSTFLAGS: tg.Mutation.suffix(
+			tg`-C linker=${sdk}/bin/${compiler} ${flags.join(" ")}`,
+			" ",
+		),
+	};
+};
+
+const assertStandalone = async (executable: tg.File, host: string) => {
+	tg.assert(
+		(await std.wrap.Manifest.read(executable)) === undefined,
+		"the standalone executable must not contain a Tangram wrapper",
+	);
+	const metadata = await std.file.executableMetadata(executable);
+	let dependencies: Array<string>;
+	if (metadata.format === "mach-o") {
+		tg.assert(metadata.arches.includes(std.triple.arch(host)));
+		dependencies = (metadata.dependencies ?? []).filter(
+			(path) =>
+				!path.startsWith("/usr/lib/") && !path.startsWith("/System/Library/"),
+		);
+	} else if (metadata.format === "elf") {
+		tg.assert(metadata.arch === std.triple.arch(host));
+		tg.assert(
+			metadata.interpreter === undefined ||
+				/^\/lib(?:64)?\//.test(metadata.interpreter),
+			"the standalone executable must use a system dynamic linker",
+		);
+		const libraries = new Set([
+			"libc.so",
+			"libc.so.6",
+			"libdl.so.2",
+			"libgcc_s.so.1",
+			"libm.so.6",
+			"libpthread.so.0",
+			"libresolv.so.2",
+			"librt.so.1",
+			"libstdc++.so.6",
+		]);
+		dependencies = (metadata.needed ?? []).filter(
+			(name) => !libraries.has(name),
+		);
+	} else {
+		throw new Error("the standalone output must be a native executable");
+	}
+	tg.assert(
+		dependencies.length === 0,
+		`the standalone executable requires non-system libraries: ${dependencies.join(", ")}`,
+	);
+};
 
 const mergeArgs = async (args: tg.Args<Arg>) =>
 	std.args.apply<Arg, Arg>({
@@ -316,8 +459,12 @@ const nodeModules = async (hostArg?: string) => {
 	// Create subset of source relevant for bun install.
 	const packageJson = source.get("package.json").then(tg.File.expect);
 	const bunLock = source.get("bun.lock").then(tg.File.expect);
-	const clientsJavaScript = source.get("packages/clients/javascript").then(tg.Directory.expect);
-	const javascript = source.get("packages/javascript").then(tg.Directory.expect);
+	const clientsJavaScript = source
+		.get("packages/clients/javascript")
+		.then(tg.Directory.expect);
+	const javascript = source
+		.get("packages/javascript")
+		.then(tg.Directory.expect);
 	const vscode = source.get("packages/vscode").then(tg.Directory.expect);
 
 	const workspaceSource = tg.directory({
@@ -569,7 +716,7 @@ const libpython = async (source: tg.Directory, build: string, host: string) => {
 		packages=$(${python} -I ${script} ${workspace} "$PWD/packages" ${python})
 		cp -R "$packages" ${tg.output}
 	`
-		.host(build)
+		.host(std.triple.archAndOs(build))
 		.checksum("sha256:any")
 		.network(true)
 		.then(tg.Directory.expect);

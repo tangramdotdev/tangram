@@ -91,3 +91,16 @@ $ sqlite3 --version
 
 $ exit
 ```
+
+## Building Tangram
+
+Build a standalone native executable with:
+
+```sh
+tg build './tangram.ts#standalone' --checkout=./target/standalone
+./target/standalone/bin/tangram --help
+```
+
+The output contains `bin/tangram` and a relative `bin/tg` symlink. It runs without a Tangram wrapper or artifact store, using the operating system's runtime libraries. The default Cargo profile is `release`; pass `-A '{"profile":"dev"}'` for a development build. Run `tg run './tangram.ts#testStandalone'` to build and test a relocated copy on the native host with a clean environment.
+
+The export accepts the build's feature options and separate `build` and `host` triples. Both triples must currently match the native machine. Cross compilation, the rustc proxy, and bundling the FoundationDB client library are not yet supported by this export.
