@@ -5630,7 +5630,7 @@ checksum = "13c45bb4a6ae1280ec0803b1ef9d3455eb50f01efbbe1447ab020f1d54fba9d8"
 [[package]]
 name = "oxc"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -5668,7 +5668,7 @@ dependencies = [
 [[package]]
 name = "oxc_allocator"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "allocator-api2 0.2.21",
  "hashbrown 0.17.1",
@@ -5679,7 +5679,7 @@ dependencies = [
 [[package]]
 name = "oxc_ast"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "bitflags 2.13.2",
  "oxc_allocator",
@@ -5696,7 +5696,7 @@ dependencies = [
 [[package]]
 name = "oxc_ast_macros"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "phf 0.14.0",
  "proc-macro2",
@@ -5707,7 +5707,7 @@ dependencies = [
 [[package]]
 name = "oxc_ast_visit"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -5718,7 +5718,7 @@ dependencies = [
 [[package]]
 name = "oxc_codegen"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "bitflags 2.13.2",
  "cow-utils",
@@ -5739,7 +5739,7 @@ dependencies = [
 [[package]]
 name = "oxc_compat"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "cow-utils",
  "oxc-browserslist",
@@ -5751,7 +5751,7 @@ dependencies = [
 [[package]]
 name = "oxc_data_structures"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "ropey",
 ]
@@ -5759,7 +5759,7 @@ dependencies = [
 [[package]]
 name = "oxc_diagnostics"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "bytecount",
  "cow-utils",
@@ -5776,7 +5776,7 @@ dependencies = [
 [[package]]
 name = "oxc_ecmascript"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "cow-utils",
  "dragonbox_ecma",
@@ -5796,12 +5796,12 @@ dependencies = [
 [[package]]
 name = "oxc_estree"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 
 [[package]]
 name = "oxc_formatter"
 version = "0.71.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "cow-utils",
  "fast-glob",
@@ -5828,7 +5828,7 @@ dependencies = [
 [[package]]
 name = "oxc_formatter_core"
 version = "0.71.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "cow-utils",
  "oxc_allocator",
@@ -5841,7 +5841,7 @@ dependencies = [
 [[package]]
 name = "oxc_formatter_tests"
 version = "0.62.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "oxc_formatter_core",
  "serde_json",
@@ -5860,7 +5860,7 @@ dependencies = [
 [[package]]
 name = "oxc_isolated_declarations"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "bitflags 2.13.2",
  "oxc_allocator",
@@ -5877,7 +5877,7 @@ dependencies = [
 [[package]]
 name = "oxc_jsdoc"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "oxc_ast",
  "oxc_span",
@@ -5887,7 +5887,7 @@ dependencies = [
 [[package]]
 name = "oxc_mangler"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "itertools 0.15.0",
  "oxc_allocator",
@@ -5905,7 +5905,7 @@ dependencies = [
 [[package]]
 name = "oxc_minifier"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "cow-utils",
  "itoa",
@@ -5930,7 +5930,7 @@ dependencies = [
 [[package]]
 name = "oxc_parser"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "bitflags 2.13.2",
  "cow-utils",
@@ -5953,7 +5953,7 @@ dependencies = [
 [[package]]
 name = "oxc_regular_expression"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "bitflags 2.13.2",
  "oxc_allocator",
@@ -5969,7 +5969,7 @@ dependencies = [
 [[package]]
 name = "oxc_semantic"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "itertools 0.15.0",
  "memchr",
@@ -6004,7 +6004,7 @@ dependencies = [
 [[package]]
 name = "oxc_span"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "compact_str 0.10.0",
  "oxc_allocator",
@@ -6016,7 +6016,7 @@ dependencies = [
 [[package]]
 name = "oxc_str"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "compact_str 0.10.0",
  "hashbrown 0.17.1",
@@ -6027,7 +6027,7 @@ dependencies = [
 [[package]]
 name = "oxc_syntax"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "bitflags 2.13.2",
  "cow-utils",
@@ -6046,7 +6046,7 @@ dependencies = [
 [[package]]
 name = "oxc_transformer"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "base64 0.23.1",
  "compact_str 0.10.0",
@@ -6075,7 +6075,7 @@ dependencies = [
 [[package]]
 name = "oxc_transformer_plugins"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "cow-utils",
  "itoa",
@@ -6097,7 +6097,7 @@ dependencies = [
 [[package]]
 name = "oxc_traverse"
 version = "0.152.0"
-source = "git+https://github.com/oxc-project/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
+source = "git+https://github.com/tangramdotdev/oxc#4dce2c2a5577b81425a06f1e3868bdb40c124e63"
 dependencies = [
  "itoa",
  "oxc_allocator",
@@ -9208,45 +9208,254 @@ dependencies = [
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
- "anstream",
+ "clap",
+ "foundationdb",
+ "futures",
+ "rustls",
+ "tangram_cli_archive",
+ "tangram_cli_availability",
+ "tangram_cli_builtin",
+ "tangram_cli_bundle",
+ "tangram_cli_check",
+ "tangram_cli_checkin",
+ "tangram_cli_checkout",
+ "tangram_cli_checkpoint",
+ "tangram_cli_checksum",
+ "tangram_cli_children",
+ "tangram_cli_clean",
+ "tangram_cli_clock",
+ "tangram_cli_compress",
+ "tangram_cli_core",
+ "tangram_cli_decompress",
+ "tangram_cli_document",
+ "tangram_cli_download",
+ "tangram_cli_extract",
+ "tangram_cli_format",
+ "tangram_cli_get",
+ "tangram_cli_grants",
+ "tangram_cli_group",
+ "tangram_cli_health",
+ "tangram_cli_id",
+ "tangram_cli_index",
+ "tangram_cli_init",
+ "tangram_cli_javascript",
+ "tangram_cli_list",
+ "tangram_cli_lsp",
+ "tangram_cli_match",
+ "tangram_cli_metadata",
+ "tangram_cli_new",
+ "tangram_cli_object",
+ "tangram_cli_organization",
+ "tangram_cli_outdated",
+ "tangram_cli_process",
+ "tangram_cli_publish",
+ "tangram_cli_pull",
+ "tangram_cli_push",
+ "tangram_cli_put",
+ "tangram_cli_python",
+ "tangram_cli_read",
+ "tangram_cli_remote",
+ "tangram_cli_repl",
+ "tangram_cli_runner",
+ "tangram_cli_sandbox",
+ "tangram_cli_server",
+ "tangram_cli_shell",
+ "tangram_cli_tag",
+ "tangram_cli_tangram",
+ "tangram_cli_touch",
+ "tangram_cli_tree",
+ "tangram_cli_update",
+ "tangram_cli_usage",
+ "tangram_cli_user",
+ "tangram_cli_view",
+ "tangram_cli_wait",
+ "tangram_cli_watch",
+ "tangram_cli_write",
+ "tangram_client",
+ "tangram_fdb",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_archive"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_process",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_availability"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_object",
+ "tangram_cli_process",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_builtin"
+version = "0.0.0"
+dependencies = [
  "astral-tokio-tar",
  "async-compression",
  "async_zip",
+ "clap",
+ "crossterm",
+ "futures",
+ "libc",
+ "liblzma",
+ "num",
+ "reqwest 0.13.5",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_uri",
+ "tangram_util",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "tangram_cli_bundle"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_check"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_checkin"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "humantime",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_util",
+]
+
+[[package]]
+name = "tangram_cli_checkout"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+ "tangram_util",
+]
+
+[[package]]
+name = "tangram_cli_checkpoint"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "humantime",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_client",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_checksum"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_process",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_children"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_clean"
+version = "0.0.0"
+dependencies = [
  "byte-unit",
+ "clap",
+ "num",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_futures",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_clock"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "humantime",
+ "jiff",
+ "tangram_cli_core",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_compress"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_process",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_core"
+version = "0.0.0"
+dependencies = [
+ "anstream",
  "byteorder",
  "bytes",
  "clap",
- "clap_complete",
- "clap_complete_nushell",
  "console-subscriber",
  "crossterm",
- "data-encoding",
- "deno_core_icudata",
  "derive_more",
- "foundationdb",
  "futures",
- "humantime",
  "indexmap 2.14.2",
- "indoc",
  "jiff",
  "libc",
- "liblzma",
  "maml",
  "miette",
- "nu-ansi-term",
  "num",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "owo-colors 4.4.0",
- "petgraph",
- "radix_trie",
- "rand 0.10.3",
- "ratatui",
- "reedline",
- "reqwest 0.13.5",
- "rustls",
  "serde",
  "serde_json",
  "serde_with",
@@ -9254,20 +9463,14 @@ dependencies = [
  "syntect",
  "tangram_billing_stripe",
  "tangram_client",
- "tangram_compiler",
- "tangram_fdb",
  "tangram_futures",
  "tangram_http",
- "tangram_javascript",
  "tangram_messenger",
  "tangram_pool",
- "tangram_python",
  "tangram_sandbox",
- "tangram_server",
  "tangram_uri",
  "tangram_util",
  "tokio",
- "tokio-util",
  "toml",
  "tracing",
  "tracing-opentelemetry",
@@ -9275,10 +9478,455 @@ dependencies = [
  "tracing-tree",
  "unicode-segmentation",
  "unicode-width 0.2.2",
- "v8",
- "vt100",
  "waitpid-any",
  "webbrowser",
+]
+
+[[package]]
+name = "tangram_cli_decompress"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_process",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_document"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_download"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_process",
+ "tangram_cli_sandbox",
+ "tangram_client",
+ "tangram_uri",
+]
+
+[[package]]
+name = "tangram_cli_extract"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "futures",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_process",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_format"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_util",
+]
+
+[[package]]
+name = "tangram_cli_get"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "futures",
+ "humantime",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_util",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_grants"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_group"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_health"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_id"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_index"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_init"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "indoc",
+ "tangram_cli_core",
+ "tangram_client",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_javascript"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "deno_core_icudata",
+ "derive_more",
+ "futures",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_cli_process",
+ "tangram_client",
+ "tangram_javascript",
+ "tokio",
+ "v8",
+]
+
+[[package]]
+name = "tangram_cli_list"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "humantime",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_lsp"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_util",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "tangram_cli_match"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_list",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_metadata"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_object",
+ "tangram_cli_process",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_new"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_init",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_object"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+ "tangram_util",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "tangram_cli_organization"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_usage",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_outdated"
+version = "0.0.0"
+dependencies = [
+ "anstream",
+ "clap",
+ "crossterm",
+ "serde",
+ "tangram_cli_core",
+ "tangram_cli_update",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_process"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "derive_more",
+ "futures",
+ "humantime",
+ "num",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tangram_cli_checkin",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_sandbox",
+ "tangram_cli_tag",
+ "tangram_cli_viewer",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_util",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_cli_publish"
+version = "0.0.0"
+dependencies = [
+ "byte-unit",
+ "clap",
+ "futures",
+ "petgraph",
+ "radix_trie",
+ "serde",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+ "tangram_compiler",
+ "tangram_util",
+]
+
+[[package]]
+name = "tangram_cli_pull"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_push",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_push"
+version = "0.0.0"
+dependencies = [
+ "byte-unit",
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_put"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_object",
+ "tangram_cli_process",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_python"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_python",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_read"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_remote"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_uri",
+]
+
+[[package]]
+name = "tangram_cli_repl"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "nu-ansi-term",
+ "reedline",
+ "syntect",
+ "tangram_cli_core",
+ "tangram_cli_javascript",
+ "tangram_client",
+ "tangram_javascript",
+ "tokio",
+ "v8",
+]
+
+[[package]]
+name = "tangram_cli_runner"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_sandbox"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "humantime",
+ "libc",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+ "tangram_http",
+ "tangram_sandbox",
+ "tangram_uri",
+]
+
+[[package]]
+name = "tangram_cli_server"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "futures",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_messenger",
+ "tangram_pool",
+ "tangram_sandbox",
+ "tangram_server",
+ "tangram_server_core",
+ "tangram_uri",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_shell"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "clap_complete",
+ "clap_complete_nushell",
+ "futures",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_cli_process",
+ "tangram_client",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_tag"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_checkin",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_tangram"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+ "tokio",
 ]
 
 [[package]]
@@ -9296,9 +9944,142 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_cli_touch"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_object",
+ "tangram_cli_process",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_tree"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_view",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_update"
+version = "0.0.0"
+dependencies = [
+ "anstream",
+ "clap",
+ "crossterm",
+ "serde",
+ "serde_json",
+ "tangram_cli_checkin",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_util",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_usage"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_user"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_usage",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_view"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "serde",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_viewer",
+ "tangram_client",
+ "tangram_futures",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cli_viewer"
+version = "0.0.0"
+dependencies = [
+ "anstream",
+ "bytes",
+ "crossterm",
+ "data-encoding",
+ "derive_more",
+ "futures",
+ "libc",
+ "num",
+ "ratatui",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_util",
+ "tokio",
+ "tracing",
+ "unicode-segmentation",
+ "unicode-width 0.2.2",
+ "vt100",
+]
+
+[[package]]
+name = "tangram_cli_wait"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_get",
+ "tangram_cli_process",
+ "tangram_cli_sandbox",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_watch"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "futures",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_util",
+]
+
+[[package]]
+name = "tangram_cli_write"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_checkin",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_util",
+ "tokio-util",
+]
+
+[[package]]
 name = "tangram_client"
 version = "0.0.0"
 dependencies = [
+ "async-broadcast",
  "async-channel",
  "aws-lc-rs",
  "blake3",
@@ -9865,61 +10646,371 @@ dependencies = [
 name = "tangram_server"
 version = "0.0.0"
 dependencies = [
- "async-broadcast",
- "async-channel",
- "async-nats",
- "aws-lc-rs",
- "blake3",
- "bytes",
- "crossterm",
- "dashmap",
- "data-encoding",
- "data-encoding-macro",
- "derive_more",
- "fastcdc",
- "fnv",
  "futures",
- "heed",
- "http",
- "hyper",
- "hyper-util",
- "im",
- "indexmap 2.14.2",
+ "tangram_client",
+ "tangram_server_authentication",
+ "tangram_server_authorization",
+ "tangram_server_billing",
+ "tangram_server_check",
+ "tangram_server_checkin",
+ "tangram_server_checkout",
+ "tangram_server_checkpoint",
+ "tangram_server_checksum",
+ "tangram_server_children",
+ "tangram_server_clean",
+ "tangram_server_clock",
+ "tangram_server_core",
+ "tangram_server_document",
+ "tangram_server_format",
+ "tangram_server_get",
+ "tangram_server_grant",
+ "tangram_server_group",
+ "tangram_server_health",
+ "tangram_server_indexer",
+ "tangram_server_list",
+ "tangram_server_log",
+ "tangram_server_lsp",
+ "tangram_server_match",
+ "tangram_server_module",
+ "tangram_server_node",
+ "tangram_server_object",
+ "tangram_server_organization",
+ "tangram_server_process",
+ "tangram_server_pull",
+ "tangram_server_push",
+ "tangram_server_read",
+ "tangram_server_remote",
+ "tangram_server_runner",
+ "tangram_server_sandbox",
+ "tangram_server_scheduler",
+ "tangram_server_sync",
+ "tangram_server_tag",
+ "tangram_server_user",
+ "tangram_server_verify",
+ "tangram_server_vfs",
+ "tangram_server_watch",
+ "tangram_server_write",
+]
+
+[[package]]
+name = "tangram_server_authentication"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "futures",
  "indoc",
- "itertools 0.15.0",
- "jiff",
- "libc",
- "mime",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_messenger",
+ "tangram_server_core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_authentication_types"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
  "moka",
- "notify",
- "num",
- "oauth2",
- "octocrab",
- "opentelemetry",
- "petgraph",
- "rand 0.10.3",
- "reflink-copy",
- "reqwest 0.13.5",
- "rusqlite",
- "rustix 1.1.5",
- "rustls",
- "rustls-pemfile",
- "scopeguard",
  "serde",
  "serde_json",
- "serde_with",
- "smallvec",
- "sync_wrapper",
- "tangram_archive",
- "tangram_archive_s3",
+ "tangram_client",
+ "tangram_index",
+ "tangram_server_config",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_authorization"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "num",
+ "tangram_client",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_billing"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
  "tangram_billing",
- "tangram_billing_stripe",
+ "tangram_client",
+ "tangram_database",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_cache"
+version = "0.0.0"
+dependencies = [
+ "derive_more",
  "tangram_cache",
  "tangram_cache_fjall",
  "tangram_cache_lmdb",
  "tangram_cache_memory",
  "tangram_cache_rocksdb",
  "tangram_cache_scylla",
+ "tangram_client",
+ "tangram_server_config",
+]
+
+[[package]]
+name = "tangram_server_check"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "serde_json",
+ "tangram_client",
+ "tangram_http",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_checkin"
+version = "0.0.0"
+dependencies = [
+ "dashmap",
+ "derive_more",
+ "fnv",
+ "futures",
+ "http",
+ "im",
+ "indexmap 2.14.2",
+ "libc",
+ "mime",
+ "num",
+ "petgraph",
+ "scopeguard",
+ "serde_json",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_compiler",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_ignore",
+ "tangram_index",
+ "tangram_serialize",
+ "tangram_server_core",
+ "tangram_util",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "tangram_server_checkin_graph"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "derive_more",
+ "fnv",
+ "im",
+ "petgraph",
+ "serde_json",
+ "smallvec",
+ "tangram_client",
+ "tangram_util",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_checkout"
+version = "0.0.0"
+dependencies = [
+ "fnv",
+ "futures",
+ "http",
+ "itertools 0.15.0",
+ "mime",
+ "num",
+ "reflink-copy",
+ "serde_json",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+ "tangram_util",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+ "xattr",
+]
+
+[[package]]
+name = "tangram_server_checkpoint"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "serde_json",
+ "tangram_client",
+ "tangram_http",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_checkpoint_types"
+version = "0.0.0"
+dependencies = [
+ "tangram_client",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_checksum"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "num",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_server_core",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_children"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_clean"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "jiff",
+ "mime",
+ "num",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+ "tangram_util",
+ "time",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_clock"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "serde_json",
+ "tangram_client",
+ "tangram_http",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_clock_types"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "jiff",
+ "tangram_client",
+ "tangram_server_checkpoint_types",
+ "tangram_server_config",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_config"
+version = "0.0.0"
+dependencies = [
+ "derive_more",
+ "jiff",
+ "libc",
+ "tangram_billing_stripe",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_messenger",
+ "tangram_pool",
+ "tangram_sandbox",
+ "tangram_uri",
+]
+
+[[package]]
+name = "tangram_server_control"
+version = "0.0.0"
+dependencies = [
+ "dashmap",
+ "futures",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_server_config",
+ "tokio",
+ "tokio-stream",
+ "uuid",
+]
+
+[[package]]
+name = "tangram_server_core"
+version = "0.0.0"
+dependencies = [
+ "async-nats",
+ "aws-lc-rs",
+ "blake3",
+ "bytes",
+ "dashmap",
+ "data-encoding",
+ "data-encoding-macro",
+ "derive_more",
+ "fnv",
+ "futures",
+ "http",
+ "hyper",
+ "hyper-util",
+ "indexmap 2.14.2",
+ "indoc",
+ "libc",
+ "mime",
+ "num",
+ "opentelemetry",
+ "rand 0.10.3",
+ "reqwest 0.13.5",
+ "rustls",
+ "rustls-pemfile",
+ "scopeguard",
+ "serde",
+ "serde_json",
+ "tangram_archive",
+ "tangram_archive_s3",
+ "tangram_billing",
+ "tangram_billing_stripe",
+ "tangram_cache",
  "tangram_client",
  "tangram_compiler",
  "tangram_database",
@@ -9934,13 +11025,25 @@ dependencies = [
  "tangram_index_lmdb",
  "tangram_messenger",
  "tangram_messenger_memory",
- "tangram_messenger_nats",
  "tangram_pool",
  "tangram_sandbox",
  "tangram_serialize",
+ "tangram_server_authentication_types",
+ "tangram_server_cache",
+ "tangram_server_checkin_graph",
+ "tangram_server_checkpoint_types",
+ "tangram_server_clock_types",
+ "tangram_server_config",
+ "tangram_server_control",
+ "tangram_server_database",
+ "tangram_server_directory",
+ "tangram_server_graph",
+ "tangram_server_index",
+ "tangram_server_messenger",
+ "tangram_server_read_types",
+ "tangram_server_watch_types",
  "tangram_uri",
  "tangram_util",
- "tangram_vfs",
  "time",
  "tokio",
  "tokio-postgres",
@@ -9952,9 +11055,702 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "turso",
- "unicode-width 0.2.2",
  "uuid",
  "xattr",
+]
+
+[[package]]
+name = "tangram_server_database"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "derive_more",
+ "futures",
+ "indoc",
+ "num",
+ "rusqlite",
+ "tangram_client",
+ "tangram_database",
+ "tangram_database_postgres",
+ "tangram_database_sqlite",
+ "tangram_database_turso",
+ "tangram_futures",
+ "tangram_index",
+ "tangram_server_config",
+ "turso",
+]
+
+[[package]]
+name = "tangram_server_directory"
+version = "0.0.0"
+dependencies = [
+ "tangram_client",
+ "tangram_server_cache",
+ "tangram_server_graph",
+]
+
+[[package]]
+name = "tangram_server_document"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "serde_json",
+ "tangram_client",
+ "tangram_http",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_format"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "tangram_client",
+ "tangram_compiler",
+ "tangram_http",
+ "tangram_ignore",
+ "tangram_server_core",
+ "tangram_util",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_get"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "num",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_grant"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "indoc",
+ "mime",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_database",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_graph"
+version = "0.0.0"
+dependencies = [
+ "num",
+ "tangram_client",
+ "tangram_server_cache",
+]
+
+[[package]]
+name = "tangram_server_group"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "indoc",
+ "mime",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_health"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "serde_json",
+ "tangram_client",
+ "tangram_http",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_index"
+version = "0.0.0"
+dependencies = [
+ "derive_more",
+ "jiff",
+ "tangram_client",
+ "tangram_index",
+ "tangram_index_fdb",
+ "tangram_index_lmdb",
+]
+
+[[package]]
+name = "tangram_server_indexer"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "http",
+ "itertools 0.15.0",
+ "mime",
+ "num",
+ "rand 0.10.3",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "tangram_archive",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_messenger",
+ "tangram_server_core",
+ "tangram_util",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "tangram_server_list"
+version = "0.0.0"
+dependencies = [
+ "fnv",
+ "futures",
+ "http",
+ "mime",
+ "num",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_log"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "num",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_serialize",
+ "tangram_server_core",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_lsp"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "hyper",
+ "hyper-util",
+ "tangram_client",
+ "tangram_http",
+ "tangram_server_core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_match"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_http",
+ "tangram_server_core",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_messenger"
+version = "0.0.0"
+dependencies = [
+ "async-nats",
+ "futures",
+ "tangram_messenger",
+ "tangram_messenger_memory",
+ "tangram_messenger_nats",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_module"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "indoc",
+ "mime",
+ "serde_json",
+ "tangram_client",
+ "tangram_compiler",
+ "tangram_http",
+ "tangram_server_core",
+ "tangram_util",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_node"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_index",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_object"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "fnv",
+ "futures",
+ "http",
+ "mime",
+ "num",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "tangram_archive",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "tangram_server_organization"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "indoc",
+ "mime",
+ "serde",
+ "serde_json",
+ "tangram_billing",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_process"
+version = "0.0.0"
+dependencies = [
+ "async-channel",
+ "bytes",
+ "dashmap",
+ "derive_more",
+ "fnv",
+ "futures",
+ "http",
+ "indexmap 2.14.2",
+ "mime",
+ "notify",
+ "num",
+ "scopeguard",
+ "serde_json",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_messenger",
+ "tangram_serialize",
+ "tangram_server_core",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_pull"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "tangram_client",
+ "tangram_http",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_push"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "mime",
+ "num",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_server_core",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_read"
+version = "0.0.0"
+dependencies = [
+ "async-channel",
+ "bytes",
+ "futures",
+ "http",
+ "hyper",
+ "mime",
+ "num",
+ "serde_json",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_server_core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_read_types"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "num",
+ "sync_wrapper",
+ "tangram_client",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_remote"
+version = "0.0.0"
+dependencies = [
+ "dashmap",
+ "fnv",
+ "futures",
+ "http",
+ "indoc",
+ "mime",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_database",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+ "tangram_uri",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_runner"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "bytes",
+ "crossterm",
+ "dashmap",
+ "data-encoding",
+ "data-encoding-macro",
+ "futures",
+ "http",
+ "indexmap 2.14.2",
+ "indoc",
+ "mime",
+ "num",
+ "rand 0.10.3",
+ "rustix 1.1.5",
+ "scopeguard",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_messenger",
+ "tangram_sandbox",
+ "tangram_server_core",
+ "tangram_uri",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "unicode-width 0.2.2",
+]
+
+[[package]]
+name = "tangram_server_sandbox"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "dashmap",
+ "fnv",
+ "futures",
+ "http",
+ "mime",
+ "num",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_messenger",
+ "tangram_serialize",
+ "tangram_server_core",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_scheduler"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_index",
+ "tangram_messenger",
+ "tangram_server_core",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_sync"
+version = "0.0.0"
+dependencies = [
+ "async-channel",
+ "bytes",
+ "derive_more",
+ "fnv",
+ "futures",
+ "http",
+ "indexmap 2.14.2",
+ "indoc",
+ "mime",
+ "num",
+ "petgraph",
+ "scopeguard",
+ "serde_json",
+ "smallvec",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_messenger",
+ "tangram_serialize",
+ "tangram_server_core",
+ "tangram_util",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "tangram_server_tag"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "http",
+ "indoc",
+ "mime",
+ "serde_json",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_user"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "futures",
+ "http",
+ "indoc",
+ "mime",
+ "oauth2",
+ "octocrab",
+ "rand 0.10.3",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "tangram_billing",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+ "tangram_uri",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "tangram_server_verify"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "num",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_index",
+ "tangram_server_core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_vfs"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "dashmap",
+ "fnv",
+ "futures",
+ "heed",
+ "libc",
+ "num",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_index",
+ "tangram_server_core",
+ "tangram_vfs",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_watch"
+version = "0.0.0"
+dependencies = [
+ "dashmap",
+ "fnv",
+ "futures",
+ "http",
+ "mime",
+ "notify",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_http",
+ "tangram_server_core",
+ "tangram_util",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_watch_types"
+version = "0.0.0"
+dependencies = [
+ "fnv",
+ "futures",
+ "notify",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_server_checkin_graph",
+ "tangram_server_clock_types",
+ "tangram_server_config",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_server_write"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "fastcdc",
+ "futures",
+ "http",
+ "itertools 0.15.0",
+ "mime",
+ "num",
+ "serde_json",
+ "tangram_client",
+ "tangram_http",
+ "tangram_index",
+ "tangram_server_core",
+ "tangram_util",
+ "time",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

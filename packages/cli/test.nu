@@ -5,7 +5,7 @@ use ../../scripts/macos/identifiers.nu
 
 const repository_path = path self '../../'
 
-# Build Tangram and the test runner, then run the CLI tests with the runner in packages/cli/test.
+# Build Tangram and the test runner, then run the CLI tests with the runner in packages/cli/packages/test.
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from FoundationDB, PostgreSQL, and ScyllaDB.

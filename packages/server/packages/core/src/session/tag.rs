@@ -1,0 +1,23 @@
+use {crate::Session, tangram_client::prelude::*};
+
+impl tg::instance::Tag for Session {
+	async fn put_tag(&self, arg: tg::tag::put::Arg) -> tg::Result<()> {
+		self.server.components.tag.put_tag(self, arg).await
+	}
+
+	async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
+		self.server.components.tag.post_tag_batch(self, arg).await
+	}
+
+	async fn try_get_tag(
+		&self,
+		tag: &tg::tag::Selector,
+		arg: tg::tag::get::Arg,
+	) -> tg::Result<Option<tg::tag::get::Output>> {
+		self.server.components.tag.try_get_tag(self, tag, arg).await
+	}
+
+	async fn delete_tags(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {
+		self.server.components.tag.delete_tags(self, arg).await
+	}
+}

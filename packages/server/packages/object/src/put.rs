@@ -1,0 +1,601 @@
+use {
+	crate::Component,
+	futures::{FutureExt as _, future},
+	num::ToPrimitive as _,
+	std::{collections::BTreeSet, ops::ControlFlow},
+	tangram_client::prelude::*,
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
+	tangram_server_core::{Server, Session},
+	tracing::Instrument as _,
+};
+
+impl Component {
+	pub async fn put_object(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> tg::Result<tg::object::put::Output> {
+		let location = session.server.location(arg.location.as_ref())?;
+
+		let (mut output, trusted) = match location.clone() {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != session.server.config.region.as_deref() => (
+				self.put_object_region(session, id, arg, region).await?,
+				false,
+			),
+			tg::Location::Local(_) => (self.put_object_local(session, id, arg).await?, false),
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
+				self.put_object_remote(session, id, arg, remote, region)
+					.await?
+			},
+		};
+		session.update_tokens_and_location(
+			&mut output.object.options.tokens,
+			Some(&mut output.object.options.location),
+			&location,
+			trusted,
+		)?;
+
+		Ok(output)
+	}
+
+	async fn put_object_local(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> tg::Result<tg::object::put::Output> {
+		let now = session.server.clock.unix_timestamp();
+		let permission_expires_at = now
+			+ session
+				.server
+				.config
+				.object
+				.permission_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+
+		// Deserialize the object.
+		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())
+			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+
+		// Get the children and check the object's limits.
+		let mut children = BTreeSet::new();
+		data.children(&mut children);
+		tg::object::check_limits(arg.bytes.len(), children.len())
+			.map_err(|error| tg::error!(!error, %id, "invalid object"))?;
+
+		let length = match &data {
+			tg::object::Data::Blob(blob) => Some(blob.length()),
+			_ => None,
+		};
+		let put = uuid::Uuid::now_v7().into_bytes();
+
+		let put_arg = tangram_server_core::cache::object::put::Arg {
+			bytes: Some(arg.bytes.clone()),
+			checkout_pointer: None,
+			id: id.clone(),
+			length,
+			put,
+		};
+		let permission = if self
+			.post_object_batch_authorize(
+				session,
+				&arg.children,
+				&children,
+				&BTreeSet::new(),
+				&BTreeSet::new(),
+			)
+			.await?
+		{
+			tg::authorization::permission::object::Permission::Subtree
+		} else {
+			tg::authorization::permission::object::Permission::Node
+		};
+
+		let (node_solvable, node_solved) = match data {
+			tg::object::Data::File(file) => match file {
+				tg::file::Data::Pointer(_) => (false, true),
+				tg::file::Data::Node(node) => (node.solvable(), node.solved()),
+			},
+			tg::object::Data::Graph(graph) => (graph.solvable(), graph.solved()),
+			_ => (false, true),
+		};
+
+		let metadata = if let Some(metadata) = arg.metadata {
+			metadata
+		} else {
+			tg::object::Metadata {
+				node: tg::object::metadata::Node {
+					size: arg.bytes.len().to_u64().unwrap(),
+					solvable: node_solvable,
+					solved: node_solved,
+				},
+				..Default::default()
+			}
+		};
+		let arg = tangram_index::object::put::Arg {
+			checkout: None,
+			children,
+			id: id.clone(),
+			metadata,
+			put,
+			storage: tg::object::storage::Set::NODE,
+			time_to_touch: session.server.config.object.time_to_touch,
+			touched_at: now,
+		};
+		let permission_subject = match &session.context.principal {
+			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
+			tg::Principal::Root => None,
+			principal => Some(principal.try_to_subject()?),
+		};
+		let put_permission =
+			permission_subject.map(|permission_subject| tangram_index::permission::put::Arg {
+				created_at: now,
+				creator: Some(session.context.principal.clone()),
+				permissions: tg::authorization::Permission::Object(permission).into(),
+				resource: id.clone().into(),
+				source: tangram_index::permission::Source::Direct {
+					expires_at: Some(permission_expires_at),
+				},
+				subject: permission_subject,
+				time_to_touch: Some(session.server.config.object.permission_time_to_touch),
+				version: None,
+			});
+		let account = session.usage_account(&session.context.principal).await?;
+		let arg = tangram_index::batch::Arg {
+			items: std::iter::once(tangram_index::batch::Item::PutObject(arg))
+				.chain(put_permission.map(tangram_index::batch::Item::PutPermission))
+				.chain(account.map(|account| {
+					tangram_index::batch::Item::PutAccountObject(
+						tangram_index::usage::storage::put::ObjectArg {
+							account,
+							object: id.clone(),
+							touched_at: now,
+						},
+					)
+				}))
+				.collect(),
+		};
+		self.put_object_and_index(&session.server, put_arg, arg)
+			.await?;
+
+		let token = session.create_token(
+			id.clone().into(),
+			vec![tg::authorization::Permission::Object(permission)],
+			permission_expires_at,
+		)?;
+		let object = tg::Referent::with_node_and_local_tokens(id.clone(), token);
+
+		Ok(tg::object::put::Output { object })
+	}
+
+	async fn put_object_region(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+		region: String,
+	) -> tg::Result<tg::object::put::Output> {
+		let client = session.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, %id, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		let arg = tg::object::put::Arg {
+			location: Some(location.into()),
+			..arg
+		};
+		let output = client.put_object(id, arg).await.map_err(
+			|error| tg::error!(!error, %id, region = %region, "failed to put the object"),
+		)?;
+		Ok(output)
+	}
+
+	async fn put_object_remote(
+		&self,
+		session: &Session,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+		remote: String,
+		region: Option<String>,
+	) -> tg::Result<(tg::object::put::Output, bool)> {
+		let client = session.get_remote_session(&remote).await.map_err(
+			|error| tg::error!(!error, %id, remote = %remote, "failed to get the remote client"),
+		)?;
+		let trusted = client.trusted();
+		let arg = tg::object::put::Arg {
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+			..arg
+		};
+		let output = client.put_object(id, arg).await.map_err(
+			|error| tg::error!(!error, %id, remote = %remote, "failed to put the object"),
+		)?;
+		Ok((output, trusted))
+	}
+
+	pub(crate) async fn put_object_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+		id: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let id = id
+			.parse::<tg::object::Id>()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the object id"))?;
+		let (arg, request) = request
+			.arg::<tg::object::put::Arg>()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
+		let content_type = request
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()
+			.map_err(|error| {
+				tg::error!(argument, !error, "failed to parse the content type header")
+			})?;
+		let body = request
+			.bytes()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the request body"))?;
+		let bytes = match content_type
+			.as_ref()
+			.map(|content_type| (content_type.type_(), content_type.subtype()))
+		{
+			Some((mime::APPLICATION, mime::JSON)) => {
+				let data = serde_json::from_slice::<tg::object::Data>(&body).map_err(|error| {
+					tg::error!(argument, !error, "failed to deserialize the request")
+				})?;
+				if data.kind() != id.kind() {
+					return Err(tg::error!(
+						argument,
+						expected = %id.kind(),
+						actual = %data.kind(),
+						"invalid object kind"
+					));
+				}
+				data.serialize()
+					.map_err(|error| tg::error!(!error, "failed to serialize the object"))?
+			},
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => body,
+			Some((type_, subtype)) => {
+				return Err(tg::error!(argument, %type_, %subtype, "invalid content type"));
+			},
+		};
+
+		let actual = tg::object::Id::new(id.kind(), &bytes);
+		if id != actual {
+			let error = tg::error::Data {
+				message: Some("invalid object id".into()),
+				values: [
+					("expected".into(), id.to_string()),
+					("actual".into(), actual.to_string()),
+				]
+				.into(),
+				..Default::default()
+			};
+			let response = http::Response::builder()
+				.status(http::StatusCode::BAD_REQUEST)
+				.json(error)
+				.map_err(|error| tg::error!(!error, "failed to serialize the error"))?
+				.unwrap()
+				.boxed_body();
+			return Ok(response);
+		}
+
+		let arg = tg::object::put::Arg { bytes, ..arg };
+		let output = self
+			.put_object(session, &id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
+
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|error| tg::error!(!error, "failed to serialize the response"))?
+			.unwrap()
+			.boxed_body();
+
+		Ok(response)
+	}
+}
+
+impl Component {
+	pub async fn put_object_and_index(
+		&self,
+		server: &Server,
+		object: tangram_server_core::cache::object::put::Arg,
+		index: tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		let future = self
+			.put_object_and_index_inner(server, object, index)
+			.boxed();
+		let result = tokio::time::timeout(server.config.object.put_timeout, future)
+			.await
+			.map_err(|error| tg::error!(!error, "timed out putting and indexing the object"))?;
+		result?;
+
+		Ok(())
+	}
+
+	async fn put_object_and_index_inner(
+		&self,
+		server: &Server,
+		object: tangram_server_core::cache::object::put::Arg,
+		index: tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		if !server.config.advanced.multi_server {
+			self.put_object_inner(server, object)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+			server
+				.index_batch(index)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+
+			return Ok(());
+		}
+
+		let object_put = self.put_object_inner(server, object);
+		let index_put = server.index_batch(index);
+		let (object_result, index_result) = future::join(object_put, index_put).await;
+		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+		index_result.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+
+		Ok(())
+	}
+
+	pub async fn put_object_with_server(
+		&self,
+		server: &Server,
+		arg: tangram_server_core::cache::object::put::Arg,
+	) -> tg::Result<()> {
+		let future = self.put_object_inner(server, arg).boxed();
+		let result = tokio::time::timeout(server.config.object.put_timeout, future)
+			.await
+			.map_err(|error| tg::error!(!error, "timed out putting the object"))?;
+		result?;
+
+		Ok(())
+	}
+
+	async fn put_object_inner(
+		&self,
+		server: &Server,
+		arg: tangram_server_core::cache::object::put::Arg,
+	) -> tg::Result<()> {
+		if server.archive.is_none() {
+			return server
+				.cache
+				.put_object(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the object"));
+		}
+		if !server.config.advanced.multi_server {
+			return self.put_object_batch_inner(server, vec![arg]).await;
+		}
+
+		let archive = self.enqueue_object_archive(server, arg.id.clone(), arg.put);
+		let object_put = server.cache.put_object(arg);
+		let (object_result, archive_result) = future::join(object_put, archive).await;
+		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+		archive_result
+			.map_err(|error| tg::error!(!error, "failed to enqueue the object for archiving"))?;
+
+		Ok(())
+	}
+
+	pub async fn put_object_batch_and_index(
+		&self,
+		server: &Server,
+		objects: Vec<tangram_server_core::cache::object::put::Arg>,
+		index: tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		let future = self
+			.put_object_batch_and_index_inner(server, objects, index)
+			.boxed();
+		let result = tokio::time::timeout(server.config.object.put_timeout, future)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "timed out putting and indexing the object batch")
+			})?;
+		result?;
+
+		Ok(())
+	}
+
+	async fn put_object_batch_and_index_inner(
+		&self,
+		server: &Server,
+		objects: Vec<tangram_server_core::cache::object::put::Arg>,
+		index: tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		if !server.config.advanced.multi_server {
+			self.put_object_batch_inner(server, objects)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+			server
+				.index_batch(index)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
+
+			return Ok(());
+		}
+
+		let object_put = self.put_object_batch_inner(server, objects);
+		let index_put = server.index_batch(index);
+		let (object_result, index_result) = future::join(object_put, index_put).await;
+		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+		index_result.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
+
+		Ok(())
+	}
+
+	#[tracing::instrument(name = "object.put_batch", level = "debug", skip_all, fields(count = args.len(), bytes = args.iter().filter_map(|arg| arg.bytes.as_ref()).map(bytes::Bytes::len).sum::<usize>()), err(level = "debug"))]
+	pub async fn put_object_batch(
+		&self,
+		server: &Server,
+		args: Vec<tangram_server_core::cache::object::put::Arg>,
+	) -> tg::Result<()> {
+		let future = self.put_object_batch_inner(server, args).boxed();
+		let result = tokio::time::timeout(server.config.object.put_timeout, future)
+			.await
+			.map_err(|error| tg::error!(!error, "timed out putting the objects"))?;
+		result?;
+
+		Ok(())
+	}
+
+	async fn put_object_batch_inner(
+		&self,
+		server: &Server,
+		args: Vec<tangram_server_core::cache::object::put::Arg>,
+	) -> tg::Result<()> {
+		if server.archive.is_none() {
+			return server
+				.cache
+				.put_object_batch(args)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the objects"));
+		}
+		if !server.config.advanced.multi_server {
+			let archive_args = Self::object_archive_args(&args);
+			server
+				.cache
+				.put_object_batch(args)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+			server.archive_object_batch_task(archive_args);
+			return Ok(());
+		}
+
+		let entries = args
+			.iter()
+			.map(|arg| (arg.id.clone(), arg.put))
+			.collect::<Vec<_>>();
+		let count = args.len();
+		let archive = future::try_join_all(
+			entries
+				.into_iter()
+				.map(|(id, put)| self.enqueue_object_archive(server, id, put)),
+		)
+		.map(|result| {
+			tracing::debug!(
+				count,
+				success = result.is_ok(),
+				"completed the archive enqueue batch"
+			);
+			result
+		})
+		.instrument(tracing::debug_span!("object.archive_enqueue_batch", count));
+		let object_put = server
+			.cache
+			.put_object_batch(args)
+			.map(|result| {
+				tracing::debug!(
+					count,
+					success = result.is_ok(),
+					"completed the cache write batch"
+				);
+				result
+			})
+			.instrument(tracing::debug_span!("object.cache_write_batch", count));
+		let (object_result, archive_result) = future::join(object_put, archive).await;
+		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+		archive_result
+			.map_err(|error| tg::error!(!error, "failed to enqueue the objects for archiving"))?;
+
+		Ok(())
+	}
+
+	fn object_archive_args(
+		args: &[tangram_server_core::cache::object::put::Arg],
+	) -> Vec<tangram_archive::object::put::Arg> {
+		args.iter()
+			.filter_map(|arg| {
+				arg.bytes
+					.as_ref()
+					.map(|bytes| tangram_archive::object::put::Arg {
+						bytes: bytes.clone(),
+						id: arg.id.clone(),
+						put: arg.put,
+					})
+			})
+			.collect()
+	}
+
+	async fn enqueue_object_archive(
+		&self,
+		server: &Server,
+		object: tg::object::Id,
+		put: [u8; 16],
+	) -> tg::Result<()> {
+		let start = rand::random::<u64>();
+		let mut attempt = 0u64;
+		let retry =
+			tangram_futures::retry::Options::from(server.config.indexer.batch.retry.clone());
+		tangram_futures::retry(&retry, || {
+			let index = start.wrapping_add(attempt);
+			let refresh = attempt > 0;
+			attempt = attempt.wrapping_add(1);
+			let object = object.clone();
+			async move {
+				let indexer = match server
+					.components
+					.indexer
+					.select_indexer(server, index, refresh)
+					.await
+				{
+					Ok(indexer) => indexer,
+					Err(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let result = self
+					.enqueue_object_archive_with_indexer(server, &indexer, object, put)
+					.await;
+				match result {
+					Ok(()) => Ok(ControlFlow::Break(())),
+					Err(error) => Ok(ControlFlow::Continue(error)),
+				}
+			}
+		})
+		.await?;
+
+		Ok(())
+	}
+
+	async fn enqueue_object_archive_with_indexer(
+		&self,
+		server: &Server,
+		indexer: &tg::indexer::Id,
+		object: tg::object::Id,
+		put: [u8; 16],
+	) -> tg::Result<()> {
+		let arg = tangram_server_core::indexer::RequestArg::Archive(
+			tangram_server_core::indexer::ArchiveRequestArg { object, put },
+		);
+		let request = server
+			.components
+			.indexer
+			.send_indexer_request(server, Some(indexer), arg);
+		let output = tokio::time::timeout(server.config.indexer.batch.timeout, request)
+			.await
+			.map_err(|source| tg::error!(!source, "timed out enqueueing an object for archiving"))?
+			.map_err(|source| tg::error!(!source, "failed to send an archive request"))?
+			.map_err(|source| {
+				tg::error!(!source, "the indexer failed to enqueue an archive entry")
+			})?;
+		output
+			.try_unwrap_archive()
+			.map_err(|_| tg::error!("expected an archive response"))?;
+
+		Ok(())
+	}
+}

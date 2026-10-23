@@ -1,0 +1,589 @@
+use {
+	crate::Component,
+	std::{
+		collections::{HashMap, HashSet},
+		path::PathBuf,
+	},
+	tangram_client::prelude::*,
+	tangram_server_core::Session,
+};
+
+pub(super) enum Output {
+	Attr(Vec<u8>),
+	File { contents: Vec<u8>, path: PathBuf },
+}
+
+struct State {
+	dependencies: bool,
+	graphs: tangram_server_core::graph::Graphs,
+	ids: Vec<tg::object::Id>,
+	nodes: Vec<Option<tg::graph::data::Node>>,
+	visited: HashMap<tg::artifact::Id, usize, tg::id::BuildHasher>,
+	visited_graphs: HashSet<tg::graph::Id, tg::id::BuildHasher>,
+}
+
+impl Component {
+	pub(super) fn checkout_prepare_lock(
+		&self,
+		session: &Session,
+		state: &super::State,
+	) -> tg::Result<Option<Output>> {
+		// Do not write a lock if the lock arg is not set.
+		if state.arg.lock.is_none() {
+			return Ok(None);
+		}
+
+		// Create the lock.
+		let lock = self
+			.checkout_create_lock(session, &state.artifact, state.arg.dependencies)
+			.map_err(|error| tg::error!(!error, "failed to create the lock"))?;
+
+		// Do not write the lock if it is empty.
+		if lock.nodes.is_empty() {
+			return Ok(None);
+		}
+
+		// Prepare the lock output before writing the file's xattrs.
+		let output = if state.artifact.is_directory() {
+			let contents = serde_json::to_vec_pretty(&lock)
+				.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
+			let path = state.path.join(tg::module::LOCKFILE_FILE_NAME);
+			Output::File { contents, path }
+		} else if state.artifact.is_file() {
+			let lock_kind = state.arg.lock.unwrap();
+			let lock_kind = if matches!(lock_kind, tg::checkout::Lock::Auto) {
+				let lockfile_path = state.path.with_extension("lock");
+				if std::fs::metadata(&lockfile_path).is_ok_and(|metadata| metadata.is_file()) {
+					tg::checkout::Lock::File
+				} else {
+					tg::checkout::Lock::Attr
+				}
+			} else {
+				lock_kind
+			};
+			match lock_kind {
+				tg::checkout::Lock::Attr => {
+					let contents = serde_json::to_vec(&lock)
+						.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
+					Output::Attr(contents)
+				},
+				tg::checkout::Lock::File => {
+					let contents = serde_json::to_vec_pretty(&lock)
+						.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
+					let path = state.path.with_extension("lock");
+					Output::File { contents, path }
+				},
+				tg::checkout::Lock::Auto => unreachable!(),
+			}
+		} else {
+			return Ok(None);
+		};
+
+		Ok(Some(output))
+	}
+
+	pub(super) fn checkout_write_lock(state: &super::State) -> tg::Result<()> {
+		match &state.lock {
+			Some(Output::Attr(_)) => {
+				// The shared xattr writer has already written the lock xattr.
+				std::fs::remove_file(state.path.with_extension("lock")).ok();
+			},
+			Some(Output::File { contents, path }) => {
+				if state.artifact.is_file() {
+					std::fs::remove_file(path).ok();
+				}
+				std::fs::write(path, contents).map_err(
+					|error| tg::error!(!error, path = %path.display(), "failed to write the lockfile"),
+				)?;
+			},
+			None => {},
+		}
+
+		Ok(())
+	}
+
+	fn checkout_create_lock(
+		&self,
+		session: &Session,
+		artifact: &tg::artifact::Id,
+		dependencies: bool,
+	) -> tg::Result<tg::graph::data::Leaf> {
+		// Create the state.
+		let mut state = State {
+			dependencies,
+			graphs: tangram_server_core::graph::Graphs::default(),
+			ids: Vec::new(),
+			nodes: Vec::new(),
+			visited: HashMap::default(),
+			visited_graphs: HashSet::default(),
+		};
+
+		// Create the nodes.
+		let edge = tg::graph::data::Edge::Object(artifact.clone());
+		self.checkout_create_lock_inner(session, &mut state, &edge)?;
+		let nodes: Vec<_> = state
+			.nodes
+			.into_iter()
+			.enumerate()
+			.map(|(index, node)| {
+				node.clone().ok_or_else(
+					|| tg::error!(node = %index, "invalid graph, failed to create lock node"),
+				)
+			})
+			.collect::<tg::Result<_>>()?;
+
+		// Create the lock.
+		let lock = tg::graph::data::Leaf { nodes };
+
+		// Strip the lock.
+		let lock = tangram_server_core::checkin::strip_lock(lock, false);
+
+		Ok(lock)
+	}
+
+	fn checkout_create_lock_inner(
+		&self,
+		session: &Session,
+		state: &mut State,
+		edge: &tg::graph::data::Edge<tg::artifact::Id>,
+	) -> tg::Result<usize> {
+		let (id, node, graph) = match edge {
+			tg::graph::data::Edge::Index(_) => return Err(tg::error!("missing graph")),
+			tg::graph::data::Edge::Pointer(pointer) => {
+				// Get the graph ID.
+				let graph_id = &pointer.graph.clone();
+
+				// If this graph has not been visited, process ALL nodes in the graph.
+				if state.visited_graphs.insert(graph_id.clone()) {
+					// Load the graph data.
+					let graph_data = tangram_server_core::graph::get_leaf(
+						&session.server.cache,
+						&state.graphs,
+						graph_id,
+					)?;
+
+					// Process all nodes in the graph.
+					self.checkout_create_lock_graph(session, state, graph_id, &graph_data)?;
+				}
+
+				// Compute the artifact ID using the pointer kind.
+				let data: tg::artifact::data::Artifact = match pointer.kind {
+					tg::artifact::Kind::Directory => {
+						tg::directory::Data::Pointer(pointer.clone()).into()
+					},
+					tg::artifact::Kind::File => tg::file::Data::Pointer(pointer.clone()).into(),
+					tg::artifact::Kind::Symlink => {
+						tg::symlink::Data::Pointer(pointer.clone()).into()
+					},
+				};
+				let id = tg::artifact::Id::new(pointer.kind, &data.serialize()?);
+
+				// The node should now be in state.visited since we processed the graph.
+				let index = state
+					.visited
+					.get(&id)
+					.copied()
+					.ok_or_else(|| tg::error!("node not found after processing graph"))?;
+
+				return Ok(index);
+			},
+			tg::graph::data::Edge::Object(id) => {
+				// Check if the node has been visited.
+				if let Some(index) = state.visited.get(id).copied() {
+					return Ok(index);
+				}
+
+				// Load the object.
+				let (_size, data) = session
+					.server
+					.cache
+					.try_get_object_data_sync(&id.clone().into())
+					.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+					.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
+				let data = data
+					.try_into()
+					.map_err(|_| tg::error!(%id, "expected artifact data"))?;
+
+				match data {
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Pointer(
+						pointer,
+					))
+					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
+						let edge = tg::graph::data::Edge::Pointer(pointer);
+						return self.checkout_create_lock_inner(session, state, &edge);
+					},
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
+						(id.clone(), tg::graph::data::Node::Directory(node), None)
+					},
+					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
+						(id.clone(), tg::graph::data::Node::File(node), None)
+					},
+					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
+						(id.clone(), tg::graph::data::Node::Symlink(node), None)
+					},
+				}
+			},
+		};
+
+		let index = state.nodes.len();
+		state.visited.insert(id.clone(), index);
+		state.ids.push(id.into());
+		state.nodes.push(None);
+		let node = match node {
+			tg::graph::data::Node::Directory(node) => {
+				self.checkout_create_lock_directory(session, state, &node, graph.as_ref())?
+			},
+			tg::graph::data::Node::File(node) => {
+				self.checkout_create_lock_file(session, state, node, graph.as_ref())?
+			},
+			tg::graph::data::Node::Symlink(node) => {
+				self.checkout_create_lock_symlink(session, state, node, graph.as_ref())?
+			},
+		};
+		state.nodes[index].replace(node);
+
+		Ok(index)
+	}
+
+	fn checkout_create_lock_directory(
+		&self,
+		session: &Session,
+		state: &mut State,
+		node: &tg::graph::data::Directory,
+		graph: Option<&tg::graph::Id>,
+	) -> tg::Result<tg::graph::data::Node> {
+		// Collect all entries from the directory, flattening branches.
+		let all_entries = tangram_server_core::directory::collect_directory_entries(
+			&session.server.cache,
+			&state.graphs,
+			node,
+			graph,
+		)?;
+
+		// Transform each entry for the lock.
+		let entries = all_entries
+			.into_iter()
+			.map(|(name, mut edge)| {
+				edge = tangram_server_core::graph::resolve_edge(
+					&session.server.cache,
+					&state.graphs,
+					edge,
+					graph,
+				)?;
+				let index = self.checkout_create_lock_inner(session, state, &edge)?;
+				let edge = tg::graph::data::Edge::Index(index);
+				Ok::<_, tg::Error>((name, edge))
+			})
+			.collect::<tg::Result<_>>()?;
+
+		let leaf = tg::graph::data::DirectoryLeaf { entries };
+		let directory = tg::graph::data::Directory::Leaf(leaf);
+		let node = tg::graph::data::Node::Directory(directory);
+		Ok(node)
+	}
+
+	fn checkout_create_lock_file(
+		&self,
+		session: &Session,
+		state: &mut State,
+		node: tg::graph::data::File,
+		graph: Option<&tg::graph::Id>,
+	) -> tg::Result<tg::graph::data::Node> {
+		let dependencies = node
+			.dependencies
+			.into_iter()
+			.map(|(reference, option)| {
+				let Some(dependency) = option else {
+					return Ok::<_, tg::Error>((reference, None));
+				};
+				let referent = dependency.0;
+				let edge = match referent.node {
+					Some(tg::graph::data::Edge::Index(index)) => {
+						tangram_server_core::graph::resolve_edge(
+							&session.server.cache,
+							&state.graphs,
+							tg::graph::data::Edge::Index(index),
+							graph,
+						)?
+					},
+					Some(tg::graph::data::Edge::Pointer(pointer)) => {
+						tg::graph::data::Edge::Pointer(pointer)
+					},
+					Some(tg::graph::data::Edge::Object(id)) => {
+						let id = id
+							.try_into()
+							.map_err(|_| tg::error!("expected an artifact"))?;
+						tg::graph::data::Edge::Object(id)
+					},
+					None => return Ok::<_, tg::Error>((reference, None)),
+				};
+				let index = self.checkout_create_lock_inner(session, state, &edge)?;
+				let artifact = if state.dependencies {
+					let id = state.ids[index].clone().try_into().unwrap();
+					Some(id)
+				} else {
+					None
+				};
+				let node = Some(tg::graph::data::Edge::Index(index));
+				let options = tg::referent::Options {
+					artifact,
+					..referent.options
+				};
+				let referent = tg::Referent::new(node, options);
+				Ok::<_, tg::Error>((reference, Some(tg::graph::data::Dependency(referent))))
+			})
+			.collect::<tg::Result<_>>()?;
+		let file = tg::graph::data::File {
+			contents: None,
+			dependencies,
+			executable: node.executable,
+			module: node.module,
+		};
+		let node = tg::graph::data::Node::File(file);
+		Ok(node)
+	}
+
+	fn checkout_create_lock_symlink(
+		&self,
+		session: &Session,
+		state: &mut State,
+		node: tg::graph::data::Symlink,
+		graph: Option<&tg::graph::Id>,
+	) -> tg::Result<tg::graph::data::Node> {
+		let artifact = node
+			.artifact
+			.as_ref()
+			.map(|edge| {
+				let mut edge = edge.clone();
+				edge = tangram_server_core::graph::resolve_edge(
+					&session.server.cache,
+					&state.graphs,
+					edge,
+					graph,
+				)?;
+				let node_index = self.checkout_create_lock_inner(session, state, &edge)?;
+				Ok::<_, tg::Error>(tg::graph::data::Edge::Index(node_index))
+			})
+			.transpose()?;
+		let symlink = tg::graph::data::Symlink {
+			artifact,
+			path: node.path,
+		};
+		let node = tg::graph::data::Node::Symlink(symlink);
+		Ok(node)
+	}
+
+	fn checkout_create_lock_graph(
+		&self,
+		session: &Session,
+		state: &mut State,
+		graph_id: &tg::graph::Id,
+		graph_data: &tg::graph::data::Leaf,
+	) -> tg::Result<HashMap<usize, usize, fnv::FnvBuildHasher>> {
+		// Maps graph_node_index -> lock_node_index.
+		let mut graph_to_lock: HashMap<usize, usize, fnv::FnvBuildHasher> = HashMap::default();
+
+		// First pass: allocate lock indices for all graph nodes.
+		for (graph_index, node) in graph_data.nodes.iter().enumerate() {
+			let pointer = tg::graph::data::Pointer {
+				graph: graph_id.clone(),
+				index: graph_index,
+				kind: node.kind(),
+			};
+			let data: tg::artifact::data::Artifact = match node.kind() {
+				tg::artifact::Kind::Directory => {
+					tg::directory::Data::Pointer(pointer.clone()).into()
+				},
+				tg::artifact::Kind::File => tg::file::Data::Pointer(pointer.clone()).into(),
+				tg::artifact::Kind::Symlink => tg::symlink::Data::Pointer(pointer.clone()).into(),
+			};
+			let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
+
+			// Check if this node was already visited via a different path.
+			if let Some(&lock_index) = state.visited.get(&id) {
+				graph_to_lock.insert(graph_index, lock_index);
+			} else {
+				let lock_index = state.nodes.len();
+				state.visited.insert(id.clone(), lock_index);
+				state.ids.push(id.into());
+				state.nodes.push(None);
+				graph_to_lock.insert(graph_index, lock_index);
+			}
+		}
+
+		// Second pass: fill in the nodes.
+		for (graph_index, node) in graph_data.nodes.iter().enumerate() {
+			let lock_index = graph_to_lock[&graph_index];
+			if state.nodes[lock_index].is_some() {
+				// Already filled in (was visited before this graph).
+				continue;
+			}
+
+			let lock_node = match node {
+				tg::graph::data::Node::Directory(dir) => self
+					.checkout_create_lock_directory_graph(
+						session,
+						state,
+						dir,
+						graph_id,
+						&graph_to_lock,
+					)?,
+				tg::graph::data::Node::File(file) => self.checkout_create_lock_file_graph(
+					session,
+					state,
+					file.clone(),
+					graph_id,
+					&graph_to_lock,
+				)?,
+				tg::graph::data::Node::Symlink(sym) => self.checkout_create_lock_symlink_graph(
+					session,
+					state,
+					sym.clone(),
+					graph_id,
+					&graph_to_lock,
+				)?,
+			};
+			state.nodes[lock_index].replace(lock_node);
+		}
+
+		Ok(graph_to_lock)
+	}
+
+	fn checkout_create_lock_directory_graph(
+		&self,
+		session: &Session,
+		state: &mut State,
+		node: &tg::graph::data::Directory,
+		graph_id: &tg::graph::Id,
+		graph_to_lock: &HashMap<usize, usize, fnv::FnvBuildHasher>,
+	) -> tg::Result<tg::graph::data::Node> {
+		// Collect all entries, flattening branches recursively.
+		let all_entries = tangram_server_core::directory::collect_directory_entries(
+			&session.server.cache,
+			&state.graphs,
+			node,
+			Some(graph_id),
+		)?;
+
+		// Process entries to create lock pointers.
+		let entries = all_entries
+			.into_iter()
+			.map(|(name, edge)| {
+				let index = match &edge {
+					tg::graph::data::Edge::Index(target_index) => graph_to_lock[target_index],
+					tg::graph::data::Edge::Pointer(pointer) => {
+						let pointer = pointer.clone();
+
+						let edge = tg::graph::data::Edge::Pointer(pointer.clone());
+
+						self.checkout_create_lock_inner(session, state, &edge)?
+					},
+					tg::graph::data::Edge::Object(_) => {
+						self.checkout_create_lock_inner(session, state, &edge)?
+					},
+				};
+				let edge = tg::graph::data::Edge::Index(index);
+				Ok::<_, tg::Error>((name, edge))
+			})
+			.collect::<tg::Result<_>>()?;
+		let leaf = tg::graph::data::DirectoryLeaf { entries };
+		let directory = tg::graph::data::Directory::Leaf(leaf);
+		let node = tg::graph::data::Node::Directory(directory);
+		Ok(node)
+	}
+
+	fn checkout_create_lock_file_graph(
+		&self,
+		session: &Session,
+		state: &mut State,
+		node: tg::graph::data::File,
+		_graph_id: &tg::graph::Id,
+		graph_to_lock: &HashMap<usize, usize, fnv::FnvBuildHasher>,
+	) -> tg::Result<tg::graph::data::Node> {
+		let dependencies = node
+			.dependencies
+			.into_iter()
+			.map(|(reference, option)| {
+				let Some(dependency) = option else {
+					return Ok::<_, tg::Error>((reference, None));
+				};
+				let referent = dependency.0;
+				let index = match referent.node {
+					Some(tg::graph::data::Edge::Index(index)) => graph_to_lock[&index],
+					Some(tg::graph::data::Edge::Pointer(pointer)) => {
+						let edge = tg::graph::data::Edge::Pointer(pointer.clone());
+
+						self.checkout_create_lock_inner(session, state, &edge)?
+					},
+					Some(tg::graph::data::Edge::Object(id)) => {
+						let id = id
+							.try_into()
+							.map_err(|_| tg::error!("expected an artifact"))?;
+						let edge = tg::graph::data::Edge::Object(id);
+
+						self.checkout_create_lock_inner(session, state, &edge)?
+					},
+					None => return Ok::<_, tg::Error>((reference, None)),
+				};
+				let artifact = if state.dependencies {
+					let id = state.ids[index].clone().try_into().unwrap();
+					Some(id)
+				} else {
+					None
+				};
+				let node = Some(tg::graph::data::Edge::Index(index));
+				let options = tg::referent::Options {
+					artifact,
+					..referent.options
+				};
+				let referent = tg::Referent::new(node, options);
+				Ok::<_, tg::Error>((reference, Some(tg::graph::data::Dependency(referent))))
+			})
+			.collect::<tg::Result<_>>()?;
+		let file = tg::graph::data::File {
+			contents: None,
+			dependencies,
+			executable: node.executable,
+			module: node.module,
+		};
+		let node = tg::graph::data::Node::File(file);
+		Ok(node)
+	}
+
+	fn checkout_create_lock_symlink_graph(
+		&self,
+		session: &Session,
+		state: &mut State,
+		node: tg::graph::data::Symlink,
+		_graph_id: &tg::graph::Id,
+		graph_to_lock: &HashMap<usize, usize, fnv::FnvBuildHasher>,
+	) -> tg::Result<tg::graph::data::Node> {
+		let artifact = node
+			.artifact
+			.as_ref()
+			.map(|edge| {
+				let index = match edge {
+					tg::graph::data::Edge::Index(target_index) => graph_to_lock[target_index],
+					tg::graph::data::Edge::Pointer(pointer) => {
+						let pointer = pointer.clone();
+
+						let edge = tg::graph::data::Edge::Pointer(pointer.clone());
+
+						self.checkout_create_lock_inner(session, state, &edge)?
+					},
+					tg::graph::data::Edge::Object(_) => {
+						self.checkout_create_lock_inner(session, state, edge)?
+					},
+				};
+				Ok::<_, tg::Error>(tg::graph::data::Edge::Index(index))
+			})
+			.transpose()?;
+		let symlink = tg::graph::data::Symlink {
+			artifact,
+			path: node.path,
+		};
+		let node = tg::graph::data::Node::Symlink(symlink);
+		Ok(node)
+	}
+}

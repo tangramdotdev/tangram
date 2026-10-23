@@ -415,8 +415,8 @@ def run_databases [database_pool_workers: int, database_pool_size: int] {
 	}
 	let cluster_path = $state_path | path join 'fdb.cluster'
 	let database_pool_path = database_pool_path
-	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
-	let scylla_schema_path = $repository_path | path join packages/cache/scylla/schema.cql
+	let postgres_schema_path = $repository_path | path join packages/server/packages/database/src/postgres.sql
+	let scylla_schema_path = $repository_path | path join packages/cache/packages/scylla/schema.cql
 	if ($database_pool_path | path exists) {
 		rm -rf $database_pool_path
 	}

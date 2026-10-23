@@ -1,0 +1,302 @@
+use {
+	anstream::println,
+	crossterm::style::Stylize as _,
+	std::{collections::HashSet, path::PathBuf},
+	tangram_cli_core::Cli,
+	tangram_cli_update::{find_root, normalize_root, try_read_lock},
+	tangram_client::prelude::*,
+};
+
+/// The component.
+pub struct Component<'a>(&'a mut Cli);
+
+/// Get a package's outdated dependencies.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[arg(long)]
+	pub json: bool,
+
+	#[arg(default_value = ".", index = 1)]
+	pub path: PathBuf,
+
+	#[command(flatten)]
+	pub print: tangram_cli_core::print::Options,
+}
+
+#[derive(Debug)]
+pub struct Graph {
+	nodes: Vec<Node>,
+}
+
+#[derive(Clone, Debug)]
+struct Node {
+	edges: Vec<(Option<tg::specifier::Pattern>, Edge)>,
+	options: tg::referent::Options,
+	path: Vec<usize>,
+}
+
+#[derive(Clone, Debug)]
+enum Edge {
+	Node(usize),
+	Tag(tg::Specifier),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
+struct Entry {
+	current: tg::Specifier,
+	compatible: Option<tg::Specifier>,
+	latest: Option<tg::Specifier>,
+	referrer: tg::Referent<()>,
+}
+
+impl<'a> Component<'a> {
+	pub fn new(cli: &'a mut Cli) -> Self {
+		Self(cli)
+	}
+}
+
+impl Component<'_> {
+	pub async fn command_outdated(&mut self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+
+		// Find the root.
+		let root = find_root(args.path.clone())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to find the root"))?;
+		let root = normalize_root(root);
+
+		// Deserialize the lock.
+		let lock = try_read_lock(root.clone())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read lockfile"))?
+			.ok_or_else(|| tg::error!("missing lockfile"))?;
+
+		if lock.nodes.is_empty() {
+			return Ok(());
+		}
+
+		// Collect dependencies.
+		let graph = create_graph(&lock, root);
+		let mut output: HashSet<Entry> = HashSet::new();
+		for node in &graph.nodes {
+			for (pattern, edge) in &node.edges {
+				let Some(pattern) = pattern else {
+					continue;
+				};
+				let current = match edge {
+					Edge::Node(node) => {
+						let Some(tag) = graph.nodes[*node].options.tag.clone() else {
+							continue;
+						};
+						tag
+					},
+					Edge::Tag(tag) => tag.clone(),
+				};
+				let arg = tg::match_::Arg {
+					cached: false,
+					cursor: None,
+					groups: false,
+					limit: Some(1),
+					location: None,
+					organizations: false,
+					pattern: pattern.clone(),
+					reverse: true,
+					tags: true,
+					tokens: tg::authorization::Tokens::default(),
+					ttl: tg::remote::cache::Ttl::default(),
+					users: false,
+				};
+				let compatible = client
+					.match_(arg)
+					.await?
+					.data
+					.into_iter()
+					.find_map(|entry| {
+						(entry.kind() == tg::id::Kind::Tag).then_some(entry.specifier)
+					});
+
+				let pattern = tg::specifier::Pattern::any_in_parent(pattern.parent.clone());
+				let arg = tg::match_::Arg {
+					cached: false,
+					cursor: None,
+					groups: false,
+					limit: Some(1),
+					location: None,
+					organizations: false,
+					pattern,
+					reverse: true,
+					tags: true,
+					tokens: tg::authorization::Tokens::default(),
+					ttl: tg::remote::cache::Ttl::default(),
+					users: false,
+				};
+				let latest = client
+					.match_(arg)
+					.await?
+					.data
+					.into_iter()
+					.find_map(|entry| {
+						(entry.kind() == tg::id::Kind::Tag).then_some(entry.specifier)
+					});
+
+				let entry = Entry {
+					current,
+					compatible,
+					latest,
+					referrer: tg::Referent::new((), node.options.clone()),
+				};
+
+				if entry.latest.as_ref() == Some(&entry.current) {
+					continue;
+				}
+
+				output.insert(entry);
+			}
+		}
+
+		let mut output = output.into_iter().collect::<Vec<_>>();
+		output.sort_by_cached_key(|entry| {
+			(
+				tangram_cli_update::format_referrer(&entry.referrer),
+				entry.current.to_string(),
+				entry
+					.compatible
+					.as_ref()
+					.map(ToString::to_string)
+					.unwrap_or_default(),
+				entry
+					.latest
+					.as_ref()
+					.map(ToString::to_string)
+					.unwrap_or_default(),
+			)
+		});
+
+		if args.json {
+			self.print_serde(output, args.print).await?;
+		} else {
+			for entry in output {
+				let referrer = tangram_cli_update::format_referrer(&entry.referrer);
+				match (&entry.compatible, &entry.latest) {
+					(Some(compatible), Some(latest)) if compatible != &entry.current => {
+						println!(
+							"{} {} -> {} (latest {}) referrer {}",
+							"↑".blue(),
+							entry.current,
+							compatible,
+							latest,
+							referrer
+						);
+					},
+					(Some(_), Some(latest)) => {
+						println!(
+							"{} {} is latest compatible (newest {}) referrer {}",
+							"!".red(),
+							entry.current,
+							latest,
+							referrer
+						);
+					},
+					(None, Some(latest)) => {
+						println!(
+							"{} {} has no compatible update (newest {}) referrer {}",
+							"!".red(),
+							entry.current,
+							latest,
+							referrer
+						);
+					},
+					_ => (),
+				}
+			}
+		}
+
+		Ok(())
+	}
+}
+
+impl std::ops::Deref for Component<'_> {
+	type Target = Cli;
+
+	fn deref(&self) -> &Self::Target {
+		self.0
+	}
+}
+
+impl std::ops::DerefMut for Component<'_> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		self.0
+	}
+}
+
+fn create_graph(lock: &tg::graph::data::Leaf, path: PathBuf) -> Graph {
+	let mut nodes = vec![None; lock.nodes.len()];
+	let mut stack = vec![(0, tg::referent::Options::with_path(path), Vec::new())];
+	while let Some((index, options, path)) = stack.pop() {
+		if nodes[index].is_some() {
+			continue;
+		}
+		let mut node = Node {
+			edges: Vec::new(),
+			options,
+			path,
+		};
+		match &lock.nodes[index] {
+			tg::graph::data::Node::Directory(directory) => {
+				let entries = tangram_cli_update::flatten_directory(directory, &lock.nodes);
+				for (name, child) in entries {
+					let child_options =
+						tangram_cli_update::directory_entry_options(&node.options, &name);
+					let mut path = node.path.clone();
+					path.push(index);
+					node.edges.push((None, Edge::Node(child)));
+					stack.push((child, child_options, path));
+				}
+			},
+			tg::graph::data::Node::File(file) => {
+				for (reference, dependency) in &file.dependencies {
+					let pattern = reference
+						.node()
+						.try_unwrap_specifier_ref()
+						.ok()
+						.and_then(|pattern| pattern.to_string().parse().ok());
+					let Some(dependency) = dependency else {
+						continue;
+					};
+					match (dependency.node(), dependency.tag()) {
+						(Some(tg::graph::data::Edge::Index(target_index)), _) => {
+							let reference = reference
+								.node()
+								.try_unwrap_specifier_ref()
+								.ok()
+								.and_then(|pattern| pattern.to_string().parse().ok());
+							node.edges.push((reference, Edge::Node(*target_index)));
+							let mut child_options = dependency.options.clone();
+							let mut path = node.path.clone();
+							path.push(index);
+							child_options.inherit(&node.options);
+							stack.push((*target_index, child_options, path));
+						},
+						(_, Some(tag)) => node.edges.push((pattern, Edge::Tag(tag.clone()))),
+						_ => (),
+					}
+				}
+			},
+			tg::graph::data::Node::Symlink(symlink) => {
+				let Some(tg::graph::data::Edge::Index(target_index)) = &symlink.artifact else {
+					continue;
+				};
+				node.edges.push((None, Edge::Node(*target_index)));
+				let child_options = tg::referent::Options::default();
+				let mut path = node.path.clone();
+				path.push(index);
+				stack.push((*target_index, child_options, path));
+			},
+		}
+		nodes[index].replace(node);
+	}
+
+	let nodes = nodes.into_iter().map(Option::unwrap).collect::<Vec<_>>();
+	Graph { nodes }
+}

@@ -1,0 +1,37 @@
+use {crate::Component, tangram_client::prelude::*, tangram_uri::Uri};
+
+/// Put a remote.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[arg(index = 1)]
+	pub name: String,
+
+	#[arg(long)]
+	pub principal: Option<tg::principal::Selector>,
+
+	#[arg(long)]
+	pub trusted: bool,
+
+	#[arg(index = 2)]
+	pub url: Uri,
+}
+
+impl Component<'_> {
+	pub async fn command_remote_put(&mut self, args: Args) -> tg::Result<()> {
+		let client = self.client().await?;
+		let name = args.name;
+		let trusted = args.trusted;
+		let url = args.url;
+		let arg = tg::remote::put::Arg {
+			principal: args.principal,
+			trusted,
+			url,
+		};
+		client
+			.put_remote(&name, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %name, "failed to put the remote"))?;
+		Ok(())
+	}
+}

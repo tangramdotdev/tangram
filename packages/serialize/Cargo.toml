@@ -24,4 +24,4 @@ workspace = true
 bytes = { workspace = true, optional = true }
 num = { workspace = true }
 num-derive = { workspace = true }
-tangram_serialize_macro = { path = "macro" }
+tangram_serialize_macro = { path = "packages/macro" }

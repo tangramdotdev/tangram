@@ -153,7 +153,7 @@ mod python {
 
 	pub fn build() {
 		for path in [
-			"../python/build/library.py",
+			"../python/packages/build/library.py",
 			"../clients/python/pyproject.toml",
 			"../../uv.lock",
 		] {
@@ -177,7 +177,7 @@ mod python {
 		let packages = tangram_python_build::packages(&python, &workspace, &build);
 		let status = Command::new(python)
 			.arg("-I")
-			.arg("../python/build/library.py")
+			.arg("../python/packages/build/library.py")
 			.arg(&output)
 			.arg(&packages)
 			.arg(workspace.join("packages/clients/python/src"))

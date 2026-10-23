@@ -1,0 +1,262 @@
+use {
+	crate::{Cli, Mode, version},
+	tangram_client::prelude::*,
+};
+
+impl Cli {
+	pub async fn client(&mut self) -> tg::Result<tg::Client> {
+		// If the client has already been created, then return it.
+		if let Some(client) = self.client.clone() {
+			return Ok(client);
+		}
+
+		let client = match self.args.mode {
+			Mode::Auto => self.client_with_auto_mode().await?,
+			Mode::Client => self.client_with_client_mode().await?,
+		};
+
+		if self.health.is_none() {
+			let arg = tg::health::Arg {
+				fields: Some(vec!["diagnostics".to_owned()]),
+			};
+			let health = client
+				.health(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the health"))?;
+			self.health.replace(health);
+		}
+		if !self.args.quiet.get()
+			&& let Some(diagnostics) = self
+				.health
+				.as_ref()
+				.and_then(|health| health.diagnostics.clone())
+		{
+			for diagnostic in diagnostics {
+				let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
+				let diagnostic = tg::Referent::with_node(diagnostic);
+				self.print_diagnostic(diagnostic).await;
+			}
+		}
+
+		// Set the client.
+		self.client.replace(client.clone());
+
+		Ok(client)
+	}
+
+	async fn client_with_client_mode(&mut self) -> tg::Result<tg::Client> {
+		let client = self.create_client()?;
+		client.connect().await.map_err(
+			|error| tg::error!(!error, url = %client.url(), "failed to connect to the server"),
+		)?;
+		Ok(client)
+	}
+
+	async fn client_with_auto_mode(&mut self) -> tg::Result<tg::Client> {
+		let client = self.create_client()?;
+		let local = client.url().scheme() == Some("http+unix")
+			|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"));
+		match client.connect().await {
+			Ok(()) => (),
+			Err(error) => {
+				if !local {
+					return Err(
+						tg::error!(!error, url = %client.url(), "failed to connect to the server"),
+					);
+				}
+				self.spawn_server(&client).await.map_err(
+					|error| tg::error!(!error, url = %client.url(), "failed to start the server"),
+				)?;
+			},
+		}
+
+		if local {
+			let arg = tg::health::Arg {
+				fields: Some(vec!["version".to_owned(), "diagnostics".to_owned()]),
+			};
+			let health = client
+				.health(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the health"))?;
+			let server_version = health.version.clone();
+			self.health.replace(health);
+			if server_version.is_some_and(|server_version| version() != server_version) {
+				client.disconnect().await;
+				self.stop_server().await?;
+				self.spawn_server(&client).await.map_err(
+					|error| tg::error!(!error, url = %client.url(), "failed to start the server"),
+				)?;
+			}
+		}
+
+		Ok(client)
+	}
+
+	pub fn create_client(&self) -> tg::Result<tg::Client> {
+		// Get the url.
+		let url = self
+			.args
+			.url
+			.clone()
+			.or_else(|| {
+				self.config
+					.as_ref()
+					.and_then(|config| config.http.as_ref())
+					.and_then(|http| http.listeners.as_ref())
+					.and_then(|listeners| listeners.first())
+					.and_then(|listener| listener.url.clone())
+			})
+			.unwrap_or_else(|| {
+				let path = self.directory_path().join("socket");
+				let path = path.to_str().unwrap();
+				tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(path)
+					.path("")
+					.build()
+					.unwrap()
+			});
+
+		// Get the token.
+		let token = self.user_token();
+
+		// Get the HTTP options.
+		let http = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.http)
+			.map(crate::config::resolve_client_http)
+			.transpose()?
+			.unwrap_or_default();
+
+		// Get the reconnect options.
+		let reconnect = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.reconnect)
+			.map(crate::config::resolve_client_reconnect)
+			.transpose()?
+			.unwrap_or_else(|| tg::Arg::default().reconnect);
+
+		// Get the retry options.
+		let retry = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.retry)
+			.map(crate::config::resolve_client_retry)
+			.transpose()?
+			.unwrap_or_else(|| tg::Arg::default().retry);
+
+		// Get the pool options.
+		let pool = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.pool.as_ref())
+			.map_or_else(
+				|| tg::Arg::default().pool,
+				crate::config::resolve_client_pool,
+			);
+
+		// Get the process options.
+		let process = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.process)
+			.map(crate::config::resolve_client_process)
+			.unwrap_or_default();
+
+		// Get the progress options.
+		let progress = self.progress_config();
+
+		// Get the sandbox options.
+		let sandbox = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.sandbox)
+			.map(crate::config::resolve_client_sandbox)
+			.unwrap_or_default();
+
+		// Get the stream retry options.
+		let stream_retry = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.stream_retry)
+			.map_or_else(
+				|| tg::Arg::default().stream_retry,
+				crate::config::resolve_client_stream_retry,
+			);
+
+		// Get the sync options.
+		let sync = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.sync)
+			.map(crate::config::resolve_client_sync)
+			.unwrap_or_default();
+
+		// Get the value options.
+		let value = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.value)
+			.map(crate::config::resolve_client_value)
+			.unwrap_or_default();
+
+		let arg = tg::Arg {
+			url: Some(url),
+			version: Some(version()),
+			token,
+			http,
+			pool,
+			process,
+			progress,
+			reconnect,
+			retry,
+			sandbox,
+			stream_retry,
+			sync,
+			value,
+		};
+
+		let client = tg::Client::new(arg)?;
+
+		Ok(client)
+	}
+
+	#[must_use]
+	pub fn user_token(&self) -> Option<String> {
+		if let Some(token) = self.args.token.clone() {
+			return Some(token);
+		}
+		if let Ok(token) = std::env::var("TANGRAM_TOKEN") {
+			return Some(token);
+		}
+		self.config.as_ref().and_then(|config| config.token.clone())
+	}
+
+	pub fn write_token(&mut self, token: String) -> tg::Result<()> {
+		let mut config = self.config.clone().unwrap_or_default();
+		config.token = Some(token);
+		self.write_config(&config)?;
+		self.config = Some(config);
+		Ok(())
+	}
+
+	pub fn delete_token(&mut self) -> tg::Result<()> {
+		if let Some(mut config) = self.config.clone() {
+			config.token = None;
+			self.write_config(&config)?;
+			self.config = Some(config);
+		}
+		Ok(())
+	}
+}

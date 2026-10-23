@@ -208,9 +208,10 @@ fn parse_script(
 					tg::error!(!source, "invalid requires-python requirement"),
 				)
 			})?;
-		let distribution: serde_json::Value =
-			serde_json::from_str(include_str!("../../../../python/build/distributions.json"))
-				.unwrap();
+		let distribution: serde_json::Value = serde_json::from_str(include_str!(
+			"../../../../python/packages/build/distributions.json"
+		))
+		.unwrap();
 		let version = distribution["python"]
 			.as_str()
 			.unwrap()

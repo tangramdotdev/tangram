@@ -2,7 +2,7 @@
 
 These are the end-to-end tests for tangram. Each `.nu`
 file is one self-contained test. The `packages/cli/test.nu` script builds
-Tangram and the test runner in `packages/cli/test`, then runs the tests with it.
+Tangram and the test runner in `packages/cli/packages/test`, then runs the tests with it.
 Run them with `bun run test:cli [pattern]`, which runs
 `nu packages/cli/test.nu [pattern]`, where `pattern` is an optional regex
 matched against each test's path. Pass `--accept` to accept new or changed

@@ -1,0 +1,29 @@
+[package]
+name = "tangram_server_index"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[features]
+foundationdb = ["dep:tangram_index_fdb"]
+lmdb = ["dep:tangram_index_lmdb"]
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+derive_more = { workspace = true }
+jiff = { workspace = true }
+tangram_client = { workspace = true }
+tangram_index = { workspace = true }
+tangram_index_fdb = { workspace = true, optional = true }
+tangram_index_lmdb = { workspace = true, optional = true }

@@ -24,6 +24,7 @@ workspace = true
 insta = { workspace = true }
 
 [dependencies]
+async-broadcast = { workspace = true }
 async-channel = { workspace = true }
 aws-lc-rs = { workspace = true }
 blake3 = { workspace = true }

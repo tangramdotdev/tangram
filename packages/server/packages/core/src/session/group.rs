@@ -1,0 +1,71 @@
+use {crate::Session, tangram_client::prelude::*};
+
+impl tg::instance::Group for Session {
+	async fn create_group(
+		&self,
+		arg: tg::group::create::Arg,
+	) -> tg::Result<tg::group::create::Output> {
+		self.server.components.group.create_group(self, arg).await
+	}
+
+	async fn try_get_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::get::Arg,
+	) -> tg::Result<Option<tg::group::get::Output>> {
+		self.server
+			.components
+			.group
+			.try_get_group(self, group, arg)
+			.await
+	}
+
+	async fn try_delete_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		self.server
+			.components
+			.group
+			.try_delete_group(self, group, arg)
+			.await
+	}
+
+	async fn list_group_members(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::members::list::Arg,
+	) -> tg::Result<tg::group::members::list::Output> {
+		self.server
+			.components
+			.group
+			.list_group_members(self, group, arg)
+			.await
+	}
+
+	async fn add_group_member(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::members::add::Arg,
+	) -> tg::Result<()> {
+		self.server
+			.components
+			.group
+			.add_group_member(self, group, arg)
+			.await
+	}
+
+	async fn remove_group_member(
+		&self,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+		arg: tg::group::members::remove::Arg,
+	) -> tg::Result<Option<()>> {
+		self.server
+			.components
+			.group
+			.remove_group_member(self, group, member, arg)
+			.await
+	}
+}
