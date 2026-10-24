@@ -98,6 +98,42 @@ pub mod write;
 #[derive(Clone)]
 pub struct Shared(Arc<Owned>);
 
+pub struct Owned {
+	server: Server,
+	task: tangram_futures::task::Shared<()>,
+}
+
+#[derive(Clone)]
+pub struct Server(Arc<State>);
+
+pub struct State {
+	pub archive: Option<Archive>,
+	pub archive_tasks: tangram_futures::task::Set<tg::Result<()>>,
+	pub authentication_tokens: Tokens,
+	pub authorization_tokens: Tokens,
+	pub cache: self::cache::Cache,
+	pub checkpoints: Option<Arc<self::checkpoint::State>>,
+	pub clock: self::clock::Clock,
+	pub components: Components,
+	pub config: Config,
+	pub context: Context,
+	pub database: Database,
+	pub diagnostics: Mutex<Vec<tg::Diagnostic>>,
+	pub index: Index,
+	pub index_changed: tokio::sync::Notify,
+	pub index_tasks: tangram_futures::task::Set<tg::Result<()>>,
+	library: Mutex<Option<Arc<Temp>>>,
+	lock: Mutex<Option<tokio::fs::File>>,
+	pub messenger: Messenger,
+	pub notifications: self::notification::Notifications,
+	pub path: PathBuf,
+	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+	pub shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
+	pub tangram_path: PathBuf,
+	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
+	pub version: String,
+}
+
 pub struct Components {
 	pub authentication: Box<dyn self::authentication::Component>,
 	pub authorization: Box<dyn self::authorization::Component>,
@@ -142,70 +178,10 @@ pub struct Components {
 	pub write: Box<dyn self::write::Component>,
 }
 
-pub struct Owned {
-	server: Server,
-	task: tangram_futures::task::Shared<()>,
-}
-
-#[derive(Clone)]
-pub struct Server(Arc<State>);
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Shutdown {
 	Interrupt,
 	Terminate,
-}
-
-pub struct State {
-	pub archive: Option<Archive>,
-
-	pub archive_tasks: tangram_futures::task::Set<tg::Result<()>>,
-
-	pub authentication_tokens: Tokens,
-
-	pub authorization_tokens: Tokens,
-
-	pub cache: self::cache::Cache,
-
-	pub checkpoints: Option<Arc<self::checkpoint::State>>,
-
-	pub clock: self::clock::Clock,
-
-	pub components: Components,
-
-	pub config: Config,
-
-	pub context: Context,
-
-	pub database: Database,
-
-	pub diagnostics: Mutex<Vec<tg::Diagnostic>>,
-
-	pub index: Index,
-
-	pub index_changed: tokio::sync::Notify,
-
-	pub index_tasks: tangram_futures::task::Set<tg::Result<()>>,
-
-	library: Mutex<Option<Arc<Temp>>>,
-
-	lock: Mutex<Option<tokio::fs::File>>,
-
-	pub messenger: Messenger,
-
-	pub notifications: self::notification::Notifications,
-
-	pub path: PathBuf,
-
-	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
-
-	pub shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
-
-	pub tangram_path: PathBuf,
-
-	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
-
-	pub version: String,
 }
 
 pub struct Tokens {
@@ -417,14 +393,6 @@ impl Deref for Shared {
 	}
 }
 
-impl Deref for Server {
-	type Target = State;
-
-	fn deref(&self) -> &Self::Target {
-		&self.0
-	}
-}
-
 impl Drop for Owned {
 	fn drop(&mut self) {
 		self.server.components.sync.abort();
@@ -443,6 +411,14 @@ impl Drop for Owned {
 		self.server.components.watch.abort();
 		self.server.components.indexer.abort();
 		self.server.components.scheduler.abort();
+	}
+}
+
+impl Deref for Server {
+	type Target = State;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }
 
