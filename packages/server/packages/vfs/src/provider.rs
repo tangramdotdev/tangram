@@ -233,7 +233,8 @@ impl Provider {
 		self.principal.lock().unwrap().replace(principal);
 	}
 
-	pub fn seed_tokens(&self, session: &Session, tokens: &tg::authorization::Tokens) {
+	pub fn seed_tokens(&self, tokens: &tg::authorization::Tokens) {
+		let session = self.session();
 		let mut tokens = tokens.clone();
 		let authorization = tokens.remove_local_authorization();
 		for token in authorization.into_iter().filter(|token| {
@@ -241,7 +242,7 @@ impl Provider {
 				.server
 				.components
 				.authorization
-				.verify_token(session, token)
+				.verify_token(&session, token)
 		}) {
 			tokens.insert_local_authorization(token);
 		}
@@ -1126,7 +1127,7 @@ impl Provider {
 	}
 
 	fn register_target_tokens(&self, target: &tg::Referent<tg::Id>) {
-		self.seed_tokens(&self.session(), &target.options.tokens);
+		self.seed_tokens(&target.options.tokens);
 	}
 
 	fn session(&self) -> Session {
@@ -4490,16 +4491,16 @@ impl Drop for PendingNodes<'_> {
 	}
 }
 
-impl tangram_server_core::vfs::Provider for Weak {
+impl tangram_server_vfs_core::Provider for Weak {
 	fn root_tokens(&self, id: &tg::artifact::Id) -> tg::authorization::Tokens {
 		self.upgrade()
 			.map(|provider| provider.root_tokens(id))
 			.unwrap_or_default()
 	}
 
-	fn seed_tokens(&self, session: &Session, tokens: &tg::authorization::Tokens) {
+	fn seed_tokens(&self, tokens: &tg::authorization::Tokens) {
 		if let Some(provider) = self.upgrade() {
-			provider.seed_tokens(session, tokens);
+			provider.seed_tokens(tokens);
 		}
 	}
 

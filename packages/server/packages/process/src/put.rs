@@ -7,7 +7,8 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_index::prelude::*,
-	tangram_server_core::{Session, process::put::Options},
+	tangram_server_core::Session,
+	tangram_server_process_core::put::Options,
 };
 
 impl Component {
@@ -63,7 +64,7 @@ impl Component {
 		arg: tg::process::put::Arg,
 		options: Options,
 	) -> tg::Result<tg::process::put::Output> {
-		tangram_server_core::process::put::validate_process_data(&arg.data)?;
+		tangram_server_process_core::put::validate_process_data(&arg.data)?;
 		let principal = session.context.principal.clone();
 		let output = self
 			.put_process_local_inner(session, id, arg, principal, options)
@@ -79,7 +80,7 @@ impl Component {
 		data: tg::process::Data,
 		options: Options,
 	) -> tg::Result<()> {
-		tangram_server_core::process::put::validate_process_data(&data)?;
+		tangram_server_process_core::put::validate_process_data(&data)?;
 		let principal = tg::Principal::Process(id.clone());
 
 		let entry = tg::process::put::Arg {

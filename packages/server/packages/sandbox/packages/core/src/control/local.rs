@@ -1,4 +1,4 @@
-use {crate::control, futures::FutureExt as _, tangram_client::prelude::*};
+use {futures::FutureExt as _, tangram_client::prelude::*, tangram_server_control as control};
 
 #[cfg(test)]
 mod tests;

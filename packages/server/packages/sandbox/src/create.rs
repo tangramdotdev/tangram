@@ -82,7 +82,11 @@ impl Component {
 
 		// Validate the backend and resources.
 		tangram_server_sandbox_core::clear_darwin_sandbox_resources(&mut arg);
-		let isolation = session.server.resolve_sandbox_backend()?;
+		let isolation = session
+			.server
+			.components
+			.runner
+			.resolve_sandbox_backend(&session.server)?;
 		tangram_server_sandbox_core::validate_sandbox_resources(
 			&isolation,
 			arg.cpu,

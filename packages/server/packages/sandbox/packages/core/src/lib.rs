@@ -3,6 +3,8 @@ use {
 	tangram_client::prelude::*,
 };
 
+pub mod control;
+
 /// Fill in the resource bounds that a sandbox omits from the default bounds, raising a default maximum to meet a larger minimum, and leaving a resource with no minimum and no maximum omitted.
 pub fn resolve_sandbox_resources(
 	defaults: &tg::runner::Capacity,

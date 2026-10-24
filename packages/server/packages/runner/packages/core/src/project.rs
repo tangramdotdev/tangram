@@ -1,9 +1,9 @@
 use {
-	crate::config::FilesystemProjectIds,
 	std::{
 		collections::BTreeSet,
 		sync::{Arc, Mutex},
 	},
+	tangram_server_config::FilesystemProjectIds,
 };
 
 #[derive(Clone)]

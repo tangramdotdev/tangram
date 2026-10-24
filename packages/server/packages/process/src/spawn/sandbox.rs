@@ -107,7 +107,7 @@ impl Component {
 		sandbox: &tg::sandbox::Id,
 		process_connection_future: &mut crate::ConnectionFuture,
 		sandbox_connection_future: &mut tangram_server_core::sandbox::ConnectionFuture,
-	) -> tg::Result<Option<tangram_server_core::process::control::Connected>> {
+	) -> tg::Result<Option<tangram_server_process_core::control::Connected>> {
 		// The scheduler only governs startup until the sandbox connects.
 		tokio::select! {
 			result = process_connection_future.as_mut() => return result.map(Some),
@@ -190,7 +190,7 @@ impl Component {
 
 	fn spawn_process_apply_connected(
 		output: &mut Output,
-		connected_event: tangram_server_core::runner::process::ConnectedEvent,
+		connected_event: tangram_server_runner_core::process::ConnectedEvent,
 	) {
 		let tokens = connected_event.process.options.tokens;
 		output.id = connected_event.process.node;
@@ -223,7 +223,7 @@ impl Component {
 		session: &Session,
 		output: &Output,
 		location: Option<&tg::location::Arg>,
-	) -> tg::Result<tangram_server_core::runner::process::ConnectedEvent> {
+	) -> tg::Result<tangram_server_runner_core::process::ConnectedEvent> {
 		let process = Self::spawn_process_runner_arg(output);
 		let id = output.id.clone();
 		let assigned = process.id.is_some();
@@ -264,7 +264,7 @@ impl Component {
 				"the runner returned an invalid process"
 			));
 		}
-		let connected_event = tangram_server_core::runner::process::ConnectedEvent {
+		let connected_event = tangram_server_runner_core::process::ConnectedEvent {
 			lease: output.lease,
 			process: output.process,
 		};
@@ -277,7 +277,7 @@ impl Component {
 		&self,
 		session: &Session,
 		output: &mut Output,
-	) -> tg::Result<Option<tangram_server_core::runner::sandbox::ReadyEvent>> {
+	) -> tg::Result<Option<tangram_server_runner_core::sandbox::ReadyEvent>> {
 		let sandbox = output
 			.data
 			.sandbox
@@ -292,16 +292,15 @@ impl Component {
 			let location = session.server.location(arg.location.as_ref())?;
 			let id = output.sandbox_token.as_ref().map(|_| sandbox.clone());
 			let token = output.sandbox_token.clone();
-			let spawn_sandbox_task_arg =
-				tangram_server_core::runner::sandbox::SpawnSandboxTaskArg {
-					allocation,
-					arg,
-					creator: Some(session.context.principal.clone()),
-					id,
-					location,
-					process: Some(process),
-					token,
-				};
+			let spawn_sandbox_task_arg = tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {
+				allocation,
+				arg,
+				creator: Some(session.context.principal.clone()),
+				id,
+				location,
+				process: Some(process),
+				token,
+			};
 			let task = session
 				.server
 				.components
@@ -313,12 +312,12 @@ impl Component {
 				.await
 				.ok_or_else(|| tg::error!("the sandbox event sender was dropped"))??;
 			match event {
-				tangram_server_core::runner::sandbox::Event::Destroyed => {
+				tangram_server_runner_core::sandbox::Event::Destroyed => {
 					return Err(tg::error!(
 						"the sandbox was destroyed before it became ready"
 					));
 				},
-				tangram_server_core::runner::sandbox::Event::Ready(ready_event) => {
+				tangram_server_runner_core::sandbox::Event::Ready(ready_event) => {
 					return Ok(Some(ready_event));
 				},
 			}

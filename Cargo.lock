@@ -10984,7 +10984,6 @@ dependencies = [
  "http",
  "hyper",
  "hyper-util",
- "indexmap 2.14.2",
  "indoc",
  "libc",
  "mime",
@@ -11031,7 +11030,11 @@ dependencies = [
  "tangram_server_graph",
  "tangram_server_index",
  "tangram_server_messenger",
+ "tangram_server_process_core",
  "tangram_server_read_core",
+ "tangram_server_runner_core",
+ "tangram_server_sandbox_core",
+ "tangram_server_vfs_core",
  "tangram_server_watch_core",
  "tangram_uri",
  "tangram_util",
@@ -11418,6 +11421,7 @@ dependencies = [
  "tangram_serialize",
  "tangram_server_core",
  "tangram_server_process_core",
+ "tangram_server_runner_core",
  "tangram_server_sandbox_core",
  "tokio",
  "tokio-stream",
@@ -11429,7 +11433,17 @@ dependencies = [
 name = "tangram_server_process_core"
 version = "0.0.0"
 dependencies = [
+ "bytes",
+ "dashmap",
+ "futures",
+ "indexmap 2.14.2",
  "tangram_client",
+ "tangram_futures",
+ "tangram_messenger",
+ "tangram_sandbox",
+ "tangram_serialize",
+ "tangram_server_control",
+ "tokio",
 ]
 
 [[package]]
@@ -11529,6 +11543,7 @@ dependencies = [
  "http",
  "indexmap 2.14.2",
  "indoc",
+ "libc",
  "mime",
  "num",
  "rand 0.10.3",
@@ -11546,13 +11561,31 @@ dependencies = [
  "tangram_server_core",
  "tangram_server_grant_core",
  "tangram_server_process_core",
+ "tangram_server_runner_core",
  "tangram_server_sandbox_core",
+ "tangram_server_vfs_core",
  "tangram_uri",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tracing",
  "unicode-width 0.2.2",
+]
+
+[[package]]
+name = "tangram_server_runner_core"
+version = "0.0.0"
+dependencies = [
+ "dashmap",
+ "fnv",
+ "indexmap 2.14.2",
+ "tangram_client",
+ "tangram_sandbox",
+ "tangram_server_config",
+ "tangram_server_process_core",
+ "tangram_server_sandbox_core",
+ "tangram_server_vfs_core",
+ "tokio",
 ]
 
 [[package]]
@@ -11585,8 +11618,12 @@ dependencies = [
 name = "tangram_server_sandbox_core"
 version = "0.0.0"
 dependencies = [
+ "futures",
+ "serde",
  "tangram_client",
  "tangram_sandbox",
+ "tangram_server_control",
+ "tokio",
 ]
 
 [[package]]
@@ -11601,6 +11638,7 @@ dependencies = [
  "tangram_index",
  "tangram_messenger",
  "tangram_server_core",
+ "tangram_server_process_core",
  "tangram_server_sandbox_core",
  "tokio",
  "tracing",
@@ -11727,9 +11765,18 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_grant_core",
+ "tangram_server_vfs_core",
  "tangram_vfs",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "tangram_server_vfs_core"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "tangram_client",
 ]
 
 [[package]]

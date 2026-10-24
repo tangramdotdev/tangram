@@ -16,10 +16,8 @@ use {
 	},
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger,
-	tangram_server_core::{
-		Session,
-		process::control::{Connected, connected_subject},
-	},
+	tangram_server_core::Session,
+	tangram_server_process_core::control::{Connected, connected_subject},
 };
 
 pub(crate) mod connection;

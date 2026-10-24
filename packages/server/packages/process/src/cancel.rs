@@ -107,7 +107,7 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 		lease: tg::process::Lease,
-		control_sender: Option<tangram_server_core::process::control::local::Local>,
+		control_sender: Option<tangram_server_process_core::control::local::Local>,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let request = tg::process::control::ServerRequestArg::ReleaseLease(
 			tg::process::control::ReleaseLeaseServerRequestArg { lease },

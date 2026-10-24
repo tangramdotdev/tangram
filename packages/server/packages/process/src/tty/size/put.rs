@@ -152,7 +152,7 @@ impl Component {
 		id: &tg::process::Id,
 		data: tg::process::Data,
 		size: tg::process::tty::Size,
-		control_sender: Option<tangram_server_core::process::control::local::Local>,
+		control_sender: Option<tangram_server_process_core::control::local::Local>,
 	) -> tg::Result<Option<()>> {
 		// Check if the process has a tty.
 		if data.tty.is_none() {

@@ -1,5 +1,5 @@
 use {
-	super::*, futures::FutureExt as _, tangram_server_core::sandbox::control::local::Local,
+	super::*, futures::FutureExt as _, tangram_server_sandbox_core::control::local::Local,
 	tokio_stream::wrappers::ReceiverStream,
 };
 

@@ -1,6 +1,6 @@
 use {
 	crate::Component, futures::TryFutureExt as _, std::sync::Arc, tangram_client::prelude::*,
-	tangram_futures::task::Task, tangram_server_core::process::control::local::Reply,
+	tangram_futures::task::Task, tangram_server_process_core::control::local::Reply,
 	tracing::Instrument as _,
 };
 

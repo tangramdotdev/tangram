@@ -1,8 +1,8 @@
 use {
-	crate::control,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
+	tangram_server_control as control,
 	tg::process::stdio::{read, write},
 };
 

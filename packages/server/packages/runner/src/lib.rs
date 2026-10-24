@@ -1,5 +1,4 @@
 use {
-	self::sandbox::pool::Ext as _,
 	futures::{
 		FutureExt as _, StreamExt as _, future,
 		future::BoxFuture,
@@ -14,8 +13,10 @@ use {
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::{Stopper, Task},
 	tangram_http::body::Boxed as BoxBody,
-	tangram_server_core::{Server, Session, Shutdown, runner::RunnerSender},
+	tangram_server_core::{Server, Session, Shutdown},
 };
+
+mod assets;
 
 pub mod control;
 pub mod create;
@@ -25,6 +26,11 @@ pub mod process;
 pub mod sandbox;
 pub mod token;
 
+pub type RunnerSender = tangram_server_core::control::Sender<
+	tg::runner::control::ServerMessage,
+	tg::runner::control::ClientMessage,
+>;
+
 /// The component.
 #[derive(Clone)]
 pub struct Component(Arc<State>);
@@ -33,13 +39,13 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	pub ip_pool: tangram_sandbox::network::ip::Pool,
 
-	pub sandbox_assets: tangram_server_core::runner::assets::Assets,
+	pub sandbox_assets: crate::assets::Assets,
 
-	pub sandbox_pool: tangram_server_core::runner::pool::Pool,
+	pub sandbox_pool: crate::sandbox::pool::Pool,
 
 	pub sandbox_tasks: tangram_futures::task::Map<String, ()>,
 
-	pub state: tangram_server_core::runner::State,
+	pub state: tangram_server_runner_core::State,
 
 	pub task: Mutex<Option<Task<()>>>,
 }
@@ -48,8 +54,8 @@ impl Component {
 	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Self> {
 		// Create the runner state, warming sandboxes only on runners.
 		let config = Self::create_config(arg.config, arg.path)?;
-		let sandbox_pool = tangram_server_core::runner::pool::Pool::new(config.sandbox_pool_size);
-		let state = tangram_server_core::runner::State::new(config);
+		let sandbox_pool = crate::sandbox::pool::Pool::new(config.sandbox_pool_size);
+		let state = tangram_server_runner_core::State::new(config);
 
 		// Create the IP pool.
 		#[cfg(target_os = "linux")]
@@ -66,11 +72,7 @@ impl Component {
 		let sandbox_tasks = tangram_futures::task::Map::default();
 
 		// Prepare the runner's reusable sandbox assets.
-		let sandbox_assets = tangram_server_core::runner::assets::Assets::new(
-			arg.path,
-			arg.tangram_path,
-			arg.config,
-		)?;
+		let sandbox_assets = crate::assets::Assets::new(arg.path, arg.tangram_path, arg.config)?;
 
 		// Create the task handle.
 		let task = Mutex::new(None);
@@ -98,7 +100,7 @@ impl Component {
 	fn create_config(
 		config: &tangram_server_core::Config,
 		path: &std::path::Path,
-	) -> tg::Result<tangram_server_core::runner::Config> {
+	) -> tg::Result<tangram_server_runner_core::Config> {
 		// Get the available parallelism.
 		let parallelism =
 			std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
@@ -188,7 +190,7 @@ impl Component {
 		} else {
 			0
 		};
-		let runner_config = tangram_server_core::runner::Config {
+		let runner_config = tangram_server_runner_core::Config {
 			capacity,
 
 			#[cfg(target_os = "linux")]
@@ -829,7 +831,7 @@ impl Component {
 			};
 			let _ = self.spawn_sandbox_task(
 				&session.server,
-				tangram_server_core::runner::sandbox::SpawnSandboxTaskArg {
+				tangram_server_runner_core::sandbox::SpawnSandboxTaskArg {
 					allocation,
 					arg: request.arg,
 					creator: request.creator,
@@ -1020,8 +1022,11 @@ impl tangram_server_core::runner::Component for Component {
 		self.try_get_runner_data(session, runner).boxed()
 	}
 
-	fn sandbox_assets(&self) -> &tangram_server_core::runner::assets::Assets {
-		&self.sandbox_assets
+	fn resolve_sandbox_backend(
+		&self,
+		server: &tangram_server_core::Server,
+	) -> tg::Result<tangram_sandbox::Backend> {
+		self.resolve_sandbox_backend(server)
 	}
 
 	fn send_runner_control_request<'a>(
@@ -1040,8 +1045,8 @@ impl tangram_server_core::runner::Component for Component {
 	fn spawn_sandbox_task<'a>(
 		&'a self,
 		server: &'a tangram_server_core::Server,
-		arg: tangram_server_core::runner::sandbox::SpawnSandboxTaskArg,
-	) -> tangram_server_core::runner::sandbox::SpawnSandboxTaskOutput {
+		arg: tangram_server_runner_core::sandbox::SpawnSandboxTaskArg,
+	) -> tangram_server_runner_core::sandbox::SpawnSandboxTaskOutput {
 		self.spawn_sandbox_task(server, arg)
 	}
 
@@ -1049,7 +1054,7 @@ impl tangram_server_core::runner::Component for Component {
 		self.start_sandbox_pool(session);
 	}
 
-	fn state(&self) -> &tangram_server_core::runner::State {
+	fn state(&self) -> &tangram_server_runner_core::State {
 		&self.state
 	}
 

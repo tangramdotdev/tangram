@@ -10,7 +10,7 @@ use {
 #[derive(derive_more::Debug)]
 pub(super) struct Output {
 	#[debug(ignore)]
-	pub allocation: Option<tangram_server_core::runner::capacity::Allocation>,
+	pub allocation: Option<tangram_server_runner_core::capacity::Allocation>,
 
 	#[debug(ignore)]
 	pub open: Option<crate::connect::service::Open>,
@@ -71,7 +71,7 @@ impl Component {
 		session: &Session,
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
-	) -> Option<tangram_server_core::runner::capacity::Allocation> {
+	) -> Option<tangram_server_runner_core::capacity::Allocation> {
 		if let Some(parent) = parent
 			&& let Some(sandbox) = session
 				.server
@@ -82,7 +82,7 @@ impl Component {
 				.get_by_id(parent)
 			&& let Some(allocation) = sandbox.allocation.clone()
 			&& let Ok(parent) = allocation.try_lock_owned()
-			&& let Some(allocation) = tangram_server_core::runner::capacity::Allocation::try_borrow(
+			&& let Some(allocation) = tangram_server_runner_core::capacity::Allocation::try_borrow(
 				session.server.components.runner.state().capacity(),
 				parent,
 				requested,
@@ -103,7 +103,7 @@ impl Component {
 		borrowed: bool,
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
-	) -> Option<tangram_server_core::runner::capacity::Allocation> {
+	) -> Option<tangram_server_runner_core::capacity::Allocation> {
 		if borrowed {
 			let parent = parent?;
 			return session
@@ -127,7 +127,7 @@ impl Component {
 		session: &Session,
 		parent: &tg::sandbox::Id,
 		requested: tg::runner::Capacity,
-	) -> Option<tangram_server_core::runner::capacity::Allocation> {
+	) -> Option<tangram_server_runner_core::capacity::Allocation> {
 		let sandbox = session
 			.server
 			.components
@@ -138,7 +138,7 @@ impl Component {
 		let allocation = sandbox.allocation.clone()?;
 		let parent = allocation.try_lock_owned().ok()?;
 
-		tangram_server_core::runner::capacity::Allocation::try_borrow(
+		tangram_server_runner_core::capacity::Allocation::try_borrow(
 			session.server.components.runner.state().capacity(),
 			parent,
 			requested,
@@ -530,7 +530,11 @@ impl Component {
 				sandbox_arg.location.clone_from(&spawn_arg.location);
 				sandbox_arg.owner.clone_from(&owner);
 				tangram_server_sandbox_core::clear_darwin_sandbox_resources(&mut sandbox_arg);
-				let isolation = session.server.resolve_sandbox_backend()?;
+				let isolation = session
+					.server
+					.components
+					.runner
+					.resolve_sandbox_backend(&session.server)?;
 				tangram_server_sandbox_core::validate_sandbox_resources(
 					&isolation,
 					sandbox_arg.cpu,
