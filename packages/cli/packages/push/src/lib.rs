@@ -171,7 +171,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.collect::<Vec<_>>();
 	let mut nodes = Vec::with_capacity(references.len());
 	for reference in &references {
-		let referent = tangram_cli_get::get(cli, reference).await?.referent;
+		let referent = tangram_cli_reference::get(cli, reference).await?.referent;
 		let node = referent.try_map(|node| match node {
 			tg::get::Node::Id(id) => Ok(id),
 			tg::get::Node::Pointer(_) => Err(tg::error!("expected a node id")),

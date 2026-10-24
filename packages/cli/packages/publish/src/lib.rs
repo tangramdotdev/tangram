@@ -687,7 +687,7 @@ async fn push_tag_ancestors(
 				tg::reference::Node::Specifier(ancestor.clone().into()),
 				options,
 			);
-			let referent = tangram_cli_get::get(cli, &reference)
+			let referent = tangram_cli_reference::get(cli, &reference)
 				.await
 				.map_err(|error| tg::error!(!error, %ancestor, "failed to get a tag ancestor"))?
 				.referent;

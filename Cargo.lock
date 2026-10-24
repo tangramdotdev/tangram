@@ -9282,8 +9282,8 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_process",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9293,9 +9293,9 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_object",
  "tangram_cli_process",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9329,7 +9329,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9339,7 +9339,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9360,7 +9360,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
  "tangram_util",
 ]
@@ -9383,8 +9383,8 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_process",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9394,7 +9394,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9428,8 +9428,8 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_process",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9488,8 +9488,8 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_process",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9499,7 +9499,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9522,8 +9522,8 @@ dependencies = [
  "clap",
  "futures",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_process",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9541,15 +9541,13 @@ dependencies = [
 name = "tangram_cli_get"
 version = "0.0.0"
 dependencies = [
- "bytes",
  "clap",
- "futures",
- "humantime",
- "serde_json",
  "tangram_cli_core",
+ "tangram_cli_object",
+ "tangram_cli_process",
+ "tangram_cli_reference",
+ "tangram_cli_sandbox",
  "tangram_client",
- "tangram_util",
- "tokio",
 ]
 
 [[package]]
@@ -9567,7 +9565,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9634,7 +9632,7 @@ dependencies = [
  "clap",
  "humantime",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9666,9 +9664,9 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_object",
  "tangram_cli_process",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9688,8 +9686,9 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "clap",
+ "serde_json",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
  "tangram_util",
  "tokio",
@@ -9702,7 +9701,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_cli_usage",
  "tangram_client",
 ]
@@ -9735,7 +9734,7 @@ dependencies = [
  "serde_with",
  "tangram_cli_checkin",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_cli_sandbox",
  "tangram_cli_tag",
  "tangram_cli_viewer",
@@ -9758,7 +9757,7 @@ dependencies = [
  "radix_trie",
  "serde",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
  "tangram_compiler",
  "tangram_util",
@@ -9770,8 +9769,8 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_push",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9782,7 +9781,7 @@ dependencies = [
  "byte-unit",
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9816,9 +9815,21 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
  "tokio",
+]
+
+[[package]]
+name = "tangram_cli_reference"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "futures",
+ "humantime",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_util",
 ]
 
 [[package]]
@@ -9865,7 +9876,7 @@ dependencies = [
  "libc",
  "serde_json",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
  "tangram_http",
  "tangram_sandbox",
@@ -9914,7 +9925,7 @@ dependencies = [
  "clap",
  "tangram_cli_checkin",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9948,9 +9959,9 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_object",
  "tangram_cli_process",
+ "tangram_cli_reference",
  "tangram_client",
 ]
 
@@ -9995,7 +10006,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_cli_usage",
  "tangram_client",
 ]
@@ -10007,7 +10018,7 @@ dependencies = [
  "clap",
  "serde",
  "tangram_cli_core",
- "tangram_cli_get",
+ "tangram_cli_reference",
  "tangram_cli_viewer",
  "tangram_client",
  "tangram_futures",
@@ -10045,8 +10056,8 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "tangram_cli_core",
- "tangram_cli_get",
  "tangram_cli_process",
+ "tangram_cli_reference",
  "tangram_cli_sandbox",
  "tangram_client",
 ]

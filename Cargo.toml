@@ -42,6 +42,7 @@ default-members = [
   "packages/cli/packages/put",
   "packages/cli/packages/python",
   "packages/cli/packages/read",
+  "packages/cli/packages/reference",
   "packages/cli/packages/remote",
   "packages/cli/packages/repl",
   "packages/cli/packages/runner",
@@ -388,6 +389,7 @@ tangram_cli_push = { path = "packages/cli/packages/push" }
 tangram_cli_put = { path = "packages/cli/packages/put" }
 tangram_cli_python = { path = "packages/cli/packages/python" }
 tangram_cli_read = { path = "packages/cli/packages/read" }
+tangram_cli_reference = { path = "packages/cli/packages/reference" }
 tangram_cli_remote = { path = "packages/cli/packages/remote" }
 tangram_cli_repl = { path = "packages/cli/packages/repl" }
 tangram_cli_runner = { path = "packages/cli/packages/runner" }

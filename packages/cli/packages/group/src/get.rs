@@ -18,7 +18,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 
 	#[command(flatten)]
-	pub ttl: tangram_cli_get::Ttl,
+	pub ttl: tangram_cli_reference::Ttl,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {

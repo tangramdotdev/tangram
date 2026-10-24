@@ -24,7 +24,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.locations
 		.set_from_reference_if_unset(&args.reference);
 	let object =
-		tangram_cli_get::get_object_with_locations(cli, &args.reference, &options.locations)
+		tangram_cli_reference::get_object_with_locations(cli, &args.reference, &options.locations)
 			.await?;
 	run_inner(cli, object, options).await
 }

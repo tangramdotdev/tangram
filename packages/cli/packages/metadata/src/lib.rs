@@ -21,7 +21,7 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	let print = args.print;
 
 	// Get the reference.
-	let referent = tangram_cli_get::get_with_follow(cli, &reference).await?;
+	let referent = tangram_cli_reference::get_with_follow(cli, &reference).await?;
 	match referent.node {
 		tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
 			let process = tg::Referent::new(id.try_into()?, referent.options);

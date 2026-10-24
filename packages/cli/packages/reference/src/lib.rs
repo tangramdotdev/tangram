@@ -1,4 +1,15 @@
-use {futures::FutureExt as _, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {
+	futures::FutureExt as _, std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*,
+};
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Ttl {
+	#[arg(id = "get.ttl.ttl", long = "ttl", overrides_with = "get.ttl.no_ttl", value_parser = humantime::parse_duration)]
+	pub ttl: Option<Duration>,
+
+	#[arg(id = "get.ttl.no_ttl", long = "no-ttl", overrides_with = "get.ttl.ttl")]
+	pub no_ttl: bool,
+}
 
 pub async fn get_with_follow(
 	cli: &mut Cli,
@@ -286,4 +297,16 @@ pub async fn get_module(cli: &mut Cli, reference: &tg::Reference) -> tg::Result<
 	};
 
 	Ok(module)
+}
+
+impl Ttl {
+	pub fn get(&self) -> tg::remote::cache::Ttl {
+		if self.no_ttl {
+			tg::remote::cache::Ttl::Infinite
+		} else {
+			self.ttl
+				.map(tg::remote::cache::Ttl::Duration)
+				.unwrap_or_default()
+		}
+	}
 }

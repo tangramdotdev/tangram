@@ -16,7 +16,7 @@ pub struct Args {
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
-	let input = tangram_cli_get::get_object(cli, &args.reference).await?;
+	let input = tangram_cli_reference::get_object(cli, &args.reference).await?;
 	let (input, blob) = match tg::Object::with_referent(input) {
 		tg::Object::Blob(blob) => (tg::Either::Left(blob), true),
 		tg::Object::File(file) => (tg::Either::Right(file), false),

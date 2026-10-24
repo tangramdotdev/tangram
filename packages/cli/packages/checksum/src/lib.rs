@@ -18,7 +18,7 @@ pub struct Args {
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
-	let referent = tangram_cli_get::get_with_follow(cli, &args.reference).await?;
+	let referent = tangram_cli_reference::get_with_follow(cli, &args.reference).await?;
 	let object = referent
 		.into_graph_edge()?
 		.node

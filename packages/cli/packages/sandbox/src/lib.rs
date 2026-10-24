@@ -2,6 +2,7 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub mod create;
 pub mod destroy;
+pub mod get;
 pub mod init;
 pub mod list;
 pub mod run;
@@ -22,7 +23,7 @@ pub enum Command {
 
 	Destroy(self::destroy::Args),
 
-	Get(tangram_cli_get::sandbox::Args),
+	Get(self::get::Args),
 
 	#[command(hide = true)]
 	Init(self::init::Args),
@@ -223,7 +224,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			crate::destroy::run(cli, args).await?;
 		},
 		Command::Get(args) => {
-			tangram_cli_get::sandbox::run(cli, args).await?;
+			crate::get::run(cli, args).await?;
 		},
 		Command::Init(args) => {
 			cli.exit = Some(crate::init::run(args)?);

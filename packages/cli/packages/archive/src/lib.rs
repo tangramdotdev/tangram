@@ -19,7 +19,7 @@ pub struct Args {
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
-	let artifact = tangram_cli_get::get_artifact(cli, &args.reference).await?;
+	let artifact = tangram_cli_reference::get_artifact(cli, &args.reference).await?;
 	let artifact = tg::Artifact::with_referent(artifact);
 	tg::builtin::validate_archive_artifact_with_instance(&artifact, &client).await?;
 	let format = args.format;

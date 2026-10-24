@@ -16,7 +16,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Get the modules.
-	let modules = tangram_cli_get::get_modules(cli, &args.references).await?;
+	let modules = tangram_cli_reference::get_modules(cli, &args.references).await?;
 	let referents: Vec<_> = modules
 		.iter()
 		.map(|module| module.referent.clone().replace(()).0)

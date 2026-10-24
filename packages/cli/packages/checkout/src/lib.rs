@@ -98,7 +98,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	}
 
 	// Get the nodes.
-	let referents = tangram_cli_get::get_references(cli, &args.references).await?;
+	let referents = tangram_cli_reference::get_references(cli, &args.references).await?;
 	let mut nodes = Vec::with_capacity(referents.len());
 	for referent in referents {
 		let node = referent.try_map(|node| match node {

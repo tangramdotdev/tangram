@@ -13,7 +13,7 @@ pub struct Args {
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
-	let blob = tangram_cli_get::get_object(cli, &args.reference).await?;
+	let blob = tangram_cli_reference::get_object(cli, &args.reference).await?;
 	let blob = tg::Object::with_referent(blob)
 		.try_unwrap_blob()
 		.map_err(|_| tg::error!("expected a blob"))?;

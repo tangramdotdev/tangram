@@ -34,7 +34,8 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	// Get the node.
 	args.locations.set_from_reference_if_unset(&args.reference);
 	let reference = args.locations.apply_to_reference(&args.reference);
-	let output = tangram_cli_get::get_with_arg(cli, &reference, tg::get::Arg::default()).await?;
+	let output =
+		tangram_cli_reference::get_with_arg(cli, &reference, tg::get::Arg::default()).await?;
 	let node = output.referent.try_map(|node| match node {
 		tg::get::Node::Id(id) => Ok(id),
 		tg::get::Node::Pointer(_) => Err(tg::error!(%reference, "the children node must be an ID")),

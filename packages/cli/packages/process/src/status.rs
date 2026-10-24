@@ -41,7 +41,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut locations = args.locations;
 	locations.set_from_reference_if_unset(&args.reference);
 	let process =
-		tangram_cli_get::get_process_with_locations(cli, &args.reference, &locations).await?;
+		tangram_cli_reference::get_process_with_locations(cli, &args.reference, &locations).await?;
 	let id = process.node.clone();
 	let location = locations.get_for_options(&process);
 	let process = tg::Process::<tg::Value>::with_referent(process);

@@ -109,6 +109,7 @@ def main [
 		let client_profile = if $release { 'release' } else { 'dev' }
 		let python_executable = $env.TANGRAM_PYTHON? | default 'python3'
 		^$python_executable packages/clients/python/build.py --profile $client_profile
+		path add ($repository_path | path join '.venv/bin')
 	}
 
 	# Run the tests.

@@ -16,7 +16,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
 	for reference in &args.references {
-		let referent = tangram_cli_get::get_with_follow(cli, reference).await?;
+		let referent = tangram_cli_reference::get_with_follow(cli, reference).await?;
 		let edge = referent.into_graph_edge()?.node;
 
 		let blob = match &edge {

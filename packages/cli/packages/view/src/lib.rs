@@ -96,7 +96,7 @@ pub struct AlternateScreen {
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Get the node.
-	let output = tangram_cli_get::get(cli, &args.reference).await?;
+	let output = tangram_cli_reference::get(cli, &args.reference).await?;
 	let client = cli.client().await?;
 	let root = get_node(&client, output).await?;
 
