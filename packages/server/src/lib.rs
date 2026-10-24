@@ -1,14 +1,20 @@
-use {futures::FutureExt as _, tangram_client::prelude::*};
-
-pub use {
-	tangram_server_checkin as checkin,
-	tangram_server_core::{
-		self as core, Components, Config, Owned, Server, Shared, Shutdown, config,
-	},
+use {
+	futures::FutureExt as _,
+	tangram_client::prelude::*,
+	tangram_server_core::{Components, Server},
 };
 
+pub use tangram_server_core::{Config, Owned, Shutdown, config};
+
+/// Create the components and start a server.
+pub async fn start(config: Config) -> tg::Result<Owned> {
+	let owned = Server::start(config, components).boxed().await?;
+
+	Ok(owned)
+}
+
 /// Create the components.
-pub fn components(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Components> {
+fn components(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Components> {
 	let authentication = Box::new(tangram_server_authentication::Component::new(arg));
 	let authorization = Box::new(tangram_server_authorization::Component::new());
 	let billing = Box::new(tangram_server_billing::Component::new(arg));
@@ -95,11 +101,4 @@ pub fn components(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<C
 	};
 
 	Ok(components)
-}
-
-/// Create the components and start a server.
-pub async fn start(config: Config) -> tg::Result<Owned> {
-	let owned = Server::start(config, components).boxed().await?;
-
-	Ok(owned)
 }

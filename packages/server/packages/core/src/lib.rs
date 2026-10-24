@@ -214,6 +214,11 @@ pub struct Tokens {
 }
 
 impl Owned {
+	#[must_use]
+	pub fn instance(&self) -> impl tg::Instance {
+		self.server.clone()
+	}
+
 	pub fn shutdown(&self, shutdown: Shutdown) {
 		self.server.shutdown.send_replace(Some(shutdown));
 		self.server.components.runner.stop_runner_task();
@@ -412,14 +417,6 @@ impl Deref for Shared {
 	}
 }
 
-impl Deref for Owned {
-	type Target = Server;
-
-	fn deref(&self) -> &Self::Target {
-		&self.server
-	}
-}
-
 impl Deref for Server {
 	type Target = State;
 
@@ -430,22 +427,22 @@ impl Deref for Server {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
-		self.components.sync.abort();
-		self.components.process.abort();
-		self.components.sandbox.abort();
-		self.archive_tasks.abort_all();
-		self.components.checkin.abort();
-		self.components.checkout.abort();
-		self.library.lock().unwrap().take();
-		self.components.runner.abort();
-		self.components.authentication.abort();
-		self.components.object.abort();
-		self.components.list.abort();
-		self.index_tasks.abort_all();
-		self.components.vfs.abort();
-		self.components.watch.abort();
-		self.components.indexer.abort();
-		self.components.scheduler.abort();
+		self.server.components.sync.abort();
+		self.server.components.process.abort();
+		self.server.components.sandbox.abort();
+		self.server.archive_tasks.abort_all();
+		self.server.components.checkin.abort();
+		self.server.components.checkout.abort();
+		self.server.library.lock().unwrap().take();
+		self.server.components.runner.abort();
+		self.server.components.authentication.abort();
+		self.server.components.object.abort();
+		self.server.components.list.abort();
+		self.server.index_tasks.abort_all();
+		self.server.components.vfs.abort();
+		self.server.components.watch.abort();
+		self.server.components.indexer.abort();
+		self.server.components.scheduler.abort();
 	}
 }
 
