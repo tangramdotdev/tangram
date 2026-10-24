@@ -26,7 +26,6 @@ workspace = true
 [dependencies]
 anstream = { workspace = true }
 byteorder = { workspace = true }
-bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
 crossterm = { workspace = true }
@@ -52,7 +51,6 @@ tangram_billing_stripe = { workspace = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
-tangram_messenger = { workspace = true }
 tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_uri = { workspace = true }

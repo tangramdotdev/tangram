@@ -269,7 +269,7 @@ impl Server {
 				.build()
 				.unwrap()
 		};
-		let http = &self.config().http;
+		let http = &self.config.http;
 		let url = if http.listeners.is_empty() {
 			Some(default_url())
 		} else {
@@ -280,12 +280,12 @@ impl Server {
 		};
 		tg::Arg {
 			http: tg::Http {
-				http2: self.config().http.http2,
+				http2: self.config.http.http2,
 				..Default::default()
 			},
 			stream_retry: Self::client_stream_retry(),
 			sync: tg::sync::Config {
-				max_frame_size: self.config().sync.max_frame_size,
+				max_frame_size: self.config.sync.max_frame_size,
 			},
 			url,
 			version: Some(self.version.clone()),
@@ -355,11 +355,6 @@ impl Server {
 			crate::database::retry!(result, "failed to insert the remote");
 		}
 		Ok(ControlFlow::Break(()))
-	}
-
-	#[must_use]
-	pub fn config(&self) -> &Config {
-		&self.config
 	}
 
 	#[must_use]

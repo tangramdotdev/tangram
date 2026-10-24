@@ -191,7 +191,7 @@ impl Component {
 	fn github_config(session: &Session) -> tg::Result<&Github> {
 		session
 			.server
-			.config()
+			.config
 			.authentication
 			.users
 			.as_ref()
@@ -202,7 +202,7 @@ impl Component {
 	fn login_web_url(session: &Session) -> tg::Result<String> {
 		session
 			.server
-			.config()
+			.config
 			.authentication
 			.users
 			.as_ref()

@@ -105,7 +105,7 @@ impl Component {
 		// Get the authentication config.
 		let authentication = session
 			.server
-			.config()
+			.config
 			.authentication
 			.users
 			.as_ref()
@@ -218,7 +218,7 @@ impl Component {
 		// Get the authentication config.
 		let authentication = session
 			.server
-			.config()
+			.config
 			.authentication
 			.users
 			.as_ref()

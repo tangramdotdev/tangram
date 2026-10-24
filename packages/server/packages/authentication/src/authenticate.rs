@@ -418,7 +418,7 @@ impl Component {
 
 	async fn authenticate_inner(&self, server: &Server, token: Option<&str>) -> tg::Result<Entry> {
 		if let Some((token, root_token)) =
-			token.zip(server.config().authentication.root.token.as_deref())
+			token.zip(server.config.authentication.root.token.as_deref())
 			&& tangram_server_core::token::matches(token, root_token)
 		{
 			return Ok(Entry {
@@ -478,7 +478,7 @@ impl Component {
 			return Ok(entry);
 		}
 
-		if server.config().authentication.users.is_none() {
+		if server.config.authentication.users.is_none() {
 			return Ok(Entry {
 				billing_ready: None,
 				principal: tg::Principal::Root,

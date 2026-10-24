@@ -7,7 +7,7 @@ impl Session {
 	pub async fn get_primary_region_session(&self) -> tg::Result<tg::Session> {
 		let region = self
 			.server
-			.config()
+			.config
 			.primary_region()
 			.ok_or_else(|| tg::error!("the primary region is not configured"))?;
 		self.get_region_session(region).await
@@ -39,7 +39,7 @@ impl Session {
 	) -> tg::Result<http::Response<tangram_http::body::Boxed>> {
 		let region = self
 			.server
-			.config()
+			.config
 			.primary_region()
 			.ok_or_else(|| tg::error!("the primary region is not configured"))?;
 		let client = self.server.get_region_client(region).await?;
@@ -71,7 +71,7 @@ impl Session {
 impl Server {
 	#[must_use]
 	pub fn is_primary_region(&self) -> bool {
-		let config = self.config();
+		let config = &self.config;
 		config
 			.primary_region()
 			.is_none_or(|primary_region| config.region.as_deref() == Some(primary_region))
@@ -88,7 +88,7 @@ impl Server {
 			return Ok(Some(client.clone()));
 		}
 		let region_config = self
-			.config()
+			.config
 			.regions
 			.as_ref()
 			.and_then(|regions| regions.iter().find(|config| config.name == region));
@@ -117,18 +117,18 @@ impl Server {
 		});
 		let client = tg::Client::new(tg::Arg {
 			http: tg::Http {
-				http2: self.config().http.http2,
+				http2: self.config.http.http2,
 				..Default::default()
 			},
 			url: Some(region_config.url.clone()),
 			version: Some(self.version.clone()),
 			token: None,
-			pool: self.config().region_client.pool,
+			pool: self.config.region_client.pool,
 			reconnect,
 			retry,
 			stream_retry: Self::client_stream_retry(),
 			sync: tg::sync::Config {
-				max_frame_size: self.config().sync.max_frame_size,
+				max_frame_size: self.config.sync.max_frame_size,
 			},
 			..Default::default()
 		})?;

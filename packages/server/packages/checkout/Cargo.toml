@@ -32,8 +32,6 @@ tangram_http = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_util = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-xattr = { workspace = true }

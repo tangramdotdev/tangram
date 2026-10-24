@@ -650,7 +650,7 @@ impl Server {
 		}
 
 		// Destroy unfinished sandboxes if multi-server mode is disabled.
-		if !self.config().advanced.multi_server {
+		if !self.config.advanced.multi_server {
 			let result = self.destroy_unfinished_sandboxes().await;
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");

@@ -201,7 +201,7 @@ impl Server {
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
 		let idle_timeout = self.http_idle_timeout();
-		let http2 = self.config().http.http2;
+		let http2 = self.config.http.http2;
 
 		// Create the active connections counter.
 		let active_connections = opentelemetry::global::meter("tangram_http")
@@ -370,7 +370,7 @@ impl Server {
 				async move {
 					// Insert the max arg length, so that the request parser can bound the arg in the body.
 					let max_length =
-						tangram_http::body::arg::MaxLength(server.config().http.max_arg_length);
+						tangram_http::body::arg::MaxLength(server.config.http.max_arg_length);
 					request.extensions_mut().insert(max_length);
 
 					let context = Context {
@@ -397,12 +397,12 @@ impl Server {
 	{
 		let service = self.service(origin, stopper.clone());
 		let idle_timeout = self.http_idle_timeout();
-		let http2 = self.config().http.http2;
+		let http2 = self.config.http.http2;
 		Server::serve_connection(stream, service, idle_timeout, http2, stopper).await;
 	}
 
 	fn http_idle_timeout(&self) -> Duration {
-		self.config().http.idle_timeout
+		self.config.http.idle_timeout
 	}
 
 	async fn serve_connection<S, T>(

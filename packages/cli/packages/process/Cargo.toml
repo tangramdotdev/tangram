@@ -17,7 +17,6 @@ doctest = false
 workspace = true
 
 [dependencies]
-bytes = { workspace = true }
 clap = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }

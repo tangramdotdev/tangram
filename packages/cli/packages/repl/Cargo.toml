@@ -12,7 +12,7 @@ version = { workspace = true }
 
 [features]
 quickjs = ["tangram_cli_javascript/quickjs", "tangram_javascript/quickjs"]
-v8 = ["dep:v8", "tangram_cli_javascript/v8", "tangram_javascript/v8"]
+v8 = ["tangram_cli_javascript/v8", "tangram_javascript/v8"]
 
 [lib]
 doctest = false
@@ -30,4 +30,3 @@ tangram_cli_javascript = { workspace = true }
 tangram_client = { workspace = true }
 tangram_javascript = { workspace = true }
 tokio = { workspace = true }
-v8 = { workspace = true, optional = true }

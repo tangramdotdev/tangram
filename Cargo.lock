@@ -9439,7 +9439,6 @@ version = "0.0.0"
 dependencies = [
  "anstream",
  "byteorder",
- "bytes",
  "clap",
  "console-subscriber",
  "crossterm",
@@ -9465,7 +9464,6 @@ dependencies = [
  "tangram_client",
  "tangram_futures",
  "tangram_http",
- "tangram_messenger",
  "tangram_pool",
  "tangram_sandbox",
  "tangram_uri",
@@ -9583,7 +9581,6 @@ name = "tangram_cli_id"
 version = "0.0.0"
 dependencies = [
  "clap",
- "tangram_cli_core",
  "tangram_client",
  "tokio",
 ]
@@ -9603,7 +9600,6 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "indoc",
- "tangram_cli_core",
  "tangram_client",
  "tokio",
 ]
@@ -9675,7 +9671,6 @@ name = "tangram_cli_new"
 version = "0.0.0"
 dependencies = [
  "clap",
- "tangram_cli_core",
  "tangram_cli_init",
  "tangram_client",
 ]
@@ -9723,7 +9718,6 @@ dependencies = [
 name = "tangram_cli_process"
 version = "0.0.0"
 dependencies = [
- "bytes",
  "clap",
  "derive_more",
  "futures",
@@ -9789,7 +9783,6 @@ dependencies = [
 name = "tangram_cli_put"
 version = "0.0.0"
 dependencies = [
- "bytes",
  "clap",
  "tangram_cli_core",
  "tangram_cli_object",
@@ -9855,7 +9848,6 @@ dependencies = [
  "tangram_client",
  "tangram_javascript",
  "tokio",
- "v8",
 ]
 
 [[package]]
@@ -9904,7 +9896,6 @@ dependencies = [
 name = "tangram_cli_shell"
 version = "0.0.0"
 dependencies = [
- "bytes",
  "clap",
  "clap_complete",
  "clap_complete_nushell",
@@ -9934,7 +9925,6 @@ name = "tangram_cli_tangram"
 version = "0.0.0"
 dependencies = [
  "clap",
- "tangram_cli_core",
  "tangram_client",
  "tokio",
 ]
@@ -10118,7 +10108,6 @@ dependencies = [
  "mime",
  "num",
  "rand 0.10.3",
- "regex",
  "rustls",
  "rustls-platform-verifier",
  "scopeguard",
@@ -10153,10 +10142,8 @@ dependencies = [
 name = "tangram_compiler"
 version = "0.0.0"
 dependencies = [
- "bytes",
  "dashmap",
  "data-encoding",
- "derive_more",
  "fnv",
  "futures",
  "glob",
@@ -10164,7 +10151,6 @@ dependencies = [
  "indoc",
  "itertools 0.15.0",
  "lsp-types",
- "num",
  "oxc",
  "oxc_formatter",
  "oxc_formatter_core",
@@ -10180,7 +10166,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
- "serde_yaml",
  "tangram_client",
  "tangram_futures",
  "tangram_python_build",
@@ -10542,13 +10527,11 @@ dependencies = [
  "pyo3",
  "pyo3-build-config",
  "rust-embed",
- "serde",
  "serde_json",
  "tangram_client",
  "tangram_compiler",
  "tangram_python_build",
  "tangram_python_native",
- "tangram_util",
  "tokio",
 ]
 
@@ -10812,7 +10795,6 @@ dependencies = [
  "tangram_serialize",
  "tangram_server_core",
  "tangram_util",
- "time",
  "tokio",
  "tracing",
  "uuid",
@@ -10853,11 +10835,9 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_util",
- "time",
  "tokio",
  "tracing",
  "uuid",
- "xattr",
 ]
 
 [[package]]
@@ -10925,7 +10905,6 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_util",
- "time",
  "tokio",
 ]
 
@@ -11054,7 +11033,6 @@ dependencies = [
  "tangram_server_watch_types",
  "tangram_uri",
  "tangram_util",
- "time",
  "tokio",
  "tokio-postgres",
  "tokio-rustls",
@@ -11064,7 +11042,6 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
- "turso",
  "uuid",
  "xattr",
 ]
@@ -11237,7 +11214,6 @@ dependencies = [
  "tangram_messenger",
  "tangram_server_core",
  "tangram_util",
- "time",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -11407,7 +11383,6 @@ dependencies = [
  "http",
  "indexmap 2.14.2",
  "mime",
- "notify",
  "num",
  "scopeguard",
  "serde_json",
@@ -11420,7 +11395,6 @@ dependencies = [
  "tangram_messenger",
  "tangram_serialize",
  "tangram_server_core",
- "time",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -11451,7 +11425,6 @@ dependencies = [
  "tangram_futures",
  "tangram_http",
  "tangram_server_core",
- "time",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -11540,7 +11513,6 @@ dependencies = [
  "tangram_sandbox",
  "tangram_server_core",
  "tangram_uri",
- "time",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -11568,7 +11540,6 @@ dependencies = [
  "tangram_messenger",
  "tangram_serialize",
  "tangram_server_core",
- "time",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -11586,7 +11557,6 @@ dependencies = [
  "tangram_index",
  "tangram_messenger",
  "tangram_server_core",
- "time",
  "tokio",
  "tracing",
 ]
@@ -11619,7 +11589,6 @@ dependencies = [
  "tangram_serialize",
  "tangram_server_core",
  "tangram_util",
- "time",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -11655,7 +11624,6 @@ dependencies = [
  "oauth2",
  "octocrab",
  "rand 0.10.3",
- "reqwest 0.13.5",
  "serde",
  "serde_json",
  "tangram_billing",
@@ -11666,7 +11634,6 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_uri",
- "time",
  "tokio",
  "tracing",
  "uuid",
@@ -11745,7 +11712,6 @@ dependencies = [
 name = "tangram_server_write"
 version = "0.0.0"
 dependencies = [
- "bytes",
  "fastcdc",
  "futures",
  "http",
@@ -11758,7 +11724,6 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_util",
- "time",
  "tokio",
  "uuid",
 ]

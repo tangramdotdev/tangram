@@ -46,8 +46,8 @@ impl Server {
 		arg: Option<&tg::location::Arg>,
 		default: tg::Location,
 	) -> tg::Result<tg::Location> {
-		let current_region = self.config().region.as_deref();
-		let configured_regions = self.config().regions.as_deref();
+		let current_region = self.config.region.as_deref();
+		let configured_regions = self.config.regions.as_deref();
 		validate_region_config(current_region, configured_regions)?;
 
 		let Some(arg) = arg else {
@@ -82,8 +82,8 @@ impl Server {
 
 impl Session {
 	pub async fn locations(&self, arg: Option<&tg::location::Arg>) -> tg::Result<Output> {
-		let current_region = self.server.config().region.as_deref();
-		let configured_regions = self.server.config().regions.as_deref();
+		let current_region = self.server.config.region.as_deref();
+		let configured_regions = self.server.config.regions.as_deref();
 		validate_region_config(current_region, configured_regions)?;
 
 		let regions = configured_regions.map_or_else(Vec::new, |regions| {
@@ -101,7 +101,7 @@ impl Session {
 
 		let Some(arg) = arg else {
 			if matches!(self.context.principal, tg::Principal::Anonymous)
-				&& self.server.config().authentication.users.is_some()
+				&& self.server.config.authentication.users.is_some()
 			{
 				return Ok(Output {
 					local: Some(Local {

@@ -138,7 +138,7 @@ impl Component {
 		// Open the relay, which receives the writer's data and sends the runner's acknowledgments back, finishing once the runner's read completes after closing stdin.
 		let send_subject = super::super::relay::ack_subject(id, open);
 		let receive_subject = super::super::relay::data_subject(id, open);
-		let options = session.server.config().process.stdio_relay;
+		let options = session.server.config.process.stdio_relay;
 		let (relay_sender, receiver) = tangram_messenger::relay::open::<
 			super::super::relay::Ack,
 			super::super::relay::Data,

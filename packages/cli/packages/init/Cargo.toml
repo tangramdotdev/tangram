@@ -19,6 +19,5 @@ workspace = true
 [dependencies]
 clap = { workspace = true }
 indoc = { workspace = true }
-tangram_cli_core = { workspace = true }
 tangram_client = { workspace = true }
 tokio = { workspace = true }

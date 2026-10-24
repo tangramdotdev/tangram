@@ -61,17 +61,14 @@ scopeguard = { workspace = true }
 serde_json = { workspace = true }
 
 [dependencies]
-bytes = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
-derive_more = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 include_dir = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 lsp-types = { workspace = true }
-num = { workspace = true }
 oxc = { workspace = true, optional = true }
 oxc_formatter = { workspace = true, optional = true }
 oxc_formatter_core = { workspace = true, optional = true }
@@ -86,7 +83,6 @@ scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }
-serde_yaml = { workspace = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_util = { workspace = true }
