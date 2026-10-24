@@ -15,7 +15,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 
 	#[command(flatten)]
-	pub ttl: tangram_cli_get::Ttl,
+	pub ttl: tangram_cli_reference::Ttl,
 
 	#[arg(index = 1)]
 	pub user: tg::Referent<tg::user::Selector>,

@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-const python_path = path self '../../../../.venv/bin/python'
-
 let local = server spawn
 let path = artifact {
     'main.tg.py': '
@@ -29,7 +27,7 @@ let path = artifact {
 }
 let module = $path | path join main.tg.py
 success (tg check $module | complete)
-let standalone = ^$python_path -c 'import asyncio, runpy, sys; asyncio.run(runpy.run_path(sys.argv[1])["default"]())' $module | complete
+let standalone = ^python -c 'import asyncio, runpy, sys; asyncio.run(runpy.run_path(sys.argv[1])["default"]())' $module | complete
 success $standalone
 let output = tg run $module | complete
 success $output

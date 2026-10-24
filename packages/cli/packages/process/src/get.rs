@@ -39,7 +39,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.locations
 		.set_from_reference_if_unset(&args.reference);
 	let process =
-		crate::reference::get_process_with_locations(cli, &args.reference, &options.locations)
+		tangram_cli_reference::get_process_with_locations(cli, &args.reference, &options.locations)
 			.await?;
 	run_inner(cli, process, options).await
 }

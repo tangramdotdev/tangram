@@ -34,7 +34,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			)),
 		}
 	} else {
-		tangram_cli_get::get_module(cli, &args.reference)
+		tangram_cli_reference::get_module(cli, &args.reference)
 			.await?
 			.to_data()
 	};

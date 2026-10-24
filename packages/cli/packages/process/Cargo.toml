@@ -28,7 +28,7 @@ serde_json = { workspace = true }
 serde_with = { workspace = true }
 tangram_cli_checkin = { workspace = true }
 tangram_cli_core = { workspace = true }
-tangram_cli_get = { workspace = true }
+tangram_cli_reference = { workspace = true }
 tangram_cli_sandbox = { workspace = true }
 tangram_cli_tag = { workspace = true }
 tangram_cli_viewer = { workspace = true }

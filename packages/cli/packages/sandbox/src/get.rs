@@ -22,7 +22,7 @@ pub struct Args {
 	pub source: tg::sandbox::Source,
 
 	#[command(flatten)]
-	pub ttl: crate::Ttl,
+	pub ttl: tangram_cli_reference::Ttl,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {

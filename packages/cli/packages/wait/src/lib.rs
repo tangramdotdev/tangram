@@ -22,7 +22,7 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	args.locations.set_from_reference_if_unset(&args.reference);
 	let reference = args.locations.apply_to_reference(&args.reference);
 	let locations = args.locations;
-	let referent = tangram_cli_get::get_with_follow(cli, &reference).await?;
+	let referent = tangram_cli_reference::get_with_follow(cli, &reference).await?;
 	let id = match referent.node {
 		tg::get::Node::Id(id) => id,
 		tg::get::Node::Pointer(_) => {

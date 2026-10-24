@@ -502,7 +502,7 @@ pub(crate) async fn spawn_inner(
 		checkin: options.checkin.to_options(),
 		..Default::default()
 	};
-	let referent = tangram_cli_get::get_with_arg(cli, &reference, arg)
+	let referent = tangram_cli_reference::get_with_arg(cli, &reference, arg)
 		.await?
 		.referent;
 	let mut referent = match referent.node.clone() {

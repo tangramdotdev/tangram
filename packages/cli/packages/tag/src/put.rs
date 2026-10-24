@@ -39,7 +39,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		checkin: args.checkin.to_options(),
 		..Default::default()
 	};
-	let referent = tangram_cli_get::get_with_arg(cli, &reference, arg)
+	let referent = tangram_cli_reference::get_with_arg(cli, &reference, arg)
 		.await?
 		.referent;
 	let target = match referent.node {

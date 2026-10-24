@@ -1,15 +1,4 @@
-use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
-
-mod reference;
-
-pub use self::reference::{
-	get, get_artifact, get_module, get_modules, get_object, get_object_with_locations, get_process,
-	get_process_with_locations, get_references, get_with_arg, get_with_follow,
-};
-
-pub mod object;
-pub mod process;
-pub mod sandbox;
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a reference.
 #[derive(Clone, Debug, clap::Args)]
@@ -45,16 +34,7 @@ pub struct Args {
 	pub source: tg::process::Source,
 
 	#[command(flatten)]
-	pub ttl: Ttl,
-}
-
-#[derive(Clone, Debug, Default, clap::Args)]
-pub struct Ttl {
-	#[arg(id = "get.ttl.ttl", long = "ttl", overrides_with = "get.ttl.no_ttl", value_parser = humantime::parse_duration)]
-	pub ttl: Option<Duration>,
-
-	#[arg(id = "get.ttl.no_ttl", long = "no-ttl", overrides_with = "get.ttl.ttl")]
-	pub no_ttl: bool,
+	pub ttl: tangram_cli_reference::Ttl,
 }
 
 pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
@@ -65,7 +45,7 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 		ttl: args.ttl.get(),
 		..Default::default()
 	};
-	let referent = crate::reference::get_with_arg(cli, &reference, arg)
+	let referent = tangram_cli_reference::get_with_arg(cli, &reference, arg)
 		.await?
 		.referent;
 
@@ -105,14 +85,14 @@ pub(crate) async fn print_get_output(
 			tg::get::Node::Id(id) => id.try_into(),
 			tg::get::Node::Pointer(_) => unreachable!(),
 		})?;
-		let options = crate::object::Options {
+		let options = tangram_cli_object::get::Options {
 			availability: args.availability,
 			bytes: args.bytes,
 			locations: locations.clone(),
 			metadata: args.metadata,
 			print,
 		};
-		crate::object::run_inner(cli, object, options).await?;
+		tangram_cli_object::get::run_inner(cli, object, options).await?;
 
 		return Ok(());
 	}
@@ -121,14 +101,14 @@ pub(crate) async fn print_get_output(
 			tg::get::Node::Id(id) => id.try_into(),
 			tg::get::Node::Pointer(_) => unreachable!(),
 		})?;
-		let options = crate::process::Options {
+		let options = tangram_cli_process::get::Options {
 			availability: args.availability,
 			locations: locations.clone(),
 			metadata: args.metadata,
 			print,
 			source: args.source,
 		};
-		crate::process::run_inner(cli, process, options).await?;
+		tangram_cli_process::get::run_inner(cli, process, options).await?;
 
 		return Ok(());
 	}
@@ -216,7 +196,7 @@ pub(crate) async fn print_get_output(
 					..Default::default()
 				};
 				let sandbox = tg::Referent::new(id.try_into()?, options);
-				let args = crate::sandbox::Args {
+				let args = tangram_cli_sandbox::get::Args {
 					cached: args.cached,
 					locations,
 					print,
@@ -224,7 +204,7 @@ pub(crate) async fn print_get_output(
 					source: args.source,
 					ttl: args.ttl,
 				};
-				crate::sandbox::run(cli, args).await?;
+				tangram_cli_sandbox::get::run(cli, args).await?;
 			},
 			_ => {
 				cli.print_serde(id, print).await?;
@@ -235,16 +215,4 @@ pub(crate) async fn print_get_output(
 		},
 	}
 	Ok(())
-}
-
-impl Ttl {
-	pub fn get(&self) -> tg::remote::cache::Ttl {
-		if self.no_ttl {
-			tg::remote::cache::Ttl::Infinite
-		} else {
-			self.ttl
-				.map(tg::remote::cache::Ttl::Duration)
-				.unwrap_or_default()
-		}
-	}
 }

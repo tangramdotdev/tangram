@@ -5,6 +5,7 @@ pub mod build;
 pub mod cancel;
 pub mod children;
 pub mod exec;
+pub mod get;
 pub mod metadata;
 pub mod output;
 pub mod put;
@@ -30,7 +31,7 @@ pub enum Command {
 	Cancel(self::cancel::Args),
 	Children(self::children::Args),
 	Exec(self::exec::Args),
-	Get(tangram_cli_get::process::Args),
+	Get(self::get::Args),
 	Log(self::stdio::read::Args),
 	Metadata(self::metadata::Args),
 	Output(self::output::Args),
@@ -60,7 +61,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			crate::exec::run(cli, args).await?;
 		},
 		Command::Get(args) => {
-			tangram_cli_get::process::run(cli, args).await?;
+			crate::get::run(cli, args).await?;
 		},
 		Command::Log(args) => {
 			crate::stdio::read::run(cli, args).await?;

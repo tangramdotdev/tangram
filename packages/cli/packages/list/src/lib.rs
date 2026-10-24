@@ -138,7 +138,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			ttl: args.ttl.get(),
 			..tg::get::Arg::default()
 		};
-		let output = tangram_cli_get::get_with_arg(cli, &reference, arg).await?;
+		let output = tangram_cli_reference::get_with_arg(cli, &reference, arg).await?;
 		let node = output.referent.try_map(|node| match node {
 			tg::get::Node::Id(id) => Ok(id),
 			tg::get::Node::Pointer(_) => Err(tg::error!(%reference, "the list node must be an ID")),

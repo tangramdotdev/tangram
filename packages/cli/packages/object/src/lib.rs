@@ -2,6 +2,7 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub mod availability;
 pub mod children;
+pub mod get;
 pub mod metadata;
 pub mod put;
 pub mod touch;
@@ -18,7 +19,7 @@ pub struct Args {
 pub enum Command {
 	Availability(self::availability::Args),
 	Children(self::children::Args),
-	Get(tangram_cli_get::object::Args),
+	Get(self::get::Args),
 	Metadata(self::metadata::Args),
 	#[command(alias = "add")]
 	Put(self::put::Args),
@@ -34,7 +35,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			crate::children::run(cli, args).await?;
 		},
 		Command::Get(args) => {
-			tangram_cli_get::object::run(cli, args).await?;
+			crate::get::run(cli, args).await?;
 		},
 		Command::Metadata(args) => {
 			crate::metadata::run(cli, args).await?;
