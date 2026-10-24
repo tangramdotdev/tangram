@@ -113,12 +113,18 @@ pub struct UserGetResponse {
 }
 
 #[must_use]
-pub fn tokens_valid(tokens: &[tg::authorization::Token], clock: &crate::clock::Clock) -> bool {
+pub fn tokens_valid(
+	tokens: &[tg::authorization::Token],
+	clock: &tangram_server_clock_core::Clock,
+) -> bool {
 	let now = clock.unix_timestamp();
 	tokens.is_empty() || tokens.iter().all(|token| token.body.expires_at > now)
 }
 
-pub fn remove_expired_tokens(tokens: &mut tg::authorization::Tokens, clock: &crate::clock::Clock) {
+pub fn remove_expired_tokens(
+	tokens: &mut tg::authorization::Tokens,
+	clock: &tangram_server_clock_core::Clock,
+) {
 	let now = clock.unix_timestamp();
 	for token in tokens.remove_local_authorization() {
 		if token.body.expires_at > now {
@@ -150,7 +156,7 @@ mod tests {
 
 	#[test]
 	fn expiration_preserves_other_proofs() {
-		let clock = crate::clock::Clock::new(None, None);
+		let clock = tangram_server_clock_core::Clock::new(None, None);
 		let resource = tg::process::Id::new();
 		let token = |expires_at| tg::authorization::Token {
 			body: tg::authorization::Body {

@@ -104,8 +104,8 @@ impl Component {
 				)
 			})?;
 
-		let request = tangram_server_core::scheduler::RequestArg::AddRunner(
-			tangram_server_core::scheduler::AddRunnerRequestArg {
+		let request = tangram_server_scheduler_core::RequestArg::AddRunner(
+			tangram_server_scheduler_core::AddRunnerRequestArg {
 				capacity: arg.heartbeat.capacity,
 				host: arg.host,
 				runner: id.clone(),
@@ -135,12 +135,12 @@ impl Component {
 			scheduler: scheduler.clone(),
 		};
 		let heartbeat_subject =
-			tangram_server_core::scheduler::runner_heartbeat_subject(&scheduler, &id);
+			tangram_server_scheduler_core::runner_heartbeat_subject(&scheduler, &id);
 		let heartbeat_acks = session
 			.server
 			.messenger
 			.subscribe::<tangram_messenger::payload::Json<
-				tangram_server_core::scheduler::HeartbeatAcknowledgement,
+				tangram_server_scheduler_core::HeartbeatAcknowledgement,
 			>>(heartbeat_subject)
 			.await
 			.map_err(|source| {
@@ -189,7 +189,7 @@ impl Component {
 			}
 		});
 		let (heartbeat_sender, mut heartbeat_receiver) = tokio::sync::mpsc::channel::<
-			tangram_server_core::scheduler::HeartbeatNotification,
+			tangram_server_scheduler_core::HeartbeatNotification,
 		>(capacity);
 		let scheduler_unavailable = Arc::new(AtomicBool::new(false));
 		let (scheduler_unavailable_sender, scheduler_unavailable_receiver) =
@@ -217,13 +217,13 @@ impl Component {
 							if heartbeat_acks_ended {
 								break;
 							}
-							let notification = tangram_server_core::scheduler::Message::Notification(
-								tangram_server_core::scheduler::Notification::Heartbeat(heartbeat),
+							let notification = tangram_server_scheduler_core::Message::Notification(
+								tangram_server_scheduler_core::Notification::Heartbeat(heartbeat),
 							);
 							server
 								.messenger
 								.publish(
-									tangram_server_core::scheduler::scheduler_server_subject(Some(&scheduler)),
+									tangram_server_scheduler_core::scheduler_server_subject(Some(&scheduler)),
 									notification,
 								)
 								.await
@@ -313,7 +313,7 @@ impl Component {
 							tracing::debug!(%runner, connection_index, index = heartbeat.index, "received the runner heartbeat");
 							tangram_server_core::checkpoint!(session.server, "runner.control.heartbeat.received", %runner).await;
 							let notification =
-								tangram_server_core::scheduler::HeartbeatNotification {
+								tangram_server_scheduler_core::HeartbeatNotification {
 									capacity: heartbeat.capacity,
 									connection_index,
 									heartbeat_index: heartbeat.index,
@@ -346,8 +346,8 @@ impl Component {
 					}
 				}
 				if !scheduler_unavailable.load(Ordering::Acquire) {
-					let request = tangram_server_core::scheduler::RequestArg::RemoveRunner(
-						tangram_server_core::scheduler::RemoveRunnerRequestArg {
+					let request = tangram_server_scheduler_core::RequestArg::RemoveRunner(
+						tangram_server_scheduler_core::RemoveRunnerRequestArg {
 							connection_index,
 							runner: runner.clone(),
 						},

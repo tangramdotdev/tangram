@@ -138,13 +138,13 @@ impl Component {
 		arg.ttl = tg::remote::cache::Ttl::default();
 		let mut cache_arg = arg.clone();
 		cache_arg.tokens.clear();
-		let request = tangram_server_core::remote::cache::Request::OrganizationGet(
-			tangram_server_core::remote::cache::OrganizationGetRequest {
+		let request = tangram_server_remote_core::cache::Request::OrganizationGet(
+			tangram_server_remote_core::cache::OrganizationGetRequest {
 				arg: cache_arg,
 				id: id.clone(),
 			},
 		);
-		if let Some(tangram_server_core::remote::cache::Response::OrganizationGet(response)) =
+		if let Some(tangram_server_remote_core::cache::Response::OrganizationGet(response)) =
 			session
 				.server
 				.components
@@ -154,14 +154,14 @@ impl Component {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				tangram_server_core::remote::cache::tokens_valid(
+				tangram_server_remote_core::cache::tokens_valid(
 					output.tokens.local_authorization(),
 					&session.server.clock,
 				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					tangram_server_core::remote::cache::remove_expired_tokens(
+					tangram_server_remote_core::cache::remove_expired_tokens(
 						&mut output.tokens,
 						&session.server.clock,
 					);
@@ -192,8 +192,8 @@ impl Component {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the organization"),
 			)?;
-		let response = tangram_server_core::remote::cache::Response::OrganizationGet(
-			tangram_server_core::remote::cache::OrganizationGetResponse {
+		let response = tangram_server_remote_core::cache::Response::OrganizationGet(
+			tangram_server_remote_core::cache::OrganizationGetResponse {
 				output: output.clone(),
 			},
 		);

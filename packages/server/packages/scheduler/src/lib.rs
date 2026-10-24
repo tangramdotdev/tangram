@@ -15,16 +15,14 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_messenger::Messenger,
-	tangram_server_core::{
-		Server, Session,
-		scheduler::{
-			Ack, AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
-			DequeueSandboxRequestArg, DequeueSandboxResponseOutput, EnqueueSandboxRequestArg,
-			EnqueueSandboxResponseOutput, HeartbeatAcknowledgement, HeartbeatNotification, Message,
-			Notification, RemoveRunnerRequestArg, RemoveRunnerResponseOutput, Request, RequestArg,
-			Response, ResponseOutput, runner_heartbeat_subject, scheduler_heartbeat_subject,
-			scheduler_server_subject,
-		},
+	tangram_server_core::{Server, Session},
+	tangram_server_scheduler_core::{
+		Ack, AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
+		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, EnqueueSandboxRequestArg,
+		EnqueueSandboxResponseOutput, HeartbeatAcknowledgement, HeartbeatNotification, Message,
+		Notification, RemoveRunnerRequestArg, RemoveRunnerResponseOutput, Request, RequestArg,
+		Response, ResponseOutput, runner_heartbeat_subject, scheduler_heartbeat_subject,
+		scheduler_server_subject,
 	},
 };
 

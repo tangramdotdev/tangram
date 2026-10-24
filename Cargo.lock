@@ -11032,8 +11032,10 @@ dependencies = [
  "tangram_server_messenger",
  "tangram_server_process_core",
  "tangram_server_read_core",
+ "tangram_server_remote_core",
  "tangram_server_runner_core",
  "tangram_server_sandbox_core",
+ "tangram_server_scheduler_core",
  "tangram_server_vfs_core",
  "tangram_server_watch_core",
  "tangram_uri",
@@ -11125,6 +11127,7 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_grant_core",
+ "tangram_server_remote_core",
 ]
 
 [[package]]
@@ -11177,6 +11180,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_remote_core",
 ]
 
 [[package]]
@@ -11253,6 +11257,7 @@ dependencies = [
  "tangram_server_core",
  "tangram_server_grant_core",
  "tangram_server_list_core",
+ "tangram_server_remote_core",
  "tangram_server_tag_core",
  "tokio",
  "tracing",
@@ -11393,6 +11398,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_remote_core",
 ]
 
 [[package]]
@@ -11423,6 +11429,7 @@ dependencies = [
  "tangram_server_process_core",
  "tangram_server_runner_core",
  "tangram_server_sandbox_core",
+ "tangram_server_scheduler_core",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -11525,8 +11532,18 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_grant_core",
+ "tangram_server_remote_core",
  "tangram_uri",
  "tracing",
+]
+
+[[package]]
+name = "tangram_server_remote_core"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "tangram_client",
+ "tangram_server_clock_core",
 ]
 
 [[package]]
@@ -11563,6 +11580,7 @@ dependencies = [
  "tangram_server_process_core",
  "tangram_server_runner_core",
  "tangram_server_sandbox_core",
+ "tangram_server_scheduler_core",
  "tangram_server_vfs_core",
  "tangram_uri",
  "tokio",
@@ -11608,7 +11626,9 @@ dependencies = [
  "tangram_messenger",
  "tangram_serialize",
  "tangram_server_core",
+ "tangram_server_remote_core",
  "tangram_server_sandbox_core",
+ "tangram_server_scheduler_core",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -11640,8 +11660,21 @@ dependencies = [
  "tangram_server_core",
  "tangram_server_process_core",
  "tangram_server_sandbox_core",
+ "tangram_server_scheduler_core",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "tangram_server_scheduler_core"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "derive_more",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_messenger",
 ]
 
 [[package]]
@@ -11697,6 +11730,7 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_grant_core",
+ "tangram_server_remote_core",
  "tangram_server_tag_core",
 ]
 
@@ -11729,6 +11763,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_remote_core",
  "tangram_uri",
  "tokio",
  "tracing",

@@ -103,7 +103,7 @@ impl Notifications {
 	}
 
 	pub async fn publish_scheduler_heartbeat(&self, id: &tg::scheduler::Id) -> tg::Result<()> {
-		let subject = crate::scheduler::scheduler_heartbeat_subject(id);
+		let subject = tangram_server_scheduler_core::scheduler_heartbeat_subject(id);
 		self.messenger
 			.publish(subject, ())
 			.await

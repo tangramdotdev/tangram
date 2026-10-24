@@ -108,7 +108,7 @@ impl Component {
 		// Schedule the sandbox and wait for its connection.
 		let mut connection_future = self.subscribe_sandbox_connection(session, &id).await?;
 
-		let request = tangram_server_core::scheduler::EnqueueSandboxRequestArg {
+		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
 			creator: Some(creator),
 			parent: None,

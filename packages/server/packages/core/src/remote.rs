@@ -3,8 +3,6 @@ use {
 	tangram_http::body::Boxed as BoxBody,
 };
 
-pub mod cache;
-
 /// The remote component.
 pub trait Component: crate::component::Lifecycle {
 	fn list_remotes<'a>(
@@ -78,16 +76,16 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		session: &'a Session,
 		remote: &'a str,
-		request: &'a self::cache::Request,
+		request: &'a tangram_server_remote_core::cache::Request,
 		ttl: tg::remote::cache::Ttl,
-	) -> BoxFuture<'a, tg::Result<Option<self::cache::Response>>>;
+	) -> BoxFuture<'a, tg::Result<Option<tangram_server_remote_core::cache::Response>>>;
 
 	fn put_cached_remote_response<'a>(
 		&'a self,
 		session: &'a Session,
 		remote: &'a str,
-		request: &'a self::cache::Request,
-		response: &'a self::cache::Response,
+		request: &'a tangram_server_remote_core::cache::Request,
+		response: &'a tangram_server_remote_core::cache::Response,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn invalidate_remote_cache<'a>(

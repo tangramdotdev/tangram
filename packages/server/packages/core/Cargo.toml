@@ -103,8 +103,10 @@ tangram_server_index = { workspace = true }
 tangram_server_messenger = { workspace = true }
 tangram_server_process_core = { workspace = true }
 tangram_server_read_core = { workspace = true }
+tangram_server_remote_core = { workspace = true }
 tangram_server_runner_core = { workspace = true }
 tangram_server_sandbox_core = { workspace = true }
+tangram_server_scheduler_core = { workspace = true }
 tangram_server_vfs_core = { workspace = true }
 tangram_server_watch_core = { workspace = true }
 tangram_uri = { workspace = true }

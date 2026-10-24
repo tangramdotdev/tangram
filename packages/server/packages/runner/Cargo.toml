@@ -50,6 +50,7 @@ tangram_server_grant_core = { workspace = true }
 tangram_server_process_core = { workspace = true }
 tangram_server_runner_core = { workspace = true }
 tangram_server_sandbox_core = { workspace = true }
+tangram_server_scheduler_core = { workspace = true }
 tangram_server_vfs_core = { workspace = true }
 tangram_uri = { workspace = true }
 tokio = { workspace = true }
