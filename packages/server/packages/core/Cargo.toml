@@ -55,7 +55,6 @@ futures = { workspace = true }
 http = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-indexmap = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
 mime = { workspace = true }
@@ -102,7 +101,11 @@ tangram_server_directory = { workspace = true }
 tangram_server_graph = { workspace = true }
 tangram_server_index = { workspace = true }
 tangram_server_messenger = { workspace = true }
+tangram_server_process_core = { workspace = true }
 tangram_server_read_core = { workspace = true }
+tangram_server_runner_core = { workspace = true }
+tangram_server_sandbox_core = { workspace = true }
+tangram_server_vfs_core = { workspace = true }
 tangram_server_watch_core = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }

@@ -1,7 +1,7 @@
 use {
 	super::Assets,
 	tangram_client::prelude::*,
-	{crate::Server, crate::temp::Temp},
+	{tangram_server_core::Server, tangram_server_core::temp::Temp},
 };
 
 impl Assets {
@@ -91,7 +91,13 @@ impl Assets {
 			server
 				.components
 				.vfs
-				.start_virtiofs(server, &socket, vm.dax, crate::Origin::Host, principal)
+				.start_virtiofs(
+					server,
+					&socket,
+					vm.dax,
+					tangram_server_core::context::Origin::Host,
+					principal,
+				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to start the store VFS"))?
 		};
@@ -111,8 +117,12 @@ impl Assets {
 		);
 		let config = &server.config.sandbox;
 		let firewall = match config.network.firewall {
-			crate::config::SandboxNetworkFirewall::Iptables => tangram_sandbox::Firewall::Iptables,
-			crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
+			tangram_server_core::config::SandboxNetworkFirewall::Iptables => {
+				tangram_sandbox::Firewall::Iptables
+			},
+			tangram_server_core::config::SandboxNetworkFirewall::Nft => {
+				tangram_sandbox::Firewall::Nft
+			},
 		};
 		let launch = tangram_sandbox::cloud_hypervisor::run::Arg {
 			cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),

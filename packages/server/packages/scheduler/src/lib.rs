@@ -1039,8 +1039,8 @@ impl Scheduler {
 		state: &mut SchedulerState,
 		discarded: sandbox::DiscardedSandbox,
 	) {
-		let subject = tangram_server_core::sandbox::control::discarded_subject(&discarded.sandbox);
-		let discarded = tangram_server_core::sandbox::control::Discarded {
+		let subject = tangram_server_sandbox_core::control::discarded_subject(&discarded.sandbox);
+		let discarded = tangram_server_sandbox_core::control::Discarded {
 			error: discarded.error,
 		};
 		let server = self.server.clone();

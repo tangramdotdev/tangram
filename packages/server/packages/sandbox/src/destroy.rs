@@ -134,7 +134,7 @@ impl Component {
 		session: &Session,
 		id: &tg::sandbox::Id,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
-		control_sender: Option<tangram_server_core::sandbox::control::local::Local>,
+		control_sender: Option<tangram_server_sandbox_core::control::local::Local>,
 	) -> tg::Result<Option<bool>> {
 		let error = match error {
 			Some(tg::Either::Left(data)) => data,

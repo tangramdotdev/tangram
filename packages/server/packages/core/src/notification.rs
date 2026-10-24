@@ -82,7 +82,7 @@ impl Notifications {
 	}
 
 	pub async fn publish_sandbox_control_connected(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
-		let subject = crate::sandbox::control::connected_subject(id);
+		let subject = tangram_server_sandbox_core::control::connected_subject(id);
 		self.messenger.publish(subject, ()).await.map_err(|error| {
 			tg::error!(!error, "failed to publish the sandbox control connection")
 		})?;

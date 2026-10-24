@@ -1,15 +1,11 @@
 use {
-	crate::{Origin, Session, config::RunnerBackend},
-	dashmap::DashMap,
+	crate::{Origin, Session},
 	futures::{future::BoxFuture, stream::BoxStream},
-	indexmap::IndexMap,
-	std::{collections::BTreeMap, ops::ControlFlow, sync::Arc, time::Duration},
+	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_http::body::Boxed as BoxBody,
 };
-
-pub mod control;
 
 pub type ConnectionFuture = BoxFuture<'static, tg::Result<()>>;
 
@@ -165,32 +161,6 @@ pub trait Component: crate::component::Lifecycle {
 	) -> BoxFuture<'a, tg::Result<()>>;
 }
 
-#[derive(Default)]
-pub struct Sandboxes {
-	indexes: DashMap<tg::sandbox::Id, u64, tg::id::BuildHasher>,
-	sandboxes: DashMap<u64, State, fnv::FnvBuildHasher>,
-}
-
-pub struct State {
-	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::runner::capacity::Allocation>>>>,
-	pub authorization_tokens: tg::authorization::Tokens,
-	pub capacity: tg::runner::Capacity,
-	pub changed: tokio::sync::watch::Sender<()>,
-	pub control_sender: control::local::Local,
-	pub create: tg::sandbox::create::Arg,
-	pub creator: Option<tg::Principal>,
-	pub id: tg::sandbox::Id,
-	pub location: tg::Location,
-	pub process_ids: IndexMap<tg::process::Id, (), tg::id::BuildHasher>,
-	pub processes: Arc<crate::process::Processes>,
-	pub sandbox: Option<tangram_sandbox::Sandbox>,
-	pub status: tg::sandbox::Status,
-	pub token: tokio::sync::watch::Receiver<Option<String>>,
-	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,
-	pub usage: Option<tg::sandbox::Usage>,
-	pub vfs: Option<std::sync::Arc<dyn crate::vfs::Provider>>,
-}
-
 pub struct Runner {
 	pub changed: tokio::sync::watch::Receiver<()>,
 	pub index: u64,
@@ -209,7 +179,9 @@ impl crate::Server {
 	pub fn try_get_request_origin_sandbox(
 		&self,
 		origin: Origin,
-	) -> tg::Result<Option<dashmap::mapref::one::Ref<'_, u64, State>>> {
+	) -> tg::Result<
+		Option<dashmap::mapref::one::Ref<'_, u64, tangram_server_runner_core::sandbox::State>>,
+	> {
 		let Ok(index) = origin.try_unwrap_sandbox() else {
 			return Ok(None);
 		};
@@ -222,52 +194,6 @@ impl crate::Server {
 			.ok_or_else(|| tg::error!(%index, "failed to find the origin sandbox"))?;
 
 		Ok(Some(sandbox))
-	}
-
-	pub fn resolve_sandbox_backend(&self) -> tg::Result<tangram_sandbox::Backend> {
-		let backend = match &self.config.runner.backend {
-			RunnerBackend::Builtin(_) => tangram_sandbox::Backend::Builtin,
-			RunnerBackend::Bubblewrap(config) => tangram_sandbox::Backend::Bubblewrap {
-				path: config.path.clone(),
-			},
-			RunnerBackend::CloudHypervisor(config) => {
-				let image_path = self
-					.components
-					.runner
-					.sandbox_assets()
-					.image
-					.clone()
-					.ok_or_else(|| tg::error!("the cloud-hypervisor image is unavailable"))?;
-				let snapshot = self.components.runner.sandbox_assets().snapshot.clone();
-				tangram_sandbox::Backend::CloudHypervisor(tangram_sandbox::CloudHypervisor {
-					cloud_hypervisor_path: config.cloud_hypervisor_path.clone(),
-					dax: config.dax.map(|dax| dax.window_size as u64),
-					image_path,
-					kernel_path: config.kernel_path.clone(),
-					max_cpu: config.max_cpu,
-					max_memory: config.max_memory,
-					network_interface_timeout: config.network_interface_timeout,
-					ready_timeout: config.ready_timeout,
-					serial_connect_interval: config.serial_connect_interval,
-					serial_connect_timeout: config.serial_connect_timeout,
-					snapshot,
-					snapshot_cpu: config.snapshot_cpu,
-					snapshot_memory: config.snapshot_memory,
-				})
-			},
-			RunnerBackend::Gvisor(config) => tangram_sandbox::Backend::Gvisor {
-				path: config.path.clone(),
-				platform: config.platform,
-			},
-			RunnerBackend::Seatbelt => tangram_sandbox::Backend::Seatbelt,
-		};
-		if cfg!(target_os = "linux") && matches!(backend, tangram_sandbox::Backend::Seatbelt) {
-			return Err(tg::error!("the seatbelt backend requires macos"));
-		}
-		if cfg!(target_os = "macos") && !matches!(backend, tangram_sandbox::Backend::Seatbelt) {
-			return Err(tg::error!("the selected backend requires linux"));
-		}
-		Ok(backend)
 	}
 
 	#[must_use]
@@ -285,7 +211,7 @@ impl crate::Session {
 		&self,
 		id: &tg::sandbox::Id,
 		location: Option<&tg::location::Arg>,
-	) -> Option<control::local::Local> {
+	) -> Option<tangram_server_sandbox_core::control::local::Local> {
 		let runner = self.try_get_sandbox_runner_inner(id, location)?;
 		let sandbox = self
 			.server
@@ -343,117 +269,5 @@ impl crate::Session {
 			location_arg,
 		};
 		Some(runner)
-	}
-}
-
-impl Sandboxes {
-	#[must_use]
-	pub fn get(&self, index: u64) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {
-		self.sandboxes.get(&index)
-	}
-
-	#[must_use]
-	pub fn get_by_id(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {
-		let index = *self.indexes.get(id)?;
-
-		self.sandboxes.get(&index)
-	}
-
-	#[must_use]
-	pub fn get_mut_by_id(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> Option<dashmap::mapref::one::RefMut<'_, u64, State>> {
-		let index = *self.indexes.get(id)?;
-
-		self.sandboxes.get_mut(&index)
-	}
-
-	pub fn insert(&self, index: u64, state: State) {
-		let id = state.id.clone();
-		match self.sandboxes.entry(index) {
-			dashmap::Entry::Occupied(_) => panic!("the sandbox index is already in use"),
-			dashmap::Entry::Vacant(entry) => {
-				entry.insert(state);
-			},
-		}
-		match self.indexes.entry(id) {
-			dashmap::Entry::Occupied(_) => panic!("the sandbox ID is already in use"),
-			dashmap::Entry::Vacant(entry) => {
-				entry.insert(index);
-			},
-		}
-	}
-
-	#[must_use]
-	pub fn iter(&self) -> dashmap::iter::Iter<'_, u64, State, fnv::FnvBuildHasher> {
-		self.sandboxes.iter()
-	}
-
-	#[must_use]
-	pub fn remove(&self, index: u64) -> Option<State> {
-		let (_, state) = self.sandboxes.remove(&index)?;
-		self.indexes.remove(&state.id);
-
-		Some(state)
-	}
-}
-
-impl State {
-	#[must_use]
-	pub fn data(&self) -> tg::sandbox::get::Output {
-		let id = self.id.clone();
-		let arg = &self.create;
-		let data = tg::sandbox::Data {
-			cpu: arg.cpu,
-			creator: self.creator.clone(),
-			hostname: arg.hostname.clone(),
-			id,
-			memory: arg.memory,
-			mounts: arg.mounts.clone(),
-			network: arg.network.clone(),
-			owner: arg.owner.clone(),
-			status: self.status,
-			storage: arg.storage,
-			ttl: arg.ttl,
-			usage: self.usage.clone(),
-		};
-		tg::sandbox::get::Output {
-			data,
-			location: Some(self.location.clone()),
-			tokens: self.authorization_tokens.clone(),
-		}
-	}
-
-	#[must_use]
-	pub fn processes(
-		&self,
-		position: u64,
-		length: u64,
-	) -> tg::sandbox::control::GetProcessesClientResponseOutput {
-		let processes = self
-			.process_ids
-			.keys()
-			.skip(usize::try_from(position).unwrap())
-			.take(usize::try_from(length).unwrap())
-			.cloned()
-			.collect();
-		tg::sandbox::control::GetProcessesClientResponseOutput {
-			length: u64::try_from(self.process_ids.len()).unwrap(),
-			processes,
-			status: self.status,
-		}
-	}
-}
-
-impl<'a> IntoIterator for &'a Sandboxes {
-	type Item = dashmap::mapref::multiple::RefMulti<'a, u64, State>;
-	type IntoIter = dashmap::iter::Iter<'a, u64, State, fnv::FnvBuildHasher>;
-
-	fn into_iter(self) -> Self::IntoIter {
-		self.iter()
 	}
 }

@@ -1,5 +1,5 @@
 use {
-	self::pool::Ext as _,
+	self::pool::CreateSandboxOutput,
 	super::process::{Event as ProcessEvent, SpawnProcessTaskArg, SpawnProcessTaskOutput},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _,
@@ -9,11 +9,11 @@ use {
 	std::{collections::BTreeMap, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
-	tangram_server_core::{
-		runner::pool::CreateSandboxOutput,
-		runner::process::ConnectedEvent,
-		runner::sandbox::{Event, ReadyEvent, SpawnSandboxTaskArg, SpawnSandboxTaskOutput},
+	tangram_server_runner_core::{
+		process::ConnectedEvent,
+		sandbox::{Event, ReadyEvent, SpawnSandboxTaskArg, SpawnSandboxTaskOutput},
 	},
+	tangram_server_sandbox_core::control::local::{Message, Reply},
 	tokio::task::JoinSet,
 	tokio_stream::{StreamMap, wrappers::UnboundedReceiverStream},
 	tracing::Instrument as _,
@@ -22,7 +22,6 @@ use {
 		tangram_server_core::{
 			Server, Session,
 			context::{Context, Origin},
-			sandbox::control::local::{Message, Reply},
 			temp::Temp,
 		},
 	},
@@ -50,7 +49,7 @@ type SandboxControlSender = tangram_server_core::control::Sender<
 >;
 
 struct SandboxTaskArg {
-	allocation: tangram_server_core::runner::capacity::Allocation,
+	allocation: tangram_server_runner_core::capacity::Allocation,
 	arg: tg::sandbox::create::Arg,
 	creator: Option<tg::Principal>,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
@@ -87,7 +86,7 @@ struct SandboxTaskInnerArg {
 	process_stopper: Stopper,
 	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
-	processes: Arc<tangram_server_core::process::Processes>,
+	processes: Arc<tangram_server_process_core::Processes>,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
 }
@@ -102,7 +101,7 @@ struct RunSandboxTaskArg {
 	process_stopper: Stopper,
 	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
-	processes: Arc<tangram_server_core::process::Processes>,
+	processes: Arc<tangram_server_process_core::Processes>,
 	sandbox: tangram_sandbox::Sandbox,
 	serve_task: Task<()>,
 	state: tg::sandbox::get::Output,
@@ -117,6 +116,61 @@ struct RetainSandboxTaskArg {
 }
 
 impl Component {
+	pub(crate) fn resolve_sandbox_backend(
+		&self,
+		server: &Server,
+	) -> tg::Result<tangram_sandbox::Backend> {
+		let backend = match &server.config.runner.backend {
+			tangram_server_core::config::RunnerBackend::Builtin(_) => {
+				tangram_sandbox::Backend::Builtin
+			},
+			tangram_server_core::config::RunnerBackend::Bubblewrap(config) => {
+				tangram_sandbox::Backend::Bubblewrap {
+					path: config.path.clone(),
+				}
+			},
+			tangram_server_core::config::RunnerBackend::CloudHypervisor(config) => {
+				let image_path = self
+					.sandbox_assets
+					.image
+					.clone()
+					.ok_or_else(|| tg::error!("the cloud-hypervisor image is unavailable"))?;
+				let snapshot = self.sandbox_assets.snapshot.clone();
+				tangram_sandbox::Backend::CloudHypervisor(tangram_sandbox::CloudHypervisor {
+					cloud_hypervisor_path: config.cloud_hypervisor_path.clone(),
+					dax: config.dax.map(|dax| dax.window_size as u64),
+					image_path,
+					kernel_path: config.kernel_path.clone(),
+					max_cpu: config.max_cpu,
+					max_memory: config.max_memory,
+					network_interface_timeout: config.network_interface_timeout,
+					ready_timeout: config.ready_timeout,
+					serial_connect_interval: config.serial_connect_interval,
+					serial_connect_timeout: config.serial_connect_timeout,
+					snapshot,
+					snapshot_cpu: config.snapshot_cpu,
+					snapshot_memory: config.snapshot_memory,
+				})
+			},
+			tangram_server_core::config::RunnerBackend::Gvisor(config) => {
+				tangram_sandbox::Backend::Gvisor {
+					path: config.path.clone(),
+					platform: config.platform,
+				}
+			},
+			tangram_server_core::config::RunnerBackend::Seatbelt => {
+				tangram_sandbox::Backend::Seatbelt
+			},
+		};
+		if cfg!(target_os = "linux") && matches!(backend, tangram_sandbox::Backend::Seatbelt) {
+			return Err(tg::error!("the seatbelt backend requires macos"));
+		}
+		if cfg!(target_os = "macos") && !matches!(backend, tangram_sandbox::Backend::Seatbelt) {
+			return Err(tg::error!("the selected backend requires linux"));
+		}
+		Ok(backend)
+	}
+
 	pub fn spawn_sandbox_task(
 		&self,
 		server: &Server,
@@ -357,11 +411,11 @@ impl Component {
 		let capacity = allocation.capacity();
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		let index = create_output.sandbox.index();
-		let processes = Arc::new(tangram_server_core::process::Processes::default());
+		let processes = Arc::new(tangram_server_process_core::Processes::default());
 		let control_channel_capacity = session.server.config.sandbox.control_channel_capacity;
 		let (control_sender, control_receiver) =
-			tangram_server_core::sandbox::control::local::Local::new(control_channel_capacity);
-		let entry = tangram_server_core::sandbox::State {
+			tangram_server_sandbox_core::control::local::Local::new(control_channel_capacity);
+		let entry = tangram_server_runner_core::sandbox::State {
 			allocation: Some(allocation),
 
 			authorization_tokens: tg::authorization::Tokens::default(),
@@ -598,7 +652,7 @@ impl Component {
 		session: &Session,
 		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<CreateSandboxOutput> {
-		let isolation = session.server.resolve_sandbox_backend()?;
+		let isolation = self.resolve_sandbox_backend(&session.server)?;
 		let mut resources = session.server.sandbox_resources();
 		if matches!(
 			&isolation,
@@ -997,7 +1051,7 @@ impl Component {
 		&self,
 		session: &Session,
 		arg: RunSandboxTaskArg,
-		#[cfg(target_os = "linux")] vfs: &mut Option<Box<dyn tangram_server_core::vfs::Server>>,
+		#[cfg(target_os = "linux")] vfs: &mut Option<Box<dyn tangram_server_vfs_core::Server>>,
 	) -> tg::Result<RetainSandboxTaskArg> {
 		let RunSandboxTaskArg {
 			connected,

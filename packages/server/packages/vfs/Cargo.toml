@@ -32,6 +32,7 @@ tangram_client = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_server_grant_core = { workspace = true }
+tangram_server_vfs_core = { workspace = true }
 tangram_vfs = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

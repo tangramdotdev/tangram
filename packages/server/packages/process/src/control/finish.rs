@@ -20,7 +20,7 @@ impl Component {
 		let location = tg::Location::Local(tg::location::Local {
 			region: session.server.config.region.clone(),
 		});
-		let options = tangram_server_core::process::put::Options {
+		let options = tangram_server_process_core::put::Options {
 			command_sync,
 			defer_index: true,
 			location: Some(location),

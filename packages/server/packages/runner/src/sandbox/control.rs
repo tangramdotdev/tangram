@@ -1,7 +1,7 @@
 use {
 	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
-	tangram_server_core::sandbox::control::local::{Message, Reply},
+	tangram_server_sandbox_core::control::local::{Message, Reply},
 };
 
 #[cfg(test)]

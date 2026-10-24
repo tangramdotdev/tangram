@@ -8,7 +8,7 @@ pub(crate) struct Runner {
 }
 
 pub(crate) struct Control {
-	pub control_sender: tangram_server_core::process::control::local::Local,
+	pub control_sender: tangram_server_process_core::control::local::Local,
 	pub data: tg::process::Data,
 }
 

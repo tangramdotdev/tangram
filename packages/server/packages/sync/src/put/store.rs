@@ -430,7 +430,7 @@ impl Component {
 			};
 
 			// Validate the process before waiting for all of its children.
-			tangram_server_core::process::put::validate_process_data(&output.data)?;
+			tangram_server_process_core::put::validate_process_data(&output.data)?;
 
 			// Read the local children using the node permission already proven by the graph.
 			let permission = tg::authorization::Permission::Process(
@@ -471,7 +471,7 @@ impl Component {
 					.await?;
 				output.data.children = Some(children);
 			}
-			tangram_server_core::process::put::validate_process_data(&output.data)?;
+			tangram_server_process_core::put::validate_process_data(&output.data)?;
 
 			// Update the graph.
 			if node.descendants {

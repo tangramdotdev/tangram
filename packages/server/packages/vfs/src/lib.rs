@@ -21,7 +21,7 @@ pub mod provider;
 pub struct Component(Arc<State>);
 
 pub struct State {
-	pub store: Mutex<Option<Box<dyn tangram_server_core::vfs::Server>>>,
+	pub store: Mutex<Option<Box<dyn tangram_server_vfs_core::Server>>>,
 }
 
 pub struct Server {
@@ -66,7 +66,7 @@ impl Component {
 			recvfd,
 		} = arg;
 		let store = Server::start(server, kind, path, options, origin, principal, recvfd).await?;
-		let store: Box<dyn tangram_server_core::vfs::Server> = Box::new(store);
+		let store: Box<dyn tangram_server_vfs_core::Server> = Box::new(store);
 		self.store.lock().unwrap().replace(store);
 
 		Ok(())
@@ -343,7 +343,7 @@ impl tangram_server_core::vfs::Component for Component {
 		&'a self,
 		server: &'a tangram_server_core::Server,
 		arg: MountArg<'a>,
-	) -> BoxFuture<'a, tg::Result<Box<dyn tangram_server_core::vfs::Server>>> {
+	) -> BoxFuture<'a, tg::Result<Box<dyn tangram_server_vfs_core::Server>>> {
 		async move {
 			let MountArg {
 				kind,
@@ -355,7 +355,7 @@ impl tangram_server_core::vfs::Component for Component {
 			} = arg;
 			let server =
 				Server::start(server, kind, path, options, origin, principal, recvfd).await?;
-			let server: Box<dyn tangram_server_core::vfs::Server> = Box::new(server);
+			let server: Box<dyn tangram_server_vfs_core::Server> = Box::new(server);
 			Ok(server)
 		}
 		.boxed()
@@ -381,10 +381,10 @@ impl tangram_server_core::vfs::Component for Component {
 		dax: Option<u64>,
 		origin: tangram_server_core::context::Origin,
 		principal: Option<tg::Principal>,
-	) -> BoxFuture<'a, tg::Result<Box<dyn tangram_server_core::vfs::Server>>> {
+	) -> BoxFuture<'a, tg::Result<Box<dyn tangram_server_vfs_core::Server>>> {
 		async move {
 			let server = Server::start_virtiofs(server, socket, dax, origin, principal).await?;
-			let server: Box<dyn tangram_server_core::vfs::Server> = Box::new(server);
+			let server: Box<dyn tangram_server_vfs_core::Server> = Box::new(server);
 			Ok(server)
 		}
 		.boxed()
@@ -395,9 +395,9 @@ impl tangram_server_core::vfs::Component for Component {
 	}
 }
 
-impl tangram_server_core::vfs::Server for Server {
+impl tangram_server_vfs_core::Server for Server {
 	#[cfg(target_os = "linux")]
-	fn provider(&self) -> std::sync::Arc<dyn tangram_server_core::vfs::Provider> {
+	fn provider(&self) -> std::sync::Arc<dyn tangram_server_vfs_core::Provider> {
 		std::sync::Arc::new(self.provider().clone())
 	}
 

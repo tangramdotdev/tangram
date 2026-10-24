@@ -431,7 +431,7 @@ impl Component {
 		session: &Session,
 		mut arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
-		allocation: Option<tangram_server_core::runner::capacity::Allocation>,
+		allocation: Option<tangram_server_runner_core::capacity::Allocation>,
 		open: Option<crate::connect::service::Open>,
 		cache_location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {

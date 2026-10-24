@@ -7,7 +7,7 @@ use {
 
 pub struct Temp {
 	#[cfg(target_os = "linux")]
-	filesystem_project_id: Option<crate::runner::project::Id>,
+	filesystem_project_id: Option<tangram_server_runner_core::project::Id>,
 	path: PathBuf,
 	preserve: bool,
 	server: Server,
@@ -39,7 +39,10 @@ impl Temp {
 	}
 
 	#[cfg(target_os = "linux")]
-	pub fn set_filesystem_project_id(&mut self, project_id: crate::runner::project::Id) {
+	pub fn set_filesystem_project_id(
+		&mut self,
+		project_id: tangram_server_runner_core::project::Id,
+	) {
 		assert!(self.filesystem_project_id.replace(project_id).is_none());
 	}
 
@@ -61,7 +64,10 @@ impl Temp {
 	}
 
 	#[cfg(target_os = "linux")]
-	async fn release_filesystem_project_id(path: PathBuf, project_id: crate::runner::project::Id) {
+	async fn release_filesystem_project_id(
+		path: PathBuf,
+		project_id: tangram_server_runner_core::project::Id,
+	) {
 		loop {
 			match tangram_sandbox::filesystem_project_usage(&path, project_id.value()) {
 				Ok(0) => {

@@ -18,7 +18,7 @@ use {
 	},
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
-	tangram_server_core::runner::process::ConnectedEvent,
+	tangram_server_runner_core::process::ConnectedEvent,
 	tokio::task::JoinSet,
 	tokio_stream::wrappers::UnboundedReceiverStream,
 	tracing::Instrument as _,
@@ -49,7 +49,7 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub process: tg::runner::control::Process,
 	pub process_stopper: &'a Stopper,
 	pub process_tasks: &'a mut JoinSet<tg::Result<()>>,
-	pub processes: Arc<tangram_server_core::process::Processes>,
+	pub processes: Arc<tangram_server_process_core::Processes>,
 	pub retention_stopper: Stopper,
 	pub sandbox: &'a tangram_sandbox::Sandbox,
 	pub sandbox_create: Option<tg::process::control::SandboxCreate>,
@@ -66,7 +66,7 @@ struct ProcessTaskArg {
 	guest_url: tangram_uri::Uri,
 	location: tg::Location,
 	process: tg::runner::control::Process,
-	processes: Arc<tangram_server_core::process::Processes>,
+	processes: Arc<tangram_server_process_core::Processes>,
 	retention_stopper: Stopper,
 	sandbox: tangram_sandbox::Sandbox,
 	sandbox_create: Option<tg::process::control::SandboxCreate>,
@@ -84,7 +84,7 @@ struct FinishProcessRunArg {
 	location: tg::Location,
 	log_task: Option<Task<tg::Result<tg::Referent<tg::blob::Id>>>>,
 	outcome_sync: tokio::sync::oneshot::Sender<()>,
-	processes: Arc<tangram_server_core::process::Processes>,
+	processes: Arc<tangram_server_process_core::Processes>,
 	ready_receiver: tokio::sync::oneshot::Receiver<()>,
 	run_task: Task<tg::Result<RunProcessOutcome>>,
 	sandbox: tangram_sandbox::Sandbox,
@@ -92,7 +92,7 @@ struct FinishProcessRunArg {
 }
 
 struct FinishProcessRunOutput {
-	index_task: Option<tangram_server_core::process::IndexTask>,
+	index_task: Option<tangram_server_process_core::IndexTask>,
 }
 
 struct IndexFinishedProcessTaskArg {
@@ -159,7 +159,7 @@ struct RunProcessArg {
 	guest_url: tangram_uri::Uri,
 	id: tg::process::Id,
 	process_stopper: Stopper,
-	processes: Arc<tangram_server_core::process::Processes>,
+	processes: Arc<tangram_server_process_core::Processes>,
 	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
 	sandbox: tangram_sandbox::Sandbox,
 	sandbox_process_sender: tokio::sync::watch::Sender<Option<Arc<tangram_sandbox::Process>>>,
@@ -461,7 +461,7 @@ impl Component {
 		let mut children = indexmap::IndexMap::default();
 		for child in data.children.take().unwrap_or_default() {
 			let id = child.process.node.clone();
-			let child = tangram_server_core::process::Child {
+			let child = tangram_server_process_core::Child {
 				data: child,
 				lease: None,
 				location: None,
@@ -471,7 +471,7 @@ impl Component {
 			}
 		}
 		let (index_result_sender, index_result_receiver) = tokio::sync::oneshot::channel();
-		let index_task = tangram_server_core::process::IndexTask::spawn(move |_| {
+		let index_task = tangram_server_process_core::IndexTask::spawn(move |_| {
 			async move {
 				index_result_receiver.await.map_err(|error| {
 					tg::error!(!error, "failed to receive the process index result")
@@ -485,8 +485,8 @@ impl Component {
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 		let capacity = session.server.config.process.local_control_channel_capacity;
 		let (local_control_sender, control_receiver) =
-			tangram_server_core::process::control::local::Local::new(capacity);
-		let entry = tangram_server_core::process::State {
+			tangram_server_process_core::control::local::Local::new(capacity);
+		let entry = tangram_server_process_core::State {
 			changed: tokio::sync::watch::channel(()).0,
 			children,
 			control: control_sender.clone(),
@@ -1014,12 +1014,12 @@ impl Component {
 		index_sender.send(()).ok();
 
 		if location.is_remote() {
-			let entry = tangram_server_core::process::control::Connected { lease };
+			let entry = tangram_server_process_core::control::Connected { lease };
 			let result = session
 				.server
 				.messenger
 				.publish(
-					tangram_server_core::process::control::connected_subject(&id),
+					tangram_server_process_core::control::connected_subject(&id),
 					entry,
 				)
 				.await
@@ -1334,7 +1334,7 @@ impl Component {
 		data.finished_at = Some(session.server.clock.unix_timestamp());
 		data.set_output(outcome.output.as_ref().map(tg::Value::to_data));
 		data.status = tg::process::Status::Finished;
-		tangram_server_core::process::put::validate_process_data(&data)?;
+		tangram_server_process_core::put::validate_process_data(&data)?;
 		tracing::info!(exit, process = %id, sandbox = state.sandbox.as_ref().map(ToString::to_string), "collected the process output");
 
 		let command_id = state.command.command_id()?;
@@ -1354,7 +1354,7 @@ impl Component {
 			id: id.clone(),
 			location: location.clone(),
 		};
-		let index_task = tangram_server_core::process::IndexTask::spawn({
+		let index_task = tangram_server_process_core::IndexTask::spawn({
 			let component = self.clone();
 			let session = session.clone();
 			move |_| {
@@ -1595,7 +1595,7 @@ impl Component {
 		arg: IndexFinishedProcessTaskArg,
 	) -> tg::Result<()> {
 		let IndexFinishedProcessTaskArg { data, id, location } = arg;
-		let options = tangram_server_core::process::put::Options {
+		let options = tangram_server_process_core::put::Options {
 			command_sync: None,
 			defer_index: false,
 			location: Some(location.clone()),
@@ -1639,7 +1639,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
-		processes: &tangram_server_core::process::Processes,
+		processes: &tangram_server_process_core::Processes,
 		data: &mut tg::process::Data,
 	) -> tg::Result<()> {
 		let mut process_state = processes
@@ -1668,7 +1668,7 @@ impl Component {
 		&self,
 		session: &Session,
 		id: &tg::process::Id,
-		processes: &tangram_server_core::process::Processes,
+		processes: &tangram_server_process_core::Processes,
 	) -> tg::Result<()> {
 		let mut process_state = processes
 			.get_mut(id)
@@ -2497,7 +2497,7 @@ impl Component {
 			.and_then(|state| state.vfs.clone());
 		if let Some(vfs) = vfs {
 			for artifact in &artifacts {
-				vfs.seed_tokens(session, &artifact.options.tokens);
+				vfs.seed_tokens(&artifact.options.tokens);
 			}
 		}
 

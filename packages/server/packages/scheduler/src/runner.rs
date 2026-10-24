@@ -294,7 +294,7 @@ impl Component {
 					data: data.clone(),
 					location: None,
 				};
-				let options = tangram_server_core::process::put::Options {
+				let options = tangram_server_process_core::put::Options {
 					command_sync: None,
 					defer_index: false,
 					location: None,

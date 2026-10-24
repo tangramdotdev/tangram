@@ -36,7 +36,7 @@ pub(crate) struct TryWriteProcessStdioLocalArg<'a> {
 }
 
 struct WriteProcessStdioWithControlArg<'a> {
-	control_sender: Option<tangram_server_core::process::control::local::Local>,
+	control_sender: Option<tangram_server_process_core::control::local::Local>,
 	data: tg::process::Data,
 	id: &'a tg::process::Id,
 	input: BoxStream<'static, tg::Result<tg::process::stdio::write::Data>>,
@@ -46,7 +46,7 @@ struct WriteProcessStdioWithControlArg<'a> {
 }
 
 struct WriteProcessStdioLocalTaskArg<'a> {
-	control_sender: Option<&'a tangram_server_core::process::control::local::Local>,
+	control_sender: Option<&'a tangram_server_process_core::control::local::Local>,
 	data: &'a tg::process::Data,
 	id: &'a tg::process::Id,
 	input: BoxStream<'static, tg::Result<Data>>,
@@ -345,7 +345,7 @@ impl Component {
 		data: Data,
 		destination: Destination,
 		wait: future::Shared<BoxFuture<'static, tg::Result<()>>>,
-		control_sender: Option<&tangram_server_core::process::control::local::Local>,
+		control_sender: Option<&tangram_server_process_core::control::local::Local>,
 	) -> tg::Result<Output> {
 		let (start, end) = match &data {
 			Data::Chunk(chunk) => (

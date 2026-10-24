@@ -1,43 +1,11 @@
 use {
 	crate::Session,
-	dashmap::DashMap,
 	futures::{future::BoxFuture, stream::BoxStream},
-	indexmap::IndexMap,
-	std::{collections::BTreeSet, ops::ControlFlow},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_http::body::Boxed as BoxBody,
 };
-
-pub mod control;
-pub mod put;
-
-pub type IndexTask = tangram_futures::task::Shared<tg::Result<()>>;
-
-pub type Map = DashMap<tg::process::Id, tg::sandbox::Id, tg::id::BuildHasher>;
-
-pub type Processes = DashMap<tg::process::Id, State, tg::id::BuildHasher>;
-
-pub struct Child {
-	pub data: tg::process::data::Child,
-	pub lease: Option<tg::process::Lease>,
-	pub location: Option<tg::location::Arg>,
-}
-
-pub struct State {
-	pub changed: tokio::sync::watch::Sender<()>,
-	pub children: IndexMap<tg::process::Id, Child, tg::id::BuildHasher>,
-	pub control: tg::process::control::Sender,
-	pub control_sender: control::local::Local,
-	pub data: tg::process::Data,
-	pub finish: Option<tg::process::control::FinishServerRequestArg>,
-	pub index_task: IndexTask,
-	pub inner_token: tokio::sync::watch::Receiver<Option<String>>,
-	pub leases: BTreeSet<tg::process::Lease>,
-	pub parent: Option<tg::process::Id>,
-	pub process: Option<tangram_sandbox::Process>,
-	pub stopper: tangram_futures::task::Stopper,
-}
 
 pub struct PushProcessObjectsArg {
 	/// The sync that the push joins, when the push does not know the sync.
@@ -286,7 +254,7 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		id: &'a tg::process::Id,
 		arg: tg::process::put::Arg,
-		options: put::Options,
+		options: tangram_server_process_core::put::Options,
 	) -> BoxFuture<'a, tg::Result<tg::process::put::Output>>;
 
 	fn put_process_local_inner<'a>(
@@ -295,7 +263,7 @@ pub trait Component: crate::component::Lifecycle {
 		id: &'a tg::process::Id,
 		arg: tg::process::put::Arg,
 		principal: tg::Principal,
-		options: put::Options,
+		options: tangram_server_process_core::put::Options,
 	) -> BoxFuture<'a, tg::Result<tg::process::put::Output>>;
 
 	fn request_process_control<'a>(
@@ -332,7 +300,7 @@ pub trait Component: crate::component::Lifecycle {
 		borrowed: bool,
 		parent: Option<&'a tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
-	) -> Option<crate::runner::capacity::Allocation>;
+	) -> Option<tangram_server_runner_core::capacity::Allocation>;
 
 	fn try_get_process_local_inner<'a>(
 		&'a self,
@@ -383,19 +351,4 @@ pub trait Component: crate::component::Lifecycle {
 		id: &'a tg::process::Id,
 		kind: tg::sync::join::Kind,
 	) -> BoxFuture<'a, tg::Result<Option<tg::Referent<tg::sync::Id>>>>;
-}
-
-impl State {
-	#[must_use]
-	pub fn data(&self) -> tg::process::Data {
-		let mut data = self.data.clone();
-		data.children = Some(
-			self.children
-				.values()
-				.map(|child| child.data.clone())
-				.collect(),
-		);
-
-		data
-	}
 }

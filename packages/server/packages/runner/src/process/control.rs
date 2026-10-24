@@ -12,10 +12,8 @@ use {
 	std::{collections::VecDeque, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
-	tangram_server_core::{
-		Session,
-		process::control::local::{self, Reply},
-	},
+	tangram_server_core::Session,
+	tangram_server_process_core::control::local::{self, Reply},
 	tracing::Instrument as _,
 };
 

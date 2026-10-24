@@ -8,10 +8,9 @@ use {
 	tangram_server_core::{
 		Server, Session,
 		messenger::Messenger,
-		process::{
-			Child, Processes, PushProcessObjectsArg, PushProcessObjectsOutput, put::Options,
-		},
+		process::{PushProcessObjectsArg, PushProcessObjectsOutput},
 	},
+	tangram_server_process_core::{Child, Processes, put::Options},
 };
 
 mod push;
@@ -38,7 +37,7 @@ pub mod tty;
 pub mod wait;
 
 pub(crate) type ConnectionFuture =
-	BoxFuture<'static, tg::Result<tangram_server_core::process::control::Connected>>;
+	BoxFuture<'static, tg::Result<tangram_server_process_core::control::Connected>>;
 
 /// The component.
 #[derive(Clone)]
@@ -583,7 +582,7 @@ impl tangram_server_core::process::Component for Component {
 		borrowed: bool,
 		parent: Option<&'a tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
-	) -> Option<tangram_server_core::runner::capacity::Allocation> {
+	) -> Option<tangram_server_runner_core::capacity::Allocation> {
 		Self::try_acquire_scheduled_sandbox_capacity(session, borrowed, parent, requested)
 	}
 
