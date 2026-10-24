@@ -450,7 +450,7 @@ impl tg::Session {
 		let method = http::Method::POST;
 		let uri = Uri::builder().path("/sandboxes/control").build().unwrap();
 		let max_frame_size = self.client().sync.max_frame_size;
-		let body = crate::http::frame::encode(stream, max_frame_size);
+		let body = crate::frame::encode(stream, max_frame_size);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -493,7 +493,7 @@ impl tg::Session {
 		}
 
 		// Decode the response, which ends early if the connection is lost.
-		let Some((header, stream)) = crate::http::frame::decode_with_header(
+		let Some((header, stream)) = crate::frame::decode_with_header(
 			response.into_body(),
 			self.client().http.max_header_length,
 			max_frame_size,

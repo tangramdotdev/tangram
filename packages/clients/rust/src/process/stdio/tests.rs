@@ -68,7 +68,7 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 								}))
 								.attach(input)
 								.boxed();
-							let body = crate::http::frame::encode(stream, 1024);
+							let body = crate::frame::encode(stream, 1024);
 							let response = http::Response::builder()
 								.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
 								.body(body)

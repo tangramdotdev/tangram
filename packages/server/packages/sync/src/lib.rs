@@ -524,7 +524,7 @@ impl Component {
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the content type"))?
 			.ok_or_else(|| tg::error!(argument, "missing the content type"))?;
-		let input_encoding = tangram_server_core::http::frame::Encoding::from_content_type(
+		let input_encoding = tangram_client::frame::Encoding::from_content_type(
 			&content_type,
 			tg::sync::CONTENT_TYPE,
 		)?;
@@ -543,15 +543,12 @@ impl Component {
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Select the response encoding.
-		let output_encoding = tangram_server_core::http::frame::Encoding::from_accept(
-			accept.as_ref(),
-			tg::sync::CONTENT_TYPE,
-		)?;
+		let output_encoding =
+			tangram_client::frame::Encoding::from_accept(accept.as_ref(), tg::sync::CONTENT_TYPE)?;
 
 		// Decode the request body.
 		let max_frame_size = session.server.config.sync.max_frame_size;
-		let stream =
-			tangram_server_core::http::frame::decode(request, input_encoding, max_frame_size);
+		let stream = input_encoding.decode(request, max_frame_size);
 
 		// Start the sync, responding that the server is unavailable if the sync could not reach a server.
 		let output = self
@@ -568,8 +565,7 @@ impl Component {
 
 		// Create the response body.
 		let content_type = output_encoding.content_type(tg::sync::CONTENT_TYPE);
-		let body =
-			tangram_server_core::http::frame::encode(stream, output_encoding, max_frame_size);
+		let body = output_encoding.encode(stream, max_frame_size);
 		let body = tangram_http::body::header::set(body, &header, output_encoding.serialization())
 			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 

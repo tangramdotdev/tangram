@@ -1081,12 +1081,10 @@ impl Component {
 				tg::error!(argument, !error, "failed to parse the content type header")
 			})?;
 		let tangram_content_type = tg::process::stdio::TANGRAM_CONTENT_TYPE;
-		let output_encoding = tangram_server_core::http::frame::Encoding::from_accept(
-			accept.as_ref(),
-			tangram_content_type,
-		)
-		.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
-		let input_encoding = tangram_server_core::http::frame::Encoding::from_content_type(
+		let output_encoding =
+			tangram_client::frame::Encoding::from_accept(accept.as_ref(), tangram_content_type)
+				.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
+		let input_encoding = tangram_client::frame::Encoding::from_content_type(
 			content_type
 				.as_ref()
 				.ok_or_else(|| tg::error!(argument, "missing the content type"))?,
@@ -1102,8 +1100,7 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
 		let max_frame_size = session.server.config.sync.max_frame_size;
-		let input =
-			tangram_server_core::http::frame::decode(request, input_encoding, max_frame_size);
+		let input = input_encoding.decode(request, max_frame_size);
 		let output = match self
 			.try_read_process_stdio(session, &process, arg, input)
 			.await?
@@ -1121,8 +1118,7 @@ impl Component {
 			},
 		};
 		let content_type = output_encoding.content_type(tangram_content_type);
-		let body =
-			tangram_server_core::http::frame::encode(output, output_encoding, max_frame_size);
+		let body = output_encoding.encode(output, max_frame_size);
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)

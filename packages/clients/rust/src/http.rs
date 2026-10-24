@@ -20,8 +20,6 @@ use {
 	tower_http::ServiceBuilderExt as _,
 };
 
-pub(crate) mod frame;
-
 type Affinities = Arc<Mutex<weak_table::WeakValueHashMap<Affinity, Weak<Guard>>>>;
 
 type Guard = tangram_pool::SharedGuard<Connection, Error>;

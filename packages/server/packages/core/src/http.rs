@@ -20,8 +20,6 @@ use {
 	tower::ServiceExt as _,
 };
 
-pub mod frame;
-
 type Service =
 	tower::util::BoxCloneSyncService<http::Request<BoxBody>, http::Response<BoxBody>, Infallible>;
 

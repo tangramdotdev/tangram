@@ -2,11 +2,14 @@ use {
 	crate::prelude::*,
 	bytes::Bytes,
 	futures::{
-		StreamExt as _,
+		StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
-	tangram_http::body::{BodyStream, Boxed},
+	tangram_http::{
+		body::{BodyStream, Boxed},
+		request::Ext as _,
+	},
 	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::StreamReader,
@@ -15,7 +18,15 @@ use {
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn encode<T>(stream: BoxStream<'static, tg::Result<T>>, max_frame_size: u64) -> Boxed
+/// The encoding of a stream of messages in an HTTP body.
+#[derive(Clone, Copy)]
+pub enum Encoding {
+	Sse,
+	Tangram,
+}
+
+#[must_use]
+pub fn encode<T>(stream: BoxStream<'static, tg::Result<T>>, max_frame_size: u64) -> Boxed
 where
 	T: Send + tangram_serialize::Serialize + 'static,
 {
@@ -57,7 +68,7 @@ where
 	Boxed::with_stream(stream)
 }
 
-pub(crate) fn decode<T>(body: Boxed, max_frame_size: u64) -> BoxStream<'static, tg::Result<T>>
+pub fn decode<T>(body: Boxed, max_frame_size: u64) -> BoxStream<'static, tg::Result<T>>
 where
 	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
 {
@@ -67,7 +78,7 @@ where
 }
 
 /// Decode a body's header and messages, returning `None` if the body ended before its header, which happens when the connection is lost.
-pub(crate) async fn decode_with_header<T, H>(
+pub async fn decode_with_header<T, H>(
 	body: Boxed,
 	max_header_length: u64,
 	max_frame_size: u64,
@@ -89,6 +100,100 @@ where
 	let stream = decode_reader_with_trailers(reader, trailer_receiver, task, max_frame_size);
 
 	Ok(Some((header, stream)))
+}
+
+impl Encoding {
+	pub fn from_accept(value: Option<&mime::Mime>, tangram_content_type: &str) -> tg::Result<Self> {
+		let Some(value) = value else {
+			return Ok(Self::Tangram);
+		};
+		if value.type_() == mime::STAR && value.subtype() == mime::STAR {
+			return Ok(Self::Tangram);
+		}
+		Self::from_content_type(value, tangram_content_type)
+			.map_err(|_| tg::error!(accept = %value, "invalid accept type"))
+	}
+
+	pub fn from_content_type(value: &mime::Mime, tangram_content_type: &str) -> tg::Result<Self> {
+		if value.type_() == mime::TEXT && value.subtype() == mime::EVENT_STREAM {
+			return Ok(Self::Sse);
+		}
+		let tangram: mime::Mime = tangram_content_type.parse().unwrap();
+		if value.type_() == tangram.type_()
+			&& value.subtype() == tangram.subtype()
+			&& value.suffix() == tangram.suffix()
+		{
+			return Ok(Self::Tangram);
+		}
+
+		Err(tg::error!(content_type = %value, "invalid content type"))
+	}
+
+	#[must_use]
+	pub fn content_type(self, tangram_content_type: &str) -> mime::Mime {
+		match self {
+			Self::Sse => mime::TEXT_EVENT_STREAM,
+			Self::Tangram => tangram_content_type.parse().unwrap(),
+		}
+	}
+
+	#[must_use]
+	pub fn serialization(self) -> tangram_http::body::encoding::Encoding {
+		match self {
+			Self::Sse => tangram_http::body::encoding::Encoding::Json,
+			Self::Tangram => tangram_http::body::encoding::Encoding::Tangram,
+		}
+	}
+
+	pub fn decode<T>(
+		self,
+		request: http::Request<Boxed>,
+		max_frame_size: u64,
+	) -> BoxStream<'static, tg::Result<T>>
+	where
+		T: for<'de> tangram_serialize::Deserialize<'de>
+			+ Send
+			+ TryFrom<tangram_http::sse::Event, Error = tg::Error>
+			+ 'static,
+	{
+		match self {
+			Self::Sse => request
+				.sse()
+				.map_err(|error| tg::error!(!error, "failed to read the message"))
+				.and_then(|event| {
+					// Fail with the error that an error event carries.
+					let result = if event.event.as_deref() == Some("error") {
+						match tg::Error::try_from(event) {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					};
+					future::ready(result)
+				})
+				.boxed(),
+			Self::Tangram => self::decode(request.into_body(), max_frame_size),
+		}
+	}
+
+	#[must_use]
+	pub fn encode<T>(self, stream: BoxStream<'static, tg::Result<T>>, max_frame_size: u64) -> Boxed
+	where
+		T: Send + tangram_serialize::Serialize + 'static,
+		tangram_http::sse::Event: TryFrom<T, Error = tg::Error>,
+	{
+		match self {
+			Self::Sse => {
+				let stream = stream.map(|result| match result {
+					Ok(message) => message.try_into(),
+					Err(error) => error.try_into(),
+				});
+
+				Boxed::with_sse_stream(stream)
+			},
+			Self::Tangram => self::encode(stream, max_frame_size),
+		}
+	}
 }
 
 /// Read a body's header, returning `None` if the body ended before its header, which happens when the connection is lost.

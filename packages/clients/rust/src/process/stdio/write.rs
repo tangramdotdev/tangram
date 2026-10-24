@@ -136,7 +136,7 @@ impl tg::Session {
 		let max_frame_size = self.client().sync.max_frame_size;
 		let path = format!("/processes/{process}/stdio/write");
 		let uri = Uri::builder().path(&path).build().unwrap();
-		let body = crate::http::frame::encode(input, max_frame_size);
+		let body = crate::frame::encode(input, max_frame_size);
 		let affinity = crate::http::Affinity::with_process(process);
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
@@ -176,7 +176,7 @@ impl tg::Session {
 		if content_type != Some(super::TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = crate::http::frame::decode(response.into_body(), max_frame_size);
+		let stream = crate::frame::decode(response.into_body(), max_frame_size);
 
 		Ok(ControlFlow::Break(Some(stream)))
 	}
