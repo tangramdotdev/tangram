@@ -33,13 +33,13 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-pub async fn command_python(cli: &mut Cli, args: Args) -> tg::Result<()> {
-	let exit = command_python_inner(cli, args).await?;
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let exit = run_inner(cli, args).await?;
 	cli.exit.replace(exit.into());
 	Ok(())
 }
 
-async fn command_python_inner(cli: &Cli, args: Args) -> tg::Result<u8> {
+async fn run_inner(cli: &Cli, args: Args) -> tg::Result<u8> {
 	// Get the args.
 	let mut args_: Vec<tg::Value> = Vec::new();
 	let mut matches = &cli.matches;

@@ -9,7 +9,7 @@ pub struct Args {
 	pub duration: Duration,
 }
 
-pub async fn command_clock_advance(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::clock::advance::Arg {
 		duration: args.duration,

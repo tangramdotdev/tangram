@@ -8,7 +8,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn status(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.create_client()?;
 	let status = if client.connect().await.is_ok() {
 		"started"

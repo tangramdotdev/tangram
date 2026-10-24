@@ -30,7 +30,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-pub async fn command_children(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	// Get the node.
 	args.locations.set_from_reference_if_unset(&args.reference);
 	let reference = args.locations.apply_to_reference(&args.reference);

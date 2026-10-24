@@ -24,25 +24,25 @@ pub enum Command {
 	Watch(self::watch::Args),
 }
 
-pub async fn command_checkpoint(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Abort(args) => {
-			crate::abort::command_checkpoint_abort(cli, args).await?;
+			crate::abort::run(cli, args).await?;
 		},
 		Command::Continue(args) => {
-			crate::continue_::command_checkpoint_continue(cli, args).await?;
+			crate::continue_::run(cli, args).await?;
 		},
 		Command::Panic(args) => {
-			crate::panic::command_checkpoint_panic(cli, args).await?;
+			crate::panic::run(cli, args).await?;
 		},
 		Command::Unwatch(args) => {
-			crate::unwatch::command_checkpoint_unwatch(cli, args).await?;
+			crate::unwatch::run(cli, args).await?;
 		},
 		Command::Wait(args) => {
-			crate::wait::command_checkpoint_wait(cli, args).await?;
+			crate::wait::run(cli, args).await?;
 		},
 		Command::Watch(args) => {
-			crate::watch::command_checkpoint_watch(cli, args).await?;
+			crate::watch::run(cli, args).await?;
 		},
 	}
 	Ok(())

@@ -27,28 +27,28 @@ pub enum Command {
 	Whoami(self::whoami::Args),
 }
 
-pub async fn command_user(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Billing(args) => {
-			crate::billing::command_user_billing(cli, args).await?;
+			crate::billing::run(cli, args).await?;
 		},
 		Command::Get(args) => {
-			crate::get::command_user_get(cli, args).await?;
+			crate::get::run(cli, args).await?;
 		},
 		Command::Login(args) => {
-			crate::login::command_user_login(cli, args).await?;
+			crate::login::run(cli, args).await?;
 		},
 		Command::Logout(args) => {
-			crate::logout::command_user_logout(cli, args).await?;
+			crate::logout::run(cli, args).await?;
 		},
 		Command::Token(args) => {
-			crate::token::command_user_token(cli, args).await?;
+			crate::token::run(cli, args).await?;
 		},
 		Command::Usage(args) => {
-			crate::usage::command_user_usage(cli, args).await?;
+			crate::usage::run(cli, args).await?;
 		},
 		Command::Whoami(args) => {
-			crate::whoami::command_user_whoami(cli, args).await?;
+			crate::whoami::run(cli, args).await?;
 		},
 	}
 	Ok(())

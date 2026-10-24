@@ -5,7 +5,7 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {}
 
-pub async fn command_clock_get(cli: &mut Cli, _args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, _args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let output = client
 		.get_clock()

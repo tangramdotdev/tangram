@@ -14,7 +14,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn command_runner_create(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::runner::create::Arg {
 		location: args.location.get(),

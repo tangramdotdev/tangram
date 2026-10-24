@@ -32,14 +32,14 @@ pub enum Command {
 	Usage(self::usage::Args),
 }
 
-pub async fn command_organization(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
-		Command::Billing(args) => crate::billing::command_organization_billing(cli, args).await?,
-		Command::Create(args) => crate::create::command_organization_create(cli, args).await?,
-		Command::Delete(args) => crate::delete::command_organization_delete(cli, args).await?,
-		Command::Get(args) => crate::get::command_organization_get(cli, args).await?,
-		Command::Members(args) => crate::members::command_organization_members(cli, args).await?,
-		Command::Usage(args) => crate::usage::command_organization_usage(cli, args).await?,
+		Command::Billing(args) => crate::billing::run(cli, args).await?,
+		Command::Create(args) => crate::create::run(cli, args).await?,
+		Command::Delete(args) => crate::delete::run(cli, args).await?,
+		Command::Get(args) => crate::get::run(cli, args).await?,
+		Command::Members(args) => crate::members::run(cli, args).await?,
+		Command::Usage(args) => crate::usage::run(cli, args).await?,
 	}
 	Ok(())
 }

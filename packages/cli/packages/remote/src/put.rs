@@ -17,7 +17,7 @@ pub struct Args {
 	pub url: Uri,
 }
 
-pub async fn command_remote_put(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let name = args.name;
 	let trusted = args.trusted;

@@ -14,7 +14,7 @@ pub struct Args {
 	pub runner: tg::runner::Id,
 }
 
-pub async fn command_runner_token_create(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::runner::token::create::Arg {
 		location: args.location.get(),

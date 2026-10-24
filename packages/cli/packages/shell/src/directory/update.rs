@@ -13,7 +13,7 @@ pub struct Args {
 	pub shell: Kind,
 }
 
-pub async fn command_shell_directory_update(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let path = std::env::current_dir()
 		.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
 	let path = std::fs::canonicalize(path)

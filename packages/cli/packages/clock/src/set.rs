@@ -9,7 +9,7 @@ pub struct Args {
 	pub now: jiff::Timestamp,
 }
 
-pub async fn command_clock_set(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::clock::set::Arg { now: args.now };
 	let output = client

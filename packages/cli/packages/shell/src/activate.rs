@@ -19,7 +19,7 @@ pub struct Args {
 	pub shell: Kind,
 }
 
-pub async fn command_shell_activate(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut output = String::new();
 
 	let mut current = std::env::vars().collect::<BTreeMap<_, _>>();

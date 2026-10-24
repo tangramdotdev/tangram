@@ -25,19 +25,19 @@ pub enum Command {
 	Update(self::update::Args),
 }
 
-pub async fn command_shell_directory(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Delete(args) => {
-			crate::directory::delete::command_shell_directory_delete(cli, args).await?;
+			crate::directory::delete::run(cli, args).await?;
 		},
 		Command::List(args) => {
-			crate::directory::list::command_shell_directory_list(cli, args).await?;
+			crate::directory::list::run(cli, args).await?;
 		},
 		Command::Put(args) => {
-			crate::directory::put::command_shell_directory_put(cli, args).await?;
+			crate::directory::put::run(cli, args).await?;
 		},
 		Command::Update(args) => {
-			crate::directory::update::command_shell_directory_update(cli, args).await?;
+			crate::directory::update::run(cli, args).await?;
 		},
 	}
 	Ok(())

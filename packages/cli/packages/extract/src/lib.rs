@@ -11,7 +11,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-pub async fn command_extract(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let blob = tangram_cli_get::get_object(cli, &args.reference).await?;
 	let blob = tg::Object::with_referent(blob)
@@ -28,8 +28,6 @@ pub async fn command_extract(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		reference: Some(reference),
 		trailing: Vec::new(),
 	};
-	tangram_cli_process::build::command_build(cli, args)
-		.boxed()
-		.await?;
+	tangram_cli_process::build::run(cli, args).boxed().await?;
 	Ok(())
 }

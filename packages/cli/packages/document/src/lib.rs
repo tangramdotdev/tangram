@@ -22,7 +22,7 @@ pub struct Args {
 	pub runtime: bool,
 }
 
-pub async fn command_document(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Get the module.

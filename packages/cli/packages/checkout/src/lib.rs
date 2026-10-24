@@ -74,7 +74,7 @@ pub struct Lock {
 	no_lock: bool,
 }
 
-pub async fn command_checkout(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Get the absolute path.

@@ -17,7 +17,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-pub async fn command_archive(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let artifact = tangram_cli_get::get_artifact(cli, &args.reference).await?;
 	let artifact = tg::Artifact::with_referent(artifact);

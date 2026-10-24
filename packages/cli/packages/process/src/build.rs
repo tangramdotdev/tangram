@@ -2,7 +2,7 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub use crate::run::{Args, Options};
 
-pub async fn command_build(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let options = args.options.clone();
 	let output = build(cli, args).await?;
 	print_build_output(cli, &options, output).await
@@ -75,7 +75,7 @@ pub async fn build(cli: &mut Cli, mut args: Args) -> tg::Result<tg::Value> {
 		args.options.view = Some(crate::run::View::Inline);
 	}
 
-	let output = crate::run::run(cli, args).await?;
+	let output = crate::run::run_inner(cli, args).await?;
 
 	Ok(output)
 }

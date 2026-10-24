@@ -8,7 +8,7 @@ pub struct Args {
 	pub path: PathBuf,
 }
 
-pub async fn command_shell_directory_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let key = std::fs::canonicalize(&args.path).map_err(|error| {
 		tg::error!(
 			!error,

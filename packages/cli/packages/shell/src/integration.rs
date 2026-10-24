@@ -13,7 +13,7 @@ pub struct Args {
 	shell: Kind,
 }
 
-pub async fn command_shell_integration(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args) -> tg::Result<()> {
 	match args.shell {
 		Kind::Bash => {
 			print!("{BASH}");

@@ -21,16 +21,16 @@ pub enum Command {
 	Touch(self::touch::Args),
 }
 
-pub async fn command_watch(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Delete(args) => {
-			crate::delete::command_watch_delete(cli, args).await?;
+			crate::delete::run(cli, args).await?;
 		},
 		Command::Touch(args) => {
-			crate::touch::command_watch_touch(cli, args).await?;
+			crate::touch::run(cli, args).await?;
 		},
 		Command::List(args) => {
-			crate::list::command_watch_list(cli, args).await?;
+			crate::list::run(cli, args).await?;
 		},
 	}
 	Ok(())

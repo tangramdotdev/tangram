@@ -274,7 +274,7 @@ pub(crate) struct InnerOutput {
 	pub tag: tangram_cli_tag::Tag,
 }
 
-pub async fn command_process_spawn(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	if matches!(args.options.sandbox.get(), Some(tg::Either::Left(false))) {
 		return Err(tg::error!("a spawn must be sandboxed"));
 	}

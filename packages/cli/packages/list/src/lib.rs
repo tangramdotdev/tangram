@@ -129,7 +129,7 @@ pub struct Ttl {
 	pub no_ttl: bool,
 }
 
-pub async fn command_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Get the node.
 	let node = if let Some(reference) = &args.reference {
 		let reference = args.locations.apply_to_reference(reference);

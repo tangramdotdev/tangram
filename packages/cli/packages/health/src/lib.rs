@@ -11,7 +11,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn command_health(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::health::Arg {
 		fields: args.fields,

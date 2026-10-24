@@ -97,16 +97,16 @@ pub enum Command {
 	Put(self::put::Args),
 }
 
-pub async fn command_tag(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command.unwrap_or(Command::Put(args.args)) {
 		Command::Delete(args) => {
-			crate::delete::command_tag_delete(cli, args).await?;
+			crate::delete::run(cli, args).await?;
 		},
 		Command::Get(args) => {
-			crate::get::command_tag_get(cli, args).await?;
+			crate::get::run(cli, args).await?;
 		},
 		Command::Put(args) => {
-			crate::put::command_tag_put(cli, args).await?;
+			crate::put::run(cli, args).await?;
 		},
 	}
 	Ok(())

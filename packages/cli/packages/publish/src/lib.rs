@@ -66,7 +66,7 @@ struct Item {
 	tag: tg::Specifier,
 }
 
-pub async fn command_publish(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Check in the root package.

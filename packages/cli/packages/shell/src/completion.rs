@@ -17,7 +17,7 @@ enum Shell {
 	Nu,
 }
 
-pub async fn command_shell_completion(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut command = cli.command.clone();
 	let mut stdout = std::io::stdout();
 

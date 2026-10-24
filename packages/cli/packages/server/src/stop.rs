@@ -5,7 +5,7 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {}
 
-pub async fn stop(cli: &mut Cli, _args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, _args: Args) -> tg::Result<()> {
 	cli.stop_server().await?;
 	Ok(())
 }

@@ -8,7 +8,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn command_shell_directory_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let config = cli.read_config()?;
 	let directories = config
 		.shell

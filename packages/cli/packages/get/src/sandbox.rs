@@ -25,7 +25,7 @@ pub struct Args {
 	pub ttl: crate::Ttl,
 }
 
-pub async fn command_sandbox_get(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let location = args.locations.get_for_options(&args.sandbox);
 	let id = args.sandbox.node;

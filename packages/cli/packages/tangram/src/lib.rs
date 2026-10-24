@@ -15,10 +15,10 @@ pub enum Command {
 	Update(self::update::Args),
 }
 
-pub async fn command_tangram(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Update(args) => {
-			crate::update::command_tangram_update(args).await?;
+			crate::update::run(args).await?;
 		},
 	}
 	Ok(())

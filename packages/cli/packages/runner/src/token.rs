@@ -23,15 +23,15 @@ pub enum Command {
 	List(self::list::Args),
 }
 
-pub async fn command_runner_token(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Create(args) => {
-			crate::token::create::command_runner_token_create(cli, args).await?;
+			crate::token::create::run(cli, args).await?;
 		},
 		Command::Delete(args) => {
-			crate::token::delete::command_runner_token_delete(cli, args).await?;
+			crate::token::delete::run(cli, args).await?;
 		},
-		Command::List(args) => crate::token::list::command_runner_token_list(cli, args).await?,
+		Command::List(args) => crate::token::list::run(cli, args).await?,
 	}
 
 	Ok(())

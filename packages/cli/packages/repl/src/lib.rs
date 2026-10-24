@@ -23,7 +23,7 @@ struct Highlighter {
 #[derive(Clone)]
 struct Prompt;
 
-pub async fn command_repl(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let engine = args.engine;
 
 	// Start the runtime thread.

@@ -24,19 +24,19 @@ pub enum Command {
 	Put(self::put::Args),
 }
 
-pub async fn command_remote(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Delete(args) => {
-			crate::delete::command_remote_delete(cli, args).await?;
+			crate::delete::run(cli, args).await?;
 		},
 		Command::Get(args) => {
-			crate::get::command_remote_get(cli, args).await?;
+			crate::get::run(cli, args).await?;
 		},
 		Command::List(args) => {
-			crate::list::command_remote_list(cli, args).await?;
+			crate::list::run(cli, args).await?;
 		},
 		Command::Put(args) => {
-			crate::put::command_remote_put(cli, args).await?;
+			crate::put::run(cli, args).await?;
 		},
 	}
 	Ok(())

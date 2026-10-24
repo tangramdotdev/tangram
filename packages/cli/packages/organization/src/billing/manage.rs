@@ -11,7 +11,7 @@ pub struct Args {
 	pub organization: tg::Referent<tg::organization::Selector>,
 }
 
-pub async fn command_organization_billing_manage(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::organization::billing::manage::Arg {
 		location: args.location.get_for_options(&args.organization),

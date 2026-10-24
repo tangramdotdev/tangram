@@ -8,7 +8,7 @@ pub struct Args {
 	pub location: tangram_cli_core::location::Args,
 }
 
-pub async fn command_user_billing_manage(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::user::billing::manage::Arg {
 		location: args.location.get(),

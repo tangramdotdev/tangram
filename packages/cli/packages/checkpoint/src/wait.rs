@@ -17,7 +17,7 @@ pub struct Args {
 	pub watch: u64,
 }
 
-pub async fn command_checkpoint_wait(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let future = client.wait_checkpoint_hit(&args.checkpoint, args.watch, args.hit);
 	let output = match args.timeout {

@@ -12,7 +12,7 @@ pub struct Args {
 	pub references: Vec<tg::Reference>,
 }
 
-pub async fn command_check(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Get the modules.

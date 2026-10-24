@@ -64,7 +64,7 @@ struct PositionArg {
 	position: std::io::SeekFrom,
 }
 
-pub async fn command_process_children(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut options = args.options;
 	options
 		.locations
@@ -72,10 +72,10 @@ pub async fn command_process_children(cli: &mut Cli, args: Args) -> tg::Result<(
 	let process =
 		tangram_cli_get::get_process_with_locations(cli, &args.reference, &options.locations)
 			.await?;
-	command_process_children_inner(cli, process, options).await
+	run_inner(cli, process, options).await
 }
 
-pub(crate) async fn command_process_children_inner(
+pub(crate) async fn run_inner(
 	cli: &mut Cli,
 	process: tg::Referent<tg::process::Id>,
 	options: Options,

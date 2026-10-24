@@ -17,7 +17,7 @@ pub struct Args {
 	pub subject: tg::authorization::subject::Selector,
 }
 
-pub async fn command_grants_create(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::grant::create::Arg {
 		permissions: args.permissions.clone(),

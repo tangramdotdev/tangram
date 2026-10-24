@@ -14,7 +14,7 @@ pub struct Args {
 	pub signal: tg::process::Signal,
 }
 
-pub async fn command_process_signal(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let mut location = args.location;
 	location.set_from_reference_if_unset(&args.reference);

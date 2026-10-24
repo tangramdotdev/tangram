@@ -47,7 +47,7 @@ struct Entry {
 	referrer: tg::Referent<()>,
 }
 
-pub async fn command_outdated(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Find the root.

@@ -5,7 +5,7 @@ use tangram_client::prelude::*;
 #[group(skip)]
 pub struct Args {}
 
-pub async fn command_tangram_update(_args: Args) -> tg::Result<()> {
+pub async fn run(_args: Args) -> tg::Result<()> {
 	tokio::process::Command::new("/bin/sh")
 		.args(["-c", "curl -sSL https://www.tangram.dev/install.sh | sh"])
 		.status()

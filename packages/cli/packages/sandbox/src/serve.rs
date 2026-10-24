@@ -46,7 +46,7 @@ pub struct Listen {
 	listen: Option<bool>,
 }
 
-pub async fn command_sandbox_serve(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args) -> tg::Result<()> {
 	let arg = tangram_sandbox::serve::Arg {
 		http2: args.http2.config(),
 		library_paths: args.library_paths,

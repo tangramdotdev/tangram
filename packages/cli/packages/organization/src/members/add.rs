@@ -14,7 +14,7 @@ pub struct Args {
 	pub member: tg::organization::Member,
 }
 
-pub async fn command_organization_members_add(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::organization::members::add::Arg {
 		location: args.location.get_for_options(&args.organization),

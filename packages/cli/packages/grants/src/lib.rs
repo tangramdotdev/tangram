@@ -24,11 +24,11 @@ pub enum Command {
 	List(self::list::Args),
 }
 
-pub async fn command_grants(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
-		Command::Create(args) => crate::create::command_grants_create(cli, args).await?,
-		Command::Delete(args) => crate::delete::command_grants_delete(cli, args).await?,
-		Command::List(args) => crate::list::command_grants_list(cli, args).await?,
+		Command::Create(args) => crate::create::run(cli, args).await?,
+		Command::Delete(args) => crate::delete::run(cli, args).await?,
+		Command::List(args) => crate::list::run(cli, args).await?,
 	}
 	Ok(())
 }

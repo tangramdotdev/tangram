@@ -17,7 +17,7 @@ pub struct Args {
 	pub url: Uri,
 }
 
-pub async fn command_download(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	if args.build.spawn.checksum.is_none() {
 		args.build.spawn.checksum.replace(tg::Checksum::default());

@@ -225,7 +225,7 @@ pub struct CheckoutPointers {
 	no_checkout_pointers: Option<bool>,
 }
 
-pub async fn command_checkin(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Get the updates.

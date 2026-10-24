@@ -32,22 +32,22 @@ pub enum Kind {
 	Zsh,
 }
 
-pub async fn command_shell(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Activate(args) => {
-			crate::activate::command_shell_activate(cli, args).await?;
+			crate::activate::run(cli, args).await?;
 		},
 		Command::Completion(args) => {
-			crate::completion::command_shell_completion(cli, args).await?;
+			crate::completion::run(cli, args).await?;
 		},
 		Command::Deactivate(args) => {
-			crate::deactivate::command_shell_deactivate(cli, args).await?;
+			crate::deactivate::run(cli, args).await?;
 		},
 		Command::Directory(args) => {
-			crate::directory::command_shell_directory(cli, args).await?;
+			crate::directory::run(cli, args).await?;
 		},
 		Command::Integration(args) => {
-			crate::integration::command_shell_integration(args).await?;
+			crate::integration::run(args).await?;
 		},
 	}
 	Ok(())

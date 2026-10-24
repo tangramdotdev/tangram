@@ -8,7 +8,7 @@ pub struct Args {
 	pub sandbox: tg::Referent<tg::sandbox::Id>,
 }
 
-pub async fn command_sandbox_destroy(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let sandbox = tg::Sandbox::with_referent(args.sandbox);
 	let id = sandbox.id().clone();

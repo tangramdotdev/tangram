@@ -11,7 +11,7 @@ pub struct Args {
 	pub group: tg::Referent<tg::group::Selector>,
 }
 
-pub async fn command_group_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::group::delete::Arg {
 		location: args.location.get_for_options(&args.group),

@@ -74,14 +74,14 @@ pub enum View {
 	Fullscreen,
 }
 
-pub async fn command_run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let checkout = args.options.checkout.is_some();
 	let detach = args.options.detach;
 	let print = args.options.print.clone();
 	let verbose = args.options.verbose;
 
 	// Run.
-	let output = run(cli, args).await?;
+	let output = run_inner(cli, args).await?;
 
 	// Print the output.
 	if detach && !verbose {
@@ -102,7 +102,7 @@ pub async fn command_run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	Ok(())
 }
 
-pub(crate) async fn run(cli: &mut Cli, args: Args) -> tg::Result<tg::Value> {
+pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value> {
 	let client = cli.client().await?;
 
 	let Args {

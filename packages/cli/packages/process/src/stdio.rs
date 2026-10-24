@@ -17,13 +17,13 @@ pub enum Command {
 	Write(self::write::Args),
 }
 
-pub async fn command_process_stdio(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Read(args) => {
-			crate::stdio::read::command_process_stdio_read(cli, args).await?;
+			crate::stdio::read::run(cli, args).await?;
 		},
 		Command::Write(args) => {
-			crate::stdio::write::command_process_stdio_write(cli, args).await?;
+			crate::stdio::write::run(cli, args).await?;
 		},
 	}
 	Ok(())

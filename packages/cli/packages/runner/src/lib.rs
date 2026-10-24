@@ -26,12 +26,12 @@ pub enum Command {
 	Token(self::token::Args),
 }
 
-pub async fn command_runner(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
-		Command::Create(args) => crate::create::command_runner_create(cli, args).await?,
-		Command::Delete(args) => crate::delete::command_runner_delete(cli, args).await?,
-		Command::List(args) => crate::list::command_runner_list(cli, args).await?,
-		Command::Token(args) => crate::token::command_runner_token(cli, args).await?,
+		Command::Create(args) => crate::create::run(cli, args).await?,
+		Command::Delete(args) => crate::delete::run(cli, args).await?,
+		Command::List(args) => crate::list::run(cli, args).await?,
+		Command::Token(args) => crate::token::run(cli, args).await?,
 	}
 
 	Ok(())

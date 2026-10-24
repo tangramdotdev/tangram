@@ -8,7 +8,7 @@ pub struct Args {
 	pub id: Option<String>,
 }
 
-pub async fn command_id(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args) -> tg::Result<()> {
 	let id = if let Some(id) = args.id {
 		id.into_bytes()
 	} else {

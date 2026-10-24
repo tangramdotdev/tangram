@@ -214,31 +214,31 @@ pub async fn resolve_owner(
 	}
 }
 
-pub async fn command_sandbox(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Create(args) => {
-			crate::create::command_sandbox_create(cli, args).await?;
+			crate::create::run(cli, args).await?;
 		},
 		Command::Destroy(args) => {
-			crate::destroy::command_sandbox_destroy(cli, args).await?;
+			crate::destroy::run(cli, args).await?;
 		},
 		Command::Get(args) => {
-			tangram_cli_get::sandbox::command_sandbox_get(cli, args).await?;
+			tangram_cli_get::sandbox::run(cli, args).await?;
 		},
 		Command::Init(args) => {
-			cli.exit = Some(crate::init::command_sandbox_init(args)?);
+			cli.exit = Some(crate::init::run(args)?);
 		},
 		Command::List(args) => {
-			crate::list::command_sandbox_list(cli, args).await?;
+			crate::list::run(cli, args).await?;
 		},
 		Command::Run(args) => {
-			cli.exit = Some(crate::run::command_sandbox_run(args)?);
+			cli.exit = Some(crate::run::run(args)?);
 		},
 		Command::Serve(args) => {
-			crate::serve::command_sandbox_serve(args).await?;
+			crate::serve::run(args).await?;
 		},
 		Command::Wait(args) => {
-			crate::wait::command_sandbox_wait(cli, args).await?;
+			crate::wait::run(cli, args).await?;
 		},
 	}
 	Ok(())

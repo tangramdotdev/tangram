@@ -17,7 +17,7 @@ pub struct Args {
 	pub specifier: tg::Specifier,
 }
 
-pub async fn command_organization_create(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::organization::create::Arg {
 		location: args.location.get(),

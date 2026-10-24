@@ -28,7 +28,7 @@ enum Kind {
 	Rename,
 }
 
-pub async fn command_watch_touch(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let path = tangram_util::fs::canonicalize_parent(&args.path)
 		.await
