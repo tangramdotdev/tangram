@@ -9,7 +9,7 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_server_core::{
 		Session,
-		checkout::{Guard, NamedNode},
+		checkout::{Guard, Lock, NamedNode},
 	},
 };
 
@@ -37,6 +37,7 @@ pub struct Component(Arc<State>);
 
 pub struct State {
 	graph_tasks: GraphTasks,
+	lock: Lock,
 	tasks: Tasks,
 	xattr_value_size: Mutex<Option<usize>>,
 }
@@ -74,12 +75,16 @@ impl Component {
 		// Create the checkout graph tasks.
 		let graph_tasks = tangram_futures::task::Map::default();
 
+		// Create the checkout lock.
+		let lock = Lock::new();
+
 		// Create the checkout tasks.
 		let tasks = tangram_futures::task::Map::default();
 
 		let xattr_value_size = Mutex::new(None);
 		let state = State {
 			graph_tasks,
+			lock,
 			tasks,
 			xattr_value_size,
 		};
@@ -577,6 +582,10 @@ impl tangram_server_core::checkout::Component for Component {
 		server: &tangram_server_core::Server,
 	) -> tg::Result<tg::file::xattrs::Options> {
 		self.internal_xattr_capabilities(server)
+	}
+
+	fn lock(&self) -> &Lock {
+		&self.lock
 	}
 
 	fn checkout_internal<'a>(

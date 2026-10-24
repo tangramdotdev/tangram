@@ -167,8 +167,6 @@ pub struct State {
 
 	pub cache: self::cache::Cache,
 
-	pub checkout_lock: self::checkout::Lock,
-
 	pub checkpoints: Option<Arc<self::checkpoint::State>>,
 
 	pub clock: self::clock::Clock,

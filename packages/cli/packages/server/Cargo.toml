@@ -46,6 +46,5 @@ tangram_client = { workspace = true }
 tangram_messenger = { workspace = true }
 tangram_pool = { workspace = true }
 tangram_server = { workspace = true }
-tangram_server_core = { workspace = true }
 tangram_uri = { workspace = true }
 tokio = { workspace = true }

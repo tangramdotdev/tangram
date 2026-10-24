@@ -31,6 +31,8 @@ pub trait Component: crate::component::Lifecycle {
 	fn internal_xattr_capabilities(&self, server: &Server)
 	-> tg::Result<tg::file::xattrs::Options>;
 
+	fn lock(&self) -> &Lock;
+
 	fn remove_all_named_checkout_entries_with_lock<'a>(
 		&'a self,
 		server: &'a Server,

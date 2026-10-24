@@ -9885,7 +9885,6 @@ dependencies = [
  "tangram_pool",
  "tangram_sandbox",
  "tangram_server",
- "tangram_server_core",
  "tangram_uri",
  "tokio",
 ]

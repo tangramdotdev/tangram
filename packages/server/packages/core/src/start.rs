@@ -239,9 +239,6 @@ impl Server {
 			.clone()
 			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
 
-		// Create the checkout lock.
-		let checkout_lock = crate::checkout::Lock::new();
-
 		// Load or create the token keys.
 		let authentication_tokens = load_token_keys(
 			Some(&config.authentication.tokens.keys),
@@ -276,8 +273,6 @@ impl Server {
 			authorization_tokens,
 
 			cache,
-
-			checkout_lock,
 
 			checkpoints,
 
@@ -692,7 +687,7 @@ impl Server {
 	}
 
 	async fn initialize_checkouts(&self) -> tg::Result<()> {
-		let checkout_guard = self.checkout_lock.acquire().await;
+		let checkout_guard = self.components.checkout.lock().acquire().await;
 		let store_path = self.store_path();
 		let checkout_path = self.path.join("checkouts");
 		let vfs_kind = match self.config.vfs.clone().unwrap_or_default().kind {

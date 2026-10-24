@@ -8,7 +8,7 @@ use {
 	},
 	tangram_cli_core::{Cli, RemoteOptions},
 	tangram_client::prelude::*,
-	tangram_server_core::{Owned as Server, Shutdown},
+	tangram_server::{Owned as Server, Shutdown},
 	tangram_uri::Uri,
 };
 
@@ -60,7 +60,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 
 	// Set the URL.
 	if let Some(url) = &cli.args.url {
-		let listener = tangram_server_core::config::HttpListener {
+		let listener = tangram_server::config::HttpListener {
 			url: url.clone(),
 			tls: None,
 		};
@@ -80,7 +80,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			let url = url
 				.parse()
 				.map_err(|error| tg::error!(!error, %remote, "invalid remote URL"))?;
-			let entry = tangram_server_core::config::Remote {
+			let entry = tangram_server::config::Remote {
 				token: None,
 				trusted: false,
 				url,
@@ -117,7 +117,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 
 		// Start the server.
 		let server: Server = tokio::select! {
-			result = tangram_server_core::Server::start(config, tangram_server::components).boxed() => {
+			result = tangram_server::Server::start(config, tangram_server::components).boxed() => {
 				result.map_err(|error| tg::error!(!error, "failed to start the server"))?
 			},
 			_ = interrupt.recv() => {
