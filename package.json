@@ -9,7 +9,8 @@
 	],
 	"scripts": {
 		"canary": "bun scripts/canary.ts",
-		"check": "bun run check:rust && bun run --parallel --filter \"*\" check",
+		"check": "bun run --parallel check:rust check:packages",
+		"check:packages": "bun run --parallel --filter \"*\" check",
 		"check:rust": "cargo clippy --all-features --all-targets --workspace",
 		"clean": "rm -rf .tangram node_modules target",
 		"cloud:databases": "nu scripts/cloud/databases.nu",
