@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// List runner tokens.
 #[derive(Clone, Debug, clap::Args)]
@@ -29,32 +29,30 @@ pub struct Args {
 	pub runner: tg::runner::Id,
 }
 
-impl Component<'_> {
-	pub async fn command_runner_token_list(&mut self, args: Args) -> tg::Result<()> {
-		// List the runner tokens.
-		let client = self.client().await?;
-		let arg = tg::runner::token::list::Arg {
-			cursor: args.cursor,
-			limit: args.limit,
-			location: args.location.get(),
-		};
-		let output = if args.all {
-			client.list_all_runner_tokens(&args.runner, arg).await
-		} else {
-			client.list_runner_tokens(&args.runner, arg).await
-		}
-		.map_err(|error| tg::error!(!error, "failed to list the runner tokens"))?;
-
-		// Print the output.
-		if args.output.verbose {
-			self.print_serde(output, args.print).await?;
-		} else {
-			self.print_serde(output.data, args.print).await?;
-			if let Some(cursor) = output.cursor {
-				self.print_info_message(&format!("Next cursor: {cursor}"));
-			}
-		}
-
-		Ok(())
+pub async fn command_runner_token_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	// List the runner tokens.
+	let client = cli.client().await?;
+	let arg = tg::runner::token::list::Arg {
+		cursor: args.cursor,
+		limit: args.limit,
+		location: args.location.get(),
+	};
+	let output = if args.all {
+		client.list_all_runner_tokens(&args.runner, arg).await
+	} else {
+		client.list_runner_tokens(&args.runner, arg).await
 	}
+	.map_err(|error| tg::error!(!error, "failed to list the runner tokens"))?;
+
+	// Print the output.
+	if args.output.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		cli.print_serde(output.data, args.print).await?;
+		if let Some(cursor) = output.cursor {
+			cli.print_info_message(&format!("Next cursor: {cursor}"));
+		}
+	}
+
+	Ok(())
 }

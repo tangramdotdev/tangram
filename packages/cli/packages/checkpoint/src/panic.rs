@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -10,18 +10,16 @@ pub struct Args {
 	pub params: tg::checkpoint::Params,
 }
 
-impl Component<'_> {
-	pub async fn command_checkpoint_panic(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::checkpoint::panic::Arg {
-			params: args.params,
-		};
-		client
-			.panic_checkpoint(&args.checkpoint, arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to register the checkpoint panic"))?;
-		Ok(())
-	}
+pub async fn command_checkpoint_panic(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::checkpoint::panic::Arg {
+		params: args.params,
+	};
+	client
+		.panic_checkpoint(&args.checkpoint, arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to register the checkpoint panic"))?;
+	Ok(())
 }
 
 fn parse_params(value: &str) -> Result<tg::checkpoint::Params, serde_json::Error> {

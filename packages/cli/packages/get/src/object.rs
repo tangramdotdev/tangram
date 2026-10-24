@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
+use {tangram_cli_core::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
 
 /// Get an object.
 #[derive(Clone, Debug, clap::Args)]
@@ -34,94 +34,90 @@ pub struct Options {
 	pub print: tangram_cli_core::print::Options,
 }
 
-impl Component<'_> {
-	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
-		let mut options = args.options;
-		options
-			.locations
-			.set_from_reference_if_unset(&args.reference);
-		let object = self
-			.get_object_with_locations(&args.reference, &options.locations)
+pub async fn command_object_get(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let mut options = args.options;
+	options
+		.locations
+		.set_from_reference_if_unset(&args.reference);
+	let object =
+		crate::reference::get_object_with_locations(cli, &args.reference, &options.locations)
 			.await?;
-		self.command_object_get_inner(object, options).await
-	}
+	command_object_get_inner(cli, object, options).await
+}
 
-	pub async fn command_object_get_inner(
-		&mut self,
-		object: tg::Referent<tg::object::Id>,
-		mut options: Options,
-	) -> tg::Result<()> {
-		let client = self.client().await?;
-		let id = object.node.clone();
-		let location = options.locations.get_for_options(&object);
-		let tokens = object.options.tokens.clone();
-		if options.bytes {
-			let arg = tg::object::get::Arg {
-				availability: options.availability,
-				location: location.clone(),
-				metadata: options.metadata,
-				tokens: tokens.clone(),
-			};
-			let tg::object::get::Output {
-				availability,
-				bytes,
-				children: _,
-				metadata,
-				tokens: _,
-			} = client
-				.try_get_object(&id, arg)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
-				.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
-			if let Some(metadata) = metadata {
-				let metadata = serde_json::to_string(&metadata)
-					.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
-				self.print_info_message(&metadata);
-			}
-			if let Some(availability) = availability {
-				let availability = serde_json::to_string(&availability)
-					.map_err(|error| tg::error!(!error, "failed to serialize the availability"))?;
-				self.print_info_message(&availability);
-			}
-			tokio::io::stdout()
-				.write_all(&bytes)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
-			return Ok(());
-		}
-		let object = tg::Object::with_referent(object);
-		options
-			.print
-			.depth
-			.get_or_insert(tangram_cli_core::print::Depth::Finite(1));
-		if options.metadata {
-			let options_ = tg::object::metadata::Options {
-				location: location.clone(),
-			};
-			let metadata = object
-				.metadata_with_instance(&client, options_)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to get the object metadata"))?;
+pub async fn command_object_get_inner(
+	cli: &mut Cli,
+	object: tg::Referent<tg::object::Id>,
+	mut options: Options,
+) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let id = object.node.clone();
+	let location = options.locations.get_for_options(&object);
+	let tokens = object.options.tokens.clone();
+	if options.bytes {
+		let arg = tg::object::get::Arg {
+			availability: options.availability,
+			location: location.clone(),
+			metadata: options.metadata,
+			tokens: tokens.clone(),
+		};
+		let tg::object::get::Output {
+			availability,
+			bytes,
+			children: _,
+			metadata,
+			tokens: _,
+		} = client
+			.try_get_object(&id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+			.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
+		if let Some(metadata) = metadata {
 			let metadata = serde_json::to_string(&metadata)
 				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
-			self.print_info_message(&metadata);
+			cli.print_info_message(&metadata);
 		}
-		if options.availability {
-			let options_ = tg::object::availability::Options {
-				location: location.clone(),
-			};
-			let availability = object
-				.availability_with_instance(&client, options_)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to get the object's availability"),
-				)?;
+		if let Some(availability) = availability {
 			let availability = serde_json::to_string(&availability)
 				.map_err(|error| tg::error!(!error, "failed to serialize the availability"))?;
-			self.print_info_message(&availability);
+			cli.print_info_message(&availability);
 		}
-		let value = tg::Value::Object(object);
-		self.print_value(&value, options.print, location).await?;
-		Ok(())
+		tokio::io::stdout()
+			.write_all(&bytes)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
+		return Ok(());
 	}
+	let object = tg::Object::with_referent(object);
+	options
+		.print
+		.depth
+		.get_or_insert(tangram_cli_core::print::Depth::Finite(1));
+	if options.metadata {
+		let options_ = tg::object::metadata::Options {
+			location: location.clone(),
+		};
+		let metadata = object
+			.metadata_with_instance(&client, options_)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object metadata"))?;
+		let metadata = serde_json::to_string(&metadata)
+			.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
+		cli.print_info_message(&metadata);
+	}
+	if options.availability {
+		let options_ = tg::object::availability::Options {
+			location: location.clone(),
+		};
+		let availability = object
+			.availability_with_instance(&client, options_)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object's availability"))?;
+		let availability = serde_json::to_string(&availability)
+			.map_err(|error| tg::error!(!error, "failed to serialize the availability"))?;
+		cli.print_info_message(&availability);
+	}
+	let value = tg::Value::Object(object);
+	cli.print_value(&value, options.print, location).await?;
+	Ok(())
 }

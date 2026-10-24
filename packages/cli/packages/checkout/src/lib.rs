@@ -1,10 +1,4 @@
-use {
-	std::path::PathBuf, tangram_cli_core::Cli, tangram_cli_get::Ext as _,
-	tangram_client::prelude::*,
-};
-
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
+use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Check out nodes.
 #[derive(Clone, Debug, clap::Args)]
@@ -80,6 +74,95 @@ pub struct Lock {
 	no_lock: bool,
 }
 
+pub async fn command_checkout(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+
+	// Get the absolute path.
+	let path = if let Some(path) = args.path {
+		let path = tangram_util::fs::canonicalize_parent(path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+		Some(path)
+	} else {
+		None
+	};
+	if path.is_none() && args.dependencies.is_set() {
+		return Err(tg::error!(
+			"the dependencies option cannot be set for an internal checkout"
+		));
+	}
+	if path.is_none() && args.lock.is_set() {
+		return Err(tg::error!(
+			"the lock option cannot be set for an internal checkout"
+		));
+	}
+
+	// Get the nodes.
+	let referents = tangram_cli_get::get_references(cli, &args.references).await?;
+	let mut nodes = Vec::with_capacity(referents.len());
+	for referent in referents {
+		let node = referent.try_map(|node| match node {
+			tg::get::Node::Id(id)
+				if tg::artifact::Id::try_from(id.clone()).is_ok()
+					|| matches!(
+						id.kind(),
+						tg::id::Kind::Group
+							| tg::id::Kind::Organization
+							| tg::id::Kind::Tag | tg::id::Kind::User
+					) =>
+			{
+				Ok(id)
+			},
+			tg::get::Node::Id(id) if id.kind().is_object() => {
+				Err(tg::error!("expected an artifact"))
+			},
+			tg::get::Node::Id(id) => Err(tg::error!(kind = %id.kind(), "expected an object ID")),
+			tg::get::Node::Pointer(_) => Err(tg::error!("cannot check out a graph pointer")),
+		})?;
+		nodes.push(node);
+	}
+	let external_artifact = path.as_ref().and_then(|_| {
+		nodes
+			.first()
+			.filter(|_| nodes.len() == 1)
+			.and_then(|node| tg::artifact::Id::try_from(node.node.clone()).ok())
+	});
+
+	// Check out the artifact.
+	let dependencies = args.dependencies.get();
+	let force = args.force;
+	let lock = path.as_ref().and_then(|_| args.lock.get());
+	let arg = tg::checkout::Arg {
+		dependencies,
+		extension: None,
+		force,
+		lock,
+		nodes,
+		path,
+	};
+	let stream = client.checkout(arg).await.map_err(|error| {
+		if let Some(artifact) = &external_artifact {
+			tg::error!(!error, %artifact, "failed to create the checkout stream")
+		} else {
+			tg::error!(!error, "failed to create the checkout stream")
+		}
+	})?;
+	let output = cli.render_progress_stream(stream).await.map_err(|error| {
+		if let Some(artifact) = &external_artifact {
+			tg::error!(!error, %artifact, "failed to check out the artifact")
+		} else {
+			error
+		}
+	})?;
+
+	// Print the outputs.
+	for path in output.paths {
+		Cli::print_display(path.display());
+	}
+
+	Ok(())
+}
+
 impl Dependencies {
 	#[must_use]
 	pub fn get(&self) -> bool {
@@ -107,118 +190,5 @@ impl Lock {
 	#[must_use]
 	pub fn is_set(&self) -> bool {
 		self.lock.is_some() || self.no_lock
-	}
-}
-
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_checkout(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-
-		// Get the absolute path.
-		let path = if let Some(path) = args.path {
-			let path = tangram_util::fs::canonicalize_parent(path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-			Some(path)
-		} else {
-			None
-		};
-		if path.is_none() && args.dependencies.is_set() {
-			return Err(tg::error!(
-				"the dependencies option cannot be set for an internal checkout"
-			));
-		}
-		if path.is_none() && args.lock.is_set() {
-			return Err(tg::error!(
-				"the lock option cannot be set for an internal checkout"
-			));
-		}
-
-		// Get the nodes.
-		let referents = self.get_references(&args.references).await?;
-		let mut nodes = Vec::with_capacity(referents.len());
-		for referent in referents {
-			let node = referent.try_map(|node| match node {
-				tg::get::Node::Id(id)
-					if tg::artifact::Id::try_from(id.clone()).is_ok()
-						|| matches!(
-							id.kind(),
-							tg::id::Kind::Group
-								| tg::id::Kind::Organization
-								| tg::id::Kind::Tag | tg::id::Kind::User
-						) =>
-				{
-					Ok(id)
-				},
-				tg::get::Node::Id(id) if id.kind().is_object() => {
-					Err(tg::error!("expected an artifact"))
-				},
-				tg::get::Node::Id(id) => {
-					Err(tg::error!(kind = %id.kind(), "expected an object ID"))
-				},
-				tg::get::Node::Pointer(_) => Err(tg::error!("cannot check out a graph pointer")),
-			})?;
-			nodes.push(node);
-		}
-		let external_artifact = path.as_ref().and_then(|_| {
-			nodes
-				.first()
-				.filter(|_| nodes.len() == 1)
-				.and_then(|node| tg::artifact::Id::try_from(node.node.clone()).ok())
-		});
-
-		// Check out the artifact.
-		let dependencies = args.dependencies.get();
-		let force = args.force;
-		let lock = path.as_ref().and_then(|_| args.lock.get());
-		let arg = tg::checkout::Arg {
-			dependencies,
-			extension: None,
-			force,
-			lock,
-			nodes,
-			path,
-		};
-		let stream = client.checkout(arg).await.map_err(|error| {
-			if let Some(artifact) = &external_artifact {
-				tg::error!(!error, %artifact, "failed to create the checkout stream")
-			} else {
-				tg::error!(!error, "failed to create the checkout stream")
-			}
-		})?;
-		let output = self.render_progress_stream(stream).await.map_err(|error| {
-			if let Some(artifact) = &external_artifact {
-				tg::error!(!error, %artifact, "failed to check out the artifact")
-			} else {
-				error
-			}
-		})?;
-
-		// Print the outputs.
-		for path in output.paths {
-			Cli::print_display(path.display());
-		}
-
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
 	}
 }

@@ -1,4 +1,4 @@
-use {crate::Component, tangram_cli_get::Ext as _, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a process's availability.
 #[derive(Clone, Debug, clap::Args)]
@@ -21,34 +21,31 @@ pub struct Options {
 	pub print: tangram_cli_core::print::Options,
 }
 
-impl Component<'_> {
-	pub async fn command_process_availability(&mut self, args: Args) -> tg::Result<()> {
-		let mut options = args.options;
-		options
-			.locations
-			.set_from_reference_if_unset(&args.reference);
-		let process = self
-			.get_process_with_locations(&args.reference, &options.locations)
+pub async fn command_process_availability(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let mut options = args.options;
+	options
+		.locations
+		.set_from_reference_if_unset(&args.reference);
+	let process =
+		tangram_cli_get::get_process_with_locations(cli, &args.reference, &options.locations)
 			.await?;
-		self.command_process_availability_inner(process, options)
-			.await
-	}
+	command_process_availability_inner(cli, process, options).await
+}
 
-	pub async fn command_process_availability_inner(
-		&mut self,
-		process: tg::Referent<tg::process::Id>,
-		options: Options,
-	) -> tg::Result<()> {
-		let client = self.client().await?;
-		let id = process.node.clone();
-		let location = options.locations.get_for_options(&process);
-		let process = tg::Process::<tg::Value>::with_referent(process);
-		let options_ = tg::process::availability::Options { location };
-		let output = process
-			.availability_with_instance(&client, options_)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process's availability"))?;
-		self.print_serde(output, options.print).await?;
-		Ok(())
-	}
+pub async fn command_process_availability_inner(
+	cli: &mut Cli,
+	process: tg::Referent<tg::process::Id>,
+	options: Options,
+) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let id = process.node.clone();
+	let location = options.locations.get_for_options(&process);
+	let process = tg::Process::<tg::Value>::with_referent(process);
+	let options_ = tg::process::availability::Options { location };
+	let output = process
+		.availability_with_instance(&client, options_)
+		.await
+		.map_err(|error| tg::error!(!error, %id, "failed to get the process's availability"))?;
+	cli.print_serde(output, options.print).await?;
+	Ok(())
 }

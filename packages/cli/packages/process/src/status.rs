@@ -1,6 +1,5 @@
 use {
-	crate::Component, futures::StreamExt as _, std::time::Duration, tangram_cli_get::Ext as _,
-	tangram_client::prelude::*,
+	futures::StreamExt as _, std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*,
 };
 
 /// Get a process's status.
@@ -37,6 +36,28 @@ pub struct Timeout {
 	pub no_timeout: bool,
 }
 
+pub async fn command_process_status(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let mut locations = args.locations;
+	locations.set_from_reference_if_unset(&args.reference);
+	let process =
+		tangram_cli_get::get_process_with_locations(cli, &args.reference, &locations).await?;
+	let id = process.node.clone();
+	let location = locations.get_for_options(&process);
+	let process = tg::Process::<tg::Value>::with_referent(process);
+	let options = tg::process::status::Options {
+		location,
+		source: args.source,
+		timeout: args.timeout.get(),
+	};
+	let stream = process
+		.status_with_instance(&client, options)
+		.await
+		.map_err(|error| tg::error!(!error, %id, "failed to get the process status"))?;
+	cli.print_serde_stream(stream.boxed(), args.print).await?;
+	Ok(())
+}
+
 impl Timeout {
 	fn get(&self) -> Option<Duration> {
 		if self.no_timeout {
@@ -44,30 +65,5 @@ impl Timeout {
 		} else {
 			self.timeout.or(Some(Duration::ZERO))
 		}
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_process_status(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let mut locations = args.locations;
-		locations.set_from_reference_if_unset(&args.reference);
-		let process = self
-			.get_process_with_locations(&args.reference, &locations)
-			.await?;
-		let id = process.node.clone();
-		let location = locations.get_for_options(&process);
-		let process = tg::Process::<tg::Value>::with_referent(process);
-		let options = tg::process::status::Options {
-			location,
-			source: args.source,
-			timeout: args.timeout.get(),
-		};
-		let stream = process
-			.status_with_instance(&client, options)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process status"))?;
-		self.print_serde_stream(stream.boxed(), args.print).await?;
-		Ok(())
 	}
 }

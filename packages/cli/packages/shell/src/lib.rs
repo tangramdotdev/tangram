@@ -7,9 +7,6 @@ pub mod directory;
 pub mod integration;
 pub mod util;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Manage shell integration.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -35,45 +32,23 @@ pub enum Kind {
 	Zsh,
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_shell(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Activate(args) => {
+			crate::activate::command_shell_activate(cli, args).await?;
+		},
+		Command::Completion(args) => {
+			crate::completion::command_shell_completion(cli, args).await?;
+		},
+		Command::Deactivate(args) => {
+			crate::deactivate::command_shell_deactivate(cli, args).await?;
+		},
+		Command::Directory(args) => {
+			crate::directory::command_shell_directory(cli, args).await?;
+		},
+		Command::Integration(args) => {
+			crate::integration::command_shell_integration(args).await?;
+		},
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_shell(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Activate(args) => {
-				self.command_shell_activate(args).await?;
-			},
-			Command::Completion(args) => {
-				self.command_shell_completion(args).await?;
-			},
-			Command::Deactivate(args) => {
-				self.command_shell_deactivate(args).await?;
-			},
-			Command::Directory(args) => {
-				self.command_shell_directory(args).await?;
-			},
-			Command::Integration(args) => {
-				self.command_shell_integration(args).await?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Log in.
 #[derive(Clone, Debug, clap::Args)]
@@ -21,53 +21,51 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-impl Component<'_> {
-	pub async fn command_user_login(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+pub async fn command_user_login(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
 
-		let location = args.location.to_location()?;
+	let location = args.location.to_location()?;
 
-		// Start the login.
-		let login = client
-			.create_login(tg::user::login::create::Arg {
-				email: args.email,
-				location: location.clone().map(Into::into),
-				name: args.name.clone(),
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the login"))?;
+	// Start the login.
+	let login = client
+		.create_login(tg::user::login::create::Arg {
+			email: args.email,
+			location: location.clone().map(Into::into),
+			name: args.name.clone(),
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to start the login"))?;
 
-		// Open the URL.
-		if let Some(url) = &login.url {
-			self.open_url(url);
-		}
-
-		// Await the login.
-		let output = client
-			.wait_login(tg::user::login::wait::Arg {
-				code: login.code,
-				location: location.clone().map(Into::into),
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to complete the login"))?;
-
-		// Write the token if necessary.
-		if !location.as_ref().is_some_and(tg::Location::is_remote)
-			&& !output
-				.location
-				.as_ref()
-				.is_some_and(tg::Location::is_remote)
-		{
-			self.write_token(output.token.clone())?;
-		}
-
-		// Print the output.
-		if args.verbose {
-			self.print_serde(output, args.print).await?;
-		} else {
-			self.print_serde(output.user, args.print).await?;
-		}
-
-		Ok(())
+	// Open the URL.
+	if let Some(url) = &login.url {
+		cli.open_url(url);
 	}
+
+	// Await the login.
+	let output = client
+		.wait_login(tg::user::login::wait::Arg {
+			code: login.code,
+			location: location.clone().map(Into::into),
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to complete the login"))?;
+
+	// Write the token if necessary.
+	if !location.as_ref().is_some_and(tg::Location::is_remote)
+		&& !output
+			.location
+			.as_ref()
+			.is_some_and(tg::Location::is_remote)
+	{
+		cli.write_token(output.token.clone())?;
+	}
+
+	// Print the output.
+	if args.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		cli.print_serde(output.user, args.print).await?;
+	}
+
+	Ok(())
 }

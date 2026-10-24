@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Set the time of the server's virtual clock.
 #[derive(Clone, Debug, clap::Args)]
@@ -9,16 +9,14 @@ pub struct Args {
 	pub now: jiff::Timestamp,
 }
 
-impl Component<'_> {
-	pub async fn command_clock_set(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::clock::set::Arg { now: args.now };
-		let output = client
-			.set_clock(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to set the clock"))?;
-		self.print_serde(output, tangram_cli_core::print::Options::default())
-			.await?;
-		Ok(())
-	}
+pub async fn command_clock_set(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::clock::set::Arg { now: args.now };
+	let output = client
+		.set_clock(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to set the clock"))?;
+	cli.print_serde(output, tangram_cli_core::print::Options::default())
+		.await?;
+	Ok(())
 }

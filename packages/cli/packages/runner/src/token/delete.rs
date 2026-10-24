@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Delete a runner token.
 #[derive(Clone, Debug, clap::Args)]
@@ -14,22 +14,20 @@ pub struct Args {
 	pub token: tg::token::Id,
 }
 
-impl Component<'_> {
-	pub async fn command_runner_token_delete(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::runner::token::delete::Arg {
-			location: args.location.get(),
-		};
-		client
-			.try_delete_runner_token(
-				&args.runner,
-				&args.token,
-				arg,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, runner = %args.runner, token = %args.token, "failed to delete the runner token"))?
-			.ok_or_else(|| tg::error!(runner = %args.runner, token = %args.token, "failed to find the runner token"))?;
+pub async fn command_runner_token_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::runner::token::delete::Arg {
+		location: args.location.get(),
+	};
+	client
+		.try_delete_runner_token(
+			&args.runner,
+			&args.token,
+			arg,
+		)
+		.await
+		.map_err(|error| tg::error!(!error, runner = %args.runner, token = %args.token, "failed to delete the runner token"))?
+		.ok_or_else(|| tg::error!(runner = %args.runner, token = %args.token, "failed to find the runner token"))?;
 
-		Ok(())
-	}
+	Ok(())
 }

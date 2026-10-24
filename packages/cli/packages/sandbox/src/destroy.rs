@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Destroy a sandbox.
 #[derive(Clone, Debug, clap::Args)]
@@ -8,15 +8,13 @@ pub struct Args {
 	pub sandbox: tg::Referent<tg::sandbox::Id>,
 }
 
-impl Component<'_> {
-	pub async fn command_sandbox_destroy(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let sandbox = tg::Sandbox::with_referent(args.sandbox);
-		let id = sandbox.id().clone();
-		sandbox
-			.destroy_with_instance(&client)
-			.await
-			.map_err(|error| tg::error!(!error, sandbox = %id, "failed to destroy the sandbox"))?;
-		Ok(())
-	}
+pub async fn command_sandbox_destroy(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let sandbox = tg::Sandbox::with_referent(args.sandbox);
+	let id = sandbox.id().clone();
+	sandbox
+		.destroy_with_instance(&client)
+		.await
+		.map_err(|error| tg::error!(!error, sandbox = %id, "failed to destroy the sandbox"))?;
+	Ok(())
 }

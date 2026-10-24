@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Delete a tag.
 #[derive(Clone, Debug, clap::Args)]
@@ -17,18 +17,17 @@ pub struct Args {
 	pub recursive: bool,
 }
 
-impl Component<'_> {
-	pub async fn command_tag_delete(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::tag::delete::Arg {
-			location: args.location.get(),
-			pattern: args.pattern.clone(),
-			recursive: args.recursive,
-		};
-		let output = client.delete_tags(arg).await.map_err(
-			|error| tg::error!(!error, pattern = %args.pattern, "failed to delete the tag"),
-		)?;
-		self.print_serde(output, args.print).await?;
-		Ok(())
-	}
+pub async fn command_tag_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::tag::delete::Arg {
+		location: args.location.get(),
+		pattern: args.pattern.clone(),
+		recursive: args.recursive,
+	};
+	let output = client
+		.delete_tags(arg)
+		.await
+		.map_err(|error| tg::error!(!error, pattern = %args.pattern, "failed to delete the tag"))?;
+	cli.print_serde(output, args.print).await?;
+	Ok(())
 }

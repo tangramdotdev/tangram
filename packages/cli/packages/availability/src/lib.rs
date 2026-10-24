@@ -1,7 +1,4 @@
-use {tangram_cli_core::Cli, tangram_cli_get::Ext as _, tangram_client::prelude::*};
-
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a process's or object's availability.
 #[derive(Clone, Debug, clap::Args)]
@@ -17,58 +14,38 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_availability(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
+	args.locations.set_from_reference_if_unset(&args.reference);
+	let reference = args.locations.apply_to_reference(&args.reference);
+	let locations = args.locations;
+	let print = args.print;
+
+	// Get the reference.
+	let referent = tangram_cli_get::get_with_follow(cli, &reference).await?;
+	match referent.node {
+		tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
+			let process = tg::Referent::new(id.try_into()?, referent.options);
+			let options = tangram_cli_process::availability::Options { locations, print };
+			tangram_cli_process::availability::command_process_availability_inner(
+				cli, process, options,
+			)
+			.await?;
+		},
+		node => {
+			let object = tg::Referent::new(node, referent.options)
+				.into_graph_edge()?
+				.try_map::<tg::object::Id, _>(|edge| {
+					edge.try_unwrap_object()
+						.map(|object| object.id())
+						.map_err(|_| tg::error!("expected an object"))
+				})?;
+			let options = tangram_cli_object::availability::Options { locations, print };
+			tangram_cli_object::availability::command_object_availability_inner(
+				cli, object, options,
+			)
+			.await?;
+		},
 	}
-}
 
-impl Component<'_> {
-	pub async fn command_availability(&mut self, mut args: Args) -> tg::Result<()> {
-		args.locations.set_from_reference_if_unset(&args.reference);
-		let reference = args.locations.apply_to_reference(&args.reference);
-		let locations = args.locations;
-		let print = args.print;
-
-		// Get the reference.
-		let referent = self.get_with_follow(&reference).await?;
-		match referent.node {
-			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
-				let process = tg::Referent::new(id.try_into()?, referent.options);
-				let options = tangram_cli_process::availability::Options { locations, print };
-				tangram_cli_process::Component::new(self)
-					.command_process_availability_inner(process, options)
-					.await?;
-			},
-			node => {
-				let object = tg::Referent::new(node, referent.options)
-					.into_graph_edge()?
-					.try_map::<tg::object::Id, _>(|edge| {
-						edge.try_unwrap_object()
-							.map(|object| object.id())
-							.map_err(|_| tg::error!("expected an object"))
-					})?;
-				let options = tangram_cli_object::availability::Options { locations, print };
-				tangram_cli_object::Component::new(self)
-					.command_object_availability_inner(object, options)
-					.await?;
-			},
-		}
-
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

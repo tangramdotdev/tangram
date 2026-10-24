@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Generate shell completions.
 #[derive(Clone, Debug, clap::Args)]
@@ -17,34 +17,32 @@ enum Shell {
 	Nu,
 }
 
-impl Component<'_> {
-	pub async fn command_shell_completion(&mut self, args: Args) -> tg::Result<()> {
-		let mut command = self.command.clone();
-		let mut stdout = std::io::stdout();
+pub async fn command_shell_completion(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let mut command = cli.command.clone();
+	let mut stdout = std::io::stdout();
 
-		match args.shell {
-			Shell::Bash => {
-				let shell = clap_complete::shells::Bash;
-				clap_complete::generate(shell, &mut command, "tangram", &mut stdout);
-				println!("complete -F _tangram tg");
-			},
-			Shell::Fish => {
-				let shell = clap_complete::shells::Fish;
-				clap_complete::generate(shell, &mut command, "tangram", &mut stdout);
-				println!("complete -c tg -w tangram");
-			},
-			Shell::Nu => {
-				let shell = clap_complete_nushell::Nushell;
-				clap_complete::generate(shell, &mut command, "tangram", &mut stdout);
-				println!("export alias tg = tangram");
-			},
-			Shell::Zsh => {
-				let shell = clap_complete::shells::Zsh;
-				clap_complete::generate(shell, &mut command, "tangram", &mut stdout);
-				println!("compdef _tangram tg");
-			},
-		}
-
-		Ok(())
+	match args.shell {
+		Shell::Bash => {
+			let shell = clap_complete::shells::Bash;
+			clap_complete::generate(shell, &mut command, "tangram", &mut stdout);
+			println!("complete -F _tangram tg");
+		},
+		Shell::Fish => {
+			let shell = clap_complete::shells::Fish;
+			clap_complete::generate(shell, &mut command, "tangram", &mut stdout);
+			println!("complete -c tg -w tangram");
+		},
+		Shell::Nu => {
+			let shell = clap_complete_nushell::Nushell;
+			clap_complete::generate(shell, &mut command, "tangram", &mut stdout);
+			println!("export alias tg = tangram");
+		},
+		Shell::Zsh => {
+			let shell = clap_complete::shells::Zsh;
+			clap_complete::generate(shell, &mut command, "tangram", &mut stdout);
+			println!("compdef _tangram tg");
+		},
 	}
+
+	Ok(())
 }

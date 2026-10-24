@@ -9,9 +9,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Update a lock.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -197,95 +194,73 @@ pub fn format_referrer<T>(referrer: &tg::Referent<T>) -> String {
 	name
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
-	}
-}
+pub async fn command_update(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
 
-impl Component<'_> {
-	pub async fn command_update(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+	// Canonicalize the path's parent.
+	let path = tangram_util::fs::canonicalize_parent(&args.path)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 
-		// Canonicalize the path's parent.
-		let path = tangram_util::fs::canonicalize_parent(&args.path)
+	// Get the old lockfile.
+	let root = if args.checkin.root {
+		args.path.clone()
+	} else {
+		find_root(args.path.clone())
 			.await
-			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+			.map_err(|error| tg::error!(!error, "failed to find the root"))?
+	};
+	let root = normalize_root(root);
+	let old_lock = try_read_lock(root.clone())
+		.await
+		.map_err(|error| tg::error!(!error, "failed to read lockfile"))?;
 
-		// Get the old lockfile.
-		let root = if args.checkin.root {
-			args.path.clone()
-		} else {
-			find_root(args.path.clone())
-				.await
-				.map_err(|error| tg::error!(!error, "failed to find the root"))?
-		};
-		let root = normalize_root(root);
-		let old_lock = try_read_lock(root.clone())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read lockfile"))?;
+	// Get the updates.
+	let updates = args.updates.unwrap_or_else(|| vec!["*".parse().unwrap()]);
 
-		// Get the updates.
-		let updates = args.updates.unwrap_or_else(|| vec!["*".parse().unwrap()]);
+	// Check in.
+	let arg = tg::checkin::Arg {
+		options: args.checkin.to_options(),
+		path: path.clone(),
+		updates,
+	};
+	let stream = client
+		.checkin(arg)
+		.await
+		.map_err(|error| tg::error!(!error, path = %path.display(), "failed to check in"))?;
+	cli.render_progress_stream(stream).await?;
 
-		// Check in.
-		let arg = tg::checkin::Arg {
-			options: args.checkin.to_options(),
-			path: path.clone(),
-			updates,
-		};
-		let stream = client
-			.checkin(arg)
-			.await
-			.map_err(|error| tg::error!(!error, path = %path.display(), "failed to check in"))?;
-		self.render_progress_stream(stream).await?;
+	// Get the new lockfile.
+	let new_lock = try_read_lock(root.clone())
+		.await
+		.map_err(|error| tg::error!(!error, "failed to read lockfile"))?;
 
-		// Get the new lockfile.
-		let new_lock = try_read_lock(root.clone())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read lockfile"))?;
-
-		// Print the updates.
-		let updates = create_updates(old_lock.as_ref(), new_lock.as_ref(), &root);
-		if args.json {
-			self.print_serde(updates, args.print).await?;
-		} else {
-			for updated in updates {
-				let referrer = format_referrer(&updated.pattern);
-				match (updated.old, updated.new) {
-					(Some(old), Some(new)) => {
-						println!(
-							"{} updated {old} to {new}, required by {referrer}",
-							"↑".blue()
-						);
-					},
-					(None, Some(new)) => {
-						println!("{} added {new}, required by {referrer}", "+".green());
-					},
-					(Some(old), None) => {
-						println!("{} removed {old}, required by {referrer}", "-".red());
-					},
-					(None, None) => (),
-				}
+	// Print the updates.
+	let updates = create_updates(old_lock.as_ref(), new_lock.as_ref(), &root);
+	if args.json {
+		cli.print_serde(updates, args.print).await?;
+	} else {
+		for updated in updates {
+			let referrer = format_referrer(&updated.pattern);
+			match (updated.old, updated.new) {
+				(Some(old), Some(new)) => {
+					println!(
+						"{} updated {old} to {new}, required by {referrer}",
+						"↑".blue()
+					);
+				},
+				(None, Some(new)) => {
+					println!("{} added {new}, required by {referrer}", "+".green());
+				},
+				(Some(old), None) => {
+					println!("{} removed {old}, required by {referrer}", "-".red());
+				},
+				(None, None) => (),
 			}
 		}
-
-		Ok(())
 	}
-}
 
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }
 
 fn try_read_lockfile(path: &Path) -> tg::Result<Option<Vec<u8>>> {

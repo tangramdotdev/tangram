@@ -1,10 +1,4 @@
-use {
-	std::time::Duration, tangram_cli_core::Cli, tangram_cli_get::Ext as _,
-	tangram_client::prelude::*,
-};
-
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
+use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// List nodes.
 #[derive(Clone, Debug, clap::Args)]
@@ -135,6 +129,63 @@ pub struct Ttl {
 	pub no_ttl: bool,
 }
 
+pub async fn command_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	// Get the node.
+	let node = if let Some(reference) = &args.reference {
+		let reference = args.locations.apply_to_reference(reference);
+		let arg = tg::get::Arg {
+			cached: args.cached,
+			ttl: args.ttl.get(),
+			..tg::get::Arg::default()
+		};
+		let output = tangram_cli_get::get_with_arg(cli, &reference, arg).await?;
+		let node = output.referent.try_map(|node| match node {
+			tg::get::Node::Id(id) => Ok(id),
+			tg::get::Node::Pointer(_) => Err(tg::error!(%reference, "the list node must be an ID")),
+		})?;
+		Some(node)
+	} else {
+		None
+	};
+
+	// List the entries.
+	let client = cli.client().await?;
+	let location = node
+		.as_ref()
+		.and_then(|node| node.options.location.clone())
+		.map(Into::into)
+		.or_else(|| args.locations.get());
+	let arg = tg::list::Arg {
+		cached: args.cached,
+		cursor: args.cursor,
+		groups: args.entries.groups(),
+		limit: args.limit,
+		location,
+		node,
+		organizations: args.entries.organizations(),
+		recursive: args.recursive,
+		reverse: args.reverse,
+		tags: args.entries.tags(),
+		ttl: args.ttl.get(),
+		users: args.entries.users(),
+	};
+	let output = if args.all {
+		client.list_all(arg).await
+	} else {
+		client.list(arg).await
+	}
+	.map_err(|error| tg::error!(!error, reference = ?args.reference, "failed to list entries"))?;
+	if args.output.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		cli.print_serde(output.data, args.print).await?;
+		if let Some(cursor) = output.cursor {
+			cli.print_info_message(&format!("Next cursor: {cursor}"));
+		}
+	}
+	Ok(())
+}
+
 impl Entries {
 	#[must_use]
 	pub fn groups(&self) -> bool {
@@ -183,88 +234,5 @@ impl Ttl {
 				.map(tg::remote::cache::Ttl::Duration)
 				.unwrap_or_default()
 		}
-	}
-}
-
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_list(&mut self, args: Args) -> tg::Result<()> {
-		// Get the node.
-		let node = if let Some(reference) = &args.reference {
-			let reference = args.locations.apply_to_reference(reference);
-			let arg = tg::get::Arg {
-				cached: args.cached,
-				ttl: args.ttl.get(),
-				..tg::get::Arg::default()
-			};
-			let output = self.get_with_arg(&reference, arg).await?;
-			let node = output.referent.try_map(|node| match node {
-				tg::get::Node::Id(id) => Ok(id),
-				tg::get::Node::Pointer(_) => {
-					Err(tg::error!(%reference, "the list node must be an ID"))
-				},
-			})?;
-			Some(node)
-		} else {
-			None
-		};
-
-		// List the entries.
-		let client = self.client().await?;
-		let location = node
-			.as_ref()
-			.and_then(|node| node.options.location.clone())
-			.map(Into::into)
-			.or_else(|| args.locations.get());
-		let arg = tg::list::Arg {
-			cached: args.cached,
-			cursor: args.cursor,
-			groups: args.entries.groups(),
-			limit: args.limit,
-			location,
-			node,
-			organizations: args.entries.organizations(),
-			recursive: args.recursive,
-			reverse: args.reverse,
-			tags: args.entries.tags(),
-			ttl: args.ttl.get(),
-			users: args.entries.users(),
-		};
-		let output = if args.all {
-			client.list_all(arg).await
-		} else {
-			client.list(arg).await
-		}
-		.map_err(
-			|error| tg::error!(!error, reference = ?args.reference, "failed to list entries"),
-		)?;
-		if args.output.verbose {
-			self.print_serde(output, args.print).await?;
-		} else {
-			self.print_serde(output.data, args.print).await?;
-			if let Some(cursor) = output.cursor {
-				self.print_info_message(&format!("Next cursor: {cursor}"));
-			}
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
 	}
 }

@@ -4,9 +4,6 @@ pub mod delete;
 pub mod list;
 pub mod touch;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Manage watches.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -24,39 +21,17 @@ pub enum Command {
 	Touch(self::touch::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_watch(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Delete(args) => {
+			crate::delete::command_watch_delete(cli, args).await?;
+		},
+		Command::Touch(args) => {
+			crate::touch::command_watch_touch(cli, args).await?;
+		},
+		Command::List(args) => {
+			crate::list::command_watch_list(cli, args).await?;
+		},
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_watch(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Delete(args) => {
-				self.command_watch_delete(args).await?;
-			},
-			Command::Touch(args) => {
-				self.command_watch_touch(args).await?;
-			},
-			Command::List(args) => {
-				self.command_watch_list(args).await?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

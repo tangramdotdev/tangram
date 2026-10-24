@@ -4,9 +4,6 @@ pub mod create;
 pub mod delete;
 pub mod list;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Manage grants.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -27,33 +24,11 @@ pub enum Command {
 	List(self::list::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_grants(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Create(args) => crate::create::command_grants_create(cli, args).await?,
+		Command::Delete(args) => crate::delete::command_grants_delete(cli, args).await?,
+		Command::List(args) => crate::list::command_grants_list(cli, args).await?,
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_grants(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Create(args) => self.command_grants_create(args).await?,
-			Command::Delete(args) => self.command_grants_delete(args).await?,
-			Command::List(args) => self.command_grants_list(args).await?,
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

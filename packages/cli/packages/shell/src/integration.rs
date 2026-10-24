@@ -1,7 +1,4 @@
-use {
-	crate::{Component, Kind},
-	tangram_client::prelude::*,
-};
+use {crate::Kind, tangram_client::prelude::*};
 
 const BASH: &str = include_str!("integration.bash");
 const FISH: &str = include_str!("integration.fish");
@@ -16,23 +13,21 @@ pub struct Args {
 	shell: Kind,
 }
 
-impl Component<'_> {
-	pub async fn command_shell_integration(&mut self, args: Args) -> tg::Result<()> {
-		match args.shell {
-			Kind::Bash => {
-				print!("{BASH}");
-			},
-			Kind::Fish => {
-				print!("{FISH}");
-			},
-			Kind::Nu => {
-				print!("{NU}");
-			},
-			Kind::Zsh => {
-				print!("{ZSH}");
-			},
-		}
-
-		Ok(())
+pub async fn command_shell_integration(args: Args) -> tg::Result<()> {
+	match args.shell {
+		Kind::Bash => {
+			print!("{BASH}");
+		},
+		Kind::Fish => {
+			print!("{FISH}");
+		},
+		Kind::Nu => {
+			print!("{NU}");
+		},
+		Kind::Zsh => {
+			print!("{ZSH}");
+		},
 	}
+
+	Ok(())
 }

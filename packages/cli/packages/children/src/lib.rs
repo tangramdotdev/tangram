@@ -1,7 +1,4 @@
-use {tangram_cli_core::Cli, tangram_cli_get::Ext as _, tangram_client::prelude::*};
-
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get the children.
 #[derive(Clone, Debug, clap::Args)]
@@ -33,68 +30,42 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_children(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
+	// Get the node.
+	args.locations.set_from_reference_if_unset(&args.reference);
+	let reference = args.locations.apply_to_reference(&args.reference);
+	let output = tangram_cli_get::get_with_arg(cli, &reference, tg::get::Arg::default()).await?;
+	let node = output.referent.try_map(|node| match node {
+		tg::get::Node::Id(id) => Ok(id),
+		tg::get::Node::Pointer(_) => Err(tg::error!(%reference, "the children node must be an ID")),
+	})?;
+
+	// Get the children.
+	let client = cli.client().await?;
+	let arg = tg::children::Arg {
+		cursor: args.cursor,
+		limit: args.limit,
+		node,
+	};
+	let output = if args.all {
+		client.children_all(arg).await
+	} else {
+		client.children(arg).await
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_children(&mut self, mut args: Args) -> tg::Result<()> {
-		// Get the node.
-		args.locations.set_from_reference_if_unset(&args.reference);
-		let reference = args.locations.apply_to_reference(&args.reference);
-		let output = self
-			.get_with_arg(&reference, tg::get::Arg::default())
-			.await?;
-		let node = output.referent.try_map(|node| match node {
-			tg::get::Node::Id(id) => Ok(id),
-			tg::get::Node::Pointer(_) => {
-				Err(tg::error!(%reference, "the children node must be an ID"))
-			},
-		})?;
-
-		// Get the children.
-		let client = self.client().await?;
-		let arg = tg::children::Arg {
-			cursor: args.cursor,
-			limit: args.limit,
-			node,
-		};
-		let output = if args.all {
-			client.children_all(arg).await
-		} else {
-			client.children(arg).await
+	.map_err(|error| tg::error!(!error, %reference, "failed to get the children"))?;
+	if args.output.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		let nodes = output
+			.data
+			.into_iter()
+			.map(|node| node.node)
+			.collect::<Vec<_>>();
+		cli.print_serde(nodes, args.print).await?;
+		if let Some(cursor) = output.cursor {
+			cli.print_info_message(&format!("Next cursor: {cursor}"));
 		}
-		.map_err(|error| tg::error!(!error, %reference, "failed to get the children"))?;
-		if args.output.verbose {
-			self.print_serde(output, args.print).await?;
-		} else {
-			let nodes = output
-				.data
-				.into_iter()
-				.map(|node| node.node)
-				.collect::<Vec<_>>();
-			self.print_serde(nodes, args.print).await?;
-			if let Some(cursor) = output.cursor {
-				self.print_info_message(&format!("Next cursor: {cursor}"));
-			}
-		}
-
-		Ok(())
 	}
-}
 
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

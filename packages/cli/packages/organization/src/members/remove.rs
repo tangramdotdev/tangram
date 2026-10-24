@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Remove an organization member.
 #[derive(Clone, Debug, clap::Args)]
@@ -14,20 +14,18 @@ pub struct Args {
 	pub member: tg::organization::Member,
 }
 
-impl Component<'_> {
-	pub async fn command_organization_members_remove(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::organization::members::remove::Arg {
-			location: args.location.get_for_options(&args.organization),
-			tokens: args.organization.options.tokens,
-		};
-		client
-			.remove_organization_member(&args.organization.node, &args.member, arg)
-			.await
-			.map_err(
-				|error| tg::error!(!error, organization = %args.organization.node, member = %args.member, "failed to remove the organization member"),
-			)?
-			.ok_or_else(|| tg::error!("failed to find the organization member"))?;
-		Ok(())
-	}
+pub async fn command_organization_members_remove(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::organization::members::remove::Arg {
+		location: args.location.get_for_options(&args.organization),
+		tokens: args.organization.options.tokens,
+	};
+	client
+		.remove_organization_member(&args.organization.node, &args.member, arg)
+		.await
+		.map_err(
+			|error| tg::error!(!error, organization = %args.organization.node, member = %args.member, "failed to remove the organization member"),
+		)?
+		.ok_or_else(|| tg::error!("failed to find the organization member"))?;
+	Ok(())
 }

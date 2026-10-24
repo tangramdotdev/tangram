@@ -8,9 +8,6 @@ pub mod run;
 pub mod serve;
 pub mod wait;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Manage sandboxes.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -198,6 +195,55 @@ pub fn resource(min: Option<u64>, max: Option<u64>) -> Option<tg::sandbox::Resou
 	Some(tg::sandbox::Resource { max, min })
 }
 
+pub async fn resolve_owner(
+	client: &tg::Client,
+	owner: &Owner,
+) -> tg::Result<Option<tg::Principal>> {
+	if let Some(owner) = owner.value.clone() {
+		Ok(Some(resolve_any_owner(client, owner).await?))
+	} else if let Some(user) = owner.user.clone() {
+		Ok(Some(resolve_user_owner(client, user).await?))
+	} else if let Some(group) = owner.group.clone() {
+		Ok(Some(resolve_group_owner(client, group).await?))
+	} else if let Some(organization) = owner.organization.clone() {
+		Ok(Some(
+			resolve_organization_owner(client, organization).await?,
+		))
+	} else {
+		Ok(None)
+	}
+}
+
+pub async fn command_sandbox(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Create(args) => {
+			crate::create::command_sandbox_create(cli, args).await?;
+		},
+		Command::Destroy(args) => {
+			crate::destroy::command_sandbox_destroy(cli, args).await?;
+		},
+		Command::Get(args) => {
+			tangram_cli_get::sandbox::command_sandbox_get(cli, args).await?;
+		},
+		Command::Init(args) => {
+			cli.exit = Some(crate::init::command_sandbox_init(args)?);
+		},
+		Command::List(args) => {
+			crate::list::command_sandbox_list(cli, args).await?;
+		},
+		Command::Run(args) => {
+			cli.exit = Some(crate::run::command_sandbox_run(args)?);
+		},
+		Command::Serve(args) => {
+			crate::serve::command_sandbox_serve(args).await?;
+		},
+		Command::Wait(args) => {
+			crate::wait::command_sandbox_wait(cli, args).await?;
+		},
+	}
+	Ok(())
+}
+
 impl Http2 {
 	#[must_use]
 	pub fn config(&self) -> tangram_http::http2::Config {
@@ -252,298 +298,205 @@ impl Owner {
 	}
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+async fn resolve_any_owner(
+	client: &tg::Client,
+	owner: tg::principal::Selector,
+) -> tg::Result<tg::Principal> {
+	match owner {
+		tg::principal::Selector::Principal(principal) => resolve_owner_principal(principal),
+		tg::principal::Selector::Specifier(specifier) => {
+			resolve_any_owner_specifier(client, specifier).await
+		},
 	}
 }
 
-impl Component<'_> {
-	pub async fn resolve_owner(
-		&self,
-		client: &tg::Client,
-		owner: &Owner,
-	) -> tg::Result<Option<tg::Principal>> {
-		if let Some(owner) = owner.value.clone() {
-			Ok(Some(self.resolve_any_owner(client, owner).await?))
-		} else if let Some(user) = owner.user.clone() {
-			Ok(Some(self.resolve_user_owner(client, user).await?))
-		} else if let Some(group) = owner.group.clone() {
-			Ok(Some(self.resolve_group_owner(client, group).await?))
-		} else if let Some(organization) = owner.organization.clone() {
-			Ok(Some(
-				self.resolve_organization_owner(client, organization)
-					.await?,
-			))
-		} else {
-			Ok(None)
-		}
-	}
-
-	async fn resolve_any_owner(
-		&self,
-		client: &tg::Client,
-		owner: tg::principal::Selector,
-	) -> tg::Result<tg::Principal> {
-		match owner {
-			tg::principal::Selector::Principal(principal) => {
-				Self::resolve_owner_principal(principal)
-			},
-			tg::principal::Selector::Specifier(specifier) => {
-				self.resolve_any_owner_specifier(client, specifier).await
-			},
-		}
-	}
-
-	async fn resolve_user_owner(
-		&self,
-		client: &tg::Client,
-		owner: tg::principal::Selector,
-	) -> tg::Result<tg::Principal> {
-		match owner {
-			tg::principal::Selector::Principal(principal) => {
-				let principal = Self::resolve_owner_principal(principal)?;
-				if !matches!(principal, tg::Principal::User(_)) {
-					return Err(tg::error!("the owner is not a user"));
-				}
-				Ok(principal)
-			},
-			tg::principal::Selector::Specifier(specifier) => self
-				.resolve_user_owner_specifier(client, specifier)
+async fn resolve_user_owner(
+	client: &tg::Client,
+	owner: tg::principal::Selector,
+) -> tg::Result<tg::Principal> {
+	match owner {
+		tg::principal::Selector::Principal(principal) => {
+			let principal = resolve_owner_principal(principal)?;
+			if !matches!(principal, tg::Principal::User(_)) {
+				return Err(tg::error!("the owner is not a user"));
+			}
+			Ok(principal)
+		},
+		tg::principal::Selector::Specifier(specifier) => {
+			resolve_user_owner_specifier(client, specifier)
 				.await?
-				.ok_or_else(|| tg::error!("failed to resolve the owner as a user")),
-		}
-	}
-
-	async fn resolve_group_owner(
-		&self,
-		client: &tg::Client,
-		owner: tg::principal::Selector,
-	) -> tg::Result<tg::Principal> {
-		match owner {
-			tg::principal::Selector::Principal(principal) => {
-				let principal = Self::resolve_owner_principal(principal)?;
-				if !matches!(principal, tg::Principal::Group(_)) {
-					return Err(tg::error!("the owner is not a group"));
-				}
-				Ok(principal)
-			},
-			tg::principal::Selector::Specifier(specifier) => self
-				.resolve_group_owner_specifier(client, specifier)
-				.await?
-				.ok_or_else(|| tg::error!("failed to resolve the owner as a group")),
-		}
-	}
-
-	async fn resolve_organization_owner(
-		&self,
-		client: &tg::Client,
-		owner: tg::principal::Selector,
-	) -> tg::Result<tg::Principal> {
-		match owner {
-			tg::principal::Selector::Principal(principal) => {
-				let principal = Self::resolve_owner_principal(principal)?;
-				if !matches!(principal, tg::Principal::Organization(_)) {
-					return Err(tg::error!("the owner is not an organization"));
-				}
-				Ok(principal)
-			},
-			tg::principal::Selector::Specifier(specifier) => self
-				.resolve_organization_owner_specifier(client, specifier)
-				.await?
-				.ok_or_else(|| tg::error!("failed to resolve the owner as an organization")),
-		}
-	}
-
-	fn resolve_owner_principal(principal: tg::Principal) -> tg::Result<tg::Principal> {
-		let principal = match principal {
-			tg::Principal::Group(id) => tg::Principal::Group(id),
-			tg::Principal::Organization(id) => tg::Principal::Organization(id),
-			tg::Principal::Process(id) => tg::Principal::Process(id),
-			tg::Principal::Anonymous => {
-				return Err(tg::error!("invalid sandbox owner"));
-			},
-			tg::Principal::Root => tg::Principal::Root,
-			tg::Principal::Runner(id) => tg::Principal::Runner(id),
-			tg::Principal::Sandbox(id) => tg::Principal::Sandbox(id),
-			tg::Principal::User(id) => tg::Principal::User(id),
-		};
-		Ok(principal)
-	}
-
-	async fn resolve_any_owner_specifier(
-		&self,
-		client: &tg::Client,
-		specifier: tg::Specifier,
-	) -> tg::Result<tg::Principal> {
-		let Some(kind) = self
-			.try_resolve_owner_specifier_kind(client, specifier.clone())
-			.await?
-		else {
-			return Err(tg::error!("failed to resolve the sandbox owner"));
-		};
-		match kind {
-			tg::id::Kind::Group => {
-				let selector = tg::group::Selector::Specifier(specifier);
-				let group = client
-					.try_get_group(&selector, tg::group::get::Arg::default())
-					.await?
-					.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
-				Ok(tg::Principal::Group(group.data.id))
-			},
-			tg::id::Kind::Organization => {
-				let selector = tg::organization::Selector::Specifier(specifier);
-				let organization = client
-					.try_get_organization(&selector, tg::organization::get::Arg::default())
-					.await?
-					.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
-				Ok(tg::Principal::Organization(organization.data.id))
-			},
-			tg::id::Kind::User => {
-				let selector = tg::user::Selector::Specifier(specifier);
-				let user = client
-					.try_get_user(&selector, tg::user::get::Arg::default())
-					.await?
-					.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
-				Ok(tg::Principal::User(user.data.id))
-			},
-			_ => Err(tg::error!("failed to resolve the sandbox owner")),
-		}
-	}
-
-	async fn try_resolve_owner_specifier_kind(
-		&self,
-		client: &tg::Client,
-		specifier: tg::Specifier,
-	) -> tg::Result<Option<tg::id::Kind>> {
-		let reference = tg::Reference::with_node(tg::reference::Node::Specifier(specifier.into()));
-		let Some(referent) = reference.try_get_with_instance(client).await? else {
-			return Ok(None);
-		};
-		let id = referent
-			.node
-			.try_unwrap_id()
-			.map_err(|_| tg::error!("failed to resolve the sandbox owner"))?;
-		Ok(Some(id.kind()))
-	}
-
-	async fn try_resolve_owner_specifier_as_kind(
-		&self,
-		client: &tg::Client,
-		specifier: tg::Specifier,
-		kind: tg::id::Kind,
-	) -> tg::Result<Option<tg::Specifier>> {
-		let Some(actual) = self
-			.try_resolve_owner_specifier_kind(client, specifier.clone())
-			.await?
-		else {
-			return Ok(None);
-		};
-		if actual != kind {
-			return Ok(None);
-		}
-		Ok(Some(specifier))
-	}
-
-	async fn resolve_user_owner_specifier(
-		&self,
-		client: &tg::Client,
-		specifier: tg::Specifier,
-	) -> tg::Result<Option<tg::Principal>> {
-		let Some(specifier) = self
-			.try_resolve_owner_specifier_as_kind(client, specifier, tg::id::Kind::User)
-			.await?
-		else {
-			return Ok(None);
-		};
-		let selector = tg::user::Selector::Specifier(specifier);
-		let user = client
-			.try_get_user(&selector, tg::user::get::Arg::default())
-			.await?;
-		Ok(user.map(|user| tg::Principal::User(user.data.id)))
-	}
-
-	async fn resolve_group_owner_specifier(
-		&self,
-		client: &tg::Client,
-		specifier: tg::Specifier,
-	) -> tg::Result<Option<tg::Principal>> {
-		let Some(specifier) = self
-			.try_resolve_owner_specifier_as_kind(client, specifier, tg::id::Kind::Group)
-			.await?
-		else {
-			return Ok(None);
-		};
-		let selector = tg::group::Selector::Specifier(specifier);
-		let group = client
-			.try_get_group(&selector, tg::group::get::Arg::default())
-			.await?;
-		Ok(group.map(|group| tg::Principal::Group(group.data.id)))
-	}
-
-	async fn resolve_organization_owner_specifier(
-		&self,
-		client: &tg::Client,
-		specifier: tg::Specifier,
-	) -> tg::Result<Option<tg::Principal>> {
-		let Some(specifier) = self
-			.try_resolve_owner_specifier_as_kind(client, specifier, tg::id::Kind::Organization)
-			.await?
-		else {
-			return Ok(None);
-		};
-		let selector = tg::organization::Selector::Specifier(specifier);
-		let organization = client
-			.try_get_organization(&selector, tg::organization::get::Arg::default())
-			.await?;
-		Ok(organization.map(|organization| tg::Principal::Organization(organization.data.id)))
-	}
-
-	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Create(args) => {
-				self.command_sandbox_create(args).await?;
-			},
-			Command::Destroy(args) => {
-				self.command_sandbox_destroy(args).await?;
-			},
-			Command::Get(args) => {
-				tangram_cli_get::Component::new(self)
-					.command_sandbox_get(args)
-					.await?;
-			},
-			Command::Init(args) => {
-				self.exit = Some(Self::command_sandbox_init(args)?);
-			},
-			Command::List(args) => {
-				self.command_sandbox_list(args).await?;
-			},
-			Command::Run(args) => {
-				self.exit = Some(Self::command_sandbox_run(args)?);
-			},
-			Command::Serve(args) => {
-				self.command_sandbox_serve(args).await?;
-			},
-			Command::Wait(args) => {
-				self.command_sandbox_wait(args).await?;
-			},
-		}
-		Ok(())
+				.ok_or_else(|| tg::error!("failed to resolve the owner as a user"))
+		},
 	}
 }
 
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
+async fn resolve_group_owner(
+	client: &tg::Client,
+	owner: tg::principal::Selector,
+) -> tg::Result<tg::Principal> {
+	match owner {
+		tg::principal::Selector::Principal(principal) => {
+			let principal = resolve_owner_principal(principal)?;
+			if !matches!(principal, tg::Principal::Group(_)) {
+				return Err(tg::error!("the owner is not a group"));
+			}
+			Ok(principal)
+		},
+		tg::principal::Selector::Specifier(specifier) => {
+			resolve_group_owner_specifier(client, specifier)
+				.await?
+				.ok_or_else(|| tg::error!("failed to resolve the owner as a group"))
+		},
 	}
 }
 
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
+async fn resolve_organization_owner(
+	client: &tg::Client,
+	owner: tg::principal::Selector,
+) -> tg::Result<tg::Principal> {
+	match owner {
+		tg::principal::Selector::Principal(principal) => {
+			let principal = resolve_owner_principal(principal)?;
+			if !matches!(principal, tg::Principal::Organization(_)) {
+				return Err(tg::error!("the owner is not an organization"));
+			}
+			Ok(principal)
+		},
+		tg::principal::Selector::Specifier(specifier) => {
+			resolve_organization_owner_specifier(client, specifier)
+				.await?
+				.ok_or_else(|| tg::error!("failed to resolve the owner as an organization"))
+		},
 	}
+}
+
+fn resolve_owner_principal(principal: tg::Principal) -> tg::Result<tg::Principal> {
+	let principal = match principal {
+		tg::Principal::Group(id) => tg::Principal::Group(id),
+		tg::Principal::Organization(id) => tg::Principal::Organization(id),
+		tg::Principal::Process(id) => tg::Principal::Process(id),
+		tg::Principal::Anonymous => {
+			return Err(tg::error!("invalid sandbox owner"));
+		},
+		tg::Principal::Root => tg::Principal::Root,
+		tg::Principal::Runner(id) => tg::Principal::Runner(id),
+		tg::Principal::Sandbox(id) => tg::Principal::Sandbox(id),
+		tg::Principal::User(id) => tg::Principal::User(id),
+	};
+	Ok(principal)
+}
+
+async fn resolve_any_owner_specifier(
+	client: &tg::Client,
+	specifier: tg::Specifier,
+) -> tg::Result<tg::Principal> {
+	let Some(kind) = try_resolve_owner_specifier_kind(client, specifier.clone()).await? else {
+		return Err(tg::error!("failed to resolve the sandbox owner"));
+	};
+	match kind {
+		tg::id::Kind::Group => {
+			let selector = tg::group::Selector::Specifier(specifier);
+			let group = client
+				.try_get_group(&selector, tg::group::get::Arg::default())
+				.await?
+				.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
+			Ok(tg::Principal::Group(group.data.id))
+		},
+		tg::id::Kind::Organization => {
+			let selector = tg::organization::Selector::Specifier(specifier);
+			let organization = client
+				.try_get_organization(&selector, tg::organization::get::Arg::default())
+				.await?
+				.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
+			Ok(tg::Principal::Organization(organization.data.id))
+		},
+		tg::id::Kind::User => {
+			let selector = tg::user::Selector::Specifier(specifier);
+			let user = client
+				.try_get_user(&selector, tg::user::get::Arg::default())
+				.await?
+				.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
+			Ok(tg::Principal::User(user.data.id))
+		},
+		_ => Err(tg::error!("failed to resolve the sandbox owner")),
+	}
+}
+
+async fn try_resolve_owner_specifier_kind(
+	client: &tg::Client,
+	specifier: tg::Specifier,
+) -> tg::Result<Option<tg::id::Kind>> {
+	let reference = tg::Reference::with_node(tg::reference::Node::Specifier(specifier.into()));
+	let Some(referent) = reference.try_get_with_instance(client).await? else {
+		return Ok(None);
+	};
+	let id = referent
+		.node
+		.try_unwrap_id()
+		.map_err(|_| tg::error!("failed to resolve the sandbox owner"))?;
+	Ok(Some(id.kind()))
+}
+
+async fn try_resolve_owner_specifier_as_kind(
+	client: &tg::Client,
+	specifier: tg::Specifier,
+	kind: tg::id::Kind,
+) -> tg::Result<Option<tg::Specifier>> {
+	let Some(actual) = try_resolve_owner_specifier_kind(client, specifier.clone()).await? else {
+		return Ok(None);
+	};
+	if actual != kind {
+		return Ok(None);
+	}
+	Ok(Some(specifier))
+}
+
+async fn resolve_user_owner_specifier(
+	client: &tg::Client,
+	specifier: tg::Specifier,
+) -> tg::Result<Option<tg::Principal>> {
+	let Some(specifier) =
+		try_resolve_owner_specifier_as_kind(client, specifier, tg::id::Kind::User).await?
+	else {
+		return Ok(None);
+	};
+	let selector = tg::user::Selector::Specifier(specifier);
+	let user = client
+		.try_get_user(&selector, tg::user::get::Arg::default())
+		.await?;
+	Ok(user.map(|user| tg::Principal::User(user.data.id)))
+}
+
+async fn resolve_group_owner_specifier(
+	client: &tg::Client,
+	specifier: tg::Specifier,
+) -> tg::Result<Option<tg::Principal>> {
+	let Some(specifier) =
+		try_resolve_owner_specifier_as_kind(client, specifier, tg::id::Kind::Group).await?
+	else {
+		return Ok(None);
+	};
+	let selector = tg::group::Selector::Specifier(specifier);
+	let group = client
+		.try_get_group(&selector, tg::group::get::Arg::default())
+		.await?;
+	Ok(group.map(|group| tg::Principal::Group(group.data.id)))
+}
+
+async fn resolve_organization_owner_specifier(
+	client: &tg::Client,
+	specifier: tg::Specifier,
+) -> tg::Result<Option<tg::Principal>> {
+	let Some(specifier) =
+		try_resolve_owner_specifier_as_kind(client, specifier, tg::id::Kind::Organization).await?
+	else {
+		return Ok(None);
+	};
+	let selector = tg::organization::Selector::Specifier(specifier);
+	let organization = client
+		.try_get_organization(&selector, tg::organization::get::Arg::default())
+		.await?;
+	Ok(organization.map(|organization| tg::Principal::Organization(organization.data.id)))
 }
 
 fn parse_network(s: &str) -> tg::Result<tg::sandbox::Network> {

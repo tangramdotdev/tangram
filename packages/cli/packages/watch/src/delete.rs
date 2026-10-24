@@ -1,4 +1,4 @@
-use {crate::Component, std::path::PathBuf, tangram_client::prelude::*};
+use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Delete a watch.
 #[derive(Clone, Debug, clap::Args)]
@@ -8,16 +8,14 @@ pub struct Args {
 	pub path: PathBuf,
 }
 
-impl Component<'_> {
-	pub async fn command_watch_delete(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let path = tangram_util::fs::canonicalize_parent(&args.path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-		let arg = tg::watch::delete::Arg { path: path.clone() };
-		client.delete_watch(arg).await.map_err(
-			|error| tg::error!(!error, path = %path.display(), "failed to delete the watch"),
-		)?;
-		Ok(())
-	}
+pub async fn command_watch_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let path = tangram_util::fs::canonicalize_parent(&args.path)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+	let arg = tg::watch::delete::Arg { path: path.clone() };
+	client.delete_watch(arg).await.map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to delete the watch"),
+	)?;
+	Ok(())
 }

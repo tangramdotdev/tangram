@@ -1,13 +1,9 @@
 use {
 	std::io::{IsTerminal as _, Read as _},
 	tangram_cli_core::Cli,
-	tangram_cli_get::Ext as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 };
-
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
 
 /// View a node.
 #[derive(Clone, Debug, clap::Args)]
@@ -98,6 +94,82 @@ pub struct AlternateScreen {
 	no_alternate_screen: Option<bool>,
 }
 
+pub async fn command_view(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	// Get the node.
+	let output = tangram_cli_get::get(cli, &args.reference).await?;
+	let client = cli.client().await?;
+	let root = get_node(&client, output).await?;
+
+	// Create a channel to send the exit signal when stdin finishes reading.
+	let (exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
+	let _stdin = if std::io::stdin().is_terminal() {
+		None
+	} else {
+		Some(Task::spawn_blocking(move |_| {
+			let mut buf = vec![0u8; 1024];
+			loop {
+				match std::io::stdin().read(&mut buf) {
+					Ok(0) | Err(_) => break,
+					Ok(_) => {},
+				}
+			}
+			exit_sender.send(()).ok();
+		}))
+	};
+
+	let alternate_screen = args.alternate_screen.get().unwrap_or(true);
+	let mode = args.mode;
+	let config = cli.viewer_config();
+	let outcome = Task::spawn_blocking(move |stop| -> tg::Result<tangram_cli_viewer::Outcome> {
+		let local_set = tokio::task::LocalSet::new();
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
+		let outcome = local_set.block_on(&runtime, async move {
+			let options = tangram_cli_viewer::Options {
+				collapse_process_children: args.collapse_process_children,
+				config,
+				depth: args.depth,
+				expand_groups: args.expand_groups,
+				expand_metadata: args.expand_metadata,
+				expand_objects: args.expand_objects,
+				expand_organizations: args.expand_organizations,
+				expand_processes: args.expand_processes,
+				expand_sandboxes: args.expand_sandboxes,
+				expand_tags: args.expand_tags,
+				expand_users: args.expand_users,
+				expand_values: matches!(mode, Mode::Inline),
+				show_process_commands: true,
+			};
+			let mut viewer =
+				tangram_cli_viewer::Viewer::new(&client, root, exit_receiver, options)?;
+			let outcome = match mode {
+				Mode::Fullscreen => viewer.run_fullscreen(stop, alternate_screen).await?,
+				Mode::Inline => viewer.run_inline(stop, true).await?,
+			};
+
+			Ok::<_, tg::Error>(outcome)
+		})?;
+
+		Ok(outcome)
+	})
+	.wait()
+	.await
+	.map_err(|error| tg::error!(!error, "the viewer task panicked"))??;
+	match outcome {
+		tangram_cli_viewer::Outcome::Finished | tangram_cli_viewer::Outcome::Quit => {},
+		tangram_cli_viewer::Outcome::Interrupt => {
+			cli.exit.replace(130.into());
+		},
+		tangram_cli_viewer::Outcome::Terminate => {
+			cli.exit.replace(143.into());
+		},
+	}
+
+	Ok(())
+}
+
 impl AlternateScreen {
 	#[must_use]
 	pub fn new(flag: bool) -> Self {
@@ -111,105 +183,6 @@ impl AlternateScreen {
 	pub fn get(&self) -> Option<bool> {
 		self.alternate_screen
 			.or(self.no_alternate_screen.map(|v| !v))
-	}
-}
-
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_view(&mut self, args: Args) -> tg::Result<()> {
-		// Get the node.
-		let output = self.get(&args.reference).await?;
-		let client = self.client().await?;
-		let root = get_node(&client, output).await?;
-
-		// Create a channel to send the exit signal when stdin finishes reading.
-		let (exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
-		let _stdin = if std::io::stdin().is_terminal() {
-			None
-		} else {
-			Some(Task::spawn_blocking(move |_| {
-				let mut buf = vec![0u8; 1024];
-				loop {
-					match std::io::stdin().read(&mut buf) {
-						Ok(0) | Err(_) => break,
-						Ok(_) => {},
-					}
-				}
-				exit_sender.send(()).ok();
-			}))
-		};
-
-		let alternate_screen = args.alternate_screen.get().unwrap_or(true);
-		let mode = args.mode;
-		let config = self.viewer_config();
-		let outcome =
-			Task::spawn_blocking(move |stop| -> tg::Result<tangram_cli_viewer::Outcome> {
-				let local_set = tokio::task::LocalSet::new();
-				let runtime = tokio::runtime::Builder::new_current_thread()
-					.enable_all()
-					.build()
-					.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
-				let outcome = local_set.block_on(&runtime, async move {
-					let options = tangram_cli_viewer::Options {
-						collapse_process_children: args.collapse_process_children,
-						config,
-						depth: args.depth,
-						expand_groups: args.expand_groups,
-						expand_metadata: args.expand_metadata,
-						expand_objects: args.expand_objects,
-						expand_organizations: args.expand_organizations,
-						expand_processes: args.expand_processes,
-						expand_sandboxes: args.expand_sandboxes,
-						expand_tags: args.expand_tags,
-						expand_users: args.expand_users,
-						expand_values: matches!(mode, Mode::Inline),
-						show_process_commands: true,
-					};
-					let mut viewer =
-						tangram_cli_viewer::Viewer::new(&client, root, exit_receiver, options)?;
-					let outcome = match mode {
-						Mode::Fullscreen => viewer.run_fullscreen(stop, alternate_screen).await?,
-						Mode::Inline => viewer.run_inline(stop, true).await?,
-					};
-
-					Ok::<_, tg::Error>(outcome)
-				})?;
-
-				Ok(outcome)
-			})
-			.wait()
-			.await
-			.map_err(|error| tg::error!(!error, "the viewer task panicked"))??;
-		match outcome {
-			tangram_cli_viewer::Outcome::Finished | tangram_cli_viewer::Outcome::Quit => {},
-			tangram_cli_viewer::Outcome::Interrupt => {
-				self.exit.replace(130.into());
-			},
-			tangram_cli_viewer::Outcome::Terminate => {
-				self.exit.replace(143.into());
-			},
-		}
-
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
 	}
 }
 

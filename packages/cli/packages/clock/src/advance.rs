@@ -1,4 +1,4 @@
-use {crate::Component, std::time::Duration, tangram_client::prelude::*};
+use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Advance the server's virtual clock.
 #[derive(Clone, Debug, clap::Args)]
@@ -9,18 +9,16 @@ pub struct Args {
 	pub duration: Duration,
 }
 
-impl Component<'_> {
-	pub async fn command_clock_advance(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::clock::advance::Arg {
-			duration: args.duration,
-		};
-		let output = client
-			.advance_clock(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to advance the clock"))?;
-		self.print_serde(output, tangram_cli_core::print::Options::default())
-			.await?;
-		Ok(())
-	}
+pub async fn command_clock_advance(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::clock::advance::Arg {
+		duration: args.duration,
+	};
+	let output = client
+		.advance_clock(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to advance the clock"))?;
+	cli.print_serde(output, tangram_cli_core::print::Options::default())
+		.await?;
+	Ok(())
 }

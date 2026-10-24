@@ -1,4 +1,4 @@
-use {crate::Component, std::time::Duration, tangram_client::prelude::*};
+use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -17,26 +17,24 @@ pub struct Args {
 	pub watch: u64,
 }
 
-impl Component<'_> {
-	pub async fn command_checkpoint_wait(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let future = client.wait_checkpoint_hit(&args.checkpoint, args.watch, args.hit);
-		let output = match args.timeout {
-			Some(timeout) => tokio::time::timeout(timeout, future)
-				.await
-				.map_err(|error| {
-					tg::error!(
-						!error,
-						checkpoint = %args.checkpoint,
-						hit = %args.hit,
-						"timed out waiting for the checkpoint hit"
-					)
-				})?,
-			None => future.await,
-		}
-		.map_err(|error| tg::error!(!error, "failed to wait for the checkpoint hit"))?;
-		self.print_serde(output, tangram_cli_core::print::Options::default())
-			.await?;
-		Ok(())
+pub async fn command_checkpoint_wait(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let future = client.wait_checkpoint_hit(&args.checkpoint, args.watch, args.hit);
+	let output = match args.timeout {
+		Some(timeout) => tokio::time::timeout(timeout, future)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					checkpoint = %args.checkpoint,
+					hit = %args.hit,
+					"timed out waiting for the checkpoint hit"
+				)
+			})?,
+		None => future.await,
 	}
+	.map_err(|error| tg::error!(!error, "failed to wait for the checkpoint hit"))?;
+	cli.print_serde(output, tangram_cli_core::print::Options::default())
+		.await?;
+	Ok(())
 }

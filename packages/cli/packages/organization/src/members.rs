@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub mod add;
 pub mod list;
@@ -23,13 +23,17 @@ pub enum Command {
 	Remove(self::remove::Args),
 }
 
-impl Component<'_> {
-	pub async fn command_organization_members(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Add(args) => self.command_organization_members_add(args).await?,
-			Command::List(args) => self.command_organization_members_list(args).await?,
-			Command::Remove(args) => self.command_organization_members_remove(args).await?,
-		}
-		Ok(())
+pub async fn command_organization_members(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Add(args) => {
+			crate::members::add::command_organization_members_add(cli, args).await?;
+		},
+		Command::List(args) => {
+			crate::members::list::command_organization_members_list(cli, args).await?;
+		},
+		Command::Remove(args) => {
+			crate::members::remove::command_organization_members_remove(cli, args).await?;
+		},
 	}
+	Ok(())
 }

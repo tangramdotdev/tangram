@@ -1,9 +1,7 @@
 use {
-	crate::{
-		Component,
-		{Kind, util::State},
-	},
+	crate::{Kind, util::State},
 	std::collections::BTreeMap,
+	tangram_cli_core::Cli,
 	tangram_client::prelude::*,
 };
 
@@ -21,43 +19,41 @@ pub struct Args {
 	pub shell: Kind,
 }
 
-impl Component<'_> {
-	pub async fn command_shell_activate(&mut self, args: Args) -> tg::Result<()> {
-		let mut output = String::new();
+pub async fn command_shell_activate(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let mut output = String::new();
 
-		let mut current = std::env::vars().collect::<BTreeMap<_, _>>();
+	let mut current = std::env::vars().collect::<BTreeMap<_, _>>();
 
-		if let Some(deactivate) = Self::deactivate_shell()? {
-			let code = Self::create_shell_code(args.shell, &deactivate.mutations);
-			output.push_str(&code);
-			Self::apply_shell_mutations(&mut current, &deactivate.mutations);
-			Self::print_shell_preserved_variable_messages(&deactivate.preserved);
-		}
-
-		let path = self.build_shell_executable(&args.reference).await?;
-		let env = self.run_shell_executable(&path).await?;
-		let (activate, previous, current) = Self::create_shell_mutations(&current, &env);
-		let code = Self::create_shell_code(args.shell, &activate);
+	if let Some(deactivate) = crate::util::deactivate_shell()? {
+		let code = crate::util::create_shell_code(args.shell, &deactivate.mutations);
 		output.push_str(&code);
-
-		if args.permanent {
-			let code = Self::create_shell_state_code(args.shell, None);
-			output.push_str(&code);
-		} else {
-			let path = Self::shell_state_path()?;
-			let state = State {
-				current,
-				directory: false,
-				previous,
-				reference: args.reference.clone(),
-			};
-			Self::write_shell_state(&path, &state)?;
-			let code = Self::create_shell_state_code(args.shell, Some(&path));
-			output.push_str(&code);
-		}
-
-		print!("{output}");
-
-		Ok(())
+		crate::util::apply_shell_mutations(&mut current, &deactivate.mutations);
+		crate::util::print_shell_preserved_variable_messages(&deactivate.preserved);
 	}
+
+	let path = crate::util::build_shell_executable(cli, &args.reference).await?;
+	let env = crate::util::run_shell_executable(&path).await?;
+	let (activate, previous, current) = crate::util::create_shell_mutations(&current, &env);
+	let code = crate::util::create_shell_code(args.shell, &activate);
+	output.push_str(&code);
+
+	if args.permanent {
+		let code = crate::util::create_shell_state_code(args.shell, None);
+		output.push_str(&code);
+	} else {
+		let path = crate::util::shell_state_path()?;
+		let state = State {
+			current,
+			directory: false,
+			previous,
+			reference: args.reference.clone(),
+		};
+		crate::util::write_shell_state(&path, &state)?;
+		let code = crate::util::create_shell_state_code(args.shell, Some(&path));
+		output.push_str(&code);
+	}
+
+	print!("{output}");
+
+	Ok(())
 }

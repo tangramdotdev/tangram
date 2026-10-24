@@ -1,8 +1,5 @@
 use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Match specifiers.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -45,58 +42,36 @@ pub struct Args {
 	pub ttl: tangram_cli_list::Ttl,
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_match(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::match_::Arg {
+		cached: args.cached,
+		cursor: args.cursor,
+		groups: args.entries.groups(),
+		limit: args.limit,
+		location: args.locations.get(),
+		organizations: args.entries.organizations(),
+		pattern: args.pattern.clone(),
+		reverse: args.reverse,
+		tags: args.entries.tags(),
+		tokens: tg::authorization::Tokens::default(),
+		ttl: args.ttl.get(),
+		users: args.entries.users(),
+	};
+	let output = if args.all {
+		client.match_all(arg).await
+	} else {
+		client.match_(arg).await
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_match(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::match_::Arg {
-			cached: args.cached,
-			cursor: args.cursor,
-			groups: args.entries.groups(),
-			limit: args.limit,
-			location: args.locations.get(),
-			organizations: args.entries.organizations(),
-			pattern: args.pattern.clone(),
-			reverse: args.reverse,
-			tags: args.entries.tags(),
-			tokens: tg::authorization::Tokens::default(),
-			ttl: args.ttl.get(),
-			users: args.entries.users(),
-		};
-		let output = if args.all {
-			client.match_all(arg).await
-		} else {
-			client.match_(arg).await
+	.map_err(|error| tg::error!(!error, pattern = %args.pattern, "failed to match entries"))?;
+	if args.output.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		cli.print_serde(output.data, args.print).await?;
+		if let Some(cursor) = output.cursor {
+			cli.print_info_message(&format!("Next cursor: {cursor}"));
 		}
-		.map_err(|error| tg::error!(!error, pattern = %args.pattern, "failed to match entries"))?;
-		if args.output.verbose {
-			self.print_serde(output, args.print).await?;
-		} else {
-			self.print_serde(output.data, args.print).await?;
-			if let Some(cursor) = output.cursor {
-				self.print_info_message(&format!("Next cursor: {cursor}"));
-			}
-		}
-
-		Ok(())
 	}
-}
 
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Delete a group.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,16 +11,14 @@ pub struct Args {
 	pub group: tg::Referent<tg::group::Selector>,
 }
 
-impl Component<'_> {
-	pub async fn command_group_delete(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::group::delete::Arg {
-			location: args.location.get_for_options(&args.group),
-			tokens: args.group.options.tokens,
-		};
-		client.delete_group(&args.group.node, arg).await.map_err(
-			|error| tg::error!(!error, group = %args.group.node, "failed to delete the group"),
-		)?;
-		Ok(())
-	}
+pub async fn command_group_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::group::delete::Arg {
+		location: args.location.get_for_options(&args.group),
+		tokens: args.group.options.tokens,
+	};
+	client.delete_group(&args.group.node, arg).await.map_err(
+		|error| tg::error!(!error, group = %args.group.node, "failed to delete the group"),
+	)?;
+	Ok(())
 }

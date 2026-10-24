@@ -4,9 +4,6 @@ pub mod delete;
 pub mod get;
 pub mod put;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Tag {
@@ -100,6 +97,21 @@ pub enum Command {
 	Put(self::put::Args),
 }
 
+pub async fn command_tag(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command.unwrap_or(Command::Put(args.args)) {
+		Command::Delete(args) => {
+			crate::delete::command_tag_delete(cli, args).await?;
+		},
+		Command::Get(args) => {
+			crate::get::command_tag_get(cli, args).await?;
+		},
+		Command::Put(args) => {
+			crate::put::command_tag_put(cli, args).await?;
+		},
+	}
+	Ok(())
+}
+
 impl Tag {
 	#[must_use]
 	pub fn ancestors(&self) -> tg::node::Ancestors {
@@ -119,42 +131,5 @@ impl Tag {
 			.unwrap_or_default();
 
 		tg::node::Ancestors { create, pull }
-	}
-}
-
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_tag(&mut self, args: Args) -> tg::Result<()> {
-		match args.command.unwrap_or(Command::Put(args.args)) {
-			Command::Delete(args) => {
-				self.command_tag_delete(args).await?;
-			},
-			Command::Get(args) => {
-				self.command_tag_get(args).await?;
-			},
-			Command::Put(args) => {
-				self.command_tag_put(args).await?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
 	}
 }

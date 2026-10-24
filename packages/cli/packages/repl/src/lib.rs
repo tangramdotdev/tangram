@@ -6,9 +6,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Run a REPL.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -26,143 +23,133 @@ struct Highlighter {
 #[derive(Clone)]
 struct Prompt;
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
-	}
-}
+pub async fn command_repl(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let engine = args.engine;
 
-impl Component<'_> {
-	pub async fn command_repl(&mut self, args: Args) -> tg::Result<()> {
-		let engine = args.engine;
+	// Start the runtime thread.
+	let args = Vec::new();
+	let cwd = std::env::current_dir()
+		.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
+	let env = tg::process::env()?
+		.into_iter()
+		.map(|(key, value)| (key, value.to_data()))
+		.collect();
+	let export = None;
+	let module = tg::module::Data {
+		kind: tg::module::Kind::JavaScript,
+		referent: tg::Referent::with_node(tg::module::data::Source::Path(PathBuf::from("<repl>"))),
+	};
+	let client = cli.client().await?;
+	let http = client.http();
+	let instance = tg::instance::dynamic::Instance::new(client);
+	let main_runtime_handle = tokio::runtime::Handle::current();
+	let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+	let arg = tangram_javascript::Arg {
+		args,
+		cwd,
+		env,
+		export,
+		http,
+		inspect: None,
+		instance,
+		main_runtime_handle,
+		module,
+		repl: Some(receiver),
+	};
+	let task = Cli::spawn_thread(move || {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
+		runtime.block_on(async move {
+			match engine {
+				#[allow(unreachable_patterns)]
+				#[cfg(feature = "v8")]
+				Engine::Auto | Engine::V8 => {
+					let mut runtime = tangram_javascript::v8::Runtime::new(arg)?;
+					runtime.run().await?;
+				},
+				#[allow(unreachable_patterns)]
+				#[cfg(feature = "quickjs")]
+				Engine::Auto | Engine::QuickJs => {
+					let mut runtime = tangram_javascript::quickjs::Runtime::new(arg).await?;
+					runtime.run().await?;
+				},
+				#[allow(unreachable_patterns)]
+				_ => {
+					drop(arg);
+					return Err(tg::error!(
+						"the requested JavaScript engine is not available"
+					));
+				},
+			}
+			Ok(())
+		})
+	});
 
-		// Start the runtime thread.
-		let args = Vec::new();
-		let cwd = std::env::current_dir()
-			.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
-		let env = tg::process::env()?
-			.into_iter()
-			.map(|(key, value)| (key, value.to_data()))
-			.collect();
-		let export = None;
-		let module = tg::module::Data {
-			kind: tg::module::Kind::JavaScript,
-			referent: tg::Referent::with_node(tg::module::data::Source::Path(PathBuf::from(
-				"<repl>",
-			))),
-		};
-		let client = self.client().await?;
-		let http = client.http();
-		let instance = tg::instance::dynamic::Instance::new(client);
-		let main_runtime_handle = tokio::runtime::Handle::current();
-		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-		let arg = tangram_javascript::Arg {
-			args,
-			cwd,
-			env,
-			export,
-			http,
-			inspect: None,
-			instance,
-			main_runtime_handle,
-			module,
-			repl: Some(receiver),
-		};
-		let task = Cli::spawn_thread(move || {
-			let runtime = tokio::runtime::Builder::new_current_thread()
-				.enable_all()
-				.build()
-				.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
-			runtime.block_on(async move {
-				match engine {
-					#[allow(unreachable_patterns)]
-					#[cfg(feature = "v8")]
-					Engine::Auto | Engine::V8 => {
-						let mut runtime = tangram_javascript::v8::Runtime::new(arg)?;
-						runtime.run().await?;
+	// Set up reedline.
+	let history_path = cli.directory_path().join("history");
+	let history_size = cli.repl_config().history_size;
+	let history = reedline::FileBackedHistory::with_file(history_size, history_path)
+		.map_err(|error| tg::error!(!error, "failed to initialize the repl history"))?;
+	let history_exclusion_prefix = " ".to_owned();
+	let hinter_style = nu_ansi_term::Style::new()
+		.italic()
+		.fg(nu_ansi_term::Color::DarkGray);
+	let hinter = reedline::DefaultHinter::default().with_style(hinter_style);
+	let highlighter = Highlighter::new();
+	let mut editor = reedline::Reedline::create()
+		.with_history(Box::new(history))
+		.with_history_exclusion_prefix(Some(history_exclusion_prefix))
+		.with_hinter(Box::new(hinter))
+		.with_highlighter(Box::new(highlighter));
+	let prompt = Prompt;
+
+	// REPL it.
+	loop {
+		let prompt = prompt.clone();
+		let result = tokio::task::spawn_blocking(move || {
+			let signal = editor
+				.read_line(&prompt)
+				.map_err(|error| tg::error!(!error, "failed to read from the repl"))?;
+			Ok::<_, tg::Error>((editor, signal))
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to join the repl reader task"))??;
+		let (editor_, signal) = result;
+		editor = editor_;
+		match signal {
+			reedline::Signal::Success(source) if !source.trim().is_empty() => {
+				if source.trim() == ".exit" {
+					break;
+				}
+				let (response, receiver) = tokio::sync::oneshot::channel();
+				let command = tangram_javascript::repl::Command { source, response };
+				if sender.send(command).is_err() {
+					return Err(tg::error!("the repl runtime stopped"));
+				}
+				match receiver.await {
+					Ok(Ok(())) => (),
+					Ok(Err(error)) => {
+						cli.print_error(tg::Referent::with_node(error)).await;
 					},
-					#[allow(unreachable_patterns)]
-					#[cfg(feature = "quickjs")]
-					Engine::Auto | Engine::QuickJs => {
-						let mut runtime = tangram_javascript::quickjs::Runtime::new(arg).await?;
-						runtime.run().await?;
-					},
-					#[allow(unreachable_patterns)]
-					_ => {
-						drop(arg);
-						return Err(tg::error!(
-							"the requested JavaScript engine is not available"
-						));
+					Err(error) => {
+						return Err(tg::error!(!error, "failed to receive the repl response"));
 					},
 				}
-				Ok(())
-			})
-		});
-
-		// Set up reedline.
-		let history_path = self.directory_path().join("history");
-		let history_size = self.repl_config().history_size;
-		let history = reedline::FileBackedHistory::with_file(history_size, history_path)
-			.map_err(|error| tg::error!(!error, "failed to initialize the repl history"))?;
-		let history_exclusion_prefix = " ".to_owned();
-		let hinter_style = nu_ansi_term::Style::new()
-			.italic()
-			.fg(nu_ansi_term::Color::DarkGray);
-		let hinter = reedline::DefaultHinter::default().with_style(hinter_style);
-		let highlighter = Highlighter::new();
-		let mut editor = reedline::Reedline::create()
-			.with_history(Box::new(history))
-			.with_history_exclusion_prefix(Some(history_exclusion_prefix))
-			.with_hinter(Box::new(hinter))
-			.with_highlighter(Box::new(highlighter));
-		let prompt = Prompt;
-
-		// REPL it.
-		loop {
-			let prompt = prompt.clone();
-			let result = tokio::task::spawn_blocking(move || {
-				let signal = editor
-					.read_line(&prompt)
-					.map_err(|error| tg::error!(!error, "failed to read from the repl"))?;
-				Ok::<_, tg::Error>((editor, signal))
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to join the repl reader task"))??;
-			let (editor_, signal) = result;
-			editor = editor_;
-			match signal {
-				reedline::Signal::Success(source) if !source.trim().is_empty() => {
-					if source.trim() == ".exit" {
-						break;
-					}
-					let (response, receiver) = tokio::sync::oneshot::channel();
-					let command = tangram_javascript::repl::Command { source, response };
-					if sender.send(command).is_err() {
-						return Err(tg::error!("the repl runtime stopped"));
-					}
-					match receiver.await {
-						Ok(Ok(())) => (),
-						Ok(Err(error)) => {
-							self.print_error(tg::Referent::with_node(error)).await;
-						},
-						Err(error) => {
-							return Err(tg::error!(!error, "failed to receive the repl response"));
-						},
-					}
-				},
-				reedline::Signal::CtrlC | reedline::Signal::CtrlD => {
-					break;
-				},
-				_ => (),
-			}
+			},
+			reedline::Signal::CtrlC | reedline::Signal::CtrlD => {
+				break;
+			},
+			_ => (),
 		}
-
-		drop(sender);
-		task.await
-			.map_err(|error| tg::error!(!error, "the repl thread failed"))?;
-
-		Ok(())
 	}
+
+	drop(sender);
+	task.await
+		.map_err(|error| tg::error!(!error, "the repl thread failed"))?;
+
+	Ok(())
 }
 
 impl Highlighter {
@@ -234,20 +221,6 @@ impl reedline::Prompt for Prompt {
 
 	fn get_indicator_color(&self) -> Color {
 		Color::Fixed(244)
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
 	}
 }
 

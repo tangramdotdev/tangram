@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -13,13 +13,11 @@ pub struct Args {
 	pub watch: u64,
 }
 
-impl Component<'_> {
-	pub async fn command_checkpoint_continue(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		client
-			.continue_checkpoint_hit(&args.checkpoint, args.watch, args.hit)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to continue the checkpoint hit"))?;
-		Ok(())
-	}
+pub async fn command_checkpoint_continue(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	client
+		.continue_checkpoint_hit(&args.checkpoint, args.watch, args.hit)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to continue the checkpoint hit"))?;
+	Ok(())
 }
