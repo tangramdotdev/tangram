@@ -3,7 +3,7 @@ use {
 	tangram_http::body::Boxed as BoxBody,
 };
 
-pub use tangram_server_watch_types::{
+pub use tangram_server_watch_core::{
 	Expire, Id, Key, LockWriteGuard, Message, NewArg, Snapshot, State, UpdateArg, Watch,
 };
 

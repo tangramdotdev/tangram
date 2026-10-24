@@ -105,7 +105,7 @@ members = [
   "packages/serialize",
   "packages/server",
   "packages/server/packages/authentication",
-  "packages/server/packages/authentication/packages/types",
+  "packages/server/packages/authentication/packages/core",
   "packages/server/packages/authorization",
   "packages/server/packages/billing",
   "packages/server/packages/cache",
@@ -114,12 +114,12 @@ members = [
   "packages/server/packages/checkin/packages/graph",
   "packages/server/packages/checkout",
   "packages/server/packages/checkpoint",
-  "packages/server/packages/checkpoint/packages/types",
+  "packages/server/packages/checkpoint/packages/core",
   "packages/server/packages/checksum",
   "packages/server/packages/children",
   "packages/server/packages/clean",
   "packages/server/packages/clock",
-  "packages/server/packages/clock/packages/types",
+  "packages/server/packages/clock/packages/core",
   "packages/server/packages/config",
   "packages/server/packages/control",
   "packages/server/packages/core",
@@ -147,7 +147,7 @@ members = [
   "packages/server/packages/pull",
   "packages/server/packages/push",
   "packages/server/packages/read",
-  "packages/server/packages/read/packages/types",
+  "packages/server/packages/read/packages/core",
   "packages/server/packages/remote",
   "packages/server/packages/runner",
   "packages/server/packages/sandbox",
@@ -158,7 +158,7 @@ members = [
   "packages/server/packages/verify",
   "packages/server/packages/vfs",
   "packages/server/packages/watch",
-  "packages/server/packages/watch/packages/types",
+  "packages/server/packages/watch/packages/core",
   "packages/server/packages/write",
   "packages/uri",
   "packages/util",
@@ -435,7 +435,7 @@ tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }
 tangram_server_authentication = { path = "packages/server/packages/authentication" }
-tangram_server_authentication_types = { path = "packages/server/packages/authentication/packages/types" }
+tangram_server_authentication_core = { path = "packages/server/packages/authentication/packages/core" }
 tangram_server_authorization = { path = "packages/server/packages/authorization" }
 tangram_server_billing = { path = "packages/server/packages/billing" }
 tangram_server_cache = { path = "packages/server/packages/cache" }
@@ -444,12 +444,12 @@ tangram_server_checkin = { path = "packages/server/packages/checkin" }
 tangram_server_checkin_graph = { path = "packages/server/packages/checkin/packages/graph" }
 tangram_server_checkout = { path = "packages/server/packages/checkout" }
 tangram_server_checkpoint = { path = "packages/server/packages/checkpoint" }
-tangram_server_checkpoint_types = { path = "packages/server/packages/checkpoint/packages/types" }
+tangram_server_checkpoint_core = { path = "packages/server/packages/checkpoint/packages/core" }
 tangram_server_checksum = { path = "packages/server/packages/checksum" }
 tangram_server_children = { path = "packages/server/packages/children" }
 tangram_server_clean = { path = "packages/server/packages/clean" }
 tangram_server_clock = { path = "packages/server/packages/clock" }
-tangram_server_clock_types = { path = "packages/server/packages/clock/packages/types" }
+tangram_server_clock_core = { path = "packages/server/packages/clock/packages/core" }
 tangram_server_config = { path = "packages/server/packages/config" }
 tangram_server_control = { path = "packages/server/packages/control" }
 tangram_server_core = { path = "packages/server/packages/core" }
@@ -477,7 +477,7 @@ tangram_server_process = { path = "packages/server/packages/process" }
 tangram_server_pull = { path = "packages/server/packages/pull" }
 tangram_server_push = { path = "packages/server/packages/push" }
 tangram_server_read = { path = "packages/server/packages/read" }
-tangram_server_read_types = { path = "packages/server/packages/read/packages/types" }
+tangram_server_read_core = { path = "packages/server/packages/read/packages/core" }
 tangram_server_remote = { path = "packages/server/packages/remote" }
 tangram_server_runner = { path = "packages/server/packages/runner" }
 tangram_server_sandbox = { path = "packages/server/packages/sandbox" }
@@ -488,7 +488,7 @@ tangram_server_user = { path = "packages/server/packages/user" }
 tangram_server_verify = { path = "packages/server/packages/verify" }
 tangram_server_vfs = { path = "packages/server/packages/vfs" }
 tangram_server_watch = { path = "packages/server/packages/watch" }
-tangram_server_watch_types = { path = "packages/server/packages/watch/packages/types" }
+tangram_server_watch_core = { path = "packages/server/packages/watch/packages/core" }
 tangram_server_write = { path = "packages/server/packages/write" }
 tangram_uri = { path = "packages/uri" }
 tangram_util = { path = "packages/util" }

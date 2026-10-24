@@ -3,7 +3,7 @@ use {
 	tangram_http::body::Boxed as BoxBody,
 };
 
-pub use tangram_server_clock_types::{Clock, Elapsed, Instant, Interval, Real, Sleep, Virtual};
+pub use tangram_server_clock_core::{Clock, Elapsed, Instant, Interval, Real, Sleep, Virtual};
 
 /// The clock component.
 pub trait Component: crate::component::Lifecycle {

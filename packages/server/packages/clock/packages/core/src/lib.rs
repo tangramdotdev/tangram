@@ -25,7 +25,7 @@ pub struct Real {
 }
 
 pub struct Virtual {
-	checkpoints: Option<Arc<tangram_server_checkpoint_types::State>>,
+	checkpoints: Option<Arc<tangram_server_checkpoint_core::State>>,
 	state: Mutex<VirtualState>,
 }
 
@@ -82,7 +82,7 @@ impl Clock {
 	#[must_use]
 	pub fn new(
 		config: Option<&tangram_server_config::Clock>,
-		checkpoints: Option<Arc<tangram_server_checkpoint_types::State>>,
+		checkpoints: Option<Arc<tangram_server_checkpoint_core::State>>,
 	) -> Self {
 		let Some(config) = config else {
 			let origin = tokio::time::Instant::now();

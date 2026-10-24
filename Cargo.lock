@@ -10702,7 +10702,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_server_authentication_types"
+name = "tangram_server_authentication_core"
 version = "0.0.0"
 dependencies = [
  "aws-lc-rs",
@@ -10854,7 +10854,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_server_checkpoint_types"
+name = "tangram_server_checkpoint_core"
 version = "0.0.0"
 dependencies = [
  "tangram_client",
@@ -10922,13 +10922,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_server_clock_types"
+name = "tangram_server_clock_core"
 version = "0.0.0"
 dependencies = [
  "futures",
  "jiff",
  "tangram_client",
- "tangram_server_checkpoint_types",
+ "tangram_server_checkpoint_core",
  "tangram_server_config",
  "tokio",
 ]
@@ -11017,11 +11017,11 @@ dependencies = [
  "tangram_pool",
  "tangram_sandbox",
  "tangram_serialize",
- "tangram_server_authentication_types",
+ "tangram_server_authentication_core",
  "tangram_server_cache",
  "tangram_server_checkin_graph",
- "tangram_server_checkpoint_types",
- "tangram_server_clock_types",
+ "tangram_server_checkpoint_core",
+ "tangram_server_clock_core",
  "tangram_server_config",
  "tangram_server_control",
  "tangram_server_database",
@@ -11029,8 +11029,8 @@ dependencies = [
  "tangram_server_graph",
  "tangram_server_index",
  "tangram_server_messenger",
- "tangram_server_read_types",
- "tangram_server_watch_types",
+ "tangram_server_read_core",
+ "tangram_server_watch_core",
  "tangram_uri",
  "tangram_util",
  "tokio",
@@ -11451,7 +11451,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_server_read_types"
+name = "tangram_server_read_core"
 version = "0.0.0"
 dependencies = [
  "bytes",
@@ -11693,7 +11693,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_server_watch_types"
+name = "tangram_server_watch_core"
 version = "0.0.0"
 dependencies = [
  "fnv",
@@ -11702,7 +11702,7 @@ dependencies = [
  "tangram_client",
  "tangram_futures",
  "tangram_server_checkin_graph",
- "tangram_server_clock_types",
+ "tangram_server_clock_core",
  "tangram_server_config",
  "tokio",
  "tracing",

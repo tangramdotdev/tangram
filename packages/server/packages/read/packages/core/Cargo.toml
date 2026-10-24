@@ -1,5 +1,5 @@
 [package]
-name = "tangram_server_checkpoint_types"
+name = "tangram_server_read_core"
 
 description = { workspace = true }
 edition = { workspace = true }
@@ -17,5 +17,9 @@ doctest = false
 workspace = true
 
 [dependencies]
+bytes = { workspace = true }
+futures = { workspace = true }
+num = { workspace = true }
+sync_wrapper = { workspace = true }
 tangram_client = { workspace = true }
 tokio = { workspace = true }

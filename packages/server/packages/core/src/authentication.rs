@@ -4,7 +4,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub use tangram_server_authentication_types::{Entry, Process, RemoteToken, Sandbox, cache, token};
+pub use tangram_server_authentication_core::{Entry, Process, RemoteToken, Sandbox, cache, token};
 
 /// The authentication component.
 pub trait Component: crate::component::Lifecycle {

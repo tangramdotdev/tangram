@@ -5,7 +5,7 @@ use {
 	tangram_http::body::Boxed as BoxBody,
 };
 
-pub use tangram_server_read_types::{File, Loader, Object, ReadFuture, Reader};
+pub use tangram_server_read_core::{File, Loader, Object, ReadFuture, Reader};
 
 /// The read component.
 pub trait Component: crate::component::Lifecycle {
