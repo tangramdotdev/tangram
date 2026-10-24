@@ -255,7 +255,7 @@ impl Component {
 			}
 			return Err(tg::error!("unauthorized"));
 		};
-		let permission = tangram_server_core::grant::admin_permission_for_resource(owner)?;
+		let permission = tangram_server_grant_core::admin_permission_for_resource(owner)?;
 		let authorized = session
 			.authorize(owner.clone(), permission)
 			.await?
@@ -287,24 +287,31 @@ impl Component {
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let owner = owner.clone();
-				async move { Self::resolve_runner_owner_with_transaction(transaction, &owner).await }
-					.boxed()
+				let session = session.clone();
+				async move {
+					Self::resolve_runner_owner_with_transaction(&session, transaction, &owner).await
+				}
+				.boxed()
 			})
 			.await
 	}
 
 	async fn resolve_runner_owner_with_transaction(
+		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		owner: &tg::authorization::subject::Selector,
 	) -> tg::Result<ControlFlow<tg::Principal, tangram_server_core::database::Error>> {
-		let owner =
-			match tangram_server_core::grant::resolve_subject_with_transaction(transaction, owner)
-				.await?
-			{
-				ControlFlow::Break(owner) => owner,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			}
-			.ok_or_else(|| tg::error!("failed to resolve the runner owner"))?;
+		let owner = match session
+			.server
+			.components
+			.grant
+			.resolve_subject_with_transaction(transaction, owner)
+			.await?
+		{
+			ControlFlow::Break(owner) => owner,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		.ok_or_else(|| tg::error!("failed to resolve the runner owner"))?;
 		let owner = match owner {
 			tg::authorization::Subject::Group(id) => tg::Principal::Group(id),
 			tg::authorization::Subject::Organization(id) => tg::Principal::Organization(id),

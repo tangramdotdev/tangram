@@ -1560,7 +1560,7 @@ impl Component {
 			for value in command.args.iter_mut().chain(command.env.values_mut()) {
 				let (tg::command::data::Value::String(value)
 				| tg::command::data::Value::Value(value)) = value;
-				tangram_server_core::process::update_process_value_tokens(
+				tangram_server_process_core::update_process_value_tokens(
 					value,
 					&mut |tokens, _| {
 						inherit(tokens);
@@ -1573,7 +1573,7 @@ impl Component {
 		}
 		if let Some(output) = &mut data.output {
 			inherit(&mut output.options.tokens);
-			tangram_server_core::process::update_process_value_tokens(
+			tangram_server_process_core::update_process_value_tokens(
 				&mut output.node,
 				&mut |tokens, _| {
 					inherit(tokens);

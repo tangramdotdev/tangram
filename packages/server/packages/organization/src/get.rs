@@ -1,8 +1,10 @@
 use {
 	crate::Component,
 	futures::FutureExt as _,
+	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database as db,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -87,14 +89,8 @@ impl Component {
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let id = id.clone();
-				async move {
-					tangram_server_core::organization::try_get_organization_with_transaction(
-						transaction,
-						&id,
-					)
-					.await
-				}
-				.boxed()
+				async move { Self::try_get_organization_with_transaction(transaction, &id).await }
+					.boxed()
 			})
 			.await?;
 		let Some(data) = organization else {
@@ -276,5 +272,49 @@ impl Component {
 		}
 		let response = response.body(body).unwrap().boxed_body();
 		Ok(response)
+	}
+
+	pub(crate) async fn try_get_organization_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		id: &tg::organization::Id,
+	) -> tg::Result<ControlFlow<Option<tg::organization::Data>, tangram_server_core::database::Error>>
+	{
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			name: String,
+		}
+
+		let specifier =
+			match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+				transaction,
+				&id.clone().into(),
+			)
+			.await?
+			{
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(specifier) = specifier else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select name
+				from organizations
+				where id = {p}1;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let organization = row.map(|row| tg::organization::Data {
+			id: id.clone(),
+			name: row.name,
+			specifier,
+		});
+
+		Ok(ControlFlow::Break(organization))
 	}
 }

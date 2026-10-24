@@ -61,7 +61,7 @@ impl Component {
 			.authorize_owner(session, arg.owner.as_ref())
 			.await?;
 
-		arg = tangram_server_core::sandbox::normalize_sandbox_create_arg(arg)?;
+		arg = tangram_server_sandbox_core::normalize_sandbox_create_arg(arg)?;
 		if arg.host.is_none() {
 			return Err(tg::error!("missing sandbox host"));
 		}
@@ -81,9 +81,9 @@ impl Component {
 			.await?;
 
 		// Validate the backend and resources.
-		crate::clear_darwin_sandbox_resources(&mut arg);
+		tangram_server_sandbox_core::clear_darwin_sandbox_resources(&mut arg);
 		let isolation = session.server.resolve_sandbox_backend()?;
-		tangram_server_core::sandbox::validate_sandbox_resources(
+		tangram_server_sandbox_core::validate_sandbox_resources(
 			&isolation,
 			arg.cpu,
 			arg.memory,

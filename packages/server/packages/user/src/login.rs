@@ -243,14 +243,11 @@ impl Component {
 			)
 			.await;
 		tangram_server_core::database::retry!(result, "failed to execute the statement");
-		let user =
-			match tangram_server_core::user::try_get_user_with_transaction(transaction, &user.id)
-				.await?
-			{
-				ControlFlow::Break(user) => user,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			}
-			.ok_or_else(|| tg::error!("failed to find the user"))?;
+		let user = match Self::try_get_user_with_transaction(transaction, &user.id).await? {
+			ControlFlow::Break(user) => user,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		.ok_or_else(|| tg::error!("failed to find the user"))?;
 		match session
 			.server
 			.enqueue_database_index_queue_with_transaction(transaction, &batch)
@@ -293,12 +290,7 @@ impl Component {
 				tangram_server_core::database::retry!(result, "failed to execute the statement");
 			if let Some(row) = row {
 				let id = row.user.parse::<tg::user::Id>()?;
-				let user = match tangram_server_core::user::try_get_user_with_transaction(
-					transaction,
-					&id,
-				)
-				.await?
-				{
+				let user = match Self::try_get_user_with_transaction(transaction, &id).await? {
 					ControlFlow::Break(user) => user,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				}
@@ -328,8 +320,7 @@ impl Component {
 			let Ok(id) = id.try_into() else {
 				return Err(tg::error!("specifier is already in use"));
 			};
-			match tangram_server_core::user::try_get_user_with_transaction(transaction, &id).await?
-			{
+			match Self::try_get_user_with_transaction(transaction, &id).await? {
 				ControlFlow::Break(user) => user,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}
@@ -365,8 +356,7 @@ impl Component {
 					specifier: specifier.clone(),
 				},
 			));
-			match tangram_server_core::user::try_get_user_with_transaction(transaction, &id).await?
-			{
+			match Self::try_get_user_with_transaction(transaction, &id).await? {
 				ControlFlow::Break(user) => user,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}

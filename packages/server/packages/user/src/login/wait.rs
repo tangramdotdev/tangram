@@ -190,12 +190,7 @@ impl Component {
 					.user
 					.ok_or_else(|| tg::error!("missing login user"))?
 					.parse::<tg::user::Id>()?;
-				let user = match tangram_server_core::user::try_get_user_with_transaction(
-					transaction,
-					&user,
-				)
-				.await?
-				{
+				let user = match Self::try_get_user_with_transaction(transaction, &user).await? {
 					ControlFlow::Break(user) => user,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				}

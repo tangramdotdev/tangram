@@ -1008,7 +1008,7 @@ impl Provider {
 			) {
 				return Ok(None);
 			}
-			let permission = tangram_server_core::grant::read_permission_for_resource(&id)
+			let permission = tangram_server_grant_core::read_permission_for_resource(&id)
 				.map_err(|error| named_node_error(&error))?;
 			let authorized = session
 				.authorize(tg::Selector::Id(id), permission)

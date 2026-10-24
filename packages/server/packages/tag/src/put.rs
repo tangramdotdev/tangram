@@ -179,7 +179,7 @@ impl Component {
 					authorizations.push((resource, false, permissions));
 					if let Some(parent) = parent {
 						let permission =
-							tangram_server_core::grant::write_permission_for_resource(parent)?;
+							tangram_server_grant_core::write_permission_for_resource(parent)?;
 						let permissions =
 							tg::authorization::permission::Set::from_permission(permission);
 						let resource = tg::Selector::<tg::Id>::Id(parent.clone());
@@ -392,11 +392,12 @@ impl Component {
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}
 		} else {
-			match tangram_server_core::group::resolve_parent_for_specifier_with_transaction(
-				transaction,
-				&arg.specifier,
-			)
-			.await?
+			match session
+				.server
+				.components
+				.group
+				.resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier)
+				.await?
 			{
 				ControlFlow::Break(parent) => parent,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
@@ -429,7 +430,7 @@ impl Component {
 			let version = if row.target == target {
 				row.version
 			} else {
-				tangram_server_core::tag::version()
+				tangram_server_tag_core::version()
 			};
 			if row.target != target && !arg.force {
 				return Err(tg::error!("the tag already has a different target"));
@@ -452,7 +453,7 @@ impl Component {
 			(id, version)
 		} else {
 			let id = tg::tag::Id::new();
-			let version = tangram_server_core::tag::version();
+			let version = tangram_server_tag_core::version();
 			match tangram_server_core::Session::insert_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),

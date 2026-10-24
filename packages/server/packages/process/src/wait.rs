@@ -438,7 +438,7 @@ impl Component {
 			if permissions
 				.contains(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS)
 			{
-				tangram_server_core::process::update_process_value_tokens(
+				tangram_server_process_core::update_process_value_tokens(
 					&mut value,
 					&mut |tokens, id| {
 						Self::retain_wait_object_tokens(tokens, id, retain_sync);
@@ -507,7 +507,7 @@ impl Component {
 			error.options.tokens.inherit(&authorization_tokens);
 		}
 		if let Some(data) = &mut outcome.output {
-			tangram_server_core::process::update_process_value_tokens(data, &mut |tokens, _| {
+			tangram_server_process_core::update_process_value_tokens(data, &mut |tokens, _| {
 				tokens.inherit(&authorization_tokens);
 			});
 		}

@@ -349,7 +349,7 @@ impl Component {
 			tg::id::Kind::Sync => tg::authorization::Permission::Sync(
 				tg::authorization::permission::sync::Permission::Read,
 			),
-			_ => tangram_server_core::grant::admin_permission_for_resource(id)?,
+			_ => tangram_server_grant_core::admin_permission_for_resource(id)?,
 		};
 		let permissions = tg::authorization::permission::Set::from_permission(permission);
 		let subject = match sync {

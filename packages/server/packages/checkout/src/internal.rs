@@ -171,8 +171,10 @@ impl Component {
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let id = id.clone();
+				let session = session.clone();
 				async move {
 					Self::checkout_named_nodes_local_with_transaction(
+						&session,
 						transaction,
 						&id,
 						include_hierarchy,
@@ -187,12 +189,17 @@ impl Component {
 	}
 
 	async fn checkout_named_nodes_local_with_transaction(
+		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		id: &tg::Id,
 		include_hierarchy: bool,
 	) -> tg::Result<ControlFlow<super::NamedTree, tangram_server_core::database::Error>> {
-		let node = match Self::try_get_named_checkout_node_local_with_transaction(transaction, id)
-			.await?
+		let node = match Self::try_get_named_checkout_node_local_with_transaction(
+			session,
+			transaction,
+			id,
+		)
+		.await?
 		{
 			ControlFlow::Break(Some(node)) => node,
 			ControlFlow::Break(None) => {
@@ -295,7 +302,7 @@ impl Component {
 		for row in rows {
 			let target = row
 				.target
-				.map(|target| tangram_server_core::tag::parse_tag_target(&target))
+				.map(|target| tangram_server_tag_core::parse_tag_target(&target))
 				.transpose()?
 				.map(|target| match target {
 					tg::tag::data::Target::Object(id) => tg::Either::Left(id),
@@ -314,17 +321,19 @@ impl Component {
 	}
 
 	async fn try_get_named_checkout_node_local_with_transaction(
+		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		id: &tg::Id,
 	) -> tg::Result<ControlFlow<Option<super::NamedNode>, tangram_server_core::database::Error>> {
 		let node = match id.kind() {
 			tg::id::Kind::Group => {
 				let id = tg::group::Id::try_from(id.clone())?;
-				let group = match tangram_server_core::group::try_get_group_with_transaction(
-					transaction,
-					&id,
-				)
-				.await?
+				let group = match session
+					.server
+					.components
+					.group
+					.try_get_group_with_transaction(transaction, &id)
+					.await?
 				{
 					ControlFlow::Break(group) => group,
 					ControlFlow::Continue(error) => {
@@ -340,18 +349,18 @@ impl Component {
 			},
 			tg::id::Kind::Organization => {
 				let id = tg::organization::Id::try_from(id.clone())?;
-				let organization =
-					match tangram_server_core::organization::try_get_organization_with_transaction(
-						transaction,
-						&id,
-					)
+				let organization = match session
+					.server
+					.components
+					.organization
+					.try_get_organization_with_transaction(transaction, &id)
 					.await?
-					{
-						ControlFlow::Break(organization) => organization,
-						ControlFlow::Continue(error) => {
-							return Ok(ControlFlow::Continue(error));
-						},
-					};
+				{
+					ControlFlow::Break(organization) => organization,
+					ControlFlow::Continue(error) => {
+						return Ok(ControlFlow::Continue(error));
+					},
+				};
 				organization.map(|organization| super::NamedNode {
 					id: id.into(),
 					parent: None,
@@ -361,11 +370,12 @@ impl Component {
 			},
 			tg::id::Kind::Tag => {
 				let id = tg::tag::Id::try_from(id.clone())?;
-				let tag = match tangram_server_core::tag::try_get_tag_data_with_transaction(
-					transaction,
-					&id,
-				)
-				.await?
+				let tag = match session
+					.server
+					.components
+					.tag
+					.try_get_tag_data_with_transaction(transaction, &id)
+					.await?
 				{
 					ControlFlow::Break(tag) => tag,
 					ControlFlow::Continue(error) => {
@@ -387,11 +397,12 @@ impl Component {
 			},
 			tg::id::Kind::User => {
 				let id = tg::user::Id::try_from(id.clone())?;
-				let user = match tangram_server_core::user::try_get_user_with_transaction(
-					transaction,
-					&id,
-				)
-				.await?
+				let user = match session
+					.server
+					.components
+					.user
+					.try_get_user_with_transaction(transaction, &id)
+					.await?
 				{
 					ControlFlow::Break(user) => user,
 					ControlFlow::Continue(error) => {

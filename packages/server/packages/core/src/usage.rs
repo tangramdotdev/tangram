@@ -148,7 +148,11 @@ impl Session {
 		loop {
 			match principal {
 				tg::Principal::Group(id) => {
-					let group = match crate::group::try_get_group_with_transaction(transaction, &id)
+					let group = match self
+						.server
+						.components
+						.group
+						.try_get_group_with_transaction(transaction, &id)
 						.await?
 					{
 						ControlFlow::Break(group) => group,

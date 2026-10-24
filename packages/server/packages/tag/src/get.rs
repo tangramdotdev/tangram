@@ -1,8 +1,10 @@
 use {
 	crate::Component,
 	futures::FutureExt as _,
+	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database as db,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -70,11 +72,8 @@ impl Component {
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let id = id.clone();
-				async move {
-					tangram_server_core::tag::try_get_tag_data_with_transaction(transaction, &id)
-						.await
-				}
-				.boxed()
+				async move { Self::try_get_tag_data_with_transaction(transaction, &id).await }
+					.boxed()
 			})
 			.await?;
 		let Some(data) = data else {
@@ -275,5 +274,70 @@ impl Component {
 		}
 		let response = response.body(body).unwrap();
 		Ok(response)
+	}
+
+	pub(crate) async fn try_get_tag_data_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		id: &tg::tag::Id,
+	) -> tg::Result<ControlFlow<Option<tg::tag::Data>, tangram_server_core::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			name: String,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			parent: Option<tg::Id>,
+			target: String,
+		}
+
+		let specifier =
+			match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+				transaction,
+				&id.clone().into(),
+			)
+			.await?
+			{
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(specifier) = specifier else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select target, name, parent
+				from tags
+				where id = {p}1;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let Some(row) = row else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let target = tangram_server_tag_core::parse_tag_target(&row.target)?;
+		let data = tg::tag::Data {
+			id: id.clone(),
+			name: row.name,
+			parent: row.parent,
+			specifier,
+			target,
+		};
+
+		Ok(ControlFlow::Break(Some(data)))
+	}
+
+	pub(crate) async fn get_tag_data_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		id: &tg::tag::Id,
+	) -> tg::Result<ControlFlow<tg::tag::Data, tangram_server_core::database::Error>> {
+		let data = match Self::try_get_tag_data_with_transaction(transaction, id).await? {
+			ControlFlow::Break(data) => data,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		.ok_or_else(|| tg::error!("failed to find the tag"))?;
+
+		Ok(ControlFlow::Break(data))
 	}
 }

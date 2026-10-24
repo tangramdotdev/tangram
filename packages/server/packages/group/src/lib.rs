@@ -170,4 +170,24 @@ impl tangram_server_core::group::Component for Component {
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>> {
 		self.request(session, request).boxed()
 	}
+
+	fn try_get_group_with_transaction<'a>(
+		&'a self,
+		transaction: &'a tangram_server_core::database::Transaction<'_>,
+		id: &'a tg::group::Id,
+	) -> BoxFuture<
+		'a,
+		tg::Result<ControlFlow<Option<tg::group::Data>, tangram_server_core::database::Error>>,
+	> {
+		Self::try_get_group_with_transaction(transaction, id).boxed()
+	}
+
+	fn resolve_parent_for_specifier_with_transaction<'a>(
+		&'a self,
+		transaction: &'a tangram_server_core::database::Transaction<'_>,
+		specifier: &'a tg::Specifier,
+	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<tg::Id>, tangram_server_core::database::Error>>>
+	{
+		Self::resolve_parent_for_specifier_with_transaction(transaction, specifier).boxed()
+	}
 }

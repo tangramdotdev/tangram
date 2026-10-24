@@ -86,7 +86,7 @@ impl Component {
 			return Ok(None);
 		};
 		Ok(
-			tangram_server_core::process::mask_process_metadata_with_permissions(
+			tangram_server_process_core::mask_process_metadata_with_permissions(
 				&metadata,
 				permissions,
 			),
@@ -110,7 +110,7 @@ impl Component {
 			.check_exhaustion()?;
 		let permissions = authorization.permissions;
 		Ok(
-			tangram_server_core::process::mask_process_metadata_with_permissions(
+			tangram_server_process_core::mask_process_metadata_with_permissions(
 				&metadata,
 				permissions,
 			),

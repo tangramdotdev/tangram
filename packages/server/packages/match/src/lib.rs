@@ -49,7 +49,7 @@ impl Component {
 				cached: arg.cached,
 				filter_local: Box::new(move |entries| {
 					let data = filter_entries(entries, &local_arg);
-					tangram_server_core::list::sort_entries(data, local_arg.reverse)
+					tangram_server_list_core::sort_entries(data, local_arg.reverse)
 				}),
 				location: arg.location.as_ref(),
 				query: tangram_server_core::list::remote::Query::Match(arg.clone()),
@@ -63,7 +63,7 @@ impl Component {
 			.query_specifier_entries(session, query_arg)
 			.await?;
 		let data = filter_entries(entries, &arg);
-		let mut data = tangram_server_core::list::sort_entries(data, arg.reverse);
+		let mut data = tangram_server_list_core::sort_entries(data, arg.reverse);
 
 		// Select the page and create the continuation cursor.
 		let position = usize::try_from(position)
@@ -163,7 +163,7 @@ fn filter_entries(
 	entries: Vec<tg::match_::Entry>,
 	arg: &tg::match_::Arg,
 ) -> Vec<tg::match_::Entry> {
-	let kinds = tangram_server_core::list::Kinds {
+	let kinds = tangram_server_list_core::Kinds {
 		groups: arg.groups,
 		organizations: arg.organizations,
 		tags: arg.tags,
@@ -173,7 +173,7 @@ fn filter_entries(
 		.into_iter()
 		.filter(|entry| {
 			arg.pattern.matches_specifier(entry.specifier())
-				&& tangram_server_core::list::entry_kind_enabled(entry, &kinds)
+				&& tangram_server_list_core::entry_kind_enabled(entry, &kinds)
 		})
 		.collect()
 }

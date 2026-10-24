@@ -244,8 +244,8 @@ impl Component {
 		let requested =
 			if runner_matches_location && let Some(tg::Either::Left(sandbox)) = &mut arg.sandbox {
 				let defaults = session.server.config.scheduler.default_capacity();
-				tangram_server_core::sandbox::resolve_sandbox_resources(&defaults, sandbox);
-				Some(tangram_server_core::sandbox::sandbox_capacity(sandbox))
+				tangram_server_sandbox_core::resolve_sandbox_resources(&defaults, sandbox);
+				Some(tangram_server_sandbox_core::sandbox_capacity(sandbox))
 			} else {
 				None
 			};
@@ -381,7 +381,7 @@ impl Component {
 		if arg.cached == Some(true) {
 			return None;
 		}
-		let requested = tangram_server_core::sandbox::sandbox_capacity(sandbox);
+		let requested = tangram_server_sandbox_core::sandbox_capacity(sandbox);
 		let component = self.clone();
 		let session = session.clone();
 		let parent = parent.clone();

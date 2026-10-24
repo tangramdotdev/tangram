@@ -42,7 +42,7 @@ impl Component {
 		};
 		let authorized = match owner.to_id() {
 			Some(id) => {
-				let permission = tangram_server_core::grant::write_permission_for_resource(&id)?;
+				let permission = tangram_server_grant_core::write_permission_for_resource(&id)?;
 				session
 					.authorize(tg::Selector::Id(id), permission)
 					.await?
@@ -120,7 +120,7 @@ impl Component {
 		session: &Session,
 		id: &tg::Id,
 	) -> tg::Result<Option<tg::authorization::Token>> {
-		let permission = tangram_server_core::grant::read_permission_for_resource(id)?;
+		let permission = tangram_server_grant_core::read_permission_for_resource(id)?;
 		let expires_at = session.server.clock.unix_timestamp()
 			+ session
 				.server

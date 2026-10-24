@@ -1,10 +1,5 @@
 use {
-	crate::Session,
-	futures::future::BoxFuture,
-	indoc::formatdoc,
-	std::ops::ControlFlow,
-	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	crate::Session, futures::future::BoxFuture, std::ops::ControlFlow, tangram_client::prelude::*,
 	tangram_http::body::Boxed as BoxBody,
 };
 
@@ -78,67 +73,10 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		request: http::Request<BoxBody>,
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>>;
-}
 
-pub async fn try_get_user_with_transaction(
-	transaction: &crate::database::Transaction<'_>,
-	id: &tg::user::Id,
-) -> tg::Result<ControlFlow<Option<tg::user::Data>, crate::database::Error>> {
-	#[derive(db::row::Deserialize)]
-	struct EmailRow {
-		email: String,
-	}
-
-	#[derive(db::row::Deserialize)]
-	struct UserRow {
-		name: String,
-	}
-
-	let specifier = match crate::Session::try_get_specifier_for_id_with_transaction(
-		transaction,
-		&id.clone().into(),
-	)
-	.await?
-	{
-		ControlFlow::Break(specifier) => specifier,
-		ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-	};
-	let Some(specifier) = specifier else {
-		return Ok(ControlFlow::Break(None));
-	};
-	let p = transaction.p();
-	let statement = formatdoc!(
-		"
-			select name
-			from users
-			where id = {p}1;
-		"
-	);
-	let result = transaction
-		.query_optional_into::<UserRow>(statement.into(), db::params![id.to_string()])
-		.await;
-	let user = crate::database::retry!(result, "failed to execute the statement");
-	let Some(user) = user else {
-		return Ok(ControlFlow::Break(None));
-	};
-	let statement = formatdoc!(
-		r#"
-			select email
-			from user_emails
-			where "user" = {p}1
-			order by email;
-		"#
-	);
-	let result = transaction
-		.query_all_into::<EmailRow>(statement.into(), db::params![id.to_string()])
-		.await;
-	let rows = crate::database::retry!(result, "failed to execute the statement");
-	let user = tg::user::Data {
-		emails: rows.into_iter().map(|row| row.email).collect(),
-		id: id.clone(),
-		name: user.name,
-		specifier,
-	};
-
-	Ok(ControlFlow::Break(Some(user)))
+	fn try_get_user_with_transaction<'a>(
+		&'a self,
+		transaction: &'a crate::database::Transaction<'_>,
+		id: &'a tg::user::Id,
+	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<tg::user::Data>, crate::database::Error>>>;
 }

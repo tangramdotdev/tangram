@@ -299,15 +299,11 @@ impl Component {
 		organization: &tg::organization::Id,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
-		let data = match tangram_server_core::organization::try_get_organization_with_transaction(
-			transaction,
-			organization,
-		)
-		.await?
-		{
-			ControlFlow::Break(organization) => organization,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
+		let data =
+			match Self::try_get_organization_with_transaction(transaction, organization).await? {
+				ControlFlow::Break(organization) => organization,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 		if data.is_none() {
 			return Ok(ControlFlow::Break(None));
 		}
