@@ -1,4 +1,4 @@
-use {super::*, futures::TryStreamExt as _};
+use super::*;
 
 #[tokio::test]
 async fn decode_with_header_preserves_error_trailers() {

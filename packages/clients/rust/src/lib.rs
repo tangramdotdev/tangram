@@ -79,6 +79,7 @@ pub mod document;
 pub mod error;
 pub mod file;
 pub mod format;
+pub mod frame;
 pub mod get;
 pub mod grant;
 pub mod graph;

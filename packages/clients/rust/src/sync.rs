@@ -631,7 +631,7 @@ impl tg::Session {
 		let uri = Uri::builder().path("/sync").build().unwrap();
 
 		// Create the body.
-		let body = crate::http::frame::encode(stream, max_frame_size);
+		let body = crate::frame::encode(stream, max_frame_size);
 
 		// Send the request.
 		let mut request = http::request::Builder::default();
@@ -689,7 +689,7 @@ impl tg::Session {
 		}
 
 		// Decode the response, which ends early if the connection is lost.
-		let Some((header, stream)) = crate::http::frame::decode_with_header(
+		let Some((header, stream)) = crate::frame::decode_with_header(
 			response.into_body(),
 			self.client().http.max_header_length,
 			max_frame_size,

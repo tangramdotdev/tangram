@@ -890,14 +890,14 @@ impl Component {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
-		let input_encoding = tangram_server_core::http::frame::Encoding::from_content_type(
+		let input_encoding = tangram_client::frame::Encoding::from_content_type(
 			content_type
 				.as_ref()
 				.ok_or_else(|| tg::error!(argument, "missing the content type"))?,
 			tg::process::connect::TANGRAM_CONTENT_TYPE,
 		)
 		.map_err(|error| tg::error!(argument, !error, "invalid content type"))?;
-		let output_encoding = tangram_server_core::http::frame::Encoding::from_accept(
+		let output_encoding = tangram_client::frame::Encoding::from_accept(
 			accept.as_ref(),
 			tg::process::connect::TANGRAM_CONTENT_TYPE,
 		)
@@ -910,8 +910,7 @@ impl Component {
 			.map_err(|error| tg::error!(argument, !error, "failed to deserialize the arg"))?;
 		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
 		let max_frame_size = session.server.config.sync.max_frame_size;
-		let input =
-			tangram_server_core::http::frame::decode(request, input_encoding, max_frame_size);
+		let input = input_encoding.decode(request, max_frame_size);
 		let (header, output) = match self
 			.try_get_process_connect_stream(session, arg, input)
 			.await?
@@ -934,8 +933,7 @@ impl Component {
 		};
 
 		// Create the response.
-		let body =
-			tangram_server_core::http::frame::encode(output, output_encoding, max_frame_size);
+		let body = output_encoding.encode(output, max_frame_size);
 		let body = tangram_http::body::header::set(body, &header, output_encoding.serialization())
 			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 		let response = http::Response::builder()
