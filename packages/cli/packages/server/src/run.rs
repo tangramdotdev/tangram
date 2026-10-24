@@ -117,7 +117,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 
 		// Start the server.
 		let server: Server = tokio::select! {
-			result = tangram_server::Server::start(config, tangram_server::components).boxed() => {
+			result = tangram_server::start(config) => {
 				result.map_err(|error| tg::error!(!error, "failed to start the server"))?
 			},
 			_ = interrupt.recv() => {
