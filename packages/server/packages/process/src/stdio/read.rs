@@ -596,7 +596,7 @@ impl Component {
 		let mut length = arg.length;
 		let options: tangram_futures::retry::Options = session
 			.server
-			.config()
+			.config
 			.process
 			.stdio_relay_retry
 			.clone()
@@ -669,7 +669,7 @@ impl Component {
 		let request_id = open.unwrap_or_else(tangram_server_core::control::id);
 		let send_subject = super::relay::ack_subject(id, &request_id);
 		let receive_subject = super::relay::data_subject(id, &request_id);
-		let options = session.server.config().process.stdio_relay;
+		let options = session.server.config.process.stdio_relay;
 		let result = tangram_messenger::relay::open::<super::relay::Ack, super::relay::Data, _>(
 			&session.server.messenger,
 			send_subject,

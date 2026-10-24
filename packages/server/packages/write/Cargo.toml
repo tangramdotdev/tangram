@@ -17,7 +17,6 @@ doctest = false
 workspace = true
 
 [dependencies]
-bytes = { workspace = true }
 fastcdc = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -30,6 +29,5 @@ tangram_http = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_util = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }

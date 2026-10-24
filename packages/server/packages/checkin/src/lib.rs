@@ -717,7 +717,7 @@ impl Component {
 		// Create or update the watcher and spawn its index task.
 		if session
 			.server
-			.config()
+			.config
 			.watch
 			.as_ref()
 			.is_some_and(|_| arg.options.watch)

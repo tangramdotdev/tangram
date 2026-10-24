@@ -25,7 +25,6 @@ mime = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
 rand = { workspace = true }
-reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_billing = { workspace = true }
@@ -36,7 +35,6 @@ tangram_http = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_uri = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }

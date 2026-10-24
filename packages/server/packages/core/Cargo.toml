@@ -30,7 +30,7 @@ scylla = ["tangram_server_cache/scylla"]
 sqlite = ["dep:tangram_database_sqlite", "tangram_server_database/sqlite"]
 tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls", "tangram_database_postgres?/tls", "tangram_server_database/tls"]
 tsrs = ["javascript", "tangram_compiler/tsrs"]
-turso = ["dep:turso", "dep:tangram_database_turso", "tangram_server_database/turso"]
+turso = ["dep:tangram_database_turso", "tangram_server_database/turso"]
 ty = ["python", "tangram_compiler/ty"]
 vsock = ["dep:tokio-vsock", "tangram_client/vsock", "tangram_sandbox/vsock"]
 
@@ -106,7 +106,6 @@ tangram_server_watch_types = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
@@ -116,6 +115,5 @@ tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
-turso = { workspace = true, optional = true }
 uuid = { workspace = true }
 xattr = { workspace = true }

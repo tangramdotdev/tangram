@@ -26,7 +26,6 @@ futures = { workspace = true }
 http = { workspace = true }
 indexmap = { workspace = true }
 mime = { workspace = true }
-notify = { workspace = true }
 num = { workspace = true }
 scopeguard = { workspace = true }
 serde_json = { workspace = true }
@@ -39,7 +38,6 @@ tangram_index = { workspace = true }
 tangram_messenger = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_server_core = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }

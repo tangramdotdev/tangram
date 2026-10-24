@@ -33,7 +33,6 @@ tangram_index = { workspace = true }
 tangram_messenger = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_server_core = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }

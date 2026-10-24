@@ -605,7 +605,7 @@ impl Component {
 			tangram_sandbox::Backend::Builtin
 				| tangram_sandbox::Backend::Bubblewrap { .. }
 				| tangram_sandbox::Backend::Gvisor { .. }
-		) && session.server.config().runner.backend.harden()
+		) && session.server.config.runner.backend.harden()
 		{
 			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
 				return Err(tg::error!(

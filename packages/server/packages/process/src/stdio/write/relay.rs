@@ -186,7 +186,7 @@ impl Component {
 		// Open the relay, which sends the data while its window allows and receives the reader's acknowledgments.
 		let send_subject = super::super::relay::data_subject(id, open);
 		let receive_subject = super::super::relay::ack_subject(id, open);
-		let options = session.server.config().process.stdio_relay;
+		let options = session.server.config.process.stdio_relay;
 		let (relay_sender, receiver) = tangram_messenger::relay::open::<
 			super::super::relay::Data,
 			super::super::relay::Ack,
@@ -287,7 +287,7 @@ impl Component {
 		let mut position = 0;
 		let options: tangram_futures::retry::Options = session
 			.server
-			.config()
+			.config
 			.process
 			.stdio_relay_retry
 			.clone()
@@ -352,7 +352,7 @@ impl Component {
 		let open = open.unwrap_or_else(tangram_server_core::control::id);
 		let send_subject = super::super::relay::data_subject(id, &open);
 		let receive_subject = super::super::relay::ack_subject(id, &open);
-		let options = session.server.config().process.stdio_relay;
+		let options = session.server.config.process.stdio_relay;
 		let result = tangram_messenger::relay::open::<
 			super::super::relay::Data,
 			super::super::relay::Ack,
