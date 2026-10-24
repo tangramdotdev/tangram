@@ -30,5 +30,6 @@ tangram_database = { workspace = true }
 tangram_http = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
+tangram_server_grant_core = { workspace = true }
 tangram_uri = { workspace = true }
 tracing = { workspace = true }

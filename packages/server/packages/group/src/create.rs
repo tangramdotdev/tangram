@@ -293,12 +293,7 @@ impl Component {
 		if let Some(id) = id {
 			if arg.ancestors.create && id.kind() == tg::id::Kind::Group {
 				let id = id.try_into()?;
-				let group = match tangram_server_core::group::try_get_group_with_transaction(
-					transaction,
-					&id,
-				)
-				.await?
-				{
+				let group = match Self::try_get_group_with_transaction(transaction, &id).await? {
 					ControlFlow::Break(group) => group,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
@@ -331,11 +326,8 @@ impl Component {
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}
 		} else {
-			match tangram_server_core::group::resolve_parent_for_specifier_with_transaction(
-				transaction,
-				&arg.specifier,
-			)
-			.await?
+			match Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier)
+				.await?
 			{
 				ControlFlow::Break(parent) => parent,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),

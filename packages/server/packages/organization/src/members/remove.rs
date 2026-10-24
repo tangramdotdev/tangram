@@ -253,12 +253,7 @@ impl Component {
 			return Ok(ControlFlow::Break(None));
 		};
 		let organization =
-			match tangram_server_core::organization::try_get_organization_with_transaction(
-				transaction,
-				&id,
-			)
-			.await?
-			{
+			match Self::try_get_organization_with_transaction(transaction, &id).await? {
 				ControlFlow::Break(organization) => organization,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};

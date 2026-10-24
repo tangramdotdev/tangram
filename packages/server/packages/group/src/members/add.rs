@@ -231,13 +231,10 @@ impl Component {
 			},
 		}
 		.ok_or_else(|| tg::error!("failed to find the group"))?;
-		let group =
-			match tangram_server_core::group::try_get_group_with_transaction(transaction, &id)
-				.await?
-			{
-				ControlFlow::Break(group) => group,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
+		let group = match Self::try_get_group_with_transaction(transaction, &id).await? {
+			ControlFlow::Break(group) => group,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		if group.is_none() {
 			return Err(tg::error!("failed to find the group"));
 		}

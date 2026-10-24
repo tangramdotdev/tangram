@@ -129,12 +129,14 @@ members = [
   "packages/server/packages/format",
   "packages/server/packages/get",
   "packages/server/packages/grant",
+  "packages/server/packages/grant/packages/core",
   "packages/server/packages/graph",
   "packages/server/packages/group",
   "packages/server/packages/health",
   "packages/server/packages/index",
   "packages/server/packages/indexer",
   "packages/server/packages/list",
+  "packages/server/packages/list/packages/core",
   "packages/server/packages/log",
   "packages/server/packages/lsp",
   "packages/server/packages/match",
@@ -144,6 +146,7 @@ members = [
   "packages/server/packages/object",
   "packages/server/packages/organization",
   "packages/server/packages/process",
+  "packages/server/packages/process/packages/core",
   "packages/server/packages/pull",
   "packages/server/packages/push",
   "packages/server/packages/read",
@@ -151,9 +154,11 @@ members = [
   "packages/server/packages/remote",
   "packages/server/packages/runner",
   "packages/server/packages/sandbox",
+  "packages/server/packages/sandbox/packages/core",
   "packages/server/packages/scheduler",
   "packages/server/packages/sync",
   "packages/server/packages/tag",
+  "packages/server/packages/tag/packages/core",
   "packages/server/packages/user",
   "packages/server/packages/verify",
   "packages/server/packages/vfs",
@@ -459,12 +464,14 @@ tangram_server_document = { path = "packages/server/packages/document" }
 tangram_server_format = { path = "packages/server/packages/format" }
 tangram_server_get = { path = "packages/server/packages/get" }
 tangram_server_grant = { path = "packages/server/packages/grant" }
+tangram_server_grant_core = { path = "packages/server/packages/grant/packages/core" }
 tangram_server_graph = { path = "packages/server/packages/graph" }
 tangram_server_group = { path = "packages/server/packages/group" }
 tangram_server_health = { path = "packages/server/packages/health" }
 tangram_server_index = { path = "packages/server/packages/index" }
 tangram_server_indexer = { path = "packages/server/packages/indexer" }
 tangram_server_list = { path = "packages/server/packages/list" }
+tangram_server_list_core = { path = "packages/server/packages/list/packages/core" }
 tangram_server_log = { path = "packages/server/packages/log" }
 tangram_server_lsp = { path = "packages/server/packages/lsp" }
 tangram_server_match = { path = "packages/server/packages/match" }
@@ -474,6 +481,7 @@ tangram_server_node = { path = "packages/server/packages/node" }
 tangram_server_object = { path = "packages/server/packages/object" }
 tangram_server_organization = { path = "packages/server/packages/organization" }
 tangram_server_process = { path = "packages/server/packages/process" }
+tangram_server_process_core = { path = "packages/server/packages/process/packages/core" }
 tangram_server_pull = { path = "packages/server/packages/pull" }
 tangram_server_push = { path = "packages/server/packages/push" }
 tangram_server_read = { path = "packages/server/packages/read" }
@@ -481,9 +489,11 @@ tangram_server_read_core = { path = "packages/server/packages/read/packages/core
 tangram_server_remote = { path = "packages/server/packages/remote" }
 tangram_server_runner = { path = "packages/server/packages/runner" }
 tangram_server_sandbox = { path = "packages/server/packages/sandbox" }
+tangram_server_sandbox_core = { path = "packages/server/packages/sandbox/packages/core" }
 tangram_server_scheduler = { path = "packages/server/packages/scheduler" }
 tangram_server_sync = { path = "packages/server/packages/sync" }
 tangram_server_tag = { path = "packages/server/packages/tag" }
+tangram_server_tag_core = { path = "packages/server/packages/tag/packages/core" }
 tangram_server_user = { path = "packages/server/packages/user" }
 tangram_server_verify = { path = "packages/server/packages/verify" }
 tangram_server_vfs = { path = "packages/server/packages/vfs" }

@@ -1,8 +1,10 @@
 use {
 	crate::Component,
 	futures::FutureExt as _,
+	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database as db,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -87,11 +89,7 @@ impl Component {
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let id = id.clone();
-				async move {
-					tangram_server_core::group::try_get_group_with_transaction(transaction, &id)
-						.await
-				}
-				.boxed()
+				async move { Self::try_get_group_with_transaction(transaction, &id).await }.boxed()
 			})
 			.await?;
 		let Some(data) = group else {
@@ -266,5 +264,78 @@ impl Component {
 		}
 		let response = response.body(body).unwrap().boxed_body();
 		Ok(response)
+	}
+
+	pub(crate) async fn try_get_group_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		id: &tg::group::Id,
+	) -> tg::Result<ControlFlow<Option<tg::group::Data>, tangram_server_core::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			name: String,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			parent: Option<tg::Id>,
+		}
+
+		let specifier =
+			match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+				transaction,
+				&id.clone().into(),
+			)
+			.await?
+			{
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(specifier) = specifier else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select name, parent
+				from groups
+				where id = {p}1;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let group = row.map(|row| tg::group::Data {
+			id: id.clone(),
+			name: row.name,
+			parent: row.parent,
+			specifier,
+		});
+
+		Ok(ControlFlow::Break(group))
+	}
+
+	pub(crate) async fn resolve_parent_for_specifier_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		specifier: &tg::Specifier,
+	) -> tg::Result<ControlFlow<Option<tg::Id>, tangram_server_core::database::Error>> {
+		if specifier.components().next().is_none() {
+			return Err(tg::error!("invalid specifier"));
+		}
+		let Some(parent) = specifier.parent() else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let parent = match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
+			transaction,
+			&parent,
+		)
+		.await?
+		{
+			ControlFlow::Break(parent) => parent,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		.ok_or_else(|| tg::error!("the parent does not exist"))?;
+		if parent.kind() == tg::id::Kind::Tag {
+			return Err(tg::error!("a tag cannot be a parent"));
+		}
+
+		Ok(ControlFlow::Break(Some(parent)))
 	}
 }

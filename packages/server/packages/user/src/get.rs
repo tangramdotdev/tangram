@@ -1,8 +1,10 @@
 use {
 	crate::Component,
 	futures::FutureExt as _,
+	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database as db,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -87,10 +89,7 @@ impl Component {
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let id = id.clone();
-				async move {
-					tangram_server_core::user::try_get_user_with_transaction(transaction, &id).await
-				}
-				.boxed()
+				async move { Self::try_get_user_with_transaction(transaction, &id).await }.boxed()
 			})
 			.await?;
 		let Some(data) = user else {
@@ -266,5 +265,69 @@ impl Component {
 		}
 		let response = response.body(body).unwrap().boxed_body();
 		Ok(response)
+	}
+
+	pub(crate) async fn try_get_user_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		id: &tg::user::Id,
+	) -> tg::Result<ControlFlow<Option<tg::user::Data>, tangram_server_core::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct EmailRow {
+			email: String,
+		}
+
+		#[derive(db::row::Deserialize)]
+		struct UserRow {
+			name: String,
+		}
+
+		let specifier =
+			match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+				transaction,
+				&id.clone().into(),
+			)
+			.await?
+			{
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(specifier) = specifier else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select name
+				from users
+				where id = {p}1;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<UserRow>(statement.into(), db::params![id.to_string()])
+			.await;
+		let user = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let Some(user) = user else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let statement = formatdoc!(
+			r#"
+				select email
+				from user_emails
+				where "user" = {p}1
+				order by email;
+			"#
+		);
+		let result = transaction
+			.query_all_into::<EmailRow>(statement.into(), db::params![id.to_string()])
+			.await;
+		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let user = tg::user::Data {
+			emails: rows.into_iter().map(|row| row.email).collect(),
+			id: id.clone(),
+			name: user.name,
+			specifier,
+		};
+
+		Ok(ControlFlow::Break(Some(user)))
 	}
 }

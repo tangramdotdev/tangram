@@ -246,13 +246,10 @@ impl Component {
 		let Some(id) = id else {
 			return Ok(ControlFlow::Break(None));
 		};
-		let group =
-			match tangram_server_core::group::try_get_group_with_transaction(transaction, &id)
-				.await?
-			{
-				ControlFlow::Break(group) => group,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
+		let group = match Self::try_get_group_with_transaction(transaction, &id).await? {
+			ControlFlow::Break(group) => group,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		if group.is_none() {
 			return Ok(ControlFlow::Break(None));
 		}

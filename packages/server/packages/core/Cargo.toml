@@ -89,6 +89,7 @@ tangram_messenger = { workspace = true }
 tangram_messenger_memory = { workspace = true }
 tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }
+tangram_serialize = { workspace = true }
 tangram_server_authentication_core = { workspace = true }
 tangram_server_cache = { workspace = true }
 tangram_server_checkin_graph = { workspace = true }
@@ -103,7 +104,6 @@ tangram_server_index = { workspace = true }
 tangram_server_messenger = { workspace = true }
 tangram_server_read_core = { workspace = true }
 tangram_server_watch_core = { workspace = true }
-tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }

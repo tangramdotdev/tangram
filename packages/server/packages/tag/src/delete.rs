@@ -279,13 +279,10 @@ impl Component {
 			let Ok(id) = id.try_into() else {
 				continue;
 			};
-			let tag =
-				match tangram_server_core::tag::try_get_tag_data_with_transaction(transaction, &id)
-					.await?
-				{
-					ControlFlow::Break(tag) => tag,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
+			let tag = match Self::try_get_tag_data_with_transaction(transaction, &id).await? {
+				ControlFlow::Break(tag) => tag,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			let Some(tag) = tag else {
 				continue;
 			};

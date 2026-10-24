@@ -9,7 +9,7 @@ use {
 	tangram_server_core::{
 		Server, Session,
 		messenger::Messenger,
-		sandbox::{ConnectionFuture, Runner, clear_darwin_sandbox_resources},
+		sandbox::{ConnectionFuture, Runner},
 	},
 };
 

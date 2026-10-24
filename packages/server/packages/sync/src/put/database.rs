@@ -247,11 +247,12 @@ impl Component {
 			Some(match node.id.kind() {
 				tg::id::Kind::Group => {
 					let id = node.id.clone().try_into()?;
-					let group = match tangram_server_core::group::try_get_group_with_transaction(
-						transaction,
-						&id,
-					)
-					.await?
+					let group = match session
+						.server
+						.components
+						.group
+						.try_get_group_with_transaction(transaction, &id)
+						.await?
 					{
 						ControlFlow::Break(group) => group,
 						ControlFlow::Continue(error) => {
@@ -268,19 +269,19 @@ impl Component {
 				},
 				tg::id::Kind::Organization => {
 					let id = node.id.clone().try_into()?;
-					let organization =
-						match tangram_server_core::organization::try_get_organization_with_transaction(
-							transaction,
-							&id,
-						)
+					let organization = match session
+						.server
+						.components
+						.organization
+						.try_get_organization_with_transaction(transaction, &id)
 						.await?
-						{
-							ControlFlow::Break(organization) => organization,
-							ControlFlow::Continue(error) => {
-								return Ok(ControlFlow::Continue(error));
-							},
-						}
-						.ok_or_else(|| tg::error!("failed to find the organization"))?;
+					{
+						ControlFlow::Break(organization) => organization,
+						ControlFlow::Continue(error) => {
+							return Ok(ControlFlow::Continue(error));
+						},
+					}
+					.ok_or_else(|| tg::error!("failed to find the organization"))?;
 					tg::sync::PutNodeMessage::Organization(tg::sync::PutNodeOrganizationMessage {
 						id,
 						name: organization.name,
@@ -289,11 +290,12 @@ impl Component {
 				},
 				tg::id::Kind::Tag => {
 					let id = node.id.clone().try_into()?;
-					let data = match tangram_server_core::tag::get_tag_data_with_transaction(
-						transaction,
-						&id,
-					)
-					.await?
+					let data = match session
+						.server
+						.components
+						.tag
+						.get_tag_data_with_transaction(transaction, &id)
+						.await?
 					{
 						ControlFlow::Break(data) => data,
 						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
@@ -314,11 +316,12 @@ impl Component {
 				},
 				tg::id::Kind::User => {
 					let id = node.id.clone().try_into()?;
-					let user = match tangram_server_core::user::try_get_user_with_transaction(
-						transaction,
-						&id,
-					)
-					.await?
+					let user = match session
+						.server
+						.components
+						.user
+						.try_get_user_with_transaction(transaction, &id)
+						.await?
 					{
 						ControlFlow::Break(user) => user,
 						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
@@ -360,13 +363,16 @@ impl Component {
 				return Ok(ControlFlow::Break(Vec::new()));
 			}
 			let tag = id.clone().try_into()?;
-			let data =
-				match tangram_server_core::tag::get_tag_data_with_transaction(transaction, &tag)
-					.await?
-				{
-					ControlFlow::Break(data) => data,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
+			let data = match session
+				.server
+				.components
+				.tag
+				.get_tag_data_with_transaction(transaction, &tag)
+				.await?
+			{
+				ControlFlow::Break(data) => data,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			let target = data.target;
 			let id: tg::Id = match target {
 				tg::tag::data::Target::Object(id) => id.into(),

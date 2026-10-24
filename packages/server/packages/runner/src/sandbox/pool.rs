@@ -62,7 +62,7 @@ fn matches(arg: &tg::sandbox::create::Arg, session: &Session) -> bool {
 fn warm_arg(session: &Session) -> tg::sandbox::create::Arg {
 	let mut arg = tg::sandbox::create::Arg::default();
 	let defaults = session.server.config.scheduler.default_capacity();
-	tangram_server_core::sandbox::resolve_sandbox_resources(&defaults, &mut arg);
+	tangram_server_sandbox_core::resolve_sandbox_resources(&defaults, &mut arg);
 	arg
 }
 

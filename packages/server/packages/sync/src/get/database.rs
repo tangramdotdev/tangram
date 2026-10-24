@@ -529,7 +529,7 @@ impl Component {
 					&& let Some(parent) = existing_specifiers.ids_by_specifier.get(&parent)
 				{
 					let permission =
-						tangram_server_core::grant::write_permission_for_resource(parent)?;
+						tangram_server_grant_core::write_permission_for_resource(parent)?;
 					let permissions =
 						tg::authorization::permission::Set::from_permission(permission);
 					let resource = tg::Selector::<tg::Id>::Id(parent.clone());
@@ -543,7 +543,7 @@ impl Component {
 						.ids_by_specifier
 						.contains_key(&specifier)
 				});
-			let permission = tangram_server_core::grant::write_permission_for_resource(&id)?;
+			let permission = tangram_server_grant_core::write_permission_for_resource(&id)?;
 			let permissions = tg::authorization::permission::Set::from_permission(permission);
 			let resource = tg::Selector::<tg::Id>::Specifier(specifier.clone());
 			authorizations.push((resource, allow_unclaimed, permissions));
@@ -1136,7 +1136,7 @@ impl Component {
 					message.name.clone(),
 					message.parent.as_ref().map(ToString::to_string),
 					target.to_string(),
-					tangram_server_core::tag::version(),
+					tangram_server_tag_core::version(),
 				]);
 			}
 			let result = transaction

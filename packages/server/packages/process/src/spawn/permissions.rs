@@ -69,8 +69,14 @@ impl Component {
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let resource = resource.clone();
+				let session = session.clone();
 				async move {
-					Self::list_spawn_process_grants_with_transaction(transaction, &resource).await
+					Self::list_spawn_process_grants_with_transaction(
+						&session,
+						transaction,
+						&resource,
+					)
+					.await
 				}
 				.boxed()
 			})
@@ -114,15 +120,15 @@ impl Component {
 	}
 
 	async fn list_spawn_process_grants_with_transaction(
+		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		resource: &tg::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, tangram_server_core::database::Error>> {
-		tangram_server_core::grant::list_resource_grants_with_transaction(
-			transaction,
-			resource,
-			None,
-			None,
-		)
-		.await
+		session
+			.server
+			.components
+			.grant
+			.list_resource_grants_with_transaction(transaction, resource, None, None)
+			.await
 	}
 }

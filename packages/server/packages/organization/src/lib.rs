@@ -1,5 +1,6 @@
 use {
 	futures::{FutureExt as _, future::BoxFuture},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_http::body::Boxed as BoxBody,
 	tangram_server_core::Session,
@@ -155,5 +156,18 @@ impl tangram_server_core::organization::Component for Component {
 		request: http::Request<BoxBody>,
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>> {
 		self.request(session, request).boxed()
+	}
+
+	fn try_get_organization_with_transaction<'a>(
+		&'a self,
+		transaction: &'a tangram_server_core::database::Transaction<'_>,
+		id: &'a tg::organization::Id,
+	) -> BoxFuture<
+		'a,
+		tg::Result<
+			ControlFlow<Option<tg::organization::Data>, tangram_server_core::database::Error>,
+		>,
+	> {
+		Self::try_get_organization_with_transaction(transaction, id).boxed()
 	}
 }

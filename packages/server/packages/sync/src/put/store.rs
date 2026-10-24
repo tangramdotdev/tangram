@@ -497,7 +497,7 @@ impl Component {
 					.unwrap()
 					.process_local_permissions(&node.id);
 				output.metadata =
-					tangram_server_core::process::mask_process_metadata_with_permissions(
+					tangram_server_process_core::mask_process_metadata_with_permissions(
 						&metadata,
 						permissions,
 					);
