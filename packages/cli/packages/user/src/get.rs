@@ -21,7 +21,7 @@ pub struct Args {
 	pub user: tg::Referent<tg::user::Selector>,
 }
 
-pub async fn command_user_get(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::user::get::Arg {
 		cached: args.cached,

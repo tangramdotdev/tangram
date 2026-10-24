@@ -18,7 +18,7 @@ pub struct Args {
 	pub source: tg::process::Source,
 }
 
-pub async fn command_wait(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	args.locations.set_from_reference_if_unset(&args.reference);
 	let reference = args.locations.apply_to_reference(&args.reference);
 	let locations = args.locations;
@@ -37,7 +37,7 @@ pub async fn command_wait(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 				print: args.print,
 				source: args.source,
 			};
-			tangram_cli_process::wait::command_process_wait_inner(cli, process, options).await?;
+			tangram_cli_process::wait::run_inner(cli, process, options).await?;
 		},
 		tg::id::Kind::Sandbox => {
 			let sandbox = tg::Referent::new(id.try_into()?, referent.options);
@@ -47,7 +47,7 @@ pub async fn command_wait(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 				print: args.print,
 				source: args.source,
 			};
-			tangram_cli_sandbox::wait::command_sandbox_wait_inner(cli, sandbox, options).await?;
+			tangram_cli_sandbox::wait::run_inner(cli, sandbox, options).await?;
 		},
 		_ => return Err(tg::error!(%id, "expected a process or sandbox")),
 	}

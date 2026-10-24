@@ -18,16 +18,16 @@ pub enum Command {
 	Set(self::set::Args),
 }
 
-pub async fn command_clock(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Advance(args) => {
-			crate::advance::command_clock_advance(cli, args).await?;
+			crate::advance::run(cli, args).await?;
 		},
 		Command::Get(args) => {
-			crate::get::command_clock_get(cli, args).await?;
+			crate::get::run(cli, args).await?;
 		},
 		Command::Set(args) => {
-			crate::set::command_clock_set(cli, args).await?;
+			crate::set::run(cli, args).await?;
 		},
 	}
 	Ok(())

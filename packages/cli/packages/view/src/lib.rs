@@ -94,7 +94,7 @@ pub struct AlternateScreen {
 	no_alternate_screen: Option<bool>,
 }
 
-pub async fn command_view(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Get the node.
 	let output = tangram_cli_get::get(cli, &args.reference).await?;
 	let client = cli.client().await?;

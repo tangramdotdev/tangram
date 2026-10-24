@@ -149,7 +149,7 @@ pub struct TagTargets {
 	tag_targets: Option<bool>,
 }
 
-pub async fn command_push(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let destination = args.destination.to_location()?;
 	let source = tg::Location::Local(tg::location::Local::default());

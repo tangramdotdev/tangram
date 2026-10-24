@@ -26,7 +26,7 @@ pub enum Command {
 	Extract(extract::Args),
 }
 
-pub async fn command_builtin(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let (named, positional) = match &args.command {
 		Command::Archive(args) => (&args.output_named, &args.output_positional),
 		Command::Checksum(args) => (&args.output_named, &args.output_positional),

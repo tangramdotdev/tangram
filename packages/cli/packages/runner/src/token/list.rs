@@ -29,7 +29,7 @@ pub struct Args {
 	pub runner: tg::runner::Id,
 }
 
-pub async fn command_runner_token_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// List the runner tokens.
 	let client = cli.client().await?;
 	let arg = tg::runner::token::list::Arg {

@@ -25,21 +25,17 @@ pub struct Options {
 	pub source: tg::sandbox::Source,
 }
 
-pub async fn command_sandbox_wait(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let entry = tg::sandbox::Options {
 		location: args.options.locations.get_for_options(&args.sandbox),
 		tokens: args.sandbox.options.tokens.clone(),
 		..tg::sandbox::Options::default()
 	};
 	let sandbox = tg::Sandbox::new(args.sandbox.node, entry);
-	command_sandbox_wait_inner(cli, sandbox, args.options).await
+	run_inner(cli, sandbox, args.options).await
 }
 
-pub async fn command_sandbox_wait_inner(
-	cli: &mut Cli,
-	sandbox: tg::Sandbox,
-	options: Options,
-) -> tg::Result<()> {
+pub async fn run_inner(cli: &mut Cli, sandbox: tg::Sandbox, options: Options) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let id = sandbox.id().clone();
 	let options_ = tg::sandbox::status::Options {

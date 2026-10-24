@@ -21,7 +21,7 @@ pub struct Args {
 	pub ttl: tangram_cli_get::Ttl,
 }
 
-pub async fn command_organization_get(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::organization::get::Arg {
 		cached: args.cached,

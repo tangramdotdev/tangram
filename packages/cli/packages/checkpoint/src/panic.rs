@@ -10,7 +10,7 @@ pub struct Args {
 	pub params: tg::checkpoint::Params,
 }
 
-pub async fn command_checkpoint_panic(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::checkpoint::panic::Arg {
 		params: args.params,

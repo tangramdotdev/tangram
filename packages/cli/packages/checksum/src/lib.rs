@@ -16,7 +16,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-pub async fn command_checksum(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let referent = tangram_cli_get::get_with_follow(cli, &args.reference).await?;
 	let object = referent

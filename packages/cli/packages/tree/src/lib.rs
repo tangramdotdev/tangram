@@ -16,7 +16,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-pub async fn command_tree(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let args = tangram_cli_view::Args {
 		alternate_screen: args.alternate_screen,
 		collapse_process_children: false,
@@ -32,6 +32,6 @@ pub async fn command_tree(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		mode: tangram_cli_view::Mode::Inline,
 		reference: args.reference,
 	};
-	tangram_cli_view::command_view(cli, args).await?;
+	tangram_cli_view::run(cli, args).await?;
 	Ok(())
 }

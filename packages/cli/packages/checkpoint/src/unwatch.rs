@@ -10,7 +10,7 @@ pub struct Args {
 	pub watch: u64,
 }
 
-pub async fn command_checkpoint_unwatch(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	client
 		.unwatch_checkpoint(&args.checkpoint, args.watch)

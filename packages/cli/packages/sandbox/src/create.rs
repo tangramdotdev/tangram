@@ -33,7 +33,7 @@ pub struct Ttl {
 	pub ttl: Option<Duration>,
 }
 
-pub async fn command_sandbox_create(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// Resolve the sandbox settings.
 	let client = cli.client().await?;
 	let cpu = crate::cpu(&args.arg);

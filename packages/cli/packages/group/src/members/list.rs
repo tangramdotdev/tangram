@@ -29,7 +29,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn command_group_members_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// List the group members.
 	let client = cli.client().await?;
 	let arg = tg::group::members::list::Arg {

@@ -11,9 +11,9 @@ pub struct Args {
 	force: bool,
 }
 
-pub async fn command_clean(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	if args.force {
-		command_clean_force(cli).await?;
+		run_force(cli).await?;
 		return Ok(());
 	}
 
@@ -43,7 +43,7 @@ pub async fn command_clean(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	Ok(())
 }
 
-pub async fn command_clean_force(cli: &mut Cli) -> tg::Result<()> {
+pub async fn run_force(cli: &mut Cli) -> tg::Result<()> {
 	let path = cli.directory_path();
 	let store_path = path.join("store");
 

@@ -8,7 +8,7 @@ pub struct Args {
 	pub path: PathBuf,
 }
 
-pub async fn command_format(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Canonicalize the path's parent.

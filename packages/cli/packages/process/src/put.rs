@@ -17,7 +17,7 @@ pub struct Args {
 	pub location: tangram_cli_core::location::Args,
 }
 
-pub async fn command_process_put(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let bytes = if let Some(bytes) = args.bytes {
 		bytes

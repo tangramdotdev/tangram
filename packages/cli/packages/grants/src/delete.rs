@@ -14,7 +14,7 @@ pub struct Args {
 	pub subject: tg::authorization::subject::Selector,
 }
 
-pub async fn command_grants_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::grant::delete::Arg {
 		permissions: args.permissions.clone(),

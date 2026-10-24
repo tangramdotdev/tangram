@@ -17,7 +17,7 @@ pub struct Args {
 	pub recursive: bool,
 }
 
-pub async fn command_tag_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::tag::delete::Arg {
 		location: args.location.get(),

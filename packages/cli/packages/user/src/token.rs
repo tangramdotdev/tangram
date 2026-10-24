@@ -23,11 +23,11 @@ pub enum Command {
 	List(self::list::Args),
 }
 
-pub async fn command_user_token(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
-		Command::Create(args) => crate::token::create::command_user_token_create(cli, args).await?,
-		Command::Delete(args) => crate::token::delete::command_user_token_delete(cli, args).await?,
-		Command::List(args) => crate::token::list::command_user_token_list(cli, args).await?,
+		Command::Create(args) => crate::token::create::run(cli, args).await?,
+		Command::Delete(args) => crate::token::delete::run(cli, args).await?,
+		Command::List(args) => crate::token::list::run(cli, args).await?,
 	}
 
 	Ok(())

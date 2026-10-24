@@ -18,7 +18,7 @@ pub struct Options {
 	pub locations: tangram_cli_core::location::Args,
 }
 
-pub async fn command_process_touch(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut options = args.options;
 	options
 		.locations
@@ -26,10 +26,10 @@ pub async fn command_process_touch(cli: &mut Cli, args: Args) -> tg::Result<()> 
 	let process =
 		tangram_cli_get::get_process_with_locations(cli, &args.reference, &options.locations)
 			.await?;
-	command_process_touch_inner(cli, process, options).await
+	run_inner(cli, process, options).await
 }
 
-pub async fn command_process_touch_inner(
+pub async fn run_inner(
 	cli: &mut Cli,
 	process: tg::Referent<tg::process::Id>,
 	options: Options,

@@ -34,7 +34,7 @@ pub struct Args {
 	pub subject: Option<tg::authorization::subject::Selector>,
 }
 
-pub async fn command_grants_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// List the grants.
 	let client = cli.client().await?;
 	let subject = args.subject.is_some();

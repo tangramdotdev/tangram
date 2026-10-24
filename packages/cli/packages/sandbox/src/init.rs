@@ -41,7 +41,7 @@ pub struct Options {
 	pub url: Option<tangram_uri::Uri>,
 }
 
-pub fn command_sandbox_init(args: Args) -> tg::Result<std::process::ExitCode> {
+pub fn run(args: Args) -> tg::Result<std::process::ExitCode> {
 	let arg = args.arg()?;
 	tangram_sandbox::init::run(&arg)
 }

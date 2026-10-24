@@ -26,7 +26,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn command_user_token_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	// List the user tokens.
 	let client = cli.client().await?;
 	let arg = tg::user::token::list::Arg {

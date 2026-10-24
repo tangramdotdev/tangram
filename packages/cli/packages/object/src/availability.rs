@@ -21,7 +21,7 @@ pub struct Options {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn command_object_availability(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut options = args.options;
 	options
 		.locations
@@ -29,10 +29,10 @@ pub async fn command_object_availability(cli: &mut Cli, args: Args) -> tg::Resul
 	let object =
 		tangram_cli_get::get_object_with_locations(cli, &args.reference, &options.locations)
 			.await?;
-	command_object_availability_inner(cli, object, options).await
+	run_inner(cli, object, options).await
 }
 
-pub async fn command_object_availability_inner(
+pub async fn run_inner(
 	cli: &mut Cli,
 	object: tg::Referent<tg::object::Id>,
 	options: Options,

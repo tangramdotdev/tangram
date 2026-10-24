@@ -15,10 +15,10 @@ pub enum Command {
 	Manage(self::manage::Args),
 }
 
-pub async fn command_user_billing(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Manage(args) => {
-			crate::billing::manage::command_user_billing_manage(cli, args).await?;
+			crate::billing::manage::run(cli, args).await?;
 		},
 	}
 	Ok(())

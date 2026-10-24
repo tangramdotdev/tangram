@@ -11,7 +11,7 @@ pub struct Args {
 	pub principal: Option<tg::principal::Selector>,
 }
 
-pub async fn command_remote_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::remote::delete::Arg {
 		principal: args.principal,

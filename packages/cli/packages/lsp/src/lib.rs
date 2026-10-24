@@ -5,7 +5,7 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*, tokio_util::io::StreamRe
 #[group(skip)]
 pub struct Args {}
 
-pub async fn command_lsp(cli: &mut Cli, _args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, _args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let stdin = Box::new(StreamReader::new(
 		tangram_util::io::stdin().map_err(|error| tg::error!(!error, "failed to open stdin"))?,

@@ -11,7 +11,7 @@ pub struct Args {
 	pub token: tg::token::Id,
 }
 
-pub async fn command_user_token_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let arg = tg::user::token::delete::Arg {
 		location: args.location.get(),

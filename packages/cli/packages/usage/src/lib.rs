@@ -39,7 +39,7 @@ pub struct PeriodArgs {
 	pub week: Option<String>,
 }
 
-pub async fn command_usage(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let location = args.location.get();
 	let mut arg = tg::usage::Arg::from(args.period);

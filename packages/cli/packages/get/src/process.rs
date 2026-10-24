@@ -33,7 +33,7 @@ pub struct Options {
 	pub source: tg::process::Source,
 }
 
-pub async fn command_process_get(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let mut options = args.options;
 	options
 		.locations
@@ -41,10 +41,10 @@ pub async fn command_process_get(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let process =
 		crate::reference::get_process_with_locations(cli, &args.reference, &options.locations)
 			.await?;
-	command_process_get_inner(cli, process, options).await
+	run_inner(cli, process, options).await
 }
 
-pub async fn command_process_get_inner(
+pub async fn run_inner(
 	cli: &mut Cli,
 	process: tg::Referent<tg::process::Id>,
 	options: Options,

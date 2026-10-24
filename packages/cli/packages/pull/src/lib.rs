@@ -57,7 +57,7 @@ pub struct Args {
 	pub user_children: bool,
 }
 
-pub async fn command_pull(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let source = args.source.to_location()?;
 

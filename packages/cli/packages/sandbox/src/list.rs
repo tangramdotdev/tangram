@@ -29,7 +29,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn command_sandbox_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let owner = crate::resolve_owner(&client, &args.owner).await?;
 	let arg = tg::sandbox::list::Arg {

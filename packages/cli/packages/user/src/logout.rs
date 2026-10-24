@@ -8,7 +8,7 @@ pub struct Args {
 	pub location: tangram_cli_core::location::Args,
 }
 
-pub async fn command_user_logout(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let location = args.location.get();
 	let arg = tg::user::current::Arg {

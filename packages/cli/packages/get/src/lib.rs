@@ -57,7 +57,7 @@ pub struct Ttl {
 	pub no_ttl: bool,
 }
 
-pub async fn command_get(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	args.locations.set_from_reference_if_unset(&args.reference);
 	let reference = args.locations.apply_to_reference(&args.reference);
 	let arg = tg::get::Arg {
@@ -112,7 +112,7 @@ pub(crate) async fn print_get_output(
 			metadata: args.metadata,
 			print,
 		};
-		crate::object::command_object_get_inner(cli, object, options).await?;
+		crate::object::run_inner(cli, object, options).await?;
 
 		return Ok(());
 	}
@@ -128,7 +128,7 @@ pub(crate) async fn print_get_output(
 			print,
 			source: args.source,
 		};
-		crate::process::command_process_get_inner(cli, process, options).await?;
+		crate::process::run_inner(cli, process, options).await?;
 
 		return Ok(());
 	}
@@ -224,7 +224,7 @@ pub(crate) async fn print_get_output(
 					source: args.source,
 					ttl: args.ttl,
 				};
-				crate::sandbox::command_sandbox_get(cli, args).await?;
+				crate::sandbox::run(cli, args).await?;
 			},
 			_ => {
 				cli.print_serde(id, print).await?;

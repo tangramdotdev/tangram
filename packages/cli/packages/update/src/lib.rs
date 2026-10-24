@@ -194,7 +194,7 @@ pub fn format_referrer<T>(referrer: &tg::Referent<T>) -> String {
 	name
 }
 
-pub async fn command_update(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Canonicalize the path's parent.

@@ -24,7 +24,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn command_put(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let location = args.location;
 
 	match (args.id, args.kind) {
@@ -37,7 +37,7 @@ pub async fn command_put(cli: &mut Cli, args: Args) -> tg::Result<()> {
 				location: location.clone(),
 				print: args.print,
 			};
-			tangram_cli_object::put::command_object_put(cli, args).await?;
+			tangram_cli_object::put::run(cli, args).await?;
 		},
 		(Some(tg::Either::Right(id)), None) => {
 			let args = tangram_cli_process::put::Args {
@@ -45,7 +45,7 @@ pub async fn command_put(cli: &mut Cli, args: Args) -> tg::Result<()> {
 				id,
 				location,
 			};
-			tangram_cli_process::put::command_process_put(cli, args).await?;
+			tangram_cli_process::put::run(cli, args).await?;
 		},
 		_ => {
 			return Err(tg::error!("invalid args"));

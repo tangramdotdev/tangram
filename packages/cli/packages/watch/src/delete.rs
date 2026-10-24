@@ -8,7 +8,7 @@ pub struct Args {
 	pub path: PathBuf,
 }
 
-pub async fn command_watch_delete(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let path = tangram_util::fs::canonicalize_parent(&args.path)
 		.await

@@ -26,12 +26,12 @@ pub enum Command {
 	Members(self::members::Args),
 }
 
-pub async fn command_group(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
-		Command::Create(args) => crate::create::command_group_create(cli, args).await?,
-		Command::Delete(args) => crate::delete::command_group_delete(cli, args).await?,
-		Command::Get(args) => crate::get::command_group_get(cli, args).await?,
-		Command::Members(args) => crate::members::command_group_members(cli, args).await?,
+		Command::Create(args) => crate::create::run(cli, args).await?,
+		Command::Delete(args) => crate::delete::run(cli, args).await?,
+		Command::Get(args) => crate::get::run(cli, args).await?,
+		Command::Members(args) => crate::members::run(cli, args).await?,
 	}
 	Ok(())
 }

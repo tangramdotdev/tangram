@@ -8,7 +8,7 @@ pub struct Args {
 	pub path: PathBuf,
 }
 
-pub async fn command_init(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args) -> tg::Result<()> {
 	// Create the directory.
 	tokio::fs::create_dir_all(&args.path)
 		.await

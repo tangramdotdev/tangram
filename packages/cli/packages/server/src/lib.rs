@@ -24,22 +24,22 @@ pub enum Command {
 	Stop(self::stop::Args),
 }
 
-pub async fn server(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Restart(args) => {
-			self::restart::restart(cli, args).await?;
+			self::restart::run(cli, args).await?;
 		},
 		Command::Run(args) => {
 			Box::pin(self::run::run(cli, args)).await?;
 		},
 		Command::Start(args) => {
-			self::start::start(cli, args).await?;
+			self::start::run(cli, args).await?;
 		},
 		Command::Status(args) => {
-			self::status::status(cli, args).await?;
+			self::status::run(cli, args).await?;
 		},
 		Command::Stop(args) => {
-			self::stop::stop(cli, args).await?;
+			self::stop::run(cli, args).await?;
 		},
 	}
 	Ok(())

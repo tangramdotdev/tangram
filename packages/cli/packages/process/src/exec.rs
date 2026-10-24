@@ -2,7 +2,7 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub use crate::spawn::{Args, Options};
 
-pub async fn command_process_exec(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let Args {
 		options,
 		reference,

@@ -11,7 +11,7 @@ pub struct Args {
 	pub export: String,
 }
 
-pub async fn command_shell_directory_put(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let key = std::fs::canonicalize(&args.path).map_err(|error| {
 		tg::error!(
 			!error,

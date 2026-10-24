@@ -14,7 +14,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-pub async fn command_compress(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let input = tangram_cli_get::get_object(cli, &args.reference).await?;
 	let (input, blob) = match tg::Object::with_referent(input) {

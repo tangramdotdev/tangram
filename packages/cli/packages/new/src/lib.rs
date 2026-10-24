@@ -8,8 +8,8 @@ pub struct Args {
 	pub path: PathBuf,
 }
 
-pub async fn command_new(args: Args) -> tg::Result<()> {
+pub async fn run(args: Args) -> tg::Result<()> {
 	let args = tangram_cli_init::Args { path: args.path };
-	tangram_cli_init::command_init(args).await?;
+	tangram_cli_init::run(args).await?;
 	Ok(())
 }

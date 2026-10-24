@@ -27,7 +27,7 @@ pub struct Args {
 	pub specifier: Option<tg::Specifier>,
 }
 
-pub async fn command_tag_put(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
 	// Get the reference.

@@ -236,7 +236,7 @@ pub struct Options {
 	pub user_namespace_fd: Option<i32>,
 }
 
-pub fn command_sandbox_run(args: Args) -> tg::Result<std::process::ExitCode> {
+pub fn run(args: Args) -> tg::Result<std::process::ExitCode> {
 	let arg = if let Some(path) = args.config {
 		let contents = std::fs::read(&path).map_err(|error| tg::error!(!error, path = %path.display(), "failed to read the sandbox launch configuration"))?;
 		read_config(&contents)?

@@ -25,25 +25,25 @@ pub enum Command {
 	Touch(self::touch::Args),
 }
 
-pub async fn command_object(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Availability(args) => {
-			crate::availability::command_object_availability(cli, args).await?;
+			crate::availability::run(cli, args).await?;
 		},
 		Command::Children(args) => {
-			crate::children::command_object_children(cli, args).await?;
+			crate::children::run(cli, args).await?;
 		},
 		Command::Get(args) => {
-			tangram_cli_get::object::command_object_get(cli, args).await?;
+			tangram_cli_get::object::run(cli, args).await?;
 		},
 		Command::Metadata(args) => {
-			crate::metadata::command_object_metadata(cli, args).await?;
+			crate::metadata::run(cli, args).await?;
 		},
 		Command::Put(args) => {
-			crate::put::command_object_put(cli, args).await?;
+			crate::put::run(cli, args).await?;
 		},
 		Command::Touch(args) => {
-			crate::touch::command_object_touch(cli, args).await?;
+			crate::touch::run(cli, args).await?;
 		},
 	}
 	Ok(())

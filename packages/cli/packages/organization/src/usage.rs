@@ -19,7 +19,7 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-pub async fn command_organization_usage(cli: &mut Cli, args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let mut arg = tg::usage::Arg::from(args.period);
 	arg.location = args.location.get_for_options(&args.organization);

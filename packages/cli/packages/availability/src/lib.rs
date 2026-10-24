@@ -14,7 +14,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-pub async fn command_availability(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
+pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 	args.locations.set_from_reference_if_unset(&args.reference);
 	let reference = args.locations.apply_to_reference(&args.reference);
 	let locations = args.locations;
@@ -26,10 +26,7 @@ pub async fn command_availability(cli: &mut Cli, mut args: Args) -> tg::Result<(
 		tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
 			let process = tg::Referent::new(id.try_into()?, referent.options);
 			let options = tangram_cli_process::availability::Options { locations, print };
-			tangram_cli_process::availability::command_process_availability_inner(
-				cli, process, options,
-			)
-			.await?;
+			tangram_cli_process::availability::run_inner(cli, process, options).await?;
 		},
 		node => {
 			let object = tg::Referent::new(node, referent.options)
@@ -40,10 +37,7 @@ pub async fn command_availability(cli: &mut Cli, mut args: Args) -> tg::Result<(
 						.map_err(|_| tg::error!("expected an object"))
 				})?;
 			let options = tangram_cli_object::availability::Options { locations, print };
-			tangram_cli_object::availability::command_object_availability_inner(
-				cli, object, options,
-			)
-			.await?;
+			tangram_cli_object::availability::run_inner(cli, object, options).await?;
 		},
 	}
 
