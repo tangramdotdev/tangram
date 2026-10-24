@@ -262,15 +262,15 @@ impl Component {
 			options: cache_options,
 			..tg::get::Arg::default()
 		};
-		let request = tangram_server_core::remote::cache::Request::Get(
-			tangram_server_core::remote::cache::GetRequest {
+		let request = tangram_server_remote_core::cache::Request::Get(
+			tangram_server_remote_core::cache::GetRequest {
 				arg: cache_arg,
 				reference: cache_reference,
 			},
 		);
 
 		// Get a cached response.
-		if let Some(tangram_server_core::remote::cache::Response::Get(response)) = session
+		if let Some(tangram_server_remote_core::cache::Response::Get(response)) = session
 			.server
 			.components
 			.remote
@@ -280,14 +280,14 @@ impl Component {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				tangram_server_core::remote::cache::tokens_valid(
+				tangram_server_remote_core::cache::tokens_valid(
 					output.referent.local_tokens(),
 					&session.server.clock,
 				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					tangram_server_core::remote::cache::remove_expired_tokens(
+					tangram_server_remote_core::cache::remove_expired_tokens(
 						&mut output.referent.options.tokens,
 						&session.server.clock,
 					);
@@ -352,8 +352,8 @@ impl Component {
 				output = event_output;
 			}
 		}
-		let response = tangram_server_core::remote::cache::Response::Get(
-			tangram_server_core::remote::cache::GetResponse {
+		let response = tangram_server_remote_core::cache::Response::Get(
+			tangram_server_remote_core::cache::GetResponse {
 				output: output.clone(),
 			},
 		);

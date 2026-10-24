@@ -137,13 +137,13 @@ impl Component {
 		arg.ttl = tg::remote::cache::Ttl::default();
 		let mut cache_arg = arg.clone();
 		cache_arg.tokens.clear();
-		let request = tangram_server_core::remote::cache::Request::UserGet(
-			tangram_server_core::remote::cache::UserGetRequest {
+		let request = tangram_server_remote_core::cache::Request::UserGet(
+			tangram_server_remote_core::cache::UserGetRequest {
 				arg: cache_arg,
 				id: id.clone(),
 			},
 		);
-		if let Some(tangram_server_core::remote::cache::Response::UserGet(response)) = session
+		if let Some(tangram_server_remote_core::cache::Response::UserGet(response)) = session
 			.server
 			.components
 			.remote
@@ -152,14 +152,14 @@ impl Component {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				tangram_server_core::remote::cache::tokens_valid(
+				tangram_server_remote_core::cache::tokens_valid(
 					output.tokens.local_authorization(),
 					&session.server.clock,
 				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					tangram_server_core::remote::cache::remove_expired_tokens(
+					tangram_server_remote_core::cache::remove_expired_tokens(
 						&mut output.tokens,
 						&session.server.clock,
 					);
@@ -188,8 +188,8 @@ impl Component {
 			.try_get_user(&user, arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the user"))?;
-		let response = tangram_server_core::remote::cache::Response::UserGet(
-			tangram_server_core::remote::cache::UserGetResponse {
+		let response = tangram_server_remote_core::cache::Response::UserGet(
+			tangram_server_remote_core::cache::UserGetResponse {
 				output: output.clone(),
 			},
 		);

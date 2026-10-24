@@ -53,14 +53,14 @@ impl Component {
 		let request = match &query {
 			Query::List(arg) => {
 				let arg = arg.clone();
-				tangram_server_core::remote::cache::Request::List(
-					tangram_server_core::remote::cache::ListRequest { arg },
+				tangram_server_remote_core::cache::Request::List(
+					tangram_server_remote_core::cache::ListRequest { arg },
 				)
 			},
 			Query::Match(arg) => {
 				let arg = arg.clone();
-				tangram_server_core::remote::cache::Request::Match(
-					tangram_server_core::remote::cache::MatchRequest { arg },
+				tangram_server_remote_core::cache::Request::Match(
+					tangram_server_remote_core::cache::MatchRequest { arg },
 				)
 			},
 		};
@@ -78,21 +78,19 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
 			let mut entries = match response {
-				tangram_server_core::remote::cache::Response::List(response) => {
-					response.output.data
-				},
-				tangram_server_core::remote::cache::Response::Match(response) => {
+				tangram_server_remote_core::cache::Response::List(response) => response.output.data,
+				tangram_server_remote_core::cache::Response::Match(response) => {
 					response.output.data
 				},
 				_ => unreachable!(),
 			};
 			let valid = entries.iter().all(|entry| {
-				let entry_valid = tangram_server_core::remote::cache::tokens_valid(
+				let entry_valid = tangram_server_remote_core::cache::tokens_valid(
 					entry.tokens().local_authorization(),
 					&session.server.clock,
 				);
 				let target_valid = entry.target.as_ref().is_none_or(|target| {
-					tangram_server_core::remote::cache::tokens_valid(
+					tangram_server_remote_core::cache::tokens_valid(
 						target.options.tokens.local_authorization(),
 						&session.server.clock,
 					)
@@ -101,12 +99,12 @@ impl Component {
 			});
 			if valid || cached {
 				for entry in &mut entries {
-					tangram_server_core::remote::cache::remove_expired_tokens(
+					tangram_server_remote_core::cache::remove_expired_tokens(
 						&mut entry.node.options.tokens,
 						&session.server.clock,
 					);
 					if let Some(target) = &mut entry.target {
-						tangram_server_core::remote::cache::remove_expired_tokens(
+						tangram_server_remote_core::cache::remove_expired_tokens(
 							&mut target.options.tokens,
 							&session.server.clock,
 						);
@@ -131,21 +129,21 @@ impl Component {
 			.await
 			.map_err(|error| tg::error!(!error, "the remote list task panicked"))??;
 		let response = match &request {
-			tangram_server_core::remote::cache::Request::List(_) => {
+			tangram_server_remote_core::cache::Request::List(_) => {
 				let output = tg::list::Output {
 					cursor: None,
 					data: entries.clone(),
 				};
-				let response = tangram_server_core::remote::cache::ListResponse { output };
-				tangram_server_core::remote::cache::Response::List(response)
+				let response = tangram_server_remote_core::cache::ListResponse { output };
+				tangram_server_remote_core::cache::Response::List(response)
 			},
-			tangram_server_core::remote::cache::Request::Match(_) => {
+			tangram_server_remote_core::cache::Request::Match(_) => {
 				let output = tg::match_::Output {
 					cursor: None,
 					data: entries.clone(),
 				};
-				let response = tangram_server_core::remote::cache::MatchResponse { output };
-				tangram_server_core::remote::cache::Response::Match(response)
+				let response = tangram_server_remote_core::cache::MatchResponse { output };
+				tangram_server_remote_core::cache::Response::Match(response)
 			},
 			_ => unreachable!(),
 		};

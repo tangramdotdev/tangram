@@ -137,13 +137,13 @@ impl Component {
 		arg.ttl = tg::remote::cache::Ttl::default();
 		let mut cache_arg = arg.clone();
 		cache_arg.tokens.clear();
-		let request = tangram_server_core::remote::cache::Request::GroupGet(
-			tangram_server_core::remote::cache::GroupGetRequest {
+		let request = tangram_server_remote_core::cache::Request::GroupGet(
+			tangram_server_remote_core::cache::GroupGetRequest {
 				arg: cache_arg,
 				id: id.clone(),
 			},
 		);
-		if let Some(tangram_server_core::remote::cache::Response::GroupGet(response)) = session
+		if let Some(tangram_server_remote_core::cache::Response::GroupGet(response)) = session
 			.server
 			.components
 			.remote
@@ -152,14 +152,14 @@ impl Component {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				tangram_server_core::remote::cache::tokens_valid(
+				tangram_server_remote_core::cache::tokens_valid(
 					output.tokens.local_authorization(),
 					&session.server.clock,
 				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					tangram_server_core::remote::cache::remove_expired_tokens(
+					tangram_server_remote_core::cache::remove_expired_tokens(
 						&mut output.tokens,
 						&session.server.clock,
 					);
@@ -187,8 +187,8 @@ impl Component {
 		let mut output = client.try_get_group(&group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the group"),
 		)?;
-		let response = tangram_server_core::remote::cache::Response::GroupGet(
-			tangram_server_core::remote::cache::GroupGetResponse {
+		let response = tangram_server_remote_core::cache::Response::GroupGet(
+			tangram_server_remote_core::cache::GroupGetResponse {
 				output: output.clone(),
 			},
 		);

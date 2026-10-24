@@ -4,10 +4,8 @@ use {
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_http::body::Boxed as BoxBody,
-	tangram_server_core::{
-		Session,
-		remote::cache::{Request, Response},
-	},
+	tangram_server_core::Session,
+	tangram_server_remote_core::cache::{Request, Response},
 	tangram_uri::Uri,
 };
 

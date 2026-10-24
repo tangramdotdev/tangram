@@ -330,7 +330,7 @@ impl Component {
 			open.offer();
 		}
 
-		let request = tangram_server_core::scheduler::EnqueueSandboxRequestArg {
+		let request = tangram_server_scheduler_core::EnqueueSandboxRequestArg {
 			arg,
 			creator: Some(session.context.principal.clone()),
 			parent: output.parent_sandbox.clone(),

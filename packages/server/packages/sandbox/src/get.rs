@@ -573,8 +573,8 @@ impl Component {
 			tokens: tokens.for_location(&location),
 			ttl: tg::remote::cache::Ttl::default(),
 		};
-		let request = tangram_server_core::remote::cache::Request::SandboxGet(
-			tangram_server_core::remote::cache::SandboxGetRequest {
+		let request = tangram_server_remote_core::cache::Request::SandboxGet(
+			tangram_server_remote_core::cache::SandboxGetRequest {
 				arg: arg.clone(),
 				id: id.clone(),
 			},
@@ -592,22 +592,21 @@ impl Component {
 
 		// Get a cached response.
 		if source.is_auto()
-			&& let Some(tangram_server_core::remote::cache::Response::SandboxGet(response)) =
-				session
-					.server
-					.components
-					.remote
-					.try_get_cached_remote_response(session, &remote.name, &request, ttl)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
+			&& let Some(tangram_server_remote_core::cache::Response::SandboxGet(response)) = session
+				.server
+				.components
+				.remote
+				.try_get_cached_remote_response(session, &remote.name, &request, ttl)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 			&& let Some(mut output) = response.output
 		{
-			let valid = tangram_server_core::remote::cache::tokens_valid(
+			let valid = tangram_server_remote_core::cache::tokens_valid(
 				output.tokens.local_authorization(),
 				&session.server.clock,
 			);
 			if valid || cached {
-				tangram_server_core::remote::cache::remove_expired_tokens(
+				tangram_server_remote_core::cache::remove_expired_tokens(
 					&mut output.tokens,
 					&session.server.clock,
 				);
@@ -628,8 +627,8 @@ impl Component {
 			.as_ref()
 			.is_some_and(|output| output.data.status.is_destroyed())
 		{
-			let response = tangram_server_core::remote::cache::Response::SandboxGet(
-				tangram_server_core::remote::cache::SandboxGetResponse {
+			let response = tangram_server_remote_core::cache::Response::SandboxGet(
+				tangram_server_remote_core::cache::SandboxGetResponse {
 					output: output.clone(),
 				},
 			);

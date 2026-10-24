@@ -146,13 +146,13 @@ impl Component {
 		arg.ttl = tg::remote::cache::Ttl::default();
 		let mut cache_arg = arg.clone();
 		cache_arg.tokens.clear();
-		let request = tangram_server_core::remote::cache::Request::TagGet(
-			tangram_server_core::remote::cache::TagGetRequest {
+		let request = tangram_server_remote_core::cache::Request::TagGet(
+			tangram_server_remote_core::cache::TagGetRequest {
 				arg: cache_arg,
 				id: id.clone(),
 			},
 		);
-		if let Some(tangram_server_core::remote::cache::Response::TagGet(response)) = session
+		if let Some(tangram_server_remote_core::cache::Response::TagGet(response)) = session
 			.server
 			.components
 			.remote
@@ -161,14 +161,14 @@ impl Component {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|tag| {
-				tangram_server_core::remote::cache::tokens_valid(
+				tangram_server_remote_core::cache::tokens_valid(
 					tag.tokens.local_authorization(),
 					&session.server.clock,
 				)
 			});
 			if valid || cached {
 				if let Some(tag) = &mut output {
-					tangram_server_core::remote::cache::remove_expired_tokens(
+					tangram_server_remote_core::cache::remove_expired_tokens(
 						&mut tag.tokens,
 						&session.server.clock,
 					);
@@ -197,8 +197,8 @@ impl Component {
 			.try_get_tag(&tag, arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the tag"))?;
-		let response = tangram_server_core::remote::cache::Response::TagGet(
-			tangram_server_core::remote::cache::TagGetResponse {
+		let response = tangram_server_remote_core::cache::Response::TagGet(
+			tangram_server_remote_core::cache::TagGetResponse {
 				output: output.clone(),
 			},
 		);

@@ -5,10 +5,8 @@ use {
 	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_server_core::{
-		Session,
-		remote::cache::{Request, Response},
-	},
+	tangram_server_core::Session,
+	tangram_server_remote_core::cache::{Request, Response},
 };
 
 struct Entry {
