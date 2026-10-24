@@ -191,7 +191,12 @@ impl Component {
 				});
 			}
 		}
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let mut account_objects = batch_objects.clone();
 		for children in object_children.values() {
 			for child in children {

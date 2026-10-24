@@ -103,7 +103,12 @@ impl Component {
 			.iter()
 			.filter_map(|node| tg::process::Id::try_from(node.node.clone()).ok())
 			.collect::<Vec<_>>();
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let touch_objects_future = async {
 			session
 				.server

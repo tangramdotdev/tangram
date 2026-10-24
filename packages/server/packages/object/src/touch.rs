@@ -72,7 +72,12 @@ impl Component {
 			return Ok(None);
 		}
 		let touched_at = session.server.clock.unix_timestamp();
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let Some(_) = session
 			.server
 			.index

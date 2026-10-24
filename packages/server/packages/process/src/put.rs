@@ -185,13 +185,18 @@ impl Component {
 		let objects = Self::finished_process_objects(&token_data)
 			.into_iter()
 			.map(|object| object.map(Into::into));
-		let put_permissions = session.create_capture_permissions_batch_items(
-			destination,
-			None,
-			objects,
-			principal.clone(),
-			now,
-		)?;
+		let put_permissions = session
+			.server
+			.components
+			.authorization
+			.create_capture_permissions_batch_items(
+				session,
+				destination,
+				None,
+				objects.into_iter().collect(),
+				principal.clone(),
+				now,
+			)?;
 		let data = store_data.then(|| arg.data.clone());
 		let mut put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
@@ -252,7 +257,12 @@ impl Component {
 				version: None,
 			});
 		put_process_arg.permissions.extend(put_permission);
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 
 		// Put the process in the index.
 		let arg = tangram_index::batch::Arg {

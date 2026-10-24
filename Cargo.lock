@@ -10678,11 +10678,25 @@ dependencies = [
  "tangram_server_scheduler",
  "tangram_server_sync",
  "tangram_server_tag",
+ "tangram_server_usage",
  "tangram_server_user",
  "tangram_server_verify",
  "tangram_server_vfs",
  "tangram_server_watch",
  "tangram_server_write",
+]
+
+[[package]]
+name = "tangram_server_archive"
+version = "0.0.0"
+dependencies = [
+ "derive_more",
+ "tangram_archive",
+ "tangram_archive_s3",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_pool",
+ "tangram_server_config",
 ]
 
 [[package]]
@@ -10722,8 +10736,18 @@ dependencies = [
  "futures",
  "num",
  "tangram_client",
+ "tangram_index",
+ "tangram_server_authorization_core",
  "tangram_server_core",
  "tangram_server_grant_core",
+ "uuid",
+]
+
+[[package]]
+name = "tangram_server_authorization_core"
+version = "0.0.0"
+dependencies = [
+ "tangram_client",
 ]
 
 [[package]]
@@ -10986,7 +11010,6 @@ dependencies = [
  "hyper-util",
  "indoc",
  "libc",
- "mime",
  "num",
  "opentelemetry",
  "rand 0.10.3",
@@ -10997,10 +11020,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tangram_archive",
- "tangram_archive_s3",
  "tangram_billing",
  "tangram_billing_stripe",
- "tangram_cache",
  "tangram_client",
  "tangram_compiler",
  "tangram_database",
@@ -11015,9 +11036,8 @@ dependencies = [
  "tangram_index_lmdb",
  "tangram_messenger",
  "tangram_messenger_memory",
- "tangram_pool",
  "tangram_sandbox",
- "tangram_serialize",
+ "tangram_server_archive",
  "tangram_server_authentication_core",
  "tangram_server_cache",
  "tangram_server_checkin_graph",
@@ -11043,7 +11063,6 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-rustls",
- "tokio-stream",
  "tokio-util",
  "tokio-vsock",
  "tower",
@@ -11281,6 +11300,18 @@ dependencies = [
  "tangram_futures",
  "tangram_serialize",
  "tangram_server_core",
+ "tangram_server_log_core",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_server_log_core"
+version = "0.0.0"
+dependencies = [
+ "tangram_cache",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_serialize",
  "tokio",
 ]
 
@@ -11349,11 +11380,19 @@ name = "tangram_server_node"
 version = "0.0.0"
 dependencies = [
  "futures",
+ "indoc",
  "tangram_client",
  "tangram_database",
  "tangram_futures",
  "tangram_index",
  "tangram_server_core",
+]
+
+[[package]]
+name = "tangram_server_node_core"
+version = "0.0.0"
+dependencies = [
+ "tangram_client",
 ]
 
 [[package]]
@@ -11577,6 +11616,7 @@ dependencies = [
  "tangram_sandbox",
  "tangram_server_core",
  "tangram_server_grant_core",
+ "tangram_server_log_core",
  "tangram_server_process_core",
  "tangram_server_runner_core",
  "tangram_server_sandbox_core",
@@ -11658,6 +11698,7 @@ dependencies = [
  "tangram_index",
  "tangram_messenger",
  "tangram_server_core",
+ "tangram_server_log_core",
  "tangram_server_process_core",
  "tangram_server_sandbox_core",
  "tangram_server_scheduler_core",
@@ -11703,8 +11744,10 @@ dependencies = [
  "tangram_index",
  "tangram_messenger",
  "tangram_serialize",
+ "tangram_server_authorization_core",
  "tangram_server_core",
  "tangram_server_grant_core",
+ "tangram_server_node_core",
  "tangram_server_process_core",
  "tangram_server_tag_core",
  "tangram_util",
@@ -11730,6 +11773,7 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_grant_core",
+ "tangram_server_node_core",
  "tangram_server_remote_core",
  "tangram_server_tag_core",
 ]
@@ -11740,6 +11784,16 @@ version = "0.0.0"
 dependencies = [
  "tangram_client",
  "uuid",
+]
+
+[[package]]
+name = "tangram_server_usage"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "tangram_client",
+ "tangram_index",
+ "tangram_server_core",
 ]
 
 [[package]]

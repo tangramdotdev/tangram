@@ -1725,7 +1725,7 @@ impl Component {
 			started_at,
 			streams,
 		} = arg;
-		let mut writer = tangram_server_core::log::Writer::new(session);
+		let mut writer = tangram_server_log_core::Writer::new(session);
 		let clock = session.server.clock.clone();
 
 		// Stream the log chunks to the process's location as one stdio write.
@@ -1985,13 +1985,18 @@ impl Component {
 			.map(|resource| (resource.map(Into::into), permissions));
 		let source = tg::Principal::Process(parent.unwrap_or(id).clone());
 		items.extend(
-			session.create_capture_permissions_batch_items_with_permissions(
-				destination,
-				None,
-				roots,
-				source,
-				now,
-			)?,
+			session
+				.server
+				.components
+				.authorization
+				.create_capture_permissions_batch_items_with_permissions(
+					session,
+					destination,
+					None,
+					roots.into_iter().collect(),
+					source,
+					now,
+				)?,
 		);
 
 		// Apply the initial data before the finished data can be written.

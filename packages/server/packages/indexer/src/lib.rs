@@ -755,7 +755,7 @@ impl Indexer {
 			.wait_remote_object_put_tasks()
 			.await;
 		self.server.index_tasks.wait().await;
-		self.server.archive_tasks.wait().await;
+		self.server.components.object.wait_archive_tasks().await;
 		if self.id.is_some() {
 			Self::drain_queues(state, changed, index_sender).await?;
 		}

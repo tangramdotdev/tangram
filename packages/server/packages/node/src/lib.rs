@@ -1,5 +1,6 @@
 use {
 	futures::{FutureExt as _, future::BoxFuture},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_server_core::Session,
 };
@@ -21,6 +22,18 @@ impl Component {
 impl tangram_server_core::component::Lifecycle for Component {}
 
 impl tangram_server_core::node::Component for Component {
+	fn collect_named_subtrees_with_transaction<'a>(
+		&'a self,
+		transaction: &'a tangram_server_core::database::Transaction<'_>,
+		roots: &'a [tg::Id],
+		batch_size: usize,
+	) -> BoxFuture<
+		'a,
+		tg::Result<ControlFlow<Vec<(tg::Id, tg::Specifier)>, tangram_server_core::database::Error>>,
+	> {
+		Self::collect_named_subtrees_with_transaction(transaction, roots, batch_size).boxed()
+	}
+
 	fn contains_ids_from_index<'a>(
 		&'a self,
 		session: &'a Session,

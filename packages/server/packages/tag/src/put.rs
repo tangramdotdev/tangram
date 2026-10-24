@@ -172,7 +172,7 @@ impl Component {
 						return Err(tg::error!("specifier is already in use"));
 					}
 					let permission =
-						tangram_server_core::Session::delete_permission_for_named_node(id)?;
+						tangram_server_node_core::delete_permission_for_named_node(id)?;
 					let permissions =
 						tg::authorization::permission::Set::from_permission(permission);
 					let resource = tg::Selector::<tg::Id>::Id(id.clone());
@@ -265,7 +265,10 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 		let account = match session
-			.usage_account_for_specifier_with_transaction(transaction, &data.specifier)
+			.server
+			.components
+			.usage
+			.usage_account_for_specifier_with_transaction(session, transaction, &data.specifier)
 			.await?
 		{
 			ControlFlow::Break(account) => account,
@@ -295,13 +298,18 @@ impl Component {
 			},
 			tokens,
 		);
-		let capture = session.create_capture_permissions_batch_items(
-			destination,
-			Some(version),
-			[resource],
-			session.context.principal.clone(),
-			touched_at,
-		)?;
+		let capture = session
+			.server
+			.components
+			.authorization
+			.create_capture_permissions_batch_items(
+				session,
+				destination,
+				Some(version),
+				vec![resource],
+				session.context.principal.clone(),
+				touched_at,
+			)?;
 		batch.items.extend(capture);
 		match session
 			.server
@@ -347,17 +355,20 @@ impl Component {
 				.as_ref()
 				.ok_or_else(|| tg::error!("missing the existing named node"))?;
 			let batch_size = session.server.config.sync.get.database.batch_size;
-			let replaced_ids_and_specifiers =
-				match tangram_server_core::Session::collect_named_subtrees_with_transaction(
+			let replaced_ids_and_specifiers = match session
+				.server
+				.components
+				.node
+				.collect_named_subtrees_with_transaction(
 					transaction,
 					std::slice::from_ref(existing),
 					batch_size,
 				)
 				.await?
-				{
-					ControlFlow::Break(ids_and_specifiers) => ids_and_specifiers,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
+			{
+				ControlFlow::Break(ids_and_specifiers) => ids_and_specifiers,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			match session
 				.server
 				.components

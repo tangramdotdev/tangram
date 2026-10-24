@@ -690,7 +690,12 @@ impl Component {
 		progress.finish("locking");
 
 		// Create the index batch.
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let index_arg = index::CheckinIndexArg {
 			arg: &arg,
 			graph: &graph,

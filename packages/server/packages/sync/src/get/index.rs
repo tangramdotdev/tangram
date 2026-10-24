@@ -757,7 +757,12 @@ impl Component {
 			.await?;
 
 		// Create the index args and update the graph with the permissions being written.
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let touched_at = session.server.clock.unix_timestamp();
 		let (
 			permission_capture_items,
@@ -902,7 +907,14 @@ impl Component {
 		let mut put_sandbox_args = Vec::with_capacity(messages.len());
 		for message in messages {
 			let account = match message.data.data.owner.as_ref() {
-				Some(owner) => session.usage_account(owner).await?,
+				Some(owner) => {
+					session
+						.server
+						.components
+						.usage
+						.usage_account(session, owner)
+						.await?
+				},
 				None => None,
 			};
 			let permissions = [
@@ -973,13 +985,18 @@ impl Component {
 			let destination = process.clone().into();
 			let source = tg::Principal::Process(process);
 			items.extend(
-				session.create_capture_permissions_batch_items_with_permissions(
-					destination,
-					None,
-					roots,
-					source,
-					created_at,
-				)?,
+				session
+					.server
+					.components
+					.authorization
+					.create_capture_permissions_batch_items_with_permissions(
+						session,
+						destination,
+						None,
+						roots.into_iter().collect(),
+						source,
+						created_at,
+					)?,
 			);
 		}
 		Ok(items)

@@ -571,7 +571,13 @@ impl Component {
 		session: &Session,
 		id: &tg::process::Id,
 	) -> tg::Result<bool> {
-		let Some(account) = session.usage_account(&session.context.principal).await? else {
+		let Some(account) = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?
+		else {
 			return Ok(true);
 		};
 		let touched_at = session.server.clock.unix_timestamp();

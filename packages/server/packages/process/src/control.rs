@@ -584,7 +584,10 @@ impl Component {
 			sandbox.account.clone()
 		} else {
 			session
-				.usage_account(&tg::Principal::Sandbox(sandbox_id.clone()))
+				.server
+				.components
+				.usage
+				.usage_account(session, &tg::Principal::Sandbox(sandbox_id.clone()))
 				.await?
 		};
 		let touched_at = session.server.clock.unix_timestamp();
@@ -642,13 +645,20 @@ impl Component {
 			let destination = id.clone().into();
 			let roots = command_objects.into_iter().map(|root| root.map(Into::into));
 			let source = tg::Principal::Process(parent.clone());
-			items.extend(session.create_capture_permissions_batch_items(
-				destination,
-				None,
-				roots,
-				source,
-				touched_at,
-			)?);
+			items.extend(
+				session
+					.server
+					.components
+					.authorization
+					.create_capture_permissions_batch_items(
+						session,
+						destination,
+						None,
+						roots.into_iter().collect(),
+						source,
+						touched_at,
+					)?,
+			);
 		}
 
 		// Submit the prepared batch without waiting for its index commit, continuing if the index cannot accept it.

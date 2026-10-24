@@ -398,7 +398,12 @@ impl Component {
 				touch_ids.push(id.clone());
 			}
 		}
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let touched = session
 			.server
 			.index
@@ -466,7 +471,12 @@ impl Component {
 				touch_ids.push(id.clone());
 			}
 		}
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let touched = session
 			.server
 			.index
@@ -508,7 +518,12 @@ impl Component {
 				touch_ids.push(id.clone());
 			}
 		}
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let touched = session
 			.server
 			.index

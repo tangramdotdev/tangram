@@ -329,17 +329,16 @@ impl Component {
 		let mut batch = tangram_index::batch::Arg::default();
 		if !replacement_roots.is_empty() {
 			let roots = replacement_roots.keys().cloned().collect::<Vec<_>>();
-			let replaced_ids_and_specifiers =
-				match tangram_server_core::Session::collect_named_subtrees_with_transaction(
-					transaction,
-					&roots,
-					batch_size,
-				)
+			let replaced_ids_and_specifiers = match session
+				.server
+				.components
+				.node
+				.collect_named_subtrees_with_transaction(transaction, &roots, batch_size)
 				.await?
-				{
-					ControlFlow::Break(ids_and_specifiers) => ids_and_specifiers,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
+			{
+				ControlFlow::Break(ids_and_specifiers) => ids_and_specifiers,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			match session
 				.server
 				.components
@@ -549,7 +548,7 @@ impl Component {
 			authorizations.push((resource, allow_unclaimed, permissions));
 		}
 		for id in replacement_roots.keys() {
-			let permission = tangram_server_core::Session::delete_permission_for_named_node(id)?;
+			let permission = tangram_server_node_core::delete_permission_for_named_node(id)?;
 			let permissions = tg::authorization::permission::Set::from_permission(permission);
 			let resource = tg::Selector::<tg::Id>::Id(id.clone());
 			authorizations.push((resource, false, permissions));
@@ -1275,7 +1274,10 @@ impl Component {
 		});
 		let fallback = if fallback_required {
 			match session
-				.usage_account_with_transaction(transaction, &session.context.principal)
+				.server
+				.components
+				.usage
+				.usage_account_with_transaction(session, transaction, &session.context.principal)
 				.await?
 			{
 				ControlFlow::Break(account) => account,
@@ -1379,9 +1381,10 @@ impl Component {
 				let (permissions, version) = tag_permissions
 					.get(&message.id)
 					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
-				let mut proven =
-					tangram_server_core::Session::permission_capture_permissions(&message.target)?
-						.empty_like();
+				let mut proven = tangram_server_authorization_core::permission_capture_permissions(
+					&message.target,
+				)?
+				.empty_like();
 				for permission in permissions {
 					proven.insert((*permission).into());
 				}
@@ -1392,13 +1395,18 @@ impl Component {
 				let root = (resource, proven);
 				let destination = message.id.clone().into();
 				batch.items.extend(
-					session.create_capture_permissions_batch_items_with_permissions(
-						destination,
-						Some(version.clone()),
-						[root],
-						session.context.principal.clone(),
-						touched_at,
-					)?,
+					session
+						.server
+						.components
+						.authorization
+						.create_capture_permissions_batch_items_with_permissions(
+							session,
+							destination,
+							Some(version.clone()),
+							vec![root],
+							session.context.principal.clone(),
+							touched_at,
+						)?,
 				);
 			}
 

@@ -71,7 +71,12 @@ impl Component {
 		let now = session.server.clock.now();
 		let tokens = arg.tokens.clone();
 		let period = arg.period(now)?;
-		let output = session.get_usage_regions(&account, period, &tokens).await?;
+		let output = session
+			.server
+			.components
+			.usage
+			.get_usage_regions(session, &account, period, &tokens)
+			.await?;
 		Ok(Some(output))
 	}
 
@@ -92,7 +97,12 @@ impl Component {
 		};
 		let now = session.server.clock.now();
 		let period = arg.period(now)?;
-		let output = session.get_usage_local(&account, period).await?;
+		let output = session
+			.server
+			.components
+			.usage
+			.get_usage_local(session, &account, period)
+			.await?;
 		Ok(Some(output))
 	}
 

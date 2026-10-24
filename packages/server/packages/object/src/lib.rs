@@ -25,7 +25,9 @@ type Tasks = tangram_futures::task::Map<
 #[derive(Clone)]
 pub struct Component(Arc<State>);
 
+#[expect(clippy::struct_field_names)]
 pub struct State {
+	archive_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	get_tasks: Tasks,
 	remote_put_tasks: tangram_futures::task::Set<()>,
 }
@@ -42,9 +44,11 @@ struct TaskKey {
 impl Component {
 	#[must_use]
 	pub fn new() -> Self {
+		let archive_tasks = tangram_futures::task::Set::default();
 		let get_tasks = Tasks::default();
 		let remote_put_tasks = tangram_futures::task::Set::default();
 		let state = State {
+			archive_tasks,
 			get_tasks,
 			remote_put_tasks,
 		};
@@ -125,12 +129,28 @@ impl tangram_server_core::component::Lifecycle for Component {
 	}
 
 	fn abort(&self) {
+		self.archive_tasks.abort_all();
 		self.get_tasks.abort_all();
 		self.remote_put_tasks.abort_all();
 	}
 }
 
 impl tangram_server_core::object::Component for Component {
+	fn archive_object<'a>(
+		&'a self,
+		server: &'a Server,
+		arg: tangram_archive::object::put::Arg,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		Self::archive_object(server, arg).boxed()
+	}
+
+	fn wait_archive_tasks(&self) -> BoxFuture<'_, ()> {
+		async move {
+			self.archive_tasks.wait().await;
+		}
+		.boxed()
+	}
+
 	fn compute_object_availability<'a>(
 		&'a self,
 		session: &'a Session,

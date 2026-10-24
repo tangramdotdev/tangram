@@ -376,7 +376,14 @@ impl Component {
 		runner: Option<tg::runner::Id>,
 	) -> tg::Result<tangram_index::sandbox::put::Arg> {
 		let account = match create.owner.as_ref() {
-			Some(owner) => session.usage_account(owner).await?,
+			Some(owner) => {
+				session
+					.server
+					.components
+					.usage
+					.usage_account(session, owner)
+					.await?
+			},
 			None => None,
 		};
 		let location = tg::Location::Local(tg::location::Local {

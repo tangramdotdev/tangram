@@ -1,7 +1,6 @@
 use {
 	crate::{
 		Components, Config, Owned, Server, State,
-		archive::Archive,
 		context::{Context, Origin},
 		database::Database,
 		index::Index,
@@ -185,12 +184,11 @@ impl Server {
 			.archive
 			.as_ref()
 			.map(|config| match config {
-				crate::config::Archive::S3(config) => Archive::new_s3(config),
+				crate::config::Archive::S3(config) => {
+					tangram_server_archive::Archive::new_s3(config)
+				},
 			})
 			.transpose()?;
-
-		// Create the archive tasks.
-		let archive_tasks = tangram_futures::task::Set::default();
 
 		// Create the database.
 		let database = Self::create_database(&config, &path, parallelism).await?;
@@ -265,7 +263,6 @@ impl Server {
 		// Create the state.
 		let state = State {
 			archive,
-			archive_tasks,
 			authentication_tokens,
 			authorization_tokens,
 			cache,
@@ -979,7 +976,7 @@ impl Server {
 		self.components.sandbox.stop(self).await;
 
 		// Finish the archive tasks after their producers have stopped.
-		self.archive_tasks.wait().await;
+		self.components.object.wait_archive_tasks().await;
 
 		// Finish the index tasks after their producers have stopped.
 		self.index_tasks.wait().await;

@@ -1,8 +1,9 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, future},
+	futures::{FutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, ops::ControlFlow},
+	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -155,7 +156,12 @@ impl Component {
 				time_to_touch: Some(session.server.config.object.permission_time_to_touch),
 				version: None,
 			});
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutObject(arg))
 				.chain(put_permission.map(tangram_index::batch::Item::PutPermission))
@@ -489,7 +495,7 @@ impl Component {
 				.put_object_batch(args)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
-			server.archive_object_batch_task(archive_args);
+			self.archive_object_batch_task(server, archive_args);
 			return Ok(());
 		}
 
@@ -611,6 +617,81 @@ impl Component {
 		output
 			.try_unwrap_archive()
 			.map_err(|_| tg::error!("expected an archive response"))?;
+
+		Ok(())
+	}
+}
+
+impl Component {
+	pub(crate) fn archive_object_batch_task(
+		&self,
+		server: &Server,
+		args: Vec<tangram_archive::object::put::Arg>,
+	) {
+		if args.is_empty() {
+			return;
+		}
+		self.archive_tasks
+			.spawn({
+				let component = self.clone();
+				let server = server.clone();
+				|_| async move {
+					stream::iter(args.into_iter().map(Ok))
+						.try_for_each_concurrent(
+							server.config.object.archive_queue.concurrency,
+							|arg| component.archive_object_with_retry(&server, arg),
+						)
+						.await
+				}
+			})
+			.detach();
+	}
+
+	async fn archive_object_with_retry(
+		&self,
+		server: &Server,
+		arg: tangram_archive::object::put::Arg,
+	) -> tg::Result<()> {
+		let retry = server.config.object.archive_retry.clone().into();
+		tangram_futures::retry(&retry, || {
+			let arg = arg.clone();
+			async move {
+				match Self::archive_object(server, arg).await {
+					Ok(()) => Ok(ControlFlow::Break(())),
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to archive an object");
+						Ok(ControlFlow::Continue(error))
+					},
+				}
+			}
+		})
+		.await?;
+		Ok(())
+	}
+
+	pub(crate) async fn archive_object(
+		server: &Server,
+		arg: tangram_archive::object::put::Arg,
+	) -> tg::Result<()> {
+		let archive = server
+			.archive
+			.as_ref()
+			.ok_or_else(|| tg::error!("the archive is unavailable"))?;
+		let id = arg.id.clone();
+		let put = arg.put;
+		archive
+			.put_object(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to put an object in the archive"))?;
+		if let Some(config) = &server.config.object.cache {
+			let arg = tangram_server_core::cache::object::cache::put::Arg {
+				cache: uuid::Uuid::now_v7().into_bytes(),
+				id,
+				partition: rand::random_range(0..config.partition_total),
+				put,
+			};
+			server.cache.put_object_cache_entry(arg).await?;
+		}
 
 		Ok(())
 	}

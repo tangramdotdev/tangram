@@ -73,6 +73,7 @@ tangram_server_sandbox = { workspace = true }
 tangram_server_scheduler = { workspace = true }
 tangram_server_sync = { workspace = true }
 tangram_server_tag = { workspace = true }
+tangram_server_usage = { workspace = true }
 tangram_server_user = { workspace = true }
 tangram_server_verify = { workspace = true }
 tangram_server_vfs = { workspace = true }

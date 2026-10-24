@@ -51,6 +51,7 @@ fn components(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Compo
 	let scheduler = Box::new(tangram_server_scheduler::Component::new(arg));
 	let sync = Box::new(tangram_server_sync::Component::new(arg)?);
 	let tag = Box::new(tangram_server_tag::Component::new());
+	let usage = Box::new(tangram_server_usage::Component::new());
 	let user = Box::new(tangram_server_user::Component::new());
 	let verify = Box::new(tangram_server_verify::Component::new());
 	let vfs = Box::new(tangram_server_vfs::Component::new());
@@ -93,6 +94,7 @@ fn components(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Compo
 		scheduler,
 		sync,
 		tag,
+		usage,
 		user,
 		verify,
 		vfs,
