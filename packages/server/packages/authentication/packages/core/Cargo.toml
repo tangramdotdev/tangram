@@ -1,5 +1,5 @@
 [package]
-name = "tangram_server_authentication_types"
+name = "tangram_server_authentication_core"
 
 description = { workspace = true }
 edition = { workspace = true }

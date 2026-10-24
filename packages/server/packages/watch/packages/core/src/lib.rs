@@ -8,7 +8,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{task::Shared, task::Task},
 	tangram_server_checkin_graph::{Graph, Solutions, try_read_lock},
-	tangram_server_clock_types::Clock,
+	tangram_server_clock_core::Clock,
 };
 
 pub type Expire = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;

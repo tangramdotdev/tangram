@@ -5,7 +5,7 @@ use {
 	tangram_http::body::Boxed as BoxBody,
 };
 
-pub use tangram_server_checkpoint_types::State;
+pub use tangram_server_checkpoint_core::State;
 
 /// The checkpoint component.
 pub trait Component: crate::component::Lifecycle {
