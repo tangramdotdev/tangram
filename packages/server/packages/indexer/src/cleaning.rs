@@ -278,7 +278,7 @@ impl Component {
 		server: &Server,
 		named: Vec<tg::Id>,
 	) -> tg::Result<()> {
-		let guard = server.checkout_lock.acquire().await;
+		let guard = server.components.checkout.lock().acquire().await;
 		if !server.named_checkout_maintenance_enabled() {
 			return Ok(());
 		}

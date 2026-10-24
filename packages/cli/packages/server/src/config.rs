@@ -28,7 +28,7 @@ use {
 		},
 	},
 	tangram_client::prelude::*,
-	tangram_server_core::config as server,
+	tangram_server::config as server,
 };
 
 /// Resolve the server configuration from the CLI configuration.

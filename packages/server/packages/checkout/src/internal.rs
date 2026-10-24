@@ -440,7 +440,7 @@ impl Component {
 			.map(|entry| entry.node.id.clone())
 			.collect::<Vec<_>>();
 		for attempt in 0..2 {
-			let guard = session.server.checkout_lock.acquire().await;
+			let guard = self.lock.acquire().await;
 			if !session.server.named_checkout_maintenance_enabled() {
 				return Ok(());
 			}
