@@ -47,6 +47,7 @@ tangram_messenger = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_server_grant_core = { workspace = true }
+tangram_server_log_core = { workspace = true }
 tangram_server_process_core = { workspace = true }
 tangram_server_runner_core = { workspace = true }
 tangram_server_sandbox_core = { workspace = true }

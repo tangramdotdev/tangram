@@ -1,6 +1,5 @@
 use {
 	self::{
-		archive::Archive,
 		context::{Context, Origin},
 		database::Database,
 		index::Index,
@@ -22,8 +21,6 @@ use {
 	tokio::io::AsyncWriteExt as _,
 };
 
-mod archive;
-mod capture;
 mod compiler;
 mod diagnostics;
 mod instance;
@@ -32,7 +29,6 @@ mod notification;
 mod region;
 mod specifier;
 mod start;
-mod usage;
 
 pub use {
 	self::session::Session,
@@ -89,6 +85,7 @@ pub mod sync;
 pub mod tag;
 pub mod temp;
 pub mod token;
+pub mod usage;
 pub mod user;
 pub mod verify;
 pub mod vfs;
@@ -107,8 +104,7 @@ pub struct Owned {
 pub struct Server(Arc<State>);
 
 pub struct State {
-	pub archive: Option<Archive>,
-	pub archive_tasks: tangram_futures::task::Set<tg::Result<()>>,
+	pub archive: Option<tangram_server_archive::Archive>,
 	pub authentication_tokens: Tokens,
 	pub authorization_tokens: Tokens,
 	pub cache: self::cache::Cache,
@@ -171,6 +167,7 @@ pub struct Components {
 	pub scheduler: Box<dyn self::scheduler::Component>,
 	pub sync: Box<dyn self::sync::Component>,
 	pub tag: Box<dyn self::tag::Component>,
+	pub usage: Box<dyn self::usage::Component>,
 	pub user: Box<dyn self::user::Component>,
 	pub verify: Box<dyn self::verify::Component>,
 	pub vfs: Box<dyn self::vfs::Component>,
@@ -398,7 +395,6 @@ impl Drop for Owned {
 		self.server.components.sync.abort();
 		self.server.components.process.abort();
 		self.server.components.sandbox.abort();
-		self.server.archive_tasks.abort_all();
 		self.server.components.checkin.abort();
 		self.server.components.checkout.abort();
 		self.server.library.lock().unwrap().take();

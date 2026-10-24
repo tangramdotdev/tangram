@@ -620,13 +620,20 @@ impl Component {
 				.objects()
 				.into_iter()
 				.map(|root| root.map(Into::into));
-			items.extend(session.create_capture_permissions_batch_items(
-				destination,
-				None,
-				roots,
-				session.context.principal.clone(),
-				now,
-			)?);
+			items.extend(
+				session
+					.server
+					.components
+					.authorization
+					.create_capture_permissions_batch_items(
+						session,
+						destination,
+						None,
+						roots.into_iter().collect(),
+						session.context.principal.clone(),
+						now,
+					)?,
+			);
 		}
 		if !items.is_empty() {
 			let arg = tangram_index::batch::Arg { items };

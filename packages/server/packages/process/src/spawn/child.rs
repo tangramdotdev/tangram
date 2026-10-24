@@ -191,7 +191,12 @@ impl Component {
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,
 		};
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let mut items = Vec::with_capacity(3);
 		if let Some(parent_arg) = parent_arg {
 			items.push(tangram_index::batch::Item::PutProcess(parent_arg));

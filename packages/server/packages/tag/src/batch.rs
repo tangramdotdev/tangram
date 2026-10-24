@@ -185,7 +185,10 @@ impl Component {
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
 			let account = match session
-				.usage_account_for_specifier_with_transaction(transaction, &data.specifier)
+				.server
+				.components
+				.usage
+				.usage_account_for_specifier_with_transaction(session, transaction, &data.specifier)
 				.await?
 			{
 				ControlFlow::Break(account) => account,
@@ -215,13 +218,18 @@ impl Component {
 				},
 				tokens,
 			);
-			let capture = session.create_capture_permissions_batch_items(
-				destination,
-				Some(version),
-				[resource],
-				session.context.principal.clone(),
-				touched_at,
-			)?;
+			let capture = session
+				.server
+				.components
+				.authorization
+				.create_capture_permissions_batch_items(
+					session,
+					destination,
+					Some(version),
+					vec![resource],
+					session.context.principal.clone(),
+					touched_at,
+				)?;
 			batch.items.extend(capture);
 		}
 		match session

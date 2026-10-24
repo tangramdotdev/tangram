@@ -57,7 +57,6 @@ hyper = { workspace = true }
 hyper-util = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
-mime = { workspace = true }
 num = { workspace = true }
 opentelemetry = { workspace = true }
 rand = { workspace = true }
@@ -68,10 +67,8 @@ scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_archive = { workspace = true }
-tangram_archive_s3 = { workspace = true }
 tangram_billing = { workspace = true }
 tangram_billing_stripe = { workspace = true }
-tangram_cache = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_database = { workspace = true }
@@ -86,9 +83,8 @@ tangram_index_fdb = { workspace = true, optional = true }
 tangram_index_lmdb = { workspace = true, optional = true }
 tangram_messenger = { workspace = true }
 tangram_messenger_memory = { workspace = true }
-tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }
-tangram_serialize = { workspace = true }
+tangram_server_archive = { workspace = true }
 tangram_server_authentication_core = { workspace = true }
 tangram_server_cache = { workspace = true }
 tangram_server_checkin_graph = { workspace = true }
@@ -114,7 +110,6 @@ tangram_util = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
-tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }

@@ -770,7 +770,11 @@ impl Indexer {
 			id: entry.object.clone(),
 			put: entry.put,
 		};
-		self.server.archive_object(arg).await?;
+		self.server
+			.components
+			.object
+			.archive_object(&self.server, arg)
+			.await?;
 
 		Ok(())
 	}

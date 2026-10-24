@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 futures = { workspace = true }
+indoc = { workspace = true }
 tangram_client = { workspace = true }
 tangram_database = { workspace = true }
 tangram_futures = { workspace = true }

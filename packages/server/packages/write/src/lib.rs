@@ -542,7 +542,12 @@ impl Component {
 			session.server.config.object.permission_time_to_touch,
 			session.server.config.object.time_to_touch,
 		);
-		let account = session.usage_account(&session.context.principal).await?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let root_object = tg::object::Id::from(blob.id.clone());
 		let arg = tangram_index::batch::Arg {
 			items: put_checkout_args

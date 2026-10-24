@@ -22,7 +22,14 @@ impl Component {
 			.await;
 
 		let account = match arg.data.data.owner.as_ref() {
-			Some(owner) => session.usage_account(owner).await?,
+			Some(owner) => {
+				session
+					.server
+					.components
+					.usage
+					.usage_account(session, owner)
+					.await?
+			},
 			None => None,
 		};
 		let now = session.server.clock.unix_timestamp();

@@ -1,6 +1,6 @@
-use {crate::Session, futures::future::BoxFuture, tangram_client::prelude::*};
-
-mod named;
+use {
+	crate::Session, futures::future::BoxFuture, std::ops::ControlFlow, tangram_client::prelude::*,
+};
 
 pub struct IndexOutput {
 	pub ids: Vec<Option<tg::Id>>,
@@ -9,6 +9,13 @@ pub struct IndexOutput {
 
 /// The node component.
 pub trait Component: crate::component::Lifecycle {
+	fn collect_named_subtrees_with_transaction<'a>(
+		&'a self,
+		transaction: &'a crate::database::Transaction<'_>,
+		roots: &'a [tg::Id],
+		batch_size: usize,
+	) -> BoxFuture<'a, tg::Result<ControlFlow<Vec<(tg::Id, tg::Specifier)>, crate::database::Error>>>;
+
 	fn contains_ids_from_index<'a>(
 		&'a self,
 		session: &'a Session,
