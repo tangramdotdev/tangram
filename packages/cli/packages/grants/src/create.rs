@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Create a grant.
 #[derive(Clone, Debug, clap::Args)]
@@ -17,21 +17,19 @@ pub struct Args {
 	pub subject: tg::authorization::subject::Selector,
 }
 
-impl Component<'_> {
-	pub async fn command_grants_create(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::grant::create::Arg {
-			permissions: args.permissions.clone(),
-			resource: args.resource.clone(),
-			subject: args.subject.clone(),
-		};
-		let output = client
-			.create_grant(arg)
-			.await
-			.map_err(
-				|error| tg::error!(!error, resource = %args.resource, subject = %args.subject, "failed to create the grant"),
-			)?;
-		self.print_serde(output.data, args.print).await?;
-		Ok(())
-	}
+pub async fn command_grants_create(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::grant::create::Arg {
+		permissions: args.permissions.clone(),
+		resource: args.resource.clone(),
+		subject: args.subject.clone(),
+	};
+	let output = client
+		.create_grant(arg)
+		.await
+		.map_err(
+			|error| tg::error!(!error, resource = %args.resource, subject = %args.subject, "failed to create the grant"),
+		)?;
+	cli.print_serde(output.data, args.print).await?;
+	Ok(())
 }

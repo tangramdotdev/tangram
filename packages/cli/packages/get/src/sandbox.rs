@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a sandbox.
 #[derive(Clone, Debug, clap::Args)]
@@ -25,28 +25,26 @@ pub struct Args {
 	pub ttl: crate::Ttl,
 }
 
-impl Component<'_> {
-	pub async fn command_sandbox_get(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let location = args.locations.get_for_options(&args.sandbox);
-		let id = args.sandbox.node;
-		let entry = tg::sandbox::Options {
-			location,
-			tokens: args.sandbox.options.tokens,
-			..Default::default()
-		};
-		let sandbox = tg::Sandbox::new(id.clone(), entry);
-		let options = tg::sandbox::get::Options {
-			cached: args.cached,
-			source: args.source,
-			ttl: args.ttl.get(),
-		};
-		let output = sandbox
-			.try_get_with_instance(&client, options)
-			.await
-			.map_err(|error| tg::error!(!error, sandbox = %id, "failed to get the sandbox"))?
-			.ok_or_else(|| tg::error!(sandbox = %id, "failed to find the sandbox"))?;
-		self.print_serde(output.as_ref(), args.print).await?;
-		Ok(())
-	}
+pub async fn command_sandbox_get(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let location = args.locations.get_for_options(&args.sandbox);
+	let id = args.sandbox.node;
+	let entry = tg::sandbox::Options {
+		location,
+		tokens: args.sandbox.options.tokens,
+		..Default::default()
+	};
+	let sandbox = tg::Sandbox::new(id.clone(), entry);
+	let options = tg::sandbox::get::Options {
+		cached: args.cached,
+		source: args.source,
+		ttl: args.ttl.get(),
+	};
+	let output = sandbox
+		.try_get_with_instance(&client, options)
+		.await
+		.map_err(|error| tg::error!(!error, sandbox = %id, "failed to get the sandbox"))?
+		.ok_or_else(|| tg::error!(sandbox = %id, "failed to find the sandbox"))?;
+	cli.print_serde(output.as_ref(), args.print).await?;
+	Ok(())
 }

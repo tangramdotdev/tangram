@@ -16,9 +16,6 @@ pub mod stdio;
 pub mod touch;
 pub mod wait;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Manage processes.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -48,77 +45,53 @@ pub enum Command {
 	Wait(self::wait::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_process(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Availability(args) => {
+			crate::availability::command_process_availability(cli, args).await?;
+		},
+		Command::Cancel(args) => {
+			crate::cancel::command_process_cancel(cli, args).await?;
+		},
+		Command::Children(args) => {
+			crate::children::command_process_children(cli, args).await?;
+		},
+		Command::Exec(args) => {
+			crate::exec::command_process_exec(cli, args).await?;
+		},
+		Command::Get(args) => {
+			tangram_cli_get::process::command_process_get(cli, args).await?;
+		},
+		Command::Log(args) => {
+			crate::stdio::read::command_process_stdio_read(cli, args).await?;
+		},
+		Command::Metadata(args) => {
+			crate::metadata::command_process_metadata(cli, args).await?;
+		},
+		Command::Output(args) => {
+			crate::output::command_process_output(cli, args).await?;
+		},
+		Command::Put(args) => {
+			crate::put::command_process_put(cli, args).await?;
+		},
+		Command::Signal(args) => {
+			crate::signal::command_process_signal(cli, args).await?;
+		},
+		Command::Spawn(args) => {
+			crate::spawn::command_process_spawn(cli, args).await?;
+		},
+		Command::Status(args) => {
+			crate::status::command_process_status(cli, args).await?;
+		},
+		Command::Stdio(args) => {
+			crate::stdio::command_process_stdio(cli, args).await?;
+		},
+		Command::Touch(args) => {
+			crate::touch::command_process_touch(cli, args).await?;
+		},
+		Command::Wait(args) => {
+			crate::wait::command_process_wait(cli, args).await?;
+		},
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_process(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Availability(args) => {
-				self.command_process_availability(args).await?;
-			},
-			Command::Cancel(args) => {
-				self.command_process_cancel(args).await?;
-			},
-			Command::Children(args) => {
-				self.command_process_children(args).await?;
-			},
-			Command::Exec(args) => {
-				self.command_process_exec(args).await?;
-			},
-			Command::Get(args) => {
-				tangram_cli_get::Component::new(self)
-					.command_process_get(args)
-					.await?;
-			},
-			Command::Log(args) => {
-				self.command_process_stdio_read(args).await?;
-			},
-			Command::Metadata(args) => {
-				self.command_process_metadata(args).await?;
-			},
-			Command::Output(args) => {
-				self.command_process_output(args).await?;
-			},
-			Command::Put(args) => {
-				self.command_process_put(args).await?;
-			},
-			Command::Signal(args) => {
-				self.command_process_signal(args).await?;
-			},
-			Command::Spawn(args) => {
-				self.command_process_spawn(args).await?;
-			},
-			Command::Status(args) => {
-				self.command_process_status(args).await?;
-			},
-			Command::Stdio(args) => {
-				self.command_process_stdio(args).await?;
-			},
-			Command::Touch(args) => {
-				self.command_process_touch(args).await?;
-			},
-			Command::Wait(args) => {
-				self.command_process_wait(args).await?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

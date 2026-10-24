@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub mod manage;
 
@@ -15,11 +15,11 @@ pub enum Command {
 	Manage(self::manage::Args),
 }
 
-impl Component<'_> {
-	pub async fn command_user_billing(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Manage(args) => self.command_user_billing_manage(args).await?,
-		}
-		Ok(())
+pub async fn command_user_billing(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Manage(args) => {
+			crate::billing::manage::command_user_billing_manage(cli, args).await?;
+		},
 	}
+	Ok(())
 }

@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// List grants.
 #[derive(Clone, Debug, clap::Args)]
@@ -34,45 +34,43 @@ pub struct Args {
 	pub subject: Option<tg::authorization::subject::Selector>,
 }
 
-impl Component<'_> {
-	pub async fn command_grants_list(&mut self, args: Args) -> tg::Result<()> {
-		// List the grants.
-		let client = self.client().await?;
-		let subject = args.subject.is_some();
-		let arg = tg::grant::list::Arg {
-			cursor: args.cursor,
-			limit: args.limit,
-			location: args
-				.resource
-				.as_ref()
-				.and_then(|resource| args.location.get_for_options(resource))
-				.or_else(|| args.location.get()),
-			resource: args.resource,
-			subject: args.subject,
-		};
-		let output = if args.all {
-			client.list_all_grants(arg).await
-		} else {
-			client.list_grants(arg).await
-		}
-		.map_err(|error| tg::error!(!error, "failed to list the grants"))?;
-		let output = output.ok_or_else(|| {
-			if subject {
-				tg::error!("failed to find the subject")
-			} else {
-				tg::error!("failed to find the resource")
-			}
-		})?;
-
-		// Print the output.
-		if args.output.verbose {
-			self.print_serde(output, args.print).await?;
-		} else {
-			self.print_serde(output.data, args.print).await?;
-			if let Some(cursor) = output.cursor {
-				self.print_info_message(&format!("Next cursor: {cursor}"));
-			}
-		}
-		Ok(())
+pub async fn command_grants_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	// List the grants.
+	let client = cli.client().await?;
+	let subject = args.subject.is_some();
+	let arg = tg::grant::list::Arg {
+		cursor: args.cursor,
+		limit: args.limit,
+		location: args
+			.resource
+			.as_ref()
+			.and_then(|resource| args.location.get_for_options(resource))
+			.or_else(|| args.location.get()),
+		resource: args.resource,
+		subject: args.subject,
+	};
+	let output = if args.all {
+		client.list_all_grants(arg).await
+	} else {
+		client.list_grants(arg).await
 	}
+	.map_err(|error| tg::error!(!error, "failed to list the grants"))?;
+	let output = output.ok_or_else(|| {
+		if subject {
+			tg::error!("failed to find the subject")
+		} else {
+			tg::error!("failed to find the resource")
+		}
+	})?;
+
+	// Print the output.
+	if args.output.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		cli.print_serde(output.data, args.print).await?;
+		if let Some(cursor) = output.cursor {
+			cli.print_info_message(&format!("Next cursor: {cursor}"));
+		}
+	}
+	Ok(())
 }

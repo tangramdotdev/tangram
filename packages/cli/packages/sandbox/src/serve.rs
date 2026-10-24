@@ -1,4 +1,4 @@
-use {crate::Component, std::path::PathBuf, tangram_client::prelude::*};
+use {std::path::PathBuf, tangram_client::prelude::*};
 
 /// Serve sandbox requests.
 #[derive(Clone, Debug, clap::Args)]
@@ -46,26 +46,24 @@ pub struct Listen {
 	listen: Option<bool>,
 }
 
+pub async fn command_sandbox_serve(args: Args) -> tg::Result<()> {
+	let arg = tangram_sandbox::serve::Arg {
+		http2: args.http2.config(),
+		library_paths: args.library_paths,
+		listen: args.listen.get(),
+		output_path: args.output_path,
+		tangram_path: args.tangram_path,
+		url: args.url,
+	};
+	tangram_sandbox::serve::run(&arg).await?;
+	Ok(())
+}
+
 impl Listen {
 	#[must_use]
 	pub fn get(&self) -> bool {
 		self.listen
 			.or(self.connect.map(|value| !value))
 			.unwrap_or(true)
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_sandbox_serve(&mut self, args: Args) -> tg::Result<()> {
-		let arg = tangram_sandbox::serve::Arg {
-			http2: args.http2.config(),
-			library_paths: args.library_paths,
-			listen: args.listen.get(),
-			output_path: args.output_path,
-			tangram_path: args.tangram_path,
-			url: args.url,
-		};
-		tangram_sandbox::serve::run(&arg).await?;
-		Ok(())
 	}
 }

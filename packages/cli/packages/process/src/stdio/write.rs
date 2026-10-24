@@ -1,8 +1,7 @@
 use {
-	crate::Component,
 	futures::{StreamExt as _, future},
 	num::ToPrimitive as _,
-	tangram_cli_get::Ext as _,
+	tangram_cli_core::Cli,
 	tangram_client::prelude::*,
 };
 
@@ -20,58 +19,55 @@ pub struct Args {
 	pub streams: Vec<tg::process::stdio::Stream>,
 }
 
-impl Component<'_> {
-	pub async fn command_process_stdio_write(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let mut location = args.location;
-		location.set_from_reference_if_unset(&args.reference);
-		let process = self
-			.get_process_with_locations(&args.reference, &location)
-			.await?;
-		let id = process.node.clone();
-		let location = location.get_for_options(&process);
-		let process = tg::Process::<tg::Value>::with_referent(process);
-		let [stream] = args.streams.as_slice() else {
-			return Err(tg::error!("expected exactly one stdio stream"));
-		};
-		let stream = *stream;
-		let options = tg::process::stdio::write::Options {
-			location,
-			streams: vec![stream],
-		};
-		let input = tangram_util::io::stdin()
-			.map_err(|error| tg::error!(!error, "failed to open stdin"))?
-			.filter_map(move |result| {
-				future::ready(match result {
-					Ok(bytes) if bytes.is_empty() => None,
-					Ok(bytes) => Some(Ok(bytes)),
-					Err(error) => Some(Err(tg::error!(!error, "failed to read stdin"))),
-				})
+pub async fn command_process_stdio_write(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let mut location = args.location;
+	location.set_from_reference_if_unset(&args.reference);
+	let process =
+		tangram_cli_get::get_process_with_locations(cli, &args.reference, &location).await?;
+	let id = process.node.clone();
+	let location = location.get_for_options(&process);
+	let process = tg::Process::<tg::Value>::with_referent(process);
+	let [stream] = args.streams.as_slice() else {
+		return Err(tg::error!("expected exactly one stdio stream"));
+	};
+	let stream = *stream;
+	let options = tg::process::stdio::write::Options {
+		location,
+		streams: vec![stream],
+	};
+	let input = tangram_util::io::stdin()
+		.map_err(|error| tg::error!(!error, "failed to open stdin"))?
+		.filter_map(move |result| {
+			future::ready(match result {
+				Ok(bytes) if bytes.is_empty() => None,
+				Ok(bytes) => Some(Ok(bytes)),
+				Err(error) => Some(Err(tg::error!(!error, "failed to read stdin"))),
 			})
-			.scan(0_u64, move |position, result| {
-				let result = result.and_then(|bytes| {
-					let length = bytes.len().to_u64().unwrap();
-					let chunk = tg::process::stdio::Chunk {
-						bytes,
-						combined_position: *position,
-						stream,
-						stream_position: *position,
-						timestamp: None,
-					};
-					*position = position
-						.checked_add(length)
-						.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+		})
+		.scan(0_u64, move |position, result| {
+			let result = result.and_then(|bytes| {
+				let length = bytes.len().to_u64().unwrap();
+				let chunk = tg::process::stdio::Chunk {
+					bytes,
+					combined_position: *position,
+					stream,
+					stream_position: *position,
+					timestamp: None,
+				};
+				*position = position
+					.checked_add(length)
+					.ok_or_else(|| tg::error!("the stdio position is too large"))?;
 
-					Ok(chunk)
-				});
+				Ok(chunk)
+			});
 
-				future::ready(Some(result))
-			})
-			.boxed();
-		process
-			.write_stdio_with_instance(&client, options, input)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to write process stdio"))?;
-		Ok(())
-	}
+			future::ready(Some(result))
+		})
+		.boxed();
+	process
+		.write_stdio_with_instance(&client, options, input)
+		.await
+		.map_err(|error| tg::error!(!error, %id, "failed to write process stdio"))?;
+	Ok(())
 }

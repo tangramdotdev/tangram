@@ -5,9 +5,6 @@ pub mod get;
 pub mod list;
 pub mod put;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Manage remotes.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -27,42 +24,20 @@ pub enum Command {
 	Put(self::put::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_remote(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Delete(args) => {
+			crate::delete::command_remote_delete(cli, args).await?;
+		},
+		Command::Get(args) => {
+			crate::get::command_remote_get(cli, args).await?;
+		},
+		Command::List(args) => {
+			crate::list::command_remote_list(cli, args).await?;
+		},
+		Command::Put(args) => {
+			crate::put::command_remote_put(cli, args).await?;
+		},
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_remote(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Delete(args) => {
-				self.command_remote_delete(args).await?;
-			},
-			Command::Get(args) => {
-				self.command_remote_get(args).await?;
-			},
-			Command::List(args) => {
-				self.command_remote_list(args).await?;
-			},
-			Command::Put(args) => {
-				self.command_remote_put(args).await?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

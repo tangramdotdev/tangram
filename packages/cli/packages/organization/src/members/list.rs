@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// List organization members.
 #[derive(Clone, Debug, clap::Args)]
@@ -29,36 +29,34 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-impl Component<'_> {
-	pub async fn command_organization_members_list(&mut self, args: Args) -> tg::Result<()> {
-		// List the organization members.
-		let client = self.client().await?;
-		let arg = tg::organization::members::list::Arg {
-			cursor: args.cursor,
-			limit: args.limit,
-			location: args.location.get_for_options(&args.organization),
-			tokens: args.organization.options.tokens,
-		};
-		let output = if args.all {
-			client
-				.list_all_organization_members(&args.organization.node, arg)
-				.await
-		} else {
-			client
-				.list_organization_members(&args.organization.node, arg)
-				.await
-		}
-		.map_err(|error| tg::error!(!error, "failed to list the organization members"))?;
-
-		// Print the output.
-		if args.output.verbose {
-			self.print_serde(output, args.print).await?;
-		} else {
-			self.print_serde(output.data, args.print).await?;
-			if let Some(cursor) = output.cursor {
-				self.print_info_message(&format!("Next cursor: {cursor}"));
-			}
-		}
-		Ok(())
+pub async fn command_organization_members_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	// List the organization members.
+	let client = cli.client().await?;
+	let arg = tg::organization::members::list::Arg {
+		cursor: args.cursor,
+		limit: args.limit,
+		location: args.location.get_for_options(&args.organization),
+		tokens: args.organization.options.tokens,
+	};
+	let output = if args.all {
+		client
+			.list_all_organization_members(&args.organization.node, arg)
+			.await
+	} else {
+		client
+			.list_organization_members(&args.organization.node, arg)
+			.await
 	}
+	.map_err(|error| tg::error!(!error, "failed to list the organization members"))?;
+
+	// Print the output.
+	if args.output.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		cli.print_serde(output.data, args.print).await?;
+		if let Some(cursor) = output.cursor {
+			cli.print_info_message(&format!("Next cursor: {cursor}"));
+		}
+	}
+	Ok(())
 }

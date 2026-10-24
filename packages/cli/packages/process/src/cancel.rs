@@ -1,4 +1,4 @@
-use {crate::Component, tangram_cli_get::Ext as _, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Cancel a process.
 #[derive(Clone, Debug, clap::Args)]
@@ -14,26 +14,21 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-impl Component<'_> {
-	pub async fn command_process_cancel(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let mut location = args.location;
-		location.set_from_reference_if_unset(&args.reference);
-		let process = self
-			.get_process_with_locations(&args.reference, &location)
-			.await?;
-		let location = location.get_for_options(&process);
-		let process = tg::Process::<tg::Value>::with_referent(process);
-		let options = tg::process::cancel::Options {
-			lease: Some(args.lease),
-			location,
-		};
-		process
-			.cancel_with_instance(&client, options)
-			.await
-			.map_err(
-				|error| tg::error!(!error, id = %process.id(), "failed to cancel the process"),
-			)?;
-		Ok(())
-	}
+pub async fn command_process_cancel(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let mut location = args.location;
+	location.set_from_reference_if_unset(&args.reference);
+	let process =
+		tangram_cli_get::get_process_with_locations(cli, &args.reference, &location).await?;
+	let location = location.get_for_options(&process);
+	let process = tg::Process::<tg::Value>::with_referent(process);
+	let options = tg::process::cancel::Options {
+		lease: Some(args.lease),
+		location,
+	};
+	process
+		.cancel_with_instance(&client, options)
+		.await
+		.map_err(|error| tg::error!(!error, id = %process.id(), "failed to cancel the process"))?;
+	Ok(())
 }

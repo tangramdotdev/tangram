@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub mod read;
 pub mod write;
@@ -17,16 +17,14 @@ pub enum Command {
 	Write(self::write::Args),
 }
 
-impl Component<'_> {
-	pub async fn command_process_stdio(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Read(args) => {
-				self.command_process_stdio_read(args).await?;
-			},
-			Command::Write(args) => {
-				self.command_process_stdio_write(args).await?;
-			},
-		}
-		Ok(())
+pub async fn command_process_stdio(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Read(args) => {
+			crate::stdio::read::command_process_stdio_read(cli, args).await?;
+		},
+		Command::Write(args) => {
+			crate::stdio::write::command_process_stdio_write(cli, args).await?;
+		},
 	}
+	Ok(())
 }

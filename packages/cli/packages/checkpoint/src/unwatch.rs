@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -10,13 +10,11 @@ pub struct Args {
 	pub watch: u64,
 }
 
-impl Component<'_> {
-	pub async fn command_checkpoint_unwatch(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		client
-			.unwatch_checkpoint(&args.checkpoint, args.watch)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to remove the checkpoint watch"))?;
-		Ok(())
-	}
+pub async fn command_checkpoint_unwatch(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	client
+		.unwatch_checkpoint(&args.checkpoint, args.watch)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to remove the checkpoint watch"))?;
+	Ok(())
 }

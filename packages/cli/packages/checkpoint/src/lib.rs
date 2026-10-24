@@ -7,9 +7,6 @@ pub mod unwatch;
 pub mod wait;
 pub mod watch;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -27,48 +24,26 @@ pub enum Command {
 	Watch(self::watch::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_checkpoint(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Abort(args) => {
+			crate::abort::command_checkpoint_abort(cli, args).await?;
+		},
+		Command::Continue(args) => {
+			crate::continue_::command_checkpoint_continue(cli, args).await?;
+		},
+		Command::Panic(args) => {
+			crate::panic::command_checkpoint_panic(cli, args).await?;
+		},
+		Command::Unwatch(args) => {
+			crate::unwatch::command_checkpoint_unwatch(cli, args).await?;
+		},
+		Command::Wait(args) => {
+			crate::wait::command_checkpoint_wait(cli, args).await?;
+		},
+		Command::Watch(args) => {
+			crate::watch::command_checkpoint_watch(cli, args).await?;
+		},
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_checkpoint(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Abort(args) => {
-				self.command_checkpoint_abort(args).await?;
-			},
-			Command::Continue(args) => {
-				self.command_checkpoint_continue(args).await?;
-			},
-			Command::Panic(args) => {
-				self.command_checkpoint_panic(args).await?;
-			},
-			Command::Unwatch(args) => {
-				self.command_checkpoint_unwatch(args).await?;
-			},
-			Command::Wait(args) => {
-				self.command_checkpoint_wait(args).await?;
-			},
-			Command::Watch(args) => {
-				self.command_checkpoint_watch(args).await?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

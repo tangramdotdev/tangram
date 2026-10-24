@@ -7,9 +7,6 @@ pub mod get;
 pub mod members;
 pub mod usage;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Manage organizations.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -35,36 +32,14 @@ pub enum Command {
 	Usage(self::usage::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_organization(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Billing(args) => crate::billing::command_organization_billing(cli, args).await?,
+		Command::Create(args) => crate::create::command_organization_create(cli, args).await?,
+		Command::Delete(args) => crate::delete::command_organization_delete(cli, args).await?,
+		Command::Get(args) => crate::get::command_organization_get(cli, args).await?,
+		Command::Members(args) => crate::members::command_organization_members(cli, args).await?,
+		Command::Usage(args) => crate::usage::command_organization_usage(cli, args).await?,
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_organization(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Billing(args) => self.command_organization_billing(args).await?,
-			Command::Create(args) => self.command_organization_create(args).await?,
-			Command::Delete(args) => self.command_organization_delete(args).await?,
-			Command::Get(args) => self.command_organization_get(args).await?,
-			Command::Members(args) => self.command_organization_members(args).await?,
-			Command::Usage(args) => self.command_organization_usage(args).await?,
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

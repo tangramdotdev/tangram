@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Create a user token.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,18 +11,16 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-impl Component<'_> {
-	pub async fn command_user_token_create(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::user::token::create::Arg {
-			location: args.location.get(),
-		};
-		let output = client
-			.create_user_token(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the user token"))?;
-		self.print_serde(output.data, args.print).await?;
+pub async fn command_user_token_create(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::user::token::create::Arg {
+		location: args.location.get(),
+	};
+	let output = client
+		.create_user_token(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to create the user token"))?;
+	cli.print_serde(output.data, args.print).await?;
 
-		Ok(())
-	}
+	Ok(())
 }

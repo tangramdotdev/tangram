@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get an organization's usage.
 ///
@@ -19,18 +19,16 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-impl Component<'_> {
-	pub async fn command_organization_usage(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let mut arg = tg::usage::Arg::from(args.period);
-		arg.location = args.location.get_for_options(&args.organization);
-		arg.tokens = args.organization.options.tokens;
-		let usage = client
-			.try_get_organization_usage(&args.organization.node, arg)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the organization"))?;
-		self.print_serde(usage, args.print).await?;
+pub async fn command_organization_usage(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let mut arg = tg::usage::Arg::from(args.period);
+	arg.location = args.location.get_for_options(&args.organization);
+	arg.tokens = args.organization.options.tokens;
+	let usage = client
+		.try_get_organization_usage(&args.organization.node, arg)
+		.await?
+		.ok_or_else(|| tg::error!("failed to find the organization"))?;
+	cli.print_serde(usage, args.print).await?;
 
-		Ok(())
-	}
+	Ok(())
 }

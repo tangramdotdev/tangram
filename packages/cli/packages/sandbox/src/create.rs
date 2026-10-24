@@ -1,4 +1,4 @@
-use {crate::Component, std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
+use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Create a sandbox.
 #[derive(Clone, Debug, clap::Args)]
@@ -33,6 +33,37 @@ pub struct Ttl {
 	pub ttl: Option<Duration>,
 }
 
+pub async fn command_sandbox_create(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	// Resolve the sandbox settings.
+	let client = cli.client().await?;
+	let cpu = crate::cpu(&args.arg);
+	let ports = args.arg.ports;
+	let network = crate::normalize_network(&args.arg.network, ports)?;
+	let owner = crate::resolve_owner(&client, &args.arg.owner).await?;
+	let ttl = args.ttl.get(client.arg().sandbox.ttl);
+
+	// Create the sandbox.
+	let sandbox = tg::Sandbox::builder()
+		.cpu(cpu)
+		.host(args.host)
+		.hostname(args.arg.hostname)
+		.location(args.location.get())
+		.memory(crate::resource(args.arg.memory_min, args.arg.memory))
+		.storage(crate::resource(args.arg.storage_min, args.arg.storage))
+		.mounts(args.arg.mounts)
+		.network(network)
+		.owner(owner)
+		.ttl(ttl)
+		.build_with_instance(&client)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
+
+	// Print the sandbox referent.
+	Cli::print_referent(&sandbox.to_referent(), &args.print);
+
+	Ok(())
+}
+
 impl Ttl {
 	fn get(&self, default: Duration) -> Option<Duration> {
 		if self.no_ttl {
@@ -40,38 +71,5 @@ impl Ttl {
 		} else {
 			Some(self.ttl.unwrap_or(default))
 		}
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_sandbox_create(&mut self, args: Args) -> tg::Result<()> {
-		// Resolve the sandbox settings.
-		let client = self.client().await?;
-		let cpu = crate::cpu(&args.arg);
-		let ports = args.arg.ports;
-		let network = crate::normalize_network(&args.arg.network, ports)?;
-		let owner = self.resolve_owner(&client, &args.arg.owner).await?;
-		let ttl = args.ttl.get(client.arg().sandbox.ttl);
-
-		// Create the sandbox.
-		let sandbox = tg::Sandbox::builder()
-			.cpu(cpu)
-			.host(args.host)
-			.hostname(args.arg.hostname)
-			.location(args.location.get())
-			.memory(crate::resource(args.arg.memory_min, args.arg.memory))
-			.storage(crate::resource(args.arg.storage_min, args.arg.storage))
-			.mounts(args.arg.mounts)
-			.network(network)
-			.owner(owner)
-			.ttl(ttl)
-			.build_with_instance(&client)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
-
-		// Print the sandbox referent.
-		Cli::print_referent(&sandbox.to_referent(), &args.print);
-
-		Ok(())
 	}
 }

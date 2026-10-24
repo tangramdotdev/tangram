@@ -1,5 +1,4 @@
 use {
-	crate::Component,
 	std::{ffi::OsString, io::Read as _, os::fd::FromRawFd as _, path::PathBuf},
 	tangram_client::prelude::*,
 };
@@ -237,47 +236,45 @@ pub struct Options {
 	pub user_namespace_fd: Option<i32>,
 }
 
-impl Component<'_> {
-	pub fn command_sandbox_run(args: Args) -> tg::Result<std::process::ExitCode> {
-		let arg = if let Some(path) = args.config {
-			let contents = std::fs::read(&path).map_err(|error| tg::error!(!error, path = %path.display(), "failed to read the sandbox launch configuration"))?;
-			read_config(&contents)?
-		} else if let Some(fd) = args.config_fd {
-			if fd < 3 {
-				return Err(tg::error!(
-					"the configuration descriptor must be greater than two"
-				));
-			}
+pub fn command_sandbox_run(args: Args) -> tg::Result<std::process::ExitCode> {
+	let arg = if let Some(path) = args.config {
+		let contents = std::fs::read(&path).map_err(|error| tg::error!(!error, path = %path.display(), "failed to read the sandbox launch configuration"))?;
+		read_config(&contents)?
+	} else if let Some(fd) = args.config_fd {
+		if fd < 3 {
+			return Err(tg::error!(
+				"the configuration descriptor must be greater than two"
+			));
+		}
 
-			// SAFETY: Duplicating the numeric descriptor validates it before taking ownership.
-			let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
-			if duplicate < 0 {
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"invalid sandbox configuration descriptor"
-				));
-			}
+		// SAFETY: Duplicating the numeric descriptor validates it before taking ownership.
+		let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+		if duplicate < 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"invalid sandbox configuration descriptor"
+			));
+		}
 
-			// SAFETY: A successful duplication returns a newly owned descriptor.
-			let mut file = unsafe { std::fs::File::from_raw_fd(duplicate) };
+		// SAFETY: A successful duplication returns a newly owned descriptor.
+		let mut file = unsafe { std::fs::File::from_raw_fd(duplicate) };
 
-			// SAFETY: The original descriptor was successfully validated and is transferred to this command.
-			drop(unsafe { std::fs::File::from_raw_fd(fd) });
-			let mut contents = Vec::new();
-			file.read_to_end(&mut contents).map_err(|error| {
-				tg::error!(
-					!error,
-					"failed to read the sandbox configuration descriptor"
-				)
-			})?;
+		// SAFETY: The original descriptor was successfully validated and is transferred to this command.
+		drop(unsafe { std::fs::File::from_raw_fd(fd) });
+		let mut contents = Vec::new();
+		file.read_to_end(&mut contents).map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to read the sandbox configuration descriptor"
+			)
+		})?;
 
-			read_config(&contents)?
-		} else {
-			args.options.arg()?
-		};
+		read_config(&contents)?
+	} else {
+		args.options.arg()?
+	};
 
-		tangram_sandbox::run::run(arg)
-	}
+	tangram_sandbox::run::run(arg)
 }
 
 impl Options {

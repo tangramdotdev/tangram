@@ -1,9 +1,8 @@
 use {
-	crate::Component,
 	futures::{StreamExt as _, TryStreamExt as _},
 	serde_with::serde_as,
 	std::time::Duration,
-	tangram_cli_get::Ext as _,
+	tangram_cli_core::Cli,
 	tangram_client::prelude::*,
 	tangram_util::serde::SeekFromNumberOrString,
 };
@@ -65,6 +64,52 @@ struct PositionArg {
 	position: std::io::SeekFrom,
 }
 
+pub async fn command_process_children(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let mut options = args.options;
+	options
+		.locations
+		.set_from_reference_if_unset(&args.reference);
+	let process =
+		tangram_cli_get::get_process_with_locations(cli, &args.reference, &options.locations)
+			.await?;
+	command_process_children_inner(cli, process, options).await
+}
+
+pub(crate) async fn command_process_children_inner(
+	cli: &mut Cli,
+	process: tg::Referent<tg::process::Id>,
+	options: Options,
+) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let id = process.node.clone();
+	let location = options.locations.get_for_options(&process);
+	let process = tg::Process::<tg::Value>::with_referent(process);
+	let options_ = tg::process::children::get::Options {
+		length: options.length,
+		location,
+		position: options.position,
+		size: options.size,
+		source: options.source,
+		timeout: options.timeout.get(),
+	};
+	let tokens = options.print.tokens.get();
+	let stream = process
+		.children_with_instance(&client, options_)
+		.await
+		.map_err(|error| tg::error!(!error, %id, "failed to get the process children"))?
+		.map_ok(move |child| {
+			let child = child.to_data();
+			if tokens {
+				child
+			} else {
+				child.without_location_and_tokens()
+			}
+		});
+	cli.print_serde_stream(stream.boxed(), options.print)
+		.await?;
+	Ok(())
+}
+
 impl Timeout {
 	fn get(&self) -> Option<Duration> {
 		if self.no_timeout {
@@ -72,54 +117,6 @@ impl Timeout {
 		} else {
 			self.timeout.or(Some(Duration::ZERO))
 		}
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
-		let mut options = args.options;
-		options
-			.locations
-			.set_from_reference_if_unset(&args.reference);
-		let process = self
-			.get_process_with_locations(&args.reference, &options.locations)
-			.await?;
-		self.command_process_children_inner(process, options).await
-	}
-
-	pub(crate) async fn command_process_children_inner(
-		&mut self,
-		process: tg::Referent<tg::process::Id>,
-		options: Options,
-	) -> tg::Result<()> {
-		let client = self.client().await?;
-		let id = process.node.clone();
-		let location = options.locations.get_for_options(&process);
-		let process = tg::Process::<tg::Value>::with_referent(process);
-		let options_ = tg::process::children::get::Options {
-			length: options.length,
-			location,
-			position: options.position,
-			size: options.size,
-			source: options.source,
-			timeout: options.timeout.get(),
-		};
-		let tokens = options.print.tokens.get();
-		let stream = process
-			.children_with_instance(&client, options_)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process children"))?
-			.map_ok(move |child| {
-				let child = child.to_data();
-				if tokens {
-					child
-				} else {
-					child.without_location_and_tokens()
-				}
-			});
-		self.print_serde_stream(stream.boxed(), options.print)
-			.await?;
-		Ok(())
 	}
 }
 

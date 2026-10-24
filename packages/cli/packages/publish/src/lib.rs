@@ -7,12 +7,8 @@ use {
 		path::{Path, PathBuf},
 	},
 	tangram_cli_core::Cli,
-	tangram_cli_get::Ext as _,
 	tangram_client::prelude::*,
 };
-
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
 
 /// Publish a package with its transitive source dependencies.
 #[derive(Clone, Debug, clap::Args)]
@@ -70,98 +66,142 @@ struct Item {
 	tag: tg::Specifier,
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_publish(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+
+	// Check in the root package.
+	let absolute_path = tangram_util::fs::canonicalize_parent(&args.path)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+	let arg = tg::checkin::Arg {
+		options: tg::checkin::Options::default(),
+		path: absolute_path.clone(),
+		updates: Vec::new(),
+	};
+	let output = tg::checkin::checkin_with_instance(&client, arg).await.map_err(
+		|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
+	)?;
+	let artifact = tg::Artifact::with_referent(output.artifact.clone());
+	let mut options = output.artifact.options;
+	if options.id.is_none() {
+		options.path = Some(args.path.clone());
 	}
-}
+	let referent = tg::Referent::new(artifact.into(), options);
 
-impl Component<'_> {
-	pub async fn command_publish(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+	// Create the state.
+	let mut state = State::default();
 
-		// Check in the root package.
-		let absolute_path = tangram_util::fs::canonicalize_parent(&args.path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-		let arg = tg::checkin::Arg {
-			options: tg::checkin::Options::default(),
-			path: absolute_path.clone(),
-			updates: Vec::new(),
-		};
-		let output = tg::checkin::checkin_with_instance(&client, arg).await.map_err(
-			|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
-		)?;
-		let artifact = tg::Artifact::with_referent(output.artifact.clone());
-		let mut options = output.artifact.options;
-		if options.id.is_none() {
-			options.path = Some(args.path.clone());
-		}
-		let referent = tg::Referent::new(artifact.into(), options);
+	// Visit the objects.
+	state
+		.visit_objects(&client, &referent)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to analyze objects"))?;
 
-		// Create the state.
-		let mut state = State::default();
+	// Create the graph.
+	state
+		.create_graph(&client)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to create package graph"))?;
 
-		// Visit the objects.
-		state
-			.visit_objects(&client, &referent)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to analyze objects"))?;
+	// Create the plan.
+	let tag = args
+		.tag
+		.map(|tag| tag.parse())
+		.transpose()
+		.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
+	let tag_concurrency = cli.publish_config().tag_concurrency;
+	let plan = state
+		.create_plan(&client, tag, tag_concurrency)
+		.boxed()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to create publishing plan"))?;
 
-		// Create the graph.
-		state
-			.create_graph(&client)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create package graph"))?;
+	// Print the plan if this is a dry run.
+	if args.dry_run {
+		cli.print_serde(&plan, tangram_cli_core::print::Options::default())
+			.await?;
+		return Ok(());
+	}
 
-		// Create the plan.
-		let tag = args
-			.tag
-			.map(|tag| tag.parse())
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
-		let tag_concurrency = self.publish_config().tag_concurrency;
-		let plan = state
-			.create_plan(&client, tag, tag_concurrency)
-			.boxed()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create publishing plan"))?;
+	// Collect all the local items.
+	let mut items = state
+		.tags
+		.iter()
+		.map(|(_, node)| node.clone())
+		.collect::<Vec<_>>();
 
-		// Print the plan if this is a dry run.
-		if args.dry_run {
-			self.print_serde(&plan, tangram_cli_core::print::Options::default())
-				.await?;
-			return Ok(());
-		}
+	// Collect all the local tags.
+	let mut tags = state
+		.tags
+		.into_iter()
+		.map(|(tag, node)| (tag, node.node))
+		.collect::<Vec<_>>();
 
-		// Collect all the local items.
-		let mut items = state
-			.tags
-			.iter()
-			.map(|(_, node)| node.clone())
-			.collect::<Vec<_>>();
+	// Execute the plan.
+	for step in plan {
+		match step {
+			Step::Item(item) => {
+				let Item {
+					referent,
+					path,
+					tag,
+				} = item;
+				let node = if let Some(path) = path {
+					publish_checkin(&client, path, true).await?
+				} else {
+					referent
+				};
+				let id = node.node.clone();
+				let tokens = node.options.tokens.clone();
+				items.push(node);
+				tags.push((tag.clone(), id.clone()));
+				let arg = tg::tag::put::Arg {
+					tokens,
+					ancestors: tg::node::Ancestors {
+						create: true,
+						..Default::default()
+					},
+					force: args.force,
+					location: None,
+					public: false,
+					specifier: tag.clone(),
+					target: id.into(),
+				};
+				client
+					.put_tag(arg)
+					.await
+					.map_err(|error| tg::error!(!error, tag = %tag, "failed to put local tag"))?;
+			},
 
-		// Collect all the local tags.
-		let mut tags = state
-			.tags
-			.into_iter()
-			.map(|(tag, node)| (tag, node.node))
-			.collect::<Vec<_>>();
-
-		// Execute the plan.
-		for step in plan {
-			match step {
-				Step::Item(item) => {
-					let Item {
-						referent,
-						path,
-						tag,
-					} = item;
-					let node = if let Some(path) = path {
-						publish_checkin(&client, path, true).await?
-					} else {
-						referent
+			Step::Cycle(cycle_items) => {
+				for item in &cycle_items {
+					let path = item
+						.path
+						.clone()
+						.ok_or_else(|| tg::error!("cycle items must have paths"))?;
+					let checked_in = publish_checkin(&client, path, false).await?;
+					let id = checked_in.node;
+					let arg = tg::tag::put::Arg {
+						tokens: checked_in.options.tokens,
+						ancestors: tg::node::Ancestors {
+							create: true,
+							..Default::default()
+						},
+						force: args.force,
+						location: None,
+						public: false,
+						specifier: item.tag.clone(),
+						target: id.into(),
 					};
+					client.put_tag(arg).await.map_err(
+						|error| tg::error!(!error, tag = %item.tag, "failed to put local tag"),
+					)?;
+				}
+
+				for item in cycle_items {
+					let Item { path, tag, .. } = item;
+					let path = path.ok_or_else(|| tg::error!("cycle items must have paths"))?;
+					let node = publish_checkin(&client, path, true).await?;
 					let id = node.node.clone();
 					let tokens = node.options.tokens.clone();
 					items.push(node);
@@ -172,7 +212,7 @@ impl Component<'_> {
 							create: true,
 							..Default::default()
 						},
-						force: args.force,
+						force: true,
 						location: None,
 						public: false,
 						specifier: tag.clone(),
@@ -181,198 +221,81 @@ impl Component<'_> {
 					client.put_tag(arg).await.map_err(
 						|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
 					)?;
-				},
-
-				Step::Cycle(cycle_items) => {
-					for item in &cycle_items {
-						let path = item
-							.path
-							.clone()
-							.ok_or_else(|| tg::error!("cycle items must have paths"))?;
-						let checked_in = publish_checkin(&client, path, false).await?;
-						let id = checked_in.node;
-						let arg = tg::tag::put::Arg {
-							tokens: checked_in.options.tokens,
-							ancestors: tg::node::Ancestors {
-								create: true,
-								..Default::default()
-							},
-							force: args.force,
-							location: None,
-							public: false,
-							specifier: item.tag.clone(),
-							target: id.into(),
-						};
-						client.put_tag(arg).await.map_err(
-							|error| tg::error!(!error, tag = %item.tag, "failed to put local tag"),
-						)?;
-					}
-
-					for item in cycle_items {
-						let Item { path, tag, .. } = item;
-						let path = path.ok_or_else(|| tg::error!("cycle items must have paths"))?;
-						let node = publish_checkin(&client, path, true).await?;
-						let id = node.node.clone();
-						let tokens = node.options.tokens.clone();
-						items.push(node);
-						tags.push((tag.clone(), id.clone()));
-						let arg = tg::tag::put::Arg {
-							tokens,
-							ancestors: tg::node::Ancestors {
-								create: true,
-								..Default::default()
-							},
-							force: true,
-							location: None,
-							public: false,
-							specifier: tag.clone(),
-							target: id.into(),
-						};
-						client.put_tag(arg).await.map_err(
-							|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
-						)?;
-					}
-				},
-			}
+				}
+			},
 		}
-
-		// Get the location.
-		let location = args.location.to_location()?.unwrap_or_else(|| {
-			tg::Location::Remote(tg::location::Remote {
-				name: "default".to_owned(),
-				region: None,
-			})
-		});
-
-		// Push the tag ancestors.
-		self.push_tag_ancestors(&client, &location, &tags, args.force)
-			.await?;
-
-		// Push.
-		let arg = tg::push::Arg {
-			destination: Some(location.clone()),
-			eager: true,
-			force: args.force,
-			nodes: items.into_iter().map(|node| node.map(Into::into)).collect(),
-			metadata: false,
-			process_error_objects: true,
-			process_output_objects: true,
-			source: Some(tg::Location::Local(tg::location::Local::default())),
-			..Default::default()
-		};
-		let (_, stream) = client
-			.push(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to push items"))?;
-		let output = self
-			.render_progress_stream(stream)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to push items"))?;
-
-		let processes = output.skipped.processes;
-		let objects = output.skipped.objects;
-		let bytes = byte_unit::Byte::from_u64(output.skipped.bytes)
-			.get_appropriate_unit(byte_unit::UnitType::Decimal);
-		let message = format!("skipped {processes} processes, {objects} objects, {bytes:#.1}");
-		self.print_info_message(&message);
-		let processes = output.transferred.processes;
-		let objects = output.transferred.objects;
-		let bytes = byte_unit::Byte::from_u64(output.transferred.bytes)
-			.get_appropriate_unit(byte_unit::UnitType::Decimal);
-		let message = format!("transferred {processes} processes, {objects} objects, {bytes:#.1}");
-		self.print_info_message(&message);
-
-		// Put tags on the remote.
-		let tags = tags
-			.into_iter()
-			.map(|(tag, node)| tg::tag::batch::Item {
-				tokens: tg::authorization::Tokens::default(),
-				target: node.into(),
-				specifier: tag,
-			})
-			.collect::<Vec<_>>();
-		let arg = tg::tag::batch::Arg {
-			force: args.force,
-			location: Some(location.into()),
-			parents: true,
-			tags: tags.clone(),
-		};
-		client
-			.post_tag_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to publish tags to remote"))?;
-		for item in &tags {
-			let message = format!("tagged {} {:?}", item.specifier, item.target);
-			self.print_info_message(&message);
-		}
-
-		Ok(())
 	}
 
-	async fn push_tag_ancestors(
-		&mut self,
-		client: &tg::Client,
-		destination: &tg::Location,
-		tags: &[(tg::Specifier, tg::object::Id)],
-		force: bool,
-	) -> tg::Result<()> {
-		if destination.is_local() {
-			return Ok(());
-		}
+	// Get the location.
+	let location = args.location.to_location()?.unwrap_or_else(|| {
+		tg::Location::Remote(tg::location::Remote {
+			name: "default".to_owned(),
+			region: None,
+		})
+	});
 
-		// Collect the ancestors by depth so that parents are pushed before children.
-		let mut ancestors = BTreeMap::<usize, BTreeSet<tg::Specifier>>::new();
-		for (specifier, _) in tags {
-			for ancestor in specifier.ancestors() {
-				let depth = ancestor.components().count();
-				ancestors.entry(depth).or_default().insert(ancestor);
-			}
-		}
+	// Push the tag ancestors.
+	push_tag_ancestors(cli, &client, &location, &tags, args.force).await?;
 
-		// Push each depth.
-		for ancestors in ancestors.into_values() {
-			let mut items = Vec::with_capacity(ancestors.len());
-			for ancestor in ancestors {
-				let options = tg::reference::Options {
-					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-					..Default::default()
-				};
-				let reference = tg::Reference::with_node_and_options(
-					tg::reference::Node::Specifier(ancestor.clone().into()),
-					options,
-				);
-				let referent = self
-					.get(&reference)
-					.await
-					.map_err(|error| tg::error!(!error, %ancestor, "failed to get a tag ancestor"))?
-					.referent;
-				let node = referent.try_map(|node| match node {
-					tg::get::Node::Id(id) => Ok(id),
-					tg::get::Node::Pointer(_) => {
-						Err(tg::error!(%ancestor, "expected a tag ancestor id"))
-					},
-				})?;
-				items.push(node);
-			}
-			let arg = tg::push::Arg {
-				destination: Some(destination.clone()),
-				force,
-				nodes: items,
-				source: Some(tg::Location::Local(tg::location::Local::default())),
-				tag_targets: false,
-				..Default::default()
-			};
-			let (_, stream) = client
-				.push(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;
-			self.render_progress_stream(stream)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;
-		}
+	// Push.
+	let arg = tg::push::Arg {
+		destination: Some(location.clone()),
+		eager: true,
+		force: args.force,
+		nodes: items.into_iter().map(|node| node.map(Into::into)).collect(),
+		metadata: false,
+		process_error_objects: true,
+		process_output_objects: true,
+		source: Some(tg::Location::Local(tg::location::Local::default())),
+		..Default::default()
+	};
+	let (_, stream) = client
+		.push(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to push items"))?;
+	let output = cli
+		.render_progress_stream(stream)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to push items"))?;
 
-		Ok(())
+	let processes = output.skipped.processes;
+	let objects = output.skipped.objects;
+	let bytes = byte_unit::Byte::from_u64(output.skipped.bytes)
+		.get_appropriate_unit(byte_unit::UnitType::Decimal);
+	let message = format!("skipped {processes} processes, {objects} objects, {bytes:#.1}");
+	cli.print_info_message(&message);
+	let processes = output.transferred.processes;
+	let objects = output.transferred.objects;
+	let bytes = byte_unit::Byte::from_u64(output.transferred.bytes)
+		.get_appropriate_unit(byte_unit::UnitType::Decimal);
+	let message = format!("transferred {processes} processes, {objects} objects, {bytes:#.1}");
+	cli.print_info_message(&message);
+
+	// Put tags on the remote.
+	let tags = tags
+		.into_iter()
+		.map(|(tag, node)| tg::tag::batch::Item {
+			tokens: tg::authorization::Tokens::default(),
+			target: node.into(),
+			specifier: tag,
+		})
+		.collect::<Vec<_>>();
+	let arg = tg::tag::batch::Arg {
+		force: args.force,
+		location: Some(location.into()),
+		parents: true,
+		tags: tags.clone(),
+	};
+	client
+		.post_tag_batch(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to publish tags to remote"))?;
+	for item in &tags {
+		let message = format!("tagged {} {:?}", item.specifier, item.target);
+		cli.print_info_message(&message);
 	}
+
+	Ok(())
 }
 
 impl State {
@@ -732,18 +655,68 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 	}
 }
 
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
+async fn push_tag_ancestors(
+	cli: &mut Cli,
+	client: &tg::Client,
+	destination: &tg::Location,
+	tags: &[(tg::Specifier, tg::object::Id)],
+	force: bool,
+) -> tg::Result<()> {
+	if destination.is_local() {
+		return Ok(());
 	}
-}
 
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
+	// Collect the ancestors by depth so that parents are pushed before children.
+	let mut ancestors = BTreeMap::<usize, BTreeSet<tg::Specifier>>::new();
+	for (specifier, _) in tags {
+		for ancestor in specifier.ancestors() {
+			let depth = ancestor.components().count();
+			ancestors.entry(depth).or_default().insert(ancestor);
+		}
 	}
+
+	// Push each depth.
+	for ancestors in ancestors.into_values() {
+		let mut items = Vec::with_capacity(ancestors.len());
+		for ancestor in ancestors {
+			let options = tg::reference::Options {
+				location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+				..Default::default()
+			};
+			let reference = tg::Reference::with_node_and_options(
+				tg::reference::Node::Specifier(ancestor.clone().into()),
+				options,
+			);
+			let referent = tangram_cli_get::get(cli, &reference)
+				.await
+				.map_err(|error| tg::error!(!error, %ancestor, "failed to get a tag ancestor"))?
+				.referent;
+			let node = referent.try_map(|node| match node {
+				tg::get::Node::Id(id) => Ok(id),
+				tg::get::Node::Pointer(_) => {
+					Err(tg::error!(%ancestor, "expected a tag ancestor id"))
+				},
+			})?;
+			items.push(node);
+		}
+		let arg = tg::push::Arg {
+			destination: Some(destination.clone()),
+			force,
+			nodes: items,
+			source: Some(tg::Location::Local(tg::location::Local::default())),
+			tag_targets: false,
+			..Default::default()
+		};
+		let (_, stream) = client
+			.push(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;
+		cli.render_progress_stream(stream)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;
+	}
+
+	Ok(())
 }
 
 /// Given an object, get the tag from its internal metadata by statically parsing the module.

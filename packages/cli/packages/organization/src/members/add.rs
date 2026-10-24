@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Add an organization member.
 #[derive(Clone, Debug, clap::Args)]
@@ -14,20 +14,18 @@ pub struct Args {
 	pub member: tg::organization::Member,
 }
 
-impl Component<'_> {
-	pub async fn command_organization_members_add(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::organization::members::add::Arg {
-			location: args.location.get_for_options(&args.organization),
-			member: args.member.clone(),
-			tokens: args.organization.options.tokens,
-		};
-		client
-			.add_organization_member(&args.organization.node, arg)
-			.await
-			.map_err(
-				|error| tg::error!(!error, organization = %args.organization.node, member = %args.member, "failed to add the organization member"),
-			)?;
-		Ok(())
-	}
+pub async fn command_organization_members_add(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::organization::members::add::Arg {
+		location: args.location.get_for_options(&args.organization),
+		member: args.member.clone(),
+		tokens: args.organization.options.tokens,
+	};
+	client
+		.add_organization_member(&args.organization.node, arg)
+		.await
+		.map_err(
+			|error| tg::error!(!error, organization = %args.organization.node, member = %args.member, "failed to add the organization member"),
+		)?;
+	Ok(())
 }

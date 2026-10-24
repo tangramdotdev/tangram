@@ -1,9 +1,7 @@
 use {
-	crate::Component,
 	futures::prelude::*,
 	std::{fmt::Write as _, net::ToSocketAddrs as _, path::PathBuf, time::Duration},
 	tangram_cli_core::Cli,
-	tangram_cli_get::Ext as _,
 	tangram_client::prelude::*,
 	tg::Client,
 };
@@ -276,6 +274,670 @@ pub(crate) struct InnerOutput {
 	pub tag: tangram_cli_tag::Tag,
 }
 
+pub async fn command_process_spawn(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
+	if matches!(args.options.sandbox.get(), Some(tg::Either::Left(false))) {
+		return Err(tg::error!("a spawn must be sandboxed"));
+	}
+	if args.options.sandbox.get().is_none() {
+		args.options.sandbox.set(Some(tg::Either::Left(true)));
+	}
+
+	match args.options.stdin {
+		None => {
+			args.options.stdin = Some(tg::process::Stdio::Null);
+		},
+		Some(tg::process::Stdio::Blob(_) | tg::process::Stdio::Null) => (),
+		Some(_) => {
+			return Err(tg::error!("invalid stdin for a spawn"));
+		},
+	}
+
+	match args.options.stdout {
+		None => {
+			args.options.stdout = Some(tg::process::Stdio::Log);
+		},
+		Some(tg::process::Stdio::Log | tg::process::Stdio::Null) => (),
+		Some(_) => {
+			return Err(tg::error!("invalid stdout for a spawn"));
+		},
+	}
+
+	match args.options.stderr {
+		None => {
+			args.options.stderr = Some(tg::process::Stdio::Log);
+		},
+		Some(tg::process::Stdio::Log) => (),
+		Some(_) => {
+			return Err(tg::error!("invalid stderr for a spawn"));
+		},
+	}
+
+	let output = spawn(
+		cli,
+		args.options,
+		args.reference,
+		args.trailing,
+		None,
+		tg::process::connect::Mode::Spawn,
+	)
+	.boxed()
+	.await?;
+
+	output.node().detach().await?;
+
+	if args.verbose {
+		let output = tg::process::spawn::Output {
+			cached: output.node().cached().unwrap_or(false),
+			command: None,
+			lease: output.node().lease().copied(),
+			location: output
+				.node()
+				.location()
+				.and_then(|location| location.to_location()),
+			outcome: output.node().outcome_data(),
+			process: output.node().id().cloned(),
+			tokens: output.node().tokens(),
+		};
+		cli.print_serde(output, args.print).await?;
+	} else {
+		Cli::print_referent(&output.node().to_referent(), &args.print);
+	}
+
+	Ok(())
+}
+
+pub(crate) async fn spawn(
+	cli: &mut Cli,
+	options: Options,
+	reference: Option<tg::Reference>,
+	trailing: Vec<String>,
+	print: Option<tangram_cli_core::print::Options>,
+	mode: tg::process::connect::Mode,
+) -> tg::Result<tg::Referent<tg::Process>> {
+	let InnerOutput {
+		arg,
+		client,
+		location,
+		referent,
+		sandboxed,
+		tag,
+	} = spawn_inner(cli, options, reference, trailing).await?;
+
+	let options = tg::process::spawn::Options { mode };
+	let process = tg::Process::spawn_with_progress_with_instance(&client, arg, options, |stream| {
+		cli.render_progress_stream_with_output(stream, |cli, output| {
+			if let Some(print) = &print
+				&& sandboxed
+			{
+				let options = tg::referent::Options {
+					location: output.location.clone(),
+					tokens: output.tokens.clone(),
+					..Default::default()
+				};
+				let referent = tg::Referent::new(output.process.clone(), options);
+				let mut message = Cli::format_referent(&referent, false, print.tokens.get());
+				if let Some(lease) = &output.lease {
+					write!(message, " {lease}").unwrap();
+				}
+				cli.print_info_message(&message);
+			}
+		})
+	})
+	.await
+	.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
+
+	// Tag the process if requested.
+	let ancestors = tag.ancestors();
+	let force = tag.force;
+	if let Some(specifier) = tag.specifier {
+		let id = process
+			.id()
+			.right()
+			.cloned()
+			.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
+		let arg = tg::tag::put::Arg {
+			ancestors,
+			force,
+			location: location.clone(),
+			public: false,
+			specifier: specifier.clone(),
+			target: id.into(),
+			tokens: referent.options.tokens.clone(),
+		};
+		client
+			.put_tag(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %specifier, "failed to tag the process"))?;
+	}
+
+	let process = referent.replace(process).0;
+
+	Ok(process)
+}
+
+pub(crate) async fn spawn_inner(
+	cli: &mut Cli,
+	options: Options,
+	reference: Option<tg::Reference>,
+	trailing: Vec<String>,
+) -> tg::Result<InnerOutput> {
+	let client = cli.client().await?;
+	let location = options.location.get();
+	let debug = options.debug.get();
+	if location
+		.as_ref()
+		.is_some_and(|location| location.to_location().is_none())
+	{
+		return Err(tg::error!("expected exactly one location"));
+	}
+
+	// Handle the build flag.
+	let reference = if options.build {
+		let build_args = crate::build::Args {
+			options: crate::build::Options {
+				spawn: crate::spawn::Options {
+					location: options.location.clone(),
+					..Default::default()
+				},
+				..Default::default()
+			},
+			reference,
+			trailing: vec![],
+		};
+		let output = Box::pin(crate::build::build(cli, build_args)).await?;
+		let object = output
+			.try_unwrap_object()
+			.ok()
+			.ok_or_else(|| tg::error!("expected the build to output an object"))?;
+		Some(tg::Reference::with_object(object.id()))
+	} else {
+		reference
+	};
+
+	let mut executable = options.executable;
+	let executable_path = match (&reference, &executable) {
+		(Some(_), Some(executable)) if executable.artifact.is_none() => executable.path.clone(),
+		_ => None,
+	};
+	if executable_path.is_some() {
+		executable = None;
+	}
+
+	let reference = if let Some(reference) = reference {
+		reference
+	} else {
+		tg::Reference::with_path(".".into())
+	};
+
+	// Determine whether to sandbox.
+	let sandbox = match options.sandbox.get() {
+		None => {
+			options.cached.is_some_and(|v| v)
+				|| options.checksum.is_some()
+				|| !options.sandbox.arg.is_empty()
+				|| location.is_some()
+				|| matches!(
+					options.tty.tty,
+					Some(tg::Either::Left(true) | tg::Either::Right(_))
+				)
+		},
+		Some(tg::Either::Left(true) | tg::Either::Right(_)) => true,
+		Some(tg::Either::Left(false)) => false,
+	};
+	if !sandbox && location.is_some() {
+		return Err(tg::error!("a location is not supported without a sandbox"));
+	}
+	if !sandbox && !options.sandbox.arg.is_empty() {
+		return Err(tg::error!(
+			"sandbox options are not supported without a sandbox"
+		));
+	}
+
+	// Get the reference.
+	let mut reference = reference;
+	let mut reference_options = reference.options().clone();
+	reference_options.follow = true;
+	reference.set_options(reference_options);
+	let arg = tg::get::Arg {
+		checkin: options.checkin.to_options(),
+		..Default::default()
+	};
+	let referent = tangram_cli_get::get_with_arg(cli, &reference, arg)
+		.await?
+		.referent;
+	let mut referent = match referent.node.clone() {
+		tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
+			let id = tg::process::Id::try_from(id)?;
+			let process = tg::Process::<tg::Value>::with_referent(referent.map(|_| id));
+			let state = process
+				.load_with_instance(&client)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the process's command"))?;
+			let command = process.command_with_instance(&client).await?;
+			let command = match command {
+				tg::Either::Left(command) => {
+					let arg = tg::process::spawn::CommandArg {
+						args: command.args,
+						cwd: command.cwd,
+						env: command.env,
+						executable: command.executable,
+						host: Some(command.host),
+						stdin: command.stdin,
+						user: command.user,
+					};
+					tg::command::Builder::try_with_spawn_arg(arg)?.build()?
+				},
+				tg::Either::Right(command) => command,
+			};
+			let node = tg::graph::Edge::Object(tg::Object::Command(command));
+			tg::Referent::new(node, state.command.options.clone())
+		},
+		_ => referent.into_graph_edge()?,
+	};
+
+	// Set the args.
+	let mut args_: Vec<tg::command::Value> = Vec::new();
+	let mut matches = &cli.matches;
+	while let Some((_, matches_)) = matches.subcommand() {
+		matches = matches_;
+	}
+	let arg_string_indices = if matches
+		.try_contains_id("spawn.arg_strings")
+		.unwrap_or(false)
+	{
+		matches
+			.indices_of("spawn.arg_strings")
+			.map(std::iter::Iterator::collect)
+			.unwrap_or_default()
+	} else {
+		Vec::new()
+	};
+	let arg_value_indices = if matches.try_contains_id("spawn.arg_values").unwrap_or(false) {
+		matches
+			.indices_of("spawn.arg_values")
+			.map(std::iter::Iterator::collect)
+			.unwrap_or_default()
+	} else {
+		Vec::new()
+	};
+	if arg_string_indices.is_empty() && arg_value_indices.is_empty() {
+		for value in options.arg_strings {
+			args_.push(value.into());
+		}
+		for value in options.arg_values {
+			let value = value
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+			args_.push(tg::command::Value::Value(value));
+		}
+	} else {
+		let mut indexed: Vec<(usize, tg::command::Value)> = Vec::new();
+		for (index, value) in arg_string_indices.into_iter().zip(options.arg_strings) {
+			let value = value.into();
+			indexed.push((index, value));
+		}
+		for (index, value) in arg_value_indices.into_iter().zip(options.arg_values) {
+			let value = value
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+			indexed.push((index, tg::command::Value::Value(value)));
+		}
+		indexed.sort_by_key(|&(index, _)| index);
+		args_.extend(indexed.into_iter().map(|(_, value)| value));
+	}
+	for arg in trailing {
+		args_.push(arg.into());
+	}
+
+	// Create the command builder.
+	let mut command_env = None;
+	let mut command_options = None;
+	let mut command = match referent.node.clone() {
+		tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
+
+		tg::graph::Edge::Object(tg::Object::Command(_)) if executable_path.is_some() => {
+			return Err(tg::error!("expected an artifact for the executable path"));
+		},
+
+		tg::graph::Edge::Object(tg::Object::Command(command)) => {
+			let object = command.object_with_instance(&client).await?;
+			command_env = Some(object.env.clone());
+			command_options = Some(referent.options.clone());
+			tg::command::Builder::with_object(&object)
+		},
+
+		_ if executable.is_some() => tg::Command::builder(),
+
+		edge => {
+			let artifact = match edge.clone() {
+				tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
+				tg::graph::Edge::Pointer(pointer) => tg::Artifact::with_pointer(pointer),
+				tg::graph::Edge::Object(tg::Object::Directory(directory)) => directory.into(),
+				tg::graph::Edge::Object(tg::Object::File(file)) => file.into(),
+				tg::graph::Edge::Object(tg::Object::Symlink(symlink)) => symlink.into(),
+				tg::graph::Edge::Object(_) => {
+					return Err(tg::error!("expected a command or an artifact"));
+				},
+			};
+
+			if let Some(path) = executable_path {
+				let executable = tg::command::Executable {
+					artifact: Some(artifact),
+					path: Some(path),
+				};
+				tg::Command::builder().executable(executable)
+			} else {
+				match artifact {
+					tg::Artifact::Directory(directory) => {
+						let root_module_file_name =
+							tg::module::try_get_root_module_file_name_with_instance(
+								&client,
+								tg::Either::Left(&directory),
+							)
+							.await
+							.map_err(|error| {
+								tg::error!(!error, "failed to get the root module name")
+							})?
+							.ok_or_else(
+								|| tg::error!(directory = %directory.id(), "failed to find a root module"),
+							)?;
+						let kind = tg::module::module_kind_for_path(root_module_file_name).unwrap();
+						if let Some(path) = &mut referent.options.path {
+							*path = path.join(root_module_file_name);
+						} else {
+							referent.options.path.replace(root_module_file_name.into());
+						}
+						let edge = directory
+							.get_entry_edge_with_instance(&client, root_module_file_name)
+							.await
+							.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
+						let source = tg::module::Source::Edge(edge.into());
+						command_options = Some(referent.options.clone());
+						let mut referent = referent.clone().map(|_| source);
+						referent.options.name.take();
+						referent.options.id.take();
+						referent.options.path.take();
+						referent.options.tag.take();
+						let module = tg::Module { kind, referent };
+						let export = reference.export().unwrap_or("default").to_owned();
+						let mut args = vec![
+							if kind == tg::module::Kind::Python {
+								"python"
+							} else {
+								"javascript"
+							}
+							.into(),
+							"--export".into(),
+							export.into(),
+							tg::command::Value::Value(module.into()),
+						];
+						for arg in std::mem::take(&mut args_) {
+							let flag = match &arg {
+								tg::command::Value::String(_) => "-a",
+								tg::command::Value::Value(_) => "-A",
+							};
+							args.push(flag.into());
+							args.push(arg);
+						}
+						let executable = tg::command::Executable {
+							artifact: None,
+							path: Some("tg".into()),
+						};
+						tg::Command::builder().args(args).executable(executable)
+					},
+
+					tg::Artifact::File(file) => {
+						let kind = referent.path().and_then(|path| {
+							tg::module::module_kind_for_path(path)
+								.ok()
+								.or_else(|| tg::file::xattrs::read_module(path).ok().flatten())
+						});
+						let kind = if kind.is_some() {
+							kind
+						} else {
+							file.module_with_instance(&client).await.map_err(|error| {
+								tg::error!(!error, "failed to get the module kind")
+							})?
+						};
+						if let Some(kind) = kind {
+							let source = tg::module::Source::Edge(edge);
+							command_options = Some(referent.options.clone());
+							let mut referent = referent.clone().map(|_| source);
+							referent.options.name.take();
+							referent.options.id.take();
+							referent.options.path.take();
+							referent.options.tag.take();
+							let module = tg::Module { kind, referent };
+							let export = reference.export().unwrap_or("default").to_owned();
+							let mut args = vec![
+								if kind == tg::module::Kind::Python {
+									"python"
+								} else {
+									"javascript"
+								}
+								.into(),
+								"--export".into(),
+								export.into(),
+								tg::command::Value::Value(module.into()),
+							];
+							for arg in std::mem::take(&mut args_) {
+								let flag = match &arg {
+									tg::command::Value::String(_) => "-a",
+									tg::command::Value::Value(_) => "-A",
+								};
+								args.push(flag.into());
+								args.push(arg);
+							}
+							let executable = tg::command::Executable {
+								artifact: None,
+								path: Some("tg".into()),
+							};
+							tg::Command::builder().args(args).executable(executable)
+						} else {
+							let executable = tg::command::Executable {
+								artifact: Some(file.clone().into()),
+								path: None,
+							};
+							tg::Command::builder().executable(executable)
+						}
+					},
+
+					tg::Artifact::Symlink(_) => {
+						return Err(tg::error!("unimplemented"));
+					},
+				}
+			}
+		},
+	};
+	if let Some(executable) = executable {
+		command = command.executable(tg::command::Executable::try_from_data(executable)?);
+		if let Some(host) = options.host.clone() {
+			command = command.host(host);
+		}
+	} else if let Some(host) = options.host.clone() {
+		command = command.host(host);
+	}
+	if let Some(tg::process::Stdio::Blob(blob)) = &options.stdin {
+		command = command.stdin(Some(tg::Blob::with_referent(*blob.clone())));
+	}
+
+	command = command.args(args_);
+
+	// Set the cwd.
+	if let Some(cwd) = options.cwd {
+		command = command.cwd(cwd);
+	}
+
+	// Set the env.
+	let mut env = command_env.unwrap_or_default();
+	for string in options.env_strings {
+		let (key, value) = string
+			.split_once('=')
+			.ok_or_else(|| tg::error!("expected KEY=VALUE"))?;
+		let key = key.to_owned();
+		let value = value.to_owned().into();
+		env.insert(key, value);
+	}
+	for string in options.env_values {
+		let (key, value) = string
+			.split_once('=')
+			.ok_or_else(|| tg::error!("expected KEY=VALUE"))?;
+		let key = key.to_owned();
+		let value = value
+			.parse::<tg::Value>()
+			.map_err(|error| tg::error!(!error, "failed to parse the value"))?;
+		if let Ok(mutation) = value.try_unwrap_mutation_ref() {
+			let current = env.remove(&key);
+			let value_mode = matches!(current, Some(tg::command::Value::Value(_)));
+			let mut values = tg::value::Map::new();
+			if let Some(current) = current {
+				values.insert(key.clone(), current.into_value());
+			}
+			mutation.apply(&mut values, &key)?;
+			if let Some(value) = values.remove(&key) {
+				let value = if value_mode {
+					tg::command::Value::Value(value)
+				} else {
+					tg::command::Value::String(value)
+				};
+				env.insert(key, value);
+			}
+		} else {
+			env.insert(key, tg::command::Value::Value(value));
+		}
+	}
+	command = command.env(env);
+
+	// Create the command.
+	let sandboxed = sandbox;
+	let (command, command_stdin) = if sandboxed {
+		let objects = command
+			.objects()
+			.into_iter()
+			.map(tg::Value::Object)
+			.collect();
+		tg::Value::Array(objects)
+			.store_with_instance(&client)
+			.await?;
+		let command = command.build_spawn_arg()?;
+		let stdin = command.stdin.clone();
+		(tg::Either::Left(command), stdin)
+	} else {
+		let command = command.build()?;
+		let object = command.object_with_instance(&client).await?;
+		let stdin = object.stdin.as_ref().map(tg::Blob::to_referent);
+		(tg::Either::Right(command), stdin)
+	};
+
+	// Determine if the network is enabled.
+	let has_sandbox_arg = !options.sandbox.arg.is_empty()
+		|| options.sandbox.ttl.ttl.is_some()
+		|| options.sandbox.ttl.no_ttl;
+	let ports = options.sandbox.arg.ports.clone();
+	let network = tangram_cli_sandbox::normalize_network(&options.sandbox.arg.network, ports)?;
+
+	// Get the mounts.
+	let mut mounts = Vec::new();
+	for mount in &options.sandbox.arg.mounts {
+		let source = tokio::fs::canonicalize(&mount.source)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+		mounts.push(tg::sandbox::Mount {
+			readonly: mount.readonly,
+			source,
+			target: mount.target.clone(),
+		});
+	}
+	let sandbox = if sandboxed {
+		if let Some(tg::Either::Right(id)) = options.sandbox.get() {
+			if has_sandbox_arg {
+				return Err(tg::error!(
+					"sandbox options are not supported for existing sandboxes"
+				));
+			}
+			Some(tg::process::SandboxArg::Referent(id))
+		} else {
+			let owner =
+				tangram_cli_sandbox::resolve_owner(&client, &options.sandbox.arg.owner).await?;
+			Some(tg::process::SandboxArg::Arg(
+				tg::process::SandboxCreateArg {
+					cpu: tangram_cli_sandbox::cpu(&options.sandbox.arg),
+					hostname: options.sandbox.arg.hostname.clone(),
+					location: None,
+					memory: tangram_cli_sandbox::resource(
+						options.sandbox.arg.memory_min,
+						options.sandbox.arg.memory,
+					),
+					mounts,
+					network,
+					owner,
+					storage: tangram_cli_sandbox::resource(
+						options.sandbox.arg.storage_min,
+						options.sandbox.arg.storage,
+					),
+					ttl: Some(options.sandbox.ttl.get()),
+				},
+			))
+		}
+	} else {
+		None
+	};
+
+	// Get the tty.
+	let tty = match (options.tty.tty.clone(), options.tty.no_tty) {
+		(Some(tg::Either::Left(true)), _) => tangram_util::tty::get_controlling_tty_size()
+			.map(|size| tg::process::tty::Size {
+				cols: size.cols,
+				rows: size.rows,
+			})
+			.map(|size| tg::Either::Right(tg::process::Tty { size })),
+		(Some(tg::Either::Right(size)), _) => {
+			let tty = tg::process::Tty { size };
+			Some(tg::Either::Right(tty))
+		},
+		(Some(tg::Either::Left(false)), _) | (_, Some(true)) => Some(tg::Either::Left(false)),
+		_ => None,
+	};
+
+	let stdin = match (options.stdin.clone(), command_stdin) {
+		(None | Some(tg::process::Stdio::Null), Some(blob)) => {
+			tg::process::Stdio::Blob(Box::new(blob))
+		},
+		(Some(stdin), _) => stdin,
+		(None, None) => tg::process::Stdio::default(),
+	};
+
+	let arg = tg::process::Arg {
+		args: Vec::new(),
+		cached: options.cached,
+		checksum: options.checksum,
+		command: Some(tg::Referent::new(
+			command,
+			command_options.unwrap_or_default(),
+		)),
+		debug: debug.map(tg::Either::Right),
+		location: location.clone(),
+		name: None,
+		public: options.public,
+		retry: options.retry,
+		sandbox,
+		stderr: options.stderr.unwrap_or_default(),
+		stdin,
+		stdout: options.stdout.unwrap_or_default(),
+		tty,
+		..Default::default()
+	};
+
+	Ok(InnerOutput {
+		arg,
+		client,
+		location,
+		referent,
+		sandboxed,
+		tag: options.tag,
+	})
+}
+
 impl Debug {
 	pub fn get(&self) -> Option<tg::process::Debug> {
 		let mut debug = self.enabled.then(tg::process::Debug::default);
@@ -345,676 +1007,6 @@ impl Tty {
 			no_tty: Some(true),
 			tty: None,
 		}
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_process_spawn(&mut self, mut args: Args) -> tg::Result<()> {
-		if matches!(args.options.sandbox.get(), Some(tg::Either::Left(false))) {
-			return Err(tg::error!("a spawn must be sandboxed"));
-		}
-		if args.options.sandbox.get().is_none() {
-			args.options.sandbox.set(Some(tg::Either::Left(true)));
-		}
-
-		match args.options.stdin {
-			None => {
-				args.options.stdin = Some(tg::process::Stdio::Null);
-			},
-			Some(tg::process::Stdio::Blob(_) | tg::process::Stdio::Null) => (),
-			Some(_) => {
-				return Err(tg::error!("invalid stdin for a spawn"));
-			},
-		}
-
-		match args.options.stdout {
-			None => {
-				args.options.stdout = Some(tg::process::Stdio::Log);
-			},
-			Some(tg::process::Stdio::Log | tg::process::Stdio::Null) => (),
-			Some(_) => {
-				return Err(tg::error!("invalid stdout for a spawn"));
-			},
-		}
-
-		match args.options.stderr {
-			None => {
-				args.options.stderr = Some(tg::process::Stdio::Log);
-			},
-			Some(tg::process::Stdio::Log) => (),
-			Some(_) => {
-				return Err(tg::error!("invalid stderr for a spawn"));
-			},
-		}
-
-		let output = self
-			.spawn(
-				args.options,
-				args.reference,
-				args.trailing,
-				None,
-				tg::process::connect::Mode::Spawn,
-			)
-			.boxed()
-			.await?;
-
-		output.node().detach().await?;
-
-		if args.verbose {
-			let output = tg::process::spawn::Output {
-				cached: output.node().cached().unwrap_or(false),
-				command: None,
-				lease: output.node().lease().copied(),
-				location: output
-					.node()
-					.location()
-					.and_then(|location| location.to_location()),
-				outcome: output.node().outcome_data(),
-				process: output.node().id().cloned(),
-				tokens: output.node().tokens(),
-			};
-			self.print_serde(output, args.print).await?;
-		} else {
-			Cli::print_referent(&output.node().to_referent(), &args.print);
-		}
-
-		Ok(())
-	}
-
-	pub(crate) async fn spawn(
-		&mut self,
-		options: Options,
-		reference: Option<tg::Reference>,
-		trailing: Vec<String>,
-		print: Option<tangram_cli_core::print::Options>,
-		mode: tg::process::connect::Mode,
-	) -> tg::Result<tg::Referent<tg::Process>> {
-		let InnerOutput {
-			arg,
-			client,
-			location,
-			referent,
-			sandboxed,
-			tag,
-		} = self.spawn_inner(options, reference, trailing).await?;
-
-		let options = tg::process::spawn::Options { mode };
-		let process =
-			tg::Process::spawn_with_progress_with_instance(&client, arg, options, |stream| {
-				self.render_progress_stream_with_output(stream, |cli, output| {
-					if let Some(print) = &print
-						&& sandboxed
-					{
-						let options = tg::referent::Options {
-							location: output.location.clone(),
-							tokens: output.tokens.clone(),
-							..Default::default()
-						};
-						let referent = tg::Referent::new(output.process.clone(), options);
-						let mut message =
-							Cli::format_referent(&referent, false, print.tokens.get());
-						if let Some(lease) = &output.lease {
-							write!(message, " {lease}").unwrap();
-						}
-						cli.print_info_message(&message);
-					}
-				})
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
-
-		// Tag the process if requested.
-		let ancestors = tag.ancestors();
-		let force = tag.force;
-		if let Some(specifier) = tag.specifier {
-			let id = process
-				.id()
-				.right()
-				.cloned()
-				.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
-			let arg = tg::tag::put::Arg {
-				ancestors,
-				force,
-				location: location.clone(),
-				public: false,
-				specifier: specifier.clone(),
-				target: id.into(),
-				tokens: referent.options.tokens.clone(),
-			};
-			client
-				.put_tag(arg)
-				.await
-				.map_err(|error| tg::error!(!error, %specifier, "failed to tag the process"))?;
-		}
-
-		let process = referent.replace(process).0;
-
-		Ok(process)
-	}
-
-	pub(crate) async fn spawn_inner(
-		&mut self,
-		options: Options,
-		reference: Option<tg::Reference>,
-		trailing: Vec<String>,
-	) -> tg::Result<InnerOutput> {
-		let client = self.client().await?;
-		let location = options.location.get();
-		let debug = options.debug.get();
-		if location
-			.as_ref()
-			.is_some_and(|location| location.to_location().is_none())
-		{
-			return Err(tg::error!("expected exactly one location"));
-		}
-
-		// Handle the build flag.
-		let reference = if options.build {
-			let build_args = crate::build::Args {
-				options: crate::build::Options {
-					spawn: crate::spawn::Options {
-						location: options.location.clone(),
-						..Default::default()
-					},
-					..Default::default()
-				},
-				reference,
-				trailing: vec![],
-			};
-			let output = Box::pin(self.build(build_args)).await?;
-			let object = output
-				.try_unwrap_object()
-				.ok()
-				.ok_or_else(|| tg::error!("expected the build to output an object"))?;
-			Some(tg::Reference::with_object(object.id()))
-		} else {
-			reference
-		};
-
-		let mut executable = options.executable;
-		let executable_path = match (&reference, &executable) {
-			(Some(_), Some(executable)) if executable.artifact.is_none() => executable.path.clone(),
-			_ => None,
-		};
-		if executable_path.is_some() {
-			executable = None;
-		}
-
-		let reference = if let Some(reference) = reference {
-			reference
-		} else {
-			tg::Reference::with_path(".".into())
-		};
-
-		// Determine whether to sandbox.
-		let sandbox = match options.sandbox.get() {
-			None => {
-				options.cached.is_some_and(|v| v)
-					|| options.checksum.is_some()
-					|| !options.sandbox.arg.is_empty()
-					|| location.is_some()
-					|| matches!(
-						options.tty.tty,
-						Some(tg::Either::Left(true) | tg::Either::Right(_))
-					)
-			},
-			Some(tg::Either::Left(true) | tg::Either::Right(_)) => true,
-			Some(tg::Either::Left(false)) => false,
-		};
-		if !sandbox && location.is_some() {
-			return Err(tg::error!("a location is not supported without a sandbox"));
-		}
-		if !sandbox && !options.sandbox.arg.is_empty() {
-			return Err(tg::error!(
-				"sandbox options are not supported without a sandbox"
-			));
-		}
-
-		// Get the reference.
-		let mut reference = reference;
-		let mut reference_options = reference.options().clone();
-		reference_options.follow = true;
-		reference.set_options(reference_options);
-		let arg = tg::get::Arg {
-			checkin: options.checkin.to_options(),
-			..Default::default()
-		};
-		let referent = self.get_with_arg(&reference, arg).await?.referent;
-		let mut referent = match referent.node.clone() {
-			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
-				let id = tg::process::Id::try_from(id)?;
-				let process = tg::Process::<tg::Value>::with_referent(referent.map(|_| id));
-				let state = process
-					.load_with_instance(&client)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the process's command"))?;
-				let command = process.command_with_instance(&client).await?;
-				let command = match command {
-					tg::Either::Left(command) => {
-						let arg = tg::process::spawn::CommandArg {
-							args: command.args,
-							cwd: command.cwd,
-							env: command.env,
-							executable: command.executable,
-							host: Some(command.host),
-							stdin: command.stdin,
-							user: command.user,
-						};
-						tg::command::Builder::try_with_spawn_arg(arg)?.build()?
-					},
-					tg::Either::Right(command) => command,
-				};
-				let node = tg::graph::Edge::Object(tg::Object::Command(command));
-				tg::Referent::new(node, state.command.options.clone())
-			},
-			_ => referent.into_graph_edge()?,
-		};
-
-		// Set the args.
-		let mut args_: Vec<tg::command::Value> = Vec::new();
-		let mut matches = &self.matches;
-		while let Some((_, matches_)) = matches.subcommand() {
-			matches = matches_;
-		}
-		let arg_string_indices = if matches
-			.try_contains_id("spawn.arg_strings")
-			.unwrap_or(false)
-		{
-			matches
-				.indices_of("spawn.arg_strings")
-				.map(std::iter::Iterator::collect)
-				.unwrap_or_default()
-		} else {
-			Vec::new()
-		};
-		let arg_value_indices = if matches.try_contains_id("spawn.arg_values").unwrap_or(false) {
-			matches
-				.indices_of("spawn.arg_values")
-				.map(std::iter::Iterator::collect)
-				.unwrap_or_default()
-		} else {
-			Vec::new()
-		};
-		if arg_string_indices.is_empty() && arg_value_indices.is_empty() {
-			for value in options.arg_strings {
-				args_.push(value.into());
-			}
-			for value in options.arg_values {
-				let value = value
-					.parse()
-					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-				args_.push(tg::command::Value::Value(value));
-			}
-		} else {
-			let mut indexed: Vec<(usize, tg::command::Value)> = Vec::new();
-			for (index, value) in arg_string_indices.into_iter().zip(options.arg_strings) {
-				let value = value.into();
-				indexed.push((index, value));
-			}
-			for (index, value) in arg_value_indices.into_iter().zip(options.arg_values) {
-				let value = value
-					.parse()
-					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-				indexed.push((index, tg::command::Value::Value(value)));
-			}
-			indexed.sort_by_key(|&(index, _)| index);
-			args_.extend(indexed.into_iter().map(|(_, value)| value));
-		}
-		for arg in trailing {
-			args_.push(arg.into());
-		}
-
-		// Create the command builder.
-		let mut command_env = None;
-		let mut command_options = None;
-		let mut command = match referent.node.clone() {
-			tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
-
-			tg::graph::Edge::Object(tg::Object::Command(_)) if executable_path.is_some() => {
-				return Err(tg::error!("expected an artifact for the executable path"));
-			},
-
-			tg::graph::Edge::Object(tg::Object::Command(command)) => {
-				let object = command.object_with_instance(&client).await?;
-				command_env = Some(object.env.clone());
-				command_options = Some(referent.options.clone());
-				tg::command::Builder::with_object(&object)
-			},
-
-			_ if executable.is_some() => tg::Command::builder(),
-
-			edge => {
-				let artifact = match edge.clone() {
-					tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
-					tg::graph::Edge::Pointer(pointer) => tg::Artifact::with_pointer(pointer),
-					tg::graph::Edge::Object(tg::Object::Directory(directory)) => directory.into(),
-					tg::graph::Edge::Object(tg::Object::File(file)) => file.into(),
-					tg::graph::Edge::Object(tg::Object::Symlink(symlink)) => symlink.into(),
-					tg::graph::Edge::Object(_) => {
-						return Err(tg::error!("expected a command or an artifact"));
-					},
-				};
-
-				if let Some(path) = executable_path {
-					let executable = tg::command::Executable {
-						artifact: Some(artifact),
-						path: Some(path),
-					};
-					tg::Command::builder().executable(executable)
-				} else {
-					match artifact {
-						tg::Artifact::Directory(directory) => {
-							let root_module_file_name =
-								tg::module::try_get_root_module_file_name_with_instance(
-									&client,
-									tg::Either::Left(&directory),
-								)
-								.await
-								.map_err(|error| {
-									tg::error!(!error, "failed to get the root module name")
-								})?
-								.ok_or_else(
-									|| tg::error!(directory = %directory.id(), "failed to find a root module"),
-								)?;
-							let kind =
-								tg::module::module_kind_for_path(root_module_file_name).unwrap();
-							if let Some(path) = &mut referent.options.path {
-								*path = path.join(root_module_file_name);
-							} else {
-								referent.options.path.replace(root_module_file_name.into());
-							}
-							let edge = directory
-								.get_entry_edge_with_instance(&client, root_module_file_name)
-								.await
-								.map_err(|error| {
-									tg::error!(!error, "failed to get the root module")
-								})?;
-							let source = tg::module::Source::Edge(edge.into());
-							command_options = Some(referent.options.clone());
-							let mut referent = referent.clone().map(|_| source);
-							referent.options.name.take();
-							referent.options.id.take();
-							referent.options.path.take();
-							referent.options.tag.take();
-							let module = tg::Module { kind, referent };
-							let export = reference.export().unwrap_or("default").to_owned();
-							let mut args = vec![
-								if kind == tg::module::Kind::Python {
-									"python"
-								} else {
-									"javascript"
-								}
-								.into(),
-								"--export".into(),
-								export.into(),
-								tg::command::Value::Value(module.into()),
-							];
-							for arg in std::mem::take(&mut args_) {
-								let flag = match &arg {
-									tg::command::Value::String(_) => "-a",
-									tg::command::Value::Value(_) => "-A",
-								};
-								args.push(flag.into());
-								args.push(arg);
-							}
-							let executable = tg::command::Executable {
-								artifact: None,
-								path: Some("tg".into()),
-							};
-							tg::Command::builder().args(args).executable(executable)
-						},
-
-						tg::Artifact::File(file) => {
-							let kind = referent.path().and_then(|path| {
-								tg::module::module_kind_for_path(path)
-									.ok()
-									.or_else(|| tg::file::xattrs::read_module(path).ok().flatten())
-							});
-							let kind = if kind.is_some() {
-								kind
-							} else {
-								file.module_with_instance(&client).await.map_err(|error| {
-									tg::error!(!error, "failed to get the module kind")
-								})?
-							};
-							if let Some(kind) = kind {
-								let source = tg::module::Source::Edge(edge);
-								command_options = Some(referent.options.clone());
-								let mut referent = referent.clone().map(|_| source);
-								referent.options.name.take();
-								referent.options.id.take();
-								referent.options.path.take();
-								referent.options.tag.take();
-								let module = tg::Module { kind, referent };
-								let export = reference.export().unwrap_or("default").to_owned();
-								let mut args = vec![
-									if kind == tg::module::Kind::Python {
-										"python"
-									} else {
-										"javascript"
-									}
-									.into(),
-									"--export".into(),
-									export.into(),
-									tg::command::Value::Value(module.into()),
-								];
-								for arg in std::mem::take(&mut args_) {
-									let flag = match &arg {
-										tg::command::Value::String(_) => "-a",
-										tg::command::Value::Value(_) => "-A",
-									};
-									args.push(flag.into());
-									args.push(arg);
-								}
-								let executable = tg::command::Executable {
-									artifact: None,
-									path: Some("tg".into()),
-								};
-								tg::Command::builder().args(args).executable(executable)
-							} else {
-								let executable = tg::command::Executable {
-									artifact: Some(file.clone().into()),
-									path: None,
-								};
-								tg::Command::builder().executable(executable)
-							}
-						},
-
-						tg::Artifact::Symlink(_) => {
-							return Err(tg::error!("unimplemented"));
-						},
-					}
-				}
-			},
-		};
-		if let Some(executable) = executable {
-			command = command.executable(tg::command::Executable::try_from_data(executable)?);
-			if let Some(host) = options.host.clone() {
-				command = command.host(host);
-			}
-		} else if let Some(host) = options.host.clone() {
-			command = command.host(host);
-		}
-		if let Some(tg::process::Stdio::Blob(blob)) = &options.stdin {
-			command = command.stdin(Some(tg::Blob::with_referent(*blob.clone())));
-		}
-
-		command = command.args(args_);
-
-		// Set the cwd.
-		if let Some(cwd) = options.cwd {
-			command = command.cwd(cwd);
-		}
-
-		// Set the env.
-		let mut env = command_env.unwrap_or_default();
-		for string in options.env_strings {
-			let (key, value) = string
-				.split_once('=')
-				.ok_or_else(|| tg::error!("expected KEY=VALUE"))?;
-			let key = key.to_owned();
-			let value = value.to_owned().into();
-			env.insert(key, value);
-		}
-		for string in options.env_values {
-			let (key, value) = string
-				.split_once('=')
-				.ok_or_else(|| tg::error!("expected KEY=VALUE"))?;
-			let key = key.to_owned();
-			let value = value
-				.parse::<tg::Value>()
-				.map_err(|error| tg::error!(!error, "failed to parse the value"))?;
-			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
-				let current = env.remove(&key);
-				let value_mode = matches!(current, Some(tg::command::Value::Value(_)));
-				let mut values = tg::value::Map::new();
-				if let Some(current) = current {
-					values.insert(key.clone(), current.into_value());
-				}
-				mutation.apply(&mut values, &key)?;
-				if let Some(value) = values.remove(&key) {
-					let value = if value_mode {
-						tg::command::Value::Value(value)
-					} else {
-						tg::command::Value::String(value)
-					};
-					env.insert(key, value);
-				}
-			} else {
-				env.insert(key, tg::command::Value::Value(value));
-			}
-		}
-		command = command.env(env);
-
-		// Create the command.
-		let sandboxed = sandbox;
-		let (command, command_stdin) = if sandboxed {
-			let objects = command
-				.objects()
-				.into_iter()
-				.map(tg::Value::Object)
-				.collect();
-			tg::Value::Array(objects)
-				.store_with_instance(&client)
-				.await?;
-			let command = command.build_spawn_arg()?;
-			let stdin = command.stdin.clone();
-			(tg::Either::Left(command), stdin)
-		} else {
-			let command = command.build()?;
-			let object = command.object_with_instance(&client).await?;
-			let stdin = object.stdin.as_ref().map(tg::Blob::to_referent);
-			(tg::Either::Right(command), stdin)
-		};
-
-		// Determine if the network is enabled.
-		let has_sandbox_arg = !options.sandbox.arg.is_empty()
-			|| options.sandbox.ttl.ttl.is_some()
-			|| options.sandbox.ttl.no_ttl;
-		let ports = options.sandbox.arg.ports.clone();
-		let network = tangram_cli_sandbox::normalize_network(&options.sandbox.arg.network, ports)?;
-
-		// Get the mounts.
-		let mut mounts = Vec::new();
-		for mount in &options.sandbox.arg.mounts {
-			let source = tokio::fs::canonicalize(&mount.source)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-			mounts.push(tg::sandbox::Mount {
-				readonly: mount.readonly,
-				source,
-				target: mount.target.clone(),
-			});
-		}
-		let sandbox = if sandboxed {
-			if let Some(tg::Either::Right(id)) = options.sandbox.get() {
-				if has_sandbox_arg {
-					return Err(tg::error!(
-						"sandbox options are not supported for existing sandboxes"
-					));
-				}
-				Some(tg::process::SandboxArg::Referent(id))
-			} else {
-				let owner = tangram_cli_sandbox::Component::new(self)
-					.resolve_owner(&client, &options.sandbox.arg.owner)
-					.await?;
-				Some(tg::process::SandboxArg::Arg(
-					tg::process::SandboxCreateArg {
-						cpu: tangram_cli_sandbox::cpu(&options.sandbox.arg),
-						hostname: options.sandbox.arg.hostname.clone(),
-						location: None,
-						memory: tangram_cli_sandbox::resource(
-							options.sandbox.arg.memory_min,
-							options.sandbox.arg.memory,
-						),
-						mounts,
-						network,
-						owner,
-						storage: tangram_cli_sandbox::resource(
-							options.sandbox.arg.storage_min,
-							options.sandbox.arg.storage,
-						),
-						ttl: Some(options.sandbox.ttl.get()),
-					},
-				))
-			}
-		} else {
-			None
-		};
-
-		// Get the tty.
-		let tty = match (options.tty.tty.clone(), options.tty.no_tty) {
-			(Some(tg::Either::Left(true)), _) => tangram_util::tty::get_controlling_tty_size()
-				.map(|size| tg::process::tty::Size {
-					cols: size.cols,
-					rows: size.rows,
-				})
-				.map(|size| tg::Either::Right(tg::process::Tty { size })),
-			(Some(tg::Either::Right(size)), _) => {
-				let tty = tg::process::Tty { size };
-				Some(tg::Either::Right(tty))
-			},
-			(Some(tg::Either::Left(false)), _) | (_, Some(true)) => Some(tg::Either::Left(false)),
-			_ => None,
-		};
-
-		let stdin = match (options.stdin.clone(), command_stdin) {
-			(None | Some(tg::process::Stdio::Null), Some(blob)) => {
-				tg::process::Stdio::Blob(Box::new(blob))
-			},
-			(Some(stdin), _) => stdin,
-			(None, None) => tg::process::Stdio::default(),
-		};
-
-		let arg = tg::process::Arg {
-			args: Vec::new(),
-			cached: options.cached,
-			checksum: options.checksum,
-			command: Some(tg::Referent::new(
-				command,
-				command_options.unwrap_or_default(),
-			)),
-			debug: debug.map(tg::Either::Right),
-			location: location.clone(),
-			name: None,
-			public: options.public,
-			retry: options.retry,
-			sandbox,
-			stderr: options.stderr.unwrap_or_default(),
-			stdin,
-			stdout: options.stdout.unwrap_or_default(),
-			tty,
-			..Default::default()
-		};
-
-		Ok(InnerOutput {
-			arg,
-			client,
-			location,
-			referent,
-			sandboxed,
-			tag: options.tag,
-		})
 	}
 }
 

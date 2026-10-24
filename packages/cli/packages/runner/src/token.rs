@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub mod create;
 pub mod delete;
@@ -23,14 +23,16 @@ pub enum Command {
 	List(self::list::Args),
 }
 
-impl Component<'_> {
-	pub async fn command_runner_token(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Create(args) => self.command_runner_token_create(args).await?,
-			Command::Delete(args) => self.command_runner_token_delete(args).await?,
-			Command::List(args) => self.command_runner_token_list(args).await?,
-		}
-
-		Ok(())
+pub async fn command_runner_token(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Create(args) => {
+			crate::token::create::command_runner_token_create(cli, args).await?;
+		},
+		Command::Delete(args) => {
+			crate::token::delete::command_runner_token_delete(cli, args).await?;
+		},
+		Command::List(args) => crate::token::list::command_runner_token_list(cli, args).await?,
 	}
+
+	Ok(())
 }

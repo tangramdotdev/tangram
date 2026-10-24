@@ -1,4 +1,4 @@
-use {crate::Component, std::path::PathBuf, tangram_client::prelude::*};
+use {std::path::PathBuf, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -41,11 +41,9 @@ pub struct Options {
 	pub url: Option<tangram_uri::Uri>,
 }
 
-impl Component<'_> {
-	pub fn command_sandbox_init(args: Args) -> tg::Result<std::process::ExitCode> {
-		let arg = args.arg()?;
-		tangram_sandbox::init::run(&arg)
-	}
+pub fn command_sandbox_init(args: Args) -> tg::Result<std::process::ExitCode> {
+	let arg = args.arg()?;
+	tangram_sandbox::init::run(&arg)
 }
 
 impl Args {

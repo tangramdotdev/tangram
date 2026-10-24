@@ -1,4 +1,4 @@
-use {crate::Component, tangram_cli_get::Ext as _, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Wait for a process to finish.
 #[derive(Clone, Debug, clap::Args)]
@@ -25,36 +25,34 @@ pub struct Options {
 	pub source: tg::process::Source,
 }
 
-impl Component<'_> {
-	pub async fn command_process_wait(&mut self, args: Args) -> tg::Result<()> {
-		let mut options = args.options;
-		options
-			.locations
-			.set_from_reference_if_unset(&args.reference);
-		let process = self
-			.get_process_with_locations(&args.reference, &options.locations)
+pub async fn command_process_wait(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let mut options = args.options;
+	options
+		.locations
+		.set_from_reference_if_unset(&args.reference);
+	let process =
+		tangram_cli_get::get_process_with_locations(cli, &args.reference, &options.locations)
 			.await?;
-		self.command_process_wait_inner(process, options).await
-	}
+	command_process_wait_inner(cli, process, options).await
+}
 
-	pub async fn command_process_wait_inner(
-		&mut self,
-		process: tg::Referent<tg::process::Id>,
-		options: Options,
-	) -> tg::Result<()> {
-		let client = self.client().await?;
-		let id = process.node.clone();
-		let location = options.locations.get_for_options(&process);
-		let process = tg::Process::<tg::Value>::with_referent(process);
-		let options_ = tg::process::wait::Options {
-			location,
-			source: options.source,
-		};
-		let outcome = process
-			.wait_with_instance(&client, options_)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
-		self.print_serde(outcome.to_data(), options.print).await?;
-		Ok(())
-	}
+pub async fn command_process_wait_inner(
+	cli: &mut Cli,
+	process: tg::Referent<tg::process::Id>,
+	options: Options,
+) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let id = process.node.clone();
+	let location = options.locations.get_for_options(&process);
+	let process = tg::Process::<tg::Value>::with_referent(process);
+	let options_ = tg::process::wait::Options {
+		location,
+		source: options.source,
+	};
+	let outcome = process
+		.wait_with_instance(&client, options_)
+		.await
+		.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
+	cli.print_serde(outcome.to_data(), options.print).await?;
+	Ok(())
 }

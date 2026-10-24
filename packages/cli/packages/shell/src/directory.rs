@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 pub mod delete;
 pub mod list;
@@ -25,22 +25,20 @@ pub enum Command {
 	Update(self::update::Args),
 }
 
-impl Component<'_> {
-	pub async fn command_shell_directory(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Delete(args) => {
-				self.command_shell_directory_delete(args).await?;
-			},
-			Command::List(args) => {
-				self.command_shell_directory_list(args).await?;
-			},
-			Command::Put(args) => {
-				self.command_shell_directory_put(args).await?;
-			},
-			Command::Update(args) => {
-				self.command_shell_directory_update(args).await?;
-			},
-		}
-		Ok(())
+pub async fn command_shell_directory(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Delete(args) => {
+			crate::directory::delete::command_shell_directory_delete(cli, args).await?;
+		},
+		Command::List(args) => {
+			crate::directory::list::command_shell_directory_list(cli, args).await?;
+		},
+		Command::Put(args) => {
+			crate::directory::put::command_shell_directory_put(cli, args).await?;
+		},
+		Command::Update(args) => {
+			crate::directory::update::command_shell_directory_update(cli, args).await?;
+		},
 	}
+	Ok(())
 }

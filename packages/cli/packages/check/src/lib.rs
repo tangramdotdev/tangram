@@ -1,7 +1,4 @@
-use {tangram_cli_core::Cli, tangram_cli_get::Ext as _, tangram_client::prelude::*};
-
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Check.
 #[derive(Clone, Debug, clap::Args)]
@@ -15,67 +12,45 @@ pub struct Args {
 	pub references: Vec<tg::Reference>,
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
-	}
-}
+pub async fn command_check(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
 
-impl Component<'_> {
-	pub async fn command_check(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
+	// Get the modules.
+	let modules = tangram_cli_get::get_modules(cli, &args.references).await?;
+	let referents: Vec<_> = modules
+		.iter()
+		.map(|module| module.referent.clone().replace(()).0)
+		.collect();
 
-		// Get the modules.
-		let modules = self.get_modules(&args.references).await?;
-		let referents: Vec<_> = modules
-			.iter()
-			.map(|module| module.referent.clone().replace(()).0)
-			.collect();
+	// Check the modules.
+	let modules = modules.iter().map(tg::Module::to_data).collect();
+	let arg = tg::check::Arg {
+		location: None,
+		modules,
+	};
+	let output = client
+		.check(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to check"))?;
+	let success = !output
+		.diagnostics
+		.iter()
+		.any(|diagnostic| diagnostic.severity.is_error());
 
-		// Check the modules.
-		let modules = modules.iter().map(tg::Module::to_data).collect();
-		let arg = tg::check::Arg {
-			location: None,
-			modules,
-		};
-		let output = client
-			.check(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to check"))?;
-		let success = !output
-			.diagnostics
-			.iter()
-			.any(|diagnostic| diagnostic.severity.is_error());
-
-		// Print the diagnostics.
-		for diagnostic in output.diagnostics {
-			let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
-			let mut diagnostic = tg::Referent::with_node(diagnostic);
-			// Inherit from the first referent if available.
-			if let Some(referent) = referents.first() {
-				diagnostic.inherit(referent);
-			}
-			self.print_diagnostic(diagnostic).await;
+	// Print the diagnostics.
+	for diagnostic in output.diagnostics {
+		let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
+		let mut diagnostic = tg::Referent::with_node(diagnostic);
+		// Inherit from the first referent if available.
+		if let Some(referent) = referents.first() {
+			diagnostic.inherit(referent);
 		}
-
-		if !success {
-			return Err(tg::error!("type checking failed"));
-		}
-
-		Ok(())
+		cli.print_diagnostic(diagnostic).await;
 	}
-}
 
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
+	if !success {
+		return Err(tg::error!("type checking failed"));
 	}
-}
 
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

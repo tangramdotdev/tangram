@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get the current user's usage.
 ///
@@ -16,20 +16,18 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-impl Component<'_> {
-	pub async fn command_user_usage(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let location = args.location.get();
-		let arg = tg::usage::Arg {
-			location,
-			..args.period.into()
-		};
-		let usage = client
-			.try_get_user_usage(None, arg)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the user"))?;
-		self.print_serde(usage, args.print).await?;
+pub async fn command_user_usage(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let location = args.location.get();
+	let arg = tg::usage::Arg {
+		location,
+		..args.period.into()
+	};
+	let usage = client
+		.try_get_user_usage(None, arg)
+		.await?
+		.ok_or_else(|| tg::error!("failed to find the user"))?;
+	cli.print_serde(usage, args.print).await?;
 
-		Ok(())
-	}
+	Ok(())
 }

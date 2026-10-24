@@ -4,9 +4,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Check in an artifact.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -228,6 +225,35 @@ pub struct CheckoutPointers {
 	no_checkout_pointers: Option<bool>,
 }
 
+pub async fn command_checkin(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+
+	// Get the updates.
+	let updates = args.updates.unwrap_or_default();
+
+	// Canonicalize the path's parent in the caller's filesystem.
+	let path = tangram_util::fs::canonicalize_parent(&args.path)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+
+	// Check in the artifact.
+	let arg = tg::checkin::Arg {
+		options: args.options.to_options(),
+		path,
+		updates,
+	};
+	let stream = client
+		.checkin(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to check in the artifact"))?;
+	let output = cli.render_progress_stream(stream).await?;
+
+	// Print.
+	Cli::print_referent(&output.artifact, &args.print);
+
+	Ok(())
+}
+
 impl TagTtl {
 	fn get(&self) -> tg::remote::cache::Ttl {
 		if self.no_tag_ttl {
@@ -298,43 +324,6 @@ impl CheckoutPointers {
 	}
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
-	}
-}
-
-impl Component<'_> {
-	pub async fn command_checkin(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-
-		// Get the updates.
-		let updates = args.updates.unwrap_or_default();
-
-		// Canonicalize the path's parent in the caller's filesystem.
-		let path = tangram_util::fs::canonicalize_parent(&args.path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-
-		// Check in the artifact.
-		let arg = tg::checkin::Arg {
-			options: args.options.to_options(),
-			path,
-			updates,
-		};
-		let stream = client
-			.checkin(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to check in the artifact"))?;
-		let output = self.render_progress_stream(stream).await?;
-
-		// Print.
-		Cli::print_referent(&output.artifact, &args.print);
-
-		Ok(())
-	}
-}
-
 impl Options {
 	#[must_use]
 	pub fn to_options(&self) -> tg::checkin::Options {
@@ -352,19 +341,5 @@ impl Options {
 			unsolved_dependencies: self.unsolved_dependencies.get(),
 			watch: self.watch,
 		}
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
 	}
 }

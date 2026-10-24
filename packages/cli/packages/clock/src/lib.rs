@@ -4,9 +4,6 @@ pub mod advance;
 pub mod get;
 pub mod set;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -21,39 +18,17 @@ pub enum Command {
 	Set(self::set::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_clock(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Advance(args) => {
+			crate::advance::command_clock_advance(cli, args).await?;
+		},
+		Command::Get(args) => {
+			crate::get::command_clock_get(cli, args).await?;
+		},
+		Command::Set(args) => {
+			crate::set::command_clock_set(cli, args).await?;
+		},
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_clock(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Advance(args) => {
-				self.command_clock_advance(args).await?;
-			},
-			Command::Get(args) => {
-				self.command_clock_get(args).await?;
-			},
-			Command::Set(args) => {
-				self.command_clock_set(args).await?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

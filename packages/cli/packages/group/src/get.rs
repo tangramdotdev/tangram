@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Get a group.
 #[derive(Clone, Debug, clap::Args)]
@@ -21,29 +21,25 @@ pub struct Args {
 	pub ttl: tangram_cli_get::Ttl,
 }
 
-impl Component<'_> {
-	pub async fn command_group_get(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::group::get::Arg {
-			cached: args.cached,
-			location: args.location.get_for_options(&args.group),
-			tokens: args.group.options.tokens,
-			ttl: args.ttl.get(),
-		};
-		let group = client
-			.try_get_group(&args.group.node, arg)
-			.await
-			.map_err(
-				|error| tg::error!(!error, group = %args.group.node, "failed to get the group"),
-			)?
-			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		let tg::group::get::Output {
-			data,
-			location,
-			tokens,
-		} = group;
-		self.print_location_and_tokens(location.as_ref(), &tokens)?;
-		self.print_serde(data, args.print).await?;
-		Ok(())
-	}
+pub async fn command_group_get(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::group::get::Arg {
+		cached: args.cached,
+		location: args.location.get_for_options(&args.group),
+		tokens: args.group.options.tokens,
+		ttl: args.ttl.get(),
+	};
+	let group = client
+		.try_get_group(&args.group.node, arg)
+		.await
+		.map_err(|error| tg::error!(!error, group = %args.group.node, "failed to get the group"))?
+		.ok_or_else(|| tg::error!("failed to find the group"))?;
+	let tg::group::get::Output {
+		data,
+		location,
+		tokens,
+	} = group;
+	cli.print_location_and_tokens(location.as_ref(), &tokens)?;
+	cli.print_serde(data, args.print).await?;
+	Ok(())
 }

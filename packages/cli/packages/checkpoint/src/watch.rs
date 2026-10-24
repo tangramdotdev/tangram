@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -10,20 +10,18 @@ pub struct Args {
 	pub params: tg::checkpoint::Params,
 }
 
-impl Component<'_> {
-	pub async fn command_checkpoint_watch(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::checkpoint::watch::Arg {
-			params: args.params,
-		};
-		let output = client
-			.watch_checkpoint(&args.checkpoint, arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the checkpoint watch"))?;
-		self.print_serde(output, tangram_cli_core::print::Options::default())
-			.await?;
-		Ok(())
-	}
+pub async fn command_checkpoint_watch(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::checkpoint::watch::Arg {
+		params: args.params,
+	};
+	let output = client
+		.watch_checkpoint(&args.checkpoint, arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to create the checkpoint watch"))?;
+	cli.print_serde(output, tangram_cli_core::print::Options::default())
+		.await?;
+	Ok(())
 }
 
 fn parse_params(value: &str) -> Result<tg::checkpoint::Params, serde_json::Error> {

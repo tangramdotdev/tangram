@@ -5,9 +5,6 @@ pub mod delete;
 pub mod get;
 pub mod members;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Manage groups.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -29,34 +26,12 @@ pub enum Command {
 	Members(self::members::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_group(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Create(args) => crate::create::command_group_create(cli, args).await?,
+		Command::Delete(args) => crate::delete::command_group_delete(cli, args).await?,
+		Command::Get(args) => crate::get::command_group_get(cli, args).await?,
+		Command::Members(args) => crate::members::command_group_members(cli, args).await?,
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_group(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Create(args) => self.command_group_create(args).await?,
-			Command::Delete(args) => self.command_group_delete(args).await?,
-			Command::Get(args) => self.command_group_get(args).await?,
-			Command::Members(args) => self.command_group_members(args).await?,
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

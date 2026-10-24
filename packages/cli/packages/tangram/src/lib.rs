@@ -1,9 +1,6 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use tangram_client::prelude::*;
 
 pub mod update;
-
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
 
 /// Manage Tangram.
 #[derive(Clone, Debug, clap::Args)]
@@ -18,33 +15,11 @@ pub enum Command {
 	Update(self::update::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_tangram(args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Update(args) => {
+			crate::update::command_tangram_update(args).await?;
+		},
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_tangram(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Update(args) => {
-				self.command_tangram_update(args).await?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

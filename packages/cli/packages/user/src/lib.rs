@@ -8,9 +8,6 @@ pub mod token;
 pub mod usage;
 pub mod whoami;
 
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
-
 /// Manage the user.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -30,51 +27,29 @@ pub enum Command {
 	Whoami(self::whoami::Args),
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
+pub async fn command_user(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	match args.command {
+		Command::Billing(args) => {
+			crate::billing::command_user_billing(cli, args).await?;
+		},
+		Command::Get(args) => {
+			crate::get::command_user_get(cli, args).await?;
+		},
+		Command::Login(args) => {
+			crate::login::command_user_login(cli, args).await?;
+		},
+		Command::Logout(args) => {
+			crate::logout::command_user_logout(cli, args).await?;
+		},
+		Command::Token(args) => {
+			crate::token::command_user_token(cli, args).await?;
+		},
+		Command::Usage(args) => {
+			crate::usage::command_user_usage(cli, args).await?;
+		},
+		Command::Whoami(args) => {
+			crate::whoami::command_user_whoami(cli, args).await?;
+		},
 	}
-}
-
-impl Component<'_> {
-	pub async fn command_user(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Billing(args) => {
-				self.command_user_billing(args).await?;
-			},
-			Command::Get(args) => {
-				self.command_user_get(args).await?;
-			},
-			Command::Login(args) => {
-				self.command_user_login(args).await?;
-			},
-			Command::Logout(args) => {
-				self.command_user_logout(args).await?;
-			},
-			Command::Token(args) => {
-				self.command_user_token(args).await?;
-			},
-			Command::Usage(args) => {
-				self.command_user_usage(args).await?;
-			},
-			Command::Whoami(args) => {
-				self.command_user_whoami(args).await?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
-
-	fn deref(&self) -> &Self::Target {
-		self.0
-	}
-}
-
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

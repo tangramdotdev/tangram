@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Create a group.
 #[derive(Clone, Debug, clap::Args)]
@@ -20,22 +20,20 @@ pub struct Args {
 	pub specifier: tg::Specifier,
 }
 
-impl Component<'_> {
-	pub async fn command_group_create(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::group::create::Arg {
-			ancestors: args.ancestors.get(),
-			location: args.location.get(),
-			specifier: args.specifier.clone(),
-		};
-		let output = client.create_group(arg).await.map_err(
-			|error| tg::error!(!error, specifier = %args.specifier, "failed to create the group"),
-		)?;
-		if args.output.verbose {
-			self.print_serde(output, args.print).await?;
-		} else {
-			self.print_serde(output.data, args.print).await?;
-		}
-		Ok(())
+pub async fn command_group_create(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::group::create::Arg {
+		ancestors: args.ancestors.get(),
+		location: args.location.get(),
+		specifier: args.specifier.clone(),
+	};
+	let output = client.create_group(arg).await.map_err(
+		|error| tg::error!(!error, specifier = %args.specifier, "failed to create the group"),
+	)?;
+	if args.output.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		cli.print_serde(output.data, args.print).await?;
 	}
+	Ok(())
 }

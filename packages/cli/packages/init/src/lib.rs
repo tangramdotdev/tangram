@@ -1,7 +1,4 @@
-use {indoc::formatdoc, std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
-
-/// The component.
-pub struct Component<'a>(&'a mut Cli);
+use {indoc::formatdoc, std::path::PathBuf, tangram_client::prelude::*};
 
 /// Initialize a package.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,76 +8,54 @@ pub struct Args {
 	pub path: PathBuf,
 }
 
-impl<'a> Component<'a> {
-	pub fn new(cli: &'a mut Cli) -> Self {
-		Self(cli)
-	}
-}
+pub async fn command_init(args: Args) -> tg::Result<()> {
+	// Create the directory.
+	tokio::fs::create_dir_all(&args.path)
+		.await
+		.map_err(|error| tg::error!(!error, path = ?args.path, "failed to create the directory"))?;
 
-impl Component<'_> {
-	pub async fn command_init(&mut self, args: Args) -> tg::Result<()> {
-		// Create the directory.
-		tokio::fs::create_dir_all(&args.path).await.map_err(
-			|error| tg::error!(!error, path = ?args.path, "failed to create the directory"),
-		)?;
+	// Canonicalize the path.
+	let path = tokio::fs::canonicalize(&args.path)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 
-		// Canonicalize the path.
-		let path = tokio::fs::canonicalize(&args.path)
+	// Check if there is already a root module for the path.
+	for name in tg::module::ROOT_MODULE_FILE_NAMES {
+		let module_path = path.join(name);
+		let exists = tokio::fs::try_exists(&module_path)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-
-		// Check if there is already a root module for the path.
-		for name in tg::module::ROOT_MODULE_FILE_NAMES {
-			let module_path = path.join(name);
-			let exists = tokio::fs::try_exists(&module_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to check if the path exists"))?;
-			if exists {
-				return Err(
-					tg::error!(module_path = %module_path.display(), "found existing root module"),
-				);
-			}
+			.map_err(|error| tg::error!(!error, "failed to check if the path exists"))?;
+		if exists {
+			return Err(
+				tg::error!(module_path = %module_path.display(), "found existing root module"),
+			);
 		}
-
-		// Determine the reference to use for the autobuild package.
-		let autobuild_reference = "autobuild".to_owned();
-
-		// Define the files to generate.
-		let mut files = Vec::new();
-		files.push((
-			path.join("tangram.ts"),
-			formatdoc!(
-				r#"
-					import * as autobuild from "{autobuild_reference}";
-					import * as std from "std";
-					import source from "." with {{ type: "directory" }};
-					export default function () {{ return autobuild.build({{ env: env(), source }}); }}
-					export function env() {{ return std.env(autobuild.env({{ source }})); }}
-				"#,
-			),
-		));
-
-		// Write the files.
-		for (path, contents) in files {
-			tokio::fs::write(&path, &contents).await.map_err(
-				|error| tg::error!(!error, path = %path.display(), "failed to write the file"),
-			)?;
-		}
-
-		Ok(())
 	}
-}
 
-impl std::ops::Deref for Component<'_> {
-	type Target = Cli;
+	// Determine the reference to use for the autobuild package.
+	let autobuild_reference = "autobuild".to_owned();
 
-	fn deref(&self) -> &Self::Target {
-		self.0
+	// Define the files to generate.
+	let mut files = Vec::new();
+	files.push((
+		path.join("tangram.ts"),
+		formatdoc!(
+			r#"
+				import * as autobuild from "{autobuild_reference}";
+				import * as std from "std";
+				import source from "." with {{ type: "directory" }};
+				export default function () {{ return autobuild.build({{ env: env(), source }}); }}
+				export function env() {{ return std.env(autobuild.env({{ source }})); }}
+			"#,
+		),
+	));
+
+	// Write the files.
+	for (path, contents) in files {
+		tokio::fs::write(&path, &contents).await.map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to write the file"),
+		)?;
 	}
-}
 
-impl std::ops::DerefMut for Component<'_> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0
-	}
+	Ok(())
 }

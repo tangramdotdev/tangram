@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// List remotes.
 #[derive(Clone, Debug, clap::Args)]
@@ -26,31 +26,29 @@ pub struct Args {
 	pub print: tangram_cli_core::print::Options,
 }
 
-impl Component<'_> {
-	pub async fn command_remote_list(&mut self, args: Args) -> tg::Result<()> {
-		// List the remotes.
-		let client = self.client().await?;
-		let arg = tg::remote::list::Arg {
-			cursor: args.cursor,
-			limit: args.limit,
-			principal: args.principal,
-		};
-		let output = if args.all {
-			client.list_all_remotes(arg).await
-		} else {
-			client.list_remotes(arg).await
-		}
-		.map_err(|error| tg::error!(!error, "failed to list the remotes"))?;
-
-		// Print the output.
-		if args.output.verbose {
-			self.print_serde(output, args.print).await?;
-		} else {
-			self.print_serde(output.data, args.print).await?;
-			if let Some(cursor) = output.cursor {
-				self.print_info_message(&format!("Next cursor: {cursor}"));
-			}
-		}
-		Ok(())
+pub async fn command_remote_list(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	// List the remotes.
+	let client = cli.client().await?;
+	let arg = tg::remote::list::Arg {
+		cursor: args.cursor,
+		limit: args.limit,
+		principal: args.principal,
+	};
+	let output = if args.all {
+		client.list_all_remotes(arg).await
+	} else {
+		client.list_remotes(arg).await
 	}
+	.map_err(|error| tg::error!(!error, "failed to list the remotes"))?;
+
+	// Print the output.
+	if args.output.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		cli.print_serde(output.data, args.print).await?;
+		if let Some(cursor) = output.cursor {
+			cli.print_info_message(&format!("Next cursor: {cursor}"));
+		}
+	}
+	Ok(())
 }

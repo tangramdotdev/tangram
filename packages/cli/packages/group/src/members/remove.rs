@@ -1,4 +1,4 @@
-use {crate::Component, tangram_client::prelude::*};
+use {tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Remove a group member.
 #[derive(Clone, Debug, clap::Args)]
@@ -14,18 +14,16 @@ pub struct Args {
 	pub member: tg::group::Member,
 }
 
-impl Component<'_> {
-	pub async fn command_group_members_remove(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let arg = tg::group::members::remove::Arg {
-			location: args.location.get_for_options(&args.group),
-			tokens: args.group.options.tokens,
-		};
-		client
-			.remove_group_member(&args.group.node, &args.member, arg)
-			.await
-			.map_err(|error| tg::error!(!error, group = %args.group.node, member = %args.member, "failed to remove the group member"))?
-			.ok_or_else(|| tg::error!("failed to find the group member"))?;
-		Ok(())
-	}
+pub async fn command_group_members_remove(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let arg = tg::group::members::remove::Arg {
+		location: args.location.get_for_options(&args.group),
+		tokens: args.group.options.tokens,
+	};
+	client
+		.remove_group_member(&args.group.node, &args.member, arg)
+		.await
+		.map_err(|error| tg::error!(!error, group = %args.group.node, member = %args.member, "failed to remove the group member"))?
+		.ok_or_else(|| tg::error!("failed to find the group member"))?;
+	Ok(())
 }
