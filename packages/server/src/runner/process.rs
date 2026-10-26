@@ -2353,7 +2353,7 @@ impl Session {
 			.sandboxes
 			.get_by_id(sandbox)
 			.and_then(|state| state.vfs.as_ref()?.upgrade());
-		if let Some(vfs) = vfs {
+		if let Some(vfs) = &vfs {
 			for artifact in &artifacts {
 				vfs.seed_tokens(self, &artifact.options.tokens);
 			}
@@ -2380,6 +2380,33 @@ impl Session {
 		if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
 			state.tokens.extend(tokens);
 		}
+
+		// Authorize the artifacts without a verified subtree token with the remotes whose tokens they carry.
+		if let Some(vfs) = &vfs {
+			let futures = artifacts
+				.iter()
+				.filter(|artifact| {
+					let resource =
+						tg::Selector::Id(tg::object::Id::from(artifact.node.clone()).into());
+					!artifact
+						.options
+						.tokens
+						.local_authorization()
+						.iter()
+						.any(|token| self.authorize_token(&resource, permissions, token))
+				})
+				.map(|artifact| self.try_authorize_process_artifact_remote(artifact));
+			for result in future::join_all(futures).await {
+				match result {
+					Ok(Some(tokens)) => vfs.seed_tokens(self, &tokens),
+					Ok(None) => {},
+					Err(error) => {
+						tracing::debug!(error = %error.trace(), "failed to authorize an artifact with a remote");
+					},
+				}
+			}
+		}
+
 		if self.server.vfs.lock().unwrap().is_some() {
 			return Ok(());
 		}
@@ -2396,6 +2423,52 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 
 		Ok(())
+	}
+
+	async fn try_authorize_process_artifact_remote(
+		&self,
+		artifact: &tg::Referent<tg::artifact::Id>,
+	) -> tg::Result<Option<tg::authorization::Tokens>> {
+		let id = tg::object::Id::from(artifact.node.clone());
+		let resource = tg::Id::from(id.clone());
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let mut error = None;
+		for (location, _) in artifact.options.tokens.iter() {
+			if location.is_local() {
+				continue;
+			}
+
+			// Get the artifact from the remote with its tokens, and try the next remote if this one fails.
+			let arg = tg::object::get::Arg {
+				location: Some(location.clone().into()),
+				tokens: artifact.options.tokens.clone(),
+				..Default::default()
+			};
+			let output = match self.try_get_object(&id, arg).await {
+				Ok(Some(output)) => output,
+				Ok(None) => continue,
+				Err(source) => {
+					error = Some(source);
+					continue;
+				},
+			};
+
+			// Sign a token for the artifact if the remote authorized its subtree.
+			let token = output
+				.tokens
+				.authorization(location)
+				.iter()
+				.find(|token| token.authorizes_object_subtree(&resource));
+			if let Some(token) = token {
+				let token = self.create_token(resource, vec![subtree], token.body.expires_at)?;
+				let tokens = tg::authorization::Tokens::with_authorization(token);
+				return Ok(Some(tokens));
+			}
+		}
+
+		error.map_or(Ok(None), Err)
 	}
 }
 
