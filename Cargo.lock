@@ -11926,6 +11926,8 @@ dependencies = [
  "heed",
  "libc",
  "num",
+ "serde",
+ "serde_json",
  "tangram_cache",
  "tangram_client",
  "tangram_index",
