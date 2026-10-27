@@ -74,7 +74,7 @@ impl Component {
 			tg::Error,
 		>,
 	> {
-		// Resolve the process, claiming the connect's open for the write.
+		// Resolve the process, claiming the attach's open for the write.
 		let mut process = process.clone();
 		let Some(output) = self
 			.try_resolve_process(

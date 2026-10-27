@@ -1,5 +1,5 @@
 import type { Cancel as ProcessCancel } from "./client/process/cancel.ts";
-import type { Connect as ProcessConnect } from "./client/process/connect.ts";
+import type { Attach as ProcessAttach } from "./client/process/attach.ts";
 import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
 import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
@@ -8,7 +8,7 @@ import { encodeModuleArgs } from "./command.ts";
 import * as tg from "./index.ts";
 import * as build from "./process/build.ts";
 import * as commandData from "./process/command.ts";
-import * as connect from "./process/connect.ts";
+import * as attach from "./process/attach.ts";
 import * as exec from "./process/exec.ts";
 import * as outcome from "./process/outcome.ts";
 import * as run from "./process/run.ts";
@@ -31,7 +31,7 @@ export let setProcess = (newProcess: typeof process) => {
 };
 
 export class Process<O extends tg.Value = tg.Value> {
-	#connection: connect.Connection | null;
+	#connection: attach.Connection | null;
 	#id: number | tg.Process.Id;
 	#lease: string | null;
 	#location: tg.Location.Arg | null;
@@ -47,11 +47,11 @@ export class Process<O extends tg.Value = tg.Value> {
 	#stdout: tg.Process.Stdio.Reader;
 	#tokens: tg.Authorization.Tokens;
 
-	static async connect<O extends tg.Value = tg.Value>(
+	static async attach<O extends tg.Value = tg.Value>(
 		id: tg.Process.Id,
-		options: tg.Process.Connect.Options = {},
+		options: tg.Process.Attach.Options = {},
 	): Promise<tg.Process<O>> {
-		return connect.connect<O>(id, options);
+		return attach.attach<O>(id, options);
 	}
 
 	static build<
@@ -380,7 +380,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		return output.data;
 	}
 
-	get connection(): connect.Connection | null {
+	get connection(): attach.Connection | null {
 		return this.#connection;
 	}
 
@@ -838,13 +838,13 @@ export class Process<O extends tg.Value = tg.Value> {
 export namespace Process {
 	export import Outcome = outcome.Outcome;
 
-	export namespace Connect {
-		export type Arg = ProcessConnect.Arg;
-		export type ClientMessage = ProcessConnect.ClientMessage;
-		export type Header = ProcessConnect.Header;
-		export type Mode = ProcessConnect.Mode;
-		export type Options = ProcessConnect.Options;
-		export type ServerMessage = ProcessConnect.ServerMessage;
+	export namespace Attach {
+		export type Arg = ProcessAttach.Arg;
+		export type ClientMessage = ProcessAttach.ClientMessage;
+		export type Header = ProcessAttach.Header;
+		export type Mode = ProcessAttach.Mode;
+		export type Options = ProcessAttach.Options;
+		export type ServerMessage = ProcessAttach.ServerMessage;
 	}
 	export type Id = string;
 	export type Nonce = string;
@@ -900,7 +900,7 @@ export namespace Process {
 		E = tg.Command.Arg.Env,
 	> extends Function {
 		#args: tg.Args<tg.Process.Arg>;
-		#connection: tg.Process.Connect.Mode = "spawn";
+		#connection: tg.Process.Attach.Mode = "spawn";
 		#envMapper: tg.Process.Builder.EnvMapper<E>;
 		#module: Promise<boolean>;
 		#mode: M;
@@ -1130,7 +1130,7 @@ export namespace Process {
 			return output;
 		}
 
-		connection(mode: tg.Process.Connect.Mode): this {
+		connection(mode: tg.Process.Attach.Mode): this {
 			this.#connection = mode;
 			return this;
 		}
@@ -1184,7 +1184,7 @@ export namespace Process {
 			if (this.#mode === "run") {
 				return run.run<O>(output.arg, output.options);
 			}
-			return connect.spawn<O>(output.arg, output.options, this.#connection);
+			return attach.spawn<O>(output.arg, output.options, this.#connection);
 		}
 
 		private async builderArg(
@@ -1250,7 +1250,7 @@ export namespace Process {
 	}
 
 	export type ConstructorArg = {
-		connection?: connect.Connection | null;
+		connection?: attach.Connection | null;
 		id: number | tg.Process.Id;
 		lease?: string | null;
 		location?: tg.Location.Arg | null;

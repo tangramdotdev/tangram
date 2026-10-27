@@ -155,7 +155,7 @@ def sync_arg(arg):
         if name in ("get", "put"):
             value = [referent_bytes(item, name == "get") for item in value.split(",")]
         elif name == "sync":
-            # The sync joins a connect, a process, or a referent, and a referent is the third variant.
+            # The sync joins an attach, a process, or a referent, and a referent is the third variant.
             value = Variant(2, referent_bytes(value))
         elif name == "ancestors":
             value = Variant(["always", "missing", "never"].index(value))

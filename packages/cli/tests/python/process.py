@@ -21,7 +21,7 @@ async def main():
                 "host": tg.host.current,
             }
         )
-        process = await tg.Process.connect(
+        process = await tg.Process.attach(
             {
                 "command": command,
                 "stdin": "pipe",

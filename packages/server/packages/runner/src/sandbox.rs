@@ -1091,7 +1091,7 @@ impl Component {
 		// Observe process initialization without blocking either control transport.
 		let mut pending = FuturesUnordered::new();
 		if let Some(output) = process_task_output {
-			pending.push(wait_for_process_connection(output, None));
+			pending.push(wait_for_process_attachion(output, None));
 		}
 		let mut ready = false;
 		let mut ready_connection = connected.clone();
@@ -1215,7 +1215,7 @@ impl Component {
 								sandbox_ready_receiver: None,
 							};
 							let task = self.spawn_process_task(session, arg);
-							pending.push(wait_for_process_connection(task, Some(message.sender)));
+							pending.push(wait_for_process_attachion(task, Some(message.sender)));
 							continue;
 						},
 					};
@@ -1666,7 +1666,7 @@ impl Component {
 	}
 }
 
-fn wait_for_process_connection(
+fn wait_for_process_attachion(
 	output: SpawnProcessTaskOutput,
 	sender: Option<Reply>,
 ) -> PendingProcess {

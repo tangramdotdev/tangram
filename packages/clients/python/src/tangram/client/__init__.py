@@ -51,15 +51,15 @@ if TYPE_CHECKING:
     from .checkout import ArgObject as CheckoutArg
     from .checkout import KeywordOptions as CheckoutKeywordOptions
     from .checkout import Output as CheckoutOutput
-    from .process.cancel import Cancel
-    from .process.cancel import KeywordOptions as CancelKeywordOptions
-    from .process.connect import (
+    from .process.attach import (
+        AttachArgObject,
         ClientMessage,
-        ConnectArgObject,
         Header,
         ServerMessage,
         TtyArg,
     )
+    from .process.cancel import Cancel
+    from .process.cancel import KeywordOptions as CancelKeywordOptions
     from .process.get import Get as ProcessGet
     from .process.put import KeywordOptions as PutKeywordOptions
     from .process.put import Put as ProcessPut
@@ -519,12 +519,12 @@ class Client:
 
         return await wait_process(self, id, **_options(arg, options))
 
-    async def connect_process(
-        self, arg: ConnectArgObject, input: AsyncIterable[ClientMessage]
+    async def attach_process(
+        self, arg: AttachArgObject, input: AsyncIterable[ClientMessage]
     ) -> tuple[Header, Stream[ServerMessage]]:
-        from .process.connect import connect_process
+        from .process.attach import attach_process
 
-        return await connect_process(self, arg, input)
+        return await attach_process(self, arg, input)
 
     async def try_read_process_stdio(
         self,

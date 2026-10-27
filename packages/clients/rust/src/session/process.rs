@@ -5,20 +5,20 @@ use {
 };
 
 impl tg::instance::Process for tg::Session {
-	async fn try_get_process_connect_stream(
+	async fn try_get_process_attach_stream(
 		&self,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> tg::Result<
 		ControlFlow<
 			Option<(
-				tg::process::connect::Header,
-				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+				tg::process::attach::Header,
+				BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 			)>,
 			tg::Error,
 		>,
 	> {
-		self.try_get_process_connect_stream(arg, input).await
+		self.try_get_process_attach_stream(arg, input).await
 	}
 
 	fn try_spawn_process(

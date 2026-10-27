@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# The runner of a scheduled process opens the stdio streams that the connect declared before its process control connection returns, because the assignment carries the opens.
+# The runner of a scheduled process opens the stdio streams that the attach declared before its process control connection returns, because the assignment carries the opens.
 
 let root_token = random chars
 

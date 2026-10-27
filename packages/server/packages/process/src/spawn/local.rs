@@ -13,7 +13,7 @@ pub(super) struct Output {
 	pub allocation: Option<tangram_server_runner_core::capacity::Allocation>,
 
 	#[debug(ignore)]
-	pub open: Option<crate::connect::service::Open>,
+	pub open: Option<crate::attach::service::Open>,
 
 	pub cached: bool,
 

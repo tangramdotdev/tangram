@@ -1551,12 +1551,12 @@ pub struct ScyllaCacheSimpleSpeculativeExecution {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Process {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub attach: Option<ProcessAttach>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub children_wakeup_interval: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connect: Option<ProcessConnect>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub control: Option<ClientProcessControl>,
@@ -1647,7 +1647,7 @@ pub struct Process {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProcessConnect {
+pub struct ProcessAttach {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub high_priority_channel_capacity: Option<usize>,
 
@@ -2943,14 +2943,14 @@ pub struct ClientHttp {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClientProcess {
-	/// Configure process connect connections.
+	/// Configure process attach connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connect: Option<ClientProcessConnect>,
+	pub attach: Option<ClientProcessAttach>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ClientProcessConnect {
+pub struct ClientProcessAttach {
 	/// The capacity of the progress event channel.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub event_capacity: Option<usize>,
@@ -3247,8 +3247,8 @@ pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
 
 pub(crate) fn resolve_client_process(source: ClientProcess) -> tg::process::Config {
 	let mut target = tg::process::Config::default();
-	if let Some(value) = source.connect {
-		target.connect = resolve_client_process_connect(value);
+	if let Some(value) = source.attach {
+		target.attach = resolve_client_process_attach(value);
 	}
 	target
 }
@@ -3628,8 +3628,8 @@ fn is_default_export(export: &String) -> bool {
 	export == "default"
 }
 
-fn resolve_client_process_connect(source: ClientProcessConnect) -> tg::process::connect::Config {
-	let mut target = tg::process::connect::Config::default();
+fn resolve_client_process_attach(source: ClientProcessAttach) -> tg::process::attach::Config {
+	let mut target = tg::process::attach::Config::default();
 	if let Some(value) = source.event_capacity {
 		target.event_capacity = value;
 	}

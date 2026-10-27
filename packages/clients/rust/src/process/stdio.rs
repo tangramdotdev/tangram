@@ -153,7 +153,7 @@ impl std::str::FromStr for Stdio {
 	}
 }
 
-/// The arg of a task that connects a process's stdio to this process's stdio, which locates the process by its connect's nonce.
+/// The arg of a task that connects a process's stdio to this process's stdio, which locates the process by its attach's nonce.
 pub(super) struct StdioTaskArg<I> {
 	pub instance: I,
 	pub location: Option<tg::location::Arg>,

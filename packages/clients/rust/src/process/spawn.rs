@@ -179,7 +179,7 @@ pub(super) struct PrepareUnsandboxedCommandOutput {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
-	pub mode: tg::process::connect::Mode,
+	pub mode: tg::process::attach::Mode,
 }
 
 pub async fn spawn(arg: tg::process::Arg, options: Options) -> tg::Result<tg::Process> {
@@ -413,7 +413,7 @@ impl<O: 'static> tg::Process<O> {
 		) -> Fut,
 		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
 	{
-		Self::connect_spawn_with_progress_with_instance(instance, arg, options.mode, progress).await
+		Self::attach_spawn_with_progress_with_instance(instance, arg, options.mode, progress).await
 	}
 
 	pub(super) async fn spawn_inner_with_instance<I, F, Fut>(
@@ -560,7 +560,7 @@ impl<O: 'static> tg::Process<O> {
 				},
 			}
 		}
-		// Name the connect with a nonce, and start the stdio task with it and the connect's location, so that the stdio requests open concurrently with the connect and route to its server.
+		// Name the attach with a nonce, and start the stdio task with it and the attach's location, so that the stdio requests open concurrently with the attach and route to its server.
 		let location = arg.location.take();
 		let stdio = stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty;
 		let nonce = stdio.then(tg::process::Nonce::new);
@@ -602,8 +602,8 @@ impl<O: 'static> tg::Process<O> {
 		.map(|(_, stream)| stream)
 		.collect();
 
-		// Connect.
-		let arg = tg::process::connect::Arg {
+		// Attach.
+		let arg = tg::process::attach::Arg {
 			lease: None,
 			location,
 			mode: options.mode,
@@ -613,9 +613,9 @@ impl<O: 'static> tg::Process<O> {
 			push: false,
 			tokens: tg::authorization::Tokens::default(),
 		};
-		let (connection, stream) = tg::process::connect::Connection::open(&instance, arg).await?;
+		let (connection, stream) = tg::process::attach::Connection::open(&instance, arg).await?;
 		let output = progress(stream).await?;
-		let connection = (options.mode == tg::process::connect::Mode::Run).then_some(connection);
+		let connection = (options.mode == tg::process::attach::Mode::Run).then_some(connection);
 		let outcome = output
 			.outcome
 			.map(tg::process::Outcome::try_from_data)

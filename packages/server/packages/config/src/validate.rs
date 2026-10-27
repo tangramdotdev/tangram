@@ -56,10 +56,10 @@ impl Config {
 			.control
 			.validate()
 			.map_err(|source| tg::error!(!source, "invalid process control configuration"))?;
-		let connect = &self.process.connect;
-		if connect.max_operations == 0 || connect.max_pending_messages == 0 {
+		let attach = &self.process.attach;
+		if attach.max_operations == 0 || attach.max_pending_messages == 0 {
 			return Err(tg::error!(
-				"the process connect max operations and max pending messages must be greater than zero"
+				"the process attach max operations and max pending messages must be greater than zero"
 			));
 		}
 		let log_batch = &self.process.stdio_log_batch;
@@ -166,16 +166,16 @@ impl Config {
 				self.indexer.writer.channel_capacity,
 			),
 			(
-				"process connect high priority channel capacity",
-				self.process.connect.high_priority_channel_capacity,
+				"process attach high priority channel capacity",
+				self.process.attach.high_priority_channel_capacity,
 			),
 			(
-				"process connect low priority channel capacity",
-				self.process.connect.low_priority_channel_capacity,
+				"process attach low priority channel capacity",
+				self.process.attach.low_priority_channel_capacity,
 			),
 			(
-				"process connect spawn channel capacity",
-				self.process.connect.spawn_channel_capacity,
+				"process attach spawn channel capacity",
+				self.process.attach.spawn_channel_capacity,
 			),
 			(
 				"process control channel capacity",

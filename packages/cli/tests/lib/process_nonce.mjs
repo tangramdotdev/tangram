@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import http from "node:http";
 
-// Print a new nonce, wait for a process by a connect's nonce and print the outcome or the response status, or spawn a process through a connect with a nonce and print the outcome.
+// Print a new nonce, wait for a process by an attach's nonce and print the outcome or the response status, or spawn a process through an attach with a nonce and print the outcome.
 const [mode, socketPath, ...rest] = process.argv.slice(2);
 
 // Print a new nonce, which is 16 random bytes written with the symbols of the ID encoding.
@@ -27,7 +27,7 @@ if (mode === "nonce") {
 	process.exit(0);
 }
 
-const [command, nonce, token] = mode === "connect" ? rest : [null, ...rest];
+const [command, nonce, token] = mode === "attach" ? rest : [null, ...rest];
 const timer = setTimeout(() => {
 	throw new Error("the nonce test timed out");
 }, 25000);
@@ -82,11 +82,11 @@ const wait = () => new Promise((resolve, reject) => {
 	request.end();
 });
 
-// Spawn the process through a connect with the nonce, and read its messages until the outcome.
-const connect = () => new Promise((resolve, reject) => {
+// Spawn the process through an attach with the nonce, and read its messages until the outcome.
+const attach = () => new Promise((resolve, reject) => {
 	const request = http.request({
 		socketPath,
-		path: "/processes/connect",
+		path: "/processes/attach",
 		method: "POST",
 		headers: {
 			accept: "text/event-stream",
@@ -180,7 +180,7 @@ const connect = () => new Promise((resolve, reject) => {
 });
 
 try {
-	const output = mode === "connect" ? await connect() : await wait();
+	const output = mode === "attach" ? await attach() : await wait();
 	console.log(JSON.stringify(output));
 } finally {
 	clearTimeout(timer);

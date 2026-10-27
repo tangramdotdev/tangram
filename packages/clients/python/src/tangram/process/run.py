@@ -65,7 +65,7 @@ def builder(*args, **options):
 
 
 async def run(arg, options=None):
-    from .connect import spawn
+    from .attach import spawn
 
     process = await spawn(arg, options or {}, "run")
     return await process.output()

@@ -144,9 +144,9 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 
 	// Determine the connection mode.
 	let mode = if options.detach {
-		tg::process::connect::Mode::Spawn
+		tg::process::attach::Mode::Spawn
 	} else {
-		tg::process::connect::Mode::Run
+		tg::process::attach::Mode::Run
 	};
 
 	// Spawn the process.

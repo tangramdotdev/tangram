@@ -23,9 +23,9 @@ import tangram as tg
 
 from ..args import Args
 from ..client import client as default_client
+from ..client.process.attach import Attach as _Attach
+from ..client.process.attach import TtyArg
 from ..client.process.cancel import Cancel as _Cancel
-from ..client.process.connect import Connect as _Connect
-from ..client.process.connect import TtyArg
 from ..client.process.get import Get as _Get
 from ..client.process.put import Put as _Put
 from ..client.process.signal import Signal as _Signal
@@ -53,8 +53,8 @@ from ..sandbox import Mount, MountValue, NetworkValue, SandboxArg
 from ..symlink import Symlink
 from ..template import Template
 from ..value import Value
+from .attach import Connection
 from .command import ProcessCommandData
-from .connect import Connection
 from .outcome import Outcome, ProcessOutcome
 from .stdio import ReadArgObject, Stdio, StdioChunk
 
@@ -168,7 +168,7 @@ class Process[O: ValueType]:
     Tty: ClassVar[type[Tty]]
     Mount: ClassVar[type[Mount]]
     Status = Literal["started", "finished"]
-    Connect: ClassVar[type[_Connect]]
+    Attach: ClassVar[type[_Attach]]
     Spawn: ClassVar[type[_Spawn]]
     Builder: ClassVar[type[Builder]]
     Checksum: ClassVar[type[ProcessChecksum]]
@@ -233,7 +233,7 @@ class Process[O: ValueType]:
             State.inherit_tokens(self.state, self.tokens)
 
     @classmethod
-    async def connect(
+    async def attach(
         cls, process, *, client: Client | None = None, mode="run", **options
     ) -> Self:
         process, options = await resolve([process, options])
@@ -1338,7 +1338,7 @@ Process.Id = str
 
 Process.Outcome = Outcome
 
-Process.Connect = _Connect
+Process.Attach = _Attach
 Process.Spawn = _Spawn
 
 Process.Cancel = _Cancel

@@ -9,24 +9,22 @@ where
 	L: tg::instance::Process,
 	R: tg::instance::Process,
 {
-	async fn try_get_process_connect_stream(
+	async fn try_get_process_attach_stream(
 		&self,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> tg::Result<
 		ControlFlow<
 			Option<(
-				tg::process::connect::Header,
-				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+				tg::process::attach::Header,
+				BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 			)>,
 			tg::Error,
 		>,
 	> {
 		match self {
-			tg::Either::Left(instance) => instance.try_get_process_connect_stream(arg, input).await,
-			tg::Either::Right(instance) => {
-				instance.try_get_process_connect_stream(arg, input).await
-			},
+			tg::Either::Left(instance) => instance.try_get_process_attach_stream(arg, input).await,
+			tg::Either::Right(instance) => instance.try_get_process_attach_stream(arg, input).await,
 		}
 	}
 

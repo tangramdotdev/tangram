@@ -243,7 +243,7 @@ where
 	if process
 		.connection
 		.as_ref()
-		.is_none_or(tg::process::connect::Connection::detached)
+		.is_none_or(tg::process::attach::Connection::detached)
 	{
 		handle_process
 			.ensure_location_with_instance(instance)

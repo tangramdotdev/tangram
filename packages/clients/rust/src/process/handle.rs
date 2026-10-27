@@ -19,7 +19,7 @@ pub struct Process<O = tg::Value>(pub(super) Arc<Inner>, pub(super) PhantomData<
 pub(super) struct Inner {
 	pub(super) cached: Option<bool>,
 	#[debug(ignore)]
-	pub(super) connection: Option<tg::process::connect::Connection>,
+	pub(super) connection: Option<tg::process::attach::Connection>,
 	pub(super) id: tg::Either<u32, Id>,
 	#[debug(ignore)]
 	pub(super) instance: Option<tg::instance::dynamic::Instance>,
@@ -78,7 +78,7 @@ impl<O> Process<O> {
 		id: Id,
 		options: tg::process::Options,
 		instance: Option<tg::instance::dynamic::Instance>,
-		connection: Option<tg::process::connect::Connection>,
+		connection: Option<tg::process::attach::Connection>,
 	) -> Self {
 		let tg::process::Options {
 			cached,
@@ -400,7 +400,7 @@ impl<O> Process<O> {
 			.0
 			.connection
 			.as_ref()
-			.is_none_or(tg::process::connect::Connection::detached)
+			.is_none_or(tg::process::attach::Connection::detached)
 			&& options.location.is_none()
 			&& self.location().is_none()
 		{

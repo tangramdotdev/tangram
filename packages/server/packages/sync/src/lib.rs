@@ -143,16 +143,16 @@ impl Component {
 		tg::sync::Header,
 		BoxStream<'static, tg::Result<tg::sync::Message>>,
 	)> {
-		// Join the command sync of the connect that a nonce names, giving the requested nodes the sync's tokens.
+		// Join the command sync of the attach that a nonce names, giving the requested nodes the sync's tokens.
 		let sync = match arg.sync.take() {
-			Some(tg::sync::Join::Connect(nonce)) => {
+			Some(tg::sync::Join::Attach(nonce)) => {
 				let sync = session
 					.server
 					.components
 					.process
 					.try_resolve_process_command_sync(session, &nonce)
 					.await?
-					.ok_or_else(|| tg::error!("failed to find the command sync of the connect"))?;
+					.ok_or_else(|| tg::error!("failed to find the command sync of the attach"))?;
 				Self::inherit_sync_tokens(&mut arg.get, &sync);
 				Some(sync)
 			},

@@ -5,17 +5,17 @@ use {
 };
 
 pub trait Process: Send + Sync + 'static {
-	fn try_get_process_connect_stream(
+	fn try_get_process_attach_stream(
 		&self,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> BoxFuture<
 		'_,
 		tg::Result<
 			ControlFlow<
 				Option<(
-					tg::process::connect::Header,
-					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+					tg::process::attach::Header,
+					BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 				)>,
 				tg::Error,
 			>,
@@ -156,23 +156,23 @@ impl<T> Process for T
 where
 	T: tg::instance::Process,
 {
-	fn try_get_process_connect_stream(
+	fn try_get_process_attach_stream(
 		&self,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> BoxFuture<
 		'_,
 		tg::Result<
 			ControlFlow<
 				Option<(
-					tg::process::connect::Header,
-					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+					tg::process::attach::Header,
+					BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 				)>,
 				tg::Error,
 			>,
 		>,
 	> {
-		self.try_get_process_connect_stream(arg, input).boxed()
+		self.try_get_process_attach_stream(arg, input).boxed()
 	}
 
 	fn try_spawn_process(

@@ -21,7 +21,7 @@ async def main():
                 "host": tg.host.current,
             }
         )
-        spawned = await tg.Process.connect(
+        spawned = await tg.Process.attach(
             {
                 "command": command,
                 "stdin": "pipe",
@@ -34,7 +34,7 @@ async def main():
             mode="spawn",
         )
         await spawned.detach()
-        process = await tg.Process.connect(
+        process = await tg.Process.attach(
             spawned.id,
             client=client,
             location=spawned.location,

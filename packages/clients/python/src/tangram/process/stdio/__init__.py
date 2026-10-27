@@ -454,12 +454,12 @@ async def task(
 ):
     """Forward inherited stdio and terminal resize events until output ends.
 
-    The task locates the process by its connect's nonce and routes to the connect's
-    location, so that the stdio requests open concurrently with the connect.
+    The task locates the process by its attach's nonce and routes to the attach's
+    location, so that the stdio requests open concurrently with the attach.
     """
     from ... import host
     from ...client import client as default_client
-    from ..connect import Connection
+    from ..attach import Connection
 
     client = Connection.nonce_stdio_client(connection, client or default_client)
     stdin_closing = False
