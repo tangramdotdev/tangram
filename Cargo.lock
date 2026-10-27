@@ -11268,7 +11268,6 @@ name = "tangram_server_indexer"
 version = "0.0.0"
 dependencies = [
  "bytes",
- "data-encoding",
  "derive_more",
  "futures",
  "http",
@@ -11277,8 +11276,6 @@ dependencies = [
  "num",
  "rand 0.10.3",
  "rustix 1.1.5",
- "serde",
- "serde_json",
  "tangram_archive",
  "tangram_cache",
  "tangram_client",
