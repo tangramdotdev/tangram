@@ -35,6 +35,8 @@ pub mod queue;
 pub struct Component(Arc<State>);
 
 pub struct State {
+	pub(crate) index_changed: tokio::sync::Notify,
+	pub(crate) index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	pub(crate) index_wait_receiver: Mutex<Option<index::wait::Receiver>>,
 	pub(crate) index_wait_sender: index::wait::Sender,
 	pub(crate) index_wait_task: Mutex<Option<Task<()>>>,
@@ -99,6 +101,10 @@ impl Component {
 		// Create the indexer cache.
 		let indexers = cache::Cache::default();
 
+		// Create the index change notification and the index tasks.
+		let index_changed = tokio::sync::Notify::new();
+		let index_tasks = tangram_futures::task::Set::default();
+
 		// Create the task handles.
 		let index_wait_task = Mutex::new(None);
 		let indexer_cache_task = Mutex::new(None);
@@ -106,6 +112,8 @@ impl Component {
 
 		// Create the state.
 		let state = State {
+			index_changed,
+			index_tasks,
 			index_wait_receiver,
 			index_wait_sender,
 			index_wait_task,
@@ -752,7 +760,7 @@ impl Indexer {
 			.object
 			.wait_remote_object_put_tasks()
 			.await;
-		self.server.index_tasks.wait().await;
+		self.component.index_tasks.wait().await;
 		self.server.components.object.wait_archive_tasks().await;
 		if self.id.is_some() {
 			Self::drain_queues(state, changed, index_sender).await?;
@@ -922,6 +930,7 @@ impl tangram_server_core::component::Lifecycle for Component {
 	}
 
 	fn abort(&self) {
+		self.index_tasks.abort_all();
 		let task = self.index_wait_task.lock().unwrap().take();
 		if let Some(task) = task {
 			task.abort();
@@ -987,11 +996,25 @@ impl tangram_server_core::indexer::Component for Component {
 		self.enqueue_object_archive(server, object, put).boxed()
 	}
 
+	fn spawn_index_task(
+		&self,
+		task: BoxFuture<'static, tg::Result<()>>,
+	) -> tangram_futures::task::Shared<tg::Result<()>> {
+		self.index_tasks.spawn(|_| task)
+	}
+
 	fn spawn_publish_database_index_queue_notification_task(
 		&self,
 		server: &tangram_server_core::Server,
 	) {
 		Self::spawn_publish_database_index_queue_notification_task(server);
+	}
+
+	fn wait_index_tasks(&self) -> BoxFuture<'_, ()> {
+		async move {
+			self.index_tasks.wait().await;
+		}
+		.boxed()
 	}
 }
 

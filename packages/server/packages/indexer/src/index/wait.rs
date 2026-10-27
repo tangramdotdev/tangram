@@ -74,7 +74,7 @@ impl Component {
 		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
 			// Register before reading progress so changes during the reads wake the next pass.
-			let changed = server.index_changed.notified();
+			let changed = self.index_changed.notified();
 			tokio::pin!(changed);
 			changed.as_mut().enable();
 

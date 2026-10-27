@@ -30,7 +30,8 @@ pub use {
 	self::session::Session,
 	tangram_server_cache as cache,
 	tangram_server_config::{self as config, Config},
-	tangram_server_directory as directory, tangram_server_graph as graph,
+	tangram_server_database as database, tangram_server_directory as directory,
+	tangram_server_graph as graph, tangram_server_index as index,
 	tangram_server_messenger as messenger,
 };
 
@@ -49,7 +50,6 @@ pub mod component;
 pub mod context;
 pub mod control;
 pub mod cursor;
-pub mod database;
 pub mod document;
 pub mod format;
 pub mod get;
@@ -57,7 +57,6 @@ pub mod grant;
 pub mod group;
 pub mod health;
 pub mod http;
-pub mod index;
 pub mod indexer;
 pub mod list;
 pub mod location;
@@ -111,8 +110,6 @@ pub struct State {
 	pub database: Database,
 	pub diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	pub index: Index,
-	pub index_changed: tokio::sync::Notify,
-	pub index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	library: Mutex<Option<Arc<Temp>>>,
 	lock: Mutex<Option<tokio::fs::File>>,
 	pub messenger: Messenger,
@@ -314,7 +311,6 @@ impl Drop for Owned {
 		self.server.components.authentication.abort();
 		self.server.components.object.abort();
 		self.server.components.list.abort();
-		self.server.index_tasks.abort_all();
 		self.server.components.vfs.abort();
 		self.server.components.watch.abort();
 		self.server.components.indexer.abort();

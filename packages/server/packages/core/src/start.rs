@@ -202,12 +202,6 @@ impl Server {
 		// Create the index.
 		let index = Self::create_index(&config, &original_path)?;
 
-		// Create the index tasks.
-		let index_tasks = tangram_futures::task::Set::default();
-
-		// Create the index change notification.
-		let index_changed = tokio::sync::Notify::new();
-
 		// Create the library.
 		let library = Mutex::new(None);
 
@@ -274,8 +268,6 @@ impl Server {
 			database,
 			diagnostics,
 			index,
-			index_changed,
-			index_tasks,
 			library,
 			lock,
 			messenger,
@@ -884,7 +876,7 @@ impl Server {
 		self.components.object.wait_archive_tasks().await;
 
 		// Finish the index tasks after their producers have stopped.
-		self.index_tasks.wait().await;
+		self.components.indexer.wait_index_tasks().await;
 
 		// Stop the indexer component.
 		self.components.indexer.stop(self).await;

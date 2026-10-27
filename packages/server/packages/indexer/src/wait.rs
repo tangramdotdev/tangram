@@ -1,5 +1,5 @@
 use {
-	crate::Indexer,
+	crate::{Component, Indexer},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	std::{collections::BTreeMap, sync::Mutex},
 	tangram_client::prelude::*,
@@ -89,7 +89,7 @@ impl Indexer {
 				state.task_waits.clear();
 			}
 			if !state.waits.is_empty() {
-				state.start_task_wait(&self.server);
+				state.start_task_wait(&self.component, &self.server);
 				let (read, target) = {
 					let state = queues.lock().unwrap();
 					(
@@ -159,7 +159,7 @@ impl State {
 		}
 	}
 
-	fn start_task_wait(&mut self, server: &Server) {
+	fn start_task_wait(&mut self, component: &Component, server: &Server) {
 		if !self.task_waits.is_empty() {
 			return;
 		}
@@ -177,6 +177,7 @@ impl State {
 		if ids.is_empty() {
 			return;
 		}
+		let component = component.clone();
 		let server = server.clone();
 		self.task_waits.push(
 			async move {
@@ -189,7 +190,7 @@ impl State {
 					.wait_remote_object_put_tasks()
 					.await;
 				tracing::debug!("waiting for index tasks");
-				server.index_tasks.wait().await;
+				component.index_tasks.wait().await;
 				tracing::debug!("finished waiting for index tasks");
 
 				ids

@@ -45,7 +45,14 @@ pub trait Component: crate::component::Lifecycle {
 		put: [u8; 16],
 	) -> BoxFuture<'a, tg::Result<()>>;
 
+	fn spawn_index_task(
+		&self,
+		task: BoxFuture<'static, tg::Result<()>>,
+	) -> tangram_futures::task::Shared<tg::Result<()>>;
+
 	fn spawn_publish_database_index_queue_notification_task(&self, server: &Server);
+
+	fn wait_index_tasks(&self) -> BoxFuture<'_, ()>;
 }
 
 pub struct CleanBatchArg {

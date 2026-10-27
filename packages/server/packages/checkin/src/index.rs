@@ -2,6 +2,7 @@ use {
 	crate::{
 		Component, {Graph, IndexCheckoutArgs, IndexObjectArgs},
 	},
+	futures::FutureExt as _,
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
 	std::{collections::VecDeque, path::Path},
@@ -221,29 +222,29 @@ impl Component {
 			.map(ToString::to_string)
 			.collect::<Vec<_>>()
 			.join(",");
-		session.server.index_tasks.spawn({
-			let root = root.to_owned();
-			let server = session.server.clone();
-			|_| async move {
-				crate::checkpoint!(
-					server,
-					"checkin.index",
-					path = %root.display(),
-					updates,
-				)
-				.await;
-				let result = server
-					.index
-					.batch(arg)
-					.await
-					.and_then(std::convert::identity)
-					.map_err(|error| tg::error!(!error, "failed to index the checkin"));
-				if let Err(error) = &result {
-					tracing::error!(error = %error.trace(), "failed to index the checkin");
-				}
-
-				result
+		let root = root.to_owned();
+		let server = session.server.clone();
+		let task = async move {
+			crate::checkpoint!(
+				server,
+				"checkin.index",
+				path = %root.display(),
+				updates,
+			)
+			.await;
+			let result = server
+				.index
+				.batch(arg)
+				.await
+				.and_then(std::convert::identity)
+				.map_err(|error| tg::error!(!error, "failed to index the checkin"));
+			if let Err(error) = &result {
+				tracing::error!(error = %error.trace(), "failed to index the checkin");
 			}
-		})
+
+			result
+		}
+		.boxed();
+		session.server.components.indexer.spawn_index_task(task)
 	}
 }

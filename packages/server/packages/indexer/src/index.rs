@@ -66,8 +66,7 @@ impl Component {
 			matches!(item, index::batch::Item::PutProcess(arg)
 				if arg.data.as_ref().is_some_and(|data| data.status.is_started()))
 		});
-		server
-			.index_tasks
+		self.index_tasks
 			.spawn({
 				let component = self.clone();
 				let server = server.clone();
@@ -84,7 +83,7 @@ impl Component {
 					.await;
 					let result = component.index_batch_inner(&server, arg).await;
 					if result.is_ok() {
-						server.index_changed.notify_waiters();
+						component.index_changed.notify_waiters();
 					}
 
 					let result = result.and_then(std::convert::identity);

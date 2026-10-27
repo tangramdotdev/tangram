@@ -1364,18 +1364,19 @@ impl Component {
 						.await
 						.map_err(|_| tg::error!("the process connection failed before indexing"))?;
 					let inner = session.clone();
+					let task = async move {
+						component
+							.index_finished_process_task(&inner, arg)
+							.boxed()
+							.await
+					}
+					.in_current_span()
+					.boxed();
 					session
 						.server
-						.index_tasks
-						.spawn(move |_| {
-							async move {
-								component
-									.index_finished_process_task(&inner, arg)
-									.boxed()
-									.await
-							}
-							.in_current_span()
-						})
+						.components
+						.indexer
+						.spawn_index_task(task)
 						.wait()
 						.await
 						.map_err(|_| tg::error!("the finished process index task panicked"))?
