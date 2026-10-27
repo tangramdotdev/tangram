@@ -7,7 +7,7 @@ use {
 		path::{Path, PathBuf},
 		sync::{
 			Arc,
-			atomic::{AtomicU64, Ordering},
+			atomic::{AtomicBool, AtomicU64, Ordering},
 		},
 		time::Duration,
 	},
@@ -89,8 +89,14 @@ pub struct State {
 
 	destroy: tokio::sync::Mutex<()>,
 
+	destroyed: AtomicBool,
+
+	exit: tokio::sync::watch::Receiver<Option<tg::Result<std::process::ExitStatus>>>,
+
 	#[cfg(target_os = "linux")]
 	filesystem: Option<crate::filesystem::Filesystem>,
+
+	kill: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 
 	#[cfg(target_os = "linux")]
 	#[expect(dead_code)]
@@ -99,8 +105,6 @@ pub struct State {
 	next_process_index: AtomicU64,
 
 	pid: u32,
-
-	process: tokio::sync::Mutex<tokio::process::Child>,
 
 	started: std::sync::atomic::AtomicBool,
 }
@@ -536,6 +540,22 @@ impl Sandbox {
 			},
 		};
 
+		// Wait for the sandbox process to exit in a task, killing it when the sandbox is destroyed or dropped.
+		let (kill_sender, kill_receiver) = tokio::sync::oneshot::channel();
+		let (exit_sender, exit) = tokio::sync::watch::channel(None);
+		tokio::spawn(async move {
+			let status = tokio::select! {
+				status = process.wait() => status,
+				_ = kill_receiver => match process.start_kill() {
+					Ok(()) => process.wait().await,
+					Err(error) => Err(error),
+				},
+			};
+			let status = status
+				.map_err(|error| tg::error!(!error, "failed to wait for the sandbox process"));
+			exit_sender.send_replace(Some(status));
+		});
+
 		// Create the sandbox state.
 		let sandbox = Self(Arc::new(State {
 			#[cfg(target_os = "linux")]
@@ -556,8 +576,14 @@ impl Sandbox {
 
 			destroy: tokio::sync::Mutex::new(()),
 
+			destroyed: AtomicBool::new(false),
+
+			exit,
+
 			#[cfg(target_os = "linux")]
 			filesystem,
+
+			kill: std::sync::Mutex::new(Some(kill_sender)),
 
 			#[cfg(target_os = "linux")]
 			network,
@@ -565,8 +591,6 @@ impl Sandbox {
 			next_process_index: AtomicU64::new(1),
 
 			pid,
-
-			process: tokio::sync::Mutex::new(process),
 
 			started: std::sync::atomic::AtomicBool::new(false),
 		}));
@@ -874,6 +898,7 @@ impl Sandbox {
 	#[tracing::instrument(name = "sandbox.destroy_physical", level = "debug", skip_all, fields(sandbox_index = self.index()), err(level = "debug"))]
 	pub async fn destroy(&self) -> tg::Result<Output> {
 		let _destroy = self.0.destroy.lock().await;
+		self.0.destroyed.store(true, Ordering::SeqCst);
 		self.destroy_inner().await?;
 		let usage = self
 			.finish_accounting()
@@ -898,21 +923,14 @@ impl Sandbox {
 	}
 
 	async fn stop_process(&self) -> tg::Result<()> {
-		let mut process = self.0.process.lock().await;
-		let status = process
-			.try_wait()
-			.map_err(|error| tg::error!(!error, "failed to query the sandbox process"))?;
-		if status.is_some() {
+		if self.0.exit.borrow().is_some() {
 			return Ok(());
 		}
 
 		// Gracefully shut down the sandbox process.
 		let result = tokio::time::timeout(self.0.arg.shutdown_timeout, async {
 			self.0.client.shutdown().await?;
-			process
-				.wait()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to wait for the sandbox process"))?;
+			self.wait_exit().await?;
 			Ok::<_, tg::Error>(())
 		})
 		.await;
@@ -921,21 +939,24 @@ impl Sandbox {
 		}
 
 		// Force the sandbox process to exit.
-		if process
-			.try_wait()
-			.map_err(|error| tg::error!(!error, "failed to query the sandbox process"))?
-			.is_none()
-		{
-			process
-				.start_kill()
-				.map_err(|error| tg::error!(!error, "failed to kill the sandbox process"))?;
+		let sender = self.0.kill.lock().unwrap().take();
+		if let Some(sender) = sender {
+			sender.send(()).ok();
 		}
-		process
-			.wait()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to wait for the sandbox process"))?;
+		self.wait_exit().await?;
 
 		Ok(())
+	}
+
+	async fn wait_exit(&self) -> tg::Result<std::process::ExitStatus> {
+		let mut exit = self.0.exit.clone();
+		let status = exit
+			.wait_for(Option::is_some)
+			.await
+			.map_err(|error| tg::error!(!error, "the sandbox process task ended"))?
+			.clone()
+			.unwrap()?;
+		Ok(status)
 	}
 
 	#[cfg(target_os = "linux")]
@@ -984,7 +1005,7 @@ impl Sandbox {
 	}
 
 	#[tracing::instrument(name = "sandbox.spawn_process", level = "debug", skip_all, fields(process_index = process.index, sandbox_index = self.index()), err(level = "debug"))]
-	pub async fn spawn(&self, process: &Process, arg: SpawnArg) -> tg::Result<()> {
+	pub async fn spawn_process(&self, process: &Process, arg: SpawnArg) -> tg::Result<()> {
 		let spawn_arg = crate::client::spawn::Arg {
 			command: arg.command,
 			index: process.index,
@@ -993,16 +1014,11 @@ impl Sandbox {
 			url: arg.url,
 		};
 		if let Err(error) = self.0.client.spawn(spawn_arg).await {
-			let status = self
-				.0
-				.process
-				.lock()
-				.await
-				.try_wait()
-				.map_err(|source| tg::error!(!source, "failed to query the sandbox process"))?;
+			let status = self.0.exit.borrow().clone();
 			let Some(status) = status else {
 				return Err(error);
 			};
+			let status = status?;
 			return Err(tg::error!(
 				!error,
 				status = ?status,
@@ -1042,13 +1058,28 @@ impl Sandbox {
 	}
 
 	#[tracing::instrument(name = "sandbox.kill_process", level = "debug", skip_all, fields(process_index = process.index, sandbox_index = self.index(), signal = %signal), err(level = "debug"))]
-	pub async fn kill(&self, process: &Process, signal: tg::process::Signal) -> tg::Result<()> {
+	pub async fn kill_process(
+		&self,
+		process: &Process,
+		signal: tg::process::Signal,
+	) -> tg::Result<()> {
 		let arg = crate::client::kill::Arg { signal };
 		self.0.client.kill(process.index, arg).await?;
 		Ok(())
 	}
 
-	pub async fn wait(
+	/// Wait for the sandbox process to exit, and return the error that describes its exit if the sandbox was not destroyed.
+	pub async fn wait(&self) -> tg::Result<()> {
+		let status = self.wait_exit().await?;
+		if self.0.destroyed.load(Ordering::SeqCst) {
+			return Ok(());
+		}
+		let error = tg::error!(%status, "the sandbox process exited");
+		let error = self.termination_error(error).await;
+		Err(error)
+	}
+
+	pub async fn wait_process(
 		&self,
 		process: &Process,
 	) -> tg::Result<impl Future<Output = tg::Result<u8>> + Send + 'static> {

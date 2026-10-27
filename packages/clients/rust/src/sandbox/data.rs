@@ -23,6 +23,10 @@ pub struct Data {
 	pub creator: Option<tg::Principal>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,
 

@@ -29,4 +29,4 @@ assert equal (job recv --tag $wait_job --timeout 10sec) 'event: end'
 # New wait requests can still read a destroyed sandbox after completion is published.
 tg checkpoint continue sandbox.control.destroy $destroy_watch 0
 tg checkpoint unwatch sandbox.control.destroy $destroy_watch
-assert equal (timeout 10s tg sandbox wait $sandbox | from json) destroyed
+assert equal (timeout 10s tg sandbox wait $sandbox | from json) {}

@@ -54,6 +54,16 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::sandbox::status::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>;
 
+	fn try_wait_sandbox_future<'a>(
+		&'a self,
+		session: &'a Session,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::wait::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::sandbox::outcome::Data>>>>>,
+	>;
+
 	fn get_sandbox_control_stream<'a>(
 		&'a self,
 		session: &'a Session,

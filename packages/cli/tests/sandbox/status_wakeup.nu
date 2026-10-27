@@ -25,5 +25,5 @@ tg --url $local_owner.url checkpoint wait --timeout 10s sandbox.get.control $wat
 tg --url $runner.url sandbox destroy $sandbox
 let output = job recv --tag $reader --timeout 15sec
 success $output
-assert equal ($output.stdout | from json) destroyed
+assert equal ($output.stdout | from json) {}
 tg --url $local_owner.url checkpoint unwatch sandbox.get.control $watch

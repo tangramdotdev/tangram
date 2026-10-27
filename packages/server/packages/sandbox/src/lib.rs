@@ -21,6 +21,7 @@ pub mod get;
 pub mod list;
 pub mod processes;
 pub mod status;
+pub mod wait;
 
 /// The component.
 #[derive(Clone)]
@@ -94,6 +95,10 @@ impl Component {
 			},
 			(http::Method::GET, ["sandboxes", sandbox, "status"]) => {
 				self.try_get_sandbox_status_stream_request(session, request, sandbox)
+					.await
+			},
+			(http::Method::POST, ["sandboxes", sandbox, "wait"]) => {
+				self.try_wait_sandbox_future_request(session, request, sandbox)
 					.await
 			},
 			(_, _) => Ok(tangram_server_core::http::not_found()),
@@ -308,6 +313,18 @@ impl tangram_server_core::sandbox::Component for Component {
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>
 	{
 		self.try_get_sandbox_status_stream(session, id, arg).boxed()
+	}
+
+	fn try_wait_sandbox_future<'a>(
+		&'a self,
+		session: &'a tangram_server_core::Session,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::wait::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::sandbox::outcome::Data>>>>>,
+	> {
+		self.try_wait_sandbox_future(session, id, arg).boxed()
 	}
 
 	fn get_sandbox_control_stream<'a>(

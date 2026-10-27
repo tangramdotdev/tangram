@@ -42,6 +42,15 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::status::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>;
 
+	fn try_wait_sandbox_future<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::wait::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::sandbox::outcome::Data>>>>>,
+	>;
+
 	fn get_sandbox_control_stream<'a>(
 		&'a self,
 		arg: tg::sandbox::control::Arg,
@@ -94,6 +103,19 @@ where
 				.map(futures::StreamExt::boxed))
 		}
 		.boxed()
+	}
+
+	fn try_wait_sandbox_future<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::wait::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::sandbox::outcome::Data>>>>>,
+	> {
+		self.try_wait_sandbox_future(id, arg)
+			.map_ok(|option| option.map(futures::FutureExt::boxed))
+			.boxed()
 	}
 
 	fn list_sandboxes(

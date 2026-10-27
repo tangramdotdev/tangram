@@ -17,4 +17,4 @@ failure $output
 assert ($output.exit_code != 124) "the repeated destroy request must also remain responsive"
 tg checkpoint unwatch runner.process.control.connect $watch
 failure (job recv --tag $spawn --timeout 30sec)
-assert equal (timeout 30s tg sandbox wait $sandbox | from json) destroyed
+assert equal (timeout 30s tg sandbox wait $sandbox | from json) {}

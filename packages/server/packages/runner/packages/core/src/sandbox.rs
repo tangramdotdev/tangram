@@ -46,6 +46,7 @@ pub struct State {
 	pub control_sender: tangram_server_sandbox_core::control::local::Local,
 	pub create: tg::sandbox::create::Arg,
 	pub creator: Option<tg::Principal>,
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 	pub id: tg::sandbox::Id,
 	pub location: tg::Location,
 	pub process_ids: IndexMap<tg::process::Id, (), tg::id::BuildHasher>,
@@ -122,6 +123,7 @@ impl State {
 		let data = tg::sandbox::Data {
 			cpu: arg.cpu,
 			creator: self.creator.clone(),
+			error: self.error.clone(),
 			hostname: arg.hostname.clone(),
 			id,
 			memory: arg.memory,

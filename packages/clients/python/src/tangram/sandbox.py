@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .client import Client
     from .client.sandbox.destroy import ArgObject as SandboxDestroyArg
     from .client.sandbox.get import ArgObject as SandboxGetArg
+    from .error import ErrorData
     from .process import Builder as ProcessBuilder
 
 from . import authorization, host
@@ -93,6 +94,7 @@ class SandboxData(TypedDict, total=False):
     status: Required[Literal["created", "started", "destroyed"]]
     cpu: Cpu | None
     creator: str | None
+    error: ErrorData | str | None
     hostname: str | None
     memory: Resource | None
     storage: Resource | None

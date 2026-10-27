@@ -54,50 +54,6 @@ pub enum Event {
 	Status(Status),
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct Options {
-	pub source: tg::sandbox::Source,
-	pub timeout: Option<Duration>,
-}
-
-impl tg::Sandbox {
-	pub async fn wait(
-		&self,
-		options: tg::sandbox::status::Options,
-	) -> tg::Result<tg::sandbox::Status> {
-		let instance = tg::instance()?;
-		self.wait_with_instance(instance, options).await
-	}
-
-	pub async fn wait_with_instance<I>(
-		&self,
-		instance: &I,
-		options: tg::sandbox::status::Options,
-	) -> tg::Result<tg::sandbox::Status>
-	where
-		I: tg::Instance,
-	{
-		use tg::instance::Ext as _;
-
-		let arg = tg::sandbox::status::Arg {
-			location: self.location(),
-			source: options.source,
-			tokens: self.tokens(),
-			timeout: options.timeout,
-		};
-		let stream = instance.get_sandbox_status(self.id(), arg).await?;
-		let stream = std::pin::pin!(stream);
-		let status = stream
-			.try_filter(|status| futures::future::ready(status.is_destroyed()))
-			.try_next()
-			.await?
-			.ok_or_else(|| tg::error!("the sandbox status stream ended before it was destroyed"))?;
-		self.detach();
-
-		Ok(status)
-	}
-}
-
 impl tg::Session {
 	pub async fn try_get_sandbox_status_stream(
 		&self,

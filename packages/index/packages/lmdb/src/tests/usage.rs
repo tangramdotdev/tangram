@@ -264,6 +264,7 @@ fn sandbox_data(
 		data: tg::sandbox::Data {
 			cpu: Some(2.into()),
 			creator: Some(owner.clone()),
+			error: None,
 			hostname: None,
 			id,
 			memory: Some((1 << 30).into()),
