@@ -17,25 +17,22 @@ pub(super) struct Statements {
 }
 
 impl Cache {
-	pub async fn delete_index_queue_fragment(
-		&self,
-		arg: index::queue::delete::Arg,
-	) -> tg::Result<()> {
+	pub async fn delete_index_queue_item(&self, arg: index::queue::delete::Arg) -> tg::Result<()> {
 		let indexer = arg.indexer.to_bytes();
 		let sequence = sequence(arg.sequence)?;
 		self.session
 			.execute_unpaged(&self.statements.index.delete, (indexer.as_ref(), sequence))
 			.await
-			.map_err(|error| tg::error!(!error, "failed to delete an index queue fragment"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete an index queue item"))?;
 
 		Ok(())
 	}
 
-	pub async fn get_index_queue_fragments(
+	pub async fn get_index_queue_items(
 		&self,
 		arg: index::queue::get::batch::Arg,
-	) -> tg::Result<Vec<index::queue::Fragment>> {
-		// Page the rows, because a range of fragments can exceed ScyllaDB's memory limit for unpaged queries.
+	) -> tg::Result<Vec<index::queue::Item>> {
+		// Page the rows, because a range of items can exceed ScyllaDB's memory limit for unpaged queries.
 		let indexer = arg.indexer.to_bytes();
 		let sequence_end = sequence(arg.sequence_end)?;
 		let sequence_start = sequence(arg.sequence_start)?;
@@ -46,12 +43,12 @@ impl Cache {
 				(indexer.as_ref(), sequence_start, sequence_end),
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get index queue fragments"))?;
+			.map_err(|error| tg::error!(!error, "failed to get index queue items"))?;
 		let mut rows = pager
 			.rows_stream::<(i64, Vec<u8>, i64, i64, Vec<u8>)>()
 			.map_err(|error| tg::error!(!error, "failed to get the index queue rows"))?;
 
-		// Read the fragments.
+		// Read the items.
 		let mut output = Vec::new();
 		while let Some((sequence, batch, fragment, fragments, payload)) = rows
 			.try_next()
@@ -62,7 +59,7 @@ impl Cache {
 				.try_into()
 				.map(index::queue::batch::Id::new)
 				.map_err(|_| tg::error!("invalid index queue batch id"))?;
-			let fragment = index::queue::Fragment {
+			let item = index::queue::Item {
 				batch,
 				fragment: value(fragment)?,
 				fragments: value(fragments)?,
@@ -70,49 +67,49 @@ impl Cache {
 				payload: payload.into(),
 				sequence: value(sequence)?,
 			};
-			output.push(fragment);
+			output.push(item);
 		}
 
 		Ok(output)
 	}
 
-	pub async fn put_index_queue_fragment(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
-		let fragment = arg.fragment;
-		let batch = fragment.batch.value();
-		let fragment_index = sequence(fragment.fragment)?;
-		let fragments = sequence(fragment.fragments)?;
-		let indexer = fragment.indexer.to_bytes();
-		let sequence = sequence(fragment.sequence)?;
+	pub async fn put_index_queue_item(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
+		let item = arg.item;
+		let batch = item.batch.value();
+		let fragment_index = sequence(item.fragment)?;
+		let fragments = sequence(item.fragments)?;
+		let indexer = item.indexer.to_bytes();
+		let sequence = sequence(item.sequence)?;
 		let params = (
 			batch.as_slice(),
 			fragment_index,
 			fragments,
 			indexer.as_ref(),
-			fragment.payload,
+			item.payload,
 			sequence,
 		);
 		self.session
 			.execute_unpaged(&self.statements.index.put, params)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to put an index queue fragment"))?;
+			.map_err(|error| tg::error!(!error, "failed to put an index queue item"))?;
 
 		Ok(())
 	}
 
-	pub async fn try_get_index_queue_fragment(
+	pub async fn try_get_index_queue_item(
 		&self,
 		arg: index::queue::get::Arg,
-	) -> tg::Result<Option<index::queue::Fragment>> {
+	) -> tg::Result<Option<index::queue::Item>> {
 		let indexer = arg.indexer.to_bytes();
 		let sequence = sequence(arg.sequence)?;
 		let result = self
 			.session
 			.execute_unpaged(&self.statements.index.get, (indexer.as_ref(), sequence))
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get an index queue fragment"))?
+			.map_err(|error| tg::error!(!error, "failed to get an index queue item"))?
 			.into_rows_result()
 			.map_err(|error| tg::error!(!error, "failed to get the index queue row"))?;
-		let fragment = result
+		let item = result
 			.maybe_first_row::<(Vec<u8>, i64, i64, Vec<u8>)>()
 			.map_err(|error| tg::error!(!error, "failed to deserialize the index queue row"))?
 			.map(|(batch, fragment, fragments, payload)| {
@@ -120,7 +117,7 @@ impl Cache {
 					.try_into()
 					.map(index::queue::batch::Id::new)
 					.map_err(|_| tg::error!("invalid index queue batch id"))?;
-				let fragment = index::queue::Fragment {
+				let item = index::queue::Item {
 					batch,
 					fragment: value(fragment)?,
 					fragments: value(fragments)?,
@@ -129,11 +126,11 @@ impl Cache {
 					sequence: arg.sequence,
 				};
 
-				Ok::<_, tg::Error>(fragment)
+				Ok::<_, tg::Error>(item)
 			})
 			.transpose()?;
 
-		Ok(fragment)
+		Ok(item)
 	}
 }
 
@@ -202,31 +199,31 @@ impl Statements {
 }
 
 impl tangram_cache::index::Cache for Cache {
-	async fn delete_index_queue_fragment(
+	async fn delete_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_index_queue_fragment(arg).await
+		self.delete_index_queue_item(arg).await
 	}
 
-	async fn get_index_queue_fragments(
+	async fn get_index_queue_items(
 		&self,
 		arg: tangram_cache::index::queue::get::batch::Arg,
-	) -> tg::Result<Vec<tangram_cache::index::queue::Fragment>> {
-		self.get_index_queue_fragments(arg).await
+	) -> tg::Result<Vec<tangram_cache::index::queue::Item>> {
+		self.get_index_queue_items(arg).await
 	}
 
-	async fn put_index_queue_fragment(
+	async fn put_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::put::Arg,
 	) -> tg::Result<()> {
-		self.put_index_queue_fragment(arg).await
+		self.put_index_queue_item(arg).await
 	}
 
-	async fn try_get_index_queue_fragment(
+	async fn try_get_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::get::Arg,
-	) -> tg::Result<Option<tangram_cache::index::queue::Fragment>> {
-		self.try_get_index_queue_fragment(arg).await
+	) -> tg::Result<Option<tangram_cache::index::queue::Item>> {
+		self.try_get_index_queue_item(arg).await
 	}
 }

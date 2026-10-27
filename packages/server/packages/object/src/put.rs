@@ -364,11 +364,14 @@ impl Component {
 			return Ok(());
 		}
 
-		let object_put = self.put_object_inner(server, object);
-		let index_put = server.components.indexer.index_batch(server, index);
-		let (object_result, index_result) = future::join(object_put, index_put).await;
+		// Put the object while enqueueing its archive and index batches in one indexer request.
+		let archive = Self::object_archive_batch(server, std::slice::from_ref(&object));
+		let arg = tangram_server_core::indexer::EnqueueArg { archive, index };
+		let object_put = server.cache.put_object(object);
+		let enqueue = server.components.indexer.enqueue(server, arg);
+		let (object_result, enqueue_result) = future::join(object_put, enqueue).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
-		index_result.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+		enqueue_result.map_err(|error| tg::error!(!error, "failed to index the object"))?;
 
 		Ok(())
 	}
@@ -403,11 +406,12 @@ impl Component {
 			return self.put_object_batch_inner(server, vec![arg]).await;
 		}
 
-		let archive =
-			server
-				.components
-				.indexer
-				.enqueue_object_archive(server, arg.id.clone(), arg.put);
+		let archive = Self::object_archive_batch(server, std::slice::from_ref(&arg));
+		let enqueue = tangram_server_core::indexer::EnqueueArg {
+			archive,
+			..Default::default()
+		};
+		let archive = server.components.indexer.enqueue(server, enqueue);
 		let object_put = server.cache.put_object(arg);
 		let (object_result, archive_result) = future::join(object_put, archive).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
@@ -456,11 +460,14 @@ impl Component {
 			return Ok(());
 		}
 
-		let object_put = self.put_object_batch_inner(server, objects);
-		let index_put = server.components.indexer.index_batch(server, index);
-		let (object_result, index_result) = future::join(object_put, index_put).await;
+		// Put the objects while enqueueing their archive and index batches in one indexer request.
+		let archive = Self::object_archive_batch(server, &objects);
+		let arg = tangram_server_core::indexer::EnqueueArg { archive, index };
+		let object_put = server.cache.put_object_batch(objects);
+		let enqueue = server.components.indexer.enqueue(server, arg);
+		let (object_result, enqueue_result) = future::join(object_put, enqueue).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
-		index_result.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
+		enqueue_result.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
 
 		Ok(())
 	}
@@ -503,26 +510,25 @@ impl Component {
 			return Ok(());
 		}
 
-		let entries = args
-			.iter()
-			.map(|arg| (arg.id.clone(), arg.put))
-			.collect::<Vec<_>>();
+		let archive = Self::object_archive_batch(server, &args);
+		let enqueue = tangram_server_core::indexer::EnqueueArg {
+			archive,
+			..Default::default()
+		};
 		let count = args.len();
-		let archive = future::try_join_all(entries.into_iter().map(|(id, put)| {
-			server
-				.components
-				.indexer
-				.enqueue_object_archive(server, id, put)
-		}))
-		.map(|result| {
-			tracing::debug!(
-				count,
-				success = result.is_ok(),
-				"completed the archive enqueue batch"
-			);
-			result
-		})
-		.instrument(tracing::debug_span!("object.archive_enqueue_batch", count));
+		let archive = server
+			.components
+			.indexer
+			.enqueue(server, enqueue)
+			.map(|result| {
+				tracing::debug!(
+					count,
+					success = result.is_ok(),
+					"completed the archive enqueue batch"
+				);
+				result
+			})
+			.instrument(tracing::debug_span!("object.archive_enqueue_batch", count));
 		let object_put = server
 			.cache
 			.put_object_batch(args)
@@ -541,6 +547,23 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to enqueue the objects for archiving"))?;
 
 		Ok(())
+	}
+
+	fn object_archive_batch(
+		server: &Server,
+		args: &[tangram_server_core::cache::object::put::Arg],
+	) -> tangram_server_core::archive::batch::Arg {
+		if server.archive.is_none() {
+			return tangram_server_core::archive::batch::Arg::default();
+		}
+		let items = args
+			.iter()
+			.map(|arg| tangram_server_core::archive::batch::Item {
+				object: arg.id.clone(),
+				put: arg.put,
+			})
+			.collect();
+		tangram_server_core::archive::batch::Arg { items }
 	}
 
 	fn object_archive_args(

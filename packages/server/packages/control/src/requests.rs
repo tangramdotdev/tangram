@@ -12,11 +12,6 @@ impl<K: Copy + Ord> Requests<K> {
 		self.ids.contains_key(id)
 	}
 
-	#[must_use]
-	pub fn len(&self, kind: K) -> usize {
-		self.counts.get(&kind).copied().unwrap_or_default()
-	}
-
 	pub fn try_insert(&mut self, id: String, kind: K, limit: usize) -> bool {
 		self.try_reserve(id, kind, 1, limit)
 	}

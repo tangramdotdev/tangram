@@ -31,8 +31,8 @@ struct Log {
 
 #[derive(Default)]
 struct State {
-	archive_queue: BTreeMap<(tg::indexer::Id, u64), tangram_cache::archive::queue::Entry>,
-	index_queue: BTreeMap<(tg::indexer::Id, u64), tangram_cache::index::queue::Fragment>,
+	archive_queue: BTreeMap<(tg::indexer::Id, u64), tangram_cache::archive::queue::Item>,
+	index_queue: BTreeMap<(tg::indexer::Id, u64), tangram_cache::index::queue::Item>,
 	log_cache: BTreeSet<(u64, i64, tg::process::Id)>,
 	logs: Logs,
 	object_cache: BTreeMap<(u64, [u8; 16]), (tg::object::Id, [u8; 16])>,

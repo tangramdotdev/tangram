@@ -967,6 +967,9 @@ pub struct Indexer {
 	pub permission_capture: Option<BoolOr<IndexerPermissionCapture>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queue: Option<IndexerQueue>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request: Option<IndexerRequest>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -980,12 +983,19 @@ pub struct Indexer {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage_partitions: Option<IndexerPartitions>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub writer: Option<IndexerWriter>,
 }
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerBatch {
+	/// The maximum number of fragment payload bytes in each indexer request.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_size: Option<usize>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
 
@@ -1070,21 +1080,23 @@ pub struct IndexerPartitions {
 	pub start: Option<u64>,
 }
 
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerQueue {
+	/// The maximum number of queue fragment payload bytes to hold in memory.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory: Option<usize>,
+}
+
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerRequest {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub archive_concurrency: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub channel_capacity: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index_concurrency: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1103,6 +1115,16 @@ pub struct IndexerRequest {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub wait_concurrency: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerWriter {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub channel_capacity: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
 }
 
 #[serde_as]
@@ -1296,8 +1318,16 @@ pub struct ObjectCache {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArchiveQueue {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_timeout: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
+
+	/// The maximum number of encoded bytes in each archive queue fragment.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub fragment_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,

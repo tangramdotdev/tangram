@@ -38,12 +38,7 @@ pub trait Component: crate::component::Lifecycle {
 		arg: &'a tangram_index::batch::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(), crate::database::Error>>>;
 
-	fn enqueue_object_archive<'a>(
-		&'a self,
-		server: &'a Server,
-		object: tg::object::Id,
-		put: [u8; 16],
-	) -> BoxFuture<'a, tg::Result<()>>;
+	fn enqueue<'a>(&'a self, server: &'a Server, arg: EnqueueArg) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn spawn_index_task(
 		&self,
@@ -63,4 +58,11 @@ pub struct CleanBatchArg {
 	pub partition_start: u64,
 	pub process_time_to_live: Duration,
 	pub sandbox_time_to_live: Duration,
+}
+
+/// The archive and index batches to enqueue with an indexer.
+#[derive(Clone, Debug, Default)]
+pub struct EnqueueArg {
+	pub archive: crate::archive::batch::Arg,
+	pub index: tangram_index::batch::Arg,
 }

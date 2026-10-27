@@ -2,6 +2,8 @@ use {tangram_archive as archive, tangram_client::prelude::*};
 
 pub use archive::object;
 
+pub mod batch;
+
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]

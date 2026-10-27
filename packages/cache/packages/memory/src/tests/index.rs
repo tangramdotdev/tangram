@@ -4,7 +4,7 @@ use {crate::Cache, bytes::Bytes, tangram_cache::index, tangram_client::prelude::
 fn index() {
 	let cache = Cache::new();
 	let indexer = tg::indexer::Id::new();
-	let fragment = index::queue::Fragment {
+	let item = index::queue::Item {
 		batch: index::queue::batch::Id::new([1; 16]),
 		fragment: 1,
 		fragments: 2,
@@ -12,32 +12,27 @@ fn index() {
 		payload: Bytes::from_static(b"payload"),
 		sequence: 42,
 	};
-	let arg = index::queue::put::Arg {
-		fragment: fragment.clone(),
-	};
-	cache.put_index_queue_fragment(arg);
+	let arg = index::queue::put::Arg { item: item.clone() };
+	cache.put_index_queue_item(arg);
 	let arg = index::queue::get::Arg {
 		indexer: indexer.clone(),
 		sequence: 42,
 	};
-	assert_eq!(
-		cache.try_get_index_queue_fragment(arg),
-		Some(fragment.clone())
-	);
+	assert_eq!(cache.try_get_index_queue_item(arg), Some(item.clone()));
 	let arg = index::queue::get::batch::Arg {
 		indexer: indexer.clone(),
 		sequence_end: 43,
 		sequence_start: 42,
 	};
-	assert_eq!(cache.get_index_queue_fragments(arg), vec![fragment]);
+	assert_eq!(cache.get_index_queue_items(arg), vec![item]);
 	let arg = index::queue::delete::Arg {
 		indexer: indexer.clone(),
 		sequence: 42,
 	};
-	cache.delete_index_queue_fragment(arg);
+	cache.delete_index_queue_item(arg);
 	let arg = index::queue::get::Arg {
 		indexer,
 		sequence: 42,
 	};
-	assert!(cache.try_get_index_queue_fragment(arg).is_none());
+	assert!(cache.try_get_index_queue_item(arg).is_none());
 }

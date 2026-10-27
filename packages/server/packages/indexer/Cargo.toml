@@ -17,6 +17,7 @@ doctest = false
 workspace = true
 
 [dependencies]
+blake3 = { workspace = true }
 bytes = { workspace = true }
 data-encoding = { workspace = true }
 derive_more = { workspace = true }
@@ -37,6 +38,7 @@ tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_index = { workspace = true }
 tangram_messenger = { workspace = true }
+tangram_serialize = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }

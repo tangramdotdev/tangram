@@ -8,14 +8,14 @@ pub(crate) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Respons
 pub(crate) type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 
 pub(crate) enum Request {
-	GetArchiveQueueEntries(archive::queue::get::batch::Arg),
-	GetIndexQueueFragments(index::queue::get::batch::Arg),
+	GetArchiveQueueItems(archive::queue::get::batch::Arg),
+	GetIndexQueueItems(index::queue::get::batch::Arg),
 	GetLogCacheEntries(log::cache::get::Arg),
 	GetObjectCacheEntries(object::cache::get::Arg),
 	#[cfg(test)]
 	GetTransactionId,
-	TryGetArchiveQueueEntry(archive::queue::get::Arg),
-	TryGetIndexQueueFragment(index::queue::get::Arg),
+	TryGetArchiveQueueItem(archive::queue::get::Arg),
+	TryGetIndexQueueItem(index::queue::get::Arg),
 	TryGetLogEnd(tg::process::Id),
 	TryGetLogLength(log::length::Arg),
 	TryGetObject(object::get::Arg),
@@ -25,13 +25,13 @@ pub(crate) enum Request {
 
 pub(crate) enum Response {
 	GetLogCacheEntries(Vec<log::cache::Entry>),
-	GetArchiveQueueEntries(Vec<archive::queue::Entry>),
-	GetIndexQueueFragments(Vec<index::queue::Fragment>),
+	GetArchiveQueueItems(Vec<archive::queue::Item>),
+	GetIndexQueueItems(Vec<index::queue::Item>),
 	GetObjectCacheEntries(Vec<object::cache::Entry>),
 	#[cfg(test)]
 	GetTransactionId(u64),
-	TryGetArchiveQueueEntry(Option<archive::queue::Entry>),
-	TryGetIndexQueueFragment(Option<index::queue::Fragment>),
+	TryGetArchiveQueueItem(Option<archive::queue::Item>),
+	TryGetIndexQueueItem(Option<index::queue::Item>),
 	TryGetLogEnd(Option<tg::process::log::End>),
 	TryGetLogLength(Option<u64>),
 	TryGetObject(object::get::Output),

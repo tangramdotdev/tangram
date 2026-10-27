@@ -13,12 +13,12 @@ use {
 	tangram_server_core::{Server, Session, indexer::CleanBatchArg},
 };
 
-mod archive;
 mod billing;
 mod cache;
 mod capture;
 mod cleaning;
 mod database;
+mod enqueue;
 mod index;
 mod log;
 mod object;
@@ -55,14 +55,12 @@ pub struct Indexer {
 struct ShutdownArgs<'a> {
 	changed: &'a tokio::sync::Notify,
 	checkpoints: &'a queue::CheckpointSender,
-	index_sender: &'a queue::IndexMessageSender,
 	state: &'a Mutex<IndexerState>,
 	tasks: Tasks,
 }
 
 pub struct IndexerState {
 	available: bool,
-	limits: request::limits::Limits,
 	queues: queue::Queues,
 	writes: usize,
 }
@@ -82,12 +80,12 @@ struct Tasks {
 	storage_and_metadata_update: Task<tg::Result<()>>,
 	object_cache: Task<tg::Result<()>>,
 	queue_checkpoints: SharedTask<tg::Result<()>>,
-	queue_completions: SharedTask<tg::Result<()>>,
 	request: SharedTask<tg::Result<()>>,
 	usage_update: Task<tg::Result<()>>,
 	usage_aggregation: Task<tg::Result<()>>,
 	usage_expiration: Task<tg::Result<()>>,
 	wait: SharedTask<tg::Result<()>>,
+	write: SharedTask<tg::Result<()>>,
 }
 
 impl Component {
@@ -204,53 +202,69 @@ impl Component {
 		} else {
 			None
 		};
-		let (completion_sender, completion_receiver) = tokio::sync::mpsc::unbounded_channel();
-		let (archive_sender, archive_receiver) =
-			tokio::sync::mpsc::channel(server.config.object.archive_queue.concurrency);
-		let (index_sender, index_receiver) =
-			tokio::sync::mpsc::channel(server.config.object.index_queue.concurrency);
 		let indexer = Indexer {
 			component: self.clone(),
 			id,
 			server: server.clone(),
 		};
-		let archive_queue_task = SharedTask::spawn({
-			let completion_sender = completion_sender.clone();
-			let indexer = indexer.clone();
-			move |stopper| async move {
-				indexer
-					.archive_queue_task(archive_receiver, completion_sender, stopper)
-					.await
-			}
-		});
-		let index_queue_task = SharedTask::spawn({
-			let indexer = indexer.clone();
-			move |stopper| async move {
-				indexer
-					.index_queue_task(index_receiver, completion_sender, stopper)
-					.await
-			}
-		});
+		let memory_limit = config.queue.memory;
 		let queues = if let Some(state) = &indexer_state {
-			let mut queues = queue::Queues::new(state);
-			queues
-				.recover(&indexer, &archive_sender, &index_sender)
-				.await?;
+			let mut queues = queue::Queues::new(state, memory_limit);
+			queues.recover(&indexer).await?;
 			queues.reserve_initial_sequences(&indexer).await?;
 			queues
 		} else {
-			queue::Queues::empty()
+			queue::Queues::empty(memory_limit)
 		};
+
 		// Create the shared queue state after recovery.
 		let state = IndexerState {
 			available: false,
-			limits: request::limits::Limits::default(),
 			queues,
 			writes: 0,
 		};
 		let state = Arc::new(Mutex::new(state));
 		let changed = Arc::new(tokio::sync::Notify::new());
 		let (checkpoint_sender, checkpoint_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+		// Spawn the archive queue task.
+		let archive_queue_task = SharedTask::spawn({
+			let indexer = indexer.clone();
+			let changed = changed.clone();
+			let state = state.clone();
+			move |stopper| async move {
+				indexer
+					.queue_task(queue::Kind::Archive, &state, &changed, stopper)
+					.await
+			}
+		});
+
+		// Spawn the index queue task.
+		let index_queue_task = SharedTask::spawn({
+			let indexer = indexer.clone();
+			let changed = changed.clone();
+			let state = state.clone();
+			move |stopper| async move {
+				indexer
+					.queue_task(queue::Kind::Index, &state, &changed, stopper)
+					.await
+			}
+		});
+
+		// Spawn the write task.
+		let (write_sender, write_receiver) =
+			tokio::sync::mpsc::channel(config.writer.channel_capacity);
+		let write_task = SharedTask::spawn({
+			let indexer = indexer.clone();
+			let changed = changed.clone();
+			let state = state.clone();
+			move |stopper| async move {
+				tokio::select! {
+					result = indexer.write_task(&state, &changed, write_receiver) => result,
+					() = stopper.wait() => Ok(()),
+				}
+			}
+		});
 
 		// Spawn the archive sequence reservations task.
 		let archive_sequence_reservations_task = SharedTask::spawn({
@@ -271,7 +285,6 @@ impl Component {
 
 		// Spawn the batch expiration task.
 		let batch_expiration_task = SharedTask::spawn({
-			let index_sender = index_sender.clone();
 			let indexer = indexer.clone();
 			let changed = changed.clone();
 			let state = state.clone();
@@ -281,7 +294,7 @@ impl Component {
 					return Ok(());
 				}
 				tokio::select! {
-					result = indexer.batch_expiration_task(&index_sender, &state, &changed) => result,
+					result = indexer.batch_expiration_task(&state, &changed) => result,
 					() = stopper.wait() => Ok(()),
 				}
 			}
@@ -315,23 +328,6 @@ impl Component {
 				}
 				tokio::select! {
 					result = indexer.queue_checkpoints_task(&state, checkpoint_receiver) => result,
-					() = stopper.wait() => Ok(()),
-				}
-			}
-		});
-
-		// Spawn the queue completions task.
-		let queue_completions_task = SharedTask::spawn({
-			let indexer = indexer.clone();
-			let changed = changed.clone();
-			let state = state.clone();
-			move |stopper| async move {
-				if indexer.id.is_none() {
-					stopper.wait().await;
-					return Ok(());
-				}
-				tokio::select! {
-					result = Indexer::queue_completions_task(&state, &changed, completion_receiver) => result,
 					() = stopper.wait() => Ok(()),
 				}
 			}
@@ -532,19 +528,18 @@ impl Component {
 		let (ready_sender, ready_receiver) = tokio::sync::oneshot::channel();
 		let request_task = tangram_futures::task::Shared::spawn({
 			let wait_sender = wait_sender.clone();
-			let index_sender = index_sender.clone();
+			let write_sender = write_sender.clone();
 			let indexer = indexer.clone();
 			let changed = changed.clone();
 			let state = state.clone();
 			move |stopper| async move {
 				let args = request::RequestTaskArgs {
-					archive_sender,
 					changed,
-					index_sender,
 					ready: ready_sender,
 					state,
 					stopper,
 					wait_sender,
+					write_sender,
 				};
 				indexer.request_task(args).await
 			}
@@ -578,12 +573,12 @@ impl Component {
 			storage_and_metadata_update: storage_and_metadata_update_task,
 			object_cache: object_cache_task,
 			queue_checkpoints: queue_checkpoints_task,
-			queue_completions: queue_completions_task,
 			request: request_task,
 			usage_update: usage_update_task,
 			usage_aggregation: usage_aggregation_task,
 			usage_expiration: usage_expiration_task,
 			wait: wait_task,
+			write: write_task,
 		};
 
 		// Monitor the request and queue tasks at the indexer level.
@@ -593,6 +588,7 @@ impl Component {
 			("index queue", tasks.index_queue.clone()),
 			("request", tasks.request.clone()),
 			("wait", tasks.wait.clone()),
+			("write", tasks.write.clone()),
 			(
 				"archive sequence reservations",
 				tasks.archive_sequence_reservations.clone(),
@@ -603,7 +599,6 @@ impl Component {
 				tasks.index_sequence_reservations.clone(),
 			),
 			("queue checkpoints", tasks.queue_checkpoints.clone()),
-			("queue completions", tasks.queue_completions.clone()),
 		]
 		.into_iter()
 		.map(|(name, task)| async move { (name, task.wait().await) }.boxed())
@@ -626,7 +621,6 @@ impl Component {
 		let args = ShutdownArgs {
 			changed: &changed,
 			checkpoints: &checkpoint_sender,
-			index_sender: &index_sender,
 			state: &state,
 			tasks,
 		};
@@ -684,7 +678,6 @@ impl Indexer {
 		let ShutdownArgs {
 			changed,
 			checkpoints,
-			index_sender,
 			state,
 			tasks,
 		} = args;
@@ -703,12 +696,12 @@ impl Indexer {
 			storage_and_metadata_update,
 			object_cache,
 			queue_checkpoints,
-			queue_completions,
 			request,
 			usage_update,
 			usage_aggregation,
 			usage_expiration,
 			wait,
+			write,
 		} = tasks;
 
 		// Cancel capture before stopping the index requests it may be awaiting.
@@ -763,7 +756,7 @@ impl Indexer {
 		self.component.index_tasks.wait().await;
 		self.server.components.object.wait_archive_tasks().await;
 		if self.id.is_some() {
-			Self::drain_queues(state, changed, index_sender).await?;
+			Self::drain_queues(state, changed).await?;
 		}
 
 		// Deletion certifies that the private queues are drained; shared work remains durable.
@@ -780,7 +773,7 @@ impl Indexer {
 		wait.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the indexer wait task panicked"))??;
-		// Stop queue support tasks before closing the queue task channels.
+		// Stop the queue support tasks before the queue tasks.
 		for (name, task) in [
 			(
 				"archive sequence reservations",
@@ -789,7 +782,7 @@ impl Indexer {
 			("batch expiration", batch_expiration),
 			("index sequence reservations", index_sequence_reservations),
 			("queue checkpoints", queue_checkpoints),
-			("queue completions", queue_completions),
+			("write", write),
 		] {
 			task.stop();
 			task.wait()
@@ -987,13 +980,12 @@ impl tangram_server_core::indexer::Component for Component {
 		Self::enqueue_database_index_queue_with_transaction(server, transaction, arg).boxed()
 	}
 
-	fn enqueue_object_archive<'a>(
+	fn enqueue<'a>(
 		&'a self,
 		server: &'a tangram_server_core::Server,
-		object: tg::object::Id,
-		put: [u8; 16],
+		arg: tangram_server_core::indexer::EnqueueArg,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.enqueue_object_archive(server, object, put).boxed()
+		self.enqueue(server, arg).boxed()
 	}
 
 	fn spawn_index_task(

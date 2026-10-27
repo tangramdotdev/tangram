@@ -4,6 +4,7 @@ use {
 	std::{ops::ControlFlow, sync::Mutex},
 	tangram_client::prelude::*,
 };
+
 impl Indexer {
 	pub(crate) async fn sequence_reservations_task(
 		&self,
@@ -31,24 +32,8 @@ impl Indexer {
 		}
 	}
 
-	pub(crate) async fn queue_completions_task(
-		state: &Mutex<IndexerState>,
-		changed: &tokio::sync::Notify,
-		mut receiver: queue::CompletionReceiver,
-	) -> tg::Result<()> {
-		loop {
-			let completion = receiver
-				.recv()
-				.await
-				.ok_or_else(|| tg::error!("an indexer queue task stopped"))?;
-			state.lock().unwrap().queues.complete(completion);
-			changed.notify_waiters();
-		}
-	}
-
 	pub(crate) async fn batch_expiration_task(
 		&self,
-		index_sender: &queue::IndexMessageSender,
 		state: &Mutex<IndexerState>,
 		changed: &tokio::sync::Notify,
 	) -> tg::Result<()> {
@@ -63,20 +48,12 @@ impl Indexer {
 				}
 			};
 			tokio::select! { () = notified => continue, () = sleep => {} }
-			let output = state
-				.lock()
-				.unwrap()
-				.queues
-				.expire_index_batches(self.server.config.object.index_queue.batch_timeout);
-			for message in output.messages {
-				index_sender
-					.send(message)
-					.await
-					.map_err(|_| tg::error!("the index queue task stopped"))?;
+			let mut state = state.lock().unwrap();
+			for kind in [queue::Kind::Archive, queue::Kind::Index] {
+				state.queues.expire_batches(kind, self.batch_timeout(kind));
 			}
-			for (sender, result) in output.responses {
-				sender.send(result).ok();
-			}
+			drop(state);
+			changed.notify_waiters();
 		}
 	}
 
@@ -117,7 +94,6 @@ impl Indexer {
 	pub(crate) async fn drain_queues(
 		state: &Mutex<IndexerState>,
 		changed: &tokio::sync::Notify,
-		index_sender: &queue::IndexMessageSender,
 	) -> tg::Result<()> {
 		state.lock().unwrap().available = false;
 		loop {
@@ -131,29 +107,19 @@ impl Indexer {
 			}
 			notified.await;
 		}
-		let (target_sequences, output) = {
+		let target_sequences = {
 			let mut state = state.lock().unwrap();
-			(
-				state.queues.target_sequences(),
-				state.queues.abandon_incomplete_batches(),
-			)
+			state.queues.abandon_incomplete_batches();
+			state.queues.target_sequences()
 		};
-		for message in output.messages {
-			index_sender
-				.send(message)
-				.await
-				.map_err(|_| tg::error!("the index queue task stopped"))?;
-		}
-		for (sender, result) in output.responses {
-			sender.send(result).ok();
-		}
+		changed.notify_waiters();
 		loop {
 			let notified = changed.notified();
-			let finished = {
-				let state = state.lock().unwrap();
-				state.queues.drained(target_sequences.0, target_sequences.1)
-					&& !state.limits.has_queue_requests()
-			};
+			let finished = state
+				.lock()
+				.unwrap()
+				.queues
+				.drained(target_sequences.0, target_sequences.1);
 			if finished {
 				break;
 			}

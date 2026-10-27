@@ -7,46 +7,43 @@ use {
 };
 
 impl Cache {
-	pub async fn delete_index_queue_fragment(
-		&self,
-		arg: index::queue::delete::Arg,
-	) -> tg::Result<()> {
-		let request = crate::request::Request::DeleteIndexQueueFragment(arg);
+	pub async fn delete_index_queue_item(&self, arg: index::queue::delete::Arg) -> tg::Result<()> {
+		let request = crate::request::Request::DeleteIndexQueueItem(arg);
 		self.send_write_request(request).await?;
 		Ok(())
 	}
 
-	pub async fn get_index_queue_fragments(
+	pub async fn get_index_queue_items(
 		&self,
 		arg: index::queue::get::batch::Arg,
-	) -> tg::Result<Vec<index::queue::Fragment>> {
-		let request = crate::read::Request::GetIndexQueueFragments(arg);
+	) -> tg::Result<Vec<index::queue::Item>> {
+		let request = crate::read::Request::GetIndexQueueItems(arg);
 		let response = self.send_read_request(request).await?;
-		let crate::read::Response::GetIndexQueueFragments(output) = response else {
+		let crate::read::Response::GetIndexQueueItems(output) = response else {
 			return Err(tg::error!("received an unexpected read response"));
 		};
 		Ok(output)
 	}
 
-	pub async fn put_index_queue_fragment(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
-		let request = crate::request::Request::PutIndexQueueFragment(arg);
+	pub async fn put_index_queue_item(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
+		let request = crate::request::Request::PutIndexQueueItem(arg);
 		self.send_write_request(request).await?;
 		Ok(())
 	}
 
-	pub async fn try_get_index_queue_fragment(
+	pub async fn try_get_index_queue_item(
 		&self,
 		arg: index::queue::get::Arg,
-	) -> tg::Result<Option<index::queue::Fragment>> {
-		let request = crate::read::Request::TryGetIndexQueueFragment(arg);
+	) -> tg::Result<Option<index::queue::Item>> {
+		let request = crate::read::Request::TryGetIndexQueueItem(arg);
 		let response = self.send_read_request(request).await?;
-		let crate::read::Response::TryGetIndexQueueFragment(output) = response else {
+		let crate::read::Response::TryGetIndexQueueItem(output) = response else {
 			return Err(tg::error!("received an unexpected read response"));
 		};
 		Ok(output)
 	}
 
-	pub(super) fn delete_index_queue_fragment_with_transaction(
+	pub(super) fn delete_index_queue_item_with_transaction(
 		transaction: &mut crate::transaction::Transaction<'_>,
 		arg: &index::queue::delete::Arg,
 	) -> tg::Result<()> {
@@ -57,15 +54,15 @@ impl Cache {
 		.pack_to_vec();
 		transaction
 			.delete(&key)
-			.map_err(|error| tg::error!(!error, "failed to delete an index queue fragment"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete an index queue item"))?;
 
 		Ok(())
 	}
 
-	pub(super) fn get_index_queue_fragments_with_transaction(
+	pub(super) fn get_index_queue_items_with_transaction(
 		transaction: &crate::transaction::Transaction<'_>,
 		arg: &index::queue::get::batch::Arg,
-	) -> tg::Result<Vec<index::queue::Fragment>> {
+	) -> tg::Result<Vec<index::queue::Item>> {
 		let sequence_start = Key::IndexQueue {
 			indexer: &arg.indexer,
 			sequence: arg.sequence_start,
@@ -84,43 +81,43 @@ impl Cache {
 		entries
 			.map(|entry| {
 				let (key, value) = entry
-					.map_err(|error| tg::error!(!error, "failed to get an index queue fragment"))?;
+					.map_err(|error| tg::error!(!error, "failed to get an index queue item"))?;
 				let (_, _, sequence): (i32, Vec<u8>, u64) = fdbt::unpack(&key)
 					.map_err(|error| tg::error!(!error, "failed to unpack an index queue key"))?;
 
-				decode_index_fragment(arg.indexer.clone(), sequence, &value)
+				decode_index_queue_item(arg.indexer.clone(), sequence, &value)
 			})
 			.collect()
 	}
 
-	pub(super) fn put_index_queue_fragment_with_transaction(
+	pub(super) fn put_index_queue_item_with_transaction(
 		transaction: &mut crate::transaction::Transaction<'_>,
 		arg: index::queue::put::Arg,
 	) -> tg::Result<()> {
-		let fragment = arg.fragment;
+		let item = arg.item;
 		let key = Key::IndexQueue {
-			indexer: &fragment.indexer,
-			sequence: fragment.sequence,
+			indexer: &item.indexer,
+			sequence: item.sequence,
 		}
 		.pack_to_vec();
-		let batch = fragment.batch.value();
+		let batch = item.batch.value();
 		let value = fdbt::pack(&(
 			batch.as_slice(),
-			fragment.fragment,
-			fragment.fragments,
-			fragment.payload.as_ref(),
+			item.fragment,
+			item.fragments,
+			item.payload.as_ref(),
 		));
 		transaction
 			.put(&key, &value)
-			.map_err(|error| tg::error!(!error, "failed to put an index queue fragment"))?;
+			.map_err(|error| tg::error!(!error, "failed to put an index queue item"))?;
 
 		Ok(())
 	}
 
-	pub(super) fn try_get_index_queue_fragment_with_transaction(
+	pub(super) fn try_get_index_queue_item_with_transaction(
 		transaction: &crate::transaction::Transaction<'_>,
 		arg: &index::queue::get::Arg,
-	) -> tg::Result<Option<index::queue::Fragment>> {
+	) -> tg::Result<Option<index::queue::Item>> {
 		let key = Key::IndexQueue {
 			indexer: &arg.indexer,
 			sequence: arg.sequence,
@@ -128,61 +125,61 @@ impl Cache {
 		.pack_to_vec();
 		let Some(value) = transaction
 			.get(&key)
-			.map_err(|error| tg::error!(!error, "failed to get an index queue fragment"))?
+			.map_err(|error| tg::error!(!error, "failed to get an index queue item"))?
 		else {
 			return Ok(None);
 		};
-		let fragment = decode_index_fragment(arg.indexer.clone(), arg.sequence, &value)?;
+		let item = decode_index_queue_item(arg.indexer.clone(), arg.sequence, &value)?;
 
-		Ok(Some(fragment))
+		Ok(Some(item))
 	}
 }
 
 impl tangram_cache::index::Cache for Cache {
-	async fn delete_index_queue_fragment(
+	async fn delete_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_index_queue_fragment(arg).await?;
+		self.delete_index_queue_item(arg).await?;
 		Ok(())
 	}
 
-	async fn get_index_queue_fragments(
+	async fn get_index_queue_items(
 		&self,
 		arg: tangram_cache::index::queue::get::batch::Arg,
-	) -> tg::Result<Vec<tangram_cache::index::queue::Fragment>> {
-		self.get_index_queue_fragments(arg).await
+	) -> tg::Result<Vec<tangram_cache::index::queue::Item>> {
+		self.get_index_queue_items(arg).await
 	}
 
-	async fn put_index_queue_fragment(
+	async fn put_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::put::Arg,
 	) -> tg::Result<()> {
-		self.put_index_queue_fragment(arg).await?;
+		self.put_index_queue_item(arg).await?;
 		Ok(())
 	}
 
-	async fn try_get_index_queue_fragment(
+	async fn try_get_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::get::Arg,
-	) -> tg::Result<Option<tangram_cache::index::queue::Fragment>> {
-		self.try_get_index_queue_fragment(arg).await
+	) -> tg::Result<Option<tangram_cache::index::queue::Item>> {
+		self.try_get_index_queue_item(arg).await
 	}
 }
 
-fn decode_index_fragment(
+fn decode_index_queue_item(
 	indexer: tg::indexer::Id,
 	sequence: u64,
 	value: &[u8],
-) -> tg::Result<index::queue::Fragment> {
+) -> tg::Result<index::queue::Item> {
 	let (batch, fragment, fragments, payload): (Vec<u8>, u64, u64, Vec<u8>) =
 		fdbt::unpack(value)
-			.map_err(|error| tg::error!(!error, "failed to unpack an index queue fragment"))?;
+			.map_err(|error| tg::error!(!error, "failed to unpack an index queue item"))?;
 	let batch = batch
 		.try_into()
 		.map(index::queue::batch::Id::new)
 		.map_err(|_| tg::error!("the index queue batch id is invalid"))?;
-	let fragment = index::queue::Fragment {
+	let item = index::queue::Item {
 		batch,
 		fragment,
 		fragments,
@@ -191,5 +188,5 @@ fn decode_index_fragment(
 		sequence,
 	};
 
-	Ok(fragment)
+	Ok(item)
 }

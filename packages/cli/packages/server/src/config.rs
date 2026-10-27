@@ -10,21 +10,21 @@ use {
 			FilesystemProjectIds, FjallCache, Github, Http, HttpListener, HttpTls, IdMap, Index,
 			IndexQueue, Indexer, IndexerBatch, IndexerBillingCleanup, IndexerCache,
 			IndexerCleaning, IndexerLogCache, IndexerPartitions, IndexerPermissionCapture,
-			IndexerRequest, IndexerUpdate, IndexerUpdates, IndexerUsage, IndexerUsageAggregation,
-			IndexerUsageExpiration, Insecure, JavaScript, JavaScriptEngine, LmdbCache, LmdbIndex,
-			MemoryMessenger, Messenger, NatsMessenger, Object, ObjectCache, Pagination,
-			PermissionSearch, PermissionSearches, PermissionSubtree, Pool, PostgresDatabase,
-			PostgresDatabaseConnection, Process, Progress, Read, Reconnect, Region, Remote,
-			RemoteCache, Retry, RocksdbCache, Role, RootAuthentication, Runner, RunnerBackend,
-			RunnerResources, S3Archive, Sandbox, SandboxNetwork, SandboxNetworkFirewall, Scheduler,
-			ScyllaCache, ScyllaCacheCapacity, ScyllaCachePercentileSpeculativeExecution,
-			ScyllaCacheSimpleSpeculativeExecution, ScyllaCacheSpeculativeExecution, ServerClient,
-			Service, Spawn, SqliteDatabase, SyncGet, SyncGetCheckout, SyncGetDatabase,
-			SyncGetIndex, SyncGetQueue, SyncGetStore, SyncGetStoreObject, SyncOptions, SyncPut,
-			SyncPutIndex, SyncPutQueue, SyncPutResolve, SyncPutStore, TokenKeys, TokenPrivateKey,
-			TokenPublicKey, TursoDatabase, Usage, UserAuthentication, Verification,
-			VerificationIndex, VerificationPermissions, Vfs, VfsFuse, VfsIo, VfsKind, VfsNfs,
-			VfsPassthrough, Watch, Write,
+			IndexerQueue, IndexerRequest, IndexerUpdate, IndexerUpdates, IndexerUsage,
+			IndexerUsageAggregation, IndexerUsageExpiration, IndexerWriter, Insecure, JavaScript,
+			JavaScriptEngine, LmdbCache, LmdbIndex, MemoryMessenger, Messenger, NatsMessenger,
+			Object, ObjectCache, Pagination, PermissionSearch, PermissionSearches,
+			PermissionSubtree, Pool, PostgresDatabase, PostgresDatabaseConnection, Process,
+			Progress, Read, Reconnect, Region, Remote, RemoteCache, Retry, RocksdbCache, Role,
+			RootAuthentication, Runner, RunnerBackend, RunnerResources, S3Archive, Sandbox,
+			SandboxNetwork, SandboxNetworkFirewall, Scheduler, ScyllaCache, ScyllaCacheCapacity,
+			ScyllaCachePercentileSpeculativeExecution, ScyllaCacheSimpleSpeculativeExecution,
+			ScyllaCacheSpeculativeExecution, ServerClient, Service, Spawn, SqliteDatabase, SyncGet,
+			SyncGetCheckout, SyncGetDatabase, SyncGetIndex, SyncGetQueue, SyncGetStore,
+			SyncGetStoreObject, SyncOptions, SyncPut, SyncPutIndex, SyncPutQueue, SyncPutResolve,
+			SyncPutStore, TokenKeys, TokenPrivateKey, TokenPublicKey, TursoDatabase, Usage,
+			UserAuthentication, Verification, VerificationIndex, VerificationPermissions, Vfs,
+			VfsFuse, VfsIo, VfsKind, VfsNfs, VfsPassthrough, Watch, Write,
 		},
 	},
 	tangram_client::prelude::*,
@@ -957,6 +957,9 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.object_cache_partitions {
 		target.object_cache_partitions = resolve_indexer_partitions(source);
 	}
+	if let Some(source) = source.queue {
+		target.queue = resolve_indexer_queue(source);
+	}
 	if let Some(source) = source.request {
 		target.request = resolve_indexer_request(source);
 	}
@@ -972,12 +975,18 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.usage_partitions {
 		target.usage_partitions = resolve_indexer_partitions(source);
 	}
+	if let Some(source) = source.writer {
+		target.writer = resolve_indexer_writer(source);
+	}
 
 	target
 }
 
 fn resolve_indexer_batch(source: IndexerBatch) -> server::IndexerBatch {
 	let mut target = server::IndexerBatch::default();
+	if let Some(value) = source.request_size {
+		target.request_size = value;
+	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
 	}
@@ -1078,16 +1087,18 @@ fn resolve_indexer_partitions(source: IndexerPartitions) -> server::IndexerParti
 	target
 }
 
+fn resolve_indexer_queue(source: IndexerQueue) -> server::IndexerQueue {
+	let mut target = server::IndexerQueue::default();
+	if let Some(value) = source.memory {
+		target.memory = value;
+	}
+	target
+}
+
 fn resolve_indexer_request(source: IndexerRequest) -> server::IndexerRequest {
 	let mut target = server::IndexerRequest::default();
-	if let Some(value) = source.archive_concurrency {
-		target.archive_concurrency = value;
-	}
 	if let Some(value) = source.channel_capacity {
 		target.channel_capacity = value;
-	}
-	if let Some(value) = source.index_concurrency {
-		target.index_concurrency = value;
 	}
 	if let Some(value) = source.wait_concurrency {
 		target.wait_concurrency = value;
@@ -1106,6 +1117,17 @@ fn resolve_indexer_request(source: IndexerRequest) -> server::IndexerRequest {
 	}
 	if let Some(value) = source.timeout {
 		target.timeout = value;
+	}
+	target
+}
+
+fn resolve_indexer_writer(source: IndexerWriter) -> server::IndexerWriter {
+	let mut target = server::IndexerWriter::default();
+	if let Some(value) = source.channel_capacity {
+		target.channel_capacity = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
 	}
 	target
 }
@@ -1352,8 +1374,14 @@ fn resolve_object_cache(source: ObjectCache) -> server::ObjectCache {
 
 fn resolve_archive_queue(source: ArchiveQueue) -> server::ArchiveQueue {
 	let mut target = server::ArchiveQueue::default();
+	if let Some(value) = source.batch_timeout {
+		target.batch_timeout = value;
+	}
 	if let Some(value) = source.concurrency {
 		target.concurrency = value;
+	}
+	if let Some(value) = source.fragment_size {
+		target.fragment_size = value;
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
@@ -3063,20 +3091,20 @@ mod tests {
 	#[test]
 	fn resolves_request_concurrency() {
 		let source: Config = serde_json::from_value(serde_json::json!({
-			"indexer": { "request": {
-				"archive_concurrency": 2,
-				"concurrency": 3,
-				"index_concurrency": 4,
-				"wait_concurrency": 5,
-			}},
+			"indexer": {
+				"request": {
+					"concurrency": 3,
+					"wait_concurrency": 5,
+				},
+				"writer": { "concurrency": 4 },
+			},
 			"scheduler": { "request_concurrency": 6 },
 		}))
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
-		assert_eq!(target.indexer.request.archive_concurrency, 2);
 		assert_eq!(target.indexer.request.concurrency, 3);
-		assert_eq!(target.indexer.request.index_concurrency, 4);
 		assert_eq!(target.indexer.request.wait_concurrency, 5);
+		assert_eq!(target.indexer.writer.concurrency, 4);
 		assert_eq!(target.scheduler.request_concurrency, 6);
 	}
 

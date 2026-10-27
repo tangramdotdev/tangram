@@ -162,6 +162,10 @@ impl Config {
 				self.indexer.request.channel_capacity,
 			),
 			(
+				"indexer writer channel capacity",
+				self.indexer.writer.channel_capacity,
+			),
+			(
 				"process connect high priority channel capacity",
 				self.process.connect.high_priority_channel_capacity,
 			),
@@ -622,13 +626,19 @@ impl Config {
 				));
 			}
 
-			if indexer.request.archive_concurrency == 0
-				|| indexer.request.concurrency == 0
-				|| indexer.request.index_concurrency == 0
-				|| indexer.request.wait_concurrency == 0
-			{
+			if indexer.request.concurrency == 0 || indexer.request.wait_concurrency == 0 {
 				return Err(tg::error!(
 					"the indexer request concurrency must be greater than zero"
+				));
+			}
+			if indexer.writer.concurrency == 0 {
+				return Err(tg::error!(
+					"the indexer writer concurrency must be greater than zero"
+				));
+			}
+			if indexer.batch.request_size == 0 {
+				return Err(tg::error!(
+					"the indexer batch request size must be greater than zero"
 				));
 			}
 		}
@@ -746,6 +756,11 @@ impl Config {
 		if queue.concurrency == 0 {
 			return Err(tg::error!(
 				"the archive queue concurrency must be greater than zero"
+			));
+		}
+		if queue.fragment_size == 0 {
+			return Err(tg::error!(
+				"the archive queue fragment size must be greater than zero"
 			));
 		}
 		if queue.sequence_reservation_size == 0 {
