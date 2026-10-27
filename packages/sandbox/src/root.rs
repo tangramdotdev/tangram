@@ -332,27 +332,10 @@ fn temporary_path(path: &Path) -> tg::Result<PathBuf> {
 }
 
 fn restore_rootfs_symlinks(rootfs_path: &Path) -> tg::Result<()> {
-	let lib64_path = rootfs_path.join("lib64");
-	std::fs::remove_file(&lib64_path).ok();
-	std::fs::remove_dir_all(&lib64_path).ok();
-	std::os::unix::fs::symlink("/opt/tangram/lib", &lib64_path)
-		.map_err(|error| tg::error!(!error, "failed to restore the lib64 symlink"))?;
-
 	let tg_path = rootfs_path.join("opt/tangram/bin/tg");
 	std::fs::remove_file(&tg_path).ok();
 	std::os::unix::fs::symlink("tangram", &tg_path)
 		.map_err(|error| tg::error!(!error, "failed to restore the tg symlink"))?;
-
-	let usr_path = rootfs_path.join("usr");
-	std::fs::create_dir_all(&usr_path).map_err(
-		|error| tg::error!(!error, path = %usr_path.display(), "failed to create the usr directory"),
-	)?;
-	let usr_lib_path = usr_path.join("lib");
-	std::fs::remove_file(&usr_lib_path).ok();
-	std::fs::remove_dir_all(&usr_lib_path).ok();
-	std::os::unix::fs::symlink("/opt/tangram/lib", &usr_lib_path)
-		.map_err(|error| tg::error!(!error, "failed to restore the usr lib symlink"))?;
-
 	Ok(())
 }
 
