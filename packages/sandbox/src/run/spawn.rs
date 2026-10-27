@@ -207,10 +207,18 @@ pub(crate) async fn spawn(
 		);
 	}
 
-	// Bind the resolver configuration and user mounts.
+	// Bind the resolver configuration, the host CPU topology for backends without their own sysfs, and user mounts.
 	let resolv_conf_path = Sandbox::host_resolv_conf_path_from_root(&arg.path);
 	if resolv_conf_path.exists() {
 		add_mount(resolv_conf_path, "/etc/resolv.conf".into(), true);
+	}
+	let cpu_path = Path::new("/sys/devices/system/cpu");
+	if matches!(
+		arg.backend,
+		crate::Backend::Builtin | crate::Backend::Bubblewrap { .. }
+	) && cpu_path.exists()
+	{
+		add_mount(cpu_path.into(), cpu_path.into(), true);
 	}
 	for mount in &arg.mounts {
 		add_mount(mount.source.clone(), mount.target.clone(), mount.readonly);
