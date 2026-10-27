@@ -36,6 +36,8 @@ pub type RunnerSender = tangram_server_core::control::Sender<
 pub struct Component(Arc<State>);
 
 pub struct State {
+	pub control: tokio::sync::watch::Sender<Option<RunnerSender>>,
+
 	#[cfg(target_os = "linux")]
 	pub ip_pool: tangram_sandbox::network::ip::Pool,
 
@@ -77,8 +79,13 @@ impl Component {
 		// Create the task handle.
 		let task = Mutex::new(None);
 
+		// Create the runner control sender.
+		let (control, _) = tokio::sync::watch::channel(None);
+
 		// Create the state.
 		let state = State {
+			control,
+
 			#[cfg(target_os = "linux")]
 			ip_pool,
 
@@ -650,39 +657,94 @@ impl Component {
 		sender: RunnerSender,
 	) -> tg::Result<()> {
 		for sandbox in sandboxes {
-			let arg = tg::runner::control::DestroySandboxClientRequestArg { sandbox };
-			let request = tg::runner::control::ClientRequest {
-				arg: tg::runner::control::ClientRequestArg::DestroySandbox(arg),
-				id: tangram_server_core::control::id(),
+			let arg = tg::runner::control::DestroySandboxClientRequestArg {
+				error: None,
+				sandbox,
 			};
-			let response = sender
-				.request(
-					tg::runner::control::ClientMessage::Request(request),
-					tangram_server_core::control::Priority::High,
-				)
-				.await?
-				.await
-				.map_err(|_| tg::error!("the runner control response stream ended"))?;
-			let tg::runner::control::ServerMessage::Response(response) = response else {
-				return Err(tg::error!("expected a runner control response"));
-			};
-			if let Some(error) = response.error {
-				let error = tg::Error::try_from(error).map_err(|error| {
-					tg::error!(!error, "failed to deserialize the runner control error")
-				})?;
-				return Err(tg::error!(
-					!error,
-					"failed to destroy the previous runner sandbox"
-				));
+			match Self::request_runner_sandbox_destroy(&sender, arg).await? {
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => {
+					return Err(tg::error!(
+						!error,
+						"failed to destroy the previous runner sandbox"
+					));
+				},
 			}
-			let Some(tg::runner::control::ServerResponseOutput::DestroySandbox(_)) =
-				response.output
-			else {
-				return Err(tg::error!("expected a destroy sandbox response"));
-			};
 		}
 
 		Ok(())
+	}
+
+	/// Ask the scheduler to destroy a sandbox, waiting for a runner control stream and retrying after the stream is lost.
+	pub(crate) async fn destroy_sandbox_with_runner_control(
+		&self,
+		arg: tg::runner::control::DestroySandboxClientRequestArg,
+		stopper: &Stopper,
+	) -> tg::Result<()> {
+		let mut control = self.control.subscribe();
+		loop {
+			let sender = tokio::select! {
+				result = control.wait_for(Option::is_some) => result
+					.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?
+					.clone()
+					.unwrap(),
+				() = stopper.wait() => {
+					return Err(tg::error!("the runner stopped before the sandbox was destroyed"));
+				},
+			};
+			match Self::request_runner_sandbox_destroy(&sender, arg.clone()).await? {
+				ControlFlow::Break(()) => return Ok(()),
+				ControlFlow::Continue(error) => {
+					tracing::warn!(error = %error.trace(), sandbox = %arg.sandbox, "failed to send the destroy sandbox request");
+					control.mark_unchanged();
+					tokio::select! {
+						result = control.changed() => result.map_err(|error| tg::error!(!error, "the runner control sender was dropped"))?,
+						() = stopper.wait() => {
+							return Err(tg::error!("the runner stopped before the sandbox was destroyed"));
+						},
+					}
+				},
+			}
+		}
+	}
+
+	async fn request_runner_sandbox_destroy(
+		sender: &RunnerSender,
+		arg: tg::runner::control::DestroySandboxClientRequestArg,
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
+		let request = tg::runner::control::ClientRequest {
+			arg: tg::runner::control::ClientRequestArg::DestroySandbox(arg),
+			id: tangram_server_core::control::id(),
+		};
+		let response = sender
+			.request(
+				tg::runner::control::ClientMessage::Request(request),
+				tangram_server_core::control::Priority::High,
+			)
+			.await;
+		let response = match response {
+			Ok(response) => response.await,
+			Err(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let Ok(response) = response else {
+			let error = tg::error!("the runner control response stream ended");
+			return Ok(ControlFlow::Continue(error));
+		};
+		let tg::runner::control::ServerMessage::Response(response) = response else {
+			return Err(tg::error!("expected a runner control response"));
+		};
+		if let Some(error) = response.error {
+			let error = tg::Error::try_from(error).map_err(|error| {
+				tg::error!(!error, "failed to deserialize the runner control error")
+			})?;
+			return Err(tg::error!(!error, "the destroy sandbox request failed"));
+		}
+		let Some(tg::runner::control::ServerResponseOutput::DestroySandbox(_)) = response.output
+		else {
+			return Err(tg::error!("expected a destroy sandbox response"));
+		};
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn run_get_runner_control_stream(
@@ -753,6 +815,12 @@ impl Component {
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let sender = control.sender();
+
+		// Publish the sender while the stream handles requests, so that sandbox tasks can report destruction through it.
+		self.control.send_replace(Some(sender.clone()));
+		let _control = scopeguard::guard(&self.control, |control| {
+			control.send_replace(None);
+		});
 
 		let mut interval = tokio::time::interval(session.server.config.runner.heartbeat_interval);
 

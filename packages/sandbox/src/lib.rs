@@ -30,6 +30,7 @@ mod pty;
 #[cfg(target_os = "linux")]
 mod seccomp;
 mod server;
+mod stderr;
 #[cfg(target_os = "linux")]
 mod usage;
 mod util;
@@ -107,6 +108,8 @@ pub struct State {
 	pid: u32,
 
 	started: std::sync::atomic::AtomicBool,
+
+	stderr: self::stderr::Stderr,
 }
 
 #[derive(Clone, Debug)]
@@ -494,6 +497,13 @@ impl Sandbox {
 		let pid = process
 			.id()
 			.ok_or_else(|| tg::error!("the sandbox process has exited"))?;
+
+		// Forward the sandbox process's stderr, retaining its tail for the errors that describe the process's exit.
+		let stderr = process
+			.stderr
+			.take()
+			.map(self::stderr::Stderr::new)
+			.ok_or_else(|| tg::error!("failed to take the sandbox stderr"))?;
 		let connect = match listener.as_ref() {
 			None => {
 				let stdin = process
@@ -518,7 +528,8 @@ impl Sandbox {
 				result = process.wait() => {
 					let status = result
 						.map_err(|error| tg::error!(!error, "failed to wait for the sandbox process"))?;
-					Err(tg::error!(status = %status, "the sandbox process exited before connecting"))
+					let stderr = stderr.tail().await;
+					Err(tg::error!(%status, %stderr, "the sandbox process exited before connecting"))
 				}
 			}
 		})
@@ -593,6 +604,8 @@ impl Sandbox {
 			pid,
 
 			started: std::sync::atomic::AtomicBool::new(false),
+
+			stderr,
 		}));
 
 		Ok(sandbox)
@@ -1074,7 +1087,8 @@ impl Sandbox {
 		if self.0.destroyed.load(Ordering::SeqCst) {
 			return Ok(());
 		}
-		let error = tg::error!(%status, "the sandbox process exited");
+		let stderr = self.0.stderr.tail().await;
+		let error = tg::error!(%status, %stderr, "the sandbox process exited");
 		let error = self.termination_error(error).await;
 		Err(error)
 	}

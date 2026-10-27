@@ -386,7 +386,7 @@ impl Component {
 	) -> tg::runner::control::ServerMessage {
 		let result = match request.arg {
 			tg::runner::control::ClientRequestArg::DestroySandbox(arg) => self
-				.destroy_runner_sandbox(session, runner, &arg.sandbox)
+				.destroy_runner_sandbox(session, runner, arg)
 				.await
 				.map(tg::runner::control::ServerResponseOutput::DestroySandbox),
 		};
@@ -412,8 +412,9 @@ impl Component {
 		&self,
 		session: &Session,
 		runner: &tg::runner::Id,
-		sandbox: &tg::sandbox::Id,
+		arg: tg::runner::control::DestroySandboxClientRequestArg,
 	) -> tg::Result<tg::runner::control::DestroySandboxServerResponseOutput> {
+		let sandbox = &arg.sandbox;
 		let indexed = session.server.index.try_get_sandbox(sandbox).await?;
 		let destroyed = if indexed.as_ref().is_some_and(|indexed| {
 			indexed.runner.as_ref() == Some(runner)
@@ -424,11 +425,23 @@ impl Component {
 		}) {
 			tangram_server_core::checkpoint!(session.server, "runner.control.destroy_sandbox", %runner, %sandbox)
 				.await;
+			let error = match arg.error {
+				Some(tg::Either::Left(data)) => data,
+				Some(tg::Either::Right(id)) => tg::Error::with_id(id)
+					.data_with_instance(session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
+				None => tg::error::Data {
+					code: Some(tg::error::Code::Internal),
+					message: Some("runner restarted".to_owned()),
+					..Default::default()
+				},
+			};
 			session
 				.server
 				.components
 				.scheduler
-				.destroy_runner_sandbox(&session.server, sandbox, "runner restarted")
+				.destroy_runner_sandbox(&session.server, sandbox, error)
 				.await?;
 			true
 		} else {

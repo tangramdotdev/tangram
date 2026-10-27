@@ -9,7 +9,8 @@ let sandbox = tg sandbox create --no-tokens --mount /nonexistent:/target,ro | re
 let output = timeout 10s tg sandbox wait $sandbox | complete
 success $output
 let outcome = $output.stdout | from json
-assert ($outcome.error.message | str contains "the sandbox process exited") "waiting for the sandbox should return the error that describes its exit"
+assert equal $outcome.error.message "the sandbox process exited" "waiting for the sandbox should return the error that describes its exit"
+assert ($outcome.error.values.stderr | str contains "failed to securely open the bind source") "the error should contain the sandbox process's stderr"
 
 let data = tg sandbox get $sandbox | from json | get data
 assert equal $data.status destroyed

@@ -110,7 +110,8 @@ pub(crate) async fn spawn(
 		.kill_on_drop(true)
 		.process_group(0)
 		.stdin(std::process::Stdio::piped())
-		.stdout(std::process::Stdio::piped());
+		.stdout(std::process::Stdio::piped())
+		.stderr(std::process::Stdio::piped());
 
 	// Spawn the launcher and finish writing its configuration.
 	let process = command

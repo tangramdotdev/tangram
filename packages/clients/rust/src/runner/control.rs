@@ -361,6 +361,10 @@ pub struct CreateSandboxClientResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct DestroySandboxClientRequestArg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+
 	#[tangram_serialize(id = 0)]
 	pub sandbox: tg::sandbox::Id,
 }

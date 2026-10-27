@@ -1225,9 +1225,9 @@ impl tangram_server_core::scheduler::Component for Component {
 		&'a self,
 		server: &'a tangram_server_core::Server,
 		id: &'a tg::sandbox::Id,
-		reason: &'a str,
+		error: tg::error::Data,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.destroy_runner_sandbox(server, id, reason).boxed()
+		self.destroy_runner_sandbox(server, id, error).boxed()
 	}
 
 	fn dequeue_sandbox<'a>(
