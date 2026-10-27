@@ -1,16 +1,13 @@
 use {
-	crate::{
-		netlink::Netlink,
-		network::{host, ip},
-	},
+	crate::{host, ip, netlink::Netlink},
 	std::{net::Ipv4Addr, os::fd::AsRawFd as _, path::Path},
 	tangram_client::prelude::*,
 	tokio::io::{AsyncReadExt, AsyncWriteExt},
 };
 
-pub(crate) const BRIDGE_NAME: &str = "tangram0";
+pub const BRIDGE_NAME: &str = "tangram0";
 
-pub(crate) struct Network {
+pub struct Network {
 	bridge_name: String,
 	dns: Vec<Ipv4Addr>,
 	gateway_ip: Ipv4Addr,
@@ -19,15 +16,15 @@ pub(crate) struct Network {
 }
 
 #[derive(Debug)]
-pub(crate) struct Pair {
-	pub(crate) guest_name: String,
-	pub(crate) guest_pipe: Option<std::os::unix::net::UnixStream>,
-	pub(crate) host_pipe: tokio::net::UnixStream,
-	pub(crate) netlink: Netlink,
+pub struct Pair {
+	pub guest_name: String,
+	pub guest_pipe: Option<std::os::unix::net::UnixStream>,
+	pub host_pipe: tokio::net::UnixStream,
+	pub netlink: Netlink,
 }
 
 impl Network {
-	pub(crate) fn new(
+	pub fn new(
 		index: u64,
 		identity: &Path,
 		firewall: crate::Firewall,
@@ -54,26 +51,29 @@ impl Network {
 		})
 	}
 
-	pub(crate) fn bridge_name(&self) -> &str {
+	#[must_use]
+	pub fn bridge_name(&self) -> &str {
 		&self.bridge_name
 	}
 
 	#[must_use]
-	pub(crate) fn dns(&self) -> &[Ipv4Addr] {
+	pub fn dns(&self) -> &[Ipv4Addr] {
 		&self.dns
 	}
 
-	pub(crate) fn gateway_ip(&self) -> Ipv4Addr {
+	#[must_use]
+	pub fn gateway_ip(&self) -> Ipv4Addr {
 		self.gateway_ip
 	}
 
-	pub(crate) fn guest_ip(&self) -> Ipv4Addr {
+	#[must_use]
+	pub fn guest_ip(&self) -> Ipv4Addr {
 		self.guest.addr
 	}
 }
 
 impl Pair {
-	pub(crate) fn new(index: u64, bridge_name: &str) -> tg::Result<Self> {
+	pub fn new(index: u64, bridge_name: &str) -> tg::Result<Self> {
 		let suffix = format!("{:09}", index % 1_000_000_000);
 		let host_name = format!("tg-vh-{suffix}");
 		let guest_name = format!("tg-vc-{suffix}");
@@ -120,7 +120,7 @@ impl Pair {
 		})
 	}
 
-	pub(crate) async fn connect(&mut self, child: libc::pid_t) -> tg::Result<()> {
+	pub async fn connect(&mut self, child: libc::pid_t) -> tg::Result<()> {
 		self.host_pipe
 			.read_u8()
 			.await
@@ -136,19 +136,19 @@ impl Pair {
 	}
 }
 
-pub(crate) fn setup(firewall: crate::Firewall, dns: &[Ipv4Addr]) -> tg::Result<Vec<Ipv4Addr>> {
+pub fn setup(firewall: crate::Firewall, dns: &[Ipv4Addr]) -> tg::Result<Vec<Ipv4Addr>> {
 	// Keep the resolver configuration consistent with the firewall for the runner's lifetime.
 	static SETUP: std::sync::OnceLock<tg::Result<Vec<Ipv4Addr>>> = std::sync::OnceLock::new();
 	SETUP
 		.get_or_init(|| {
-			let dns = crate::network::dns::resolve(dns)?;
+			let dns = crate::dns::resolve(dns)?;
 			create_bridge(firewall, BRIDGE_NAME, gateway_ip(), &dns)?;
 			Ok(dns)
 		})
 		.clone()
 }
 
-pub(crate) fn create_bridge(
+pub fn create_bridge(
 	firewall: crate::Firewall,
 	name: &str,
 	ip: Ipv4Addr,
@@ -177,10 +177,12 @@ fn gateway_ip() -> Ipv4Addr {
 	Ipv4Addr::new(172, 18, 0, 1)
 }
 
-pub(crate) fn guest_ip_min() -> Ipv4Addr {
+#[must_use]
+pub fn guest_ip_min() -> Ipv4Addr {
 	Ipv4Addr::new(172, 18, 0, 4)
 }
 
-pub(crate) fn guest_ip_max() -> Ipv4Addr {
+#[must_use]
+pub fn guest_ip_max() -> Ipv4Addr {
 	Ipv4Addr::new(172, 18, 255, 255)
 }

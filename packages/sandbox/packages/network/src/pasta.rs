@@ -1,5 +1,4 @@
 use {
-	crate::network::ip,
 	std::{
 		ffi::CString,
 		net::Ipv4Addr,
@@ -12,117 +11,142 @@ use {
 		time::Duration,
 	},
 	tangram_client::prelude::*,
+	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
 };
 
-const SOCKET_NAME: &str = "passt.sock";
+pub const DNS_FORWARD_IP: &str = "169.254.1.1";
 
-pub(crate) struct Network {
-	guest: ip::Lease,
-	host: ip::Lease,
+pub struct Network {
+	child: Option<Child>,
+	dns: Vec<Ipv4Addr>,
+	executable: Option<PathBuf>,
+	guest_pipe: Option<std::os::unix::net::UnixStream>,
+	host_pipe: Option<tokio::net::UnixStream>,
+	interface: Option<String>,
+	pid_file: PathBuf,
+	ports: Vec<tg::sandbox::Port>,
+	startup_timeout: Duration,
 }
 
-pub(crate) struct Device {
-	child: Option<Child>,
-	guest_ip: Ipv4Addr,
-	host_ip: Ipv4Addr,
-	mac: String,
-	netmask: Ipv4Addr,
-	pid_file: PathBuf,
-	socket: PathBuf,
+pub struct Options {
+	pub dns: Vec<Ipv4Addr>,
+	pub executable: Option<PathBuf>,
+	pub interface: Option<String>,
+	pub ports: Vec<tg::sandbox::Port>,
+	pub startup_timeout: Duration,
 }
 
 impl Network {
-	pub(crate) fn new(host: ip::Lease, guest: ip::Lease) -> Self {
-		Self { guest, host }
-	}
-
-	pub(crate) fn guest_ip(&self) -> Ipv4Addr {
-		self.guest.addr
-	}
-
-	pub(crate) fn host_ip(&self) -> Ipv4Addr {
-		self.host.addr
-	}
-}
-
-impl Device {
-	pub(crate) fn new(
-		path: &Path,
-		dns: &[Ipv4Addr],
-		host_ip: Ipv4Addr,
-		guest_ip: Ipv4Addr,
-		ports: &[tg::sandbox::Port],
-		startup_timeout: Duration,
-	) -> tg::Result<Self> {
-		let netmask = Ipv4Addr::new(255, 255, 255, 252);
-		let socket = path.join(SOCKET_NAME);
-		let pid_file = socket.with_extension("pid");
+	pub fn new(options: Options) -> tg::Result<Self> {
+		// Prepare the pid file.
+		let pid_file = temporary_pid_file();
 		remove_file_if_exists(&pid_file, "failed to remove the stale pid file")?;
 		create_empty_pid_file(&pid_file)?;
-		remove_file_if_exists(&socket, "failed to remove the stale vhost-user socket")?;
-		let bytes = rand::random::<[u8; 5]>();
-		let mac = format!(
-			"{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-			0x02, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4],
-		);
-		let executable = std::path::Path::new("passt");
-		let mut command = Command::new(executable);
-		command
-			.arg("--no-map-gw")
-			.arg("--vhost-user")
-			.arg("--foreground")
-			.arg("--pid")
-			.arg(&pid_file)
-			.arg("--quiet")
-			.arg("--socket")
-			.arg(&socket)
-			.arg("-a")
-			.arg(guest_ip.to_string())
-			.arg("-n")
-			.arg(netmask.to_string())
-			.arg("-g")
-			.arg(host_ip.to_string());
-		append_port_args(&mut command, ports)?;
-		command.arg("--dns-forward").arg(host_ip.to_string());
-		for dns_host in dns {
-			command.arg("--dns-host").arg(dns_host.to_string());
+
+		// Create the network synchronization socket.
+		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair()
+			.map_err(|error| tg::error!(!error, "failed to create the pasta sync socket pair"))?;
+		let guest_pipe = guest_pipe
+			.into_std()
+			.map_err(|error| tg::error!(!error, "failed to convert the guest pipe to std"))?;
+		guest_pipe
+			.set_nonblocking(false)
+			.map_err(|error| tg::error!(!error, "failed to set the guest pipe blocking"))?;
+
+		// Inherit the guest synchronization descriptor.
+		let raw = guest_pipe.as_raw_fd();
+		let flags = unsafe { libc::fcntl(raw, libc::F_GETFD) };
+		if flags < 0 {
+			let error = std::io::Error::last_os_error();
+			return Err(tg::error!(!error, "failed to get the guest pipe flags"));
 		}
-		let mut child = command
-			.spawn()
-			.map_err(|error| tg::error!(!error, "failed to spawn {}", executable.display()))?;
-		if let Err(error) = wait_for_pid_file(&pid_file, executable, startup_timeout) {
-			let pid = child.id().try_into().unwrap();
-			unsafe {
-				libc::kill(pid, libc::SIGTERM);
-			}
-			let _ = child.wait();
-			return Err(error);
+		if unsafe { libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
+			let error = std::io::Error::last_os_error();
+			return Err(tg::error!(
+				!error,
+				"failed to clear FD_CLOEXEC on the guest pipe"
+			));
 		}
+
 		Ok(Self {
-			child: Some(child),
-			guest_ip,
-			host_ip,
-			mac,
-			netmask,
+			child: None,
+			dns: options.dns,
+			executable: options.executable,
+			guest_pipe: Some(guest_pipe),
+			host_pipe: Some(host_pipe),
+			interface: options.interface,
 			pid_file,
-			socket,
+			ports: options.ports,
+			startup_timeout: options.startup_timeout,
 		})
 	}
 
-	pub(crate) fn mac(&self) -> &str {
-		&self.mac
+	#[must_use]
+	pub fn guest_pipe(&self) -> Option<&std::os::unix::net::UnixStream> {
+		self.guest_pipe.as_ref()
 	}
 
-	pub(crate) fn guest_ip(&self) -> Ipv4Addr {
-		self.guest_ip
+	pub fn take_guest_pipe(&mut self) {
+		drop(self.guest_pipe.take());
 	}
 
-	pub(crate) fn host_ip(&self) -> Ipv4Addr {
-		self.host_ip
-	}
+	pub async fn start_netns(
+		&mut self,
+		pid: libc::pid_t,
+		pre_exec: impl FnOnce(&mut Command),
+	) -> tg::Result<()> {
+		let host_pipe = self
+			.host_pipe
+			.as_mut()
+			.ok_or_else(|| tg::error!("the host sync pipe is missing"))?;
 
-	pub(crate) fn netmask(&self) -> Ipv4Addr {
-		self.netmask
+		// Wait for the container child to finish unsharing its netns.
+		host_pipe
+			.read_u8()
+			.await
+			.map_err(|error| tg::error!(!error, "child process failed"))?;
+		let executable = self
+			.executable
+			.as_deref()
+			.unwrap_or_else(|| std::path::Path::new("pasta"))
+			.to_owned();
+		let mut command = Command::new(&executable);
+		command
+			.arg("--foreground") // run pasta in the foreground, die
+			.arg("--config-net") // setup addr/routes in the net namespace
+			.arg("--no-map-gw"); // disable loopback to the host
+		append_port_args(&mut command, &self.ports)?;
+		command
+			.arg("-T")
+			.arg("none") // no TCP port forwarding guest -> host
+			.arg("-U")
+			.arg("none") // no UDP port forwarding guest -> host
+			.arg("--pid")
+			.arg(&self.pid_file)
+			.arg("--quiet");
+		command.arg("--dns-forward").arg(DNS_FORWARD_IP);
+		for dns_host in &self.dns {
+			command.arg("--dns-host").arg(dns_host.to_string());
+		}
+		if let Some(interface) = &self.interface {
+			command.arg("-i").arg(interface);
+		}
+		command.arg(pid.to_string());
+		pre_exec(&mut command);
+		let child = command
+			.spawn()
+			.map_err(|error| tg::error!(!error, "failed to spawn pasta"))?;
+		self.child = Some(child);
+
+		wait_for_pid_file_async(self.pid_file.clone(), executable, self.startup_timeout).await?;
+
+		// Signal the child to proceed.
+		host_pipe
+			.write_u8(0)
+			.await
+			.map_err(|error| tg::error!(!error, "child process failed"))?;
+
+		Ok(())
 	}
 }
 
@@ -167,7 +191,7 @@ fn port_spec(port: &tg::sandbox::Port) -> tg::Result<String> {
 	Ok(spec)
 }
 
-impl Drop for Device {
+impl Drop for Network {
 	fn drop(&mut self) {
 		if let Some(child) = self.child.as_mut() {
 			let pid = child.id().try_into().unwrap();
@@ -177,8 +201,17 @@ impl Drop for Device {
 			let _ = child.wait();
 		}
 		std::fs::remove_file(&self.pid_file).ok();
-		std::fs::remove_file(&self.socket).ok();
 	}
+}
+
+async fn wait_for_pid_file_async(
+	path: PathBuf,
+	executable: PathBuf,
+	timeout: Duration,
+) -> tg::Result<()> {
+	tokio::task::spawn_blocking(move || wait_for_pid_file(&path, &executable, timeout))
+		.await
+		.map_err(|error| tg::error!(!error, "the pid file wait task panicked"))?
 }
 
 fn wait_for_pid_file(path: &Path, executable: &Path, timeout: Duration) -> tg::Result<()> {
@@ -276,4 +309,9 @@ fn remove_file_if_exists(path: &Path, message: &'static str) -> tg::Result<()> {
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
 		Err(error) => Err(tg::error!(!error, path = %path.display(), "{}", message)),
 	}
+}
+
+fn temporary_pid_file() -> PathBuf {
+	let name = format!("tangram-pasta-{:016x}.pid", rand::random::<u64>());
+	std::env::temp_dir().join(name)
 }

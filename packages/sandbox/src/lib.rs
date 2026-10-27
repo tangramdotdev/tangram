@@ -25,8 +25,6 @@ mod filesystem;
 mod libraries;
 #[cfg(target_os = "linux")]
 mod mount;
-#[cfg(target_os = "linux")]
-mod netlink;
 mod paths;
 mod pty;
 #[cfg(target_os = "linux")]
@@ -36,7 +34,10 @@ mod server;
 mod usage;
 mod util;
 
-pub use self::backend::{Backend, Kind, Platform};
+pub use {
+	self::backend::{Backend, Kind, Platform},
+	tangram_sandbox_network::{self as network, Firewall},
+};
 
 #[cfg(target_os = "linux")]
 pub mod bubblewrap;
@@ -58,8 +59,6 @@ pub mod init;
 pub mod ip;
 #[cfg(target_os = "linux")]
 pub mod linux;
-#[cfg(target_os = "linux")]
-pub mod network;
 #[cfg(target_os = "linux")]
 pub mod root;
 pub mod run;
@@ -199,26 +198,6 @@ pub struct Arg {
 #[derive(Clone, Debug)]
 pub struct Output {
 	pub usage: tg::sandbox::Usage,
-}
-
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Default,
-	derive_more::Display,
-	derive_more::FromStr,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-#[display(rename_all = "snake_case")]
-#[from_str(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-pub enum Firewall {
-	Iptables,
-
-	#[default]
-	Nft,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -445,7 +424,7 @@ impl Sandbox {
 		#[cfg(target_os = "linux")]
 		let (mut process, network, filesystem, cgroup, storage) = match &arg.backend {
 			Backend::Builtin | Backend::Bubblewrap { .. } | Backend::Gvisor { .. } => {
-				let mut network = crate::network::linux::create(&arg)?;
+				let mut network = create_network(&arg)?;
 				let cgroup = self::cgroup::create(&arg)?;
 				let output = tokio::time::timeout_at(
 					deadline,
@@ -1189,6 +1168,58 @@ impl std::ops::Deref for Sandbox {
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
+}
+
+#[cfg(target_os = "linux")]
+fn create_network(arg: &Arg) -> tg::Result<Option<self::network::Network>> {
+	let Some(network) = arg.network.as_ref() else {
+		return Ok(None);
+	};
+	let ports = network.ports();
+	match network {
+		self::Network::Bridge(_) | self::Network::Default => {
+			if self::network::root() {
+				let dns = self::network::veth::setup(arg.firewall, &arg.dns)?;
+				let guest = reserve_veth_guest(&arg.ip_pool)?;
+				let network = self::network::veth::Network::new(
+					arg.index,
+					&arg.identity,
+					arg.firewall,
+					dns,
+					guest,
+					ports,
+				)?;
+				let network = self::network::Network::Veth(network);
+				Ok(Some(network))
+			} else {
+				let options = self::network::pasta::Options {
+					dns: arg.dns.clone(),
+					executable: None,
+					interface: None,
+					ports: ports.to_owned(),
+					startup_timeout: arg.network_startup_timeout,
+				};
+				let network = self::network::pasta::Network::new(options)?;
+				let network = self::network::Network::Pasta(network);
+				Ok(Some(network))
+			}
+		},
+		self::Network::Host => Ok(Some(self::network::Network::Host)),
+	}
+}
+
+#[cfg(target_os = "linux")]
+fn reserve_veth_guest(pool: &self::network::ip::Pool) -> tg::Result<self::network::ip::Lease> {
+	pool.try_reserve_in(
+		self::network::veth::guest_ip_min(),
+		self::network::veth::guest_ip_max(),
+	)
+	.map_err(|source| {
+		tg::error!(
+			!source,
+			"failed to reserve a veth address in the bridge subnet"
+		)
+	})
 }
 
 #[cfg(test)]

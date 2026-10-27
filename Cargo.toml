@@ -102,6 +102,7 @@ members = [
   "packages/python/packages/build",
   "packages/quickjs",
   "packages/sandbox",
+  "packages/sandbox/packages/network",
   "packages/scylla/client",
   "packages/serialize",
   "packages/server",
@@ -454,6 +455,7 @@ tangram_python_build = { path = "packages/python/packages/build" }
 tangram_python_native = { path = "packages/clients/python/native" }
 tangram_quickjs = { path = "packages/quickjs" }
 tangram_sandbox = { path = "packages/sandbox" }
+tangram_sandbox_network = { path = "packages/sandbox/packages/network" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }
 tangram_server_archive = { path = "packages/server/packages/archive" }

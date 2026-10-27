@@ -3,27 +3,27 @@ use {std::net::Ipv4Addr, tangram_client::prelude::*};
 mod iptables;
 mod nft;
 
-pub(crate) const TAP_INTERFACE_NAME_PREFIX: &str = "tg-";
+pub const TAP_INTERFACE_NAME_PREFIX: &str = "tg-";
 
 #[derive(Debug)]
 #[allow(dead_code)]
-pub(crate) enum FirewallRuleGuard {
+pub enum FirewallRuleGuard {
 	Iptables(iptables::IptablesRuleGuard),
 	Nft(nft::FirewallRuleGuard),
 }
 
-pub(crate) fn enable_ipv4_forwarding() -> tg::Result<()> {
+pub fn enable_ipv4_forwarding() -> tg::Result<()> {
 	std::fs::write("/proc/sys/net/ipv4/ip_forward", "1\n")
 		.map_err(|error| tg::error!(!error, "failed to enable ipv4 forwarding"))
 }
 
-pub(crate) fn enable_route_localnet(interface: &str) -> tg::Result<()> {
+pub fn enable_route_localnet(interface: &str) -> tg::Result<()> {
 	let path = format!("/proc/sys/net/ipv4/conf/{interface}/route_localnet");
 	std::fs::write(&path, "1\n")
 		.map_err(|error| tg::error!(!error, %path, "failed to enable route_localnet"))
 }
 
-pub(crate) fn disable_ipv6(interface: &str) -> tg::Result<()> {
+pub fn disable_ipv6(interface: &str) -> tg::Result<()> {
 	let path = format!("/proc/sys/net/ipv6/conf/{interface}/disable_ipv6");
 	match std::fs::write(&path, "1\n") {
 		Ok(()) => Ok(()),
@@ -32,14 +32,14 @@ pub(crate) fn disable_ipv6(interface: &str) -> tg::Result<()> {
 	}
 }
 
-pub(crate) fn setup_tap_networking(backend: crate::Firewall) -> tg::Result<()> {
+pub fn setup_tap_networking(backend: crate::Firewall) -> tg::Result<()> {
 	match backend {
 		crate::Firewall::Iptables => iptables::setup_tap_networking(),
 		crate::Firewall::Nft => nft::setup_tap_networking(),
 	}
 }
 
-pub(crate) fn setup_bridge_networking(
+pub fn setup_bridge_networking(
 	backend: crate::Firewall,
 	bridge: &str,
 	addr: Ipv4Addr,
@@ -51,7 +51,7 @@ pub(crate) fn setup_bridge_networking(
 	}
 }
 
-pub(crate) fn add_port_forwarding_rules(
+pub fn add_port_forwarding_rules(
 	backend: crate::Firewall,
 	index: u64,
 	identity: &std::path::Path,

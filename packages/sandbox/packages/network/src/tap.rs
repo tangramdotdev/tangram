@@ -1,8 +1,5 @@
 use {
-	crate::{
-		netlink::Netlink,
-		network::{host, ip},
-	},
+	crate::{host, ip, netlink::Netlink},
 	std::{
 		net::Ipv4Addr,
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
@@ -11,14 +8,14 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub(crate) struct Network {
+pub struct Network {
 	guest: ip::Lease,
 	host: ip::Lease,
 	_port_forwarding_rules: Vec<host::FirewallRuleGuard>,
 }
 
 #[derive(Debug)]
-pub(crate) struct Device {
+pub struct Device {
 	fd: OwnedFd,
 	guest_ip: Ipv4Addr,
 	host_ip: Ipv4Addr,
@@ -29,7 +26,7 @@ pub(crate) struct Device {
 }
 
 impl Network {
-	pub(crate) fn new(
+	pub fn new(
 		index: u64,
 		identity: &Path,
 		firewall: crate::Firewall,
@@ -48,17 +45,19 @@ impl Network {
 		})
 	}
 
-	pub(crate) fn guest_ip(&self) -> Ipv4Addr {
+	#[must_use]
+	pub fn guest_ip(&self) -> Ipv4Addr {
 		self.guest.addr
 	}
 
-	pub(crate) fn host_ip(&self) -> Ipv4Addr {
+	#[must_use]
+	pub fn host_ip(&self) -> Ipv4Addr {
 		self.host.addr
 	}
 }
 
 impl Device {
-	pub(crate) fn new(
+	pub fn new(
 		id: &str,
 		firewall: crate::Firewall,
 		host_ip: Ipv4Addr,
@@ -105,19 +104,19 @@ impl Device {
 		})
 	}
 
-	pub(crate) fn cloud_hypervisor_arg(&self) -> String {
+	pub fn cloud_hypervisor_arg(&self) -> String {
 		format!("fd={},mac={}", self.fd.as_raw_fd(), self.mac)
 	}
 
-	pub(crate) fn guest_ip(&self) -> Ipv4Addr {
+	pub fn guest_ip(&self) -> Ipv4Addr {
 		self.guest_ip
 	}
 
-	pub(crate) fn host_ip(&self) -> Ipv4Addr {
+	pub fn host_ip(&self) -> Ipv4Addr {
 		self.host_ip
 	}
 
-	pub(crate) fn netmask(&self) -> Ipv4Addr {
+	pub fn netmask(&self) -> Ipv4Addr {
 		self.netmask
 	}
 }
@@ -130,7 +129,7 @@ impl Drop for Device {
 	}
 }
 
-pub(crate) fn setup(firewall: crate::Firewall) -> tg::Result<()> {
+pub fn setup(firewall: crate::Firewall) -> tg::Result<()> {
 	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
 	SETUP
 		.get_or_init(|| host::setup_tap_networking(firewall))

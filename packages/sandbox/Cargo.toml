@@ -41,6 +41,7 @@ serde_with = { workspace = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
+tangram_sandbox_network = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
@@ -52,7 +53,6 @@ tracing = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 env_logger = { workspace = true }
 log = { workspace = true }
-neli = { workspace = true }
 tangram_vfs = { workspace = true }
 vhost = { workspace = true }
 vhost-user-backend = { workspace = true }
