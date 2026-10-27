@@ -213,7 +213,7 @@ impl Server {
 
 		// Create the messenger.
 		let messenger = Self::create_messenger(&config).await?;
-		let notifications = crate::notification::Notifications::new(messenger.clone(), &config);
+		let notifications = crate::notification::Notifications::new(messenger.clone());
 
 		// Create the regions.
 		let regions = DashMap::default();
@@ -622,27 +622,19 @@ impl Server {
 			self.index.start_usage(self.clock.now()).await?;
 		}
 
-		// Destroy unfinished sandboxes if multi-server mode is disabled.
-		if !self.config.advanced.multi_server {
-			let result = self.destroy_unfinished_sandboxes().await;
-			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");
-			}
-		}
+		// Start the sandbox component.
+		self.components
+			.sandbox
+			.start(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to start the sandbox component"))?;
 
-		// Set the remotes if specified in the config.
-		if self.is_primary_region()
-			&& let Some(remotes) = &self.config.remotes
-		{
-			let remotes = remotes.clone();
-			self.database
-				.run(|transaction| {
-					let remotes = remotes.clone();
-					async move { Self::set_config_remotes_with_transaction(transaction, &remotes).await }
-						.boxed()
-				})
-				.await?;
-		}
+		// Start the remote component.
+		self.components
+			.remote
+			.start(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to start the remote component"))?;
 
 		// Start the VFS component.
 		self.components
@@ -651,101 +643,12 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
 
-		// Initialize the checkouts directory and start the VFS if enabled.
-		if self.checkouts_enabled() {
-			self.initialize_checkouts().await?;
-		}
-
-		Ok(())
-	}
-
-	async fn initialize_checkouts(&self) -> tg::Result<()> {
-		let checkout_guard = self.components.checkout.lock().acquire().await;
-		let store_path = self.store_path();
-		let checkout_path = self.path.join("checkouts");
-		let vfs_kind = match self.config.vfs.clone().unwrap_or_default().kind {
-			crate::config::VfsKind::Auto => {
-				if cfg!(target_os = "macos")
-					&& std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some()
-				{
-					crate::vfs::Kind::Fskit
-				} else if cfg!(target_os = "macos") {
-					crate::vfs::Kind::Nfs
-				} else if cfg!(target_os = "linux") {
-					crate::vfs::Kind::Fuse
-				} else {
-					unreachable!()
-				}
-			},
-			crate::config::VfsKind::Fskit => crate::vfs::Kind::Fskit,
-			crate::config::VfsKind::Fuse => crate::vfs::Kind::Fuse,
-			crate::config::VfsKind::Nfs => crate::vfs::Kind::Nfs,
-		};
-		let store_exists = match tokio::fs::try_exists(&store_path).await {
-			Ok(exists) => exists,
-			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
-				self.components.vfs.unmount(vfs_kind, &store_path).await?;
-				true
-			},
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to stat the path"));
-			},
-		};
-		let checkout_exists = tokio::fs::try_exists(&checkout_path)
+		// Start the checkout component.
+		self.components
+			.checkout
+			.start(self)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
-		if let Some(options) = self.config.vfs.clone() {
-			if store_exists && !checkout_exists {
-				tokio::fs::rename(&store_path, &checkout_path)
-					.await
-					.map_err(|error| {
-						tg::error!(
-							!error,
-							"failed to move the store directory to the checkouts path"
-						)
-					})?;
-			}
-			tokio::fs::create_dir_all(&store_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
-			tokio::fs::create_dir_all(&checkout_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the checkouts directory"))?;
-			let arg = crate::vfs::MountArg {
-				kind: vfs_kind,
-				options,
-				origin: Origin::Host,
-				path: &store_path,
-				principal: Some(tg::Principal::Root),
-				recvfd: None,
-			};
-			self.components
-				.vfs
-				.mount_store(self, arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
-		} else {
-			if checkout_exists {
-				tokio::fs::rename(&checkout_path, &store_path)
-					.await
-					.map_err(|error| {
-						tg::error!(
-							!error,
-							"failed to move the checkouts directory to the store path"
-						)
-					})?;
-
-				// Remove named checkout entries before exposing the physical store.
-				self.components
-					.checkout
-					.remove_all_named_checkout_entries_with_lock(self, &checkout_guard)
-					.await?;
-			}
-			tokio::fs::create_dir_all(&store_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
-		}
-		drop(checkout_guard);
+			.map_err(|error| tg::error!(!error, "failed to start the checkout component"))?;
 
 		Ok(())
 	}

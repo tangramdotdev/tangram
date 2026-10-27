@@ -6,7 +6,7 @@ use {
 
 const PROBE_XATTR_NAME: &str = "user.tangram.probe";
 
-pub fn probe(directory: &Path) -> tg::Result<tg::file::xattrs::Options> {
+pub(crate) fn probe(directory: &Path) -> tg::Result<tg::file::xattrs::Options> {
 	// Create the probe file.
 	let name = format!(".tangram-xattr-probe-{}", uuid::Uuid::now_v7());
 	let path = directory.join(name);

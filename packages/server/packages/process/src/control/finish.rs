@@ -12,7 +12,7 @@ impl Component {
 		command_sync: Option<tg::Referent<tg::sync::Id>>,
 		outcome_sync: Option<tg::Referent<tg::sync::Id>>,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
-		session.server.spawn_publish_process_status_task(id);
+		Self::spawn_publish_process_status_task(&session.server, id);
 		tangram_server_core::checkpoint!(session.server, "process.control.finish", id = %id).await;
 		let data = arg.data.clone();
 
@@ -31,9 +31,11 @@ impl Component {
 			.await?;
 		self.expire_process_log_cache(session, id, &data).await?;
 
-		session
-			.server
-			.spawn_publish_process_stdio_close_message_task(id, tg::process::stdio::Stream::Stdin);
+		Self::spawn_publish_process_stdio_close_message_task(
+			&session.server,
+			id,
+			tg::process::stdio::Stream::Stdin,
+		);
 		tangram_server_core::checkpoint!(session.server, "process.control.finish.submitted", process = %id).await;
 
 		Ok(tg::process::control::FinishServerResponseOutput {})
@@ -132,11 +134,13 @@ impl Component {
 
 	pub fn spawn_process_finish_tasks(&self, session: &Session, id: &tg::process::Id) {
 		// Spawn a task to publish the stdin close message.
-		session
-			.server
-			.spawn_publish_process_stdio_close_message_task(id, tg::process::stdio::Stream::Stdin);
+		Self::spawn_publish_process_stdio_close_message_task(
+			&session.server,
+			id,
+			tg::process::stdio::Stream::Stdin,
+		);
 
 		// Spawn a task to publish the status.
-		session.server.spawn_publish_process_status_task(id);
+		Self::spawn_publish_process_status_task(&session.server, id);
 	}
 }

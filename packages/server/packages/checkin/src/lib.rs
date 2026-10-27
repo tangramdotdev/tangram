@@ -125,7 +125,7 @@ impl Component {
 		let ignorer = arg
 			.options
 			.ignore
-			.then(checkin::create_ignorer)
+			.then(tangram_server_checkin_common::create_ignorer)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to create the ignorer"))?;
 		let (root, ignorer) = if arg.options.root {

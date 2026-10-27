@@ -43,6 +43,7 @@ tangram_server_authorization_common = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_server_grant_common = { workspace = true }
 tangram_server_node_common = { workspace = true }
+tangram_server_object_common = { workspace = true }
 tangram_server_process_core = { workspace = true }
 tangram_server_tag_common = { workspace = true }
 tangram_util = { workspace = true }

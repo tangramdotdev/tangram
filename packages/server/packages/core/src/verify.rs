@@ -56,64 +56,6 @@ pub fn empty_storage(permissions: tg::authorization::permission::Set) -> tg::sto
 	}
 }
 
-#[must_use]
-pub fn permission_storage(permission: tg::authorization::Permission) -> Option<tg::storage::Set> {
-	match permission {
-		tg::authorization::Permission::Object(permission) => {
-			let storage = match permission {
-				tg::authorization::permission::object::Permission::Node => {
-					tg::object::storage::Storage::Node
-				},
-				tg::authorization::permission::object::Permission::Subtree => {
-					tg::object::storage::Storage::Subtree
-				},
-			};
-			Some(tg::storage::Set::Object(
-				tg::object::storage::Set::from_storage(storage),
-			))
-		},
-		tg::authorization::Permission::Process(permission) => {
-			let storage = match permission {
-				tg::authorization::permission::process::Permission::Node => {
-					tg::process::storage::Storage::Node
-				},
-				tg::authorization::permission::process::Permission::NodeCommandObjects => {
-					tg::process::storage::Storage::NodeCommandObjects
-				},
-				tg::authorization::permission::process::Permission::NodeErrorObjects => {
-					tg::process::storage::Storage::NodeErrorObjects
-				},
-				tg::authorization::permission::process::Permission::NodeLogObjects => {
-					tg::process::storage::Storage::NodeLogObjects
-				},
-				tg::authorization::permission::process::Permission::NodeOutputObjects => {
-					tg::process::storage::Storage::NodeOutputObjects
-				},
-				tg::authorization::permission::process::Permission::Subtree => {
-					tg::process::storage::Storage::Subtree
-				},
-				tg::authorization::permission::process::Permission::SubtreeCommandObjects => {
-					tg::process::storage::Storage::SubtreeCommandObjects
-				},
-				tg::authorization::permission::process::Permission::SubtreeErrorObjects => {
-					tg::process::storage::Storage::SubtreeErrorObjects
-				},
-				tg::authorization::permission::process::Permission::SubtreeLogObjects => {
-					tg::process::storage::Storage::SubtreeLogObjects
-				},
-				tg::authorization::permission::process::Permission::SubtreeOutputObjects => {
-					tg::process::storage::Storage::SubtreeOutputObjects
-				},
-				tg::authorization::permission::process::Permission::Parent => return None,
-			};
-			Some(tg::storage::Set::Process(
-				tg::process::storage::Set::from_storage(storage),
-			))
-		},
-		_ => None,
-	}
-}
-
 impl Output {
 	pub fn check_exhaustion(self) -> tg::Result<Self> {
 		if self.outcome == Outcome::Exhausted {

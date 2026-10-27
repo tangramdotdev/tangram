@@ -49,7 +49,7 @@ impl Component {
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 			)?;
 		let trusted = client.trusted();
-		let query = query.with_remote(&remote);
+		let query = query_with_remote(query, &remote);
 		let request = match &query {
 			Query::List(arg) => {
 				let arg = arg.clone();
@@ -231,4 +231,60 @@ impl Component {
 
 		Ok(data)
 	}
+}
+
+#[must_use]
+fn query_with_remote(mut query: Query, remote: &Remote) -> Query {
+	let location = Some(tg::location::Arg(vec![
+		tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+			regions: remote.regions.clone(),
+		}),
+	]));
+	match &mut query {
+		Query::List(arg) => {
+			if let Some(node) = &mut arg.node {
+				node.options.tokens = tokens_for_remote(&node.options.tokens, &remote.name);
+				if let Some(tg::Location::Remote(location)) = &node.options.location
+					&& location.name == remote.name
+				{
+					node.options.location = Some(tg::Location::Local(tg::location::Local {
+						region: location.region.clone(),
+					}));
+				}
+			}
+		},
+		Query::Match(arg) => {
+			arg.tokens = tokens_for_remote(&arg.tokens, &remote.name);
+		},
+	}
+	let (cached, query_location, ttl) = match &mut query {
+		Query::List(arg) => (&mut arg.cached, &mut arg.location, &mut arg.ttl),
+		Query::Match(arg) => (&mut arg.cached, &mut arg.location, &mut arg.ttl),
+	};
+	*cached = false;
+	*query_location = location;
+	*ttl = tg::remote::cache::Ttl::default();
+
+	query
+}
+
+#[must_use]
+fn tokens_for_remote(
+	tokens: &tg::authorization::Tokens,
+	remote: &str,
+) -> tg::authorization::Tokens {
+	let mut output = tg::authorization::Tokens::default();
+	for (location, tokens) in tokens.iter() {
+		let tg::Location::Remote(location) = location else {
+			continue;
+		};
+		if location.name == remote {
+			let location = tg::Location::Local(tg::location::Local {
+				region: location.region.clone(),
+			});
+			output.set(location, tokens.clone());
+		}
+	}
+
+	output
 }

@@ -92,7 +92,9 @@ impl Component {
 			.await?;
 		session
 			.server
-			.spawn_publish_database_index_queue_notification_task();
+			.components
+			.indexer
+			.spawn_publish_database_index_queue_notification_task(&session.server);
 		Ok(output)
 	}
 
@@ -113,7 +115,9 @@ impl Component {
 		};
 		match session
 			.server
-			.enqueue_database_index_queue_with_transaction(transaction, &batch)
+			.components
+			.indexer
+			.enqueue_database_index_queue_with_transaction(&session.server, transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),
@@ -231,7 +235,7 @@ impl Component {
 			tg::Selector::Id(id) => Some(id.clone()),
 			tg::Selector::Specifier(specifier) => {
 				let id =
-					match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
+					match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 						transaction,
 						specifier,
 					)

@@ -278,7 +278,7 @@ impl Component {
 		}
 
 		let specifier =
-			match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+			match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
 				transaction,
 				&id.clone().into(),
 			)
@@ -322,16 +322,17 @@ impl Component {
 		let Some(parent) = specifier.parent() else {
 			return Ok(ControlFlow::Break(None));
 		};
-		let parent = match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
-			transaction,
-			&parent,
-		)
-		.await?
-		{
-			ControlFlow::Break(parent) => parent,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
-		.ok_or_else(|| tg::error!("the parent does not exist"))?;
+		let parent =
+			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
+				transaction,
+				&parent,
+			)
+			.await?
+			{
+				ControlFlow::Break(parent) => parent,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+			.ok_or_else(|| tg::error!("the parent does not exist"))?;
 		if parent.kind() == tg::id::Kind::Tag {
 			return Err(tg::error!("a tag cannot be a parent"));
 		}

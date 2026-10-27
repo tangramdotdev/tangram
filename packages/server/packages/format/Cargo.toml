@@ -24,6 +24,7 @@ tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
+tangram_server_checkin_common = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }

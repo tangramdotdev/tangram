@@ -8,10 +8,35 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_server_core::Session,
+	tangram_server_core::{Server, Session},
 };
 
 impl Component {
+	pub(crate) async fn destroy_unfinished_sandboxes(&self, server: &Server) -> tg::Result<()> {
+		let session = server.session(&server.context);
+		let outputs = self
+			.list_sandboxes_local(&session, None, None)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
+		outputs
+			.into_iter()
+			.map(|output| async move {
+				let result = server
+					.components
+					.scheduler
+					.destroy_runner_sandbox(server, &output.id, "server restarted")
+					.boxed()
+					.await;
+				if let Err(error) = result {
+					tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<()>()
+			.await;
+		Ok(())
+	}
+
 	#[tracing::instrument(name = "sandbox.destroy_request", level = "info", skip_all, fields(sandbox = %id), err(level = "debug"))]
 	pub(crate) async fn try_destroy_sandbox(
 		&self,

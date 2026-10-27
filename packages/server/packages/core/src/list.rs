@@ -48,24 +48,3 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 	) -> BoxFuture<'a, tg::Result<Vec<tg::list::Entry>>>;
 }
-
-#[must_use]
-pub fn tokens_for_remote(
-	tokens: &tg::authorization::Tokens,
-	remote: &str,
-) -> tg::authorization::Tokens {
-	let mut output = tg::authorization::Tokens::default();
-	for (location, tokens) in tokens.iter() {
-		let tg::Location::Remote(location) = location else {
-			continue;
-		};
-		if location.name == remote {
-			let location = tg::Location::Local(tg::location::Local {
-				region: location.region.clone(),
-			});
-			output.set(location, tokens.clone());
-		}
-	}
-
-	output
-}

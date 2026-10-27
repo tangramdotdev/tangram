@@ -118,16 +118,13 @@ impl Component {
 
 	async fn wait_for_indexers(&self, server: &Server) -> tg::Result<()> {
 		if !server.config.advanced.multi_server {
-			server
-				.components
-				.indexer
-				.send_indexer_request(server, None, tangram_server_core::indexer::RequestArg::Wait)
+			self.send_indexer_request(server, None, crate::request::RequestArg::Wait)
 				.await??
 				.try_unwrap_wait()
 				.map_err(|_| tg::error!("expected a wait response"))?;
 			return Ok(());
 		}
-		let indexers = server.components.indexer.get_indexers(server).await?;
+		let indexers = Component::get_indexers(server).await?;
 		if indexers.is_empty() {
 			return Err(tg::error!("no indexers are available"));
 		}
@@ -144,10 +141,10 @@ impl Component {
 		let mut indexer = indexer.clone();
 		loop {
 			let result = {
-				let request = server.components.indexer.send_indexer_request(
+				let request = self.send_indexer_request(
 					server,
 					Some(&indexer),
-					tangram_server_core::indexer::RequestArg::Wait,
+					crate::request::RequestArg::Wait,
 				);
 				tokio::pin!(request);
 				let mut interval = tokio::time::interval(server.config.indexer.cache.poll_interval);
@@ -176,10 +173,7 @@ impl Component {
 			};
 			if server.index.try_get_indexer(arg).await?.is_none() {
 				// Retry the local wait through a surviving indexer.
-				indexer = server
-					.components
-					.indexer
-					.get_indexers(server)
+				indexer = Component::get_indexers(server)
 					.await?
 					.into_iter()
 					.next()
@@ -330,12 +324,7 @@ impl State {
 					} | RequestState::Updates { .. }
 				)
 			}) && indexers.is_empty()
-			&& server
-				.components
-				.indexer
-				.get_indexers(server)
-				.await?
-				.is_empty()
+			&& Component::get_indexers(server).await?.is_empty()
 		{
 			return Err(tg::error!("no indexers are available"));
 		}

@@ -213,7 +213,7 @@ impl Component {
 				.await;
 		}
 
-		session.server.spawn_publish_sandbox_status_task(&id);
+		Self::spawn_publish_sandbox_status_task(&session.server, &id);
 		let created_at = if let Some(created_at) = arg.created_at {
 			created_at
 		} else {
@@ -355,11 +355,7 @@ impl Component {
 			.with_stopper(session.context.stopper.clone())
 			.boxed();
 
-		session
-			.server
-			.notifications
-			.publish_sandbox_control_connected(&id)
-			.await?;
+		Self::publish_sandbox_control_connected(&session.server, &id).await?;
 
 		let header = tg::sandbox::control::Header { id, token };
 

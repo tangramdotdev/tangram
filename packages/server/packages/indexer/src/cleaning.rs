@@ -265,7 +265,12 @@ impl Component {
 	}
 
 	async fn delete_named_checkouts(&self, server: &Server, named: Vec<tg::Id>) {
-		if named.is_empty() || !server.named_checkout_maintenance_enabled() {
+		if named.is_empty()
+			|| !server
+				.components
+				.checkout
+				.named_checkout_maintenance_enabled(server)
+		{
 			return;
 		}
 		if let Err(error) = self.delete_named_checkouts_inner(server, named).await {
@@ -279,7 +284,11 @@ impl Component {
 		named: Vec<tg::Id>,
 	) -> tg::Result<()> {
 		let guard = server.components.checkout.lock().acquire().await;
-		if !server.named_checkout_maintenance_enabled() {
+		if !server
+			.components
+			.checkout
+			.named_checkout_maintenance_enabled(server)
+		{
 			return Ok(());
 		}
 		let checkouts = server.index.try_get_checkouts(&named).await?;

@@ -24,3 +24,4 @@ tangram_database = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
+tangram_server_node_common = { workspace = true }

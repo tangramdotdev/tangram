@@ -13,6 +13,7 @@ use {
 	},
 };
 
+mod notification;
 mod runner;
 
 pub mod control;
@@ -111,6 +112,20 @@ impl std::ops::Deref for Component {
 }
 
 impl tangram_server_core::component::Lifecycle for Component {
+	fn start<'a>(&'a self, server: &'a Server) -> BoxFuture<'a, tg::Result<()>> {
+		async move {
+			// Destroy unfinished sandboxes if multi-server mode is disabled.
+			if !server.config.advanced.multi_server {
+				let result = self.destroy_unfinished_sandboxes(server).await;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");
+				}
+			}
+			Ok(())
+		}
+		.boxed()
+	}
+
 	fn stop<'a>(&'a self, _server: &'a Server) -> BoxFuture<'a, ()> {
 		async move {
 			// Stop the control clients and drain the control service tasks.
@@ -200,6 +215,14 @@ impl tangram_server_core::sandbox::Component for Component {
 			.boxed()
 	}
 
+	fn publish_sandbox_process_spawned<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		Self::publish_sandbox_process_spawned(server, id).boxed()
+	}
+
 	fn request_sandbox_control<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
@@ -209,6 +232,10 @@ impl tangram_server_core::sandbox::Component for Component {
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>> {
 		self.request_sandbox_control(session, id, arg, options)
 			.boxed()
+	}
+
+	fn spawn_publish_sandbox_status_task(&self, server: &Server, id: &tg::sandbox::Id) {
+		Self::spawn_publish_sandbox_status_task(server, id);
 	}
 
 	fn subscribe_sandbox_connection<'a>(

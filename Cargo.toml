@@ -113,6 +113,7 @@ members = [
   "packages/server/packages/cache",
   "packages/server/packages/check",
   "packages/server/packages/checkin",
+  "packages/server/packages/checkin/packages/common",
   "packages/server/packages/checkin/packages/graph",
   "packages/server/packages/checkout",
   "packages/server/packages/checkpoint",
@@ -148,6 +149,7 @@ members = [
   "packages/server/packages/node",
   "packages/server/packages/node/packages/common",
   "packages/server/packages/object",
+  "packages/server/packages/object/packages/common",
   "packages/server/packages/organization",
   "packages/server/packages/process",
   "packages/server/packages/process/packages/core",
@@ -457,6 +459,7 @@ tangram_server_billing = { path = "packages/server/packages/billing" }
 tangram_server_cache = { path = "packages/server/packages/cache" }
 tangram_server_check = { path = "packages/server/packages/check" }
 tangram_server_checkin = { path = "packages/server/packages/checkin" }
+tangram_server_checkin_common = { path = "packages/server/packages/checkin/packages/common" }
 tangram_server_checkin_graph = { path = "packages/server/packages/checkin/packages/graph" }
 tangram_server_checkout = { path = "packages/server/packages/checkout" }
 tangram_server_checkpoint = { path = "packages/server/packages/checkpoint" }
@@ -492,6 +495,7 @@ tangram_server_module = { path = "packages/server/packages/module" }
 tangram_server_node = { path = "packages/server/packages/node" }
 tangram_server_node_common = { path = "packages/server/packages/node/packages/common" }
 tangram_server_object = { path = "packages/server/packages/object" }
+tangram_server_object_common = { path = "packages/server/packages/object/packages/common" }
 tangram_server_organization = { path = "packages/server/packages/organization" }
 tangram_server_process = { path = "packages/server/packages/process" }
 tangram_server_process_core = { path = "packages/server/packages/process/packages/core" }

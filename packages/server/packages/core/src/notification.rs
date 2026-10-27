@@ -1,8 +1,7 @@
 use {
-	crate::{Config, Server, messenger::Messenger},
+	crate::messenger::Messenger,
 	dashmap::{DashMap, mapref::entry::Entry},
 	std::sync::Arc,
-	tangram_client::prelude::*,
 	tangram_messenger::Messenger as _,
 };
 
@@ -10,7 +9,6 @@ use {
 pub struct Notifications {
 	messenger: Messenger,
 	pending: Arc<DashMap<Key, bool>>,
-	regions: Vec<String>,
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -27,89 +25,29 @@ enum Target {
 
 impl Notifications {
 	#[must_use]
-	pub(crate) fn new(messenger: Messenger, config: &Config) -> Self {
+	pub(crate) fn new(messenger: Messenger) -> Self {
 		let pending = Arc::default();
-		let regions = crate::database::index::queue::database_index_queue_regions(config)
-			.into_iter()
-			.collect();
-
-		Self {
-			messenger,
-			pending,
-			regions,
-		}
+		Self { messenger, pending }
 	}
 
-	pub(crate) fn notify_database_index_queue(&self) {
-		for region in &self.regions {
-			let region = (!region.is_empty()).then(|| region.clone());
-			let subject = crate::indexer::database_index_queue_subject();
-			self.notify_deduplicated(Target::Region(region), subject);
-		}
-	}
-
-	pub fn notify_process_log(&self, id: &tg::process::Id) {
-		let subject = format!("processes.{id}.log");
+	/// Publish a notification on the current server, coalescing it with a pending notification for the same subject.
+	pub fn notify(&self, subject: String) {
 		self.notify_deduplicated(Target::Current, subject);
 	}
 
-	pub(crate) fn notify_process_status(&self, id: &tg::process::Id) {
-		let subject = format!("processes.{id}.status");
-		self.notify_deduplicated(Target::Current, subject);
+	/// Publish a notification to a region, coalescing it with a pending notification for the same subject.
+	pub fn notify_region(&self, region: Option<String>, subject: String) {
+		self.notify_deduplicated(Target::Region(region), subject);
 	}
 
-	pub(crate) fn notify_process_stdio_close(
-		&self,
-		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-	) {
-		let subject = format!("processes.{id}.{stream}.close");
-		self.spawn_publish(subject);
-	}
-
-	pub(crate) fn notify_sandbox_status(&self, id: &tg::sandbox::Id) {
-		let subject = format!("sandboxes.{id}.status");
-		self.notify_deduplicated(Target::Current, subject);
-	}
-
-	pub async fn publish_process_child_spawned(&self, id: &tg::process::Id) -> tg::Result<()> {
-		let subject = format!("processes.{id}.children");
-		self.messenger.publish(subject, ()).await.map_err(|error| {
-			tg::error!(!error, "failed to publish the child spawned notification")
-		})?;
-
-		Ok(())
-	}
-
-	pub async fn publish_sandbox_control_connected(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
-		let subject = tangram_server_sandbox_core::control::connected_subject(id);
-		self.messenger.publish(subject, ()).await.map_err(|error| {
-			tg::error!(!error, "failed to publish the sandbox control connection")
-		})?;
-
-		Ok(())
-	}
-
-	pub async fn publish_sandbox_process_spawned(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
-		let subject = format!("sandboxes.{id}.processes");
-		self.messenger.publish(subject, ()).await.map_err(|error| {
-			tg::error!(
-				!error,
-				"failed to publish the sandbox process spawned notification"
-			)
-		})?;
-
-		Ok(())
-	}
-
-	pub async fn publish_scheduler_heartbeat(&self, id: &tg::scheduler::Id) -> tg::Result<()> {
-		let subject = tangram_server_scheduler_core::scheduler_heartbeat_subject(id);
-		self.messenger
-			.publish(subject, ())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to publish the scheduler heartbeat"))?;
-
-		Ok(())
+	/// Publish a notification without coalescing.
+	pub fn spawn_publish(&self, subject: String) {
+		let messenger = self.messenger.clone();
+		tokio::spawn(async move {
+			if let Err(error) = messenger.publish(subject.clone(), ()).await {
+				tracing::error!(%error, %subject, "failed to publish a notification");
+			}
+		});
 	}
 
 	fn notify_deduplicated(&self, target: Target, subject: String) {
@@ -160,36 +98,5 @@ impl Notifications {
 				break;
 			}
 		}
-	}
-
-	fn spawn_publish(&self, subject: String) {
-		let messenger = self.messenger.clone();
-		tokio::spawn(async move {
-			if let Err(error) = messenger.publish(subject.clone(), ()).await {
-				tracing::error!(%error, %subject, "failed to publish a notification");
-			}
-		});
-	}
-}
-
-impl Server {
-	pub fn spawn_publish_database_index_queue_notification_task(&self) {
-		self.notifications.notify_database_index_queue();
-	}
-
-	pub fn spawn_publish_process_status_task(&self, id: &tg::process::Id) {
-		self.notifications.notify_process_status(id);
-	}
-
-	pub fn spawn_publish_process_stdio_close_message_task(
-		&self,
-		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-	) {
-		self.notifications.notify_process_stdio_close(id, stream);
-	}
-
-	pub fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {
-		self.notifications.notify_sandbox_status(id);
 	}
 }

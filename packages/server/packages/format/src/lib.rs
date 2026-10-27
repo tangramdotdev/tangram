@@ -31,7 +31,7 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to canonicalize the path's parent"))?;
 
 		// Create the ignore matcher.
-		let mut ignore = tangram_server_core::checkin::create_ignorer()
+		let mut ignore = tangram_server_checkin_common::create_ignorer()
 			.map_err(|error| tg::error!(!error, "failed to create the ignorer"))?;
 
 		// Format.

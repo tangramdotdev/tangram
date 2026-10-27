@@ -184,7 +184,7 @@ impl Component {
 					.unwrap()
 					.object_local_permissions(&node.id);
 				output.metadata =
-					tangram_server_core::Session::mask_object_metadata_with_permissions(
+					tangram_server_object_common::mask_object_metadata_with_permissions(
 						metadata,
 						permissions,
 					);

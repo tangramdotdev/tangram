@@ -3,7 +3,6 @@ use {
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::{collections::BTreeMap, ops::ControlFlow},
-	tangram_billing::Billing as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -50,13 +49,9 @@ impl Component {
 		let tg::Principal::User(user) = &session.context.principal else {
 			return Err(tg::error!("not logged in"));
 		};
-		let billing = session
-			.server
-			.components
-			.billing
-			.provider()
-			.cloned()
-			.ok_or_else(|| tg::error!("billing is not configured"))?;
+		if !session.server.components.billing.configured() {
+			return Err(tg::error!("billing is not configured"));
+		}
 
 		let user = user.clone();
 		let options = session
@@ -69,13 +64,12 @@ impl Component {
 		let component = self.clone();
 		let session = session.clone();
 		let billing_customer_id = tangram_futures::retry(&options, || {
-			let billing = billing.clone();
 			let component = component.clone();
 			let session = session.clone();
 			let user = user.clone();
 			async move {
 				match component
-					.manage_user_billing_local_attempt(&session, &user, &billing)
+					.manage_user_billing_local_attempt(&session, &user)
 					.await?
 				{
 					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
@@ -88,7 +82,12 @@ impl Component {
 		.await?;
 
 		// Create the billing portal session.
-		let url = billing.create_management_url(&billing_customer_id).await?;
+		let url = session
+			.server
+			.components
+			.billing
+			.create_management_url(&billing_customer_id)
+			.await?;
 		let output = tg::user::billing::manage::Output { url };
 
 		Ok(output)
@@ -98,7 +97,6 @@ impl Component {
 		&self,
 		session: &Session,
 		user: &tg::user::Id,
-		billing: &tangram_server_core::billing::Billing,
 	) -> tg::Result<ControlFlow<String>> {
 		let selector = tg::Selector::Id(user.clone().into());
 		let Some((id, specifier)) = session
@@ -132,7 +130,12 @@ impl Component {
 				email,
 				name,
 			};
-			billing.create_customer(arg).await?
+			session
+				.server
+				.components
+				.billing
+				.create_customer(arg)
+				.await?
 		};
 		let batch_size = session.server.config.sync.get.database.batch_size;
 		let billing_customer_id = session
@@ -219,7 +222,7 @@ impl Component {
 		batch_size: usize,
 		billing_customer_id: String,
 	) -> tg::Result<ControlFlow<ControlFlow<String>, tangram_server_core::database::Error>> {
-		match tangram_server_core::Session::verify_ids_for_specifiers_with_transaction(
+		match tangram_server_node_common::specifier::verify_ids_for_specifiers_with_transaction(
 			transaction,
 			ids_by_specifier,
 			batch_size,

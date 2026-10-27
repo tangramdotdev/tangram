@@ -34,10 +34,7 @@ impl Component {
 		}
 	}
 
-	pub(crate) async fn get_indexers(
-		&self,
-		server: &Server,
-	) -> tg::Result<Vec<index::indexer::Indexer>> {
+	pub(crate) async fn get_indexers(server: &Server) -> tg::Result<Vec<index::indexer::Indexer>> {
 		server
 			.index
 			.get_indexers()
@@ -46,7 +43,7 @@ impl Component {
 	}
 
 	pub(crate) async fn refresh_indexer_cache(&self, server: &Server) -> tg::Result<()> {
-		let indexers = self.get_indexers(server).await?;
+		let indexers = Self::get_indexers(server).await?;
 		let indexers = indexers
 			.into_iter()
 			.filter_map(|indexer| indexer.available.then_some(indexer.id))

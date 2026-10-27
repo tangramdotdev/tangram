@@ -66,7 +66,9 @@ impl Component {
 		.await?;
 		session
 			.server
-			.spawn_publish_database_index_queue_notification_task();
+			.components
+			.indexer
+			.spawn_publish_database_index_queue_notification_task(&session.server);
 
 		Ok(user)
 	}
@@ -175,7 +177,7 @@ impl Component {
 	) -> tg::Result<ControlFlow<ControlFlow<tg::user::Data>, tangram_server_core::database::Error>>
 	{
 		let batch_size = session.server.config.sync.get.database.batch_size;
-		match tangram_server_core::Session::verify_ids_for_specifiers_with_transaction(
+		match tangram_server_node_common::specifier::verify_ids_for_specifiers_with_transaction(
 			transaction,
 			ids_by_specifier,
 			batch_size,
@@ -250,7 +252,9 @@ impl Component {
 		.ok_or_else(|| tg::error!("failed to find the user"))?;
 		match session
 			.server
-			.enqueue_database_index_queue_with_transaction(transaction, &batch)
+			.components
+			.indexer
+			.enqueue_database_index_queue_with_transaction(&session.server, transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),
@@ -307,15 +311,16 @@ impl Component {
 		};
 
 		// Get or create the user.
-		let id = match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
-			transaction,
-			&specifier,
-		)
-		.await?
-		{
-			ControlFlow::Break(id) => id,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
+		let id =
+			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
+				transaction,
+				&specifier,
+			)
+			.await?
+			{
+				ControlFlow::Break(id) => id,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 		let user = if let Some(id) = id {
 			let Ok(id) = id.try_into() else {
 				return Err(tg::error!("specifier is already in use"));
@@ -327,7 +332,7 @@ impl Component {
 			.ok_or_else(|| tg::error!("failed to find the user"))?
 		} else {
 			let id = tg::user::Id::new();
-			match tangram_server_core::Session::insert_specifier_with_transaction(
+			match tangram_server_node_common::specifier::insert_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),
 				&specifier,

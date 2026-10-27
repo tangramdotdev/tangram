@@ -11,6 +11,7 @@ use {
 
 mod cache;
 mod client;
+mod config;
 mod delete;
 mod get;
 mod list;
@@ -73,7 +74,14 @@ impl std::ops::Deref for Component {
 	}
 }
 
-impl tangram_server_core::component::Lifecycle for Component {}
+impl tangram_server_core::component::Lifecycle for Component {
+	fn start<'a>(
+		&'a self,
+		server: &'a tangram_server_core::Server,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		Self::set_config_remotes(server).boxed()
+	}
+}
 
 impl tangram_server_core::remote::Component for Component {
 	fn list_remotes<'a>(

@@ -21,6 +21,7 @@ fnv = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 itertools = { workspace = true }
+libc = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
 reflink-copy = { workspace = true }
@@ -31,8 +32,10 @@ tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
+tangram_server_node_common = { workspace = true }
 tangram_server_tag_common = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+xattr = { workspace = true }

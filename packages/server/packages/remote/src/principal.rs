@@ -108,7 +108,7 @@ impl Component {
 			tg::principal::Selector::Principal(principal) => match principal {
 				tg::Principal::Group(id) => {
 					let id = id.clone();
-					let specifier = match Session::try_get_specifier_for_id_with_transaction(
+					let specifier = match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
@@ -123,7 +123,7 @@ impl Component {
 				},
 				tg::Principal::Organization(id) => {
 					let id = id.clone();
-					let specifier = match Session::try_get_specifier_for_id_with_transaction(
+					let specifier = match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
@@ -139,7 +139,7 @@ impl Component {
 				tg::Principal::Root => Ok(ControlFlow::Break(Some(None))),
 				tg::Principal::User(id) => {
 					let id = id.clone();
-					let specifier = match Session::try_get_specifier_for_id_with_transaction(
+					let specifier = match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
@@ -158,7 +158,7 @@ impl Component {
 				| tg::Principal::Sandbox(_) => Err(tg::error!("invalid remote principal")),
 			},
 			tg::principal::Selector::Specifier(specifier) => {
-				let id = match Session::try_get_id_for_specifier_with_transaction(
+				let id = match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 					transaction,
 					specifier,
 				)

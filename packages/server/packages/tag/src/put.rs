@@ -79,7 +79,9 @@ impl Component {
 		.await?;
 		session
 			.server
-			.spawn_publish_database_index_queue_notification_task();
+			.components
+			.indexer
+			.spawn_publish_database_index_queue_notification_task(&session.server);
 		Ok(())
 	}
 
@@ -242,7 +244,7 @@ impl Component {
 	) -> tg::Result<ControlFlow<ControlFlow<Vec<tg::user::Id>>, tangram_server_core::database::Error>>
 	{
 		let batch_size = session.server.config.sync.get.database.batch_size;
-		match tangram_server_core::Session::verify_ids_for_specifiers_with_transaction(
+		match tangram_server_node_common::specifier::verify_ids_for_specifiers_with_transaction(
 			transaction,
 			ids_by_specifier,
 			batch_size,
@@ -313,7 +315,9 @@ impl Component {
 		batch.items.extend(capture);
 		match session
 			.server
-			.enqueue_database_index_queue_with_transaction(transaction, &batch)
+			.components
+			.indexer
+			.enqueue_database_index_queue_with_transaction(&session.server, transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),
@@ -333,7 +337,7 @@ impl Component {
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<ControlFlow<(tg::tag::Data, String), tangram_server_core::database::Error>> {
 		let existing =
-			match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
+			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 				transaction,
 				&arg.specifier,
 			)
@@ -465,7 +469,7 @@ impl Component {
 		} else {
 			let id = tg::tag::Id::new();
 			let version = tangram_server_tag_common::version();
-			match tangram_server_core::Session::insert_specifier_with_transaction(
+			match tangram_server_node_common::specifier::insert_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),
 				&arg.specifier,

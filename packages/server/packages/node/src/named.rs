@@ -63,7 +63,7 @@ impl Component {
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let specifiers = specifiers.to_vec();
 				async move {
-					Session::try_get_ids_for_specifiers_with_transaction(
+					tangram_server_node_common::specifier::try_get_ids_for_specifiers_with_transaction(
 						transaction,
 						&specifiers,
 						batch_size,
@@ -294,7 +294,7 @@ impl Component {
 		let output = match selector {
 			tg::Selector::Id(id) => {
 				let specifier =
-					match Session::try_get_specifier_for_id_with_transaction(transaction, id)
+					match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(transaction, id)
 						.await?
 					{
 						ControlFlow::Break(specifier) => specifier,
@@ -303,7 +303,7 @@ impl Component {
 				specifier.map(|specifier| (id.clone(), specifier))
 			},
 			tg::Selector::Specifier(specifier) => {
-				let id = match Session::try_get_id_for_specifier_with_transaction(
+				let id = match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 					transaction,
 					specifier,
 				)

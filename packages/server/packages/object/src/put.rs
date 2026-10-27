@@ -403,7 +403,11 @@ impl Component {
 			return self.put_object_batch_inner(server, vec![arg]).await;
 		}
 
-		let archive = self.enqueue_object_archive(server, arg.id.clone(), arg.put);
+		let archive =
+			server
+				.components
+				.indexer
+				.enqueue_object_archive(server, arg.id.clone(), arg.put);
 		let object_put = server.cache.put_object(arg);
 		let (object_result, archive_result) = future::join(object_put, archive).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
@@ -504,11 +508,12 @@ impl Component {
 			.map(|arg| (arg.id.clone(), arg.put))
 			.collect::<Vec<_>>();
 		let count = args.len();
-		let archive = future::try_join_all(
-			entries
-				.into_iter()
-				.map(|(id, put)| self.enqueue_object_archive(server, id, put)),
-		)
+		let archive = future::try_join_all(entries.into_iter().map(|(id, put)| {
+			server
+				.components
+				.indexer
+				.enqueue_object_archive(server, id, put)
+		}))
 		.map(|result| {
 			tracing::debug!(
 				count,
@@ -552,73 +557,6 @@ impl Component {
 					})
 			})
 			.collect()
-	}
-
-	async fn enqueue_object_archive(
-		&self,
-		server: &Server,
-		object: tg::object::Id,
-		put: [u8; 16],
-	) -> tg::Result<()> {
-		let start = rand::random::<u64>();
-		let mut attempt = 0u64;
-		let retry =
-			tangram_futures::retry::Options::from(server.config.indexer.batch.retry.clone());
-		tangram_futures::retry(&retry, || {
-			let index = start.wrapping_add(attempt);
-			let refresh = attempt > 0;
-			attempt = attempt.wrapping_add(1);
-			let object = object.clone();
-			async move {
-				let indexer = match server
-					.components
-					.indexer
-					.select_indexer(server, index, refresh)
-					.await
-				{
-					Ok(indexer) => indexer,
-					Err(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				let result = self
-					.enqueue_object_archive_with_indexer(server, &indexer, object, put)
-					.await;
-				match result {
-					Ok(()) => Ok(ControlFlow::Break(())),
-					Err(error) => Ok(ControlFlow::Continue(error)),
-				}
-			}
-		})
-		.await?;
-
-		Ok(())
-	}
-
-	async fn enqueue_object_archive_with_indexer(
-		&self,
-		server: &Server,
-		indexer: &tg::indexer::Id,
-		object: tg::object::Id,
-		put: [u8; 16],
-	) -> tg::Result<()> {
-		let arg = tangram_server_core::indexer::RequestArg::Archive(
-			tangram_server_core::indexer::ArchiveRequestArg { object, put },
-		);
-		let request = server
-			.components
-			.indexer
-			.send_indexer_request(server, Some(indexer), arg);
-		let output = tokio::time::timeout(server.config.indexer.batch.timeout, request)
-			.await
-			.map_err(|source| tg::error!(!source, "timed out enqueueing an object for archiving"))?
-			.map_err(|source| tg::error!(!source, "failed to send an archive request"))?
-			.map_err(|source| {
-				tg::error!(!source, "the indexer failed to enqueue an archive entry")
-			})?;
-		output
-			.try_unwrap_archive()
-			.map_err(|_| tg::error!("expected an archive response"))?;
-
-		Ok(())
 	}
 }
 

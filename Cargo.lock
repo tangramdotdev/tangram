@@ -10757,6 +10757,7 @@ dependencies = [
  "futures",
  "http",
  "tangram_billing",
+ "tangram_billing_stripe",
  "tangram_client",
  "tangram_database",
  "tangram_http",
@@ -10818,11 +10819,21 @@ dependencies = [
  "tangram_ignore",
  "tangram_index",
  "tangram_serialize",
+ "tangram_server_checkin_common",
  "tangram_server_core",
  "tangram_util",
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "tangram_server_checkin_common"
+version = "0.0.0"
+dependencies = [
+ "indoc",
+ "tangram_client",
+ "tangram_ignore",
 ]
 
 [[package]]
@@ -10849,6 +10860,7 @@ dependencies = [
  "futures",
  "http",
  "itertools 0.15.0",
+ "libc",
  "mime",
  "num",
  "reflink-copy",
@@ -10859,11 +10871,13 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_node_common",
  "tangram_server_tag_common",
  "tangram_util",
  "tokio",
  "tracing",
  "uuid",
+ "xattr",
 ]
 
 [[package]]
@@ -11126,6 +11140,7 @@ dependencies = [
  "tangram_compiler",
  "tangram_http",
  "tangram_ignore",
+ "tangram_server_checkin_common",
  "tangram_server_core",
  "tangram_util",
  "tokio",
@@ -11165,6 +11180,7 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_grant_common",
+ "tangram_server_node_common",
 ]
 
 [[package]]
@@ -11199,6 +11215,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_node_common",
  "tangram_server_remote_core",
 ]
 
@@ -11232,6 +11249,8 @@ name = "tangram_server_indexer"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "data-encoding",
+ "derive_more",
  "futures",
  "http",
  "itertools 0.15.0",
@@ -11386,13 +11405,17 @@ dependencies = [
  "tangram_futures",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_node_common",
 ]
 
 [[package]]
 name = "tangram_server_node_common"
 version = "0.0.0"
 dependencies = [
+ "indoc",
  "tangram_client",
+ "tangram_database",
+ "tangram_server_database",
 ]
 
 [[package]]
@@ -11415,9 +11438,17 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_object_common",
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "tangram_server_object_common"
+version = "0.0.0"
+dependencies = [
+ "tangram_client",
 ]
 
 [[package]]
@@ -11437,6 +11468,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_node_common",
  "tangram_server_remote_core",
 ]
 
@@ -11571,6 +11603,7 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_grant_common",
+ "tangram_server_node_common",
  "tangram_server_remote_core",
  "tangram_uri",
  "tracing",
@@ -11748,6 +11781,7 @@ dependencies = [
  "tangram_server_core",
  "tangram_server_grant_common",
  "tangram_server_node_common",
+ "tangram_server_object_common",
  "tangram_server_process_core",
  "tangram_server_tag_common",
  "tangram_util",
@@ -11794,6 +11828,7 @@ dependencies = [
  "tangram_client",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_node_common",
 ]
 
 [[package]]
@@ -11817,6 +11852,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
+ "tangram_server_node_common",
  "tangram_server_remote_core",
  "tangram_uri",
  "tokio",

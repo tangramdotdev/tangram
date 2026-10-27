@@ -131,10 +131,16 @@ impl Component {
 			.collect::<Vec<_>>();
 		let result = server.index.batch(arg).await?;
 		for id in sandboxes {
-			server.spawn_publish_sandbox_status_task(&id);
+			server
+				.components
+				.sandbox
+				.spawn_publish_sandbox_status_task(server, &id);
 		}
 		for id in processes {
-			server.spawn_publish_process_status_task(&id);
+			server
+				.components
+				.process
+				.spawn_publish_process_status_task(server, &id);
 		}
 		Ok(result)
 	}
@@ -158,12 +164,7 @@ impl Component {
 			let refresh = attempt > 0;
 			attempt = attempt.wrapping_add(1);
 			async move {
-				let indexer = match server
-					.components
-					.indexer
-					.select_indexer(server, index, refresh)
-					.await
-				{
+				let indexer = match self.select_indexer(server, index, refresh).await {
 					Ok(indexer) => indexer,
 					Err(error) => return Ok(ControlFlow::Continue(error)),
 				};
@@ -200,18 +201,14 @@ impl Component {
 			.cloned()
 			.enumerate()
 			.map(|(fragment, payload)| {
-				let arg = tangram_server_core::indexer::RequestArg::Index(
-					tangram_server_core::indexer::IndexRequestArg {
-						batch,
-						fragment: u64::try_from(fragment).unwrap(),
-						fragments: fragment_count,
-						payload,
-					},
-				);
+				let arg = crate::request::RequestArg::Index(crate::request::IndexRequestArg {
+					batch,
+					fragment: u64::try_from(fragment).unwrap(),
+					fragments: fragment_count,
+					payload,
+				});
 				async {
-					let output = server
-						.components
-						.indexer
+					let output = self
 						.send_indexer_request(server, Some(indexer), arg)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to send an index request"))?

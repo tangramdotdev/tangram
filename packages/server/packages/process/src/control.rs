@@ -305,7 +305,7 @@ impl Component {
 				lease
 			},
 		};
-		session.server.spawn_publish_process_status_task(&id);
+		Self::spawn_publish_process_status_task(&session.server, &id);
 
 		// Answer the requests for the process for as long as the connection lasts.
 		let service_arg = service::Arg {
@@ -389,11 +389,7 @@ impl Component {
 						tg::process::control::ClientMessage::Notification(
 							tg::process::control::ClientNotification::ChildSpawned,
 						) => {
-							session
-								.server
-								.notifications
-								.publish_process_child_spawned(&id)
-								.await?;
+							Self::publish_process_child_spawned(&session.server, &id).await?;
 						},
 						tg::process::control::ClientMessage::Notification(
 							tg::process::control::ClientNotification::BorrowableCapacity(

@@ -1,5 +1,5 @@
 use {
-	crate::{Origin, Session},
+	crate::{Origin, Server, Session},
 	futures::{future::BoxFuture, stream::BoxStream},
 	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
@@ -133,6 +133,12 @@ pub trait Component: crate::component::Lifecycle {
 		runner: Option<tg::runner::Id>,
 	) -> BoxFuture<'a, tg::Result<tangram_index::sandbox::put::Arg>>;
 
+	fn publish_sandbox_process_spawned<'a>(
+		&'a self,
+		server: &'a Server,
+		id: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
 	fn request_sandbox_control<'a>(
 		&'a self,
 		session: &'a Session,
@@ -140,6 +146,8 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: crate::control::Options,
 	) -> BoxFuture<'a, tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>>;
+
+	fn spawn_publish_sandbox_status_task(&self, server: &Server, id: &tg::sandbox::Id);
 
 	fn subscribe_sandbox_connection<'a>(
 		&'a self,
@@ -194,14 +202,6 @@ impl crate::Server {
 			.ok_or_else(|| tg::error!(%index, "failed to find the origin sandbox"))?;
 
 		Ok(Some(sandbox))
-	}
-
-	#[must_use]
-	pub fn sandbox_resources(&self) -> tangram_sandbox::Resources {
-		self.config
-			.runner
-			.backend
-			.resources(&self.config.runner.resources)
 	}
 }
 

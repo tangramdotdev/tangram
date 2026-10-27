@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Server, Session},
 	futures::{future::BoxFuture, stream::BoxStream},
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -243,6 +243,8 @@ pub trait Component: crate::component::Lifecycle {
 		metadata: bool,
 	) -> BoxFuture<'a, tg::Result<tg::process::get::Output>>;
 
+	fn notify_process_log(&self, server: &Server, id: &tg::process::Id);
+
 	fn push_process_objects<'a>(
 		&'a self,
 		session: &'a Session,
@@ -287,6 +289,8 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		id: &'a tg::process::Id,
 	) -> ();
+
+	fn spawn_publish_process_status_task(&self, server: &Server, id: &tg::process::Id);
 
 	fn store_process_error<'a>(
 		&'a self,

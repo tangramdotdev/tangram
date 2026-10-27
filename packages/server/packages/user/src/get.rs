@@ -282,7 +282,7 @@ impl Component {
 		}
 
 		let specifier =
-			match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+			match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
 				transaction,
 				&id.clone().into(),
 			)

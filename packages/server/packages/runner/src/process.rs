@@ -986,8 +986,9 @@ impl Component {
 		}
 		session
 			.server
-			.notifications
-			.publish_sandbox_process_spawned(&sandbox_id)
+			.components
+			.sandbox
+			.publish_sandbox_process_spawned(&session.server, &sandbox_id)
 			.await?;
 
 		// Index the remote process before reporting the connection.

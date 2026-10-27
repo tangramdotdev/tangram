@@ -1,8 +1,8 @@
 use {
 	super::Request,
+	crate::request::RequestArg,
 	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
-	tangram_server_core::indexer::RequestArg,
 };
 
 type BatchId = tangram_server_core::cache::index::queue::batch::Id;

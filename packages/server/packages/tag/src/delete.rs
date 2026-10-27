@@ -75,7 +75,9 @@ impl Component {
 		.await?;
 		session
 			.server
-			.spawn_publish_database_index_queue_notification_task();
+			.components
+			.indexer
+			.spawn_publish_database_index_queue_notification_task(&session.server);
 		session
 			.server
 			.components
@@ -170,7 +172,7 @@ impl Component {
 		ControlFlow<ControlFlow<tg::tag::delete::Output>, tangram_server_core::database::Error>,
 	> {
 		let batch_size = session.server.config.sync.get.database.batch_size;
-		match tangram_server_core::Session::verify_ids_for_specifiers_with_transaction(
+		match tangram_server_node_common::specifier::verify_ids_for_specifiers_with_transaction(
 			transaction,
 			ids_by_specifier,
 			batch_size,
@@ -197,7 +199,9 @@ impl Component {
 		);
 		match session
 			.server
-			.enqueue_database_index_queue_with_transaction(transaction, &batch)
+			.components
+			.indexer
+			.enqueue_database_index_queue_with_transaction(&session.server, transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),
@@ -264,7 +268,7 @@ impl Component {
 	) -> tg::Result<ControlFlow<Vec<tg::tag::Data>, tangram_server_core::database::Error>> {
 		let mut tags = Vec::new();
 		for specifier in specifiers {
-			let id = match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
+			let id = match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 				transaction,
 				&specifier,
 			)

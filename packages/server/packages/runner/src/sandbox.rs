@@ -653,7 +653,12 @@ impl Component {
 		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<CreateSandboxOutput> {
 		let isolation = self.resolve_sandbox_backend(&session.server)?;
-		let mut resources = session.server.sandbox_resources();
+		let mut resources = session
+			.server
+			.config
+			.runner
+			.backend
+			.resources(&session.server.config.runner.resources);
 		if matches!(
 			&isolation,
 			tangram_sandbox::Backend::Builtin

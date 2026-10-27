@@ -1,5 +1,5 @@
 use {
-	super::super::Indexer,
+	super::{super::Indexer, database_index_queue_subject},
 	futures::{FutureExt as _, StreamExt as _, stream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -10,7 +10,6 @@ use {
 	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
-	tangram_server_core::indexer::database_index_queue_subject,
 	tokio_stream::wrappers::IntervalStream,
 };
 
@@ -114,7 +113,11 @@ impl Indexer {
 
 		// Submit each queue entry sequentially to preserve transaction order.
 		for arg in args {
-			if !self.server.named_checkout_maintenance_enabled()
+			if !self
+				.server
+				.components
+				.checkout
+				.named_checkout_maintenance_enabled(&self.server)
 				|| !Self::database_index_queue_batch_contains_named_node_mutation(&arg)
 			{
 				self.index_database_queue_batch(arg).await?;
@@ -126,7 +129,12 @@ impl Indexer {
 			)
 			.await;
 			let guard = self.server.components.checkout.lock().acquire().await;
-			if !self.server.named_checkout_maintenance_enabled() {
+			if !self
+				.server
+				.components
+				.checkout
+				.named_checkout_maintenance_enabled(&self.server)
+			{
 				self.index_database_queue_batch(arg).await?;
 				continue;
 			}

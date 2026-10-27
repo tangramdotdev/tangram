@@ -85,7 +85,7 @@ impl Component {
 			.await?
 			.check_exhaustion()?;
 		let permissions = authorization.permissions;
-		let output = tangram_server_core::Session::mask_object_metadata_with_permissions(
+		let output = tangram_server_object_common::mask_object_metadata_with_permissions(
 			metadata,
 			permissions,
 		);

@@ -33,6 +33,7 @@ tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
+tangram_server_object_common = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }

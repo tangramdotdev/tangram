@@ -1,12 +1,15 @@
 use {
+	self::provider::Billing,
 	futures::{FutureExt as _, future::BoxFuture},
 	std::sync::Arc,
+	tangram_billing::Billing as _,
 	tangram_client::prelude::*,
 	tangram_http::body::Boxed as BoxBody,
 	tangram_index::prelude::*,
 	tangram_server_core::Session,
 };
 
+mod provider;
 mod webhook;
 
 /// The component.
@@ -14,23 +17,38 @@ mod webhook;
 pub struct Component(Arc<State>);
 
 pub struct State {
-	pub provider: Option<tangram_server_core::billing::Billing>,
+	pub provider: Option<Billing>,
 }
 
 impl Component {
 	#[must_use]
 	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> Self {
 		// Create the billing provider.
-		let provider = arg
-			.config
-			.billing
-			.as_ref()
-			.map(tangram_server_core::billing::Billing::new);
+		let provider = arg.config.billing.as_ref().map(Billing::new);
 
 		// Create the state.
 		let state = State { provider };
 
 		Self(Arc::new(state))
+	}
+
+	pub async fn create_customer(
+		&self,
+		arg: tangram_billing::customer::create::Arg,
+	) -> tg::Result<String> {
+		let billing = self
+			.provider
+			.as_ref()
+			.ok_or_else(|| tg::error!("billing is not configured"))?;
+		billing.create_customer(arg).await
+	}
+
+	pub async fn create_management_url(&self, customer: &str) -> tg::Result<String> {
+		let billing = self
+			.provider
+			.as_ref()
+			.ok_or_else(|| tg::error!("billing is not configured"))?;
+		billing.create_management_url(customer).await
 	}
 
 	pub(crate) async fn request(
@@ -171,8 +189,19 @@ impl tangram_server_core::billing::Component for Component {
 		self.verify_billing(session, owner).boxed()
 	}
 
-	fn provider(&self) -> Option<&tangram_server_core::billing::Billing> {
-		self.provider.as_ref()
+	fn configured(&self) -> bool {
+		self.provider.is_some()
+	}
+
+	fn create_customer(
+		&self,
+		arg: tangram_billing::customer::create::Arg,
+	) -> BoxFuture<'_, tg::Result<String>> {
+		self.create_customer(arg).boxed()
+	}
+
+	fn create_management_url<'a>(&'a self, customer: &'a str) -> BoxFuture<'a, tg::Result<String>> {
+		self.create_management_url(customer).boxed()
 	}
 
 	fn request<'a>(

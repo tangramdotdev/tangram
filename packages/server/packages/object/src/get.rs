@@ -182,7 +182,7 @@ impl Component {
 		}
 		Self::add_tokens_to_object_get_output(session, id, authorization, &mut output)?;
 		if let Some(metadata) = output.metadata {
-			output.metadata = tangram_server_core::Session::mask_object_metadata_with_permissions(
+			output.metadata = tangram_server_object_common::mask_object_metadata_with_permissions(
 				metadata,
 				permissions,
 			);
@@ -299,7 +299,7 @@ impl Component {
 				}
 				if let Some(metadata) = output.metadata.take() {
 					output.metadata =
-						tangram_server_core::Session::mask_object_metadata_with_permissions(
+						tangram_server_object_common::mask_object_metadata_with_permissions(
 							metadata,
 							*permissions,
 						);

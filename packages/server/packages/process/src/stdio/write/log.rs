@@ -211,7 +211,7 @@ impl Component {
 			.put_log_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the log"))?;
-		session.server.notifications.notify_process_log(id);
+		Self::notify_process_log(&session.server, id);
 
 		Ok(())
 	}
@@ -285,11 +285,9 @@ impl Component {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to store the log end"))?;
 		}
-		session.server.notifications.notify_process_log(id);
+		Self::notify_process_log(&session.server, id);
 		for &stream in streams {
-			session
-				.server
-				.spawn_publish_process_stdio_close_message_task(id, stream);
+			Self::spawn_publish_process_stdio_close_message_task(&session.server, id, stream);
 		}
 
 		Ok(Output {

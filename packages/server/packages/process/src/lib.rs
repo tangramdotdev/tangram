@@ -13,6 +13,7 @@ use {
 	tangram_server_process_core::{Child, Processes, put::Options},
 };
 
+mod notification;
 mod push;
 mod runner;
 mod sandbox;
@@ -508,6 +509,10 @@ impl tangram_server_core::process::Component for Component {
 		self.get_process_local(session, id, metadata).boxed()
 	}
 
+	fn notify_process_log(&self, server: &tangram_server_core::Server, id: &tg::process::Id) {
+		Self::notify_process_log(server, id);
+	}
+
 	fn push_process_objects<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
@@ -566,6 +571,14 @@ impl tangram_server_core::process::Component for Component {
 		id: &'a tg::process::Id,
 	) {
 		self.spawn_process_finish_tasks(session, id);
+	}
+
+	fn spawn_publish_process_status_task(
+		&self,
+		server: &tangram_server_core::Server,
+		id: &tg::process::Id,
+	) {
+		Self::spawn_publish_process_status_task(server, id);
 	}
 
 	fn store_process_error<'a>(

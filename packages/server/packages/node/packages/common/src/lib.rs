@@ -1,5 +1,7 @@
 use tangram_client::prelude::*;
 
+pub mod specifier;
+
 pub fn delete_permission_for_named_node(id: &tg::Id) -> tg::Result<tg::authorization::Permission> {
 	match id.kind() {
 		tg::id::Kind::Group => Ok(tg::authorization::Permission::Group(

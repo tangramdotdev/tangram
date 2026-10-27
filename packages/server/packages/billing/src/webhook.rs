@@ -22,7 +22,7 @@ impl Component {
 	async fn process_billing_webhook(
 		&self,
 		session: &Session,
-		billing: &tangram_server_core::billing::Billing,
+		billing: &crate::provider::Billing,
 		event: Event,
 	) -> tg::Result<()> {
 		// Skip a processed event.
@@ -84,7 +84,9 @@ impl Component {
 		}
 		session
 			.server
-			.spawn_publish_database_index_queue_notification_task();
+			.components
+			.indexer
+			.spawn_publish_database_index_queue_notification_task(&session.server);
 		session.server.index.batch(batch).await??;
 
 		Ok(())
@@ -194,7 +196,9 @@ impl Component {
 		}
 
 		match server
-			.enqueue_database_index_queue_with_transaction(transaction, &batch)
+			.components
+			.indexer
+			.enqueue_database_index_queue_with_transaction(server, transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

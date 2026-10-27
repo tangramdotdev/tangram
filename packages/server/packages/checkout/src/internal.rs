@@ -142,7 +142,7 @@ impl Component {
 	}
 
 	pub async fn checkout_await_indexing(&self, session: &Session) -> tg::Result<()> {
-		if !session.server.named_checkout_maintenance_enabled() {
+		if !Self::named_checkout_maintenance_enabled(&session.server) {
 			return Ok(());
 		}
 		session
@@ -218,7 +218,7 @@ impl Component {
 		let mut ancestors = Vec::with_capacity(node.specifier.components().count());
 		let mut parent = None;
 		for specifier in node.specifier.ancestors() {
-			let id = match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
+			let id = match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 				transaction,
 				&specifier,
 			)
@@ -439,7 +439,7 @@ impl Component {
 		checkouts: &[super::NamedCheckout],
 		suffix: Option<&str>,
 	) -> tg::Result<()> {
-		if !session.server.named_checkout_maintenance_enabled() {
+		if !Self::named_checkout_maintenance_enabled(&session.server) {
 			return Ok(());
 		}
 		let entries = Self::named_checkout_entries(checkouts)?;
@@ -452,7 +452,7 @@ impl Component {
 			.collect::<Vec<_>>();
 		for attempt in 0..2 {
 			let guard = self.lock.acquire().await;
-			if !session.server.named_checkout_maintenance_enabled() {
+			if !Self::named_checkout_maintenance_enabled(&session.server) {
 				return Ok(());
 			}
 			let actual = self
@@ -1728,7 +1728,7 @@ impl Component {
 		server: &Server,
 		_guard: &super::Guard<'_>,
 	) -> tg::Result<()> {
-		if !server.named_checkout_maintenance_enabled() {
+		if !Self::named_checkout_maintenance_enabled(server) {
 			return Ok(());
 		}
 
@@ -1766,7 +1766,7 @@ impl Component {
 		entries: &[NamedCheckoutEntry],
 		suffix: Option<&str>,
 	) -> tg::Result<()> {
-		if !server.named_checkout_maintenance_enabled() {
+		if !Self::named_checkout_maintenance_enabled(server) {
 			return Ok(());
 		}
 		for entry in entries {
@@ -1799,7 +1799,7 @@ impl Component {
 		id: &tg::Id,
 		specifier: &tg::Specifier,
 	) -> tg::Result<()> {
-		if !server.named_checkout_maintenance_enabled() {
+		if !Self::named_checkout_maintenance_enabled(server) {
 			return Ok(());
 		}
 		let node = super::NamedNode {

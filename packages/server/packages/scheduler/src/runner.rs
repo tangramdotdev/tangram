@@ -321,7 +321,10 @@ impl Component {
 				{
 					tracing::error!(error = %error.trace(), %process, "failed to expire the process log cache");
 				}
-				server.notifications.notify_process_log(&process);
+				server
+					.components
+					.process
+					.notify_process_log(server, &process);
 				session
 					.server
 					.components
@@ -424,7 +427,10 @@ impl Component {
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to update the destroyed sandbox in the index"),
 			)?;
-		server.spawn_publish_sandbox_status_task(id);
+		server
+			.components
+			.sandbox
+			.spawn_publish_sandbox_status_task(server, id);
 
 		Ok(())
 	}

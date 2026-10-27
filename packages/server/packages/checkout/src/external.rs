@@ -247,7 +247,7 @@ impl Component {
 				let directory = path
 					.parent()
 					.ok_or_else(|| tg::error!("expected the checkout path to have a parent"))?;
-				let xattr_capabilities = tangram_server_core::checkout::xattrs::probe(directory)?;
+				let xattr_capabilities = crate::xattrs::probe(directory)?;
 
 				// Create the state.
 				let mut state = State {

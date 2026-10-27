@@ -10,12 +10,10 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::task::{Shared as SharedTask, Stopper, Task},
 	tangram_http::body::Boxed as BoxBody,
-	tangram_server_core::{
-		Server, Session,
-		indexer::{CleanBatchArg, RequestArg, ResponseOutput},
-	},
+	tangram_server_core::{Server, Session, indexer::CleanBatchArg},
 };
 
+mod archive;
 mod billing;
 mod cache;
 mod capture;
@@ -971,22 +969,6 @@ impl tangram_server_core::indexer::Component for Component {
 		self.request(session, request).boxed()
 	}
 
-	fn get_indexers<'a>(
-		&'a self,
-		server: &'a tangram_server_core::Server,
-	) -> BoxFuture<'a, tg::Result<Vec<tangram_index::indexer::Indexer>>> {
-		self.get_indexers(server).boxed()
-	}
-
-	fn send_indexer_request<'a>(
-		&'a self,
-		server: &'a tangram_server_core::Server,
-		indexer: Option<&'a tg::indexer::Id>,
-		arg: RequestArg,
-	) -> BoxFuture<'a, tg::Result<tg::Result<ResponseOutput>>> {
-		self.send_indexer_request(server, indexer, arg).boxed()
-	}
-
 	fn clean_batch<'a>(
 		&'a self,
 		server: &'a tangram_server_core::Server,
@@ -995,13 +977,29 @@ impl tangram_server_core::indexer::Component for Component {
 		self.clean_batch(server, arg).boxed()
 	}
 
-	fn select_indexer<'a>(
+	fn enqueue_database_index_queue_with_transaction<'a>(
 		&'a self,
 		server: &'a tangram_server_core::Server,
-		index: u64,
-		refresh: bool,
-	) -> BoxFuture<'a, tg::Result<tg::indexer::Id>> {
-		self.select_indexer(server, index, refresh).boxed()
+		transaction: &'a tangram_server_core::database::Transaction<'_>,
+		arg: &'a tangram_index::batch::Arg,
+	) -> BoxFuture<'a, tg::Result<ControlFlow<(), tangram_server_core::database::Error>>> {
+		Self::enqueue_database_index_queue_with_transaction(server, transaction, arg).boxed()
+	}
+
+	fn enqueue_object_archive<'a>(
+		&'a self,
+		server: &'a tangram_server_core::Server,
+		object: tg::object::Id,
+		put: [u8; 16],
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.enqueue_object_archive(server, object, put).boxed()
+	}
+
+	fn spawn_publish_database_index_queue_notification_task(
+		&self,
+		server: &tangram_server_core::Server,
+	) {
+		Self::spawn_publish_database_index_queue_notification_task(server);
 	}
 }
 

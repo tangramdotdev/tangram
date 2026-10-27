@@ -14,6 +14,8 @@ use {
 };
 
 mod external;
+mod initialize;
+mod xattrs;
 
 pub(crate) mod internal;
 
@@ -505,6 +507,11 @@ impl Component {
 		}
 	}
 
+	#[must_use]
+	pub(crate) fn named_checkout_maintenance_enabled(server: &tangram_server_core::Server) -> bool {
+		server.checkouts_enabled() && !server.components.vfs.mounted()
+	}
+
 	pub(crate) fn internal_xattr_capabilities(
 		&self,
 		server: &tangram_server_core::Server,
@@ -514,8 +521,7 @@ impl Component {
 			max_value_size
 		} else {
 			let path = server.checkout_path();
-			let max_value_size =
-				tangram_server_core::checkout::xattrs::probe(&path)?.max_value_size;
+			let max_value_size = crate::xattrs::probe(&path)?.max_value_size;
 			cached.replace(max_value_size);
 			max_value_size
 		};
@@ -541,6 +547,20 @@ impl std::ops::Deref for Component {
 }
 
 impl tangram_server_core::component::Lifecycle for Component {
+	fn start<'a>(
+		&'a self,
+		server: &'a tangram_server_core::Server,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		async move {
+			// Initialize the checkouts directory and start the VFS if enabled.
+			if server.checkouts_enabled() {
+				self.initialize_checkouts(server).await?;
+			}
+			Ok(())
+		}
+		.boxed()
+	}
+
 	fn stop<'a>(&'a self, _server: &'a tangram_server_core::Server) -> BoxFuture<'a, ()> {
 		async move {
 			// Abort the checkout graph tasks.
@@ -586,6 +606,10 @@ impl tangram_server_core::checkout::Component for Component {
 
 	fn lock(&self) -> &Lock {
 		&self.lock
+	}
+
+	fn named_checkout_maintenance_enabled(&self, server: &tangram_server_core::Server) -> bool {
+		Self::named_checkout_maintenance_enabled(server)
 	}
 
 	fn checkout_internal<'a>(

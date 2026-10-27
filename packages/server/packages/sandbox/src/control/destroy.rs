@@ -17,7 +17,7 @@ impl Component {
 		if !arg.data.data.status.is_destroyed() {
 			return Err(tg::error!(%id, "expected a destroyed sandbox"));
 		}
-		session.server.spawn_publish_sandbox_status_task(id);
+		Self::spawn_publish_sandbox_status_task(&session.server, id);
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.destroy", sandbox = %id)
 			.await;
 

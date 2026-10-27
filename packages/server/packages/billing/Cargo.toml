@@ -20,6 +20,7 @@ workspace = true
 futures = { workspace = true }
 http = { workspace = true }
 tangram_billing = { workspace = true }
+tangram_billing_stripe = { workspace = true }
 tangram_client = { workspace = true }
 tangram_database = { workspace = true }
 tangram_http = { workspace = true }

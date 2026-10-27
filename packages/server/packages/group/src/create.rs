@@ -77,7 +77,9 @@ impl Component {
 		.await?;
 		session
 			.server
-			.spawn_publish_database_index_queue_notification_task();
+			.components
+			.indexer
+			.spawn_publish_database_index_queue_notification_task(&session.server);
 		Ok(output)
 	}
 
@@ -145,7 +147,7 @@ impl Component {
 		ControlFlow<ControlFlow<tg::group::create::Output>, tangram_server_core::database::Error>,
 	> {
 		let batch_size = session.server.config.sync.get.database.batch_size;
-		match tangram_server_core::Session::verify_ids_for_specifiers_with_transaction(
+		match tangram_server_node_common::specifier::verify_ids_for_specifiers_with_transaction(
 			transaction,
 			ids_by_specifier,
 			batch_size,
@@ -168,7 +170,9 @@ impl Component {
 		};
 		match session
 			.server
-			.enqueue_database_index_queue_with_transaction(transaction, &batch)
+			.components
+			.indexer
+			.enqueue_database_index_queue_with_transaction(&session.server, transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),
@@ -281,15 +285,16 @@ impl Component {
 		arg: tg::group::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<ControlFlow<tg::group::create::Output, tangram_server_core::database::Error>> {
-		let id = match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
-			transaction,
-			&arg.specifier,
-		)
-		.await?
-		{
-			ControlFlow::Break(id) => id,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
+		let id =
+			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
+				transaction,
+				&arg.specifier,
+			)
+			.await?
+			{
+				ControlFlow::Break(id) => id,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 		if let Some(id) = id {
 			if arg.ancestors.create && id.kind() == tg::id::Kind::Group {
 				let id = id.try_into()?;
@@ -376,7 +381,7 @@ impl Component {
 		}
 		let mut parent = None;
 		for specifier in specifier.ancestors() {
-			let id = match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
+			let id = match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 				transaction,
 				&specifier,
 			)
@@ -421,7 +426,7 @@ impl Component {
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<ControlFlow<tg::group::Data, tangram_server_core::database::Error>> {
 		let id = tg::group::Id::new();
-		match tangram_server_core::Session::insert_specifier_with_transaction(
+		match tangram_server_node_common::specifier::insert_specifier_with_transaction(
 			transaction,
 			&id.clone().into(),
 			specifier,

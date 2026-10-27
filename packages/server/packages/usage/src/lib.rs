@@ -119,7 +119,12 @@ impl Component {
 			.next()
 			.expect("a specifier should have a component");
 		let id =
-			match Session::try_get_id_for_specifier_with_transaction(transaction, &prefix).await? {
+			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
+				transaction,
+				&prefix,
+			)
+			.await?
+			{
 				ControlFlow::Break(id) => id,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
@@ -181,7 +186,7 @@ impl Component {
 						.prefixes()
 						.next()
 						.expect("a specifier should have a component");
-					let id = match Session::try_get_id_for_specifier_with_transaction(
+					let id = match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 						transaction,
 						&specifier,
 					)

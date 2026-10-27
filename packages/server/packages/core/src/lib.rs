@@ -7,16 +7,13 @@ use {
 		temp::Temp,
 	},
 	dashmap::{DashMap, DashSet},
-	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
-	indoc::{formatdoc, indoc},
 	std::{
 		collections::BTreeMap,
-		ops::{ControlFlow, Deref},
+		ops::Deref,
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_uri::Uri,
 	tokio::io::AsyncWriteExt as _,
 };
@@ -27,7 +24,6 @@ mod instance;
 mod migrations;
 mod notification;
 mod region;
-mod specifier;
 mod start;
 
 pub use {
@@ -207,34 +203,6 @@ impl Owned {
 }
 
 impl Server {
-	async fn destroy_unfinished_sandboxes(&self) -> tg::Result<()> {
-		let session = self.session(&self.context);
-		let outputs = session
-			.server
-			.components
-			.sandbox
-			.list_sandboxes_local(&session, None, None)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
-		outputs
-			.into_iter()
-			.map(|output| async move {
-				let result = self
-					.components
-					.scheduler
-					.destroy_runner_sandbox(self, &output.id, "server restarted")
-					.boxed()
-					.await;
-				if let Err(error) = result {
-					tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<()>()
-			.await;
-		Ok(())
-	}
-
 	#[must_use]
 	pub fn arg(&self) -> tg::Arg {
 		let default_url = || {
@@ -285,64 +253,9 @@ impl Server {
 		Session::new(self.clone(), context.clone())
 	}
 
-	async fn set_config_remotes_with_transaction(
-		transaction: &database::Transaction<'_>,
-		remotes: &std::collections::BTreeMap<String, crate::config::Remote>,
-	) -> tg::Result<ControlFlow<(), database::Error>> {
-		#[derive(db::row::Deserialize)]
-		struct RemoteTokenRow {
-			name: String,
-			token: Option<String>,
-		}
-		let statement = indoc!(
-			r"
-				select name, token
-				from remotes
-				where principal is null;
-			",
-		);
-		let result = transaction
-			.query_all_into::<RemoteTokenRow>(statement.into(), db::params![])
-			.await;
-		let tokens = crate::database::retry!(result, "failed to execute the statement")
-			.into_iter()
-			.map(|row| (row.name, row.token))
-			.collect::<std::collections::BTreeMap<_, _>>();
-		let statement = indoc!(
-			r"
-				delete from remotes
-				where principal is null;
-			",
-		);
-		let result = transaction.execute(statement.into(), db::params![]).await;
-		crate::database::retry!(result, "failed to delete the remotes");
-		for (name, remote) in remotes {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				r"
-					insert into remotes (name, principal, token, trusted, url)
-					values ({p}1, null, {p}2, {p}3, {p}4);
-				",
-			);
-			let token = remote
-				.token
-				.clone()
-				.or_else(|| tokens.get(name).cloned().flatten());
-			let params = db::params![name.clone(), token, remote.trusted, remote.url.to_string()];
-			let result = transaction.execute(statement.into(), params).await;
-			crate::database::retry!(result, "failed to insert the remote");
-		}
-		Ok(ControlFlow::Break(()))
-	}
-
 	#[must_use]
 	pub fn checkouts_enabled(&self) -> bool {
 		self.config.checkouts
-	}
-
-	#[must_use]
-	pub fn named_checkout_maintenance_enabled(&self) -> bool {
-		self.checkouts_enabled() && !self.components.vfs.mounted()
 	}
 
 	#[must_use]

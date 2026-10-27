@@ -6,8 +6,6 @@ use {
 	tangram_http::body::Boxed as BoxBody,
 };
 
-pub mod xattrs;
-
 /// The checkout component.
 pub trait Component: crate::component::Lifecycle {
 	fn checkout<'a>(
@@ -32,6 +30,8 @@ pub trait Component: crate::component::Lifecycle {
 	-> tg::Result<tg::file::xattrs::Options>;
 
 	fn lock(&self) -> &Lock;
+
+	fn named_checkout_maintenance_enabled(&self, server: &Server) -> bool;
 
 	fn remove_all_named_checkout_entries_with_lock<'a>(
 		&'a self,

@@ -9,10 +9,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_messenger::{Messenger as _, Payload},
-	tangram_server_core::{
-		Server,
-		indexer::{ArchiveRequestArg, IndexRequestArg, RequestArg, ResponseOutput},
-	},
+	tangram_server_core::Server,
 	tracing::Instrument as _,
 };
 
@@ -51,6 +48,38 @@ struct Response {
 	error: Option<tg::error::Data>,
 	id: String,
 	output: Option<ResponseOutput>,
+}
+
+#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub(crate) enum RequestArg {
+	Archive(ArchiveRequestArg),
+	Index(IndexRequestArg),
+	Wait,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct ArchiveRequestArg {
+	pub(crate) object: tg::object::Id,
+	pub(crate) put: [u8; 16],
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct IndexRequestArg {
+	pub(crate) batch: tangram_server_core::cache::index::queue::batch::Id,
+	pub(crate) fragment: u64,
+	pub(crate) fragments: u64,
+	#[serde(with = "bytes_base64")]
+	pub(crate) payload: bytes::Bytes,
+}
+
+#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ResponseOutput {
+	Archive,
+	Busy,
+	Index,
+	Wait,
 }
 
 pub(super) struct RequestTaskArgs {
@@ -573,5 +602,28 @@ impl Payload for ServerMessage {
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
 		let bytes = serde_json::to_vec(self).map_err(tangram_messenger::Error::serialization)?;
 		Ok(bytes.into())
+	}
+}
+
+mod bytes_base64 {
+	use serde::{Deserialize as _, Deserializer, Serializer};
+
+	pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<bytes::Bytes, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		let value = String::deserialize(deserializer)?;
+		let bytes = data_encoding::BASE64
+			.decode(value.as_bytes())
+			.map_err(serde::de::Error::custom)?;
+
+		Ok(bytes.into())
+	}
+
+	pub(super) fn serialize<S>(value: &bytes::Bytes, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_str(&data_encoding::BASE64.encode(value))
 	}
 }

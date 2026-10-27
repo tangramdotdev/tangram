@@ -88,7 +88,7 @@ impl Component {
 			tg::authorization::subject::Selector::Subject(subject) => match subject {
 				tg::authorization::Subject::Group(id) => {
 					let id = id.clone();
-					let specifier = match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+					let specifier = match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
@@ -104,7 +104,7 @@ impl Component {
 				},
 				tg::authorization::Subject::Organization(id) => {
 					let id = id.clone();
-					let specifier = match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+					let specifier = match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
@@ -135,7 +135,7 @@ impl Component {
 				tg::authorization::Subject::Tag(id) => tg::authorization::Subject::Tag(id.clone()),
 				tg::authorization::Subject::User(id) => {
 					let id = id.clone();
-					let specifier = match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+					let specifier = match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
@@ -152,7 +152,7 @@ impl Component {
 			},
 			tg::authorization::subject::Selector::Specifier(specifier) => {
 				let id =
-					match tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
+					match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 						transaction,
 						specifier,
 					)
@@ -264,7 +264,9 @@ impl Component {
 			.await?;
 		session
 			.server
-			.spawn_publish_database_index_queue_notification_task();
+			.components
+			.indexer
+			.spawn_publish_database_index_queue_notification_task(&session.server);
 		Ok(tg::grant::create::Output { data: grant })
 	}
 
@@ -305,7 +307,9 @@ impl Component {
 		}
 		match session
 			.server
-			.enqueue_database_index_queue_with_transaction(transaction, &batch)
+			.components
+			.indexer
+			.enqueue_database_index_queue_with_transaction(&session.server, transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),
@@ -372,7 +376,9 @@ impl Component {
 			.await?;
 		session
 			.server
-			.spawn_publish_database_index_queue_notification_task();
+			.components
+			.indexer
+			.spawn_publish_database_index_queue_notification_task(&session.server);
 		Ok(output)
 	}
 
@@ -410,7 +416,9 @@ impl Component {
 		};
 		match session
 			.server
-			.enqueue_database_index_queue_with_transaction(transaction, &batch)
+			.components
+			.indexer
+			.enqueue_database_index_queue_with_transaction(&session.server, transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),
@@ -716,7 +724,7 @@ impl Component {
 					return Ok(ControlFlow::Break(Some(id.clone())));
 				}
 				let specifier =
-					match tangram_server_core::Session::try_get_specifier_for_id_with_transaction(
+					match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
 						transaction,
 						id,
 					)
@@ -730,7 +738,7 @@ impl Component {
 				Ok(ControlFlow::Break(id))
 			},
 			tg::Selector::Specifier(specifier) => {
-				tangram_server_core::Session::try_get_id_for_specifier_with_transaction(
+				tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
 					transaction,
 					specifier,
 				)
