@@ -14,7 +14,7 @@ fn empty_requests_are_notified_when_a_child_enters_the_graph() {
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);
 	let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-	graph.set_service(sender.downgrade());
+	graph.set_changed(super::create_changed_callback(sender.downgrade()));
 	let parent: tg::object::Id = tg::blob::Id::new(b"parent").into();
 	let child = tg::blob::Id::new(b"child");
 	let request = protocol::Arg {
@@ -134,7 +134,7 @@ fn graph_notifies_ancestors_and_inherited_children_without_retaining_control() {
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);
 	let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-	graph.set_service(sender.downgrade());
+	graph.set_changed(super::create_changed_callback(sender.downgrade()));
 	let parent: tg::object::Id = tg::blob::Id::new(b"parent").into();
 	let child = tg::blob::Id::new(b"child");
 	let data = tg::object::Data::Blob(tg::blob::Data::Branch(tg::blob::data::Branch {

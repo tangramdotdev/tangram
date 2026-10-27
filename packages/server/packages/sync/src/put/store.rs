@@ -15,7 +15,7 @@ pub struct ObjectNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::object::Id,
-	pub kind: Option<crate::queue::ObjectKind>,
+	pub kind: Option<crate::graph::ObjectKind>,
 	pub permissions: tg::authorization::permission::Set,
 	pub send: bool,
 	pub tokens: tg::authorization::tokens::Entry,
@@ -309,8 +309,11 @@ impl Component {
 							if graph.object_remote_available(&object.node) {
 								return Ok(None);
 							}
-							graph
-								.update_node_local_verified(&object.node.clone().into(), &output)?;
+							graph.update_node_local_verified(
+								&object.node.clone().into(),
+								output.permissions,
+								output.storage,
+							)?;
 						}
 						let mut outputs = session
 							.server
@@ -551,7 +554,7 @@ impl Component {
 						descendants: true,
 						eager: node.eager,
 						id: command.node,
-						kind: Some(crate::queue::ObjectKind::Command),
+						kind: Some(crate::graph::ObjectKind::Command),
 						local_tokens: node.tokens.clone(),
 						parent: Some(node.id.clone().into()),
 						remote_tokens: tg::authorization::tokens::Entry::default(),
@@ -574,7 +577,7 @@ impl Component {
 							descendants: true,
 							eager: node.eager,
 							id: child,
-							kind: Some(crate::queue::ObjectKind::Error),
+							kind: Some(crate::graph::ObjectKind::Error),
 							local_tokens: node.tokens.clone(),
 							parent: Some(node.id.clone().into()),
 							remote_tokens: tg::authorization::tokens::Entry::default(),
@@ -586,7 +589,7 @@ impl Component {
 							descendants: true,
 							eager: node.eager,
 							id: id.clone().into(),
-							kind: Some(crate::queue::ObjectKind::Error),
+							kind: Some(crate::graph::ObjectKind::Error),
 							local_tokens: node.tokens.clone(),
 							parent: Some(node.id.clone().into()),
 							remote_tokens: tg::authorization::tokens::Entry::default(),
@@ -606,7 +609,7 @@ impl Component {
 					descendants: true,
 					eager: node.eager,
 					id: log.node.into(),
-					kind: Some(crate::queue::ObjectKind::Log),
+					kind: Some(crate::graph::ObjectKind::Log),
 					local_tokens: node.tokens.clone(),
 					parent: Some(node.id.clone().into()),
 					remote_tokens: tg::authorization::tokens::Entry::default(),
@@ -626,7 +629,7 @@ impl Component {
 					descendants: true,
 					eager: node.eager,
 					id: child,
-					kind: Some(crate::queue::ObjectKind::Output),
+					kind: Some(crate::graph::ObjectKind::Output),
 					local_tokens: node.tokens.clone(),
 					parent: Some(node.id.clone().into()),
 					remote_tokens: tg::authorization::tokens::Entry::default(),
@@ -720,7 +723,8 @@ impl Component {
 							}
 							graph.update_node_local_verified(
 								&process.node.clone().into(),
-								&output,
+								output.permissions,
+								output.storage,
 							)?;
 						}
 						session

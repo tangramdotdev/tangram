@@ -9,12 +9,12 @@ use {
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_server_core::{Session, messenger::Messenger, sync::InnerArg},
+	tangram_server_sync_graph as graph,
 	tokio_stream::wrappers::ReceiverStream,
 	tracing::Instrument,
 };
 
 mod get;
-mod graph;
 mod progress;
 mod put;
 mod queue;

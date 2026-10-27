@@ -1,4 +1,4 @@
-use tangram_client::prelude::*;
+use {crate::graph::ObjectKind, tangram_client::prelude::*};
 
 pub struct Queue {
 	database: async_channel::Sender<DatabaseNode>,
@@ -41,14 +41,6 @@ pub struct SandboxNode {
 	pub id: tg::sandbox::Id,
 	pub local_tokens: tg::authorization::tokens::Entry,
 	pub remote_tokens: tg::authorization::tokens::Entry,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ObjectKind {
-	Command,
-	Error,
-	Log,
-	Output,
 }
 
 impl Queue {

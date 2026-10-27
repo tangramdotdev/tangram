@@ -19,8 +19,6 @@ workspace = true
 [dependencies]
 async-channel = { workspace = true }
 bytes = { workspace = true }
-derive_more = { workspace = true }
-fnv = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 indexmap = { workspace = true }
@@ -30,7 +28,6 @@ num = { workspace = true }
 petgraph = { workspace = true }
 scopeguard = { workspace = true }
 serde_json = { workspace = true }
-smallvec = { workspace = true }
 tangram_cache = { workspace = true }
 tangram_client = { workspace = true }
 tangram_database = { workspace = true }
@@ -46,6 +43,7 @@ tangram_server_grant_common = { workspace = true }
 tangram_server_node_common = { workspace = true }
 tangram_server_object_common = { workspace = true }
 tangram_server_process_common = { workspace = true }
+tangram_server_sync_graph = { workspace = true }
 tangram_server_tag_common = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }

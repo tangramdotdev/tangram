@@ -66,7 +66,10 @@ impl Component {
 	) -> Handle {
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let handle = Handle { sender };
-		graph.lock().unwrap().set_service(handle.sender.downgrade());
+		graph
+			.lock()
+			.unwrap()
+			.set_changed(create_changed_callback(handle.sender.downgrade()));
 		let subject = subject(id);
 		self.service_tasks
 			.spawn({
@@ -453,4 +456,14 @@ impl tangram_messenger::Payload for Response {
 
 fn subject(id: &tg::sync::Id) -> String {
 	format!("syncs.{id}.service")
+}
+
+fn create_changed_callback(
+	sender: tokio::sync::mpsc::WeakUnboundedSender<Event>,
+) -> crate::graph::Changed {
+	Box::new(move |nodes| {
+		if let Some(sender) = sender.upgrade() {
+			sender.send(Event::Nodes(nodes)).ok();
+		}
+	})
 }
