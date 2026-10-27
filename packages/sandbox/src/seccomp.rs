@@ -4,6 +4,15 @@ const SECCOMP_DATA_ARCH_OFFSET: u32 = 4;
 const SECCOMP_DATA_ARGUMENTS_OFFSET: u32 = 16;
 const SECCOMP_DATA_NUMBER_OFFSET: u32 = 0;
 
+// These syscall numbers are shared by every architecture, but the libc crate does not define them on every architecture.
+const SYS_CACHESTAT: libc::c_long = 451;
+const SYS_FCHMODAT2: libc::c_long = 452;
+const SYS_FUTEX_REQUEUE: libc::c_long = 456;
+const SYS_FUTEX_WAIT: libc::c_long = 455;
+const SYS_FUTEX_WAKE: libc::c_long = 454;
+const SYS_MAP_SHADOW_STACK: libc::c_long = 453;
+const SYS_MSEAL: libc::c_long = 462;
+
 const CLONE_NAMESPACE_FLAGS: u32 = libc::CLONE_NEWCGROUP as u32
 	| libc::CLONE_NEWIPC as u32
 	| libc::CLONE_NEWNET as u32
@@ -298,8 +307,7 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_fchdir,
 		libc::SYS_fchmod,
 		libc::SYS_fchmodat,
-		#[cfg(target_arch = "x86_64")]
-		libc::SYS_fchmodat2,
+		SYS_FCHMODAT2,
 		libc::SYS_fchown,
 		libc::SYS_fchownat,
 		libc::SYS_fcntl,
@@ -417,8 +425,7 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_mq_timedsend,
 		libc::SYS_mq_unlink,
 		libc::SYS_mremap,
-		#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-		libc::SYS_mseal,
+		SYS_MSEAL,
 		libc::SYS_msgctl,
 		libc::SYS_msgget,
 		libc::SYS_msgrcv,
@@ -614,9 +621,13 @@ fn denied_syscalls() -> Vec<u32> {
 	[
 		libc::SYS_acct,
 		libc::SYS_bpf,
+		SYS_CACHESTAT,
 		libc::SYS_clock_settime,
 		libc::SYS_delete_module,
 		libc::SYS_finit_module,
+		SYS_FUTEX_REQUEUE,
+		SYS_FUTEX_WAIT,
+		SYS_FUTEX_WAKE,
 		libc::SYS_init_module,
 		#[cfg(target_arch = "x86_64")]
 		libc::SYS_ioperm,
@@ -627,6 +638,7 @@ fn denied_syscalls() -> Vec<u32> {
 		libc::SYS_kexec_file_load,
 		libc::SYS_kexec_load,
 		libc::SYS_lookup_dcookie,
+		SYS_MAP_SHADOW_STACK,
 		libc::SYS_migrate_pages,
 		libc::SYS_move_pages,
 		libc::SYS_nfsservctl,
@@ -785,6 +797,22 @@ mod tests {
 			// SAFETY: The descriptor refers to the open file.
 			let result = unsafe { libc::sync_file_range(fd, 0, 0, libc::SYNC_FILE_RANGE_WRITE) };
 			assert_eq!(result, 0);
+
+			// Change a file mode with fchmodat2, which libc does not define on every architecture.
+			let path = std::ffi::CString::new(temp.path().as_os_str().as_encoded_bytes()).unwrap();
+			// SAFETY: The path is a valid terminated string.
+			let result =
+				unsafe { libc::syscall(SYS_FCHMODAT2, libc::AT_FDCWD, path.as_ptr(), 0o644, 0) };
+			assert_eq!(result, 0);
+
+			// Deny a syscall that libc does not define on every architecture.
+			// SAFETY: futex_wake takes scalar arguments and the null address is not dereferenced.
+			let result = unsafe { libc::syscall(SYS_FUTEX_WAKE, std::ptr::null::<u8>(), 0, 1, 0) };
+			assert_eq!(result, -1);
+			assert_eq!(
+				std::io::Error::last_os_error().raw_os_error(),
+				Some(libc::EPERM)
+			);
 
 			assert!(unsafe { libc::getpid() } > 0);
 			assert!(unsafe { libc::syscall(libc::SYS_personality, u32::MAX) } >= 0);
