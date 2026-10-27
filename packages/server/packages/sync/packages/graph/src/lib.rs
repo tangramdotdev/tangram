@@ -15,6 +15,7 @@ mod tests;
 
 /// The graph settles local proofs and derived metadata before each update returns; it publishes derived metadata only after the complete dependency set and the required facts are known.
 pub struct Graph {
+	changed: Option<tokio::sync::mpsc::WeakUnboundedSender<Vec<tg::Id>>>,
 	checkout_contained_blobs: HashSet<tg::blob::Id, tg::id::BuildHasher>,
 	checkout_files: BTreeMap<tg::blob::Id, Vec<CheckoutFile>>,
 	checkout_graph_offsets: HashMap<tg::graph::Id, (tg::graph::Id, usize), tg::id::BuildHasher>,
@@ -39,7 +40,6 @@ pub struct Graph {
 	remote_pending_roots: usize,
 	remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	remote_selectors: HashMap<tg::Specifier, RemoteSelector, fnv::FnvBuildHasher>,
-	service: Option<tokio::sync::mpsc::WeakUnboundedSender<super::service::Event>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -54,10 +54,15 @@ pub enum Parent {
 	Node(usize),
 	Object(usize),
 	Process(usize),
-	ProcessObject {
-		index: usize,
-		kind: crate::queue::ObjectKind,
-	},
+	ProcessObject { index: usize, kind: ObjectKind },
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ObjectKind {
+	Command,
+	Error,
+	Log,
+	Output,
 }
 
 #[derive(Debug, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -134,7 +139,7 @@ pub struct ProcessNode {
 	remote_descendants: Descendants,
 	remote_end: bool,
 	remote_missing: bool,
-	remote_objects: HashSet<(usize, crate::queue::ObjectKind), fnv::FnvBuildHasher>,
+	remote_objects: HashSet<(usize, ObjectKind), fnv::FnvBuildHasher>,
 	remote_pending_children: Option<usize>,
 	remote_pending_command_objects: usize,
 	remote_pending_error_objects: usize,
@@ -204,6 +209,7 @@ impl Graph {
 	pub fn new(arg: &tg::sync::Arg, checkout_pointers: bool) -> Self {
 		// Create the graph.
 		let mut graph = Graph {
+			changed: None,
 			checkout_contained_blobs: HashSet::default(),
 			checkout_files: BTreeMap::new(),
 			checkout_graph_offsets: HashMap::default(),
@@ -235,7 +241,6 @@ impl Graph {
 			remote_pending_roots: 0,
 			remote_roots: HashSet::default(),
 			remote_selectors: HashMap::default(),
-			service: None,
 		};
 
 		// Add the roots.
@@ -320,7 +325,7 @@ impl Graph {
 		self.checkout_queued_objects.remove(id);
 	}
 
-	pub(super) fn update_root_tokens(
+	pub fn update_root_tokens(
 		&mut self,
 		id: &tg::Id,
 		local: &tg::authorization::tokens::Entry,
@@ -447,6 +452,7 @@ impl Graph {
 		self.local_selectors.contains(specifier)
 	}
 
+	#[must_use]
 	pub fn local_messages(&self) -> Vec<tg::sync::PutNodeMessage> {
 		self.nodes
 			.values()
@@ -1124,7 +1130,7 @@ impl Graph {
 		descendants: bool,
 		id: &tg::object::Id,
 		parent: Option<tg::Id>,
-		kind: Option<crate::queue::ObjectKind>,
+		kind: Option<ObjectKind>,
 		availability: Option<&tg::object::Availability>,
 	) -> (RemoteAction, Option<tg::object::Availability>) {
 		// Get or create the node.
@@ -1221,19 +1227,19 @@ impl Graph {
 					if dependency_inserted && !remote_end {
 						match parent {
 							Parent::ProcessObject {
-								kind: crate::queue::ObjectKind::Command,
+								kind: ObjectKind::Command,
 								..
 							} => node.remote_pending_command_objects += 1,
 							Parent::ProcessObject {
-								kind: crate::queue::ObjectKind::Error,
+								kind: ObjectKind::Error,
 								..
 							} => node.remote_pending_error_objects += 1,
 							Parent::ProcessObject {
-								kind: crate::queue::ObjectKind::Log,
+								kind: ObjectKind::Log,
 								..
 							} => node.remote_pending_log_objects += 1,
 							Parent::ProcessObject {
-								kind: crate::queue::ObjectKind::Output,
+								kind: ObjectKind::Output,
 								..
 							} => node.remote_pending_output_objects += 1,
 							Parent::Node(_) | Parent::Object(_) | Parent::Process(_) => {
@@ -1459,6 +1465,7 @@ impl Graph {
 		self.propagate_local();
 	}
 
+	#[must_use]
 	pub fn get_process_local_storage(
 		&self,
 		id: &tg::process::Id,
@@ -1468,6 +1475,7 @@ impl Graph {
 			.map(|node| node.unwrap_process_ref().local_storage)
 	}
 
+	#[must_use]
 	pub fn get_process_local_availability(
 		&self,
 		id: &tg::process::Id,
@@ -1478,6 +1486,7 @@ impl Graph {
 			.unwrap_or_default()
 	}
 
+	#[must_use]
 	pub fn get_object_local_availability(&self, id: &tg::object::Id) -> tg::object::Availability {
 		tg::object::Availability {
 			subtree: self
@@ -1487,6 +1496,7 @@ impl Graph {
 		}
 	}
 
+	#[must_use]
 	pub fn get_object_local_authorization(
 		&self,
 		id: &tg::object::Id,
@@ -1504,6 +1514,7 @@ impl Graph {
 		self.get_local_authorization(index, required)
 	}
 
+	#[must_use]
 	pub fn get_process_local_authorization(
 		&self,
 		id: &tg::process::Id,
@@ -1521,11 +1532,8 @@ impl Graph {
 		self.get_local_authorization(index, required)
 	}
 
-	pub(super) fn set_service(
-		&mut self,
-		service: tokio::sync::mpsc::WeakUnboundedSender<super::service::Event>,
-	) {
-		self.service = Some(service);
+	pub fn set_changed(&mut self, changed: tokio::sync::mpsc::WeakUnboundedSender<Vec<tg::Id>>) {
+		self.changed = Some(changed);
 	}
 
 	pub fn try_verify_node_local_service_output(
@@ -1573,12 +1581,13 @@ impl Graph {
 		Ok(output.satisfies(arg).then_some(output))
 	}
 
-	pub(crate) fn update_node_local_verified(
+	pub fn update_node_local_verified(
 		&mut self,
 		id: &tg::Id,
-		output: &tangram_server_core::verify::Output,
+		permissions: tg::authorization::permission::Set,
+		storage: tg::storage::Set,
 	) -> tg::Result<()> {
-		let output = match (&output.permissions, &output.storage) {
+		let output = match (&permissions, &storage) {
 			(
 				tg::authorization::permission::Set::Object(permissions),
 				tg::storage::Set::Object(storage),
@@ -1754,12 +1763,14 @@ impl Graph {
 		self.update_process_local(update);
 	}
 
+	#[must_use]
 	pub fn get_object_requested(&self, id: &tg::object::Id) -> Option<Requested> {
 		self.nodes
 			.get(&tg::Id::from(id.clone()))
 			.and_then(|node| node.unwrap_object_ref().requested.clone())
 	}
 
+	#[must_use]
 	pub fn get_process_requested(&self, id: &tg::process::Id) -> Option<Requested> {
 		self.nodes
 			.get(&tg::Id::from(id.clone()))
@@ -1976,24 +1987,22 @@ impl Graph {
 		permissions
 	}
 
-	fn process_object_kind(kind: crate::queue::ObjectKind) -> tangram_index::process::object::Kind {
+	fn process_object_kind(kind: ObjectKind) -> tangram_index::process::object::Kind {
 		match kind {
-			crate::queue::ObjectKind::Command => tangram_index::process::object::Kind::Command,
-			crate::queue::ObjectKind::Error => tangram_index::process::object::Kind::Error,
-			crate::queue::ObjectKind::Log => tangram_index::process::object::Kind::Log,
-			crate::queue::ObjectKind::Output => tangram_index::process::object::Kind::Output,
+			ObjectKind::Command => tangram_index::process::object::Kind::Command,
+			ObjectKind::Error => tangram_index::process::object::Kind::Error,
+			ObjectKind::Log => tangram_index::process::object::Kind::Log,
+			ObjectKind::Output => tangram_index::process::object::Kind::Output,
 		}
 	}
 
 	#[must_use]
-	fn process_object_remote_kind(
-		kind: tangram_index::process::object::Kind,
-	) -> crate::queue::ObjectKind {
+	fn process_object_remote_kind(kind: tangram_index::process::object::Kind) -> ObjectKind {
 		match kind {
-			tangram_index::process::object::Kind::Command => crate::queue::ObjectKind::Command,
-			tangram_index::process::object::Kind::Error => crate::queue::ObjectKind::Error,
-			tangram_index::process::object::Kind::Log => crate::queue::ObjectKind::Log,
-			tangram_index::process::object::Kind::Output => crate::queue::ObjectKind::Output,
+			tangram_index::process::object::Kind::Command => ObjectKind::Command,
+			tangram_index::process::object::Kind::Error => ObjectKind::Error,
+			tangram_index::process::object::Kind::Log => ObjectKind::Log,
+			tangram_index::process::object::Kind::Output => ObjectKind::Output,
 		}
 	}
 
@@ -2098,6 +2107,7 @@ impl Graph {
 		})
 	}
 
+	#[must_use]
 	pub fn object_permissions_for_storage(
 		storage: tg::object::storage::Set,
 	) -> Option<tg::authorization::permission::Set> {
@@ -2122,6 +2132,7 @@ impl Graph {
 		tg::authorization::permission::object::Set::from_permission(permission)
 	}
 
+	#[must_use]
 	pub fn process_permissions_for_storage(
 		storage: tg::process::storage::Set,
 	) -> Option<tg::authorization::permission::Set> {
@@ -2481,28 +2492,28 @@ impl Graph {
 			(Parent::Process(_), Node::Process(node)) => node.remote_pending_children.as_mut(),
 			(
 				Parent::ProcessObject {
-					kind: crate::queue::ObjectKind::Command,
+					kind: ObjectKind::Command,
 					..
 				},
 				Node::Process(node),
 			) if node.objects.is_some() => Some(&mut node.remote_pending_command_objects),
 			(
 				Parent::ProcessObject {
-					kind: crate::queue::ObjectKind::Error,
+					kind: ObjectKind::Error,
 					..
 				},
 				Node::Process(node),
 			) if node.objects.is_some() => Some(&mut node.remote_pending_error_objects),
 			(
 				Parent::ProcessObject {
-					kind: crate::queue::ObjectKind::Log,
+					kind: ObjectKind::Log,
 					..
 				},
 				Node::Process(node),
 			) if node.objects.is_some() => Some(&mut node.remote_pending_log_objects),
 			(
 				Parent::ProcessObject {
-					kind: crate::queue::ObjectKind::Output,
+					kind: ObjectKind::Output,
 					..
 				},
 				Node::Process(node),

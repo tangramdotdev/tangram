@@ -205,11 +205,11 @@ impl Component {
 						.await?
 						.check_exhaustion()?;
 					if verified.outcome == tangram_server_core::authorization::Outcome::Satisfied {
-						state
-							.graph
-							.lock()
-							.unwrap()
-							.update_node_local_verified(&id.clone().into(), &verified)?;
+						state.graph.lock().unwrap().update_node_local_verified(
+							&id.clone().into(),
+							verified.permissions,
+							verified.storage,
+						)?;
 						let arg = super::SyncGetTouchAuthorizedProcessesArg {
 							graph: &state.graph,
 							ids: std::slice::from_ref(&id),

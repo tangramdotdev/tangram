@@ -78,12 +78,12 @@ impl<T> Aspects<T> {
 	}
 
 	#[must_use]
-	pub fn aspect_mut(&mut self, kind: crate::queue::ObjectKind) -> &mut T {
+	pub fn aspect_mut(&mut self, kind: crate::ObjectKind) -> &mut T {
 		match kind {
-			crate::queue::ObjectKind::Command => &mut self.command_objects,
-			crate::queue::ObjectKind::Error => &mut self.error_objects,
-			crate::queue::ObjectKind::Log => &mut self.log_objects,
-			crate::queue::ObjectKind::Output => &mut self.output_objects,
+			crate::ObjectKind::Command => &mut self.command_objects,
+			crate::ObjectKind::Error => &mut self.error_objects,
+			crate::ObjectKind::Log => &mut self.log_objects,
+			crate::ObjectKind::Output => &mut self.output_objects,
 		}
 	}
 }

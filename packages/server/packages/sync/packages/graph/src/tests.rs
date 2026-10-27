@@ -545,7 +545,7 @@ fn process_permissions_preserve_edge_and_aspect_boundaries() {
 		false,
 		&command_object,
 		Some(parent.clone().into()),
-		Some(crate::queue::ObjectKind::Command),
+		Some(crate::ObjectKind::Command),
 		None,
 	);
 	let inherited = graph.process_local_permissions(&child);

@@ -11268,7 +11268,6 @@ name = "tangram_server_indexer"
 version = "0.0.0"
 dependencies = [
  "bytes",
- "data-encoding",
  "derive_more",
  "futures",
  "http",
@@ -11277,8 +11276,6 @@ dependencies = [
  "num",
  "rand 0.10.3",
  "rustix 1.1.5",
- "serde",
- "serde_json",
  "tangram_archive",
  "tangram_cache",
  "tangram_client",
@@ -11807,8 +11804,6 @@ version = "0.0.0"
 dependencies = [
  "async-channel",
  "bytes",
- "derive_more",
- "fnv",
  "futures",
  "http",
  "indexmap 2.14.2",
@@ -11818,7 +11813,6 @@ dependencies = [
  "petgraph",
  "scopeguard",
  "serde_json",
- "smallvec",
  "tangram_cache",
  "tangram_client",
  "tangram_database",
@@ -11834,12 +11828,31 @@ dependencies = [
  "tangram_server_node_common",
  "tangram_server_object_common",
  "tangram_server_process_common",
+ "tangram_server_sync_graph",
  "tangram_server_tag_common",
  "tangram_util",
  "tokio",
  "tokio-stream",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "tangram_server_sync_graph"
+version = "0.0.0"
+dependencies = [
+ "derive_more",
+ "fnv",
+ "indexmap 2.14.2",
+ "num",
+ "petgraph",
+ "serde_json",
+ "smallvec",
+ "tangram_client",
+ "tangram_index",
+ "tangram_serialize",
+ "tangram_util",
+ "tokio",
 ]
 
 [[package]]

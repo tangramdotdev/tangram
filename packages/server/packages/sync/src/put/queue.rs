@@ -2,9 +2,9 @@ use {
 	crate::{
 		Component,
 		{
-			graph::Graph,
+			graph::{Graph, ObjectKind},
 			put::State,
-			queue::{self as raw, ObjectKind},
+			queue as raw,
 		},
 	},
 	futures::{StreamExt as _, TryStreamExt as _},

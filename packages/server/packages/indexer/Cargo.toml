@@ -18,7 +18,6 @@ workspace = true
 
 [dependencies]
 bytes = { workspace = true }
-data-encoding = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -27,8 +26,6 @@ mime = { workspace = true }
 num = { workspace = true }
 rand = { workspace = true }
 rustix = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 tangram_archive = { workspace = true }
 tangram_cache = { workspace = true }
 tangram_client = { workspace = true }

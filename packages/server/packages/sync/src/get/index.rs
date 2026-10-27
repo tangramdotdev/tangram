@@ -301,11 +301,11 @@ impl Component {
 						.await?
 						.check_exhaustion()?;
 					if output.outcome == tangram_server_core::authorization::Outcome::Satisfied {
-						state
-							.graph
-							.lock()
-							.unwrap()
-							.update_node_local_verified(&node.id.clone().into(), &output)?;
+						state.graph.lock().unwrap().update_node_local_verified(
+							&node.id.clone().into(),
+							output.permissions,
+							output.storage,
+						)?;
 						self.sync_get_index_touch_object(session, state, &node.id)
 							.await?
 					} else {
