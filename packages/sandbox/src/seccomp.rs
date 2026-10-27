@@ -790,7 +790,7 @@ mod tests {
 				unsafe { libc::syscall(libc::SYS_setrlimit, libc::RLIMIT_STACK, &raw const limit) };
 			assert_eq!(result, 0);
 
-			// Flush a file range, which exists beyond x86_64 too.
+			// Flush a file range.
 			let temp = tangram_util::fs::Temp::new().unwrap();
 			let file = std::fs::File::create(temp.path()).unwrap();
 			let fd = std::os::fd::AsRawFd::as_raw_fd(&file);
