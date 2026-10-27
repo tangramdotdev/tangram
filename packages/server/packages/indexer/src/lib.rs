@@ -953,14 +953,6 @@ impl tangram_server_core::indexer::Component for Component {
 		self.index_batch(server, arg).boxed()
 	}
 
-	fn index_batch_inner<'a>(
-		&'a self,
-		server: &'a tangram_server_core::Server,
-		arg: tangram_index::batch::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::Result<()>>> {
-		self.index_batch_inner(server, arg).boxed()
-	}
-
 	fn request<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,

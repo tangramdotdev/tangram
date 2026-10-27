@@ -110,16 +110,6 @@ impl tangram_server_core::remote::Component for Component {
 		self.try_get_remote(session, name, arg).boxed()
 	}
 
-	fn try_get_remote_for_principal<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		name: &'a str,
-		principal: Option<tg::principal::Selector>,
-	) -> BoxFuture<'a, tg::Result<Option<tg::remote::get::Output>>> {
-		self.try_get_remote_for_principal(session, name, principal)
-			.boxed()
-	}
-
 	fn try_delete_remote<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
@@ -159,14 +149,6 @@ impl tangram_server_core::remote::Component for Component {
 		remote: &'a str,
 	) -> BoxFuture<'a, tg::Result<tg::Session>> {
 		self.get_remote_session_for_process(session, remote).boxed()
-	}
-
-	fn try_get_remote_session<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		remote: &'a str,
-	) -> BoxFuture<'a, tg::Result<Option<tg::Session>>> {
-		self.try_get_remote_session(session, remote).boxed()
 	}
 
 	fn set_remote_token<'a>(

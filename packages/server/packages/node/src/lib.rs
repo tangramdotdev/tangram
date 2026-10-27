@@ -79,14 +79,6 @@ impl tangram_server_core::node::Component for Component {
 			.boxed()
 	}
 
-	fn try_get_ids_for_specifiers<'a>(
-		&'a self,
-		session: &'a Session,
-		specifiers: &'a [tg::Specifier],
-	) -> BoxFuture<'a, tg::Result<std::collections::BTreeMap<tg::Specifier, Option<tg::Id>>>> {
-		self.try_get_ids_for_specifiers(session, specifiers).boxed()
-	}
-
 	fn try_get_ids_for_specifiers_from_index<'a>(
 		&'a self,
 		session: &'a Session,

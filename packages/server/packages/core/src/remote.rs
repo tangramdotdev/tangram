@@ -25,13 +25,6 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::remote::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::remote::get::Output>>>;
 
-	fn try_get_remote_for_principal<'a>(
-		&'a self,
-		session: &'a Session,
-		name: &'a str,
-		principal: Option<tg::principal::Selector>,
-	) -> BoxFuture<'a, tg::Result<Option<tg::remote::get::Output>>>;
-
 	fn try_delete_remote<'a>(
 		&'a self,
 		session: &'a Session,
@@ -58,12 +51,6 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		remote: &'a str,
 	) -> BoxFuture<'a, tg::Result<tg::Session>>;
-
-	fn try_get_remote_session<'a>(
-		&'a self,
-		session: &'a Session,
-		remote: &'a str,
-	) -> BoxFuture<'a, tg::Result<Option<tg::Session>>>;
 
 	fn set_remote_token<'a>(
 		&'a self,

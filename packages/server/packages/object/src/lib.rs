@@ -151,17 +151,6 @@ impl tangram_server_core::object::Component for Component {
 		.boxed()
 	}
 
-	fn compute_object_availability<'a>(
-		&'a self,
-		session: &'a Session,
-		id: &'a tg::object::Id,
-		storage: tg::object::storage::Set,
-		tokens: &'a [tg::authorization::Token],
-	) -> BoxFuture<'a, tg::Result<Option<tg::object::Availability>>> {
-		self.compute_object_availability(session, id, storage, tokens)
-			.boxed()
-	}
-
 	fn post_object_batch<'a>(
 		&'a self,
 		session: &'a Session,

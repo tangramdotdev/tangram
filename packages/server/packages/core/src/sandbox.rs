@@ -116,13 +116,6 @@ pub trait Component: crate::component::Lifecycle {
 		id: &'a tg::sandbox::Id,
 	) -> BoxFuture<'a, tg::Result<tangram_index::sandbox::Sandbox>>;
 
-	fn list_sandboxes_local<'a>(
-		&'a self,
-		session: &'a Session,
-		creator: Option<&'a tg::Principal>,
-		owner: Option<&'a tg::Principal>,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::sandbox::list::Item>>>;
-
 	fn prepare_sandbox_control_index_arg<'a>(
 		&'a self,
 		session: &'a Session,

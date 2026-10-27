@@ -44,12 +44,6 @@ pub trait Component: crate::component::Lifecycle {
 		specifiers: &'a [tg::Specifier],
 	) -> BoxFuture<'a, tg::Result<std::collections::BTreeMap<tg::Specifier, Option<tg::Id>>>>;
 
-	fn try_get_ids_for_specifiers<'a>(
-		&'a self,
-		session: &'a Session,
-		specifiers: &'a [tg::Specifier],
-	) -> BoxFuture<'a, tg::Result<std::collections::BTreeMap<tg::Specifier, Option<tg::Id>>>>;
-
 	fn try_get_ids_for_specifiers_from_index<'a>(
 		&'a self,
 		session: &'a Session,

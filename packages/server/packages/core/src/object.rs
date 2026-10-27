@@ -22,14 +22,6 @@ pub trait Component: crate::component::Lifecycle {
 
 	fn wait_archive_tasks(&self) -> BoxFuture<'_, ()>;
 
-	fn compute_object_availability<'a>(
-		&'a self,
-		session: &'a Session,
-		id: &'a tg::object::Id,
-		storage: tg::object::storage::Set,
-		tokens: &'a [tg::authorization::Token],
-	) -> BoxFuture<'a, tg::Result<Option<tg::object::Availability>>>;
-
 	fn post_object_batch<'a>(
 		&'a self,
 		session: &'a Session,

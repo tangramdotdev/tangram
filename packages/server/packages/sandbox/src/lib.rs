@@ -193,15 +193,6 @@ impl tangram_server_core::sandbox::Component for Component {
 		self.get_sandbox_from_index(session, id).boxed()
 	}
 
-	fn list_sandboxes_local<'a>(
-		&'a self,
-		session: &'a tangram_server_core::Session,
-		creator: Option<&'a tg::Principal>,
-		owner: Option<&'a tg::Principal>,
-	) -> BoxFuture<'a, tg::Result<Vec<tg::sandbox::list::Item>>> {
-		self.list_sandboxes_local(session, creator, owner).boxed()
-	}
-
 	fn prepare_sandbox_control_index_arg<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,

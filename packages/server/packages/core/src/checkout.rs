@@ -33,12 +33,6 @@ pub trait Component: crate::component::Lifecycle {
 
 	fn named_checkout_maintenance_enabled(&self, server: &Server) -> bool;
 
-	fn remove_all_named_checkout_entries_with_lock<'a>(
-		&'a self,
-		server: &'a Server,
-		guard: &'a Guard<'_>,
-	) -> BoxFuture<'a, tg::Result<()>>;
-
 	fn remove_named_checkout_entry_with_lock<'a>(
 		&'a self,
 		server: &'a Server,

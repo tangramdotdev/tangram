@@ -627,15 +627,6 @@ impl tangram_server_core::checkout::Component for Component {
 		self.checkout_await_indexing(session).boxed()
 	}
 
-	fn remove_all_named_checkout_entries_with_lock<'a>(
-		&'a self,
-		server: &'a tangram_server_core::Server,
-		guard: &'a tangram_server_core::checkout::Guard<'_>,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.remove_all_named_checkout_entries_with_lock(server, guard)
-			.boxed()
-	}
-
 	fn remove_named_checkout_entry_with_lock<'a>(
 		&'a self,
 		server: &'a tangram_server_core::Server,

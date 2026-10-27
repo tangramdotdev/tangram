@@ -19,12 +19,6 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tangram_index::batch::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn index_batch_inner<'a>(
-		&'a self,
-		server: &'a Server,
-		arg: tangram_index::batch::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::Result<()>>>;
-
 	fn request<'a>(
 		&'a self,
 		session: &'a Session,
