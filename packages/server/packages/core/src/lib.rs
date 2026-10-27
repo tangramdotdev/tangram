@@ -1,9 +1,13 @@
 use {
 	self::{
+		archive::Archive,
+		cache::Cache,
+		clock::Clock,
 		context::{Context, Origin},
 		database::Database,
 		index::Index,
 		messenger::Messenger,
+		notification::Notifications,
 		temp::Temp,
 	},
 	dashmap::{DashMap, DashSet},
@@ -98,12 +102,12 @@ pub struct Owned {
 pub struct Server(Arc<State>);
 
 pub struct State {
-	pub archive: Option<self::archive::Archive>,
+	pub archive: Option<Archive>,
 	pub authentication_tokens: Tokens,
 	pub authorization_tokens: Tokens,
-	pub cache: self::cache::Cache,
-	pub checkpoints: Option<Arc<self::checkpoint::State>>,
-	pub clock: self::clock::Clock,
+	pub cache: Cache,
+	pub checkpoints: Option<Arc<checkpoint::State>>,
+	pub clock: Clock,
 	pub components: Components,
 	pub config: Config,
 	pub context: Context,
@@ -113,7 +117,7 @@ pub struct State {
 	library: Mutex<Option<Arc<Temp>>>,
 	lock: Mutex<Option<tokio::fs::File>>,
 	pub messenger: Messenger,
-	pub notifications: self::notification::Notifications,
+	pub notifications: Notifications,
 	pub path: PathBuf,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	pub shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
