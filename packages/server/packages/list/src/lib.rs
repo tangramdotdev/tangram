@@ -7,7 +7,7 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 	tangram_server_core::{Session, list::QuerySpecifierEntriesArg},
-	tangram_server_list_core::{Kinds, entry_kind_enabled, sort_entries},
+	tangram_server_list_common::{Kinds, entry_kind_enabled, sort_entries},
 };
 
 #[cfg(test)]
@@ -379,7 +379,7 @@ impl Component {
 					let target = row
 						.target
 						.ok_or_else(|| tg::error!("expected a tag target"))?;
-					let target = tangram_server_tag_core::parse_tag_target(&target)?;
+					let target = tangram_server_tag_common::parse_tag_target(&target)?;
 					let target = Self::tag_target_referent(target, Some(location.clone()));
 					Some(target)
 				},
@@ -479,7 +479,7 @@ impl Component {
 			let authorized = if visible {
 				true
 			} else {
-				let permission = tangram_server_grant_core::read_permission_for_resource(&id)?;
+				let permission = tangram_server_grant_common::read_permission_for_resource(&id)?;
 				let resource = tg::Referent::with_node_and_tokens(
 					tg::Selector::Id(id.clone()),
 					tokens.clone(),
@@ -691,7 +691,7 @@ impl Component {
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
 		let mut entries = Vec::new();
 		for row in rows {
-			let target = tangram_server_tag_core::parse_tag_target(&row.target)?;
+			let target = tangram_server_tag_common::parse_tag_target(&row.target)?;
 			let location = tg::Location::Local(tg::location::Local::default());
 			let id: tg::Id = row.id.clone().into();
 			let options = tg::referent::Options {

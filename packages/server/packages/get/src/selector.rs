@@ -117,7 +117,7 @@ impl Component {
 		let Some(id) = id else {
 			return Ok(None);
 		};
-		let permission = tangram_server_grant_core::read_permission_for_resource(&id)?;
+		let permission = tangram_server_grant_common::read_permission_for_resource(&id)?;
 		let resource =
 			tg::Referent::with_node_and_local_tokens(tg::Selector::Id(id.clone()), tokens.to_vec());
 		let authorized = session

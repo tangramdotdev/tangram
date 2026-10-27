@@ -302,7 +302,7 @@ impl Component {
 		for row in rows {
 			let target = row
 				.target
-				.map(|target| tangram_server_tag_core::parse_tag_target(&target))
+				.map(|target| tangram_server_tag_common::parse_tag_target(&target))
 				.transpose()?
 				.map(|target| match target {
 					tg::tag::data::Target::Object(id) => tg::Either::Left(id),

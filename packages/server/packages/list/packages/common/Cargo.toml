@@ -1,5 +1,5 @@
 [package]
-name = "tangram_server_node_core"
+name = "tangram_server_list_common"
 
 description = { workspace = true }
 edition = { workspace = true }

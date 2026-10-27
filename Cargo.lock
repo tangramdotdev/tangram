@@ -10737,14 +10737,14 @@ dependencies = [
  "num",
  "tangram_client",
  "tangram_index",
- "tangram_server_authorization_core",
+ "tangram_server_authorization_common",
  "tangram_server_core",
- "tangram_server_grant_core",
+ "tangram_server_grant_common",
  "uuid",
 ]
 
 [[package]]
-name = "tangram_server_authorization_core"
+name = "tangram_server_authorization_common"
 version = "0.0.0"
 dependencies = [
  "tangram_client",
@@ -10859,7 +10859,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
- "tangram_server_tag_core",
+ "tangram_server_tag_common",
  "tangram_util",
  "tokio",
  "tracing",
@@ -11145,7 +11145,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
- "tangram_server_grant_core",
+ "tangram_server_grant_common",
  "tangram_server_remote_core",
 ]
 
@@ -11164,11 +11164,11 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
- "tangram_server_grant_core",
+ "tangram_server_grant_common",
 ]
 
 [[package]]
-name = "tangram_server_grant_core"
+name = "tangram_server_grant_common"
 version = "0.0.0"
 dependencies = [
  "tangram_client",
@@ -11274,16 +11274,16 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
- "tangram_server_grant_core",
- "tangram_server_list_core",
+ "tangram_server_grant_common",
+ "tangram_server_list_common",
  "tangram_server_remote_core",
- "tangram_server_tag_core",
+ "tangram_server_tag_common",
  "tokio",
  "tracing",
 ]
 
 [[package]]
-name = "tangram_server_list_core"
+name = "tangram_server_list_common"
 version = "0.0.0"
 dependencies = [
  "tangram_client",
@@ -11300,12 +11300,12 @@ dependencies = [
  "tangram_futures",
  "tangram_serialize",
  "tangram_server_core",
- "tangram_server_log_core",
+ "tangram_server_log_common",
  "tokio",
 ]
 
 [[package]]
-name = "tangram_server_log_core"
+name = "tangram_server_log_common"
 version = "0.0.0"
 dependencies = [
  "tangram_cache",
@@ -11342,7 +11342,7 @@ dependencies = [
  "tangram_client",
  "tangram_http",
  "tangram_server_core",
- "tangram_server_list_core",
+ "tangram_server_list_common",
  "tracing",
 ]
 
@@ -11389,7 +11389,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_server_node_core"
+name = "tangram_server_node_common"
 version = "0.0.0"
 dependencies = [
  "tangram_client",
@@ -11570,7 +11570,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
- "tangram_server_grant_core",
+ "tangram_server_grant_common",
  "tangram_server_remote_core",
  "tangram_uri",
  "tracing",
@@ -11615,8 +11615,8 @@ dependencies = [
  "tangram_messenger",
  "tangram_sandbox",
  "tangram_server_core",
- "tangram_server_grant_core",
- "tangram_server_log_core",
+ "tangram_server_grant_common",
+ "tangram_server_log_common",
  "tangram_server_process_core",
  "tangram_server_runner_core",
  "tangram_server_sandbox_core",
@@ -11698,7 +11698,7 @@ dependencies = [
  "tangram_index",
  "tangram_messenger",
  "tangram_server_core",
- "tangram_server_log_core",
+ "tangram_server_log_common",
  "tangram_server_process_core",
  "tangram_server_sandbox_core",
  "tangram_server_scheduler_core",
@@ -11744,12 +11744,12 @@ dependencies = [
  "tangram_index",
  "tangram_messenger",
  "tangram_serialize",
- "tangram_server_authorization_core",
+ "tangram_server_authorization_common",
  "tangram_server_core",
- "tangram_server_grant_core",
- "tangram_server_node_core",
+ "tangram_server_grant_common",
+ "tangram_server_node_common",
  "tangram_server_process_core",
- "tangram_server_tag_core",
+ "tangram_server_tag_common",
  "tangram_util",
  "tokio",
  "tokio-stream",
@@ -11772,14 +11772,14 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_server_core",
- "tangram_server_grant_core",
- "tangram_server_node_core",
+ "tangram_server_grant_common",
+ "tangram_server_node_common",
  "tangram_server_remote_core",
- "tangram_server_tag_core",
+ "tangram_server_tag_common",
 ]
 
 [[package]]
-name = "tangram_server_tag_core"
+name = "tangram_server_tag_common"
 version = "0.0.0"
 dependencies = [
  "tangram_client",
@@ -11853,7 +11853,7 @@ dependencies = [
  "tangram_client",
  "tangram_index",
  "tangram_server_core",
- "tangram_server_grant_core",
+ "tangram_server_grant_common",
  "tangram_server_vfs_core",
  "tangram_vfs",
  "tokio",

@@ -1725,7 +1725,7 @@ impl Component {
 			started_at,
 			streams,
 		} = arg;
-		let mut writer = tangram_server_log_core::Writer::new(session);
+		let mut writer = tangram_server_log_common::Writer::new(session);
 		let clock = session.server.clock.clone();
 
 		// Stream the log chunks to the process's location as one stdio write.

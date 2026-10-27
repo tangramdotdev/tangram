@@ -316,7 +316,7 @@ impl Component {
 		let Some(row) = row else {
 			return Ok(ControlFlow::Break(None));
 		};
-		let target = tangram_server_tag_core::parse_tag_target(&row.target)?;
+		let target = tangram_server_tag_common::parse_tag_target(&row.target)?;
 		let data = tg::tag::Data {
 			id: id.clone(),
 			name: row.name,

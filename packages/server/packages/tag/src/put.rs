@@ -172,14 +172,14 @@ impl Component {
 						return Err(tg::error!("specifier is already in use"));
 					}
 					let permission =
-						tangram_server_node_core::delete_permission_for_named_node(id)?;
+						tangram_server_node_common::delete_permission_for_named_node(id)?;
 					let permissions =
 						tg::authorization::permission::Set::from_permission(permission);
 					let resource = tg::Selector::<tg::Id>::Id(id.clone());
 					authorizations.push((resource, false, permissions));
 					if let Some(parent) = parent {
 						let permission =
-							tangram_server_grant_core::write_permission_for_resource(parent)?;
+							tangram_server_grant_common::write_permission_for_resource(parent)?;
 						let permissions =
 							tg::authorization::permission::Set::from_permission(permission);
 						let resource = tg::Selector::<tg::Id>::Id(parent.clone());
@@ -441,7 +441,7 @@ impl Component {
 			let version = if row.target == target {
 				row.version
 			} else {
-				tangram_server_tag_core::version()
+				tangram_server_tag_common::version()
 			};
 			if row.target != target && !arg.force {
 				return Err(tg::error!("the tag already has a different target"));
@@ -464,7 +464,7 @@ impl Component {
 			(id, version)
 		} else {
 			let id = tg::tag::Id::new();
-			let version = tangram_server_tag_core::version();
+			let version = tangram_server_tag_common::version();
 			match tangram_server_core::Session::insert_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),

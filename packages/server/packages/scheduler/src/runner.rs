@@ -436,7 +436,7 @@ impl Component {
 	) -> tg::Result<tg::Referent<tg::blob::Id>> {
 		self.end_expired_process_log(server, process).await?;
 		let session = server.session(&server.context);
-		let mut writer = tangram_server_log_core::Writer::new(&session);
+		let mut writer = tangram_server_log_common::Writer::new(&session);
 		let mut position = 0;
 		let streams = BTreeSet::from([
 			tg::process::stdio::Stream::Stderr,

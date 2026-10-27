@@ -257,7 +257,7 @@ impl Component {
 			}
 			return Err(tg::error!("unauthorized"));
 		};
-		let permission = tangram_server_grant_core::admin_permission_for_resource(owner)?;
+		let permission = tangram_server_grant_common::admin_permission_for_resource(owner)?;
 		let authorized = session
 			.authorize(owner.clone(), permission)
 			.await?

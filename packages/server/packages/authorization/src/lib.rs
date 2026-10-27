@@ -43,7 +43,7 @@ impl Component {
 		};
 		let authorized = match owner.to_id() {
 			Some(id) => {
-				let permission = tangram_server_grant_core::write_permission_for_resource(&id)?;
+				let permission = tangram_server_grant_common::write_permission_for_resource(&id)?;
 				session
 					.authorize(tg::Selector::Id(id), permission)
 					.await?
@@ -121,7 +121,7 @@ impl Component {
 		session: &Session,
 		id: &tg::Id,
 	) -> tg::Result<Option<tg::authorization::Token>> {
-		let permission = tangram_server_grant_core::read_permission_for_resource(id)?;
+		let permission = tangram_server_grant_common::read_permission_for_resource(id)?;
 		let expires_at = session.server.clock.unix_timestamp()
 			+ session
 				.server
@@ -671,7 +671,7 @@ impl Component {
 			.into_iter()
 			.map(|resource| {
 				let permissions =
-					tangram_server_authorization_core::permission_capture_permissions(
+					tangram_server_authorization_common::permission_capture_permissions(
 						&resource.node,
 					)?
 					.empty_like();
@@ -708,8 +708,9 @@ impl Component {
 		let mut items = Vec::new();
 		let mut pending = Vec::new();
 		for (mut resource, mut proven) in roots {
-			let requested =
-				tangram_server_authorization_core::permission_capture_permissions(&resource.node)?;
+			let requested = tangram_server_authorization_common::permission_capture_permissions(
+				&resource.node,
+			)?;
 			let accepted = proven;
 			for permission in requested.iter() {
 				if accepted.iter().any(|proof| proof.implies(permission)) {

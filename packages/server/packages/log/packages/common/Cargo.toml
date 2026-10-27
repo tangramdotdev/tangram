@@ -1,5 +1,5 @@
 [package]
-name = "tangram_server_authorization_core"
+name = "tangram_server_log_common"
 
 description = { workspace = true }
 edition = { workspace = true }
@@ -17,4 +17,8 @@ doctest = false
 workspace = true
 
 [dependencies]
+tangram_cache = { workspace = true }
 tangram_client = { workspace = true }
+tangram_futures = { workspace = true }
+tangram_serialize = { workspace = true }
+tokio = { workspace = true }

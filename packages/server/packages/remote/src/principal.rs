@@ -65,7 +65,7 @@ impl Component {
 			tg::Principal::User(id) => id.clone().into(),
 			_ => return Err(tg::error!("invalid remote principal")),
 		};
-		let permission = tangram_server_grant_core::write_permission_for_resource(&id)?;
+		let permission = tangram_server_grant_common::write_permission_for_resource(&id)?;
 		let authorization = session
 			.authorize(id, permission)
 			.await?

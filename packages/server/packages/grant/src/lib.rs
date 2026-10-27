@@ -215,7 +215,7 @@ impl Component {
 			_ => {
 				// The resource is not found without read permission, so creating a grant does not reveal whether a resource the actor cannot see exists.
 				let permission =
-					tangram_server_grant_core::read_permission_for_resource(&resource)?;
+					tangram_server_grant_common::read_permission_for_resource(&resource)?;
 				if !session
 					.authorize(authorization_resource.clone(), permission)
 					.await?
@@ -228,7 +228,7 @@ impl Component {
 
 				// Creating a grant requires admin permission on the resource.
 				let permission =
-					tangram_server_grant_core::admin_permission_for_resource(&resource)?;
+					tangram_server_grant_common::admin_permission_for_resource(&resource)?;
 				if !session
 					.authorize(authorization_resource, permission)
 					.await?
@@ -341,7 +341,7 @@ impl Component {
 			_ => {
 				// Revoking a grant on a user, group, organization, or tag requires admin permission on the resource.
 				let permission =
-					tangram_server_grant_core::admin_permission_for_resource(&resource)?;
+					tangram_server_grant_common::admin_permission_for_resource(&resource)?;
 				session
 					.authorize(authorization_resource, permission)
 					.await?
@@ -915,7 +915,7 @@ impl Component {
 		}
 		// Listing the grants on a node requires admin permission, and the node is not found without read permission.
 		let id = self.resolve_resource(session, &resource.node).await?;
-		let read = tangram_server_grant_core::read_permission_for_resource(&id)?;
+		let read = tangram_server_grant_common::read_permission_for_resource(&id)?;
 		if !session
 			.authorize(resource.clone(), read)
 			.await?
@@ -925,7 +925,7 @@ impl Component {
 		{
 			return Ok(None);
 		}
-		let admin = tangram_server_grant_core::admin_permission_for_resource(&id)?;
+		let admin = tangram_server_grant_common::admin_permission_for_resource(&id)?;
 		if !session
 			.authorize(resource.clone(), admin)
 			.await?
@@ -1012,7 +1012,7 @@ impl Component {
 					tg::authorization::Subject::User(id) => id.clone().into(),
 					_ => unreachable!(),
 				};
-				let read = tangram_server_grant_core::read_permission_for_resource(&id)?;
+				let read = tangram_server_grant_common::read_permission_for_resource(&id)?;
 				if !session
 					.authorize(tg::Selector::Id(id.clone()), read)
 					.await?
@@ -1022,7 +1022,7 @@ impl Component {
 				{
 					return Ok(None);
 				}
-				let admin = tangram_server_grant_core::admin_permission_for_resource(&id)?;
+				let admin = tangram_server_grant_common::admin_permission_for_resource(&id)?;
 				if !session
 					.authorize(tg::Selector::Id(id), admin)
 					.await?

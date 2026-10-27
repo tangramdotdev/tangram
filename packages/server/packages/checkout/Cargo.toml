@@ -31,7 +31,7 @@ tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
-tangram_server_tag_core = { workspace = true }
+tangram_server_tag_common = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

@@ -13,7 +13,7 @@ use {
 	tangram_client as tg,
 	tangram_futures::read::Ext as _,
 	tangram_server_core::Session,
-	tangram_server_log_core::Index,
+	tangram_server_log_common::Index,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 

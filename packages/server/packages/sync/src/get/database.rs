@@ -528,7 +528,7 @@ impl Component {
 					&& let Some(parent) = existing_specifiers.ids_by_specifier.get(&parent)
 				{
 					let permission =
-						tangram_server_grant_core::write_permission_for_resource(parent)?;
+						tangram_server_grant_common::write_permission_for_resource(parent)?;
 					let permissions =
 						tg::authorization::permission::Set::from_permission(permission);
 					let resource = tg::Selector::<tg::Id>::Id(parent.clone());
@@ -542,13 +542,13 @@ impl Component {
 						.ids_by_specifier
 						.contains_key(&specifier)
 				});
-			let permission = tangram_server_grant_core::write_permission_for_resource(&id)?;
+			let permission = tangram_server_grant_common::write_permission_for_resource(&id)?;
 			let permissions = tg::authorization::permission::Set::from_permission(permission);
 			let resource = tg::Selector::<tg::Id>::Specifier(specifier.clone());
 			authorizations.push((resource, allow_unclaimed, permissions));
 		}
 		for id in replacement_roots.keys() {
-			let permission = tangram_server_node_core::delete_permission_for_named_node(id)?;
+			let permission = tangram_server_node_common::delete_permission_for_named_node(id)?;
 			let permissions = tg::authorization::permission::Set::from_permission(permission);
 			let resource = tg::Selector::<tg::Id>::Id(id.clone());
 			authorizations.push((resource, false, permissions));
@@ -1135,7 +1135,7 @@ impl Component {
 					message.name.clone(),
 					message.parent.as_ref().map(ToString::to_string),
 					target.to_string(),
-					tangram_server_tag_core::version(),
+					tangram_server_tag_common::version(),
 				]);
 			}
 			let result = transaction
@@ -1381,10 +1381,11 @@ impl Component {
 				let (permissions, version) = tag_permissions
 					.get(&message.id)
 					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
-				let mut proven = tangram_server_authorization_core::permission_capture_permissions(
-					&message.target,
-				)?
-				.empty_like();
+				let mut proven =
+					tangram_server_authorization_common::permission_capture_permissions(
+						&message.target,
+					)?
+					.empty_like();
 				for permission in permissions {
 					proven.insert((*permission).into());
 				}

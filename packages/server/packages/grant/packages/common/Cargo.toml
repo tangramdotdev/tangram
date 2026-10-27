@@ -1,5 +1,5 @@
 [package]
-name = "tangram_server_tag_core"
+name = "tangram_server_grant_common"
 
 description = { workspace = true }
 edition = { workspace = true }
@@ -18,4 +18,3 @@ workspace = true
 
 [dependencies]
 tangram_client = { workspace = true }
-uuid = { workspace = true }
