@@ -96,7 +96,7 @@ enum SubtreePhase {
 struct ProcessSearch {
 	incomplete: bool,
 	initial: Outcome,
-	kind: crate::process::object::Kind,
+	kind: tangram_index::process::object::Kind,
 	objects: Vec<tg::object::Id>,
 	phase: ProcessPhase,
 	root: Key,
@@ -108,14 +108,14 @@ enum ProcessFactRead {
 }
 
 enum ProcessValue {
-	Complete(Option<crate::process::Process>),
+	Complete(Option<tangram_index::process::Process>),
 	Pending,
 }
 
 enum ProcessPhase {
 	Complete(Outcome),
 	Facts {
-		objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
+		objects: Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 		pending: VecDeque<ProcessFactRead>,
 		value: ProcessValue,
 	},
@@ -1014,16 +1014,16 @@ impl ProcessSearch {
 	) -> tg::Result<Self> {
 		let kind = match permission {
 			tg::authorization::permission::process::Permission::NodeCommandObjects => {
-				crate::process::object::Kind::Command
+				tangram_index::process::object::Kind::Command
 			},
 			tg::authorization::permission::process::Permission::NodeErrorObjects => {
-				crate::process::object::Kind::Error
+				tangram_index::process::object::Kind::Error
 			},
 			tg::authorization::permission::process::Permission::NodeLogObjects => {
-				crate::process::object::Kind::Log
+				tangram_index::process::object::Kind::Log
 			},
 			tg::authorization::permission::process::Permission::NodeOutputObjects => {
-				crate::process::object::Kind::Output
+				tangram_index::process::object::Kind::Output
 			},
 			_ => return Err(tg::error!("expected a process node aspect permission")),
 		};
@@ -1240,10 +1240,10 @@ impl ProcessSearch {
 			.process
 			.as_ref()
 			.is_some_and(|process| match self.kind {
-				crate::process::object::Kind::Command => process.set.command_objects,
-				crate::process::object::Kind::Error => process.set.error_objects,
-				crate::process::object::Kind::Log => process.set.log_objects,
-				crate::process::object::Kind::Output => process.set.output_objects,
+				tangram_index::process::object::Kind::Command => process.set.command_objects,
+				tangram_index::process::object::Kind::Error => process.set.error_objects,
+				tangram_index::process::object::Kind::Log => process.set.log_objects,
+				tangram_index::process::object::Kind::Output => process.set.output_objects,
 			});
 		if !aspect_is_set {
 			let outcome = finish_process(state, &self.root, false);
@@ -1829,14 +1829,14 @@ where
 }
 
 fn aspect_matches(
-	wanted: crate::process::object::Kind,
-	actual: crate::process::object::Kind,
+	wanted: tangram_index::process::object::Kind,
+	actual: tangram_index::process::object::Kind,
 ) -> bool {
 	match wanted {
-		crate::process::object::Kind::Command => actual.is_command(),
-		crate::process::object::Kind::Error => actual.is_error(),
-		crate::process::object::Kind::Log => actual.is_log(),
-		crate::process::object::Kind::Output => actual.is_output(),
+		tangram_index::process::object::Kind::Command => actual.is_command(),
+		tangram_index::process::object::Kind::Error => actual.is_error(),
+		tangram_index::process::object::Kind::Log => actual.is_log(),
+		tangram_index::process::object::Kind::Output => actual.is_output(),
 	}
 }
 
@@ -1919,7 +1919,7 @@ where
 mod tests {
 	use {
 		super::*,
-		crate::verify::search::{AncestorNodeRead, MemberRead, Permission},
+		crate::search::{AncestorNodeRead, MemberRead, Permission},
 		std::{
 			sync::{
 				Arc,

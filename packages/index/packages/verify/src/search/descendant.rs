@@ -77,7 +77,7 @@ pub(super) struct Search {
 impl Search {
 	#[must_use]
 	pub(super) fn new(
-		config: crate::verify::SearchConfig,
+		config: crate::SearchConfig,
 		principal: &tg::Principal,
 		state: &mut State,
 		targets: Vec<Key>,
@@ -163,7 +163,7 @@ impl Search {
 		}
 	}
 
-	pub(super) fn add_targets(&mut self, config: crate::verify::SearchConfig, targets: Vec<Key>) {
+	pub(super) fn add_targets(&mut self, config: crate::SearchConfig, targets: Vec<Key>) {
 		let added = targets
 			.into_iter()
 			.filter(|target| self.unresolved.insert(target.clone()))
@@ -336,7 +336,7 @@ impl Search {
 				None,
 			)),
 			Read::OwnerSandboxes { owner, .. } => owner.to_id().and_then(|resource| {
-				crate::verify::write_permission_for_resource(&resource)
+				crate::write_permission_for_resource(&resource)
 					.ok()
 					.map(|permission| (resource, permission, None))
 			}),
@@ -526,7 +526,7 @@ impl Search {
 								let proofs = covering
 									.into_iter()
 									.map(|permission| {
-										vec![crate::verify::Check::ProcessObjectPermission {
+										vec![crate::Check::ProcessObjectPermission {
 											object: child.clone().try_into().unwrap(),
 											permission,
 											process: process.clone(),
@@ -899,7 +899,7 @@ impl Search {
 					key: key.clone(),
 				});
 		}
-		if crate::verify::write_permission_for_resource(&resource).ok() == Some(permission)
+		if crate::write_permission_for_resource(&resource).ok() == Some(permission)
 			&& let Some(owner) = principal_for_resource(&resource)
 		{
 			self.queues
@@ -1003,7 +1003,7 @@ impl Search {
 	}
 
 	fn expand_node_implications(&mut self, depth: usize, key: Key) {
-		let implied = crate::verify::permissions_implied_by(key.1)
+		let implied = crate::permissions_implied_by(key.1)
 			.into_iter()
 			.rev()
 			.filter(|permission| *permission != key.1)
@@ -1046,7 +1046,7 @@ impl Search {
 			.into_iter()
 			.filter(|child| child != object)
 			.map(|child| {
-				let check = crate::verify::Check::ObjectChild {
+				let check = crate::Check::ObjectChild {
 					child: child.clone(),
 					parent: object.clone(),
 				};
@@ -1093,7 +1093,7 @@ impl Search {
 				if !permission.implies(target) {
 					continue;
 				}
-				let check = crate::verify::Check::ProcessChild {
+				let check = crate::Check::ProcessChild {
 					child: child.clone(),
 					parent: process.clone(),
 				};
@@ -1191,7 +1191,7 @@ impl Search {
 		process: &tg::process::Id,
 		permission: tg::authorization::permission::object::Permission,
 		object: tg::object::Id,
-		kind: crate::process::object::Kind,
+		kind: tangram_index::process::object::Kind,
 		relationship_is_known: bool,
 	) -> DescendantCandidate {
 		let covering_permissions = match permission {
@@ -1208,13 +1208,13 @@ impl Search {
 			.map(|covering_permission| {
 				let mut proof = Vec::new();
 				if !relationship_is_known {
-					proof.push(crate::verify::Check::ProcessObject {
+					proof.push(crate::Check::ProcessObject {
 						kind,
 						object: object.clone(),
 						process: process.clone(),
 					});
 				}
-				proof.push(crate::verify::Check::ProcessObjectPermission {
+				proof.push(crate::Check::ProcessObjectPermission {
 					object: object.clone(),
 					permission: covering_permission,
 					process: process.clone(),
@@ -1418,15 +1418,15 @@ fn process_child_permissions(
 
 fn process_object_kinds(
 	permission: tg::authorization::permission::process::Permission,
-) -> Vec<crate::process::object::Kind> {
+) -> Vec<tangram_index::process::object::Kind> {
 	[
-		crate::process::object::Kind::Command,
-		crate::process::object::Kind::Error,
-		crate::process::object::Kind::Log,
-		crate::process::object::Kind::Output,
+		tangram_index::process::object::Kind::Command,
+		tangram_index::process::object::Kind::Error,
+		tangram_index::process::object::Kind::Log,
+		tangram_index::process::object::Kind::Output,
 	]
 	.into_iter()
-	.filter(|kind| permission.implies(crate::verify::process_object_permission(*kind)))
+	.filter(|kind| permission.implies(crate::process_object_permission(*kind)))
 	.collect()
 }
 
@@ -1455,7 +1455,7 @@ fn subject_for_member(member: tg::Id) -> tg::Result<tg::authorization::Subject> 
 fn inherent_sources(principal: &tg::Principal) -> Vec<Key> {
 	match principal {
 		tg::Principal::Process(process) => {
-			crate::verify::permissions_implied_by(tg::authorization::Permission::Process(
+			crate::permissions_implied_by(tg::authorization::Permission::Process(
 				tg::authorization::permission::process::Permission::Parent,
 			))
 			.into_iter()
@@ -1479,7 +1479,7 @@ fn inherent_sources(principal: &tg::Principal) -> Vec<Key> {
 			),
 		],
 		tg::Principal::User(user) => {
-			crate::verify::permissions_implied_by(tg::authorization::Permission::User(
+			crate::permissions_implied_by(tg::authorization::Permission::User(
 				tg::authorization::permission::user::Permission::Admin,
 			))
 			.into_iter()
@@ -1522,7 +1522,7 @@ mod tests {
 
 	#[test]
 	fn exceeding_the_depth_limit_does_not_exhaust_the_search() {
-		let config = crate::verify::SearchConfig {
+		let config = crate::SearchConfig {
 			max_depth: 1,
 			..Default::default()
 		};
@@ -1573,7 +1573,7 @@ mod tests {
 
 	#[test]
 	fn a_checks_shortcut_queues_the_fallback_for_later_targets() {
-		let config = crate::verify::SearchConfig::default();
+		let config = crate::SearchConfig::default();
 		let mut state = State::default();
 		let source = key(0);
 		let first = key(1);

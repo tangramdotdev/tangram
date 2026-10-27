@@ -138,7 +138,7 @@ impl AncestorTask {
 impl Search {
 	#[must_use]
 	pub(super) fn new(
-		config: crate::verify::SearchConfig,
+		config: crate::SearchConfig,
 		principal: &tg::Principal,
 		roots: &[Key],
 		tokens: Vec<tg::authorization::Body>,
@@ -425,7 +425,7 @@ impl Search {
 							.into_iter()
 							.filter(|(_, kind)| {
 								key.1.implies(tg::authorization::Permission::Process(
-									crate::verify::process_object_permission(*kind),
+									crate::process_object_permission(*kind),
 								))
 							})
 							.map(|(object, _)| {
@@ -514,7 +514,7 @@ impl Search {
 								let guard = (
 									process.clone().into(),
 									tg::authorization::Permission::Process(
-										crate::verify::process_object_permission(kind),
+										crate::process_object_permission(kind),
 									),
 									dependent.2.clone(),
 								);
@@ -785,7 +785,7 @@ impl Search {
 						parent_permission,
 						self.token_subject.clone(),
 					);
-					let check = crate::verify::Check::ObjectChild {
+					let check = crate::Check::ObjectChild {
 						child: object.clone(),
 						parent,
 					};
@@ -802,13 +802,13 @@ impl Search {
 				};
 				for process in self.process_sources() {
 					for kind in [
-						crate::process::object::Kind::Command,
-						crate::process::object::Kind::Error,
-						crate::process::object::Kind::Log,
-						crate::process::object::Kind::Output,
+						tangram_index::process::object::Kind::Command,
+						tangram_index::process::object::Kind::Error,
+						tangram_index::process::object::Kind::Log,
+						tangram_index::process::object::Kind::Output,
 					] {
 						let dependency_permission = tg::authorization::Permission::Process(
-							crate::verify::process_object_permission(kind),
+							crate::process_object_permission(kind),
 						);
 						let dependency =
 							(tg::Id::from(process.clone()), dependency_permission, None);
@@ -816,12 +816,12 @@ impl Search {
 							continue;
 						}
 						for covering_permission in &covering_permissions {
-							let relationship = crate::verify::Check::ProcessObject {
+							let relationship = crate::Check::ProcessObject {
 								kind,
 								object: object.clone(),
 								process: process.clone(),
 							};
-							let permission = crate::verify::Check::ProcessObjectPermission {
+							let permission = crate::Check::ProcessObjectPermission {
 								object: object.clone(),
 								permission: *covering_permission,
 								process: process.clone(),
@@ -847,7 +847,7 @@ impl Search {
 					if !self.source_verifys(&dependency) {
 						continue;
 					}
-					let check = crate::verify::Check::ProcessChild {
+					let check = crate::Check::ProcessChild {
 						child: process.clone(),
 						parent,
 					};
@@ -1186,7 +1186,7 @@ impl Search {
 			tg::authorization::Permission::Object(_) => {
 				for (process, kind) in &facts.object_processes {
 					let permission = tg::authorization::Permission::Process(
-						crate::verify::process_object_permission(*kind),
+						crate::process_object_permission(*kind),
 					);
 					let process_key = (tg::Id::from(process.clone()), permission, key.2.clone());
 					if direct_processes.contains(process) {
@@ -1222,13 +1222,12 @@ impl Search {
 						| tg::Principal::Runner(_) => None,
 					};
 					if let Some(owner) = owner {
-						let permission = crate::verify::write_permission_for_resource(&owner)?;
+						let permission = crate::write_permission_for_resource(&owner)?;
 						dependencies.push((owner, permission, None));
 					}
 				}
 				if let Some(parent) = &facts.parent {
-					let permission =
-						crate::verify::permission_for_named_parent(parent, *permission)?;
+					let permission = crate::permission_for_named_parent(parent, *permission)?;
 					dependencies.push((parent.clone(), permission, None));
 				}
 			},
@@ -1257,7 +1256,7 @@ impl Search {
 		state: &mut State,
 		depth: usize,
 		key: &Key,
-		delegations: &[crate::delegation::put::Arg],
+		delegations: &[tangram_index::delegation::put::Arg],
 	) {
 		for delegation in delegations {
 			if !(state.is_subject_verified(&delegation.subject, key.2.as_ref())
@@ -1775,7 +1774,7 @@ impl Search {
 fn ancestor_candidate(
 	dependency: Key,
 	edges: usize,
-	checks: impl IntoIterator<Item = crate::verify::Check>,
+	checks: impl IntoIterator<Item = crate::Check>,
 ) -> AncestorCandidate {
 	let checks = checks.into_iter().collect();
 

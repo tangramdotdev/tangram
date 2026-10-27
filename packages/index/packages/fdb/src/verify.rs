@@ -6,7 +6,7 @@ use {
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_index::verify::{
+	tangram_index_verify::{
 		Batch,
 		facts::{self, Output, Request},
 	},

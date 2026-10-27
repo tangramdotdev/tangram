@@ -140,15 +140,15 @@ pub enum Request {
 pub enum Output {
 	Delegations {
 		after: Option<Vec<u8>>,
-		delegations: Vec<crate::delegation::put::Arg>,
+		delegations: Vec<tangram_index::delegation::put::Arg>,
 	},
 
 	Bool(bool),
 	Permissions {
 		after: Option<Vec<u8>>,
-		permissions: Vec<crate::permission::Fact>,
+		permissions: Vec<tangram_index::permission::Fact>,
 	},
-	Group(Option<crate::group::Group>),
+	Group(Option<tangram_index::group::Group>),
 	Id(Option<tg::Id>),
 	Ids {
 		after: Option<Vec<u8>>,
@@ -164,17 +164,17 @@ pub enum Output {
 	},
 	ObjectProcesses {
 		after: Option<Vec<u8>>,
-		processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
+		processes: Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	},
-	Process(Option<crate::process::Process>),
-	ProcessObjectKinds(Vec<crate::process::object::Kind>),
+	Process(Option<tangram_index::process::Process>),
+	ProcessObjectKinds(Vec<tangram_index::process::object::Kind>),
 	ProcessObjects {
 		after: Option<Vec<u8>>,
-		objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
+		objects: Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	},
 	SandboxOwner(Option<tg::Principal>),
 	Storage(tg::storage::Set),
-	Tag(Option<crate::tag::Tag>),
+	Tag(Option<tangram_index::tag::Tag>),
 	Tags {
 		after: Option<Vec<u8>>,
 		tags: Vec<tg::tag::Id>,
@@ -442,7 +442,7 @@ impl Output {
 
 	pub(crate) fn into_permissions(
 		self,
-	) -> tg::Result<(Option<Vec<u8>>, Vec<crate::permission::Fact>)> {
+	) -> tg::Result<(Option<Vec<u8>>, Vec<tangram_index::permission::Fact>)> {
 		let Self::Permissions { after, permissions } = self else {
 			return Err(tg::error!("received a non-permission verification fact"));
 		};
@@ -450,7 +450,7 @@ impl Output {
 		Ok((after, permissions))
 	}
 
-	pub(crate) fn into_group(self) -> tg::Result<Option<crate::group::Group>> {
+	pub(crate) fn into_group(self) -> tg::Result<Option<tangram_index::group::Group>> {
 		let Self::Group(group) = self else {
 			return Err(tg::error!("received a non-group verification fact"));
 		};
@@ -502,7 +502,7 @@ impl Output {
 		self,
 	) -> tg::Result<(
 		Option<Vec<u8>>,
-		Vec<(tg::process::Id, crate::process::object::Kind)>,
+		Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	)> {
 		let Self::ObjectProcesses { after, processes } = self else {
 			return Err(tg::error!(
@@ -513,7 +513,7 @@ impl Output {
 		Ok((after, processes))
 	}
 
-	pub(crate) fn into_process(self) -> tg::Result<Option<crate::process::Process>> {
+	pub(crate) fn into_process(self) -> tg::Result<Option<tangram_index::process::Process>> {
 		let Self::Process(process) = self else {
 			return Err(tg::error!("received a non-process verification fact"));
 		};
@@ -521,7 +521,9 @@ impl Output {
 		Ok(process)
 	}
 
-	pub(crate) fn into_process_object_kinds(self) -> tg::Result<Vec<crate::process::object::Kind>> {
+	pub(crate) fn into_process_object_kinds(
+		self,
+	) -> tg::Result<Vec<tangram_index::process::object::Kind>> {
 		let Self::ProcessObjectKinds(kinds) = self else {
 			return Err(tg::error!(
 				"received a non-process-object-kind verification fact"
@@ -535,7 +537,7 @@ impl Output {
 		self,
 	) -> tg::Result<(
 		Option<Vec<u8>>,
-		Vec<(tg::object::Id, crate::process::object::Kind)>,
+		Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	)> {
 		let Self::ProcessObjects { after, objects } = self else {
 			return Err(tg::error!(
@@ -554,7 +556,7 @@ impl Output {
 		Ok(owner)
 	}
 
-	pub(crate) fn into_tag(self) -> tg::Result<Option<crate::tag::Tag>> {
+	pub(crate) fn into_tag(self) -> tg::Result<Option<tangram_index::tag::Tag>> {
 		let Self::Tag(tag) = self else {
 			return Err(tg::error!("received a non-tag verification fact"));
 		};

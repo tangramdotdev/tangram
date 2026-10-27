@@ -49,7 +49,7 @@ impl State {
 	}
 
 	#[must_use]
-	pub(crate) fn sync_candidates(&self, key: &Key) -> Vec<crate::verify::Sync> {
+	pub(crate) fn sync_candidates(&self, key: &Key) -> Vec<crate::Sync> {
 		self.syncs.get(key).into_iter().flatten().cloned().collect()
 	}
 
@@ -58,7 +58,7 @@ impl State {
 		if key.1.is_read_like()
 			&& let Some(tg::authorization::Subject::Sync(sync)) = &key.2
 		{
-			let candidate = crate::verify::Sync {
+			let candidate = crate::Sync {
 				permission: key.1,
 				resource: key.0.clone(),
 				sync: sync.clone(),
@@ -74,7 +74,7 @@ impl State {
 			.or_default()
 			.insert((key.clone(), sync.clone()));
 		if self.is_verified(access) {
-			let candidate = crate::verify::Sync {
+			let candidate = crate::Sync {
 				permission: key.1,
 				resource: key.0.clone(),
 				sync: sync.clone(),
@@ -107,11 +107,7 @@ impl State {
 		self.inherit_derived_syncs(dependency, dependent);
 	}
 
-	fn sync_dependency(
-		dependency: &Key,
-		dependent: &Key,
-		mut sync: crate::verify::Sync,
-	) -> crate::verify::Sync {
+	fn sync_dependency(dependency: &Key, dependent: &Key, mut sync: crate::Sync) -> crate::Sync {
 		if sync.resource == dependency.0
 			&& sync.permission == dependency.1
 			&& dependency.1.implies(dependent.1)
@@ -125,7 +121,7 @@ impl State {
 	pub(super) fn activate_syncs(&mut self, key: &Key) {
 		let reads = self.sync_reads.get(key).cloned().unwrap_or_default();
 		for (dependent, sync) in reads {
-			let candidate = crate::verify::Sync {
+			let candidate = crate::Sync {
 				permission: dependent.1,
 				resource: dependent.0.clone(),
 				sync,
@@ -142,7 +138,7 @@ impl State {
 		}
 	}
 
-	fn add_sync(&mut self, key: Key, sync: crate::verify::Sync) {
+	fn add_sync(&mut self, key: Key, sync: crate::Sync) {
 		let mut pending = vec![(key, sync)];
 		while let Some((key, sync)) = pending.pop() {
 			if !self
@@ -190,7 +186,7 @@ impl State {
 mod tests {
 	use {
 		super::*,
-		crate::verify::{Arg, Config, engine::Batch, facts},
+		crate::{Arg, Config, engine::Batch, facts},
 		std::{
 			ops::ControlFlow,
 			sync::{
@@ -284,13 +280,13 @@ mod tests {
 			tokens: Vec::new(),
 		};
 		let config = Config {
-			permissions: crate::verify::PermissionsConfig {
-				ancestor: crate::verify::SearchConfig {
+			permissions: tangram_index::verify::PermissionsConfig {
+				ancestor: crate::SearchConfig {
 					max_edges: 40,
 					page_size: 4,
-					..crate::verify::PermissionsConfig::default().ancestor
+					..tangram_index::verify::PermissionsConfig::default().ancestor
 				},
-				..crate::verify::PermissionsConfig::default()
+				..tangram_index::verify::PermissionsConfig::default()
 			},
 		};
 		let work = Arc::new(AtomicUsize::new(0));
@@ -329,7 +325,7 @@ mod tests {
 								.saturating_add(1);
 							let delegations = (0..limit)
 								.enumerate()
-								.map(|(row, _)| crate::delegation::put::Arg {
+								.map(|(row, _)| tangram_index::delegation::put::Arg {
 									expires_at: 100,
 									resource: resource.clone(),
 									source: source.clone(),
@@ -365,7 +361,7 @@ mod tests {
 								.unwrap_or(0)
 								.saturating_add(1);
 							let permissions = (0..limit)
-								.map(|_| crate::permission::Fact {
+								.map(|_| tangram_index::permission::Fact {
 									creator: None,
 									direct: true,
 									permission: node,
@@ -436,7 +432,7 @@ mod tests {
 			}
 		});
 		let (output, ()) = futures::future::join(search, serve).await;
-		assert_eq!(output.outcome, crate::verify::Outcome::Exhausted);
+		assert_eq!(output.outcome, crate::Outcome::Exhausted);
 		if matches!(kind, Kind::Candidates) {
 			assert_eq!(output.syncs.len(), 1);
 		}
