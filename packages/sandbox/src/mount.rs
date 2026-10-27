@@ -1063,7 +1063,7 @@ fn overlay_mount_data(lowerdirs: &[PathBuf], upperdir: &Path, workdir: &Path) ->
 	}
 
 	let mut data = Vec::new();
-	data.extend_from_slice(b"xino=off,userxattr,lowerdir=");
+	data.extend_from_slice(b"volatile,xino=off,userxattr,lowerdir=");
 	for (index, dir) in lowerdirs.iter().enumerate() {
 		escape(&mut data, dir.as_os_str().as_bytes());
 		if index + 1 != lowerdirs.len() {
