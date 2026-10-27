@@ -28,7 +28,7 @@ mod start;
 
 pub use {
 	self::session::Session,
-	tangram_server_cache as cache,
+	tangram_server_archive as archive, tangram_server_cache as cache,
 	tangram_server_config::{self as config, Config},
 	tangram_server_database as database, tangram_server_directory as directory,
 	tangram_server_graph as graph, tangram_server_index as index,
@@ -98,7 +98,7 @@ pub struct Owned {
 pub struct Server(Arc<State>);
 
 pub struct State {
-	pub archive: Option<tangram_server_archive::Archive>,
+	pub archive: Option<self::archive::Archive>,
 	pub authentication_tokens: Tokens,
 	pub authorization_tokens: Tokens,
 	pub cache: self::cache::Cache,

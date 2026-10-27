@@ -184,9 +184,7 @@ impl Server {
 			.archive
 			.as_ref()
 			.map(|config| match config {
-				crate::config::Archive::S3(config) => {
-					tangram_server_archive::Archive::new_s3(config)
-				},
+				crate::config::Archive::S3(config) => crate::archive::Archive::new_s3(config),
 			})
 			.transpose()?;
 
