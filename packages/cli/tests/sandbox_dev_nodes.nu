@@ -8,6 +8,11 @@ if $nu.os-info.name != 'linux' {
 
 let uid = ^id -u | str trim
 let gid = ^id -g | str trim
-let program = '[ -c /dev/null ] && [ -c /dev/zero ] && [ -c /dev/full ] && [ -c /dev/random ] && [ -c /dev/urandom ] && [ -c /dev/tty ]'
+mut program = '[ -c /dev/null ] && [ -c /dev/zero ] && [ -c /dev/full ] && [ -c /dev/random ] && [ -c /dev/urandom ] && [ -c /dev/tty ]'
+for device in [/dev/fuse /dev/net/tun] {
+	if ($device | path exists) {
+		$program += $' && [ -c ($device) ]'
+	}
+}
 let output = tg sandbox run --backend builtin --bind / / --dev /dev --gid $gid --uid $uid --unshare-all -- /bin/sh -c $program | complete
 success $output

@@ -891,21 +891,29 @@ pub(crate) fn mount_tmpfs(target: &Path) -> tg::Result<()> {
 }
 
 fn mount_dev(target: &Path) -> tg::Result<()> {
-	// Open the host device nodes.
+	// Open the host device nodes, skipping the optional devices that the host lacks.
 	let mut devices = Vec::new();
-	for path in [
-		"/dev/null",
-		"/dev/zero",
-		"/dev/full",
-		"/dev/random",
-		"/dev/urandom",
-		"/dev/tty",
+	for (path, optional) in [
+		("/dev/null", false),
+		("/dev/zero", false),
+		("/dev/full", false),
+		("/dev/random", false),
+		("/dev/urandom", false),
+		("/dev/tty", false),
+		("/dev/fuse", true),
+		("/dev/net/tun", true),
 	] {
-		let file = std::fs::File::options()
+		let file = match std::fs::File::options()
 			.custom_flags(libc::O_PATH)
 			.read(true)
 			.open(path)
-			.map_err(|error| tg::error!(!error, %path, "failed to open the device"))?;
+		{
+			Ok(file) => file,
+			Err(error) if optional && error.kind() == std::io::ErrorKind::NotFound => {
+				continue;
+			},
+			Err(error) => return Err(tg::error!(!error, %path, "failed to open the device")),
+		};
 		devices.push((path, file));
 	}
 
@@ -967,7 +975,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 	// Attach the device nodes.
 	for (path, file) in &devices {
 		let source = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
-		let target = target.join(Path::new(path).file_name().unwrap());
+		let target = target.join(Path::new(path).strip_prefix("/dev").unwrap());
 		let entry = Bind {
 			devices: true,
 			fd: None,
