@@ -14,8 +14,8 @@ mod subtree;
 mod sync;
 
 pub(crate) use {
-	crate::permission::Fact as Permission,
 	subtree::{Action as SubtreeAction, Search as SubtreeSearch},
+	tangram_index::permission::Fact as Permission,
 };
 
 // A missing subject uses the caller; delegation sources carry their own verification context.
@@ -74,17 +74,17 @@ pub(crate) enum DescendantFallback {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AncestorNodeFacts {
-	pub delegations: Vec<crate::delegation::put::Arg>,
+	pub delegations: Vec<tangram_index::delegation::put::Arg>,
 	pub permissions: Vec<Permission>,
-	pub object_processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
+	pub object_processes: Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	pub parent: Option<tg::Id>,
 	pub sandbox_owner: Option<tg::Principal>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ProcessFacts {
-	pub objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
-	pub process: Option<crate::process::Process>,
+	pub objects: Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
+	pub process: Option<tangram_index::process::Process>,
 }
 
 #[derive(Clone, Debug)]
@@ -258,7 +258,7 @@ pub(crate) enum Read {
 pub(crate) enum ReadOutput {
 	Delegations {
 		after: Option<Vec<u8>>,
-		delegations: Vec<crate::delegation::put::Arg>,
+		delegations: Vec<tangram_index::delegation::put::Arg>,
 	},
 
 	Bools(Vec<bool>),
@@ -266,7 +266,7 @@ pub(crate) enum ReadOutput {
 		after: Option<Vec<u8>>,
 		permissions: Vec<Permission>,
 	},
-	Group(Option<crate::group::Group>),
+	Group(Option<tangram_index::group::Group>),
 	Ids {
 		after: Option<Vec<u8>>,
 		ids: Vec<tg::Id>,
@@ -282,16 +282,16 @@ pub(crate) enum ReadOutput {
 	Missing,
 	ObjectProcesses {
 		after: Option<Vec<u8>>,
-		processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
+		processes: Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	},
-	Process(Option<crate::process::Process>),
+	Process(Option<tangram_index::process::Process>),
 	ProcessObjects {
 		after: Option<Vec<u8>>,
-		objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
+		objects: Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	},
 	Resolved(Option<(tg::Id, bool)>),
 	SandboxOwner(Option<tg::Principal>),
-	Tag(Option<crate::tag::Tag>),
+	Tag(Option<tangram_index::tag::Tag>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -303,7 +303,7 @@ pub(crate) enum Outcome {
 }
 
 struct Budget {
-	config: crate::verify::SearchConfig,
+	config: crate::SearchConfig,
 	edges: usize,
 	nodes: usize,
 }
@@ -370,7 +370,7 @@ pub(crate) struct State {
 	sync_access: BTreeSet<Key>,
 	sync_dependents: BTreeMap<Key, BTreeSet<Key>>,
 	sync_reads: BTreeMap<Key, BTreeSet<(Key, tg::sync::Id)>>,
-	syncs: BTreeMap<Key, BTreeSet<crate::verify::Sync>>,
+	syncs: BTreeMap<Key, BTreeSet<crate::Sync>>,
 
 	token_subject: Option<tg::authorization::Subject>,
 	subject_key_dependents: BTreeMap<
@@ -467,7 +467,7 @@ impl ReadOutput {
 		Ok((after, permissions))
 	}
 
-	fn into_group(self) -> tg::Result<Option<crate::group::Group>> {
+	fn into_group(self) -> tg::Result<Option<tangram_index::group::Group>> {
 		let Self::Group(group) = self else {
 			return Err(tg::error!("received a non-group result for a group read"));
 		};
@@ -513,7 +513,7 @@ impl ReadOutput {
 		self,
 	) -> tg::Result<(
 		Option<Vec<u8>>,
-		Vec<(tg::process::Id, crate::process::object::Kind)>,
+		Vec<(tg::process::Id, tangram_index::process::object::Kind)>,
 	)> {
 		let Self::ObjectProcesses { after, processes } = self else {
 			return Err(tg::error!(
@@ -524,7 +524,7 @@ impl ReadOutput {
 		Ok((after, processes))
 	}
 
-	pub(crate) fn into_process(self) -> tg::Result<Option<crate::process::Process>> {
+	pub(crate) fn into_process(self) -> tg::Result<Option<tangram_index::process::Process>> {
 		let Self::Process(process) = self else {
 			return Err(tg::error!(
 				"received a non-process result for a process read"
@@ -538,7 +538,7 @@ impl ReadOutput {
 		self,
 	) -> tg::Result<(
 		Option<Vec<u8>>,
-		Vec<(tg::object::Id, crate::process::object::Kind)>,
+		Vec<(tg::object::Id, tangram_index::process::object::Kind)>,
 	)> {
 		let Self::ProcessObjects { after, objects } = self else {
 			return Err(tg::error!(
@@ -569,7 +569,7 @@ impl ReadOutput {
 		Ok(owner)
 	}
 
-	fn into_tag(self) -> tg::Result<Option<crate::tag::Tag>> {
+	fn into_tag(self) -> tg::Result<Option<tangram_index::tag::Tag>> {
 		let Self::Tag(tag) = self else {
 			return Err(tg::error!("received a non-tag result for a tag read"));
 		};
@@ -580,7 +580,7 @@ impl ReadOutput {
 
 impl Budget {
 	#[must_use]
-	fn new(config: crate::verify::SearchConfig) -> Self {
+	fn new(config: crate::SearchConfig) -> Self {
 		Self {
 			config,
 			edges: 0,
@@ -589,14 +589,14 @@ impl Budget {
 	}
 
 	#[must_use]
-	fn with_root_total(mut config: crate::verify::SearchConfig, root_total: usize) -> Self {
+	fn with_root_total(mut config: crate::SearchConfig, root_total: usize) -> Self {
 		config.max_edges = config.max_edges.saturating_mul(root_total);
 		config.max_nodes = config.max_nodes.saturating_mul(root_total);
 
 		Self::new(config)
 	}
 
-	fn add_root_total(&mut self, config: crate::verify::SearchConfig, root_total: usize) {
+	fn add_root_total(&mut self, config: crate::SearchConfig, root_total: usize) {
 		debug_assert_eq!(self.config.max_depth, config.max_depth);
 		debug_assert_eq!(self.config.page_size, config.page_size);
 		self.config.max_edges = self
@@ -644,7 +644,7 @@ impl Budget {
 impl AncestorOrDescendantSearch {
 	#[must_use]
 	pub(crate) fn new(
-		config: crate::verify::Config,
+		config: crate::Config,
 		principal: &tg::Principal,
 		roots: &[Key],
 		tokens: &[tg::authorization::Body],
@@ -1357,7 +1357,7 @@ impl State {
 			self.newly_evaluated.insert(key.clone());
 			self.activate_syncs(&key);
 			stack.extend(
-				crate::verify::permissions_implied_by(key.1)
+				crate::permissions_implied_by(key.1)
 					.into_iter()
 					.filter(|permission| *permission != key.1)
 					.map(|permission| ((key.0.clone(), permission, key.2.clone()), expires_at)),
@@ -1586,7 +1586,7 @@ mod tests {
 		let principal = tg::Principal::User(tg::user::Id::new());
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
-			crate::verify::Config::default(),
+			crate::Config::default(),
 			&principal,
 			std::slice::from_ref(&root),
 			&[],
@@ -1613,7 +1613,7 @@ mod tests {
 		let principal = tg::Principal::User(tg::user::Id::new());
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
-			crate::verify::Config::default(),
+			crate::Config::default(),
 			&principal,
 			std::slice::from_ref(&root),
 			&[],
@@ -1658,7 +1658,7 @@ mod tests {
 		let root = key();
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
-			crate::verify::Config::default(),
+			crate::Config::default(),
 			&tg::Principal::Anonymous,
 			std::slice::from_ref(&root),
 			&[],

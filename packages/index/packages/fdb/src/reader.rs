@@ -143,7 +143,7 @@ impl Index {
 		let mut requests = requests
 			.into_iter()
 			.filter(|(_, sender)| !sender.is_closed())
-			.map(|(request, sender)| (request, sender, None::<tangram_index::verify::Batch>))
+			.map(|(request, sender)| (request, sender, None::<tangram_index_verify::Batch>))
 			.collect::<Vec<_>>();
 		if requests.is_empty() {
 			return;
@@ -165,7 +165,7 @@ impl Index {
 			let started = std::time::Instant::now();
 			let request_count = requests.len();
 			tracing::debug!(request_count, "starting an index read transaction");
-			let verification_fact_cache = tangram_index::verify::facts::Cache::new();
+			let verification_fact_cache = tangram_index_verify::facts::Cache::new();
 			let (retry_error, mut retry_requests) = {
 				// Execute the pending requests concurrently.
 				let transaction = &transaction;
@@ -255,13 +255,13 @@ impl Index {
 	}
 
 	async fn execute_read_request(
-		verification_fact_cache: tangram_index::verify::facts::Cache<fdb::FdbError>,
+		verification_fact_cache: tangram_index_verify::facts::Cache<fdb::FdbError>,
 		verification_concurrency: usize,
 		partition_totals: crate::PartitionTotals,
 		transaction: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &tangram_index::read::Request,
-		batch: &mut Option<tangram_index::verify::Batch>,
+		batch: &mut Option<tangram_index_verify::Batch>,
 	) -> tg::Result<ControlFlow<tangram_index::read::Response, fdb::FdbError>> {
 		let response = match request {
 			tangram_index::read::Request::VerifyBatch {
@@ -272,7 +272,7 @@ impl Index {
 				let batch = match batch {
 					Some(batch) => batch,
 					None => {
-						batch.insert(tangram_index::verify::Batch::new(args, *config, principal)?)
+						batch.insert(tangram_index_verify::Batch::new(args, *config, principal)?)
 					},
 				};
 				let result = Self::verify_batch_with_transaction(

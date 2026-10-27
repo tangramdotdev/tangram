@@ -10371,7 +10371,6 @@ dependencies = [
  "tangram_serialize",
  "tangram_util",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -10391,6 +10390,7 @@ dependencies = [
  "serde_json",
  "tangram_client",
  "tangram_index",
+ "tangram_index_verify",
  "tangram_serialize",
  "tangram_util",
  "tokio",
@@ -10413,10 +10413,22 @@ dependencies = [
  "serde_json",
  "tangram_client",
  "tangram_index",
+ "tangram_index_verify",
  "tangram_serialize",
  "tangram_util",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "tangram_index_verify"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "tangram_client",
+ "tangram_index",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

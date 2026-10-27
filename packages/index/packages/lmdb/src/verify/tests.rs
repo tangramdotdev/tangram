@@ -144,7 +144,7 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 		tokens: Vec::new(),
 	};
 	let outcomes = Index::verify_batch_with_transaction(
-		tangram_index::verify::facts::Cache::new(),
+		tangram_index_verify::facts::Cache::new(),
 		verify,
 		&index.db,
 		&index.subspace,

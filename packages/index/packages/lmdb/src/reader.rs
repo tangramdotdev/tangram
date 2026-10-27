@@ -65,7 +65,7 @@ impl Index {
 			}
 
 			// Execute the requests sequentially against the shared snapshot.
-			let verification_fact_cache = tangram_index::verify::facts::Cache::new();
+			let verification_fact_cache = tangram_index_verify::facts::Cache::new();
 			for (request, sender) in requests {
 				let response = Self::execute_read_request(
 					verification_fact_cache.clone(),
@@ -121,7 +121,7 @@ impl Index {
 	}
 
 	fn execute_read_request(
-		verification_fact_cache: tangram_index::verify::facts::Cache<std::convert::Infallible>,
+		verification_fact_cache: tangram_index_verify::facts::Cache<std::convert::Infallible>,
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,

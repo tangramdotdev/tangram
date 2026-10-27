@@ -52,10 +52,7 @@ impl Search {
 		self.root.2 = subject;
 	}
 
-	pub(crate) fn new_object(
-		config: crate::verify::SubtreeConfig,
-		resource: &tg::Id,
-	) -> tg::Result<Self> {
+	pub(crate) fn new_object(config: crate::SubtreeConfig, resource: &tg::Id) -> tg::Result<Self> {
 		let root = tg::object::Id::try_from(resource.clone())?;
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
@@ -70,7 +67,7 @@ impl Search {
 	}
 
 	pub(crate) fn new_process(
-		config: crate::verify::SubtreeConfig,
+		config: crate::SubtreeConfig,
 		permission: tg::authorization::permission::process::Permission,
 		resource: &tg::Id,
 	) -> tg::Result<Self> {
@@ -517,11 +514,8 @@ mod tests {
 		let root = object(0);
 		let incomplete = object(1);
 		let denied = object(2);
-		let mut search = Search::new_object(
-			crate::verify::SubtreeConfig::default(),
-			&root.clone().into(),
-		)
-		.unwrap();
+		let mut search =
+			Search::new_object(crate::SubtreeConfig::default(), &root.clone().into()).unwrap();
 		search.nodes = vec![incomplete.into(), denied.clone().into()];
 		search.phase = Phase::Nodes;
 
@@ -547,8 +541,7 @@ mod tests {
 		let root = object(0);
 		let child = object(1);
 		let resource = tg::Id::from(root.clone());
-		let mut search =
-			Search::new_object(crate::verify::SubtreeConfig::default(), &resource).unwrap();
+		let mut search = Search::new_object(crate::SubtreeConfig::default(), &resource).unwrap();
 		search.phase = Phase::Complete {
 			outcome: Outcome::Exhausted,
 		};
@@ -584,8 +577,7 @@ mod tests {
 	fn an_initial_ancestor_or_descendant_outcome_is_not_requested_again() {
 		let root = object(0);
 		let resource = tg::Id::from(root);
-		let mut search =
-			Search::new_object(crate::verify::SubtreeConfig::default(), &resource).unwrap();
+		let mut search = Search::new_object(crate::SubtreeConfig::default(), &resource).unwrap();
 		let subtree = search.subtree_key(&resource);
 		let node = search.node_key(&resource);
 		search
@@ -606,8 +598,7 @@ mod tests {
 		let root = object(0);
 		let child = object(1);
 		let resource = tg::Id::from(root);
-		let mut search =
-			Search::new_object(crate::verify::SubtreeConfig::default(), &resource).unwrap();
+		let mut search = Search::new_object(crate::SubtreeConfig::default(), &resource).unwrap();
 		let parent = search.subtree_key(&resource);
 		let child = search.subtree_key(&child.into());
 		let node = search.node_key(&resource);
@@ -635,12 +626,8 @@ mod tests {
 		let process = tg::process::Id::new();
 		let resource = tg::Id::from(process);
 		let permission = tg::authorization::permission::process::Permission::SubtreeCommandObjects;
-		let mut search = Search::new_process(
-			crate::verify::SubtreeConfig::default(),
-			permission,
-			&resource,
-		)
-		.unwrap();
+		let mut search =
+			Search::new_process(crate::SubtreeConfig::default(), permission, &resource).unwrap();
 		let mut state = State::default();
 
 		let Action::VerifyAncestorOrDescendant { roots } =

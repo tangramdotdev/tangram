@@ -1,6 +1,6 @@
 use {
 	super::{arg, object},
-	crate::verify::{
+	crate::{
 		Arg, Config, Outcome, Output,
 		engine::{Batch, BatchPhase},
 		facts,
