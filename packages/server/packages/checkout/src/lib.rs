@@ -176,7 +176,13 @@ impl Component {
 		if vfs_enabled {
 			let paths = paths
 				.into_iter()
-				.map(|path| session.guest_path_for_host_path(&path))
+				.map(|path| {
+					session
+						.server
+						.components
+						.runner
+						.guest_path_for_host_path(session, &path)
+				})
 				.collect::<tg::Result<Vec<_>>>()?;
 			let output = tg::checkout::Output { paths };
 			let event = tg::progress::Event::Output(output);
@@ -233,7 +239,13 @@ impl Component {
 								let paths = internal_output
 									.paths
 									.iter()
-									.map(|path| session.guest_path_for_host_path(path))
+									.map(|path| {
+										session
+											.server
+											.components
+											.runner
+											.guest_path_for_host_path(&session, path)
+									})
 									.collect::<tg::Result<Vec<_>>>()?;
 								let output = tg::checkout::Output { paths };
 								tg::progress::Event::Output(output)

@@ -21,7 +21,11 @@ impl Component {
 	) -> Option<Control> {
 		let state = session.server.components.runner.state();
 		let sandbox = state.try_get_process_sandbox(id)?;
-		let runner = session.try_get_sandbox_runner_inner(&sandbox, location)?;
+		let runner = session
+			.server
+			.components
+			.runner
+			.try_get_sandbox_runner(&sandbox, location)?;
 		let sandbox = state.sandboxes().get(runner.index)?;
 		let process = sandbox.processes.get(id)?;
 		let control = Control {
@@ -68,7 +72,11 @@ impl Component {
 		// Get the process.
 		let state = session.server.components.runner.state();
 		let sandbox = state.try_get_process_sandbox(id)?;
-		let runner = session.try_get_sandbox_runner_inner(&sandbox, location)?;
+		let runner = session
+			.server
+			.components
+			.runner
+			.try_get_sandbox_runner(&sandbox, location)?;
 		let sandbox = state.sandboxes().get(runner.index)?;
 		let process = sandbox.processes.get(id)?;
 

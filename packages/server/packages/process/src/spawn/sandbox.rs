@@ -239,8 +239,11 @@ impl Component {
 		let timeout = session.server.config.control.request_timeout;
 		let options = tangram_server_core::control::Options { retry, timeout };
 		// Spawn preparation has already checked sandbox access and the request origin.
-		let response = if let Some(control_sender) =
-			session.try_get_sandbox_control_runner_inner(&sandbox, location)
+		let response = if let Some(control_sender) = session
+			.server
+			.components
+			.runner
+			.try_get_sandbox_control_runner(&sandbox, location)
 		{
 			control_sender.request(request).await
 		} else {

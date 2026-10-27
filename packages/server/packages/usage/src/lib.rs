@@ -3,7 +3,7 @@ use {
 	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_server_core::{Session, database::Transaction},
+	tangram_server_core::{Server, Session, database::Transaction},
 };
 
 /// The component.
@@ -14,6 +14,13 @@ impl Component {
 	#[must_use]
 	pub fn new() -> Self {
 		Self::default()
+	}
+
+	async fn start_usage(server: &Server) -> tg::Result<()> {
+		if server.config.usage.enabled {
+			server.index.start_usage(server.clock.now()).await?;
+		}
+		Ok(())
 	}
 
 	pub(crate) async fn get_usage_regions(
@@ -285,7 +292,11 @@ impl Component {
 	}
 }
 
-impl tangram_server_core::component::Lifecycle for Component {}
+impl tangram_server_core::component::Lifecycle for Component {
+	fn start<'a>(&'a self, server: &'a Server) -> BoxFuture<'a, tg::Result<()>> {
+		Self::start_usage(server).boxed()
+	}
+}
 
 impl tangram_server_core::usage::Component for Component {
 	fn get_usage_regions<'a>(

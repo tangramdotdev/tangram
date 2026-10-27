@@ -53,7 +53,11 @@ impl Component {
 			.path
 			.as_mut()
 			.ok_or_else(|| tg::error!("expected the path to be set"))?;
-		*path = session.host_path_for_guest_path(path)?;
+		*path = session
+			.server
+			.components
+			.runner
+			.host_path_for_guest_path(session, path)?;
 
 		let capacity = session.server.config.progress.channel_capacity;
 		let progress = tg::progress::Handle::new(capacity);
@@ -131,7 +135,11 @@ impl Component {
 					async move {
 						if let tg::progress::Event::Output(mut output) = event {
 							for path in &mut output.paths {
-								*path = session.host_path_for_guest_path(path)?;
+								*path = session
+									.server
+									.components
+									.runner
+									.host_path_for_guest_path(&session, path)?;
 							}
 							Ok(tg::progress::Event::Output(output))
 						} else {

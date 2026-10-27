@@ -79,7 +79,7 @@ tangram_sandbox = { workspace = true }
 tangram_server_archive = { workspace = true }
 tangram_server_authentication_core = { workspace = true }
 tangram_server_cache = { workspace = true }
-tangram_server_checkin_graph = { workspace = true }
+tangram_server_checkin_core = { workspace = true }
 tangram_server_checkpoint_core = { workspace = true }
 tangram_server_clock_core = { workspace = true }
 tangram_server_config = { workspace = true }

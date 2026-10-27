@@ -1,4 +1,5 @@
 use {
+	self::graph::Petgraph,
 	futures::{FutureExt as _, StreamExt as _, future::BoxFuture},
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
@@ -11,12 +12,13 @@ use {
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_ignore as ignore,
+	tangram_server_checkin_core::{
+		Contents, Directory, File, Graph, Node, ObjectOptions, Referrer, Solution, Solutions,
+		Symlink, Variant,
+	},
 	tangram_server_core::{
 		Session, checkin,
-		checkin::{
-			Contents, Directory, File, Graph, Node, ObjectOptions, Petgraph, Referrer, Solution,
-			Solutions, Symlink, TaskOutput, Variant,
-		},
+		checkin::TaskOutput,
 		checkpoint,
 		watch::{self, Watch},
 	},
@@ -27,6 +29,7 @@ mod artifact;
 mod blob;
 mod checkout;
 mod fixup;
+mod graph;
 mod index;
 mod input;
 mod lock;
@@ -103,7 +106,14 @@ impl Component {
 
 		// Canonicalize against the mounted store, whose parents exist even without a physical checkout.
 		arg.path = session
-			.host_path_for_guest_path_with_store_path(&arg.path, &session.server.store_path())?;
+			.server
+			.components
+			.runner
+			.host_path_for_guest_path_with_store_path(
+				session,
+				&arg.path,
+				&session.server.store_path(),
+			)?;
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));
 		}
@@ -498,7 +508,7 @@ impl Component {
 
 		// Revalidate the lock before reusing a watched graph because file events may still be queued.
 		let lock = if arg.options.lock.is_some() {
-			let current = checkin::try_read_lock(root)
+			let current = tangram_server_checkin_core::try_read_lock(root)
 				.map_err(|error| tg::error!(!error, "failed to read the lock"))?;
 			if lock.as_deref() != current.as_ref() {
 				graph = Graph::default();
@@ -745,7 +755,7 @@ impl Component {
 
 			// Verify that the lock has the expected contents.
 			if lock_write_guard.is_some() {
-				let actual_lock = checkin::try_read_lock(root)
+				let actual_lock = tangram_server_checkin_core::try_read_lock(root)
 					.map_err(|error| tg::error!(!error, "failed to read the lock"))?;
 				if lock.as_deref() != actual_lock.as_ref() {
 					return Err(tg::error!("the lock was modified during checkin"));

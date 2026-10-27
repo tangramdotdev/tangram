@@ -28,7 +28,9 @@ use {
 };
 
 mod control;
+mod get;
 mod listener;
+mod path;
 
 pub(crate) mod pool;
 

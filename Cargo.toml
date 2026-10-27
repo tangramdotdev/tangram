@@ -115,7 +115,7 @@ members = [
   "packages/server/packages/check",
   "packages/server/packages/checkin",
   "packages/server/packages/checkin/packages/common",
-  "packages/server/packages/checkin/packages/graph",
+  "packages/server/packages/checkin/packages/core",
   "packages/server/packages/checkout",
   "packages/server/packages/checkpoint",
   "packages/server/packages/checkpoint/packages/core",
@@ -466,7 +466,7 @@ tangram_server_cache = { path = "packages/server/packages/cache" }
 tangram_server_check = { path = "packages/server/packages/check" }
 tangram_server_checkin = { path = "packages/server/packages/checkin" }
 tangram_server_checkin_common = { path = "packages/server/packages/checkin/packages/common" }
-tangram_server_checkin_graph = { path = "packages/server/packages/checkin/packages/graph" }
+tangram_server_checkin_core = { path = "packages/server/packages/checkin/packages/core" }
 tangram_server_checkout = { path = "packages/server/packages/checkout" }
 tangram_server_checkpoint = { path = "packages/server/packages/checkpoint" }
 tangram_server_checkpoint_core = { path = "packages/server/packages/checkpoint/packages/core" }

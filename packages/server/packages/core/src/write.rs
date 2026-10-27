@@ -7,7 +7,7 @@ use {
 	tokio::io::AsyncRead,
 };
 
-pub use tangram_server_checkin_graph::write::Output;
+pub use tangram_server_checkin_core::write::Output;
 
 /// The write component.
 pub trait Component: crate::component::Lifecycle {

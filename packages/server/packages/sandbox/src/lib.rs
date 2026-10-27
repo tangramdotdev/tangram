@@ -7,9 +7,7 @@ use {
 	tangram_http::body::Boxed as BoxBody,
 	tangram_messenger::service,
 	tangram_server_core::{
-		Server, Session,
-		messenger::Messenger,
-		sandbox::{ConnectionFuture, Runner},
+		Server, Session, messenger::Messenger, runner::Runner, sandbox::ConnectionFuture,
 	},
 };
 

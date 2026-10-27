@@ -1022,6 +1022,31 @@ impl tangram_server_core::runner::Component for Component {
 		self.try_get_runner_data(session, runner).boxed()
 	}
 
+	fn guest_path_for_host_path(
+		&self,
+		session: &tangram_server_core::Session,
+		path: &std::path::Path,
+	) -> tg::Result<std::path::PathBuf> {
+		Self::guest_path_for_host_path(session, path)
+	}
+
+	fn host_path_for_guest_path(
+		&self,
+		session: &tangram_server_core::Session,
+		path: &std::path::Path,
+	) -> tg::Result<std::path::PathBuf> {
+		Self::host_path_for_guest_path(session, path)
+	}
+
+	fn host_path_for_guest_path_with_store_path(
+		&self,
+		session: &tangram_server_core::Session,
+		path: &std::path::Path,
+		store_path: &std::path::Path,
+	) -> tg::Result<std::path::PathBuf> {
+		Self::host_path_for_guest_path_with_store_path(session, path, store_path)
+	}
+
 	fn resolve_sandbox_backend(
 		&self,
 		server: &tangram_server_core::Server,
@@ -1072,6 +1097,22 @@ impl tangram_server_core::runner::Component for Component {
 		id: &'a tg::process::Id,
 	) -> Option<String> {
 		Self::try_get_process_inner_token(session, id)
+	}
+
+	fn try_get_sandbox_control_runner(
+		&self,
+		id: &tg::sandbox::Id,
+		location: Option<&tg::location::Arg>,
+	) -> Option<tangram_server_sandbox_core::control::local::Local> {
+		self.try_get_sandbox_control_runner(id, location)
+	}
+
+	fn try_get_sandbox_runner(
+		&self,
+		id: &tg::sandbox::Id,
+		location: Option<&tg::location::Arg>,
+	) -> Option<tangram_server_core::runner::Runner> {
+		self.try_get_sandbox_runner(id, location)
 	}
 
 	fn create_runner<'a>(

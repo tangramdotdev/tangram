@@ -2403,7 +2403,7 @@ impl Component {
 
 		// Check in the output.
 		if !has_outcome && outcome.error.is_none() && outcome.output.is_none() && exists {
-			let path = session.guest_path_for_host_path(&path)?;
+			let path = Self::guest_path_for_host_path(session, &path)?;
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,

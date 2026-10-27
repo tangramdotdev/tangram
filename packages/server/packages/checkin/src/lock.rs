@@ -393,7 +393,7 @@ impl Component {
 		let lock = tg::graph::data::Leaf { nodes };
 
 		// Strip the lock.
-		tangram_server_core::checkin::strip_lock(lock, source_dependencies)
+		tangram_server_checkin_common::strip_lock(lock, source_dependencies)
 	}
 }
 

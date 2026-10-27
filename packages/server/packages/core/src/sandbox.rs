@@ -162,13 +162,6 @@ pub trait Component: crate::component::Lifecycle {
 	) -> BoxFuture<'a, tg::Result<()>>;
 }
 
-pub struct Runner {
-	pub changed: tokio::sync::watch::Receiver<()>,
-	pub index: u64,
-	pub location: tg::Location,
-	pub location_arg: tg::location::Arg,
-}
-
 impl crate::Server {
 	pub fn origin_has_network_access(&self, origin: Origin) -> tg::Result<bool> {
 		let sandbox = self.try_get_request_origin_sandbox(origin)?;
@@ -195,72 +188,5 @@ impl crate::Server {
 			.ok_or_else(|| tg::error!(%index, "failed to find the origin sandbox"))?;
 
 		Ok(Some(sandbox))
-	}
-}
-
-impl crate::Session {
-	#[must_use]
-	pub fn try_get_sandbox_control_runner_inner(
-		&self,
-		id: &tg::sandbox::Id,
-		location: Option<&tg::location::Arg>,
-	) -> Option<tangram_server_sandbox_core::control::local::Local> {
-		let runner = self.try_get_sandbox_runner_inner(id, location)?;
-		let sandbox = self
-			.server
-			.components
-			.runner
-			.state()
-			.sandboxes()
-			.get(runner.index)?;
-		let sender = &sandbox.control_sender;
-		(!sender.is_closed()).then(|| sender.clone())
-	}
-
-	#[must_use]
-	pub fn try_get_sandbox_runner_inner(
-		&self,
-		id: &tg::sandbox::Id,
-		location: Option<&tg::location::Arg>,
-	) -> Option<Runner> {
-		let sandbox = self
-			.server
-			.components
-			.runner
-			.state()
-			.sandboxes()
-			.get_by_id(id)?;
-		// Regions guide subsequent routing, but do not constrain a runner state match.
-		let location_arg = if let Some(location) = location {
-			let components = location
-				.0
-				.iter()
-				.filter(|component| match (component, &sandbox.location) {
-					(tg::location::arg::Component::Local(_), tg::Location::Local(_)) => true,
-					(
-						tg::location::arg::Component::Remote(component),
-						tg::Location::Remote(remote),
-					) => component.name == remote.name,
-					_ => false,
-				})
-				.cloned()
-				.collect::<Vec<_>>();
-			if components.is_empty() {
-				return None;
-			}
-			tg::location::Arg(components)
-		} else {
-			sandbox.location.clone().into()
-		};
-		let changed = sandbox.changed.subscribe();
-		let index = *sandbox.key();
-		let location = sandbox.location.clone();
-		let runner = Runner {
-			changed,
-			index,
-			location,
-			location_arg,
-		};
-		Some(runner)
 	}
 }

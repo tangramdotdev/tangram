@@ -717,7 +717,11 @@ impl Component {
 			&& !matches!(referrer.kind, tg::module::Kind::TypeScriptDeclaration)
 			&& let tg::module::data::Source::Path(path) = &mut referrer.referent.node
 		{
-			*path = session.host_path_for_guest_path(path)?;
+			*path = session
+				.server
+				.components
+				.runner
+				.host_path_for_guest_path(session, path)?;
 		}
 		let referrer_is_edge = arg.referrer.as_ref().is_some_and(|referrer| {
 			matches!(referrer.referent.node, tg::module::data::Source::Edge(_))
@@ -728,13 +732,21 @@ impl Component {
 			if let tg::reference::Node::Path(path) = &mut node
 				&& path.is_absolute()
 			{
-				*path = session.host_path_for_guest_path(path)?;
+				*path = session
+					.server
+					.components
+					.runner
+					.host_path_for_guest_path(session, path)?;
 			}
 			let mut options = reference.options().clone();
 			if let Some(source) = &mut options.source
 				&& source.is_absolute()
 			{
-				*source = session.host_path_for_guest_path(source)?;
+				*source = session
+					.server
+					.components
+					.runner
+					.host_path_for_guest_path(session, source)?;
 			}
 			let export = reference.export().map(str::to_owned);
 			arg.import.reference = tg::Reference::new(node, options, export);
@@ -748,7 +760,11 @@ impl Component {
 		if !matches!(output.module.kind, tg::module::Kind::TypeScriptDeclaration)
 			&& let tg::module::data::Source::Path(path) = &mut output.module.referent.node
 		{
-			*path = session.guest_path_for_host_path(path)?;
+			*path = session
+				.server
+				.components
+				.runner
+				.guest_path_for_host_path(session, path)?;
 		}
 
 		// Create the response.

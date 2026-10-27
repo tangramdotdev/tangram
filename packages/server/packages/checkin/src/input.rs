@@ -646,7 +646,11 @@ impl Component {
 
 		// If the target is absolute, then get the host path if necessary.
 		if target.is_absolute() {
-			target = session.host_path_for_guest_path(&target)?;
+			target = session
+				.server
+				.components
+				.runner
+				.host_path_for_guest_path(session, &target)?;
 		}
 
 		// Canonicalize the target.

@@ -5,16 +5,11 @@ use {
 	tangram_http::body::Boxed as BoxBody,
 };
 
-pub use tangram_server_checkin_graph::{
-	Contents, Directory, File, Graph, Node, ObjectOptions, Petgraph, Referrer, Solution, Solutions,
-	Symlink, Variant, strip_lock, try_read_lock,
-};
-
 pub type Stream = BoxStream<'static, tg::Result<tg::progress::Event<tg::checkin::Output>>>;
 
 #[derive(Clone)]
 pub struct TaskOutput {
-	pub graph: Graph,
+	pub graph: tangram_server_checkin_core::Graph,
 }
 
 /// The checkin component.

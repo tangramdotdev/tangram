@@ -617,10 +617,12 @@ impl Server {
 		// Migrate the directory before using its databases.
 		self.migrate().await?;
 
-		// Start usage tracking.
-		if self.config.usage.enabled {
-			self.index.start_usage(self.clock.now()).await?;
-		}
+		// Start the usage component.
+		self.components
+			.usage
+			.start(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to start the usage component"))?;
 
 		// Start the sandbox component.
 		self.components

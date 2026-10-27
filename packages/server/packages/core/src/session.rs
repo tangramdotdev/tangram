@@ -1,10 +1,7 @@
 use {
 	crate::{Context, Server},
 	futures::{Stream, stream::BoxStream},
-	std::{
-		ops::ControlFlow,
-		path::{Path, PathBuf},
-	},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -73,64 +70,6 @@ impl Session {
 		}
 
 		Ok(())
-	}
-
-	pub fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
-		self.host_path_for_guest_path_with_store_path(path, &self.server.checkout_path())
-	}
-
-	pub fn host_path_for_guest_path_with_store_path(
-		&self,
-		path: &Path,
-		store_path: &Path,
-	) -> tg::Result<PathBuf> {
-		let Some(sandbox) = self
-			.server
-			.try_get_request_origin_sandbox(self.context.origin)?
-		else {
-			return Ok(path.to_owned());
-		};
-		let id = sandbox.id.clone();
-		let sandbox = sandbox
-			.sandbox
-			.clone()
-			.ok_or_else(|| tg::error!(%id, "failed to get the origin sandbox"))?;
-
-		// Map the guest store to the filesystem needed by the operation.
-		if self.server.components.vfs.mounted()
-			&& let Ok(rest) = path.strip_prefix(sandbox.guest_store_path())
-		{
-			return Ok(store_path.join(rest));
-		}
-
-		sandbox
-			.host_path_for_guest_path(path)
-			.ok_or_else(|| tg::error!(path = %path.display(), "no host path for guest path"))
-	}
-
-	pub fn guest_path_for_host_path(&self, path: &Path) -> tg::Result<PathBuf> {
-		let Some(sandbox) = self
-			.server
-			.try_get_request_origin_sandbox(self.context.origin)?
-		else {
-			return Ok(path.to_owned());
-		};
-		let id = sandbox.id.clone();
-		let sandbox = sandbox
-			.sandbox
-			.clone()
-			.ok_or_else(|| tg::error!(%id, "failed to get the origin sandbox"))?;
-
-		// Serve a shared store path through the per-sandbox VFS mount.
-		if self.server.components.vfs.mounted()
-			&& let Ok(rest) = path.strip_prefix(self.server.store_path())
-		{
-			return Ok(sandbox.guest_store_path().join(rest));
-		}
-
-		sandbox
-			.guest_path_for_host_path(path)
-			.ok_or_else(|| tg::error!(path = %path.display(), "no guest path for host path"))
 	}
 }
 

@@ -265,7 +265,11 @@ impl Component {
 		if !matches!(arg.module.kind, tg::module::Kind::TypeScriptDeclaration)
 			&& let tg::module::data::Source::Path(path) = &mut arg.module.referent.node
 		{
-			*path = session.host_path_for_guest_path(path)?;
+			*path = session
+				.server
+				.components
+				.runner
+				.host_path_for_guest_path(session, path)?;
 		}
 
 		// Load the module.

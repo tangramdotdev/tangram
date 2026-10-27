@@ -1,10 +1,20 @@
 use {
 	crate::{Server, Session},
 	futures::{future::BoxFuture, stream::BoxStream},
-	std::ops::ControlFlow,
+	std::{
+		ops::ControlFlow,
+		path::{Path, PathBuf},
+	},
 	tangram_client::prelude::*,
 	tangram_http::body::Boxed as BoxBody,
 };
+
+pub struct Runner {
+	pub changed: tokio::sync::watch::Receiver<()>,
+	pub index: u64,
+	pub location: tg::Location,
+	pub location_arg: tg::location::Arg,
+}
 
 /// The runner component.
 pub trait Component: crate::component::Lifecycle {
@@ -79,6 +89,17 @@ pub trait Component: crate::component::Lifecycle {
 		request: http::Request<BoxBody>,
 	) -> BoxFuture<'a, tg::Result<http::Response<BoxBody>>>;
 
+	fn guest_path_for_host_path(&self, session: &Session, path: &Path) -> tg::Result<PathBuf>;
+
+	fn host_path_for_guest_path(&self, session: &Session, path: &Path) -> tg::Result<PathBuf>;
+
+	fn host_path_for_guest_path_with_store_path(
+		&self,
+		session: &Session,
+		path: &Path,
+		store_path: &Path,
+	) -> tg::Result<PathBuf>;
+
 	fn resolve_sandbox_backend(&self, server: &Server) -> tg::Result<tangram_sandbox::Backend>;
 
 	fn send_runner_control_request<'a>(
@@ -110,4 +131,16 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		id: &'a tg::process::Id,
 	) -> Option<String>;
+
+	fn try_get_sandbox_control_runner(
+		&self,
+		id: &tg::sandbox::Id,
+		location: Option<&tg::location::Arg>,
+	) -> Option<tangram_server_sandbox_core::control::local::Local>;
+
+	fn try_get_sandbox_runner(
+		&self,
+		id: &tg::sandbox::Id,
+		location: Option<&tg::location::Arg>,
+	) -> Option<Runner>;
 }

@@ -7,7 +7,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{task::Shared, task::Task},
-	tangram_server_checkin_graph::{Graph, Solutions, try_read_lock},
+	tangram_server_checkin_core::{Graph, Solutions, try_read_lock},
 	tangram_server_clock_core::Clock,
 };
 

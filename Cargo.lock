@@ -10830,6 +10830,7 @@ dependencies = [
  "tangram_index",
  "tangram_serialize",
  "tangram_server_checkin_common",
+ "tangram_server_checkin_core",
  "tangram_server_core",
  "tangram_util",
  "tokio",
@@ -10842,19 +10843,20 @@ name = "tangram_server_checkin_common"
 version = "0.0.0"
 dependencies = [
  "indoc",
+ "petgraph",
  "tangram_client",
  "tangram_ignore",
+ "tangram_util",
 ]
 
 [[package]]
-name = "tangram_server_checkin_graph"
+name = "tangram_server_checkin_core"
 version = "0.0.0"
 dependencies = [
  "bytes",
  "derive_more",
  "fnv",
  "im",
- "petgraph",
  "serde_json",
  "smallvec",
  "tangram_client",
@@ -10880,6 +10882,7 @@ dependencies = [
  "tangram_futures",
  "tangram_http",
  "tangram_index",
+ "tangram_server_checkin_common",
  "tangram_server_core",
  "tangram_server_node_common",
  "tangram_server_tag_common",
@@ -11056,7 +11059,7 @@ dependencies = [
  "tangram_server_archive",
  "tangram_server_authentication_core",
  "tangram_server_cache",
- "tangram_server_checkin_graph",
+ "tangram_server_checkin_core",
  "tangram_server_checkpoint_core",
  "tangram_server_clock_core",
  "tangram_server_config",
@@ -11982,7 +11985,7 @@ dependencies = [
  "notify",
  "tangram_client",
  "tangram_futures",
- "tangram_server_checkin_graph",
+ "tangram_server_checkin_core",
  "tangram_server_clock_core",
  "tangram_server_config",
  "tokio",
