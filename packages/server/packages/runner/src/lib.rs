@@ -99,7 +99,7 @@ impl Component {
 
 	fn create_config(
 		config: &tangram_server_core::Config,
-		path: &std::path::Path,
+		_path: &std::path::Path,
 	) -> tg::Result<tangram_server_runner_core::Config> {
 		// Get the available parallelism.
 		let parallelism =
@@ -115,12 +115,9 @@ impl Component {
 				.cpus
 				.unwrap_or_else(|| u64::try_from(parallelism).unwrap());
 			#[cfg(target_os = "linux")]
-			let (physical_memory, physical_storage) = tangram_sandbox::capacity::detect(path)?;
+			let (physical_memory, physical_storage) = tangram_sandbox::capacity::detect(_path)?;
 			#[cfg(not(target_os = "linux"))]
-			let (physical_memory, physical_storage) = {
-				let _ = path;
-				(1_073_741_824_u64.saturating_mul(cpus), 0)
-			};
+			let (physical_memory, physical_storage) = (1_073_741_824_u64.saturating_mul(cpus), 0);
 			let memory = runner.memory.unwrap_or(physical_memory * 3 / 4);
 			let storage = runner.storage.unwrap_or(physical_storage * 3 / 4);
 			if memory > physical_memory || storage > physical_storage {
