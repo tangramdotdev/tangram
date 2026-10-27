@@ -36,8 +36,8 @@ impl Component {
 			},
 			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
-				let mut process_connection_future =
-					self.subscribe_process_connection(session, &id).await?;
+				let mut process_attachion_future =
+					self.subscribe_process_attachion(session, &id).await?;
 				let sandbox = process
 					.data
 					.sandbox
@@ -62,11 +62,11 @@ impl Component {
 					.clone()
 					.ok_or_else(|| tg::error!("missing the scheduler"))?;
 				let connected = self
-					.try_wait_process_connection(
+					.try_wait_process_attachion(
 						session,
 						&scheduler,
 						&sandbox,
-						&mut process_connection_future,
+						&mut process_attachion_future,
 						&mut sandbox_connection_future,
 					)
 					.await?;
@@ -100,17 +100,17 @@ impl Component {
 		Ok(output)
 	}
 
-	async fn try_wait_process_connection(
+	async fn try_wait_process_attachion(
 		&self,
 		session: &Session,
 		scheduler: &tg::scheduler::Id,
 		sandbox: &tg::sandbox::Id,
-		process_connection_future: &mut crate::ConnectionFuture,
+		process_attachion_future: &mut crate::ConnectionFuture,
 		sandbox_connection_future: &mut tangram_server_core::sandbox::ConnectionFuture,
 	) -> tg::Result<Option<tangram_server_process_common::control::Connected>> {
 		// The scheduler only governs startup until the sandbox connects.
 		tokio::select! {
-			result = process_connection_future.as_mut() => return result.map(Some),
+			result = process_attachion_future.as_mut() => return result.map(Some),
 			result = sandbox_connection_future.as_mut() => result?,
 			result = session.server.components.scheduler.scheduler_heartbeat_expired(session, scheduler) => return result.map(|()| None),
 		}
@@ -145,7 +145,7 @@ impl Component {
 		};
 		let destroyed_future = pin!(destroyed_future);
 		tokio::select! {
-			result = process_connection_future.as_mut() => result.map(Some),
+			result = process_attachion_future.as_mut() => result.map(Some),
 			result = destroyed_future => result,
 		}
 	}

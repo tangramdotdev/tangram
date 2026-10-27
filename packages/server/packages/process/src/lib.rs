@@ -20,10 +20,10 @@ mod sandbox;
 
 pub(crate) use runner::Runner;
 
+pub mod attach;
 pub mod availability;
 pub mod cancel;
 pub mod children;
-pub mod connect;
 pub mod control;
 pub mod get;
 pub mod metadata;
@@ -45,17 +45,17 @@ pub(crate) type ConnectionFuture =
 pub struct Component(Arc<State>);
 
 pub struct State {
-	pub(crate) connect: Connect,
+	pub(crate) attach: Attach,
 	pub(crate) control: Control,
 	pub(crate) remote_put_tasks: tangram_futures::task::Set<()>,
 }
 
-pub(crate) struct Connect {
-	pub clients: service::Clients<self::connect::service::Protocol, Messenger>,
+pub(crate) struct Attach {
+	pub clients: service::Clients<self::attach::service::Protocol, Messenger>,
 	pub service_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	pub services: DashMap<
 		tg::process::Nonce,
-		tokio::sync::mpsc::UnboundedSender<self::connect::service::LocalRequest>,
+		tokio::sync::mpsc::UnboundedSender<self::attach::service::LocalRequest>,
 		fnv::FnvBuildHasher,
 	>,
 	pub services_changed: tokio::sync::Notify,
@@ -70,18 +70,18 @@ pub(crate) struct Control {
 
 impl Component {
 	pub fn new(arg: &tangram_server_core::component::Arg<'_>) -> tg::Result<Self> {
-		// Create the connect clients, which observe their events as checkpoints.
-		let observer = Arc::new(self::connect::service::Observer::new(
+		// Create the attach clients, which observe their events as checkpoints.
+		let observer = Arc::new(self::attach::service::Observer::new(
 			arg.checkpoints.cloned(),
 		));
 		let clients = service::Clients::new(
 			arg.messenger.clone(),
 			"processes.service",
-			arg.config.process.connect.service,
+			arg.config.process.attach.service,
 			observer,
 		)
-		.map_err(|source| tg::error!(!source, "failed to create the process connect clients"))?;
-		let connect = Connect {
+		.map_err(|source| tg::error!(!source, "failed to create the process attach clients"))?;
+		let attach = Attach {
 			clients,
 			service_tasks: tangram_futures::task::Set::default(),
 			services: DashMap::default(),
@@ -105,7 +105,7 @@ impl Component {
 
 		// Create the state.
 		let state = State {
-			connect,
+			attach,
 			control,
 			remote_put_tasks: tangram_futures::task::Set::default(),
 		};
@@ -354,8 +354,8 @@ impl Component {
 		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		match (method, path_components.as_slice()) {
-			(http::Method::POST, ["processes", "connect"]) => {
-				self.try_get_process_connect_stream_request(session, request)
+			(http::Method::POST, ["processes", "attach"]) => {
+				self.try_get_process_attach_stream_request(session, request)
 					.await
 			},
 			(http::Method::POST, ["processes", "spawn"]) => {
@@ -437,10 +437,10 @@ impl tangram_server_core::component::Lifecycle for Component {
 			self.remote_put_tasks.wait().await;
 			tracing::trace!("remote process put tasks");
 
-			// Stop the connect clients and drain the connect service tasks.
-			self.connect.clients.stop();
-			self.connect.service_tasks.stop_all();
-			self.connect.service_tasks.wait().await;
+			// Stop the attach clients and drain the attach service tasks.
+			self.attach.clients.stop();
+			self.attach.service_tasks.stop_all();
+			self.attach.service_tasks.wait().await;
 
 			// Stop the control clients and drain the control service tasks.
 			self.control.clients.stop();
@@ -451,7 +451,7 @@ impl tangram_server_core::component::Lifecycle for Component {
 	}
 
 	fn abort(&self) {
-		self.connect.service_tasks.abort_all();
+		self.attach.service_tasks.abort_all();
 		self.control.service_tasks.abort_all();
 		self.remote_put_tasks.abort_all();
 	}
@@ -669,24 +669,24 @@ impl tangram_server_core::process::Component for Component {
 			.boxed()
 	}
 
-	fn try_get_process_connect_stream<'a>(
+	fn try_get_process_attach_stream<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
 		tg::Result<
 			ControlFlow<
 				Option<(
-					tg::process::connect::Header,
-					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+					tg::process::attach::Header,
+					BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 				)>,
 				tg::Error,
 			>,
 		>,
 	> {
-		self.try_get_process_connect_stream(session, arg, input)
+		self.try_get_process_attach_stream(session, arg, input)
 			.boxed()
 	}
 

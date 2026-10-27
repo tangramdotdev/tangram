@@ -318,7 +318,7 @@ pub async fn run(cli: &mut Cli, mut args: Args) -> tg::Result<()> {
 		args.reference,
 		args.trailing,
 		None,
-		tg::process::connect::Mode::Spawn,
+		tg::process::attach::Mode::Spawn,
 	)
 	.boxed()
 	.await?;
@@ -352,7 +352,7 @@ pub(crate) async fn spawn(
 	reference: Option<tg::Reference>,
 	trailing: Vec<String>,
 	print: Option<tangram_cli_core::print::Options>,
-	mode: tg::process::connect::Mode,
+	mode: tg::process::attach::Mode,
 ) -> tg::Result<tg::Referent<tg::Process>> {
 	let InnerOutput {
 		arg,

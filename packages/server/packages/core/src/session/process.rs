@@ -6,15 +6,15 @@ use {
 };
 
 impl tg::instance::Process for Session {
-	async fn try_get_process_connect_stream(
+	async fn try_get_process_attach_stream(
 		&self,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> tg::Result<
 		ControlFlow<
 			Option<(
-				tg::process::connect::Header,
-				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+				tg::process::attach::Header,
+				BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 			)>,
 			tg::Error,
 		>,
@@ -22,7 +22,7 @@ impl tg::instance::Process for Session {
 		self.server
 			.components
 			.process
-			.try_get_process_connect_stream(self, arg, input)
+			.try_get_process_attach_stream(self, arg, input)
 			.await
 	}
 

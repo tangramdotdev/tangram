@@ -144,7 +144,7 @@ impl<O> tg::Process<O> {
 			.0
 			.connection
 			.as_ref()
-			.is_some_and(super::connect::Connection::detached)
+			.is_some_and(super::attach::Connection::detached)
 		{
 			result?;
 		}

@@ -644,9 +644,9 @@ impl tg::Session {
 				tg::sync::CONTENT_TYPE.to_string(),
 			);
 
-		// Send a sync that joins a connect or a process over the connection of its nonce or process, so that the server that resolves the join answers it over its local channel.
+		// Send a sync that joins an attach or a process over the connection of its nonce or process, so that the server that resolves the join answers it over its local channel.
 		let affinity = match &arg.sync {
-			Some(tg::sync::Join::Connect(nonce)) => Some(crate::http::Affinity::Nonce(*nonce)),
+			Some(tg::sync::Join::Attach(nonce)) => Some(crate::http::Affinity::Nonce(*nonce)),
 			Some(tg::sync::Join::Process(process)) => {
 				Some(crate::http::Affinity::Process(process.id.clone()))
 			},

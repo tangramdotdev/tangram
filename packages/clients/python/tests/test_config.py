@@ -8,10 +8,10 @@ from tangram.client import Client, is_transport_error
 from tangram.config import (
     default_config,
     default_http_config,
-    default_process_connect_config,
+    default_process_attach_config,
     default_stream_retry_options,
     validate_http_config,
-    validate_process_connect_config,
+    validate_process_attach_config,
 )
 
 
@@ -27,7 +27,7 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(
-            config["process"], {"connect": {"max_messages": 128, "max_requests": 64}}
+            config["process"], {"attach": {"max_messages": 128, "max_requests": 64}}
         )
         self.assertEqual(
             config["stream_retry"],
@@ -35,7 +35,7 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
         )
         client = Client(config)
         self.assertEqual(client.http["request_timeout"], 60)
-        self.assertEqual(client.process["connect"]["max_messages"], 128)
+        self.assertEqual(client.process["attach"]["max_messages"], 128)
         self.assertEqual(client.stream_retry["max_retries"], 2**53 - 1)
 
     def test_http_timeouts(self):
@@ -45,14 +45,14 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
                     validate_http_config({**default_http_config(), name: value})
         validate_http_config({**default_http_config(), "connect_timeout": 0.5})
 
-    def test_process_connect_limits(self):
+    def test_process_attach_limits(self):
         for value in (0, -1, 1.5, True):
             for name in ("max_messages", "max_requests"):
                 with self.assertRaisesRegex(
-                    ValueError, f"invalid process connect {name.replace('_', ' ')}"
+                    ValueError, f"invalid process attach {name.replace('_', ' ')}"
                 ):
-                    validate_process_connect_config(
-                        {**default_process_connect_config(), name: value}
+                    validate_process_attach_config(
+                        {**default_process_attach_config(), name: value}
                     )
 
     async def test_stream_retry_validation(self):

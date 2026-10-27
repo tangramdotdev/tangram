@@ -1642,27 +1642,27 @@ fn resolve_process(source: Process) -> server::Process {
 	if let Some(value) = source.sync_channel_capacity {
 		target.sync_channel_capacity = value;
 	}
-	if let Some(source) = source.connect {
+	if let Some(source) = source.attach {
 		if let Some(value) = source.high_priority_channel_capacity {
-			target.connect.high_priority_channel_capacity = value;
+			target.attach.high_priority_channel_capacity = value;
 		}
 		if let Some(value) = source.low_priority_channel_capacity {
-			target.connect.low_priority_channel_capacity = value;
+			target.attach.low_priority_channel_capacity = value;
 		}
 		if let Some(value) = source.max_operations {
-			target.connect.max_operations = value;
+			target.attach.max_operations = value;
 		}
 		if let Some(value) = source.spawn_channel_capacity {
-			target.connect.spawn_channel_capacity = value;
+			target.attach.spawn_channel_capacity = value;
 		}
 		if let Some(value) = source.max_pending_messages {
-			target.connect.max_pending_messages = value;
+			target.attach.max_pending_messages = value;
 		}
 		if let Some(value) = source.max_unacknowledged_responses {
-			target.connect.max_unacknowledged_responses = value;
+			target.attach.max_unacknowledged_responses = value;
 		}
 		if let Some(source) = source.service {
-			resolve_service(source, &mut target.connect.service);
+			resolve_service(source, &mut target.attach.service);
 		}
 	}
 	if let Some(source) = source.control {

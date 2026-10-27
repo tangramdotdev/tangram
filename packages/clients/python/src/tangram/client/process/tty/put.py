@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, TypedDict, Unpack, cast
 
 if TYPE_CHECKING:
     from tangram.client import Client
-    from tangram.client.process.connect import TtyArg
+    from tangram.client.process.attach import TtyArg
 
-from tangram.client.process.connect import TtySize
+from tangram.client.process.attach import TtySize
 from tangram.error import Error, ErrorData
 from tangram.http import Body, Request, percent_encode
 from tangram.location import Arg as LocationArg

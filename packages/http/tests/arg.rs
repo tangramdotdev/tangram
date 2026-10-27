@@ -261,7 +261,7 @@ async fn prefixed_args_follow_the_content_type() {
 		("text/event-stream", body::encoding::Encoding::Json),
 		("application/octet-stream", body::encoding::Encoding::Json),
 		(
-			"application/vnd.tangram.process-connect",
+			"application/vnd.tangram.process-attach",
 			body::encoding::Encoding::Tangram,
 		),
 		(

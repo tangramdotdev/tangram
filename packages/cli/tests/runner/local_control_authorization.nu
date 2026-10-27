@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # A local node capability must not hide parent authority on the owner or in a local grant.
-const connect_helper = path self '../lib/process_connect.mjs'
+const attach_helper = path self '../lib/process_attach.mjs'
 let remote_root = random chars
 let runner_root = random chars
 let remote = server spawn --name remote --config {
@@ -33,7 +33,7 @@ let value = ['tg.file({ "contents": tg.blob(' ($script | to json --raw) '), "exe
 let file = tg --url $remote.url --token $remote_root put --no-tokens $value | referent node
 
 for authority in [remote local] {
-	for protocol in [connect standalone] {
+	for protocol in [attach standalone] {
 		let watch = tg --url $runner.url --token $runner_root checkpoint watch runner.process.state.inserted | from json | get watch
 		let arg = { command: { node: { executable: { node: { artifact: $file } } } }, sandbox: {}, stdin: pipe, stdout: pipe, stderr: pipe } | to json --raw
 		let spawn = job spawn {
@@ -76,7 +76,7 @@ for authority in [remote local] {
 			}
 		} else {
 			let options = { authorization: $alice.token, tokens: $tokens } | to json --raw
-			success (node $connect_helper $socket $process none control_denied remote $options | complete)
+			success (node $attach_helper $socket $process none control_denied remote $options | complete)
 		}
 
 		# Parent authority selects the local channel only when it is locally valid.
@@ -121,7 +121,7 @@ for authority in [remote local] {
 			}
 		} else {
 			let options = { authorization: $alice.token, tokens: $tokens } | to json --raw
-			success (node $connect_helper $socket $process none control remote $options | complete)
+			success (node $attach_helper $socket $process none control remote $options | complete)
 		}
 		tg --url $remote.url --token $remote_root cancel $process $spawned.lease
 	}

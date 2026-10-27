@@ -17,7 +17,7 @@ import { postObjectBatch } from "./client/object/batch.ts";
 import { getObject, tryGetObject } from "./client/object/get.ts";
 import { putObject } from "./client/object/put.ts";
 import { cancelProcess, tryCancelProcess } from "./client/process/cancel.ts";
-import { connectProcess } from "./client/process/connect.ts";
+import { attachProcess } from "./client/process/attach.ts";
 import { getProcess, tryGetProcess } from "./client/process/get.ts";
 import { putProcess } from "./client/process/put.ts";
 import {
@@ -115,16 +115,16 @@ export class Client {
 		return checkout(this, arg);
 	}
 
-	connectProcess(
-		arg: tg.Process.Connect.Arg,
-		input: AsyncIterable<tg.Process.Connect.ClientMessage>,
+	attachProcess(
+		arg: tg.Process.Attach.Arg,
+		input: AsyncIterable<tg.Process.Attach.ClientMessage>,
 	): Promise<
 		[
-			tg.Process.Connect.Header,
-			AsyncIterableIterator<tg.Process.Connect.ServerMessage>,
+			tg.Process.Attach.Header,
+			AsyncIterableIterator<tg.Process.Attach.ServerMessage>,
 		]
 	> {
-		return connectProcess(this, arg, input);
+		return attachProcess(this, arg, input);
 	}
 
 	getObject(

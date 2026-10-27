@@ -5,34 +5,34 @@ use {
 };
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
-	fn get_process_connect_stream(
+	fn get_process_attach_stream(
 		&self,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::process::connect::Header,
-			BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			tg::process::attach::Header,
+			BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 		)>,
 	> + Send {
 		async move {
-			let result = self.try_get_process_connect_stream(arg, input).await;
+			let result = self.try_get_process_attach_stream(arg, input).await;
 			tangram_futures::retry::once(result)?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
 	}
 
-	/// Get a process's connect stream, continuing if the request could not reach a server.
-	fn try_get_process_connect_stream(
+	/// Get a process's attach stream, continuing if the request could not reach a server.
+	fn try_get_process_attach_stream(
 		&self,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			ControlFlow<
 				Option<(
-					tg::process::connect::Header,
-					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+					tg::process::attach::Header,
+					BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 				)>,
 				tg::Error,
 			>,
@@ -314,21 +314,21 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::instance::Process for tg::Client {
-	async fn try_get_process_connect_stream(
+	async fn try_get_process_attach_stream(
 		&self,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> tg::Result<
 		ControlFlow<
 			Option<(
-				tg::process::connect::Header,
-				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+				tg::process::attach::Header,
+				BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 			)>,
 			tg::Error,
 		>,
 	> {
 		self.session(&self.context)
-			.try_get_process_connect_stream(arg, input)
+			.try_get_process_attach_stream(arg, input)
 			.await
 	}
 

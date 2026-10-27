@@ -4,10 +4,10 @@ use {
 };
 
 pub use self::{
+	attach::{attach, attach_with_instance},
 	availability::Availability,
 	build::{build, build_with_instance},
 	checksum::Checksum,
-	connect::{connect, connect_with_instance},
 	data::Data,
 	debug::Debug,
 	env::env,
@@ -29,12 +29,12 @@ pub use self::{
 	tty::Tty,
 };
 
+pub mod attach;
 pub mod availability;
 pub mod build;
 pub mod cancel;
 pub mod checksum;
 pub mod children;
-pub mod connect;
 pub mod control;
 pub mod data;
 pub mod debug;
@@ -96,7 +96,7 @@ pub struct Arg {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
-	pub connect: tg::process::connect::Config,
+	pub attach: tg::process::attach::Config,
 }
 
 #[derive(Clone, Debug)]
@@ -121,9 +121,9 @@ pub struct SandboxCreateArg {
 
 impl Config {
 	pub(crate) fn validate(self) -> tg::Result<Self> {
-		self.connect
+		self.attach
 			.validate()
-			.map_err(|source| tg::error!(!source, "invalid process connect configuration"))?;
+			.map_err(|source| tg::error!(!source, "invalid process attach configuration"))?;
 		Ok(self)
 	}
 }

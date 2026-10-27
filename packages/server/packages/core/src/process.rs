@@ -46,18 +46,18 @@ pub trait Component: crate::component::Lifecycle {
 		source: tg::process::Source,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>>;
 
-	fn try_get_process_connect_stream<'a>(
+	fn try_get_process_attach_stream<'a>(
 		&'a self,
 		session: &'a Session,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
 		tg::Result<
 			ControlFlow<
 				Option<(
-					tg::process::connect::Header,
-					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+					tg::process::attach::Header,
+					BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 				)>,
 				tg::Error,
 			>,

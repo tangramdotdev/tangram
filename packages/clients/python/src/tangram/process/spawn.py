@@ -165,7 +165,7 @@ async def spawn_sandboxed(
     from ..client import client as default_client
     from ..location import Arg as LocationArg
     from . import env, stdio
-    from .connect import Connection
+    from .attach import Connection
     from .outcome import Outcome
 
     client = client or default_client
@@ -245,7 +245,7 @@ async def spawn_sandboxed(
         state.pop("tty", None)
     spawn_location = state.pop("location", None)
 
-    # Name the connect with a nonce, and start the stdio task with its location.
+    # Name the attach with a nonce, and start the stdio task with its location.
     stdio_needed = any(value is not None for value in local.values()) or local_tty
     nonce = create_nonce() if stdio_needed else None
     open_ = [
@@ -281,7 +281,7 @@ async def spawn_sandboxed(
         else None
     )
 
-    # Connect.
+    # Attach.
     try:
         opened = await opening
     except BaseException:
@@ -824,7 +824,7 @@ def normalize_sandbox(arg):
 
 
 def create_nonce() -> str:
-    """Create a connect nonce from 128 random bits with the symbols of IDs."""
+    """Create an attach nonce from 128 random bits with the symbols of IDs."""
     encoded = base64.b32encode(secrets.token_bytes(16)).decode().rstrip("=")
     return encoded.translate(
         str.maketrans(

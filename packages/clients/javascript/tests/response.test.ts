@@ -46,7 +46,7 @@ test("response headers preserve the following body across chunk boundaries", asy
 });
 
 test("JSON clients reject native body prefixes", async () => {
-	const headers = { "content-type": "application/vnd.tangram.process-connect" };
+	const headers = { "content-type": "application/vnd.tangram.process-attach" };
 	const response = new tg.Response(
 		200,
 		headers,
@@ -55,7 +55,7 @@ test("JSON clients reject native body prefixes", async () => {
 	await assert.rejects(response.bodyHeader(), /does not support Tangram/);
 	const request = new tg.Request({
 		method: "POST",
-		uri: "/processes/connect",
+		uri: "/processes/attach",
 		headers: { ...headers, "x-tg-arg-in-body": "true" },
 	});
 	assert.throws(() => request.arg({}), /does not support Tangram/);

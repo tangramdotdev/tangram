@@ -21,8 +21,8 @@ mod wait;
 pub(super) mod lease;
 
 pub(super) struct PrepareOutput {
-	/// The stdio streams that a connect declared, which the runner of a scheduled process opens when the process starts.
-	pub open: Option<crate::connect::service::Open>,
+	/// The stdio streams that an attach declared, which the runner of a scheduled process opens when the process starts.
+	pub open: Option<crate::attach::service::Open>,
 
 	pub parent_sandbox: Option<tg::sandbox::Id>,
 }
@@ -231,7 +231,7 @@ impl Component {
 		session: &Session,
 		mut arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
-		open: Option<crate::connect::service::Open>,
+		open: Option<crate::attach::service::Open>,
 		progress: &tg::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let location = session.server.location(arg.location.as_ref())?;
@@ -432,7 +432,7 @@ impl Component {
 		mut arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
 		allocation: Option<tangram_server_runner_core::capacity::Allocation>,
-		open: Option<crate::connect::service::Open>,
+		open: Option<crate::attach::service::Open>,
 		cache_location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let command = Self::spawn_process_resolve_command(session, &mut arg)?;

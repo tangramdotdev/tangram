@@ -114,25 +114,25 @@ export namespace Pool {
 			throw new Error("invalid pool options");
 	}
 }
-export type Process = { connect: ProcessConnect };
+export type Process = { attach: ProcessAttach };
 export namespace Process {
 	export function defaultValue(): Process {
-		return { connect: ProcessConnect.defaultValue() };
+		return { attach: ProcessAttach.defaultValue() };
 	}
 	export function validate(config: Process): void {
-		ProcessConnect.validate(config.connect);
+		ProcessAttach.validate(config.attach);
 	}
 }
-export type ProcessConnect = { maxMessages: number; maxRequests: number };
-export namespace ProcessConnect {
-	export function defaultValue(): ProcessConnect {
+export type ProcessAttach = { maxMessages: number; maxRequests: number };
+export namespace ProcessAttach {
+	export function defaultValue(): ProcessAttach {
 		return { maxMessages: 128, maxRequests: 64 };
 	}
-	export function validate(config: ProcessConnect): void {
+	export function validate(config: ProcessAttach): void {
 		if (!Number.isSafeInteger(config.maxMessages) || config.maxMessages <= 0)
-			throw new Error("invalid process connect max messages");
+			throw new Error("invalid process attach max messages");
 		if (!Number.isSafeInteger(config.maxRequests) || config.maxRequests <= 0)
-			throw new Error("invalid process connect max requests");
+			throw new Error("invalid process attach max requests");
 	}
 }
 export type Retry = {

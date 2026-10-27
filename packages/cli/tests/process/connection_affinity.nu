@@ -25,7 +25,7 @@ success (timeout 30s cat $ready | complete) "the proxy should listen"
 let url = $'http://127.0.0.1:($port)'
 
 # Hold every correlated request that either server answers over the messenger.
-let checkpoints = [process.connect.service.messenger process.control.service.messenger sandbox.control.service.messenger]
+let checkpoints = [process.attach.service.messenger process.control.service.messenger sandbox.control.service.messenger]
 let watches = [$first $second] | each { |server|
 	$checkpoints | each { |name| checkpoint watch $name --url $server.url --token $root_token }
 } | flatten
@@ -45,7 +45,7 @@ let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $url } },
 }
 
-# Run sandboxed processes through the local server's connect, so that each one has connect, control, and sandbox control requests to correlate.
+# Run sandboxed processes through the local server's attach, so that each one has attach, control, and sandbox control requests to correlate.
 let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
 for _ in 1..4 {
 	let output = timeout 60s tg --url $local.url build --remote $path | complete

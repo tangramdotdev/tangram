@@ -53,7 +53,7 @@ let path = artifact {
 						tg.assert((await child.wait()).exit === 1);
 					} else {
 						await child.detach();
-						const process = await tg.Process.connect(child.id, {
+						const process = await tg.Process.attach(child.id, {
 							lease: child.lease, location: child.location, tokens: child.tokens,
 						});
 						tg.assert(tg.Location.Arg.toDataString(process.location) === "remote");

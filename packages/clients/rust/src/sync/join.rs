@@ -11,9 +11,9 @@ use crate::prelude::*;
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum Join {
-	/// The command sync of the connect that a nonce names.
+	/// The command sync of the attach that a nonce names.
 	#[tangram_serialize(id = 0)]
-	Connect(tg::process::Nonce),
+	Attach(tg::process::Nonce),
 
 	/// One of the syncs of a process, which its control service resolves.
 	#[tangram_serialize(id = 1)]
@@ -71,7 +71,7 @@ impl Join {
 	#[must_use]
 	pub fn sync(&self) -> Option<&tg::Referent<tg::sync::Id>> {
 		match self {
-			Self::Connect(_) | Self::Process(_) => None,
+			Self::Attach(_) | Self::Process(_) => None,
 			Self::Sync(sync) => Some(sync),
 		}
 	}

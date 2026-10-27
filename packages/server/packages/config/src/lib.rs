@@ -976,9 +976,9 @@ pub struct Pagination {
 
 #[derive(Clone, Debug)]
 pub struct Process {
-	pub children_wakeup_interval: Duration,
+	pub attach: ProcessAttach,
 
-	pub connect: ProcessConnect,
+	pub children_wakeup_interval: Duration,
 
 	pub control: tg::process::control::Config,
 
@@ -1032,7 +1032,7 @@ pub struct Process {
 }
 
 #[derive(Clone, Debug)]
-pub struct ProcessConnect {
+pub struct ProcessAttach {
 	pub high_priority_channel_capacity: usize,
 
 	pub low_priority_channel_capacity: usize,
@@ -2819,8 +2819,8 @@ impl Default for ScyllaCachePrometheusCapacity {
 impl Default for Process {
 	fn default() -> Self {
 		Self {
+			attach: ProcessAttach::default(),
 			children_wakeup_interval: Duration::from_mins(1),
-			connect: ProcessConnect::default(),
 			control: tg::process::control::Config::default(),
 			control_channel_capacity: 512,
 			control_service: tangram_messenger::service::Options {
@@ -2887,7 +2887,7 @@ impl Default for Pagination {
 	}
 }
 
-impl Default for ProcessConnect {
+impl Default for ProcessAttach {
 	fn default() -> Self {
 		Self {
 			high_priority_channel_capacity: 64,

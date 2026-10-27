@@ -39,10 +39,10 @@ class PoolOptions(TypedDict):
 
 
 class ProcessConfig(TypedDict):
-    connect: ProcessConnectConfig
+    attach: ProcessAttachConfig
 
 
-class ProcessConnectConfig(TypedDict):
+class ProcessAttachConfig(TypedDict):
     max_messages: int
     max_requests: int
 
@@ -86,10 +86,10 @@ def default_pool_options() -> PoolOptions:
 
 
 def default_process_config() -> ProcessConfig:
-    return {"connect": default_process_connect_config()}
+    return {"attach": default_process_attach_config()}
 
 
-def default_process_connect_config() -> ProcessConnectConfig:
+def default_process_attach_config() -> ProcessAttachConfig:
     return {"max_messages": 128, "max_requests": 64}
 
 
@@ -156,14 +156,14 @@ def validate_pool_options(options: PoolOptions) -> None:
 
 
 def validate_process_config(config: ProcessConfig) -> None:
-    validate_process_connect_config(config["connect"])
+    validate_process_attach_config(config["attach"])
 
 
-def validate_process_connect_config(config: ProcessConnectConfig) -> None:
+def validate_process_attach_config(config: ProcessAttachConfig) -> None:
     for name in ("max_messages", "max_requests"):
         value = config[name]
         if type(value) is not int or not 0 < value <= 2**53 - 1:
-            raise ValueError(f"invalid process connect {name.replace('_', ' ')}")
+            raise ValueError(f"invalid process attach {name.replace('_', ' ')}")
 
 
 def validate_retry_options(options: RetryOptions) -> None:

@@ -68,7 +68,7 @@ impl<O> tg::Process<O> {
 			.0
 			.connection
 			.as_ref()
-			.is_none_or(tg::process::connect::Connection::detached)
+			.is_none_or(tg::process::attach::Connection::detached)
 			&& location.is_none()
 			&& self.location().is_none()
 		{

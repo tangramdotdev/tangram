@@ -53,7 +53,7 @@ impl Component {
 			tg::Error,
 		>,
 	> {
-		// Resolve the process, claiming the connect's open for a read that starts from the beginning.
+		// Resolve the process, claiming the attach's open for a read that starts from the beginning.
 		let streams = if arg.position.is_none() && arg.length.is_none() {
 			arg.streams.clone()
 		} else {

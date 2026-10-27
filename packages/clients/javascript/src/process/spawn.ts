@@ -1,6 +1,6 @@
 import { readError, readOutcome, readOutput } from "../file/xattrs.ts";
 import * as tg from "../index.ts";
-import { Connection } from "./connect.ts";
+import { Connection } from "./attach.ts";
 import * as stdio from "./stdio.ts";
 
 export let builder = (...args: any): any => {
@@ -560,7 +560,7 @@ export let prepareUnsandboxedCommand = async (
 export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 	arg: tg.Process.Spawn.Arg,
 	options?: tg.Referent.Options | null,
-	mode: tg.Process.Connect.Mode = "spawn",
+	mode: tg.Process.Attach.Mode = "spawn",
 ): Promise<tg.Process<O>> => {
 	let noTty = arg.tty === false;
 	let provideStderr = arg.stderr === "pipe" || arg.stderr === "tty";
@@ -691,7 +691,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 	let spawnLocation = spawnArg.location ?? null;
 	delete spawnArg.location;
 
-	// Name the connect with a nonce, and start the stdio task with it and the connect's location, so that the stdio requests open concurrently with the connect and route to its server.
+	// Name the attach with a nonce, and start the stdio task with it and the attach's location, so that the stdio requests open concurrently with the attach and route to its server.
 	let nonce =
 		stdin !== null || stdout !== null || stderr !== null || localTty
 			? createNonce()
@@ -723,7 +723,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 				)
 			: null;
 
-	// Connect.
+	// Attach.
 	let opened;
 	try {
 		opened = await opening;
@@ -1184,7 +1184,7 @@ let normalizeNetworkForPorts = (
 	};
 };
 
-/** Create a nonce that names a connect from 128 random bits, encoded with the symbols of IDs. */
+/** Create a nonce that names an attach from 128 random bits, encoded with the symbols of IDs. */
 function createNonce(): string {
 	let symbols = "0123456789abcdefghjkmnpqrstvwxyz";
 	let nonce = "";

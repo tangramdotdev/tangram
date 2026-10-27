@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-/// A nonce that names a connect, so that other requests can locate its process before they know its ID. A nonce is 16 bytes, written with the ID encoding.
+/// A nonce that names an attach, so that other requests can locate its process before they know its ID. A nonce is 16 bytes, written with the ID encoding.
 #[derive(
 	Clone,
 	Copy,

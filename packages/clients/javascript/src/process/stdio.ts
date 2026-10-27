@@ -1,5 +1,5 @@
 import * as tg from "../index.ts";
-import { Connection } from "./connect.ts";
+import { Connection } from "./attach.ts";
 
 export type Stdio = "inherit" | "log" | "null" | "pipe" | "tty";
 
@@ -565,7 +565,7 @@ async function* writeChunks(
 	}
 }
 
-/** Connect a process's stdio to this process's stdio, locating the process by its connect's nonce and routing to the connect's location, so that the stdio requests open concurrently with the connect. */
+/** Connect a process's stdio to this process's stdio, locating the process by its attach's nonce and routing to the attach's location, so that the stdio requests open concurrently with the attach. */
 export let task = async (
 	location: tg.Location.Arg | null,
 	nonce: tg.Process.Nonce,

@@ -1,5 +1,5 @@
 import * as tg from "../index.ts";
-import * as connect from "./connect.ts";
+import * as attach from "./attach.ts";
 
 export let builder = (...args: any): any => {
 	if (typeof args[0] === "function") {
@@ -29,6 +29,6 @@ export async function run<O extends tg.Value>(
 	arg: tg.Process.Spawn.Arg,
 	options: tg.Referent.Options,
 ): Promise<O> {
-	let process = await connect.spawn<O>(arg, options, "run");
+	let process = await attach.spawn<O>(arg, options, "run");
 	return process.output();
 }

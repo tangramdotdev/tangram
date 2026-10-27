@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A read that reaches a forwarding server is forwarded with the connect's nonce, so that it claims the open that the destination's connect put in the scheduled process's assignment, before the process control connection returns.
+# A read that reaches a forwarding server is forwarded with the attach's nonce, so that it claims the open that the destination's attach put in the scheduled process's assignment, before the process control connection returns.
 
 let root_token = random chars
 

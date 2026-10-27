@@ -23,7 +23,7 @@ mod watch;
 #[derive(Clone)]
 pub struct Instance(
 	Arc<dyn super::erased::Instance>,
-	Option<(tg::process::Id, tg::process::connect::Connection)>,
+	Option<(tg::process::Id, tg::process::attach::Connection)>,
 );
 
 impl Instance {
@@ -36,13 +36,13 @@ impl Instance {
 	pub(crate) fn with_connection(
 		instance: impl tg::Instance,
 		id: tg::process::Id,
-		connection: tg::process::connect::Connection,
+		connection: tg::process::attach::Connection,
 	) -> Self {
 		Self(Arc::new(instance), Some((id, connection)))
 	}
 
 	#[must_use]
-	fn try_connection(&self, id: &tg::process::Id) -> Option<&tg::process::connect::Connection> {
+	fn try_connection(&self, id: &tg::process::Id) -> Option<&tg::process::attach::Connection> {
 		self.1
 			.as_ref()
 			.filter(|(process, connection)| process == id && !connection.detached())

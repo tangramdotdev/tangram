@@ -17,9 +17,9 @@ impl Instance {
 			.and_then(|id| self.try_connection(id))
 		{
 			let output = connection
-				.request(tg::process::connect::ClientRequestArg::Cancel(arg))
+				.request(tg::process::attach::ClientRequestArg::Cancel(arg))
 				.await?;
-			let tg::process::connect::ServerResponseOutput::Cancel(output) = output else {
+			let tg::process::attach::ServerResponseOutput::Cancel(output) = output else {
 				return Err(tg::error!("expected a cancel response"));
 			};
 			return Ok(Some(output));
@@ -38,9 +38,9 @@ impl Instance {
 			.and_then(|id| self.try_connection(id))
 		{
 			let output = connection
-				.request(tg::process::connect::ClientRequestArg::Signal(arg))
+				.request(tg::process::attach::ClientRequestArg::Signal(arg))
 				.await?;
-			if !matches!(output, tg::process::connect::ServerResponseOutput::Signal) {
+			if !matches!(output, tg::process::attach::ServerResponseOutput::Signal) {
 				return Err(tg::error!("expected a signal response"));
 			}
 			return Ok(Some(()));
@@ -59,9 +59,9 @@ impl Instance {
 			.and_then(|id| self.try_connection(id))
 		{
 			let output = connection
-				.request(tg::process::connect::ClientRequestArg::Tty(arg))
+				.request(tg::process::attach::ClientRequestArg::Tty(arg))
 				.await?;
-			if !matches!(output, tg::process::connect::ServerResponseOutput::Tty) {
+			if !matches!(output, tg::process::attach::ServerResponseOutput::Tty) {
 				return Err(tg::error!("expected a tty response"));
 			}
 			return Ok(Some(()));
@@ -116,22 +116,22 @@ impl Instance {
 }
 
 impl tg::instance::Process for Instance {
-	fn try_get_process_connect_stream(
+	fn try_get_process_attach_stream(
 		&self,
-		arg: tg::process::connect::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+		arg: tg::process::attach::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::attach::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			ControlFlow<
 				Option<(
-					tg::process::connect::Header,
-					BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+					tg::process::attach::Header,
+					BoxStream<'static, tg::Result<tg::process::attach::ServerMessage>>,
 				)>,
 				tg::Error,
 			>,
 		>,
 	> + Send {
-		self.0.try_get_process_connect_stream(arg, input)
+		self.0.try_get_process_attach_stream(arg, input)
 	}
 
 	fn try_spawn_process(

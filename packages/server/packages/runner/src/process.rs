@@ -1103,7 +1103,7 @@ impl Component {
 		Ok(())
 	}
 
-	#[tracing::instrument(name = "process.connect", level = "debug", skip_all, fields(process = %arg.id), err(level = "debug"))]
+	#[tracing::instrument(name = "process.attach", level = "debug", skip_all, fields(process = %arg.id), err(level = "debug"))]
 	async fn connect_process_control(
 		&self,
 		session: &Session,
