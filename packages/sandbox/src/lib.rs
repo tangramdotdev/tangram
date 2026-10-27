@@ -36,7 +36,7 @@ mod util;
 
 pub use {
 	self::backend::{Backend, Kind, Platform},
-	tangram_sandbox_network::{self as network, Firewall},
+	tangram_sandbox_network as network,
 };
 
 #[cfg(target_os = "linux")]
@@ -144,7 +144,7 @@ pub struct Arg {
 	pub dns: Vec<Ipv4Addr>,
 
 	#[cfg(target_os = "linux")]
-	pub firewall: Firewall,
+	pub firewall: network::Firewall,
 
 	#[cfg(target_os = "linux")]
 	pub fuse_fd: Option<Arc<std::os::fd::OwnedFd>>,

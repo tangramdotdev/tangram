@@ -57,7 +57,7 @@ pub struct Arg {
 	pub cpu: Option<u64>,
 	pub dax: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
-	pub firewall: crate::Firewall,
+	pub firewall: crate::network::Firewall,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub host_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
