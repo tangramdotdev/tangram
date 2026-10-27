@@ -725,10 +725,16 @@ fn setup_network(arg: &Options) -> tg::Result<()> {
 				nl.route_add_default_v4(*gateway)?;
 			}
 		},
-		None => crate::linux::unshare(
-			libc::CLONE_NEWNET,
-			"failed to create the resource network namespace",
-		)?,
+		None => {
+			crate::linux::unshare(
+				libc::CLONE_NEWNET,
+				"failed to create the resource network namespace",
+			)?;
+
+			// Bring up the loopback interface, so that the sandbox can reach services it starts locally.
+			let mut nl = crate::network::netlink::Netlink::new()?;
+			nl.link_set_up("lo")?;
+		},
 	}
 
 	Ok(())
