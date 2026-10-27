@@ -54,10 +54,7 @@ where
 			Err(error) => {
 				let mut trailers = http::HeaderMap::new();
 				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-				let json = error.state().object().map_or_else(
-					|| serde_json::to_string(&error.id()).unwrap(),
-					|object| serde_json::to_string(&object.to_data()).unwrap(),
-				);
+				let json = serde_json::to_string(&error.to_data_or_id()).unwrap();
 				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 				hyper::body::Frame::trailers(trailers)
 			},
@@ -285,8 +282,12 @@ where
 			.ok_or_else(|| tg::error!("missing data"))?
 			.to_str()
 			.map_err(|error| tg::error!(!error, "invalid data"))?;
-		let error = serde_json::from_str(data)
+		let data = serde_json::from_str::<tg::Either<tg::error::Data, tg::error::Id>>(data)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the header value"))?;
+		let error = match data {
+			tg::Either::Left(data) => tg::Error::try_from(data)?,
+			tg::Either::Right(id) => tg::Error::with_id(id),
+		};
 
 		Err(error)
 	});
