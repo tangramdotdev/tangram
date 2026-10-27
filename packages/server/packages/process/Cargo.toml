@@ -42,7 +42,6 @@ tangram_server_process_common = { workspace = true }
 tangram_server_process_core = { workspace = true }
 tangram_server_runner_core = { workspace = true }
 tangram_server_sandbox_common = { workspace = true }
-tangram_server_scheduler_common = { workspace = true }
 tangram_server_scheduler_core = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
