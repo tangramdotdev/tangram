@@ -1,7 +1,7 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, StreamExt as _, future, stream::BoxStream},
-	std::{ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc},
+	futures::{FutureExt as _, StreamExt as _, stream::BoxStream},
+	std::panic::AssertUnwindSafe,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -21,16 +21,11 @@ impl Component {
 			return Ok(());
 		}
 		if server.config.advanced.multi_server {
-			let config = &server.config.object.index_queue;
-			let bytes: bytes::Bytes = arg.serialize()?.into();
-			let fragments = bytes
-				.chunks(config.fragment_size)
-				.map(|fragment| bytes.slice_ref(fragment))
-				.collect();
-			let batch = tangram_server_core::cache::index::queue::batch::Id::new(
-				uuid::Uuid::now_v7().into_bytes(),
-			);
-			self.enqueue_index_batch(server, batch, fragments).await?;
+			let arg = tangram_server_core::indexer::EnqueueArg {
+				index: arg,
+				..Default::default()
+			};
+			self.enqueue(server, arg).await?;
 
 			return Ok(());
 		}
@@ -142,91 +137,6 @@ impl Component {
 				.spawn_publish_process_status_task(server, &id);
 		}
 		Ok(result)
-	}
-
-	async fn enqueue_index_batch(
-		&self,
-		server: &Server,
-		batch: tangram_server_core::cache::index::queue::batch::Id,
-		fragments: Vec<bytes::Bytes>,
-	) -> tg::Result<()> {
-		let fragment_count = u64::try_from(fragments.len())
-			.map_err(|_| tg::error!("the index batch has too many fragments"))?;
-		let fragments: Arc<[bytes::Bytes]> = fragments.into();
-		let start = rand::random::<u64>();
-		let mut attempt = 0u64;
-		let retry =
-			tangram_futures::retry::Options::from(server.config.indexer.batch.retry.clone());
-		tangram_futures::retry(&retry, || {
-			let fragments = fragments.clone();
-			let index = start.wrapping_add(attempt);
-			let refresh = attempt > 0;
-			attempt = attempt.wrapping_add(1);
-			async move {
-				let indexer = match self.select_indexer(server, index, refresh).await {
-					Ok(indexer) => indexer,
-					Err(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				let result = self
-					.enqueue_index_batch_with_indexer(
-						server,
-						&indexer,
-						batch,
-						fragment_count,
-						&fragments,
-					)
-					.await;
-				match result {
-					Ok(()) => Ok(ControlFlow::Break(())),
-					Err(error) => Ok(ControlFlow::Continue(error)),
-				}
-			}
-		})
-		.await?;
-
-		Ok(())
-	}
-
-	async fn enqueue_index_batch_with_indexer(
-		&self,
-		server: &Server,
-		indexer: &tg::indexer::Id,
-		batch: tangram_server_core::cache::index::queue::batch::Id,
-		fragment_count: u64,
-		fragments: &[bytes::Bytes],
-	) -> tg::Result<()> {
-		let requests = fragments
-			.iter()
-			.cloned()
-			.enumerate()
-			.map(|(fragment, payload)| {
-				let arg = crate::request::RequestArg::Index(crate::request::IndexRequestArg {
-					batch,
-					fragment: u64::try_from(fragment).unwrap(),
-					fragments: fragment_count,
-					payload,
-				});
-				async {
-					let output = self
-						.send_indexer_request(server, Some(indexer), arg)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to send an index request"))?
-						.map_err(|source| {
-							tg::error!(!source, "the indexer failed to enqueue an index fragment")
-						})?;
-					output
-						.try_unwrap_index()
-						.map_err(|_| tg::error!("expected an index response"))?;
-
-					Ok::<_, tg::Error>(())
-				}
-			});
-		let request = future::try_join_all(requests);
-		tokio::time::timeout(server.config.indexer.batch.timeout, request)
-			.await
-			.map_err(|source| tg::error!(!source, "timed out enqueueing an index batch"))??;
-
-		Ok(())
 	}
 }
 

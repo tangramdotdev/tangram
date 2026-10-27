@@ -10,112 +10,137 @@ use {
 	tangram_futures::task::Stopper,
 	tangram_messenger::{Messenger as _, Payload},
 	tangram_server_core::Server,
-	tracing::Instrument as _,
 };
 
 #[cfg(test)]
 mod tests;
 
-pub(super) mod limits;
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 enum ClientMessage {
+	#[tangram_serialize(id = 0)]
 	Ack(Ack),
+
+	#[tangram_serialize(id = 1)]
 	Response(Response),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 enum ServerMessage {
+	#[tangram_serialize(id = 0)]
 	Ack(Ack),
+
+	#[tangram_serialize(id = 1)]
 	Request(Request),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 struct Ack {
+	#[tangram_serialize(id = 0)]
 	id: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 struct Request {
+	#[tangram_serialize(id = 0)]
 	arg: RequestArg,
+
+	#[tangram_serialize(id = 1)]
 	id: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-struct Response {
-	error: Option<tg::error::Data>,
-	id: String,
-	output: Option<ResponseOutput>,
-}
-
-#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) enum RequestArg {
-	Archive(ArchiveRequestArg),
-	Index(IndexRequestArg),
+	#[tangram_serialize(id = 0)]
+	Enqueue(EnqueueRequestArg),
+
+	#[tangram_serialize(id = 1)]
 	Wait,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(crate) struct ArchiveRequestArg {
-	pub(crate) object: tg::object::Id,
-	pub(crate) put: [u8; 16],
+/// Fragments of archive and index batches to write to the cache's queues.
+#[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub(crate) struct EnqueueRequestArg {
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
+	pub archive: Vec<Fragment>,
+
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Vec::is_empty")]
+	pub index: Vec<Fragment>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(crate) struct IndexRequestArg {
-	pub(crate) batch: tangram_server_core::cache::index::queue::batch::Id,
-	pub(crate) fragment: u64,
-	pub(crate) fragments: u64,
-	#[serde(with = "bytes_base64")]
-	pub(crate) payload: bytes::Bytes,
+/// A fragment of a serialized archive or index batch.
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[expect(clippy::struct_field_names)]
+pub(crate) struct Fragment {
+	#[tangram_serialize(id = 0)]
+	pub batch: queue::BatchId,
+
+	#[tangram_serialize(id = 1)]
+	pub fragment: u64,
+
+	#[tangram_serialize(id = 2)]
+	pub fragments: u64,
+
+	#[tangram_serialize(id = 3)]
+	pub payload: bytes::Bytes,
 }
 
-#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+struct Response {
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	error: Option<tg::error::Data>,
+
+	#[tangram_serialize(id = 1)]
+	id: String,
+
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
+	output: Option<ResponseOutput>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	derive_more::TryUnwrap,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub(crate) enum ResponseOutput {
-	Archive,
-	Busy,
-	Index,
+	#[tangram_serialize(id = 0)]
+	Enqueue,
+
+	#[tangram_serialize(id = 1)]
 	Wait,
 }
 
 pub(super) struct RequestTaskArgs {
-	pub archive_sender: queue::ArchiveMessageSender,
 	pub changed: Arc<tokio::sync::Notify>,
-	pub index_sender: queue::IndexMessageSender,
 	pub ready: tokio::sync::oneshot::Sender<()>,
 	pub state: Arc<Mutex<IndexerState>>,
 	pub stopper: Stopper,
 	pub wait_sender: wait::Sender,
+	pub write_sender: queue::write::Sender,
 }
 
 struct HandleIndexerRequestArgs {
-	archive_sender: queue::ArchiveMessageSender,
 	guard: Guard,
-	index_sender: queue::IndexMessageSender,
 	request: Request,
 	sender: tangram_server_core::control::Sender<ServerMessage, ClientMessage>,
 	wait_sender: wait::Sender,
+	write_sender: queue::write::Sender,
 }
 
 struct HandleRequestsArgs {
-	archive_sender: queue::ArchiveMessageSender,
 	changed: Arc<tokio::sync::Notify>,
 	control: tangram_server_core::control::Stream<ServerMessage, ClientMessage>,
-	index_sender: queue::IndexMessageSender,
 	state: Arc<Mutex<IndexerState>>,
 	stopper: Stopper,
 	wait_sender: wait::Sender,
+	write_sender: queue::write::Sender,
 }
 
 struct Guard {
 	changed: Arc<tokio::sync::Notify>,
-	id: String,
+	enqueue: bool,
 	state: Arc<Mutex<IndexerState>>,
-	writing: bool,
 }
 
 impl Component {
@@ -148,9 +173,6 @@ impl Component {
 				} else {
 					request.await?
 				};
-				if matches!(response, Ok(ResponseOutput::Busy)) {
-					return Ok(ControlFlow::Continue(tg::error!("the indexer is busy")));
-				}
 				Ok(ControlFlow::Break(response))
 			}
 		})
@@ -204,13 +226,12 @@ impl Component {
 impl Indexer {
 	pub(super) async fn request_task(&self, args: RequestTaskArgs) -> tg::Result<()> {
 		let RequestTaskArgs {
-			archive_sender,
 			changed,
-			index_sender,
 			ready,
 			state,
 			stopper,
 			wait_sender,
+			write_sender,
 		} = args;
 		let messages = self
 			.server
@@ -232,13 +253,12 @@ impl Indexer {
 			.send(())
 			.map_err(|()| tg::error!("failed to signal indexer request readiness"))?;
 		let args = HandleRequestsArgs {
-			archive_sender,
 			changed,
 			control,
-			index_sender,
 			state,
 			stopper,
 			wait_sender,
+			write_sender,
 		};
 		let requests = self.handle_requests(args);
 		let responses = self.publish_client_messages(receiver);
@@ -249,13 +269,12 @@ impl Indexer {
 
 	async fn handle_requests(&self, args: HandleRequestsArgs) -> tg::Result<()> {
 		let HandleRequestsArgs {
-			archive_sender,
 			changed,
 			mut control,
-			index_sender,
 			state,
 			stopper,
 			wait_sender,
+			write_sender,
 		} = args;
 
 		// Accept each request once and track its handler until it finishes.
@@ -276,48 +295,40 @@ impl Indexer {
 			let ServerMessage::Request(request) = message else {
 				continue;
 			};
-			let accepted = {
+			let enqueue = !matches!(request.arg, RequestArg::Wait);
+			{
 				let mut state = state.lock().unwrap();
-				if !state.available && !matches!(request.arg, RequestArg::Wait) {
-					Err(tg::error!("the indexer is unavailable"))
-				} else {
-					let accepted = state
-						.limits
-						.try_insert(&request, &self.server.config.indexer.request);
-					if matches!(accepted, Ok(true)) && !matches!(request.arg, RequestArg::Wait) {
-						state.writes += 1;
-					}
-					accepted
+				if enqueue && !state.available {
+					drop(state);
+					let error = tg::error!("the indexer is unavailable");
+					control
+						.sender()
+						.try_send_untracked(ClientMessage::Response(Self::response(
+							request.id,
+							Err(error),
+						)));
+					continue;
 				}
-			};
-			if !matches!(accepted, Ok(true)) {
-				let result = accepted.map(|_| ResponseOutput::Busy);
-				control
-					.sender()
-					.try_send_untracked(ClientMessage::Response(Self::response(
-						request.id, result,
-					)));
-				continue;
+				if enqueue {
+					state.enqueues += 1;
+				}
 			}
 			control.acknowledge_now(request.id.clone());
 			let guard = Guard {
 				changed: changed.clone(),
-				id: request.id.clone(),
+				enqueue,
 				state: state.clone(),
-				writing: !matches!(request.arg, RequestArg::Wait),
 			};
 			let wait_sender = wait_sender.clone();
-			let archive_sender = archive_sender.clone();
-			let index_sender = index_sender.clone();
+			let write_sender = write_sender.clone();
 			let indexer = self.clone();
 			let sender = control.sender();
 			let args = HandleIndexerRequestArgs {
-				archive_sender,
 				guard,
-				index_sender,
 				request,
 				sender,
 				wait_sender,
+				write_sender,
 			};
 			requests.spawn(async move { indexer.handle_indexer_request(args).await });
 		}
@@ -329,37 +340,22 @@ impl Indexer {
 
 	async fn handle_indexer_request(&self, args: HandleIndexerRequestArgs) -> tg::Result<()> {
 		let HandleIndexerRequestArgs {
-			archive_sender,
 			mut guard,
-			index_sender,
 			request,
 			sender,
 			wait_sender,
+			write_sender,
 		} = args;
 		let result = match request.arg {
-			RequestArg::Archive(arg) => self
-				.handle_archive_request(&guard.state, &guard.changed, &archive_sender, arg)
+			RequestArg::Enqueue(arg) => Self::handle_enqueue_request(&write_sender, arg)
 				.await
-				.map(|()| ResponseOutput::Archive),
-			RequestArg::Index(arg) => {
-				let result = self
-					.handle_index_request(&guard.state, &guard.changed, &index_sender, arg)
-					.await;
-				guard.finish_write();
-				match result {
-					Ok(receiver) => receiver
-						.await
-						.map_err(|_| tg::error!("the index batch response channel closed"))?
-						.map(|()| ResponseOutput::Index),
-					Err(error) => Err(error),
-				}
-			},
+				.map(|()| ResponseOutput::Enqueue),
 			RequestArg::Wait => self
 				.wait_for_indexing(&wait_sender, request.id.clone())
 				.await
 				.map(|()| ResponseOutput::Wait),
 		};
-		guard.finish_write();
+		guard.finish();
 		sender.send_now(ClientMessage::Response(Self::response(request.id, result)));
 		Ok(())
 	}
@@ -382,109 +378,22 @@ impl Indexer {
 		}
 	}
 
-	#[tracing::instrument(name = "archive.enqueue", level = "debug", skip_all, fields(indexer = %self.id(), object = %arg.object), err(level = "debug"))]
-	async fn handle_archive_request(
-		&self,
-		state: &Mutex<IndexerState>,
-		changed: &tokio::sync::Notify,
-		archive_sender: &queue::ArchiveMessageSender,
-		arg: ArchiveRequestArg,
+	#[tracing::instrument(name = "indexer.enqueue", level = "debug", skip_all, fields(archive = arg.archive.len(), index = arg.index.len()), err(level = "debug"))]
+	async fn handle_enqueue_request(
+		write_sender: &queue::write::Sender,
+		arg: EnqueueRequestArg,
 	) -> tg::Result<()> {
-		let sequence = Self::allocate_sequence(state, changed, queue::Kind::Archive)
-			.instrument(tracing::debug_span!("archive.reserve_sequence"))
-			.await?;
-		let entry = tangram_server_core::cache::archive::queue::Entry {
-			indexer: self.id().clone(),
-			object: arg.object,
-			put: arg.put,
-			sequence,
-		};
-		let arg = tangram_server_core::cache::archive::queue::put::Arg {
-			entry: entry.clone(),
-		};
-		let result = self
-			.server
-			.cache
-			.put_archive_queue_entry(arg)
-			.instrument(tracing::debug_span!("archive.store_queue_entry", sequence))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put an archive queue entry"));
-		let message = if result.is_ok() {
-			queue::ArchiveMessage::Process(entry)
-		} else {
-			queue::ArchiveMessage::Delete(sequence)
-		};
-		archive_sender
-			.send(message)
-			.instrument(tracing::debug_span!("archive.submit_queue_entry", sequence))
-			.await
-			.map_err(|_| tg::error!("the archive queue task stopped"))?;
-		result?;
-		Ok(())
-	}
-
-	async fn handle_index_request(
-		&self,
-		state: &Mutex<IndexerState>,
-		changed: &tokio::sync::Notify,
-		index_sender: &queue::IndexMessageSender,
-		arg: IndexRequestArg,
-	) -> tg::Result<tokio::sync::oneshot::Receiver<tg::Result<()>>> {
-		let sequence = Self::allocate_sequence(state, changed, queue::Kind::Index).await?;
-		let fragment = tangram_server_core::cache::index::queue::Fragment {
-			batch: arg.batch,
-			fragment: arg.fragment,
-			fragments: arg.fragments,
-			indexer: self.id().clone(),
-			payload: arg.payload,
-			sequence,
-		};
-		let arg = tangram_server_core::cache::index::queue::put::Arg {
-			fragment: fragment.clone(),
-		};
-		if let Err(source) = self.server.cache.put_index_queue_fragment(arg).await {
-			index_sender
-				.send(queue::IndexMessage::Delete(vec![sequence]))
-				.await
-				.map_err(|_| tg::error!("the index queue task stopped"))?;
-			return Err(tg::error!(!source, "failed to put an index queue fragment"));
-		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let output = {
-			let mut state = state.lock().unwrap();
-			state.queues.insert_index_fragment(
-				fragment,
-				Some(sender),
-				self.server.config.object.index_queue.batch_timeout,
-			)
-		};
-		changed.notify_waiters();
-		for message in output.messages {
-			index_sender
-				.send(message)
-				.await
-				.map_err(|_| tg::error!("the index queue task stopped"))?;
-		}
-		for (sender, result) in output.responses {
-			sender.send(result).ok();
-		}
-		Ok(receiver)
-	}
+		let request = queue::write::Request { arg, sender };
+		write_sender
+			.send(request)
+			.await
+			.map_err(|_| tg::error!("the indexer write task stopped"))?;
+		receiver
+			.await
+			.map_err(|_| tg::error!("the indexer write task stopped"))??;
 
-	async fn allocate_sequence(
-		state: &Mutex<IndexerState>,
-		changed: &tokio::sync::Notify,
-		kind: queue::Kind,
-	) -> tg::Result<u64> {
-		loop {
-			let notified = changed.notified();
-			let sequence = state.lock().unwrap().queues.try_allocate_sequence(kind);
-			if let Some(sequence) = sequence {
-				changed.notify_waiters();
-				return Ok(sequence);
-			}
-			notified.await;
-		}
+		Ok(())
 	}
 
 	async fn publish_client_messages(
@@ -534,13 +443,13 @@ impl ClientMessage {
 }
 
 impl Guard {
-	fn finish_write(&mut self) {
-		if self.writing {
+	fn finish(&mut self) {
+		if self.enqueue {
 			self.state
 				.lock()
 				.unwrap_or_else(std::sync::PoisonError::into_inner)
-				.writes -= 1;
-			self.writing = false;
+				.enqueues -= 1;
+			self.enqueue = false;
 			self.changed.notify_waiters();
 		}
 	}
@@ -548,14 +457,7 @@ impl Guard {
 
 impl Drop for Guard {
 	fn drop(&mut self) {
-		self.finish_write();
-		let mut state = self
-			.state
-			.lock()
-			.unwrap_or_else(std::sync::PoisonError::into_inner);
-		state.limits.remove(&self.id);
-		drop(state);
-		self.changed.notify_waiters();
+		self.finish();
 	}
 }
 
@@ -585,45 +487,24 @@ impl tangram_server_core::control::Output for ClientMessage {
 
 impl Payload for ClientMessage {
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error> {
-		serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
+		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
 	}
 
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		let bytes = serde_json::to_vec(self).map_err(tangram_messenger::Error::serialization)?;
-		Ok(bytes.into())
+		tangram_serialize::to_vec(self)
+			.map(Into::into)
+			.map_err(tangram_messenger::Error::serialization)
 	}
 }
 
 impl Payload for ServerMessage {
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error> {
-		serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
+		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
 	}
 
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		let bytes = serde_json::to_vec(self).map_err(tangram_messenger::Error::serialization)?;
-		Ok(bytes.into())
-	}
-}
-
-mod bytes_base64 {
-	use serde::{Deserialize as _, Deserializer, Serializer};
-
-	pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<bytes::Bytes, D::Error>
-	where
-		D: Deserializer<'de>,
-	{
-		let value = String::deserialize(deserializer)?;
-		let bytes = data_encoding::BASE64
-			.decode(value.as_bytes())
-			.map_err(serde::de::Error::custom)?;
-
-		Ok(bytes.into())
-	}
-
-	pub(super) fn serialize<S>(value: &bytes::Bytes, serializer: S) -> Result<S::Ok, S::Error>
-	where
-		S: Serializer,
-	{
-		serializer.serialize_str(&data_encoding::BASE64.encode(value))
+		tangram_serialize::to_vec(self)
+			.map(Into::into)
+			.map_err(tangram_messenger::Error::serialization)
 	}
 }

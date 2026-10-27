@@ -8,68 +8,60 @@ use {
 };
 
 impl Cache {
-	pub async fn delete_archive_queue_entry(
+	pub async fn delete_archive_queue_item_batch(
 		&self,
-		arg: archive::queue::delete::Arg,
+		arg: archive::queue::delete::batch::Arg,
 	) -> tg::Result<()> {
-		let request = crate::request::Request::DeleteArchiveQueueEntry(arg);
-
-		self.send_write_request(request).await
-	}
-
-	pub async fn get_archive_queue_entries(
-		&self,
-		arg: archive::queue::get::batch::Arg,
-	) -> tg::Result<Vec<archive::queue::Entry>> {
-		let request = crate::read::Request::GetArchiveQueueEntries(arg);
-		let response = self.send_read_request(request).await?;
-		let crate::read::Response::GetArchiveQueueEntries(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
-	pub async fn put_archive_queue_entry(&self, arg: archive::queue::put::Arg) -> tg::Result<()> {
-		let request = crate::request::Request::PutArchiveQueueEntry(arg);
-
-		self.send_write_request(request).await
-	}
-
-	pub async fn try_get_archive_queue_entry(
-		&self,
-		arg: archive::queue::get::Arg,
-	) -> tg::Result<Option<archive::queue::Entry>> {
-		let request = crate::read::Request::TryGetArchiveQueueEntry(arg);
-		let response = self.send_read_request(request).await?;
-		let crate::read::Response::TryGetArchiveQueueEntry(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
-	pub(super) fn delete_archive_queue_entry_with_transaction(
-		db: &Db,
-		transaction: &mut lmdb::RwTxn<'_>,
-		arg: &archive::queue::delete::Arg,
-	) -> tg::Result<()> {
-		let key = Key::ArchiveQueue {
-			indexer: &arg.indexer,
-			sequence: arg.sequence,
-		}
-		.pack_to_vec();
-		db.delete(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to delete an archive queue entry"))?;
-
+		let args = arg
+			.sequences
+			.into_iter()
+			.map(|sequence| archive::queue::delete::Arg {
+				indexer: arg.indexer.clone(),
+				sequence,
+			})
+			.collect();
+		let request = crate::request::Request::DeleteArchiveQueueItemBatch(args);
+		self.send_write_request(request).await?;
 		Ok(())
 	}
 
-	pub(super) fn get_archive_queue_entries_with_transaction(
+	pub async fn get_archive_queue_items(
+		&self,
+		arg: archive::queue::get::batch::Arg,
+	) -> tg::Result<Vec<archive::queue::Item>> {
+		let request = crate::read::Request::GetArchiveQueueItems(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::GetArchiveQueueItems(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub async fn put_archive_queue_item(&self, arg: archive::queue::put::Arg) -> tg::Result<()> {
+		let request = crate::request::Request::PutArchiveQueueItem(arg);
+
+		self.send_write_request(request).await
+	}
+
+	pub async fn try_get_archive_queue_item(
+		&self,
+		arg: archive::queue::get::Arg,
+	) -> tg::Result<Option<archive::queue::Item>> {
+		let request = crate::read::Request::TryGetArchiveQueueItem(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetArchiveQueueItem(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(super) fn get_archive_queue_items_with_transaction(
 		db: &Db,
 		transaction: &lmdb::RoTxn<'_>,
 		arg: &archive::queue::get::batch::Arg,
-	) -> tg::Result<Vec<archive::queue::Entry>> {
+	) -> tg::Result<Vec<archive::queue::Item>> {
 		let sequence_start = Key::ArchiveQueue {
 			indexer: &arg.indexer,
 			sequence: arg.sequence_start,
@@ -90,39 +82,60 @@ impl Cache {
 		entries
 			.map(|entry| {
 				let (key, value) = entry
-					.map_err(|error| tg::error!(!error, "failed to get an archive queue entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to get an archive queue item"))?;
 				let (_, _, sequence): (i32, Vec<u8>, u64) = fdbt::unpack(key)
 					.map_err(|error| tg::error!(!error, "failed to unpack an archive queue key"))?;
 
-				decode_archive_entry(arg.indexer.clone(), sequence, value)
+				decode_archive_queue_item(arg.indexer.clone(), sequence, value)
 			})
 			.collect()
 	}
 
-	pub(super) fn put_archive_queue_entry_with_transaction(
+	pub(super) fn delete_archive_queue_item_with_transaction(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
-		arg: archive::queue::put::Arg,
+		arg: &archive::queue::delete::Arg,
 	) -> tg::Result<()> {
-		let entry = arg.entry;
 		let key = Key::ArchiveQueue {
-			indexer: &entry.indexer,
-			sequence: entry.sequence,
+			indexer: &arg.indexer,
+			sequence: arg.sequence,
 		}
 		.pack_to_vec();
-		let object = entry.object.to_bytes();
-		let value = fdbt::pack(&(object.as_ref(), entry.put.as_slice()));
-		db.put(transaction, &key, &value)
-			.map_err(|error| tg::error!(!error, "failed to put an archive queue entry"))?;
+		db.delete(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to delete an archive queue item"))?;
 
 		Ok(())
 	}
 
-	pub(super) fn try_get_archive_queue_entry_with_transaction(
+	pub(super) fn put_archive_queue_item_with_transaction(
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: archive::queue::put::Arg,
+	) -> tg::Result<()> {
+		let item = arg.item;
+		let key = Key::ArchiveQueue {
+			indexer: &item.indexer,
+			sequence: item.sequence,
+		}
+		.pack_to_vec();
+		let batch = item.batch.value();
+		let value = fdbt::pack(&(
+			batch.as_slice(),
+			item.fragment,
+			item.fragments,
+			item.payload.as_ref(),
+		));
+		db.put(transaction, &key, &value)
+			.map_err(|error| tg::error!(!error, "failed to put an archive queue item"))?;
+
+		Ok(())
+	}
+
+	pub(super) fn try_get_archive_queue_item_with_transaction(
 		db: &Db,
 		transaction: &lmdb::RoTxn<'_>,
 		arg: &archive::queue::get::Arg,
-	) -> tg::Result<Option<archive::queue::Entry>> {
+	) -> tg::Result<Option<archive::queue::Item>> {
 		let key = Key::ArchiveQueue {
 			indexer: &arg.indexer,
 			sequence: arg.sequence,
@@ -130,63 +143,66 @@ impl Cache {
 		.pack_to_vec();
 		let Some(value) = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to get an archive queue entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get an archive queue item"))?
 		else {
 			return Ok(None);
 		};
-		let entry = decode_archive_entry(arg.indexer.clone(), arg.sequence, value)?;
+		let item = decode_archive_queue_item(arg.indexer.clone(), arg.sequence, value)?;
 
-		Ok(Some(entry))
+		Ok(Some(item))
 	}
 }
 
 impl tangram_cache::archive::Cache for Cache {
-	async fn delete_archive_queue_entry(
+	async fn delete_archive_queue_item_batch(
 		&self,
-		arg: tangram_cache::archive::queue::delete::Arg,
+		arg: tangram_cache::archive::queue::delete::batch::Arg,
 	) -> tg::Result<()> {
-		self.delete_archive_queue_entry(arg).await
+		self.delete_archive_queue_item_batch(arg).await
 	}
 
-	async fn get_archive_queue_entries(
+	async fn get_archive_queue_items(
 		&self,
 		arg: tangram_cache::archive::queue::get::batch::Arg,
-	) -> tg::Result<Vec<tangram_cache::archive::queue::Entry>> {
-		self.get_archive_queue_entries(arg).await
+	) -> tg::Result<Vec<tangram_cache::archive::queue::Item>> {
+		self.get_archive_queue_items(arg).await
 	}
 
-	async fn put_archive_queue_entry(
+	async fn put_archive_queue_item(
 		&self,
 		arg: tangram_cache::archive::queue::put::Arg,
 	) -> tg::Result<()> {
-		self.put_archive_queue_entry(arg).await
+		self.put_archive_queue_item(arg).await
 	}
 
-	async fn try_get_archive_queue_entry(
+	async fn try_get_archive_queue_item(
 		&self,
 		arg: tangram_cache::archive::queue::get::Arg,
-	) -> tg::Result<Option<tangram_cache::archive::queue::Entry>> {
-		self.try_get_archive_queue_entry(arg).await
+	) -> tg::Result<Option<tangram_cache::archive::queue::Item>> {
+		self.try_get_archive_queue_item(arg).await
 	}
 }
 
-fn decode_archive_entry(
+fn decode_archive_queue_item(
 	indexer: tg::indexer::Id,
 	sequence: u64,
 	value: &[u8],
-) -> tg::Result<archive::queue::Entry> {
-	let (object, put): (Vec<u8>, Vec<u8>) = fdbt::unpack(value)
-		.map_err(|error| tg::error!(!error, "failed to unpack an archive queue entry"))?;
-	let object = tg::object::Id::from_slice(&object)?;
-	let put = put
+) -> tg::Result<archive::queue::Item> {
+	let (batch, fragment, fragments, payload): (Vec<u8>, u64, u64, Vec<u8>) =
+		fdbt::unpack(value)
+			.map_err(|error| tg::error!(!error, "failed to unpack an archive queue item"))?;
+	let batch = batch
 		.try_into()
-		.map_err(|_| tg::error!("invalid archive queue put"))?;
-	let entry = archive::queue::Entry {
+		.map(archive::queue::batch::Id::new)
+		.map_err(|_| tg::error!("invalid archive queue batch id"))?;
+	let item = archive::queue::Item {
+		batch,
+		fragment,
+		fragments,
 		indexer,
-		object,
-		put,
+		payload: payload.into(),
 		sequence,
 	};
 
-	Ok(entry)
+	Ok(item)
 }

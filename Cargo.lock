@@ -10696,6 +10696,7 @@ dependencies = [
  "tangram_client",
  "tangram_futures",
  "tangram_pool",
+ "tangram_serialize",
  "tangram_server_config",
 ]
 
@@ -11274,6 +11275,7 @@ dependencies = [
  "tangram_http",
  "tangram_index",
  "tangram_messenger",
+ "tangram_serialize",
  "tangram_server_core",
  "tangram_util",
  "tokio",

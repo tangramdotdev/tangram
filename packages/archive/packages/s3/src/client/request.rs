@@ -2,12 +2,45 @@ use {
 	super::sign::Request,
 	super::{Client, Response},
 	bytes::Bytes,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_http::body::Ext as _,
 };
 
 impl Client {
 	pub async fn send(
+		&self,
+		method: http::Method,
+		path: &str,
+		headers: http::HeaderMap,
+		body: Bytes,
+	) -> tg::Result<Response> {
+		// Retry transport failures and transient statuses, and return every other response to the caller.
+		let response = tangram_futures::retry(&self.retry, || {
+			let body = body.clone();
+			let headers = headers.clone();
+			let method = method.clone();
+			async move {
+				match self.send_inner(method, path, headers, body).await {
+					Ok(response) if is_transient(response.status) => {
+						let error = tg::error!(
+							status = %response.status,
+							body = %String::from_utf8_lossy(&response.bytes),
+							"the S3 request failed with a transient status"
+						);
+						Ok(ControlFlow::Continue(error))
+					},
+					Ok(response) => Ok(ControlFlow::Break(response)),
+					Err(error) => Ok(ControlFlow::Continue(error)),
+				}
+			}
+		})
+		.await?;
+
+		Ok(response)
+	}
+
+	async fn send_inner(
 		&self,
 		method: http::Method,
 		path: &str,
@@ -76,4 +109,8 @@ impl Client {
 
 		Ok(output)
 	}
+}
+
+fn is_transient(status: http::StatusCode) -> bool {
+	status == http::StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
 }

@@ -123,6 +123,8 @@ pub struct S3Archive {
 
 	pub request_timeout: Duration,
 
+	pub retry: Retry,
+
 	pub secret_key: String,
 
 	pub session_refresh_buffer: Duration,
@@ -588,6 +590,8 @@ pub struct Indexer {
 
 	pub permission_capture: IndexerPermissionCapture,
 
+	pub queue: IndexerQueue,
+
 	pub request: IndexerRequest,
 
 	pub retry: Retry,
@@ -597,6 +601,8 @@ pub struct Indexer {
 	pub usage: IndexerUsage,
 
 	pub usage_partitions: IndexerPartitions,
+
+	pub writer: IndexerWriter,
 }
 
 #[derive(Clone, Debug)]
@@ -608,6 +614,9 @@ pub struct IndexerBillingCleanup {
 
 #[derive(Clone, Debug)]
 pub struct IndexerBatch {
+	/// The maximum number of fragment payload bytes in each indexer request.
+	pub request_size: usize,
+
 	pub retry: Retry,
 
 	pub timeout: Duration,
@@ -651,16 +660,17 @@ pub struct IndexerPartitions {
 }
 
 #[derive(Clone, Debug)]
-pub struct IndexerRequest {
-	pub archive_concurrency: usize,
+pub struct IndexerQueue {
+	/// The maximum number of queue fragment payload bytes to hold in memory.
+	pub memory: usize,
+}
 
+#[derive(Clone, Debug)]
+pub struct IndexerRequest {
 	pub channel_capacity: usize,
 
 	/// The maximum number of concurrent message publications.
 	pub concurrency: usize,
-
-	/// The maximum number of pending fragments, reserved for whole batches.
-	pub index_concurrency: usize,
 
 	pub poll_interval: Duration,
 
@@ -671,6 +681,14 @@ pub struct IndexerRequest {
 	pub timeout: Duration,
 
 	pub wait_concurrency: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerWriter {
+	pub channel_capacity: usize,
+
+	/// The maximum number of concurrent queue writes.
+	pub concurrency: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -758,8 +776,6 @@ pub struct NatsMessenger {
 pub struct Object {
 	pub archive_queue: ArchiveQueue,
 
-	pub archive_retry: Retry,
-
 	pub cache: Option<ObjectCache>,
 
 	pub index_queue: IndexQueue,
@@ -794,7 +810,12 @@ pub struct ObjectCache {
 
 #[derive(Clone, Debug)]
 pub struct ArchiveQueue {
+	pub batch_timeout: Duration,
+
 	pub concurrency: usize,
+
+	/// The maximum number of encoded bytes in each archive queue fragment.
+	pub fragment_size: usize,
 
 	pub retry: Retry,
 
@@ -2209,6 +2230,7 @@ impl Default for S3Archive {
 			reconnect: Reconnect::default(),
 			region: String::new(),
 			request_timeout: Duration::from_mins(1),
+			retry: archive_retry_default(),
 			secret_key: String::new(),
 			session_refresh_buffer: Duration::from_mins(1),
 		}
@@ -2477,11 +2499,13 @@ impl Default for Indexer {
 			log_cache: IndexerLogCache::default(),
 			object_cache_partitions: IndexerPartitions::default(),
 			permission_capture: IndexerPermissionCapture::default(),
+			queue: IndexerQueue::default(),
 			request: IndexerRequest::default(),
 			retry: retry.into(),
 			updates: IndexerUpdates::default(),
 			usage: IndexerUsage::default(),
 			usage_partitions: IndexerPartitions::default(),
+			writer: IndexerWriter::default(),
 		}
 	}
 }
@@ -2498,6 +2522,7 @@ impl Default for IndexerBillingCleanup {
 impl Default for IndexerBatch {
 	fn default() -> Self {
 		Self {
+			request_size: 768 * 1024,
 			retry: message_retry_default(),
 			timeout: Duration::from_secs(10),
 		}
@@ -2544,18 +2569,33 @@ impl Default for IndexerPartitions {
 	}
 }
 
+impl Default for IndexerQueue {
+	fn default() -> Self {
+		Self {
+			memory: 256 * 1024 * 1024,
+		}
+	}
+}
+
 impl Default for IndexerRequest {
 	fn default() -> Self {
 		Self {
-			archive_concurrency: 64,
 			channel_capacity: 256,
 			concurrency: 64,
-			index_concurrency: 4096,
 			poll_interval: Duration::from_millis(10),
 			response_ttl: Duration::from_mins(1),
 			retry: message_retry_default(),
 			timeout: Duration::from_secs(1),
 			wait_concurrency: 1024,
+		}
+	}
+}
+
+impl Default for IndexerWriter {
+	fn default() -> Self {
+		Self {
+			channel_capacity: 1024,
+			concurrency: 64,
 		}
 	}
 }
@@ -2645,7 +2685,6 @@ impl Default for Object {
 	fn default() -> Self {
 		Self {
 			archive_queue: ArchiveQueue::default(),
-			archive_retry: object_archive_retry_default(),
 			cache: None,
 			index_queue: IndexQueue::default(),
 			permission_time_to_live: default_object_permission_time_to_live(),
@@ -2679,7 +2718,9 @@ impl Default for ObjectCache {
 impl Default for ArchiveQueue {
 	fn default() -> Self {
 		Self {
+			batch_timeout: Duration::from_mins(1),
 			concurrency: 64,
+			fragment_size: 256 * 1024,
 			retry: queue_retry_default(),
 			sequence_reservation_size: 1024,
 		}
@@ -3412,7 +3453,7 @@ fn message_retry_default() -> Retry {
 	}
 }
 
-fn object_archive_retry_default() -> Retry {
+fn archive_retry_default() -> Retry {
 	Retry {
 		backoff: Duration::from_secs(1),
 		jitter: Duration::ZERO,

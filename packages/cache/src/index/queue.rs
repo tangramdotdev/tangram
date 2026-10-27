@@ -6,7 +6,7 @@ pub mod get;
 pub mod put;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Fragment {
+pub struct Item {
 	pub batch: batch::Id,
 	pub fragment: u64,
 	pub fragments: u64,

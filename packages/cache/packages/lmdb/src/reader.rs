@@ -112,15 +112,13 @@ impl Cache {
 		request: crate::read::Request,
 	) -> tg::Result<crate::read::Response> {
 		let response = match request {
-			crate::read::Request::GetArchiveQueueEntries(arg) => {
-				let output =
-					Self::get_archive_queue_entries_with_transaction(db, transaction, &arg)?;
-				crate::read::Response::GetArchiveQueueEntries(output)
+			crate::read::Request::GetArchiveQueueItems(arg) => {
+				let output = Self::get_archive_queue_items_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::GetArchiveQueueItems(output)
 			},
-			crate::read::Request::GetIndexQueueFragments(arg) => {
-				let output =
-					Self::get_index_queue_fragments_with_transaction(db, transaction, &arg)?;
-				crate::read::Response::GetIndexQueueFragments(output)
+			crate::read::Request::GetIndexQueueItems(arg) => {
+				let output = Self::get_index_queue_items_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::GetIndexQueueItems(output)
 			},
 			crate::read::Request::GetLogCacheEntries(arg) => {
 				let output = Self::get_log_cache_entries_with_transaction(db, transaction, &arg)?;
@@ -135,15 +133,15 @@ impl Cache {
 			crate::read::Request::GetTransactionId => {
 				crate::read::Response::GetTransactionId(transaction.id() as u64)
 			},
-			crate::read::Request::TryGetArchiveQueueEntry(arg) => {
+			crate::read::Request::TryGetArchiveQueueItem(arg) => {
 				let output =
-					Self::try_get_archive_queue_entry_with_transaction(db, transaction, &arg)?;
-				crate::read::Response::TryGetArchiveQueueEntry(output)
+					Self::try_get_archive_queue_item_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::TryGetArchiveQueueItem(output)
 			},
-			crate::read::Request::TryGetIndexQueueFragment(arg) => {
+			crate::read::Request::TryGetIndexQueueItem(arg) => {
 				let output =
-					Self::try_get_index_queue_fragment_with_transaction(db, transaction, &arg)?;
-				crate::read::Response::TryGetIndexQueueFragment(output)
+					Self::try_get_index_queue_item_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::TryGetIndexQueueItem(output)
 			},
 			crate::read::Request::TryGetLogEnd(process) => {
 				let output = Self::try_get_log_end_with_transaction(db, transaction, &process)?;

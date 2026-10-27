@@ -15,6 +15,7 @@ pub struct Config {
 	pub reconnect: tangram_futures::retry::Options,
 	pub region: String,
 	pub request_timeout: Duration,
+	pub retry: tangram_futures::retry::Options,
 	pub secret_key: String,
 	pub session_refresh_buffer: Duration,
 }
@@ -46,6 +47,13 @@ impl tangram_archive::Archive for Archive {
 
 	async fn put_object(&self, arg: tangram_archive::object::put::Arg) -> tg::Result<()> {
 		self.put_object(arg).await
+	}
+
+	async fn put_object_batch(
+		&self,
+		args: Vec<tangram_archive::object::put::Arg>,
+	) -> tg::Result<()> {
+		self.put_object_batch(args).await
 	}
 
 	async fn try_get_object(
@@ -84,6 +92,7 @@ mod tests {
 			reconnect: tangram_futures::retry::Options::default(),
 			region,
 			request_timeout: Duration::from_mins(1),
+			retry: tangram_futures::retry::Options::default(),
 			secret_key,
 			session_refresh_buffer: Duration::from_mins(1),
 		};

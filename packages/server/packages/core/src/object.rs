@@ -14,10 +14,10 @@ pub struct CheckoutFile {
 
 /// The object component.
 pub trait Component: crate::component::Lifecycle {
-	fn archive_object<'a>(
+	fn archive_object_batch<'a>(
 		&'a self,
 		server: &'a crate::Server,
-		arg: tangram_archive::object::put::Arg,
+		args: Vec<tangram_archive::object::put::Arg>,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn wait_archive_tasks(&self) -> BoxFuture<'_, ()>;

@@ -23,4 +23,5 @@ tangram_archive_s3 = { workspace = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_pool = { workspace = true }
+tangram_serialize = { workspace = true }
 tangram_server_config = { workspace = true }

@@ -18,85 +18,63 @@ fn subjects_address_an_idless_or_named_indexer() {
 
 #[tokio::test]
 async fn draining_waits_for_writes_queue_completions_and_handlers() {
-	let request = Request {
-		arg: super::RequestArg::Index(super::IndexRequestArg {
-			batch: tangram_server_core::cache::index::queue::batch::Id::new([0; 16]),
-			fragment: 0,
-			fragments: 2,
-			payload: bytes::Bytes::new(),
-		}),
-		id: "fragment".into(),
-	};
-	let mut queues = queue::Queues::empty();
+	let mut queues = queue::Queues::empty(usize::MAX);
 	let reservation = queue::SequenceReservation {
 		end: 1,
 		kind: queue::Kind::Index,
 	};
 	queues.finish_reservation(reservation);
 	let sequence = queues.try_allocate_sequence(queue::Kind::Index).unwrap();
-	let fragment = tangram_server_core::cache::index::queue::Fragment {
-		batch: tangram_server_core::cache::index::queue::batch::Id::new([0; 16]),
+	let fragment = super::Fragment {
+		batch: [0; 16],
 		fragment: 0,
 		fragments: 2,
-		indexer: tg::indexer::Id::new(),
 		payload: bytes::Bytes::new(),
-		sequence,
 	};
-	let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
-	queues.insert_index_fragment(
-		fragment,
-		Some(response_sender),
-		std::time::Duration::from_secs(60),
-	);
-	let mut state = IndexerState {
+	queues
+		.insert_fragment(
+			queue::Kind::Index,
+			sequence,
+			&fragment,
+			std::time::Duration::from_secs(60),
+		)
+		.unwrap();
+	queues.finish_write(queue::Kind::Index, sequence, &fragment, true);
+	let state = IndexerState {
 		available: true,
-		limits: super::limits::Limits::default(),
+		enqueues: 1,
 		queues,
-		writes: 1,
 	};
-	assert!(
-		state
-			.limits
-			.try_insert(
-				&request,
-				&tangram_server_core::config::IndexerRequest::default()
-			)
-			.unwrap()
-	);
 	let state = Arc::new(Mutex::new(state));
 	let changed = Arc::new(tokio::sync::Notify::new());
 	let mut guard = super::Guard {
 		changed: changed.clone(),
-		id: request.id,
+		enqueue: true,
 		state: state.clone(),
-		writing: true,
 	};
-	let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
-	sender
-		.send(queue::IndexMessage::Delete(vec![99]))
-		.await
-		.unwrap();
-	let drain = Indexer::drain_queues(&state, &changed, &sender);
+	let drain = Indexer::drain_queues(&state, &changed);
 	tokio::pin!(drain);
 	assert!(futures::poll!(&mut drain).is_pending());
 	assert!(!state.lock().unwrap().available);
-	guard.finish_write();
-	assert!(futures::poll!(&mut drain).is_pending());
-	assert!(state.try_lock().is_ok());
-	receiver.recv().await.unwrap();
+	assert!(
+		state
+			.lock()
+			.unwrap()
+			.queues
+			.pop_work(queue::Kind::Index)
+			.is_none()
+	);
+	guard.finish();
 	assert!(futures::poll!(&mut drain).is_pending());
 	assert!(
-		matches!(receiver.recv().await.unwrap(), queue::IndexMessage::Delete(sequences) if sequences == vec![sequence])
+		matches!(state.lock().unwrap().queues.pop_work(queue::Kind::Index), Some(queue::Work::Delete(sequences)) if sequences == vec![sequence])
 	);
-	assert!(response_receiver.await.unwrap().is_err());
 	state
 		.lock()
 		.unwrap()
 		.queues
-		.complete(queue::Completion::Index(vec![sequence]));
+		.complete(queue::Kind::Index, &[sequence]);
 	changed.notify_waiters();
-	assert!(futures::poll!(&mut drain).is_pending());
-	drop(guard);
 	assert!(matches!(
 		futures::poll!(&mut drain),
 		std::task::Poll::Ready(Ok(()))
@@ -137,71 +115,18 @@ async fn full_reply_channel_does_not_block_reception() {
 	assert!(matches!(message, ServerMessage::Request(Request { id, .. }) if id == "next"));
 }
 #[tokio::test]
-async fn concurrent_allocators_wait_for_a_durable_reservation() {
+async fn cancelling_a_handler_releases_its_write() {
 	let state = IndexerState {
 		available: true,
-		limits: super::limits::Limits::default(),
-		queues: queue::Queues::empty(),
-		writes: 0,
+		enqueues: 1,
+		queues: queue::Queues::empty(usize::MAX),
 	};
-	let state = Arc::new(Mutex::new(state));
-	let changed = Arc::new(tokio::sync::Notify::new());
-	let mut requests = tokio::task::JoinSet::new();
-	for _ in 0..32 {
-		let changed = changed.clone();
-		let state = state.clone();
-		requests.spawn(async move {
-			Indexer::allocate_sequence(&state, &changed, queue::Kind::Index).await
-		});
-	}
-	tokio::task::yield_now().await;
-	assert!(requests.try_join_next().is_none());
-	let reservation = queue::SequenceReservation {
-		end: 32,
-		kind: queue::Kind::Index,
-	};
-	state.lock().unwrap().queues.finish_reservation(reservation);
-	changed.notify_waiters();
-	let mut sequences = std::collections::BTreeSet::new();
-	while let Some(result) = requests.join_next().await {
-		assert!(sequences.insert(result.unwrap().unwrap()));
-	}
-	assert_eq!(sequences, (0..32).collect());
-}
-#[tokio::test]
-async fn cancelling_a_handler_releases_its_capacity() {
-	let mut state = IndexerState {
-		available: true,
-		limits: super::limits::Limits::default(),
-		queues: queue::Queues::empty(),
-		writes: 1,
-	};
-	let arg = super::IndexRequestArg {
-		batch: tangram_server_core::cache::index::queue::batch::Id::new([0; 16]),
-		fragment: 0,
-		fragments: 1,
-		payload: bytes::Bytes::new(),
-	};
-	let request = Request {
-		arg: RequestArg::Index(arg),
-		id: "index".into(),
-	};
-	assert!(
-		state
-			.limits
-			.try_insert(
-				&request,
-				&tangram_server_core::config::IndexerRequest::default()
-			)
-			.unwrap()
-	);
 	let state = Arc::new(Mutex::new(state));
 	let changed = Arc::new(tokio::sync::Notify::new());
 	let guard = super::Guard {
 		changed: changed.clone(),
-		id: request.id,
+		enqueue: true,
 		state: state.clone(),
-		writing: true,
 	};
 	let mut requests = tokio::task::JoinSet::new();
 	requests.spawn(async move {
@@ -209,7 +134,35 @@ async fn cancelling_a_handler_releases_its_capacity() {
 		std::future::pending::<()>().await;
 	});
 	requests.shutdown().await;
-	let state = state.lock().unwrap();
-	assert_eq!(state.writes, 0);
-	assert!(!state.limits.has_queue_requests());
+	assert_eq!(state.lock().unwrap().enqueues, 0);
+}
+
+#[test]
+fn messages_round_trip() {
+	let arg = super::EnqueueRequestArg {
+		archive: vec![super::Fragment {
+			batch: [1; 16],
+			fragment: 0,
+			fragments: 1,
+			payload: bytes::Bytes::from_static(b"archive"),
+		}],
+		index: Vec::new(),
+	};
+	let request = Request {
+		arg: RequestArg::Enqueue(arg),
+		id: "request".into(),
+	};
+	let message = ServerMessage::Request(request);
+	let bytes = tangram_messenger::Payload::serialize(&message).unwrap();
+	let message = <ServerMessage as tangram_messenger::Payload>::deserialize(bytes).unwrap();
+	let ServerMessage::Request(Request {
+		arg: RequestArg::Enqueue(arg),
+		id,
+	}) = message
+	else {
+		panic!("expected an enqueue request");
+	};
+	assert_eq!(id, "request");
+	assert_eq!(arg.archive[0].payload, &b"archive"[..]);
+	assert!(arg.index.is_empty());
 }

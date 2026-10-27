@@ -136,12 +136,12 @@ impl tangram_server_core::component::Lifecycle for Component {
 }
 
 impl tangram_server_core::object::Component for Component {
-	fn archive_object<'a>(
+	fn archive_object_batch<'a>(
 		&'a self,
 		server: &'a Server,
-		arg: tangram_archive::object::put::Arg,
+		args: Vec<tangram_archive::object::put::Arg>,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		Self::archive_object(server, arg).boxed()
+		Self::archive_object_batch(server, args).boxed()
 	}
 
 	fn wait_archive_tasks(&self) -> BoxFuture<'_, ()> {

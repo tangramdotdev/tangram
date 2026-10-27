@@ -3,109 +3,109 @@ use tangram_client::prelude::*;
 pub use tangram_cache::index::*;
 
 impl super::Cache {
-	pub async fn delete_index_queue_fragment(
+	pub async fn delete_index_queue_item_batch(
 		&self,
-		arg: tangram_cache::index::queue::delete::Arg,
+		arg: tangram_cache::index::queue::delete::batch::Arg,
 	) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "fjall")]
-			Self::Fjall(cache) => cache.delete_index_queue_fragment(arg).await,
+			Self::Fjall(cache) => cache.delete_index_queue_item_batch(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(cache) => cache.delete_index_queue_fragment(arg).await,
+			Self::Lmdb(cache) => cache.delete_index_queue_item_batch(arg).await,
 			Self::Memory(cache) => {
-				tangram_cache::index::Cache::delete_index_queue_fragment(cache, arg).await
+				tangram_cache::index::Cache::delete_index_queue_item_batch(cache, arg).await
 			},
 			#[cfg(feature = "rocksdb")]
-			Self::Rocksdb(cache) => cache.delete_index_queue_fragment(arg).await,
+			Self::Rocksdb(cache) => cache.delete_index_queue_item_batch(arg).await,
 			#[cfg(feature = "scylla")]
-			Self::Scylla(cache) => cache.delete_index_queue_fragment(arg).await,
+			Self::Scylla(cache) => cache.delete_index_queue_item_batch(arg).await,
 		}
 	}
 
-	pub async fn get_index_queue_fragments(
+	pub async fn get_index_queue_items(
 		&self,
 		arg: tangram_cache::index::queue::get::batch::Arg,
-	) -> tg::Result<Vec<tangram_cache::index::queue::Fragment>> {
+	) -> tg::Result<Vec<tangram_cache::index::queue::Item>> {
 		match self {
 			#[cfg(feature = "fjall")]
-			Self::Fjall(cache) => cache.get_index_queue_fragments(arg).await,
+			Self::Fjall(cache) => cache.get_index_queue_items(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(cache) => cache.get_index_queue_fragments(arg).await,
+			Self::Lmdb(cache) => cache.get_index_queue_items(arg).await,
 			Self::Memory(cache) => {
-				tangram_cache::index::Cache::get_index_queue_fragments(cache, arg).await
+				tangram_cache::index::Cache::get_index_queue_items(cache, arg).await
 			},
 			#[cfg(feature = "rocksdb")]
-			Self::Rocksdb(cache) => cache.get_index_queue_fragments(arg).await,
+			Self::Rocksdb(cache) => cache.get_index_queue_items(arg).await,
 			#[cfg(feature = "scylla")]
-			Self::Scylla(cache) => cache.get_index_queue_fragments(arg).await,
+			Self::Scylla(cache) => cache.get_index_queue_items(arg).await,
 		}
 	}
 
-	pub async fn put_index_queue_fragment(
+	pub async fn put_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::put::Arg,
 	) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "fjall")]
-			Self::Fjall(cache) => cache.put_index_queue_fragment(arg).await,
+			Self::Fjall(cache) => cache.put_index_queue_item(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(cache) => cache.put_index_queue_fragment(arg).await,
+			Self::Lmdb(cache) => cache.put_index_queue_item(arg).await,
 			Self::Memory(cache) => {
-				tangram_cache::index::Cache::put_index_queue_fragment(cache, arg).await
+				tangram_cache::index::Cache::put_index_queue_item(cache, arg).await
 			},
 			#[cfg(feature = "rocksdb")]
-			Self::Rocksdb(cache) => cache.put_index_queue_fragment(arg).await,
+			Self::Rocksdb(cache) => cache.put_index_queue_item(arg).await,
 			#[cfg(feature = "scylla")]
-			Self::Scylla(cache) => cache.put_index_queue_fragment(arg).await,
+			Self::Scylla(cache) => cache.put_index_queue_item(arg).await,
 		}
 	}
 
-	pub async fn try_get_index_queue_fragment(
+	pub async fn try_get_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::get::Arg,
-	) -> tg::Result<Option<tangram_cache::index::queue::Fragment>> {
+	) -> tg::Result<Option<tangram_cache::index::queue::Item>> {
 		match self {
 			#[cfg(feature = "fjall")]
-			Self::Fjall(cache) => cache.try_get_index_queue_fragment(arg).await,
+			Self::Fjall(cache) => cache.try_get_index_queue_item(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(cache) => cache.try_get_index_queue_fragment(arg).await,
+			Self::Lmdb(cache) => cache.try_get_index_queue_item(arg).await,
 			Self::Memory(cache) => {
-				tangram_cache::index::Cache::try_get_index_queue_fragment(cache, arg).await
+				tangram_cache::index::Cache::try_get_index_queue_item(cache, arg).await
 			},
 			#[cfg(feature = "rocksdb")]
-			Self::Rocksdb(cache) => cache.try_get_index_queue_fragment(arg).await,
+			Self::Rocksdb(cache) => cache.try_get_index_queue_item(arg).await,
 			#[cfg(feature = "scylla")]
-			Self::Scylla(cache) => cache.try_get_index_queue_fragment(arg).await,
+			Self::Scylla(cache) => cache.try_get_index_queue_item(arg).await,
 		}
 	}
 }
 
 impl tangram_cache::index::Cache for super::Cache {
-	async fn delete_index_queue_fragment(
+	async fn delete_index_queue_item_batch(
 		&self,
-		arg: tangram_cache::index::queue::delete::Arg,
+		arg: tangram_cache::index::queue::delete::batch::Arg,
 	) -> tg::Result<()> {
-		self.delete_index_queue_fragment(arg).await
+		self.delete_index_queue_item_batch(arg).await
 	}
 
-	async fn get_index_queue_fragments(
+	async fn get_index_queue_items(
 		&self,
 		arg: tangram_cache::index::queue::get::batch::Arg,
-	) -> tg::Result<Vec<tangram_cache::index::queue::Fragment>> {
-		self.get_index_queue_fragments(arg).await
+	) -> tg::Result<Vec<tangram_cache::index::queue::Item>> {
+		self.get_index_queue_items(arg).await
 	}
 
-	async fn put_index_queue_fragment(
+	async fn put_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::put::Arg,
 	) -> tg::Result<()> {
-		self.put_index_queue_fragment(arg).await
+		self.put_index_queue_item(arg).await
 	}
 
-	async fn try_get_index_queue_fragment(
+	async fn try_get_index_queue_item(
 		&self,
 		arg: tangram_cache::index::queue::get::Arg,
-	) -> tg::Result<Option<tangram_cache::index::queue::Fragment>> {
-		self.try_get_index_queue_fragment(arg).await
+	) -> tg::Result<Option<tangram_cache::index::queue::Item>> {
+		self.try_get_index_queue_item(arg).await
 	}
 }
