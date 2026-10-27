@@ -610,6 +610,13 @@ fn child_main(
 	}
 	crate::mount::apply(&arg.mounts, root)?;
 
+	// Mount the sysfs filesystem for the backends that do not provide their own.
+	if matches!(backend, Backend::Builtin(_) | Backend::Bubblewrap(_)) {
+		let sys_path =
+			root.map_or_else(|| std::path::PathBuf::from("/sys"), |root| root.join("sys"));
+		crate::mount::mount_sys(&sys_path)?;
+	}
+
 	// Mount the cgroup filesystem.
 	let cgroup_path = root.map_or_else(
 		|| std::path::PathBuf::from("/sys/fs/cgroup"),

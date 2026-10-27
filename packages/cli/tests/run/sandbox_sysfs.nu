@@ -1,16 +1,11 @@
 use ../lib/test.nu *
 
-# A sandboxed process can read the host's possible CPU set, which programs read to size per-CPU resources.
+# A sandboxed process can read the host's sysfs, both with its own network namespace and with host networking.
 
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }
 if not ('/sys/devices/system/cpu/possible' | path exists) { skip_test 'this test requires the possible CPU set' }
 
 let expected = open --raw /sys/devices/system/cpu/possible | str trim
-let path = artifact {
-	tangram.ts: '
-		export default () => tg.build`read -r possible < /sys/devices/system/cpu/possible && echo "$possible" > ${tg.output}`;
-	',
-}
 
 for kind in [builtin bubblewrap] {
 	let backend = match $kind {
@@ -21,8 +16,11 @@ for kind in [builtin bubblewrap] {
 		},
 	}
 	let local = server spawn --directory (mktemp --directory) --config { runner: { backend: $backend } }
-	let output = tg build $path | complete
-	success $output $"($kind): the build should read the possible CPU set"
-	assert equal (tg read ($output.stdout | str trim) | str trim) $expected
+	for network in [none host] {
+		let flags = if $network == host { [--network=host] } else { [] }
+		let output = tg run --sandbox ...$flags --executable /bin/sh -- -c 'read -r possible < /sys/devices/system/cpu/possible && echo "$possible"' | complete
+		success $output $"($kind) with network ($network): the process should read the possible CPU set"
+		assert equal ($output.stdout | str trim) $expected
+	}
 	server stop $local
 }

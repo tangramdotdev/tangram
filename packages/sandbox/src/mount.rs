@@ -16,12 +16,14 @@ const RESOLVE_BENEATH: u64 = 0x08;
 const RESOLVE_NO_MAGICLINKS: u64 = 0x02;
 const RESOLVE_NO_SYMLINKS: u64 = 0x04;
 const MOUNT_ATTR_NODEV: u64 = 0x0000_0004;
+const MOUNT_ATTR_NOEXEC: u64 = 0x0000_0008;
 const MOUNT_ATTR_NOSUID: u64 = 0x0000_0002;
 const MOUNT_ATTR_RDONLY: u64 = 0x0000_0001;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct MountAttributes {
 	nodev: bool,
+	noexec: bool,
 	nosuid: bool,
 	readonly: bool,
 }
@@ -159,6 +161,7 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		let mount_root = open_mount_root(root)?;
 		let attributes = MountAttributes {
 			nodev: !bind.devices,
+			noexec: false,
 			nosuid: true,
 			readonly,
 		};
@@ -219,6 +222,7 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		let target = map_target(root, &bind.target)?;
 		let attributes = MountAttributes {
 			nodev: arg.nodev && !bind.devices,
+			noexec: false,
 			nosuid: arg.nosuid,
 			readonly,
 		};
@@ -740,6 +744,9 @@ fn mount_attributes(attributes: MountAttributes) -> u64 {
 	if attributes.nodev {
 		attribute_set |= MOUNT_ATTR_NODEV;
 	}
+	if attributes.noexec {
+		attribute_set |= MOUNT_ATTR_NOEXEC;
+	}
 	if attributes.nosuid {
 		attribute_set |= MOUNT_ATTR_NOSUID;
 	}
@@ -863,6 +870,69 @@ pub(crate) fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
 		std::ptr::null_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the cgroup mount"))?;
+
+	Ok(())
+}
+
+pub(crate) fn mount_sys(target: &Path) -> tg::Result<()> {
+	// Create the mount target.
+	std::fs::create_dir_all(target).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %target.display(),
+			"failed to create the sysfs mountpoint"
+		)
+	})?;
+	let target_cstring = cstring(target);
+
+	// Mount a fresh read-only sysfs, which the kernel permits only when the sandbox owns its network namespace.
+	let source = cstring("sysfs");
+	let fstype = cstring("sysfs");
+	let flags = libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID | libc::MS_RDONLY;
+	let result = mount_raw(
+		Some(&source),
+		&target_cstring,
+		Some(&fstype),
+		flags,
+		std::ptr::null_mut(),
+	);
+	match result {
+		Ok(()) => return Ok(()),
+		Err(error) if error.raw_os_error() == Some(libc::EPERM) => (),
+		Err(error) => return Err(tg::error!(!error, "failed to create the sysfs mount")),
+	}
+
+	// Bind the host sysfs recursively and read-only when a fresh sysfs is not permitted.
+	let source = open_absolute_path(Path::new("/sys"))
+		.map_err(|error| tg::error!(!error, "failed to open the host sysfs"))?;
+	let target_fd = open_absolute_path(target).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %target.display(),
+			"failed to open the sysfs mountpoint"
+		)
+	})?;
+	let attributes = MountAttributes {
+		nodev: true,
+		noexec: true,
+		nosuid: true,
+		readonly: true,
+	};
+	mount_bind_modern(source.as_raw_fd(), target_fd.as_raw_fd(), true, attributes)
+		.map_err(|error| tg::error!(!error, "failed to bind the host sysfs"))?;
+
+	// Mask the host kernel directory with an empty read-only tmpfs.
+	let source = cstring("tmpfs");
+	let target = cstring(target.join("kernel"));
+	let fstype = cstring("tmpfs");
+	mount_raw(
+		Some(&source),
+		&target,
+		Some(&fstype),
+		flags,
+		std::ptr::null_mut(),
+	)
+	.map_err(|error| tg::error!(!error, "failed to mask the host sysfs kernel directory"))?;
 
 	Ok(())
 }
