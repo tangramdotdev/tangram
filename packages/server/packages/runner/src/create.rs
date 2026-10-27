@@ -66,8 +66,8 @@ impl Component {
 			.await?;
 		let created_at = session.server.clock.unix_timestamp();
 		let runner = tg::runner::Id::new();
-		let (token_id, token) = tangram_server_core::token::create();
-		let token_hash = tangram_server_core::token::hash(&token);
+		let (token_id, token) = tangram_server_authentication_common::token::create();
+		let token_hash = tangram_server_authentication_common::token::hash(&token);
 		session
 			.server
 			.database

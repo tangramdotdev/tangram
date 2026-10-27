@@ -324,7 +324,7 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		let users = tangram_server_core::authentication::cache::deleted_users(&batch);
+		let users = tangram_server_authentication_common::deleted_users(&batch);
 
 		Ok(ControlFlow::Break(ControlFlow::Break(users)))
 	}

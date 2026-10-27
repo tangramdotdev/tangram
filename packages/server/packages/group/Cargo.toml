@@ -30,4 +30,5 @@ tangram_http = { workspace = true }
 tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_server_node_common = { workspace = true }
+tangram_server_remote_common = { workspace = true }
 tangram_server_remote_core = { workspace = true }

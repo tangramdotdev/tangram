@@ -27,7 +27,8 @@ tangram_messenger = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_server_log_common = { workspace = true }
 tangram_server_process_core = { workspace = true }
-tangram_server_sandbox_core = { workspace = true }
+tangram_server_sandbox_common = { workspace = true }
+tangram_server_scheduler_common = { workspace = true }
 tangram_server_scheduler_core = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

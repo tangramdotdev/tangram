@@ -1,5 +1,5 @@
 use {
-	crate::Component,
+	crate::{Component, token},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -7,10 +7,16 @@ use {
 	tangram_database::{self as db, prelude::*},
 	tangram_server_core::{
 		Server, Session,
-		authentication::{Entry, Process, RemoteToken, Sandbox, token},
+		authentication::{Entry, Process, RemoteToken},
 		context::Origin,
 	},
 };
+
+#[derive(Clone)]
+pub struct Sandbox {
+	pub location: tg::Location,
+	pub token: Option<String>,
+}
 
 impl Component {
 	pub async fn try_get_authenticated_process(
@@ -419,7 +425,7 @@ impl Component {
 	async fn authenticate_inner(&self, server: &Server, token: Option<&str>) -> tg::Result<Entry> {
 		if let Some((token, root_token)) =
 			token.zip(server.config.authentication.root.token.as_deref())
-			&& tangram_server_core::token::matches(token, root_token)
+			&& tangram_server_authentication_common::token::matches(token, root_token)
 		{
 			return Ok(Entry {
 				billing_ready: None,
@@ -570,7 +576,7 @@ impl Component {
 		server: &Server,
 		token: &str,
 	) -> tg::Result<Option<Entry>> {
-		let hash = tangram_server_core::token::hash_bytes(token);
+		let hash = tangram_server_authentication_common::token::hash_bytes(token);
 		if let Some(entry) = self.cache.get(&hash).await {
 			return Ok(Some(entry));
 		}

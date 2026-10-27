@@ -63,8 +63,8 @@ impl Component {
 		}
 		self.get_authorized_runner(session, runner).await?;
 		let created_at = session.server.clock.unix_timestamp();
-		let (id, token) = tangram_server_core::token::create();
-		let token_hash = tangram_server_core::token::hash(&token);
+		let (id, token) = tangram_server_authentication_common::token::create();
+		let token_hash = tangram_server_authentication_common::token::hash(&token);
 		let runner = runner.clone();
 		session
 			.server

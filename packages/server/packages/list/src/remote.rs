@@ -85,12 +85,12 @@ impl Component {
 				_ => unreachable!(),
 			};
 			let valid = entries.iter().all(|entry| {
-				let entry_valid = tangram_server_remote_core::cache::tokens_valid(
+				let entry_valid = tangram_server_remote_common::tokens_valid(
 					entry.tokens().local_authorization(),
 					&session.server.clock,
 				);
 				let target_valid = entry.target.as_ref().is_none_or(|target| {
-					tangram_server_remote_core::cache::tokens_valid(
+					tangram_server_remote_common::tokens_valid(
 						target.options.tokens.local_authorization(),
 						&session.server.clock,
 					)
@@ -99,12 +99,12 @@ impl Component {
 			});
 			if valid || cached {
 				for entry in &mut entries {
-					tangram_server_remote_core::cache::remove_expired_tokens(
+					tangram_server_remote_common::remove_expired_tokens(
 						&mut entry.node.options.tokens,
 						&session.server.clock,
 					);
 					if let Some(target) = &mut entry.target {
-						tangram_server_remote_core::cache::remove_expired_tokens(
+						tangram_server_remote_common::remove_expired_tokens(
 							&mut target.options.tokens,
 							&session.server.clock,
 						);

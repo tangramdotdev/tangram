@@ -80,7 +80,6 @@ pub mod session;
 pub mod sync;
 pub mod tag;
 pub mod temp;
-pub mod token;
 pub mod usage;
 pub mod user;
 pub mod verify;

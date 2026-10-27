@@ -19,4 +19,3 @@ workspace = true
 [dependencies]
 serde = { workspace = true }
 tangram_client = { workspace = true }
-tangram_server_clock_core = { workspace = true }

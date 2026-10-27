@@ -17,7 +17,7 @@ use {
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger,
 	tangram_server_core::Session,
-	tangram_server_process_core::control::{Connected, connected_subject},
+	tangram_server_process_common::control::{Connected, connected_subject},
 };
 
 pub(crate) mod connection;
@@ -398,9 +398,9 @@ impl Component {
 						) => {
 							let runner = notification.runner;
 							let scheduler = notification.scheduler;
-							let notification = tangram_server_scheduler_core::Message::Notification(
-								tangram_server_scheduler_core::Notification::BorrowableCapacity(
-									tangram_server_scheduler_core::BorrowableCapacityNotification {
+							let notification = tangram_server_scheduler_common::Message::Notification(
+								tangram_server_scheduler_common::Notification::BorrowableCapacity(
+									tangram_server_scheduler_common::BorrowableCapacityNotification {
 										available: notification.available,
 										capacity: notification.capacity,
 										heartbeat_index: notification.heartbeat_index,
@@ -413,9 +413,9 @@ impl Component {
 								.server
 								.messenger
 								.publish(
-									tangram_server_scheduler_core::scheduler_server_subject(Some(
-										&scheduler,
-									)),
+									tangram_server_scheduler_common::scheduler_server_subject(
+										Some(&scheduler),
+									),
 									notification,
 								)
 								.await

@@ -1,9 +1,11 @@
 use {
-	super::{Cache, Invalidation},
-	crate::Entry,
+	super::Cache,
 	std::time::Duration,
 	tangram_client as tg,
-	tangram_server_config::AuthenticationCache,
+	tangram_server_core::{
+		authentication::{Entry, cache::Invalidation},
+		config::AuthenticationCache,
+	},
 };
 
 #[tokio::test]

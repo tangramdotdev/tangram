@@ -601,12 +601,12 @@ impl Component {
 				.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 			&& let Some(mut output) = response.output
 		{
-			let valid = tangram_server_remote_core::cache::tokens_valid(
+			let valid = tangram_server_remote_common::tokens_valid(
 				output.tokens.local_authorization(),
 				&session.server.clock,
 			);
 			if valid || cached {
-				tangram_server_remote_core::cache::remove_expired_tokens(
+				tangram_server_remote_common::remove_expired_tokens(
 					&mut output.tokens,
 					&session.server.clock,
 				);

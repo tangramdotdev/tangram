@@ -16,13 +16,15 @@ use {
 	tangram_futures::task::Task,
 	tangram_messenger::Messenger,
 	tangram_server_core::{Server, Session},
+	tangram_server_scheduler_common::{
+		Ack, BorrowableCapacityNotification, HeartbeatAcknowledgement, HeartbeatNotification,
+		Message, Notification, Request, Response, runner_heartbeat_subject,
+		scheduler_heartbeat_subject, scheduler_server_subject,
+	},
 	tangram_server_scheduler_core::{
-		Ack, AddRunnerRequestArg, AddRunnerResponseOutput, BorrowableCapacityNotification,
-		DequeueSandboxRequestArg, DequeueSandboxResponseOutput, EnqueueSandboxRequestArg,
-		EnqueueSandboxResponseOutput, HeartbeatAcknowledgement, HeartbeatNotification, Message,
-		Notification, RemoveRunnerRequestArg, RemoveRunnerResponseOutput, Request, RequestArg,
-		Response, ResponseOutput, runner_heartbeat_subject, scheduler_heartbeat_subject,
-		scheduler_server_subject,
+		AddRunnerRequestArg, AddRunnerResponseOutput, DequeueSandboxRequestArg,
+		DequeueSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		RemoveRunnerRequestArg, RemoveRunnerResponseOutput, RequestArg, ResponseOutput,
 	},
 };
 
@@ -1037,8 +1039,8 @@ impl Scheduler {
 		state: &mut SchedulerState,
 		discarded: sandbox::DiscardedSandbox,
 	) {
-		let subject = tangram_server_sandbox_core::control::discarded_subject(&discarded.sandbox);
-		let discarded = tangram_server_sandbox_core::control::Discarded {
+		let subject = tangram_server_sandbox_common::control::discarded_subject(&discarded.sandbox);
+		let discarded = tangram_server_sandbox_common::control::Discarded {
 			error: discarded.error,
 		};
 		let server = self.server.clone();

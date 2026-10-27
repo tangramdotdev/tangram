@@ -524,18 +524,19 @@ impl Component {
 		// Resolve the sandbox and terminal settings.
 		let (sandbox, sandbox_arg, sandbox_token) = match &spawn_arg.sandbox {
 			Some(tg::Either::Left(sandbox_arg)) => {
-				let mut sandbox_arg =
-					tangram_server_sandbox_core::normalize_sandbox_create_arg(sandbox_arg.clone())?;
+				let mut sandbox_arg = tangram_server_sandbox_common::normalize_sandbox_create_arg(
+					sandbox_arg.clone(),
+				)?;
 				sandbox_arg.host = Some(host.to_owned());
 				sandbox_arg.location.clone_from(&spawn_arg.location);
 				sandbox_arg.owner.clone_from(&owner);
-				tangram_server_sandbox_core::clear_darwin_sandbox_resources(&mut sandbox_arg);
+				tangram_server_sandbox_common::clear_darwin_sandbox_resources(&mut sandbox_arg);
 				let isolation = session
 					.server
 					.components
 					.runner
 					.resolve_sandbox_backend(&session.server)?;
-				tangram_server_sandbox_core::validate_sandbox_resources(
+				tangram_server_sandbox_common::validate_sandbox_resources(
 					&isolation,
 					sandbox_arg.cpu,
 					sandbox_arg.memory,

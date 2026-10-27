@@ -1,13 +1,15 @@
 use {
+	self::cache::Cache,
 	futures::{FutureExt as _, future::BoxFuture},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
-	tangram_server_core::{Server, authentication::cache::Cache},
+	tangram_server_core::Server,
 };
 
 mod authenticate;
 mod cache;
+mod token;
 
 /// The component.
 #[derive(Clone)]

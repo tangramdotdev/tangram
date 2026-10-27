@@ -17,13 +17,5 @@ doctest = false
 workspace = true
 
 [dependencies]
-aws-lc-rs = { workspace = true }
-moka = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 tangram_client = { workspace = true }
-tangram_index = { workspace = true }
-tangram_server_config = { workspace = true }
-
-[dev-dependencies]
-tokio = { workspace = true }

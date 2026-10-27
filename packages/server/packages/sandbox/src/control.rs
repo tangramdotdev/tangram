@@ -9,7 +9,7 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_messenger::Messenger as _,
 	tangram_server_core::Session,
-	tangram_server_sandbox_core::control::{Discarded, connected_subject, discarded_subject},
+	tangram_server_sandbox_common::control::{Discarded, connected_subject, discarded_subject},
 };
 
 mod destroy;

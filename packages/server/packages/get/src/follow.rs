@@ -264,14 +264,14 @@ impl Component {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				tangram_server_remote_core::cache::tokens_valid(
+				tangram_server_remote_common::tokens_valid(
 					output.referent.local_tokens(),
 					&session.server.clock,
 				)
 			});
 			if valid || arg.cached {
 				if let Some(output) = &mut output {
-					tangram_server_remote_core::cache::remove_expired_tokens(
+					tangram_server_remote_common::remove_expired_tokens(
 						&mut output.referent.options.tokens,
 						&session.server.clock,
 					);
@@ -719,14 +719,14 @@ impl Component {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				tangram_server_remote_core::cache::tokens_valid(
+				tangram_server_remote_common::tokens_valid(
 					output.referent.local_tokens(),
 					&session.server.clock,
 				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					tangram_server_remote_core::cache::remove_expired_tokens(
+					tangram_server_remote_common::remove_expired_tokens(
 						&mut output.referent.options.tokens,
 						&session.server.clock,
 					);

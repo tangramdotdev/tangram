@@ -107,7 +107,7 @@ impl Component {
 		sandbox: &tg::sandbox::Id,
 		process_connection_future: &mut crate::ConnectionFuture,
 		sandbox_connection_future: &mut tangram_server_core::sandbox::ConnectionFuture,
-	) -> tg::Result<Option<tangram_server_process_core::control::Connected>> {
+	) -> tg::Result<Option<tangram_server_process_common::control::Connected>> {
 		// The scheduler only governs startup until the sandbox connects.
 		tokio::select! {
 			result = process_connection_future.as_mut() => return result.map(Some),

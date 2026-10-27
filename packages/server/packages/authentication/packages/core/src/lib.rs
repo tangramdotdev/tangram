@@ -1,7 +1,6 @@
 use tangram_client::prelude::*;
 
 pub mod cache;
-pub mod token;
 
 #[derive(Clone)]
 pub struct Entry {
@@ -24,12 +23,6 @@ pub struct Process {
 pub struct RemoteToken {
 	pub process: Option<tg::process::Id>,
 	pub sandbox: Option<tg::sandbox::Id>,
-	pub token: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct Sandbox {
-	pub location: tg::Location,
 	pub token: Option<String>,
 }
 

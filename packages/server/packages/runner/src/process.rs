@@ -1015,12 +1015,12 @@ impl Component {
 		index_sender.send(()).ok();
 
 		if location.is_remote() {
-			let entry = tangram_server_process_core::control::Connected { lease };
+			let entry = tangram_server_process_common::control::Connected { lease };
 			let result = session
 				.server
 				.messenger
 				.publish(
-					tangram_server_process_core::control::connected_subject(&id),
+					tangram_server_process_common::control::connected_subject(&id),
 					entry,
 				)
 				.await
@@ -1335,7 +1335,7 @@ impl Component {
 		data.finished_at = Some(session.server.clock.unix_timestamp());
 		data.set_output(outcome.output.as_ref().map(tg::Value::to_data));
 		data.status = tg::process::Status::Finished;
-		tangram_server_process_core::put::validate_process_data(&data)?;
+		tangram_server_process_common::validate_process_data(&data)?;
 		tracing::info!(exit, process = %id, sandbox = state.sandbox.as_ref().map(ToString::to_string), "collected the process output");
 
 		let command_id = state.command.command_id()?;
@@ -1561,7 +1561,7 @@ impl Component {
 			for value in command.args.iter_mut().chain(command.env.values_mut()) {
 				let (tg::command::data::Value::String(value)
 				| tg::command::data::Value::Value(value)) = value;
-				tangram_server_process_core::update_process_value_tokens(
+				tangram_server_process_common::update_process_value_tokens(
 					value,
 					&mut |tokens, _| {
 						inherit(tokens);
@@ -1574,7 +1574,7 @@ impl Component {
 		}
 		if let Some(output) = &mut data.output {
 			inherit(&mut output.options.tokens);
-			tangram_server_process_core::update_process_value_tokens(
+			tangram_server_process_common::update_process_value_tokens(
 				&mut output.node,
 				&mut |tokens, _| {
 					inherit(tokens);

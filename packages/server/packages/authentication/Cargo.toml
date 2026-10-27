@@ -17,13 +17,18 @@ doctest = false
 workspace = true
 
 [dependencies]
+aws-lc-rs = { workspace = true }
 blake3 = { workspace = true }
 futures = { workspace = true }
 indoc = { workspace = true }
+moka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tangram_client = { workspace = true }
 tangram_database = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_messenger = { workspace = true }
+tangram_server_authentication_common = { workspace = true }
 tangram_server_core = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

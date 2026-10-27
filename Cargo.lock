@@ -10703,30 +10703,40 @@ dependencies = [
 name = "tangram_server_authentication"
 version = "0.0.0"
 dependencies = [
+ "aws-lc-rs",
  "blake3",
  "futures",
  "indoc",
+ "moka",
+ "serde",
+ "serde_json",
  "tangram_client",
  "tangram_database",
  "tangram_futures",
  "tangram_messenger",
+ "tangram_server_authentication_common",
  "tangram_server_core",
  "tokio",
  "tracing",
 ]
 
 [[package]]
-name = "tangram_server_authentication_core"
+name = "tangram_server_authentication_common"
 version = "0.0.0"
 dependencies = [
  "aws-lc-rs",
- "moka",
- "serde",
- "serde_json",
+ "blake3",
+ "rand 0.10.3",
  "tangram_client",
  "tangram_index",
- "tangram_server_config",
- "tokio",
+]
+
+[[package]]
+name = "tangram_server_authentication_core"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "tangram_client",
 ]
 
 [[package]]
@@ -11010,9 +11020,6 @@ name = "tangram_server_core"
 version = "0.0.0"
 dependencies = [
  "async-nats",
- "aws-lc-rs",
- "blake3",
- "bytes",
  "dashmap",
  "data-encoding",
  "data-encoding-macro",
@@ -11022,11 +11029,9 @@ dependencies = [
  "http",
  "hyper",
  "hyper-util",
- "indoc",
  "libc",
  "num",
  "opentelemetry",
- "rand 0.10.3",
  "reqwest 0.13.5",
  "rustls",
  "rustls-pemfile",
@@ -11035,16 +11040,13 @@ dependencies = [
  "serde_json",
  "tangram_archive",
  "tangram_billing",
- "tangram_billing_stripe",
  "tangram_client",
  "tangram_compiler",
- "tangram_database",
  "tangram_database_postgres",
  "tangram_database_sqlite",
  "tangram_database_turso",
  "tangram_futures",
  "tangram_http",
- "tangram_ignore",
  "tangram_index",
  "tangram_index_fdb",
  "tangram_index_lmdb",
@@ -11083,7 +11085,6 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "uuid",
- "xattr",
 ]
 
 [[package]]
@@ -11161,6 +11162,7 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_grant_common",
+ "tangram_server_remote_common",
  "tangram_server_remote_core",
 ]
 
@@ -11216,6 +11218,7 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_node_common",
+ "tangram_server_remote_common",
  "tangram_server_remote_core",
 ]
 
@@ -11295,6 +11298,7 @@ dependencies = [
  "tangram_server_core",
  "tangram_server_grant_common",
  "tangram_server_list_common",
+ "tangram_server_remote_common",
  "tangram_server_remote_core",
  "tangram_server_tag_common",
  "tokio",
@@ -11469,6 +11473,7 @@ dependencies = [
  "tangram_index",
  "tangram_server_core",
  "tangram_server_node_common",
+ "tangram_server_remote_common",
  "tangram_server_remote_core",
 ]
 
@@ -11497,14 +11502,26 @@ dependencies = [
  "tangram_messenger",
  "tangram_serialize",
  "tangram_server_core",
+ "tangram_server_process_common",
  "tangram_server_process_core",
  "tangram_server_runner_core",
- "tangram_server_sandbox_core",
+ "tangram_server_sandbox_common",
+ "tangram_server_scheduler_common",
  "tangram_server_scheduler_core",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "tangram_server_process_common"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "tangram_client",
+ "tangram_messenger",
+ "tangram_serialize",
 ]
 
 [[package]]
@@ -11517,9 +11534,7 @@ dependencies = [
  "indexmap 2.14.2",
  "tangram_client",
  "tangram_futures",
- "tangram_messenger",
  "tangram_sandbox",
- "tangram_serialize",
  "tangram_server_control",
  "tokio",
 ]
@@ -11610,12 +11625,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_server_remote_common"
+version = "0.0.0"
+dependencies = [
+ "tangram_client",
+ "tangram_server_clock_core",
+]
+
+[[package]]
 name = "tangram_server_remote_core"
 version = "0.0.0"
 dependencies = [
  "serde",
  "tangram_client",
- "tangram_server_clock_core",
 ]
 
 [[package]]
@@ -11647,12 +11669,16 @@ dependencies = [
  "tangram_index",
  "tangram_messenger",
  "tangram_sandbox",
+ "tangram_server_authentication_common",
  "tangram_server_core",
  "tangram_server_grant_common",
  "tangram_server_log_common",
+ "tangram_server_process_common",
  "tangram_server_process_core",
  "tangram_server_runner_core",
+ "tangram_server_sandbox_common",
  "tangram_server_sandbox_core",
+ "tangram_server_scheduler_common",
  "tangram_server_scheduler_core",
  "tangram_server_vfs_core",
  "tangram_uri",
@@ -11699,7 +11725,9 @@ dependencies = [
  "tangram_messenger",
  "tangram_serialize",
  "tangram_server_core",
+ "tangram_server_remote_common",
  "tangram_server_remote_core",
+ "tangram_server_sandbox_common",
  "tangram_server_sandbox_core",
  "tangram_server_scheduler_core",
  "tokio",
@@ -11708,13 +11736,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_server_sandbox_common"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "tangram_client",
+ "tangram_sandbox",
+]
+
+[[package]]
 name = "tangram_server_sandbox_core"
 version = "0.0.0"
 dependencies = [
  "futures",
- "serde",
  "tangram_client",
- "tangram_sandbox",
  "tangram_server_control",
  "tokio",
 ]
@@ -11733,22 +11768,32 @@ dependencies = [
  "tangram_server_core",
  "tangram_server_log_common",
  "tangram_server_process_core",
- "tangram_server_sandbox_core",
+ "tangram_server_sandbox_common",
+ "tangram_server_scheduler_common",
  "tangram_server_scheduler_core",
  "tokio",
  "tracing",
 ]
 
 [[package]]
-name = "tangram_server_scheduler_core"
+name = "tangram_server_scheduler_common"
 version = "0.0.0"
 dependencies = [
  "bytes",
- "derive_more",
  "serde",
  "serde_json",
  "tangram_client",
  "tangram_messenger",
+ "tangram_server_scheduler_core",
+]
+
+[[package]]
+name = "tangram_server_scheduler_core"
+version = "0.0.0"
+dependencies = [
+ "derive_more",
+ "serde",
+ "tangram_client",
 ]
 
 [[package]]
@@ -11777,12 +11822,13 @@ dependencies = [
  "tangram_index",
  "tangram_messenger",
  "tangram_serialize",
+ "tangram_server_authentication_common",
  "tangram_server_authorization_common",
  "tangram_server_core",
  "tangram_server_grant_common",
  "tangram_server_node_common",
  "tangram_server_object_common",
- "tangram_server_process_core",
+ "tangram_server_process_common",
  "tangram_server_tag_common",
  "tangram_util",
  "tokio",
@@ -11805,9 +11851,11 @@ dependencies = [
  "tangram_futures",
  "tangram_http",
  "tangram_index",
+ "tangram_server_authentication_common",
  "tangram_server_core",
  "tangram_server_grant_common",
  "tangram_server_node_common",
+ "tangram_server_remote_common",
  "tangram_server_remote_core",
  "tangram_server_tag_common",
 ]
@@ -11851,8 +11899,10 @@ dependencies = [
  "tangram_futures",
  "tangram_http",
  "tangram_index",
+ "tangram_server_authentication_common",
  "tangram_server_core",
  "tangram_server_node_common",
+ "tangram_server_remote_common",
  "tangram_server_remote_core",
  "tangram_uri",
  "tokio",

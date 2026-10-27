@@ -274,7 +274,7 @@ impl Component {
 				let data = serde_json::from_slice(&node.bytes).map_err(|error| {
 					tg::error!(!error, "failed to deserialize the process data")
 				})?;
-				tangram_server_process_core::put::validate_process_data(&data)?;
+				tangram_server_process_common::validate_process_data(&data)?;
 				Ok((node.id, data, node.metadata))
 			})
 			.collect::<tg::Result<_>>()?;

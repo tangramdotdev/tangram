@@ -106,6 +106,7 @@ members = [
   "packages/server",
   "packages/server/packages/archive",
   "packages/server/packages/authentication",
+  "packages/server/packages/authentication/packages/common",
   "packages/server/packages/authentication/packages/core",
   "packages/server/packages/authorization",
   "packages/server/packages/authorization/packages/common",
@@ -152,18 +153,22 @@ members = [
   "packages/server/packages/object/packages/common",
   "packages/server/packages/organization",
   "packages/server/packages/process",
+  "packages/server/packages/process/packages/common",
   "packages/server/packages/process/packages/core",
   "packages/server/packages/pull",
   "packages/server/packages/push",
   "packages/server/packages/read",
   "packages/server/packages/read/packages/core",
   "packages/server/packages/remote",
+  "packages/server/packages/remote/packages/common",
   "packages/server/packages/remote/packages/core",
   "packages/server/packages/runner",
   "packages/server/packages/runner/packages/core",
   "packages/server/packages/sandbox",
+  "packages/server/packages/sandbox/packages/common",
   "packages/server/packages/sandbox/packages/core",
   "packages/server/packages/scheduler",
+  "packages/server/packages/scheduler/packages/common",
   "packages/server/packages/scheduler/packages/core",
   "packages/server/packages/sync",
   "packages/server/packages/tag",
@@ -452,6 +457,7 @@ tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }
 tangram_server_archive = { path = "packages/server/packages/archive" }
 tangram_server_authentication = { path = "packages/server/packages/authentication" }
+tangram_server_authentication_common = { path = "packages/server/packages/authentication/packages/common" }
 tangram_server_authentication_core = { path = "packages/server/packages/authentication/packages/core" }
 tangram_server_authorization = { path = "packages/server/packages/authorization" }
 tangram_server_authorization_common = { path = "packages/server/packages/authorization/packages/common" }
@@ -498,18 +504,22 @@ tangram_server_object = { path = "packages/server/packages/object" }
 tangram_server_object_common = { path = "packages/server/packages/object/packages/common" }
 tangram_server_organization = { path = "packages/server/packages/organization" }
 tangram_server_process = { path = "packages/server/packages/process" }
+tangram_server_process_common = { path = "packages/server/packages/process/packages/common" }
 tangram_server_process_core = { path = "packages/server/packages/process/packages/core" }
 tangram_server_pull = { path = "packages/server/packages/pull" }
 tangram_server_push = { path = "packages/server/packages/push" }
 tangram_server_read = { path = "packages/server/packages/read" }
 tangram_server_read_core = { path = "packages/server/packages/read/packages/core" }
 tangram_server_remote = { path = "packages/server/packages/remote" }
+tangram_server_remote_common = { path = "packages/server/packages/remote/packages/common" }
 tangram_server_remote_core = { path = "packages/server/packages/remote/packages/core" }
 tangram_server_runner = { path = "packages/server/packages/runner" }
 tangram_server_runner_core = { path = "packages/server/packages/runner/packages/core" }
 tangram_server_sandbox = { path = "packages/server/packages/sandbox" }
+tangram_server_sandbox_common = { path = "packages/server/packages/sandbox/packages/common" }
 tangram_server_sandbox_core = { path = "packages/server/packages/sandbox/packages/core" }
 tangram_server_scheduler = { path = "packages/server/packages/scheduler" }
+tangram_server_scheduler_common = { path = "packages/server/packages/scheduler/packages/common" }
 tangram_server_scheduler_core = { path = "packages/server/packages/scheduler/packages/core" }
 tangram_server_sync = { path = "packages/server/packages/sync" }
 tangram_server_tag = { path = "packages/server/packages/tag" }

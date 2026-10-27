@@ -80,7 +80,7 @@ impl Component {
 			.token
 			.as_deref()
 			.ok_or_else(|| tg::error!("missing the session token"))?;
-		let token = tangram_server_core::token::hash(token);
+		let token = tangram_server_authentication_common::token::hash(token);
 		let user = user.to_string();
 		session
 			.server

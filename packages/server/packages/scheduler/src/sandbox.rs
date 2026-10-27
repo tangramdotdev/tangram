@@ -388,11 +388,11 @@ impl SchedulerState {
 			return Ok(EnqueueSandboxResponseOutput { enqueued: true });
 		}
 		// Resolve the sandbox's resources, so that the runner creates the sandbox with the bounds that the scheduler admits.
-		tangram_server_sandbox_core::resolve_sandbox_resources(
+		tangram_server_sandbox_common::resolve_sandbox_resources(
 			&scheduler.config.default_capacity,
 			&mut request.arg,
 		);
-		let capacity = tangram_server_sandbox_core::sandbox_capacity(&request.arg);
+		let capacity = tangram_server_sandbox_common::sandbox_capacity(&request.arg);
 		if capacity.cpu.max.is_some_and(|max| max.millis() == 0) {
 			return Err(tg::error!("the sandbox CPU must be greater than zero"));
 		}

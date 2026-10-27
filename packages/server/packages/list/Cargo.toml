@@ -32,6 +32,7 @@ tangram_index = { workspace = true }
 tangram_server_core = { workspace = true }
 tangram_server_grant_common = { workspace = true }
 tangram_server_list_common = { workspace = true }
+tangram_server_remote_common = { workspace = true }
 tangram_server_remote_core = { workspace = true }
 tangram_server_tag_common = { workspace = true }
 tokio = { workspace = true }

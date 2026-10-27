@@ -43,9 +43,6 @@ workspace = true
 
 [dependencies]
 async-nats = { workspace = true, optional = true }
-aws-lc-rs = { workspace = true }
-blake3 = { workspace = true }
-bytes = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
@@ -55,11 +52,9 @@ futures = { workspace = true }
 http = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-indoc = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
 opentelemetry = { workspace = true }
-rand = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true, optional = true }
 rustls-pemfile = { workspace = true, optional = true }
@@ -68,16 +63,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_archive = { workspace = true }
 tangram_billing = { workspace = true }
-tangram_billing_stripe = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
-tangram_database = { workspace = true }
 tangram_database_postgres = { workspace = true, optional = true }
 tangram_database_sqlite = { workspace = true, optional = true }
 tangram_database_turso = { workspace = true, optional = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
-tangram_ignore = { workspace = true }
 tangram_index = { workspace = true }
 tangram_index_fdb = { workspace = true, optional = true }
 tangram_index_lmdb = { workspace = true, optional = true }
@@ -116,4 +108,3 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-xattr = { workspace = true }

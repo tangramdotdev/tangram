@@ -284,7 +284,7 @@ impl Component {
 
 		// Limit each resource without a maximum to the capacity that the sandbox was allocated, which is its lender's capacity when it borrows.
 		let mut arg = arg;
-		tangram_server_sandbox_core::limit_sandbox_resources(&mut arg, allocation.capacity());
+		tangram_server_sandbox_common::limit_sandbox_resources(&mut arg, allocation.capacity());
 
 		// Use the sandbox's ID and token from its assignment, or, on the shortcut path, derive the ID and receive the token in the control connection's header.
 		let runner = session

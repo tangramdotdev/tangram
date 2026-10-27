@@ -1,11 +1,30 @@
 use {
 	crate::Component,
 	futures::StreamExt as _,
-	std::time::Duration,
+	std::{
+		sync::atomic::{AtomicBool, Ordering},
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_messenger::payload::Json,
-	tangram_server_core::{Server, authentication::cache::Invalidation, messenger::Messenger},
+	tangram_server_core::{
+		Server,
+		authentication::{
+			Entry,
+			cache::{Hash, Invalidation},
+		},
+		config,
+		messenger::Messenger,
+	},
 };
+
+#[cfg(test)]
+mod tests;
+
+pub struct Cache {
+	entries: Option<moka::future::Cache<Hash, Entry>>,
+	ready: AtomicBool,
+}
 
 impl Component {
 	pub async fn invalidate_user_authentication(&self, server: &Server, users: &[tg::user::Id]) {
@@ -177,5 +196,69 @@ impl Component {
 			self.cache.set_ready(false);
 			server.clock.sleep(Duration::from_secs(1)).await;
 		}
+	}
+}
+
+impl Cache {
+	#[must_use]
+	pub fn new(config: &config::AuthenticationCache) -> Self {
+		let entries = (config.capacity != 0).then(|| {
+			moka::future::Cache::builder()
+				.max_capacity(config.capacity)
+				.time_to_live(config.ttl)
+				.support_invalidation_closures()
+				.build()
+		});
+		Self {
+			entries,
+			ready: AtomicBool::new(false),
+		}
+	}
+
+	pub async fn get(&self, hash: &Hash) -> Option<Entry> {
+		if !self.ready.load(Ordering::Acquire) {
+			return None;
+		}
+		self.entries.as_ref()?.get(hash).await
+	}
+
+	pub async fn insert(&self, hash: Hash, entry: Entry) {
+		if !self.ready.load(Ordering::Acquire)
+			|| matches!(entry.principal, tg::Principal::User(_))
+				&& entry.billing_ready != Some(true)
+		{
+			return;
+		}
+		if let Some(entries) = &self.entries {
+			entries.insert(hash, entry).await;
+		}
+	}
+
+	pub async fn invalidate(&self, invalidation: Invalidation) -> tg::Result<()> {
+		let Some(entries) = &self.entries else {
+			return Ok(());
+		};
+		match invalidation {
+			Invalidation::Principal(principal) => {
+				entries
+					.invalidate_entries_if(move |_, entry| entry.principal == principal)
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to invalidate the principal's authentication entries"
+						)
+					})?;
+			},
+			Invalidation::Token(hash) => entries.invalidate(&hash).await,
+		}
+		Ok(())
+	}
+
+	pub fn set_ready(&self, ready: bool) {
+		self.ready.store(false, Ordering::Release);
+		if let Some(entries) = &self.entries {
+			entries.invalidate_all();
+		}
+		self.ready.store(ready, Ordering::Release);
 	}
 }

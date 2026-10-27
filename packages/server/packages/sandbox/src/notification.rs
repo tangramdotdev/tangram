@@ -8,7 +8,7 @@ impl Component {
 		server: &Server,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
-		let subject = tangram_server_sandbox_core::control::connected_subject(id);
+		let subject = tangram_server_sandbox_common::control::connected_subject(id);
 		server
 			.messenger
 			.publish(subject, ())

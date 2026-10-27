@@ -38,7 +38,7 @@ pub mod tty;
 pub mod wait;
 
 pub(crate) type ConnectionFuture =
-	BoxFuture<'static, tg::Result<tangram_server_process_core::control::Connected>>;
+	BoxFuture<'static, tg::Result<tangram_server_process_common::control::Connected>>;
 
 /// The component.
 #[derive(Clone)]
