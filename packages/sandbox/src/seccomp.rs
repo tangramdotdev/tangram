@@ -289,6 +289,7 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_getrandom,
 		libc::SYS_getresgid,
 		libc::SYS_getresuid,
+		libc::SYS_getrlimit,
 		libc::SYS_get_robust_list,
 		libc::SYS_getrusage,
 		libc::SYS_getsid,
@@ -416,6 +417,7 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_setresgid,
 		libc::SYS_setresuid,
 		libc::SYS_setreuid,
+		libc::SYS_setrlimit,
 		libc::SYS_set_robust_list,
 		libc::SYS_setsid,
 		libc::SYS_setsockopt,
@@ -435,6 +437,7 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_statx,
 		libc::SYS_symlinkat,
 		libc::SYS_sync,
+		libc::SYS_sync_file_range,
 		libc::SYS_syncfs,
 		libc::SYS_sysinfo,
 		libc::SYS_tee,
@@ -468,6 +471,7 @@ fn allowed_syscalls() -> Vec<u32> {
 			libc::SYS_memfd_secret,
 			libc::SYS_mseal,
 			libc::SYS_process_mrelease,
+			libc::SYS_renameat,
 		]
 		.map(syscall_number),
 	);
@@ -486,7 +490,6 @@ fn allowed_syscalls() -> Vec<u32> {
 			libc::SYS_eventfd,
 			libc::SYS_fork,
 			libc::SYS_getdents,
-			libc::SYS_getrlimit,
 			libc::SYS_inotify_init,
 			libc::SYS_lchown,
 			libc::SYS_link,
@@ -498,13 +501,10 @@ fn allowed_syscalls() -> Vec<u32> {
 			libc::SYS_poll,
 			libc::SYS_readlink,
 			libc::SYS_rename,
-			libc::SYS_renameat,
 			libc::SYS_rmdir,
 			libc::SYS_select,
-			libc::SYS_setrlimit,
 			libc::SYS_signalfd,
 			libc::SYS_stat,
-			libc::SYS_sync_file_range,
 			libc::SYS_symlink,
 			libc::SYS_time,
 			libc::SYS_unlink,
@@ -604,6 +604,28 @@ mod tests {
 				std::io::Error::last_os_error().raw_os_error(),
 				Some(libc::ENOSYS)
 			);
+
+			// Exercise the legacy syscalls because libc may use prlimit64 instead.
+			let mut limit = libc::rlimit {
+				rlim_cur: 0,
+				rlim_max: 0,
+			};
+			// SAFETY: The pointer refers to valid storage for the resource limit.
+			let result =
+				unsafe { libc::syscall(libc::SYS_getrlimit, libc::RLIMIT_STACK, &raw mut limit) };
+			assert_eq!(result, 0);
+			// SAFETY: The pointer refers to the resource limit initialized by getrlimit.
+			let result =
+				unsafe { libc::syscall(libc::SYS_setrlimit, libc::RLIMIT_STACK, &raw const limit) };
+			assert_eq!(result, 0);
+
+			// Flush a file range, which exists beyond x86_64 too.
+			let temp = tangram_util::fs::Temp::new().unwrap();
+			let file = std::fs::File::create(temp.path()).unwrap();
+			let fd = std::os::fd::AsRawFd::as_raw_fd(&file);
+			// SAFETY: The descriptor refers to the open file.
+			let result = unsafe { libc::sync_file_range(fd, 0, 0, libc::SYNC_FILE_RANGE_WRITE) };
+			assert_eq!(result, 0);
 
 			assert!(unsafe { libc::getpid() } > 0);
 			assert!(unsafe { libc::syscall(libc::SYS_personality, u32::MAX) } >= 0);
