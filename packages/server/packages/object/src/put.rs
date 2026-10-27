@@ -1,8 +1,8 @@
 use {
 	crate::Component,
-	futures::{FutureExt as _, TryStreamExt as _, future, stream},
+	futures::{FutureExt as _, future},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, ops::ControlFlow},
+	std::collections::BTreeSet,
 	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -594,64 +594,49 @@ impl Component {
 		}
 		self.archive_tasks
 			.spawn({
-				let component = self.clone();
 				let server = server.clone();
 				|_| async move {
-					stream::iter(args.into_iter().map(Ok))
-						.try_for_each_concurrent(
-							server.config.object.archive_queue.concurrency,
-							|arg| component.archive_object_with_retry(&server, arg),
-						)
-						.await
+					let result = Self::archive_object_batch(&server, args).await;
+					if let Err(error) = &result {
+						tracing::error!(error = %error.trace(), "failed to archive the objects");
+					}
+					result
 				}
 			})
 			.detach();
 	}
 
-	async fn archive_object_with_retry(
-		&self,
+	pub(crate) async fn archive_object_batch(
 		server: &Server,
-		arg: tangram_archive::object::put::Arg,
-	) -> tg::Result<()> {
-		let retry = server.config.object.archive_retry.clone().into();
-		tangram_futures::retry(&retry, || {
-			let arg = arg.clone();
-			async move {
-				match Self::archive_object(server, arg).await {
-					Ok(()) => Ok(ControlFlow::Break(())),
-					Err(error) => {
-						tracing::error!(error = %error.trace(), "failed to archive an object");
-						Ok(ControlFlow::Continue(error))
-					},
-				}
-			}
-		})
-		.await?;
-		Ok(())
-	}
-
-	pub(crate) async fn archive_object(
-		server: &Server,
-		arg: tangram_archive::object::put::Arg,
+		args: Vec<tangram_archive::object::put::Arg>,
 	) -> tg::Result<()> {
 		let archive = server
 			.archive
 			.as_ref()
 			.ok_or_else(|| tg::error!("the archive is unavailable"))?;
-		let id = arg.id.clone();
-		let put = arg.put;
+
+		// Put the objects in the archive.
+		let entries = args
+			.iter()
+			.map(|arg| (arg.id.clone(), arg.put))
+			.collect::<Vec<_>>();
 		archive
-			.put_object(arg)
+			.put_object_batch(args)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to put an object in the archive"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the objects in the archive"))?;
+
+		// Put the object cache entries.
 		if let Some(config) = &server.config.object.cache {
-			let arg = tangram_server_core::cache::object::cache::put::Arg {
-				cache: uuid::Uuid::now_v7().into_bytes(),
-				id,
-				partition: rand::random_range(0..config.partition_total),
-				put,
-			};
-			server.cache.put_object_cache_entry(arg).await?;
+			future::try_join_all(entries.into_iter().map(|(id, put)| {
+				let arg = tangram_server_core::cache::object::cache::put::Arg {
+					cache: uuid::Uuid::now_v7().into_bytes(),
+					id,
+					partition: rand::random_range(0..config.partition_total),
+					put,
+				};
+				server.cache.put_object_cache_entry(arg)
+			}))
+			.await?;
 		}
 
 		Ok(())

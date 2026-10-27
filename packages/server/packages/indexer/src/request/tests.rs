@@ -25,7 +25,7 @@ async fn draining_waits_for_writes_queue_completions_and_handlers() {
 	};
 	queues.finish_reservation(reservation);
 	let sequence = queues.try_allocate_sequence(queue::Kind::Index).unwrap();
-	let fragment = queue::Fragment {
+	let fragment = super::Fragment {
 		batch: [0; 16],
 		fragment: 0,
 		fragments: 2,
@@ -140,7 +140,7 @@ async fn cancelling_a_handler_releases_its_write() {
 #[test]
 fn messages_round_trip() {
 	let arg = super::EnqueueRequestArg {
-		archive: vec![queue::Fragment {
+		archive: vec![super::Fragment {
 			batch: [1; 16],
 			fragment: 0,
 			fragments: 1,

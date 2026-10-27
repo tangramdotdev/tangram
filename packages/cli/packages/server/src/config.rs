@@ -240,6 +240,9 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 	if let Some(value) = source.request_timeout {
 		target.request_timeout = value;
 	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
 	if let Some(value) = source.session_refresh_buffer {
 		target.session_refresh_buffer = value;
 	}
@@ -1316,9 +1319,6 @@ fn resolve_object(source: &Object) -> server::Object {
 	let mut target = server::Object::default();
 	if let Some(source) = source.archive_queue {
 		target.archive_queue = resolve_archive_queue(source);
-	}
-	if let Some(source) = source.archive_retry {
-		target.archive_retry = resolve_retry_with_default(source, target.archive_retry);
 	}
 	if let Some(source) = source.cache {
 		target.cache = Some(resolve_object_cache(source));

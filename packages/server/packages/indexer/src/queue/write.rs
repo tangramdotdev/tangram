@@ -1,6 +1,6 @@
 use {
-	super::{Fragment, Kind},
-	crate::{Indexer, IndexerState},
+	super::Kind,
+	crate::{Indexer, IndexerState, request},
 	futures::{StreamExt as _, future},
 	std::sync::Mutex,
 	tangram_client::prelude::*,
@@ -13,14 +13,14 @@ pub(crate) type Receiver = tokio::sync::mpsc::Receiver<Request>;
 pub(crate) type Sender = tokio::sync::mpsc::Sender<Request>;
 
 pub(crate) struct Request {
-	pub archive: Vec<Fragment>,
-	pub index: Vec<Fragment>,
+	pub archive: Vec<request::Fragment>,
+	pub index: Vec<request::Fragment>,
 	pub sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 
 struct Assigned {
 	error: Option<tg::Error>,
-	fragments: Vec<(Kind, u64, Fragment)>,
+	fragments: Vec<(Kind, u64, request::Fragment)>,
 	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 

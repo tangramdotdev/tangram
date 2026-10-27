@@ -1,4 +1,4 @@
-use tangram_client::prelude::*;
+use {futures::TryStreamExt as _, tangram_client::prelude::*};
 
 impl super::super::Archive {
 	pub async fn put_object(&self, arg: tangram_archive::object::put::Arg) -> tg::Result<()> {
@@ -21,6 +21,17 @@ impl super::super::Archive {
 				"failed to put an S3 object"
 			));
 		}
+
+		Ok(())
+	}
+
+	pub async fn put_object_batch(
+		&self,
+		args: Vec<tangram_archive::object::put::Arg>,
+	) -> tg::Result<()> {
+		futures::stream::iter(args.into_iter().map(Ok))
+			.try_for_each_concurrent(None, |arg| self.put_object(arg))
+			.await?;
 
 		Ok(())
 	}

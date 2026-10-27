@@ -17,7 +17,6 @@ doctest = false
 workspace = true
 
 [dependencies]
-blake3 = { workspace = true }
 bytes = { workspace = true }
 data-encoding = { workspace = true }
 derive_more = { workspace = true }

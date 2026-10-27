@@ -61,10 +61,27 @@ pub(crate) enum RequestArg {
 #[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(crate) struct EnqueueRequestArg {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
-	pub archive: Vec<queue::Fragment>,
+	pub archive: Vec<Fragment>,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Vec::is_empty")]
-	pub index: Vec<queue::Fragment>,
+	pub index: Vec<Fragment>,
+}
+
+/// A fragment of a serialized archive or index batch.
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[expect(clippy::struct_field_names)]
+pub(crate) struct Fragment {
+	#[tangram_serialize(id = 0)]
+	pub batch: queue::BatchId,
+
+	#[tangram_serialize(id = 1)]
+	pub fragment: u64,
+
+	#[tangram_serialize(id = 2)]
+	pub fragments: u64,
+
+	#[tangram_serialize(id = 3)]
+	pub payload: bytes::Bytes,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

@@ -1,6 +1,6 @@
 use {
-	super::{Indexer, IndexerState},
-	futures::{TryStreamExt as _, future, stream},
+	super::{Indexer, IndexerState, request},
+	futures::future,
 	std::{
 		collections::{BTreeMap, BTreeSet, VecDeque},
 		ops::ControlFlow,
@@ -19,24 +19,7 @@ pub(super) mod write;
 pub(super) type CheckpointSender =
 	tokio::sync::mpsc::UnboundedSender<tokio::sync::oneshot::Sender<tg::Result<()>>>;
 
-type BatchId = [u8; 16];
-
-/// A fragment of a serialized archive or index batch.
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-#[expect(clippy::struct_field_names)]
-pub(crate) struct Fragment {
-	#[tangram_serialize(id = 0)]
-	pub batch: BatchId,
-
-	#[tangram_serialize(id = 1)]
-	pub fragment: u64,
-
-	#[tangram_serialize(id = 2)]
-	pub fragments: u64,
-
-	#[tangram_serialize(id = 3)]
-	pub payload: bytes::Bytes,
-}
+pub(crate) type BatchId = [u8; 16];
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum Kind {
@@ -116,12 +99,11 @@ struct Batches {
 
 struct Batch {
 	deadline: tokio::time::Instant,
-	fragments: BTreeMap<u64, BatchFragment>,
+	fragments: BTreeMap<u64, Fragment>,
 	len: u64,
 }
 
-struct BatchFragment {
-	hash: blake3::Hash,
+struct Fragment {
 	payload: Option<bytes::Bytes>,
 	sequences: Vec<u64>,
 	stamp: Option<u64>,
@@ -247,7 +229,7 @@ impl Queues {
 		&mut self,
 		kind: Kind,
 		sequence: u64,
-		fragment: &Fragment,
+		fragment: &request::Fragment,
 		batch_timeout: std::time::Duration,
 	) -> tg::Result<()> {
 		let queue = match kind {
@@ -284,15 +266,10 @@ impl Queues {
 			queue.work.push_back(Scheduled::Delete(vec![sequence]));
 			return Err(tg::error!("conflicting queue fragment counts"));
 		}
-		let hash = blake3::hash(&fragment.payload);
 
 		// Record the fragment, holding its payload in memory.
 		let written = (!queue.writes.contains(&sequence)).then_some(sequence);
 		if let Some(existing) = batch.fragments.get_mut(&fragment.fragment) {
-			if existing.hash != hash {
-				queue.work.push_back(Scheduled::Delete(vec![sequence]));
-				return Err(tg::error!("conflicting queue fragment payloads"));
-			}
 			existing.sequences.push(sequence);
 			if existing.written.is_none() {
 				existing.written = written;
@@ -304,8 +281,7 @@ impl Queues {
 				existing,
 			);
 		} else {
-			let mut entry = BatchFragment {
-				hash,
+			let mut entry = Fragment {
 				payload: Some(fragment.payload.clone()),
 				sequences: vec![sequence],
 				stamp: None,
@@ -342,7 +318,7 @@ impl Queues {
 		&mut self,
 		kind: Kind,
 		sequence: u64,
-		fragment: &Fragment,
+		fragment: &request::Fragment,
 		succeeded: bool,
 	) {
 		let queue = match kind {
@@ -817,43 +793,38 @@ impl Indexer {
 	async fn process_archive_batch(&self, bytes: &[u8]) -> tg::Result<tg::Result<()>> {
 		let arg = tangram_server_core::archive::batch::Arg::deserialize(bytes)?;
 		tracing::debug!(items = arg.items.len(), "decoded the archive batch");
-		let concurrency = self.server.config.object.archive_queue.concurrency;
-		stream::iter(arg.items.iter().map(Ok))
-			.try_for_each_concurrent(concurrency, |item| self.process_archive_item(item))
+
+		// Wait for the object puts and read their bytes from the cache.
+		let puts = arg
+			.items
+			.iter()
+			.map(|item| (item.object.clone(), item.put))
+			.collect::<Vec<_>>();
+		let objects = self
+			.try_wait_for_object_put_batch(&self.server.config.object.archive_queue.retry, &puts)
 			.await?;
+		let mut args = Vec::with_capacity(puts.len());
+		for ((id, put), object) in puts.into_iter().zip(objects) {
+			let Some(bytes) = object.and_then(|object| object.bytes) else {
+				tracing::error!(object = %id, ?put, "discarding an archive item because the object put is absent from the cache");
+				continue;
+			};
+			let arg = tangram_archive::object::put::Arg {
+				bytes: bytes.into_owned().into(),
+				id,
+				put,
+			};
+			args.push(arg);
+		}
 
-		Ok(Ok(()))
-	}
-
-	#[tracing::instrument(name = "archive.process_item", level = "debug", skip_all, fields(object = %item.object), err(level = "debug"))]
-	async fn process_archive_item(
-		&self,
-		item: &tangram_server_core::archive::batch::Item,
-	) -> tg::Result<()> {
-		let object = self
-			.try_wait_for_object_put(
-				&self.server.config.object.archive_queue.retry,
-				&item.object,
-				item.put,
-			)
-			.await?
-			.and_then(|object| object.bytes);
-		let Some(bytes) = object else {
-			tracing::error!(object = %item.object, put = ?item.put, "discarding an archive item because the object put is absent from the cache");
-			return Ok(());
-		};
-		let arg = tangram_archive::object::put::Arg {
-			bytes: bytes.into_owned().into(),
-			id: item.object.clone(),
-			put: item.put,
-		};
+		// Archive the objects.
 		self.server
 			.components
 			.object
-			.archive_object(&self.server, arg)
+			.archive_object_batch(&self.server, args)
 			.await?;
 
-		Ok(())
+		Ok(Ok(()))
 	}
 
 	#[tracing::instrument(name = "index.process_batch", level = "debug", skip_all, fields(indexer = %self.id(), bytes = bytes.len()), err(level = "debug"))]
@@ -895,7 +866,7 @@ impl Indexer {
 		kind: Kind,
 		sequence_start: u64,
 		sequence_end: u64,
-	) -> tg::Result<Vec<(u64, Fragment)>> {
+	) -> tg::Result<Vec<(u64, request::Fragment)>> {
 		let indexer = self.id().clone();
 		let items = match kind {
 			Kind::Archive => {
@@ -910,7 +881,7 @@ impl Indexer {
 					.await?
 					.into_iter()
 					.map(|item| {
-						let fragment = Fragment {
+						let fragment = request::Fragment {
 							batch: item.batch.value(),
 							fragment: item.fragment,
 							fragments: item.fragments,
@@ -932,7 +903,7 @@ impl Indexer {
 					.await?
 					.into_iter()
 					.map(|item| {
-						let fragment = Fragment {
+						let fragment = request::Fragment {
 							batch: item.batch.value(),
 							fragment: item.fragment,
 							fragments: item.fragments,
@@ -982,7 +953,7 @@ impl Indexer {
 		&self,
 		kind: Kind,
 		sequence: u64,
-		fragment: &Fragment,
+		fragment: &request::Fragment,
 	) -> tg::Result<()> {
 		let indexer = self.id().clone();
 		match kind {
@@ -1072,7 +1043,7 @@ impl Indexer {
 	}
 }
 
-fn find_fragment(batches: &mut Batches, id: BatchId, index: u64) -> Option<&mut BatchFragment> {
+fn find_fragment(batches: &mut Batches, id: BatchId, index: u64) -> Option<&mut Fragment> {
 	let batch = if let Some(batch) = batches.active.get_mut(&id) {
 		batch
 	} else {
@@ -1085,7 +1056,7 @@ fn make_evictable(
 	evictable: &mut BTreeMap<u64, (Kind, BatchId, u64)>,
 	stamp: &mut u64,
 	location: (Kind, BatchId, u64),
-	fragment: &mut BatchFragment,
+	fragment: &mut Fragment,
 ) {
 	// Only a fragment whose write has finished can be dropped from memory, so that it can always be read from the cache.
 	if fragment.payload.is_none() || fragment.written.is_none() || fragment.stamp.is_some() {
@@ -1099,7 +1070,7 @@ fn make_evictable(
 fn release_fragment(
 	evictable: &mut BTreeMap<u64, (Kind, BatchId, u64)>,
 	memory: &mut usize,
-	fragment: &mut BatchFragment,
+	fragment: &mut Fragment,
 ) {
 	if let Some(stamp) = fragment.stamp.take() {
 		evictable.remove(&stamp);

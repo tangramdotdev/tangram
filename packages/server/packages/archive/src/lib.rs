@@ -26,6 +26,7 @@ impl Archive {
 			max_delay: config.reconnect.max_delay,
 			max_retries: config.reconnect.max_retries,
 		};
+		let retry = config.retry.clone().into();
 		let config = tangram_archive_s3::Config {
 			access_key: config.access_key.clone(),
 			bucket: config.bucket.clone(),
@@ -37,6 +38,7 @@ impl Archive {
 			reconnect,
 			region: config.region.clone(),
 			request_timeout: config.request_timeout,
+			retry,
 			secret_key: config.secret_key.clone(),
 			session_refresh_buffer: config.session_refresh_buffer,
 		};
@@ -62,6 +64,12 @@ impl archive::Archive for Archive {
 	async fn put_object(&self, arg: object::put::Arg) -> tg::Result<()> {
 		match self {
 			Self::S3(archive) => archive.put_object(arg).await,
+		}
+	}
+
+	async fn put_object_batch(&self, args: Vec<object::put::Arg>) -> tg::Result<()> {
+		match self {
+			Self::S3(archive) => archive.put_object_batch(args).await,
 		}
 	}
 

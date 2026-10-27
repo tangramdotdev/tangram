@@ -11255,7 +11255,6 @@ dependencies = [
 name = "tangram_server_indexer"
 version = "0.0.0"
 dependencies = [
- "blake3",
  "bytes",
  "data-encoding",
  "derive_more",

@@ -140,6 +140,7 @@ mod tests {
 			reconnect: tangram_futures::retry::Options::default(),
 			region: "us-east-1".into(),
 			request_timeout: std::time::Duration::from_mins(1),
+			retry: tangram_futures::retry::Options::default(),
 			secret_key: "root-secret".into(),
 			session_refresh_buffer: std::time::Duration::from_mins(1),
 		}

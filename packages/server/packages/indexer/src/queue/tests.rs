@@ -1,11 +1,12 @@
 use {
-	super::{Fragment, Kind, Payload, Queue, Queues, SequenceReservation, Work},
+	super::{Kind, Payload, Queue, Queues, SequenceReservation, Work},
+	crate::request,
 	itertools::Itertools as _,
 	std::collections::BTreeSet,
 };
 
-fn fragment(batch: u8, fragment: u64, fragments: u64, payload: &'static [u8]) -> Fragment {
-	Fragment {
+fn fragment(batch: u8, fragment: u64, fragments: u64, payload: &'static [u8]) -> request::Fragment {
+	request::Fragment {
 		batch: [batch; 16],
 		fragment,
 		fragments,
@@ -152,7 +153,7 @@ fn deletes_fragments_of_complete_and_timed_out_batches() {
 }
 
 #[test]
-fn rejects_conflicting_fragments() {
+fn rejects_invalid_fragments() {
 	let mut queues = Queues::empty(usize::MAX);
 	let timeout = std::time::Duration::from_secs(60);
 	queues
@@ -160,11 +161,9 @@ fn rejects_conflicting_fragments() {
 		.unwrap();
 	let counts = queues.insert_fragment(Kind::Index, 1, &fragment(0, 1, 3, b"one"), timeout);
 	assert!(counts.is_err());
-	let payloads = queues.insert_fragment(Kind::Index, 2, &fragment(0, 0, 2, b"other"), timeout);
-	assert!(payloads.is_err());
-	let position = queues.insert_fragment(Kind::Index, 3, &fragment(1, 2, 2, b""), timeout);
+	let position = queues.insert_fragment(Kind::Index, 2, &fragment(1, 2, 2, b""), timeout);
 	assert!(position.is_err());
-	for sequence in 1..4 {
+	for sequence in 1..3 {
 		assert!(
 			matches!(queues.pop_work(Kind::Index), Some(Work::Delete(sequences)) if sequences == [sequence])
 		);

@@ -15,6 +15,11 @@ pub trait Archive {
 
 	fn put_object(&self, arg: object::put::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn put_object_batch(
+		&self,
+		args: Vec<object::put::Arg>,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn try_get_object(
 		&self,
 		arg: object::get::Arg,

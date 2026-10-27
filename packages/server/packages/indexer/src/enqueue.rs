@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Component, queue,
-		request::{EnqueueRequestArg, RequestArg},
+		request::{self, EnqueueRequestArg, RequestArg},
 	},
 	futures::future,
 	std::ops::ControlFlow,
@@ -94,13 +94,13 @@ impl Component {
 	}
 }
 
-fn fragment(bytes: &bytes::Bytes, fragment_size: usize) -> Vec<queue::Fragment> {
+fn fragment(bytes: &bytes::Bytes, fragment_size: usize) -> Vec<request::Fragment> {
 	let batch = uuid::Uuid::now_v7().into_bytes();
 	let fragments = u64::try_from(bytes.len().div_ceil(fragment_size)).unwrap();
 	bytes
 		.chunks(fragment_size)
 		.enumerate()
-		.map(|(fragment, payload)| queue::Fragment {
+		.map(|(fragment, payload)| request::Fragment {
 			batch,
 			fragment: u64::try_from(fragment).unwrap(),
 			fragments,
@@ -110,8 +110,8 @@ fn fragment(bytes: &bytes::Bytes, fragment_size: usize) -> Vec<queue::Fragment> 
 }
 
 fn group(
-	archive: Vec<queue::Fragment>,
-	index: Vec<queue::Fragment>,
+	archive: Vec<request::Fragment>,
+	index: Vec<request::Fragment>,
 	request_size: usize,
 ) -> Vec<EnqueueRequestArg> {
 	// Fill each request with fragments up to the request size, always including at least one fragment.

@@ -240,6 +240,9 @@ pub struct S3Archive {
 	pub request_timeout: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub secret_key: Option<String>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1254,9 +1257,6 @@ pub struct NatsMessenger {
 pub struct Object {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub archive_queue: Option<ArchiveQueue>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub archive_retry: Option<Retry>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<ObjectCache>,

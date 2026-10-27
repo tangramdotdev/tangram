@@ -123,6 +123,8 @@ pub struct S3Archive {
 
 	pub request_timeout: Duration,
 
+	pub retry: Retry,
+
 	pub secret_key: String,
 
 	pub session_refresh_buffer: Duration,
@@ -773,8 +775,6 @@ pub struct NatsMessenger {
 #[derive(Clone, Debug)]
 pub struct Object {
 	pub archive_queue: ArchiveQueue,
-
-	pub archive_retry: Retry,
 
 	pub cache: Option<ObjectCache>,
 
@@ -2230,6 +2230,7 @@ impl Default for S3Archive {
 			reconnect: Reconnect::default(),
 			region: String::new(),
 			request_timeout: Duration::from_mins(1),
+			retry: archive_retry_default(),
 			secret_key: String::new(),
 			session_refresh_buffer: Duration::from_mins(1),
 		}
@@ -2684,7 +2685,6 @@ impl Default for Object {
 	fn default() -> Self {
 		Self {
 			archive_queue: ArchiveQueue::default(),
-			archive_retry: object_archive_retry_default(),
 			cache: None,
 			index_queue: IndexQueue::default(),
 			permission_time_to_live: default_object_permission_time_to_live(),
@@ -3453,7 +3453,7 @@ fn message_retry_default() -> Retry {
 	}
 }
 
-fn object_archive_retry_default() -> Retry {
+fn archive_retry_default() -> Retry {
 	Retry {
 		backoff: Duration::from_secs(1),
 		jitter: Duration::ZERO,
