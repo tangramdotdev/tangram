@@ -44,7 +44,7 @@ fn assembles_batches_in_fragment_order() {
 			.collect::<Vec<_>>();
 		assert_eq!(payloads, [&b"zero"[..], &b"one"[..]]);
 		assert_eq!(batch.sequences, [1, 0]);
-		assert_eq!(queues.memory, 0);
+		assert_eq!(queues.memory.used, 0);
 	}
 }
 
@@ -117,7 +117,7 @@ fn expires_only_due_batches() {
 	assert!(queues.archive.batches.active.is_empty());
 	assert_eq!(queues.archive.batches.timed_out.len(), 1);
 	assert_eq!(queues.archive.batches.by_expires_at.len(), 1);
-	assert_eq!(queues.memory, 0);
+	assert_eq!(queues.memory.used, 0);
 }
 
 #[test]
@@ -187,15 +187,15 @@ fn drops_only_written_payloads_when_over_the_memory_limit() {
 	queues
 		.insert_fragment(Kind::Index, sequence, &second, timeout)
 		.unwrap();
-	assert_eq!(queues.memory, 7);
+	assert_eq!(queues.memory.used, 7);
 	assert!(!queues.writes_finished(Kind::Index, &[0, 1]));
 
 	// Drop the payload once its write finishes.
 	queues.finish_write(Kind::Index, 1, &second, true);
-	assert_eq!(queues.memory, 4);
+	assert_eq!(queues.memory.used, 4);
 	queues.finish_write(Kind::Index, 0, &first, false);
 	assert!(queues.writes_finished(Kind::Index, &[0, 1]));
-	assert_eq!(queues.memory, 4);
+	assert_eq!(queues.memory.used, 4);
 
 	// Read the dropped payload from the cache.
 	let Some(Work::Process(batch)) = queues.pop_work(Kind::Index) else {
@@ -203,8 +203,8 @@ fn drops_only_written_payloads_when_over_the_memory_limit() {
 	};
 	assert!(matches!(batch.payloads[0], Payload::Memory(_)));
 	assert!(matches!(batch.payloads[1], Payload::Cache(1)));
-	assert_eq!(queues.memory, 0);
-	assert!(queues.evictable.is_empty());
+	assert_eq!(queues.memory.used, 0);
+	assert!(queues.memory.evictable.is_empty());
 }
 
 #[test]

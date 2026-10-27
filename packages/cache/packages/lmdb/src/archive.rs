@@ -17,6 +17,23 @@ impl Cache {
 		self.send_write_request(request).await
 	}
 
+	pub async fn delete_archive_queue_item_batch(
+		&self,
+		arg: archive::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		let args = arg
+			.sequences
+			.into_iter()
+			.map(|sequence| archive::queue::delete::Arg {
+				indexer: arg.indexer.clone(),
+				sequence,
+			})
+			.collect();
+		let request = crate::request::Request::DeleteArchiveQueueItemBatch(args);
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
 	pub async fn get_archive_queue_items(
 		&self,
 		arg: archive::queue::get::batch::Arg,
@@ -151,6 +168,13 @@ impl tangram_cache::archive::Cache for Cache {
 		arg: tangram_cache::archive::queue::delete::Arg,
 	) -> tg::Result<()> {
 		self.delete_archive_queue_item(arg).await
+	}
+
+	async fn delete_archive_queue_item_batch(
+		&self,
+		arg: tangram_cache::archive::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		self.delete_archive_queue_item_batch(arg).await
 	}
 
 	async fn get_archive_queue_items(

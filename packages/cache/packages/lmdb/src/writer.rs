@@ -180,8 +180,14 @@ impl Cache {
 			Request::DeleteArchiveQueueItem(arg) => {
 				vec![(Request::DeleteArchiveQueueItem(arg), 1)]
 			},
+			Request::DeleteArchiveQueueItemBatch(args) => {
+				Self::split_items(args, write_batch_size, Request::DeleteArchiveQueueItemBatch)
+			},
 			Request::DeleteIndexQueueItem(arg) => {
 				vec![(Request::DeleteIndexQueueItem(arg), 1)]
+			},
+			Request::DeleteIndexQueueItemBatch(args) => {
+				Self::split_items(args, write_batch_size, Request::DeleteIndexQueueItemBatch)
 			},
 			Request::DeleteLogCacheEntry(arg) => vec![(Request::DeleteLogCacheEntry(arg), 1)],
 			Request::PutLogCacheEntry(arg) => vec![(Request::PutLogCacheEntry(arg), 1)],
@@ -243,9 +249,15 @@ impl Cache {
 			Request::DeleteArchiveQueueItem(arg) => {
 				Self::delete_archive_queue_item_with_transaction(db, transaction, &arg)
 			},
+			Request::DeleteArchiveQueueItemBatch(args) => args.iter().try_for_each(|arg| {
+				Self::delete_archive_queue_item_with_transaction(db, transaction, arg)
+			}),
 			Request::DeleteIndexQueueItem(arg) => {
 				Self::delete_index_queue_item_with_transaction(db, transaction, &arg)
 			},
+			Request::DeleteIndexQueueItemBatch(args) => args.iter().try_for_each(|arg| {
+				Self::delete_index_queue_item_with_transaction(db, transaction, arg)
+			}),
 			Request::DeleteLogCacheEntry(arg) => {
 				Self::delete_log_cache_entry_with_transaction(db, transaction, arg)
 			},

@@ -3,7 +3,7 @@ use {
 		Cache,
 		queue::{prepare, sequence, value},
 	},
-	futures::TryStreamExt as _,
+	futures::{TryStreamExt as _, future},
 	indoc::indoc,
 	tangram_cache::archive,
 	tangram_client::prelude::*,
@@ -30,6 +30,37 @@ impl Cache {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete an archive queue item"))?;
+
+		Ok(())
+	}
+
+	pub async fn delete_archive_queue_item_batch(
+		&self,
+		arg: archive::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		// Delete the items concurrently, because the rows share a partition but have no batch statement.
+		let indexer = arg.indexer.to_bytes();
+		let sequences = arg
+			.sequences
+			.into_iter()
+			.map(sequence)
+			.collect::<tg::Result<Vec<_>>>()?;
+		future::try_join_all(sequences.into_iter().map(|sequence| {
+			let indexer = indexer.clone();
+			async move {
+				self.session
+					.execute_unpaged(
+						&self.statements.archive.delete,
+						(indexer.as_ref(), sequence),
+					)
+					.await
+					.map_err(|error| {
+						tg::error!(!error, "failed to delete an archive queue item")
+					})?;
+				Ok::<_, tg::Error>(())
+			}
+		}))
+		.await?;
 
 		Ok(())
 	}
@@ -210,6 +241,13 @@ impl tangram_cache::archive::Cache for Cache {
 		arg: tangram_cache::archive::queue::delete::Arg,
 	) -> tg::Result<()> {
 		self.delete_archive_queue_item(arg).await
+	}
+
+	async fn delete_archive_queue_item_batch(
+		&self,
+		arg: tangram_cache::archive::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		self.delete_archive_queue_item_batch(arg).await
 	}
 
 	async fn get_archive_queue_items(

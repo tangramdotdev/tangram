@@ -22,6 +22,25 @@ impl super::Cache {
 		}
 	}
 
+	pub async fn delete_index_queue_item_batch(
+		&self,
+		arg: tangram_cache::index::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.delete_index_queue_item_batch(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(cache) => cache.delete_index_queue_item_batch(arg).await,
+			Self::Memory(cache) => {
+				tangram_cache::index::Cache::delete_index_queue_item_batch(cache, arg).await
+			},
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.delete_index_queue_item_batch(arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(cache) => cache.delete_index_queue_item_batch(arg).await,
+		}
+	}
+
 	pub async fn get_index_queue_items(
 		&self,
 		arg: tangram_cache::index::queue::get::batch::Arg,
@@ -86,6 +105,13 @@ impl tangram_cache::index::Cache for super::Cache {
 		arg: tangram_cache::index::queue::delete::Arg,
 	) -> tg::Result<()> {
 		self.delete_index_queue_item(arg).await
+	}
+
+	async fn delete_index_queue_item_batch(
+		&self,
+		arg: tangram_cache::index::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		self.delete_index_queue_item_batch(arg).await
 	}
 
 	async fn get_index_queue_items(

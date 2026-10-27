@@ -8,6 +8,11 @@ pub trait Cache {
 		arg: crate::archive::queue::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn delete_archive_queue_item_batch(
+		&self,
+		arg: crate::archive::queue::delete::batch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn get_archive_queue_items(
 		&self,
 		arg: crate::archive::queue::get::batch::Arg,

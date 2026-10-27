@@ -3,7 +3,7 @@ use {
 		Cache,
 		queue::{prepare, sequence, value},
 	},
-	futures::TryStreamExt as _,
+	futures::{TryStreamExt as _, future},
 	indoc::indoc,
 	tangram_cache::index,
 	tangram_client::prelude::*,
@@ -24,6 +24,32 @@ impl Cache {
 			.execute_unpaged(&self.statements.index.delete, (indexer.as_ref(), sequence))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete an index queue item"))?;
+
+		Ok(())
+	}
+
+	pub async fn delete_index_queue_item_batch(
+		&self,
+		arg: index::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		// Delete the items concurrently, because the rows share a partition but have no batch statement.
+		let indexer = arg.indexer.to_bytes();
+		let sequences = arg
+			.sequences
+			.into_iter()
+			.map(sequence)
+			.collect::<tg::Result<Vec<_>>>()?;
+		future::try_join_all(sequences.into_iter().map(|sequence| {
+			let indexer = indexer.clone();
+			async move {
+				self.session
+					.execute_unpaged(&self.statements.index.delete, (indexer.as_ref(), sequence))
+					.await
+					.map_err(|error| tg::error!(!error, "failed to delete an index queue item"))?;
+				Ok::<_, tg::Error>(())
+			}
+		}))
+		.await?;
 
 		Ok(())
 	}
@@ -204,6 +230,13 @@ impl tangram_cache::index::Cache for Cache {
 		arg: tangram_cache::index::queue::delete::Arg,
 	) -> tg::Result<()> {
 		self.delete_index_queue_item(arg).await
+	}
+
+	async fn delete_index_queue_item_batch(
+		&self,
+		arg: tangram_cache::index::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		self.delete_index_queue_item_batch(arg).await
 	}
 
 	async fn get_index_queue_items(

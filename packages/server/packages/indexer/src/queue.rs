@@ -35,17 +35,19 @@ pub(super) struct SequenceReservation {
 
 pub(super) struct Queues {
 	archive: Queue,
+	index: Queue,
+	memory: Memory,
+}
 
+struct Memory {
 	// The fragments whose payloads can be dropped from memory, keyed by the order in which they became droppable.
 	evictable: BTreeMap<u64, (Kind, BatchId, u64)>,
 
-	index: Queue,
-
-	memory: usize,
-
-	memory_limit: usize,
+	limit: usize,
 
 	stamp: u64,
+
+	used: usize,
 }
 
 pub(super) enum Work {
@@ -115,11 +117,8 @@ impl Queues {
 	pub fn empty(memory_limit: usize) -> Self {
 		Self {
 			archive: Queue::new(0, 0),
-			evictable: BTreeMap::new(),
 			index: Queue::new(0, 0),
-			memory: 0,
-			memory_limit,
-			stamp: 0,
+			memory: Memory::new(memory_limit),
 		}
 	}
 
@@ -132,11 +131,8 @@ impl Queues {
 		let index = Queue::new(indexer.index_read_sequence, indexer.index_write_sequence);
 		Self {
 			archive,
-			evictable: BTreeMap::new(),
 			index,
-			memory: 0,
-			memory_limit,
-			stamp: 0,
+			memory: Memory::new(memory_limit),
 		}
 	}
 
@@ -232,10 +228,7 @@ impl Queues {
 		fragment: &request::Fragment,
 		batch_timeout: std::time::Duration,
 	) -> tg::Result<()> {
-		let queue = match kind {
-			Kind::Archive => &mut self.archive,
-			Kind::Index => &mut self.index,
-		};
+		let (queue, memory) = self.queue_and_memory_mut(kind);
 		let id = fragment.batch;
 
 		// Delete a fragment of a batch that has already completed or timed out.
@@ -274,12 +267,7 @@ impl Queues {
 			if existing.written.is_none() {
 				existing.written = written;
 			}
-			make_evictable(
-				&mut self.evictable,
-				&mut self.stamp,
-				(kind, id, fragment.fragment),
-				existing,
-			);
+			memory.make_evictable((kind, id, fragment.fragment), existing);
 		} else {
 			let mut entry = Fragment {
 				payload: Some(fragment.payload.clone()),
@@ -287,13 +275,8 @@ impl Queues {
 				stamp: None,
 				written,
 			};
-			self.memory += fragment.payload.len();
-			make_evictable(
-				&mut self.evictable,
-				&mut self.stamp,
-				(kind, id, fragment.fragment),
-				&mut entry,
-			);
+			memory.used += fragment.payload.len();
+			memory.make_evictable((kind, id, fragment.fragment), &mut entry);
 			batch.fragments.insert(fragment.fragment, entry);
 		}
 
@@ -321,10 +304,7 @@ impl Queues {
 		fragment: &request::Fragment,
 		succeeded: bool,
 	) {
-		let queue = match kind {
-			Kind::Archive => &mut self.archive,
-			Kind::Index => &mut self.index,
-		};
+		let (queue, memory) = self.queue_and_memory_mut(kind);
 		queue.writes.remove(&sequence);
 		if !succeeded {
 			return;
@@ -339,12 +319,7 @@ impl Queues {
 			return;
 		}
 		entry.written = Some(sequence);
-		make_evictable(
-			&mut self.evictable,
-			&mut self.stamp,
-			(kind, fragment.batch, fragment.fragment),
-			entry,
-		);
+		memory.make_evictable((kind, fragment.batch, fragment.fragment), entry);
 		self.evict();
 	}
 
@@ -357,10 +332,7 @@ impl Queues {
 	}
 
 	pub fn pop_work(&mut self, kind: Kind) -> Option<Work> {
-		let queue = match kind {
-			Kind::Archive => &mut self.archive,
-			Kind::Index => &mut self.index,
-		};
+		let (queue, memory) = self.queue_and_memory_mut(kind);
 		let work = match queue.work.pop_front()? {
 			Scheduled::Delete(sequences) => Work::Delete(sequences),
 			Scheduled::Process(id) => {
@@ -368,7 +340,7 @@ impl Queues {
 				let mut payloads = Vec::with_capacity(batch.fragments.len());
 				let mut sequences = Vec::new();
 				for mut fragment in batch.fragments.into_values() {
-					release_fragment(&mut self.evictable, &mut self.memory, &mut fragment);
+					memory.release_fragment(&mut fragment);
 					let payload = match fragment.payload {
 						Some(payload) => Payload::Memory(payload),
 						None => Payload::Cache(fragment.written.unwrap()),
@@ -387,10 +359,7 @@ impl Queues {
 	}
 
 	pub fn expire_batches(&mut self, kind: Kind, batch_timeout: std::time::Duration) {
-		let queue = match kind {
-			Kind::Archive => &mut self.archive,
-			Kind::Index => &mut self.index,
-		};
+		let (queue, memory) = self.queue_and_memory_mut(kind);
 		let now = tokio::time::Instant::now();
 		while let Some(&(expires_at, id)) = queue.batches.by_expires_at.first() {
 			if expires_at > now {
@@ -406,7 +375,7 @@ impl Queues {
 				.by_expires_at
 				.insert((now + batch_timeout, id));
 			queue.batches.timed_out.insert(id);
-			let sequences = release_batch(&mut self.evictable, &mut self.memory, batch);
+			let sequences = memory.release_batch(batch);
 			queue.work.push_back(Scheduled::Delete(sequences));
 		}
 	}
@@ -430,7 +399,7 @@ impl Queues {
 			let active = std::mem::take(&mut queue.batches.active);
 			for (id, batch) in active {
 				queue.batches.by_expires_at.remove(&(batch.deadline, id));
-				let sequences = release_batch(&mut self.evictable, &mut self.memory, batch);
+				let sequences = self.memory.release_batch(batch);
 				queue.work.push_back(Scheduled::Delete(sequences));
 			}
 		}
@@ -513,20 +482,17 @@ impl Queues {
 
 	fn evict(&mut self) {
 		// Drop the most recently droppable payloads, because their batches are processed last.
-		while self.memory > self.memory_limit {
-			let Some((_, (kind, id, index))) = self.evictable.pop_last() else {
+		while self.memory.used > self.memory.limit {
+			let Some((_, (kind, id, index))) = self.memory.evictable.pop_last() else {
 				break;
 			};
-			let queue = match kind {
-				Kind::Archive => &mut self.archive,
-				Kind::Index => &mut self.index,
-			};
+			let (queue, memory) = self.queue_and_memory_mut(kind);
 			let Some(fragment) = find_fragment(&mut queue.batches, id, index) else {
 				continue;
 			};
 			fragment.stamp = None;
 			if let Some(payload) = fragment.payload.take() {
-				self.memory -= payload.len();
+				memory.used -= payload.len();
 			}
 		}
 	}
@@ -543,6 +509,53 @@ impl Queues {
 			Kind::Archive => &mut self.archive,
 			Kind::Index => &mut self.index,
 		}
+	}
+
+	fn queue_and_memory_mut(&mut self, kind: Kind) -> (&mut Queue, &mut Memory) {
+		let queue = match kind {
+			Kind::Archive => &mut self.archive,
+			Kind::Index => &mut self.index,
+		};
+		(queue, &mut self.memory)
+	}
+}
+
+impl Memory {
+	fn new(limit: usize) -> Self {
+		Self {
+			evictable: BTreeMap::new(),
+			limit,
+			stamp: 0,
+			used: 0,
+		}
+	}
+
+	fn make_evictable(&mut self, location: (Kind, BatchId, u64), fragment: &mut Fragment) {
+		// Only a fragment whose write has finished can be dropped from memory, so that it can always be read from the cache.
+		if fragment.payload.is_none() || fragment.written.is_none() || fragment.stamp.is_some() {
+			return;
+		}
+		self.stamp += 1;
+		fragment.stamp = Some(self.stamp);
+		self.evictable.insert(self.stamp, location);
+	}
+
+	fn release_fragment(&mut self, fragment: &mut Fragment) {
+		if let Some(stamp) = fragment.stamp.take() {
+			self.evictable.remove(&stamp);
+		}
+		if let Some(payload) = &fragment.payload {
+			self.used -= payload.len();
+		}
+	}
+
+	fn release_batch(&mut self, batch: Batch) -> Vec<u64> {
+		let mut sequences = Vec::new();
+		for mut fragment in batch.fragments.into_values() {
+			self.release_fragment(&mut fragment);
+			sequences.extend(fragment.sequences);
+		}
+		sequences
 	}
 }
 
@@ -997,45 +1010,50 @@ impl Indexer {
 	}
 
 	async fn delete_queue_items(&self, kind: Kind, sequences: &[u64]) -> tg::Result<()> {
-		for &sequence in sequences {
-			tangram_futures::retry(&self.retry_options(), || async {
-				match self.delete_queue_item(kind, sequence).await {
-					Ok(()) => Ok(ControlFlow::Break(())),
-					Err(error) => {
-						tracing::error!(error = %error.trace(), ?kind, %sequence, "failed to delete a queue item");
+		tangram_futures::retry(&self.retry_options(), || async {
+			match self.delete_queue_item_batch(kind, sequences).await {
+				Ok(()) => Ok(ControlFlow::Break(())),
+				Err(error) => {
+					tracing::error!(error = %error.trace(), ?kind, "failed to delete the queue items");
 
-						Ok(ControlFlow::Continue(error))
-					},
-				}
-			})
-			.await?;
-		}
+					Ok(ControlFlow::Continue(error))
+				},
+			}
+		})
+		.await?;
 
 		Ok(())
 	}
 
-	async fn delete_queue_item(&self, kind: Kind, sequence: u64) -> tg::Result<()> {
+	async fn delete_queue_item_batch(&self, kind: Kind, sequences: &[u64]) -> tg::Result<()> {
 		let indexer = self.id().clone();
+		let sequences = sequences.to_vec();
 		match kind {
 			Kind::Archive => {
-				let arg =
-					tangram_server_core::cache::archive::queue::delete::Arg { indexer, sequence };
+				let arg = tangram_server_core::cache::archive::queue::delete::batch::Arg {
+					indexer,
+					sequences,
+				};
 				self.server
 					.cache
-					.delete_archive_queue_item(arg)
+					.delete_archive_queue_item_batch(arg)
 					.await
 					.map_err(|error| {
-						tg::error!(!error, "failed to delete an archive queue item")
+						tg::error!(!error, "failed to delete the archive queue items")
 					})?;
 			},
 			Kind::Index => {
-				let arg =
-					tangram_server_core::cache::index::queue::delete::Arg { indexer, sequence };
+				let arg = tangram_server_core::cache::index::queue::delete::batch::Arg {
+					indexer,
+					sequences,
+				};
 				self.server
 					.cache
-					.delete_index_queue_item(arg)
+					.delete_index_queue_item_batch(arg)
 					.await
-					.map_err(|error| tg::error!(!error, "failed to delete an index queue item"))?;
+					.map_err(|error| {
+						tg::error!(!error, "failed to delete the index queue items")
+					})?;
 			},
 		}
 
@@ -1050,45 +1068,4 @@ fn find_fragment(batches: &mut Batches, id: BatchId, index: u64) -> Option<&mut 
 		batches.ready.get_mut(&id)?
 	};
 	batch.fragments.get_mut(&index)
-}
-
-fn make_evictable(
-	evictable: &mut BTreeMap<u64, (Kind, BatchId, u64)>,
-	stamp: &mut u64,
-	location: (Kind, BatchId, u64),
-	fragment: &mut Fragment,
-) {
-	// Only a fragment whose write has finished can be dropped from memory, so that it can always be read from the cache.
-	if fragment.payload.is_none() || fragment.written.is_none() || fragment.stamp.is_some() {
-		return;
-	}
-	*stamp += 1;
-	fragment.stamp = Some(*stamp);
-	evictable.insert(*stamp, location);
-}
-
-fn release_fragment(
-	evictable: &mut BTreeMap<u64, (Kind, BatchId, u64)>,
-	memory: &mut usize,
-	fragment: &mut Fragment,
-) {
-	if let Some(stamp) = fragment.stamp.take() {
-		evictable.remove(&stamp);
-	}
-	if let Some(payload) = &fragment.payload {
-		*memory -= payload.len();
-	}
-}
-
-fn release_batch(
-	evictable: &mut BTreeMap<u64, (Kind, BatchId, u64)>,
-	memory: &mut usize,
-	batch: Batch,
-) -> Vec<u64> {
-	let mut sequences = Vec::new();
-	for mut fragment in batch.fragments.into_values() {
-		release_fragment(evictable, memory, &mut fragment);
-		sequences.extend(fragment.sequences);
-	}
-	sequences
 }

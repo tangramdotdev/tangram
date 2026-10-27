@@ -7,6 +7,13 @@ impl Cache {
 			.remove(&(arg.indexer, arg.sequence));
 	}
 
+	pub fn delete_index_queue_item_batch(&self, arg: index::queue::delete::batch::Arg) {
+		let mut state = self.state();
+		for sequence in arg.sequences {
+			state.index_queue.remove(&(arg.indexer.clone(), sequence));
+		}
+	}
+
 	#[must_use]
 	pub fn get_index_queue_items(
 		&self,
@@ -43,6 +50,14 @@ impl tangram_cache::index::Cache for Cache {
 		arg: tangram_cache::index::queue::delete::Arg,
 	) -> tg::Result<()> {
 		self.delete_index_queue_item(arg);
+		Ok(())
+	}
+
+	async fn delete_index_queue_item_batch(
+		&self,
+		arg: tangram_cache::index::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		self.delete_index_queue_item_batch(arg);
 		Ok(())
 	}
 

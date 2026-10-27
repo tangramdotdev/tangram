@@ -14,6 +14,23 @@ impl Cache {
 		self.send_write_request(request).await
 	}
 
+	pub async fn delete_index_queue_item_batch(
+		&self,
+		arg: index::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		let args = arg
+			.sequences
+			.into_iter()
+			.map(|sequence| index::queue::delete::Arg {
+				indexer: arg.indexer.clone(),
+				sequence,
+			})
+			.collect();
+		let request = crate::request::Request::DeleteIndexQueueItemBatch(args);
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
 	pub async fn get_index_queue_items(
 		&self,
 		arg: index::queue::get::batch::Arg,
@@ -148,6 +165,13 @@ impl tangram_cache::index::Cache for Cache {
 		arg: tangram_cache::index::queue::delete::Arg,
 	) -> tg::Result<()> {
 		self.delete_index_queue_item(arg).await
+	}
+
+	async fn delete_index_queue_item_batch(
+		&self,
+		arg: tangram_cache::index::queue::delete::batch::Arg,
+	) -> tg::Result<()> {
+		self.delete_index_queue_item_batch(arg).await
 	}
 
 	async fn get_index_queue_items(
