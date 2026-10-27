@@ -4,6 +4,15 @@ const SECCOMP_DATA_ARCH_OFFSET: u32 = 4;
 const SECCOMP_DATA_ARGUMENTS_OFFSET: u32 = 16;
 const SECCOMP_DATA_NUMBER_OFFSET: u32 = 0;
 
+// These syscall numbers are shared by every architecture, but the libc crate does not define them on every architecture.
+const SYS_CACHESTAT: libc::c_long = 451;
+const SYS_FCHMODAT2: libc::c_long = 452;
+const SYS_FUTEX_REQUEUE: libc::c_long = 456;
+const SYS_FUTEX_WAIT: libc::c_long = 455;
+const SYS_FUTEX_WAKE: libc::c_long = 454;
+const SYS_MAP_SHADOW_STACK: libc::c_long = 453;
+const SYS_MSEAL: libc::c_long = 462;
+
 const CLONE_NAMESPACE_FLAGS: u32 = libc::CLONE_NEWCGROUP as u32
 	| libc::CLONE_NEWIPC as u32
 	| libc::CLONE_NEWNET as u32
@@ -202,6 +211,7 @@ fn default_filter() -> tg::Result<Vec<libc::sock_filter>> {
 		statement(libc::BPF_RET | libc::BPF_K, libc::SECCOMP_RET_ALLOW),
 	]);
 
+	// Allow the permitted syscalls.
 	for syscall in allowed_syscalls() {
 		filter.extend([
 			jump(libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K, syscall, 0, 1),
@@ -209,9 +219,21 @@ fn default_filter() -> tg::Result<Vec<libc::sock_filter>> {
 		]);
 	}
 
+	// Deny the known syscalls that the sandbox must not use.
+	for syscall in denied_syscalls() {
+		filter.extend([
+			jump(libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K, syscall, 0, 1),
+			statement(
+				libc::BPF_RET | libc::BPF_K,
+				libc::SECCOMP_RET_ERRNO | libc::EPERM as u32,
+			),
+		]);
+	}
+
+	// Report the remaining syscalls as unavailable so that callers can fall back to older syscalls.
 	filter.push(statement(
 		libc::BPF_RET | libc::BPF_K,
-		libc::SECCOMP_RET_ERRNO | libc::EPERM as u32,
+		libc::SECCOMP_RET_ERRNO | libc::ENOSYS as u32,
 	));
 
 	Ok(filter)
@@ -223,15 +245,26 @@ fn default_filter() -> tg::Result<Vec<libc::sock_filter>> {
 	target_arch = "x86_64"
 ))]
 fn allowed_syscalls() -> Vec<u32> {
-	// Collect the common syscall numbers.
-	let syscalls = [
+	[
 		libc::SYS_accept,
 		libc::SYS_accept4,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_access,
+		libc::SYS_adjtimex,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_alarm,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_arch_prctl,
 		libc::SYS_bind,
 		libc::SYS_brk,
 		libc::SYS_capget,
 		libc::SYS_capset,
 		libc::SYS_chdir,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_chmod,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_chown,
+		libc::SYS_chroot,
 		libc::SYS_clock_adjtime,
 		libc::SYS_clock_getres,
 		libc::SYS_clock_gettime,
@@ -240,12 +273,26 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_close_range,
 		libc::SYS_connect,
 		libc::SYS_copy_file_range,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_creat,
 		libc::SYS_dup,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_dup2,
 		libc::SYS_dup3,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_epoll_create,
 		libc::SYS_epoll_create1,
 		libc::SYS_epoll_ctl,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_epoll_ctl_old,
 		libc::SYS_epoll_pwait,
 		libc::SYS_epoll_pwait2,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_epoll_wait,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_epoll_wait_old,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_eventfd,
 		libc::SYS_eventfd2,
 		libc::SYS_execve,
 		libc::SYS_execveat,
@@ -255,9 +302,12 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_faccessat2,
 		libc::SYS_fadvise64,
 		libc::SYS_fallocate,
+		libc::SYS_fanotify_init,
+		libc::SYS_fanotify_mark,
 		libc::SYS_fchdir,
 		libc::SYS_fchmod,
 		libc::SYS_fchmodat,
+		SYS_FCHMODAT2,
 		libc::SYS_fchown,
 		libc::SYS_fchownat,
 		libc::SYS_fcntl,
@@ -265,55 +315,78 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_fgetxattr,
 		libc::SYS_flistxattr,
 		libc::SYS_flock,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_fork,
 		libc::SYS_fremovexattr,
+		libc::SYS_fsconfig,
 		libc::SYS_fsetxattr,
+		libc::SYS_fsmount,
+		libc::SYS_fsopen,
+		libc::SYS_fspick,
 		libc::SYS_fstat,
 		libc::SYS_fstatfs,
 		libc::SYS_fsync,
 		libc::SYS_ftruncate,
 		libc::SYS_futex,
 		libc::SYS_futex_waitv,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_futimesat,
 		libc::SYS_getcpu,
 		libc::SYS_getcwd,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_getdents,
 		libc::SYS_getdents64,
 		libc::SYS_getegid,
 		libc::SYS_geteuid,
 		libc::SYS_getgid,
 		libc::SYS_getgroups,
 		libc::SYS_getitimer,
+		libc::SYS_get_mempolicy,
 		libc::SYS_getpeername,
 		libc::SYS_getpgid,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_getpgrp,
 		libc::SYS_getpid,
 		libc::SYS_getppid,
 		libc::SYS_getpriority,
 		libc::SYS_getrandom,
 		libc::SYS_getresgid,
 		libc::SYS_getresuid,
+		libc::SYS_getrlimit,
 		libc::SYS_get_robust_list,
 		libc::SYS_getrusage,
 		libc::SYS_getsid,
 		libc::SYS_getsockname,
 		libc::SYS_getsockopt,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_get_thread_area,
 		libc::SYS_gettid,
 		libc::SYS_gettimeofday,
 		libc::SYS_getuid,
 		libc::SYS_getxattr,
 		libc::SYS_inotify_add_watch,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_inotify_init,
 		libc::SYS_inotify_init1,
 		libc::SYS_inotify_rm_watch,
 		libc::SYS_io_cancel,
+		libc::SYS_ioctl,
 		libc::SYS_io_destroy,
 		libc::SYS_io_getevents,
 		libc::SYS_ioprio_get,
 		libc::SYS_ioprio_set,
 		libc::SYS_io_setup,
 		libc::SYS_io_submit,
-		libc::SYS_ioctl,
+		libc::SYS_keyctl,
 		libc::SYS_kill,
 		libc::SYS_landlock_add_rule,
 		libc::SYS_landlock_create_ruleset,
 		libc::SYS_landlock_restrict_self,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_lchown,
 		libc::SYS_lgetxattr,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_link,
 		libc::SYS_linkat,
 		libc::SYS_listen,
 		libc::SYS_listxattr,
@@ -321,16 +394,29 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_lremovexattr,
 		libc::SYS_lseek,
 		libc::SYS_lsetxattr,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_lstat,
 		libc::SYS_madvise,
+		libc::SYS_mbind,
 		libc::SYS_membarrier,
 		libc::SYS_memfd_create,
+		libc::SYS_memfd_secret,
 		libc::SYS_mincore,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_mkdir,
 		libc::SYS_mkdirat,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_mknod,
 		libc::SYS_mknodat,
 		libc::SYS_mlock,
 		libc::SYS_mlock2,
 		libc::SYS_mlockall,
 		libc::SYS_mmap,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_modify_ldt,
+		libc::SYS_mount,
+		libc::SYS_mount_setattr,
+		libc::SYS_move_mount,
 		libc::SYS_mprotect,
 		libc::SYS_mq_getsetattr,
 		libc::SYS_mq_notify,
@@ -339,6 +425,7 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_mq_timedsend,
 		libc::SYS_mq_unlink,
 		libc::SYS_mremap,
+		SYS_MSEAL,
 		libc::SYS_msgctl,
 		libc::SYS_msgget,
 		libc::SYS_msgrcv,
@@ -347,34 +434,62 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_munlock,
 		libc::SYS_munlockall,
 		libc::SYS_munmap,
+		libc::SYS_name_to_handle_at,
 		libc::SYS_nanosleep,
 		libc::SYS_newfstatat,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_open,
 		libc::SYS_openat,
 		libc::SYS_openat2,
+		libc::SYS_open_tree,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_pause,
+		libc::SYS_pidfd_getfd,
 		libc::SYS_pidfd_open,
 		libc::SYS_pidfd_send_signal,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_pipe,
 		libc::SYS_pipe2,
+		libc::SYS_pivot_root,
+		libc::SYS_pkey_alloc,
+		libc::SYS_pkey_free,
+		libc::SYS_pkey_mprotect,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_poll,
 		libc::SYS_ppoll,
 		libc::SYS_prctl,
 		libc::SYS_pread64,
 		libc::SYS_preadv,
 		libc::SYS_preadv2,
 		libc::SYS_prlimit64,
+		libc::SYS_process_mrelease,
+		libc::SYS_process_vm_readv,
+		libc::SYS_process_vm_writev,
 		libc::SYS_pselect6,
+		libc::SYS_ptrace,
 		libc::SYS_pwrite64,
 		libc::SYS_pwritev,
 		libc::SYS_pwritev2,
 		libc::SYS_read,
 		libc::SYS_readahead,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_readlink,
 		libc::SYS_readlinkat,
 		libc::SYS_readv,
-		libc::SYS_recvmmsg,
+		libc::SYS_reboot,
 		libc::SYS_recvfrom,
+		libc::SYS_recvmmsg,
 		libc::SYS_recvmsg,
 		libc::SYS_remap_file_pages,
 		libc::SYS_removexattr,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_rename,
+		#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+		libc::SYS_renameat,
 		libc::SYS_renameat2,
 		libc::SYS_restart_syscall,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_rmdir,
 		libc::SYS_rseq,
 		libc::SYS_rt_sigaction,
 		libc::SYS_rt_sigpending,
@@ -397,6 +512,8 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_sched_setscheduler,
 		libc::SYS_sched_yield,
 		libc::SYS_seccomp,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_select,
 		libc::SYS_semctl,
 		libc::SYS_semget,
 		libc::SYS_semop,
@@ -410,15 +527,19 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_setgid,
 		libc::SYS_setgroups,
 		libc::SYS_setitimer,
+		libc::SYS_set_mempolicy,
 		libc::SYS_setpgid,
 		libc::SYS_setpriority,
 		libc::SYS_setregid,
 		libc::SYS_setresgid,
 		libc::SYS_setresuid,
 		libc::SYS_setreuid,
+		libc::SYS_setrlimit,
 		libc::SYS_set_robust_list,
 		libc::SYS_setsid,
 		libc::SYS_setsockopt,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_set_thread_area,
 		libc::SYS_set_tid_address,
 		libc::SYS_setuid,
 		libc::SYS_setxattr,
@@ -428,94 +549,58 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_shmget,
 		libc::SYS_shutdown,
 		libc::SYS_sigaltstack,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_signalfd,
 		libc::SYS_signalfd4,
 		libc::SYS_socketpair,
 		libc::SYS_splice,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_stat,
 		libc::SYS_statfs,
 		libc::SYS_statx,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_symlink,
 		libc::SYS_symlinkat,
 		libc::SYS_sync,
+		libc::SYS_sync_file_range,
 		libc::SYS_syncfs,
 		libc::SYS_sysinfo,
+		libc::SYS_syslog,
 		libc::SYS_tee,
 		libc::SYS_tgkill,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_time,
 		libc::SYS_timer_create,
 		libc::SYS_timer_delete,
-		libc::SYS_timer_getoverrun,
-		libc::SYS_timer_gettime,
-		libc::SYS_timer_settime,
 		libc::SYS_timerfd_create,
 		libc::SYS_timerfd_gettime,
 		libc::SYS_timerfd_settime,
+		libc::SYS_timer_getoverrun,
+		libc::SYS_timer_gettime,
+		libc::SYS_timer_settime,
 		libc::SYS_times,
 		libc::SYS_tkill,
 		libc::SYS_truncate,
 		libc::SYS_umask,
+		libc::SYS_umount2,
 		libc::SYS_uname,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_unlink,
 		libc::SYS_unlinkat,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_utime,
 		libc::SYS_utimensat,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_utimes,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_vfork,
 		libc::SYS_wait4,
 		libc::SYS_waitid,
 		libc::SYS_write,
 		libc::SYS_writev,
-	];
-	let mut syscalls = syscalls.map(syscall_number).to_vec();
-
-	// Add the architecture-specific syscall numbers.
-	#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-	syscalls.extend(
-		[
-			libc::SYS_memfd_secret,
-			libc::SYS_mseal,
-			libc::SYS_process_mrelease,
-		]
-		.map(syscall_number),
-	);
-	#[cfg(target_arch = "x86_64")]
-	syscalls.extend(
-		[
-			libc::SYS_access,
-			libc::SYS_alarm,
-			libc::SYS_arch_prctl,
-			libc::SYS_chmod,
-			libc::SYS_chown,
-			libc::SYS_creat,
-			libc::SYS_dup2,
-			libc::SYS_epoll_create,
-			libc::SYS_epoll_wait,
-			libc::SYS_eventfd,
-			libc::SYS_fork,
-			libc::SYS_getdents,
-			libc::SYS_getrlimit,
-			libc::SYS_inotify_init,
-			libc::SYS_lchown,
-			libc::SYS_link,
-			libc::SYS_lstat,
-			libc::SYS_mkdir,
-			libc::SYS_open,
-			libc::SYS_pause,
-			libc::SYS_pipe,
-			libc::SYS_poll,
-			libc::SYS_readlink,
-			libc::SYS_rename,
-			libc::SYS_renameat,
-			libc::SYS_rmdir,
-			libc::SYS_select,
-			libc::SYS_setrlimit,
-			libc::SYS_signalfd,
-			libc::SYS_stat,
-			libc::SYS_sync_file_range,
-			libc::SYS_symlink,
-			libc::SYS_time,
-			libc::SYS_unlink,
-			libc::SYS_utime,
-			libc::SYS_utimes,
-			libc::SYS_vfork,
-		]
-		.map(syscall_number),
-	);
-
-	syscalls
+	]
+	.map(syscall_number)
+	.to_vec()
 }
 
 #[cfg(not(any(
@@ -524,6 +609,71 @@ fn allowed_syscalls() -> Vec<u32> {
 	target_arch = "x86_64"
 )))]
 fn allowed_syscalls() -> Vec<u32> {
+	Vec::new()
+}
+
+#[cfg(any(
+	target_arch = "aarch64",
+	target_arch = "riscv64",
+	target_arch = "x86_64"
+))]
+fn denied_syscalls() -> Vec<u32> {
+	[
+		libc::SYS_acct,
+		libc::SYS_bpf,
+		SYS_CACHESTAT,
+		libc::SYS_clock_settime,
+		libc::SYS_delete_module,
+		libc::SYS_finit_module,
+		SYS_FUTEX_REQUEUE,
+		SYS_FUTEX_WAIT,
+		SYS_FUTEX_WAKE,
+		libc::SYS_init_module,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_ioperm,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_iopl,
+		libc::SYS_kcmp,
+		#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+		libc::SYS_kexec_file_load,
+		libc::SYS_kexec_load,
+		libc::SYS_lookup_dcookie,
+		SYS_MAP_SHADOW_STACK,
+		libc::SYS_migrate_pages,
+		libc::SYS_move_pages,
+		libc::SYS_nfsservctl,
+		libc::SYS_open_by_handle_at,
+		libc::SYS_perf_event_open,
+		libc::SYS_process_madvise,
+		libc::SYS_quotactl,
+		libc::SYS_quotactl_fd,
+		libc::SYS_setdomainname,
+		libc::SYS_sethostname,
+		libc::SYS_setns,
+		libc::SYS_settimeofday,
+		libc::SYS_swapoff,
+		libc::SYS_swapon,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_sysfs,
+		libc::SYS_unshare,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_uselib,
+		libc::SYS_userfaultfd,
+		#[cfg(target_arch = "x86_64")]
+		libc::SYS_ustat,
+		libc::SYS_vhangup,
+		libc::SYS_vmsplice,
+	]
+	.map(syscall_number)
+	.to_vec()
+}
+
+#[cfg(not(any(
+	target_arch = "aarch64",
+	target_arch = "riscv64",
+	target_arch = "x86_64"
+)))]
+fn denied_syscalls() -> Vec<u32> {
 	Vec::new()
 }
 
@@ -590,19 +740,78 @@ mod tests {
 				Some(libc::EPERM)
 			);
 
-			let result =
-				unsafe { libc::syscall(libc::SYS_io_uring_setup, 0, std::ptr::null::<u8>()) };
+			let result = unsafe { libc::syscall(libc::SYS_unshare, libc::CLONE_NEWUSER) };
 			assert_eq!(result, -1);
 			assert_eq!(
 				std::io::Error::last_os_error().raw_os_error(),
 				Some(libc::EPERM)
 			);
 
+			// Report an unlisted syscall as unavailable.
+			let result =
+				unsafe { libc::syscall(libc::SYS_io_uring_setup, 0, std::ptr::null::<u8>()) };
+			assert_eq!(result, -1);
+			assert_eq!(
+				std::io::Error::last_os_error().raw_os_error(),
+				Some(libc::ENOSYS)
+			);
+
+			// Query the memory policy, which is allowed on every architecture.
+			let result = unsafe {
+				libc::syscall(
+					libc::SYS_get_mempolicy,
+					std::ptr::null_mut::<libc::c_int>(),
+					std::ptr::null_mut::<libc::c_ulong>(),
+					0,
+					std::ptr::null_mut::<u8>(),
+					0,
+				)
+			};
+			assert_eq!(result, 0);
+
 			let result = unsafe { libc::syscall(libc::SYS_clone3, std::ptr::null::<u8>(), 0) };
 			assert_eq!(result, -1);
 			assert_eq!(
 				std::io::Error::last_os_error().raw_os_error(),
 				Some(libc::ENOSYS)
+			);
+
+			// Exercise the legacy syscalls because libc may use prlimit64 instead.
+			let mut limit = libc::rlimit {
+				rlim_cur: 0,
+				rlim_max: 0,
+			};
+			// SAFETY: The pointer refers to valid storage for the resource limit.
+			let result =
+				unsafe { libc::syscall(libc::SYS_getrlimit, libc::RLIMIT_STACK, &raw mut limit) };
+			assert_eq!(result, 0);
+			// SAFETY: The pointer refers to the resource limit initialized by getrlimit.
+			let result =
+				unsafe { libc::syscall(libc::SYS_setrlimit, libc::RLIMIT_STACK, &raw const limit) };
+			assert_eq!(result, 0);
+
+			// Flush a file range.
+			let temp = tangram_util::fs::Temp::new().unwrap();
+			let file = std::fs::File::create(temp.path()).unwrap();
+			let fd = std::os::fd::AsRawFd::as_raw_fd(&file);
+			// SAFETY: The descriptor refers to the open file.
+			let result = unsafe { libc::sync_file_range(fd, 0, 0, libc::SYNC_FILE_RANGE_WRITE) };
+			assert_eq!(result, 0);
+
+			// Change a file mode with fchmodat2, which libc does not define on every architecture.
+			let path = std::ffi::CString::new(temp.path().as_os_str().as_encoded_bytes()).unwrap();
+			// SAFETY: The path is a valid terminated string.
+			let result =
+				unsafe { libc::syscall(SYS_FCHMODAT2, libc::AT_FDCWD, path.as_ptr(), 0o644, 0) };
+			assert_eq!(result, 0);
+
+			// Deny a syscall that libc does not define on every architecture.
+			// SAFETY: futex_wake takes scalar arguments and the null address is not dereferenced.
+			let result = unsafe { libc::syscall(SYS_FUTEX_WAKE, std::ptr::null::<u8>(), 0, 1, 0) };
+			assert_eq!(result, -1);
+			assert_eq!(
+				std::io::Error::last_os_error().raw_os_error(),
+				Some(libc::EPERM)
 			);
 
 			assert!(unsafe { libc::getpid() } > 0);
