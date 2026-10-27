@@ -17,7 +17,7 @@ struct IptablesRule {
 }
 
 #[derive(Debug)]
-pub(crate) struct IptablesRuleGuard {
+pub struct IptablesRuleGuard {
 	rule: IptablesRule,
 }
 
@@ -56,7 +56,7 @@ impl IptablesRuleGuard {
 /// may have left behind. If the `iptables` binary reports a permission error,
 /// log a warning and return Ok rather than failing; the server can still start
 /// without networking, and the operator may not have `CAP_NET_ADMIN`.
-pub(crate) fn cleanup_persistent_rules(bridge: Option<&str>) -> tg::Result<()> {
+pub fn cleanup_persistent_rules(bridge: Option<&str>) -> tg::Result<()> {
 	for rule in cleanup_persistent_rule_commands(bridge) {
 		let rule_args = rule.rule.iter().map(String::as_str).collect::<Vec<_>>();
 		delete_iptables_rule(rule.table, &rule_args)?;
@@ -67,7 +67,7 @@ pub(crate) fn cleanup_persistent_rules(bridge: Option<&str>) -> tg::Result<()> {
 	Ok(())
 }
 
-pub(crate) fn setup_tap_networking() -> tg::Result<()> {
+pub fn setup_tap_networking() -> tg::Result<()> {
 	if let Err(error) = cleanup_persistent_rules(None) {
 		tracing::warn!(%error, "failed to clean up persistent sandbox rules");
 	}
@@ -114,11 +114,7 @@ pub(crate) fn setup_tap_networking() -> tg::Result<()> {
 	Ok(())
 }
 
-pub(crate) fn setup_bridge_networking(
-	bridge: &str,
-	addr: Ipv4Addr,
-	dns: &[Ipv4Addr],
-) -> tg::Result<()> {
+pub fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr, dns: &[Ipv4Addr]) -> tg::Result<()> {
 	if let Err(error) = cleanup_persistent_rules(Some(bridge)) {
 		tracing::warn!(%error, "failed to clean up persistent sandbox rules");
 	}
@@ -291,7 +287,7 @@ fn private_networks() -> &'static [&'static str] {
 	]
 }
 
-pub(crate) fn setup_port_forwarding() -> tg::Result<()> {
+pub fn setup_port_forwarding() -> tg::Result<()> {
 	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
 	SETUP.get_or_init(setup_port_forwarding_inner).clone()
 }
@@ -427,7 +423,7 @@ fn flush_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
 	Err(tg::error!(%stderr, %chain, "failed to flush the iptables chain"))
 }
 
-pub(crate) fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
+pub fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 	let mut check = iptables_args(table, "-C");
 	check.extend_from_slice(rule);
 	let output = std::process::Command::new("iptables")
@@ -474,7 +470,7 @@ fn replace_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 	insert_iptables_rule(table, rule)
 }
 
-pub(crate) fn add_port_forwarding_rules(
+pub fn add_port_forwarding_rules(
 	index: u64,
 	_identity: &std::path::Path,
 	out_interface: &str,

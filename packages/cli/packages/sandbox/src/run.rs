@@ -86,7 +86,7 @@ pub struct Options {
 	pub filesystem_path: Option<PathBuf>,
 
 	#[arg(long)]
-	pub firewall: Option<tangram_sandbox::Firewall>,
+	pub firewall: Option<tangram_sandbox::network::Firewall>,
 
 	#[arg(long)]
 	pub fuse_fd: Option<i32>,

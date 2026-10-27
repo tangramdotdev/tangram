@@ -885,10 +885,10 @@ impl Component {
 			#[cfg(target_os = "linux")]
 			firewall: match config.network.firewall {
 				tangram_server_core::config::SandboxNetworkFirewall::Iptables => {
-					tangram_sandbox::Firewall::Iptables
+					tangram_sandbox::network::Firewall::Iptables
 				},
 				tangram_server_core::config::SandboxNetworkFirewall::Nft => {
-					tangram_sandbox::Firewall::Nft
+					tangram_sandbox::network::Firewall::Nft
 				},
 			},
 

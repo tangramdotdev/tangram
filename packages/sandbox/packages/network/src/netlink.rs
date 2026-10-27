@@ -87,7 +87,6 @@ impl Netlink {
 			.map_err(|error| tg::error!(!error, "failed to link delete"))
 	}
 
-	#[expect(clippy::unused_self)]
 	pub fn link_exists(&mut self, name: &str) -> tg::Result<bool> {
 		let c = CString::new(name)
 			.map_err(|error| tg::error!(!error, %name, "invalid interface name"))?;

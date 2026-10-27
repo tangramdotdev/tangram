@@ -30,7 +30,7 @@ const TANGRAM_BRIDGE_MASQUERADE_COMMENT: &str = "tangram:bridge:masquerade";
 const TANGRAM_TAP_FORWARD_IN_COMMENT: &str = "tangram:tap:forward-in";
 const TANGRAM_TAP_FORWARD_OUT_COMMENT: &str = "tangram:tap:forward-out";
 const TANGRAM_TAP_MASQUERADE_COMMENT: &str = "tangram:tap:masquerade";
-pub(crate) const TAP_INTERFACE_NAME_PREFIX: &str = "tg-";
+pub const TAP_INTERFACE_NAME_PREFIX: &str = "tg-";
 
 #[derive(Debug)]
 struct NftRule {
@@ -40,7 +40,7 @@ struct NftRule {
 }
 
 #[derive(Debug)]
-pub(crate) struct FirewallRuleGuard {
+pub struct FirewallRuleGuard {
 	rule: NftRule,
 }
 
@@ -88,7 +88,7 @@ impl FirewallRuleGuard {
 	}
 }
 
-pub(crate) fn setup_tap_networking() -> tg::Result<()> {
+pub fn setup_tap_networking() -> tg::Result<()> {
 	let interface = format!("{TAP_INTERFACE_NAME_PREFIX}*");
 	setup_firewall()?;
 	replace_nft_rule(
@@ -109,11 +109,7 @@ pub(crate) fn setup_tap_networking() -> tg::Result<()> {
 	Ok(())
 }
 
-pub(crate) fn setup_bridge_networking(
-	bridge: &str,
-	addr: Ipv4Addr,
-	dns: &[Ipv4Addr],
-) -> tg::Result<()> {
+pub fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr, dns: &[Ipv4Addr]) -> tg::Result<()> {
 	let octets = addr.octets();
 	let subnet = Ipv4Addr::new(octets[0], octets[1], 0, 0);
 	let cidr = format!("{subnet}/16");
@@ -188,7 +184,7 @@ pub(crate) fn setup_bridge_networking(
 	Ok(())
 }
 
-pub(crate) fn add_port_forwarding_rules(
+pub fn add_port_forwarding_rules(
 	index: u64,
 	identity: &Path,
 	out_interface: &str,

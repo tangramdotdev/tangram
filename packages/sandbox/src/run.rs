@@ -716,7 +716,7 @@ fn setup_network(arg: &Options) -> tg::Result<()> {
 			if let Some(Network::Veth { gateway, guest, .. }) = &arg.network {
 				let suffix = format!("{:09}", arg.index % 1_000_000_000);
 				let name = format!("tg-vc-{suffix}");
-				let mut nl = crate::netlink::Netlink::new()?;
+				let mut nl = crate::network::netlink::Netlink::new()?;
 				nl.link_rename(&name, "eth0")?;
 				crate::network::host::disable_ipv6("eth0")?;
 				nl.addr_add_v4("eth0", *guest, 16)?;

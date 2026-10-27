@@ -10594,7 +10594,6 @@ dependencies = [
  "libc",
  "log",
  "mime",
- "neli",
  "num",
  "rand 0.10.3",
  "rustix 1.1.5",
@@ -10604,6 +10603,7 @@ dependencies = [
  "tangram_client",
  "tangram_futures",
  "tangram_http",
+ "tangram_sandbox_network",
  "tangram_uri",
  "tangram_util",
  "tangram_vfs",
@@ -10616,6 +10616,20 @@ dependencies = [
  "vhost-user-backend",
  "virtiofsd",
  "vm-memory",
+]
+
+[[package]]
+name = "tangram_sandbox_network"
+version = "0.0.0"
+dependencies = [
+ "derive_more",
+ "libc",
+ "neli",
+ "rand 0.10.3",
+ "serde",
+ "tangram_client",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

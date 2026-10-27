@@ -24,8 +24,8 @@ struct Range {
 	next: u32,
 }
 
-pub(crate) struct Lease {
-	pub(crate) addr: Ipv4Addr,
+pub struct Lease {
+	pub addr: Ipv4Addr,
 	#[expect(dead_code)]
 	block: Arc<Block>,
 }
@@ -52,13 +52,13 @@ impl Pool {
 		}
 	}
 
-	pub(crate) fn try_reserve_in(&self, min: Ipv4Addr, max: Ipv4Addr) -> tg::Result<Lease> {
+	pub fn try_reserve_in(&self, min: Ipv4Addr, max: Ipv4Addr) -> tg::Result<Lease> {
 		let block = Arc::new(self.reserve_block(Some((min.to_bits(), max.to_bits())))?);
 		let addr = Ipv4Addr::from_bits(block.base + 1);
 		Ok(Lease { addr, block })
 	}
 
-	pub(crate) fn try_reserve_pair(&self) -> tg::Result<(Lease, Lease)> {
+	pub fn try_reserve_pair(&self) -> tg::Result<(Lease, Lease)> {
 		let block = Arc::new(self.reserve_block(None)?);
 		let host = Lease {
 			addr: Ipv4Addr::from_bits(block.base + 1),

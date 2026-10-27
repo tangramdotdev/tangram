@@ -423,7 +423,12 @@ pub(crate) async fn spawn(
 		} else {
 			cgroup.handle()?
 		};
-		network.start_netns(pid, &pasta_cgroup).await?;
+		let directory = pasta_cgroup.open_fd()?;
+		network
+			.start_netns(pid, |command| {
+				crate::cgroup::enter_before_exec(command, directory.as_raw_fd());
+			})
+			.await?;
 	}
 	if let Some(veth) = veth.as_mut() {
 		drop(veth.guest_pipe.take());
