@@ -4,7 +4,19 @@ use ../lib/test.nu *
 
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux CPU limits' }
 
-let cpus = sys cpu | length
+# Count the CPUs in the effective cpuset of the cgroup parent that holds the sandboxes, which an unlimited sandbox may use.
+mut cgroup = container_cgroup_parent [cpu memory pids] | path expand
+while not ($cgroup | path join cpuset.cpus.effective | path exists) {
+	if $cgroup == '/sys/fs/cgroup' {
+		skip_test 'this test requires the cpuset controller in the cgroup hierarchy'
+	}
+	$cgroup = $cgroup | path dirname
+}
+let cpus = open --raw ($cgroup | path join cpuset.cpus.effective)
+	| str trim
+	| split row ','
+	| each {|range| let bounds = $range | split row '-' | into int; ($bounds | last) - ($bounds | first) + 1 }
+	| math sum
 if $cpus < 3 {
 	skip_test 'this test requires at least three CPUs'
 }
