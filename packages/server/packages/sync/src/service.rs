@@ -18,12 +18,7 @@ mod tests;
 /// The handle with which a sync tells its service that it finished.
 #[derive(Clone)]
 pub(super) struct Handle {
-	sender: tokio::sync::mpsc::UnboundedSender<Event>,
-}
-
-pub(super) enum Event {
-	Finish(tg::Result<()>),
-	Nodes(Vec<tg::Id>),
+	sender: tokio::sync::mpsc::UnboundedSender<tg::Result<()>>,
 }
 
 /// A request that waits until the sync can answer it.
@@ -46,7 +41,7 @@ pub(crate) struct Observer {
 
 impl Handle {
 	pub fn finish(&self, result: tg::Result<()>) {
-		self.sender.send(Event::Finish(result)).ok();
+		self.sender.send(result).ok();
 	}
 }
 
@@ -64,12 +59,10 @@ impl Component {
 		graph: Arc<Mutex<Graph>>,
 		id: &tg::sync::Id,
 	) -> Handle {
-		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+		let (sender, finish) = tokio::sync::mpsc::unbounded_channel();
 		let handle = Handle { sender };
-		graph
-			.lock()
-			.unwrap()
-			.set_changed(create_changed_callback(handle.sender.downgrade()));
+		let (nodes_sender, nodes) = tokio::sync::mpsc::unbounded_channel();
+		graph.lock().unwrap().set_changed(nodes_sender.downgrade());
 		let subject = subject(id);
 		self.service_tasks
 			.spawn({
@@ -77,8 +70,11 @@ impl Component {
 				let server = session.server.clone();
 				move |stopper| async move {
 					let result = component
-						.sync_service_task(&server, subject, graph, receiver, stopper)
+						.sync_service_task(&server, subject, graph, finish, nodes, stopper)
 						.await;
+
+					// Close the graph's node notifications once the service stops.
+					drop(nodes_sender);
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "the sync service task failed");
 					}
@@ -129,7 +125,8 @@ impl Component {
 		server: &Server,
 		subject: String,
 		graph: Arc<Mutex<Graph>>,
-		mut events: tokio::sync::mpsc::UnboundedReceiver<Event>,
+		mut finish: tokio::sync::mpsc::UnboundedReceiver<tg::Result<()>>,
+		mut nodes: tokio::sync::mpsc::UnboundedReceiver<Vec<tg::Id>>,
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		// Start answering the sync's verification requests.
@@ -146,7 +143,7 @@ impl Component {
 		let mut retained = BTreeMap::<tg::Id, Vec<Retained>>::new();
 		let mut prune = tokio::time::interval(options.retry_interval);
 		prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-		let mut events_closed = false;
+		let mut finish_closed = false;
 		let mut stopping_at = None;
 		loop {
 			tokio::select! {
@@ -155,27 +152,24 @@ impl Component {
 					let error = tg::error!(code = tg::error::Code::Cancellation, "the server is stopping");
 					self.sync_service_finish(server, &graph, &mut finished, &mut retained, Err(error)).await;
 				},
-				event = events.recv(), if !events_closed => {
-					match event {
-						Some(Event::Finish(result)) => {
-							self.sync_service_finish(server, &graph, &mut finished, &mut retained, result).await;
-						},
-						Some(Event::Nodes(ids)) => {
-							for id in ids {
-								let Some(requests) = retained.remove(&id) else {
-									continue;
-								};
-								let requests = Self::sync_service_answer(server, &graph, finished.as_ref(), requests);
-								if !requests.is_empty() {
-									retained.insert(id, requests);
-								}
-							}
-						},
-						None => {
-							events_closed = true;
-							let error = tg::error!(code = tg::error::Code::Cancellation, "the sync was cancelled");
-							self.sync_service_finish(server, &graph, &mut finished, &mut retained, Err(error)).await;
-						},
+				result = finish.recv(), if !finish_closed => {
+					let result = if let Some(result) = result {
+						result
+					} else {
+						finish_closed = true;
+						Err(tg::error!(code = tg::error::Code::Cancellation, "the sync was cancelled"))
+					};
+					self.sync_service_finish(server, &graph, &mut finished, &mut retained, result).await;
+				},
+				Some(ids) = nodes.recv() => {
+					for id in ids {
+						let Some(requests) = retained.remove(&id) else {
+							continue;
+						};
+						let requests = Self::sync_service_answer(server, &graph, finished.as_ref(), requests);
+						if !requests.is_empty() {
+							retained.insert(id, requests);
+						}
 					}
 				},
 				incoming = service.next() => {
@@ -456,14 +450,4 @@ impl tangram_messenger::Payload for Response {
 
 fn subject(id: &tg::sync::Id) -> String {
 	format!("syncs.{id}.service")
-}
-
-fn create_changed_callback(
-	sender: tokio::sync::mpsc::WeakUnboundedSender<Event>,
-) -> crate::graph::Changed {
-	Box::new(move |nodes| {
-		if let Some(sender) = sender.upgrade() {
-			sender.send(Event::Nodes(nodes)).ok();
-		}
-	})
 }

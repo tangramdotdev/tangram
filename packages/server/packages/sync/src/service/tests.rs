@@ -1,5 +1,4 @@
 use {
-	super::Event,
 	crate::{
 		Component,
 		graph::{Graph, UpdateObjectLocalArg},
@@ -14,7 +13,7 @@ fn empty_requests_are_notified_when_a_child_enters_the_graph() {
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);
 	let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-	graph.set_changed(super::create_changed_callback(sender.downgrade()));
+	graph.set_changed(sender.downgrade());
 	let parent: tg::object::Id = tg::blob::Id::new(b"parent").into();
 	let child = tg::blob::Id::new(b"child");
 	let request = protocol::Arg {
@@ -47,9 +46,7 @@ fn empty_requests_are_notified_when_a_child_enters_the_graph() {
 		storage: None,
 	};
 	graph.update_object_local(update);
-	let Event::Nodes(nodes) = receiver.try_recv().unwrap() else {
-		panic!("expected node notifications")
-	};
+	let nodes = receiver.try_recv().unwrap();
 	assert!(nodes.contains(&request.node));
 	let output = graph
 		.try_verify_node_local_service_output(&request)
@@ -134,7 +131,7 @@ fn graph_notifies_ancestors_and_inherited_children_without_retaining_control() {
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);
 	let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-	graph.set_changed(super::create_changed_callback(sender.downgrade()));
+	graph.set_changed(sender.downgrade());
 	let parent: tg::object::Id = tg::blob::Id::new(b"parent").into();
 	let child = tg::blob::Id::new(b"child");
 	let data = tg::object::Data::Blob(tg::blob::Data::Branch(tg::blob::data::Branch {
@@ -166,9 +163,7 @@ fn graph_notifies_ancestors_and_inherited_children_without_retaining_control() {
 	graph
 		.update_node_local_service_output(&child.clone().into(), &output)
 		.unwrap();
-	let Event::Nodes(nodes) = receiver.try_recv().unwrap() else {
-		panic!("expected node notifications")
-	};
+	let nodes = receiver.try_recv().unwrap();
 	assert!(nodes.contains(&parent.clone().into()));
 	assert!(nodes.contains(&child.clone().into()));
 	let permissions = tg::authorization::permission::Set::Object(
@@ -181,9 +176,7 @@ fn graph_notifies_ancestors_and_inherited_children_without_retaining_control() {
 	);
 	let descendant: tg::object::Id = tg::blob::Id::new(b"descendant").into();
 	graph.update_object_remote(false, &descendant, Some(parent.into()), None, None);
-	let Event::Nodes(nodes) = receiver.try_recv().unwrap() else {
-		panic!("expected node notifications")
-	};
+	let nodes = receiver.try_recv().unwrap();
 	assert!(nodes.contains(&descendant.clone().into()));
 	assert!(
 		graph

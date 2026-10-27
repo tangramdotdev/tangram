@@ -11855,6 +11855,7 @@ dependencies = [
  "tangram_index",
  "tangram_serialize",
  "tangram_util",
+ "tokio",
 ]
 
 [[package]]

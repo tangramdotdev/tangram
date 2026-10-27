@@ -13,12 +13,9 @@ mod state;
 #[cfg(test)]
 mod tests;
 
-/// A callback that receives the nodes whose local state changed.
-pub type Changed = Box<dyn Fn(Vec<tg::Id>) + Send>;
-
 /// The graph settles local proofs and derived metadata before each update returns; it publishes derived metadata only after the complete dependency set and the required facts are known.
 pub struct Graph {
-	changed: Option<Changed>,
+	changed: Option<tokio::sync::mpsc::WeakUnboundedSender<Vec<tg::Id>>>,
 	checkout_contained_blobs: HashSet<tg::blob::Id, tg::id::BuildHasher>,
 	checkout_files: BTreeMap<tg::blob::Id, Vec<CheckoutFile>>,
 	checkout_graph_offsets: HashMap<tg::graph::Id, (tg::graph::Id, usize), tg::id::BuildHasher>,
@@ -1535,7 +1532,7 @@ impl Graph {
 		self.get_local_authorization(index, required)
 	}
 
-	pub fn set_changed(&mut self, changed: Changed) {
+	pub fn set_changed(&mut self, changed: tokio::sync::mpsc::WeakUnboundedSender<Vec<tg::Id>>) {
 		self.changed = Some(changed);
 	}
 

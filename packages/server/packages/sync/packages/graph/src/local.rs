@@ -208,10 +208,13 @@ impl Graph {
 			}
 			self.update_local_end(index);
 		}
-		if let Some(callback) = &self.changed
+		if let Some(sender) = self
+			.changed
+			.as_ref()
+			.and_then(tokio::sync::mpsc::WeakUnboundedSender::upgrade)
 			&& !changed.is_empty()
 		{
-			callback(changed.into_iter().collect());
+			sender.send(changed.into_iter().collect()).ok();
 		}
 	}
 
