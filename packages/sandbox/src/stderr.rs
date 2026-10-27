@@ -1,13 +1,10 @@
 use {
-	std::{collections::VecDeque, sync::Arc, time::Duration},
+	std::{collections::VecDeque, sync::Arc},
 	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
 };
 
 /// The number of trailing bytes of the sandbox process's stderr to retain.
 const CAPACITY: usize = 4096;
-
-/// The duration to wait for the sandbox process's stderr to end after the process exits.
-const TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(crate) struct Stderr {
 	ended: tokio::sync::watch::Receiver<bool>,
@@ -40,12 +37,10 @@ impl Stderr {
 		Self { ended, tail }
 	}
 
-	/// Get the tail of the sandbox process's stderr after it ends or the timeout elapses.
+	/// Get the tail of the sandbox process's stderr after it ends.
 	pub(crate) async fn tail(&self) -> String {
 		let mut ended = self.ended.clone();
-		tokio::time::timeout(TIMEOUT, ended.wait_for(|ended| *ended))
-			.await
-			.ok();
+		ended.wait_for(|ended| *ended).await.ok();
 		let tail = self.tail.lock().unwrap();
 		let (front, back) = tail.as_slices();
 		let bytes = [front, back].concat();

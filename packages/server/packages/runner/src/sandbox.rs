@@ -304,7 +304,10 @@ impl Component {
 		let result = if session.server.shutdown.borrow().is_some() {
 			Err(tg::error!("the server is shutting down"))
 		} else {
-			self.sandbox_task_with_id(session, task_arg).boxed().await
+			std::panic::AssertUnwindSafe(self.sandbox_task_with_id(session, task_arg).boxed())
+				.catch_unwind()
+				.await
+				.unwrap_or_else(|_| Err(tg::error!("the sandbox task panicked")))
 		};
 		let Err(error) = result else {
 			return;
