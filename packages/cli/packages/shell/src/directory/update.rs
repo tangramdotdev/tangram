@@ -1,0 +1,88 @@
+use {
+	crate::{Kind, util::State},
+	std::collections::BTreeMap,
+	tangram_cli_core::Cli,
+	tangram_client::prelude::*,
+};
+
+/// Update the shell environment from the current directory configuration.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[arg(index = 1)]
+	pub shell: Kind,
+}
+
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let path = std::env::current_dir()
+		.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
+	let path = std::fs::canonicalize(path)
+		.map_err(|error| tg::error!(!error, "failed to canonicalize the current directory"))?;
+	let directory = crate::util::get_shell_directory(cli, &path)?;
+	let shell_state_path = std::env::var("TANGRAM_SHELL_STATE").ok();
+	let state = shell_state_path
+		.as_deref()
+		.map(crate::util::load_shell_state)
+		.transpose()?
+		.flatten();
+	let mut current = std::env::vars().collect::<BTreeMap<_, _>>();
+	let mut output = String::new();
+
+	let Some((directory_path, desired)) = directory else {
+		if state.as_ref().is_some_and(|state| state.directory) {
+			let deactivate = crate::util::deactivate_shell()?
+				.ok_or_else(|| tg::error!("expected an active shell environment"))?;
+			let code = crate::util::create_shell_code(args.shell, &deactivate.mutations);
+			output.push_str(&code);
+			let code = crate::util::create_shell_state_code(args.shell, None);
+			output.push_str(&code);
+			print!("{output}");
+			cli.print_info_message(&format!("deactivated {}", deactivate.reference));
+			crate::util::print_shell_preserved_variable_messages(&deactivate.preserved);
+		}
+		return Ok(());
+	};
+	let directory = directory_path
+		.to_str()
+		.ok_or_else(|| tg::error!("the directory path is not valid UTF-8"))?
+		.to_owned();
+	let reference = format!("{directory}#{}", desired.export)
+		.parse::<tg::Reference>()
+		.map_err(|error| tg::error!(!error, "failed to parse the shell directory reference"))?;
+
+	if state
+		.as_ref()
+		.is_some_and(|state| state.directory && state.reference == reference)
+	{
+		return Ok(());
+	}
+
+	if state.is_some() {
+		let deactivate = crate::util::deactivate_shell()?
+			.ok_or_else(|| tg::error!("expected an active shell environment"))?;
+		let code = crate::util::create_shell_code(args.shell, &deactivate.mutations);
+		output.push_str(&code);
+		crate::util::apply_shell_mutations(&mut current, &deactivate.mutations);
+		crate::util::print_shell_preserved_variable_messages(&deactivate.preserved);
+	}
+
+	let path = crate::util::build_shell_executable(cli, &reference).await?;
+	let env = crate::util::run_shell_executable(&path).await?;
+	let (activate, previous, current) = crate::util::create_shell_mutations(&current, &env);
+	let code = crate::util::create_shell_code(args.shell, &activate);
+	output.push_str(&code);
+	let state_path = crate::util::shell_state_path()?;
+	let state = State {
+		current,
+		directory: true,
+		previous,
+		reference: reference.clone(),
+	};
+	crate::util::write_shell_state(&state_path, &state)?;
+	let code = crate::util::create_shell_state_code(args.shell, Some(&state_path));
+	output.push_str(&code);
+	print!("{output}");
+	cli.print_info_message(&format!("activated {directory}"));
+
+	Ok(())
+}

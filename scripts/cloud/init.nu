@@ -21,9 +21,9 @@ def main [--fdb-cluster: path] {
 	$cluster | save -f ($directory | path join fdb.cluster)
 
 	createdb -U postgres -h 127.0.0.1 tangram_cloud
-	psql -U postgres -h 127.0.0.1 -d tangram_cloud -v ON_ERROR_STOP=1 -f packages/server/src/database/postgres.sql
+	psql -U postgres -h 127.0.0.1 -d tangram_cloud -v ON_ERROR_STOP=1 -f packages/server/packages/database/src/postgres.sql
 	^$scylla -e "create keyspace tangram_cloud with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-	^$scylla -k tangram_cloud -f packages/cache/scylla/schema.cql
+	^$scylla -k tangram_cloud -f packages/cache/packages/scylla/schema.cql
 
 	bytes build 0x[00 00 10 00] (random binary 16) | ^$tangram id | str trim | save -f ($directory | path join indexer)
 }

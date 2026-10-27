@@ -1,0 +1,47 @@
+use tangram_client::prelude::*;
+
+#[derive(Clone)]
+pub enum Billing {
+	Stripe(tangram_billing_stripe::Billing),
+}
+
+impl Billing {
+	#[must_use]
+	pub fn new(config: &tangram_server_core::config::Billing) -> Self {
+		Self::Stripe(tangram_billing_stripe::Billing::new(&config.stripe))
+	}
+}
+
+impl tangram_billing::Billing for Billing {
+	async fn create_customer(
+		&self,
+		arg: tangram_billing::customer::create::Arg,
+	) -> tg::Result<String> {
+		match self {
+			Self::Stripe(billing) => billing.create_customer(arg).await,
+		}
+	}
+
+	async fn create_management_url(&self, customer: &str) -> tg::Result<String> {
+		match self {
+			Self::Stripe(billing) => billing.create_management_url(customer).await,
+		}
+	}
+
+	async fn customer_ready(&self, customer: &str) -> tg::Result<bool> {
+		match self {
+			Self::Stripe(billing) => billing.customer_ready(customer).await,
+		}
+	}
+
+	fn try_parse_webhook(
+		&self,
+		headers: &http::HeaderMap,
+		body: &[u8],
+		now: i64,
+	) -> tg::Result<Option<tangram_billing::webhook::Event>> {
+		match self {
+			Self::Stripe(billing) => billing.try_parse_webhook(headers, body, now),
+		}
+	}
+}

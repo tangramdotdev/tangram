@@ -1,0 +1,33 @@
+[package]
+name = "tangram_server_write"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+fastcdc = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+itertools = { workspace = true }
+mime = { workspace = true }
+num = { workspace = true }
+serde_json = { workspace = true }
+tangram_client = { workspace = true }
+tangram_http = { workspace = true }
+tangram_index = { workspace = true }
+tangram_server_core = { workspace = true }
+tangram_util = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }

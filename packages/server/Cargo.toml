@@ -10,124 +10,72 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[package.metadata.cargo-shear]
-ignored = ["tokio-postgres"]
-
 [features]
-fjall = ["dep:tangram_cache_fjall"]
-foundationdb = [
-	"dep:tangram_index_fdb",
-	"tangram_sandbox/foundationdb",
-]
-javascript = ["tangram_compiler/javascript"]
-lmdb = ["dep:heed", "dep:tangram_cache_lmdb", "dep:tangram_index_lmdb"]
-nats = ["dep:async-nats", "dep:tangram_messenger_nats"]
-postgres = ["dep:tokio-postgres", "dep:tangram_database_postgres"]
-python = ["tangram_compiler/python"]
-rocksdb = ["dep:tangram_cache_rocksdb"]
-scylla = ["dep:tangram_cache_scylla"]
-sqlite = ["dep:rusqlite", "dep:tangram_database_sqlite"]
-tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls", "tangram_database_postgres?/tls"]
-tsrs = ["javascript", "tangram_compiler/tsrs"]
-turso = ["dep:turso", "dep:tangram_database_turso"]
-ty = ["python", "tangram_compiler/ty"]
-vsock = ["dep:tokio-vsock", "tangram_client/vsock", "tangram_sandbox/vsock"]
+fjall = ["tangram_server_core/fjall"]
+foundationdb = ["tangram_server_core/foundationdb"]
+javascript = ["tangram_server_core/javascript", "tangram_server_document/javascript", "tangram_server_module/javascript"]
+lmdb = ["tangram_server_core/lmdb", "tangram_server_vfs/lmdb"]
+nats = ["tangram_server_core/nats"]
+postgres = ["tangram_server_core/postgres"]
+python = ["tangram_server_core/python", "tangram_server_module/python"]
+rocksdb = ["tangram_server_core/rocksdb"]
+scylla = ["tangram_server_core/scylla"]
+sqlite = ["tangram_server_core/sqlite"]
+tls = ["tangram_server_core/tls"]
+tsrs = ["javascript", "tangram_server_core/tsrs"]
+turso = ["tangram_server_core/turso"]
+ty = ["python", "tangram_server_core/ty"]
+vsock = ["tangram_server_core/vsock", "tangram_server_runner/vsock"]
 
 [lib]
 doctest = false
-test = true
 
 [lints]
 workspace = true
 
 [dependencies]
-async-broadcast = { workspace = true }
-async-channel = { workspace = true }
-async-nats = { workspace = true, optional = true }
-aws-lc-rs = { workspace = true }
-blake3 = { workspace = true }
-bytes = { workspace = true }
-crossterm = { workspace = true }
-dashmap = { workspace = true }
-data-encoding = { workspace = true }
-data-encoding-macro = { workspace = true }
-derive_more = { workspace = true }
-fastcdc = { workspace = true }
-fnv = { workspace = true }
 futures = { workspace = true }
-http = { workspace = true }
-hyper = { workspace = true }
-hyper-util = { workspace = true }
-heed = { workspace = true, optional = true }
-im = { workspace = true }
-indexmap = { workspace = true }
-indoc = { workspace = true }
-itertools = { workspace = true }
-jiff = { workspace = true }
-libc = { workspace = true }
-mime = { workspace = true }
-moka = { workspace = true }
-notify = { workspace = true }
-num = { workspace = true }
-opentelemetry = { workspace = true }
-octocrab = { workspace = true }
-oauth2 = { workspace = true }
-petgraph = { workspace = true }
-rand = { workspace = true }
-reflink-copy = { workspace = true }
-reqwest = { workspace = true }
-rustls = { workspace = true, optional = true }
-rustls-pemfile = { workspace = true, optional = true }
-rusqlite = { workspace = true, optional = true }
-rustix = { workspace = true }
-scopeguard = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-serde_with = { workspace = true }
-smallvec = { workspace = true }
-sync_wrapper = { workspace = true }
-tangram_archive = { workspace = true }
-tangram_archive_s3 = { workspace = true }
-tangram_billing = { workspace = true }
-tangram_billing_stripe = { workspace = true }
-tangram_cache = { workspace = true }
-tangram_cache_fjall = { workspace = true, optional = true }
-tangram_cache_lmdb = { workspace = true, optional = true }
-tangram_cache_memory = { workspace = true }
-tangram_cache_rocksdb = { workspace = true, optional = true }
-tangram_cache_scylla = { workspace = true, optional = true }
 tangram_client = { workspace = true }
-tangram_compiler = { workspace = true }
-tangram_database = { workspace = true }
-tangram_database_postgres = { workspace = true, optional = true }
-tangram_database_sqlite = { workspace = true, optional = true }
-tangram_database_turso = { workspace = true, optional = true }
-tangram_futures = { workspace = true }
-tangram_http = { workspace = true }
-tangram_ignore = { workspace = true }
-tangram_index = { workspace = true }
-tangram_index_fdb = { workspace = true, optional = true }
-tangram_index_lmdb = { workspace = true, optional = true }
-tangram_messenger = { workspace = true }
-tangram_messenger_memory = { workspace = true }
-tangram_messenger_nats = { workspace = true, optional = true }
-tangram_pool = { workspace = true }
-tangram_sandbox = { workspace = true }
-tangram_serialize = { workspace = true }
-tangram_uri = { workspace = true }
-tangram_util = { workspace = true }
-tangram_vfs = { workspace = true }
-time = { workspace = true }
-tokio = { workspace = true }
-tokio-postgres = { workspace = true, optional = true }
-tokio-rustls = { workspace = true, optional = true }
-tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
-tokio-vsock = { workspace = true, optional = true }
-tower = { workspace = true }
-tower-http = { workspace = true }
-tracing = { workspace = true }
-turso = { workspace = true, optional = true }
-unicode-width = { workspace = true }
-uuid = { workspace = true }
-xattr = { workspace = true }
+tangram_server_authentication = { workspace = true }
+tangram_server_authorization = { workspace = true }
+tangram_server_billing = { workspace = true }
+tangram_server_check = { workspace = true }
+tangram_server_checkin = { workspace = true }
+tangram_server_checkout = { workspace = true }
+tangram_server_checkpoint = { workspace = true }
+tangram_server_checksum = { workspace = true }
+tangram_server_children = { workspace = true }
+tangram_server_clean = { workspace = true }
+tangram_server_clock = { workspace = true }
+tangram_server_core = { workspace = true }
+tangram_server_document = { workspace = true }
+tangram_server_format = { workspace = true }
+tangram_server_get = { workspace = true }
+tangram_server_grant = { workspace = true }
+tangram_server_group = { workspace = true }
+tangram_server_health = { workspace = true }
+tangram_server_indexer = { workspace = true }
+tangram_server_list = { workspace = true }
+tangram_server_log = { workspace = true }
+tangram_server_lsp = { workspace = true }
+tangram_server_match = { workspace = true }
+tangram_server_module = { workspace = true }
+tangram_server_node = { workspace = true }
+tangram_server_object = { workspace = true }
+tangram_server_organization = { workspace = true }
+tangram_server_process = { workspace = true }
+tangram_server_pull = { workspace = true }
+tangram_server_push = { workspace = true }
+tangram_server_read = { workspace = true }
+tangram_server_remote = { workspace = true }
+tangram_server_runner = { workspace = true }
+tangram_server_sandbox = { workspace = true }
+tangram_server_scheduler = { workspace = true }
+tangram_server_sync = { workspace = true }
+tangram_server_tag = { workspace = true }
+tangram_server_usage = { workspace = true }
+tangram_server_user = { workspace = true }
+tangram_server_verify = { workspace = true }
+tangram_server_vfs = { workspace = true }
+tangram_server_watch = { workspace = true }
+tangram_server_write = { workspace = true }

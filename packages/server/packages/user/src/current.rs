@@ -1,0 +1,122 @@
+use {
+	crate::Component,
+	tangram_client::prelude::*,
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
+	tangram_server_core::Session,
+};
+
+impl Component {
+	pub(crate) async fn get_current_user(
+		&self,
+		session: &Session,
+		arg: tg::user::current::Arg,
+	) -> tg::Result<Option<tg::user::get::Output>> {
+		let location = session
+			.server
+			.account_location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != session.server.config.region.as_deref() => {
+				self.get_current_user_region(session, arg, region).await
+			},
+			tg::Location::Local(_) => {
+				let tg::Principal::User(user) = &session.context.principal else {
+					return Ok(None);
+				};
+				let selector = tg::user::Selector::Id(user.clone());
+				let entry = tg::user::get::Arg {
+					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+					..Default::default()
+				};
+				self.try_get_user(session, &selector, entry).await
+			},
+			tg::Location::Remote(remote) => {
+				let client = session
+					.server
+					.components
+					.remote
+					.get_remote_session(session, &remote.name)
+					.await?;
+				let arg = tg::user::current::Arg {
+					location: Some(
+						tg::Location::Local(tg::location::Local {
+							region: remote.region.clone(),
+						})
+						.into(),
+					),
+				};
+				let mut output = client.get_current_user(arg).await?;
+				if let Some(output) = &mut output {
+					output.location = Some(tg::Location::Remote(remote));
+				}
+				Ok(output)
+			},
+		}
+	}
+
+	async fn get_current_user_region(
+		&self,
+		session: &Session,
+		mut arg: tg::user::current::Arg,
+		region: String,
+	) -> tg::Result<Option<tg::user::get::Output>> {
+		let client = session.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		arg.location = Some(location.into());
+		let output = client.get_current_user(arg).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the current user"),
+		)?;
+		Ok(output)
+	}
+
+	pub(crate) async fn get_current_user_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
+		let Some(output) = self.get_current_user(session, arg).await? else {
+			let response = http::Response::builder()
+				.status(http::StatusCode::UNAUTHORIZED)
+				.empty()
+				.unwrap()
+				.boxed_body();
+			return Ok(response);
+		};
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let body = serde_json::to_vec(&output).unwrap();
+				(Some(content_type), BoxBody::with_bytes(body))
+			},
+			Some((type_, subtype)) => {
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
+			},
+		};
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap().boxed_body();
+		Ok(response)
+	}
+}

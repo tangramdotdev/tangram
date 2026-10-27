@@ -1,0 +1,470 @@
+use {
+	crate::{Component, put::State},
+	futures::FutureExt as _,
+	indoc::formatdoc,
+	std::{ops::ControlFlow, sync::Arc},
+	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
+	tangram_index::prelude::*,
+	tangram_server_core::Session,
+};
+
+#[derive(Clone)]
+pub struct Node {
+	pub descendants: bool,
+	pub eager: bool,
+	pub id: tg::Id,
+	pub send: bool,
+	pub tokens: tg::authorization::tokens::Entry,
+}
+
+struct Output {
+	children: Vec<tg::Referent<tg::Id>>,
+	message: Option<tg::sync::PutNodeMessage>,
+}
+
+impl Component {
+	pub(super) async fn sync_put_database(
+		&self,
+		session: &Session,
+		state: Arc<State>,
+		mut receiver: tokio::sync::mpsc::Receiver<Node>,
+	) -> tg::Result<()> {
+		while let Some(node) = receiver.recv().await {
+			self.sync_put_database_node(session, &state, node).await?;
+		}
+
+		Ok(())
+	}
+
+	async fn sync_put_database_node(
+		&self,
+		session: &Session,
+		state: &State,
+		node: Node,
+	) -> tg::Result<()> {
+		// Authorize the node.
+		let permission = Self::sync_put_database_read_permission(&node.id)?;
+		let resource = tg::Selector::Id(node.id.clone());
+		let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
+		let resource = tg::Referent::with_node_and_tokens(resource, tokens);
+		let permissions = tg::authorization::permission::Set::from_permission(permission);
+		let authorization = session
+			.authorize_with_permissions(
+				resource,
+				permissions,
+				permissions,
+				permissions.empty_like(),
+				state
+					.arg
+					.sync
+					.as_ref()
+					.and_then(tg::sync::Join::sync)
+					.map(|sync| &sync.node),
+			)
+			.await?
+			.check_exhaustion()?;
+		let authorized = authorization.permissions.contains(permission);
+		let visible = if node.id.kind() == tg::id::Kind::Tag {
+			session
+				.server
+				.index
+				.visible(std::slice::from_ref(&node.id), &session.context.principal)
+				.await?
+				.pop()
+				.unwrap()
+		} else {
+			false
+		};
+		if !authorized && !visible {
+			if node.send {
+				self.sync_put_database_missing(state, &node.id).await;
+			}
+			if node.descendants {
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.finish_node_remote_descendants(&node.id, &[]);
+			}
+			state.queue.finish_node();
+			return Ok(());
+		}
+
+		// Read the node.
+		let output = self
+			.sync_put_database_read(session, state, &node, authorization)
+			.await?;
+		let Some(output) = output else {
+			if node.send {
+				self.sync_put_database_missing(state, &node.id).await;
+			}
+			if node.descendants {
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.finish_node_remote_descendants(&node.id, &[]);
+			}
+			state.queue.finish_node();
+			return Ok(());
+		};
+
+		// Complete the node in the graph.
+		if node.send {
+			state
+				.graph
+				.lock()
+				.unwrap()
+				.finish_database_node_remote_found(&node.id);
+		}
+		// Send the node.
+		if let Some(message) = output.message {
+			tangram_server_core::checkpoint!(
+				session.server,
+				"sync.put.database.node.send",
+				descendants = node.descendants,
+				id = %node.id,
+			)
+			.await;
+			let message = tg::sync::PutMessage::Node(message);
+			state
+				.sender
+				.send(Ok(message))
+				.await
+				.map_err(|error| tg::error!(!error, "failed to send the node"))?;
+		}
+		tangram_server_core::checkpoint!(
+			session.server,
+			"sync.put.database.node",
+			descendants = node.descendants,
+			id = %node.id,
+		)
+		.await;
+
+		// Update the graph and enqueue the children.
+		if node.descendants {
+			let children = output
+				.children
+				.iter()
+				.map(|child| child.node.clone())
+				.collect::<Vec<_>>();
+			for child in output.children {
+				let mut tokens = child.options.tokens.local_entry();
+				tokens.inherit(&node.tokens);
+				state.queue.enqueue(node.eager, child.node, tokens)?;
+			}
+			state
+				.graph
+				.lock()
+				.unwrap()
+				.finish_node_remote_descendants(&node.id, &children);
+		}
+		state.queue.finish_node();
+
+		Ok(())
+	}
+
+	async fn sync_put_database_read(
+		&self,
+		session: &Session,
+		state: &State,
+		node: &Node,
+		authorization: tangram_server_core::authorization::Output,
+	) -> tg::Result<Option<Output>> {
+		let children_enabled = match node.id.kind() {
+			tg::id::Kind::Group => state.arg.group_children,
+			tg::id::Kind::Organization => state.arg.organization_children,
+			tg::id::Kind::Tag => state.arg.tag_targets,
+			tg::id::Kind::User => state.arg.user_children,
+			_ => false,
+		};
+		let node = node.clone();
+		let component = self.clone();
+		let session = session.clone();
+		session
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let node = node.clone();
+				let component = component.clone();
+				let session = session.clone();
+				async move {
+					component
+						.sync_put_database_read_with_transaction(
+							&session,
+							transaction,
+							&node,
+							children_enabled,
+							authorization,
+						)
+						.await
+				}
+				.boxed()
+			})
+			.await
+	}
+
+	async fn sync_put_database_read_with_transaction(
+		&self,
+		session: &Session,
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		node: &Node,
+		children_enabled: bool,
+		authorization: tangram_server_core::authorization::Output,
+	) -> tg::Result<ControlFlow<Option<Output>, tangram_server_core::database::Error>> {
+		let specifier =
+			match tangram_server_node_common::specifier::try_get_specifier_for_id_with_transaction(
+				transaction,
+				&node.id,
+			)
+			.await?
+			{
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(specifier) = specifier else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let children = if node.descendants {
+			match self
+				.sync_put_database_read_children_with_transaction(
+					session,
+					transaction,
+					&node.id,
+					children_enabled,
+					authorization,
+				)
+				.await?
+			{
+				ControlFlow::Break(children) => children,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+		} else {
+			Vec::new()
+		};
+		let message = if node.send {
+			Some(match node.id.kind() {
+				tg::id::Kind::Group => {
+					let id = node.id.clone().try_into()?;
+					let group = match session
+						.server
+						.components
+						.group
+						.try_get_group_with_transaction(transaction, &id)
+						.await?
+					{
+						ControlFlow::Break(group) => group,
+						ControlFlow::Continue(error) => {
+							return Ok(ControlFlow::Continue(error));
+						},
+					}
+					.ok_or_else(|| tg::error!("failed to find the group"))?;
+					tg::sync::PutNodeMessage::Group(tg::sync::PutNodeGroupMessage {
+						id,
+						name: group.name,
+						parent: group.parent,
+						specifier,
+					})
+				},
+				tg::id::Kind::Organization => {
+					let id = node.id.clone().try_into()?;
+					let organization = match session
+						.server
+						.components
+						.organization
+						.try_get_organization_with_transaction(transaction, &id)
+						.await?
+					{
+						ControlFlow::Break(organization) => organization,
+						ControlFlow::Continue(error) => {
+							return Ok(ControlFlow::Continue(error));
+						},
+					}
+					.ok_or_else(|| tg::error!("failed to find the organization"))?;
+					tg::sync::PutNodeMessage::Organization(tg::sync::PutNodeOrganizationMessage {
+						id,
+						name: organization.name,
+						specifier,
+					})
+				},
+				tg::id::Kind::Tag => {
+					let id = node.id.clone().try_into()?;
+					let data = match session
+						.server
+						.components
+						.tag
+						.get_tag_data_with_transaction(transaction, &id)
+						.await?
+					{
+						ControlFlow::Break(data) => data,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					let id = data.id;
+					let target = match data.target {
+						tg::tag::data::Target::Object(id) => id.into(),
+						tg::tag::data::Target::Process(id) => id.into(),
+					};
+					tg::sync::PutNodeMessage::Tag(tg::sync::PutNodeTagMessage {
+						id,
+						name: data.name,
+						parent: data.parent,
+						specifier: data.specifier,
+						target,
+						tokens: Vec::new(),
+					})
+				},
+				tg::id::Kind::User => {
+					let id = node.id.clone().try_into()?;
+					let user = match session
+						.server
+						.components
+						.user
+						.try_get_user_with_transaction(transaction, &id)
+						.await?
+					{
+						ControlFlow::Break(user) => user,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					}
+					.ok_or_else(|| tg::error!("failed to find the user"))?;
+					tg::sync::PutNodeMessage::User(tg::sync::PutNodeUserMessage {
+						emails: user.emails,
+						id,
+						name: user.name,
+						specifier,
+					})
+				},
+				_ => return Err(tg::error!(id = %node.id, "invalid database node kind")),
+			})
+		} else {
+			None
+		};
+		let output = Output { children, message };
+
+		Ok(ControlFlow::Break(Some(output)))
+	}
+
+	async fn sync_put_database_read_children_with_transaction(
+		&self,
+		session: &Session,
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		id: &tg::Id,
+		enabled: bool,
+		authorization: tangram_server_core::authorization::Output,
+	) -> tg::Result<ControlFlow<Vec<tg::Referent<tg::Id>>, tangram_server_core::database::Error>> {
+		if !enabled {
+			return Ok(ControlFlow::Break(Vec::new()));
+		}
+		if id.kind() == tg::id::Kind::Tag {
+			let permission = tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			);
+			if !authorization.permissions.contains(permission) {
+				return Ok(ControlFlow::Break(Vec::new()));
+			}
+			let tag = id.clone().try_into()?;
+			let data = match session
+				.server
+				.components
+				.tag
+				.get_tag_data_with_transaction(transaction, &tag)
+				.await?
+			{
+				ControlFlow::Break(data) => data,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let target = data.target;
+			let id: tg::Id = match target {
+				tg::tag::data::Target::Object(id) => id.into(),
+				tg::tag::data::Target::Process(id) => id.into(),
+			};
+			// Carry only the proven tag permission; resolve target permissions outside the transaction.
+			let time_to_live = if id.kind().is_object() {
+				session.server.config.object.permission_time_to_live
+			} else {
+				session.server.config.process.permission_time_to_live
+			};
+			let expires_at = session
+				.server
+				.clock
+				.unix_timestamp()
+				.checked_add(
+					i64::try_from(time_to_live.as_secs())
+						.map_err(|error| tg::error!(!error, "invalid permission time to live"))?,
+				)
+				.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
+			let expires_at = authorization
+				.expires_at
+				.map_or(expires_at, |expiration| expires_at.min(expiration));
+			let token = session.server.components.authorization.create_token(
+				session,
+				tag.into(),
+				vec![permission],
+				expires_at,
+			)?;
+			let node = tg::Referent::with_node_and_local_tokens(id, token);
+
+			return Ok(ControlFlow::Break(vec![node]));
+		}
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::Id,
+		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select id from groups where parent = {p}1
+				union all
+				select id from tags where parent = {p}1
+				order by id;
+			"
+		);
+		let result = transaction
+			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
+			.await;
+		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
+		let children = rows
+			.into_iter()
+			.map(|row| tg::Referent::with_node(row.id))
+			.collect();
+
+		Ok(ControlFlow::Break(children))
+	}
+
+	async fn sync_put_database_missing(&self, state: &State, id: &tg::Id) {
+		let selectors = state
+			.graph
+			.lock()
+			.unwrap()
+			.finish_database_node_remote_missing(id);
+		for selector in selectors {
+			let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+				selector,
+				tokens: Vec::new(),
+			});
+			state.sender.send(Ok(message)).await.ok();
+		}
+		state.queue.close_if_end();
+	}
+
+	fn sync_put_database_read_permission(id: &tg::Id) -> tg::Result<tg::authorization::Permission> {
+		let permission = match id.kind() {
+			tg::id::Kind::Group => tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Read,
+			),
+			tg::id::Kind::Organization => tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Read,
+			),
+			tg::id::Kind::Tag => tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			),
+			tg::id::Kind::User => tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Read,
+			),
+			_ => return Err(tg::error!(%id, "invalid database node kind")),
+		};
+
+		Ok(permission)
+	}
+}

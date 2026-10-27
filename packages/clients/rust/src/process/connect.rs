@@ -360,7 +360,7 @@ impl tg::Session {
 		ControlFlow<Option<(Header, BoxStream<'static, tg::Result<ServerMessage>>)>, tg::Error>,
 	> {
 		let max_frame_size = self.client().sync.max_frame_size;
-		let body = crate::http::frame::encode(input, max_frame_size);
+		let body = crate::frame::encode(input, max_frame_size);
 		let request = http::Request::builder()
 			.method(http::Method::POST)
 			.uri("/processes/connect")
@@ -415,7 +415,7 @@ impl tg::Session {
 		if content_type != Some(TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let Some((header, stream)) = crate::http::frame::decode_with_header(
+		let Some((header, stream)) = crate::frame::decode_with_header(
 			response.into_body(),
 			self.client().http.max_header_length,
 			max_frame_size,

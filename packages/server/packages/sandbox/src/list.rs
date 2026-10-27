@@ -1,0 +1,365 @@
+use {
+	crate::Component,
+	futures::future::try_join_all,
+	std::collections::BTreeMap,
+	tangram_client::prelude::*,
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
+	tangram_server_core::Session,
+};
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+enum Cursor {
+	V0 { position: u64 },
+}
+
+impl Component {
+	pub(crate) async fn list_sandboxes(
+		&self,
+		session: &Session,
+		arg: tg::sandbox::list::Arg,
+	) -> tg::Result<tg::sandbox::list::Output> {
+		// Parse the pagination arguments.
+		let limit = session.parse_page_limit(arg.limit)?;
+		let cursor = arg
+			.cursor
+			.as_deref()
+			.map(tangram_server_core::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let position = cursor.map_or(0, |cursor| match cursor {
+			Cursor::V0 { position } => position,
+		});
+
+		let creator = session.context.principal.clone();
+
+		let mut output = tg::sandbox::list::Output {
+			cursor: None,
+			data: Vec::new(),
+		};
+
+		let locations = session
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current {
+				output.data.extend(
+					self.list_sandboxes_local(session, Some(&creator), arg.owner.as_ref())
+						.await?,
+				);
+			}
+
+			let region_outputs = self
+				.list_sandboxes_regions(session, &local.regions, arg.owner.as_ref())
+				.await?;
+			output
+				.data
+				.extend(region_outputs.into_iter().flat_map(|output| output.data));
+		}
+
+		let remote_outputs = self
+			.list_sandboxes_remotes(session, &locations.remotes, arg.owner.as_ref())
+			.await?;
+		output
+			.data
+			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
+
+		let mut data = output.data;
+		data.sort_by(|a, b| a.id.cmp(&b.id));
+
+		// Select the page and create the continuation cursor.
+		let position = usize::try_from(position)
+			.unwrap_or(usize::MAX)
+			.min(data.len());
+		let end = position
+			.saturating_add(usize::try_from(limit).unwrap())
+			.min(data.len());
+		let cursor = if end < data.len() {
+			let cursor = Cursor::V0 {
+				position: u64::try_from(end).unwrap(),
+			};
+			Some(tangram_server_core::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+		let data = data.drain(position..end).collect();
+		let output = tg::sandbox::list::Output { cursor, data };
+
+		Ok(output)
+	}
+
+	pub(crate) async fn list_sandboxes_local(
+		&self,
+		session: &Session,
+		creator: Option<&tg::Principal>,
+		owner: Option<&tg::Principal>,
+	) -> tg::Result<Vec<tg::sandbox::list::Item>> {
+		let mut sandboxes = if let Some(owner) = owner {
+			session
+				.server
+				.index
+				.list_sandboxes_for_owner(owner)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %owner, "failed to list the sandboxes for the owner"),
+				)?
+		} else if let Some(creator) = creator {
+			let creator_sandboxes = session
+				.server
+				.index
+				.list_sandboxes_for_creator(creator)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %creator, "failed to list the sandboxes for the creator"),
+				)?;
+			let mut sandboxes = creator_sandboxes.into_iter().collect::<BTreeMap<_, _>>();
+			let subjects = session
+				.server
+				.index
+				.get_subjects_for_principal(creator)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %creator, "failed to get the subjects for the creator"),
+				)?;
+			for owner in subjects
+				.into_iter()
+				.filter_map(|subject| subject.try_to_principal().ok())
+			{
+				let owner_sandboxes = session
+					.server
+					.index
+					.list_sandboxes_for_owner(&owner)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %owner, "failed to list the sandboxes for the owner"),
+					)?;
+				sandboxes.extend(owner_sandboxes);
+			}
+			sandboxes.into_iter().collect()
+		} else {
+			session
+				.server
+				.index
+				.list_sandboxes()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?
+		};
+		sandboxes.sort_by(|(id_a, sandbox_a), (id_b, sandbox_b)| {
+			sandbox_a
+				.created_at
+				.cmp(&sandbox_b.created_at)
+				.then_with(|| id_a.cmp(id_b))
+		});
+		let location = tg::Location::Local(tg::location::Local {
+			region: session.server.config.region.clone(),
+		});
+		let data = sandboxes
+			.into_iter()
+			.filter_map(|(id, sandbox)| {
+				let data = sandbox.data?;
+				if !data.data.status.is_started()
+					|| data
+						.location
+						.as_ref()
+						.is_some_and(|sandbox_location| sandbox_location != &location)
+				{
+					return None;
+				}
+				Some(tg::sandbox::list::Item {
+					cpu: data.data.cpu,
+					hostname: data.data.hostname,
+					id,
+					memory: data.data.memory,
+					mounts: data.data.mounts,
+					network: data.data.network,
+					owner: Some(data.data.owner.unwrap_or(tg::Principal::Root)),
+					status: data.data.status,
+					tokens: tg::authorization::Tokens::default(),
+					ttl: data.data.ttl,
+				})
+			})
+			.collect::<Vec<_>>();
+		let permission = tg::authorization::Permission::Sandbox(
+			tg::authorization::permission::sandbox::Permission::Node,
+		);
+		let authorizations = data
+			.iter()
+			.map(|item| {
+				(
+					tg::Selector::Id(tg::Id::from(item.id.clone())),
+					permission.into(),
+				)
+			})
+			.collect::<Vec<_>>();
+		let authorizations = session
+			.authorize_batch(authorizations, None)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the sandboxes"))?;
+		tangram_server_core::authorization::check_exhaustion(&authorizations)?;
+		let mut authorized = Vec::new();
+		for (mut item, permissions) in std::iter::zip(data, authorizations) {
+			if !permissions.permissions.contains(permission) {
+				continue;
+			}
+			if let Some(token) = session
+				.server
+				.components
+				.authorization
+				.create_read_token(session, &item.id.clone().into())?
+			{
+				item.tokens.insert_local_authorization(token);
+			}
+			authorized.push(item);
+		}
+		Ok(authorized)
+	}
+
+	async fn list_sandboxes_regions(
+		&self,
+		session: &Session,
+		regions: &[String],
+		owner: Option<&tg::Principal>,
+	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
+		let outputs = try_join_all(
+			regions
+				.iter()
+				.map(|region| self.list_sandboxes_region(session, region, owner)),
+		)
+		.await?;
+		Ok(outputs)
+	}
+
+	async fn list_sandboxes_region(
+		&self,
+		session: &Session,
+		region: &str,
+		owner: Option<&tg::Principal>,
+	) -> tg::Result<tg::sandbox::list::Output> {
+		let client = session.get_region_session(region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::sandbox::list::Arg {
+			cursor: None,
+			limit: None,
+			location: Some(location.clone().into()),
+			owner: owner.cloned(),
+		};
+		let mut output = client.list_all_sandboxes(arg).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to list the sandboxes"),
+		)?;
+		for item in &mut output.data {
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(session, &mut item.tokens, None, &location, false)?;
+		}
+		Ok(output)
+	}
+
+	async fn list_sandboxes_remotes(
+		&self,
+		session: &Session,
+		remotes: &[tangram_server_core::location::Remote],
+		owner: Option<&tg::Principal>,
+	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
+		let outputs = try_join_all(
+			remotes
+				.iter()
+				.map(|remote| self.list_sandboxes_remote(session, remote, owner)),
+		)
+		.await?;
+		Ok(outputs)
+	}
+
+	async fn list_sandboxes_remote(
+		&self,
+		session: &Session,
+		remote: &tangram_server_core::location::Remote,
+		owner: Option<&tg::Principal>,
+	) -> tg::Result<tg::sandbox::list::Output> {
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
+		let trusted = client.trusted();
+		let arg = tg::sandbox::list::Arg {
+			cursor: None,
+			limit: None,
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+			owner: owner.cloned(),
+		};
+		let mut output = client.list_all_sandboxes(arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to list the sandboxes"),
+		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		for item in &mut output.data {
+			session
+				.server
+				.components
+				.authorization
+				.update_tokens_and_location(session, &mut item.tokens, None, &location, trusted)?;
+		}
+		Ok(output)
+	}
+
+	pub(crate) async fn list_sandboxes_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
+
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
+
+		let output = self
+			.list_sandboxes(session, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?;
+
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let body = serde_json::to_vec(&output).unwrap();
+				(Some(content_type), BoxBody::with_bytes(body))
+			},
+			Some((type_, subtype)) => {
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
+			},
+		};
+
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
+		Ok(response)
+	}
+}

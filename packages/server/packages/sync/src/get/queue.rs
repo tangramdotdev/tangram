@@ -1,0 +1,752 @@
+use {
+	crate::{
+		Component,
+		{
+			get::State,
+			graph::{Graph, Requested, UpdateObjectLocalArg, UpdateProcessLocalArg},
+			queue::{DatabaseNode, ObjectNode, ProcessNode, SandboxNode},
+		},
+	},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
+	std::{collections::BTreeSet, sync::Arc},
+	tangram_client::prelude::*,
+	tangram_server_core::Session,
+};
+
+pub(super) struct SyncGetQueueArg {
+	pub(super) checkout_sender: tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
+	pub(super) queue_database_receiver: async_channel::Receiver<DatabaseNode>,
+	pub(super) queue_object_receiver: async_channel::Receiver<ObjectNode>,
+	pub(super) queue_process_receiver: async_channel::Receiver<ProcessNode>,
+	pub(super) queue_sandbox_receiver: async_channel::Receiver<SandboxNode>,
+	pub(super) state: Arc<State>,
+}
+
+impl Component {
+	pub(super) async fn sync_get_queue(
+		&self,
+		session: &Session,
+		arg: SyncGetQueueArg,
+	) -> tg::Result<()> {
+		let SyncGetQueueArg {
+			checkout_sender,
+			queue_database_receiver,
+			queue_object_receiver,
+			queue_process_receiver,
+			queue_sandbox_receiver,
+			state,
+		} = arg;
+
+		// Create the database future.
+		let database_future = queue_database_receiver.map(Ok).try_for_each(|node| {
+			let state = state.clone();
+			async move {
+				Self::sync_get_queue_node(
+					&state,
+					node.eager,
+					node.id,
+					node.local_tokens,
+					node.remote_tokens,
+				)
+				.await
+			}
+		});
+
+		// Create the objects future.
+		let object_batch_size = session.server.config.sync.get.queue.object_batch_size;
+		let object_batch_timeout = session.server.config.sync.get.queue.object_batch_timeout;
+		let object_concurrency = session.server.config.sync.get.queue.object_concurrency;
+		let objects_future = tokio_stream::StreamExt::chunks_timeout(
+			queue_object_receiver,
+			object_batch_size,
+			object_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(object_concurrency, |nodes| {
+			let checkout_sender = checkout_sender.clone();
+			let component = self.clone();
+			let session = session.clone();
+			let state = state.clone();
+			async move {
+				component
+					.sync_get_queue_object_batch(&session, &state, &checkout_sender, nodes)
+					.await
+			}
+		});
+
+		// Create the processes future.
+		let process_batch_size = session.server.config.sync.get.queue.process_batch_size;
+		let process_batch_timeout = session.server.config.sync.get.queue.process_batch_timeout;
+		let process_concurrency = session.server.config.sync.get.queue.process_concurrency;
+		let processes_future = tokio_stream::StreamExt::chunks_timeout(
+			queue_process_receiver,
+			process_batch_size,
+			process_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(process_concurrency, |nodes| {
+			let component = self.clone();
+			let session = session.clone();
+			let state = state.clone();
+			async move {
+				component
+					.sync_get_queue_process_batch(&session, &state, nodes)
+					.boxed()
+					.await
+			}
+		});
+
+		// Create the sandboxes future.
+		let sandboxes_future = queue_sandbox_receiver.map(Ok).try_for_each(|node| {
+			let state = state.clone();
+			async move {
+				let id = node.id.into();
+				Self::sync_get_queue_node(
+					&state,
+					node.eager,
+					id,
+					node.local_tokens,
+					node.remote_tokens,
+				)
+				.await
+			}
+		});
+
+		// Join the futures.
+		futures::try_join!(
+			database_future,
+			objects_future,
+			processes_future,
+			sandboxes_future
+		)?;
+
+		// Send the get end message.
+		Self::sync_get_pending_available(&state).await?;
+		state
+			.sender
+			.send(Ok(tg::sync::GetMessage::End))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the get end message"))?;
+
+		Ok(())
+	}
+
+	async fn sync_get_queue_node(
+		state: &State,
+		eager: bool,
+		id: tg::Id,
+		local_tokens: tg::authorization::tokens::Entry,
+		remote_tokens: tg::authorization::tokens::Entry,
+	) -> tg::Result<()> {
+		let requested = state.graph.lock().unwrap().update_node_local_requested(
+			&id,
+			&local_tokens,
+			&remote_tokens,
+		);
+		if !requested {
+			return Ok(());
+		}
+		let selector = tg::Selector::Id(id);
+		let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
+			descendants: true,
+			eager,
+			selector,
+			tokens: tg::authorization::Tokens::with_local_entry(remote_tokens),
+		});
+		state
+			.sender
+			.send(Ok(message))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the message"))?;
+
+		Ok(())
+	}
+
+	async fn sync_get_queue_object_batch(
+		&self,
+		session: &Session,
+		state: &State,
+		checkout_sender: &tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
+		nodes: Vec<ObjectNode>,
+	) -> tg::Result<()> {
+		// Store the provided tokens.
+		{
+			let mut graph = state.graph.lock().unwrap();
+			for node in &nodes {
+				graph.update_object_tokens(&node.id, &node.local_tokens, &node.remote_tokens);
+			}
+		}
+
+		// Get the ids.
+		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
+
+		// Authorize and touch the objects, then get their storage and metadata.
+		let touched_at = session.server.clock.unix_timestamp();
+		let (outputs, permissions) = self
+			.sync_get_touch_authorized_objects(
+				session,
+				&state.graph,
+				&state.id,
+				&ids,
+				touched_at,
+				session.server.config.object.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
+
+		// Handle each node and output.
+		for ((node, output), permissions) in
+			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
+		{
+			match output {
+				// If the object is absent, then send a get node message.
+				None => {
+					// Determine if the object has been requested.
+					let requested = {
+						let mut graph = state.graph.lock().unwrap();
+						let requested = graph.get_object_requested(&node.id);
+						if requested.is_some() {
+							true
+						} else {
+							let requested = Requested { eager: node.eager };
+							let arg = UpdateObjectLocalArg {
+								data: None,
+								id: &node.id,
+								marked: None,
+								metadata: None,
+								permissions: None,
+								put: None,
+								requested: Some(requested),
+								storage: None,
+							};
+							graph.update_object_local(arg);
+							false
+						}
+					};
+					if requested {
+						continue;
+					}
+					let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
+						descendants: true,
+						eager: node.eager,
+						selector: tg::Selector::Id(node.id.clone().into()),
+						tokens: tg::authorization::Tokens::with_local_entry(node.remote_tokens),
+					});
+					state
+						.sender
+						.send(Ok(message))
+						.await
+						.map_err(|error| tg::error!(!error, "failed to send the message"))?;
+				},
+
+				Some(object) => {
+					let storage = object.storage;
+					let metadata = object.metadata;
+
+					// Update the graph with the storage and metadata.
+					let arg = UpdateObjectLocalArg {
+						data: None,
+						id: &node.id,
+						marked: None,
+						metadata: Some(metadata.clone()),
+						permissions,
+						put: Some(object.put),
+						requested: None,
+						storage: Some(storage),
+					};
+					state.graph.lock().unwrap().update_object_local(arg);
+					let availability = state
+						.graph
+						.lock()
+						.unwrap()
+						.get_object_local_availability(&node.id);
+
+					if availability.subtree {
+						if Self::sync_get_checkout_pointers_enabled(session) {
+							self.sync_get_queue_checkout_object(
+								session,
+								state,
+								checkout_sender,
+								node.id.clone(),
+							)
+							.await?;
+						}
+
+						// Send the object's availability.
+						let message =
+							tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Object(
+								tg::sync::GetAvailableObjectMessage {
+									id: node.id.clone(),
+								},
+							));
+						state
+							.sender
+							.send(Ok(message))
+							.await
+							.map_err(|error| tg::error!(!error, "failed to send the message"))?;
+
+						// Increment the progress.
+						let objects = metadata.subtree.count.unwrap_or(1);
+						let bytes = metadata.subtree.size.unwrap_or(metadata.node.size);
+						state.progress.increment_skipped(0, objects, bytes);
+					} else {
+						// If the subtree is unavailable, then enqueue the children.
+						let bytes = session
+							.server
+							.components
+							.object
+							.try_get_object_local_with_server(&session.server, &node.id, false)
+							.await
+							.map_err(|error| tg::error!(!error, "failed to get the object"))?
+							.ok_or_else(|| tg::error!("expected the object to exist"))?
+							.bytes;
+						let data = tg::object::Data::deserialize(node.id.kind(), bytes).map_err(
+							|error| tg::error!(!error, "failed to deserialize the object"),
+						)?;
+
+						// Update the graph with data.
+						let arg = UpdateObjectLocalArg {
+							data: Some(&data),
+							id: &node.id,
+							marked: None,
+							metadata: None,
+							permissions: None,
+							put: None,
+							requested: None,
+							storage: None,
+						};
+						{
+							let mut graph = state.graph.lock().unwrap();
+							graph.update_object_local(arg);
+							graph.update_checkout_object(&node.id, &data)?;
+						}
+						if Self::sync_get_checkout_pointers_enabled(session)
+							&& matches!(data, tg::object::Data::Blob(_))
+						{
+							let id = node.id.unwrap_blob_ref().clone();
+							let node = super::checkout::ObjectNode {
+								bytes: None,
+								id,
+								metadata: Some(metadata.clone()),
+								put: uuid::Uuid::now_v7().into_bytes(),
+							};
+							checkout_sender.send(node).await.map_err(|_| {
+								tg::error!("failed to send the blob to the checkout task")
+							})?;
+						}
+
+						Self::sync_get_enqueue_object_children(
+							state,
+							&node.id,
+							&data,
+							node.kind,
+							&node.local_tokens,
+							&node.remote_tokens,
+						);
+
+						// Increment the progress.
+						state.progress.increment_skipped(0, 1, metadata.node.size);
+					}
+				},
+			}
+		}
+
+		let end = state.graph.lock().unwrap().end_local();
+		if end {
+			state.queue.close();
+		}
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_queue_checkout_object(
+		&self,
+		session: &Session,
+		state: &State,
+		checkout_sender: &tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
+		id: tg::object::Id,
+	) -> tg::Result<()> {
+		let mut stack = vec![id];
+		let batch_size = session.server.config.sync.get.queue.checkout_batch_size;
+		while !stack.is_empty() {
+			let mut ids = Vec::with_capacity(batch_size);
+			while ids.len() < batch_size
+				&& let Some(id) = stack.pop()
+			{
+				let queued = state.graph.lock().unwrap().queue_checkout_object(&id);
+				if queued {
+					ids.push(id);
+				}
+			}
+			let (blobs, objects): (Vec<_>, Vec<_>) = ids
+				.into_iter()
+				.partition(|id| id.kind() == tg::object::Kind::Blob);
+			for id in blobs {
+				let node = super::checkout::ObjectNode {
+					bytes: None,
+					id: id.unwrap_blob_ref().clone(),
+					metadata: None,
+					put: uuid::Uuid::now_v7().into_bytes(),
+				};
+				checkout_sender
+					.send(node)
+					.await
+					.map_err(|_| tg::error!("failed to send the blob to the checkout task"))?;
+			}
+			if objects.is_empty() {
+				continue;
+			}
+			let outputs = session
+				.server
+				.components
+				.object
+				.try_get_object_batch_local_with_server(&session.server, &objects, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the existing objects"))?;
+			for (id, output) in std::iter::zip(objects, outputs) {
+				let Some(output) = output else {
+					state.graph.lock().unwrap().unqueue_checkout_object(&id);
+					continue;
+				};
+				let bytes = output.bytes;
+				let data = tg::object::Data::deserialize(id.kind(), bytes).map_err(|error| {
+					tg::error!(!error, "failed to deserialize the existing object")
+				})?;
+				let arg = UpdateObjectLocalArg {
+					data: Some(&data),
+					id: &id,
+					marked: None,
+					metadata: None,
+					permissions: None,
+					put: None,
+					requested: None,
+					storage: None,
+				};
+				{
+					let mut graph = state.graph.lock().unwrap();
+					graph.update_object_local(arg);
+					graph.update_checkout_object(&id, &data)?;
+				}
+				let mut children = BTreeSet::new();
+				data.children(&mut children);
+				stack.extend(children);
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn sync_get_queue_process_batch(
+		&self,
+		session: &Session,
+		state: &State,
+		nodes: Vec<ProcessNode>,
+	) -> tg::Result<()> {
+		// Store the provided tokens.
+		{
+			let mut graph = state.graph.lock().unwrap();
+			for node in &nodes {
+				graph.update_process_tokens(&node.id, &node.local_tokens, &node.remote_tokens);
+			}
+		}
+
+		// Get the ids.
+		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
+
+		// Authorize and touch the processes, then get their storage and metadata.
+		let touched_at = session.server.clock.unix_timestamp();
+		let arg = super::SyncGetTouchAuthorizedProcessesArg {
+			graph: &state.graph,
+			ids: &ids,
+			sync: &state.id,
+			sync_arg: &state.arg,
+			time_to_touch: session.server.config.process.time_to_touch,
+			touched_at,
+		};
+		let (outputs, permissions) = self
+			.sync_get_touch_authorized_processes(session, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+
+		// Handle each node and output.
+		for ((node, output), permissions) in
+			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
+		{
+			match &output {
+				// If the process is absent, then send a get node message.
+				None => {
+					// Determine if the object has been requested.
+					let requested = {
+						let mut graph = state.graph.lock().unwrap();
+						let requested = graph.get_process_requested(&node.id);
+						if requested.is_some() {
+							true
+						} else {
+							let requested = Requested { eager: node.eager };
+							let arg = UpdateProcessLocalArg {
+								data: None,
+								id: &node.id,
+								marked: None,
+								metadata: None,
+								permissions: None,
+								requested: Some(requested),
+								storage: None,
+							};
+							graph.update_process_local(arg);
+							false
+						}
+					};
+					if requested {
+						continue;
+					}
+					let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
+						descendants: true,
+						eager: node.eager,
+						selector: tg::Selector::Id(node.id.clone().into()),
+						tokens: tg::authorization::Tokens::with_local_entry(node.remote_tokens),
+					});
+					state
+						.sender
+						.send(Ok(message))
+						.await
+						.map_err(|error| tg::error!(!error, "failed to send the message"))?;
+				},
+
+				// If the process is present, enqueue its dependencies and send its availability.
+				Some(process) => {
+					let storage = &process.storage;
+					let metadata = &process.metadata;
+					// Get the process.
+					let mut data = session
+						.server
+						.components
+						.process
+						.get_process_local(session, &node.id, false)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to get the process"))?
+						.data;
+					if state.arg.process_children {
+						session
+							.server
+							.components
+							.process
+							.set_process_children_from_index(
+								session,
+								&node.id,
+								process.set.children,
+								&mut data,
+							)
+							.await?;
+					}
+
+					// Update the graph with the storage, metadata, and data.
+					let availability = {
+						let mut graph = state.graph.lock().unwrap();
+						let arg = UpdateProcessLocalArg {
+							data: Some(&data),
+							id: &node.id,
+							marked: None,
+							metadata: Some(metadata.clone()),
+							permissions,
+							requested: None,
+							storage: Some(*storage),
+						};
+						graph.update_process_local(arg);
+						graph.get_process_local_availability(&node.id)
+					};
+
+					// Enqueue the children as necessary.
+					Self::sync_get_enqueue_process_children(
+						state,
+						&node.id,
+						&data,
+						Some(&availability),
+						&node.local_tokens,
+						&node.remote_tokens,
+					);
+
+					// Send the available portions of the process.
+					if Graph::process_any_available(&availability) {
+						let message = tg::sync::GetMessage::Available(
+							tg::sync::GetAvailableMessage::Process(
+								tg::sync::GetAvailableProcessMessage {
+									id: node.id.clone(),
+									node_command_available: availability.node_command_objects,
+									node_error_available: availability.node_error_objects,
+									node_log_available: availability.node_log_objects,
+									node_output_available: availability.node_output_objects,
+									subtree_available: availability.subtree,
+									subtree_command_available: availability.subtree_command_objects,
+									subtree_error_available: availability.subtree_error_objects,
+									subtree_log_available: availability.subtree_log_objects,
+									subtree_output_available: availability.subtree_output_objects,
+								},
+							),
+						);
+						state.sender.send(Ok(message)).await.map_err(|error| {
+							tg::error!(!error, "failed to send the available message")
+						})?;
+					}
+				},
+			}
+		}
+
+		let end = state.graph.lock().unwrap().end_local();
+		if end {
+			state.queue.close();
+		}
+
+		Ok(())
+	}
+
+	pub(super) fn sync_get_enqueue_object_children(
+		state: &State,
+		id: &tg::object::Id,
+		data: &tg::object::Data,
+		kind: Option<crate::queue::ObjectKind>,
+		local_tokens: &tg::authorization::tokens::Entry,
+		remote_tokens: &tg::authorization::tokens::Entry,
+	) {
+		let mut children = BTreeSet::new();
+		data.children(&mut children);
+		state
+			.queue
+			.enqueue_objects(children.into_iter().map(|object| ObjectNode {
+				descendants: true,
+				eager: state.arg.eager,
+				id: object,
+				kind,
+				local_tokens: local_tokens.clone(),
+				parent: Some(id.clone().into()),
+				remote_tokens: remote_tokens.clone(),
+			}));
+	}
+
+	pub(super) fn sync_get_enqueue_process_children(
+		state: &State,
+		id: &tg::process::Id,
+		data: &tg::process::Data,
+		availability: Option<&tg::process::Availability>,
+		local_tokens: &tg::authorization::tokens::Entry,
+		remote_tokens: &tg::authorization::tokens::Entry,
+	) {
+		// Enqueue the children if necessary.
+		if state.arg.process_children
+			&& (!availability.is_some_and(|availability| availability.subtree)
+				|| (state.arg.process_command_objects
+					&& !availability
+						.is_some_and(|availability| availability.subtree_command_objects))
+				|| (state.arg.process_error_objects
+					&& !availability
+						.is_some_and(|availability| availability.subtree_error_objects))
+				|| (state.arg.process_log_objects
+					&& !availability.is_some_and(|availability| availability.subtree_log_objects))
+				|| (state.arg.process_output_objects
+					&& !availability
+						.is_some_and(|availability| availability.subtree_output_objects)))
+			&& let Some(children) = &data.children
+		{
+			for child in children {
+				state.queue.enqueue_process(ProcessNode {
+					descendants: true,
+					eager: state.arg.eager,
+					id: child.process.node.clone(),
+					local_tokens: local_tokens.clone(),
+					parent: Some(id.clone()),
+					remote_tokens: remote_tokens.clone(),
+				});
+			}
+		}
+
+		// Enqueue the command if necessary.
+		if state.arg.process_command_objects
+			&& !availability.is_some_and(|availability| availability.node_command_objects)
+		{
+			for command in data.command.objects() {
+				let node = ObjectNode {
+					descendants: true,
+					eager: state.arg.eager,
+					id: command.node,
+					kind: Some(crate::queue::ObjectKind::Command),
+					local_tokens: local_tokens.clone(),
+					parent: Some(id.clone().into()),
+					remote_tokens: remote_tokens.clone(),
+				};
+				state.queue.enqueue_object(node);
+			}
+		}
+
+		// Enqueue the error if necessary.
+		if state.arg.process_error_objects
+			&& !availability.is_some_and(|availability| availability.node_error_objects)
+			&& let Some(error) = &data.error
+		{
+			match &error.node {
+				tg::Either::Left(data) => {
+					let mut children = BTreeSet::new();
+					data.children(&mut children);
+					state
+						.queue
+						.enqueue_objects(children.into_iter().map(|object| ObjectNode {
+							descendants: true,
+							eager: state.arg.eager,
+							id: object,
+							kind: Some(crate::queue::ObjectKind::Error),
+							local_tokens: local_tokens.clone(),
+							parent: Some(id.clone().into()),
+							remote_tokens: remote_tokens.clone(),
+						}));
+				},
+				tg::Either::Right(error) => {
+					let node = ObjectNode {
+						descendants: true,
+						eager: state.arg.eager,
+						id: error.clone().into(),
+						kind: Some(crate::queue::ObjectKind::Error),
+						local_tokens: local_tokens.clone(),
+						parent: Some(id.clone().into()),
+						remote_tokens: remote_tokens.clone(),
+					};
+					state.queue.enqueue_object(node);
+				},
+			}
+		}
+
+		// Enqueue the log if necessary.
+		if state.arg.process_log_objects
+			&& !availability.is_some_and(|availability| availability.node_log_objects)
+			&& let Some(log) = data.log.clone()
+		{
+			let node = ObjectNode {
+				descendants: true,
+				eager: state.arg.eager,
+				id: log.node.into(),
+				kind: Some(crate::queue::ObjectKind::Log),
+				local_tokens: local_tokens.clone(),
+				parent: Some(id.clone().into()),
+				remote_tokens: remote_tokens.clone(),
+			};
+			state.queue.enqueue_object(node);
+		}
+
+		// Enqueue the output if necessary.
+		if (state.arg.process_output_objects
+			&& !availability.is_some_and(|availability| availability.node_output_objects))
+			&& let Some(output) = &data.output
+		{
+			let mut children = BTreeSet::new();
+			output.node.children(&mut children);
+			state
+				.queue
+				.enqueue_objects(children.into_iter().map(|object| ObjectNode {
+					descendants: true,
+					eager: state.arg.eager,
+					id: object,
+					kind: Some(crate::queue::ObjectKind::Output),
+					local_tokens: local_tokens.clone(),
+					parent: Some(id.clone().into()),
+					remote_tokens: remote_tokens.clone(),
+				}));
+		}
+	}
+}

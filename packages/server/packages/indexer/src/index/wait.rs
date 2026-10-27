@@ -1,0 +1,500 @@
+use {
+	crate::Component,
+	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
+	std::collections::BTreeMap,
+	tangram_client::prelude::*,
+	tangram_futures::task::{Stopper, Task},
+	tangram_index::{self as index, prelude::*},
+	tangram_server_core::Server,
+};
+
+#[cfg(test)]
+mod tests;
+
+pub(crate) type Receiver =
+	tokio::sync::mpsc::Receiver<tokio::sync::oneshot::Sender<tg::Result<()>>>;
+
+pub(crate) type Sender = tokio::sync::mpsc::Sender<tokio::sync::oneshot::Sender<tg::Result<()>>>;
+
+type IndexerWaits =
+	FuturesUnordered<futures::future::BoxFuture<'static, (Vec<String>, tg::Result<()>)>>;
+
+struct State {
+	database_index_queue_batch_id: Option<tangram_server_core::database::index::queue::BatchId>,
+	indexer_waits: IndexerWaits,
+	waits: BTreeMap<String, Request>,
+}
+
+pub(crate) struct Request {
+	id: String,
+	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
+	state: RequestState,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RequestState {
+	Inputs {
+		database_index_queue: Progress<()>,
+		indexers: Progress<()>,
+	},
+	Updates {
+		transaction_id: Option<u64>,
+	},
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Progress<T> {
+	Complete,
+	Pending(T),
+	Ready,
+}
+
+impl Component {
+	#[tracing::instrument(name = "index.wait", level = "info", skip_all, err)]
+	pub(crate) async fn index_inner(&self) -> tg::Result<()> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		self.index_wait_sender
+			.send(sender)
+			.await
+			.map_err(|error| tg::error!(!error, "the index wait task stopped"))?;
+		receiver
+			.await
+			.map_err(|error| tg::error!(!error, "the index wait task stopped"))??;
+		Ok(())
+	}
+
+	pub(crate) async fn index_wait_task(
+		&self,
+		server: &Server,
+		mut receiver: Receiver,
+		stopper: Stopper,
+	) {
+		let mut state = State::new();
+		let mut interval = tokio::time::interval(server.config.indexer.request.poll_interval);
+		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+		loop {
+			// Register before reading progress so changes during the reads wake the next pass.
+			let changed = self.index_changed.notified();
+			tokio::pin!(changed);
+			changed.as_mut().enable();
+
+			// Advance every request as far as the current index state allows.
+			if !state.waits.is_empty() {
+				state.remove_closed();
+				state.start_indexer_wait({
+					let component = self.clone();
+					let server = server.clone();
+					async move { component.wait_for_indexers(&server).await }
+				});
+				let result = tokio::select! {
+					() = stopper.wait() => return,
+					result = state.poll(server, &self.indexers) => result,
+				};
+				if let Err(error) = result {
+					state.fail(&error);
+				}
+			}
+
+			// Wake on new requests, indexer completion, index changes, or the fallback tick.
+			tokio::select! {
+				() = stopper.wait() => return,
+				request = receiver.recv(), if state.waits.len() < server.config.indexer.request.wait_concurrency => {
+					let Some(sender) = request else { return; };
+					let request = Request {
+						id: tangram_server_core::control::id(),
+						sender,
+						state: RequestState::new(),
+					};
+					state.waits.insert(request.id.clone(), request);
+				},
+				Some((ids, result)) = state.indexer_waits.next(), if !state.indexer_waits.is_empty() => {
+					state.handle_indexer_wait(ids, &result);
+				},
+				() = &mut changed, if !state.waits.is_empty() => {},
+				_ = interval.tick(), if !state.waits.is_empty() => {},
+			}
+		}
+	}
+
+	async fn wait_for_indexers(&self, server: &Server) -> tg::Result<()> {
+		if !server.config.advanced.multi_server {
+			self.send_indexer_request(server, None, crate::request::RequestArg::Wait)
+				.await??
+				.try_unwrap_wait()
+				.map_err(|_| tg::error!("expected a wait response"))?;
+			return Ok(());
+		}
+		let indexers = Component::get_indexers(server).await?;
+		if indexers.is_empty() {
+			return Err(tg::error!("no indexers are available"));
+		}
+		future::try_join_all(
+			indexers
+				.iter()
+				.map(|indexer| self.wait_for_indexer(server, &indexer.id)),
+		)
+		.await?;
+		Ok(())
+	}
+
+	async fn wait_for_indexer(&self, server: &Server, indexer: &tg::indexer::Id) -> tg::Result<()> {
+		let mut indexer = indexer.clone();
+		loop {
+			let result = {
+				let request = self.send_indexer_request(
+					server,
+					Some(&indexer),
+					crate::request::RequestArg::Wait,
+				);
+				tokio::pin!(request);
+				let mut interval = tokio::time::interval(server.config.indexer.cache.poll_interval);
+				interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+				loop {
+					tokio::select! {
+						result = &mut request => break Some(result),
+						_ = interval.tick() => {
+							let arg = index::indexer::get::Arg { id: indexer.clone() };
+							if server.index.try_get_indexer(arg).await?.is_none() {
+								break None;
+							}
+						},
+					}
+				}
+			};
+			if let Some(Ok(Ok(output))) = result {
+				output
+					.try_unwrap_wait()
+					.map_err(|_| tg::error!("expected a wait response"))?;
+				tangram_server_core::checkpoint!(server, "indexer.wait.complete", %indexer).await;
+				return Ok(());
+			}
+			let arg = index::indexer::get::Arg {
+				id: indexer.clone(),
+			};
+			if server.index.try_get_indexer(arg).await?.is_none() {
+				// Retry the local wait through a surviving indexer.
+				indexer = Component::get_indexers(server)
+					.await?
+					.into_iter()
+					.next()
+					.ok_or_else(|| tg::error!("no indexers are available"))?
+					.id;
+				continue;
+			}
+			tokio::time::sleep(server.config.indexer.cache.poll_interval).await;
+		}
+	}
+}
+
+impl State {
+	fn new() -> Self {
+		Self {
+			database_index_queue_batch_id: None,
+			indexer_waits: IndexerWaits::new(),
+			waits: BTreeMap::new(),
+		}
+	}
+
+	fn fail(&mut self, error: &tg::Error) {
+		self.database_index_queue_batch_id = None;
+		self.indexer_waits.clear();
+		for (_, request) in std::mem::take(&mut self.waits) {
+			let error = error.clone();
+			request
+				.sender
+				.send(Err(tg::error!(!error, "failed to await indexing")))
+				.ok();
+		}
+	}
+
+	fn remove_closed(&mut self) {
+		self.waits.retain(|_, request| !request.sender.is_closed());
+		if !self.waits.values().any(|request| {
+			matches!(
+				request.state,
+				RequestState::Inputs {
+					indexers: Progress::Pending(()),
+					..
+				}
+			)
+		}) {
+			self.indexer_waits.clear();
+		}
+		if !self.waits.values().any(|request| {
+			matches!(
+				request.state,
+				RequestState::Inputs {
+					database_index_queue: Progress::Pending(()),
+					..
+				}
+			)
+		}) {
+			self.database_index_queue_batch_id = None;
+		}
+	}
+
+	fn start_indexer_wait(&mut self, wait: impl Future<Output = tg::Result<()>> + Send + 'static) {
+		if !self.indexer_waits.is_empty() {
+			return;
+		}
+		let ids = self
+			.waits
+			.iter_mut()
+			.filter_map(|(id, request)| {
+				let RequestState::Inputs {
+					indexers: indexers @ Progress::Ready,
+					..
+				} = &mut request.state
+				else {
+					return None;
+				};
+				*indexers = Progress::Pending(());
+				Some(id.clone())
+			})
+			.collect::<Vec<_>>();
+		if ids.is_empty() {
+			return;
+		}
+		// Keep the shared indexer requests running while the coordinator reads the databases.
+		let task = Task::spawn(|_| wait);
+		self.indexer_waits.push(
+			async move {
+				let result = task
+					.wait()
+					.await
+					.map_err(|error| tg::error!(!error, "the indexer wait task failed"))
+					.and_then(std::convert::identity);
+				(ids, result)
+			}
+			.boxed(),
+		);
+	}
+
+	fn handle_indexer_wait(&mut self, ids: Vec<String>, result: &tg::Result<()>) {
+		for id in ids {
+			if let Err(error) = result {
+				if let Some(request) = self.waits.remove(&id) {
+					request.sender.send(Err(error.clone())).ok();
+				}
+			} else if let Some(request) = self.waits.get_mut(&id)
+				&& let RequestState::Inputs { indexers, .. } = &mut request.state
+			{
+				*indexers = Progress::Complete;
+			}
+		}
+	}
+
+	async fn poll(&mut self, server: &Server, indexers: &crate::cache::Cache) -> tg::Result<()> {
+		let region = server.config.region.clone().unwrap_or_default();
+		self.poll_inputs(|batch| async move {
+			tangram_server_core::checkpoint!(server, "index.wait.database_index_queue", ?batch)
+				.await;
+			let arg = tangram_server_core::database::index::queue::TryGetBatchArg { batch, region };
+			server
+				.database
+				.try_get_index_queue_batch_at_or_before(arg)
+				.await
+		})
+		.await?;
+
+		// Share each global progress read across all active wait requests.
+		self.set_update_target_transactions(server.index.get_transaction_id())
+			.await?;
+		self.poll_updates(|kind| async move {
+			tangram_server_core::checkpoint!(server, "index.wait.updates", ?kind).await;
+			server
+				.index
+				.try_get_oldest_update_transaction_id(kind)
+				.await
+		})
+		.await?;
+
+		for (id, request) in &self.waits {
+			tracing::debug!(%id, state = ?request.state, "waiting for indexing progress");
+		}
+
+		// Pending shared work needs a surviving indexer after the private waits finish.
+		if server.config.advanced.multi_server
+			&& self.waits.values().any(|request| {
+				matches!(
+					request.state,
+					RequestState::Inputs {
+						indexers: Progress::Complete,
+						..
+					} | RequestState::Updates { .. }
+				)
+			}) && indexers.is_empty()
+			&& Component::get_indexers(server).await?.is_empty()
+		{
+			return Err(tg::error!("no indexers are available"));
+		}
+
+		Ok(())
+	}
+
+	async fn poll_inputs<F>(
+		&mut self,
+		read_database_index_queue: impl FnOnce(
+			Option<tangram_server_core::database::index::queue::BatchId>,
+		) -> F,
+	) -> tg::Result<()>
+	where
+		F: Future<
+			Output = tg::Result<Option<tangram_server_core::database::index::queue::BatchId>>,
+		>,
+	{
+		// Share the queue target with the active batch, and give later requests a fresh snapshot.
+		let database_index_queue = async {
+			let poll = self.waits.values().any(|request| {
+				matches!(
+					request.state,
+					RequestState::Inputs {
+						database_index_queue: Progress::Ready | Progress::Pending(()),
+						..
+					}
+				)
+			});
+			if !poll {
+				return Ok::<_, tg::Error>(None);
+			}
+			let batch = read_database_index_queue(self.database_index_queue_batch_id)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to read the database index queue"))?;
+			Ok(Some(batch))
+		};
+
+		let database_index_queue = database_index_queue.await?;
+
+		// Advance each input independently without admitting later requests to an older snapshot.
+		if let Some(batch) = database_index_queue {
+			tracing::debug!(?batch, "read the database index queue progress");
+			let pending = self.database_index_queue_batch_id.is_some();
+			for request in self.waits.values_mut() {
+				let RequestState::Inputs {
+					database_index_queue,
+					..
+				} = &mut request.state
+				else {
+					continue;
+				};
+				if matches!(
+					(*database_index_queue, pending),
+					(Progress::Ready, false) | (Progress::Pending(()), true)
+				) {
+					*database_index_queue = if batch.is_some() {
+						Progress::Pending(())
+					} else {
+						Progress::Complete
+					};
+				}
+			}
+			// A progress read may return an older batch, but the active cutoff must stay fixed.
+			if !pending || batch.is_none() {
+				self.database_index_queue_batch_id = batch;
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn set_update_target_transactions(
+		&mut self,
+		read: impl Future<Output = tg::Result<u64>>,
+	) -> tg::Result<()> {
+		// Capture the update cutoff only after both inputs have completed.
+		for request in self.waits.values_mut() {
+			if matches!(
+				request.state,
+				RequestState::Inputs {
+					database_index_queue: Progress::Complete,
+					indexers: Progress::Complete,
+				}
+			) {
+				request.state = RequestState::Updates {
+					transaction_id: None,
+				};
+			}
+		}
+		let set_transaction = self.waits.values().any(|request| {
+			matches!(
+				request.state,
+				RequestState::Updates {
+					transaction_id: None
+				}
+			)
+		});
+		if !set_transaction {
+			return Ok(());
+		}
+		let transaction_id = read.await?;
+		for request in self.waits.values_mut() {
+			if let RequestState::Updates {
+				transaction_id: transaction @ None,
+			} = &mut request.state
+			{
+				*transaction = Some(transaction_id);
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn poll_updates<F>(
+		&mut self,
+		read: impl Fn(tangram_index::update::Kind) -> F,
+	) -> tg::Result<()>
+	where
+		F: Future<Output = tg::Result<Option<u64>>>,
+	{
+		let poll = self.waits.values().any(|request| {
+			matches!(
+				request.state,
+				RequestState::Updates {
+					transaction_id: Some(_)
+				}
+			)
+		});
+		if !poll {
+			return Ok(());
+		}
+		let oldests = future::try_join3(
+			read(tangram_index::update::Kind::Permission),
+			read(tangram_index::update::Kind::StorageAndMetadata),
+			read(tangram_index::update::Kind::Usage),
+		)
+		.await?;
+		tracing::debug!(?oldests, "read the oldest index updates");
+		let ids = self
+			.waits
+			.iter()
+			.filter_map(|(id, request)| {
+				let RequestState::Updates {
+					transaction_id: Some(transaction_id),
+				} = request.state
+				else {
+					return None;
+				};
+				[oldests.0, oldests.1, oldests.2]
+					.into_iter()
+					.all(|oldest| oldest.is_none_or(|oldest| oldest > transaction_id))
+					.then(|| id.clone())
+			})
+			.collect::<Vec<_>>();
+		for id in ids {
+			if let Some(request) = self.waits.remove(&id) {
+				request.sender.send(Ok(())).ok();
+			}
+		}
+
+		Ok(())
+	}
+}
+
+impl RequestState {
+	fn new() -> Self {
+		Self::Inputs {
+			database_index_queue: Progress::Ready,
+			indexers: Progress::Ready,
+		}
+	}
+}

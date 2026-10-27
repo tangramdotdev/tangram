@@ -2,7 +2,7 @@
   "name": "@tangramdotdev/python-runtime",
   "private": true,
   "scripts": {
-    "check": "../../.venv/bin/python -m ruff check . src && ../../.venv/bin/ty check src && ../../.venv/bin/python -X pycache_prefix=../../target/pycache -m compileall -q src",
-    "format": "../../.venv/bin/python -m ruff format ."
+    "check": "uv run --locked python -m ruff check . src && uv run --locked ty check src && uv run --locked python -X pycache_prefix=../../target/pycache -m compileall -q src",
+    "format": "uv run --locked python -m ruff format ."
   }
 }

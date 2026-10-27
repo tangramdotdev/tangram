@@ -1,0 +1,303 @@
+use {
+	crate::Component,
+	indoc::formatdoc,
+	tangram_client::prelude::*,
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_server_core::Session,
+	tokio::io::AsyncReadExt as _,
+};
+
+impl Component {
+	pub async fn load_module(
+		&self,
+		session: &Session,
+		arg: tg::module::load::Arg,
+	) -> tg::Result<tg::module::load::Output> {
+		if arg.module.kind != tg::module::Kind::TypeScriptDeclaration
+			&& matches!(arg.module.referent.node, tg::module::data::Source::Path(_))
+			&& !matches!(session.context.principal, tg::Principal::Root)
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+
+		#[cfg(not(feature = "python"))]
+		if arg.module.kind == tg::module::Kind::Python
+			|| arg.language == Some(tg::module::load::Language::Python)
+		{
+			return Err(tg::error!("the python feature is not enabled"));
+		}
+
+		#[cfg(not(feature = "javascript"))]
+		if matches!(
+			arg.module.kind,
+			tg::module::Kind::JavaScript
+				| tg::module::Kind::TypeScript
+				| tg::module::Kind::TypeScriptDeclaration
+		) || arg.language == Some(tg::module::load::Language::JavaScript)
+		{
+			return Err(tg::error!("the javascript feature is not enabled"));
+		}
+
+		// Generate the Python representation of object modules.
+		#[cfg(feature = "python")]
+		if arg.language == Some(tg::module::load::Language::Python)
+			&& !matches!(
+				arg.module.kind,
+				tg::module::Kind::JavaScript
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::TypeScriptDeclaration
+					| tg::module::Kind::Python
+			) {
+			let text = tangram_compiler::python::load::object_module(&arg.module)?;
+			return Ok(tg::module::load::Output {
+				text,
+				tokens: tg::authorization::Tokens::default(),
+			});
+		}
+
+		let mut output = self.load_module_inner(session, &arg.module).await?;
+		output.text = tangram_compiler::load::module(&arg.module, &output.text, arg.language)?;
+		Ok(output)
+	}
+
+	async fn load_module_inner(
+		&self,
+		session: &Session,
+		module: &tg::module::Data,
+	) -> tg::Result<tg::module::load::Output> {
+		match module {
+			// Handle a declaration.
+			tg::module::Data {
+				kind: tg::module::Kind::TypeScriptDeclaration,
+				referent:
+					tg::Referent {
+						node: tg::module::data::Source::Path(path),
+						..
+					},
+			} => {
+				let file = tangram_compiler::LIBRARY
+					.get_file(path)
+					.ok_or_else(|| tg::error!(?path, "failed to find the library module"))?;
+				let text = file.contents_utf8().unwrap().to_owned();
+				Ok(tg::module::load::Output {
+					text,
+					tokens: tg::authorization::Tokens::default(),
+				})
+			},
+
+			// Handle a JavaScript, Python, or TypeScript module from a path.
+			tg::module::Data {
+				kind:
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::Python,
+				referent:
+					tg::Referent {
+						node: tg::module::data::Source::Path(path),
+						..
+					},
+				..
+			} => {
+				// Otherwise, load from the path.
+				let text = tokio::fs::read_to_string(&path).await.map_err(
+					|error| tg::error!(!error, path = %path.display(), "failed to read the file"),
+				)?;
+				Ok(tg::module::load::Output {
+					text,
+					tokens: tg::authorization::Tokens::default(),
+				})
+			},
+
+			// Handle a JavaScript, Python, or TypeScript module from an object.
+			tg::module::Data {
+				kind:
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::Python,
+				referent:
+					tg::Referent {
+						node: tg::module::data::Source::Edge(edge),
+						options,
+					},
+				..
+			} => {
+				let object = edge.try_unwrap_object_ref().map_or_else(
+					|_| {
+						let pointer = edge
+							.try_unwrap_pointer_ref()
+							.map_err(|_| tg::error!("expected a file"))?;
+						let pointer = tg::graph::Pointer::try_from_data(pointer.clone())?;
+						let graph = &pointer.graph;
+						graph.state().set_tokens(options.tokens.clone());
+						graph.state().inherit_location(options.location.as_ref());
+						Ok::<_, tg::Error>(tg::Artifact::with_pointer(pointer).into())
+					},
+					|object| Ok(tg::Object::with_id(object.clone())),
+				)?;
+				object.state().inherit_location(options.location.as_ref());
+				object.state().set_tokens(options.tokens.clone());
+				let file = object
+					.try_unwrap_file()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
+				let contents = file
+					.contents_with_instance(session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the file contents"))?;
+				// Retain the contents authorization even when the reader can use a checkout.
+				contents
+					.load_with_instance(session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to load the module contents"))?;
+				let mut reader = session
+					.server
+					.components
+					.read
+					.reader(session, contents)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to create the module reader"))?;
+				let mut text = String::new();
+				reader
+					.read_to_string(&mut text)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to read the module text"))?;
+				let tokens = file.to_referent().options.tokens;
+				Ok(tg::module::load::Output { text, tokens })
+			},
+
+			// Handle object modules.
+			tg::module::Data {
+				kind:
+					tg::module::Kind::Object
+					| tg::module::Kind::Blob
+					| tg::module::Kind::Artifact
+					| tg::module::Kind::Directory
+					| tg::module::Kind::File
+					| tg::module::Kind::Symlink
+					| tg::module::Kind::Graph
+					| tg::module::Kind::Command,
+				referent: tg::Referent {
+					node: source,
+					options,
+				},
+				..
+			} => {
+				let class = match module.kind {
+					tg::module::Kind::Object => "Object",
+					tg::module::Kind::Blob => "Blob",
+					tg::module::Kind::Artifact => "Artifact",
+					tg::module::Kind::Directory => "Directory",
+					tg::module::Kind::File => "File",
+					tg::module::Kind::Symlink => "Symlink",
+					tg::module::Kind::Graph => "Graph",
+					tg::module::Kind::Command => "Command",
+					_ => unreachable!(),
+				};
+				let inherit_tokens = if options.tokens.is_empty() {
+					String::new()
+				} else {
+					let tokens = serde_json::to_string(&options.tokens).unwrap();
+					format!("tg.Object.inheritTokens(object, {tokens});")
+				};
+				let text = match source {
+					tg::module::data::Source::Edge(edge) => match edge {
+						tg::graph::data::Edge::Index(_) => return Err(tg::error!("missing graph")),
+						tg::graph::data::Edge::Pointer(pointer) => {
+							formatdoc!(
+								r#"
+										// @ts-nocheck
+										const pointer = tg.Graph.Pointer.fromDataString("{pointer}");
+										const object = tg.{class}.withPointer(pointer);
+										{inherit_tokens}
+										if (pointer.graph) {{
+											tg.Object.inheritTokens(pointer.graph, object.state.tokens);
+										}}
+										export default object as tg.{class};
+									"#
+							)
+						},
+						tg::graph::data::Edge::Object(object) => {
+							formatdoc!(
+								r#"
+										// @ts-nocheck
+										const object = tg.{class}.withId("{object}");
+										{inherit_tokens}
+										export default object as tg.{class};
+									"#
+							)
+						},
+					},
+					tg::module::data::Source::Path(_) => {
+						formatdoc!(
+							r"
+								// @ts-nocheck
+								export default undefined as tg.{class};
+							"
+						)
+					},
+				};
+				Ok(tg::module::load::Output {
+					text,
+					tokens: tg::authorization::Tokens::default(),
+				})
+			},
+
+			_ => Err(tg::error!("invalid module")),
+		}
+	}
+
+	pub(crate) async fn load_module_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+	) -> tg::Result<http::Response<BoxBody>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
+
+		// Get the arg.
+		let mut arg: tg::module::load::Arg = request
+			.json()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+		if !matches!(arg.module.kind, tg::module::Kind::TypeScriptDeclaration)
+			&& let tg::module::data::Source::Path(path) = &mut arg.module.referent.node
+		{
+			*path = session
+				.server
+				.components
+				.runner
+				.host_path_for_guest_path(session, path)?;
+		}
+
+		// Load the module.
+		let output = self
+			.load_module(session, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to load the module"))?;
+
+		// Create the response.
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let body = serde_json::to_vec(&output).unwrap();
+				(Some(content_type), BoxBody::with_bytes(body))
+			},
+			Some((type_, subtype)) => {
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
+			},
+		};
+
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
+		Ok(response)
+	}
+}

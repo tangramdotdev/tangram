@@ -1,0 +1,148 @@
+use {
+	super::{Indexer, partition},
+	futures::future,
+	std::{ops::ControlFlow, pin::pin},
+	tangram_client::prelude::*,
+	tangram_futures::task::Stopper,
+	tangram_index::prelude::*,
+};
+
+impl Indexer {
+	pub(super) async fn update_task(
+		&self,
+		kind: tangram_index::update::Kind,
+		config: &tangram_server_core::config::IndexerUpdate,
+		partition_start: u64,
+		partition_end: u64,
+		stopper: &Stopper,
+	) -> tg::Result<()> {
+		if partition_start == partition_end {
+			stopper.wait().await;
+			return Ok(());
+		}
+		let checkpoint = match kind {
+			tangram_index::update::Kind::Permission => "indexer.update.permission.batch",
+			tangram_index::update::Kind::StorageAndMetadata => {
+				"indexer.update.storage_and_metadata.batch"
+			},
+			tangram_index::update::Kind::Usage => "indexer.update.usage.batch",
+		};
+		let finish_tasks = tangram_futures::task::Map::<tg::process::Id, ()>::default();
+		let poll_interval = self.server.config.indexer.updates.poll_interval;
+		let retry = self.server.config.indexer.retry.clone().into();
+		loop {
+			if stopper.stopped() {
+				finish_tasks.wait().await;
+				return Ok(());
+			}
+			tangram_server_core::checkpoint!(self.server, checkpoint).await;
+			let output = tangram_futures::retry(&retry, || async {
+				let futures = partition::ranges(partition_start, partition_end, config.concurrency)
+					.map(|range| {
+						self.server.index.update_batch(
+							kind,
+							config.batch_size,
+							range.start,
+							range.end,
+						)
+					});
+				let result = future::try_join_all(futures).await.map(|outputs| {
+					outputs.into_iter().fold(
+						tangram_index::update::Output::default(),
+						|mut output, next| {
+							output.merge(next);
+							output
+						},
+					)
+				});
+				match result {
+					Ok(output) => Ok(ControlFlow::Break(output)),
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to index");
+
+						Ok(ControlFlow::Continue(error))
+					},
+				}
+			})
+			.await?;
+			if output.count > 0 {
+				tracing::debug!(
+					?kind,
+					count = output.count,
+					"processed an index update batch"
+				);
+			}
+			if output.count == 0 {
+				tokio::select! {
+					() = stopper.wait() => {},
+					() = tokio::time::sleep(poll_interval) => {},
+				}
+			} else {
+				self.component.index_changed.notify_waiters();
+				for process in output.processes_with_depth_exceeded {
+					let indexer = self.clone();
+					finish_tasks.get_or_spawn(process.clone(), |_| async move {
+						if let Err(error) = indexer.finish_process_for_max_depth(&process).await {
+							tracing::error!(error = %error.trace(), %process, "failed to finish the process that exceeded the maximum depth");
+						}
+					});
+				}
+			}
+		}
+	}
+
+	async fn finish_process_for_max_depth(&self, id: &tg::process::Id) -> tg::Result<()> {
+		let error = tg::error::Data {
+			message: Some("maximum depth exceeded".into()),
+			..Default::default()
+		};
+		let request = tg::process::control::ServerRequestArg::Finish(
+			tg::process::control::FinishServerRequestArg {
+				error: Some(error),
+				exit: 1,
+			},
+		);
+		let retry = self.server.config.control.request_retry.clone().into();
+		let timeout = self.server.config.control.request_timeout;
+		let options = tangram_server_core::control::Options { retry, timeout };
+		let session = self.server.session(&self.server.context);
+		let wait_future = session
+			.try_wait_process_future(
+				&tg::Either::Right(id.clone()),
+				tg::process::wait::Arg::default(),
+			)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+		let finish_future = session
+			.server
+			.components
+			.process
+			.request_process_control(&session, id, request, options);
+		let mut wait_future = pin!(wait_future);
+		let mut finish_future = pin!(finish_future);
+		tokio::select! {
+			output = &mut wait_future => {
+				let output = output
+					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
+				if output.is_none() {
+					return Err(tg::error!(%id, "the process wait ended without output"));
+				}
+			},
+			response = &mut finish_future => {
+				let response = response
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to send the finish process control request"),
+					)?
+					.map_err(
+						|error| tg::error!(!error, %id, "the finish process control request failed"),
+					)?;
+				response
+					.try_unwrap_finish()
+					.map_err(|_| tg::error!(%id, "expected a finish response"))?;
+			},
+		}
+
+		Ok(())
+	}
+}

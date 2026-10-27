@@ -1,0 +1,38 @@
+[package]
+name = "tangram_server_vfs"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[features]
+lmdb = ["dep:heed", "tangram_server_core/lmdb"]
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+dashmap = { workspace = true }
+fnv = { workspace = true }
+futures = { workspace = true }
+heed = { workspace = true, optional = true }
+libc = { workspace = true }
+num = { workspace = true }
+tangram_cache = { workspace = true }
+tangram_client = { workspace = true }
+tangram_index = { workspace = true }
+tangram_server_core = { workspace = true }
+tangram_server_grant_common = { workspace = true }
+tangram_server_vfs_core = { workspace = true }
+tangram_vfs = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

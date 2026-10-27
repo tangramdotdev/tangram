@@ -1,0 +1,134 @@
+use {
+	crate::Component, futures::FutureExt as _, std::ops::ControlFlow, tangram_client::prelude::*,
+	tangram_database as db, tangram_server_core::Session,
+};
+
+impl Component {
+	pub(super) fn spawn_process_create_creator_permission_arg(
+		session: &Session,
+		id: &tg::process::Id,
+		created_at: i64,
+	) -> tg::Result<Option<tangram_index::permission::put::Arg>> {
+		let subject = match &session.context.principal {
+			tg::Principal::Anonymous => tg::authorization::Subject::Public,
+			tg::Principal::Root => return Ok(None),
+			principal => principal.try_to_subject()?,
+		};
+		let time_to_live = i64::try_from(
+			session
+				.server
+				.config
+				.process
+				.permission_time_to_live
+				.as_secs(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
+		let expires_at = created_at
+			.checked_add(time_to_live)
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		);
+		let arg = tangram_index::permission::put::Arg {
+			created_at,
+			creator: Some(session.context.principal.clone()),
+			permissions: permission.into(),
+			resource: id.clone().into(),
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(expires_at),
+			},
+			subject,
+			time_to_touch: Some(session.server.config.process.permission_time_to_touch),
+			version: None,
+		};
+		Ok(Some(arg))
+	}
+
+	pub(super) async fn spawn_process_create_public_grant_if_requested(
+		&self,
+		session: &Session,
+		arg: &tg::process::spawn::Arg,
+		output: &tg::process::spawn::Output,
+	) -> tg::Result<()> {
+		if arg.public
+			&& let tg::Either::Right(id) = &output.process
+		{
+			self.spawn_process_create_public_grant(session, id).await?;
+		}
+		Ok(())
+	}
+
+	async fn spawn_process_create_public_grant(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+	) -> tg::Result<()> {
+		let resource = tg::Id::from(id.clone());
+		let existing = session
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let resource = resource.clone();
+				let session = session.clone();
+				async move {
+					Self::list_spawn_process_grants_with_transaction(
+						&session,
+						transaction,
+						&resource,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
+		let mut covered = tg::authorization::permission::process::Set::empty();
+		for grant in existing {
+			if grant.subject == tg::authorization::Subject::Public
+				&& let tg::authorization::permission::Set::Process(set) = grant.permissions
+			{
+				covered.insert(set);
+			}
+		}
+
+		let mut missing = tg::authorization::permission::process::Set::empty();
+		for permission in [
+			tg::authorization::permission::process::Permission::Subtree,
+			tg::authorization::permission::process::Permission::SubtreeCommandObjects,
+			tg::authorization::permission::process::Permission::SubtreeErrorObjects,
+			tg::authorization::permission::process::Permission::SubtreeLogObjects,
+			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
+		] {
+			let set = tg::authorization::permission::process::Set::from_permission(permission);
+			if !covered.contains(set) {
+				missing.insert(set);
+			}
+		}
+		if !missing.is_empty() {
+			session
+				.create_grant(tg::grant::create::Arg {
+					subject: tg::authorization::subject::Selector::Subject(
+						tg::authorization::Subject::Public,
+					),
+					permissions: tg::Either::Left(tg::authorization::permission::Set::Process(
+						missing,
+					)),
+					resource: tg::Referent::with_node(tg::Selector::Id(resource)),
+				})
+				.await?;
+		}
+		Ok(())
+	}
+
+	async fn list_spawn_process_grants_with_transaction(
+		session: &Session,
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		resource: &tg::Id,
+	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, tangram_server_core::database::Error>> {
+		session
+			.server
+			.components
+			.grant
+			.list_resource_grants_with_transaction(transaction, resource, None, None)
+			.await
+	}
+}

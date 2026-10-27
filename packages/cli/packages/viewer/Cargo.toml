@@ -1,0 +1,40 @@
+[package]
+name = "tangram_cli_viewer"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+vt100 = { workspace = true }
+
+[dependencies]
+anstream = { workspace = true }
+bytes = { workspace = true }
+crossterm = { workspace = true }
+data-encoding = { workspace = true }
+derive_more = { workspace = true }
+futures = { workspace = true }
+libc = { workspace = true }
+num = { workspace = true }
+ratatui = { workspace = true }
+serde_json = { workspace = true }
+tangram_cli_core = { workspace = true }
+tangram_client = { workspace = true }
+tangram_futures = { workspace = true }
+tangram_util = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }

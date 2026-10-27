@@ -1,0 +1,37 @@
+[package]
+name = "tangram_server_remote"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+dashmap = { workspace = true }
+fnv = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+indoc = { workspace = true }
+mime = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tangram_client = { workspace = true }
+tangram_database = { workspace = true }
+tangram_http = { workspace = true }
+tangram_index = { workspace = true }
+tangram_server_core = { workspace = true }
+tangram_server_grant_common = { workspace = true }
+tangram_server_node_common = { workspace = true }
+tangram_server_remote_core = { workspace = true }
+tangram_uri = { workspace = true }
+tracing = { workspace = true }

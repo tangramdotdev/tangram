@@ -412,7 +412,7 @@ async fn mock_server(
 								.await
 								.unwrap();
 						let body = tangram_http::body::Boxed::new(request.into_body());
-						let input = crate::http::frame::decode(body, 1024 * 1024).boxed();
+						let input = crate::frame::decode(body, 1024 * 1024).boxed();
 						let (output, receiver) = async_channel::unbounded();
 						let connection = MockConnection {
 							_input: input,
@@ -420,7 +420,7 @@ async fn mock_server(
 							output,
 						};
 						sender.send(connection).await.unwrap();
-						let body = crate::http::frame::encode(receiver.boxed(), 1024 * 1024);
+						let body = crate::frame::encode(receiver.boxed(), 1024 * 1024);
 						let body = tangram_http::body::header::set(
 							body,
 							&Header::default(),

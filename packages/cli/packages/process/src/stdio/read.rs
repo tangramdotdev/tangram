@@ -1,0 +1,132 @@
+use {
+	futures::TryStreamExt as _, serde_with::serde_as, std::time::Duration, tangram_cli_core::Cli,
+	tangram_client::prelude::*, tangram_util::serde::SeekFromNumberOrString,
+	tokio::io::AsyncWriteExt as _,
+};
+
+/// Read a process's stdio.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[arg(long)]
+	pub length: Option<i64>,
+
+	#[command(flatten)]
+	pub locations: tangram_cli_core::location::Args,
+
+	#[arg(long, value_parser = parse_seek_from)]
+	pub position: Option<std::io::SeekFrom>,
+
+	#[arg(index = 1)]
+	pub reference: tg::Reference,
+
+	#[arg(long)]
+	pub size: Option<u64>,
+
+	#[arg(long, value_delimiter = ',', visible_alias = "stream")]
+	pub streams: Vec<tg::process::stdio::Stream>,
+
+	#[command(flatten)]
+	pub timeout: Timeout,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Timeout {
+	#[arg(id = "read.timeout.timeout", long = "timeout", overrides_with = "read.timeout.no_timeout", value_parser = humantime::parse_duration)]
+	pub timeout: Option<Duration>,
+
+	#[arg(
+		id = "read.timeout.no_timeout",
+		long = "no-timeout",
+		overrides_with = "read.timeout.timeout"
+	)]
+	pub no_timeout: bool,
+}
+
+#[serde_as]
+#[derive(serde::Deserialize)]
+struct PositionArg {
+	#[serde_as(as = "SeekFromNumberOrString")]
+	position: std::io::SeekFrom,
+}
+
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let mut locations = args.locations;
+	locations.set_from_reference_if_unset(&args.reference);
+	let process =
+		tangram_cli_reference::get_process_with_locations(cli, &args.reference, &locations).await?;
+	let id = process.node.clone();
+	let location = locations.get_for_options(&process);
+	let process = tg::Process::<tg::Value>::with_referent(process);
+	let streams = if args.streams.is_empty() {
+		vec![
+			tg::process::stdio::Stream::Stdout,
+			tg::process::stdio::Stream::Stderr,
+		]
+	} else {
+		args.streams
+	};
+	let options = tg::process::stdio::read::Options {
+		length: args.length,
+		location,
+		position: args.position,
+		size: args.size,
+		streams,
+		timeout: args.timeout.get(),
+	};
+	let mut stdio = process
+		.try_read_stdio_with_instance(&client, options)
+		.await
+		.map_err(|error| tg::error!(!error, %id, "failed to get the process stdio"))?
+		.ok_or_else(|| tg::error!(%id, "failed to get the process stdio"))?;
+
+	let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
+	let mut stderr = tokio::io::BufWriter::new(tokio::io::stderr());
+	while let Some(chunk) = stdio.try_next().await? {
+		match chunk.stream {
+			tg::process::stdio::Stream::Stdout => {
+				stdout
+					.write_all(&chunk.bytes)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
+			},
+			tg::process::stdio::Stream::Stderr => {
+				stderr
+					.write_all(&chunk.bytes)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to write to stderr"))?;
+			},
+			tg::process::stdio::Stream::Stdin => {
+				return Err(tg::error!("invalid stdio stream"));
+			},
+		}
+	}
+	stdout
+		.flush()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
+	stderr
+		.flush()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to flush stderr"))?;
+
+	Ok(())
+}
+
+impl Timeout {
+	fn get(&self) -> Option<Duration> {
+		if self.no_timeout {
+			None
+		} else {
+			self.timeout.or(Some(Duration::ZERO))
+		}
+	}
+}
+
+fn parse_seek_from(value: &str) -> Result<std::io::SeekFrom, String> {
+	let value = serde_json::json!({ "position": value });
+	let position = serde_json::from_value::<PositionArg>(value)
+		.map_err(|error| format!("failed to parse the position: {error}"))?;
+	Ok(position.position)
+}

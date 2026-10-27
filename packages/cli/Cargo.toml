@@ -19,99 +19,92 @@ path = "src/main.rs"
 
 [features]
 default = ["cpython", "lmdb", "sqlite", "tls", "tsrs", "ty", "v8"]
-cpython = ["dep:tangram_python", "python"]
-fjall = ["tangram_server/fjall"]
-foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
-javascript = ["tangram_compiler/javascript", "tangram_server/javascript"]
-lmdb = ["tangram_server/lmdb"]
-nats = ["tangram_server/nats"]
-postgres = ["tangram_server/postgres"]
-python = ["tangram_compiler/python", "tangram_server/python"]
-quickjs = ["dep:tangram_javascript", "javascript", "tangram_javascript/quickjs"]
-rocksdb = ["tangram_server/rocksdb"]
-scylla = ["tangram_server/scylla"]
-sqlite = ["tangram_server/sqlite"]
-tls = ["tangram_client/tls", "tangram_server/tls"]
-tsrs = ["javascript", "tangram_compiler/tsrs", "tangram_server/tsrs"]
-turso = ["tangram_server/turso"]
-ty = ["python", "tangram_compiler/ty", "tangram_server/ty"]
-v8 = ["dep:deno_core_icudata", "dep:tangram_javascript", "dep:v8", "javascript", "tangram_javascript/v8"]
-vsock = ["tangram_client/vsock", "tangram_sandbox/vsock", "tangram_server/vsock"]
+cpython = ["dep:tangram_cli_python", "python", "tangram_cli_core/cpython"]
+fjall = ["tangram_cli_server/fjall"]
+foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_cli_server/foundationdb"]
+javascript = ["tangram_cli_server/javascript"]
+lmdb = ["tangram_cli_server/lmdb"]
+nats = ["tangram_cli_server/nats"]
+postgres = ["tangram_cli_server/postgres"]
+python = ["tangram_cli_server/python"]
+quickjs = ["dep:tangram_cli_javascript", "dep:tangram_cli_repl", "javascript", "tangram_cli_core/quickjs", "tangram_cli_javascript/quickjs", "tangram_cli_repl/quickjs"]
+rocksdb = ["tangram_cli_server/rocksdb"]
+scylla = ["tangram_cli_server/scylla"]
+sqlite = ["tangram_cli_server/sqlite"]
+tls = ["tangram_cli_core/tls", "tangram_cli_server/tls"]
+tsrs = ["javascript", "tangram_cli_server/tsrs"]
+turso = ["tangram_cli_server/turso"]
+ty = ["python", "tangram_cli_server/ty"]
+v8 = ["dep:tangram_cli_javascript", "dep:tangram_cli_repl", "javascript", "tangram_cli_core/v8", "tangram_cli_javascript/v8", "tangram_cli_repl/v8"]
+vsock = ["tangram_cli_core/vsock", "tangram_cli_server/vsock"]
 
 [lints]
 workspace = true
 
-[dev-dependencies]
-vt100 = { workspace = true }
-
 [dependencies]
-anstream = { workspace = true }
-astral-tokio-tar = { workspace = true }
-async-compression = { workspace = true }
-async_zip = { workspace = true }
-byte-unit = { workspace = true }
-byteorder = { workspace = true }
-bytes = { workspace = true }
 clap = { workspace = true }
-clap_complete = { workspace = true }
-clap_complete_nushell = { workspace = true }
-console-subscriber = { workspace = true }
-crossterm = { workspace = true }
-data-encoding = { workspace = true }
-deno_core_icudata = { workspace = true, optional = true }
-derive_more = { workspace = true }
 foundationdb = { workspace = true, optional = true }
 futures = { workspace = true }
-humantime = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry-appender-tracing = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-indexmap = { workspace = true }
-indoc = { workspace = true }
-jiff = { workspace = true }
-libc = { workspace = true }
-liblzma = { workspace = true }
-maml = { workspace = true }
-miette = { workspace = true }
-num = { workspace = true }
-nu-ansi-term = { workspace = true }
-owo-colors = { workspace = true }
-petgraph = { workspace = true }
-radix_trie = { workspace = true }
-rand = { workspace = true }
-ratatui = { workspace = true }
-reedline = { workspace = true }
-reqwest = { workspace = true }
 rustls = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-serde_yaml = { workspace = true }
-serde_with = { workspace = true }
-syntect = { workspace = true }
-tangram_billing_stripe = { workspace = true }
+tangram_cli_archive = { workspace = true }
+tangram_cli_availability = { workspace = true }
+tangram_cli_builtin = { workspace = true }
+tangram_cli_bundle = { workspace = true }
+tangram_cli_check = { workspace = true }
+tangram_cli_checkin = { workspace = true }
+tangram_cli_checkout = { workspace = true }
+tangram_cli_checkpoint = { workspace = true }
+tangram_cli_checksum = { workspace = true }
+tangram_cli_children = { workspace = true }
+tangram_cli_clean = { workspace = true }
+tangram_cli_clock = { workspace = true }
+tangram_cli_compress = { workspace = true }
+tangram_cli_core = { workspace = true }
+tangram_cli_decompress = { workspace = true }
+tangram_cli_document = { workspace = true }
+tangram_cli_download = { workspace = true }
+tangram_cli_extract = { workspace = true }
+tangram_cli_format = { workspace = true }
+tangram_cli_get = { workspace = true }
+tangram_cli_grants = { workspace = true }
+tangram_cli_group = { workspace = true }
+tangram_cli_health = { workspace = true }
+tangram_cli_id = { workspace = true }
+tangram_cli_index = { workspace = true }
+tangram_cli_init = { workspace = true }
+tangram_cli_javascript = { workspace = true, optional = true }
+tangram_cli_list = { workspace = true }
+tangram_cli_lsp = { workspace = true }
+tangram_cli_match = { workspace = true }
+tangram_cli_metadata = { workspace = true }
+tangram_cli_new = { workspace = true }
+tangram_cli_object = { workspace = true }
+tangram_cli_organization = { workspace = true }
+tangram_cli_outdated = { workspace = true }
+tangram_cli_process = { workspace = true }
+tangram_cli_publish = { workspace = true }
+tangram_cli_pull = { workspace = true }
+tangram_cli_push = { workspace = true }
+tangram_cli_put = { workspace = true }
+tangram_cli_python = { workspace = true, optional = true }
+tangram_cli_read = { workspace = true }
+tangram_cli_remote = { workspace = true }
+tangram_cli_repl = { workspace = true, optional = true }
+tangram_cli_runner = { workspace = true }
+tangram_cli_sandbox = { workspace = true }
+tangram_cli_server = { workspace = true }
+tangram_cli_shell = { workspace = true }
+tangram_cli_tag = { workspace = true }
+tangram_cli_tangram = { workspace = true }
+tangram_cli_touch = { workspace = true }
+tangram_cli_tree = { workspace = true }
+tangram_cli_update = { workspace = true }
+tangram_cli_usage = { workspace = true }
+tangram_cli_user = { workspace = true }
+tangram_cli_view = { workspace = true }
+tangram_cli_wait = { workspace = true }
+tangram_cli_watch = { workspace = true }
+tangram_cli_write = { workspace = true }
 tangram_client = { workspace = true }
-tangram_compiler = { workspace = true }
 tangram_fdb = { workspace = true, optional = true }
-tangram_futures = { workspace = true }
-tangram_http = { workspace = true }
-tangram_javascript = { workspace = true, optional = true }
-tangram_messenger = { workspace = true }
-tangram_python = { workspace = true, optional = true }
-tangram_pool = { workspace = true }
-tangram_sandbox = { workspace = true }
-tangram_server = { workspace = true }
-tangram_uri = { workspace = true }
-tangram_util = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
-toml = { workspace = true }
-tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true }
-tracing-subscriber = { workspace = true }
-tracing-tree = { workspace = true }
-unicode-segmentation = { workspace = true }
-unicode-width = { workspace = true }
-v8 = { workspace = true, optional = true }
-waitpid-any = { workspace = true }
-webbrowser = { workspace = true }

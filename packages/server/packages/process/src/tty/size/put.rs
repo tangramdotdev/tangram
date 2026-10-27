@@ -1,0 +1,386 @@
+use {
+	crate::Component,
+	futures::{StreamExt as _, stream::FuturesUnordered},
+	tangram_client::prelude::*,
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
+	tangram_server_core::Session,
+};
+
+impl Component {
+	pub(crate) async fn try_set_process_tty_size(
+		&self,
+		session: &Session,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		mut arg: tg::process::tty::size::put::Arg,
+	) -> tg::Result<Option<()>> {
+		let mut process = process.clone();
+		if self
+			.try_resolve_process(
+				session,
+				&mut process,
+				&mut arg.location,
+				Some(&mut arg.tokens),
+				&[],
+			)
+			.await?
+			.is_none()
+		{
+			return Ok(None);
+		}
+		let id = process.clone().right();
+		let process = &process;
+		if let Some(id) = &id
+			&& let Some(control) = self
+				.try_get_process_control_runner(
+					session,
+					id,
+					arg.location.as_ref(),
+					&arg.tokens,
+					tg::authorization::permission::process::Set::PARENT,
+				)
+				.await?
+		{
+			return self
+				.set_process_tty_size_with_control(
+					session,
+					id,
+					control.data,
+					arg.size,
+					Some(control.control_sender),
+				)
+				.await;
+		}
+		let locations = session
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(id) = &id
+				&& let Some(output) = self
+					.try_set_process_tty_size_local(
+						session,
+						id,
+						arg.size,
+						arg.tokens.local_authorization(),
+					)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to set the process tty size"),
+					)? {
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_set_process_tty_size_regions(
+					session,
+					process,
+					arg.size,
+					&local.regions,
+					&arg.tokens,
+				)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %process, "failed to set the process tty size in another region"),
+				)? {
+				return Ok(Some(output));
+			}
+		}
+
+		if let Some(output) = self
+			.try_set_process_tty_size_remotes(
+				session,
+				process,
+				arg.size,
+				&locations.remotes,
+				&arg.tokens,
+			)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %process, "failed to set the process tty size in a remote"),
+			)? {
+			return Ok(Some(output));
+		}
+
+		Ok(None)
+	}
+
+	pub(crate) async fn try_set_process_tty_size_local(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		size: tg::process::tty::Size,
+		tokens: &[tg::authorization::Token],
+	) -> tg::Result<Option<()>> {
+		let Some(output) = self
+			.try_get_process_local(session, id, false, false, tokens, tg::process::Source::Auto)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
+		else {
+			return Ok(None);
+		};
+
+		if output
+			.location
+			.as_ref()
+			.is_some_and(tg::Location::is_remote)
+		{
+			return Ok(None);
+		}
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		);
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
+		let authorized = session
+			.authorize(resource, permission)
+			.await?
+			.check_exhaustion()?;
+		if !authorized.permissions.contains(permission) {
+			return Ok(None);
+		}
+
+		self.set_process_tty_size_with_control(session, id, output.data, size, None)
+			.await
+	}
+
+	async fn set_process_tty_size_with_control(
+		&self,
+		session: &Session,
+		id: &tg::process::Id,
+		data: tg::process::Data,
+		size: tg::process::tty::Size,
+		control_sender: Option<tangram_server_process_core::control::local::Local>,
+	) -> tg::Result<Option<()>> {
+		// Check if the process has a tty.
+		if data.tty.is_none() {
+			return Err(tg::error!(%id, "the process does not have a tty associated with it"));
+		}
+		if data.status.is_finished() {
+			return Ok(Some(()));
+		}
+
+		// Send the control request.
+		let request = tg::process::control::ServerRequestArg::Tty(
+			tg::process::control::TtyServerRequestArg { size },
+		);
+		let retry = session.server.config.control.request_retry.clone().into();
+		let timeout = if session
+			.server
+			.config
+			.roles
+			.contains(&tangram_server_core::config::Role::Runner)
+		{
+			session.server.config.runner.stdio_drain_timeout
+		} else {
+			session.server.config.control.request_timeout
+		};
+		let options = tangram_server_core::control::Options { retry, timeout };
+		let response = if let Some(control_sender) = control_sender {
+			control_sender.request(request).await?
+		} else {
+			self.request_process_control(session, id, request, options)
+				.await??
+		};
+		response
+			.try_unwrap_tty()
+			.map_err(|_| tg::error!("expected a tty response"))?;
+
+		Ok(Some(()))
+	}
+
+	async fn try_set_process_tty_size_regions(
+		&self,
+		session: &Session,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		size: tg::process::tty::Size,
+		regions: &[String],
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<()>> {
+		let mut futures = regions
+			.iter()
+			.map(|region| {
+				self.try_set_process_tty_size_region(session, process, size, region, tokens)
+			})
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_set_process_tty_size_region(
+		&self,
+		session: &Session,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		size: tg::process::tty::Size,
+		region: &str,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<()>> {
+		let client = session
+			.get_region_session_for_process(region)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, %process, "failed to get the region client"),
+			)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::process::tty::size::put::Arg {
+			location: Some(location.clone().into()),
+			size,
+			tokens: tokens.for_location(&location),
+		};
+		let Some(()) = client
+			.try_set_process_tty_size(process, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, "failed to set the process tty size"),
+			)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	async fn try_set_process_tty_size_remotes(
+		&self,
+		session: &Session,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		size: tg::process::tty::Size,
+		remotes: &[tangram_server_core::location::Remote],
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<()>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| {
+				self.try_set_process_tty_size_remote(session, process, size, remote, tokens)
+			})
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_set_process_tty_size_remote(
+		&self,
+		session: &Session,
+		process: &tg::Either<tg::process::Nonce, tg::process::Id>,
+		size: tg::process::tty::Size,
+		remote: &tangram_server_core::location::Remote,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<()>> {
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session_for_process(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, %process, "failed to get the remote client"),
+			)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		let arg = tg::process::tty::size::put::Arg {
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+			size,
+			tokens: tokens.for_location(&location),
+		};
+		let Some(()) = client
+			.try_set_process_tty_size(process, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to set the process tty size"),
+			)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	pub(crate) async fn try_set_process_tty_size_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+		process: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
+
+		// Parse the process.
+		let process = process
+			.parse::<tg::Either<tg::process::Nonce, tg::process::Id>>()
+			.map_err(|_| tg::error!(argument, "failed to parse the process"))?;
+
+		// Get the arg.
+		let arg = request
+			.json()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+
+		// Put the process tty.
+		let Some(()) = self
+			.try_set_process_tty_size(session, &process, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the process tty"))?
+		else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
+
+		// Create the response.
+		match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR)) => (),
+			Some((type_, subtype)) => {
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
+			},
+		}
+
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
+	}
+}

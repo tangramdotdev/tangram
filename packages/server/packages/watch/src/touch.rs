@@ -1,0 +1,102 @@
+use {
+	crate::Component,
+	tangram_client::prelude::*,
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
+	tangram_server_core::Session,
+};
+
+impl Component {
+	pub(crate) async fn touch_watch(
+		&self,
+		session: &Session,
+		arg: tg::watch::touch::Arg,
+	) -> tg::Result<()> {
+		session.verify_request_from_host()?;
+
+		let key = super::Key {
+			path: arg.path.clone(),
+			principal: session.context.principal.clone(),
+		};
+
+		// Get the event sender.
+		let watch = self
+			.watches
+			.get(&key)
+			.ok_or_else(|| tg::error!(path = %arg.path.display(), "expected a watch"))?;
+		let sender = watch.state.lock().unwrap().sender.clone();
+		drop(watch);
+
+		// Create a notification channel.
+		let (notification_sender, notification_receiver) = tokio::sync::oneshot::channel();
+
+		// Create the event kind.
+		let kind = match arg.kind {
+			tg::watch::touch::Kind::Any => notify::EventKind::Any,
+			tg::watch::touch::Kind::Remove => {
+				notify::EventKind::Remove(notify::event::RemoveKind::Any)
+			},
+			tg::watch::touch::Kind::Rename => notify::EventKind::Modify(
+				notify::event::ModifyKind::Name(notify::event::RenameMode::Any),
+			),
+		};
+
+		// Send a message to touch the watch.
+		sender
+			.send(super::Message {
+				event: notify::Event {
+					attrs: notify::event::EventAttributes::new(),
+					kind,
+					paths: arg.paths.clone(),
+				},
+				sender: Some(notification_sender),
+			})
+			.await
+			.map_err(|_| tg::error!("failed to update the watch"))?;
+
+		notification_receiver
+			.await
+			.map_err(|_| tg::error!("failed to touch the watch"))?;
+
+		Ok(())
+	}
+
+	pub(crate) async fn touch_watch_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+	) -> tg::Result<http::Response<BoxBody>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
+
+		// Get the arg.
+		let arg = request
+			.json()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the body"))?;
+
+		// Touch the watch.
+		self.touch_watch(session, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the watch"))?;
+
+		// Create the response.
+		match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => (),
+			Some((type_, subtype)) => {
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
+			},
+		}
+
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+
+		Ok(response)
+	}
+}

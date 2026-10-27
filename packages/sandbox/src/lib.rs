@@ -55,6 +55,7 @@ pub mod gvisor;
 #[cfg(target_os = "linux")]
 pub mod host;
 pub mod init;
+pub mod ip;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "linux")]

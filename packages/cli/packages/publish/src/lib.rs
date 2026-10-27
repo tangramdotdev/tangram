@@ -1,0 +1,863 @@
+use {
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
+	petgraph::algo::tarjan_scc,
+	radix_trie::TrieCommon as _,
+	std::{
+		collections::{BTreeMap, BTreeSet, HashMap},
+		path::{Path, PathBuf},
+	},
+	tangram_cli_core::Cli,
+	tangram_client::prelude::*,
+};
+
+/// Publish a package with its transitive source dependencies.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[arg(default_value = "false", long)]
+	pub dry_run: bool,
+
+	/// Replace conflicting named nodes and their descendants.
+	#[arg(long, short)]
+	pub force: bool,
+
+	#[command(flatten)]
+	pub location: tangram_cli_core::location::Args,
+
+	#[arg(default_value = ".", index = 1)]
+	pub path: PathBuf,
+
+	#[arg(long, short)]
+	pub tag: Option<String>,
+}
+
+#[derive(Default)]
+struct Graph {
+	indices: HashMap<tg::object::Id, usize, tg::id::BuildHasher>,
+	nodes: Vec<Node>,
+}
+
+pub struct Node {
+	package: tg::Referent<tg::Object>,
+	incoming: Vec<usize>,
+	outgoing: Vec<usize>,
+}
+
+#[derive(Default)]
+struct State {
+	all_packages: Vec<tg::Referent<tg::Object>>,
+	file_trees: BTreeMap<Option<tg::object::Id>, radix_trie::Trie<PathBuf, tg::Artifact>>,
+	graph: Graph,
+	source_packages: Vec<tg::Referent<tg::Object>>,
+	tags: Vec<(tg::Specifier, tg::Referent<tg::object::Id>)>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(untagged)]
+enum Step {
+	Item(Item),
+	Cycle(Vec<Item>),
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+struct Item {
+	referent: tg::Referent<tg::object::Id>,
+	path: Option<PathBuf>,
+	tag: tg::Specifier,
+}
+
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+
+	// Check in the root package.
+	let absolute_path = tangram_util::fs::canonicalize_parent(&args.path)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+	let arg = tg::checkin::Arg {
+		options: tg::checkin::Options::default(),
+		path: absolute_path.clone(),
+		updates: Vec::new(),
+	};
+	let output = tg::checkin::checkin_with_instance(&client, arg).await.map_err(
+		|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
+	)?;
+	let artifact = tg::Artifact::with_referent(output.artifact.clone());
+	let mut options = output.artifact.options;
+	if options.id.is_none() {
+		options.path = Some(args.path.clone());
+	}
+	let referent = tg::Referent::new(artifact.into(), options);
+
+	// Create the state.
+	let mut state = State::default();
+
+	// Visit the objects.
+	state
+		.visit_objects(&client, &referent)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to analyze objects"))?;
+
+	// Create the graph.
+	state
+		.create_graph(&client)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to create package graph"))?;
+
+	// Create the plan.
+	let tag = args
+		.tag
+		.map(|tag| tag.parse())
+		.transpose()
+		.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
+	let tag_concurrency = cli.publish_config().tag_concurrency;
+	let plan = state
+		.create_plan(&client, tag, tag_concurrency)
+		.boxed()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to create publishing plan"))?;
+
+	// Print the plan if this is a dry run.
+	if args.dry_run {
+		cli.print_serde(&plan, tangram_cli_core::print::Options::default())
+			.await?;
+		return Ok(());
+	}
+
+	// Collect all the local items.
+	let mut items = state
+		.tags
+		.iter()
+		.map(|(_, node)| node.clone())
+		.collect::<Vec<_>>();
+
+	// Collect all the local tags.
+	let mut tags = state
+		.tags
+		.into_iter()
+		.map(|(tag, node)| (tag, node.node))
+		.collect::<Vec<_>>();
+
+	// Execute the plan.
+	for step in plan {
+		match step {
+			Step::Item(item) => {
+				let Item {
+					referent,
+					path,
+					tag,
+				} = item;
+				let node = if let Some(path) = path {
+					publish_checkin(&client, path, true).await?
+				} else {
+					referent
+				};
+				let id = node.node.clone();
+				let tokens = node.options.tokens.clone();
+				items.push(node);
+				tags.push((tag.clone(), id.clone()));
+				let arg = tg::tag::put::Arg {
+					tokens,
+					ancestors: tg::node::Ancestors {
+						create: true,
+						..Default::default()
+					},
+					force: args.force,
+					location: None,
+					public: false,
+					specifier: tag.clone(),
+					target: id.into(),
+				};
+				client
+					.put_tag(arg)
+					.await
+					.map_err(|error| tg::error!(!error, tag = %tag, "failed to put local tag"))?;
+			},
+
+			Step::Cycle(cycle_items) => {
+				for item in &cycle_items {
+					let path = item
+						.path
+						.clone()
+						.ok_or_else(|| tg::error!("cycle items must have paths"))?;
+					let checked_in = publish_checkin(&client, path, false).await?;
+					let id = checked_in.node;
+					let arg = tg::tag::put::Arg {
+						tokens: checked_in.options.tokens,
+						ancestors: tg::node::Ancestors {
+							create: true,
+							..Default::default()
+						},
+						force: args.force,
+						location: None,
+						public: false,
+						specifier: item.tag.clone(),
+						target: id.into(),
+					};
+					client.put_tag(arg).await.map_err(
+						|error| tg::error!(!error, tag = %item.tag, "failed to put local tag"),
+					)?;
+				}
+
+				for item in cycle_items {
+					let Item { path, tag, .. } = item;
+					let path = path.ok_or_else(|| tg::error!("cycle items must have paths"))?;
+					let node = publish_checkin(&client, path, true).await?;
+					let id = node.node.clone();
+					let tokens = node.options.tokens.clone();
+					items.push(node);
+					tags.push((tag.clone(), id.clone()));
+					let arg = tg::tag::put::Arg {
+						tokens,
+						ancestors: tg::node::Ancestors {
+							create: true,
+							..Default::default()
+						},
+						force: true,
+						location: None,
+						public: false,
+						specifier: tag.clone(),
+						target: id.into(),
+					};
+					client.put_tag(arg).await.map_err(
+						|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
+					)?;
+				}
+			},
+		}
+	}
+
+	// Get the location.
+	let location = args.location.to_location()?.unwrap_or_else(|| {
+		tg::Location::Remote(tg::location::Remote {
+			name: "default".to_owned(),
+			region: None,
+		})
+	});
+
+	// Push the tag ancestors.
+	push_tag_ancestors(cli, &client, &location, &tags, args.force).await?;
+
+	// Push.
+	let arg = tg::push::Arg {
+		destination: Some(location.clone()),
+		eager: true,
+		force: args.force,
+		nodes: items.into_iter().map(|node| node.map(Into::into)).collect(),
+		metadata: false,
+		process_error_objects: true,
+		process_output_objects: true,
+		source: Some(tg::Location::Local(tg::location::Local::default())),
+		..Default::default()
+	};
+	let (_, stream) = client
+		.push(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to push items"))?;
+	let output = cli
+		.render_progress_stream(stream)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to push items"))?;
+
+	let processes = output.skipped.processes;
+	let objects = output.skipped.objects;
+	let bytes = byte_unit::Byte::from_u64(output.skipped.bytes)
+		.get_appropriate_unit(byte_unit::UnitType::Decimal);
+	let message = format!("skipped {processes} processes, {objects} objects, {bytes:#.1}");
+	cli.print_info_message(&message);
+	let processes = output.transferred.processes;
+	let objects = output.transferred.objects;
+	let bytes = byte_unit::Byte::from_u64(output.transferred.bytes)
+		.get_appropriate_unit(byte_unit::UnitType::Decimal);
+	let message = format!("transferred {processes} processes, {objects} objects, {bytes:#.1}");
+	cli.print_info_message(&message);
+
+	// Put tags on the remote.
+	let tags = tags
+		.into_iter()
+		.map(|(tag, node)| tg::tag::batch::Item {
+			tokens: tg::authorization::Tokens::default(),
+			target: node.into(),
+			specifier: tag,
+		})
+		.collect::<Vec<_>>();
+	let arg = tg::tag::batch::Arg {
+		force: args.force,
+		location: Some(location.into()),
+		parents: true,
+		tags: tags.clone(),
+	};
+	client
+		.post_tag_batch(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to publish tags to remote"))?;
+	for item in &tags {
+		let message = format!("tagged {} {:?}", item.specifier, item.target);
+		cli.print_info_message(&message);
+	}
+
+	Ok(())
+}
+
+impl State {
+	async fn visit_objects(
+		&mut self,
+		client: &impl tg::Instance,
+		root: &tg::Referent<tg::Object>,
+	) -> tg::Result<()> {
+		// Make sure the root is added if it is on the local file system.
+		if root.path().is_some() {
+			self.source_packages.push(root.clone());
+			self.add_package(root);
+		}
+
+		// Visit all the objects.
+		tg::object::visit(client, self, root, false).await
+	}
+
+	async fn create_graph(&mut self, client: &impl tg::Instance) -> tg::Result<()> {
+		for package in self.all_packages.clone() {
+			let Self {
+				all_packages,
+				file_trees,
+				graph,
+				..
+			} = self;
+			let index = Self::get_package_index(graph, package.clone());
+
+			// Update the entry for this package.
+			let mut stack = file_trees
+				.get(&package.options.id)
+				.and_then(|tree| tree.subtrie(package.path().unwrap()))
+				.into_iter()
+				.collect::<Vec<_>>();
+
+			while let Some(subtrie) = stack.pop() {
+				if let Some(tg::Artifact::File(file)) = subtrie.value() {
+					let dependencies = file
+						.dependencies_with_instance(client)
+						.await?
+						.values()
+						.filter_map(|option| {
+							let dependency = option.as_ref()?;
+							let node = dependency.0.node.as_ref()?;
+							let package =
+								all_packages.iter().find(|r| r.node().id() == node.id())?;
+							Some(Self::get_package_index(graph, package.clone()))
+						})
+						.collect::<Vec<_>>();
+					for dependency in dependencies {
+						graph.nodes[index].outgoing.push(dependency);
+						graph.nodes[dependency].incoming.push(index);
+					}
+				}
+				stack.extend(subtrie.children());
+			}
+		}
+		Ok(())
+	}
+
+	async fn create_plan(
+		&mut self,
+		client: &impl tg::Instance,
+		mut tag: Option<tg::Specifier>,
+		tag_concurrency: usize,
+	) -> tg::Result<Vec<Step>> {
+		// Fetch all package tags in parallel with limited concurrency.
+		let packages: Vec<_> = self
+			.graph
+			.nodes
+			.iter()
+			.map(|node| {
+				(
+					node.package.node().id(),
+					node.package.node().clone(),
+					node.package.path().map(ToOwned::to_owned),
+				)
+			})
+			.collect();
+		let tags: HashMap<tg::object::Id, Option<tg::Specifier>> = futures::stream::iter(packages)
+			.map(|(id, object, path)| async move {
+				let tag = try_get_package_tag(client, &object, path.as_deref()).await?;
+				Ok::<_, tg::Error>((id, tag))
+			})
+			.buffer_unordered(tag_concurrency)
+			.try_collect()
+			.await?;
+
+		let sccs = tarjan_scc(&self.graph);
+		let mut plan = Vec::new();
+		for scc in sccs {
+			let mut items = Vec::new();
+			for index in scc.iter().copied() {
+				// Get the node.
+				let node = &self.graph.nodes[index];
+				node.package.node.unload();
+
+				let publishable = index == 0
+					|| self.source_packages.iter().any(|referent| {
+						referent.clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
+					}) || !node
+					.incoming
+					.iter()
+					.copied()
+					.any(|incoming| self.graph.nodes[incoming].package.node().is_directory());
+				if !publishable {
+					continue;
+				}
+
+				// Check if this package has a tag.
+				let override_ = (index == 0).then_some(()).and(tag.take());
+				let original = tags.get(&node.package.node().id()).cloned().flatten();
+				let Some(tag) = override_.or(original) else {
+					continue;
+				};
+
+				// If this node has source dependencies then we need to check it in again.
+				let path = if node.outgoing.is_empty() {
+					None
+				} else {
+					let path = publish_path(client, &node.package.options).await?;
+					Some(path)
+				};
+
+				items.push(Item {
+					referent: node.package.clone().map(|object| object.id()),
+					path,
+					tag,
+				});
+			}
+
+			// If there is more than one item in the SCC, then it is a cycle.
+			if items.len() > 1 {
+				// Cycles must have paths for all items.
+				for item in &mut items {
+					if item.path.is_none() {
+						let path = publish_path(client, &item.referent.options).await?;
+						item.path = Some(path);
+					}
+				}
+
+				// Sort by tag to ensure deterministic ordering regardless of entry point.
+				items.sort_by(|a, b| a.tag.cmp(&b.tag));
+				plan.push(Step::Cycle(items));
+			} else {
+				for item in items {
+					plan.push(Step::Item(item));
+				}
+			}
+		}
+		Ok(plan)
+	}
+
+	fn get_package_index(graph: &mut Graph, referent: tg::Referent<tg::Object>) -> usize {
+		*graph.indices.entry(referent.node.id()).or_insert_with(|| {
+			let index = graph.nodes.len();
+			graph.nodes.push(Node {
+				package: referent,
+				incoming: Vec::new(),
+				outgoing: Vec::new(),
+			});
+			index
+		})
+	}
+
+	fn add_package(&mut self, referent: &tg::Referent<tg::Object>) {
+		if self
+			.all_packages
+			.iter()
+			.any(|package| package.node.id() == referent.node.id())
+		{
+			return;
+		}
+		self.all_packages.push(referent.clone());
+	}
+}
+
+impl<I> tg::object::Visitor<I> for State
+where
+	I: tg::Instance,
+{
+	async fn visit_blob(
+		&mut self,
+		_instance: &I,
+		blob: tg::Referent<&tg::Blob>,
+	) -> tg::Result<bool> {
+		if let Some(tag) = blob.tag() {
+			let node = blob.clone().map(|blob| blob.id().into());
+			self.tags.push((tag.clone(), node));
+		}
+		Ok(false)
+	}
+
+	async fn visit_directory(
+		&mut self,
+		client: &I,
+		directory: tg::Referent<&tg::Directory>,
+	) -> tg::Result<bool> {
+		if directory
+			.options
+			.path
+			.as_ref()
+			.is_some_and(|p| p.as_os_str().is_empty())
+		{
+			return Err(tg::error!(id = ?directory.id(), "invalid path"));
+		}
+
+		if let Some(tag) = directory.tag() {
+			let node = directory.clone().map(|directory| directory.id().into());
+			self.tags.push((tag.clone(), node));
+		}
+		let Some(path) = directory.path() else {
+			return Ok(true);
+		};
+		self.file_trees
+			.entry(directory.options.id.clone())
+			.or_default()
+			.insert(path.to_owned(), directory.node.clone().into());
+
+		// Keep track of files.
+		if tg::module::try_get_root_module_file_name_with_instance(
+			client,
+			tg::Either::Left(directory.node()),
+		)
+		.await?
+		.is_some()
+		{
+			self.add_package(&directory.clone().map(|d| d.clone().into()));
+		}
+
+		Ok(true)
+	}
+
+	async fn visit_file(&mut self, client: &I, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
+		if file
+			.options
+			.path
+			.as_ref()
+			.is_some_and(|p| p.as_os_str().is_empty())
+		{
+			return Err(tg::error!(id = ?file.id(), "invalid path"));
+		}
+
+		if let Some(tag) = file.tag() {
+			let node = file.clone().map(|file| file.id().into());
+			self.tags.push((tag.clone(), node));
+		}
+
+		let Some(path) = file.path() else {
+			return Ok(true);
+		};
+		self.file_trees
+			.entry(file.options.id.clone())
+			.or_default()
+			.insert(path.to_owned(), file.node.clone().into());
+
+		// Mark the packages that come from source overrides.
+		for (reference, option) in file.node.dependencies_with_instance(client).await? {
+			let Some(mut dependency) = option else {
+				continue;
+			};
+
+			// Make sure to inherit the dependency.
+			dependency.0.inherit(&file);
+			if reference.options().source.is_some() {
+				let Some(node) = dependency.0.node.clone() else {
+					continue;
+				};
+				let referent = tg::Referent {
+					node,
+					options: dependency.0.options.clone(),
+				};
+				self.source_packages.push(referent.clone());
+				self.add_package(&referent);
+			}
+		}
+		Ok(true)
+	}
+
+	async fn visit_symlink(
+		&mut self,
+		_instance: &I,
+		symlink: tg::Referent<&tg::Symlink>,
+	) -> tg::Result<bool> {
+		if symlink
+			.options
+			.path
+			.as_ref()
+			.is_some_and(|p| p.as_os_str().is_empty())
+		{
+			return Err(tg::error!("invalid path"));
+		}
+		if let Some(tag) = symlink.tag() {
+			let node = symlink.clone().map(|symlink| symlink.id().into());
+			self.tags.push((tag.clone(), node));
+		}
+		Ok(true)
+	}
+
+	async fn visit_command(
+		&mut self,
+		_instance: &I,
+		command: tg::Referent<&tg::Command>,
+	) -> tg::Result<bool> {
+		if let Some(tag) = command.tag() {
+			let node = command.clone().map(|command| command.id().into());
+			self.tags.push((tag.clone(), node));
+		}
+		Ok(false)
+	}
+
+	async fn visit_graph(
+		&mut self,
+		_instance: &I,
+		graph: tg::Referent<&tg::Graph>,
+	) -> tg::Result<bool> {
+		if let Some(tag) = graph.tag() {
+			let node = graph.clone().map(|graph| graph.id().into());
+			self.tags.push((tag.clone(), node));
+		}
+		Ok(false)
+	}
+}
+
+impl petgraph::visit::GraphBase for Graph {
+	type EdgeId = ();
+	type NodeId = usize;
+}
+
+impl petgraph::visit::IntoNodeIdentifiers for &Graph {
+	type NodeIdentifiers = std::ops::Range<usize>;
+
+	fn node_identifiers(self) -> Self::NodeIdentifiers {
+		0..self.nodes.len()
+	}
+}
+
+impl petgraph::visit::NodeIndexable for Graph {
+	fn from_index(&self, i: usize) -> Self::NodeId {
+		i
+	}
+
+	fn node_bound(&self) -> usize {
+		self.nodes.len()
+	}
+
+	fn to_index(&self, a: Self::NodeId) -> usize {
+		a
+	}
+}
+
+impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
+	type Neighbors = std::iter::Copied<std::slice::Iter<'a, usize>>;
+
+	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
+		self.nodes[a].outgoing.iter().copied()
+	}
+}
+
+async fn push_tag_ancestors(
+	cli: &mut Cli,
+	client: &tg::Client,
+	destination: &tg::Location,
+	tags: &[(tg::Specifier, tg::object::Id)],
+	force: bool,
+) -> tg::Result<()> {
+	if destination.is_local() {
+		return Ok(());
+	}
+
+	// Collect the ancestors by depth so that parents are pushed before children.
+	let mut ancestors = BTreeMap::<usize, BTreeSet<tg::Specifier>>::new();
+	for (specifier, _) in tags {
+		for ancestor in specifier.ancestors() {
+			let depth = ancestor.components().count();
+			ancestors.entry(depth).or_default().insert(ancestor);
+		}
+	}
+
+	// Push each depth.
+	for ancestors in ancestors.into_values() {
+		let mut items = Vec::with_capacity(ancestors.len());
+		for ancestor in ancestors {
+			let options = tg::reference::Options {
+				location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+				..Default::default()
+			};
+			let reference = tg::Reference::with_node_and_options(
+				tg::reference::Node::Specifier(ancestor.clone().into()),
+				options,
+			);
+			let referent = tangram_cli_reference::get(cli, &reference)
+				.await
+				.map_err(|error| tg::error!(!error, %ancestor, "failed to get a tag ancestor"))?
+				.referent;
+			let node = referent.try_map(|node| match node {
+				tg::get::Node::Id(id) => Ok(id),
+				tg::get::Node::Pointer(_) => {
+					Err(tg::error!(%ancestor, "expected a tag ancestor id"))
+				},
+			})?;
+			items.push(node);
+		}
+		let arg = tg::push::Arg {
+			destination: Some(destination.clone()),
+			force,
+			nodes: items,
+			source: Some(tg::Location::Local(tg::location::Local::default())),
+			tag_targets: false,
+			..Default::default()
+		};
+		let (_, stream) = client
+			.push(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;
+		cli.render_progress_stream(stream)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;
+	}
+
+	Ok(())
+}
+
+/// Given an object, get the tag from its internal metadata by statically parsing the module.
+async fn try_get_package_tag(
+	client: &impl tg::Instance,
+	object: &tg::Object,
+	package_path: Option<&Path>,
+) -> tg::Result<Option<tg::Specifier>> {
+	// Get the file text and module file name from the object.
+	let (text, module_name) = match object {
+		tg::Object::File(file) => {
+			let text = file.text_with_instance(client).await?;
+			(text, None)
+		},
+		tg::Object::Directory(directory) => {
+			let Some(name) = tg::module::try_get_root_module_file_name_with_instance(
+				client,
+				tg::Either::Left(directory),
+			)
+			.await?
+			else {
+				return Ok(None);
+			};
+			let file = directory
+				.get_with_instance(client, name)
+				.await?
+				.try_unwrap_file()
+				.map_err(|_| tg::error!("expected a file"))?;
+			let text = file.text_with_instance(client).await?;
+			(text, Some(name.to_owned()))
+		},
+		_ => return Ok(None),
+	};
+
+	// Compute the full path to the module file for error messages.
+	let module_path = match (&package_path, &module_name) {
+		(Some(path), Some(name)) => Some(path.join(name)),
+		(Some(path), None) => Some(path.to_path_buf()),
+		(None, _) => None,
+	};
+
+	// Extract metadata statically.
+	let map = match tangram_compiler::metadata::metadata(&text) {
+		Ok(Some(map)) => map,
+		Ok(None) => return Ok(None),
+		Err(error) => {
+			return if let Some(path) = module_path {
+				Err(tg::error!(!error, path = %path.display(), "failed to extract metadata"))
+			} else {
+				let id = object.id();
+				Err(tg::error!(!error, %id, "failed to extract metadata"))
+			};
+		},
+	};
+
+	// Get the tag from the metadata.
+	let tag = map
+		.get("tag")
+		.ok_or_else(|| {
+			if let Some(path) = &module_path {
+				tg::error!(path = %path.display(), "metadata is missing the 'tag' field")
+			} else {
+				let id = object.id();
+				tg::error!(%id, "metadata is missing the 'tag' field")
+			}
+		})?
+		.as_str()
+		.ok_or_else(|| {
+			if let Some(path) = &module_path {
+				tg::error!(path = %path.display(), "expected 'tag' to be a string")
+			} else {
+				let id = object.id();
+				tg::error!(%id, "expected 'tag' to be a string")
+			}
+		})?;
+
+	let tag = tag
+		.parse()
+		.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
+	Ok(Some(tag))
+}
+
+async fn publish_path(
+	client: &impl tg::Instance,
+	options: &tg::referent::Options,
+) -> tg::Result<PathBuf> {
+	// Resolve the artifact-relative path through its root, retaining the authorization tokens.
+	let path = if let Some(id) = &options.id {
+		let root_options = tg::referent::Options {
+			location: options.location.clone(),
+			tokens: options.tokens.clone(),
+			..Default::default()
+		};
+		let node = tg::Referent::new(id.clone().into(), root_options);
+		let arg = tg::checkout::Arg {
+			dependencies: true,
+			extension: None,
+			force: false,
+			lock: None,
+			nodes: vec![node],
+			path: None,
+		};
+		let root = tg::checkout::checkout_one_with_instance(client, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to check out the package root"))?;
+		root.join(options.path.as_deref().unwrap_or(Path::new("")))
+	} else {
+		options
+			.path
+			.clone()
+			.ok_or_else(|| tg::error!("missing path"))?
+	};
+
+	// Canonicalize the filesystem path used to check in the package again.
+	let path = tangram_util::fs::canonicalize_parent(&path).await.map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to canonicalize the path"),
+	)?;
+
+	Ok(path)
+}
+
+async fn publish_checkin(
+	client: &impl tg::Instance,
+	path: PathBuf,
+	solve: bool,
+) -> tg::Result<tg::Referent<tg::object::Id>> {
+	let path_display = path.display().to_string();
+	let options = tg::checkin::Options {
+		lock: None,
+		solve,
+		source_dependencies: false,
+		..tg::checkin::Options::default()
+	};
+	let args = tg::checkin::Arg {
+		path,
+		options,
+		updates: Vec::new(),
+	};
+	let output = tg::checkin::checkin_with_instance(client, args)
+		.await
+		.map_err(|error| tg::error!(!error, path = %path_display, "failed to checkin"))?;
+	let node = output.artifact.map(Into::into);
+	Ok(node)
+}

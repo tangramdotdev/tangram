@@ -1,0 +1,238 @@
+use {std::time::Duration, tangram_cli_core::Cli, tangram_client::prelude::*};
+
+/// List nodes.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	/// Fetch all pages.
+	#[arg(long)]
+	pub all: bool,
+
+	/// Only use cached remote results. Do not fetch from remotes.
+	#[arg(long)]
+	pub cached: bool,
+
+	/// Continue from this cursor.
+	#[arg(long)]
+	pub cursor: Option<String>,
+
+	#[command(flatten)]
+	pub entries: Entries,
+
+	/// The maximum number of entries per page (default: 100, maximum: 1000).
+	#[arg(long)]
+	pub limit: Option<u64>,
+
+	#[command(flatten)]
+	pub locations: tangram_cli_core::location::Args,
+
+	#[command(flatten)]
+	pub output: tangram_cli_core::print::OutputOptions,
+
+	#[command(flatten)]
+	pub print: tangram_cli_core::print::Options,
+
+	#[arg(long)]
+	pub recursive: bool,
+
+	#[arg(index = 1)]
+	pub reference: Option<tg::Reference>,
+
+	#[arg(long)]
+	pub reverse: bool,
+
+	#[command(flatten)]
+	pub ttl: Ttl,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Entries {
+	#[arg(
+		default_missing_value = "true",
+		id = "list.entries.groups",
+		long = "groups",
+		num_args = 0..=1,
+		overrides_with = "list.entries.no_groups",
+		require_equals = true,
+	)]
+	groups: Option<bool>,
+
+	#[arg(
+		id = "list.entries.no_groups",
+		long = "no-groups",
+		overrides_with = "list.entries.groups"
+	)]
+	no_groups: bool,
+
+	#[arg(
+		default_missing_value = "true",
+		id = "list.entries.organizations",
+		long = "organizations",
+		num_args = 0..=1,
+		overrides_with = "list.entries.no_organizations",
+		require_equals = true,
+	)]
+	organizations: Option<bool>,
+
+	#[arg(
+		id = "list.entries.no_organizations",
+		long = "no-organizations",
+		overrides_with = "list.entries.organizations"
+	)]
+	no_organizations: bool,
+
+	#[arg(
+		default_missing_value = "true",
+		id = "list.entries.tags",
+		long = "tags",
+		num_args = 0..=1,
+		overrides_with = "list.entries.no_tags",
+		require_equals = true,
+	)]
+	tags: Option<bool>,
+
+	#[arg(
+		id = "list.entries.no_tags",
+		long = "no-tags",
+		overrides_with = "list.entries.tags"
+	)]
+	no_tags: bool,
+
+	#[arg(
+		default_missing_value = "true",
+		id = "list.entries.users",
+		long = "users",
+		num_args = 0..=1,
+		overrides_with = "list.entries.no_users",
+		require_equals = true,
+	)]
+	users: Option<bool>,
+
+	#[arg(
+		id = "list.entries.no_users",
+		long = "no-users",
+		overrides_with = "list.entries.users"
+	)]
+	no_users: bool,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Ttl {
+	#[arg(
+		id = "list.ttl.no_ttl",
+		long = "no-ttl",
+		overrides_with = "list.ttl.ttl"
+	)]
+	pub no_ttl: bool,
+
+	#[arg(id = "list.ttl.ttl", long = "ttl", overrides_with = "list.ttl.no_ttl", value_parser = humantime::parse_duration)]
+	pub ttl: Option<Duration>,
+}
+
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	// Get the node.
+	let node = if let Some(reference) = &args.reference {
+		let reference = args.locations.apply_to_reference(reference);
+		let arg = tg::get::Arg {
+			cached: args.cached,
+			ttl: args.ttl.get(),
+			..tg::get::Arg::default()
+		};
+		let output = tangram_cli_reference::get_with_arg(cli, &reference, arg).await?;
+		let node = output.referent.try_map(|node| match node {
+			tg::get::Node::Id(id) => Ok(id),
+			tg::get::Node::Pointer(_) => Err(tg::error!(%reference, "the list node must be an ID")),
+		})?;
+		Some(node)
+	} else {
+		None
+	};
+
+	// List the entries.
+	let client = cli.client().await?;
+	let location = node
+		.as_ref()
+		.and_then(|node| node.options.location.clone())
+		.map(Into::into)
+		.or_else(|| args.locations.get());
+	let arg = tg::list::Arg {
+		cached: args.cached,
+		cursor: args.cursor,
+		groups: args.entries.groups(),
+		limit: args.limit,
+		location,
+		node,
+		organizations: args.entries.organizations(),
+		recursive: args.recursive,
+		reverse: args.reverse,
+		tags: args.entries.tags(),
+		ttl: args.ttl.get(),
+		users: args.entries.users(),
+	};
+	let output = if args.all {
+		client.list_all(arg).await
+	} else {
+		client.list(arg).await
+	}
+	.map_err(|error| tg::error!(!error, reference = ?args.reference, "failed to list entries"))?;
+	if args.output.verbose {
+		cli.print_serde(output, args.print).await?;
+	} else {
+		cli.print_serde(output.data, args.print).await?;
+		if let Some(cursor) = output.cursor {
+			cli.print_info_message(&format!("Next cursor: {cursor}"));
+		}
+	}
+	Ok(())
+}
+
+impl Entries {
+	#[must_use]
+	pub fn groups(&self) -> bool {
+		if self.no_groups {
+			false
+		} else {
+			self.groups.unwrap_or(true)
+		}
+	}
+
+	#[must_use]
+	pub fn organizations(&self) -> bool {
+		if self.no_organizations {
+			false
+		} else {
+			self.organizations.unwrap_or(true)
+		}
+	}
+
+	#[must_use]
+	pub fn tags(&self) -> bool {
+		if self.no_tags {
+			false
+		} else {
+			self.tags.unwrap_or(true)
+		}
+	}
+
+	#[must_use]
+	pub fn users(&self) -> bool {
+		if self.no_users {
+			false
+		} else {
+			self.users.unwrap_or(true)
+		}
+	}
+}
+
+impl Ttl {
+	#[must_use]
+	pub fn get(&self) -> tg::remote::cache::Ttl {
+		if self.no_ttl {
+			tg::remote::cache::Ttl::Infinite
+		} else {
+			self.ttl
+				.map(tg::remote::cache::Ttl::Duration)
+				.unwrap_or_default()
+		}
+	}
+}

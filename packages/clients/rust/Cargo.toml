@@ -24,6 +24,7 @@ workspace = true
 insta = { workspace = true }
 
 [dependencies]
+async-broadcast = { workspace = true }
 async-channel = { workspace = true }
 aws-lc-rs = { workspace = true }
 blake3 = { workspace = true }
@@ -51,7 +52,6 @@ miette = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
 rand = { workspace = true }
-regex = { workspace = true }
 rustls = { workspace = true, optional = true }
 rustls-platform-verifier = { workspace = true, optional = true }
 scopeguard = { workspace = true }

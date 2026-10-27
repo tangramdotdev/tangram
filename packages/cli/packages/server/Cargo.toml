@@ -1,0 +1,50 @@
+[package]
+name = "tangram_cli_server"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[features]
+fjall = ["tangram_server/fjall"]
+foundationdb = ["tangram_server/foundationdb"]
+javascript = ["tangram_server/javascript"]
+lmdb = ["tangram_server/lmdb"]
+nats = ["tangram_server/nats"]
+postgres = ["tangram_server/postgres"]
+python = ["tangram_server/python"]
+rocksdb = ["tangram_server/rocksdb"]
+scylla = ["tangram_server/scylla"]
+sqlite = ["tangram_server/sqlite"]
+tls = ["tangram_server/tls"]
+tsrs = ["javascript", "tangram_server/tsrs"]
+turso = ["tangram_server/turso"]
+ty = ["python", "tangram_server/ty"]
+vsock = ["tangram_server/vsock"]
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tangram_sandbox = { workspace = true }
+
+[dependencies]
+clap = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+tangram_cli_core = { workspace = true }
+tangram_client = { workspace = true }
+tangram_messenger = { workspace = true }
+tangram_pool = { workspace = true }
+tangram_server = { workspace = true }
+tangram_uri = { workspace = true }
+tokio = { workspace = true }

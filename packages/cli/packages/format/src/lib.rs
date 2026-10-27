@@ -1,0 +1,27 @@
+use {std::path::PathBuf, tangram_cli_core::Cli, tangram_client::prelude::*};
+
+/// Format.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[arg(default_value = ".", index = 1)]
+	pub path: PathBuf,
+}
+
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let client = cli.client().await?;
+
+	// Canonicalize the path's parent.
+	let path = tangram_util::fs::canonicalize_parent(&args.path)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+
+	// Format.
+	let arg = tg::format::Arg { path };
+	client
+		.format(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to format"))?;
+
+	Ok(())
+}

@@ -1,0 +1,396 @@
+use {
+	crate::Component,
+	futures::FutureExt as _,
+	indoc::formatdoc,
+	std::{collections::BTreeMap, ops::ControlFlow},
+	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
+	tangram_server_core::Session,
+};
+
+impl Component {
+	pub(crate) async fn manage_organization_billing(
+		&self,
+		session: &Session,
+		organization: &tg::organization::Selector,
+		arg: tg::organization::billing::manage::Arg,
+	) -> tg::Result<tg::organization::billing::manage::Output> {
+		let location = session
+			.server
+			.account_location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		if location.is_local() && !session.server.config.accounts {
+			return Err(tg::error!("local account management is disabled"));
+		}
+		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != session.server.config.region.as_deref() => {
+				self.manage_organization_billing_region(session, organization, arg, region)
+					.await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !session.server.is_primary_region() =>
+			{
+				self.manage_organization_billing_primary_region(session, organization, arg)
+					.await
+			},
+			tg::Location::Local(_) => {
+				self.manage_organization_billing_local(session, organization, &arg.tokens)
+					.await
+			},
+			tg::Location::Remote(remote) => {
+				self.manage_organization_billing_remote(session, organization, arg, remote)
+					.await
+			},
+		}
+	}
+
+	async fn manage_organization_billing_local(
+		&self,
+		session: &Session,
+		organization: &tg::organization::Selector,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<tg::organization::billing::manage::Output> {
+		if !session.server.components.billing.configured() {
+			return Err(tg::error!("billing is not configured"));
+		}
+		let organization = organization.clone();
+		let tokens = tokens.clone();
+		let options = session
+			.server
+			.config
+			.verification
+			.write_retry
+			.clone()
+			.into();
+		let component = self.clone();
+		let session = session.clone();
+		let billing_customer_id = tangram_futures::retry(&options, || {
+			let organization = organization.clone();
+			let component = component.clone();
+			let session = session.clone();
+			let tokens = tokens.clone();
+			async move {
+				match component
+					.manage_organization_billing_local_attempt(&session, &organization, &tokens)
+					.await?
+				{
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
+						"the named node ids kept changing while authorizing the write"
+					))),
+				}
+			}
+		})
+		.await?;
+
+		// Create the billing portal session.
+		let url = session
+			.server
+			.components
+			.billing
+			.create_management_url(&billing_customer_id)
+			.await?;
+		let output = tg::organization::billing::manage::Output { url };
+
+		Ok(output)
+	}
+
+	async fn manage_organization_billing_local_attempt(
+		&self,
+		session: &Session,
+		organization: &tg::organization::Selector,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<ControlFlow<String>> {
+		let selector = match organization {
+			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
+			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
+		};
+		let Some((id, specifier)) = session
+			.server
+			.components
+			.node
+			.try_resolve_named_node(session, &selector)
+			.await?
+		else {
+			return Err(tg::error!("failed to find the organization"));
+		};
+		let organization = tg::organization::Id::try_from(id.clone())
+			.map_err(|_| tg::error!("failed to find the organization"))?;
+
+		// Authorize the organization.
+		let permission = tg::authorization::Permission::Organization(
+			tg::authorization::permission::organization::Permission::Admin,
+		);
+		session
+			.authorize(
+				tg::Referent::with_node_and_tokens(
+					tg::Selector::Id(organization.clone()),
+					tokens.clone(),
+				),
+				permission,
+			)
+			.await?
+			.into_result()?;
+		let ids_by_specifier = BTreeMap::from([(specifier, Some(id))]);
+		let data = session
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let organization = organization.clone();
+				async move {
+					Self::get_organization_billing_data_with_transaction(transaction, &organization)
+						.await
+				}
+				.boxed()
+			})
+			.await?;
+		let Some((name, billing_customer_id)) = data else {
+			return Ok(ControlFlow::Continue(()));
+		};
+		let billing_customer_id = if let Some(billing_customer_id) = billing_customer_id {
+			billing_customer_id
+		} else {
+			let arg = tangram_billing::customer::create::Arg {
+				account: tg::usage::Account::Organization(organization.clone()),
+				email: None,
+				name,
+			};
+			session
+				.server
+				.components
+				.billing
+				.create_customer(arg)
+				.await?
+		};
+		let batch_size = session.server.config.sync.get.database.batch_size;
+		let billing_customer_id = session
+			.server
+			.database
+			.run(|transaction| {
+				let ids_by_specifier = ids_by_specifier.clone();
+				let organization = organization.clone();
+				let billing_customer_id = billing_customer_id.clone();
+				async move {
+					Self::store_organization_billing_customer_id_with_transaction(
+						transaction,
+						&organization,
+						&ids_by_specifier,
+						batch_size,
+						billing_customer_id,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
+
+		Ok(billing_customer_id)
+	}
+
+	async fn get_organization_billing_data_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		organization: &tg::organization::Id,
+	) -> tg::Result<
+		ControlFlow<Option<(String, Option<String>)>, tangram_server_core::database::Error>,
+	> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			billing_customer_id: Option<String>,
+			name: String,
+		}
+
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select organizations.name, organizations.billing_customer_id
+				from organizations
+				where organizations.id = {p}1;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![organization.to_string()])
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to get the organization");
+		let Some(row) = row else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let output = (row.name, row.billing_customer_id);
+
+		Ok(ControlFlow::Break(Some(output)))
+	}
+
+	async fn store_organization_billing_customer_id_with_transaction(
+		transaction: &tangram_server_core::database::Transaction<'_>,
+		organization: &tg::organization::Id,
+		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
+		batch_size: usize,
+		billing_customer_id: String,
+	) -> tg::Result<ControlFlow<ControlFlow<String>, tangram_server_core::database::Error>> {
+		match tangram_server_node_common::specifier::verify_ids_for_specifiers_with_transaction(
+			transaction,
+			ids_by_specifier,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(true) => (),
+			ControlFlow::Break(false) => {
+				return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+			},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			billing_customer_id: Option<String>,
+		}
+		let p = transaction.p();
+		let statement = format!("select billing_customer_id from organizations where id = {p}1;");
+		let result = transaction
+			.query_one_into::<Row>(statement.into(), db::params![organization.to_string()])
+			.await;
+		let row = tangram_server_core::database::retry!(result, "failed to get the organization");
+		let billing_customer_id = if let Some(billing_customer_id) = row.billing_customer_id {
+			billing_customer_id
+		} else {
+			let statement =
+				format!("update organizations set billing_customer_id = {p}1 where id = {p}2;");
+			let result = transaction
+				.execute(
+					statement.into(),
+					db::params![billing_customer_id.clone(), organization.to_string()],
+				)
+				.await;
+			tangram_server_core::database::retry!(
+				result,
+				"failed to manage the billing customer ID"
+			);
+
+			billing_customer_id
+		};
+
+		Ok(ControlFlow::Break(ControlFlow::Break(billing_customer_id)))
+	}
+
+	async fn manage_organization_billing_primary_region(
+		&self,
+		session: &Session,
+		organization: &tg::organization::Selector,
+		mut arg: tg::organization::billing::manage::Arg,
+	) -> tg::Result<tg::organization::billing::manage::Output> {
+		let client = session
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		let output = client
+			.manage_organization_billing(organization, arg)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to manage organization billing in the primary region"
+				)
+			})?;
+
+		Ok(output)
+	}
+
+	async fn manage_organization_billing_region(
+		&self,
+		session: &Session,
+		organization: &tg::organization::Selector,
+		mut arg: tg::organization::billing::manage::Arg,
+		region: String,
+	) -> tg::Result<tg::organization::billing::manage::Output> {
+		let client = session.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		let output = client
+			.manage_organization_billing(organization, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, "failed to manage the organization billing"),
+			)?;
+
+		Ok(output)
+	}
+
+	async fn manage_organization_billing_remote(
+		&self,
+		session: &Session,
+		organization: &tg::organization::Selector,
+		mut arg: tg::organization::billing::manage::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<tg::organization::billing::manage::Output> {
+		let client = session
+			.server
+			.components
+			.remote
+			.get_remote_session(session, &remote.name)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+			)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		arg.tokens = arg.tokens.for_location(&location);
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
+		let output = client
+			.manage_organization_billing(organization, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to manage the organization billing"),
+			)?;
+
+		Ok(output)
+	}
+
+	pub(crate) async fn manage_organization_billing_request(
+		&self,
+		session: &Session,
+		request: http::Request<BoxBody>,
+		organization: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
+		let organization = organization
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the organization"))?;
+		let output = self
+			.manage_organization_billing(session, &organization, arg)
+			.await?;
+		let body = serde_json::to_vec(&output).unwrap();
+		let response = http::Response::builder()
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.bytes(body)
+			.unwrap()
+			.boxed_body();
+
+		Ok(response)
+	}
+}

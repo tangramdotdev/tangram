@@ -1,0 +1,128 @@
+use {
+	futures::{StreamExt as _, TryStreamExt as _},
+	serde_with::serde_as,
+	std::time::Duration,
+	tangram_cli_core::Cli,
+	tangram_client::prelude::*,
+	tangram_util::serde::SeekFromNumberOrString,
+};
+
+/// Get a process's children.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[command(flatten)]
+	pub options: Options,
+
+	#[arg(index = 1)]
+	pub reference: tg::Reference,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+#[group(skip)]
+pub struct Options {
+	#[arg(long)]
+	pub length: Option<u64>,
+
+	#[command(flatten)]
+	pub locations: tangram_cli_core::location::Args,
+
+	#[arg(long, value_parser = parse_seek_from)]
+	pub position: Option<std::io::SeekFrom>,
+
+	#[command(flatten)]
+	pub print: tangram_cli_core::print::Options,
+
+	#[arg(long)]
+	pub size: Option<u64>,
+
+	/// Select the source of process state.
+	#[arg(long, default_value = "auto", value_parser = tangram_cli_core::source_parser())]
+	pub source: tg::process::Source,
+
+	#[command(flatten)]
+	pub timeout: Timeout,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Timeout {
+	#[arg(id = "children.timeout.timeout", long = "timeout", overrides_with = "children.timeout.no_timeout", value_parser = humantime::parse_duration)]
+	pub timeout: Option<Duration>,
+
+	#[arg(
+		id = "children.timeout.no_timeout",
+		long = "no-timeout",
+		overrides_with = "children.timeout.timeout"
+	)]
+	pub no_timeout: bool,
+}
+
+#[serde_as]
+#[derive(serde::Deserialize)]
+struct PositionArg {
+	#[serde_as(as = "SeekFromNumberOrString")]
+	position: std::io::SeekFrom,
+}
+
+pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
+	let mut options = args.options;
+	options
+		.locations
+		.set_from_reference_if_unset(&args.reference);
+	let process =
+		tangram_cli_reference::get_process_with_locations(cli, &args.reference, &options.locations)
+			.await?;
+	run_inner(cli, process, options).await
+}
+
+pub(crate) async fn run_inner(
+	cli: &mut Cli,
+	process: tg::Referent<tg::process::Id>,
+	options: Options,
+) -> tg::Result<()> {
+	let client = cli.client().await?;
+	let id = process.node.clone();
+	let location = options.locations.get_for_options(&process);
+	let process = tg::Process::<tg::Value>::with_referent(process);
+	let options_ = tg::process::children::get::Options {
+		length: options.length,
+		location,
+		position: options.position,
+		size: options.size,
+		source: options.source,
+		timeout: options.timeout.get(),
+	};
+	let tokens = options.print.tokens.get();
+	let stream = process
+		.children_with_instance(&client, options_)
+		.await
+		.map_err(|error| tg::error!(!error, %id, "failed to get the process children"))?
+		.map_ok(move |child| {
+			let child = child.to_data();
+			if tokens {
+				child
+			} else {
+				child.without_location_and_tokens()
+			}
+		});
+	cli.print_serde_stream(stream.boxed(), options.print)
+		.await?;
+	Ok(())
+}
+
+impl Timeout {
+	fn get(&self) -> Option<Duration> {
+		if self.no_timeout {
+			None
+		} else {
+			self.timeout.or(Some(Duration::ZERO))
+		}
+	}
+}
+
+fn parse_seek_from(value: &str) -> Result<std::io::SeekFrom, String> {
+	let value = serde_json::json!({ "position": value });
+	let position = serde_json::from_value::<PositionArg>(value)
+		.map_err(|error| format!("failed to parse the position: {error}"))?;
+	Ok(position.position)
+}

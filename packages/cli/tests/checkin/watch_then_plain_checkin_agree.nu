@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A --watch checkin notices a real on-disk edit without a touch, and a plain checkin agrees with the watched one.
 
 let local = server spawn --config {
-	tracing: { filter: 'tangram_server::watch=trace', stderr_format: 'json' },
+	tracing: { filter: 'tangram_server_watch=trace', stderr_format: 'json' },
 }
 
 let path = artifact {
