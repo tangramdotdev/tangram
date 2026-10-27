@@ -16,7 +16,7 @@ impl Indexer {
 			let notified = changed.notified();
 			let reservation = {
 				let mut state = state.lock().unwrap();
-				if state.available || state.writes > 0 {
+				if state.available || state.enqueues > 0 {
 					state.queues.start_reservation(self, kind)?
 				} else {
 					None
@@ -100,7 +100,7 @@ impl Indexer {
 			let notified = changed.notified();
 			let finished = {
 				let state = state.lock().unwrap();
-				state.writes == 0 && !state.queues.reservations_pending()
+				state.enqueues == 0 && !state.queues.reservations_pending()
 			};
 			if finished {
 				break;

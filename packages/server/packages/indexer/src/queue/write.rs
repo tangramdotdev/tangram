@@ -13,8 +13,7 @@ pub(crate) type Receiver = tokio::sync::mpsc::Receiver<Request>;
 pub(crate) type Sender = tokio::sync::mpsc::Sender<Request>;
 
 pub(crate) struct Request {
-	pub archive: Vec<request::Fragment>,
-	pub index: Vec<request::Fragment>,
+	pub arg: request::EnqueueRequestArg,
 	pub sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 
@@ -49,11 +48,8 @@ impl Indexer {
 		changed: &tokio::sync::Notify,
 		request: Request,
 	) -> Assigned {
-		let Request {
-			archive,
-			index,
-			sender,
-		} = request;
+		let Request { arg, sender } = request;
+		let request::EnqueueRequestArg { archive, index } = arg;
 		let mut error = None;
 		let mut fragments = Vec::with_capacity(archive.len() + index.len());
 		let requests = archive

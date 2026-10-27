@@ -200,7 +200,7 @@ impl Queues {
 		for kind in [Kind::Archive, Kind::Index] {
 			let reservation = self
 				.start_reservation(indexer, kind)?
-				.ok_or_else(|| tg::error!("failed to prepare an queue reservation"))?;
+				.ok_or_else(|| tg::error!("failed to prepare a queue reservation"))?;
 			indexer.persist_reservation(reservation).await?;
 			self.finish_reservation(reservation);
 		}

@@ -1,7 +1,5 @@
 pub(super) enum Request {
-	DeleteArchiveQueueItem(tangram_cache::archive::queue::delete::Arg),
 	DeleteArchiveQueueItemBatch(Vec<tangram_cache::archive::queue::delete::Arg>),
-	DeleteIndexQueueItem(tangram_cache::index::queue::delete::Arg),
 	DeleteIndexQueueItemBatch(Vec<tangram_cache::index::queue::delete::Arg>),
 	DeleteLogCacheEntry(tangram_cache::log::cache::delete::Arg),
 	DeleteLog(tangram_cache::log::delete::Arg),

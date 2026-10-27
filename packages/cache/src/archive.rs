@@ -3,11 +3,6 @@ use tangram_client::prelude::*;
 pub mod queue;
 
 pub trait Cache {
-	fn delete_archive_queue_item(
-		&self,
-		arg: crate::archive::queue::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
 	fn delete_archive_queue_item_batch(
 		&self,
 		arg: crate::archive::queue::delete::batch::Arg,

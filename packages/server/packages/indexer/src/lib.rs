@@ -61,8 +61,8 @@ struct ShutdownArgs<'a> {
 
 pub struct IndexerState {
 	available: bool,
+	enqueues: usize,
 	queues: queue::Queues,
-	writes: usize,
 }
 
 struct Tasks {
@@ -220,8 +220,8 @@ impl Component {
 		// Create the shared queue state after recovery.
 		let state = IndexerState {
 			available: false,
+			enqueues: 0,
 			queues,
-			writes: 0,
 		};
 		let state = Arc::new(Mutex::new(state));
 		let changed = Arc::new(tokio::sync::Notify::new());

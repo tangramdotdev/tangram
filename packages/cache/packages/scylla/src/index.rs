@@ -17,17 +17,6 @@ pub(super) struct Statements {
 }
 
 impl Cache {
-	pub async fn delete_index_queue_item(&self, arg: index::queue::delete::Arg) -> tg::Result<()> {
-		let indexer = arg.indexer.to_bytes();
-		let sequence = sequence(arg.sequence)?;
-		self.session
-			.execute_unpaged(&self.statements.index.delete, (indexer.as_ref(), sequence))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete an index queue item"))?;
-
-		Ok(())
-	}
-
 	pub async fn delete_index_queue_item_batch(
 		&self,
 		arg: index::queue::delete::batch::Arg,
@@ -225,13 +214,6 @@ impl Statements {
 }
 
 impl tangram_cache::index::Cache for Cache {
-	async fn delete_index_queue_item(
-		&self,
-		arg: tangram_cache::index::queue::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_index_queue_item(arg).await
-	}
-
 	async fn delete_index_queue_item_batch(
 		&self,
 		arg: tangram_cache::index::queue::delete::batch::Arg,

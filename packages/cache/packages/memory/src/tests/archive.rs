@@ -25,11 +25,11 @@ fn archive() {
 		sequence_start: 42,
 	};
 	assert_eq!(cache.get_archive_queue_items(arg), vec![item]);
-	let arg = archive::queue::delete::Arg {
+	let arg = archive::queue::delete::batch::Arg {
 		indexer: indexer.clone(),
-		sequence: 42,
+		sequences: vec![42],
 	};
-	cache.delete_archive_queue_item(arg);
+	cache.delete_archive_queue_item_batch(arg);
 	let arg = archive::queue::get::Arg {
 		indexer,
 		sequence: 42,

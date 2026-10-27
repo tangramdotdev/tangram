@@ -25,11 +25,11 @@ fn index() {
 		sequence_start: 42,
 	};
 	assert_eq!(cache.get_index_queue_items(arg), vec![item]);
-	let arg = index::queue::delete::Arg {
+	let arg = index::queue::delete::batch::Arg {
 		indexer: indexer.clone(),
-		sequence: 42,
+		sequences: vec![42],
 	};
-	cache.delete_index_queue_item(arg);
+	cache.delete_index_queue_item_batch(arg);
 	let arg = index::queue::get::Arg {
 		indexer,
 		sequence: 42,

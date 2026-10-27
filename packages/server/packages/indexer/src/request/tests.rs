@@ -42,15 +42,15 @@ async fn draining_waits_for_writes_queue_completions_and_handlers() {
 	queues.finish_write(queue::Kind::Index, sequence, &fragment, true);
 	let state = IndexerState {
 		available: true,
+		enqueues: 1,
 		queues,
-		writes: 1,
 	};
 	let state = Arc::new(Mutex::new(state));
 	let changed = Arc::new(tokio::sync::Notify::new());
 	let mut guard = super::Guard {
 		changed: changed.clone(),
+		enqueue: true,
 		state: state.clone(),
-		writing: true,
 	};
 	let drain = Indexer::drain_queues(&state, &changed);
 	tokio::pin!(drain);
@@ -64,7 +64,7 @@ async fn draining_waits_for_writes_queue_completions_and_handlers() {
 			.pop_work(queue::Kind::Index)
 			.is_none()
 	);
-	guard.finish_write();
+	guard.finish();
 	assert!(futures::poll!(&mut drain).is_pending());
 	assert!(
 		matches!(state.lock().unwrap().queues.pop_work(queue::Kind::Index), Some(queue::Work::Delete(sequences)) if sequences == vec![sequence])
@@ -118,15 +118,15 @@ async fn full_reply_channel_does_not_block_reception() {
 async fn cancelling_a_handler_releases_its_write() {
 	let state = IndexerState {
 		available: true,
+		enqueues: 1,
 		queues: queue::Queues::empty(usize::MAX),
-		writes: 1,
 	};
 	let state = Arc::new(Mutex::new(state));
 	let changed = Arc::new(tokio::sync::Notify::new());
 	let guard = super::Guard {
 		changed: changed.clone(),
+		enqueue: true,
 		state: state.clone(),
-		writing: true,
 	};
 	let mut requests = tokio::task::JoinSet::new();
 	requests.spawn(async move {
@@ -134,7 +134,7 @@ async fn cancelling_a_handler_releases_its_write() {
 		std::future::pending::<()>().await;
 	});
 	requests.shutdown().await;
-	assert_eq!(state.lock().unwrap().writes, 0);
+	assert_eq!(state.lock().unwrap().enqueues, 0);
 }
 
 #[test]

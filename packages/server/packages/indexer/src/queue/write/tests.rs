@@ -7,8 +7,8 @@ use {
 async fn concurrent_allocators_wait_for_a_durable_reservation() {
 	let state = IndexerState {
 		available: true,
+		enqueues: 0,
 		queues: queue::Queues::empty(usize::MAX),
-		writes: 0,
 	};
 	let state = Arc::new(Mutex::new(state));
 	let changed = Arc::new(tokio::sync::Notify::new());

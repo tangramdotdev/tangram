@@ -3,25 +3,6 @@ use tangram_client::prelude::*;
 pub use tangram_cache::archive::*;
 
 impl super::Cache {
-	pub async fn delete_archive_queue_item(
-		&self,
-		arg: tangram_cache::archive::queue::delete::Arg,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "fjall")]
-			Self::Fjall(cache) => cache.delete_archive_queue_item(arg).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(cache) => cache.delete_archive_queue_item(arg).await,
-			Self::Memory(cache) => {
-				tangram_cache::archive::Cache::delete_archive_queue_item(cache, arg).await
-			},
-			#[cfg(feature = "rocksdb")]
-			Self::Rocksdb(cache) => cache.delete_archive_queue_item(arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(cache) => cache.delete_archive_queue_item(arg).await,
-		}
-	}
-
 	pub async fn delete_archive_queue_item_batch(
 		&self,
 		arg: tangram_cache::archive::queue::delete::batch::Arg,
@@ -100,13 +81,6 @@ impl super::Cache {
 }
 
 impl tangram_cache::archive::Cache for super::Cache {
-	async fn delete_archive_queue_item(
-		&self,
-		arg: tangram_cache::archive::queue::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_archive_queue_item(arg).await
-	}
-
 	async fn delete_archive_queue_item_batch(
 		&self,
 		arg: tangram_cache::archive::queue::delete::batch::Arg,

@@ -149,14 +149,8 @@ impl Cache {
 
 	fn split_request(request: Request, write_batch_size: usize) -> Vec<(Request, usize)> {
 		match request {
-			Request::DeleteArchiveQueueItem(arg) => {
-				vec![(Request::DeleteArchiveQueueItem(arg), 1)]
-			},
 			Request::DeleteArchiveQueueItemBatch(args) => {
 				Self::split_items(args, write_batch_size, Request::DeleteArchiveQueueItemBatch)
-			},
-			Request::DeleteIndexQueueItem(arg) => {
-				vec![(Request::DeleteIndexQueueItem(arg), 1)]
 			},
 			Request::DeleteIndexQueueItemBatch(args) => {
 				Self::split_items(args, write_batch_size, Request::DeleteIndexQueueItemBatch)
@@ -217,15 +211,9 @@ impl Cache {
 		request: Request,
 	) -> tg::Result<()> {
 		match request {
-			Request::DeleteArchiveQueueItem(arg) => {
-				Self::delete_archive_queue_item_with_transaction(transaction, &arg)
-			},
 			Request::DeleteArchiveQueueItemBatch(args) => args.iter().try_for_each(|arg| {
 				Self::delete_archive_queue_item_with_transaction(transaction, arg)
 			}),
-			Request::DeleteIndexQueueItem(arg) => {
-				Self::delete_index_queue_item_with_transaction(transaction, &arg)
-			},
 			Request::DeleteIndexQueueItemBatch(args) => args.iter().try_for_each(|arg| {
 				Self::delete_index_queue_item_with_transaction(transaction, arg)
 			}),

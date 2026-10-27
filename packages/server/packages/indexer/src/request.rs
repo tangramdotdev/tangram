@@ -139,8 +139,8 @@ struct HandleRequestsArgs {
 
 struct Guard {
 	changed: Arc<tokio::sync::Notify>,
+	enqueue: bool,
 	state: Arc<Mutex<IndexerState>>,
-	writing: bool,
 }
 
 impl Component {
@@ -295,10 +295,10 @@ impl Indexer {
 			let ServerMessage::Request(request) = message else {
 				continue;
 			};
-			let writing = !matches!(request.arg, RequestArg::Wait);
+			let enqueue = !matches!(request.arg, RequestArg::Wait);
 			{
 				let mut state = state.lock().unwrap();
-				if writing && !state.available {
+				if enqueue && !state.available {
 					drop(state);
 					let error = tg::error!("the indexer is unavailable");
 					control
@@ -309,15 +309,15 @@ impl Indexer {
 						)));
 					continue;
 				}
-				if writing {
-					state.writes += 1;
+				if enqueue {
+					state.enqueues += 1;
 				}
 			}
 			control.acknowledge_now(request.id.clone());
 			let guard = Guard {
 				changed: changed.clone(),
+				enqueue,
 				state: state.clone(),
-				writing,
 			};
 			let wait_sender = wait_sender.clone();
 			let write_sender = write_sender.clone();
@@ -355,7 +355,7 @@ impl Indexer {
 				.await
 				.map(|()| ResponseOutput::Wait),
 		};
-		guard.finish_write();
+		guard.finish();
 		sender.send_now(ClientMessage::Response(Self::response(request.id, result)));
 		Ok(())
 	}
@@ -384,11 +384,7 @@ impl Indexer {
 		arg: EnqueueRequestArg,
 	) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = queue::write::Request {
-			archive: arg.archive,
-			index: arg.index,
-			sender,
-		};
+		let request = queue::write::Request { arg, sender };
 		write_sender
 			.send(request)
 			.await
@@ -447,13 +443,13 @@ impl ClientMessage {
 }
 
 impl Guard {
-	fn finish_write(&mut self) {
-		if self.writing {
+	fn finish(&mut self) {
+		if self.enqueue {
 			self.state
 				.lock()
 				.unwrap_or_else(std::sync::PoisonError::into_inner)
-				.writes -= 1;
-			self.writing = false;
+				.enqueues -= 1;
+			self.enqueue = false;
 			self.changed.notify_waiters();
 		}
 	}
@@ -461,7 +457,7 @@ impl Guard {
 
 impl Drop for Guard {
 	fn drop(&mut self) {
-		self.finish_write();
+		self.finish();
 	}
 }
 

@@ -1,12 +1,6 @@
 use {crate::Cache, tangram_cache::archive, tangram_client::prelude::*};
 
 impl Cache {
-	pub fn delete_archive_queue_item(&self, arg: archive::queue::delete::Arg) {
-		self.state()
-			.archive_queue
-			.remove(&(arg.indexer, arg.sequence));
-	}
-
 	pub fn delete_archive_queue_item_batch(&self, arg: archive::queue::delete::batch::Arg) {
 		let mut state = self.state();
 		for sequence in arg.sequences {
@@ -45,14 +39,6 @@ impl Cache {
 }
 
 impl tangram_cache::archive::Cache for Cache {
-	async fn delete_archive_queue_item(
-		&self,
-		arg: tangram_cache::archive::queue::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_archive_queue_item(arg);
-		Ok(())
-	}
-
 	async fn delete_archive_queue_item_batch(
 		&self,
 		arg: tangram_cache::archive::queue::delete::batch::Arg,

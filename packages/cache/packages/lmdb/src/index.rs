@@ -8,12 +8,6 @@ use {
 };
 
 impl Cache {
-	pub async fn delete_index_queue_item(&self, arg: index::queue::delete::Arg) -> tg::Result<()> {
-		let request = crate::request::Request::DeleteIndexQueueItem(arg);
-
-		self.send_write_request(request).await
-	}
-
 	pub async fn delete_index_queue_item_batch(
 		&self,
 		arg: index::queue::delete::batch::Arg,
@@ -160,13 +154,6 @@ impl Cache {
 }
 
 impl tangram_cache::index::Cache for Cache {
-	async fn delete_index_queue_item(
-		&self,
-		arg: tangram_cache::index::queue::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_index_queue_item(arg).await
-	}
-
 	async fn delete_index_queue_item_batch(
 		&self,
 		arg: tangram_cache::index::queue::delete::batch::Arg,
