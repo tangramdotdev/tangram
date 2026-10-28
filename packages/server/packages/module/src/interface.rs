@@ -25,11 +25,25 @@ impl Component {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		// Load the module's text.
-		let output = self.load_module_inner(session, &arg.module).await?;
+		// Get the interface with the types that the module's checker infers.
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		let interface = {
+			let compiler = session.create_compiler();
+			let interface = compiler.interface(&arg.module).await;
+			compiler.stop();
+			compiler
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to wait for the compiler"))?;
+			interface?
+		};
 
-		// Get the interface.
-		let interface = tangram_compiler::interface::module(&arg.module, &output.text)?;
+		// Otherwise, get the interface from the module's source without types.
+		#[cfg(not(all(feature = "javascript", feature = "python")))]
+		let interface = {
+			let output = self.load_module_inner(session, &arg.module).await?;
+			tangram_compiler::interface::module(&arg.module, &output.text)?
+		};
 
 		let output = tg::module::interface::Output { interface };
 

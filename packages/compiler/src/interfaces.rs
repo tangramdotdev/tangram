@@ -48,8 +48,31 @@ pub(crate) struct Entry {
 }
 
 impl Compiler {
+	/// Get the interface of a module, with the types that its checker infers.
+	pub async fn interface(&self, module: &tg::module::Data) -> tg::Result<tg::Interface> {
+		let mut errors = self
+			.prepare_interfaces_inner(vec![module.clone()], true)
+			.await;
+		if let Some(error) = errors.remove(&key(module)) {
+			return Err(error);
+		}
+		let entry = self
+			.try_get_interface(module)
+			.ok_or_else(|| tg::error!("failed to get the interface of the module"))?;
+		Ok(entry.interface.clone())
+	}
+
 	/// Extract the interfaces of the modules in other languages that the checker of the roots loads, in dependency order, so that no extraction waits on another checker.
 	pub(crate) async fn prepare_interfaces(&self, roots: Vec<tg::module::Data>) {
+		self.prepare_interfaces_inner(roots, false).await;
+	}
+
+	/// Extract the interfaces of the modules in other languages that the roots load, and of the roots too if `include_roots` is true, returning the errors of the extractions that failed.
+	async fn prepare_interfaces_inner(
+		&self,
+		roots: Vec<tg::module::Data>,
+		include_roots: bool,
+	) -> BTreeMap<Key, tg::Error> {
 		let _guard = self.interfaces.lock.lock().await;
 
 		// Discover the modules that the roots reach.
@@ -87,14 +110,23 @@ impl Compiler {
 			.keys()
 			.map(|key| (key.clone(), cross_language_imports(&nodes, key)))
 			.collect::<BTreeMap<_, _>>();
-		let targets = roots
+		let mut targets = roots
 			.iter()
 			.filter_map(|module| dependencies.get(&key(module)))
 			.flatten()
 			.cloned()
 			.collect::<BTreeSet<_>>();
+		if include_roots {
+			targets.extend(
+				roots
+					.iter()
+					.map(key)
+					.filter(|key| dependencies.contains_key(key)),
+			);
+		}
 
-		// Extract the interfaces of each group of mutually dependent modules after the groups they depend on.
+		// Extract the interfaces of each group of mutually dependent modules after the groups they depend on, and remove the interface of a module whose extraction fails.
+		let mut errors = BTreeMap::new();
 		for component in components(&dependencies, &targets) {
 			let fingerprints = component
 				.iter()
@@ -118,6 +150,8 @@ impl Compiler {
 					Ok(interface) => interface,
 					Err(error) => {
 						tracing::debug!(error = %error.trace(), "failed to extract the interface");
+						errors.insert(key.clone(), error);
+						entries.push((key.clone(), None));
 						continue;
 					},
 				};
@@ -126,12 +160,12 @@ impl Compiler {
 					version: hash(&interface),
 					interface,
 				};
-				entries.push((key.clone(), Arc::new(entry)));
+				entries.push((key.clone(), Some(Arc::new(entry))));
 			}
 			let mut shared = self.interfaces.nodes.lock().unwrap();
 			for (key, entry) in entries {
 				let node = nodes.get_mut(&key).unwrap();
-				node.interface = Some(entry);
+				node.interface = entry;
 				shared.insert(key, node.clone());
 			}
 		}
@@ -151,6 +185,9 @@ impl Compiler {
 			}
 		}
 		shared.retain(|key, _| reachable.contains(key));
+		drop(shared);
+
+		errors
 	}
 
 	/// Get the extracted interface of a module, if there is one.
