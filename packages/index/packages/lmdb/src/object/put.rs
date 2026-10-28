@@ -182,10 +182,30 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		args: &[tangram_index::object::put::Arg],
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		for object in args {
 			Self::put_object(db, subspace, transaction, object)?;
+
+			// Put the account's storage entry, which requires the object.
+			if let Some(account) = &object.account {
+				let entry = tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: object.id.clone(),
+					touched_at: object.touched_at,
+				};
+				Self::put_account_object(
+					db,
+					subspace,
+					transaction,
+					&entry,
+					usage_partition_total,
+					None,
+					None,
+				)?;
+			}
 		}
+
 		Ok(())
 	}
 }
