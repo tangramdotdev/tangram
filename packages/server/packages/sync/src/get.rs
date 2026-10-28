@@ -646,7 +646,7 @@ impl Component {
 
 		// Authorize the remaining nodes.
 		let authorization_outputs = session
-			.authorize_batch_with_required(args, required, Some(sync))
+			.authorize_batch_with_required_without_search(args, required, Some(sync))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the sync nodes"))?;
 		let mut graph = graph.lock().unwrap();

@@ -19,6 +19,7 @@ pub struct VerifyBatchArg<'a> {
 	pub args: Vec<Arg>,
 	pub current_sync: Option<&'a tg::sync::Id>,
 	pub required: Option<tg::authorization::permission::Set>,
+	pub search: bool,
 	pub subject: Option<tg::authorization::Subject>,
 }
 
@@ -87,6 +88,7 @@ impl Session {
 				Some(required),
 				Some(subject),
 				None,
+				true,
 			)
 			.await?;
 		Ok(outputs.pop().unwrap())
@@ -140,16 +142,17 @@ impl Session {
 			),
 		>,
 	{
-		self.verify_batch_inner_with_subject(args, required, None, current_sync)
+		self.verify_batch_inner_with_subject(args, required, None, current_sync, true)
 			.await
 	}
 
-	async fn verify_batch_inner_with_subject<R, I>(
+	pub(crate) async fn verify_batch_inner_with_subject<R, I>(
 		&self,
 		args: I,
 		required: Option<tg::authorization::permission::Set>,
 		subject: Option<tg::authorization::Subject>,
 		current_sync: Option<&tg::sync::Id>,
+		search: bool,
 	) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,
@@ -179,6 +182,7 @@ impl Session {
 			args,
 			current_sync,
 			required,
+			search,
 			subject,
 		};
 		self.server.components.verify.verify_batch(self, arg).await

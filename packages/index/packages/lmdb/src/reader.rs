@@ -167,6 +167,16 @@ impl Index {
 				let output = Self::get_indexers_with_transaction(db, subspace, transaction)?;
 				tangram_index::read::Response::GetIndexers(output)
 			},
+			tangram_index::read::Request::GetPermissions { ids, principal } => {
+				let output = Self::get_permissions_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&ids,
+					&principal,
+				)?;
+				tangram_index::read::Response::GetPermissions(output)
+			},
 			tangram_index::read::Request::TryGetProcessChildrenCount { id } => {
 				let output = Self::try_get_process_children_count_with_transaction(
 					db,

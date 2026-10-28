@@ -313,6 +313,13 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::GetIndexers(output)
 			},
+			tangram_index::read::Request::GetPermissions { ids, principal } => {
+				let result =
+					Self::get_permissions_with_transaction(transaction, subspace, ids, principal)
+						.await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::GetPermissions(output)
+			},
 			tangram_index::read::Request::TryGetProcessChildrenCount { id } => {
 				let result = Self::try_get_process_children_count_with_transaction(
 					transaction,

@@ -7,6 +7,39 @@ use {
 };
 
 impl Index {
+	pub(crate) fn get_permissions_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		ids: &[tg::Id],
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<Vec<tg::authorization::Permission>>> {
+		// Get the subjects of the principal without its memberships.
+		let mut subjects = vec![tg::authorization::Subject::Public];
+		if !matches!(principal, tg::Principal::Anonymous) {
+			subjects.push(principal.try_to_subject()?);
+		}
+
+		// Get the permissions of the subjects on each resource.
+		let mut output = Vec::with_capacity(ids.len());
+		for id in ids {
+			let mut permissions = Vec::new();
+			for subject in &subjects {
+				let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+					db,
+					subspace,
+					transaction,
+					id,
+					subject,
+				)?;
+				permissions.extend(entries.into_iter().map(|entry| entry.permission));
+			}
+			output.push(permissions);
+		}
+
+		Ok(output)
+	}
+
 	pub(crate) fn get_resource_permission_subjects_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

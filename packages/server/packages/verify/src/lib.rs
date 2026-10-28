@@ -50,6 +50,7 @@ impl Component {
 			args,
 			current_sync,
 			required,
+			search,
 			subject,
 		} = arg;
 
@@ -66,9 +67,13 @@ impl Component {
 		// Ask the syncs named by the tokens.
 		Self::verify_syncs(session, &mut items, current_sync).await?;
 
-		// Search the index as a last resort.
-		self.verify_search(session, &mut items, subject.as_ref())
-			.await?;
+		// Search the index as a last resort, or read only the principal's permissions from the index when searching is not allowed.
+		if search {
+			self.verify_search(session, &mut items, subject.as_ref())
+				.await?;
+		} else if subject.is_none() {
+			Self::verify_permissions(session, &mut items).await?;
+		}
 
 		// Return the error of a sync for an item that remains unproven.
 		for item in &mut items {
@@ -274,6 +279,39 @@ impl Component {
 				}
 			}
 		}
+
+		Ok(())
+	}
+
+	async fn verify_permissions(session: &Session, items: &mut [Item]) -> tg::Result<()> {
+		// Collect the resources of the items whose permissions are unproven.
+		let mut ids = Vec::new();
+		let mut positions = Vec::new();
+		for (position, item) in items.iter().enumerate() {
+			if item.permissions().contains(item.target) {
+				continue;
+			}
+			let tg::Selector::Id(id) = &item.resource else {
+				continue;
+			};
+			ids.push(id.clone());
+			positions.push(position);
+		}
+
+		// Read the principal's permissions on the resources from the index.
+		if !ids.is_empty() {
+			let outputs = session
+				.server
+				.index
+				.get_permissions(&ids, &session.context.principal)
+				.await?;
+			for (position, permissions) in std::iter::zip(positions, outputs) {
+				items[position].insert_permissions(&permissions);
+			}
+		}
+
+		// Read the storage.
+		Self::read_storage(session, items).await?;
 
 		Ok(())
 	}
@@ -790,6 +828,25 @@ impl Item {
 			expires_at: Some(body.expires_at),
 			outcome: Outcome::Satisfied,
 			permissions,
+		};
+		self.proofs.insert(self.requested, output);
+	}
+
+	fn insert_permissions(&mut self, permissions: &[tg::authorization::Permission]) {
+		let mut output = self.requested.empty_like();
+		for permission in self.requested.iter().filter(|requested| {
+			permissions
+				.iter()
+				.any(|permission| permission.implies(*requested))
+		}) {
+			output.insert(tg::authorization::permission::Set::from_permission(
+				permission,
+			));
+		}
+		let output = Authorization {
+			expires_at: None,
+			outcome: Outcome::Satisfied,
+			permissions: output,
 		};
 		self.proofs.insert(self.requested, output);
 	}

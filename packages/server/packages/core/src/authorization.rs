@@ -259,6 +259,38 @@ impl Session {
 		Ok(outputs)
 	}
 
+	pub async fn authorize_batch_with_required_without_search<R, I>(
+		&self,
+		args: I,
+		required: tg::authorization::permission::Set,
+		current_sync: Option<&tg::sync::Id>,
+	) -> tg::Result<Vec<Output>>
+	where
+		R: IntoAuthorizationResource,
+		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
+	{
+		let args = args.into_iter().map(|(resource, permissions)| {
+			(
+				resource,
+				permissions,
+				None,
+				crate::verify::empty_storage(permissions),
+			)
+		});
+		let outputs = self
+			.verify_batch_inner_with_subject(args, Some(required), None, current_sync, false)
+			.await?;
+		let outputs = outputs
+			.into_iter()
+			.map(|output| Output {
+				expires_at: output.expires_at,
+				outcome: output.outcome,
+				permissions: output.permissions,
+			})
+			.collect();
+		Ok(outputs)
+	}
+
 	pub async fn authorize_object_read(
 		&self,
 		resource: impl IntoAuthorizationResource,

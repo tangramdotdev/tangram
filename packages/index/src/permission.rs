@@ -60,6 +60,12 @@ pub trait Index {
 		entry: &crate::permission::capture::Entry,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn get_permissions(
+		&self,
+		ids: &[tg::Id],
+		principal: &tg::Principal,
+	) -> impl Future<Output = tg::Result<Vec<Vec<tg::authorization::Permission>>>> + Send;
+
 	fn put_permissions(
 		&self,
 		args: &[crate::permission::put::Arg],

@@ -10,6 +10,10 @@ pub enum Request {
 	},
 
 	GetIndexers,
+	GetPermissions {
+		ids: Vec<tg::Id>,
+		principal: tg::Principal,
+	},
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
 	},
@@ -113,6 +117,7 @@ pub enum Request {
 pub enum Response {
 	ContainsIds(Vec<bool>),
 	GetIndexers(Vec<crate::indexer::Indexer>),
+	GetPermissions(Vec<Vec<tg::authorization::Permission>>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSubjectsForPrincipal(Vec<tg::authorization::Subject>),
 	GetTransactionId(u64),
