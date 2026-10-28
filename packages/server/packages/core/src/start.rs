@@ -418,6 +418,8 @@ impl Server {
 						usage_partition_total: options.usage_partition_total,
 						usage_update_partition_total: options.usage_update_partition_total,
 						verification,
+						write_item_transaction_concurrency: options
+							.write_item_transaction_concurrency,
 						write_operation_batch_size: options.write_operation_batch_size,
 						write_transaction_concurrency: options.write_transaction_concurrency,
 					};
