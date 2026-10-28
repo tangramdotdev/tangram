@@ -13,8 +13,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const SIZE_LIMIT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
-
 pub(super) type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
 pub(super) type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
 pub(super) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
@@ -1173,24 +1171,22 @@ impl Index {
 		config: ExecutionConfig<'_>,
 		priority_batch: bool,
 	) -> Result<Vec<Response>, TransactionError> {
-		// Retry a transaction that exceeds the size limit instead of failing it, so that no index write is dropped and indexing halts loudly until a fix is rolled out.
-		loop {
-			let result = Self::execute_transaction_with_inner(
-				database,
-				subspace,
-				items_or_requests.clone(),
-				config,
-				priority_batch,
-			)
-			.await;
-			match result {
-				Err(TransactionError::FoundationDb(error)) if Self::is_size_limit(error) => {
-					let error = Self::size_limit_error(error, &items_or_requests);
-					tracing::error!(error = %error.trace(), "failed to execute a batch, retrying");
-					tokio::time::sleep(SIZE_LIMIT_RETRY_DELAY).await;
-				},
-				result => return result,
-			}
+		let result = Self::execute_transaction_with_inner(
+			database,
+			subspace,
+			items_or_requests.clone(),
+			config,
+			priority_batch,
+		)
+		.await;
+
+		// Name the largest item of a batch that exceeds the size limit, so that the indexer's retry logs show what is blocking indexing.
+		match result {
+			Err(TransactionError::FoundationDb(error)) if Self::is_size_limit(error) => {
+				let error = Self::size_limit_error(error, &items_or_requests);
+				Err(TransactionError::Tangram(error))
+			},
+			result => result,
 		}
 	}
 
