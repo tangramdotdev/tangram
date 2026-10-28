@@ -18,8 +18,7 @@ pub(crate) struct Request {
 }
 
 struct Assigned {
-	error: Option<tg::Error>,
-	fragments: Vec<(Kind, u64, request::Fragment)>,
+	entries: Vec<(Kind, u64, bytes::Bytes)>,
 	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 
@@ -33,9 +32,9 @@ impl Indexer {
 		// Assign sequences in the order the requests arrive, and write the assigned requests concurrently, which stops reading the channel while the writes are at the concurrency.
 		let concurrency = self.server.config.indexer.writer.concurrency;
 		tokio_stream::wrappers::ReceiverStream::new(receiver)
-			.then(|request| self.assign_sequences(state, changed, request))
+			.then(|request| Self::assign_sequences(state, changed, request))
 			.for_each_concurrent(concurrency, |assigned| {
-				self.write_fragments(state, changed, assigned)
+				self.write_entries(state, changed, assigned)
 			})
 			.await;
 
@@ -43,42 +42,31 @@ impl Indexer {
 	}
 
 	async fn assign_sequences(
-		&self,
 		state: &Mutex<IndexerState>,
 		changed: &tokio::sync::Notify,
 		request: Request,
 	) -> Assigned {
 		let Request { arg, sender } = request;
 		let request::EnqueueRequestArg { archive, index } = arg;
-		let mut error = None;
-		let mut fragments = Vec::with_capacity(archive.len() + index.len());
-		let requests = archive
-			.into_iter()
-			.map(|fragment| (Kind::Archive, fragment))
-			.chain(index.into_iter().map(|fragment| (Kind::Index, fragment)));
-		for (kind, fragment) in requests {
-			// Assign the sequence and record the fragment, so that its batch can be processed before the write finishes.
-			let sequence = Self::allocate_sequence(state, changed, kind).await;
-			let timeout = self.batch_timeout(kind);
-			let mut state = state.lock().unwrap();
-			let result = state
-				.queues
-				.insert_fragment(kind, sequence, &fragment, timeout);
-			if let Err(source) = result {
-				state.queues.finish_write(kind, sequence, &fragment, false);
-				error.get_or_insert(source);
+		let mut entries = Vec::with_capacity(2);
+		let payloads = [(Kind::Archive, archive), (Kind::Index, index)];
+		for (kind, payload) in payloads {
+			let Some(payload) = payload else {
 				continue;
-			}
-			drop(state);
-			fragments.push((kind, sequence, fragment));
+			};
+
+			// Assign the sequence and record the entry, so that it can be processed before its write finishes.
+			let sequence = Self::allocate_sequence(state, changed, kind).await;
+			state
+				.lock()
+				.unwrap()
+				.queues
+				.insert_entry(kind, sequence, payload.clone());
+			entries.push((kind, sequence, payload));
 		}
 		changed.notify_waiters();
 
-		Assigned {
-			error,
-			fragments,
-			sender,
-		}
+		Assigned { entries, sender }
 	}
 
 	async fn allocate_sequence(
@@ -97,43 +85,32 @@ impl Indexer {
 		}
 	}
 
-	async fn write_fragments(
+	async fn write_entries(
 		&self,
 		state: &Mutex<IndexerState>,
 		changed: &tokio::sync::Notify,
 		assigned: Assigned,
 	) {
-		let Assigned {
-			mut error,
-			fragments,
-			sender,
-		} = assigned;
+		let Assigned { entries, sender } = assigned;
 
-		// Write each fragment as its own queue item.
+		// Write each entry as its own queue item.
 		let results = future::join_all(
-			fragments
+			entries
 				.iter()
-				.map(|(kind, sequence, fragment)| self.put_queue_item(*kind, *sequence, fragment)),
+				.map(|(kind, sequence, payload)| self.put_queue_item(*kind, *sequence, payload)),
 		)
 		.await;
 
 		// Finish the writes.
 		let mut state = state.lock().unwrap();
-		for ((kind, sequence, fragment), result) in fragments.iter().zip(&results) {
-			state
-				.queues
-				.finish_write(*kind, *sequence, fragment, result.is_ok());
+		for ((kind, sequence, _), result) in entries.iter().zip(&results) {
+			state.queues.finish_write(*kind, *sequence, result.is_ok());
 		}
 		drop(state);
 		changed.notify_waiters();
 
 		// Respond.
-		for result in results {
-			if let Err(source) = result {
-				error.get_or_insert(source);
-			}
-		}
-		let result = error.map_or(Ok(()), Err);
+		let result = results.into_iter().collect::<tg::Result<()>>();
 		sender.send(result).ok();
 	}
 }
