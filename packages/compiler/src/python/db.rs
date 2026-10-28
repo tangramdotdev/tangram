@@ -32,6 +32,8 @@ use {
 mod completion;
 mod diagnostics;
 mod document;
+#[cfg(feature = "javascript")]
+mod interface;
 mod query;
 mod symbols;
 mod tokens;
@@ -55,6 +57,10 @@ pub(super) struct Database {
 	settings: Arc<ProgramSettings>,
 	storage: salsa::Storage<Self>,
 	system: System,
+
+	/// The modules in other languages to load without their extracted interfaces.
+	untyped: BTreeSet<Key>,
+
 	uv_environments: ty_project::UvEnvironments,
 }
 
@@ -125,6 +131,7 @@ impl Database {
 			settings: Arc::new(settings),
 			storage: salsa::Storage::default(),
 			system,
+			untyped: BTreeSet::new(),
 			uv_environments: ty_project::UvEnvironments::default(),
 		};
 		// The project contains only explicitly supplied module files, including when that set is empty.
@@ -171,10 +178,11 @@ impl Database {
 			.collect::<Vec<_>>();
 		for entry in entries {
 			let key = Key::new(&entry.module);
-			if !matches!(
-				entry.module.referent.node,
-				tg::module::data::Source::Path(_)
-			) && !self.documents.contains_key(&key)
+			if entry.module.kind == tg::module::Kind::Python
+				&& !matches!(
+					entry.module.referent.node,
+					tg::module::data::Source::Path(_)
+				) && !self.documents.contains_key(&key)
 				&& !previous_documents.contains_key(&key)
 			{
 				continue;
@@ -339,10 +347,11 @@ impl Database {
 		}
 		self.compiler
 			.main_runtime_handle
-			.block_on(
-				self.compiler
-					.get_module_version_with_language(module, tg::module::load::Language::Python),
-			)
+			.block_on(self.compiler.get_module_version_with_language_inner(
+				module,
+				tg::module::load::Language::Python,
+				self.typed(module),
+			))
 			.ok()
 	}
 
@@ -355,12 +364,23 @@ impl Database {
 		let text = self
 			.compiler
 			.main_runtime_handle
-			.block_on(
-				self.compiler
-					.load_module_with_language(module, Some(tg::module::load::Language::Python)),
-			)
+			.block_on(self.compiler.load_module_with_language_inner(
+				module,
+				Some(tg::module::load::Language::Python),
+				self.typed(module),
+			))
 			.map_err(|error| tg::error!(!error, %module, "failed to load the python module"))?;
 		Ok(text)
+	}
+
+	/// Determine whether to load a module with its extracted interface.
+	fn typed(&self, module: &tg::module::Data) -> bool {
+		self.untyped.is_empty() || !self.untyped.contains(&Key::new(module))
+	}
+
+	/// Set the modules in other languages to load without their extracted interfaces.
+	pub(super) fn set_untyped(&mut self, untyped: BTreeSet<Key>) {
+		self.untyped = untyped;
 	}
 
 	fn metadata(

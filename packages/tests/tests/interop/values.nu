@@ -54,7 +54,7 @@ let output = tg run $path | complete
 success $output
 assert ($output.stdout | str contains 'mirrors aligned')
 
-# Cross-language results deliberately remain broad until semantic typing is implemented.
+# Checking reports cross-language calls whose args or output have the wrong types.
 let bad = artifact {
     'tangram.ts': '
         import { echo } from "./mirror.tg.py";

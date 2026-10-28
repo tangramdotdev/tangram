@@ -396,6 +396,39 @@ impl crate::backend::Backend for Backend {
 			})
 	}
 
+	#[cfg(feature = "javascript")]
+	fn interface(
+		&self,
+		compiler: &Compiler,
+		arg: crate::interfaces::Arg,
+	) -> BoxFuture<'static, tg::Result<tg::Interface>> {
+		// Extract the interface on the worker, loading the other members of the module's cycle without their interfaces.
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let job: Job = Box::new(move |compiler, database| {
+			let output = (|| {
+				if database.is_none() {
+					database.replace(db::Database::new(compiler.clone(), Documents::new())?);
+				}
+				let database = database.as_mut().unwrap();
+				database.set_untyped(arg.untyped);
+				let output = database
+					.update(compiler.py_documents())
+					.and_then(|()| database.interface(arg.module));
+				database.set_untyped(std::collections::BTreeSet::new());
+				output
+			})();
+			sender.send(output).ok();
+		});
+		let result = compiler.python.send(compiler, job);
+		async move {
+			result?;
+			receiver
+				.await
+				.map_err(|error| tg::error!(!error, "failed to receive the python output"))?
+		}
+		.boxed()
+	}
+
 	fn prepare_rename(
 		&self,
 		compiler: &Compiler,

@@ -56,17 +56,32 @@ pub(super) fn type_(type_: &tg::interface::Type, definitions: &BTreeMap<String, 
 		tg::interface::Type::Symlink => "tg.Symlink".to_owned(),
 		tg::interface::Type::Template => "tg.Template".to_owned(),
 		tg::interface::Type::Tuple { elements, rest } => {
-			let mut items = elements
+			// Express optional elements as a union of the tuples that end at each optional element, because an optional element's type includes undefined, which is not a value.
+			let required = elements
 				.iter()
-				.map(|element| {
-					let optional = if element.optional { "?" } else { "" };
-					format!("{}{optional}", self::type_(&element.type_, definitions))
-				})
-				.collect::<Vec<_>>();
-			if let Some(rest) = rest {
-				items.push(format!("...Array<{}>", self::type_(rest, definitions)));
+				.take_while(|element| !element.optional)
+				.count();
+			let rest = rest
+				.as_ref()
+				.map(|rest| format!("...Array<{}>", self::type_(rest, definitions)));
+			let mut tuples = Vec::new();
+			for length in required..=elements.len() {
+				let mut items = elements[..length]
+					.iter()
+					.map(|element| self::type_(&element.type_, definitions))
+					.collect::<Vec<_>>();
+				if length == elements.len()
+					&& let Some(rest) = &rest
+				{
+					items.push(rest.clone());
+				}
+				tuples.push(format!("[{}]", items.join(", ")));
 			}
-			format!("[{}]", items.join(", "))
+			if let [tuple] = tuples.as_slice() {
+				tuple.clone()
+			} else {
+				format!("({})", tuples.join(" | "))
+			}
 		},
 		tg::interface::Type::Union { types } => {
 			if types.is_empty() {

@@ -518,7 +518,7 @@ mod tests {
 			"{text}"
 		);
 		assert!(
-			text.contains("const c0: tg.Command<[string, T0?], tg.File> = tg.command(f0)"),
+			text.contains("const c0: tg.Command<([string] | [string, T0]), tg.File> = tg.command(f0)"),
 			"{text}"
 		);
 		let source = source(tg::module::Kind::Python);
