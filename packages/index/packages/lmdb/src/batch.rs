@@ -26,6 +26,7 @@ impl Index {
 		process_data_fragment_size: usize,
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
+		let mut rejection = None;
 		for item in &arg.items {
 			// Skip a grant from a finished process to a process that it does not list as a child.
 			if let Some((source, destination)) = item.process_grant()
@@ -218,7 +219,7 @@ impl Index {
 						usage_partition_total,
 					)?;
 					if let Err(error) = result {
-						return Ok(Err(error));
+						rejection.get_or_insert(error);
 					}
 				},
 				tangram_index::batch::Item::PutSandbox(arg) => {
@@ -230,7 +231,7 @@ impl Index {
 						usage_partition_total,
 					)?;
 					if let Err(error) = result {
-						return Ok(Err(error));
+						rejection.get_or_insert(error);
 					}
 				},
 				tangram_index::batch::Item::PutSync(arg) => {
@@ -255,6 +256,9 @@ impl Index {
 			}
 		}
 
-		Ok(Ok(()))
+		// Return the first rejection, since a rejected item does not affect the other items.
+		let result = rejection.map_or(Ok(()), Err);
+
+		Ok(result)
 	}
 }

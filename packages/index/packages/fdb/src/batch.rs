@@ -27,6 +27,7 @@ impl Index {
 		process_data_fragment_size: usize,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
+		let mut rejection = None;
 		for item in items {
 			// Skip a grant from a finished process to a process that it does not list as a child.
 			if let Some((source, destination)) = item.process_grant() {
@@ -257,7 +258,7 @@ impl Index {
 						.await
 					);
 					if let Err(error) = result {
-						return Ok(ControlFlow::Break(Err(error)));
+						rejection.get_or_insert(error);
 					}
 				},
 				tangram_index::batch::Item::PutSandbox(arg) => {
@@ -271,7 +272,7 @@ impl Index {
 						.await
 					);
 					if let Err(error) = result {
-						return Ok(ControlFlow::Break(Err(error)));
+						rejection.get_or_insert(error);
 					}
 				},
 				tangram_index::batch::Item::PutSync(arg) => {
@@ -297,6 +298,9 @@ impl Index {
 			}
 		}
 
-		Ok(ControlFlow::Break(Ok(())))
+		// Return the first rejection, since a rejected item does not affect the other items.
+		let result = rejection.map_or(Ok(()), Err);
+
+		Ok(ControlFlow::Break(result))
 	}
 }
