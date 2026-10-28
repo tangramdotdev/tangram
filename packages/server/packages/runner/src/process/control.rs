@@ -95,11 +95,8 @@ impl Component {
 		let tg::Principal::Process(id) = &session.context.principal else {
 			return Err(tg::error!("expected a process principal"));
 		};
-		session
-			.server
-			.components
-			.runner
-			.state()
+		let state = session.server.components.runner.state();
+		let mut output = state
 			.try_update_process(id, |process| {
 				let lease = if process.data.status.is_finished() || process.stopper.stopped() {
 					None
@@ -113,7 +110,12 @@ impl Component {
 					lease,
 				}
 			})
-			.ok_or_else(|| tg::error!(%id, "failed to find the process"))
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+
+		// Remove the children whose starts the home instance has not acknowledged, after releasing the process.
+		state.retain_acknowledged_children(&mut output.data);
+
+		Ok(output)
 	}
 
 	fn release_process_lease(

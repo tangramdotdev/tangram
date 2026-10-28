@@ -335,6 +335,18 @@ impl Component {
 					};
 					return Ok(output);
 				}
+
+				// Report the sandbox as not found when the index has no record of it after indexing everything enqueued before the lookup, because a sandbox's index insertion is enqueued before anyone other than its runner can learn its ID.
+				if indexed.is_none()
+					&& (!processes || session.server.index.try_get_sandbox(id).await?.is_none())
+				{
+					let output = Output {
+						control: None,
+						indexed: None,
+					};
+					return Ok(output);
+				}
+
 				let control = control_future.await;
 				let indexed = if control.as_ref().is_ok_and(&index_required) {
 					get_index().await?

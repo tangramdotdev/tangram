@@ -148,15 +148,26 @@ impl State {
 		position: u64,
 		length: u64,
 	) -> tg::sandbox::control::GetProcessesClientResponseOutput {
-		let processes = self
+		// List only the processes whose starts the home instance has acknowledged.
+		let acknowledged = self
 			.process_ids
 			.keys()
+			.filter(|id| {
+				self.processes
+					.get(*id)
+					.is_none_or(|process| process.acknowledged)
+			})
+			.collect::<Vec<_>>();
+		let processes = acknowledged
+			.iter()
 			.skip(usize::try_from(position).unwrap())
 			.take(usize::try_from(length).unwrap())
+			.copied()
 			.cloned()
 			.collect();
+
 		tg::sandbox::control::GetProcessesClientResponseOutput {
-			length: u64::try_from(self.process_ids.len()).unwrap(),
+			length: u64::try_from(acknowledged.len()).unwrap(),
 			processes,
 			status: self.status,
 		}

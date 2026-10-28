@@ -33,6 +33,7 @@ impl Component {
 					defer_index: false,
 					location: None,
 					outcome_sync: None,
+					put_children: false,
 					store_data: true,
 				};
 				(
@@ -135,6 +136,7 @@ impl Component {
 			defer_index,
 			location,
 			outcome_sync,
+			put_children,
 			store_data,
 		} = options;
 		let now = session.server.clock.unix_timestamp();
@@ -197,6 +199,40 @@ impl Component {
 				principal.clone(),
 				now,
 			)?;
+		// Put a row for each child, so that a lookup of a child whose start has not reached its home instance finds it and waits for its runner rather than reporting that it does not exist.
+		let put_children = if put_children {
+			children
+				.iter()
+				.flatten()
+				.map(|child| {
+					let arg = tangram_index::process::put::Arg {
+						cached: child.cached,
+						children: None,
+						command: None,
+						command_id: None,
+						data: None,
+						error: None,
+						id: child.process.node.clone(),
+						location: None,
+						log: None,
+						metadata: tg::process::Metadata::default(),
+						options: child.process.options.clone(),
+						output: None,
+						parent: Some(id.clone()),
+						permissions: Vec::new(),
+						principal: principal.clone(),
+						sandbox: None,
+						storage: tg::process::storage::Set::NODE,
+						time_to_touch: session.server.config.process.time_to_touch,
+						touched_at: now,
+					};
+					tangram_index::batch::Item::PutProcess(arg)
+				})
+				.collect::<Vec<_>>()
+		} else {
+			Vec::new()
+		};
+
 		let data = store_data.then(|| arg.data.clone());
 		let mut put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
@@ -209,7 +245,7 @@ impl Component {
 					.map(|object| object.node)
 					.collect(),
 			),
-			command_id: arg.data.command.command_id()?.into(),
+			command_id: Some(arg.data.command.command_id()?.into()),
 			data,
 			error: Some(error_objects),
 			id: id.clone(),
@@ -267,6 +303,7 @@ impl Component {
 		// Put the process in the index.
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
+				.chain(put_children)
 				.chain(put_permissions)
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountProcess(

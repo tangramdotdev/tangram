@@ -198,14 +198,20 @@ impl State {
 		Some(self.sandboxes.get_by_id(id)?.data())
 	}
 
+	/// Get a process's data for the home instance, without the children whose starts the home instance has not acknowledged.
 	#[must_use]
 	pub fn try_get_process(&self, id: &tg::process::Id) -> Option<tg::process::Data> {
-		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
-		let process = sandbox.processes.get(id)?;
-		Some(process.data())
+		let mut data = {
+			let sandbox = self.try_get_process_sandbox(id)?;
+			let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+			let process = sandbox.processes.get(id)?;
+			process.data()
+		};
+		self.retain_acknowledged_children(&mut data);
+		Some(data)
 	}
 
+	/// Get a page of a process's children for the home instance, without the children whose starts the home instance has not acknowledged.
 	#[must_use]
 	pub fn try_get_process_children(
 		&self,
@@ -213,24 +219,56 @@ impl State {
 		position: u64,
 		length: u64,
 	) -> Option<tg::process::control::GetChildrenClientResponseOutput> {
-		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
-		let process = sandbox.processes.get(id)?;
-		let children_length = u64::try_from(process.children.len()).unwrap();
+		// Read the children, and release the process before checking each child, which reads other processes.
+		let (children, status) = {
+			let sandbox = self.try_get_process_sandbox(id)?;
+			let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+			let process = sandbox.processes.get(id)?;
+			let children = process
+				.children
+				.values()
+				.map(|child| child.data.clone())
+				.collect::<Vec<_>>();
+			(children, process.data.status)
+		};
+
+		// Page the acknowledged children.
+		let children = children
+			.into_iter()
+			.filter(|child| self.is_process_acknowledged(&child.process.node))
+			.collect::<Vec<_>>();
+		let children_length = u64::try_from(children.len()).unwrap();
 		let start = usize::try_from(position.min(children_length)).unwrap();
 		let end = usize::try_from(position.saturating_add(length).min(children_length)).unwrap();
-		let children = process
-			.children
-			.get_range(start..end)
-			.unwrap()
-			.values()
-			.map(|child| child.data.clone())
-			.collect();
+		let children = children[start..end].to_vec();
+
 		Some(tg::process::control::GetChildrenClientResponseOutput {
 			children,
 			length: children_length,
-			status: process.data.status,
+			status,
 		})
+	}
+
+	/// Remove the children whose starts the home instance has not acknowledged from a process's data.
+	pub fn retain_acknowledged_children(&self, data: &mut tg::process::Data) {
+		if let Some(children) = &mut data.children {
+			children.retain(|child| self.is_process_acknowledged(&child.process.node));
+		}
+	}
+
+	/// Determine whether the home instance has acknowledged a process's start. A process that this runner does not run, such as a cached or scheduled child, is acknowledged.
+	#[must_use]
+	pub fn is_process_acknowledged(&self, id: &tg::process::Id) -> bool {
+		let Some(sandbox) = self.try_get_process_sandbox(id) else {
+			return true;
+		};
+		let Some(sandbox) = self.sandboxes.get_by_id(&sandbox) else {
+			return true;
+		};
+		sandbox
+			.processes
+			.get(id)
+			.is_none_or(|process| process.acknowledged)
 	}
 
 	pub fn try_update_process<T>(

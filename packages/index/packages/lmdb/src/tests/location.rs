@@ -11,7 +11,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 			cached: false,
 			children: None,
 			command: Some(vec![command.clone().into()]),
-			command_id: command.clone().into(),
+			command_id: Some(command.clone().into()),
 			data: None,
 			error: None,
 			id: id.clone(),

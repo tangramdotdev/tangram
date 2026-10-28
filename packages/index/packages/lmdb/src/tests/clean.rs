@@ -101,7 +101,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					cached: false,
 					children: None,
 					command: Some(vec![command.clone()]),
-					command_id: command.clone(),
+					command_id: Some(command.clone()),
 					data: None,
 					error: None,
 					id: process.clone(),

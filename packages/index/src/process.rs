@@ -13,9 +13,9 @@ pub mod put;
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Process {
-	/// The command identity, which need not identify a stored object.
-	#[tangram_serialize(id = 8)]
-	pub command_id: tg::object::Id,
+	/// The command identity, which need not identify a stored object. It is absent for a process that is known only as a child listed in its parent's data.
+	#[tangram_serialize(default, id = 8, skip_serializing_if = "Option::is_none")]
+	pub command_id: Option<tg::object::Id>,
 
 	#[tangram_serialize(id = 7)]
 	pub location: Option<tg::Location>,

@@ -806,9 +806,11 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to get process"))?
 			.map(tangram_index::process::Process::deserialize)
 			.transpose()?;
-		if let Some(process) = &process {
+		if let Some(process) = &process
+			&& let Some(command) = &process.command_id
+		{
 			let key = crate::Key::Process(crate::process::Key::CommandCacheableProcess {
-				command: process.command_id.clone(),
+				command: command.clone(),
 				process: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);

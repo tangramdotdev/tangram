@@ -582,6 +582,16 @@ impl Component {
 					};
 					return Ok(output);
 				}
+
+				// Report the process as not found when the index has no record of it after indexing everything enqueued before the lookup, because a process's index insertion is enqueued before anyone other than its runner can learn its ID.
+				if indexed.is_none() {
+					let output = Output {
+						control: None,
+						indexed: None,
+					};
+					return Ok(output);
+				}
+
 				let control = control_future.await;
 				let indexed = if control.as_ref().is_ok_and(&index_required) {
 					tangram_server_core::checkpoint!(session.server, "process.get.index.required", process = %id)
@@ -974,6 +984,7 @@ impl Component {
 			defer_index: false,
 			location: location.and_then(|location| location.to_location()),
 			outcome_sync: None,
+			put_children: false,
 			store_data: true,
 		};
 		self.put_process_local(session, id, arg, options)

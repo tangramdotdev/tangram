@@ -25,6 +25,7 @@ impl Component {
 			defer_index: true,
 			location: Some(location),
 			outcome_sync,
+			put_children: true,
 			store_data: true,
 		};
 		self.put_finished_process_local(session, id, arg.data, options)

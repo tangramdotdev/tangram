@@ -87,15 +87,23 @@ impl Component {
 		drop(parent_process);
 		drop(parent_sandbox);
 
-		// Notify the server that the child was spawned.
-		control
-			.send(tg::process::control::ClientMessage::Notification(
-				tg::process::control::ClientNotification::ChildSpawned,
-			))
-			.await
-			.map_err(
-				|error| tg::error!(!error, %parent, "failed to send the child spawned notification"),
-			)?;
+		// Notify the server that the child was spawned, once its start is acknowledged, because the home instance must not learn the child's ID before it has the child's index row.
+		let acknowledged = session
+			.server
+			.components
+			.runner
+			.state()
+			.is_process_acknowledged(&child);
+		if acknowledged {
+			control
+				.send(tg::process::control::ClientMessage::Notification(
+					tg::process::control::ClientNotification::ChildSpawned,
+				))
+				.await
+				.map_err(
+					|error| tg::error!(!error, %parent, "failed to send the child spawned notification"),
+				)?;
+		}
 
 		// Index the child.
 		self.index_process_child(
@@ -151,7 +159,7 @@ impl Component {
 							.map(|object| object.node)
 							.collect(),
 					),
-					command_id: parent_data.command.command_id()?.into(),
+					command_id: Some(parent_data.command.command_id()?.into()),
 					data: Some(parent_data.clone()),
 					error: None,
 					id: parent.clone(),
@@ -174,7 +182,7 @@ impl Component {
 			cached: child.cached,
 			children: None,
 			command: None,
-			command_id: command.clone().into(),
+			command_id: Some(command.clone().into()),
 			data: None,
 			error: error_objects,
 			id: child_id.clone(),

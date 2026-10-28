@@ -11,8 +11,9 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 17, skip_serializing_if = "Option::is_none")]
 	pub command: Option<Vec<tg::object::Id>>,
 
-	#[tangram_serialize(id = 1)]
-	pub command_id: tg::object::Id,
+	/// The command identity, which is absent for a process that is known only as a child listed in its parent's data.
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub command_id: Option<tg::object::Id>,
 
 	#[tangram_serialize(id = 2)]
 	pub data: Option<tg::process::Data>,
@@ -111,7 +112,10 @@ impl Arg {
 		{
 			return Ok(Ok(()));
 		}
-		if self.command_id != existing.command_id {
+		if let (Some(command_id), Some(existing_command_id)) =
+			(&self.command_id, &existing.command_id)
+			&& command_id != existing_command_id
+		{
 			return Ok(Err(
 				tg::error!(id = %self.id, "cannot replace an existing process"),
 			));

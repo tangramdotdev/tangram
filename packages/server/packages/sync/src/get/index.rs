@@ -1194,7 +1194,7 @@ impl Component {
 							.children
 							.clone()
 							.ok_or_else(|| tg::error!("expected the process children to be set"))?;
-						let command_id = data.command.command_id()?.into();
+						let command_id = Some(data.command.command_id()?.into());
 						let storage = node.local_storage();
 						let metadata = node.metadata().cloned().unwrap();
 						let objects = node

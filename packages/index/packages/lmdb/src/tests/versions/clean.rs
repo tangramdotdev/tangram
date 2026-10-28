@@ -14,7 +14,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 		cached: false,
 		children: None,
 		command: Some(vec![object_id.clone()]),
-		command_id: object_id.clone(),
+		command_id: Some(object_id.clone()),
 		data: None,
 		error: None,
 		id: id.clone(),

@@ -394,7 +394,7 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		cached: false,
 		children: Some(vec![child.clone()]),
 		command: None,
-		command_id: command.clone(),
+		command_id: Some(command.clone()),
 		data: None,
 		error: None,
 		id: process.clone(),

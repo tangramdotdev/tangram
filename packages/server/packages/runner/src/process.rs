@@ -487,6 +487,7 @@ impl Component {
 		let (local_control_sender, control_receiver) =
 			tangram_server_process_core::control::local::Local::new(capacity);
 		let entry = tangram_server_process_core::State {
+			acknowledged: shortcut.is_none(),
 			changed: tokio::sync::watch::channel(()).0,
 			children,
 			control: control_sender.clone(),
@@ -956,6 +957,7 @@ impl Component {
 					match result {
 						Ok(header) => {
 							inner_token_sender.send_replace(header.token);
+							Self::acknowledge_process_start(&session, &process).await;
 							tangram_server_core::checkpoint!(server, "runner.process.control.start.succeeded", process = %process).await;
 						},
 						Err(error) => {
@@ -1143,6 +1145,41 @@ impl Component {
 				.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
 				.ok_or_else(|| tg::error!("expected a control stream"))?;
 		Ok((header, requests.boxed()))
+	}
+
+	/// Record that the home instance acknowledged a process's start, which lets the runner expose the process's ID to the home instance, and notify the home instance that its parent's children changed.
+	async fn acknowledge_process_start(session: &Session, id: &tg::process::Id) {
+		// Mark the process acknowledged.
+		let state = session.server.components.runner.state();
+		let parent = state
+			.try_update_process(id, |process| {
+				process.acknowledged = true;
+				process.parent.clone()
+			})
+			.flatten();
+		let Some(parent) = parent else {
+			return;
+		};
+
+		// Notify the parent's control if the parent already lists the process, because otherwise adding the child sends the notification.
+		let control = state
+			.try_update_process(&parent, |process| {
+				if !process.children.contains_key(id) {
+					return None;
+				}
+				process.changed.send_replace(());
+				Some(process.control.clone())
+			})
+			.flatten();
+		let Some(control) = control else {
+			return;
+		};
+		let message = tg::process::control::ClientMessage::Notification(
+			tg::process::control::ClientNotification::ChildSpawned,
+		);
+		if let Err(error) = control.send(message).await {
+			tracing::error!(error = %error.trace(), %parent, "failed to send the child spawned notification");
+		}
 	}
 
 	#[tracing::instrument(name = "process.finish", level = "debug", skip_all, fields(process = %arg.id, sandbox = arg.state.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]
@@ -1602,6 +1639,7 @@ impl Component {
 			defer_index: false,
 			location: Some(location.clone()),
 			outcome_sync: None,
+			put_children: false,
 			store_data: location.is_remote(),
 		};
 		let arg = tg::process::put::Arg {
@@ -1950,7 +1988,7 @@ impl Component {
 					.map(|object| object.node)
 					.collect(),
 			),
-			command_id: command_id.into(),
+			command_id: Some(command_id.into()),
 			data: Some(data.clone()),
 			error: None,
 			id: id.clone(),

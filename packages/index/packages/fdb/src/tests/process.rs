@@ -48,7 +48,7 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 		cached: false,
 		children: None,
 		command: Some(vec![command.clone().into()]),
-		command_id: command.into(),
+		command_id: Some(command.into()),
 		data: Some(data),
 		error: None,
 		id: id.clone(),

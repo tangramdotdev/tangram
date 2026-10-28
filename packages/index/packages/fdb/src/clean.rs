@@ -931,9 +931,11 @@ impl Index {
 		let process = crate::retry!(result)
 			.map(|bytes| tangram_index::process::Process::deserialize(&bytes))
 			.transpose()?;
-		if let Some(process) = &process {
+		if let Some(process) = &process
+			&& let Some(command) = &process.command_id
+		{
 			let key = crate::Key::Process(crate::process::Key::CommandCacheableProcess {
-				command: process.command_id.clone(),
+				command: command.clone(),
 				process: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);

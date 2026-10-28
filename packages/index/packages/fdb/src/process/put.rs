@@ -189,11 +189,17 @@ impl Index {
 			},
 			|data| data.sandbox.clone(),
 		);
+		let command_id = arg.command_id.clone().or_else(|| {
+			existing
+				.as_ref()
+				.and_then(|existing| existing.command_id.clone())
+		});
 		let changed = parent_changed
 			|| sandbox_changed
 			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
-				existing.location != location
+				existing.command_id != command_id
+					|| existing.location != location
 					|| existing.metadata != metadata
 					|| existing.sandbox != sandbox
 					|| existing.set != set
@@ -204,7 +210,7 @@ impl Index {
 		}
 
 		let value = tangram_index::process::Process {
-			command_id: arg.command_id.clone(),
+			command_id: command_id.clone(),
 			location,
 			metadata,
 			reference_count: existing
@@ -334,11 +340,13 @@ impl Index {
 		}
 
 		// Update the cacheable entry when the data is written, because it matches the stored data otherwise.
-		if let Some(data) = &data {
+		if let Some(data) = &data
+			&& let Some(command) = &command_id
+		{
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = Key::Process(crate::process::Key::CommandCacheableProcess {
-				command: arg.command_id.clone(),
+				command: command.clone(),
 				process: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);

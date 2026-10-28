@@ -48,7 +48,7 @@ fn process_arg(
 		cached: false,
 		children: Some(children),
 		command: Some(vec![command.clone()]),
-		command_id: command,
+		command_id: Some(command),
 		data: None,
 		error: Some(None),
 		id: id.clone(),
@@ -133,7 +133,7 @@ async fn command_objects_can_be_empty_or_multiple_without_a_stored_command() {
 			.pop()
 			.flatten()
 			.unwrap();
-		assert_eq!(process.command_id, command_id);
+		assert_eq!(process.command_id.as_ref(), Some(&command_id));
 		assert!(process.set.command_objects);
 		assert!(
 			process
@@ -367,7 +367,7 @@ async fn account_storage_traverses_new_process_relationships() {
 		cached: false,
 		children: None,
 		command: Some(vec![command.clone()]),
-		command_id: command.clone(),
+		command_id: Some(command.clone()),
 		data: None,
 		error: None,
 		id: root.clone(),

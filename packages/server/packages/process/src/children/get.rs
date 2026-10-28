@@ -12,6 +12,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::prelude::*,
 	tangram_messenger::prelude::*,
 	tangram_server_core::Session,
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
@@ -472,6 +473,16 @@ impl Component {
 					};
 					return Ok(output);
 				}
+
+				// Report the process as not found when the index has no record of it after indexing everything enqueued before the lookup, because a process's index insertion is enqueued before anyone other than its runner can learn its ID.
+				if session.server.index.try_get_process(id).await?.is_none() {
+					let output = Output {
+						control: None,
+						indexed: None,
+					};
+					return Ok(output);
+				}
+
 				control_future.await
 			},
 			future::Either::Right((control, _)) => control,

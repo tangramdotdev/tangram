@@ -298,6 +298,7 @@ impl Component {
 					defer_index: false,
 					location: None,
 					outcome_sync: None,
+					put_children: false,
 					store_data: true,
 				};
 				session
@@ -347,7 +348,7 @@ impl Component {
 										.map(|object| object.node)
 										.collect(),
 								),
-								command_id: data.command.command_id()?.into(),
+								command_id: Some(data.command.command_id()?.into()),
 								data: Some(data.clone()),
 								error: None,
 								id: process.clone(),
