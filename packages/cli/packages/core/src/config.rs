@@ -488,6 +488,10 @@ pub struct Verification {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_timeout: Option<Duration>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync_delay: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tokens: Option<BoolOr<TokenKeys>>,
 

@@ -425,7 +425,7 @@ impl Component {
 				&exhausted,
 			));
 		}
-		// Race the index searches with the sync proofs, retaining partial permissions from both.
+		// Combine the sync proofs with the index searches, retaining partial permissions from both.
 		let mut proofs = outputs
 			.iter()
 			.map(|output| {
@@ -470,18 +470,23 @@ impl Component {
 			));
 		}
 
-		// Query the syncs supplied by authorization tokens.
+		// Query the syncs supplied by authorization tokens, and search the index once they settle or the sync delay elapses.
 		requests.start_queued();
+		let mut index_started =
+			requests.futures.is_empty() && !requests.entries.values().any(Entry::pending);
 
 		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-		let index = self
-			.verify_index_batch(
+		let index = if index_started {
+			self.verify_index_batch(
 				session,
 				index_args.clone(),
 				wait_for_requested_permissions,
 				sender.clone(),
 			)
-			.boxed();
+			.boxed()
+		} else {
+			futures::future::pending().boxed()
+		};
 		tokio::pin!(index);
 		let mut index_done = false;
 		let mut refresh_index = false;
@@ -490,6 +495,9 @@ impl Component {
 		let poll_interval = session.server.config.verification.poll_interval;
 		let poll = tokio::time::sleep(poll_interval);
 		tokio::pin!(poll);
+		let sync_delay = tokio::time::sleep(session.server.config.verification.sync_delay);
+		tokio::pin!(sync_delay);
+		let mut sync_delay_elapsed = false;
 		loop {
 			// Stop storage discovery once availability is proven, including after an exhausted search.
 			for (position, arg) in std::iter::zip(&index_positions, &mut index_args) {
@@ -502,8 +510,29 @@ impl Component {
 				}
 			}
 
+			// Fall back to the index search once the token syncs have settled without a proof or the sync delay has elapsed.
+			if !index_started
+				&& (sync_delay_elapsed
+					|| requests.futures.is_empty()
+						&& !requests.entries.values().any(Entry::pending))
+			{
+				index.set(
+					self.verify_index_batch(
+						session,
+						index_args.clone(),
+						wait_for_requested_permissions,
+						sender.clone(),
+					)
+					.boxed(),
+				);
+				index_started = true;
+				index_done = false;
+				refresh_index = false;
+				retry_index = false;
+			}
+
 			// Apply new authorization or availability without waiting for a stale index attempt.
-			if refresh_index || index_done && retry_index {
+			if index_started && (refresh_index || index_done && retry_index) {
 				index.set(
 					self.verify_index_batch(
 						session,
@@ -549,7 +578,8 @@ impl Component {
 					&exhausted,
 				));
 			}
-			if index_done
+			if index_started
+				&& index_done
 				&& requests.futures.is_empty()
 				&& !requests.entries.values().any(Entry::pending)
 				&& receiver.is_empty()
@@ -589,7 +619,7 @@ impl Component {
 			}
 			let results = tokio::select! {
 				biased;
-				result = &mut index, if !index_done => {
+				result = &mut index, if index_started && !index_done => {
 					index_done = true;
 					match result {
 						Ok(results) => {
@@ -603,6 +633,10 @@ impl Component {
 					}
 				},
 				Some(results) = receiver.recv() => Some((false, results)),
+				() = &mut sync_delay, if !index_started => {
+					sync_delay_elapsed = true;
+					None
+				},
 				() = &mut poll, if requests.polling() => {
 					poll.as_mut().reset(Instant::now() + poll_interval);
 					requests.retry();
