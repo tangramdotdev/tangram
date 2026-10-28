@@ -425,7 +425,7 @@ impl Component {
 				&exhausted,
 			));
 		}
-		// Race the index searches with the sync proofs, retaining partial permissions from both.
+		// Retain partial permissions from the index searches and the sync proofs.
 		let mut proofs = outputs
 			.iter()
 			.map(|output| {
@@ -473,70 +473,64 @@ impl Component {
 		// Query the syncs supplied by authorization tokens.
 		requests.start_queued();
 
-		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-		let index = self
-			.verify_index_batch(
-				session,
-				index_args.clone(),
-				wait_for_requested_permissions,
-				sender.clone(),
-			)
-			.boxed();
+		let (_, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+		let index = futures::future::pending().boxed();
 		tokio::pin!(index);
-		let mut index_done = false;
-		let mut refresh_index = false;
-		let mut retry_index = false;
+		let mut searching = false;
+		let mut search_positions = Vec::<usize>::new();
+		let mut searches = vec![true; index_args.len()];
 		let mut errors = vec![None; outputs.len()];
 		let poll_interval = session.server.config.verification.poll_interval;
 		let poll = tokio::time::sleep(poll_interval);
 		tokio::pin!(poll);
 		loop {
 			// Stop storage discovery once availability is proven, including after an exhausted search.
-			for (position, arg) in std::iter::zip(&index_positions, &mut index_args) {
+			let mut restart = false;
+			for (index_position, (position, arg)) in
+				std::iter::zip(&index_positions, &mut index_args).enumerate()
+			{
 				if stored[*position].contains(resources[*position].1) {
 					requests.resolve_indexing(*position);
 				}
 				if stored[*position].contains(resources[*position].1) && !arg.storage.is_empty() {
 					arg.storage = arg.storage.empty_like();
-					refresh_index = true;
+					searches[index_position] = true;
+					restart |= search_positions.contains(&index_position);
 				}
 			}
 
-			// Apply new authorization or availability without waiting for a stale index attempt.
-			if refresh_index || index_done && retry_index {
-				index.set(
-					self.verify_index_batch(
-						session,
-						index_args.clone(),
-						wait_for_requested_permissions,
-						sender.clone(),
-					)
-					.boxed(),
-				);
-				index_done = false;
-				refresh_index = false;
-				retry_index = false;
+			// Abandon a search whose arguments are stale.
+			if searching && restart {
+				index.set(futures::future::pending().boxed());
+				searching = false;
+				for index_position in &search_positions {
+					searches[*index_position] = true;
+				}
 			}
+
 			let mut sufficient = true;
-			for (position, arg) in std::iter::zip(&index_positions, &index_args) {
+			for (index_position, (position, arg)) in
+				std::iter::zip(&index_positions, &index_args).enumerate()
+			{
 				outputs[*position] = proofs[*position].output(arg.requested);
+				let pending_search = searches[index_position]
+					|| (searching && search_positions.contains(&index_position));
 				let requested = wait_for_requested_permissions
-					&& (!index_done
-						|| retry_index || (wait_for_requested_proofs
-						&& (requests.pending(*position)
-							|| requests.error(*position).is_some()
-							|| errors[*position].is_some())));
+					&& (pending_search
+						|| (wait_for_requested_proofs
+							&& (requests.pending(*position)
+								|| requests.error(*position).is_some()
+								|| errors[*position].is_some())));
 				let permissions = if requested {
 					arg.requested
 				} else {
 					arg.required
 				};
-				if !retry_index
-					&& outputs[*position]
-						.is_some_and(|output| output.permissions.contains(permissions))
+				if outputs[*position].is_some_and(|output| output.permissions.contains(permissions))
 					&& stored[*position].contains(resources[*position].1)
 				{
 					requests.cancel(*position);
+					searches[index_position] = false;
 				} else {
 					sufficient = false;
 				}
@@ -549,7 +543,40 @@ impl Component {
 					&exhausted,
 				));
 			}
-			if index_done
+
+			// Search the index only for the positions that are not awaiting a sync, so that the search is a last resort.
+			if !searching {
+				let positions = (0..index_args.len())
+					.filter(|index_position| {
+						searches[*index_position]
+							&& !requests.awaiting(index_positions[*index_position])
+					})
+					.collect::<Vec<_>>();
+				if !positions.is_empty() {
+					for index_position in &positions {
+						searches[*index_position] = false;
+					}
+					let args = positions
+						.iter()
+						.map(|index_position| index_args[*index_position].clone())
+						.collect();
+					let sender;
+					(sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+					index.set(
+						self.verify_index_batch(
+							session,
+							args,
+							wait_for_requested_permissions,
+							sender,
+						)
+						.boxed(),
+					);
+					searching = true;
+					search_positions = positions;
+				}
+			}
+
+			if !searching
 				&& requests.futures.is_empty()
 				&& !requests.entries.values().any(Entry::pending)
 				&& receiver.is_empty()
@@ -589,28 +616,28 @@ impl Component {
 			}
 			let results = tokio::select! {
 				biased;
-				result = &mut index, if !index_done => {
-					index_done = true;
+				result = &mut index, if searching => {
+					searching = false;
 					match result {
 						Ok(results) => {
-							for position in &index_positions { errors[*position] = None; }
-							Some((true, results))
+							for index_position in &search_positions { errors[index_positions[*index_position]] = None; }
+							Some(results)
 						},
 						Err(error) => {
-							for position in &index_positions { errors[*position] = Some(error.clone()); }
+							for index_position in &search_positions { errors[index_positions[*index_position]] = Some(error.clone()); }
 							None
 						},
 					}
 				},
-				Some(results) = receiver.recv() => Some((false, results)),
+				Some(results) = receiver.recv() => Some(results),
 				() = &mut poll, if requests.polling() => {
 					poll.as_mut().reset(Instant::now() + poll_interval);
 					requests.retry();
-					retry_index = true;
+					searches.fill(true);
 					None
 				},
 				Some((request, result)) = requests.futures.next(), if !requests.futures.is_empty() => {
-					if result.is_some() { retry_index = true; }
+					if result.is_some() { searches[request.index_position] = true; }
 					match result {
 						Some(Ok(Some(output))) => {
 							let storage = match &output {
@@ -631,17 +658,39 @@ impl Component {
 								}
 							}
 							let arg = &mut index_args[request.index_position];
+							let exact = arg.resource == tg::Selector::Id(request.arg.node.clone());
 							// A child's storage does not prove the parent's storage.
-							if arg.resource == tg::Selector::Id(request.arg.node.clone()) { stored[request.position].insert(storage); }
+							if exact { stored[request.position].insert(storage); }
 							let now = session.server.clock.unix_timestamp();
 							for body in output.tokens() {
 								if body.resource != request.arg.node {
 									return Err(tg::error!("received an authorization body for the wrong resource from a sync"));
 								}
 								body.validate_at(now).map_err(|error| tg::error!(!error, "received an invalid authorization body from a sync"))?;
+
+								// Prove the permissions that a sync authorizes for the resource itself without searching the index.
+								if exact {
+									let mut permissions = arg.requested.empty_like();
+									for permission in arg.requested.iter().filter(|permission| body.authorizes(*permission)) {
+										permissions.insert(tg::authorization::permission::Set::from_permission(permission));
+									}
+									let output = Authorization {
+										expires_at: Some(body.expires_at),
+										outcome: Outcome::Satisfied,
+										permissions,
+									};
+									proofs[request.position].insert(arg.requested, output);
+								}
+
 								if !arg.tokens.contains(body) {
 									arg.tokens.push(body.clone());
-									refresh_index = true;
+									if searching && search_positions.contains(&request.index_position) {
+										index.set(futures::future::pending().boxed());
+										searching = false;
+										for index_position in &search_positions {
+											searches[*index_position] = true;
+										}
+									}
 								}
 							}
 						},
@@ -655,22 +704,23 @@ impl Component {
 					None
 				},
 			};
-			if let Some((_, results)) = results {
-				for (index_position, (position, result)) in
-					std::iter::zip(&index_positions, results).enumerate()
+			if let Some(results) = results {
+				for (index_position, result) in
+					std::iter::zip(search_positions.iter().copied(), results)
 				{
+					let position = index_positions[index_position];
 					let arg = &index_args[index_position];
-					stored[*position].insert(result.storage);
-					exhausted[*position] = result.outcome == Outcome::Exhausted;
+					stored[position].insert(result.storage);
+					exhausted[position] = result.outcome == Outcome::Exhausted;
 					let output = Authorization {
 						expires_at: result.expires_at,
 						outcome: result.outcome,
 						permissions: result.permissions,
 					};
-					proofs[*position].insert(arg.requested, output);
+					proofs[position].insert(arg.requested, output);
 
 					// Discovery remains useful after permission success and on search exhaustion.
-					let output = proofs[*position].output(arg.requested);
+					let output = proofs[position].output(arg.requested);
 					let requested = if wait_for_requested_permissions {
 						arg.requested
 					} else {
@@ -678,7 +728,7 @@ impl Component {
 					};
 					let missing_permissions =
 						!output.is_some_and(|output| output.permissions.contains(requested));
-					let missing_storage = !stored[*position].contains(resources[*position].1);
+					let missing_storage = !stored[position].contains(resources[position].1);
 					for sync in result.syncs {
 						if current_sync == Some(&sync.sync) {
 							continue;
@@ -711,7 +761,7 @@ impl Component {
 						if missing_storage {
 							let permissions = if exact {
 								tangram_index::verify::storage_permissions(
-									resources[*position].1,
+									resources[position].1,
 									requested,
 								)
 								.iter()
@@ -724,7 +774,7 @@ impl Component {
 								let Some(storage) = permission_storage(permission) else {
 									continue;
 								};
-								if exact && stored[*position].contains(storage) {
+								if exact && stored[position].contains(storage) {
 									continue;
 								}
 								let permissions =
@@ -742,7 +792,7 @@ impl Component {
 							let request = Request {
 								arg,
 								index_position,
-								position: *position,
+								position,
 								sync: sync.sync.clone(),
 							};
 							requests.push(request);
@@ -1149,6 +1199,12 @@ impl<'a> Requests<'a> {
 			.any(|entry| entry.request.position == position && entry.pending())
 	}
 
+	fn awaiting(&self, position: usize) -> bool {
+		self.entries
+			.values()
+			.any(|entry| entry.request.position == position && entry.awaiting())
+	}
+
 	fn defer(&mut self, request: &Request) {
 		if self.cancelled.contains(&request.position)
 			|| self.errors.contains_key(&request.sync_key())
@@ -1256,6 +1312,11 @@ impl Entry {
 			| RequestState::Retry { .. } => true,
 			RequestState::Queued { deadline } => deadline.is_some(),
 		}
+	}
+
+	fn awaiting(&self) -> bool {
+		// A sync is awaited while its first answer for the node is in flight.
+		matches!(self.state, RequestState::InFlight { deadline: None, .. })
 	}
 
 	fn defer(&mut self, deadline: Instant) {
