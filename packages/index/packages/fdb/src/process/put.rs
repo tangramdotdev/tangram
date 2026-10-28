@@ -1,9 +1,9 @@
 use {
 	crate::{Index, Key, Kind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::TryStreamExt as _,
+	futures::{TryStreamExt as _, future},
 	num_traits::ToPrimitive as _,
-	std::ops::ControlFlow,
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
@@ -23,7 +23,7 @@ impl Index {
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		// Get the existing process and, when the validation compares another principal's data, the existing data concurrently.
+		// Get the existing process, the existing data when the validation compares another principal's data, and whether the parent accepts the process as a child concurrently.
 		let compare = arg.data.is_some() && arg.principal != tg::Principal::Process(id.clone());
 		let process = Self::try_get_process_with_transaction(txn, subspace, id);
 		let data = async {
@@ -32,13 +32,23 @@ impl Index {
 			}
 			Self::try_get_process_data_with_transaction(txn, subspace, id).await
 		};
-		let (existing, existing_data) = futures::future::try_join(process, data).await?;
+		let accepted = async {
+			let Some(parent) = &arg.parent else {
+				return Ok(ControlFlow::Break(None));
+			};
+			Self::try_get_process_accepts_child_with_transaction(txn, subspace, parent, id).await
+		};
+		let (existing, existing_data, accepted) = futures::try_join!(process, data, accepted)?;
 		let existing = match existing {
 			ControlFlow::Break(existing) => existing,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 		let mut existing_data = match existing_data {
 			ControlFlow::Break(existing_data) => existing_data,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let accepted = match accepted {
+			ControlFlow::Break(accepted) => accepted,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
@@ -141,14 +151,7 @@ impl Index {
 				.as_ref()
 				.is_none_or(|existing| !existing.set.output_objects);
 		// A child relationship belongs to the indexed parent, which accepts it unless the parent finished without listing it.
-		let parent_changed = if let Some(parent) = &arg.parent {
-			crate::propagate!(
-				Self::try_get_process_accepts_child_with_transaction(txn, subspace, parent, id)
-					.await
-			) == Some(true)
-		} else {
-			false
-		};
+		let parent_changed = accepted == Some(true);
 		let sandbox_changed = arg.sandbox.is_some();
 		let mut set = arg.set();
 		if merge && let Some(ref existing) = existing {
@@ -282,20 +285,20 @@ impl Index {
 				parent: parent.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
-			let exists = crate::retry!(result).is_some();
+			let parent_bytes = parent.to_bytes();
+			let prefix = (Kind::ProcessChild.to_i32().unwrap(), parent_bytes.as_ref());
+			let prefix = Self::pack(subspace, &prefix);
+			let range = fdb::RangeOption {
+				limit: Some(1),
+				mode: fdb::options::StreamingMode::WantAll,
+				reverse: true,
+				..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
+			};
+			let (exists, entries) =
+				futures::join!(txn.get(&key, false), txn.get_range(&range, 1, false));
+			let exists = crate::retry!(exists).is_some();
 			if !exists {
-				let parent_bytes = parent.to_bytes();
-				let prefix = (Kind::ProcessChild.to_i32().unwrap(), parent_bytes.as_ref());
-				let prefix = Self::pack(subspace, &prefix);
-				let range = fdb::RangeOption {
-					limit: Some(1),
-					mode: fdb::options::StreamingMode::WantAll,
-					reverse: true,
-					..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
-				};
-				let result = txn.get_range(&range, 1, false).await;
-				let entries = crate::retry!(result);
+				let entries = crate::retry!(entries);
 				let position = entries
 					.first()
 					.map(|entry| {
@@ -380,15 +383,24 @@ impl Index {
 					.flatten()
 					.cloned()
 					.map(|object| (object, tangram_index::process::object::Kind::Output)),
-			);
-		for (object, kind) in objects {
-			let key = Key::Process(crate::process::Key::ProcessObject {
-				process: id.clone(),
-				kind,
-				object: object.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
+			)
+			.map(|(object, kind)| {
+				let key = Key::Process(crate::process::Key::ProcessObject {
+					process: id.clone(),
+					kind,
+					object: object.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				(object, kind, key)
+			})
+			.collect::<Vec<_>>();
+
+		// Read the existing process objects.
+		let results = future::join_all(objects.iter().map(|(_, _, key)| txn.get(key, false))).await;
+
+		// Add the process objects that do not exist.
+		let mut added_keys = BTreeSet::new();
+		for ((object, kind, key), result) in objects.into_iter().zip(results) {
 			let previous = crate::retry!(result);
 			let added = match kind {
 				tangram_index::process::object::Kind::Command => command_changed,
@@ -396,7 +408,7 @@ impl Index {
 				tangram_index::process::object::Kind::Log => log_changed,
 				tangram_index::process::object::Kind::Output => output_changed,
 			};
-			if previous.is_some() || !added {
+			if previous.is_some() || !added || !added_keys.insert(key.clone()) {
 				continue;
 			}
 			let value = [];
@@ -439,26 +451,28 @@ impl Index {
 				&tg::Either::Right(id.clone()),
 				partition_totals.storage_and_metadata_update,
 			);
-			crate::propagate!(
+			let (parents, relationships) = futures::try_join!(
 				Self::enqueue_account_process_from_parents(
 					txn,
 					subspace,
 					id,
 					partition_totals.usage_update,
 					touched_at,
-				)
-				.await
-			);
-			crate::propagate!(
+				),
 				Self::enqueue_account_process_relationships(
 					txn,
 					subspace,
 					id,
 					partition_totals.usage_update,
 					touched_at,
-				)
-				.await
-			);
+				),
+			)?;
+			if let ControlFlow::Continue(error) = parents {
+				return Ok(ControlFlow::Continue(error));
+			}
+			if let ControlFlow::Continue(error) = relationships {
+				return Ok(ControlFlow::Continue(error));
+			}
 		}
 
 		Ok(ControlFlow::Break(Ok(())))

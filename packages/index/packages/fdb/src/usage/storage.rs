@@ -1,7 +1,7 @@
 use {
 	crate::{Index, Key, Kind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::TryStreamExt as _,
+	futures::{TryStreamExt as _, future},
 	num_traits::ToPrimitive as _,
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -27,25 +27,43 @@ impl Index {
 		let subjects = crate::propagate!(
 			Self::get_resource_permission_subjects_with_transaction(txn, subspace, resource).await
 		);
+
+		// Read the tag and the permission entries of every tag subject.
+		let subjects = subjects
+			.into_iter()
+			.filter_map(|subject| match &subject {
+				tg::authorization::Subject::Tag(id) => Some((id.clone(), subject)),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		let results = future::try_join_all(subjects.iter().map(|(id, subject)| async move {
+			let (tag, entries) = futures::try_join!(
+				Self::try_get_tag_with_transaction(txn, subspace, id),
+				Self::get_resource_permission_entries_for_subject_with_transaction(
+					txn, subspace, resource, subject,
+				),
+			)?;
+			Ok::<_, tg::Error>((tag, entries))
+		}))
+		.await?;
+
+		// Merge the permissions by account.
 		let mut accounts = BTreeMap::new();
-		for subject in subjects {
-			let tg::authorization::Subject::Tag(id) = &subject else {
-				continue;
+		for (tag, entries) in results {
+			let tag = match tag {
+				ControlFlow::Break(value) => value,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
-			let Some(tag) =
-				crate::propagate!(Self::try_get_tag_with_transaction(txn, subspace, id).await)
-			else {
+			let entries = match entries {
+				ControlFlow::Break(value) => value,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let Some(tag) = tag else {
 				continue;
 			};
 			let Some(account) = tag.account else {
 				continue;
 			};
-			let entries = crate::propagate!(
-				Self::get_resource_permission_entries_for_subject_with_transaction(
-					txn, subspace, resource, &subject
-				)
-				.await
-			);
 			let mut permissions = tg::authorization::permission::Set::empty_for_kind(
 				if resource.kind().is_object() {
 					tg::authorization::ResourceKind::Object
@@ -114,94 +132,121 @@ impl Index {
 				tg::authorization::ResourceKind::Process
 			});
 		let mut count = 0;
-		let parents = match id {
-			tg::Either::Left(object) => crate::propagate!(
-				crate::page::collect(|after| async move {
-					Self::get_object_parents_page_with_transaction(
-						txn,
-						subspace,
-						object,
-						after.as_deref(),
-						crate::page::PAGE_SIZE,
-					)
-					.await
-				})
-				.await
-			)
-			.into_iter()
-			.map(tg::Either::Left)
-			.collect::<Vec<_>>(),
-			tg::Either::Right(process) => crate::propagate!(
-				crate::page::collect(|after| async move {
-					Self::get_process_parents_page_with_transaction(
-						txn,
-						subspace,
-						process,
-						after.as_deref(),
-						crate::page::PAGE_SIZE,
-					)
-					.await
-				})
-				.await
-			)
-			.into_iter()
-			.map(tg::Either::Right)
-			.collect::<Vec<_>>(),
-		};
-		for parent in parents {
-			if let Some(entry) = crate::propagate!(
-				Self::get_account_storage_entry_with_transaction(txn, subspace, account, &parent)
-					.await
-			) {
-				let inherited = tangram_index::usage::storage::child_permissions(entry.permissions);
-				if !inherited.is_empty() {
-					permissions.insert(inherited);
-					count += 1;
-				}
-			}
-		}
-		if let tg::Either::Left(object) = id {
-			let mut after = None;
-			loop {
-				let (processes, cursor) = crate::propagate!(
-					Self::get_object_processes_page_with_transaction(
-						txn,
-						subspace,
-						object,
-						after.as_deref(),
-						crate::page::PAGE_SIZE,
-					)
-					.await
-				);
-				for (process, kind) in processes {
-					if let Some(entry) = crate::propagate!(
-						Self::get_account_storage_entry_with_transaction(
-							txn,
-							subspace,
-							account,
-							&tg::Either::Right(process)
-						)
+
+		// Read the parents, the processes, and the tag storage permissions.
+		let parents_future = async {
+			match id {
+				tg::Either::Left(object) => {
+					let parents = crate::propagate!(
+						crate::page::collect(|after| async move {
+							Self::get_object_parents_page_with_transaction(
+								txn,
+								subspace,
+								object,
+								after.as_deref(),
+								crate::page::PAGE_SIZE,
+							)
+							.await
+						})
 						.await
-					) {
-						let inherited = tangram_index::usage::storage::object_permissions(
-							entry.permissions,
-							kind,
-						);
-						if !inherited.is_empty() {
-							permissions.insert(inherited);
-							count += 1;
-						}
-					}
-				}
-				let Some(cursor) = cursor else {
-					break;
-				};
-				after = Some(cursor);
+					);
+					let parents = parents
+						.into_iter()
+						.map(tg::Either::Left)
+						.collect::<Vec<_>>();
+					Ok(ControlFlow::Break(parents))
+				},
+				tg::Either::Right(process) => {
+					let parents = crate::propagate!(
+						crate::page::collect(|after| async move {
+							Self::get_process_parents_page_with_transaction(
+								txn,
+								subspace,
+								process,
+								after.as_deref(),
+								crate::page::PAGE_SIZE,
+							)
+							.await
+						})
+						.await
+					);
+					let parents = parents
+						.into_iter()
+						.map(tg::Either::Right)
+						.collect::<Vec<_>>();
+					Ok(ControlFlow::Break(parents))
+				},
+			}
+		};
+		let processes_future = async {
+			let tg::Either::Left(object) = id else {
+				return Ok(ControlFlow::Break(Vec::new()));
+			};
+			crate::page::collect(|after| async move {
+				Self::get_object_processes_page_with_transaction(
+					txn,
+					subspace,
+					object,
+					after.as_deref(),
+					crate::page::PAGE_SIZE,
+				)
+				.await
+			})
+			.await
+		};
+		let (parents, processes, accounts) = futures::try_join!(
+			parents_future,
+			processes_future,
+			Self::get_tag_storage_permissions_with_transaction(txn, subspace, &resource),
+		)?;
+		let parents = match parents {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let processes = match processes {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let accounts = match accounts {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+
+		// Read the storage entries of the parents and the processes.
+		let relatives = parents
+			.into_iter()
+			.map(|parent| (parent, None))
+			.chain(
+				processes
+					.into_iter()
+					.map(|(process, kind)| (tg::Either::Right(process), Some(kind))),
+			)
+			.collect::<Vec<_>>();
+		let result = future::try_join_all(relatives.iter().map(|(relative, _)| {
+			Self::get_account_storage_entry_with_transaction(txn, subspace, account, relative)
+		}))
+		.await;
+
+		// Merge the inherited permissions.
+		for ((_, kind), entry) in relatives.into_iter().zip(result?) {
+			let entry = match entry {
+				ControlFlow::Break(value) => value,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let Some(entry) = entry else {
+				continue;
+			};
+			let inherited = match kind {
+				None => tangram_index::usage::storage::child_permissions(entry.permissions),
+				Some(kind) => {
+					tangram_index::usage::storage::object_permissions(entry.permissions, kind)
+				},
+			};
+			if !inherited.is_empty() {
+				permissions.insert(inherited);
+				count += 1;
 			}
 		}
-		let accounts = crate::propagate!(
-			Self::get_tag_storage_permissions_with_transaction(txn, subspace, &resource).await
-		);
 		if let Some(captured) = accounts.get(account) {
 			permissions.insert(*captured);
 			count += 1;
@@ -209,6 +254,7 @@ impl Index {
 
 		Ok(ControlFlow::Break((permissions, count)))
 	}
+
 	pub(crate) async fn get_tag_storage_resources_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,

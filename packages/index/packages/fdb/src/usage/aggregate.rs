@@ -1,7 +1,7 @@
 use {
 	crate::{Index, Key, Kind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::TryStreamExt as _,
+	futures::{TryStreamExt as _, future},
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -166,32 +166,47 @@ impl Index {
 			tangram_index::usage::PeriodKind::Hour,
 			hour,
 		)?;
-		let old = crate::propagate!(
+		let previous_period = hour
+			.checked_sub(60 * 60)
+			.map(|start| {
+				tangram_index::usage::Period::from_kind_and_start(
+					tangram_index::usage::PeriodKind::Hour,
+					start,
+				)
+			})
+			.transpose()?;
+
+		// Read the hour's aggregate, the previous hour's aggregate, and the hour's deltas.
+		let previous_future = async {
+			let Some(period) = previous_period else {
+				return Ok(ControlFlow::Break(None));
+			};
 			Self::try_get_usage_aggregate_with_transaction(
 				txn, subspace, account, partition, period,
 			)
 			.await
-		)
-		.unwrap_or_default();
-		let previous = match hour.checked_sub(60 * 60) {
-			Some(start) => {
-				let period = tangram_index::usage::Period::from_kind_and_start(
-					tangram_index::usage::PeriodKind::Hour,
-					start,
-				)?;
-				crate::propagate!(
-					Self::try_get_usage_aggregate_with_transaction(
-						txn, subspace, account, partition, period,
-					)
-					.await
-				)
-				.unwrap_or_default()
-			},
-			None => tangram_index::usage::PartitionAggregate::default(),
 		};
-		let deltas = crate::propagate!(
-			Self::get_usage_deltas_with_transaction(txn, subspace, account, hour, partition,).await
-		);
+		let (old, previous, deltas) = futures::try_join!(
+			Self::try_get_usage_aggregate_with_transaction(
+				txn, subspace, account, partition, period,
+			),
+			previous_future,
+			Self::get_usage_deltas_with_transaction(txn, subspace, account, hour, partition),
+		)?;
+		let old = match old {
+			ControlFlow::Break(value) => value.unwrap_or_default(),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let previous = match previous {
+			ControlFlow::Break(value) => value.unwrap_or_default(),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let deltas = match deltas {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+
+		// Compute the hour's aggregate.
 		let sandbox_cpu_reservation = u128::try_from(deltas.sandbox_cpu_reservation)
 			.map_err(|_| tg::error!("the CPU reservation usage is out of range"))?;
 		let sandbox_cpu_consumption = u128::try_from(deltas.sandbox_cpu_consumption)
@@ -264,17 +279,20 @@ impl Index {
 		period: tangram_index::usage::Period,
 		hour: i64,
 	) -> tg::Result<ControlFlow<tangram_index::usage::PartitionAggregate, fdb::FdbError>> {
-		let old = crate::propagate!(
+		let (old, aggregate) = futures::try_join!(
 			Self::try_get_usage_aggregate_with_transaction(
 				txn, subspace, account, partition, period,
-			)
-			.await
-		)
-		.unwrap_or_default();
-		let aggregate = crate::propagate!(
-			Self::sum_usage_children_with_transaction(txn, subspace, account, partition, period,)
-				.await
-		);
+			),
+			Self::sum_usage_children_with_transaction(txn, subspace, account, partition, period),
+		)?;
+		let old = match old {
+			ControlFlow::Break(value) => value.unwrap_or_default(),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let aggregate = match aggregate {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		Self::put_usage_aggregate_with_transaction(
 			txn, subspace, account, partition, period, aggregate,
 		);
@@ -575,15 +593,17 @@ impl Index {
 		partition: u64,
 		period: tangram_index::usage::Period,
 	) -> tg::Result<ControlFlow<tangram_index::usage::PartitionAggregate, fdb::FdbError>> {
+		let children = tangram_index::usage::children(period)?;
+		let results = future::try_join_all(children.into_iter().map(|child| {
+			Self::try_get_usage_aggregate_with_transaction(txn, subspace, account, partition, child)
+		}))
+		.await?;
 		let mut aggregate = tangram_index::usage::PartitionAggregate::default();
-		for child in tangram_index::usage::children(period)? {
-			let child = crate::propagate!(
-				Self::try_get_usage_aggregate_with_transaction(
-					txn, subspace, account, partition, child,
-				)
-				.await
-			)
-			.unwrap_or_default();
+		for result in results {
+			let child = match result {
+				ControlFlow::Break(value) => value.unwrap_or_default(),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			aggregate.checked_add(child)?;
 		}
 

@@ -144,16 +144,6 @@ impl Index {
 		};
 		let entry_key = Self::pack(subspace, &entry_key);
 		let clean_key = Self::pack(subspace, &clean_key);
-		let result = txn.get(&entry_key, false).await;
-		let Some(value) = crate::retry!(result) else {
-			txn.clear(&clean_key);
-			return Ok(ControlFlow::Break(()));
-		};
-		let mut entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
-		if entry.touched_at != touched_at {
-			txn.clear(&clean_key);
-			return Ok(ControlFlow::Break(()));
-		}
 		let (account, id) = match candidate {
 			Candidate::Object {
 				account, object, ..
@@ -162,10 +152,22 @@ impl Index {
 				account, process, ..
 			} => (account, tg::Either::Right(process.clone())),
 		};
-		let (permissions, reference_count) = crate::propagate!(
-			Self::compute_account_storage_permissions_with_transaction(txn, subspace, account, &id)
-				.await
+
+		// Read the entry and compute the account's storage permissions.
+		let (value, computed) = futures::join!(
+			txn.get(&entry_key, false),
+			Self::compute_account_storage_permissions_with_transaction(txn, subspace, account, &id),
 		);
+		let Some(value) = crate::retry!(value) else {
+			txn.clear(&clean_key);
+			return Ok(ControlFlow::Break(()));
+		};
+		let mut entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
+		if entry.touched_at != touched_at {
+			txn.clear(&clean_key);
+			return Ok(ControlFlow::Break(()));
+		}
+		let (permissions, reference_count) = crate::propagate!(computed);
 		// Leave permission additions to usage puts so that they propagate to descendants.
 		let permissions =
 			tangram_index::usage::storage::retained_permissions(entry.permissions, permissions);
@@ -314,16 +316,16 @@ impl Index {
 		now: i64,
 		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let stored = crate::propagate!(
-			Self::get_account_storage_entry_with_transaction(
-				txn,
-				subspace,
-				account,
-				&tg::Either::Right(process.clone())
-			)
-			.await
-		)
-		.is_some_and(|entry| entry.stores_node());
+		// Read the entry and the process.
+		let id = tg::Either::Right(process.clone());
+		let (entry, value) = futures::join!(
+			Self::get_account_storage_entry_with_transaction(txn, subspace, account, &id),
+			Self::try_get_process_with_transaction(txn, subspace, process),
+		);
+		let stored = crate::propagate!(entry).is_some_and(|entry| entry.stores_node());
+		let value = crate::propagate!(value);
+
+		// Delete the entry.
 		let usage_partition_total = partition_totals.usage;
 		let key = Key::Usage(crate::usage::Key::AccountProcess {
 			account: account.clone(),
@@ -362,9 +364,8 @@ impl Index {
 			crate::update::Source::Put,
 			partition_totals.usage_update,
 		);
-		let value =
-			crate::propagate!(Self::try_get_process_with_transaction(txn, subspace, process).await)
-				.ok_or_else(|| tg::error!(%process, "a process with a storage entry is missing"))?;
+		let value = value
+			.ok_or_else(|| tg::error!(%process, "a process with a storage entry is missing"))?;
 		let partition =
 			Self::partition_for_id(process.to_bytes().as_ref(), partition_totals.cleaning);
 		let key = Key::Clean(crate::clean::Key::Process {

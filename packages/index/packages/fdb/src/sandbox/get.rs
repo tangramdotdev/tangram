@@ -56,14 +56,6 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<Option<u64>, fdb::FdbError>> {
-		let sandbox = Self::try_get_sandbox_with_transaction(txn, subspace, id).await?;
-		let sandbox = match sandbox {
-			ControlFlow::Break(sandbox) => sandbox,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		if sandbox.is_none() {
-			return Ok(ControlFlow::Break(None));
-		}
 		let bytes = id.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -71,8 +63,14 @@ impl Index {
 		);
 		let (begin, end) = Subspace::from_bytes(prefix).range();
 		let selector = fdb::KeySelector::last_less_than(end);
-		let result = txn.get_key(&selector, false).await;
-		let key = crate::retry!(result);
+		let (sandbox, key) = futures::join!(
+			Self::try_get_sandbox_with_transaction(txn, subspace, id),
+			txn.get_key(&selector, false),
+		);
+		if crate::propagate!(sandbox).is_none() {
+			return Ok(ControlFlow::Break(None));
+		}
+		let key = crate::retry!(key);
 		if key.as_ref() < begin.as_slice() {
 			return Ok(ControlFlow::Break(Some(0)));
 		}
@@ -95,13 +93,27 @@ impl Index {
 		position: std::io::SeekFrom,
 		length: u64,
 	) -> tg::Result<ControlFlow<Option<Vec<tg::process::Id>>, fdb::FdbError>> {
-		let Some(_) =
-			crate::propagate!(Self::try_get_sandbox_with_transaction(txn, subspace, id).await)
-		else {
+		let (sandbox, processes) = futures::join!(
+			Self::try_get_sandbox_with_transaction(txn, subspace, id),
+			Self::get_sandbox_processes_range_with_transaction(txn, subspace, id, position, length),
+		);
+		if crate::propagate!(sandbox).is_none() {
 			return Ok(ControlFlow::Break(None));
-		};
+		}
+		let processes = crate::propagate!(processes);
+
+		Ok(ControlFlow::Break(Some(processes)))
+	}
+
+	async fn get_sandbox_processes_range_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<ControlFlow<Vec<tg::process::Id>, fdb::FdbError>> {
 		if length == 0 {
-			return Ok(ControlFlow::Break(Some(Vec::new())));
+			return Ok(ControlFlow::Break(Vec::new()));
 		}
 		let limit = length
 			.to_usize()
@@ -117,7 +129,7 @@ impl Index {
 				.ok_or_else(|| tg::error!("the sandbox process position is too large"))?,
 			std::io::SeekFrom::End(position) => {
 				if position >= 0 {
-					return Ok(ControlFlow::Break(Some(Vec::new())));
+					return Ok(ControlFlow::Break(Vec::new()));
 				}
 				let selector = fdb::KeySelector::last_less_than(end.clone());
 				let result = txn.get_key(&selector, false).await;
@@ -188,6 +200,6 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break(Some(processes)))
+		Ok(ControlFlow::Break(processes))
 	}
 }

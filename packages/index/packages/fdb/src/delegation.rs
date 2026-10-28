@@ -95,21 +95,27 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		arg.validate()?;
-		if let Some(version) = &arg.version {
+
+		// Read the subject tag when the delegation is versioned and the existing delegation.
+		let key = IndexKey::Delegation(keys(arg)[0].clone());
+		let key = Self::pack(subspace, &key);
+		let tag_future = async {
+			let Some(version) = &arg.version else {
+				return Ok::<_, tg::Error>(ControlFlow::Break(None));
+			};
 			let tg::authorization::Subject::Tag(id) = &arg.subject else {
 				unreachable!()
 			};
 			let tag =
 				crate::propagate!(Self::try_get_tag_with_transaction(txn, subspace, id).await);
-			if tag.is_none_or(|tag| tag.version != *version) {
-				return Ok(ControlFlow::Break(()));
-			}
+			let current = tag.is_some_and(|tag| tag.version == *version);
+			Ok(ControlFlow::Break(Some(current)))
+		};
+		let (current, old) = futures::join!(tag_future, txn.get(&key, false));
+		if crate::propagate!(current) == Some(false) {
+			return Ok(ControlFlow::Break(()));
 		}
-
-		let key = IndexKey::Delegation(keys(arg)[0].clone());
-		let key = Self::pack(subspace, &key);
-		let result = txn.get(&key, false).await;
-		let old = crate::retry!(result);
+		let old = crate::retry!(old);
 		if let Some(value) = old {
 			let old: tangram_index::delegation::put::Arg = tangram_serialize::from_slice(&value)
 				.map_err(|error| tg::error!(!error, "failed to deserialize a delegation"))?;
