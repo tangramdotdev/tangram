@@ -1276,6 +1276,7 @@ impl Component {
 					index_checkout_args.push(tangram_index::checkout::put::Arg {
 						dependencies,
 						id: artifact.clone().into(),
+						replace: false,
 						touched_at,
 					});
 				}

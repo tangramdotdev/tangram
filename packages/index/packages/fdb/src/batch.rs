@@ -152,12 +152,15 @@ impl Index {
 					);
 				},
 				tangram_index::batch::Item::PutCheckout(arg) => {
-					crate::propagate!(Self::put_checkouts_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(arg),
-						partition_total,
-					));
+					crate::propagate!(
+						Self::put_checkouts_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(arg),
+							partition_total,
+						)
+						.await
+					);
 				},
 				tangram_index::batch::Item::PutDelegation(arg) => {
 					crate::propagate!(

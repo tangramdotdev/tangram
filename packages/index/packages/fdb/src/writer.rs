@@ -1449,7 +1449,8 @@ impl Index {
 			},
 			Request::PutCheckouts(args) => {
 				let result =
-					Self::put_checkouts_with_transaction(txn, subspace, args, partition_total);
+					Self::put_checkouts_with_transaction(txn, subspace, args, partition_total)
+						.await;
 				crate::propagate!(result);
 				Response::Unit
 			},
