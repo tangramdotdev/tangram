@@ -11,7 +11,7 @@ pub struct PathTrie<V> {
 #[derive(Clone, Debug)]
 struct Node<V> {
 	value: Option<V>,
-	children: im::HashMap<OsString, Node<V>, fnv::FnvBuildHasher>,
+	children: Option<im::HashMap<OsString, Node<V>, fnv::FnvBuildHasher>>,
 }
 
 impl<V> PathTrie<V>
@@ -22,10 +22,11 @@ where
 		let mut node = &mut self.root;
 		for component in path.components() {
 			let component = component.as_os_str();
-			if !node.children.contains_key(component) {
-				node.children.insert(component.to_owned(), Node::default());
+			let children = node.children.get_or_insert_with(im::HashMap::default);
+			if !children.contains_key(component) {
+				children.insert(component.to_owned(), Node::default());
 			}
-			node = node.children.get_mut(component).unwrap();
+			node = children.get_mut(component).unwrap();
 		}
 		node.value = Some(value);
 	}
@@ -33,7 +34,7 @@ where
 	pub fn get(&self, path: &Path) -> Option<&V> {
 		let mut node = &self.root;
 		for component in path.components() {
-			node = node.children.get(component.as_os_str())?;
+			node = node.children.as_ref()?.get(component.as_os_str())?;
 		}
 		node.value.as_ref()
 	}
@@ -48,10 +49,14 @@ where
 				return node.value.take();
 			};
 			let remaining = components.as_path();
-			let child = node.children.get_mut(component.as_os_str())?;
+			let children = node.children.as_mut()?;
+			let child = children.get_mut(component.as_os_str())?;
 			let value = inner(child, remaining)?;
-			if child.value.is_none() && child.children.is_empty() {
-				node.children.remove(component.as_os_str());
+			if child.value.is_none() && child.children.is_none() {
+				children.remove(component.as_os_str());
+				if children.is_empty() {
+					node.children = None;
+				}
 			}
 			Some(value)
 		}
@@ -59,7 +64,7 @@ where
 	}
 
 	pub fn is_empty(&self) -> bool {
-		self.root.value.is_none() && self.root.children.is_empty()
+		self.root.value.is_none() && self.root.children.is_none()
 	}
 
 	pub fn clear(&mut self) {
@@ -71,7 +76,7 @@ where
 			if node.value.is_some() {
 				output.push(path);
 			} else {
-				for (component, child) in &node.children {
+				for (component, child) in node.children.iter().flatten() {
 					let mut path = path.clone();
 					path.push(component);
 					inner(child, path, output);
@@ -96,7 +101,7 @@ impl<V> Default for Node<V> {
 	fn default() -> Self {
 		Self {
 			value: None,
-			children: im::HashMap::default(),
+			children: None,
 		}
 	}
 }
