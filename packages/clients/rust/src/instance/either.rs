@@ -134,6 +134,7 @@ where
 
 	fn index(
 		&self,
+		arg: tg::index::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
@@ -141,11 +142,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.index()
+				.index(arg)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.index()
+				.index(arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}

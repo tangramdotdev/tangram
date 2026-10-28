@@ -288,7 +288,7 @@ impl Component {
 			.server
 			.components
 			.indexer
-			.index(session)
+			.index(session, tg::index::Arg::default())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()
@@ -319,7 +319,7 @@ impl Component {
 			.server
 			.components
 			.indexer
-			.index(session)
+			.index(session, tg::index::Arg::default())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index"))?
 			.try_last()

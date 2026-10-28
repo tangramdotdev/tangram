@@ -42,6 +42,12 @@ impl Indexer {
 			if stopper.stopped() {
 				return Ok(());
 			}
+
+			// Register for a wake before reading, so that a wake during the read ends the next sleep.
+			let wake = self.component.permission_capture_wake.notified();
+			tokio::pin!(wake);
+			wake.as_mut().enable();
+
 			let result = tokio::select! {
 				() = stopper.wait() => return Ok(()),
 				result = self.server.index.permission_capture_batch(
@@ -64,6 +70,7 @@ impl Indexer {
 			if entries.is_empty() {
 				tokio::select! {
 					() = stopper.wait() => return Ok(()),
+					() = &mut wake => {},
 					() = tokio::time::sleep(config.poll_interval) => {},
 				}
 				continue;

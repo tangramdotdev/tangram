@@ -77,9 +77,10 @@ impl tg::Instance for Server {
 
 	async fn index(
 		&self,
+		arg: tg::index::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let session = self.session(&self.context);
-		self.components.indexer.index(&session).await
+		self.components.indexer.index(&session, arg).await
 	}
 
 	async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {

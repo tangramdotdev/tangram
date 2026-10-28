@@ -848,7 +848,7 @@ impl Component {
 				.server
 				.components
 				.indexer
-				.index(session)
+				.index(session, tg::index::Arg::default())
 				.await?
 				.try_last()
 				.await

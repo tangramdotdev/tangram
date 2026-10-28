@@ -115,12 +115,13 @@ impl tg::Instance for Instance {
 
 	fn index(
 		&self,
+		arg: tg::index::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
 	> {
-		self.0.index()
+		self.0.index(arg)
 	}
 
 	fn list(&self, arg: tg::list::Arg) -> impl Future<Output = tg::Result<tg::list::Output>> {

@@ -82,6 +82,7 @@ pub trait Instance:
 
 	fn index(
 		&self,
+		arg: tg::index::Arg,
 	) -> BoxFuture<'_, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>>;
 
 	fn list(&self, arg: tg::list::Arg) -> BoxFuture<'_, tg::Result<tg::list::Output>>;
@@ -213,8 +214,9 @@ where
 
 	fn index(
 		&self,
+		arg: tg::index::Arg,
 	) -> BoxFuture<'_, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>> {
-		self.index().map_ok(futures::StreamExt::boxed).boxed()
+		self.index(arg).map_ok(futures::StreamExt::boxed).boxed()
 	}
 
 	fn list(&self, arg: tg::list::Arg) -> BoxFuture<'_, tg::Result<tg::list::Output>> {
