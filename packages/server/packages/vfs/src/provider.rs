@@ -132,6 +132,7 @@ struct ArtifactState {
 /// A link in the chain of objects through which an artifact was reached. An object is authorized while it or an object earlier in its chain is authorized.
 struct Authority {
 	expires_at: AtomicI64,
+	has_previous: AtomicBool,
 	id: tg::object::Id,
 	parent: Mutex<Option<Arc<Authority>>>,
 	previous: Mutex<Vec<Arc<Authority>>>,
@@ -1323,6 +1324,7 @@ impl Provider {
 	) -> std::io::Result<Option<i64>> {
 		self.authorize_subtree(authority, id).or_else(|error| {
 			let expires_at = self.authorize_node(id).ok_or(error)?;
+			authority.clear_previous(id);
 			Ok(Some(expires_at))
 		})
 	}
@@ -1337,6 +1339,7 @@ impl Provider {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
 		if matches!(principal, tg::Principal::Root) {
+			authority.clear_previous(id);
 			return Ok(None);
 		}
 		let now = self.server.clock.unix_timestamp();
@@ -1354,7 +1357,7 @@ impl Provider {
 		}
 
 		// Accept new paths again once the object's own proof has expired.
-		if authority.id == *id {
+		if authority.id == *id && authority.proven.load(Ordering::Relaxed) {
 			authority.proven.store(false, Ordering::Relaxed);
 		}
 		let Some(expires_at) = self.authority_expiration(authority, now) else {
@@ -1401,10 +1404,12 @@ impl Provider {
 			walked.extend(link.replace(parent));
 		};
 
-		// Remember the expiration on the links that were walked.
+		// Remember the expiration on the links that were walked, which no longer need their other paths.
 		authority.expires_at.store(expires_at, Ordering::Relaxed);
+		authority.clear_previous(&authority.id);
 		for link in walked {
 			link.expires_at.store(expires_at, Ordering::Relaxed);
+			link.clear_previous(&link.id);
 		}
 
 		Some(expires_at)
@@ -1420,7 +1425,7 @@ impl Provider {
 			Ok(expires_at) => return Ok(expires_at),
 			Err(error) => error,
 		};
-		if self.principal.lock().unwrap().is_none() || self.given_tokens(authority, id).is_empty() {
+		if self.principal.lock().unwrap().is_none() || !self.has_given_tokens(authority, id) {
 			return Err(error);
 		}
 
@@ -1603,8 +1608,46 @@ impl Provider {
 		authority: &Authority,
 		id: &tg::object::Id,
 	) -> tg::authorization::Tokens {
-		// Collect the objects on the paths that reached the authority.
+		let ids = Self::path_ids(authority, id);
+		let authorizations = self.authorizations.lock().unwrap();
+		let mut tokens = tg::authorization::Tokens::default();
+		for id in ids {
+			if let Some(given) = authorizations.tokens.get(&id.into()) {
+				tokens.inherit(given);
+			}
+		}
+
+		tokens
+	}
+
+	/// Determine whether any tokens were given for an object or the objects on the paths that reached it.
+	fn has_given_tokens(&self, authority: &Authority, id: &tg::object::Id) -> bool {
+		let ids = Self::path_ids(authority, id);
+		let authorizations = self.authorizations.lock().unwrap();
+		ids.into_iter().any(|id| {
+			authorizations
+				.tokens
+				.get(&id.into())
+				.is_some_and(|tokens| !tokens.is_empty())
+		})
+	}
+
+	/// Get an object and the objects on the paths that reached it.
+	fn path_ids(authority: &Authority, id: &tg::object::Id) -> Vec<tg::object::Id> {
+		// Walk the current path.
 		let mut ids = vec![id.clone(), authority.id.clone()];
+		let mut branched = authority.has_previous.load(Ordering::Relaxed);
+		let mut link = authority.parent();
+		while let Some(current) = link {
+			ids.push(current.id.clone());
+			branched |= current.has_previous.load(Ordering::Relaxed);
+			link = current.parent();
+		}
+		if !branched {
+			return ids;
+		}
+
+		// Walk every path when a link retains other paths.
 		let mut visited = HashSet::new();
 		let mut stack = authority.parents();
 		while let Some(current) = stack.pop() {
@@ -1615,16 +1658,7 @@ impl Provider {
 			stack.extend(current.parents());
 		}
 
-		// Collect the tokens given for those objects.
-		let authorizations = self.authorizations.lock().unwrap();
-		let mut tokens = tg::authorization::Tokens::default();
-		for id in ids {
-			if let Some(given) = authorizations.tokens.get(&id.into()) {
-				tokens.inherit(given);
-			}
-		}
-
-		tokens
+		ids
 	}
 
 	/// Retain tokens given to the provider. Sync tokens are retained for the object they were given with, and verified local subtree tokens also authorize their objects.
@@ -3285,6 +3319,7 @@ impl Provider {
 	fn artifact(id: tg::artifact::Id, parent: &Arc<Authority>) -> ArtifactState {
 		let authority = Authority {
 			expires_at: AtomicI64::new(i64::MIN),
+			has_previous: AtomicBool::new(false),
 			id: id.clone().into(),
 			parent: Mutex::new(Some(parent.clone())),
 			previous: Mutex::new(Vec::new()),
@@ -3329,7 +3364,7 @@ impl Provider {
 			Ok(_) => None,
 			Err(error)
 				if self.principal.lock().unwrap().is_none()
-					|| self.given_tokens(authority, id).is_empty() =>
+					|| !self.has_given_tokens(authority, id) =>
 			{
 				return Err(error);
 			},
@@ -4090,11 +4125,29 @@ impl Authority {
 
 	/// Release the paths that reached this authority's object once its subtree is proven, because the object's own tokens authorize the objects reached through it.
 	fn release(&self, id: &tg::object::Id) {
-		if self.id != *id || self.proven.swap(true, Ordering::Relaxed) {
+		if self.id != *id
+			|| self.proven.load(Ordering::Relaxed)
+			|| self.proven.swap(true, Ordering::Relaxed)
+		{
 			return;
 		}
 		self.parent.lock().unwrap().take();
-		self.previous.lock().unwrap().clear();
+		self.clear_previous(id);
+	}
+
+	/// Release the other paths that reached this authority's object once it is authorized, keeping the current path.
+	fn clear_previous(&self, id: &tg::object::Id) {
+		if self.id != *id || !self.has_previous.load(Ordering::Relaxed) {
+			return;
+		}
+		let mut previous = self.previous.lock().unwrap();
+		previous.clear();
+		self.has_previous.store(false, Ordering::Relaxed);
+	}
+
+	/// Determine whether this authority is known to have been authorized, through its own proof or its current path.
+	fn authorized(&self) -> bool {
+		self.proven.load(Ordering::Relaxed) || self.expires_at.load(Ordering::Relaxed) != i64::MIN
 	}
 
 	/// Get the parents of every path that reached this authority.
@@ -4120,9 +4173,10 @@ impl Authority {
 			link = current.parent();
 		}
 
-		// Replace the path, and retain the replaced path so that its tokens still apply.
+		// Replace the path, and retain the replaced path so that its tokens still apply unless the new path is known to be authorized.
 		if let Some(replaced) = self.parent.lock().unwrap().replace(parent.clone())
 			&& !Arc::ptr_eq(&replaced, &parent)
+			&& !parent.authorized()
 		{
 			let mut previous = self.previous.lock().unwrap();
 			if !previous
@@ -4130,6 +4184,7 @@ impl Authority {
 				.any(|existing| Arc::ptr_eq(existing, &replaced))
 			{
 				previous.push(replaced);
+				self.has_previous.store(true, Ordering::Relaxed);
 			}
 		}
 		self.expires_at.store(i64::MIN, Ordering::Relaxed);
@@ -4311,6 +4366,7 @@ impl Nodes {
 		}
 		let authority = Authority {
 			expires_at: AtomicI64::new(i64::MIN),
+			has_previous: AtomicBool::new(false),
 			id: id.clone().into(),
 			parent: Mutex::new(None),
 			previous: Mutex::new(Vec::new()),
@@ -5106,6 +5162,22 @@ mod tests {
 	}
 
 	#[test]
+	fn adopting_an_authorized_path_does_not_retain_the_replaced_path() {
+		let first = artifact(b"first");
+		let second = artifact(b"second");
+		second
+			.authority
+			.expires_at
+			.store(i64::MAX, Ordering::Relaxed);
+		let child = Provider::artifact(file_id(b"child"), &first.authority);
+		let incoming = Provider::artifact(file_id(b"child"), &second.authority);
+		child.authority.adopt(&incoming.authority);
+		let parents = child.authority.parents();
+		assert_eq!(parents.len(), 1);
+		assert!(Arc::ptr_eq(&parents[0], &second.authority));
+	}
+
+	#[test]
 	fn adopting_a_path_retains_the_replaced_path() {
 		let first = artifact(b"first");
 		let second = artifact(b"second");
@@ -5129,6 +5201,7 @@ mod tests {
 		let id = file_id(bytes);
 		let authority = Authority {
 			expires_at: AtomicI64::new(i64::MIN),
+			has_previous: AtomicBool::new(false),
 			id: id.clone().into(),
 			parent: Mutex::new(None),
 			previous: Mutex::new(Vec::new()),
