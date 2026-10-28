@@ -1482,6 +1482,11 @@ impl Index {
 		let mut object = tangram_index::object::Object::deserialize(&bytes)?;
 		let children = crate::propagate!(children);
 
+		// Skip reading the children of an object that an update can no longer change.
+		if object.complete() {
+			return Ok(ControlFlow::Break(false));
+		}
+
 		let child_objects = {
 			let result = future::try_join_all(
 				children
