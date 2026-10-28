@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Getting a process by a well-formed id that does not exist fails.
 
-let local = server spawn
+let local = server spawn --config { control: { read_timeout: 0.25 } }
 
 let output = tg get pcs_010000000000000000000000000000000000000000000000000000 | complete
 failure $output

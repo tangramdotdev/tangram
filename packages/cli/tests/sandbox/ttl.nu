@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A sandbox defaults to a five-minute ttl, supports an explicitly infinite ttl, and is destroyed after its ttl expires.
 
-let local = server spawn --name local --now '2026-01-01T00:00:00Z' --config { advanced: { checkpoints: true }, indexer: { cleaning: {} }, runner: { sandbox_state_ttl: 0 }, sandbox: { ttl: 0 } }
+let local = server spawn --name local --now '2026-01-01T00:00:00Z' --config { advanced: { checkpoints: true }, control: { read_timeout: 0.25 }, indexer: { cleaning: {} }, runner: { sandbox_state_ttl: 0 }, sandbox: { ttl: 0 } }
 
 let default = tg sandbox create --no-tokens | referent node
 let sandbox = tg sandbox get $default | from json | get data

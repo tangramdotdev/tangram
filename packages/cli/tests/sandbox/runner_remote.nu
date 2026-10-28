@@ -6,6 +6,7 @@ let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, multi_server: true },
 	authentication: { root: { token: $root_token } },
+	control: { read_timeout: 0.25 },
 	indexer: { cleaning: {} },
 	roles: [api indexer scheduler],
 	sandbox: { ttl: 0 },
@@ -13,6 +14,7 @@ let remote = server spawn --name remote --config {
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
+	control: { read_timeout: 0.25 },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: default, sandbox_state_ttl: 0, token: $created.token.token },

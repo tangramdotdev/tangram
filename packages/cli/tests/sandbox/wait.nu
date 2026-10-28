@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Waiting for a sandbox blocks until it is destroyed and is idempotent.
 
-let local_default = server spawn
+let local_default = server spawn --config { control: { read_timeout: 0.25 } }
 
 let sandbox = tg sandbox create --no-tokens | referent node
 let wait = job spawn {
@@ -28,8 +28,8 @@ let output = tg sandbox wait $sandbox | from json
 assert equal $output {} "waiting for a destroyed sandbox should return immediately"
 
 # A sandbox can be waited on through a remote reference.
-let local_origin = server spawn --name local-origin
-let local = server spawn --name local
+let local_origin = server spawn --name local-origin --config { control: { read_timeout: 0.25 } }
+let local = server spawn --name local --config { control: { read_timeout: 0.25 } }
 tg --url $local.url remote put origin $local_origin.url
 let sandbox = tg --url $local_origin.url sandbox create --no-tokens | referent node
 let wait = job spawn {
