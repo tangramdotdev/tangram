@@ -47,6 +47,9 @@ success (tg check ($path | path join bakery.tg.py) | complete)
 let output = tg run $path | complete
 success $output
 assert equal (tg cat ($output.stdout | str trim)) 'moon cake with stardust icing'
+let output = tg build $path | complete
+success $output
+assert equal (tg cat ($output.stdout | str trim)) 'moon cake with stardust icing'
 
 # Execute the same mixed-language graph without any original files.
 let checked = tg checkin $path
