@@ -43,6 +43,7 @@ pub struct State {
 	pub(crate) indexer_cache_task: Mutex<Option<Task<()>>>,
 	pub(crate) indexer_task: Mutex<Option<Task<()>>>,
 	pub(crate) indexers: cache::Cache,
+	pub(crate) permission_capture_wake: tokio::sync::Notify,
 }
 
 #[derive(Clone)]
@@ -103,6 +104,9 @@ impl Component {
 		let index_changed = tokio::sync::Notify::new();
 		let index_tasks = tangram_futures::task::Set::default();
 
+		// Create the notification that wakes the permission capture tasks.
+		let permission_capture_wake = tokio::sync::Notify::new();
+
 		// Create the task handles.
 		let index_wait_task = Mutex::new(None);
 		let indexer_cache_task = Mutex::new(None);
@@ -118,6 +122,7 @@ impl Component {
 			indexer_cache_task,
 			indexer_task,
 			indexers,
+			permission_capture_wake,
 		};
 
 		Self(Arc::new(state))
@@ -943,8 +948,9 @@ impl tangram_server_core::indexer::Component for Component {
 	fn index<'a>(
 		&'a self,
 		session: &'a tangram_server_core::Session,
+		arg: tg::index::Arg,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>> {
-		self.index(session).boxed()
+		self.index(session, arg).boxed()
 	}
 
 	fn index_batch<'a>(

@@ -11,6 +11,7 @@ pub trait Component: crate::component::Lifecycle {
 	fn index<'a>(
 		&'a self,
 		session: &'a Session,
+		arg: tg::index::Arg,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>>;
 
 	fn index_batch<'a>(

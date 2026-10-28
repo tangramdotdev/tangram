@@ -4,9 +4,21 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	/// Also wait for the permission capture queue to be empty, and for the index updates that the captures produce.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub capture: bool,
+
+	/// Also do everything that `capture` does, and aggregate usage for every hour before the server's current hour.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub usage: bool,
+}
+
 impl tg::Session {
 	pub async fn index(
 		&self,
+		arg: tg::index::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static + use<>>
 	{
 		let method = http::Method::POST;
@@ -15,7 +27,12 @@ impl tg::Session {
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-			.empty()
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.json(arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
 			.send_with_retry(request)

@@ -144,6 +144,7 @@ impl Component {
 	pub(crate) async fn index(
 		&self,
 		session: &Session,
+		arg: tg::index::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>> {
 		if !session
 			.server
@@ -159,8 +160,9 @@ impl Component {
 		let task = Task::spawn({
 			let progress = progress.clone();
 			let component = self.clone();
+			let server = session.server.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(component.index_task(&progress))
+				let result = AssertUnwindSafe(component.index_task(&server, arg, &progress))
 					.catch_unwind()
 					.await;
 				match result {
@@ -188,10 +190,79 @@ impl Component {
 		Ok(stream)
 	}
 
-	async fn index_task(&self, progress: &tg::progress::Handle<()>) -> tg::Result<()> {
+	async fn index_task(
+		&self,
+		server: &Server,
+		arg: tg::index::Arg,
+		progress: &tg::progress::Handle<()>,
+	) -> tg::Result<()> {
+		// Wait for indexing.
 		progress.spinner("index", "waiting for indexing");
 		self.index_inner().await?;
 		progress.finish("index");
+
+		// Wait for the permission capture queue to be empty, and then for the index updates that the captures produced.
+		if arg.capture || arg.usage {
+			progress.spinner("capture", "waiting for permission capture");
+			self.wait_for_permission_capture(server).await?;
+			self.index_inner().await?;
+			progress.finish("capture");
+		}
+
+		// Aggregate usage for every hour before the current hour.
+		if arg.usage {
+			progress.spinner("usage", "aggregating usage");
+			Self::aggregate_usage_through_now(server).await?;
+			progress.finish("usage");
+		}
+
+		Ok(())
+	}
+
+	async fn wait_for_permission_capture(&self, server: &Server) -> tg::Result<()> {
+		let partition_total = server.index.permission_update_partition_total();
+		loop {
+			// Wake this server's permission capture tasks, so that they do not wait out their poll interval.
+			self.permission_capture_wake.notify_waiters();
+
+			// Check whether the permission capture queue is empty.
+			let entries = server
+				.index
+				.permission_capture_batch(1, 0, partition_total)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to read the permission capture queue")
+				})?;
+			if entries.is_empty() {
+				break;
+			}
+
+			tokio::time::sleep(server.config.indexer.request.poll_interval).await;
+		}
+
+		Ok(())
+	}
+
+	async fn aggregate_usage_through_now(server: &Server) -> tg::Result<()> {
+		let now = server.clock.now();
+		let partition_total = server.index.usage_partition_total();
+		loop {
+			let arg = tangram_index::usage::aggregate::Arg {
+				batch_size: server.config.indexer.usage.aggregation.batch_size,
+				now,
+				partition_end: partition_total,
+				partition_start: 0,
+			};
+			let output = server
+				.index
+				.aggregate_usage(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to aggregate usage"))?;
+			if output.count == 0 {
+				break;
+			}
+		}
+
 		Ok(())
 	}
 }
@@ -210,9 +281,15 @@ impl Component {
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
+		// Get the arg.
+		let arg = request
+			.json()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+
 		// Get the stream.
 		let stream = self
-			.index(session)
+			.index(session, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the index task"))?;
 

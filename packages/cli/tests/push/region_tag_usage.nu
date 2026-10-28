@@ -39,7 +39,7 @@ let object = tg --url $local.url put --no-tokens 'tg.file("hello")' | referent n
 tg --url $local.url tag put owned $object
 tg --url $local.url push --remote=b owned
 
-aggregate_usage --token $root_token --url $remote_region_b.url
+tg --url $remote_region_b.url --token $root_token index --usage
 let usage = tg --url $remote_region_b.url --token $alice.token user usage --location='local(b)' | from json
 assert ($usage.object_count >= 1) "Alice's tag should charge storage in region B"
 let tag = tg --url $remote_region_b.url --token $alice.token tag get owned | from json
@@ -52,7 +52,7 @@ assert equal $usage.object_count 0 "the tag must not charge storage for an absen
 # Bob's normal push accounting and must charge her usage.
 tg --url $local.url push --remote=a $object
 success (tg --url $remote_region_a.url --token $alice.token object get --bytes --local $object | complete) "Alice's tag should grant access to the object in region A"
-aggregate_usage --token $root_token --url $remote_region_a.url
+tg --url $remote_region_a.url --token $root_token index --usage
 let usage = tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json
 assert ($usage.object_count >= 1) "the existing tag should charge Alice when its target arrives in region A"
 

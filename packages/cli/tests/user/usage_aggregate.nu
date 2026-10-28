@@ -25,8 +25,8 @@ let object_a = tg --url $region_a.url --token $alice.token put 'tg.file("a")' | 
 let object_b = tg --url $region_b.url --token $alice.token put 'tg.file("a larger regional object")' | str trim
 tg --url $region_a.url --token $alice.token tag put acme/a $object_a
 tg --url $region_b.url --token $alice.token tag put --location='local(b)' acme/b $object_b
-aggregate_usage --token $root_token --url $region_a.url
-aggregate_usage --token $root_token --url $region_b.url
+tg --url $region_a.url --token $root_token index --usage
+tg --url $region_b.url --token $root_token index --usage
 let count_a = tg --url $region_a.url --token $alice.token organization usage --location='local(a)' acme | from json | get object_count
 let count_b = tg --url $region_b.url --token $alice.token organization usage --location='local(b)' acme | from json | get object_count
 assert ($count_a >= 1 and $count_b >= 1) "both regions should record the organization's storage"

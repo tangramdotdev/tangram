@@ -132,12 +132,13 @@ impl tg::Instance for tg::Session {
 
 	fn index(
 		&self,
+		arg: tg::index::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
 	> {
-		self.index()
+		self.index(arg)
 	}
 
 	fn list(&self, arg: tg::list::Arg) -> impl Future<Output = tg::Result<tg::list::Output>> {

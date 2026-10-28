@@ -146,6 +146,7 @@ pub trait Instance:
 
 	fn index(
 		&self,
+		arg: tg::index::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
@@ -350,8 +351,9 @@ impl tg::Instance for tg::Client {
 
 	async fn index(
 		&self,
+		arg: tg::index::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		self.session(&self.context).index().await
+		self.session(&self.context).index(arg).await
 	}
 
 	async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
