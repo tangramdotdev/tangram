@@ -277,10 +277,6 @@ pub struct Verification {
 
 	pub permissions: VerificationPermissions,
 
-	pub poll_interval: Duration,
-
-	pub request_timeout: Duration,
-
 	pub tokens: Option<TokenKeys>,
 
 	pub write_retry: Retry,
@@ -2121,8 +2117,6 @@ impl Default for Verification {
 		Self {
 			index: VerificationIndex::default(),
 			permissions: VerificationPermissions::default(),
-			poll_interval: Duration::from_secs(1),
-			request_timeout: Duration::from_mins(1),
 			tokens: default_authorization_tokens(),
 			write_retry: tangram_futures::retry::Options::default().into(),
 		}

@@ -82,43 +82,13 @@ fn exhaustion_preserves_partial_proofs_and_independent_batch_outcomes() {
 
 #[test]
 fn descendant_storage_waits_for_indexing_without_requerying_the_sync() {
-	use {std::time::Duration, tokio::time::Instant};
 	let mut entry = entry();
-	let deadline = Instant::now() + Duration::from_secs(5);
-	entry.await_indexing(deadline);
+	entry.await_indexing();
 	assert!(entry.pending());
-	entry.retry();
+	assert!(!entry.awaiting());
 	let (abort, _) = futures::future::AbortHandle::new_pair();
 	assert!(!entry.start(abort));
-	assert_eq!(entry.deadline(), Some(deadline));
-	entry.await_indexing(deadline + Duration::from_secs(5));
-	assert_eq!(entry.deadline(), Some(deadline));
 	entry.cancel();
-	assert!(!entry.pending());
-	assert_eq!(entry.deadline(), None);
-}
-
-#[test]
-fn partial_responses_preserve_the_deadline_and_do_not_duplicate_in_flight_requests() {
-	use {std::time::Duration, tokio::time::Instant};
-	let mut entry = entry();
-	let (abort, _) = futures::future::AbortHandle::new_pair();
-	assert!(entry.start(abort));
-	let deadline = Instant::now() + Duration::from_secs(5);
-	entry.defer(deadline);
-	entry.retry();
-	let (abort, _) = futures::future::AbortHandle::new_pair();
-	assert!(entry.start(abort));
-	// A timer tick cannot queue a duplicate while a retry is in flight.
-	entry.retry();
-	let (abort, _) = futures::future::AbortHandle::new_pair();
-	assert!(!entry.start(abort));
-	entry.defer(deadline + Duration::from_secs(5));
-	assert_eq!(entry.deadline(), Some(deadline));
-	entry.cancel();
-	entry.retry();
-	let (abort, _) = futures::future::AbortHandle::new_pair();
-	assert!(!entry.start(abort));
 	assert!(!entry.pending());
 }
 
@@ -130,7 +100,6 @@ fn cancellation_aborts_the_request_and_prevents_retries() {
 	entry.cancel();
 	assert!(abort.is_aborted());
 	assert!(!entry.pending());
-	assert_eq!(entry.deadline(), None);
 	let (abort, _) = futures::future::AbortHandle::new_pair();
 	assert!(!entry.start(abort));
 }
@@ -153,7 +122,7 @@ fn entry() -> super::Entry {
 	};
 	super::Entry {
 		request,
-		state: super::RequestState::Queued { deadline: None },
+		state: super::RequestState::Queued,
 	}
 }
 

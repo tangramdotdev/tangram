@@ -411,12 +411,6 @@ fn resolve_verification(source: Verification) -> tg::Result<server::Verification
 	if let Some(source) = source.permissions {
 		target.permissions = resolve_verification_permissions(&source)?;
 	}
-	if let Some(value) = source.poll_interval {
-		target.poll_interval = value;
-	}
-	if let Some(value) = source.request_timeout {
-		target.request_timeout = value;
-	}
 	if let Some(source) = source.tokens {
 		target.tokens = resolve_bool_or(source, resolve_token_keys)?;
 	}

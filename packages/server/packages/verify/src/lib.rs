@@ -11,7 +11,6 @@ use {
 		authorization::{Outcome, Output as Authorization},
 		verify::{Arg, Mode, Output, VerifyBatchArg, empty_storage},
 	},
-	tokio::time::Instant,
 };
 
 mod proofs;
@@ -51,19 +50,9 @@ struct Entry {
 
 enum RequestState {
 	Complete,
-	Indexing {
-		deadline: Instant,
-	},
-	InFlight {
-		abort: futures::future::AbortHandle,
-		deadline: Option<Instant>,
-	},
-	Queued {
-		deadline: Option<Instant>,
-	},
-	Retry {
-		deadline: Instant,
-	},
+	Indexing,
+	InFlight { abort: futures::future::AbortHandle },
+	Queued,
 }
 
 #[derive(Clone)]
@@ -479,13 +468,10 @@ impl Component {
 		let mut searching = false;
 		let mut search_positions = Vec::<usize>::new();
 		let mut searches = vec![true; index_args.len()];
+		let mut restart = false;
 		let mut errors = vec![None; outputs.len()];
-		let poll_interval = session.server.config.verification.poll_interval;
-		let poll = tokio::time::sleep(poll_interval);
-		tokio::pin!(poll);
 		loop {
 			// Stop storage discovery once availability is proven, including after an exhausted search.
-			let mut restart = false;
 			for (index_position, (position, arg)) in
 				std::iter::zip(&index_positions, &mut index_args).enumerate()
 			{
@@ -507,6 +493,7 @@ impl Component {
 					searches[*index_position] = true;
 				}
 			}
+			restart = false;
 
 			let mut sufficient = true;
 			for (index_position, (position, arg)) in
@@ -620,7 +607,11 @@ impl Component {
 					searching = false;
 					match result {
 						Ok(results) => {
-							for index_position in &search_positions { errors[index_positions[*index_position]] = None; }
+							// A completed search ends the wait for indexing to prove the storage of its positions.
+							for index_position in &search_positions {
+								errors[index_positions[*index_position]] = None;
+								requests.resolve_indexing(index_positions[*index_position]);
+							}
 							Some(results)
 						},
 						Err(error) => {
@@ -630,12 +621,6 @@ impl Component {
 					}
 				},
 				Some(results) = receiver.recv() => Some(results),
-				() = &mut poll, if requests.polling() => {
-					poll.as_mut().reset(Instant::now() + poll_interval);
-					requests.retry();
-					searches.fill(true);
-					None
-				},
 				Some((request, result)) = requests.futures.next(), if !requests.futures.is_empty() => {
 					if result.is_some() { searches[request.index_position] = true; }
 					match result {
@@ -644,18 +629,16 @@ impl Component {
 								tg::sync::service::Output::Object(output) => tg::storage::Set::Object(output.storage),
 								tg::sync::service::Output::Process(output) => tg::storage::Set::Process(output.storage),
 							};
-							if !output.permissions().contains(request.arg.permissions)
-								|| !storage.contains(request.arg.storage) {
-								requests.defer(&request);
-							} else {
-								requests.resolve(&request);
-								let arg = &index_args[request.index_position];
-								if !request.arg.storage.is_empty()
-									&& arg.resource != tg::Selector::Id(request.arg.node.clone())
-									&& !stored[request.position].contains(resources[request.position].1)
-								{
-									requests.await_indexing(&request);
-								}
+							requests.resolve(&request);
+							let arg = &index_args[request.index_position];
+							if output.permissions().contains(request.arg.permissions)
+								&& storage.contains(request.arg.storage)
+								&& !request.arg.storage.is_empty()
+								&& arg.resource != tg::Selector::Id(request.arg.node.clone())
+								&& !stored[request.position].contains(resources[request.position].1)
+							{
+								requests.await_indexing(&request);
+								restart |= searching && search_positions.contains(&request.index_position);
 							}
 							let arg = &mut index_args[request.index_position];
 							let exact = arg.resource == tg::Selector::Id(request.arg.node.clone());
@@ -684,13 +667,7 @@ impl Component {
 
 								if !arg.tokens.contains(body) {
 									arg.tokens.push(body.clone());
-									if searching && search_positions.contains(&request.index_position) {
-										index.set(futures::future::pending().boxed());
-										searching = false;
-										for index_position in &search_positions {
-											searches[*index_position] = true;
-										}
-									}
+									restart |= searching && search_positions.contains(&request.index_position);
 								}
 							}
 						},
@@ -800,7 +777,7 @@ impl Component {
 					}
 				}
 			}
-			// Query newly discovered syncs and retry partial responses within their deadlines.
+			// Query newly discovered syncs.
 			requests.start_queued();
 		}
 	}
@@ -1149,7 +1126,7 @@ impl<'a> Requests<'a> {
 		let key = request.key();
 		let entry = Entry {
 			request,
-			state: RequestState::Queued { deadline: None },
+			state: RequestState::Queued,
 		};
 		self.entries.entry(key).or_insert(entry);
 	}
@@ -1158,7 +1135,7 @@ impl<'a> Requests<'a> {
 		let requests = self
 			.entries
 			.values()
-			.filter(|entry| matches!(entry.state, RequestState::Queued { .. }))
+			.filter(|entry| matches!(entry.state, RequestState::Queued))
 			.map(|entry| entry.request.clone())
 			.collect::<Vec<_>>();
 		for request in requests {
@@ -1205,62 +1182,23 @@ impl<'a> Requests<'a> {
 			.any(|entry| entry.request.position == position && entry.awaiting())
 	}
 
-	fn defer(&mut self, request: &Request) {
-		if self.cancelled.contains(&request.position)
-			|| self.errors.contains_key(&request.sync_key())
-		{
-			return;
-		}
-		let timeout = self.session.server.config.verification.request_timeout;
-		self.entries
-			.get_mut(&request.key())
-			.unwrap()
-			.defer(Instant::now() + timeout);
-	}
-
 	fn resolve(&mut self, request: &Request) {
 		self.entries.get_mut(&request.key()).unwrap().cancel();
 	}
 
 	fn await_indexing(&mut self, request: &Request) {
-		// Keep a descendant's storage proof pending until indexing proves the root's storage.
-		let timeout = self.session.server.config.verification.request_timeout;
+		// Keep a descendant's storage proof pending until a search proves the root's storage or completes.
 		self.entries
 			.get_mut(&request.key())
 			.unwrap()
-			.await_indexing(Instant::now() + timeout);
+			.await_indexing();
 	}
 
 	fn resolve_indexing(&mut self, position: usize) {
 		for entry in self.entries.values_mut() {
-			if entry.request.position == position
-				&& matches!(entry.state, RequestState::Indexing { .. })
-			{
+			if entry.request.position == position && matches!(entry.state, RequestState::Indexing) {
 				entry.cancel();
 			}
-		}
-	}
-
-	fn polling(&self) -> bool {
-		self.entries
-			.values()
-			.any(|entry| entry.deadline().is_some())
-	}
-
-	fn retry(&mut self) {
-		let now = Instant::now();
-		let expired = self
-			.entries
-			.values()
-			.filter(|entry| entry.deadline().is_some_and(|deadline| now >= deadline))
-			.map(|entry| entry.request.clone())
-			.collect::<Vec<_>>();
-		for request in expired {
-			let error = tg::error!(sync = %request.sync, "the sync and indexing did not prove the requested requirements before the timeout");
-			self.set_error(&request, error);
-		}
-		for entry in self.entries.values_mut() {
-			entry.retry();
 		}
 	}
 
@@ -1297,54 +1235,26 @@ impl<'a> Requests<'a> {
 
 impl Entry {
 	fn start(&mut self, abort: futures::future::AbortHandle) -> bool {
-		let RequestState::Queued { deadline } = self.state else {
+		let RequestState::Queued = self.state else {
 			return false;
 		};
-		self.state = RequestState::InFlight { abort, deadline };
+		self.state = RequestState::InFlight { abort };
 		true
 	}
 
 	fn pending(&self) -> bool {
 		match self.state {
-			RequestState::Complete => false,
-			RequestState::Indexing { .. }
-			| RequestState::InFlight { .. }
-			| RequestState::Retry { .. } => true,
-			RequestState::Queued { deadline } => deadline.is_some(),
+			RequestState::Complete | RequestState::Queued => false,
+			RequestState::Indexing | RequestState::InFlight { .. } => true,
 		}
 	}
 
 	fn awaiting(&self) -> bool {
-		// A sync is awaited while its first answer for the node is in flight.
-		matches!(self.state, RequestState::InFlight { deadline: None, .. })
+		matches!(self.state, RequestState::InFlight { .. })
 	}
 
-	fn defer(&mut self, deadline: Instant) {
-		let deadline = self.deadline().unwrap_or(deadline);
-		self.state = RequestState::Retry { deadline };
-	}
-
-	fn await_indexing(&mut self, deadline: Instant) {
-		let deadline = self.deadline().unwrap_or(deadline);
-		self.state = RequestState::Indexing { deadline };
-	}
-
-	fn deadline(&self) -> Option<Instant> {
-		match self.state {
-			RequestState::Complete => None,
-			RequestState::Indexing { deadline } | RequestState::Retry { deadline } => {
-				Some(deadline)
-			},
-			RequestState::InFlight { deadline, .. } | RequestState::Queued { deadline } => deadline,
-		}
-	}
-
-	fn retry(&mut self) {
-		if let RequestState::Retry { deadline } = self.state {
-			self.state = RequestState::Queued {
-				deadline: Some(deadline),
-			};
-		}
+	fn await_indexing(&mut self) {
+		self.state = RequestState::Indexing;
 	}
 
 	fn cancel(&mut self) {
