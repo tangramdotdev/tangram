@@ -647,10 +647,29 @@ impl Index {
 					.as_ref()
 					.is_some_and(|propagated_version| version < *propagated_version);
 				if propagate {
-					crate::propagate!(
-						Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total)
+					match &kind {
+						Kind::StorageAndMetadata => crate::propagate!(
+							Self::enqueue_waiting_parents(
+								txn,
+								subspace,
+								&id,
+								&version,
+								partition_total,
+							)
 							.await
-					);
+						),
+						Kind::Permission(_) | Kind::Usage(_) => crate::propagate!(
+							Self::enqueue_parents(
+								txn,
+								subspace,
+								&id,
+								&kind,
+								&version,
+								partition_total,
+							)
+							.await
+						),
+					}
 					// Remember the version used to enqueue the parents, including an older version for an unchanged item.
 					let key = crate::Key::Update(Key::PropagatedVersion {
 						id: id.clone(),
@@ -3462,6 +3481,64 @@ impl Index {
 		// Enqueue a propagation for every item.
 		let result = future::try_join_all(items.iter().map(|(id, kind)| {
 			Self::enqueue_update_propagate(txn, subspace, id, kind, version, partition_total)
+		}))
+		.await;
+		for result in result? {
+			match result {
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+		}
+
+		Ok(ControlFlow::Break(()))
+	}
+
+	async fn enqueue_waiting_parents(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		version: &fdbt::Versionstamp,
+		partition_total: u64,
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		// Read the propagations from the item to the parents that are waiting on it.
+		let id_bytes = match id {
+			tg::Either::Left(id) => id.to_bytes(),
+			tg::Either::Right(id) => id.to_bytes(),
+		};
+		let prefix = Self::pack(
+			subspace,
+			&(KeyKind::Propagation.to_i32().unwrap(), id_bytes.as_ref()),
+		);
+		let entries = crate::propagate!(
+			crate::page::collect(|after| {
+				let prefix = prefix.clone();
+				async move {
+					Self::get_entry_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						crate::page::PAGE_SIZE,
+					)
+					.await
+				}
+			})
+			.await
+		);
+		let parents = entries
+			.into_iter()
+			.map(|(key, _)| {
+				let crate::Key::Update(Key::Propagation { parent, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(parent)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		// Enqueue an update on each waiting parent. A child that completes before a parent writes its propagation is seen by the parent's own update, which the parent's put enqueues.
+		let kind = Kind::StorageAndMetadata;
+		let result = future::try_join_all(parents.iter().map(|parent| {
+			Self::enqueue_update_propagate(txn, subspace, parent, &kind, version, partition_total)
 		}))
 		.await;
 		for result in result? {
