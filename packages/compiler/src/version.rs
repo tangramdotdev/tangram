@@ -8,15 +8,11 @@ use {
 
 impl Compiler {
 	pub async fn get_module_version(&self, module: &tg::module::Data) -> tg::Result<u64> {
-		// Get the entry for the document.
-		let entry = self.documents.entry(Key::new(module));
-
 		// If there is an open document, then return its version.
-		if let dashmap::Entry::Occupied(entry) = &entry {
-			let document = entry.get();
-			if document.open {
-				return Ok(document.revision);
-			}
+		let key = Key::new(module);
+		let revision = self.documents.get(&key).map(|document| (document.open, document.revision));
+		if let Some((true, revision)) = revision {
+			return Ok(revision);
 		}
 
 		// Get the path.
@@ -36,10 +32,7 @@ impl Compiler {
 			..
 		} = &module
 		else {
-			return Ok(match entry {
-				dashmap::Entry::Occupied(entry) => entry.get().revision,
-				dashmap::Entry::Vacant(_) => 0,
-			});
+			return Ok(revision.map_or(0, |(_, revision)| revision));
 		};
 
 		// Get the modified time.
@@ -53,8 +46,8 @@ impl Compiler {
 		// Find the lockfile.
 		let lockfile = self.get_module_resolution_version(module).await;
 
-		// Get or create the document.
-		let mut document = entry.or_insert(Document {
+		// Get or create the document, without holding its lock across an await.
+		let mut document = self.documents.entry(key).or_insert(Document {
 			dirty: false,
 			lockfile,
 			modified: Some(modified),
@@ -64,6 +57,9 @@ impl Compiler {
 			text: None,
 			version: 0,
 		});
+		if document.open {
+			return Ok(document.revision);
+		}
 
 		// Update the modified time if necessary.
 		if document.modified != Some(modified) {
