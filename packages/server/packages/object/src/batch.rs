@@ -1,7 +1,7 @@
 use {
 	crate::Component,
 	num::ToPrimitive as _,
-	std::collections::{BTreeMap, BTreeSet, btree_map},
+	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -150,16 +150,13 @@ impl Component {
 				}
 				let children = object_children.get(&object.id).unwrap();
 				let children_with_tokens = object_children_with_tokens.get(&object.id).unwrap();
-				if self
-					.post_object_batch_authorize(
-						session,
-						children_with_tokens,
-						children,
-						&subtree_objects,
-						&batch_objects,
-					)
-					.await?
-				{
+				if Self::post_object_batch_authorize(
+					session,
+					children_with_tokens,
+					children,
+					&subtree_objects,
+					&batch_objects,
+				) {
 					subtree_objects.insert(object.id.clone());
 					changed = true;
 				}
@@ -253,72 +250,35 @@ impl Component {
 		Ok(tg::object::batch::Output { objects })
 	}
 
-	pub(crate) async fn post_object_batch_authorize(
-		&self,
+	pub(crate) fn post_object_batch_authorize(
 		session: &Session,
 		children: &[tg::Referent<tg::object::Id>],
 		actual_children: &BTreeSet<tg::object::Id>,
 		batch_subtrees: &BTreeSet<tg::object::Id>,
 		batch_objects: &BTreeSet<tg::object::Id>,
-	) -> tg::Result<bool> {
-		let mut children_map = BTreeMap::<tg::object::Id, tg::Referent<tg::object::Id>>::new();
-		for child in children {
-			if !actual_children.contains(&child.node) {
-				continue;
-			}
-			match children_map.entry(child.node.clone()) {
-				btree_map::Entry::Occupied(mut entry) => {
-					for token in child.options.tokens.local_authorization() {
-						entry
-							.get_mut()
-							.options
-							.tokens
-							.insert_local_authorization(token.clone());
-					}
-				},
-				btree_map::Entry::Vacant(entry) => {
-					entry.insert(child.clone());
-				},
-			}
-		}
-
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
+	) -> bool {
+		let permission = tg::authorization::permission::Set::from_permission(
+			tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			),
 		);
-		let mut authorization_args = Vec::new();
-		for child in actual_children {
+		actual_children.iter().all(|child| {
 			if batch_objects.contains(child) {
-				if !batch_subtrees.contains(child) {
-					return Ok(false);
-				}
-				continue;
+				return batch_subtrees.contains(child);
 			}
-			let Some(child) = children_map.get(child) else {
-				return Ok(false);
-			};
-			let tokens = child.options.tokens.local_authorization();
-			if tokens.is_empty() {
-				return Ok(false);
-			}
-			let resource = tg::Selector::Id(child.node.clone().into());
-			if !tokens.iter().any(|token| {
-				session.server.components.authorization.authorize_token(
-					session,
-					&resource,
-					permission.into(),
-					token,
-				)
-			}) {
-				authorization_args.push((child.clone(), permission.into()));
-			}
-		}
-
-		let outputs = session.authorize_batch(authorization_args, None).await?;
-		let authorized = outputs
-			.into_iter()
-			.all(|output| output.permissions.contains(permission));
-
-		Ok(authorized)
+			let resource = tg::Selector::Id(child.clone().into());
+			children
+				.iter()
+				.filter(|referent| referent.node == *child)
+				.flat_map(|referent| referent.options.tokens.local_authorization())
+				.any(|token| {
+					session
+						.server
+						.components
+						.authorization
+						.authorize_token(session, &resource, permission, token)
+				})
+		})
 	}
 
 	async fn post_object_batch_region(
