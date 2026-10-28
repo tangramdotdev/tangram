@@ -13,7 +13,11 @@ impl Index {
 	) -> tg::Result<()> {
 		for arg in args {
 			Self::put_tag(db, subspace, transaction, arg)?;
+
+			// Put the captures, which check the tag's version.
+			Self::put_captures_with_transaction(db, subspace, transaction, &arg.captures)?;
 		}
+
 		Ok(())
 	}
 
