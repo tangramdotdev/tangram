@@ -3234,7 +3234,7 @@ mod tests {
 		let resources = target.backend.resources(&target.resources);
 		assert_eq!(resources.max_open_files, Some(256));
 		assert_eq!(resources.seccomp, None);
-		assert_eq!(resources.max_filesystem_size, Some(1_073_741_824));
+		assert_eq!(resources.max_filesystem_size, None);
 
 		// Reject seccomp settings for unsupported backends.
 		for kind in ["gvisor", "seatbelt", "cloud-hypervisor"] {
