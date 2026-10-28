@@ -225,6 +225,36 @@ pub trait Index {
 }
 
 impl Process {
+	/// Whether the process's storage and metadata are fully derived, so that its children can no longer change them.
+	#[must_use]
+	pub fn complete(&self) -> bool {
+		let storage = (!self.storage.contains(storage::Set::NODE)
+			|| self.storage.contains(storage::Set::SUBTREE))
+			&& [
+				storage::Set::NODE_COMMAND_OBJECTS,
+				storage::Set::NODE_ERROR_OBJECTS,
+				storage::Set::NODE_LOG_OBJECTS,
+				storage::Set::NODE_OUTPUT_OBJECTS,
+				storage::Set::SUBTREE_COMMAND_OBJECTS,
+				storage::Set::SUBTREE_ERROR_OBJECTS,
+				storage::Set::SUBTREE_LOG_OBJECTS,
+				storage::Set::SUBTREE_OUTPUT_OBJECTS,
+			]
+			.into_iter()
+			.all(|set| self.storage.contains(set));
+		let metadata = self.metadata.subtree.count.is_some()
+			&& self.metadata.subtree.depth.is_some()
+			&& self.metadata.subtree.command_objects.complete()
+			&& self.metadata.subtree.error_objects.complete()
+			&& self.metadata.subtree.log_objects.complete()
+			&& self.metadata.subtree.output_objects.complete()
+			&& self.metadata.node.command_objects.complete()
+			&& self.metadata.node.error_objects.complete()
+			&& self.metadata.node.log_objects.complete()
+			&& self.metadata.node.output_objects.complete();
+		self.set.complete() && storage && metadata
+	}
+
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
 			.map_err(|error| tg::error!(!error, "failed to serialize the process"))

@@ -768,6 +768,13 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete child object key"))?;
+			let key = crate::Key::Update(crate::update::Key::Propagation {
+				child: tg::Either::Left(child.clone()),
+				parent: tg::Either::Left(id.clone()),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the propagation"))?;
 		}
 		for (_, child) in entries {
 			Self::decrement_object_reference_count(db, subspace, transaction, &child)?;
@@ -858,6 +865,13 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete child process key"))?;
+			let key = crate::Key::Update(crate::update::Key::Propagation {
+				child: tg::Either::Right(child.clone()),
+				parent: tg::Either::Right(id.clone()),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the propagation"))?;
 		}
 		for (_, child) in entries {
 			Self::decrement_process_reference_count(db, subspace, transaction, &child)?;
@@ -899,6 +913,13 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete object process key"))?;
+			let key = crate::Key::Update(crate::update::Key::Propagation {
+				child: tg::Either::Left(object.clone()),
+				parent: tg::Either::Right(id.clone()),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the propagation"))?;
 		}
 		for (_, object, _) in object_entries {
 			Self::decrement_object_reference_count(db, subspace, transaction, &object)?;

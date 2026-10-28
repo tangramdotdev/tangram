@@ -74,15 +74,16 @@ impl Index {
 			return Ok(ControlFlow::Break(()));
 		}
 
-		let value = tangram_index::object::Object {
+		let object = tangram_index::object::Object {
 			checkout,
 			metadata,
 			put,
 			reference_count: 0,
 			storage,
 			touched_at,
-		}
-		.serialize()?;
+		};
+		let complete = object.complete();
+		let value = object.serialize()?;
 
 		txn.set(&key, &value);
 
@@ -100,6 +101,16 @@ impl Index {
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
+
+			// Put a propagation from the child when the object is incomplete, so that the child's update enqueues an update on the object.
+			if !complete {
+				let key = Key::Update(crate::update::Key::Propagation {
+					child: tg::Either::Left(child.clone()),
+					parent: tg::Either::Left(id.clone()),
+				});
+				let key = Self::pack(subspace, &key);
+				txn.set(&key, &[]);
+			}
 		}
 
 		if changed && let Some(checkout) = &arg.checkout {

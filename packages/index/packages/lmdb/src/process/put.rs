@@ -183,7 +183,7 @@ impl Index {
 			return Ok(Ok(()));
 		}
 
-		let value = tangram_index::process::Process {
+		let process = tangram_index::process::Process {
 			command_id: arg.command_id.clone(),
 			location,
 			metadata,
@@ -195,8 +195,9 @@ impl Index {
 			status,
 			storage,
 			touched_at,
-		}
-		.serialize()?;
+		};
+		let complete = process.complete();
+		let value = process.serialize()?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 
@@ -260,12 +261,23 @@ impl Index {
 					.map_err(|error| tg::error!(!error, "failed to put the process child"))?;
 
 				let key = Key::Process(crate::process::Key::ChildProcess {
-					child: child.process.node,
+					child: child.process.node.clone(),
 					parent: id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &position.to_be_bytes())
 					.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
+
+				// Put a propagation from the child when the process is incomplete, so that the child's update enqueues an update on the process.
+				if !complete {
+					let key = Key::Update(crate::update::Key::Propagation {
+						child: tg::Either::Right(child.process.node),
+						parent: tg::Either::Right(id.clone()),
+					});
+					let key = Self::pack(subspace, &key);
+					db.put(transaction, &key, &[])
+						.map_err(|error| tg::error!(!error, "failed to put the propagation"))?;
+				}
 			}
 		}
 
@@ -318,6 +330,15 @@ impl Index {
 				db.put(transaction, &key, &position.to_be_bytes())
 					.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
 			}
+
+			// Put a propagation to the parent, which accepts the child and so is waiting on it, so that this process's update enqueues an update on the parent.
+			let key = Key::Update(crate::update::Key::Propagation {
+				child: tg::Either::Right(id.clone()),
+				parent: tg::Either::Right(parent.clone()),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the propagation"))?;
 		}
 
 		if let Some(sandbox) = arg
@@ -409,6 +430,17 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, "failed to put the object process"))?;
+
+			// Put a propagation from the object when the process is incomplete, so that the object's update enqueues an update on the process.
+			if !complete {
+				let key = Key::Update(crate::update::Key::Propagation {
+					child: tg::Either::Left(object.clone()),
+					parent: tg::Either::Right(id.clone()),
+				});
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &[])
+					.map_err(|error| tg::error!(!error, "failed to put the propagation"))?;
+			}
 
 			Self::enqueue_update_with_kind(
 				db,

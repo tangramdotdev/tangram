@@ -16,6 +16,11 @@ pub enum Key {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		kind: Kind,
 	},
+	/// A parent that is waiting on a child, which enqueues a storage and metadata update on the parent when the child's update makes progress.
+	Propagation {
+		child: tg::Either<tg::object::Id, tg::process::Id>,
+		parent: tg::Either<tg::object::Id, tg::process::Id>,
+	},
 	/// A completed traversal can be replayed if an older queue marker arrives later.
 	UsageUpdatePropagatedVersion {
 		account: tangram_index::usage::Account,

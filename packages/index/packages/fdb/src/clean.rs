@@ -884,6 +884,12 @@ impl Index {
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
+			let key = crate::Key::Update(crate::update::Key::Propagation {
+				child: tg::Either::Left(child.clone()),
+				parent: tg::Either::Left(id.clone()),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
 		}
 		let results = future::try_join_all(children.iter().map(|child| {
 			Self::decrement_object_reference_count(txn, subspace, child, partition_total)
@@ -1008,6 +1014,12 @@ impl Index {
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
+			let key = crate::Key::Update(crate::update::Key::Propagation {
+				child: tg::Either::Right(child.clone()),
+				parent: tg::Either::Right(id.clone()),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
 		}
 		for child in children {
 			crate::propagate!(
@@ -1037,6 +1049,12 @@ impl Index {
 				object: object.clone(),
 				kind: *kind,
 				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+			let key = crate::Key::Update(crate::update::Key::Propagation {
+				child: tg::Either::Left(object.clone()),
+				parent: tg::Either::Right(id.clone()),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
