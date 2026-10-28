@@ -1,49 +1,34 @@
 use {
 	super::{Kind, Payload, Queue, Queues, SequenceReservation, Work},
-	crate::request,
 	itertools::Itertools as _,
 	std::collections::BTreeSet,
 };
-
-fn fragment(batch: u8, fragment: u64, fragments: u64, payload: &'static [u8]) -> request::Fragment {
-	request::Fragment {
-		batch: [batch; 16],
-		fragment,
-		fragments,
-		payload: bytes::Bytes::from_static(payload),
-	}
-}
 
 fn reserve(queues: &mut Queues, kind: Kind, end: u64) {
 	let reservation = SequenceReservation { end, kind };
 	queues.finish_reservation(reservation);
 }
 
+fn payload(work: &Work) -> &bytes::Bytes {
+	match &work.payload {
+		Payload::Cache => panic!("expected the payload in memory"),
+		Payload::Memory(payload) => payload,
+	}
+}
+
 #[test]
-fn assembles_batches_in_fragment_order() {
+fn pops_each_entry_independently_in_sequence_order() {
 	for kind in [Kind::Archive, Kind::Index] {
 		let mut queues = Queues::empty(usize::MAX);
-		let timeout = std::time::Duration::from_secs(60);
-		queues
-			.insert_fragment(kind, 0, &fragment(0, 1, 2, b"one"), timeout)
-			.unwrap();
-		assert!(queues.pop_work(kind).is_none());
-		queues
-			.insert_fragment(kind, 1, &fragment(0, 0, 2, b"zero"), timeout)
-			.unwrap();
-		let Some(Work::Process(batch)) = queues.pop_work(kind) else {
-			panic!("expected a batch");
-		};
-		let payloads = batch
-			.payloads
-			.iter()
-			.map(|payload| match payload {
-				Payload::Memory(payload) => payload.clone(),
-				Payload::Cache(_) => panic!("expected the payload in memory"),
-			})
-			.collect::<Vec<_>>();
-		assert_eq!(payloads, [&b"zero"[..], &b"one"[..]]);
-		assert_eq!(batch.sequences, [1, 0]);
+		queues.insert_entry(kind, 1, bytes::Bytes::from_static(b"one"));
+		queues.insert_entry(kind, 0, bytes::Bytes::from_static(b"zero"));
+		let work = queues.pop_entry(kind).unwrap();
+		assert_eq!(work.sequence, 0);
+		assert_eq!(payload(&work), &b"zero"[..]);
+		let work = queues.pop_entry(kind).unwrap();
+		assert_eq!(work.sequence, 1);
+		assert_eq!(payload(&work), &b"one"[..]);
+		assert!(queues.pop_entry(kind).is_none());
 		assert_eq!(queues.memory.used, 0);
 	}
 }
@@ -51,158 +36,40 @@ fn assembles_batches_in_fragment_order() {
 #[test]
 fn keeps_the_queues_separate() {
 	let mut queues = Queues::empty(usize::MAX);
-	let timeout = std::time::Duration::from_secs(60);
-	queues
-		.insert_fragment(Kind::Archive, 0, &fragment(0, 0, 2, b"archive"), timeout)
-		.unwrap();
-	queues
-		.insert_fragment(Kind::Index, 0, &fragment(0, 1, 2, b"index"), timeout)
-		.unwrap();
-	assert!(queues.pop_work(Kind::Archive).is_none());
-	assert!(queues.pop_work(Kind::Index).is_none());
-}
-
-#[test]
-fn expiration_tracks_completion_and_abandonment() {
-	let mut queues = Queues::empty(usize::MAX);
-	let timeout = std::time::Duration::from_secs(60);
-	queues
-		.insert_fragment(Kind::Index, 0, &fragment(0, 0, 2, b""), timeout)
-		.unwrap();
-	assert_eq!(queues.index.batches.by_expires_at.len(), 1);
-	assert_eq!(
-		queues.next_batch_deadline(),
-		Some(queues.index.batches.active[&[0; 16]].deadline)
-	);
-	queues
-		.insert_fragment(Kind::Index, 1, &fragment(0, 1, 2, b""), timeout)
-		.unwrap();
-	assert!(queues.index.batches.active.is_empty());
-	assert_eq!(queues.index.batches.complete.len(), 1);
-	assert_eq!(queues.index.batches.by_expires_at.len(), 1);
-	assert!(matches!(
-		queues.pop_work(Kind::Index),
-		Some(Work::Process(_))
-	));
-	queues.expire_batches(Kind::Index, timeout);
-	assert!(queues.pop_work(Kind::Index).is_none());
-
-	queues
-		.insert_fragment(Kind::Index, 2, &fragment(1, 0, 2, b""), timeout)
-		.unwrap();
-	assert_eq!(queues.index.batches.by_expires_at.len(), 2);
-	queues.abandon_incomplete_batches();
-	assert_eq!(queues.index.batches.by_expires_at.len(), 1);
-	assert!(
-		matches!(queues.pop_work(Kind::Index), Some(Work::Delete(sequences)) if sequences == [2])
-	);
-}
-
-#[test]
-fn expires_only_due_batches() {
-	let mut queues = Queues::empty(usize::MAX);
-	queues
-		.insert_fragment(
-			Kind::Archive,
-			0,
-			&fragment(0, 0, 2, b"payload"),
-			std::time::Duration::ZERO,
-		)
-		.unwrap();
-	queues.expire_batches(Kind::Archive, std::time::Duration::from_secs(60));
-	assert!(
-		matches!(queues.pop_work(Kind::Archive), Some(Work::Delete(sequences)) if sequences == [0])
-	);
-	assert!(queues.pop_work(Kind::Archive).is_none());
-	assert!(queues.archive.batches.active.is_empty());
-	assert_eq!(queues.archive.batches.timed_out.len(), 1);
-	assert_eq!(queues.archive.batches.by_expires_at.len(), 1);
-	assert_eq!(queues.memory.used, 0);
-}
-
-#[test]
-fn deletes_fragments_of_complete_and_timed_out_batches() {
-	for timed_out in [false, true] {
-		let mut queues = Queues::empty(usize::MAX);
-		let fragments = if timed_out { 2 } else { 1 };
-		let timeout = std::time::Duration::ZERO;
-		queues
-			.insert_fragment(Kind::Index, 0, &fragment(0, 0, fragments, b""), timeout)
-			.unwrap();
-		if timed_out {
-			queues.expire_batches(Kind::Index, std::time::Duration::from_secs(60));
-		}
-		queues.pop_work(Kind::Index);
-		let result =
-			queues.insert_fragment(Kind::Index, 1, &fragment(0, 0, fragments, b""), timeout);
-		assert_eq!(result.is_err(), timed_out);
-		assert!(
-			matches!(queues.pop_work(Kind::Index), Some(Work::Delete(sequences)) if sequences == [1])
-		);
-		let (_, batch) = queues.index.batches.by_expires_at.pop_first().unwrap();
-		queues
-			.index
-			.batches
-			.by_expires_at
-			.insert((tokio::time::Instant::now(), batch));
-		queues.expire_batches(Kind::Index, timeout);
-		assert!(queues.index.batches.complete.is_empty());
-		assert!(queues.index.batches.timed_out.is_empty());
-		assert!(queues.index.batches.by_expires_at.is_empty());
-	}
-}
-
-#[test]
-fn rejects_invalid_fragments() {
-	let mut queues = Queues::empty(usize::MAX);
-	let timeout = std::time::Duration::from_secs(60);
-	queues
-		.insert_fragment(Kind::Index, 0, &fragment(0, 0, 2, b"zero"), timeout)
-		.unwrap();
-	let counts = queues.insert_fragment(Kind::Index, 1, &fragment(0, 1, 3, b"one"), timeout);
-	assert!(counts.is_err());
-	let position = queues.insert_fragment(Kind::Index, 2, &fragment(1, 2, 2, b""), timeout);
-	assert!(position.is_err());
-	for sequence in 1..3 {
-		assert!(
-			matches!(queues.pop_work(Kind::Index), Some(Work::Delete(sequences)) if sequences == [sequence])
-		);
-	}
+	queues.insert_entry(Kind::Archive, 0, bytes::Bytes::from_static(b"archive"));
+	assert!(queues.pop_entry(Kind::Index).is_none());
+	let work = queues.pop_entry(Kind::Archive).unwrap();
+	assert_eq!(payload(&work), &b"archive"[..]);
 }
 
 #[test]
 fn drops_only_written_payloads_when_over_the_memory_limit() {
 	let mut queues = Queues::empty(4);
 	reserve(&mut queues, Kind::Index, 2);
-	let timeout = std::time::Duration::from_secs(60);
 
 	// Keep a payload whose write has not finished, even over the memory limit.
-	let first = fragment(0, 0, 2, b"zero");
 	let sequence = queues.try_allocate_sequence(Kind::Index).unwrap();
-	queues
-		.insert_fragment(Kind::Index, sequence, &first, timeout)
-		.unwrap();
-	let second = fragment(0, 1, 2, b"one");
+	queues.insert_entry(Kind::Index, sequence, bytes::Bytes::from_static(b"zero"));
 	let sequence = queues.try_allocate_sequence(Kind::Index).unwrap();
-	queues
-		.insert_fragment(Kind::Index, sequence, &second, timeout)
-		.unwrap();
+	queues.insert_entry(Kind::Index, sequence, bytes::Bytes::from_static(b"one"));
 	assert_eq!(queues.memory.used, 7);
-	assert!(!queues.writes_finished(Kind::Index, &[0, 1]));
+	assert!(!queues.write_finished(Kind::Index, 0));
+	assert!(!queues.write_finished(Kind::Index, 1));
 
 	// Drop the payload once its write finishes.
-	queues.finish_write(Kind::Index, 1, &second, true);
+	queues.finish_write(Kind::Index, 1, true);
 	assert_eq!(queues.memory.used, 4);
-	queues.finish_write(Kind::Index, 0, &first, false);
-	assert!(queues.writes_finished(Kind::Index, &[0, 1]));
+	queues.finish_write(Kind::Index, 0, false);
+	assert!(queues.write_finished(Kind::Index, 0));
+	assert!(queues.write_finished(Kind::Index, 1));
 	assert_eq!(queues.memory.used, 4);
 
 	// Read the dropped payload from the cache.
-	let Some(Work::Process(batch)) = queues.pop_work(Kind::Index) else {
-		panic!("expected a batch");
-	};
-	assert!(matches!(batch.payloads[0], Payload::Memory(_)));
-	assert!(matches!(batch.payloads[1], Payload::Cache(1)));
+	let work = queues.pop_entry(Kind::Index).unwrap();
+	assert!(matches!(work.payload, Payload::Memory(_)));
+	let work = queues.pop_entry(Kind::Index).unwrap();
+	assert_eq!(work.sequence, 1);
+	assert!(matches!(work.payload, Payload::Cache));
 	assert_eq!(queues.memory.used, 0);
 	assert!(queues.memory.evictable.is_empty());
 }

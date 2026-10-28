@@ -16,9 +16,6 @@ create table if not exists object_cache (
 create table if not exists archive_queue (
 	indexer blob,
 	sequence bigint,
-	"batch" blob,
-	fragment bigint,
-	fragments bigint,
 	payload blob,
 	primary key ((indexer), sequence)
 ) with clustering order by (sequence asc);
@@ -26,9 +23,6 @@ create table if not exists archive_queue (
 create table if not exists index_queue (
 	indexer blob,
 	sequence bigint,
-	"batch" blob,
-	fragment bigint,
-	fragments bigint,
 	payload blob,
 	primary key ((indexer), sequence)
 ) with clustering order by (sequence asc);
