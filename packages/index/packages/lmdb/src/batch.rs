@@ -167,6 +167,7 @@ impl Index {
 						subspace,
 						transaction,
 						std::slice::from_ref(arg),
+						usage_partition_total,
 					)?;
 				},
 				tangram_index::batch::Item::PutAccountObject(arg) => {
@@ -214,6 +215,7 @@ impl Index {
 						transaction,
 						std::slice::from_ref(arg),
 						process_data_fragment_size,
+						usage_partition_total,
 					)?;
 					if let Err(error) = result {
 						return Ok(Err(error));

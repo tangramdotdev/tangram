@@ -201,6 +201,7 @@ impl Component {
 			)?;
 		let data = store_data.then(|| arg.data.clone());
 		let mut put_process_arg = tangram_index::process::put::Arg {
+			account: None,
 			cached: false,
 			children,
 			command: Some(
@@ -260,7 +261,7 @@ impl Component {
 				version: None,
 			});
 		put_process_arg.permissions.extend(put_permission);
-		let account = session
+		put_process_arg.account = session
 			.server
 			.components
 			.usage
@@ -271,15 +272,6 @@ impl Component {
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
 				.chain(put_permissions)
-				.chain(account.map(|account| {
-					tangram_index::batch::Item::PutAccountProcess(
-						tangram_index::usage::storage::put::ProcessArg {
-							account,
-							process: id.clone(),
-							touched_at: now,
-						},
-					)
-				}))
 				.collect(),
 		};
 		let result = if defer_index {

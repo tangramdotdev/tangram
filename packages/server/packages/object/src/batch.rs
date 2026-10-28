@@ -127,6 +127,7 @@ impl Component {
 
 			// Create the arg.
 			let arg = tangram_index::object::put::Arg {
+				account: None,
 				checkout: None,
 				children,
 				id: object.id.clone(),
@@ -200,6 +201,13 @@ impl Component {
 				account_objects.remove(child);
 			}
 		}
+		if let Some(account) = &account {
+			for arg in &mut put_object_args {
+				if account_objects.contains(&arg.id) {
+					arg.account = Some(account.clone());
+				}
+			}
+		}
 
 		// Index the objects.
 		let index_arg = tangram_index::batch::Arg {
@@ -211,17 +219,6 @@ impl Component {
 						.into_iter()
 						.map(tangram_index::batch::Item::PutPermission),
 				)
-				.chain(account.into_iter().flat_map(|account| {
-					account_objects.iter().cloned().map(move |object| {
-						tangram_index::batch::Item::PutAccountObject(
-							tangram_index::usage::storage::put::ObjectArg {
-								account: account.clone(),
-								object,
-								touched_at: now,
-							},
-						)
-					})
-				}))
 				.collect(),
 		};
 		self.put_object_batch_and_index(&session.server, put_args, index_arg)

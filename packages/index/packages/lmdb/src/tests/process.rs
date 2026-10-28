@@ -8,6 +8,7 @@ use {
 fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::process::put::Arg {
 	let command = tg::command::Id::new(b"command");
 	tangram_index::process::put::Arg {
+		account: None,
 		cached: false,
 		children: None,
 		command: Some(vec![command.clone().into()]),

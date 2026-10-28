@@ -716,17 +716,25 @@ impl Component {
 		};
 		let mut index_arg = Self::checkin_index(session, index_arg)?;
 		if let Some(account) = account {
+			// Put the account's storage entry with the root object's put, or on its own if the root object is already indexed.
 			let index = graph.paths.get(root).unwrap();
 			let object = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
-			index_arg
-				.items
-				.push(tangram_index::batch::Item::PutAccountObject(
-					tangram_index::usage::storage::put::ObjectArg {
-						account,
-						object,
-						touched_at,
-					},
-				));
+			let put = index_arg.items.iter_mut().find_map(|item| match item {
+				tangram_index::batch::Item::PutObject(arg) if arg.id == object => Some(arg),
+				_ => None,
+			});
+			if let Some(put) = put {
+				put.account = Some(account);
+			} else {
+				let entry = tangram_index::usage::storage::put::ObjectArg {
+					account,
+					object,
+					touched_at,
+				};
+				index_arg
+					.items
+					.push(tangram_index::batch::Item::PutAccountObject(entry));
+			}
 		}
 
 		// Create or update the watcher and spawn its index task.

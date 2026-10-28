@@ -66,6 +66,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 		let object_id = object.id.clone();
 		let id = tg::process::Id::new();
 		let process = tangram_index::process::put::Arg {
+			account: None,
 			cached: false,
 			children: None,
 			command: Some(vec![object_id.clone()]),

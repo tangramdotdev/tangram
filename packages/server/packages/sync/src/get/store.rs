@@ -285,6 +285,7 @@ impl Component {
 			.iter()
 			.map(|(id, data, metadata)| {
 				Ok(tangram_index::process::put::Arg {
+					account: None,
 					cached: false,
 					children: data.children.clone(),
 					command: Some(

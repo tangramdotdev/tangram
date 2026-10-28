@@ -8,6 +8,7 @@ async fn object_children_are_returned_in_pages() {
 	let children = (1..=5).map(object_id).collect::<BTreeSet<_>>();
 	let parent = object_id(0);
 	let object = tangram_index::object::put::Arg {
+		account: None,
 		checkout: None,
 		children: children.clone(),
 		id: parent.clone(),
