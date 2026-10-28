@@ -56,6 +56,12 @@ impl Captures {
 		self.delegations.is_empty() && self.enqueues.is_empty() && self.permissions.is_empty()
 	}
 
+	pub fn extend(&mut self, other: Self) {
+		self.delegations.extend(other.delegations);
+		self.enqueues.extend(other.enqueues);
+		self.permissions.extend(other.permissions);
+	}
+
 	/// Convert the captures into independent batch items, for a resource that is already indexed.
 	pub fn into_items(self) -> impl Iterator<Item = crate::batch::Item> {
 		let permissions = self

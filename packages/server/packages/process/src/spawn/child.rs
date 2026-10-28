@@ -143,6 +143,7 @@ impl Component {
 				Ok(tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
+					captures: tangram_index::permission::capture::Captures::default(),
 					children: None,
 					command: Some(
 						parent_data
@@ -180,6 +181,7 @@ impl Component {
 		let child_arg = tangram_index::process::put::Arg {
 			account,
 			cached: child.cached,
+			captures: tangram_index::permission::capture::Captures::default(),
 			children: None,
 			command: None,
 			command_id: command.clone().into(),

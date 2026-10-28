@@ -48,6 +48,7 @@ fn process_arg(
 	tangram_index::process::put::Arg {
 		account: None,
 		cached: false,
+		captures: tangram_index::permission::capture::Captures::default(),
 		children: Some(children),
 		command: Some(vec![command.clone()]),
 		command_id: command,
@@ -373,6 +374,7 @@ async fn account_storage_traverses_new_process_relationships() {
 	let partial_root = tangram_index::process::put::Arg {
 		account: None,
 		cached: false,
+		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
 		command: Some(vec![command.clone()]),
 		command_id: command.clone(),

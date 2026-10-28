@@ -68,6 +68,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 		let process = tangram_index::process::put::Arg {
 			account: None,
 			cached: false,
+			captures: tangram_index::permission::capture::Captures::default(),
 			children: None,
 			command: Some(vec![object_id.clone()]),
 			command_id: object_id.clone(),

@@ -1940,9 +1940,43 @@ impl Component {
 			.as_ref()
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 		let now = session.server.clock.unix_timestamp();
+		let permission_arg = session
+			.server
+			.components
+			.process
+			.create_process_sandbox_permission_arg(session, id, sandbox, now)?;
+		let mut captures = tangram_index::permission::capture::Captures::default();
+		captures.permissions.push(permission_arg);
+		let destination = id.clone().into();
+		// Loading an inline command does not prove permissions on the objects it references.
+		let permissions = match &command.node {
+			tg::Either::Left(_) => tg::authorization::permission::object::Set::empty(),
+			tg::Either::Right(_) => tg::authorization::permission::object::Set::NODE,
+		};
+		let permissions = tg::authorization::permission::Set::Object(permissions);
+		let roots = command
+			.objects()
+			.into_iter()
+			.map(|resource| (resource.map(Into::into), permissions));
+		let source = tg::Principal::Process(parent.unwrap_or(id).clone());
+		let command_captures = session
+			.server
+			.components
+			.authorization
+			.create_captures_with_permissions(
+				session,
+				destination,
+				None,
+				roots.into_iter().collect(),
+				source,
+				now,
+			)?;
+		captures.extend(command_captures);
+
 		let put_process_arg = tangram_index::process::put::Arg {
 			account: None,
 			cached: false,
+			captures,
 			children: None,
 			command: Some(
 				data.command
@@ -1968,40 +2002,7 @@ impl Component {
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,
 		};
-		let mut items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
-		let permission_arg = session
-			.server
-			.components
-			.process
-			.create_process_sandbox_permission_arg(session, id, sandbox, now)?;
-		items.push(tangram_index::batch::Item::PutPermission(permission_arg));
-		let destination = id.clone().into();
-		// Loading an inline command does not prove permissions on the objects it references.
-		let permissions = match &command.node {
-			tg::Either::Left(_) => tg::authorization::permission::object::Set::empty(),
-			tg::Either::Right(_) => tg::authorization::permission::object::Set::NODE,
-		};
-		let permissions = tg::authorization::permission::Set::Object(permissions);
-		let roots = command
-			.objects()
-			.into_iter()
-			.map(|resource| (resource.map(Into::into), permissions));
-		let source = tg::Principal::Process(parent.unwrap_or(id).clone());
-		items.extend(
-			session
-				.server
-				.components
-				.authorization
-				.create_captures_with_permissions(
-					session,
-					destination,
-					None,
-					roots.into_iter().collect(),
-					source,
-					now,
-				)?
-				.into_items(),
-		);
+		let items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
 
 		// Apply the initial data before the finished data can be written.
 		let arg = tangram_index::batch::Arg { items };

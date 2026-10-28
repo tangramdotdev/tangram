@@ -562,6 +562,17 @@ impl Index {
 						.await
 				);
 			}
+
+			// Put the captures, which require the accepted process.
+			crate::propagate!(
+				Self::put_captures_with_transaction(
+					txn,
+					subspace,
+					&process.captures,
+					partition_totals
+				)
+				.await
+			);
 		}
 
 		Ok(ControlFlow::Break(Ok(())))

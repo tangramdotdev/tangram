@@ -55,6 +55,7 @@ fn process_arg(
 	tangram_index::process::put::Arg {
 		account: None,
 		cached: false,
+		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
 		command: Some(vec![command.clone().into()]),
 		command_id: command.into(),
@@ -220,6 +221,7 @@ async fn process_children_are_stored_separately_from_data() {
 			tangram_index::process::put::Arg {
 				account: None,
 				cached: false,
+				captures: tangram_index::permission::capture::Captures::default(),
 				children: Some(expected.clone()),
 				command: Some(vec![command.clone().into()]),
 				command_id: command.into(),
@@ -333,6 +335,7 @@ async fn incomplete_process_children_have_values() {
 			tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
 				account: None,
 				cached: false,
+				captures: tangram_index::permission::capture::Captures::default(),
 				children: None,
 				command: Some(vec![command.clone().into()]),
 				command_id: command.clone().into(),
@@ -355,6 +358,7 @@ async fn incomplete_process_children_have_values() {
 			tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
 				account: None,
 				cached: child_data.cached,
+				captures: tangram_index::permission::capture::Captures::default(),
 				children: None,
 				command: Some(vec![command.clone().into()]),
 				command_id: command.into(),
@@ -509,6 +513,7 @@ async fn process_children_must_be_unique() {
 			tangram_index::process::put::Arg {
 				account: None,
 				cached: false,
+				captures: tangram_index::permission::capture::Captures::default(),
 				children: Some(vec![child.clone(), child]),
 				command: Some(vec![tg::command::Id::new(b"command").into()]),
 				command_id: tg::command::Id::new(b"command").into(),
@@ -1475,4 +1480,115 @@ async fn sandbox_rejection_preserves_permissions_and_unrelated_writes() {
 		.await
 		.unwrap();
 	assert!(!output[0].permissions.contains(permission));
+}
+
+#[tokio::test]
+async fn process_rejection_skips_its_captures() {
+	// Put a finished process.
+	let (_dir, index) = new_index();
+	let existing = tg::process::Id::new();
+	put_process(
+		&index,
+		process_arg(existing.clone(), tg::process::Status::Finished),
+	)
+	.await
+	.unwrap();
+
+	// Put a conflicting write of the process whose captures grant a permission on an object.
+	let principal = tg::Principal::User(tg::user::Id::new());
+	let object = tg::object::Id::from(tg::blob::Id::new(b"object"));
+	let permission = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Node,
+	);
+	let mut conflicting = process_arg(existing.clone(), tg::process::Status::Finished);
+	conflicting.principal = principal.clone();
+	conflicting.data.as_mut().unwrap().host = "conflict".into();
+	conflicting
+		.captures
+		.permissions
+		.push(tangram_index::permission::put::Arg {
+			created_at: 0,
+			creator: Some(principal.clone()),
+			permissions: permission.into(),
+			resource: object.clone().into(),
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(i64::MAX),
+			},
+			subject: principal.try_to_subject().unwrap(),
+			time_to_touch: None,
+			version: None,
+		});
+	let batch = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(conflicting)],
+	};
+	let results = execute_write_requests(&index, vec![crate::Request::Batch(batch)], 64);
+	assert!(matches!(&results[0], Ok(crate::Response::Mutation(Err(_)))));
+
+	// Verify that the subject did not receive the permission.
+	let arg = tangram_index::verify::Arg {
+		requested: permission.into(),
+		required: permission.into(),
+		resource: tg::Selector::Id(object.into()),
+		subject: None,
+		tokens: Vec::new(),
+	};
+	let output = index
+		.verify_batch(
+			std::slice::from_ref(&arg),
+			tangram_index::verify::Config::default(),
+			&principal,
+		)
+		.await
+		.unwrap();
+	assert!(!output[0].permissions.contains(permission));
+}
+
+#[tokio::test]
+async fn process_acceptance_puts_its_captures() {
+	// Put a process whose captures grant a permission on an object.
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let principal = tg::Principal::User(tg::user::Id::new());
+	let object = tg::object::Id::from(tg::blob::Id::new(b"object"));
+	let permission = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Node,
+	);
+	let mut arg = process_arg(id, tg::process::Status::Finished);
+	arg.captures
+		.permissions
+		.push(tangram_index::permission::put::Arg {
+			created_at: 0,
+			creator: Some(principal.clone()),
+			permissions: permission.into(),
+			resource: object.clone().into(),
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(i64::MAX),
+			},
+			subject: principal.try_to_subject().unwrap(),
+			time_to_touch: None,
+			version: None,
+		});
+	let batch = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(arg)],
+	};
+	let results = execute_write_requests(&index, vec![crate::Request::Batch(batch)], 64);
+	assert!(matches!(&results[0], Ok(crate::Response::Mutation(Ok(())))));
+
+	// Verify that the subject received the permission.
+	let arg = tangram_index::verify::Arg {
+		requested: permission.into(),
+		required: permission.into(),
+		resource: tg::Selector::Id(object.into()),
+		subject: None,
+		tokens: Vec::new(),
+	};
+	let output = index
+		.verify_batch(
+			std::slice::from_ref(&arg),
+			tangram_index::verify::Config::default(),
+			&principal,
+		)
+		.await
+		.unwrap();
+	assert!(output[0].permissions.contains(permission));
 }

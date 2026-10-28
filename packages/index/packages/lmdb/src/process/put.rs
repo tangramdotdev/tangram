@@ -523,6 +523,9 @@ impl Index {
 					None,
 				)?;
 			}
+
+			// Put the captures, which require the accepted process.
+			Self::put_captures_with_transaction(db, subspace, transaction, &process.captures)?;
 		}
 
 		Ok(Ok(()))
