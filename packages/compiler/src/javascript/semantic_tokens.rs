@@ -9,7 +9,7 @@ impl Project {
 			let uri = self.uri(&arg.module);
 			let output = service
 				.provide_semantic_tokens(context, &uri)
-				.map_err(|error| tg::error!(!error, "failed to get tsrs semantic tokens"))?;
+				.map_err(|error| tg::error!(!error, "failed to get javascript semantic tokens"))?;
 			let capabilities = native::get_client_capabilities(context);
 			let legend =
 				tsrs_ls::semantic_tokens_legend(&capabilities.text_document.semantic_tokens);
@@ -21,7 +21,7 @@ impl Project {
 					let mut output = Vec::new();
 					let (tokens, remainder) = tokens.data.as_chunks::<5>();
 					if !remainder.is_empty() {
-						return Err(tg::error!("invalid tsrs semantic token data"));
+						return Err(tg::error!("invalid javascript semantic token data"));
 					}
 					for token in tokens {
 						line += token[0];
@@ -33,15 +33,15 @@ impl Project {
 						let name = legend
 							.token_types
 							.get(token[3] as usize)
-							.ok_or_else(|| tg::error!("invalid tsrs semantic token type"))?;
+							.ok_or_else(|| tg::error!("invalid javascript semantic token type"))?;
 						let token_type = semantic_tokens::TYPES
 							.iter()
 							.position(|value| *value == name)
 							.ok_or_else(|| {
-								tg::error!("unsupported tsrs semantic token type")
+								tg::error!("unsupported javascript semantic token type")
 							})?;
 						let token_type = u32::try_from(token_type).map_err(|error| {
-							tg::error!(!error, "invalid tsrs semantic token index")
+							tg::error!(!error, "invalid javascript semantic token index")
 						})?;
 						let token_modifiers_bitset = legend
 							.token_modifiers

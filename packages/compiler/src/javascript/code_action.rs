@@ -10,7 +10,7 @@ impl Project {
 			let uri = self.uri(&arg.module);
 			let diagnostics = service
 				.provide_diagnostics(context, &uri)
-				.map_err(|error| tg::error!(!error, "failed to get the tsrs diagnostics"))?
+				.map_err(|error| tg::error!(!error, "failed to get the javascript diagnostics"))?
 				.full_document_diagnostic_report
 				.map(|report| report.items)
 				.unwrap_or_default()
@@ -49,7 +49,7 @@ impl Project {
 			params.text_document = native::TextDocumentIdentifier { uri };
 			let output = service
 				.provide_code_actions(context, &params)
-				.map_err(|error| tg::error!(!error, "failed to get the tsrs code actions"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the javascript code actions"))?;
 
 			// Convert the eager edits into Tangram actions.
 			let mut actions = Vec::new();
@@ -63,7 +63,7 @@ impl Project {
 				let Some(edit) = action.edit else { continue };
 				if edit.document_changes.is_some() {
 					return Err(tg::error!(
-						"unsupported document changes in a tsrs code action"
+						"unsupported document changes in a javascript code action"
 					));
 				}
 				let mut edits = Vec::new();

@@ -11,7 +11,7 @@ impl Project {
 			let uri = self.uri(&arg.module);
 			let output = service
 				.provide_document_symbols(context, &uri)
-				.map_err(|error| tg::error!(!error, "failed to get tsrs document symbols"))?;
+				.map_err(|error| tg::error!(!error, "failed to get javascript document symbols"))?;
 			let symbols = output
 				.document_symbols
 				.map(|symbols| symbols.into_iter().map(document_symbol).collect())
@@ -83,7 +83,7 @@ fn symbol_kind(kind: native::SymbolKind) -> tg::Result<symbols::Kind> {
 		native::SymbolKind::STRING => symbols::Kind::String,
 		native::SymbolKind::TYPE_PARAMETER => symbols::Kind::TypeParameter,
 		native::SymbolKind::VARIABLE => symbols::Kind::Variable,
-		_ => return Err(tg::error!("unknown tsrs symbol kind")),
+		_ => return Err(tg::error!("unknown javascript symbol kind")),
 	};
 
 	Ok(kind)

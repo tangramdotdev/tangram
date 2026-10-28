@@ -20,7 +20,7 @@ use {
 
 mod backend;
 #[cfg(feature = "tsrs")]
-mod tsrs;
+mod javascript;
 #[cfg(feature = "javascript")]
 mod util;
 
@@ -80,6 +80,10 @@ pub struct State {
 	/// The Tangram instance.
 	instance: tg::instance::dynamic::Instance,
 
+	/// The JavaScript service.
+	#[cfg(feature = "tsrs")]
+	javascript: javascript::Service,
+
 	/// The library path.
 	library_path: PathBuf,
 
@@ -108,10 +112,6 @@ pub struct State {
 
 	/// The store path.
 	store_path: PathBuf,
-
-	/// The TypeScript service.
-	#[cfg(feature = "tsrs")]
-	tsrs: tsrs::Service,
 
 	/// The version.
 	version: String,
@@ -149,8 +149,6 @@ impl Compiler {
 		let request_id = AtomicI32::new(1);
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = Mutex::new(None);
-		#[cfg(feature = "tsrs")]
-		let tsrs = tsrs::Service::new();
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 
 		// Create the compiler.
@@ -158,6 +156,9 @@ impl Compiler {
 			documents,
 
 			instance,
+
+			#[cfg(feature = "tsrs")]
+			javascript: javascript::Service::new(),
 
 			library_path,
 
@@ -179,9 +180,6 @@ impl Compiler {
 
 			store_path,
 
-			#[cfg(feature = "tsrs")]
-			tsrs,
-
 			version,
 
 			workspaces,
@@ -197,15 +195,15 @@ impl Compiler {
 					serve_task.wait().await.unwrap();
 				}
 
+				#[cfg(feature = "tsrs")]
+				{
+					compiler.javascript.stop();
+					compiler.javascript.join().await;
+				}
 				#[cfg(feature = "ty")]
 				{
 					compiler.python.stop();
 					compiler.python.join().await;
-				}
-				#[cfg(feature = "tsrs")]
-				{
-					compiler.tsrs.stop();
-					compiler.tsrs.join().await;
 				}
 			}
 		};
@@ -833,7 +831,7 @@ impl Compiler {
 			return &backend::Unavailable { feature: "ty" };
 		}
 		#[cfg(feature = "tsrs")]
-		return &tsrs::Backend;
+		return &javascript::Backend;
 		#[cfg(not(feature = "tsrs"))]
 		return &backend::Unavailable { feature: "tsrs" };
 	}
@@ -1383,7 +1381,7 @@ impl Deref for Compiler {
 impl Drop for Owned {
 	fn drop(&mut self) {
 		#[cfg(feature = "tsrs")]
-		self.compiler.tsrs.stop();
+		self.compiler.javascript.stop();
 		#[cfg(feature = "ty")]
 		self.compiler.python.stop();
 	}

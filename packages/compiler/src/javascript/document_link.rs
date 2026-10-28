@@ -12,7 +12,7 @@ impl Project {
 		let file = self
 			.program()?
 			.get_source_file(&path)
-			.ok_or_else(|| tg::error!("missing source in the tsrs program"))?;
+			.ok_or_else(|| tg::error!("missing source in the javascript program"))?;
 		let encoding = *self.host.compiler.position_encoding.read().unwrap();
 		let mut links = Vec::new();
 		let mut seen = BTreeSet::new();
@@ -44,23 +44,23 @@ impl Project {
 			let module = self
 				.host
 				.try_module(&target)?
-				.ok_or_else(|| tg::error!("unknown module in a tsrs import link"))?
+				.ok_or_else(|| tg::error!("unknown module in a javascript import link"))?
 				.without_token();
 			let start = usize::try_from(tsrs_ls::astnav::get_start_of_node(specifier, file, false))
-				.map_err(|error| tg::error!(!error, "invalid tsrs import position"))?
+				.map_err(|error| tg::error!(!error, "invalid javascript import position"))?
 				.checked_add(1)
-				.ok_or_else(|| tg::error!("invalid tsrs import position"))?;
+				.ok_or_else(|| tg::error!("invalid javascript import position"))?;
 			let end = specifier
 				.end()
 				.source_offset()
-				.ok_or_else(|| tg::error!("missing tsrs import position"))?;
+				.ok_or_else(|| tg::error!("missing javascript import position"))?;
 			let end = usize::try_from(end)
-				.map_err(|error| tg::error!(!error, "invalid tsrs import position"))?;
+				.map_err(|error| tg::error!(!error, "invalid javascript import position"))?;
 			let end = end
 				.checked_sub(1)
-				.ok_or_else(|| tg::error!("invalid tsrs import position"))?;
+				.ok_or_else(|| tg::error!("invalid javascript import position"))?;
 			let range = tg::Range::try_from_byte_range_in_string(file.text(), start..end, encoding)
-				.ok_or_else(|| tg::error!("invalid tsrs import link range"))?;
+				.ok_or_else(|| tg::error!("invalid javascript import link range"))?;
 			let key = (
 				range.start.line,
 				range.start.character,

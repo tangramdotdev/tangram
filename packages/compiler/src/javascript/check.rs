@@ -15,7 +15,7 @@ pub(super) fn handle(compiler: &Compiler, arg: check::Arg) -> tg::Result<check::
 		.0
 		.project_collection
 		.get_project(&project.id.as_id())
-		.ok_or_else(|| tg::error!("the tsrs snapshot did not contain the project"))?;
+		.ok_or_else(|| tg::error!("the javascript snapshot did not contain the project"))?;
 	let program = project.program()?;
 	let mut diagnostics = program.get_semantic_diagnostics(&context, None);
 	diagnostics.extend(native_project.get_project_diagnostics(&context));

@@ -14,7 +14,7 @@ impl Project {
 			let uri = self.uri(&arg.module);
 			let output = service
 				.provide_signature_help(context, &uri, position(arg.position), None)
-				.map_err(|error| tg::error!(!error, "failed to get tsrs signature help"))?;
+				.map_err(|error| tg::error!(!error, "failed to get javascript signature help"))?;
 			let help = output
 				.signature_help
 				.map(|help| {
@@ -77,9 +77,9 @@ fn parameter_label(signature: &str, label: native::StringOrTuple) -> tg::Result<
 	let signature = signature.encode_utf16().collect::<Vec<_>>();
 	let label = signature
 		.get(start as usize..end as usize)
-		.ok_or_else(|| tg::error!("invalid tsrs signature parameter range"))?;
+		.ok_or_else(|| tg::error!("invalid javascript signature parameter range"))?;
 	let label = String::from_utf16(label)
-		.map_err(|error| tg::error!(!error, "invalid tsrs signature parameter label"))?;
+		.map_err(|error| tg::error!(!error, "invalid javascript signature parameter label"))?;
 
 	Ok(label)
 }

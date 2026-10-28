@@ -106,7 +106,7 @@ impl Service {
 			result?;
 			receiver
 				.await
-				.map_err(|error| tg::error!(!error, "failed to receive the tsrs output"))?
+				.map_err(|error| tg::error!(!error, "failed to receive the javascript output"))?
 		}
 		.boxed()
 	}
@@ -119,11 +119,11 @@ impl Service {
 				let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 				let compiler = compiler.clone();
 				let worker = std::thread::Builder::new()
-					.name("tangram-tsrs".into())
+					.name("tangram-javascript".into())
 					.stack_size(512 * 1024 * 1024)
 					.spawn(move || run(&compiler, receiver))
 					.map_err(|error| {
-						tg::error!(!error, "failed to start the tsrs service")
+						tg::error!(!error, "failed to start the javascript service")
 					})?;
 				self.sender.lock().unwrap().replace(sender);
 				thread.replace(worker);
@@ -135,9 +135,9 @@ impl Service {
 			.lock()
 			.unwrap()
 			.as_ref()
-			.ok_or_else(|| tg::error!("the tsrs service is stopped"))?
+			.ok_or_else(|| tg::error!("the javascript service is stopped"))?
 			.send(job)
-			.map_err(|_| tg::error!("failed to send the tsrs job"))?;
+			.map_err(|_| tg::error!("failed to send the javascript job"))?;
 
 		Ok(())
 	}
@@ -167,7 +167,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::IncomingArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::IncomingOutput>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.call_hierarchy_incoming(&arg)
 		})
 	}
@@ -178,7 +178,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::OutgoingArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::OutgoingOutput>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.call_hierarchy_outgoing(&arg)
 		})
 	}
@@ -189,7 +189,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::PrepareArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::PrepareOutput>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.call_hierarchy_prepare(&arg)
 		})
 	}
@@ -201,7 +201,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::check::Output>> {
 		// Check with a separate program rather than the editor project.
 		compiler
-			.tsrs
+			.javascript
 			.job(compiler, move |compiler, _| check::handle(compiler, arg))
 	}
 
@@ -212,7 +212,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::code_action::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.code_action(&arg))
 	}
 
@@ -223,7 +223,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::completion::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.completion(&arg))
 	}
 
@@ -233,7 +233,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::completion::ResolveArg,
 	) -> BoxFuture<'static, tg::Result<crate::completion::ResolveOutput>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.completion_resolve(arg)
 		})
 	}
@@ -245,7 +245,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.declaration(&arg))
 	}
 
@@ -256,7 +256,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.definition(&arg))
 	}
 
@@ -267,7 +267,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::document::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.document(&arg))
 	}
 
@@ -278,7 +278,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::diagnostics::DocumentOutput>> {
 		let modules = arg.modules.clone();
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.diagnostics(arg))
 	}
 
@@ -288,7 +288,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::document_highlight::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::document_highlight::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.document_highlight(&arg)
 		})
 	}
@@ -299,7 +299,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::document_link::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::document_link::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.document_link(&arg)
 		})
 	}
@@ -310,7 +310,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::folding_range::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::folding_range::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.folding_range(&arg)
 		})
 	}
@@ -322,7 +322,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::hover::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.hover(&arg))
 	}
 
@@ -332,7 +332,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::implementation::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::implementation::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.implementation(&arg)
 		})
 	}
@@ -344,7 +344,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::inlay_hint::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.inlay_hint(&arg))
 	}
 
@@ -354,7 +354,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::prepare_rename::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::prepare_rename::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.prepare_rename(&arg)
 		})
 	}
@@ -366,7 +366,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::references::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.references(&arg))
 	}
 
@@ -377,7 +377,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::rename::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.rename(arg))
 	}
 
@@ -387,7 +387,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::selection_range::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::selection_range::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.selection_range(arg)
 		})
 	}
@@ -398,7 +398,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::semantic_tokens::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::semantic_tokens::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.semantic_tokens(&arg)
 		})
 	}
@@ -409,7 +409,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::signature_help::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::signature_help::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.signature_help(&arg)
 		})
 	}
@@ -421,7 +421,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::symbols::Output>> {
 		let modules = vec![arg.module.clone()];
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, modules, move |project| project.symbols(&arg))
 	}
 
@@ -431,7 +431,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.tsrs.run(compiler, modules, move |project| {
+		compiler.javascript.run(compiler, modules, move |project| {
 			project.type_definition(&arg)
 		})
 	}
@@ -442,7 +442,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::workspace_symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::workspace_symbols::Output>> {
 		compiler
-			.tsrs
+			.javascript
 			.run(compiler, Vec::new(), move |project| {
 				project.workspace_symbols(&arg)
 			})

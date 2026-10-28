@@ -22,7 +22,7 @@ impl Project {
 			&preferences,
 			&arg.query,
 		)
-		.map_err(|error| tg::error!(!error, "failed to get tsrs workspace symbols"))?;
+		.map_err(|error| tg::error!(!error, "failed to get javascript workspace symbols"))?;
 		let symbols = output
 			.symbol_informations
 			.map(|symbols| {

@@ -115,7 +115,7 @@ impl Project {
 				let _snapshot = SnapshotLease(snapshot);
 				return Err(tg::error!(
 					!error,
-					"failed to create the tsrs program"
+					"failed to create the javascript program"
 				));
 			},
 		};
@@ -126,7 +126,7 @@ impl Project {
 			.and_then(Option::as_ref)
 			.and_then(|project| project.id().synthetic())
 			.ok_or_else(|| {
-				tg::error!("the tsrs snapshot did not contain a synthetic project")
+				tg::error!("the javascript snapshot did not contain a synthetic project")
 			})?;
 		let language_service_host = LanguageServiceHost {
 			snapshot: RwLock::new(snapshot.0.clone()),
@@ -198,7 +198,7 @@ impl Project {
 			.map_err(|(snapshot, error)| {
 				let _snapshot = SnapshotLease(snapshot);
 				self.host.restore(changes);
-				tg::error!(!error, "failed to update the tsrs project")
+				tg::error!(!error, "failed to update the javascript project")
 			})?;
 		self.set_snapshot(SnapshotLease(snapshot))?;
 		self.prepared_files.borrow_mut().clear();
@@ -216,7 +216,7 @@ impl Project {
 			.get_project(&self.id.as_id())
 			.and_then(|project| project.get_program())
 			.ok_or_else(|| {
-				tg::error!("the updated tsrs snapshot did not contain the project")
+				tg::error!("the updated javascript snapshot did not contain the project")
 			})?;
 		if !std::ptr::eq(program, self.program()?) {
 			self.language_service.borrow_mut().take();
@@ -234,7 +234,7 @@ impl Project {
 			.project_collection
 			.get_project(&self.id.as_id())
 			.and_then(|project| project.get_program())
-			.ok_or_else(|| tg::error!("the tsrs project did not contain a program"))
+			.ok_or_else(|| tg::error!("the javascript project did not contain a program"))
 	}
 
 	pub(super) fn with_language_service<T>(
@@ -276,7 +276,7 @@ impl Project {
 		let program = self.program()?;
 		if program.get_source_file(&path).is_none() {
 			return Err(tg::error!(
-				"the tsrs program did not contain the requested module"
+				"the javascript program did not contain the requested module"
 			));
 		}
 

@@ -12,11 +12,11 @@ impl Project {
 				let output = service
 					.provide_diagnostics(context, &uri)
 					.map_err(|error| {
-						tg::error!(!error, "failed to get the tsrs diagnostics")
+						tg::error!(!error, "failed to get the javascript diagnostics")
 					})?;
 				let items = output
 					.full_document_diagnostic_report
-					.ok_or_else(|| tg::error!("missing full report in the tsrs diagnostics"))?
+					.ok_or_else(|| tg::error!("missing full report in the javascript diagnostics"))?
 					.items
 					.into_iter()
 					.map(|diagnostic| {
@@ -35,7 +35,7 @@ impl Project {
 									.map(|content| content.value)
 							})
 							.ok_or_else(|| {
-								tg::error!("missing message in a tsrs diagnostic")
+								tg::error!("missing message in a javascript diagnostic")
 							})?;
 						let code = diagnostic.code.as_ref().and_then(|code| code.integer);
 						let message = normalize_message(code, message);
@@ -54,7 +54,7 @@ impl Project {
 							},
 							Some(_) => {
 								return Err(tg::error!(
-									"invalid severity in a tsrs diagnostic"
+									"invalid severity in a javascript diagnostic"
 								));
 							},
 						};
@@ -87,14 +87,14 @@ impl Project {
 			let module = self
 				.host
 				.try_module(file.file_name())?
-				.ok_or_else(|| tg::error!("unknown module in a tsrs diagnostic"))?
+				.ok_or_else(|| tg::error!("unknown module in a javascript diagnostic"))?
 				.without_token();
 			let range = tg::Range::try_from_byte_range_in_string(
 				file.text(),
 				start as usize..end as usize,
 				*self.host.compiler.position_encoding.read().unwrap(),
 			)
-			.ok_or_else(|| tg::error!("invalid range in a tsrs diagnostic"))?;
+			.ok_or_else(|| tg::error!("invalid range in a javascript diagnostic"))?;
 			Some(tg::module::data::Location { module, range })
 		} else {
 			None
@@ -106,7 +106,7 @@ impl Project {
 			"\n",
 		);
 		let message = String::from_utf8(message).map_err(|error| {
-			tg::error!(!error, "invalid utf-8 in a tsrs diagnostic message")
+			tg::error!(!error, "invalid utf-8 in a javascript diagnostic message")
 		})?;
 		let message = normalize_message(Some(diagnostic.code()), message);
 		let severity = match diagnostic.category() {

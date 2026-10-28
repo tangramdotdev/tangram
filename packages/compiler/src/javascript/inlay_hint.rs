@@ -20,7 +20,7 @@ impl Project {
 			params.text_document = text_document;
 			let output = service
 				.provide_inlay_hint(context, &params)
-				.map_err(|error| tg::error!(!error, "failed to get tsrs inlay hints"))?;
+				.map_err(|error| tg::error!(!error, "failed to get javascript inlay hints"))?;
 			let hints = output
 				.inlay_hints
 				.map(|hints| {
@@ -34,7 +34,7 @@ impl Project {
 										Ok(inlay_hint::Kind::Parameter)
 									},
 									native::InlayHintKind::TYPE => Ok(inlay_hint::Kind::Type),
-									_ => Err(tg::error!("unknown tsrs inlay hint kind")),
+									_ => Err(tg::error!("unknown javascript inlay hint kind")),
 								})
 								.transpose()?;
 							let label = hint.label.string.unwrap_or_else(|| {

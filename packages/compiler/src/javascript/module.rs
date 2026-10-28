@@ -40,12 +40,12 @@ pub(super) fn try_module_from_path(path: &str) -> tg::Result<Option<tg::module::
 	}
 	let identity = BASE64URL_NOPAD
 		.decode(identity.as_bytes())
-		.map_err(|error| tg::error!(!error, "invalid encoding for a tsrs module path"))?;
+		.map_err(|error| tg::error!(!error, "invalid encoding for a javascript module path"))?;
 	let identity = std::str::from_utf8(&identity)
-		.map_err(|error| tg::error!(!error, "invalid identity in a tsrs module path"))?;
+		.map_err(|error| tg::error!(!error, "invalid identity in a javascript module path"))?;
 	let module = identity
 		.parse::<tg::module::Data>()
-		.map_err(|error| tg::error!(!error, "failed to decode the tsrs module identity"))?
+		.map_err(|error| tg::error!(!error, "failed to decode the javascript module identity"))?
 		.without_token();
 
 	Ok(Some(module))

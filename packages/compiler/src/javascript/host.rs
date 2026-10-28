@@ -222,7 +222,7 @@ impl Host {
 			Ok(output) => output,
 			Err(error) => {
 				self.files.lock().unwrap().unresolved.insert(key);
-				tracing::debug!(%error, "tsrs module resolution failed");
+				tracing::debug!(%error, "javascript module resolution failed");
 				return Ok(None);
 			},
 		};
@@ -309,19 +309,19 @@ impl tsrs_vfs::FS for Host {
 		match self.try_read(path) {
 			Ok(text) => text,
 			Err(error) => {
-				tracing::debug!(%error, "tsrs module loading failed");
+				tracing::debug!(%error, "javascript module loading failed");
 				None
 			},
 		}
 	}
 	fn write_file(&self, _path: &str, _data: &str) -> Result<(), String> {
-		Err("the tsrs filesystem is read-only".into())
+		Err("the javascript filesystem is read-only".into())
 	}
 	fn append_file(&self, _path: &str, _data: &str) -> Result<(), String> {
-		Err("the tsrs filesystem is read-only".into())
+		Err("the javascript filesystem is read-only".into())
 	}
 	fn remove(&self, _path: &str) -> Result<(), String> {
-		Err("the tsrs filesystem is read-only".into())
+		Err("the javascript filesystem is read-only".into())
 	}
 	fn chtimes(
 		&self,
@@ -329,7 +329,7 @@ impl tsrs_vfs::FS for Host {
 		_access: SystemTime,
 		_modification: SystemTime,
 	) -> Result<(), String> {
-		Err("the tsrs filesystem is read-only".into())
+		Err("the javascript filesystem is read-only".into())
 	}
 	fn directory_exists(&self, path: &str) -> bool {
 		path == "/" || path.starts_with("/__library__") || path.starts_with("/__runtime__")

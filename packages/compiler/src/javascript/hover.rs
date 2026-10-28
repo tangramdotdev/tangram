@@ -19,7 +19,7 @@ impl Project {
 			};
 			let output = service
 				.provide_hover(context, &params)
-				.map_err(|error| tg::error!(!error, "failed to get the tsrs hover"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the javascript hover"))?;
 			let text = output.hover.and_then(|hover| {
 				let contents = hover.contents;
 				contents

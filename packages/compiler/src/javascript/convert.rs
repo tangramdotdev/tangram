@@ -17,7 +17,7 @@ pub(super) fn script_element_kind(kind: native::SymbolKind) -> tg::Result<&'stat
 		native::SymbolKind::PROPERTY | native::SymbolKind::FIELD => "property",
 		native::SymbolKind::TYPE_PARAMETER => "type parameter",
 		native::SymbolKind::VARIABLE => "var",
-		_ => return Err(tg::error!("unsupported tsrs workspace symbol kind")),
+		_ => return Err(tg::error!("unsupported javascript workspace symbol kind")),
 	};
 
 	Ok(kind)
@@ -54,7 +54,7 @@ impl Project {
 		let module = self
 			.host
 			.try_module(&location.uri.file_name())?
-			.ok_or_else(|| tg::error!("unknown module in a tsrs location"))?
+			.ok_or_else(|| tg::error!("unknown module in a javascript location"))?
 			.without_token();
 		let range = range(location.range);
 		let location = tg::module::data::Location { module, range };

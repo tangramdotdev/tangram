@@ -16,7 +16,7 @@ impl Project {
 					position(arg.position),
 					None,
 				)
-				.map_err(|error| tg::error!(!error, "failed to get the tsrs completions"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the javascript completions"))?;
 			let items = output.items.or_else(|| output.list.map(|list| list.items));
 			let entries = items
 				.map(|items| {
@@ -44,10 +44,10 @@ impl Project {
 						tg::error!(!error, "failed to encode the completion metadata")
 					})?;
 					let data = tsrs_core::json::unmarshal(&text).map_err(
-						|error| tg::error!(%error, "invalid tsrs completion metadata"),
+						|error| tg::error!(%error, "invalid javascript completion metadata"),
 					)?;
 					Some(native::CompletionItem::from_json(&data).map_err(|error| {
-						tg::error!(!error, "invalid tsrs completion item")
+						tg::error!(!error, "invalid javascript completion item")
 					})?)
 				} else {
 					let output = service
@@ -58,7 +58,7 @@ impl Project {
 							None,
 						)
 						.map_err(|error| {
-							tg::error!(!error, "failed to get the tsrs completions")
+							tg::error!(!error, "failed to get the javascript completions")
 						})?;
 					output
 						.items
@@ -83,7 +83,7 @@ impl Project {
 			let item = service
 				.resolve_completion_item(context, item, data.as_ref())
 				.map_err(|error| {
-					tg::error!(!error, "failed to resolve the tsrs completion")
+					tg::error!(!error, "failed to resolve the javascript completion")
 				})?;
 			let kind_modifiers = completion_kind_modifiers(&item);
 			let additional_text_edits = item.additional_text_edits.map(|edits| {
@@ -119,10 +119,10 @@ impl Project {
 fn completion_entry(item: native::CompletionItem) -> tg::Result<completion::Entry> {
 	// Preserve the native item so completion resolution retains its source and auto-import metadata.
 	let text = tsrs_core::json::marshal(&item.to_json())
-		.map_err(|error| tg::error!(%error, "failed to encode the tsrs completion item"))?;
+		.map_err(|error| tg::error!(%error, "failed to encode the javascript completion item"))?;
 	let data =
 		Some(serde_json::from_str(&text).map_err(|error| {
-			tg::error!(!error, "failed to decode the tsrs completion item")
+			tg::error!(!error, "failed to decode the javascript completion item")
 		})?);
 	let source = item
 		.data

@@ -69,7 +69,7 @@ impl Project {
 		let program = self.program()?;
 		let path = self.host.path(&arg.module);
 		let source_file = program.get_source_file(&path).ok_or_else(|| {
-			tg::error!("the tsrs program did not contain the requested module")
+			tg::error!("the javascript program did not contain the requested module")
 		})?;
 		let mut checker = program.get_type_checker(&context);
 		let converters = self.snapshot.borrow().0.converters();

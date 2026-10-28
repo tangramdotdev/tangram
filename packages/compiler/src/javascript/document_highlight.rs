@@ -15,7 +15,7 @@ impl Project {
 			let output = service
 				.provide_document_highlights(context, &uri, position(arg.position))
 				.map_err(|error| {
-					tg::error!(!error, "failed to get tsrs document highlights")
+					tg::error!(!error, "failed to get javascript document highlights")
 				})?;
 			let highlights = output
 				.document_highlights
@@ -36,7 +36,7 @@ impl Project {
 										Ok(document_highlight::Kind::Write)
 									},
 									_ => Err(tg::error!(
-										"unknown tsrs document highlight kind"
+										"unknown javascript document highlight kind"
 									)),
 								})
 								.transpose()?;

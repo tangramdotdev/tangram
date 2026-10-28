@@ -22,7 +22,7 @@ impl Project {
 			};
 			let output = service
 				.provide_references(context, &params, None)
-				.map_err(|error| tg::error!(!error, "failed to get the tsrs references"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the javascript references"))?;
 			let locations = output
 				.locations
 				.map(|locations| {

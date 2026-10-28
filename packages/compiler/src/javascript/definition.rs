@@ -16,7 +16,7 @@ impl Project {
 			let position = position(arg.position);
 			let output = service
 				.provide_definition(context, &uri, position)
-				.map_err(|error| tg::error!(!error, "failed to get the tsrs definitions"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the javascript definitions"))?;
 			let locations = self.definition_locations(output)?;
 			let output = definition::Output { locations };
 
@@ -30,7 +30,7 @@ impl Project {
 			let position = position(arg.position);
 			let output = service
 				.provide_type_definition(context, &uri, position)
-				.map_err(|error| tg::error!(!error, "failed to get the tsrs definitions"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the javascript definitions"))?;
 			let locations = self.definition_locations(output)?;
 			let output = definition::Output { locations };
 

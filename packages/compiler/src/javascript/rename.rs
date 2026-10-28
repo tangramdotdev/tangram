@@ -18,7 +18,7 @@ impl Project {
 			let output = service
 				.provide_rename(context, &params, None)
 				.map_err(|error| {
-					tg::error!(!error, "failed to get the tsrs rename locations")
+					tg::error!(!error, "failed to get the javascript rename locations")
 				})?;
 			let edits = output
 				.workspace_edit
@@ -33,7 +33,7 @@ impl Project {
 						.collect::<Vec<_>>();
 					for change in edit.document_changes.unwrap_or_default() {
 						let change = change.text_document_edit.ok_or_else(|| {
-							tg::error!("unsupported resource change in the tsrs rename")
+							tg::error!("unsupported resource change in the javascript rename")
 						})?;
 						let uri = change.text_document.uri;
 						for edit in change.edits {
@@ -45,7 +45,7 @@ impl Project {
 								})?
 							} else {
 								return Err(tg::error!(
-									"unsupported snippet edit in the tsrs rename"
+									"unsupported snippet edit in the javascript rename"
 								));
 							};
 							edits.push((uri.clone(), edit));

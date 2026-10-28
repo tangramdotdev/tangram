@@ -20,7 +20,7 @@ impl Project {
 			params.text_document = text_document;
 			let output = service
 				.provide_selection_ranges(context, &params)
-				.map_err(|error| tg::error!(!error, "failed to get tsrs selection ranges"))?;
+				.map_err(|error| tg::error!(!error, "failed to get javascript selection ranges"))?;
 			let ranges = output
 				.selection_ranges
 				.map(|ranges| ranges.into_iter().map(selection).collect());

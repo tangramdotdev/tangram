@@ -9,7 +9,7 @@ impl Project {
 			let uri = self.uri(&arg.module);
 			let output = service
 				.provide_folding_range(context, &uri)
-				.map_err(|error| tg::error!(!error, "failed to get tsrs folding ranges"))?;
+				.map_err(|error| tg::error!(!error, "failed to get javascript folding ranges"))?;
 			let ranges = output
 				.folding_ranges
 				.map(|ranges| {
@@ -28,7 +28,7 @@ impl Project {
 									native::FoldingRangeKind::REGION => {
 										Ok(folding_range::Kind::Region)
 									},
-									_ => Err(tg::error!("unknown tsrs folding range kind")),
+									_ => Err(tg::error!("unknown javascript folding range kind")),
 								})
 								.transpose()?;
 							let range = folding_range::Range {
