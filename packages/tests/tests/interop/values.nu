@@ -5,15 +5,15 @@ let path = artifact {
     'tangram.ts': '
         import lookingGlass, { echo, fail, explode, alias } from "./mirror.tg.py";
         export default async function () {
-            tg.assert(await lookingGlass() === "a Python looking glass");
-            tg.assert(await alias("-a") === "-a");
+            tg.assert(await lookingGlass.build() === "a Python looking glass");
+            tg.assert(await alias.build("-a") === "-a");
             tg.assert(await tg.command(alias).build().arg("-A") === "-A");
             const value = { count: 42, flag: true, list: ["comet", 1.5], nothing: null };
-            tg.assert(tg.encoding.json.encode(await echo(value)) === tg.encoding.json.encode(value));
-            const bytes = await echo(new Uint8Array([0, 42, 255]));
+            tg.assert(tg.encoding.json.encode(await echo.build(value)) === tg.encoding.json.encode(value));
+            const bytes = await echo.build(new Uint8Array([0, 42, 255]));
             tg.assert(bytes instanceof Uint8Array && bytes[2] === 255);
             const file = await tg.file("space dust");
-            const directory = await echo(await tg.directory({ dust: file }));
+            const directory = await echo.build(await tg.directory({ dust: file }));
             tg.assert(directory instanceof tg.Directory);
             const dust = await directory.get("dust");
             tg.assert(dust instanceof tg.File);
@@ -21,7 +21,7 @@ let path = artifact {
             tg.assert(await tg.command(echo).arg(Promise.resolve("future")).build() === "future");
             for (const function_ of [fail, explode]) {
                 let failed = false;
-                try { await function_(); } catch { failed = true; }
+                try { await function_.build(); } catch { failed = true; }
                 tg.assert(failed);
             }
             return "mirrors aligned";
@@ -34,14 +34,14 @@ let path = artifact {
         # ///
         import mirror
         async def echo(value):
-            return await mirror.echo(value)
+            return await mirror.echo.build(value)
         alias = echo
         def default():
             return "a Python looking glass"
         async def fail():
             raise ValueError("the dragon ate the argument")
         async def explode():
-            return await mirror.fail()
+            return await mirror.fail.build()
     '
     'mirror.tg.ts': '
         export const echo = (value: tg.Value) => value;
@@ -58,8 +58,8 @@ assert ($output.stdout | str contains 'mirrors aligned')
 let bad = artifact {
     'tangram.ts': '
         import { echo } from "./mirror.tg.py";
-        const value: string = await echo(42);
-        await echo(() => 42);
+        const value: string = await echo.build(42);
+        await echo.build(() => 42);
     '
     'mirror.tg.py': 'def echo(value): return value'
 }
@@ -74,8 +74,8 @@ let bad = artifact {
         # ///
         import mirror
         async def default():
-            value: str = await mirror.echo(42)
-            await mirror.echo(object())
+            value: str = await mirror.echo.build(42)
+            await mirror.echo.build(object())
     '
     'mirror.tg.ts': 'export const echo = (value: tg.Value) => value;'
 }

@@ -2,7 +2,7 @@ use ../../util/test.nu *
 use ../../util/lsp.nu
 
 let local = server spawn
-let source = "import { greet } from './helper.tg.py';\ngreet();\n"
+let source = "import { greet } from './helper.tg.py';\ngreet.build();\n"
 let path = artifact {
     'main.tg.ts': $source
     'helper.tg.py': "def greet():\n    return \"a sufficiently long string\"\n"
@@ -48,7 +48,7 @@ for edit in ($changes.0.edits | sort-by {get range.start.line} {get range.start.
     $lines = $lines | update $edit.range.start.line ($prefix + $edit.newText + $suffix)
 }
 let renamed = $lines | str join "\n"
-assert equal $renamed "import { greet as welcome } from './helper.tg.py';\nwelcome();\n"
+assert equal $renamed "import { greet as welcome } from './helper.tg.py';\nwelcome.build();\n"
 $renamed | save --force ($path | path join main.tg.ts)
 success (tg check ($path | path join main.tg.ts) | complete)
 assert equal (open --raw $generated) $text

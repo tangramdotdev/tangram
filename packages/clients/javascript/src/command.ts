@@ -21,7 +21,10 @@ export function command(
 ): tg.Command.Builder;
 export function command(...args: tg.Args<tg.Command.Arg>): tg.Command.Builder;
 export function command(...args: any): any {
-	if (typeof args[0] === "function") {
+	if (
+		typeof args[0] === "function" &&
+		!(args[0] instanceof tg.Command.Builder)
+	) {
 		let command = tg.Command.javascript(args[0], args.slice(1)).then(
 			(referent) => referent.node,
 		);

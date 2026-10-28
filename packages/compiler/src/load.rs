@@ -8,6 +8,8 @@ use {
 
 #[cfg(all(feature = "javascript", feature = "python"))]
 mod python;
+#[cfg(all(feature = "javascript", feature = "python"))]
+mod typescript;
 
 /// The prefix of the comment that records the source of each export in a generated module.
 const MARKER: &str = "tangram: ";
@@ -45,106 +47,13 @@ pub fn module(
 	}
 	let interface = crate::interface::module(module, text)
 		.map_err(|error| tg::error!(!error, "failed to discover the cross-language exports"))?;
-	let exports = interface.exports;
 
-	let mut output = String::new();
-	match language.unwrap() {
-		tg::module::load::Language::JavaScript => {
-			for (index, (name, export)) in exports.iter().enumerate() {
-				// Record the source of the export and its documentation.
-				if let Some(source) = Source::new(name, export, text) {
-					writeln!(
-						output,
-						"// {MARKER}{}",
-						serde_json::to_string(&source).unwrap()
-					)
-					.unwrap();
-				}
-				if let Some(documentation) = &export.documentation {
-					output.push_str("/**\n");
-					for line in documentation.replace("*/", "*\\/").lines() {
-						if line.is_empty() {
-							output.push_str(" *\n");
-						} else {
-							writeln!(output, " * {line}").unwrap();
-						}
-					}
-					output.push_str(" */\n");
-				}
+	// Generate the module.
+	let output = match language.unwrap() {
+		tg::module::load::Language::JavaScript => typescript_module(&interface, text),
+		tg::module::load::Language::Python => python_module(&interface, text),
+	};
 
-				let name = serde_json::to_string(name).unwrap();
-				writeln!(output, "const f{index} = {{\nasync {name}(...args: Array<tg.Value>): Promise<tg.Value> {{ return await tg.command(f{index}, ...args).build(); }}\n}}[{name}];\nexport {{ f{index} as {name} }};").unwrap();
-			}
-			output.push_str("export {};\n");
-		},
-		tg::module::load::Language::Python => {
-			// Bind each export that Python can name.
-			let names = exports.keys().cloned().collect();
-			let bindings = exports
-				.iter()
-				.filter_map(|(name, export)| {
-					let binding = python::binding(name, &names).ok()?;
-					Some((binding, (name, export)))
-				})
-				.collect::<BTreeMap<_, _>>();
-
-			// Choose helper names that cannot shadow a binding, preferring the client's global name.
-			let mut prefix = "_tg".to_owned();
-			while bindings.keys().any(|binding| binding.starts_with(&prefix)) {
-				prefix.push('_');
-			}
-			let client = if bindings.contains_key("tg") {
-				writeln!(output, "import tangram as {prefix}_client").unwrap();
-				format!("{prefix}_client")
-			} else {
-				"tg".to_owned()
-			};
-			let arguments = if bindings.contains_key("args") {
-				format!("{prefix}_args")
-			} else {
-				"args".to_owned()
-			};
-
-			// Generate a function for each binding, recording the source of the export and its documentation.
-			for (binding, (name, export)) in &bindings {
-				if let Some(source) = Source::new(name, export, text) {
-					writeln!(
-						output,
-						"# {MARKER}{}",
-						serde_json::to_string(&source).unwrap()
-					)
-					.unwrap();
-				}
-				writeln!(
-					output,
-					"async def {binding}(*{arguments}: {client}.Value.Type) -> {client}.Value.Type:"
-				)
-				.unwrap();
-				if let Some(documentation) = &export.documentation {
-					writeln!(
-						output,
-						"    {}",
-						serde_json::to_string(documentation).unwrap()
-					)
-					.unwrap();
-				}
-				writeln!(
-					output,
-					"    return await {client}.command({binding}, *{arguments}).build()"
-				)
-				.unwrap();
-				// Record the export name so that the function targets the export rather than the binding.
-				if binding != *name {
-					let name = serde_json::to_string(name).unwrap();
-					writeln!(output, "{binding}.__tangram_export__ = {name}").unwrap();
-				}
-			}
-
-			let names = bindings.keys().collect::<Vec<_>>();
-			let names = serde_json::to_string(&names).unwrap();
-			writeln!(output, "__all__ = {names}").unwrap();
-		},
-	}
 	Ok(output)
 }
 
@@ -228,6 +137,171 @@ impl Source {
 	}
 }
 
+/// Generate a TypeScript module that exports a command for each export of the interface.
+#[cfg(all(feature = "javascript", feature = "python"))]
+fn typescript_module(interface: &tg::Interface, text: &str) -> String {
+	let mut output = String::new();
+
+	// Define the interface's named types.
+	let definitions = interface
+		.definitions
+		.keys()
+		.enumerate()
+		.map(|(index, name)| (name.clone(), format!("T{index}")))
+		.collect::<BTreeMap<_, _>>();
+	for (name, type_) in &interface.definitions {
+		let alias = &definitions[name];
+		let type_ = typescript::type_(type_, &definitions);
+		writeln!(output, "type {alias} = {type_};").unwrap();
+	}
+
+	for (index, (name, export)) in interface.exports.iter().enumerate() {
+		// Define a function whose name is the export's name, so that a command built from it targets the export.
+		let quoted = serde_json::to_string(name).unwrap();
+		writeln!(
+			output,
+			"const f{index} = {{ async {quoted}() {{}} }}[{quoted}];"
+		)
+		.unwrap();
+
+		// Record the source of the export and its documentation.
+		if let Some(source) = Source::new(name, export, text) {
+			writeln!(
+				output,
+				"// {MARKER}{}",
+				serde_json::to_string(&source).unwrap()
+			)
+			.unwrap();
+		}
+		if let Some(documentation) = &export.documentation {
+			output.push_str("/**\n");
+			for line in documentation.replace("*/", "*\\/").lines() {
+				if line.is_empty() {
+					output.push_str(" *\n");
+				} else {
+					writeln!(output, " * {line}").unwrap();
+				}
+			}
+			output.push_str(" */\n");
+		}
+
+		// Export the command.
+		let type_ = typescript::type_(&export.type_, &definitions);
+		writeln!(
+			output,
+			"const c{index}: {type_} = tg.command(f{index}) as unknown as {type_};\nexport {{ c{index} as {quoted} }};"
+		)
+		.unwrap();
+	}
+	output.push_str("export {};\n");
+
+	output
+}
+
+/// Generate a Python module that binds a command to each export of the interface that Python can name.
+#[cfg(all(feature = "javascript", feature = "python"))]
+fn python_module(interface: &tg::Interface, text: &str) -> String {
+	let mut output = String::new();
+
+	// Bind each export that Python can name.
+	let names = interface.exports.keys().cloned().collect();
+	let bindings = interface
+		.exports
+		.iter()
+		.filter_map(|(name, export)| {
+			let binding = python::binding(name, &names).ok()?;
+			Some((binding, (name, export)))
+		})
+		.collect::<BTreeMap<_, _>>();
+
+	// Choose helper names that cannot shadow a binding, preferring the client's global name.
+	let mut prefix = "_tg".to_owned();
+	while bindings.keys().any(|binding| binding.starts_with(&prefix)) {
+		prefix.push('_');
+	}
+	output.push_str("from __future__ import annotations\n");
+	let typing = format!("{prefix}_typing");
+	writeln!(output, "import typing as {typing}").unwrap();
+	let client = if bindings.contains_key("tg") {
+		writeln!(output, "import tangram as {prefix}_client").unwrap();
+		format!("{prefix}_client")
+	} else {
+		"tg".to_owned()
+	};
+
+	// Name the interface's definitions.
+	let definitions = interface
+		.definitions
+		.keys()
+		.enumerate()
+		.map(|(index, name)| (name.clone(), format!("{prefix}_type_{index}")))
+		.collect::<BTreeMap<_, _>>();
+	let names = python::Names {
+		client: client.clone(),
+		definitions,
+		prefix: prefix.clone(),
+		records: std::cell::RefCell::default(),
+		typing: typing.clone(),
+	};
+
+	// Print the definitions and the types of the exports.
+	let definitions = interface
+		.definitions
+		.iter()
+		.map(|(name, type_)| {
+			(
+				names.definitions[name].clone(),
+				python::type_(type_, &names),
+			)
+		})
+		.collect::<Vec<_>>();
+	let types = bindings
+		.values()
+		.map(|(_, export)| python::type_(&export.type_, &names))
+		.collect::<Vec<_>>();
+	for record in names.records.borrow().iter() {
+		writeln!(output, "{record}").unwrap();
+	}
+	for (alias, type_) in &definitions {
+		writeln!(output, "type {alias} = {type_}").unwrap();
+	}
+
+	for (index, ((binding, (name, export)), type_)) in bindings.iter().zip(types).enumerate() {
+		// Define a function that records the export's name, so that a command built from it targets the export.
+		let function = format!("{prefix}_function_{index}");
+		writeln!(output, "async def {function}(): pass").unwrap();
+		let quoted = serde_json::to_string(name).unwrap();
+		writeln!(output, "{function}.__tangram_export__ = {quoted}").unwrap();
+
+		// Record the source of the export.
+		if let Some(source) = Source::new(name, export, text) {
+			writeln!(
+				output,
+				"# {MARKER}{}",
+				serde_json::to_string(&source).unwrap()
+			)
+			.unwrap();
+		}
+
+		// Bind the command, followed by the export's documentation.
+		let quoted_type = serde_json::to_string(&type_).unwrap();
+		writeln!(
+			output,
+			"{binding} = {typing}.cast({quoted_type}, {client}.command({function}))"
+		)
+		.unwrap();
+		if let Some(documentation) = &export.documentation {
+			writeln!(output, "{}", serde_json::to_string(documentation).unwrap()).unwrap();
+		}
+	}
+
+	let names = bindings.keys().collect::<Vec<_>>();
+	let names = serde_json::to_string(&names).unwrap();
+	writeln!(output, "__all__ = {names}").unwrap();
+
+	output
+}
+
 #[cfg(all(test, feature = "javascript", feature = "python"))]
 mod tests {
 	use super::*;
@@ -273,8 +347,8 @@ mod tests {
 		.unwrap();
 		assert!(ruff_python_parser::parse_module(&text).is_ok());
 		assert!(!text.contains("import tangram as _tg_client\n"));
-		assert!(text.contains("async def _tg_client("));
-		assert!(text.contains("async def default("));
+		assert!(text.contains("\n_tg_client = "));
+		assert!(text.contains("\ndefault = "));
 	}
 
 	#[test]
@@ -292,7 +366,7 @@ mod tests {
 			text.contains("/**\n * Greet someone.\n *\n * Args:\n *     name: The name.\n */\n"),
 			"{text}"
 		);
-		let offset = text.find("async \"greet\"").unwrap();
+		let offset = text.find("export { c0 as \"greet\" }").unwrap();
 		let export = super::source(&text, offset).unwrap();
 		assert_eq!(export.name, "greet");
 		let range = export.range(tg::position::Encoding::Utf8);
@@ -313,11 +387,11 @@ mod tests {
 		assert!(ruff_python_parser::parse_module(&text).is_ok());
 		assert!(
 			text.contains(
-				"async def hello(*args: tg.Value.Type) -> tg.Value.Type:\n    \"Say hello.\"\n"
+				"hello = _tg_typing.cast(\"tg.Command[tuple[tg.Value.Type, ...], tg.Value.Type]\", tg.command(_tg_function_0))\n\"Say hello.\"\n"
 			),
 			"{text}"
 		);
-		let offset = text.find("async def hello").unwrap();
+		let offset = text.find("\nhello = ").unwrap() + 1;
 		let export = super::source(&text, offset).unwrap();
 		assert_eq!(export.name, "hello");
 		let range = export.range(tg::position::Encoding::Utf16);
@@ -335,15 +409,10 @@ mod tests {
 		)
 		.unwrap();
 		assert!(ruff_python_parser::parse_module(&text).is_ok());
-		assert!(text.contains("async def lambda_("));
-		assert!(text.contains("lambda_.__tangram_export__ = \"lambda\"\n"));
+		assert!(text.contains("\nlambda_ = "), "{text}");
 		// Python writes a soft keyword and the default export's name as attributes, so they keep their names.
 		for name in ["match", "type", "_", "default"] {
-			assert!(text.contains(&format!("async def {name}(")), "{text}");
-			assert!(
-				!text.contains(&format!("\n{name}.__tangram_export__")),
-				"{text}"
-			);
+			assert!(text.contains(&format!("\n{name} = ")), "{text}");
 		}
 		assert!(text.contains("__all__ = [\"_\",\"default\",\"lambda_\",\"match\",\"type\"]\n"));
 	}
@@ -358,12 +427,17 @@ mod tests {
 		)
 		.unwrap();
 		assert!(ruff_python_parser::parse_module(&text).is_ok());
-		// The export's own name takes precedence over the escaped name of another export.
-		assert!(text.contains("async def lambda_("));
-		assert!(!text.contains("lambda_.__tangram_export__"));
-		assert!(text.contains("async def lambda__("));
-		assert!(text.contains("async def lambda___("));
-		assert!(text.contains("lambda___.__tangram_export__ = \"lambda\"\n"));
+		// The export's own name takes precedence over the escaped name of another export, and each binding's command targets its export.
+		assert!(
+			text.contains("_tg_function_0.__tangram_export__ = \"lambda_\"\n"),
+			"{text}"
+		);
+		assert!(text.contains("\nlambda_ = _tg_typing.cast("), "{text}");
+		assert!(
+			text.contains("_tg_function_2.__tangram_export__ = \"lambda\"\n"),
+			"{text}"
+		);
+		assert!(text.contains("\nlambda___ = _tg_typing.cast(\"tg.Command[tuple[tg.Value.Type, ...], tg.Value.Type]\", tg.command(_tg_function_2))"), "{text}");
 		assert!(text.contains("__all__ = [\"lambda_\",\"lambda__\",\"lambda___\"]\n"));
 	}
 
@@ -378,7 +452,72 @@ mod tests {
 		.unwrap();
 		assert!(ruff_python_parser::parse_module(&text).is_ok());
 		assert!(!text.contains('$'), "{text}");
-		assert!(!text.contains("def __all__("), "{text}");
+		assert!(!text.contains("\n__all__ = _tg"), "{text}");
 		assert!(text.contains("__all__ = [\"value\"]\n"), "{text}");
+	}
+
+	#[test]
+	fn generates_typed_commands() {
+		let args = tg::interface::Type::Tuple {
+			elements: vec![
+				tg::interface::Element {
+					optional: false,
+					type_: tg::interface::Type::String,
+				},
+				tg::interface::Element {
+					optional: true,
+					type_: tg::interface::Type::Reference {
+						name: "Options".to_owned(),
+					},
+				},
+			],
+			rest: None,
+		};
+		let greeting = tg::interface::Export {
+			documentation: None,
+			range: None,
+			type_: tg::interface::Type::Command {
+				args: Box::new(args),
+				output: Box::new(tg::interface::Type::File),
+			},
+		};
+		let field = tg::interface::Field {
+			optional: true,
+			type_: tg::interface::Type::Boolean,
+		};
+		let options = tg::interface::Type::Record {
+			fields: [("loud".to_owned(), field)].into(),
+		};
+		let interface = tg::Interface {
+			definitions: [("Options".to_owned(), options)].into(),
+			exports: [("greeting".to_owned(), greeting)].into(),
+		};
+
+		// The TypeScript module declares the command's type.
+		let text = typescript_module(&interface, "");
+		assert!(
+			text.contains("type T0 = { \"loud\"?: boolean };\n"),
+			"{text}"
+		);
+		assert!(
+			text.contains("const c0: tg.Command<[string, T0?], tg.File> = tg.command(f0)"),
+			"{text}"
+		);
+		let source = source(tg::module::Kind::Python);
+		let result = crate::Compiler::transpile(&text, &source);
+		assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+
+		// The Python module declares the command's type.
+		let text = python_module(&interface, "");
+		assert!(ruff_python_parser::parse_module(&text).is_ok(), "{text}");
+		assert!(
+			text.contains("_tg_record_0 = _tg_typing.TypedDict(\"_tg_record_0\", {\"loud\": \"_tg_typing.NotRequired[bool]\"})\n"),
+			"{text}"
+		);
+		assert!(text.contains("type _tg_type_0 = _tg_record_0\n"), "{text}");
+		assert!(
+			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str] | tuple[str, _tg_type_0], tg.File]\", tg.command(_tg_function_0))\n"),
+			"{text}"
+		);
 	}
 }

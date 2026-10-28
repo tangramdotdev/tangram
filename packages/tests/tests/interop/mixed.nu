@@ -11,7 +11,7 @@ let path = artifact {
         export default async function () {
             tg.assert(bake === sameBake);
             const order = await tg.file("moon cake");
-            const cake = await bake(order);
+            const cake = await bake.build(order);
             tg.assert(cake instanceof tg.File);
             tg.assert(await cake.text === "moon cake with stardust icing");
             const another = await tg.command(bake).arg(order).build();
@@ -28,7 +28,7 @@ let path = artifact {
         from icing import decorate
         __all__ = ["bake"]
         async def bake(order: tg.File) -> tg.File:
-            cake = await decorate(order, "stardust")
+            cake = await decorate.build(order, "stardust")
             assert isinstance(cake, tg.File)
             assert await cake.text == "moon cake with stardust icing"
             again = await tg.command(decorate).arg(order, "stardust").build()

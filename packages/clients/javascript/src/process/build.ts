@@ -33,7 +33,10 @@ export let builder = (...args: any): any => {
 		stdout: "log",
 		tty: false,
 	};
-	if (typeof args[0] === "function") {
+	if (
+		typeof args[0] === "function" &&
+		!(args[0] instanceof tg.Command.Builder)
+	) {
 		let command = tg.Command.javascriptArg(args[0], args.slice(1)).then(
 			(command) => ({
 				command,

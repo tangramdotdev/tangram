@@ -6,14 +6,11 @@ let path = artifact {
         import * as functions from "./functions.tg.py";
         export default async function () {
             for (const name of ["default", "delete", "f0", "args", "tg"] as const) {
-                const function_ = functions[name];
-                const target = tg.host.magic(function_);
-                tg.assert(target.module.kind === "python");
-                tg.assert(target.export === name);
-                tg.assert(await function_("direct") === `${name}:direct`);
-                tg.assert(await tg.build(function_, Promise.resolve("builder")) === `${name}:builder`);
+                const command = functions[name];
+                tg.assert(await command.build("direct") === `${name}:direct`);
+                tg.assert(await tg.build(command).arg(Promise.resolve("builder")) === `${name}:builder`);
             }
-            return "javascript magic found the python exports";
+            return "javascript commands found the python exports";
         }
     '
     'functions.tg.py': '
@@ -31,13 +28,10 @@ let path = artifact {
         import functions
         async def default():
             for name in ["default", "args", "tg", "_tg_client", "_tg_args"]:
-                function = getattr(functions, name)
-                target = tg.host.magic(function)
-                assert target["module"]["kind"] == "typescript"
-                assert target["export"] == name
-                assert await function("direct") == f"{name}:direct"
-                assert await tg.build(function, "builder") == f"{name}:builder"
-            return "python magic found the javascript exports"
+                command = getattr(functions, name)
+                assert await command.build("direct") == f"{name}:direct"
+                assert await tg.build(command).arg("builder") == f"{name}:builder"
+            return "python commands found the javascript exports"
     '
     'functions.tg.ts': '
         export default (value: unknown) => `default:${value}`;
@@ -53,5 +47,5 @@ for name in ['main.tg.ts', 'main.tg.py'] {
     let checked = tg checkin $module
     let output = tg run $checked | complete
     success $output
-    assert ($output.stdout | str contains 'magic found the')
+    assert ($output.stdout | str contains 'commands found the')
 }

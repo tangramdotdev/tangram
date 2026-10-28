@@ -18,21 +18,19 @@ let path = artifact {
         # specifier = "./tools.tg.ts"
         # ///
 
-        import functools
         import tools
 
-        @functools.wraps(tools.assert_)
         async def wrapped(value):
-            return f"wrapped:{await tools.assert_(value)}"
+            return f"wrapped:{await tools.assert_.build(value)}"
 
         async def default():
             assert tools.__all__ == ["assert_", "lambda_", "lambda__", "lambda___", "match"]
-            assert await tools.lambda_() == "lambda_"
-            assert await tools.lambda__() == "lambda__"
-            assert await tools.lambda___() == "lambda"
-            assert await tools.match() == "match"
+            assert await tools.lambda_.build() == "lambda_"
+            assert await tools.lambda__.build() == "lambda__"
+            assert await tools.lambda___.build() == "lambda"
+            assert await tools.match.build() == "match"
             assert await tg.build(wrapped, "builder") == "wrapped:assert:builder"
-            return await tools.assert_("value")
+            return await tools.assert_.build("value")
     '
 }
 let file = $path | path join main.tg.py
