@@ -382,10 +382,15 @@ impl Component {
 
 		// Spawn the database index queue task.
 		let database_index_queue_task = Task::spawn({
+			let config = config.clone();
 			let indexer = indexer.clone();
 			let queue = server.config.database.index_queue().clone();
 			let region = server.config.region.clone().unwrap_or_default();
 			move |stopper| async move {
+				if !config.database_index_queue.enabled {
+					stopper.wait().await;
+					return Ok(());
+				}
 				indexer
 					.database_index_queue_task(&queue, &region, &stopper)
 					.await
