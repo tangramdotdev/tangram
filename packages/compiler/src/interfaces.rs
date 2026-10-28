@@ -203,26 +203,22 @@ impl Compiler {
 	/// Get the modules that a module imports.
 	async fn module_imports(&self, module: &tg::module::Data) -> tg::Result<Vec<tg::module::Data>> {
 		// Get the imports from the dependencies of a checked-in Python module, or otherwise from the module's source.
-		let imports = match (&module.kind, &module.referent.node) {
-			(tg::module::Kind::Python, tg::module::data::Source::Edge(_)) => {
-				let graphs = crate::graphs::Graphs::default();
-				let file = crate::python::resolve::module_file(&graphs, module)?;
-				file.dependencies_with_instance(&self.instance)
-					.await?
-					.into_keys()
-					.map(|reference| tg::module::Import {
-						kind: None,
-						reference,
-					})
-					.collect::<Vec<_>>()
-			},
-			_ => {
-				let text = self.load_module(module).await?;
-				Self::analyze(module, &text)?
-					.imports
-					.into_iter()
-					.collect()
-			},
+		let imports = if module.kind == tg::module::Kind::Python
+			&& let tg::module::data::Source::Edge(_) = &module.referent.node
+		{
+			let graphs = crate::graphs::Graphs::default();
+			let file = crate::python::resolve::module_file(&graphs, module)?;
+			file.dependencies_with_instance(&self.instance)
+				.await?
+				.into_keys()
+				.map(|reference| tg::module::Import {
+					kind: None,
+					reference,
+				})
+				.collect::<Vec<_>>()
+		} else {
+			let text = self.load_module(module).await?;
+			Self::analyze(module, &text)?.imports.into_iter().collect()
 		};
 
 		// Resolve the imports.
@@ -402,12 +398,8 @@ mod tests {
 
 	#[test]
 	fn components_group_cycles() {
-		let dependencies = dependencies(&[
-			("a", &["b"]),
-			("b", &["c", "d"]),
-			("c", &["b"]),
-			("d", &[]),
-		]);
+		let dependencies =
+			dependencies(&[("a", &["b"]), ("b", &["c", "d"]), ("c", &["b"]), ("d", &[])]);
 		let targets = BTreeSet::from(["a".to_owned()]);
 		let components = super::components(&dependencies, &targets);
 		assert_eq!(components, vec![vec!["d"], vec!["b", "c"], vec!["a"]]);

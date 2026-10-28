@@ -53,9 +53,9 @@ impl Project {
 				.get(name)
 				.copied()
 				.ok_or_else(|| tg::error!(%name, "failed to find the export"))?;
-			export.type_ = converter
-				.export(symbol)
-				.map_err(|error| tg::error!(!error, %name, "failed to get the type of the export"))?;
+			export.type_ = converter.export(symbol).map_err(
+				|error| tg::error!(!error, %name, "failed to get the type of the export"),
+			)?;
 		}
 		interface.definitions = converter.definitions;
 
@@ -102,7 +102,9 @@ impl Converter<'_> {
 		};
 		let signature = *signature;
 		let parameters = signature.parameters();
-		let rest = self.checker.has_effective_rest_parameter_exported(signature);
+		let rest = self
+			.checker
+			.has_effective_rest_parameter_exported(signature);
 		let count = if rest {
 			parameters.len() - 1
 		} else {
@@ -113,9 +115,9 @@ impl Converter<'_> {
 		for (index, parameter) in parameters.iter().take(count).enumerate() {
 			let optional = index >= minimum;
 			let type_ = self.checker.get_type_of_symbol(*parameter);
-			let type_ = self.optional(type_, optional).map_err(|error| {
-				tg::error!(!error, name = %parameter.name(), "failed to get the type of the parameter")
-			})?;
+			let type_ = self.optional(type_, optional).map_err(
+				|error| tg::error!(!error, name = %parameter.name(), "failed to get the type of the parameter"),
+			)?;
 			let element = tg::interface::Element { optional, type_ };
 			elements.push(element);
 		}
@@ -129,16 +131,19 @@ impl Converter<'_> {
 				));
 			}
 			let item = self.checker.get_type_arguments_exported(type_)[0];
-			let item = self.type_(item).map_err(|error| {
-				tg::error!(!error, name = %parameter.name(), "failed to get the type of the parameter")
-			})?;
+			let item = self.type_(item).map_err(
+				|error| tg::error!(!error, name = %parameter.name(), "failed to get the type of the parameter"),
+			)?;
 			Some(Box::new(item))
 		} else {
 			None
 		};
 		let args = tg::interface::Type::Tuple { elements, rest };
 		let output = self.checker.get_return_type_of_signature(signature);
-		let output = self.checker.get_awaited_type_exported(output).unwrap_or(output);
+		let output = self
+			.checker
+			.get_awaited_type_exported(output)
+			.unwrap_or(output);
 		let output = if output
 			.flags
 			.get()
@@ -240,7 +245,7 @@ impl Converter<'_> {
 				"a function is not a value"
 			));
 		}
-		if let Some(symbol) = self.named(type_) {
+		if let Some(symbol) = named(type_) {
 			return self.definition(symbol, type_);
 		}
 		self.record(type_)
@@ -397,20 +402,6 @@ impl Converter<'_> {
 		Ok(Some(output))
 	}
 
-	/// Get the symbol of an object type that a module names with an interface or a type alias.
-	fn named(&self, type_: P<tsrs_checker::Type>) -> Option<P<Symbol>> {
-		if let Some(alias) = type_.alias()
-			&& let Some(symbol) = alias.symbol()
-		{
-			return Some(symbol);
-		}
-		let symbol = type_.symbol()?;
-		symbol
-			.flags()
-			.intersects(SymbolFlags::Interface)
-			.then_some(symbol)
-	}
-
 	/// Convert a named object type to a reference to a definition, so that a recursive type refers to itself.
 	fn definition(
 		&mut self,
@@ -422,7 +413,8 @@ impl Converter<'_> {
 		}
 		let mut name = symbol.name().to_owned();
 		let mut suffix = 1;
-		while self.definitions.contains_key(&name) || self.names.values().any(|other| *other == name)
+		while self.definitions.contains_key(&name)
+			|| self.names.values().any(|other| *other == name)
 		{
 			suffix += 1;
 			name = format!("{}{suffix}", symbol.name());
@@ -436,11 +428,12 @@ impl Converter<'_> {
 	/// Convert an object type to a record, or to a map when it only has a string index signature.
 	fn record(&mut self, type_: P<tsrs_checker::Type>) -> tg::Result<tg::interface::Type> {
 		let properties = self.checker.get_properties_of_type(type_).to_vec();
-		let infos = self.checker.get_index_infos_of_type_exported(type_).to_vec();
+		let infos = self
+			.checker
+			.get_index_infos_of_type_exported(type_)
+			.to_vec();
 		match (properties.is_empty(), infos.as_slice()) {
-			(true, [info])
-				if info.key_type().flags.get().intersects(TypeFlags::String) =>
-			{
+			(true, [info]) if info.key_type().flags.get().intersects(TypeFlags::String) => {
 				let value = self.type_(info.value_type())?;
 				Ok(tg::interface::Type::Map {
 					value: Box::new(value),
@@ -451,9 +444,9 @@ impl Converter<'_> {
 				for property in properties {
 					let optional = property.flags().intersects(SymbolFlags::Optional);
 					let type_ = self.checker.get_type_of_symbol(property);
-					let type_ = self.optional(type_, optional).map_err(|error| {
-						tg::error!(!error, name = %property.name(), "failed to get the type of the field")
-					})?;
+					let type_ = self.optional(type_, optional).map_err(
+						|error| tg::error!(!error, name = %property.name(), "failed to get the type of the field"),
+					)?;
 					let field = tg::interface::Field { optional, type_ };
 					fields.insert(property.name().to_owned(), field);
 				}
@@ -467,6 +460,20 @@ impl Converter<'_> {
 		let type_ = self.checker.type_to_string_exported(type_);
 		tg::error!(%type_, "the type is not a value")
 	}
+}
+
+/// Get the symbol of an object type that a module names with an interface or a type alias.
+fn named(type_: P<tsrs_checker::Type>) -> Option<P<Symbol>> {
+	if let Some(alias) = type_.alias()
+		&& let Some(symbol) = alias.symbol()
+	{
+		return Some(symbol);
+	}
+	let symbol = type_.symbol()?;
+	symbol
+		.flags()
+		.intersects(SymbolFlags::Interface)
+		.then_some(symbol)
 }
 
 /// Get the name of a declaration in the Tangram library, qualified by the declarations that enclose it.

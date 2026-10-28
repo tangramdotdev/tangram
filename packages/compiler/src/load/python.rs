@@ -68,7 +68,9 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 				tg::interface::Type::Array { item } => {
 					format!("tuple[{}, ...]", self::type_(item, names))
 				},
-				tg::interface::Type::Tuple { elements, rest } => args_tuple(elements, rest.as_deref(), names),
+				tg::interface::Type::Tuple { elements, rest } => {
+					args_tuple(elements, rest.as_deref(), names)
+				},
 				_ => format!("tuple[{client}.Value.Type, ...]"),
 			};
 			let output = self::type_(output, names);

@@ -45,7 +45,6 @@ impl Service {
 
 	/// Run a query on a module's file with the database.
 	fn query<T, F>(
-		&self,
 		compiler: &Compiler,
 		module: tg::module::Data,
 		sync: bool,
@@ -59,14 +58,13 @@ impl Service {
 	{
 		let encoding = *compiler.position_encoding.read().unwrap();
 		let modules = vec![module.clone()];
-		self.run(compiler, modules, move |database| {
+		Self::run(compiler, modules, move |database| {
 			database.query(&module, sync, |database, file| f(database, file, encoding))
 		})
 	}
 
 	/// Run a function with the database, after updating it with the open documents and preparing the interfaces of the modules in other languages that the modules and the open documents load.
 	fn run<T, F>(
-		&self,
 		compiler: &Compiler,
 		modules: Vec<tg::module::Data>,
 		f: F,
@@ -79,7 +77,12 @@ impl Service {
 		let prepare = {
 			let compiler = compiler.clone();
 			let mut modules = modules;
-			modules.extend(compiler.py_documents().into_values().map(|document| document.module));
+			modules.extend(
+				compiler
+					.py_documents()
+					.into_values()
+					.map(|document| document.module),
+			);
 			modules.retain(|module| module.kind == tg::module::Kind::Python);
 			async move { compiler.prepare_interfaces(modules).await }
 		};
@@ -183,11 +186,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::IncomingArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::IncomingOutput>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.call_hierarchy_incoming(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.call_hierarchy_incoming(file, &arg, encoding)
+		})
 	}
 
 	fn call_hierarchy_outgoing(
@@ -196,11 +197,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::OutgoingArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::OutgoingOutput>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.call_hierarchy_outgoing(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.call_hierarchy_outgoing(file, &arg, encoding)
+		})
 	}
 
 	fn call_hierarchy_prepare(
@@ -209,11 +208,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::PrepareArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::PrepareOutput>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.call_hierarchy_prepare(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.call_hierarchy_prepare(file, &arg, encoding)
+		})
 	}
 
 	fn check(
@@ -222,7 +219,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::check::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::check::Output>> {
 		let modules = arg.modules.clone();
-		compiler.python.run(compiler, modules, move |database| {
+		Service::run(compiler, modules, move |database| {
 			let diagnostics = database
 				.check(arg.modules)?
 				.iter()
@@ -238,11 +235,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::code_action::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::code_action::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.code_actions(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.code_actions(file, &arg, encoding)
+		})
 	}
 
 	fn completion(
@@ -251,11 +246,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::completion::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::completion::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.completion(file, arg.position, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.completion(file, arg.position, encoding)
+		})
 	}
 
 	fn completion_resolve(
@@ -279,11 +272,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.declaration(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.declaration(file, &arg, encoding)
+		})
 	}
 
 	fn definition(
@@ -292,11 +283,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.definition(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.definition(file, &arg, encoding)
+		})
 	}
 
 	fn document(
@@ -304,9 +293,7 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::document::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::document::Output>> {
-		compiler
-			.python
-			.query(compiler, arg.module, false, db::Database::document)
+		Service::query(compiler, arg.module, false, db::Database::document)
 	}
 
 	fn document_diagnostics(
@@ -316,7 +303,7 @@ impl crate::backend::Backend for Backend {
 	) -> BoxFuture<'static, tg::Result<crate::diagnostics::DocumentOutput>> {
 		let encoding = *compiler.position_encoding.read().unwrap();
 		let modules = arg.modules.clone();
-		compiler.python.run(compiler, modules, move |database| {
+		Service::run(compiler, modules, move |database| {
 			database.document_diagnostics(arg.modules, encoding)
 		})
 	}
@@ -327,11 +314,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::document_highlight::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::document_highlight::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.document_highlight(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.document_highlight(file, &arg, encoding)
+		})
 	}
 
 	fn document_link(
@@ -350,11 +335,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::folding_range::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::folding_range::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.folding_range(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.folding_range(file, &arg, encoding)
+		})
 	}
 
 	fn hover(
@@ -363,11 +346,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::hover::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::hover::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.hover(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.hover(file, &arg, encoding)
+		})
 	}
 
 	fn implementation(
@@ -376,11 +357,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::implementation::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::implementation::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.implementation(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.implementation(file, &arg, encoding)
+		})
 	}
 
 	fn inlay_hint(
@@ -389,11 +368,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::inlay_hint::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::inlay_hint::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.inlay_hint(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.inlay_hint(file, &arg, encoding)
+		})
 	}
 
 	#[cfg(feature = "javascript")]
@@ -435,11 +412,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::prepare_rename::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::prepare_rename::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.prepare_rename(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.prepare_rename(file, &arg, encoding)
+		})
 	}
 
 	fn references(
@@ -448,11 +423,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::references::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::references::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.references(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.references(file, &arg, encoding)
+		})
 	}
 
 	fn rename(
@@ -461,11 +434,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::rename::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::rename::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.rename(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.rename(file, &arg, encoding)
+		})
 	}
 
 	fn selection_range(
@@ -474,11 +445,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::selection_range::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::selection_range::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.selection_range(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.selection_range(file, &arg, encoding)
+		})
 	}
 
 	fn semantic_tokens(
@@ -486,9 +455,7 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::semantic_tokens::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::semantic_tokens::Output>> {
-		compiler
-			.python
-			.query(compiler, arg.module, false, db::Database::semantic_tokens)
+		Service::query(compiler, arg.module, false, db::Database::semantic_tokens)
 	}
 
 	fn signature_help(
@@ -497,11 +464,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::signature_help::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::signature_help::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.signature_help(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.signature_help(file, &arg, encoding)
+		})
 	}
 
 	fn symbols(
@@ -509,9 +474,7 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::symbols::Output>> {
-		compiler
-			.python
-			.query(compiler, arg.module, false, db::Database::symbols)
+		Service::query(compiler, arg.module, false, db::Database::symbols)
 	}
 
 	fn type_definition(
@@ -520,11 +483,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.type_definition(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.type_definition(file, &arg, encoding)
+		})
 	}
 
 	fn workspace_symbol(
@@ -533,7 +494,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::workspace_symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::workspace_symbols::Output>> {
 		let encoding = *compiler.position_encoding.read().unwrap();
-		compiler.python.run(compiler, Vec::new(), move |database| {
+		Service::run(compiler, Vec::new(), move |database| {
 			database.sync_project(None)?;
 			database.workspace_symbols(&arg.query, encoding)
 		})

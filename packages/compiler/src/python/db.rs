@@ -314,7 +314,10 @@ impl Database {
 			}
 			let path = entry.file.path(self).as_system_path().unwrap().to_owned();
 			self.system.memory.remove_file(&path).ok();
-			self.system.memory.remove_directory(path.parent().unwrap()).ok();
+			self.system
+				.memory
+				.remove_directory(path.parent().unwrap())
+				.ok();
 			entry.file.sync(self);
 			let mut modules = self.modules.lock().unwrap();
 			if let Some(index) = modules.files.remove(&entry.file) {

@@ -48,7 +48,10 @@ impl Compiler {
 	pub async fn get_module_version(&self, module: &tg::module::Data) -> tg::Result<u64> {
 		// If there is an open document, then return its version.
 		let key = Key::new(module);
-		let revision = self.documents.get(&key).map(|document| (document.open, document.revision));
+		let revision = self
+			.documents
+			.get(&key)
+			.map(|document| (document.open, document.revision));
 		if let Some((true, revision)) = revision {
 			return Ok(revision);
 		}

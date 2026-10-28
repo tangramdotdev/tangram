@@ -50,9 +50,9 @@ impl Database {
 		for (name, export) in &mut interface.exports {
 			let type_ = describe::module_member(self, program_file, name)
 				.ok_or_else(|| tg::error!(%name, "failed to find the export"))?;
-			export.type_ = converter
-				.export(type_)
-				.map_err(|error| tg::error!(!error, %name, "failed to get the type of the export"))?;
+			export.type_ = converter.export(type_).map_err(
+				|error| tg::error!(!error, %name, "failed to get the type of the export"),
+			)?;
 		}
 		interface.definitions = converter.definitions;
 
@@ -92,23 +92,28 @@ impl<'db> Converter<'_, 'db> {
 			match parameter.kind {
 				Kind::PositionalOnly | Kind::PositionalOrKeyword => {
 					if rest.is_some() {
-						return Err(tg::error!(%name, "a parameter cannot follow a variadic parameter"));
+						return Err(
+							tg::error!(%name, "a parameter cannot follow a variadic parameter"),
+						);
 					}
-					let type_ = self.type_(parameter.ty).map_err(|error| {
-						tg::error!(!error, %name, "failed to get the type of the parameter")
-					})?;
+					let type_ = self.type_(parameter.ty).map_err(
+						|error| tg::error!(!error, %name, "failed to get the type of the parameter"),
+					)?;
 					let optional = parameter.has_default;
 					elements.push(tg::interface::Element { optional, type_ });
 				},
 				Kind::Variadic => {
-					let type_ = self.type_(parameter.ty).map_err(|error| {
-						tg::error!(!error, %name, "failed to get the type of the parameter")
-					})?;
+					let type_ = self.type_(parameter.ty).map_err(
+						|error| tg::error!(!error, %name, "failed to get the type of the parameter"),
+					)?;
 					rest = Some(Box::new(type_));
 				},
-				Kind::KeywordOnly | Kind::KeywordVariadic if parameter.has_default || parameter.kind == Kind::KeywordVariadic => {},
+				Kind::KeywordOnly | Kind::KeywordVariadic
+					if parameter.has_default || parameter.kind == Kind::KeywordVariadic => {},
 				Kind::KeywordOnly | Kind::KeywordVariadic => {
-					return Err(tg::error!(%name, "a required keyword-only parameter cannot be exported"));
+					return Err(
+						tg::error!(%name, "a required keyword-only parameter cannot be exported"),
+					);
 				},
 			}
 		}
@@ -253,7 +258,9 @@ impl<'db> Converter<'_, 'db> {
 				suffix,
 			} => {
 				if !suffix.is_empty() {
-					return Err(tg::error!("a tuple element cannot follow a variadic element"));
+					return Err(tg::error!(
+						"a tuple element cannot follow a variadic element"
+					));
 				}
 				let elements = prefix
 					.into_iter()
@@ -292,9 +299,9 @@ impl<'db> Converter<'_, 'db> {
 				});
 				let mut fields = BTreeMap::new();
 				for field in typed_dict.fields {
-					let type_ = self.type_(field.ty).map_err(|error| {
-						tg::error!(!error, name = %field.name, "failed to get the type of the field")
-					})?;
+					let type_ = self.type_(field.ty).map_err(
+						|error| tg::error!(!error, name = %field.name, "failed to get the type of the field"),
+					)?;
 					let optional = !field.required;
 					fields.insert(field.name, tg::interface::Field { optional, type_ });
 				}
@@ -331,7 +338,8 @@ impl<'db> Converter<'_, 'db> {
 
 	/// Determine whether a file belongs to the Tangram Python client library.
 	fn is_library(&self, file: impl Into<Option<File>>) -> bool {
-		file.into().is_some_and(|file| self.database.is_runtime(file))
+		file.into()
+			.is_some_and(|file| self.database.is_runtime(file))
 	}
 
 	fn error(&self, type_: Type<'db>) -> tg::Error {
