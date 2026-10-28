@@ -136,7 +136,7 @@ def capture(value: Any, memo: dict[int, tuple[Any, Any]] | None = None) -> Any:
 @overload
 async def resolve(
     value: Unresolved[Callable[..., ValueInput]],
-) -> Command[list[ValueType], ValueType]: ...
+) -> Command[tuple[ValueType, ...], ValueType]: ...
 
 
 @overload

@@ -54,6 +54,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		return attach.attach<O>(id, options);
 	}
 
+	static build<A extends Array<tg.Value>, O extends tg.Value>(
+		command: tg.Command<A, O> | tg.Command.Builder<A, O>,
+	): tg.Process.Builder<"run", A, O>;
 	static build<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,
@@ -78,6 +81,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		return build.builder(...args);
 	}
 
+	static exec<A extends Array<tg.Value>, O extends tg.Value>(
+		command: tg.Command<A, O> | tg.Command.Builder<A, O>,
+	): tg.Process.Builder<"exec", A, never>;
 	static exec<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,
@@ -100,6 +106,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		return exec.builder(...args);
 	}
 
+	static run<A extends Array<tg.Value>, O extends tg.Value>(
+		command: tg.Command<A, O> | tg.Command.Builder<A, O>,
+	): tg.Process.Builder<"run", A, O>;
 	static run<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,
@@ -124,6 +133,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		return run.builder(...args);
 	}
 
+	static spawn<A extends Array<tg.Value>, O extends tg.Value>(
+		command: tg.Command<A, O> | tg.Command.Builder<A, O>,
+	): tg.Process.Builder<"spawn", A, O>;
 	static spawn<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,

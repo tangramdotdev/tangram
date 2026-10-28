@@ -252,7 +252,7 @@ class Command[A, O: ValueType](Object):
         args: Sequence[CommandArgument],
         *,
         client: Client | None = None,
-    ) -> Referent[Command[list[ValueType], R]]:
+    ) -> Referent[Command[tuple[ValueType, ...], R]]:
         from .referent import Referent
 
         command = await Command.python_arg(function_, args, client=client)
@@ -341,22 +341,30 @@ class Command[A, O: ValueType](Object):
     async def user(self, client: Client | None = None) -> str | None:
         return (await self.load(client)).get("user")
 
-    def build(self, *args, **options) -> ProcessBuilder[Literal["run"], O]:
+    def build[*P](
+        self: Command[tuple[*P], O], *args: *P, **options
+    ) -> ProcessBuilder[Literal["run"], O]:
         from .process.build import builder as build
 
         return build(self, {"args": list(args)}, **options)
 
-    def run(self, *args, **options) -> ProcessBuilder[Literal["run"], O]:
+    def run[*P](
+        self: Command[tuple[*P], O], *args: *P, **options
+    ) -> ProcessBuilder[Literal["run"], O]:
         from .process.run import builder as run
 
         return run(self, {"args": list(args)}, **options)
 
-    def spawn(self, *args, **options) -> ProcessBuilder[Literal["spawn"], O]:
+    def spawn[*P](
+        self: Command[tuple[*P], O], *args: *P, **options
+    ) -> ProcessBuilder[Literal["spawn"], O]:
         from .process.spawn import builder as spawn
 
         return spawn(self, {"args": list(args)}, **options)
 
-    def exec(self, *args, **options) -> ProcessBuilder[Literal["exec"], Never]:
+    def exec[*P](
+        self: Command[tuple[*P], O], *args: *P, **options
+    ) -> ProcessBuilder[Literal["exec"], Never]:
         from .process.exec import builder as exec
 
         return exec(self, {"args": list(args)}, **options)
@@ -829,7 +837,7 @@ class CommandBuilder[O: ValueType]:
             self._env_mapper
         )
 
-    def __await__(self) -> Generator[Any, None, Command[list[ValueType], O]]:
+    def __await__(self) -> Generator[Any, None, Command[tuple[ValueType, ...], O]]:
         return Command.new(*self.arguments, client=self.client).__await__()
 
     async def _is_module(self):
