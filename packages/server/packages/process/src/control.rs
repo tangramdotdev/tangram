@@ -590,7 +590,7 @@ impl Component {
 		let location = tg::Location::Local(tg::location::Local {
 			region: session.server.config.region.clone(),
 		});
-		let mut items = vec![tangram_index::batch::Item::PutProcess(
+		let mut items = vec![tangram_index::batch::Item::PutProcess(Box::new(
 			tangram_index::process::put::Arg {
 				cached: false,
 				children: None,
@@ -618,9 +618,9 @@ impl Component {
 				time_to_touch: session.server.config.process.time_to_touch,
 				touched_at,
 			},
-		)];
+		))];
 		if let Some(sandbox) = sandbox {
-			items.insert(0, tangram_index::batch::Item::PutSandbox(sandbox));
+			items.insert(0, tangram_index::batch::Item::PutSandbox(Box::new(sandbox)));
 		}
 		let permission_arg =
 			Self::create_process_sandbox_permission_arg(session, &id, sandbox_id, touched_at)?;

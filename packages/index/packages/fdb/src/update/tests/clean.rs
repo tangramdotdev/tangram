@@ -98,7 +98,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 		let arg = tangram_index::batch::Arg {
 			items: vec![
 				tangram_index::batch::Item::PutObject(object),
-				tangram_index::batch::Item::PutProcess(process),
+				tangram_index::batch::Item::PutProcess(Box::new(process)),
 			],
 		};
 		index.batch(arg).await.unwrap().unwrap();

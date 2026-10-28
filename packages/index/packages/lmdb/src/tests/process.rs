@@ -73,7 +73,7 @@ fn count_process_data_fragments(index: &Index, id: &tg::process::Id) -> usize {
 
 async fn put_process(index: &Index, arg: tangram_index::process::put::Arg) {
 	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(arg)],
+		items: vec![tangram_index::batch::Item::PutProcess(Box::new(arg))],
 	};
 	index.batch(arg).await.unwrap().unwrap();
 }
@@ -261,7 +261,7 @@ async fn a_finished_process_accepts_only_the_children_that_it_lists() {
 		};
 		let arg = tangram_index::batch::Arg {
 			items: vec![
-				tangram_index::batch::Item::PutProcess(arg),
+				tangram_index::batch::Item::PutProcess(Box::new(arg)),
 				tangram_index::batch::Item::PutDelegation(delegation),
 			],
 		};

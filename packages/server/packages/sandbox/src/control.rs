@@ -235,7 +235,7 @@ impl Component {
 			)
 			.await?;
 		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
+			items: vec![tangram_index::batch::Item::PutSandbox(Box::new(sandbox))],
 		};
 		session
 			.server

@@ -73,10 +73,10 @@ pub enum Item {
 	PutAccountProcess(crate::usage::storage::put::ProcessArg),
 
 	#[tangram_serialize(id = 15)]
-	PutProcess(crate::process::put::Arg),
+	PutProcess(Box<crate::process::put::Arg>),
 
 	#[tangram_serialize(id = 17)]
-	PutSandbox(crate::sandbox::put::Arg),
+	PutSandbox(Box<crate::sandbox::put::Arg>),
 
 	#[tangram_serialize(id = 18)]
 	PutTag(crate::tag::put::Arg),
@@ -84,6 +84,9 @@ pub enum Item {
 	#[tangram_serialize(id = 19)]
 	PutUser(crate::user::put::Arg),
 }
+
+// Assert that items stay small, because a batch reserves the size of the largest item for every item.
+const _: () = assert!(std::mem::size_of::<Item>() <= 256);
 
 impl Arg {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
@@ -203,7 +206,7 @@ mod tests {
 					member: tg::organization::Member::User(user),
 					organization,
 				}),
-				Item::PutSandbox(crate::sandbox::put::Arg {
+				Item::PutSandbox(Box::new(crate::sandbox::put::Arg {
 					account: None,
 					created_at: 1,
 					data: Some(data),
@@ -214,7 +217,7 @@ mod tests {
 					processes: None,
 					runner: None,
 					touched_at: 2,
-				}),
+				})),
 			],
 		};
 

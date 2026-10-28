@@ -265,6 +265,7 @@ impl Component {
 			.await?;
 
 		// Put the process in the index.
+		let put_process_arg = Box::new(put_process_arg);
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
 				.chain(put_permissions)

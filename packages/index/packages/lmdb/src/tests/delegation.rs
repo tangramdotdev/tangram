@@ -60,7 +60,7 @@ async fn delegation_traversal_and_propagation() {
 	};
 	index
 		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutProcess(arg)],
+			items: vec![tangram_index::batch::Item::PutProcess(Box::new(arg))],
 		})
 		.await
 		.unwrap()
@@ -345,7 +345,7 @@ fn process_object(process: &tg::process::Id, root: &tg::object::Id) -> tangram_i
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,
 	};
-	tangram_index::batch::Item::PutProcess(arg)
+	tangram_index::batch::Item::PutProcess(Box::new(arg))
 }
 async fn clean(index: &Index) {
 	let arg = tangram_index::clean::Arg {
@@ -830,7 +830,7 @@ async fn storage_discovery_follows_process_children_and_objects() {
 			time_to_touch: Duration::ZERO,
 			touched_at: 0,
 		};
-		items.push(tangram_index::batch::Item::PutProcess(arg));
+		items.push(tangram_index::batch::Item::PutProcess(Box::new(arg)));
 	}
 	let arg = tangram_index::batch::Arg { items };
 	index.batch(arg).await.unwrap().unwrap();
@@ -1061,7 +1061,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 	let put = tangram_index::batch::Arg {
 		items: vec![
 			put_object(&directory, BTreeSet::from([file.clone()])),
-			tangram_index::batch::Item::PutProcess(process_arg),
+			tangram_index::batch::Item::PutProcess(Box::new(process_arg)),
 			delegation(&directory, &recipient, &parent),
 		],
 	};
@@ -1148,7 +1148,7 @@ async fn storage_discovery_uses_process_output_access_without_process_parent() {
 			put_object(&output, BTreeSet::from([child.clone()])),
 			put_object(&child, BTreeSet::new()),
 			put_object(&unrelated, BTreeSet::new()),
-			tangram_index::batch::Item::PutProcess(process_arg),
+			tangram_index::batch::Item::PutProcess(Box::new(process_arg)),
 			delegation(&output, &recipient, &source),
 		],
 	};

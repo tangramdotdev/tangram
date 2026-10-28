@@ -48,6 +48,7 @@ impl Component {
 			runner,
 			touched_at: now,
 		};
+		let put_sandbox = Box::new(put_sandbox);
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
 		};

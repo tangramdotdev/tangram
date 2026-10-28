@@ -48,7 +48,7 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 
 	index
 		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutProcess(
+			items: vec![tangram_index::batch::Item::PutProcess(Box::new(
 				tangram_index::process::put::Arg {
 					cached: false,
 					children: None,
@@ -70,7 +70,7 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				},
-			)],
+			))],
 		})
 		.await
 		.unwrap()
@@ -158,27 +158,29 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 				put_object(child.clone(), BTreeSet::new()),
 				put_object(unrelated.clone(), BTreeSet::new()),
 				put_object(wrapper.clone(), BTreeSet::from([child.clone()])),
-				tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
-					cached: false,
-					children: None,
-					command: Some(vec![wrapper.clone()]),
-					command_id: wrapper.clone(),
-					data: None,
-					error: None,
-					id: process.clone(),
-					location: None,
-					log: None,
-					metadata: tg::process::Metadata::default(),
-					options: tg::referent::Options::default(),
-					output: None,
-					parent: None,
-					permissions: Vec::new(),
-					principal: tg::Principal::Process(process.clone()),
-					sandbox: None,
-					storage: tg::process::storage::Set::NODE,
-					time_to_touch: std::time::Duration::ZERO,
-					touched_at: 0,
-				}),
+				tangram_index::batch::Item::PutProcess(Box::new(
+					tangram_index::process::put::Arg {
+						cached: false,
+						children: None,
+						command: Some(vec![wrapper.clone()]),
+						command_id: wrapper.clone(),
+						data: None,
+						error: None,
+						id: process.clone(),
+						location: None,
+						log: None,
+						metadata: tg::process::Metadata::default(),
+						options: tg::referent::Options::default(),
+						output: None,
+						parent: None,
+						permissions: Vec::new(),
+						principal: tg::Principal::Process(process.clone()),
+						sandbox: None,
+						storage: tg::process::storage::Set::NODE,
+						time_to_touch: std::time::Duration::ZERO,
+						touched_at: 0,
+					},
+				)),
 				tangram_index::batch::Item::PutPermission(tangram_index::permission::put::Arg {
 					created_at: 0,
 					creator: Some(creator.clone()),
@@ -1055,7 +1057,7 @@ fn put_process_with_log_items(
 		version: None,
 	};
 	vec![
-		tangram_index::batch::Item::PutProcess(put_process),
+		tangram_index::batch::Item::PutProcess(Box::new(put_process)),
 		tangram_index::batch::Item::PutPermission(put_node_permission),
 		tangram_index::batch::Item::PutPermission(put_log_permission),
 	]

@@ -498,14 +498,14 @@ impl Index {
 				Request::PutProcesses(args) => {
 					let items = args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutProcess)
+						.map(|arg| tangram_index::batch::Item::PutProcess(Box::new(arg)))
 						.collect();
 					Request::Batch(tangram_index::batch::Arg { items })
 				},
 				Request::PutSandboxes(args) => {
 					let items = args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutSandbox)
+						.map(|arg| tangram_index::batch::Item::PutSandbox(Box::new(arg)))
 						.collect();
 					Request::Batch(tangram_index::batch::Arg { items })
 				},

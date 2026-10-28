@@ -1967,6 +1967,7 @@ impl Component {
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,
 		};
+		let put_process_arg = Box::new(put_process_arg);
 		let mut items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
 		let permission_arg = session
 			.server

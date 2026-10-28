@@ -329,7 +329,7 @@ impl Component {
 			.batch(tangram_index::batch::Arg {
 				items: put_processes
 					.into_iter()
-					.map(tangram_index::batch::Item::PutProcess)
+					.map(|arg| tangram_index::batch::Item::PutProcess(Box::new(arg)))
 					.collect(),
 			})
 			.await

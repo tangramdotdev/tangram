@@ -680,7 +680,7 @@ impl Component {
 		let arg = tangram_index::batch::Arg {
 			items: put_sandbox_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutSandbox)
+				.map(|arg| tangram_index::batch::Item::PutSandbox(Box::new(arg)))
 				.collect(),
 		};
 		session.server.index.batch(arg).await??;
@@ -816,7 +816,7 @@ impl Component {
 		let arg = tangram_index::batch::Arg {
 			items: put_process_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutProcess)
+				.map(|arg| tangram_index::batch::Item::PutProcess(Box::new(arg)))
 				.collect(),
 		};
 		session.server.index.batch(arg).await??;

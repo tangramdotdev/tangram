@@ -412,7 +412,9 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		touched_at: 0,
 	};
 	let batch = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(process_arg.clone())],
+		items: vec![tangram_index::batch::Item::PutProcess(Box::new(
+			process_arg.clone(),
+		))],
 	};
 	index.batch(batch).await.unwrap().unwrap();
 	let children = index
@@ -426,7 +428,9 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 	process_arg.log = Some(None);
 	process_arg.output = Some(Some(vec![output.clone()]));
 	let batch = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(process_arg)],
+		items: vec![tangram_index::batch::Item::PutProcess(Box::new(
+			process_arg,
+		))],
 	};
 	index.batch(batch).await.unwrap().unwrap();
 	let children = index

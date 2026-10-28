@@ -336,7 +336,7 @@ impl Component {
 				server
 					.index
 					.batch(tangram_index::batch::Arg {
-						items: std::iter::once(tangram_index::batch::Item::PutProcess(
+						items: std::iter::once(tangram_index::batch::Item::PutProcess(Box::new(
 							tangram_index::process::put::Arg {
 								cached: false,
 								children: None,
@@ -364,7 +364,7 @@ impl Component {
 								time_to_touch: server.config.process.time_to_touch,
 								touched_at: now,
 							},
-						))
+						)))
 						.collect(),
 					})
 					.await
@@ -407,7 +407,7 @@ impl Component {
 		server
 			.index
 			.batch(tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutSandbox(
+				items: vec![tangram_index::batch::Item::PutSandbox(Box::new(
 					tangram_index::sandbox::put::Arg {
 						account,
 						created_at: indexed.created_at,
@@ -420,7 +420,7 @@ impl Component {
 						runner: indexed.runner,
 						touched_at: now,
 					},
-				)],
+				))],
 			})
 			.await
 			.and_then(std::convert::identity)

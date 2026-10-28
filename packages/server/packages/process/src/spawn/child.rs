@@ -199,9 +199,9 @@ impl Component {
 			.await?;
 		let mut items = Vec::with_capacity(3);
 		if let Some(parent_arg) = parent_arg {
-			items.push(tangram_index::batch::Item::PutProcess(parent_arg));
+			items.push(tangram_index::batch::Item::PutProcess(Box::new(parent_arg)));
 		}
-		items.push(tangram_index::batch::Item::PutProcess(child_arg));
+		items.push(tangram_index::batch::Item::PutProcess(Box::new(child_arg)));
 		if let Some(account) = account {
 			items.push(tangram_index::batch::Item::PutAccountProcess(
 				tangram_index::usage::storage::put::ProcessArg {
