@@ -652,7 +652,9 @@ mod tests {
 	#[test]
 	fn inline_frames_ignore_echoed_input() {
 		// Create a terminal with the cursor on its bottom row.
-		let mut parser = vt100::Parser::new(3, 10, 0);
+		let rows = std::num::NonZeroU16::new(3).unwrap();
+		let columns = std::num::NonZeroU16::new(10).unwrap();
+		let mut parser = vt100::Parser::new(rows, columns, 0);
 		parser.process(b"\x1b[3;1H");
 
 		// Render frames before and after an echoed arrow key shifts the cursor.

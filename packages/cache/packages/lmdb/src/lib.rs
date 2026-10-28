@@ -41,7 +41,7 @@ pub struct Cache {
 	writer_sender: Option<writer::RequestSender>,
 }
 
-pub type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
+pub type Db = lmdb::Database<'static, lmdb::types::Bytes, lmdb::types::Bytes>;
 
 impl Cache {
 	pub fn new(config: &Config) -> tg::Result<Self> {
@@ -73,13 +73,15 @@ impl Cache {
 				tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
 			})?
 		};
-		let mut transaction = env.write_txn().unwrap();
+		let transaction = env.write_txn().unwrap();
 		let db = env
-			.create_database(&mut transaction, None)
-			.map_err(|error| tg::error!(!error, "failed to create the database"))?;
-		transaction
-			.commit()
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+			.create_databases_and_commit(transaction, |opener, transaction| {
+				opener
+					.create_database(transaction, None)
+					.map(lmdb::CommitOrAbort::<_, ()>::Commit)
+			})
+			.map_err(|error| tg::error!(!error, "failed to create the database"))?
+			.unwrap_commit();
 
 		// Spawn the reader tasks.
 		let (reader_sender, reader_handles) = Self::spawn_readers(config, db, &env);
@@ -135,10 +137,14 @@ impl Cache {
 			.read_txn()
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let db = env
-			.open_database(&transaction, None)
+			.open_databases_and_commit(transaction, |opener, transaction| {
+				opener
+					.open_database(transaction, None)
+					.map(lmdb::CommitOrAbort::<_, ()>::Commit)
+			})
 			.map_err(|error| tg::error!(!error, "failed to open the database"))?
+			.unwrap_commit()
 			.ok_or_else(|| tg::error!("the database does not exist"))?;
-		drop(transaction);
 
 		// Spawn the reader tasks.
 		let (reader_sender, reader_handles) = Self::spawn_readers(config, db, &env);

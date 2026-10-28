@@ -65,7 +65,13 @@ pub fn metadata(_text: &str) -> tg::Result<Option<serde_json::Map<String, serde_
 #[cfg(feature = "javascript")]
 fn expression_to_json(expr: &Expression) -> tg::Result<serde_json::Value> {
 	match expr {
-		Expression::StringLiteral(lit) => Ok(serde_json::Value::String(lit.value.to_string())),
+		Expression::StringLiteral(lit) => {
+			let value = lit
+				.value
+				.as_str()
+				.ok_or_else(|| tg::error!("invalid string literal in metadata"))?;
+			Ok(serde_json::Value::String(value.to_owned()))
+		},
 
 		Expression::NumericLiteral(lit) => {
 			let number = serde_json::Number::from_f64(lit.value)
@@ -111,7 +117,11 @@ fn expression_to_json(expr: &Expression) -> tg::Result<serde_json::Value> {
 						// Get the key.
 						let key = match &prop.key {
 							PropertyKey::StaticIdentifier(ident) => ident.name.to_string(),
-							PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+							PropertyKey::StringLiteral(lit) => lit
+								.value
+								.as_str()
+								.ok_or_else(|| tg::error!("invalid property key in metadata"))?
+								.to_owned(),
 							PropertyKey::NumericLiteral(lit) => lit.value.to_string(),
 							_ => {
 								return Err(tg::error!(

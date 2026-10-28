@@ -21,7 +21,9 @@ impl Project {
 			};
 			let output = service
 				.provide_implementations(context, &params, None)
-				.map_err(|error| tg::error!(!error, "failed to get the tsrs implementations"))?;
+				.map_err(|error| {
+					tg::error!(!error, "failed to get the tsrs implementations")
+				})?;
 			let locations = self.definition_locations(output)?;
 			let output = implementation::Output { locations };
 

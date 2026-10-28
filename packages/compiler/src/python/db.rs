@@ -909,6 +909,7 @@ impl Database {
 		let severity = match diagnostic.severity() {
 			Severity::Fatal | Severity::Error => tg::diagnostic::Severity::Error,
 			Severity::Warning => tg::diagnostic::Severity::Warning,
+			Severity::Hint => tg::diagnostic::Severity::Hint,
 			Severity::Info => tg::diagnostic::Severity::Info,
 		};
 		let mut message = diagnostic.concise_message().to_string();

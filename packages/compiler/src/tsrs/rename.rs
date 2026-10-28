@@ -2,7 +2,7 @@ use {
 	super::{Project, position},
 	crate::rename,
 	tangram_client::prelude::*,
-	tsrs_lsproto as native,
+	tsrs_lsproto::{self as native, json::Json as _},
 };
 
 impl Project {
@@ -11,15 +11,15 @@ impl Project {
 			let text_document = native::TextDocumentIdentifier {
 				uri: self.uri(&arg.module),
 			};
-			let params = native::RenameParams {
-				new_name: arg.new_name,
-				position: position(arg.position),
-				text_document,
-				..Default::default()
-			};
+			let mut params = native::RenameParams::default();
+			params.new_name = arg.new_name;
+			params.position = position(arg.position);
+			params.text_document = text_document;
 			let output = service
 				.provide_rename(context, &params, None)
-				.map_err(|error| tg::error!(!error, "failed to get the tsrs rename locations"))?;
+				.map_err(|error| {
+					tg::error!(!error, "failed to get the tsrs rename locations")
+				})?;
 			let edits = output
 				.workspace_edit
 				.map(|edit| {
@@ -40,10 +40,9 @@ impl Project {
 							let edit = if let Some(edit) = edit.text_edit {
 								edit
 							} else if let Some(edit) = edit.annotated_text_edit {
-								native::TextEdit {
-									new_text: edit.new_text,
-									range: edit.range,
-								}
+								native::TextEdit::from_json(&edit.to_json()).map_err(|error| {
+									tg::error!(!error, "failed to convert the annotated text edit")
+								})?
 							} else {
 								return Err(tg::error!(
 									"unsupported snippet edit in the tsrs rename"

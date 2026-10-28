@@ -17,7 +17,9 @@ impl Project {
 					&self.uri(&arg.module),
 					position(arg.position),
 				)
-				.map_err(|error| tg::error!(!error, "failed to prepare the tsrs call hierarchy"))?;
+				.map_err(|error| {
+					tg::error!(!error, "failed to prepare the tsrs call hierarchy")
+				})?;
 			let items = output
 				.call_hierarchy_items
 				.map(|items| {
@@ -44,12 +46,16 @@ impl Project {
 					&self.uri(&arg.module),
 					position(arg.position),
 				)
-				.map_err(|error| tg::error!(!error, "failed to prepare the tsrs call hierarchy"))?;
+				.map_err(|error| {
+					tg::error!(!error, "failed to prepare the tsrs call hierarchy")
+				})?;
 			let mut calls = Vec::new();
 			for item in prepared.call_hierarchy_items.unwrap_or_default() {
 				let output = service
 					.provide_call_hierarchy_incoming_calls(context, &item, None)
-					.map_err(|error| tg::error!(!error, "failed to get the incoming tsrs calls"))?;
+					.map_err(|error| {
+						tg::error!(!error, "failed to get the incoming tsrs calls")
+					})?;
 				for call in output.call_hierarchy_incoming_calls.unwrap_or_default() {
 					let from = self.hierarchy_item(call.from)?;
 					let from_ranges = call.from_ranges.into_iter().map(range).collect();
@@ -75,12 +81,16 @@ impl Project {
 					&self.uri(&arg.module),
 					position(arg.position),
 				)
-				.map_err(|error| tg::error!(!error, "failed to prepare the tsrs call hierarchy"))?;
+				.map_err(|error| {
+					tg::error!(!error, "failed to prepare the tsrs call hierarchy")
+				})?;
 			let mut calls = Vec::new();
 			for item in prepared.call_hierarchy_items.unwrap_or_default() {
 				let output = service
 					.provide_call_hierarchy_outgoing_calls(context, &item)
-					.map_err(|error| tg::error!(!error, "failed to get the outgoing tsrs calls"))?;
+					.map_err(|error| {
+						tg::error!(!error, "failed to get the outgoing tsrs calls")
+					})?;
 				for call in output.call_hierarchy_outgoing_calls.unwrap_or_default() {
 					let from_ranges = call.from_ranges.into_iter().map(range).collect();
 					let to = self.hierarchy_item(call.to)?;

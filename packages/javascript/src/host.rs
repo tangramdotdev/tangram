@@ -370,7 +370,8 @@ impl Host {
 					.map_err(|error| tg::error!(!error, "failed to get the stdin file descriptor"))
 					.and_then(|value| {
 						let fd = value.as_raw_fd();
-						let value = AsyncFd::new(value).map_err(
+						// SAFETY: The `OwnedFd` keeps the file descriptor open and unchanged for the lifetime of the `AsyncFd`.
+						let value = unsafe { AsyncFd::register(value) }.map_err(
 							|error| tg::error!(!error, %fd, "failed to register the file descriptor"),
 						)?;
 						Ok((fd, Arc::new(value)))
@@ -386,7 +387,8 @@ impl Host {
 					.map_err(|error| tg::error!(!error, "failed to get the stdout file descriptor"))
 					.and_then(|value| {
 						let fd = value.as_raw_fd();
-						let value = AsyncFd::new(value).map_err(
+						// SAFETY: The `OwnedFd` keeps the file descriptor open and unchanged for the lifetime of the `AsyncFd`.
+						let value = unsafe { AsyncFd::register(value) }.map_err(
 							|error| tg::error!(!error, %fd, "failed to register the file descriptor"),
 						)?;
 						Ok((fd, Arc::new(value)))
@@ -402,7 +404,8 @@ impl Host {
 					.map_err(|error| tg::error!(!error, "failed to get the stderr file descriptor"))
 					.and_then(|value| {
 						let fd = value.as_raw_fd();
-						let value = AsyncFd::new(value).map_err(
+						// SAFETY: The `OwnedFd` keeps the file descriptor open and unchanged for the lifetime of the `AsyncFd`.
+						let value = unsafe { AsyncFd::register(value) }.map_err(
 							|error| tg::error!(!error, %fd, "failed to register the file descriptor"),
 						)?;
 						Ok((fd, Arc::new(value)))

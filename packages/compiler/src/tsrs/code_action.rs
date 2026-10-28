@@ -1,7 +1,5 @@
 use {
-	super::{Project, position},
-	crate::code_action,
-	tangram_client::prelude::*,
+	super::Project, crate::code_action, tangram_client::prelude::*,
 	tsrs_diagnostics as diagnostics, tsrs_lsproto as native,
 };
 
@@ -35,27 +33,20 @@ impl Project {
 			// Request the supported quick fixes and import organization.
 			let mut only = Vec::new();
 			if includes(arg.only.as_deref(), "quickfix") {
-				only.push(native::CodeActionKind::QuickFix);
+				only.push(native::CodeActionKind::QUICK_FIX);
 			}
 			if includes(arg.only.as_deref(), "source.organizeImports") {
-				only.push(native::CodeActionKind::SourceOrganizeImportsTs);
+				only.push(native::CodeActionKind::SOURCE_ORGANIZE_IMPORTS_TS);
 			}
 			if only.is_empty() {
 				return Ok(code_action::Output { actions: None });
 			}
-			let params = native::CodeActionParams {
-				context: native::CodeActionContext {
-					diagnostics,
-					only: Some(only),
-					..Default::default()
-				},
-				range: native::Range {
-					start: position(arg.range.start),
-					end: position(arg.range.end),
-				},
-				text_document: native::TextDocumentIdentifier { uri },
-				..Default::default()
-			};
+			let mut code_action_context = native::CodeActionContext::default();
+			code_action_context.diagnostics = diagnostics;
+			code_action_context.only = Some(only);
+			let mut params = native::CodeActionParams::default();
+			params.context = code_action_context;
+			params.text_document = native::TextDocumentIdentifier { uri };
 			let output = service
 				.provide_code_actions(context, &params)
 				.map_err(|error| tg::error!(!error, "failed to get the tsrs code actions"))?;
@@ -104,7 +95,7 @@ impl Project {
 				}
 
 				let kind = action.kind.map(|kind| {
-					if kind == native::CodeActionKind::SourceOrganizeImportsTs {
+					if kind == native::CodeActionKind::SOURCE_ORGANIZE_IMPORTS_TS {
 						"source.organizeImports".to_owned()
 					} else {
 						kind.0.to_owned()
@@ -137,29 +128,29 @@ fn includes(only: Option<&[String]>, kind: &str) -> bool {
 fn supports_diagnostic(code: i32) -> bool {
 	// Limit the fixes to declarations and interface implementations until generated imports use Tangram specifiers.
 	let codes = [
-        diagnostics::Add_satisfies_and_a_type_assertion_to_this_expression_satisfies_T_as_T_to_make_the_type_explicit.code(),
-        diagnostics::Arrays_with_spread_elements_can_t_inferred_with_isolatedDeclarations.code(),
-        diagnostics::Assigning_properties_to_functions_without_declaring_them_is_not_supported_with_isolatedDeclarations_Add_an_explicit_declaration_for_the_properties_assigned_to_this_function.code(),
-        diagnostics::At_least_one_accessor_must_have_an_explicit_type_annotation_with_isolatedDeclarations.code(),
-        diagnostics::Binding_elements_with_initializers_can_t_be_exported_directly_with_isolatedDeclarations.code(),
-        diagnostics::Class_0_incorrectly_implements_class_1_Did_you_mean_to_extend_1_and_inherit_its_members_as_a_subclass.code(),
-        diagnostics::Class_0_incorrectly_implements_interface_1.code(),
-        diagnostics::Computed_properties_must_be_number_or_string_literals_variables_or_dotted_expressions_with_isolatedDeclarations.code(),
-        diagnostics::Computed_property_names_on_class_or_object_literals_cannot_be_inferred_with_isolatedDeclarations.code(),
-        diagnostics::Declaration_emit_for_this_parameter_requires_implicitly_adding_undefined_to_its_type_This_is_not_supported_with_isolatedDeclarations.code(),
-        diagnostics::Default_exports_can_t_be_inferred_with_isolatedDeclarations.code(),
-        diagnostics::Enum_member_initializers_must_be_computable_without_references_to_external_symbols_with_isolatedDeclarations.code(),
-        diagnostics::Expression_type_can_t_be_inferred_with_isolatedDeclarations.code(),
-        diagnostics::Extends_clause_can_t_contain_an_expression_with_isolatedDeclarations.code(),
-        diagnostics::Function_must_have_an_explicit_return_type_annotation_with_isolatedDeclarations.code(),
-        diagnostics::Method_must_have_an_explicit_return_type_annotation_with_isolatedDeclarations.code(),
-        diagnostics::Objects_that_contain_shorthand_properties_can_t_be_inferred_with_isolatedDeclarations.code(),
-        diagnostics::Objects_that_contain_spread_assignments_can_t_be_inferred_with_isolatedDeclarations.code(),
-        diagnostics::Only_const_arrays_can_be_inferred_with_isolatedDeclarations.code(),
-        diagnostics::Parameter_must_have_an_explicit_type_annotation_with_isolatedDeclarations.code(),
-        diagnostics::Property_must_have_an_explicit_type_annotation_with_isolatedDeclarations.code(),
-        diagnostics::Type_containing_private_name_0_can_t_be_used_with_isolatedDeclarations.code(),
-        diagnostics::Variable_must_have_an_explicit_type_annotation_with_isolatedDeclarations.code(),
+        diagnostics::ADD_SATISFIES_AND_A_TYPE_ASSERTION_TO_THIS_EXPRESSION_SATISFIES_T_AS_T_TO_MAKE_THE_TYPE_EXPLICIT.code(),
+        diagnostics::ARRAYS_WITH_SPREAD_ELEMENTS_CAN_T_INFERRED_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::ASSIGNING_PROPERTIES_TO_FUNCTIONS_WITHOUT_DECLARING_THEM_IS_NOT_SUPPORTED_WITH_ISOLATED_DECLARATIONS_ADD_AN_EXPLICIT_DECLARATION_FOR_THE_PROPERTIES_ASSIGNED_TO_THIS_FUNCTION.code(),
+        diagnostics::AT_LEAST_ONE_ACCESSOR_MUST_HAVE_AN_EXPLICIT_TYPE_ANNOTATION_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::BINDING_ELEMENTS_WITH_INITIALIZERS_CAN_T_BE_EXPORTED_DIRECTLY_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS.code(),
+        diagnostics::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1.code(),
+        diagnostics::COMPUTED_PROPERTIES_MUST_BE_NUMBER_OR_STRING_LITERALS_VARIABLES_OR_DOTTED_EXPRESSIONS_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::COMPUTED_PROPERTY_NAMES_ON_CLASS_OR_OBJECT_LITERALS_CANNOT_BE_INFERRED_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::DECLARATION_EMIT_FOR_THIS_PARAMETER_REQUIRES_IMPLICITLY_ADDING_UNDEFINED_TO_ITS_TYPE_THIS_IS_NOT_SUPPORTED_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::DEFAULT_EXPORTS_CAN_T_BE_INFERRED_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::ENUM_MEMBER_INITIALIZERS_MUST_BE_COMPUTABLE_WITHOUT_REFERENCES_TO_EXTERNAL_SYMBOLS_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::EXPRESSION_TYPE_CAN_T_BE_INFERRED_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::EXTENDS_CLAUSE_CAN_T_CONTAIN_AN_EXPRESSION_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::FUNCTION_MUST_HAVE_AN_EXPLICIT_RETURN_TYPE_ANNOTATION_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::METHOD_MUST_HAVE_AN_EXPLICIT_RETURN_TYPE_ANNOTATION_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::OBJECTS_THAT_CONTAIN_SHORTHAND_PROPERTIES_CAN_T_BE_INFERRED_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::OBJECTS_THAT_CONTAIN_SPREAD_ASSIGNMENTS_CAN_T_BE_INFERRED_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::ONLY_CONST_ARRAYS_CAN_BE_INFERRED_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::PARAMETER_MUST_HAVE_AN_EXPLICIT_TYPE_ANNOTATION_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::PROPERTY_MUST_HAVE_AN_EXPLICIT_TYPE_ANNOTATION_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::TYPE_CONTAINING_PRIVATE_NAME_0_CAN_T_BE_USED_WITH_ISOLATED_DECLARATIONS.code(),
+        diagnostics::VARIABLE_MUST_HAVE_AN_EXPLICIT_TYPE_ANNOTATION_WITH_ISOLATED_DECLARATIONS.code(),
     ];
 	codes.contains(&code)
 }

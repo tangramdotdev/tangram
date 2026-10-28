@@ -19,13 +19,13 @@ impl Project {
 							let kind = range
 								.kind
 								.map(|kind| match kind {
-									native::FoldingRangeKind::Comment => {
+									native::FoldingRangeKind::COMMENT => {
 										Ok(folding_range::Kind::Comment)
 									},
-									native::FoldingRangeKind::Imports => {
+									native::FoldingRangeKind::IMPORTS => {
 										Ok(folding_range::Kind::Imports)
 									},
-									native::FoldingRangeKind::Region => {
+									native::FoldingRangeKind::REGION => {
 										Ok(folding_range::Kind::Region)
 									},
 									_ => Err(tg::error!("unknown tsrs folding range kind")),

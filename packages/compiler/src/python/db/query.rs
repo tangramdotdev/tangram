@@ -223,6 +223,7 @@ impl Database {
 		);
 		let settings = ty_ide::InlayHintSettings {
 			call_argument_names: true,
+			return_types: false,
 			variable_types: true,
 		};
 		let hints = ty_ide::inlay_hints(self, program_file, range, &settings)
@@ -364,7 +365,9 @@ impl Database {
 						active_parameter: signature
 							.active_parameter
 							.map(|index| u32::try_from(index).unwrap()),
-						documentation: signature.documentation.map(|doc| doc.render_plaintext()),
+						documentation: signature
+							.documentation
+							.map(|doc| doc.render(ty_ide::MarkupKind::PlainText)),
 						label: signature.label,
 						parameters: signature
 							.parameters

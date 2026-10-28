@@ -35,7 +35,7 @@ impl Project {
 							symbol
 								.tags
 								.as_ref()
-								.map(|tags| tags.contains(&native::SymbolTag::Deprecated))
+								.map(|tags| tags.contains(&native::SymbolTag::DEPRECATED))
 						});
 						let symbol = workspace_symbols::Symbol {
 							container_name: symbol.container_name,

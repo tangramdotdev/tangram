@@ -37,7 +37,9 @@ impl Project {
 						let token_type = semantic_tokens::TYPES
 							.iter()
 							.position(|value| *value == name)
-							.ok_or_else(|| tg::error!("unsupported tsrs semantic token type"))?;
+							.ok_or_else(|| {
+								tg::error!("unsupported tsrs semantic token type")
+							})?;
 						let token_type = u32::try_from(token_type).map_err(|error| {
 							tg::error!(!error, "invalid tsrs semantic token index")
 						})?;

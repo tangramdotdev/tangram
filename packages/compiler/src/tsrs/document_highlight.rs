@@ -14,7 +14,9 @@ impl Project {
 			let uri = self.uri(&arg.module);
 			let output = service
 				.provide_document_highlights(context, &uri, position(arg.position))
-				.map_err(|error| tg::error!(!error, "failed to get tsrs document highlights"))?;
+				.map_err(|error| {
+					tg::error!(!error, "failed to get tsrs document highlights")
+				})?;
 			let highlights = output
 				.document_highlights
 				.map(|highlights| {
@@ -24,16 +26,18 @@ impl Project {
 							let kind = highlight
 								.kind
 								.map(|kind| match kind {
-									native::DocumentHighlightKind::Read => {
+									native::DocumentHighlightKind::READ => {
 										Ok(document_highlight::Kind::Read)
 									},
-									native::DocumentHighlightKind::Text => {
+									native::DocumentHighlightKind::TEXT => {
 										Ok(document_highlight::Kind::Text)
 									},
-									native::DocumentHighlightKind::Write => {
+									native::DocumentHighlightKind::WRITE => {
 										Ok(document_highlight::Kind::Write)
 									},
-									_ => Err(tg::error!("unknown tsrs document highlight kind")),
+									_ => Err(tg::error!(
+										"unknown tsrs document highlight kind"
+									)),
 								})
 								.transpose()?;
 							let range = range(highlight.range);

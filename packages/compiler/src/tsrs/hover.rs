@@ -2,7 +2,8 @@ use {
 	super::{Project, position},
 	crate::hover,
 	tangram_client::prelude::*,
-	tsrs_lsproto as native,
+	tsrs_core::json::Value,
+	tsrs_lsproto::{self as native, json::Json as _},
 };
 
 impl Project {
@@ -23,18 +24,14 @@ impl Project {
 				let contents = hover.contents;
 				contents
 					.marked_string_with_language
-					.map(|value| value.value)
+					.and_then(|value| marked_string_text(value.to_json()))
 					.or(contents.string)
 					.or_else(|| contents.markup_content.map(|value| value.value))
 					.or_else(|| {
 						contents.marked_strings.map(|values| {
 							values
 								.into_iter()
-								.filter_map(|value| {
-									value.string.or_else(|| {
-										value.marked_string_with_language.map(|value| value.value)
-									})
-								})
+								.filter_map(|value| marked_string_text(value.to_json()))
 								.collect::<Vec<_>>()
 								.join("\n")
 						})
@@ -44,5 +41,17 @@ impl Project {
 
 			Ok(output)
 		})
+	}
+}
+
+fn marked_string_text(value: Value) -> Option<String> {
+	// Read the text of a marked string, which is either a string or an object with a value.
+	match value {
+		Value::Object(object) => match object.get("value") {
+			Some(Value::String(value)) => Some(value.clone()),
+			_ => None,
+		},
+		Value::String(value) => Some(value),
+		_ => None,
 	}
 }

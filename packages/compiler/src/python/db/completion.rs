@@ -29,7 +29,7 @@ impl Database {
 				let documentation = completion
 					.documentation
 					.take()
-					.map(|doc| doc.render_plaintext());
+					.map(|doc| doc.render(ty_ide::MarkupKind::PlainText));
 				let details = crate::completion::EntryDetails {
 					additional_text_edits: None,
 					detail,

@@ -148,5 +148,7 @@ fn async_fd(fd: OwnedFd) -> std::io::Result<AsyncFd<OwnedFd>> {
 			return Err(std::io::Error::last_os_error());
 		}
 	}
-	AsyncFd::new(fd)
+	// SAFETY: The `OwnedFd` keeps the file descriptor open and unchanged for the lifetime of the `AsyncFd`.
+	let fd = unsafe { AsyncFd::register(fd)? };
+	Ok(fd)
 }

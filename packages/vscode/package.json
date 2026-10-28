@@ -21,10 +21,10 @@
 		"format": "oxfmt --write extension.ts"
 	},
 	"dependencies": {
-		"vscode-languageclient": "^10.1.2"
+		"vscode-languageclient": "^11.0.0"
 	},
 	"devDependencies": {
-		"@types/node": "^26.6.4",
+		"@types/node": "^26.6.5",
 		"@types/vscode": "^1.140.0",
 		"@vscode/vsce": "^4.0.0"
 	},

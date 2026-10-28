@@ -55,7 +55,6 @@ impl Project {
 		let init = SessionInit {
 			background_ctx: context.clone(),
 			client: None,
-			content_mapped_parse_cache: None,
 			fs: host.clone(),
 			logger: None,
 			npm_executor: None,
@@ -79,14 +78,14 @@ impl Project {
 			exact_optional_property_types: Tristate::True,
 			isolated_modules: Tristate::True,
 			lib: Some(Vec::new()),
-			module: ModuleKind::ESNext,
+			module: ModuleKind::ES_NEXT,
 			module_detection: ModuleDetectionKind::Force,
 			no_emit: Tristate::True,
 			no_unchecked_indexed_access: Tristate::True,
 			no_unchecked_side_effect_imports: Tristate::True,
 			skip_lib_check: Tristate::True,
 			strict: Tristate::True,
-			target: ScriptTarget::ESNext,
+			target: ScriptTarget::ES_NEXT,
 			types: Some(Vec::new()),
 			verbatim_module_syntax: Tristate::True,
 			..Default::default()
@@ -114,7 +113,10 @@ impl Project {
 			Ok(snapshot) => SnapshotLease(snapshot),
 			Err((snapshot, error)) => {
 				let _snapshot = SnapshotLease(snapshot);
-				return Err(tg::error!(!error, "failed to create the tsrs program"));
+				return Err(tg::error!(
+					!error,
+					"failed to create the tsrs program"
+				));
 			},
 		};
 		let id = snapshot
@@ -123,7 +125,9 @@ impl Project {
 			.first()
 			.and_then(Option::as_ref)
 			.and_then(|project| project.id().synthetic())
-			.ok_or_else(|| tg::error!("the tsrs snapshot did not contain a synthetic project"))?;
+			.ok_or_else(|| {
+				tg::error!("the tsrs snapshot did not contain a synthetic project")
+			})?;
 		let language_service_host = LanguageServiceHost {
 			snapshot: RwLock::new(snapshot.0.clone()),
 		};
@@ -211,7 +215,9 @@ impl Project {
 			.project_collection
 			.get_project(&self.id.as_id())
 			.and_then(|project| project.get_program())
-			.ok_or_else(|| tg::error!("the updated tsrs snapshot did not contain the project"))?;
+			.ok_or_else(|| {
+				tg::error!("the updated tsrs snapshot did not contain the project")
+			})?;
 		if !std::ptr::eq(program, self.program()?) {
 			self.language_service.borrow_mut().take();
 			self.prepared_files.borrow_mut().clear();

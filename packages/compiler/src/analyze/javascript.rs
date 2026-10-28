@@ -60,10 +60,17 @@ impl<'a> Visitor<'a> {
 		for entry in &with_clause.with_entries {
 			let key = match &entry.key {
 				ImportAttributeKey::Identifier(ident) => ident.name.to_string(),
-				ImportAttributeKey::StringLiteral(lit) => lit.value.to_string(),
+				ImportAttributeKey::StringLiteral(lit) => {
+					let Some(key) = lit.value.as_str() else {
+						continue;
+					};
+					key.to_owned()
+				},
 			};
-			let value = entry.value.value.to_string();
-			attributes.insert(key, value);
+			let Some(value) = entry.value.value.as_str() else {
+				continue;
+			};
+			attributes.insert(key, value.to_owned());
 		}
 		attributes
 	}
@@ -96,11 +103,18 @@ impl<'a> Visitor<'a> {
 				};
 				let key = match &property.key {
 					PropertyKey::StaticIdentifier(identifier) => identifier.name.to_string(),
-					PropertyKey::StringLiteral(literal) => literal.value.to_string(),
+					PropertyKey::StringLiteral(literal) => {
+						let Some(key) = literal.value.as_str() else {
+							continue;
+						};
+						key.to_owned()
+					},
 					_ => continue,
 				};
-				if let Expression::StringLiteral(value) = &property.value {
-					attributes.insert(key, value.value.to_string());
+				if let Expression::StringLiteral(value) = &property.value
+					&& let Some(value) = value.value.as_str()
+				{
+					attributes.insert(key, value.to_owned());
 				}
 			}
 			return Some(attributes);
@@ -110,12 +124,15 @@ impl<'a> Visitor<'a> {
 
 	fn add_import(
 		&mut self,
-		specifier: &str,
+		specifier: Option<&str>,
 		attributes: Option<&BTreeMap<String, String>>,
 		span: Span,
 	) {
-		let result =
-			tg::module::Import::with_specifier_and_attributes(specifier, attributes.cloned());
+		let result = specifier
+			.ok_or_else(|| tg::error!("the import specifier must be valid unicode"))
+			.and_then(|specifier| {
+				tg::module::Import::with_specifier_and_attributes(specifier, attributes.cloned())
+			});
 		match result {
 			Ok(import) => {
 				self.imports.insert(import);

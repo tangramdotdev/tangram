@@ -15,11 +15,9 @@ impl Project {
 				uri: self.uri(&arg.module),
 			};
 			let positions = arg.positions.into_iter().map(position).collect();
-			let params = native::SelectionRangeParams {
-				positions,
-				text_document,
-				..Default::default()
-			};
+			let mut params = native::SelectionRangeParams::default();
+			params.positions = positions;
+			params.text_document = text_document;
 			let output = service
 				.provide_selection_ranges(context, &params)
 				.map_err(|error| tg::error!(!error, "failed to get tsrs selection ranges"))?;

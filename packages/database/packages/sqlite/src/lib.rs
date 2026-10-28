@@ -771,7 +771,6 @@ fn handle_query_message(connection: &sqlite::Connection, cache: &Cache, message:
 	// Get the columns.
 	let columns = statement
 		.column_names()
-		.into_iter()
 		.map(ToOwned::to_owned)
 		.collect::<Vec<_>>();
 
@@ -844,7 +843,6 @@ fn handle_query_all_message(
 	// Get the column names.
 	let column_names = statement
 		.column_names()
-		.into_iter()
 		.map(ToOwned::to_owned)
 		.collect::<Vec<_>>();
 

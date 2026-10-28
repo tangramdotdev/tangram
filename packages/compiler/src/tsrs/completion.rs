@@ -38,39 +38,42 @@ impl Project {
 	) -> tg::Result<completion::ResolveOutput> {
 		self.with_language_service_with_auto_imports(&arg.module, |context, service| {
 			// Restore the native completion metadata carried by Tangram's typed request.
-			let item = if let Some(data) = arg.data {
-				let text = serde_json::to_string(&data).map_err(|error| {
-					tg::error!(!error, "failed to encode the completion metadata")
-				})?;
-				let data = tsrs_core::json::unmarshal(&text)
-					.map_err(|error| tg::error!(%error, "invalid tsrs completion metadata"))?;
-				Some(
-					native::CompletionItem::from_json(&data)
-						.map_err(|error| tg::error!(!error, "invalid tsrs completion item"))?,
-				)
-			} else {
-				let output = service
-					.provide_completion(
-						context,
-						&self.uri(&arg.module),
-						position(arg.position),
-						None,
-					)
-					.map_err(|error| tg::error!(!error, "failed to get the tsrs completions"))?;
-				output
-					.items
-					.or_else(|| output.list.map(|list| list.items))
-					.unwrap_or_default()
-					.into_iter()
-					.find(|item| {
-						item.label == arg.name
-							&& arg.source.as_ref().is_none_or(|source| {
-								item.data
-									.as_ref()
-									.is_some_and(|data| &data.source == source)
-							})
-					})
-			};
+			let item =
+				if let Some(data) = arg.data {
+					let text = serde_json::to_string(&data).map_err(|error| {
+						tg::error!(!error, "failed to encode the completion metadata")
+					})?;
+					let data = tsrs_core::json::unmarshal(&text).map_err(
+						|error| tg::error!(%error, "invalid tsrs completion metadata"),
+					)?;
+					Some(native::CompletionItem::from_json(&data).map_err(|error| {
+						tg::error!(!error, "invalid tsrs completion item")
+					})?)
+				} else {
+					let output = service
+						.provide_completion(
+							context,
+							&self.uri(&arg.module),
+							position(arg.position),
+							None,
+						)
+						.map_err(|error| {
+							tg::error!(!error, "failed to get the tsrs completions")
+						})?;
+					output
+						.items
+						.or_else(|| output.list.map(|list| list.items))
+						.unwrap_or_default()
+						.into_iter()
+						.find(|item| {
+							item.label == arg.name
+								&& arg.source.as_ref().is_none_or(|source| {
+									item.data
+										.as_ref()
+										.is_some_and(|data| &data.source == source)
+								})
+						})
+				};
 			let Some(item) = item else {
 				return Ok(completion::ResolveOutput { entry: None });
 			};
@@ -79,7 +82,9 @@ impl Project {
 			let data = item.data.clone();
 			let item = service
 				.resolve_completion_item(context, item, data.as_ref())
-				.map_err(|error| tg::error!(!error, "failed to resolve the tsrs completion"))?;
+				.map_err(|error| {
+					tg::error!(!error, "failed to resolve the tsrs completion")
+				})?;
 			let kind_modifiers = completion_kind_modifiers(&item);
 			let additional_text_edits = item.additional_text_edits.map(|edits| {
 				edits
@@ -115,10 +120,10 @@ fn completion_entry(item: native::CompletionItem) -> tg::Result<completion::Entr
 	// Preserve the native item so completion resolution retains its source and auto-import metadata.
 	let text = tsrs_core::json::marshal(&item.to_json())
 		.map_err(|error| tg::error!(%error, "failed to encode the tsrs completion item"))?;
-	let data = Some(
-		serde_json::from_str(&text)
-			.map_err(|error| tg::error!(!error, "failed to decode the tsrs completion item"))?,
-	);
+	let data =
+		Some(serde_json::from_str(&text).map_err(|error| {
+			tg::error!(!error, "failed to decode the tsrs completion item")
+		})?);
 	let source = item
 		.data
 		.as_ref()
@@ -128,7 +133,7 @@ fn completion_entry(item: native::CompletionItem) -> tg::Result<completion::Entr
 	let kind_modifiers = completion_kind_modifiers(&item);
 	let is_snippet = item
 		.insert_text_format
-		.map(|format| format == native::InsertTextFormat::Snippet);
+		.map(|format| format == native::InsertTextFormat::SNIPPET);
 	let label_details = item.label_details.map(|details| completion::LabelDetails {
 		description: details.description,
 		detail: details.detail,
@@ -175,29 +180,29 @@ fn completion_kind_modifiers(item: &native::CompletionItem) -> Option<String> {
 		|| item
 			.tags
 			.as_ref()
-			.is_some_and(|tags| tags.contains(&native::CompletionItemTag::Deprecated));
+			.is_some_and(|tags| tags.contains(&native::CompletionItemTag::DEPRECATED));
 	deprecated.then(|| "deprecated".to_owned())
 }
 
 fn completion_kind(kind: Option<native::CompletionItemKind>) -> &'static str {
 	match kind {
-		Some(native::CompletionItemKind::Class | native::CompletionItemKind::Struct) => "class",
-		Some(native::CompletionItemKind::Constant) => "const",
-		Some(native::CompletionItemKind::Constructor) => "constructor",
-		Some(native::CompletionItemKind::Enum) => "enum",
-		Some(native::CompletionItemKind::EnumMember) => "enum member",
-		Some(native::CompletionItemKind::Field | native::CompletionItemKind::Property) => {
+		Some(native::CompletionItemKind::CLASS | native::CompletionItemKind::STRUCT) => "class",
+		Some(native::CompletionItemKind::CONSTANT) => "const",
+		Some(native::CompletionItemKind::CONSTRUCTOR) => "constructor",
+		Some(native::CompletionItemKind::ENUM) => "enum",
+		Some(native::CompletionItemKind::ENUM_MEMBER) => "enum member",
+		Some(native::CompletionItemKind::FIELD | native::CompletionItemKind::PROPERTY) => {
 			"property"
 		},
-		Some(native::CompletionItemKind::Folder) => "directory",
-		Some(native::CompletionItemKind::Function) => "function",
-		Some(native::CompletionItemKind::Interface) => "interface",
-		Some(native::CompletionItemKind::Keyword) => "keyword",
-		Some(native::CompletionItemKind::Method) => "method",
-		Some(native::CompletionItemKind::Module) => "module",
-		Some(native::CompletionItemKind::Reference) => "alias",
-		Some(native::CompletionItemKind::TypeParameter) => "type parameter",
-		Some(native::CompletionItemKind::Variable) => "var",
+		Some(native::CompletionItemKind::FOLDER) => "directory",
+		Some(native::CompletionItemKind::FUNCTION) => "function",
+		Some(native::CompletionItemKind::INTERFACE) => "interface",
+		Some(native::CompletionItemKind::KEYWORD) => "keyword",
+		Some(native::CompletionItemKind::METHOD) => "method",
+		Some(native::CompletionItemKind::MODULE) => "module",
+		Some(native::CompletionItemKind::REFERENCE) => "alias",
+		Some(native::CompletionItemKind::TYPE_PARAMETER) => "type parameter",
+		Some(native::CompletionItemKind::VARIABLE) => "var",
 		_ => "",
 	}
 }

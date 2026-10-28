@@ -15,9 +15,10 @@ use {
 	},
 	tsrs_ast::{Kind, ModifierFlags, Node, NodeFlags, SourceFile, Symbol, SymbolFlags},
 	tsrs_checker::{
-		Checker, ElementFlags, Flags, LiteralValue, ObjectFlags, TypeFlags, TypePredicateKind,
+		Checker, ElementFlags, Flags, LiteralValue, ObjectFlags, SignatureKind, TypeFlags,
+		TypePredicateKind,
 	},
-	tsrs_core::{P, TextRange},
+	tsrs_core::P,
 	tsrs_ls::lsconv::Converters,
 };
 
@@ -67,9 +68,9 @@ impl Project {
 		let context = Self::context();
 		let program = self.program()?;
 		let path = self.host.path(&arg.module);
-		let source_file = program
-			.get_source_file(&path)
-			.ok_or_else(|| tg::error!("the tsrs program did not contain the requested module"))?;
+		let source_file = program.get_source_file(&path).ok_or_else(|| {
+			tg::error!("the tsrs program did not contain the requested module")
+		})?;
 		let mut checker = program.get_type_checker(&context);
 		let converters = self.snapshot.borrow().0.converters();
 		let mut converter = Converter {
@@ -362,7 +363,7 @@ impl Converter<'_> {
 
 		// Get the instance properties declared by this class.
 		let mut properties = Vec::new();
-		let instance = self.checker.get_declared_type_of_symbol(symbol);
+		let instance = self.checker.get_declared_type_of_symbol_exported(symbol);
 		for property in self.checker.get_properties_of_type(instance).to_vec() {
 			if !is_member(property, declaration)
 				|| !property.flags().intersects(SymbolFlags::ClassMember)
@@ -393,10 +394,13 @@ impl Converter<'_> {
 		}
 
 		// Get the explicitly declared constructors.
-		let signatures = self.checker.get_construct_signatures(static_).to_vec();
+		let signatures = self
+			.checker
+			.get_signatures_of_type_exported(static_, SignatureKind::Construct)
+			.to_vec();
 		let nodes = signatures
 			.iter()
-			.filter_map(|signature| signature.declaration.get())
+			.filter_map(|signature| signature.declaration())
 			.filter(|node| node.kind() == Kind::Constructor && node.parent() == Some(declaration))
 			.collect::<Vec<_>>();
 		let overloaded = nodes.len() > 1;
@@ -499,7 +503,7 @@ impl Converter<'_> {
 		let type_ = if let Some(node) = declaration.type_node() {
 			self.type_node(node)
 		} else {
-			let type_ = self.checker.get_declared_type_of_symbol(symbol);
+			let type_ = self.checker.get_declared_type_of_symbol_exported(symbol);
 			self.type_(type_)
 		};
 		let type_parameters = self.type_parameter_nodes(declaration.type_parameters());
@@ -708,10 +712,10 @@ impl Converter<'_> {
 
 	fn signature(&mut self, signature: P<tsrs_checker::Signature>) -> Signature {
 		// Use the declaration's syntax when the signature is not an instantiation.
-		let declaration = signature.declaration.get();
+		let declaration = signature.declaration();
 		if let Some(declaration) = declaration
 			&& is_parsed(declaration)
-			&& signature.target.get().is_none()
+			&& signature.target().is_none()
 			&& !matches!(
 				declaration.kind(),
 				Kind::ClassDeclaration | Kind::ClassExpression | Kind::JSDocSignature
@@ -721,8 +725,7 @@ impl Converter<'_> {
 
 		// Convert the parameters.
 		let parameters = signature
-			.parameters
-			.get()
+			.parameters()
 			.iter()
 			.map(|parameter| {
 				let type_ = self.checker.get_type_of_symbol(*parameter);
@@ -749,8 +752,7 @@ impl Converter<'_> {
 
 		// Convert the type parameters.
 		let type_parameters = signature
-			.type_parameters
-			.get()
+			.type_parameters()
 			.iter()
 			.map(|type_parameter| self.type_parameter(*type_parameter))
 			.collect();
@@ -772,16 +774,16 @@ impl Converter<'_> {
 	fn return_type(&mut self, signature: P<tsrs_checker::Signature>) -> Type {
 		if let Some(predicate) = self.checker.get_type_predicate_of_signature(signature) {
 			let asserts = matches!(
-				predicate.kind.get(),
+				predicate.kind(),
 				TypePredicateKind::AssertsIdentifier | TypePredicateKind::AssertsThis
 			);
-			let name = match predicate.kind.get() {
+			let name = match predicate.kind() {
 				TypePredicateKind::AssertsThis | TypePredicateKind::This => "this".to_owned(),
 				TypePredicateKind::AssertsIdentifier | TypePredicateKind::Identifier => {
-					predicate.parameter_name.get().to_owned()
+					predicate.parameter_name().to_owned()
 				},
 			};
-			let type_ = predicate.t.get().map(|type_| self.type_(type_));
+			let type_ = predicate.type_().map(|type_| self.type_(type_));
 			return Type::Predicate(Box::new(PredicateType {
 				asserts,
 				name,
@@ -928,7 +930,7 @@ impl Converter<'_> {
 				let types = node
 					.as_intersection_type_node()
 					.union_or_intersection_type_node_base
-					.types()
+					.types
 					.nodes()
 					.iter()
 					.map(|node| self.type_node(*node))
@@ -961,7 +963,7 @@ impl Converter<'_> {
 						let span = span.as_template_literal_type_span();
 						TemplateLiteralTypeSpan {
 							literal: span.literal.text().to_owned(),
-							type_: self.type_node(span.type_),
+							type_: self.type_node(span.type_()),
 						}
 					})
 					.collect();
@@ -974,7 +976,7 @@ impl Converter<'_> {
 			Kind::TupleType => {
 				let elements = node
 					.as_tuple_type_node()
-					.elements
+					.elements()
 					.nodes()
 					.iter()
 					.map(|element| self.tuple_element_node(*element))
@@ -1019,7 +1021,7 @@ impl Converter<'_> {
 				let types = node
 					.as_union_type_node()
 					.union_or_intersection_type_node_base
-					.types()
+					.types
 					.nodes()
 					.iter()
 					.map(|node| self.type_node(*node))
@@ -1038,7 +1040,7 @@ impl Converter<'_> {
 			Kind::NamedTupleMember => {
 				let member = node.as_named_tuple_member();
 				TupleElement {
-					name: Some(node_text(member.name)),
+					name: Some(node_text(member.name())),
 					optional: member.question_token.is_some(),
 					rest: member.dot_dot_dot_token.is_some(),
 					type_: self.type_node(member.type_),
@@ -1048,13 +1050,13 @@ impl Converter<'_> {
 				name: None,
 				optional: true,
 				rest: false,
-				type_: self.type_node(node.as_optional_type_node().type_),
+				type_: self.type_node(node.as_optional_type_node().type_()),
 			},
 			Kind::RestType => TupleElement {
 				name: None,
 				optional: false,
 				rest: true,
-				type_: self.type_node(node.as_rest_type_node().type_),
+				type_: self.type_node(node.as_rest_type_node().type_()),
 			},
 			_ => TupleElement {
 				name: None,
@@ -1116,12 +1118,18 @@ impl Converter<'_> {
 		// Document an anonymous object type that only has call signatures as a function.
 		let flags = type_.flags.get();
 		if flags.intersects(TypeFlags::Object)
-			&& type_.object_flags.get().intersects(ObjectFlags::Anonymous)
+			&& type_.object_flags().intersects(ObjectFlags::Anonymous)
 			&& type_.alias().is_none()
 			&& !self.checker.get_call_signatures(type_).is_empty()
-			&& self.checker.get_construct_signatures(type_).is_empty()
+			&& self
+				.checker
+				.get_signatures_of_type_exported(type_, SignatureKind::Construct)
+				.is_empty()
 			&& self.checker.get_properties_of_type(type_).is_empty()
-			&& self.checker.get_index_infos_of_type(type_).is_empty()
+			&& self
+				.checker
+				.get_index_infos_of_type_exported(type_)
+				.is_empty()
 		{
 			let signatures = self
 				.checker
@@ -1142,7 +1150,11 @@ impl Converter<'_> {
 		};
 		match node.kind() {
 			Kind::ArrayType if is_reference(type_) => {
-				let element = self.checker.get_type_arguments(type_).first().copied();
+				let element = self
+					.checker
+					.get_type_arguments_exported(type_)
+					.first()
+					.copied();
 				let Some(element) = element else {
 					return self.other(type_);
 				};
@@ -1151,10 +1163,9 @@ impl Converter<'_> {
 			},
 			Kind::IndexedAccessType if flags.intersects(TypeFlags::IndexedAccess) => {
 				let indexed_access = type_.as_indexed_access_type();
-				let (Some(object_type), Some(index_type)) = (
-					indexed_access.object_type.get(),
-					indexed_access.index_type.get(),
-				) else {
+				let (Some(object_type), Some(index_type)) =
+					(indexed_access.object_type(), indexed_access.index_type())
+				else {
 					return self.other(type_);
 				};
 				let indexed_access = IndexedAccessType {
@@ -1167,7 +1178,6 @@ impl Converter<'_> {
 				if flags.intersects(TypeFlags::UnionOrIntersection) =>
 			{
 				let types = type_
-					.as_union_or_intersection_type()
 					.types()
 					.iter()
 					.map(|type_| self.type_(*type_))
@@ -1183,10 +1193,9 @@ impl Converter<'_> {
 				.map_or_else(|| self.other(type_), Type::Literal),
 			Kind::TemplateLiteralType if flags.intersects(TypeFlags::TemplateLiteral) => {
 				let template_literal = type_.as_template_literal_type();
-				let texts = template_literal.texts.get();
-				let template_spans = template_literal
-					.types
-					.get()
+				let texts = template_literal.texts();
+				let template_spans = type_
+					.types()
 					.iter()
 					.zip(texts.iter().skip(1))
 					.map(|(type_, literal)| TemplateLiteralTypeSpan {
@@ -1201,7 +1210,7 @@ impl Converter<'_> {
 			},
 			Kind::ThisType => Type::Keyword("this".to_owned()),
 			Kind::TupleType if is_reference(type_) => {
-				let count = node.as_tuple_type_node().elements.nodes().len();
+				let count = node.as_tuple_type_node().elements().nodes().len();
 				let elements = self.tuple_elements(type_, count);
 				Type::Tuple(TupleType { elements })
 			},
@@ -1209,8 +1218,10 @@ impl Converter<'_> {
 				// Print a large inferred object type rather than expanding it.
 				let count = self.checker.get_properties_of_type(type_).len()
 					+ self.checker.get_call_signatures(type_).len()
-					+ self.checker.get_construct_signatures(type_).len()
-					+ self.checker.get_index_infos_of_type(type_).len();
+					+ self
+						.checker
+						.get_signatures_of_type_exported(type_, SignatureKind::Construct)
+						.len() + self.checker.get_index_infos_of_type_exported(type_).len();
 				if count > MEMBERS {
 					return self.other(type_);
 				}
@@ -1229,17 +1240,22 @@ impl Converter<'_> {
 	}
 
 	fn tuple_elements(&mut self, type_: P<tsrs_checker::Type>, count: usize) -> Vec<TupleElement> {
-		// Get the element infos of the tuple target.
-		let infos = type_
+		// Get the element flags and infos of the tuple target.
+		let tuple = type_
 			.target()
-			.filter(|target| target.object_flags.get().intersects(ObjectFlags::Tuple))
-			.map(|target| target.as_tuple_type().element_infos.get())
+			.filter(|target| target.object_flags().intersects(ObjectFlags::Tuple))
+			.map(|target| target.as_tuple_type());
+		let element_flags = tuple
+			.map(tsrs_checker::TupleType::element_flags)
+			.unwrap_or_default();
+		let infos = tuple
+			.map(tsrs_checker::TupleType::element_infos)
 			.unwrap_or_default();
 
 		// Convert the elements.
 		let types = self
 			.checker
-			.get_type_arguments(type_)
+			.get_type_arguments_exported(type_)
 			.iter()
 			.take(count)
 			.copied()
@@ -1248,10 +1264,10 @@ impl Converter<'_> {
 			.into_iter()
 			.enumerate()
 			.map(|(index, type_)| {
-				let info = infos.get(index);
-				let flags = info.map(|info| info.flags).unwrap_or_default();
-				let name = info
-					.and_then(|info| info.labeled_declaration)
+				let flags = element_flags.get(index).copied().unwrap_or_default();
+				let name = infos
+					.get(index)
+					.and_then(|info| info.labeled_declaration())
 					.and_then(|declaration| declaration.name())
 					.map(node_text);
 				TupleElement {
@@ -1320,7 +1336,7 @@ impl Converter<'_> {
 			.collect();
 		let construct_signatures = self
 			.checker
-			.get_construct_signatures(type_)
+			.get_signatures_of_type_exported(type_, SignatureKind::Construct)
 			.to_vec()
 			.into_iter()
 			.map(|signature| self.signature(signature))
@@ -1329,24 +1345,23 @@ impl Converter<'_> {
 		// Convert the index signatures.
 		let index_signatures = self
 			.checker
-			.get_index_infos_of_type(type_)
+			.get_index_infos_of_type_exported(type_)
 			.to_vec()
 			.into_iter()
-			.filter_map(|info| {
-				if let Some(declaration) = info.declaration.get()
+			.map(|info| {
+				if let Some(declaration) = info.declaration()
 					&& is_parsed(declaration)
 				{
-					return Some(self.index_signature_declaration(declaration));
+					return self.index_signature_declaration(declaration);
 				}
-				let key = self.type_(info.key_type.get()?);
-				let type_ = self.type_(info.value_type.get()?);
-				let signature = IndexSignature {
+				let key = self.type_(info.key_type());
+				let type_ = self.type_(info.value_type());
+				IndexSignature {
 					key,
 					name: "key".to_owned(),
-					readonly: info.is_readonly.get(),
+					readonly: info.is_readonly(),
 					type_,
-				};
-				Some(signature)
+				}
 			})
 			.collect();
 
@@ -1366,7 +1381,7 @@ impl Converter<'_> {
 			(symbol, alias.type_arguments().to_vec())
 		} else if let Some(symbol) = type_.symbol() {
 			let type_arguments = if is_reference(type_) {
-				self.checker.get_type_arguments(type_).to_vec()
+				self.checker.get_type_arguments_exported(type_).to_vec()
 			} else {
 				Vec::new()
 			};
@@ -1452,10 +1467,9 @@ impl Converter<'_> {
 			let encoding = *self.project.host.compiler.position_encoding.read().unwrap();
 			source.range(encoding)
 		} else {
-			let (range_, _) = self
-				.converters
-				.to_lsp_range(&source_file, TextRange::new(start, end));
-			range(range_)
+			let (start, _) = self.converters.to_lsp_position(&source_file, start.into());
+			let (end, _) = self.converters.to_lsp_position(&source_file, end.into());
+			range(tsrs_lsproto::Range { end, start })
 		};
 		let range = [
 			range_.start.line,
@@ -1602,7 +1616,7 @@ fn is_parsed(node: P<Node>) -> bool {
 
 fn is_reference(type_: P<tsrs_checker::Type>) -> bool {
 	type_.flags.get().intersects(TypeFlags::Object)
-		&& type_.object_flags.get().intersects(ObjectFlags::Reference)
+		&& type_.object_flags().intersects(ObjectFlags::Reference)
 }
 
 fn is_runtime_declaration(declaration: Option<P<Node>>) -> bool {

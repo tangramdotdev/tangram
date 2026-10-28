@@ -13,7 +13,7 @@ use {
 pub(super) struct Factory(pub(super) Arc<Host>);
 
 struct ModuleResolver {
-	default: DefaultResolver,
+	default: DefaultResolver<'static>,
 	host: Arc<Host>,
 }
 
@@ -55,7 +55,7 @@ impl ModuleResolverFactory for Factory {
 	fn new_resolver(
 		&self,
 		_context: &Context,
-		options: ResolverOptions,
+		options: ResolverOptions<'static>,
 	) -> (Box<dyn Resolver>, Box<dyn FnOnce() + Send>) {
 		let resolver = ModuleResolver {
 			default: tsrs_module::new_resolver(options),

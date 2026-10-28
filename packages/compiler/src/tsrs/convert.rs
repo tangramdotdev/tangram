@@ -2,21 +2,21 @@ use {super::Project, tangram_client::prelude::*, tsrs_lsproto as native};
 
 pub(super) fn script_element_kind(kind: native::SymbolKind) -> tg::Result<&'static str> {
 	let kind = match kind {
-		native::SymbolKind::Class => "class",
-		native::SymbolKind::Constant => "const",
-		native::SymbolKind::Constructor => "constructor",
-		native::SymbolKind::Enum => "enum",
-		native::SymbolKind::EnumMember => "enum member",
-		native::SymbolKind::File => "script",
-		native::SymbolKind::Function => "function",
-		native::SymbolKind::Interface => "interface",
-		native::SymbolKind::Method => "method",
-		native::SymbolKind::Module
-		| native::SymbolKind::Namespace
-		| native::SymbolKind::Package => "module",
-		native::SymbolKind::Property | native::SymbolKind::Field => "property",
-		native::SymbolKind::TypeParameter => "type parameter",
-		native::SymbolKind::Variable => "var",
+		native::SymbolKind::CLASS => "class",
+		native::SymbolKind::CONSTANT => "const",
+		native::SymbolKind::CONSTRUCTOR => "constructor",
+		native::SymbolKind::ENUM => "enum",
+		native::SymbolKind::ENUM_MEMBER => "enum member",
+		native::SymbolKind::FILE => "script",
+		native::SymbolKind::FUNCTION => "function",
+		native::SymbolKind::INTERFACE => "interface",
+		native::SymbolKind::METHOD => "method",
+		native::SymbolKind::MODULE
+		| native::SymbolKind::NAMESPACE
+		| native::SymbolKind::PACKAGE => "module",
+		native::SymbolKind::PROPERTY | native::SymbolKind::FIELD => "property",
+		native::SymbolKind::TYPE_PARAMETER => "type parameter",
+		native::SymbolKind::VARIABLE => "var",
 		_ => return Err(tg::error!("unsupported tsrs workspace symbol kind")),
 	};
 

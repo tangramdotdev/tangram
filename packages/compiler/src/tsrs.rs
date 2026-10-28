@@ -122,7 +122,9 @@ impl Service {
 					.name("tangram-tsrs".into())
 					.stack_size(512 * 1024 * 1024)
 					.spawn(move || run(&compiler, receiver))
-					.map_err(|error| tg::error!(!error, "failed to start the tsrs service"))?;
+					.map_err(|error| {
+						tg::error!(!error, "failed to start the tsrs service")
+					})?;
 				self.sender.lock().unwrap().replace(sender);
 				thread.replace(worker);
 			}
@@ -439,9 +441,11 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::workspace_symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::workspace_symbols::Output>> {
-		compiler.tsrs.run(compiler, Vec::new(), move |project| {
-			project.workspace_symbols(&arg)
-		})
+		compiler
+			.tsrs
+			.run(compiler, Vec::new(), move |project| {
+				project.workspace_symbols(&arg)
+			})
 	}
 }
 

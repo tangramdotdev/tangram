@@ -51,9 +51,15 @@ async fn freezes_read_batches_without_reusing_an_old_snapshot() {
 			.open(&path)
 			.unwrap()
 	};
-	let mut transaction = env.write_txn().unwrap();
-	let db = env.create_database(&mut transaction, None).unwrap();
-	transaction.commit().unwrap();
+	let transaction = env.write_txn().unwrap();
+	let db = env
+		.create_databases_and_commit(transaction, |opener, transaction| {
+			opener
+				.create_database(transaction, None)
+				.map(lmdb::CommitOrAbort::<_, ()>::Commit)
+		})
+		.unwrap()
+		.unwrap_commit();
 
 	let (sender, receiver) = tokio::sync::mpsc::channel(256);
 	let first = enqueue(&sender);

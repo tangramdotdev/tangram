@@ -11,7 +11,9 @@ impl Project {
 				let uri = self.uri(&module);
 				let output = service
 					.provide_diagnostics(context, &uri)
-					.map_err(|error| tg::error!(!error, "failed to get the tsrs diagnostics"))?;
+					.map_err(|error| {
+						tg::error!(!error, "failed to get the tsrs diagnostics")
+					})?;
 				let items = output
 					.full_document_diagnostic_report
 					.ok_or_else(|| tg::error!("missing full report in the tsrs diagnostics"))?
@@ -32,24 +34,28 @@ impl Project {
 									.markup_content
 									.map(|content| content.value)
 							})
-							.ok_or_else(|| tg::error!("missing message in a tsrs diagnostic"))?;
+							.ok_or_else(|| {
+								tg::error!("missing message in a tsrs diagnostic")
+							})?;
 						let code = diagnostic.code.as_ref().and_then(|code| code.integer);
 						let message = normalize_message(code, message);
 						let severity = match diagnostic.severity {
-							Some(native::DiagnosticSeverity::Error) | None => {
+							Some(native::DiagnosticSeverity::ERROR) | None => {
 								tg::diagnostic::Severity::Error
 							},
-							Some(native::DiagnosticSeverity::Hint) => {
+							Some(native::DiagnosticSeverity::HINT) => {
 								tg::diagnostic::Severity::Hint
 							},
-							Some(native::DiagnosticSeverity::Information) => {
+							Some(native::DiagnosticSeverity::INFORMATION) => {
 								tg::diagnostic::Severity::Info
 							},
-							Some(native::DiagnosticSeverity::Warning) => {
+							Some(native::DiagnosticSeverity::WARNING) => {
 								tg::diagnostic::Severity::Warning
 							},
 							Some(_) => {
-								return Err(tg::error!("invalid severity in a tsrs diagnostic"));
+								return Err(tg::error!(
+									"invalid severity in a tsrs diagnostic"
+								));
 							},
 						};
 						let diagnostic = tg::diagnostic::Data {
@@ -93,7 +99,15 @@ impl Project {
 		} else {
 			None
 		};
-		let message = tsrs_compiler::diagnosticwriter::flatten_diagnostic_message(diagnostic, "\n");
+		let mut message = Vec::new();
+		tsrs_compiler::diagnosticwriter::write_flattened_diagnostic_message(
+			&mut message,
+			diagnostic,
+			"\n",
+		);
+		let message = String::from_utf8(message).map_err(|error| {
+			tg::error!(!error, "invalid utf-8 in a tsrs diagnostic message")
+		})?;
 		let message = normalize_message(Some(diagnostic.code()), message);
 		let severity = match diagnostic.category() {
 			tsrs_diagnostics::Category::Error => tg::diagnostic::Severity::Error,

@@ -72,7 +72,7 @@ pub struct Index {
 	writer_sender_medium: Option<writer::RequestSender>,
 }
 
-type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
+type Db = lmdb::Database<'static, lmdb::types::Bytes, lmdb::types::Bytes>;
 
 impl Index {
 	pub fn new(config: &Config) -> tg::Result<Self> {
@@ -107,13 +107,15 @@ impl Index {
 				tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
 			})?
 		};
-		let mut transaction = env.write_txn().unwrap();
+		let transaction = env.write_txn().unwrap();
 		let db = env
-			.create_database(&mut transaction, None)
-			.map_err(|error| tg::error!(!error, "failed to create the database"))?;
-		transaction
-			.commit()
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+			.create_databases_and_commit(transaction, |opener, transaction| {
+				opener
+					.create_database(transaction, None)
+					.map(lmdb::CommitOrAbort::<_, ()>::Commit)
+			})
+			.map_err(|error| tg::error!(!error, "failed to create the database"))?
+			.unwrap_commit();
 
 		let (writer_sender_high, writer_receiver_high) =
 			crossbeam::bounded(config.write_channel_capacity);

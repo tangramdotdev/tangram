@@ -37,7 +37,7 @@ fn document_symbol(symbol: native::DocumentSymbol) -> tg::Result<symbols::Symbol
 		|| symbol
 			.tags
 			.unwrap_or_default()
-			.contains(&native::SymbolTag::Deprecated)
+			.contains(&native::SymbolTag::DEPRECATED)
 	{
 		vec![symbols::Tag::Deprecated]
 	} else {
@@ -58,31 +58,31 @@ fn document_symbol(symbol: native::DocumentSymbol) -> tg::Result<symbols::Symbol
 
 fn symbol_kind(kind: native::SymbolKind) -> tg::Result<symbols::Kind> {
 	let kind = match kind {
-		native::SymbolKind::Array => symbols::Kind::Array,
-		native::SymbolKind::Boolean => symbols::Kind::Boolean,
-		native::SymbolKind::Class => symbols::Kind::Class,
-		native::SymbolKind::Constant => symbols::Kind::Constant,
-		native::SymbolKind::Constructor => symbols::Kind::Constructor,
-		native::SymbolKind::Enum => symbols::Kind::Enum,
-		native::SymbolKind::EnumMember => symbols::Kind::EnumMember,
-		native::SymbolKind::Event => symbols::Kind::Event,
-		native::SymbolKind::Field => symbols::Kind::Field,
-		native::SymbolKind::File => symbols::Kind::File,
-		native::SymbolKind::Function => symbols::Kind::Function,
-		native::SymbolKind::Interface | native::SymbolKind::Struct => symbols::Kind::Interface,
-		native::SymbolKind::Key => symbols::Kind::Key,
-		native::SymbolKind::Method => symbols::Kind::Method,
-		native::SymbolKind::Module => symbols::Kind::Module,
-		native::SymbolKind::Namespace => symbols::Kind::Namespace,
-		native::SymbolKind::Null => symbols::Kind::Null,
-		native::SymbolKind::Number => symbols::Kind::Number,
-		native::SymbolKind::Object => symbols::Kind::Object,
-		native::SymbolKind::Operator => symbols::Kind::Operator,
-		native::SymbolKind::Package => symbols::Kind::Package,
-		native::SymbolKind::Property => symbols::Kind::Property,
-		native::SymbolKind::String => symbols::Kind::String,
-		native::SymbolKind::TypeParameter => symbols::Kind::TypeParameter,
-		native::SymbolKind::Variable => symbols::Kind::Variable,
+		native::SymbolKind::ARRAY => symbols::Kind::Array,
+		native::SymbolKind::BOOLEAN => symbols::Kind::Boolean,
+		native::SymbolKind::CLASS => symbols::Kind::Class,
+		native::SymbolKind::CONSTANT => symbols::Kind::Constant,
+		native::SymbolKind::CONSTRUCTOR => symbols::Kind::Constructor,
+		native::SymbolKind::ENUM => symbols::Kind::Enum,
+		native::SymbolKind::ENUM_MEMBER => symbols::Kind::EnumMember,
+		native::SymbolKind::EVENT => symbols::Kind::Event,
+		native::SymbolKind::FIELD => symbols::Kind::Field,
+		native::SymbolKind::FILE => symbols::Kind::File,
+		native::SymbolKind::FUNCTION => symbols::Kind::Function,
+		native::SymbolKind::INTERFACE | native::SymbolKind::STRUCT => symbols::Kind::Interface,
+		native::SymbolKind::KEY => symbols::Kind::Key,
+		native::SymbolKind::METHOD => symbols::Kind::Method,
+		native::SymbolKind::MODULE => symbols::Kind::Module,
+		native::SymbolKind::NAMESPACE => symbols::Kind::Namespace,
+		native::SymbolKind::NULL => symbols::Kind::Null,
+		native::SymbolKind::NUMBER => symbols::Kind::Number,
+		native::SymbolKind::OBJECT => symbols::Kind::Object,
+		native::SymbolKind::OPERATOR => symbols::Kind::Operator,
+		native::SymbolKind::PACKAGE => symbols::Kind::Package,
+		native::SymbolKind::PROPERTY => symbols::Kind::Property,
+		native::SymbolKind::STRING => symbols::Kind::String,
+		native::SymbolKind::TYPE_PARAMETER => symbols::Kind::TypeParameter,
+		native::SymbolKind::VARIABLE => symbols::Kind::Variable,
 		_ => return Err(tg::error!("unknown tsrs symbol kind")),
 	};
 

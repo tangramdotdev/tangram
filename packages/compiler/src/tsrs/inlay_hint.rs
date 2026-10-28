@@ -15,11 +15,9 @@ impl Project {
 			let text_document = native::TextDocumentIdentifier {
 				uri: self.uri(&arg.module),
 			};
-			let params = native::InlayHintParams {
-				range,
-				text_document,
-				..Default::default()
-			};
+			let mut params = native::InlayHintParams::default();
+			params.range = range;
+			params.text_document = text_document;
 			let output = service
 				.provide_inlay_hint(context, &params)
 				.map_err(|error| tg::error!(!error, "failed to get tsrs inlay hints"))?;
@@ -32,10 +30,10 @@ impl Project {
 							let kind = hint
 								.kind
 								.map(|kind| match kind {
-									native::InlayHintKind::Parameter => {
+									native::InlayHintKind::PARAMETER => {
 										Ok(inlay_hint::Kind::Parameter)
 									},
-									native::InlayHintKind::Type => Ok(inlay_hint::Kind::Type),
+									native::InlayHintKind::TYPE => Ok(inlay_hint::Kind::Type),
 									_ => Err(tg::error!("unknown tsrs inlay hint kind")),
 								})
 								.transpose()?;
