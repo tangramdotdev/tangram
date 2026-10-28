@@ -31,6 +31,7 @@ pub use {
 		health::Health,
 		id::Id,
 		instance::{INSTANCE, Instance, init, init_with, try_instance},
+		interface::Interface,
 		location::Location,
 		module::Handle as Module,
 		mutation::Handle as Mutation,
@@ -90,6 +91,7 @@ pub mod id;
 pub mod index;
 pub mod indexer;
 pub mod instance;
+pub mod interface;
 pub mod list;
 pub mod location;
 pub mod match_;
