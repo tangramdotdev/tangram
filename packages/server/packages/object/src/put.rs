@@ -92,16 +92,13 @@ impl Component {
 			length,
 			put,
 		};
-		let permission = if self
-			.post_object_batch_authorize(
-				session,
-				&arg.children,
-				&children,
-				&BTreeSet::new(),
-				&BTreeSet::new(),
-			)
-			.await?
-		{
+		let permission = if Self::post_object_batch_authorize(
+			session,
+			&arg.children,
+			&children,
+			&BTreeSet::new(),
+			&BTreeSet::new(),
+		) {
 			tg::authorization::permission::object::Permission::Subtree
 		} else {
 			tg::authorization::permission::object::Permission::Node
