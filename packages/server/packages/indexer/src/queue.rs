@@ -1,8 +1,7 @@
 use {
-	super::{Indexer, IndexerState, request},
-	futures::future,
+	super::{Indexer, IndexerState},
 	std::{
-		collections::{BTreeMap, BTreeSet, VecDeque},
+		collections::{BTreeMap, BTreeSet},
 		ops::ControlFlow,
 		sync::{Arc, Mutex},
 	},
@@ -18,8 +17,6 @@ pub(super) mod write;
 
 pub(super) type CheckpointSender =
 	tokio::sync::mpsc::UnboundedSender<tokio::sync::oneshot::Sender<tg::Result<()>>>;
-
-pub(crate) type BatchId = [u8; 16];
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum Kind {
@@ -40,8 +37,8 @@ pub(super) struct Queues {
 }
 
 struct Memory {
-	// The fragments whose payloads can be dropped from memory, keyed by the order in which they became droppable.
-	evictable: BTreeMap<u64, (Kind, BatchId, u64)>,
+	// The entries whose payloads can be dropped from memory, keyed by the order in which they became droppable.
+	evictable: BTreeMap<u64, (Kind, u64)>,
 
 	limit: usize,
 
@@ -50,26 +47,22 @@ struct Memory {
 	used: usize,
 }
 
-pub(super) enum Work {
-	Delete(Vec<u64>),
-	Process(Assembled),
-}
-
-pub(super) struct Assembled {
-	payloads: Vec<Payload>,
-	sequences: Vec<u64>,
+pub(super) struct Work {
+	payload: Payload,
+	pub(super) sequence: u64,
 }
 
 enum Payload {
-	Cache(u64),
+	Cache,
 	Memory(bytes::Bytes),
 }
 
 struct Queue {
-	batches: Batches,
-
 	// The completed ranges have exclusive ends and are disjoint and nonadjacent.
 	completed: BTreeMap<u64, u64>,
+
+	// The entries that have not been popped, keyed by sequence.
+	entries: BTreeMap<u64, Entry>,
 
 	read_sequence: u64,
 
@@ -77,39 +70,16 @@ struct Queue {
 
 	reserved_sequence_end: u64,
 
-	work: VecDeque<Scheduled>,
-
 	write_sequence: u64,
 
 	// The sequences whose writes to the cache have not finished.
 	writes: BTreeSet<u64>,
 }
 
-enum Scheduled {
-	Delete(Vec<u64>),
-	Process(BatchId),
-}
-
-#[derive(Default)]
-struct Batches {
-	active: BTreeMap<BatchId, Batch>,
-	by_expires_at: BTreeSet<(tokio::time::Instant, BatchId)>,
-	complete: BTreeSet<BatchId>,
-	ready: BTreeMap<BatchId, Batch>,
-	timed_out: BTreeSet<BatchId>,
-}
-
-struct Batch {
-	deadline: tokio::time::Instant,
-	fragments: BTreeMap<u64, Fragment>,
-	len: u64,
-}
-
-struct Fragment {
+struct Entry {
 	payload: Option<bytes::Bytes>,
-	sequences: Vec<u64>,
 	stamp: Option<u64>,
-	written: Option<u64>,
+	written: bool,
 }
 
 impl Queues {
@@ -151,7 +121,6 @@ impl Queues {
 		let end = queue.reserved_sequence_end;
 		tracing::debug!(?kind, start, end, "recovering the queue");
 		let batch_size = indexer.server.config.object.queue_recovery_batch_size;
-		let timeout = indexer.batch_timeout(kind);
 		let mut sequence_start = start;
 		while sequence_start < end {
 			let sequence_end = sequence_start.saturating_add(batch_size).min(end);
@@ -163,7 +132,7 @@ impl Queues {
 				.map_err(|error| tg::error!(!error, "failed to recover the queue items"))?;
 			let bytes = items
 				.iter()
-				.map(|(_, fragment)| fragment.payload.len())
+				.map(|(_, payload)| payload.len())
 				.sum::<usize>();
 			tracing::debug!(
 				?kind,
@@ -174,7 +143,7 @@ impl Queues {
 				"recovered the queue items"
 			);
 
-			// Complete the absent sequences and assemble the present ones.
+			// Complete the absent sequences and record each present one as an entry.
 			let sequences = items
 				.iter()
 				.map(|(sequence, _)| *sequence)
@@ -184,10 +153,8 @@ impl Queues {
 					self.queue_mut(kind).complete(sequence);
 				}
 			}
-			for (sequence, fragment) in &items {
-				if let Err(error) = self.insert_fragment(kind, *sequence, fragment, timeout) {
-					tracing::error!(error = %error.trace(), ?kind, sequence, "discarding a recovered queue item");
-				}
+			for (sequence, payload) in items {
+				self.insert_entry(kind, sequence, payload);
 			}
 
 			sequence_start = sequence_end;
@@ -221,188 +188,55 @@ impl Queues {
 		Some(sequence)
 	}
 
-	pub fn insert_fragment(
-		&mut self,
-		kind: Kind,
-		sequence: u64,
-		fragment: &request::Fragment,
-		batch_timeout: std::time::Duration,
-	) -> tg::Result<()> {
+	pub fn insert_entry(&mut self, kind: Kind, sequence: u64, payload: bytes::Bytes) {
+		// Record the entry, holding its payload in memory.
 		let (queue, memory) = self.queue_and_memory_mut(kind);
-		let id = fragment.batch;
-
-		// Delete a fragment of a batch that has already completed or timed out.
-		if queue.batches.complete.contains(&id) {
-			queue.work.push_back(Scheduled::Delete(vec![sequence]));
-			return Ok(());
-		}
-		if queue.batches.timed_out.contains(&id) {
-			queue.work.push_back(Scheduled::Delete(vec![sequence]));
-			return Err(tg::error!("the queue batch timed out"));
-		}
-
-		// Validate the fragment against the batch.
-		if fragment.fragments == 0 || fragment.fragment >= fragment.fragments {
-			queue.work.push_back(Scheduled::Delete(vec![sequence]));
-			return Err(tg::error!("invalid queue fragment count or position"));
-		}
-		let batch = queue.batches.active.entry(id).or_insert_with(|| {
-			let deadline = tokio::time::Instant::now() + batch_timeout;
-			queue.batches.by_expires_at.insert((deadline, id));
-			Batch {
-				deadline,
-				fragments: BTreeMap::new(),
-				len: fragment.fragments,
-			}
-		});
-		if batch.len != fragment.fragments {
-			queue.work.push_back(Scheduled::Delete(vec![sequence]));
-			return Err(tg::error!("conflicting queue fragment counts"));
-		}
-
-		// Record the fragment, holding its payload in memory.
-		let written = (!queue.writes.contains(&sequence)).then_some(sequence);
-		if let Some(existing) = batch.fragments.get_mut(&fragment.fragment) {
-			existing.sequences.push(sequence);
-			if existing.written.is_none() {
-				existing.written = written;
-			}
-			memory.make_evictable((kind, id, fragment.fragment), existing);
-		} else {
-			let mut entry = Fragment {
-				payload: Some(fragment.payload.clone()),
-				sequences: vec![sequence],
-				stamp: None,
-				written,
-			};
-			memory.used += fragment.payload.len();
-			memory.make_evictable((kind, id, fragment.fragment), &mut entry);
-			batch.fragments.insert(fragment.fragment, entry);
-		}
-
-		// Schedule the batch for processing once every fragment is present.
-		let complete = u64::try_from(batch.fragments.len()).ok() == Some(batch.len);
-		if complete {
-			let batch = queue.batches.active.remove(&id).unwrap();
-			queue.batches.by_expires_at.remove(&(batch.deadline, id));
-			let expires_at = tokio::time::Instant::now() + batch_timeout;
-			queue.batches.by_expires_at.insert((expires_at, id));
-			queue.batches.complete.insert(id);
-			queue.batches.ready.insert(id, batch);
-			queue.work.push_back(Scheduled::Process(id));
-		}
+		let written = !queue.writes.contains(&sequence);
+		memory.used += payload.len();
+		let mut entry = Entry {
+			payload: Some(payload),
+			stamp: None,
+			written,
+		};
+		memory.make_evictable((kind, sequence), &mut entry);
+		queue.entries.insert(sequence, entry);
 
 		self.evict();
-
-		Ok(())
 	}
 
-	pub fn finish_write(
-		&mut self,
-		kind: Kind,
-		sequence: u64,
-		fragment: &request::Fragment,
-		succeeded: bool,
-	) {
+	pub fn finish_write(&mut self, kind: Kind, sequence: u64, succeeded: bool) {
 		let (queue, memory) = self.queue_and_memory_mut(kind);
 		queue.writes.remove(&sequence);
 		if !succeeded {
 			return;
 		}
 
-		// Record the write, so that the fragment's payload can be read from the cache if it is dropped from memory.
-		let Some(entry) = find_fragment(&mut queue.batches, fragment.batch, fragment.fragment)
-		else {
+		// Record the write, so that the entry's payload can be read from the cache if it is dropped from memory.
+		let Some(entry) = queue.entries.get_mut(&sequence) else {
 			return;
 		};
-		if !entry.sequences.contains(&sequence) || entry.written.is_some() {
-			return;
-		}
-		entry.written = Some(sequence);
-		memory.make_evictable((kind, fragment.batch, fragment.fragment), entry);
+		entry.written = true;
+		memory.make_evictable((kind, sequence), entry);
+
 		self.evict();
 	}
 
 	#[must_use]
-	pub fn writes_finished(&self, kind: Kind, sequences: &[u64]) -> bool {
-		let queue = self.queue(kind);
-		sequences
-			.iter()
-			.all(|sequence| !queue.writes.contains(sequence))
+	pub fn write_finished(&self, kind: Kind, sequence: u64) -> bool {
+		!self.queue(kind).writes.contains(&sequence)
 	}
 
-	pub fn pop_work(&mut self, kind: Kind) -> Option<Work> {
+	pub fn pop_entry(&mut self, kind: Kind) -> Option<Work> {
 		let (queue, memory) = self.queue_and_memory_mut(kind);
-		let work = match queue.work.pop_front()? {
-			Scheduled::Delete(sequences) => Work::Delete(sequences),
-			Scheduled::Process(id) => {
-				let batch = queue.batches.ready.remove(&id).unwrap();
-				let mut payloads = Vec::with_capacity(batch.fragments.len());
-				let mut sequences = Vec::new();
-				for mut fragment in batch.fragments.into_values() {
-					memory.release_fragment(&mut fragment);
-					let payload = match fragment.payload {
-						Some(payload) => Payload::Memory(payload),
-						None => Payload::Cache(fragment.written.unwrap()),
-					};
-					payloads.push(payload);
-					sequences.extend(fragment.sequences);
-				}
-				Work::Process(Assembled {
-					payloads,
-					sequences,
-				})
-			},
+		let (sequence, mut entry) = queue.entries.pop_first()?;
+		memory.release(&mut entry);
+		let payload = match entry.payload {
+			Some(payload) => Payload::Memory(payload),
+			None => Payload::Cache,
 		};
+		let work = Work { payload, sequence };
 
 		Some(work)
-	}
-
-	pub fn expire_batches(&mut self, kind: Kind, batch_timeout: std::time::Duration) {
-		let (queue, memory) = self.queue_and_memory_mut(kind);
-		let now = tokio::time::Instant::now();
-		while let Some(&(expires_at, id)) = queue.batches.by_expires_at.first() {
-			if expires_at > now {
-				break;
-			}
-			queue.batches.by_expires_at.pop_first();
-			if queue.batches.complete.remove(&id) || queue.batches.timed_out.remove(&id) {
-				continue;
-			}
-			let batch = queue.batches.active.remove(&id).unwrap();
-			queue
-				.batches
-				.by_expires_at
-				.insert((now + batch_timeout, id));
-			queue.batches.timed_out.insert(id);
-			let sequences = memory.release_batch(batch);
-			queue.work.push_back(Scheduled::Delete(sequences));
-		}
-	}
-
-	#[must_use]
-	pub fn next_batch_deadline(&self) -> Option<tokio::time::Instant> {
-		[&self.archive, &self.index]
-			.into_iter()
-			.filter_map(|queue| {
-				queue
-					.batches
-					.by_expires_at
-					.first()
-					.map(|(expires_at, _)| *expires_at)
-			})
-			.min()
-	}
-
-	pub fn abandon_incomplete_batches(&mut self) {
-		for queue in [&mut self.archive, &mut self.index] {
-			let active = std::mem::take(&mut queue.batches.active);
-			for (id, batch) in active {
-				queue.batches.by_expires_at.remove(&(batch.deadline, id));
-				let sequences = self.memory.release_batch(batch);
-				queue.work.push_back(Scheduled::Delete(sequences));
-			}
-		}
 	}
 
 	pub fn start_reservation(
@@ -457,11 +291,8 @@ impl Queues {
 		queue.reserved_sequence_end = reservation.end;
 	}
 
-	pub fn complete(&mut self, kind: Kind, sequences: &[u64]) {
-		let queue = self.queue_mut(kind);
-		for &sequence in sequences {
-			queue.complete(sequence);
-		}
+	pub fn complete(&mut self, kind: Kind, sequence: u64) {
+		self.queue_mut(kind).complete(sequence);
 	}
 
 	#[must_use]
@@ -481,17 +312,17 @@ impl Queues {
 	}
 
 	fn evict(&mut self) {
-		// Drop the most recently droppable payloads, because their batches are processed last.
+		// Drop the most recently droppable payloads, because their entries are processed last.
 		while self.memory.used > self.memory.limit {
-			let Some((_, (kind, id, index))) = self.memory.evictable.pop_last() else {
+			let Some((_, (kind, sequence))) = self.memory.evictable.pop_last() else {
 				break;
 			};
 			let (queue, memory) = self.queue_and_memory_mut(kind);
-			let Some(fragment) = find_fragment(&mut queue.batches, id, index) else {
+			let Some(entry) = queue.entries.get_mut(&sequence) else {
 				continue;
 			};
-			fragment.stamp = None;
-			if let Some(payload) = fragment.payload.take() {
+			entry.stamp = None;
+			if let Some(payload) = entry.payload.take() {
 				memory.used -= payload.len();
 			}
 		}
@@ -530,32 +361,23 @@ impl Memory {
 		}
 	}
 
-	fn make_evictable(&mut self, location: (Kind, BatchId, u64), fragment: &mut Fragment) {
-		// Only a fragment whose write has finished can be dropped from memory, so that it can always be read from the cache.
-		if fragment.payload.is_none() || fragment.written.is_none() || fragment.stamp.is_some() {
+	fn make_evictable(&mut self, location: (Kind, u64), entry: &mut Entry) {
+		// Only an entry whose write has finished can be dropped from memory, so that it can always be read from the cache.
+		if entry.payload.is_none() || !entry.written || entry.stamp.is_some() {
 			return;
 		}
 		self.stamp += 1;
-		fragment.stamp = Some(self.stamp);
+		entry.stamp = Some(self.stamp);
 		self.evictable.insert(self.stamp, location);
 	}
 
-	fn release_fragment(&mut self, fragment: &mut Fragment) {
-		if let Some(stamp) = fragment.stamp.take() {
+	fn release(&mut self, entry: &mut Entry) {
+		if let Some(stamp) = entry.stamp.take() {
 			self.evictable.remove(&stamp);
 		}
-		if let Some(payload) = &fragment.payload {
+		if let Some(payload) = &entry.payload {
 			self.used -= payload.len();
 		}
-	}
-
-	fn release_batch(&mut self, batch: Batch) -> Vec<u64> {
-		let mut sequences = Vec::new();
-		for mut fragment in batch.fragments.into_values() {
-			self.release_fragment(&mut fragment);
-			sequences.extend(fragment.sequences);
-		}
-		sequences
 	}
 }
 
@@ -563,12 +385,11 @@ impl Queue {
 	#[must_use]
 	fn new(read_sequence: u64, write_sequence: u64) -> Self {
 		Self {
-			batches: Batches::default(),
 			completed: BTreeMap::new(),
+			entries: BTreeMap::new(),
 			read_sequence,
 			reservation_pending: false,
 			reserved_sequence_end: write_sequence,
-			work: VecDeque::new(),
 			write_sequence,
 			writes: BTreeSet::new(),
 		}
@@ -677,9 +498,9 @@ impl Indexer {
 		loop {
 			let notified = changed.notified();
 
-			// Process the scheduled work up to the concurrency.
+			// Process the entries in sequence order up to the concurrency.
 			while !stopped && tasks.len() < concurrency {
-				let work = state.lock().unwrap().queues.pop_work(kind);
+				let work = state.lock().unwrap().queues.pop_entry(kind);
 				let Some(work) = work else {
 					break;
 				};
@@ -687,7 +508,7 @@ impl Indexer {
 					let indexer = self.clone();
 					let state = state.clone();
 					let changed = changed.clone();
-					async move { indexer.process_work(kind, &state, &changed, work).await }
+					async move { indexer.process_entry(kind, &state, &changed, work).await }
 				});
 			}
 
@@ -708,54 +529,53 @@ impl Indexer {
 		Ok(())
 	}
 
-	async fn process_work(
+	async fn process_entry(
 		&self,
 		kind: Kind,
 		state: &Mutex<IndexerState>,
 		changed: &tokio::sync::Notify,
 		work: Work,
 	) -> tg::Result<()> {
-		let sequences = match work {
-			Work::Delete(sequences) => sequences,
-			Work::Process(batch) => {
-				self.process_batch_with_retry(kind, &batch.payloads).await?;
-				batch.sequences
-			},
-		};
+		let Work { payload, sequence } = work;
 
-		// Wait for the writes to finish, so that a write cannot recreate a deleted queue item.
+		// Process the entry.
+		self.process_entry_with_retry(kind, sequence, &payload)
+			.await?;
+
+		// Wait for the write to finish, so that the write cannot recreate the deleted queue item.
 		loop {
 			let notified = changed.notified();
-			if state
-				.lock()
-				.unwrap()
-				.queues
-				.writes_finished(kind, &sequences)
-			{
+			if state.lock().unwrap().queues.write_finished(kind, sequence) {
 				break;
 			}
 			notified.await;
 		}
 
-		// Delete the queue items and complete the sequences.
-		self.delete_queue_items(kind, &sequences).await?;
-		state.lock().unwrap().queues.complete(kind, &sequences);
+		// Delete the queue item and complete the sequence.
+		self.delete_queue_item(kind, sequence).await?;
+		state.lock().unwrap().queues.complete(kind, sequence);
 		changed.notify_waiters();
 
 		Ok(())
 	}
 
-	async fn process_batch_with_retry(&self, kind: Kind, payloads: &[Payload]) -> tg::Result<()> {
+	async fn process_entry_with_retry(
+		&self,
+		kind: Kind,
+		sequence: u64,
+		payload: &Payload,
+	) -> tg::Result<()> {
 		let result = tangram_futures::retry(&self.retry_options(), || async {
-			let result = match self.read_batch(kind, payloads).await {
+			let result = match self.read_entry(kind, sequence, payload).await {
 				Ok(Some(bytes)) => match kind {
-					Kind::Archive => self.process_archive_batch(&bytes).await,
-					Kind::Index => self.process_index_batch(&bytes).await,
+					Kind::Archive => self.process_archive_entry(&bytes).await,
+					Kind::Index => self.process_index_entry(&bytes).await,
 				},
 				Ok(None) => {
 					tracing::error!(
 						?kind,
-						"discarding a queue batch because a fragment is absent from the cache"
+						sequence,
+						"discarding a queue entry because it is absent from the cache"
 					);
 					Ok(Ok(()))
 				},
@@ -764,7 +584,7 @@ impl Indexer {
 			match result {
 				Ok(result) => Ok(ControlFlow::Break(result)),
 				Err(error) => {
-					tracing::error!(error = %error.trace(), ?kind, "failed to process a queue batch");
+					tracing::error!(error = %error.trace(), ?kind, sequence, "failed to process a queue entry");
 
 					Ok(ControlFlow::Continue(error))
 				},
@@ -773,39 +593,31 @@ impl Indexer {
 		.await?;
 
 		if let Err(error) = result {
-			tracing::error!(error = %error.trace(), ?kind, "discarding a rejected queue batch");
+			tracing::error!(error = %error.trace(), ?kind, sequence, "discarding a rejected queue entry");
 		}
 
 		Ok(())
 	}
 
-	async fn read_batch(&self, kind: Kind, payloads: &[Payload]) -> tg::Result<Option<Vec<u8>>> {
-		// Read the payloads that were dropped from memory from the cache.
-		let payloads = future::try_join_all(payloads.iter().map(|payload| async move {
-			match payload {
-				Payload::Cache(sequence) => self.try_get_queue_payload(kind, *sequence).await,
-				Payload::Memory(payload) => Ok(Some(payload.clone())),
-			}
-		}))
-		.await?;
-		let Some(payloads) = payloads.into_iter().collect::<Option<Vec<_>>>() else {
-			return Ok(None);
+	async fn read_entry(
+		&self,
+		kind: Kind,
+		sequence: u64,
+		payload: &Payload,
+	) -> tg::Result<Option<bytes::Bytes>> {
+		// Read a payload that was dropped from memory from the cache.
+		let payload = match payload {
+			Payload::Cache => self.try_get_queue_payload(kind, sequence).await?,
+			Payload::Memory(payload) => Some(payload.clone()),
 		};
 
-		// Reassemble the encoded batch in fragment order.
-		let len = payloads.iter().map(bytes::Bytes::len).sum();
-		let mut bytes = Vec::with_capacity(len);
-		for payload in &payloads {
-			bytes.extend_from_slice(payload);
-		}
-
-		Ok(Some(bytes))
+		Ok(payload)
 	}
 
-	#[tracing::instrument(name = "archive.process_batch", level = "debug", skip_all, fields(indexer = %self.id(), bytes = bytes.len()), err(level = "debug"))]
-	async fn process_archive_batch(&self, bytes: &[u8]) -> tg::Result<tg::Result<()>> {
+	#[tracing::instrument(name = "archive.process_entry", level = "debug", skip_all, fields(indexer = %self.id(), bytes = bytes.len()), err(level = "debug"))]
+	async fn process_archive_entry(&self, bytes: &[u8]) -> tg::Result<tg::Result<()>> {
 		let arg = tangram_server_core::archive::batch::Arg::deserialize(bytes)?;
-		tracing::debug!(items = arg.items.len(), "decoded the archive batch");
+		tracing::debug!(items = arg.items.len(), "decoded the archive entry");
 
 		// Wait for the object puts and read their bytes from the cache.
 		let puts = arg
@@ -840,12 +652,12 @@ impl Indexer {
 		Ok(Ok(()))
 	}
 
-	#[tracing::instrument(name = "index.process_batch", level = "debug", skip_all, fields(indexer = %self.id(), bytes = bytes.len()), err(level = "debug"))]
-	async fn process_index_batch(&self, bytes: &[u8]) -> tg::Result<tg::Result<()>> {
+	#[tracing::instrument(name = "index.process_entry", level = "debug", skip_all, fields(indexer = %self.id(), bytes = bytes.len()), err(level = "debug"))]
+	async fn process_index_entry(&self, bytes: &[u8]) -> tg::Result<tg::Result<()>> {
 		let arg = tangram_index::write::Arg::deserialize(bytes)?;
-		tracing::debug!(items = arg.items.len(), "decoded the index batch");
+		tracing::debug!(items = arg.items.len(), "decoded the index entry");
 
-		// Wait for the object puts before indexing the batch.
+		// Wait for the object puts before writing the items.
 		let puts = arg
 			.items
 			.iter()
@@ -858,7 +670,7 @@ impl Indexer {
 			.wait_for_object_put_batch(&self.server.config.object.index_queue.retry, puts)
 			.await?;
 		if let Some((id, put)) = missing.first() {
-			tracing::error!(%id, ?put, missing_count = missing.len(), "discarding an index queue batch because an object put is absent from the cache");
+			tracing::error!(%id, ?put, missing_count = missing.len(), "discarding an index queue entry because an object put is absent from the cache");
 			return Ok(Ok(()));
 		}
 		tangram_server_core::checkpoint!(self.server, "index.write").await;
@@ -867,19 +679,12 @@ impl Indexer {
 		Ok(result)
 	}
 
-	fn batch_timeout(&self, kind: Kind) -> std::time::Duration {
-		match kind {
-			Kind::Archive => self.server.config.object.archive_queue.batch_timeout,
-			Kind::Index => self.server.config.object.index_queue.batch_timeout,
-		}
-	}
-
 	async fn get_queue_items(
 		&self,
 		kind: Kind,
 		sequence_start: u64,
 		sequence_end: u64,
-	) -> tg::Result<Vec<(u64, request::Fragment)>> {
+	) -> tg::Result<Vec<(u64, bytes::Bytes)>> {
 		let indexer = self.id().clone();
 		let items = match kind {
 			Kind::Archive => {
@@ -893,15 +698,7 @@ impl Indexer {
 					.get_archive_queue_items(arg)
 					.await?
 					.into_iter()
-					.map(|item| {
-						let fragment = request::Fragment {
-							batch: item.batch.value(),
-							fragment: item.fragment,
-							fragments: item.fragments,
-							payload: item.payload,
-						};
-						(item.sequence, fragment)
-					})
+					.map(|item| (item.sequence, item.payload))
 					.collect()
 			},
 			Kind::Index => {
@@ -915,15 +712,7 @@ impl Indexer {
 					.get_index_queue_items(arg)
 					.await?
 					.into_iter()
-					.map(|item| {
-						let fragment = request::Fragment {
-							batch: item.batch.value(),
-							fragment: item.fragment,
-							fragments: item.fragments,
-							payload: item.payload,
-						};
-						(item.sequence, fragment)
-					})
+					.map(|item| (item.sequence, item.payload))
 					.collect()
 			},
 		};
@@ -966,19 +755,15 @@ impl Indexer {
 		&self,
 		kind: Kind,
 		sequence: u64,
-		fragment: &request::Fragment,
+		payload: &bytes::Bytes,
 	) -> tg::Result<()> {
 		let indexer = self.id().clone();
+		let payload = payload.clone();
 		match kind {
 			Kind::Archive => {
 				let item = tangram_server_core::cache::archive::queue::Item {
-					batch: tangram_server_core::cache::archive::queue::batch::Id::new(
-						fragment.batch,
-					),
-					fragment: fragment.fragment,
-					fragments: fragment.fragments,
 					indexer,
-					payload: fragment.payload.clone(),
+					payload,
 					sequence,
 				};
 				let arg = tangram_server_core::cache::archive::queue::put::Arg { item };
@@ -990,11 +775,8 @@ impl Indexer {
 			},
 			Kind::Index => {
 				let item = tangram_server_core::cache::index::queue::Item {
-					batch: tangram_server_core::cache::index::queue::batch::Id::new(fragment.batch),
-					fragment: fragment.fragment,
-					fragments: fragment.fragments,
 					indexer,
-					payload: fragment.payload.clone(),
+					payload,
 					sequence,
 				};
 				let arg = tangram_server_core::cache::index::queue::put::Arg { item };
@@ -1009,12 +791,12 @@ impl Indexer {
 		Ok(())
 	}
 
-	async fn delete_queue_items(&self, kind: Kind, sequences: &[u64]) -> tg::Result<()> {
+	async fn delete_queue_item(&self, kind: Kind, sequence: u64) -> tg::Result<()> {
 		tangram_futures::retry(&self.retry_options(), || async {
-			match self.delete_queue_item_batch(kind, sequences).await {
+			match self.delete_queue_item_inner(kind, sequence).await {
 				Ok(()) => Ok(ControlFlow::Break(())),
 				Err(error) => {
-					tracing::error!(error = %error.trace(), ?kind, "failed to delete the queue items");
+					tracing::error!(error = %error.trace(), ?kind, sequence, "failed to delete the queue item");
 
 					Ok(ControlFlow::Continue(error))
 				},
@@ -1025,9 +807,9 @@ impl Indexer {
 		Ok(())
 	}
 
-	async fn delete_queue_item_batch(&self, kind: Kind, sequences: &[u64]) -> tg::Result<()> {
+	async fn delete_queue_item_inner(&self, kind: Kind, sequence: u64) -> tg::Result<()> {
 		let indexer = self.id().clone();
-		let sequences = sequences.to_vec();
+		let sequences = vec![sequence];
 		match kind {
 			Kind::Archive => {
 				let arg = tangram_server_core::cache::archive::queue::delete::batch::Arg {
@@ -1039,7 +821,7 @@ impl Indexer {
 					.delete_archive_queue_item_batch(arg)
 					.await
 					.map_err(|error| {
-						tg::error!(!error, "failed to delete the archive queue items")
+						tg::error!(!error, "failed to delete the archive queue item")
 					})?;
 			},
 			Kind::Index => {
@@ -1051,21 +833,10 @@ impl Indexer {
 					.cache
 					.delete_index_queue_item_batch(arg)
 					.await
-					.map_err(|error| {
-						tg::error!(!error, "failed to delete the index queue items")
-					})?;
+					.map_err(|error| tg::error!(!error, "failed to delete the index queue item"))?;
 			},
 		}
 
 		Ok(())
 	}
-}
-
-fn find_fragment(batches: &mut Batches, id: BatchId, index: u64) -> Option<&mut Fragment> {
-	let batch = if let Some(batch) = batches.active.get_mut(&id) {
-		batch
-	} else {
-		batches.ready.get_mut(&id)?
-	};
-	batch.fragments.get_mut(&index)
 }

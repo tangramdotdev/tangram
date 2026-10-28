@@ -5,9 +5,6 @@ fn index() {
 	let cache = Cache::new();
 	let indexer = tg::indexer::Id::new();
 	let item = index::queue::Item {
-		batch: index::queue::batch::Id::new([1; 16]),
-		fragment: 1,
-		fragments: 2,
 		indexer: indexer.clone(),
 		payload: Bytes::from_static(b"payload"),
 		sequence: 42,

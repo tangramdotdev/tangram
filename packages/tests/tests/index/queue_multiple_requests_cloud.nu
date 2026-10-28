@@ -1,17 +1,13 @@
 use ../../util/test.nu *
 use ../../util/archive.nu *
 
-# A put whose archive and index batches span several indexer requests is archived and indexed.
+# A put whose archive and index items span several indexer requests is archived and indexed.
 
 skip_test --cloud
 let archive = spawn_archive
 let local = server spawn --cloud --config {
 	archive: $archive.config,
 	indexer: { enqueue: { request_size: 128 } },
-	object: {
-		archive_queue: { fragment_size: 64 },
-		index_queue: { fragment_size: 64 },
-	},
 }
 
 # Put a directory of eight files, which stores seventeen objects.

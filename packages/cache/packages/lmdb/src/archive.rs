@@ -85,8 +85,9 @@ impl Cache {
 					.map_err(|error| tg::error!(!error, "failed to get an archive queue item"))?;
 				let (_, _, sequence): (i32, Vec<u8>, u64) = fdbt::unpack(key)
 					.map_err(|error| tg::error!(!error, "failed to unpack an archive queue key"))?;
+				let item = decode_archive_queue_item(arg.indexer.clone(), sequence, value);
 
-				decode_archive_queue_item(arg.indexer.clone(), sequence, value)
+				Ok(item)
 			})
 			.collect()
 	}
@@ -118,14 +119,8 @@ impl Cache {
 			sequence: item.sequence,
 		}
 		.pack_to_vec();
-		let batch = item.batch.value();
-		let value = fdbt::pack(&(
-			batch.as_slice(),
-			item.fragment,
-			item.fragments,
-			item.payload.as_ref(),
-		));
-		db.put(transaction, &key, &value)
+		let value = item.payload.as_ref();
+		db.put(transaction, &key, value)
 			.map_err(|error| tg::error!(!error, "failed to put an archive queue item"))?;
 
 		Ok(())
@@ -147,7 +142,7 @@ impl Cache {
 		else {
 			return Ok(None);
 		};
-		let item = decode_archive_queue_item(arg.indexer.clone(), arg.sequence, value)?;
+		let item = decode_archive_queue_item(arg.indexer.clone(), arg.sequence, value);
 
 		Ok(Some(item))
 	}
@@ -187,22 +182,11 @@ fn decode_archive_queue_item(
 	indexer: tg::indexer::Id,
 	sequence: u64,
 	value: &[u8],
-) -> tg::Result<archive::queue::Item> {
-	let (batch, fragment, fragments, payload): (Vec<u8>, u64, u64, Vec<u8>) =
-		fdbt::unpack(value)
-			.map_err(|error| tg::error!(!error, "failed to unpack an archive queue item"))?;
-	let batch = batch
-		.try_into()
-		.map(archive::queue::batch::Id::new)
-		.map_err(|_| tg::error!("invalid archive queue batch id"))?;
-	let item = archive::queue::Item {
-		batch,
-		fragment,
-		fragments,
+) -> archive::queue::Item {
+	let payload = bytes::Bytes::copy_from_slice(value);
+	archive::queue::Item {
 		indexer,
-		payload: payload.into(),
+		payload,
 		sequence,
-	};
-
-	Ok(item)
+	}
 }
