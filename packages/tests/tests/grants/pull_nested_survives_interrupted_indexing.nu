@@ -10,12 +10,12 @@ let config = {
 	indexer: { id: 'idx_0000000000000000000000000000' },
 }
 let local_producer = server spawn --name local-producer --directory $directory --config $config
-let watch = tg --url $local_producer.url --token $root_token checkpoint watch index.batch | from json | get watch
+let watch = tg --url $local_producer.url --token $root_token checkpoint watch index.write | from json | get watch
 
 let nested_id = tg --url $local_producer.url --token $root_token put --no-tokens 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | referent node
 let directory_id = tg --url $local_producer.url --token $root_token put --no-tokens ('tg.directory({ "sub": ' + $nested_id + ' })') | referent node
 tg --url $local_producer.url --token $root_token grant public object_subtree $nested_id | ignore
-tg --url $local_producer.url --token $root_token checkpoint wait index.batch $watch 0 | ignore
+tg --url $local_producer.url --token $root_token checkpoint wait index.write $watch 0 | ignore
 
 let pid = open ($local_producer.directory | path join 'lock') | into int
 kill --signal 9 $pid

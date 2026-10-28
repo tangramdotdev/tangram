@@ -586,13 +586,13 @@ impl Component {
 			stopped_usage: Some(stopped_usage),
 			touched_at,
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(put_sandbox)],
 		};
 		session
 			.server
 			.index
-			.batch(arg)
+			.write(arg)
 			.await
 			.and_then(std::convert::identity)
 			.map_err(

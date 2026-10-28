@@ -414,10 +414,10 @@ impl Component {
 			registration: registration_index,
 			scheduler: scheduler.clone(),
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutRunner(arg)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutRunner(arg)],
 		};
-		session.server.index.batch(arg).await??;
+		session.server.index.write(arg).await??;
 		Ok(())
 	}
 

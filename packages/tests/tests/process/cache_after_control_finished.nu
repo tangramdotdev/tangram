@@ -14,9 +14,9 @@ let process = $first.process | split row '?' | first
 tg checkpoint wait --timeout 30s runner.process.finish $finish_watch 0 | ignore
 tg index
 
-let batch_watch = tg checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
+let batch_watch = tg checkpoint watch index.write --params '{"finished_process":true}' | from json | get watch
 tg checkpoint unwatch runner.process.finish $finish_watch
-tg checkpoint wait --timeout 30s index.batch $batch_watch 0 | ignore
+tg checkpoint wait --timeout 30s index.write $batch_watch 0 | ignore
 tg checkpoint wait --timeout 30s runner.process.control.finished $control_watch 0 | ignore
 
 let output = timeout 10s tg build --detach --verbose $path | complete
@@ -26,5 +26,5 @@ assert equal $second.cached true
 assert equal ($second.process | split row '?' | first) $process
 
 tg checkpoint unwatch runner.process.control.finished $control_watch
-tg checkpoint unwatch index.batch $batch_watch
+tg checkpoint unwatch index.write $batch_watch
 success (tg wait $second.process | complete)

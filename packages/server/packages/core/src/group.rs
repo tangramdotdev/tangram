@@ -58,7 +58,7 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		transaction: &'a crate::database::Transaction<'_>,
 		specifier: &'a tg::Specifier,
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<tg::Id>, crate::database::Error>>>;
 
 	fn try_get_group_with_transaction<'a>(

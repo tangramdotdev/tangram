@@ -164,7 +164,7 @@ impl Component {
 			},
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		for item in arg.tags {
 			let arg = tg::tag::put::Arg {
 				tokens: item.tokens,
@@ -227,7 +227,7 @@ impl Component {
 				touched_at,
 				version,
 			};
-			batch.items.push(tangram_index::batch::Item::PutTag(arg));
+			batch.items.push(tangram_index::Item::PutTag(arg));
 		}
 		match session
 			.server

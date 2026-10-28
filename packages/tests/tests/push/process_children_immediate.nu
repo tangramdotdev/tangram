@@ -20,16 +20,16 @@ assert equal $source_process.children [] "the source leaf process should have an
 # Hold the asynchronous final index batch so only the awaited sync store write is visible.
 tg --url $remote.url index
 let watch = (
-	tg --url $remote.url checkpoint watch index.batch
+	tg --url $remote.url checkpoint watch index.write
 	| from json
 	| get watch
 )
 tg --url $local_source.url push $process
-tg --url $remote.url checkpoint wait index.batch $watch 0 | ignore
+tg --url $remote.url checkpoint wait index.write $watch 0 | ignore
 
 let output = tg --url $remote.url process get --local $process | complete
-tg --url $remote.url checkpoint continue index.batch $watch 0
-tg --url $remote.url checkpoint unwatch index.batch $watch
+tg --url $remote.url checkpoint continue index.write $watch 0
+tg --url $remote.url checkpoint unwatch index.write $watch
 success $output
 let remote_process = $output.stdout | from json
 assert equal $remote_process.children [] "the pushed leaf process should immediately have an empty children list"

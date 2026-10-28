@@ -776,8 +776,8 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		touched_at: 1,
 	};
 	index
-		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(started)],
+		.write(tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(started)],
 		})
 		.await
 		.unwrap()
@@ -813,15 +813,15 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		touched_at: 2,
 	};
 	index
-		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(destroyed.clone())],
+		.write(tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(destroyed.clone())],
 		})
 		.await
 		.unwrap()
 		.unwrap();
 	index
-		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(destroyed)],
+		.write(tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(destroyed)],
 		})
 		.await
 		.unwrap()
@@ -881,10 +881,10 @@ async fn records_compute_once_when_destroy_precedes_start() {
 			stopped_usage: None,
 			touched_at: 2,
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(arg)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(arg)],
 		};
-		index.batch(arg).await.unwrap().unwrap();
+		index.write(arg).await.unwrap().unwrap();
 	}
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
 	let usage = index
@@ -930,8 +930,8 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		touched_at: 1,
 	};
 	index
-		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(started)],
+		.write(tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(started)],
 		})
 		.await
 		.unwrap()
@@ -967,8 +967,8 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		touched_at: 2,
 	};
 	index
-		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(destroyed)],
+		.write(tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(destroyed)],
 		})
 		.await
 		.unwrap()
