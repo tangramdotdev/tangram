@@ -205,47 +205,68 @@ impl Index {
 								period.start(),
 							);
 							let closing_hour = tangram_index::usage::closing_hour(day)?;
-							let next = crate::propagate!(
+							let (next, closing) = futures::try_join!(
 								Self::contains_usage_aggregation_with_transaction(
 									txn, subspace, &account, next_hour, partition,
-								)
-								.await
-							);
-							let closing = crate::propagate!(
+								),
 								Self::contains_usage_aggregation_with_transaction(
 									txn,
 									subspace,
 									&account,
 									closing_hour,
 									partition,
-								)
-								.await
-							);
+								),
+							)?;
+							let next = match next {
+								ControlFlow::Break(value) => value,
+								ControlFlow::Continue(error) => {
+									return Ok(ControlFlow::Continue(error));
+								},
+							};
+							let closing = match closing {
+								ControlFlow::Break(value) => value,
+								ControlFlow::Continue(error) => {
+									return Ok(ControlFlow::Continue(error));
+								},
+							};
 							let dependency = next || closing;
 							let eligible = (next && next_hour < current_hour)
 								|| (closing && closing_hour < current_hour);
 							(dependency, eligible)
 						},
 						tangram_index::usage::Period::Day(_) => {
-							let mut dependency = false;
-							let mut eligible = false;
-							for kind in [
+							let closing_hours = [
 								tangram_index::usage::PeriodKind::Week,
 								tangram_index::usage::PeriodKind::Month,
-							] {
+							]
+							.into_iter()
+							.map(|kind| {
 								let parent =
 									tangram_index::usage::Period::containing(kind, period.start());
-								let closing_hour = tangram_index::usage::closing_hour(parent)?;
-								let contains = crate::propagate!(
+								tangram_index::usage::closing_hour(parent)
+							})
+							.collect::<tg::Result<Vec<_>>>()?;
+							let results = futures::future::try_join_all(closing_hours.iter().map(
+								|closing_hour| {
 									Self::contains_usage_aggregation_with_transaction(
 										txn,
 										subspace,
 										&account,
-										closing_hour,
+										*closing_hour,
 										partition,
 									)
-									.await
-								);
+								},
+							))
+							.await?;
+							let mut dependency = false;
+							let mut eligible = false;
+							for (closing_hour, result) in closing_hours.into_iter().zip(results) {
+								let contains = match result {
+									ControlFlow::Break(value) => value,
+									ControlFlow::Continue(error) => {
+										return Ok(ControlFlow::Continue(error));
+									},
+								};
 								dependency |= contains;
 								eligible |= contains && closing_hour < current_hour;
 							}
