@@ -5,7 +5,7 @@ use ../../util/test.nu *
 let local = server spawn --config { advanced: { checkpoints: true } }
 
 # Hold the child’s initialization and completion so EOF cannot find it in the index.
-let batch = tg checkpoint watch index.batch --params '{"child_process":true,"started_process":true}' | from json | get watch
+let batch = tg checkpoint watch index.write --params '{"child_process":true,"started_process":true}' | from json | get watch
 let finish = tg checkpoint watch runner.process.finish | from json | get watch
 let end = tg checkpoint watch process.stdio.log.end | from json | get watch
 let path = artifact {
@@ -15,12 +15,12 @@ let path = artifact {
 	',
 }
 let id = tg build --no-tokens --detach $path | referent node
-tg checkpoint wait --timeout 10s index.batch $batch 0 | ignore
+tg checkpoint wait --timeout 10s index.write $batch 0 | ignore
 
 # EOF must reach persistence while the child's initial index write is pending.
 let child = tg checkpoint wait --timeout 10s process.stdio.log.end $end 0 | from json | get params.process
 tg checkpoint unwatch process.stdio.log.end $end
-tg checkpoint unwatch index.batch $batch
+tg checkpoint unwatch index.write $batch
 tg checkpoint unwatch runner.process.finish $finish
 timeout 10s tg wait --source=index $child | ignore
 timeout 10s tg wait --source=index $id | ignore

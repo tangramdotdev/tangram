@@ -842,7 +842,7 @@ impl Indexer {
 
 	#[tracing::instrument(name = "index.process_batch", level = "debug", skip_all, fields(indexer = %self.id(), bytes = bytes.len()), err(level = "debug"))]
 	async fn process_index_batch(&self, bytes: &[u8]) -> tg::Result<tg::Result<()>> {
-		let arg = tangram_index::batch::Arg::deserialize(bytes)?;
+		let arg = tangram_index::write::Arg::deserialize(bytes)?;
 		tracing::debug!(items = arg.items.len(), "decoded the index batch");
 
 		// Wait for the object puts before indexing the batch.
@@ -850,7 +850,7 @@ impl Indexer {
 			.items
 			.iter()
 			.filter_map(|item| match item {
-				tangram_index::batch::Item::PutObject(arg) => Some((arg.id.clone(), arg.put)),
+				tangram_index::Item::PutObject(arg) => Some((arg.id.clone(), arg.put)),
 				_ => None,
 			})
 			.collect::<BTreeSet<_>>();
@@ -861,8 +861,8 @@ impl Indexer {
 			tracing::error!(%id, ?put, missing_count = missing.len(), "discarding an index queue batch because an object put is absent from the cache");
 			return Ok(Ok(()));
 		}
-		tangram_server_core::checkpoint!(self.server, "index.batch").await;
-		let result = self.component.index_batch_inner(&self.server, arg).await?;
+		tangram_server_core::checkpoint!(self.server, "index.write").await;
+		let result = self.component.write_inner(&self.server, arg).await?;
 
 		Ok(result)
 	}

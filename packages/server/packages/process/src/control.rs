@@ -481,7 +481,7 @@ impl Component {
 		Ok(ControlFlow::Break(Some((header, stream))))
 	}
 
-	/// Prepare and submit a start's index batch, continuing if the index cannot accept the batch, and failing for any other error.
+	/// Prepare and submit a start's index items, continuing if the index cannot accept them, and failing for any other error.
 	async fn index_process_control(
 		&self,
 		session: &Session,
@@ -553,7 +553,7 @@ impl Component {
 			)?;
 			captures.extend(command_captures);
 		}
-		let items = vec![tangram_index::batch::Item::PutProcess(
+		let items = vec![tangram_index::Item::PutProcess(
 			tangram_index::process::put::Arg {
 				account,
 				cached: false,
@@ -587,12 +587,12 @@ impl Component {
 		)];
 
 		// Submit the prepared batch without waiting for its index commit, continuing if the index cannot accept it.
-		let index_arg = tangram_index::batch::Arg { items };
+		let index_arg = tangram_index::write::Arg { items };
 		let result = session
 			.server
 			.components
 			.indexer
-			.index_batch(&session.server, index_arg)
+			.write(&session.server, index_arg)
 			.await;
 		if let Err(error) = result {
 			let error = tg::error!(!error, "failed to index the process");

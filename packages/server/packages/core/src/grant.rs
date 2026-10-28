@@ -48,7 +48,7 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		transaction: &'a crate::database::Transaction<'_>,
 		arg: tg::grant::grant::Arg,
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(tg::grant::Data, bool), crate::database::Error>>>;
 
 	fn revoke_with_transaction<'a>(
@@ -56,7 +56,7 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		transaction: &'a crate::database::Transaction<'_>,
 		arg: tg::grant::revoke::Arg,
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<()>, crate::database::Error>>>;
 
 	fn delete_node_grants_batch_with_transaction<'a>(
@@ -64,7 +64,7 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		transaction: &'a crate::database::Transaction<'_>,
 		ids: &'a [tg::Id],
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(), crate::database::Error>>>;
 
 	fn delete_node_grants_with_transaction<'a>(
@@ -72,7 +72,7 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		transaction: &'a crate::database::Transaction<'_>,
 		id: &'a tg::Id,
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(), crate::database::Error>>>;
 
 	fn list_resource_grants_with_transaction<'a>(

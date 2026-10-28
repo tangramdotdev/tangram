@@ -31,7 +31,7 @@ impl Component {
 		let start = rand::random::<u64>();
 		let mut attempt = 0u64;
 		let retry =
-			tangram_futures::retry::Options::from(server.config.indexer.batch.retry.clone());
+			tangram_futures::retry::Options::from(server.config.indexer.enqueue.retry.clone());
 		tangram_futures::retry(&retry, || {
 			let selection = start.wrapping_add(attempt);
 			let refresh = attempt > 0;
@@ -44,7 +44,7 @@ impl Component {
 			let index = index.as_ref().map_or_else(Vec::new, |bytes| {
 				fragment(bytes, server.config.object.index_queue.fragment_size)
 			});
-			let requests = group(archive, index, server.config.indexer.batch.request_size);
+			let requests = group(archive, index, server.config.indexer.enqueue.request_size);
 
 			async move {
 				let indexer = match self.select_indexer(server, selection, refresh).await {
@@ -86,7 +86,7 @@ impl Component {
 			}
 		});
 		let request = future::try_join_all(requests);
-		tokio::time::timeout(server.config.indexer.batch.timeout, request)
+		tokio::time::timeout(server.config.indexer.enqueue.timeout, request)
 			.await
 			.map_err(|source| tg::error!(!source, "timed out enqueueing the batches"))??;
 

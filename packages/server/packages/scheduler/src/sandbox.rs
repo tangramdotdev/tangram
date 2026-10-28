@@ -2066,17 +2066,17 @@ impl Scheduler {
 			stopped_usage: None,
 			touched_at: now,
 		};
-		let mut items = vec![tangram_index::batch::Item::PutSandbox(arg)];
+		let mut items = vec![tangram_index::Item::PutSandbox(arg)];
 		if status.is_starting()
 			&& let Some(process) = &request.process
 		{
 			items.push(self.starting_process_item(process, now)?);
 		}
-		let arg = tangram_index::batch::Arg { items };
+		let arg = tangram_index::write::Arg { items };
 		self.server
 			.components
 			.indexer
-			.index_batch(&self.server, arg)
+			.write(&self.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the sandbox in the index"))?;
 
@@ -2102,7 +2102,7 @@ impl Scheduler {
 		&self,
 		process: &tg::runner::control::Process,
 		now: i64,
-	) -> tg::Result<tangram_index::batch::Item> {
+	) -> tg::Result<tangram_index::Item> {
 		let id = process
 			.id
 			.clone()
@@ -2147,7 +2147,7 @@ impl Scheduler {
 			touched_at: now,
 		};
 
-		Ok(tangram_index::batch::Item::PutProcess(arg))
+		Ok(tangram_index::Item::PutProcess(arg))
 	}
 
 	/// Record the failure of a process whose sandbox ended before the process started.
