@@ -145,7 +145,7 @@ impl Component {
 			},
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let organization = match self
 			.create_organization_with_transaction(session, transaction, arg, &mut batch)
 			.await?
@@ -270,7 +270,7 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		arg: tg::organization::create::Arg,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<
 		ControlFlow<tg::organization::create::Output, tangram_server_core::database::Error>,
 	> {
@@ -313,15 +313,13 @@ impl Component {
 			.execute(statement.into(), db::params![id.to_string(), name.clone()])
 			.await;
 		tangram_server_core::database::retry!(result, "failed to execute the statement");
-		batch
-			.items
-			.push(tangram_index::batch::Item::PutOrganization(
-				tangram_index::organization::put::Arg {
-					billing_ready: Some(false),
-					id: id.clone(),
-					specifier: arg.specifier.clone(),
-				},
-			));
+		batch.items.push(tangram_index::Item::PutOrganization(
+			tangram_index::organization::put::Arg {
+				billing_ready: Some(false),
+				id: id.clone(),
+				specifier: arg.specifier.clone(),
+			},
+		));
 		if !matches!(
 			session.context.principal,
 			tg::Principal::Anonymous | tg::Principal::Root

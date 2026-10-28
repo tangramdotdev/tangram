@@ -12,11 +12,7 @@ use {
 pub(crate) mod wait;
 
 impl Component {
-	pub(crate) async fn index_batch(
-		&self,
-		server: &Server,
-		arg: index::batch::Arg,
-	) -> tg::Result<()> {
+	pub(crate) async fn write(&self, server: &Server, arg: index::write::Arg) -> tg::Result<()> {
 		if arg.is_empty() {
 			return Ok(());
 		}
@@ -32,13 +28,13 @@ impl Component {
 		let command_object_permission = arg.items.iter().any(|item| {
 			matches!(
 				item,
-				index::batch::Item::PutObject(arg)
+				index::Item::PutObject(arg)
 					if arg.id.kind() == tg::object::Kind::Command
 			)
 		}) && arg.items.iter().any(|item| {
 			matches!(
 				item,
-				index::batch::Item::PutPermission(arg)
+				index::Item::PutPermission(arg)
 					if arg.resource.kind() == tg::id::Kind::Command
 						&& arg.subject.is_process()
 			)
@@ -46,19 +42,20 @@ impl Component {
 		let finished_process = arg.items.iter().any(|item| {
 			matches!(
 				item,
-				index::batch::Item::PutProcess(arg)
+				index::Item::PutProcess(arg)
 					if arg.output.is_some()
 			)
 		});
 		let destroyed_sandbox = arg.items.iter().any(|item| {
-			matches!(item, index::batch::Item::PutSandbox(arg)
+			matches!(item, index::Item::PutSandbox(arg)
 				if arg.data.as_ref().is_some_and(|data| data.data.status.is_destroyed()))
 		});
-		let child_process = arg.items.iter().any(
-			|item| matches!(item, index::batch::Item::PutProcess(arg) if arg.parent.is_some()),
-		);
+		let child_process = arg
+			.items
+			.iter()
+			.any(|item| matches!(item, index::Item::PutProcess(arg) if arg.parent.is_some()));
 		let started_process = arg.items.iter().any(|item| {
-			matches!(item, index::batch::Item::PutProcess(arg)
+			matches!(item, index::Item::PutProcess(arg)
 				if arg.data.as_ref().is_some_and(|data| data.status.is_started()))
 		});
 		self.index_tasks
@@ -68,7 +65,7 @@ impl Component {
 				|_| async move {
 					tangram_server_core::checkpoint!(
 						server,
-						"index.batch",
+						"index.write",
 						child_process,
 						command_object_permission,
 						destroyed_sandbox,
@@ -76,7 +73,7 @@ impl Component {
 						started_process
 					)
 					.await;
-					let result = component.index_batch_inner(&server, arg).await;
+					let result = component.write_inner(&server, arg).await;
 					if result.is_ok() {
 						component.index_changed.notify_waiters();
 					}
@@ -87,7 +84,7 @@ impl Component {
 					}
 					tangram_server_core::checkpoint!(
 						server,
-						"index.batch.finished",
+						"index.write.finished",
 						command_object_permission,
 						finished_process
 					)
@@ -101,21 +98,21 @@ impl Component {
 		Ok(())
 	}
 
-	pub(crate) async fn index_batch_inner(
+	pub(crate) async fn write_inner(
 		&self,
 		server: &Server,
-		arg: index::batch::Arg,
+		arg: index::write::Arg,
 	) -> tg::Result<tg::Result<()>> {
 		// Wake index-backed readers after the runner state has been persisted.
 		let sandboxes = arg
 			.items
 			.iter()
 			.filter_map(|item| match item {
-				index::batch::Item::PutProcess(index::process::put::Arg {
+				index::Item::PutProcess(index::process::put::Arg {
 					sandbox: Some(index::process::put::Sandbox::Put(arg)),
 					..
 				})
-				| index::batch::Item::PutSandbox(arg)
+				| index::Item::PutSandbox(arg)
 					if arg.data.is_some() =>
 				{
 					Some(arg.id.clone())
@@ -127,11 +124,11 @@ impl Component {
 			.items
 			.iter()
 			.filter_map(|item| match item {
-				index::batch::Item::PutProcess(arg) if arg.data.is_some() => Some(arg.id.clone()),
+				index::Item::PutProcess(arg) if arg.data.is_some() => Some(arg.id.clone()),
 				_ => None,
 			})
 			.collect::<Vec<_>>();
-		let result = server.index.batch(arg).await?;
+		let result = server.index.write(arg).await?;
 		for id in sandboxes {
 			server
 				.components

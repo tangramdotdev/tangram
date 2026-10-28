@@ -335,8 +335,8 @@ impl Component {
 
 				server
 					.index
-					.batch(tangram_index::batch::Arg {
-						items: std::iter::once(tangram_index::batch::Item::PutProcess(
+					.write(tangram_index::write::Arg {
+						items: std::iter::once(tangram_index::Item::PutProcess(
 							tangram_index::process::put::Arg {
 								account: None,
 								cached: false,
@@ -408,8 +408,8 @@ impl Component {
 		};
 		server
 			.index
-			.batch(tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutSandbox(
+			.write(tangram_index::write::Arg {
+				items: vec![tangram_index::Item::PutSandbox(
 					tangram_index::sandbox::put::Arg {
 						account,
 						created_at: indexed.created_at,

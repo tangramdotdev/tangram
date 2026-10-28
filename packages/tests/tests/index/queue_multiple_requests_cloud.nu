@@ -7,7 +7,7 @@ skip_test --cloud
 let archive = spawn_archive
 let local = server spawn --cloud --config {
 	archive: $archive.config,
-	indexer: { batch: { request_size: 128 } },
+	indexer: { enqueue: { request_size: 128 } },
 	object: {
 		archive_queue: { fragment_size: 64 },
 		index_queue: { fragment_size: 64 },

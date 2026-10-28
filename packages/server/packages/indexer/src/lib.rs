@@ -958,12 +958,12 @@ impl tangram_server_core::indexer::Component for Component {
 		self.index(session, arg).boxed()
 	}
 
-	fn index_batch<'a>(
+	fn write<'a>(
 		&'a self,
 		server: &'a tangram_server_core::Server,
-		arg: tangram_index::batch::Arg,
+		arg: tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.index_batch(server, arg).boxed()
+		self.write(server, arg).boxed()
 	}
 
 	fn request<'a>(
@@ -986,7 +986,7 @@ impl tangram_server_core::indexer::Component for Component {
 		&'a self,
 		server: &'a tangram_server_core::Server,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
-		arg: &'a tangram_index::batch::Arg,
+		arg: &'a tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(), tangram_server_core::database::Error>>> {
 		Self::enqueue_database_index_queue_with_transaction(server, transaction, arg).boxed()
 	}

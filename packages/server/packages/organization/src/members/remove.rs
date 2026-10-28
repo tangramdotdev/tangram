@@ -105,7 +105,7 @@ impl Component {
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let output = match self
 			.remove_organization_member_with_transaction(
 				session,
@@ -235,7 +235,7 @@ impl Component {
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
 		let id = match organization {
 			tg::Selector::Id(id) => Some(id.clone()),
@@ -286,7 +286,7 @@ impl Component {
 		}
 		batch
 			.items
-			.push(tangram_index::batch::Item::DeleteOrganizationMember(
+			.push(tangram_index::Item::DeleteOrganizationMember(
 				tangram_index::organization::member::delete::Arg {
 					member: member.clone(),
 					organization: organization_id.clone().try_into()?,

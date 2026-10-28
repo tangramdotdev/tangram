@@ -176,7 +176,7 @@ impl Index {
 						Self::aggregate_usage_with_transaction(db, subspace, &mut transaction, &arg)
 							.map(Response::AggregateUsageOutput)
 					},
-					Request::Batch(arg) => Self::batch_with_transaction(
+					Request::Write(arg) => Self::write_with_transaction(
 						db,
 						subspace,
 						&mut transaction,
@@ -505,7 +505,7 @@ impl Index {
 				sender: Some(sender),
 			});
 			let operation_count = match &request {
-				Request::Batch(arg) => Some(arg.items.len()),
+				Request::Write(arg) => Some(arg.items.len()),
 				Request::CompletePermissionCapture(_) => Some(1),
 				Request::DeleteIndexer(_) | Request::PutIndexer(_) | Request::UpdateIndexer(_) => {
 					Some(1)
@@ -593,7 +593,7 @@ impl Index {
 			Request::ExpireUsage(_) => {
 				Response::ExpireUsageOutput(tangram_index::usage::expire::Output::default())
 			},
-			Request::Batch(_) | Request::PutProcesses(_) | Request::PutSandboxes(_) => {
+			Request::Write(_) | Request::PutProcesses(_) | Request::PutSandboxes(_) => {
 				Response::Mutation(Ok(()))
 			},
 			Request::CompletePermissionCapture(_)
@@ -628,7 +628,7 @@ impl Index {
 	fn request_into_operations(request: Request) -> (Vec<Item>, Kind) {
 		match request {
 			Request::AggregateUsage(arg) => (vec![Item::AggregateUsage], Kind::AggregateUsage(arg)),
-			Request::Batch(_)
+			Request::Write(_)
 			| Request::CompletePermissionCapture(_)
 			| Request::DeleteIndexer(_)
 			| Request::PutIndexer(_)

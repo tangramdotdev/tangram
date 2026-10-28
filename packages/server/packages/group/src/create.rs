@@ -160,7 +160,7 @@ impl Component {
 			},
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let group = match self
 			.create_group_with_transaction(session, transaction, arg, &mut batch)
 			.await?
@@ -283,7 +283,7 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		arg: tg::group::create::Arg,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<tg::group::create::Output, tangram_server_core::database::Error>> {
 		let id =
 			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(
@@ -374,7 +374,7 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		specifier: &tg::Specifier,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<Option<tg::Id>, tangram_server_core::database::Error>> {
 		if specifier.components().next().is_none() {
 			return Err(tg::error!("invalid specifier"));
@@ -423,7 +423,7 @@ impl Component {
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		specifier: &tg::Specifier,
 		parent: Option<&tg::Id>,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<tg::group::Data, tangram_server_core::database::Error>> {
 		let id = tg::group::Id::new();
 		match tangram_server_node_common::specifier::insert_specifier_with_transaction(
@@ -455,7 +455,7 @@ impl Component {
 			)
 			.await;
 		tangram_server_core::database::retry!(result, "failed to execute the statement");
-		batch.items.push(tangram_index::batch::Item::PutGroup(
+		batch.items.push(tangram_index::Item::PutGroup(
 			tangram_index::group::put::Arg {
 				id: id.clone(),
 				parent: parent.cloned(),

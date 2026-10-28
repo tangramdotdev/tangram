@@ -40,13 +40,13 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 	];
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
 	let kinds = [Kind::Permission(subject), Kind::StorageAndMetadata];
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutObject(object),
-			tangram_index::batch::Item::PutProcess(process),
+			tangram_index::Item::PutObject(object),
+			tangram_index::Item::PutProcess(process),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	for id in &ids {
 		for kind in &kinds {
 			enqueue(&index, id, kind, None);

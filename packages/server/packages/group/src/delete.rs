@@ -178,7 +178,7 @@ impl Component {
 			},
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let output = match self
 			.delete_group_with_transaction(session, transaction, group, &mut batch)
 			.await?
@@ -287,7 +287,7 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		group: &tg::group::Id,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
 		let data = match Self::try_get_group_with_transaction(transaction, group).await? {
 			ControlFlow::Break(group) => group,
@@ -338,14 +338,12 @@ impl Component {
 		let group_members =
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
 		for row in group_members {
-			batch
-				.items
-				.push(tangram_index::batch::Item::DeleteGroupMember(
-					tangram_index::group::member::delete::Arg {
-						group: row.group,
-						member: row.member,
-					},
-				));
+			batch.items.push(tangram_index::Item::DeleteGroupMember(
+				tangram_index::group::member::delete::Arg {
+					group: row.group,
+					member: row.member,
+				},
+			));
 		}
 		#[derive(db::row::Deserialize)]
 		struct OrganizationMemberRow {
@@ -369,7 +367,7 @@ impl Component {
 		for row in organization_members {
 			batch
 				.items
-				.push(tangram_index::batch::Item::DeleteOrganizationMember(
+				.push(tangram_index::Item::DeleteOrganizationMember(
 					tangram_index::organization::member::delete::Arg {
 						member: row.member,
 						organization: row.organization,
@@ -386,9 +384,9 @@ impl Component {
 			ControlFlow::Break(()) => (),
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		batch.items.push(tangram_index::batch::Item::DeleteGroup(
-			id.clone().try_into()?,
-		));
+		batch
+			.items
+			.push(tangram_index::Item::DeleteGroup(id.clone().try_into()?));
 		for statement in [
 			format!("delete from group_members where \"group\" = {p}1 or member = {p}1;"),
 			format!("delete from organization_members where member = {p}1;"),

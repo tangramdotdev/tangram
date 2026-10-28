@@ -463,7 +463,7 @@ impl Component {
 				.all(|entry| actual.get(&entry.node.id) == Some(&entry.node))
 			{
 				let touched_at = session.server.clock.unix_timestamp();
-				let mut batch = tangram_index::batch::Arg::default();
+				let mut batch = tangram_index::write::Arg::default();
 				for entry in &entries {
 					let node = &entry.node;
 					let mut dependencies = node.parent.iter().cloned().collect::<Vec<_>>();
@@ -475,7 +475,7 @@ impl Component {
 						dependencies.push(target.clone());
 					}
 					// Replace a tag checkout so that a changed target does not retain its old dependency.
-					batch.items.push(tangram_index::batch::Item::PutCheckout(
+					batch.items.push(tangram_index::Item::PutCheckout(
 						tangram_index::checkout::put::Arg {
 							dependencies,
 							id: node.id.clone(),
@@ -484,7 +484,7 @@ impl Component {
 						},
 					));
 				}
-				session.server.index.batch(batch).await??;
+				session.server.index.write(batch).await??;
 				tangram_server_core::checkpoint!(session.server, "checkout.named.materialize")
 					.await;
 				self.materialize_named_checkout_entries_with_lock(
@@ -887,14 +887,14 @@ impl Component {
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		// Index the checkout.
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutCheckout(put_checkout_arg)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutCheckout(put_checkout_arg)],
 		};
 		session
 			.server
 			.components
 			.indexer
-			.index_batch(&session.server, arg)
+			.write(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the checkout"))?;
 
@@ -1016,17 +1016,17 @@ impl Component {
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		// Index the checkouts.
-		let arg = tangram_index::batch::Arg {
+		let arg = tangram_index::write::Arg {
 			items: put_checkout_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutCheckout)
+				.map(tangram_index::Item::PutCheckout)
 				.collect(),
 		};
 		session
 			.server
 			.components
 			.indexer
-			.index_batch(&session.server, arg)
+			.write(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the checkouts"))?;
 

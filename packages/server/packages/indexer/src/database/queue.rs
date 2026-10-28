@@ -102,12 +102,12 @@ impl Indexer {
 			return Ok(0);
 		}
 
-		// Deserialize the index batches.
+		// Deserialize the index items.
 		let count = entries.len();
 		let batch = entries.last().unwrap().batch;
 		let mut args = Vec::with_capacity(count);
 		for entry in entries {
-			let arg = tangram_index::batch::Arg::deserialize(&entry.payload)?;
+			let arg = tangram_index::write::Arg::deserialize(&entry.payload)?;
 			args.push(arg);
 		}
 
@@ -168,9 +168,9 @@ impl Indexer {
 		Ok(count)
 	}
 
-	async fn index_database_queue_batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<()> {
+	async fn index_database_queue_batch(&self, arg: tangram_index::write::Arg) -> tg::Result<()> {
 		let result =
-			self.server.index.batch(arg).await.map_err(|error| {
+			self.server.index.write(arg).await.map_err(|error| {
 				tg::error!(!error, "failed to index a database index queue batch")
 			})?;
 		if let Err(error) = result {
@@ -180,23 +180,23 @@ impl Indexer {
 	}
 
 	fn database_index_queue_batch_contains_named_node_mutation(
-		arg: &tangram_index::batch::Arg,
+		arg: &tangram_index::write::Arg,
 	) -> bool {
 		arg.items
 			.iter()
 			.any(|item| Self::database_index_queue_named_node_id(item).is_some())
 	}
 
-	fn database_index_queue_named_node_id(item: &tangram_index::batch::Item) -> Option<tg::Id> {
+	fn database_index_queue_named_node_id(item: &tangram_index::Item) -> Option<tg::Id> {
 		let id = match item {
-			tangram_index::batch::Item::DeleteGroup(id) => id.clone().into(),
-			tangram_index::batch::Item::DeleteOrganization(id) => id.clone().into(),
-			tangram_index::batch::Item::DeleteTag(id) => id.clone().into(),
-			tangram_index::batch::Item::DeleteUser(id) => id.clone().into(),
-			tangram_index::batch::Item::PutGroup(arg) => arg.id.clone().into(),
-			tangram_index::batch::Item::PutOrganization(arg) => arg.id.clone().into(),
-			tangram_index::batch::Item::PutTag(arg) => arg.id.clone().into(),
-			tangram_index::batch::Item::PutUser(arg) => arg.id.clone().into(),
+			tangram_index::Item::DeleteGroup(id) => id.clone().into(),
+			tangram_index::Item::DeleteOrganization(id) => id.clone().into(),
+			tangram_index::Item::DeleteTag(id) => id.clone().into(),
+			tangram_index::Item::DeleteUser(id) => id.clone().into(),
+			tangram_index::Item::PutGroup(arg) => arg.id.clone().into(),
+			tangram_index::Item::PutOrganization(arg) => arg.id.clone().into(),
+			tangram_index::Item::PutTag(arg) => arg.id.clone().into(),
+			tangram_index::Item::PutUser(arg) => arg.id.clone().into(),
 			_ => return None,
 		};
 
@@ -205,8 +205,8 @@ impl Indexer {
 
 	async fn prepare_database_index_queue_batch(
 		&self,
-		arg: tangram_index::batch::Arg,
-	) -> tg::Result<(tangram_index::batch::Arg, Vec<NamedCheckout>)> {
+		arg: tangram_index::write::Arg,
+	) -> tg::Result<(tangram_index::write::Arg, Vec<NamedCheckout>)> {
 		let ids = arg
 			.items
 			.iter()
@@ -224,37 +224,37 @@ impl Indexer {
 		let mut items = Vec::with_capacity(arg.items.len());
 		for item in arg.items {
 			let invalidation = match &item {
-				tangram_index::batch::Item::DeleteGroup(id) => {
+				tangram_index::Item::DeleteGroup(id) => {
 					let id = tg::Id::from(id.clone());
 					nodes.get(&id).map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::batch::Item::DeleteOrganization(id) => {
+				tangram_index::Item::DeleteOrganization(id) => {
 					let id = tg::Id::from(id.clone());
 					nodes.get(&id).map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::batch::Item::DeleteTag(id) => {
+				tangram_index::Item::DeleteTag(id) => {
 					let id = tg::Id::from(id.clone());
 					nodes.get(&id).map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::batch::Item::DeleteUser(id) => {
+				tangram_index::Item::DeleteUser(id) => {
 					let id = tg::Id::from(id.clone());
 					nodes.get(&id).map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::batch::Item::PutGroup(arg) => {
+				tangram_index::Item::PutGroup(arg) => {
 					let id = tg::Id::from(arg.id.clone());
 					nodes
 						.get(&id)
 						.filter(|node| node.parent != arg.parent || node.specifier != arg.specifier)
 						.map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::batch::Item::PutOrganization(arg) => {
+				tangram_index::Item::PutOrganization(arg) => {
 					let id = tg::Id::from(arg.id.clone());
 					nodes
 						.get(&id)
 						.filter(|node| node.specifier != arg.specifier)
 						.map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::batch::Item::PutTag(arg) => {
+				tangram_index::Item::PutTag(arg) => {
 					let id = tg::Id::from(arg.id.clone());
 					nodes
 						.get(&id)
@@ -265,7 +265,7 @@ impl Indexer {
 						})
 						.map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::batch::Item::PutUser(arg) => {
+				tangram_index::Item::PutUser(arg) => {
 					let id = tg::Id::from(arg.id.clone());
 					nodes
 						.get(&id)
@@ -275,7 +275,7 @@ impl Indexer {
 				_ => None,
 			};
 			if let Some((id, specifier)) = invalidation {
-				items.push(tangram_index::batch::Item::DeleteCheckout(id.clone()));
+				items.push(tangram_index::Item::DeleteCheckout(id.clone()));
 				invalidations.insert(id, specifier);
 			}
 			items.push(item);
@@ -284,7 +284,7 @@ impl Indexer {
 			.into_iter()
 			.map(|(id, specifier)| NamedCheckout { id, specifier })
 			.collect();
-		let arg = tangram_index::batch::Arg { items };
+		let arg = tangram_index::write::Arg { items };
 
 		Ok((arg, invalidations))
 	}

@@ -8,8 +8,8 @@ use {
 			CheckinSolve, ClientProcessControl, CloudHypervisorBackend, Config, Control, Database,
 			DatabaseIndexQueue, DatabasePool, Dax, FdbIndex, FdbIndexVerification,
 			FilesystemProjectIds, FjallCache, Github, Http, HttpListener, HttpTls, IdMap, Index,
-			IndexQueue, Indexer, IndexerBatch, IndexerBillingCleanup, IndexerCache,
-			IndexerCleaning, IndexerDatabaseIndexQueue, IndexerLogCache, IndexerPartitions,
+			IndexQueue, Indexer, IndexerBillingCleanup, IndexerCache, IndexerCleaning,
+			IndexerDatabaseIndexQueue, IndexerEnqueue, IndexerLogCache, IndexerPartitions,
 			IndexerPermissionCapture, IndexerQueue, IndexerRequest, IndexerUpdate, IndexerUpdates,
 			IndexerUsage, IndexerUsageAggregation, IndexerUsageExpiration, IndexerWriter, Insecure,
 			JavaScript, JavaScriptEngine, LmdbCache, LmdbIndex, MemoryMessenger, Messenger,
@@ -938,9 +938,6 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 }
 fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	let mut target = server::Indexer::default();
-	if let Some(source) = source.batch {
-		target.batch = resolve_indexer_batch(source);
-	}
 	if let Some(source) = source.billing_cleanup {
 		target.billing_cleanup = resolve_indexer_billing_cleanup(source);
 	}
@@ -955,6 +952,9 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	}
 	if let Some(source) = source.database_index_queue {
 		target.database_index_queue = resolve_indexer_database_index_queue(source);
+	}
+	if let Some(source) = source.enqueue {
+		target.enqueue = resolve_indexer_enqueue(source);
 	}
 	if let Some(id) = &source.id {
 		target.id = Some(id.clone());
@@ -990,8 +990,8 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	target
 }
 
-fn resolve_indexer_batch(source: IndexerBatch) -> server::IndexerBatch {
-	let mut target = server::IndexerBatch::default();
+fn resolve_indexer_enqueue(source: IndexerEnqueue) -> server::IndexerEnqueue {
+	let mut target = server::IndexerEnqueue::default();
 	if let Some(value) = source.request_size {
 		target.request_size = value;
 	}
@@ -3500,7 +3500,7 @@ mod tests {
 	fn parses_and_resolves_indexer_groups() {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"indexer": {
-				"batch": {
+				"enqueue": {
 					"retry": {
 						"backoff": 0.01,
 						"jitter": 0.02,
@@ -3555,16 +3555,19 @@ mod tests {
 		let target = resolve_server_config(&source).unwrap();
 
 		assert_eq!(
-			target.indexer.batch.retry.backoff,
+			target.indexer.enqueue.retry.backoff,
 			Duration::from_millis(10)
 		);
-		assert_eq!(target.indexer.batch.retry.jitter, Duration::from_millis(20));
 		assert_eq!(
-			target.indexer.batch.retry.max_delay,
+			target.indexer.enqueue.retry.jitter,
+			Duration::from_millis(20)
+		);
+		assert_eq!(
+			target.indexer.enqueue.retry.max_delay,
 			Duration::from_millis(30)
 		);
-		assert_eq!(target.indexer.batch.retry.max_retries, 4);
-		assert_eq!(target.indexer.batch.timeout, Duration::from_secs(3));
+		assert_eq!(target.indexer.enqueue.retry.max_retries, 4);
+		assert_eq!(target.indexer.enqueue.timeout, Duration::from_secs(3));
 		assert_eq!(
 			target.indexer.cache.poll_interval,
 			Duration::from_millis(125)

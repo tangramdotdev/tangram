@@ -1,6 +1,9 @@
 use {futures::FutureExt as _, tangram_client::prelude::*};
 
-pub mod batch;
+mod item;
+
+pub use self::item::Item;
+
 pub mod checkout;
 pub mod clean;
 pub mod delegation;
@@ -19,6 +22,7 @@ pub mod update;
 pub mod usage;
 pub mod user;
 pub mod verify;
+pub mod write;
 
 pub mod prelude {
 	pub use crate::{
@@ -88,9 +92,9 @@ pub trait Index:
 		principal: &tg::Principal,
 	) -> impl Future<Output = tg::Result<Vec<bool>>> + Send;
 
-	fn batch(
+	fn write(
 		&self,
-		arg: crate::batch::Arg,
+		arg: crate::write::Arg,
 	) -> impl Future<Output = tg::Result<tg::Result<()>>> + Send;
 
 	fn try_get_ancestors(

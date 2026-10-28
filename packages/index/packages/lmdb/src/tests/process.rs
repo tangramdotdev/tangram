@@ -74,10 +74,10 @@ fn count_process_data_fragments(index: &Index, id: &tg::process::Id) -> usize {
 }
 
 async fn put_process(index: &Index, arg: tangram_index::process::put::Arg) {
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(arg)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 }
 
 #[tokio::test]
@@ -261,13 +261,13 @@ async fn a_finished_process_accepts_only_the_children_that_it_lists() {
 			subject: tg::authorization::Subject::Process(child.clone()),
 			version: None,
 		};
-		let arg = tangram_index::batch::Arg {
+		let arg = tangram_index::write::Arg {
 			items: vec![
-				tangram_index::batch::Item::PutProcess(arg),
-				tangram_index::batch::Item::PutDelegation(delegation),
+				tangram_index::Item::PutProcess(arg),
+				tangram_index::Item::PutDelegation(delegation),
 			],
 		};
-		index.batch(arg).await.unwrap().unwrap();
+		index.write(arg).await.unwrap().unwrap();
 	}
 
 	// Verify that the parent lists only the listed child, and that only the listed child received the parent's authority.

@@ -19,8 +19,8 @@ async fn object_children_are_returned_in_pages() {
 		touched_at: 0,
 	};
 	index
-		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutObject(object)],
+		.write(tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutObject(object)],
 		})
 		.await
 		.unwrap()

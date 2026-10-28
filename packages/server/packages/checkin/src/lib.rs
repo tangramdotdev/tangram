@@ -699,7 +699,7 @@ impl Component {
 			.map_err(|error| tg::error!(!error, "failed to create the lock"))?;
 		progress.finish("locking");
 
-		// Create the index batch.
+		// Create the index items.
 		let account = session
 			.server
 			.components
@@ -720,7 +720,7 @@ impl Component {
 			let index = graph.paths.get(root).unwrap();
 			let object = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
 			let put = index_arg.items.iter_mut().find_map(|item| match item {
-				tangram_index::batch::Item::PutObject(arg) if arg.id == object => Some(arg),
+				tangram_index::Item::PutObject(arg) if arg.id == object => Some(arg),
 				_ => None,
 			});
 			if let Some(put) = put {
@@ -733,7 +733,7 @@ impl Component {
 				};
 				index_arg
 					.items
-					.push(tangram_index::batch::Item::PutAccountObject(entry));
+					.push(tangram_index::Item::PutAccountObject(entry));
 			}
 		}
 
@@ -867,7 +867,7 @@ impl Component {
 				.server
 				.components
 				.indexer
-				.index_batch(&session.server, index_arg)
+				.write(&session.server, index_arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the checkin"))?;
 		}

@@ -328,7 +328,7 @@ impl Component {
 		if &actual_replacement_roots != replacement_roots {
 			return Ok(ControlFlow::Break(ControlFlow::Continue(())));
 		}
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		if !replacement_roots.is_empty() {
 			let roots = replacement_roots.keys().cloned().collect::<Vec<_>>();
 			let replaced_ids_and_specifiers = match session
@@ -429,7 +429,7 @@ impl Component {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		// Create the index batch.
+		// Create the index items.
 		let put_batch = Self::sync_get_database_batch(
 			session,
 			nodes,
@@ -1329,13 +1329,13 @@ impl Component {
 		tag_accounts: &BTreeMap<tg::tag::Id, Option<tg::usage::Account>>,
 		tag_permissions: &BTreeMap<tg::tag::Id, (Vec<tg::authorization::Permission>, String)>,
 		touched_at: i64,
-	) -> tg::Result<tangram_index::batch::Arg> {
-		let mut batch = tangram_index::batch::Arg::default();
+	) -> tg::Result<tangram_index::write::Arg> {
+		let mut batch = tangram_index::write::Arg::default();
 		for node in nodes {
 			let id = Self::sync_get_database_node_id(node)?;
 			let item = match node {
 				tg::sync::PutNodeMessage::Group(message) => {
-					tangram_index::batch::Item::PutGroup(tangram_index::group::put::Arg {
+					tangram_index::Item::PutGroup(tangram_index::group::put::Arg {
 						id: message.id.clone(),
 						parent: message.parent.clone(),
 						specifier: message.specifier.clone(),
@@ -1347,13 +1347,11 @@ impl Component {
 					return Err(tg::error!("invalid sync node kind"));
 				},
 				tg::sync::PutNodeMessage::Organization(message) => {
-					tangram_index::batch::Item::PutOrganization(
-						tangram_index::organization::put::Arg {
-							billing_ready: None,
-							id: message.id.clone(),
-							specifier: message.specifier.clone(),
-						},
-					)
+					tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
+						billing_ready: None,
+						id: message.id.clone(),
+						specifier: message.specifier.clone(),
+					})
 				},
 				tg::sync::PutNodeMessage::Tag(message) => {
 					let (permissions, version) = tag_permissions
@@ -1387,7 +1385,7 @@ impl Component {
 							session.context.principal.clone(),
 							touched_at,
 						)?;
-					tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+					tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
 						account: tag_accounts.get(&message.id).cloned().flatten(),
 						captures,
 						id: message.id.clone(),
@@ -1400,7 +1398,7 @@ impl Component {
 					})
 				},
 				tg::sync::PutNodeMessage::User(message) => {
-					tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
+					tangram_index::Item::PutUser(tangram_index::user::put::Arg {
 						billing_ready: None,
 						id: message.id.clone(),
 						specifier: message.specifier.clone(),
@@ -1412,9 +1410,7 @@ impl Component {
 			if created.contains(&id)
 				&& let Some(arg) = Self::sync_get_create_permission(session, &id, None)?
 			{
-				batch
-					.items
-					.push(tangram_index::batch::Item::PutPermission(arg));
+				batch.items.push(tangram_index::Item::PutPermission(arg));
 			}
 		}
 		Ok(batch)

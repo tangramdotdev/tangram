@@ -10,7 +10,7 @@ pub(super) enum Priority {
 #[derive(Clone)]
 pub(super) enum Request {
 	AggregateUsage(tangram_index::usage::aggregate::Arg),
-	Batch(tangram_index::batch::Arg),
+	Write(tangram_index::write::Arg),
 	Clean(Clean),
 	ExpireUsage(tangram_index::usage::expire::Arg),
 	CompletePermissionCapture(tangram_index::permission::capture::Entry),
@@ -177,7 +177,7 @@ impl Request {
 	#[must_use]
 	pub(super) fn priority(&self) -> Priority {
 		match self {
-			Self::Batch(_)
+			Self::Write(_)
 			| Self::PutCheckouts(_)
 			| Self::PutPermissions(_)
 			| Self::PutGroupMembers(_)

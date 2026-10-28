@@ -49,10 +49,10 @@ async fn object_output_includes_the_deleted_put_and_touched_at() {
 			time_to_touch: std::time::Duration::ZERO,
 			touched_at,
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutObject(object)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutObject(object)],
 		};
-		index.batch(arg).await.unwrap().unwrap();
+		index.write(arg).await.unwrap().unwrap();
 		let arg = tangram_index::clean::Arg {
 			batch_size: 1,
 			max_object_touched_at: touched_at,
@@ -82,7 +82,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 		tg::authorization::permission::object::Permission::Subtree,
 	);
 	let put_object = |id| {
-		tangram_index::batch::Item::PutObject(tangram_index::object::put::Arg {
+		tangram_index::Item::PutObject(tangram_index::object::put::Arg {
 			account: None,
 			checkout: None,
 			children: BTreeSet::new(),
@@ -95,11 +95,11 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 		})
 	};
 	index
-		.batch(tangram_index::batch::Arg {
+		.write(tangram_index::write::Arg {
 			items: vec![
 				put_object(command.clone()),
 				put_object(object.clone()),
-				tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
+				tangram_index::Item::PutProcess(tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
 					captures: tangram_index::permission::capture::Captures::default(),
@@ -122,7 +122,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				}),
-				tangram_index::batch::Item::PutPermission(tangram_index::permission::put::Arg {
+				tangram_index::Item::PutPermission(tangram_index::permission::put::Arg {
 					created_at: 0,
 					creator: Some(creator.clone()),
 					permissions: subtree.into(),
@@ -132,7 +132,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					time_to_touch: None,
 					version: None,
 				}),
-				tangram_index::batch::Item::PutPermission(tangram_index::permission::put::Arg {
+				tangram_index::Item::PutPermission(tangram_index::permission::put::Arg {
 					created_at: 0,
 					creator: Some(creator),
 					permissions: subtree.into(),
@@ -177,9 +177,9 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 	let (_dir, index) = super::new_index();
 	let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutObject(tangram_index::object::put::Arg {
+			tangram_index::Item::PutObject(tangram_index::object::put::Arg {
 				account: None,
 				checkout: None,
 				children: BTreeSet::new(),
@@ -190,16 +190,14 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 1,
 			}),
-			tangram_index::batch::Item::PutAccountObject(
-				tangram_index::usage::storage::put::ObjectArg {
-					account,
-					object,
-					touched_at: 1,
-				},
-			),
+			tangram_index::Item::PutAccountObject(tangram_index::usage::storage::put::ObjectArg {
+				account,
+				object,
+				touched_at: 1,
+			}),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert_eq!(count_clean_keys(&index), 2);
 
 	let output = index
@@ -277,11 +275,11 @@ async fn cleaning_respects_each_kind_cutoff() {
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at,
 			};
-			tangram_index::batch::Item::PutObject(arg)
+			tangram_index::Item::PutObject(arg)
 		})
 		.collect();
-	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap().unwrap();
+	let arg = tangram_index::write::Arg { items };
+	index.write(arg).await.unwrap().unwrap();
 	let arg = tangram_index::clean::Arg {
 		batch_size: 100,
 		max_object_touched_at: 7,

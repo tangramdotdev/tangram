@@ -56,7 +56,7 @@ struct Row {
 pub async fn enqueue_database_index_queue_with_transaction(
 	config: &tangram_server_config::Config,
 	transaction: &Transaction<'_>,
-	arg: &tangram_index::batch::Arg,
+	arg: &tangram_index::write::Arg,
 ) -> tg::Result<ControlFlow<(), crate::Error>> {
 	if arg.is_empty() {
 		return Ok(ControlFlow::Break(()));

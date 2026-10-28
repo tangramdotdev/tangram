@@ -573,8 +573,6 @@ pub struct LmdbIndex {
 
 #[derive(Clone, Debug)]
 pub struct Indexer {
-	pub batch: IndexerBatch,
-
 	pub billing_cleanup: IndexerBillingCleanup,
 
 	pub cache: IndexerCache,
@@ -582,6 +580,8 @@ pub struct Indexer {
 	pub cleaning: IndexerCleaning,
 
 	pub database_index_queue: IndexerDatabaseIndexQueue,
+
+	pub enqueue: IndexerEnqueue,
 
 	pub id: Option<tg::indexer::Id>,
 
@@ -614,7 +614,7 @@ pub struct IndexerBillingCleanup {
 }
 
 #[derive(Clone, Debug)]
-pub struct IndexerBatch {
+pub struct IndexerEnqueue {
 	/// The maximum number of fragment payload bytes in each indexer request.
 	pub request_size: usize,
 
@@ -2511,11 +2511,11 @@ impl Default for Indexer {
 			max_retries: u64::MAX,
 		};
 		Self {
-			batch: IndexerBatch::default(),
 			billing_cleanup: IndexerBillingCleanup::default(),
 			cache: IndexerCache::default(),
 			cleaning: IndexerCleaning::default(),
 			database_index_queue: IndexerDatabaseIndexQueue::default(),
+			enqueue: IndexerEnqueue::default(),
 			id: None,
 			log_cache: IndexerLogCache::default(),
 			object_cache_partitions: IndexerPartitions::default(),
@@ -2540,7 +2540,7 @@ impl Default for IndexerBillingCleanup {
 	}
 }
 
-impl Default for IndexerBatch {
+impl Default for IndexerEnqueue {
 	fn default() -> Self {
 		Self {
 			request_size: 768 * 1024,

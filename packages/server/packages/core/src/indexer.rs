@@ -14,10 +14,10 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::index::Arg,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>>;
 
-	fn index_batch<'a>(
+	fn write<'a>(
 		&'a self,
 		server: &'a Server,
-		arg: tangram_index::batch::Arg,
+		arg: tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn request<'a>(
@@ -36,7 +36,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		server: &'a Server,
 		transaction: &'a Transaction<'_>,
-		arg: &'a tangram_index::batch::Arg,
+		arg: &'a tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(), crate::database::Error>>>;
 
 	fn enqueue<'a>(&'a self, server: &'a Server, arg: EnqueueArg) -> BoxFuture<'a, tg::Result<()>>;
@@ -65,5 +65,5 @@ pub struct CleanBatchArg {
 #[derive(Clone, Debug, Default)]
 pub struct EnqueueArg {
 	pub archive: crate::archive::batch::Arg,
-	pub index: tangram_index::batch::Arg,
+	pub index: tangram_index::write::Arg,
 }

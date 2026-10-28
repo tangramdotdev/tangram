@@ -27,7 +27,7 @@ pub trait Component: crate::component::Lifecycle {
 		session: &'a Session,
 		transaction: &'a crate::database::Transaction<'_>,
 		ids_and_specifiers: &'a [(tg::Id, tg::Specifier)],
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 		batch_size: usize,
 	) -> BoxFuture<'a, tg::Result<std::ops::ControlFlow<(), crate::database::Error>>>;
 

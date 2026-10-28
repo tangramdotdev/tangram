@@ -67,16 +67,16 @@ async fn put_updates_put_while_honoring_time_to_touch() {
 	);
 	let mut arg = object_arg(id.clone(), None);
 	arg.time_to_touch = std::time::Duration::from_secs(100);
-	let batch = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutObject(arg.clone())],
+	let batch = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutObject(arg.clone())],
 	};
-	index.batch(batch).await.unwrap().unwrap();
+	index.write(batch).await.unwrap().unwrap();
 	arg.put = [2; 16];
 	arg.touched_at = 20;
-	let batch = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutObject(arg)],
+	let batch = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutObject(arg)],
 	};
-	index.batch(batch).await.unwrap().unwrap();
+	index.write(batch).await.unwrap().unwrap();
 
 	let object = index
 		.try_get_objects(&[id])
@@ -99,14 +99,11 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 	let checkout_a = tg::artifact::Id::from(tg::file::Id::new(b"checkout_a"));
 	let checkout_b = tg::artifact::Id::from(tg::file::Id::new(b"checkout_b"));
 	let tag = tg::tag::Id::new();
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutCheckout(put_checkout_arg(checkout_a.clone())),
-			tangram_index::batch::Item::PutObject(object_arg(
-				object.clone(),
-				Some(checkout_a.clone()),
-			)),
-			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+			tangram_index::Item::PutCheckout(put_checkout_arg(checkout_a.clone())),
+			tangram_index::Item::PutObject(object_arg(object.clone(), Some(checkout_a.clone()))),
+			tangram_index::Item::PutTag(tangram_index::tag::put::Arg {
 				captures: tangram_index::permission::capture::Captures::default(),
 				touched_at: 0,
 				version: "initial".into(),
@@ -119,7 +116,7 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 			}),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert!(relationship_exists(&index, &object, &checkout_a));
 	let output = index
 		.clean(tangram_index::clean::Arg {
@@ -135,16 +132,13 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 		.unwrap();
 	assert_eq!(output.checkouts, Vec::new());
 
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutCheckout(put_checkout_arg(checkout_b.clone())),
-			tangram_index::batch::Item::PutObject(object_arg(
-				object.clone(),
-				Some(checkout_b.clone()),
-			)),
+			tangram_index::Item::PutCheckout(put_checkout_arg(checkout_b.clone())),
+			tangram_index::Item::PutObject(object_arg(object.clone(), Some(checkout_b.clone()))),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 
 	let indexed = index
 		.try_get_objects(std::slice::from_ref(&object))
@@ -171,13 +165,13 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 		.unwrap();
 	assert_eq!(output.checkouts, vec![checkout_a.into()]);
 
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutObject(object_arg(
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutObject(object_arg(
 			object.clone(),
 			None,
 		))],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 
 	let indexed = index
 		.try_get_objects(std::slice::from_ref(&object))

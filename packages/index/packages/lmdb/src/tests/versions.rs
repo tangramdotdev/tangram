@@ -322,10 +322,10 @@ fn object(
 async fn put(index: &Index, objects: Vec<tangram_index::object::put::Arg>) {
 	let items = objects
 		.into_iter()
-		.map(tangram_index::batch::Item::PutObject)
+		.map(tangram_index::Item::PutObject)
 		.collect();
-	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap().unwrap();
+	let arg = tangram_index::write::Arg { items };
+	index.write(arg).await.unwrap().unwrap();
 }
 
 async fn associate(
@@ -338,10 +338,10 @@ async fn associate(
 		object: object.clone(),
 		touched_at: 0,
 	};
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutAccountObject(arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutAccountObject(arg)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 }
 
 fn associated(

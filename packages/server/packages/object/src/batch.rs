@@ -210,14 +210,14 @@ impl Component {
 		}
 
 		// Index the objects.
-		let index_arg = tangram_index::batch::Arg {
+		let index_arg = tangram_index::write::Arg {
 			items: put_object_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutObject)
+				.map(tangram_index::Item::PutObject)
 				.chain(
 					put_permission_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutPermission),
+						.map(tangram_index::Item::PutPermission),
 				)
 				.collect(),
 		};

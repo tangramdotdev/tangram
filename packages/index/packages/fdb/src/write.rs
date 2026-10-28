@@ -6,11 +6,11 @@ use {
 };
 
 impl Index {
-	pub async fn batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<tg::Result<()>> {
+	pub async fn write(&self, arg: tangram_index::write::Arg) -> tg::Result<tg::Result<()>> {
 		if arg.is_empty() {
 			return Ok(Ok(()));
 		}
-		let request = Request::Batch(arg);
+		let request = Request::Write(arg);
 		let response = self.send_write_request(request).await?;
 		let Response::Mutation(result) = response else {
 			return Err(tg::error!("unexpected write response"));
@@ -19,10 +19,10 @@ impl Index {
 		Ok(result)
 	}
 
-	pub(crate) async fn batch_with_transaction(
+	pub(crate) async fn write_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		items: &[tangram_index::batch::Item],
+		items: &[tangram_index::Item],
 		partition_totals: crate::PartitionTotals,
 		process_data_fragment_size: usize,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
@@ -46,7 +46,7 @@ impl Index {
 			}
 
 			match item {
-				tangram_index::batch::Item::DeleteDelegations(subject) => {
+				tangram_index::Item::DeleteDelegations(subject) => {
 					crate::propagate!(
 						Self::delete_delegations_for_subject_with_transaction(
 							txn,
@@ -58,7 +58,7 @@ impl Index {
 					);
 				},
 
-				tangram_index::batch::Item::EnqueuePermissionCapture(arg) => {
+				tangram_index::Item::EnqueuePermissionCapture(arg) => {
 					crate::propagate!(
 						Self::enqueue_permission_capture_with_transaction(
 							txn,
@@ -70,12 +70,12 @@ impl Index {
 					);
 				},
 
-				tangram_index::batch::Item::DeleteCheckout(id) => {
+				tangram_index::Item::DeleteCheckout(id) => {
 					crate::propagate!(
 						Self::delete_checkout(txn, subspace, id, partition_total).await
 					);
 				},
-				tangram_index::batch::Item::DeletePermission(arg) => {
+				tangram_index::Item::DeletePermission(arg) => {
 					crate::propagate!(
 						Self::delete_permissions_with_transaction(
 							txn,
@@ -86,7 +86,7 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::DeleteGroup(id) => {
+				tangram_index::Item::DeleteGroup(id) => {
 					crate::propagate!(
 						Self::delete_groups_with_transaction(
 							txn,
@@ -96,14 +96,14 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::DeleteGroupMember(arg) => {
+				tangram_index::Item::DeleteGroupMember(arg) => {
 					crate::propagate!(Self::delete_group_members_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
 					));
 				},
-				tangram_index::batch::Item::DeleteOrganization(id) => {
+				tangram_index::Item::DeleteOrganization(id) => {
 					crate::propagate!(
 						Self::delete_organizations_with_transaction(
 							txn,
@@ -113,14 +113,14 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::DeleteOrganizationMember(arg) => {
+				tangram_index::Item::DeleteOrganizationMember(arg) => {
 					crate::propagate!(Self::delete_organization_members_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
 					));
 				},
-				tangram_index::batch::Item::DeleteSandbox(id) => {
+				tangram_index::Item::DeleteSandbox(id) => {
 					crate::propagate!(
 						Self::delete_sandboxes_with_transaction(
 							txn,
@@ -131,7 +131,7 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::DeleteTag(id) => {
+				tangram_index::Item::DeleteTag(id) => {
 					crate::propagate!(
 						Self::delete_tags_with_transaction(
 							txn,
@@ -142,7 +142,7 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::DeleteUser(id) => {
+				tangram_index::Item::DeleteUser(id) => {
 					crate::propagate!(
 						Self::delete_users_with_transaction(
 							txn,
@@ -152,7 +152,7 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::PutCheckout(arg) => {
+				tangram_index::Item::PutCheckout(arg) => {
 					crate::propagate!(
 						Self::put_checkouts_with_transaction(
 							txn,
@@ -163,7 +163,7 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::PutDelegation(arg) => {
+				tangram_index::Item::PutDelegation(arg) => {
 					crate::propagate!(
 						Self::put_delegation_with_transaction(
 							txn,
@@ -174,7 +174,7 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::PutPermission(arg) => {
+				tangram_index::Item::PutPermission(arg) => {
 					crate::propagate!(
 						Self::put_permissions_with_transaction(
 							txn,
@@ -185,21 +185,21 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::PutGroup(arg) => {
+				tangram_index::Item::PutGroup(arg) => {
 					crate::propagate!(Self::put_groups_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
 					));
 				},
-				tangram_index::batch::Item::PutGroupMember(arg) => {
+				tangram_index::Item::PutGroupMember(arg) => {
 					crate::propagate!(Self::put_group_members_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
 					));
 				},
-				tangram_index::batch::Item::PutObject(arg) => {
+				tangram_index::Item::PutObject(arg) => {
 					crate::propagate!(
 						Self::put_objects_with_transaction(
 							txn,
@@ -210,13 +210,13 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::PutAccountObject(arg) => {
+				tangram_index::Item::PutAccountObject(arg) => {
 					crate::propagate!(
 						Self::put_account_object(txn, subspace, arg, partition_totals, None, None,)
 							.await
 					);
 				},
-				tangram_index::batch::Item::PutAccountProcess(arg) => {
+				tangram_index::Item::PutAccountProcess(arg) => {
 					crate::propagate!(
 						Self::put_account_process(
 							txn,
@@ -229,7 +229,7 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::PutOrganization(arg) => {
+				tangram_index::Item::PutOrganization(arg) => {
 					crate::propagate!(
 						Self::put_organizations_with_transaction(
 							txn,
@@ -239,14 +239,14 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::PutOrganizationMember(arg) => {
+				tangram_index::Item::PutOrganizationMember(arg) => {
 					crate::propagate!(Self::put_organization_members_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
 					));
 				},
-				tangram_index::batch::Item::PutProcess(arg) => {
+				tangram_index::Item::PutProcess(arg) => {
 					let result = crate::propagate!(
 						Self::put_processes_with_transaction(
 							txn,
@@ -261,7 +261,7 @@ impl Index {
 						rejection.get_or_insert(error);
 					}
 				},
-				tangram_index::batch::Item::PutSandbox(arg) => {
+				tangram_index::Item::PutSandbox(arg) => {
 					let result = crate::propagate!(
 						Self::put_sandboxes_with_transaction(
 							txn,
@@ -275,10 +275,10 @@ impl Index {
 						rejection.get_or_insert(error);
 					}
 				},
-				tangram_index::batch::Item::PutSync(arg) => {
+				tangram_index::Item::PutSync(arg) => {
 					crate::propagate!(Self::put_sync_with_transaction(txn, subspace, arg).await);
 				},
-				tangram_index::batch::Item::PutTag(arg) => {
+				tangram_index::Item::PutTag(arg) => {
 					crate::propagate!(
 						Self::put_tags_with_transaction(
 							txn,
@@ -289,7 +289,7 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::PutUser(arg) => {
+				tangram_index::Item::PutUser(arg) => {
 					crate::propagate!(
 						Self::put_users_with_transaction(txn, subspace, std::slice::from_ref(arg),)
 							.await
