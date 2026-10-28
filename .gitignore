@@ -1,6 +1,7 @@
 *.pending-snap
 .DS_Store
-/.claude
+/.claude/*
+!/.claude/skills
 /.config/*
 !/.config/nextest.toml
 /.tangram
