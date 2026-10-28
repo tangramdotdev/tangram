@@ -37,6 +37,7 @@ fn put_checkout_arg(id: tg::artifact::Id) -> tangram_index::checkout::put::Arg {
 	tangram_index::checkout::put::Arg {
 		dependencies: Vec::new(),
 		id: id.into(),
+		replace: false,
 		touched_at: 0,
 	}
 }
