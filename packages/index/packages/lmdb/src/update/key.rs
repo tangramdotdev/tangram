@@ -20,6 +20,12 @@ pub enum Key {
 		child: tg::Either<tg::object::Id, tg::process::Id>,
 		parent: tg::Either<tg::object::Id, tg::process::Id>,
 	},
+	/// A storage and metadata update queued in version order, which is written blindly and carries its source in the key.
+	StorageAndMetadataUpdate {
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+		source: super::Source,
+		version: u64,
+	},
 	/// The oldest put version for an account association is independent of its touch timestamp.
 	UsageUpdatePutVersion {
 		account: tangram_index::usage::Account,
@@ -39,7 +45,6 @@ pub enum Key {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
 	Permission(tg::authorization::Subject),
-	StorageAndMetadata,
 	Usage(UsageKind),
 }
 
