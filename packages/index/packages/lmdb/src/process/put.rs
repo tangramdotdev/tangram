@@ -552,6 +552,7 @@ impl Index {
 		process_data_fragment_size: usize,
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
+		let mut rejection = None;
 		for process in args {
 			// Put the sandbox, which the process's membership requires.
 			if let Some(tangram_index::process::put::Sandbox::Put(sandbox)) = &process.sandbox
@@ -562,7 +563,8 @@ impl Index {
 					std::slice::from_ref(sandbox),
 					usage_partition_total,
 				)? {
-				return Ok(Err(error));
+				rejection.get_or_insert(error);
+				continue;
 			}
 
 			// Put the process.
@@ -573,7 +575,8 @@ impl Index {
 				process,
 				process_data_fragment_size,
 			)? {
-				return Ok(Err(error));
+				rejection.get_or_insert(error);
+				continue;
 			}
 
 			// Put the account's storage entry, which requires the accepted process.
@@ -598,7 +601,10 @@ impl Index {
 			Self::put_captures_with_transaction(db, subspace, transaction, &process.captures)?;
 		}
 
-		Ok(Ok(()))
+		// Return the first rejection, since a rejected process does not affect the other processes.
+		let result = rejection.map_or(Ok(()), Err);
+
+		Ok(result)
 	}
 
 	pub(crate) fn put_process_data(
