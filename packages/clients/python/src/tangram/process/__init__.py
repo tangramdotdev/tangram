@@ -268,6 +268,7 @@ class Process[O: ValueType]:
     def spawn[A, R: ValueType](
         cls,
         command: Command[A, R],
+        /,
         *args: ProcessInput,
         client: Client | None = None,
         **options: Unpack[ArgObject],
@@ -308,6 +309,7 @@ class Process[O: ValueType]:
     def run[A, R: ValueType](
         cls,
         command: Command[A, R],
+        /,
         *args: ProcessInput,
         client: Client | None = None,
         **options: Unpack[ArgObject],
@@ -348,6 +350,7 @@ class Process[O: ValueType]:
     def build[A, R: ValueType](
         cls,
         command: Command[A, R],
+        /,
         *args: ProcessInput,
         client: Client | None = None,
         **options: Unpack[ArgObject],
