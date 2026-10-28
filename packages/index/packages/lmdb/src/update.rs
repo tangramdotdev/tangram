@@ -339,7 +339,14 @@ impl Index {
 					|| changed || propagated_version
 					.is_some_and(|propagated_version| version < propagated_version)
 				{
-					Self::enqueue_parents(db, subspace, transaction, &id, &kind, version)?;
+					match &kind {
+						Kind::StorageAndMetadata => {
+							Self::enqueue_waiting_parents(db, subspace, transaction, &id, version)?;
+						},
+						Kind::Permission(_) | Kind::Usage(_) => {
+							Self::enqueue_parents(db, subspace, transaction, &id, &kind, version)?;
+						},
+					}
 					let item = match &id {
 						tg::Either::Left(id) => {
 							crate::Key::Object(crate::object::Key::Object(id.clone()))
@@ -2423,6 +2430,52 @@ impl Index {
 				}
 			},
 		}
+		Ok(())
+	}
+
+	fn enqueue_waiting_parents(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		version: u64,
+	) -> tg::Result<()> {
+		// Read the propagations from the item to the parents that are waiting on it.
+		let id_bytes = match id {
+			tg::Either::Left(id) => id.to_bytes(),
+			tg::Either::Right(id) => id.to_bytes(),
+		};
+		let prefix = Self::pack(
+			subspace,
+			&(KeyKind::Propagation.to_i32().unwrap(), id_bytes.as_ref()),
+		);
+		let parents = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the propagations"))?
+			.map(|entry| {
+				let (key, _) =
+					entry.map_err(|error| tg::error!(!error, "failed to read a propagation"))?;
+				let crate::Key::Update(Key::Propagation { parent, .. }) =
+					Self::unpack(subspace, key)?
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(parent)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		// Enqueue an update on each waiting parent. A child that completes before a parent writes its propagation is seen by the parent's own update, which the parent's put enqueues.
+		for parent in parents {
+			Self::enqueue_update(
+				db,
+				subspace,
+				transaction,
+				parent,
+				Source::Propagate,
+				Some(version),
+			)?;
+		}
+
 		Ok(())
 	}
 

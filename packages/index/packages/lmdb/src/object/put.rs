@@ -65,15 +65,16 @@ impl Index {
 			return Ok(());
 		}
 
-		let value = tangram_index::object::Object {
+		let object = tangram_index::object::Object {
 			checkout: checkout.clone(),
 			metadata,
 			put,
 			reference_count: 0,
 			storage,
 			touched_at,
-		}
-		.serialize()?;
+		};
+		let complete = object.complete();
+		let value = object.serialize()?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 
@@ -93,6 +94,17 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|error| tg::error!(!error, "failed to put the child object"))?;
+
+			// Put a propagation from the child when the object is incomplete, so that the child's update enqueues an update on the object.
+			if !complete {
+				let key = Key::Update(crate::update::Key::Propagation {
+					child: tg::Either::Left(child.clone()),
+					parent: tg::Either::Left(id.clone()),
+				});
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &[])
+					.map_err(|error| tg::error!(!error, "failed to put the propagation"))?;
+			}
 		}
 
 		if checkout_changed && let Some(checkout) = &previous_checkout {
