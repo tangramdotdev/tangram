@@ -540,6 +540,8 @@ pub struct FdbIndex {
 
 	pub verification: FdbIndexVerification,
 
+	pub write_item_transaction_concurrency: usize,
+
 	pub write_operation_batch_size: usize,
 
 	pub write_transaction_concurrency: usize,
@@ -2468,6 +2470,7 @@ impl Default for FdbIndex {
 			usage_partition_total: 1,
 			usage_update_partition_total: 1,
 			verification: FdbIndexVerification::default(),
+			write_item_transaction_concurrency: 16,
 			write_operation_batch_size: 8_000,
 			write_transaction_concurrency: 256,
 		}

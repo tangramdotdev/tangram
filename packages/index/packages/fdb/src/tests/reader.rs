@@ -28,6 +28,7 @@ async fn concurrent_verifications_complete_before_the_deadline() {
 		usage_partition_total: 1,
 		usage_update_partition_total: 1,
 		verification: crate::VerificationConfig { concurrency: 64 },
+		write_item_transaction_concurrency: 1,
 		write_operation_batch_size: 1024,
 		write_transaction_concurrency: 1,
 	};
