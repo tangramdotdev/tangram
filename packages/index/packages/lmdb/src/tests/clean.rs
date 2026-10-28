@@ -39,6 +39,7 @@ async fn object_output_includes_the_deleted_put_and_touched_at() {
 		let (_dir, index) = super::new_index();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
 		let object = tangram_index::object::put::Arg {
+			account: None,
 			checkout: None,
 			children: BTreeSet::new(),
 			id: id.clone(),
@@ -82,6 +83,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 	);
 	let put_object = |id| {
 		tangram_index::batch::Item::PutObject(tangram_index::object::put::Arg {
+			account: None,
 			checkout: None,
 			children: BTreeSet::new(),
 			id,
@@ -98,6 +100,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 				put_object(command.clone()),
 				put_object(object.clone()),
 				tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
+					account: None,
 					cached: false,
 					children: None,
 					command: Some(vec![command.clone()]),
@@ -176,6 +179,7 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![
 			tangram_index::batch::Item::PutObject(tangram_index::object::put::Arg {
+				account: None,
 				checkout: None,
 				children: BTreeSet::new(),
 				id: object.clone(),
@@ -262,6 +266,7 @@ async fn cleaning_respects_each_kind_cutoff() {
 				&vec![u8::try_from(touched_at).unwrap()].into(),
 			);
 			let arg = tangram_index::object::put::Arg {
+				account: None,
 				checkout: None,
 				children: BTreeSet::new(),
 				id,

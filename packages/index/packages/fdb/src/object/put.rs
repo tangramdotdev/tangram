@@ -174,7 +174,21 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for object in args {
 			crate::propagate!(Self::put_object(txn, subspace, object, partition_totals).await);
+
+			// Put the account's storage entry, which requires the object.
+			if let Some(account) = &object.account {
+				let entry = tangram_index::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: object.id.clone(),
+					touched_at: object.touched_at,
+				};
+				crate::propagate!(
+					Self::put_account_object(txn, subspace, &entry, partition_totals, None, None)
+						.await
+				);
+			}
 		}
+
 		Ok(ControlFlow::Break(()))
 	}
 }

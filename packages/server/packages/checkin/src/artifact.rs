@@ -1194,6 +1194,7 @@ impl Component {
 
 		// Create the index message.
 		let index_message = tangram_index::object::put::Arg {
+			account: None,
 			checkout: None,
 			children: children_ids,
 			id: id.clone(),
@@ -1339,6 +1340,7 @@ impl Component {
 		let mut children = std::collections::BTreeSet::new();
 		data.children(&mut children);
 		let put_object_arg = tangram_index::object::put::Arg {
+			account: None,
 			checkout: None,
 			children,
 			id: id.clone(),
@@ -1794,6 +1796,7 @@ impl Component {
 
 		// Create the index message.
 		let index_message = tangram_index::object::put::Arg {
+			account: None,
 			checkout: None,
 			children: children_ids,
 			id: id.clone(),

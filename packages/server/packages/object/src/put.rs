@@ -125,7 +125,14 @@ impl Component {
 				..Default::default()
 			}
 		};
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let arg = tangram_index::object::put::Arg {
+			account,
 			checkout: None,
 			children,
 			id: id.clone(),
@@ -153,24 +160,9 @@ impl Component {
 				time_to_touch: Some(session.server.config.object.permission_time_to_touch),
 				version: None,
 			});
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &session.context.principal)
-			.await?;
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutObject(arg))
 				.chain(put_permission.map(tangram_index::batch::Item::PutPermission))
-				.chain(account.map(|account| {
-					tangram_index::batch::Item::PutAccountObject(
-						tangram_index::usage::storage::put::ObjectArg {
-							account,
-							object: id.clone(),
-							touched_at: now,
-						},
-					)
-				}))
 				.collect(),
 		};
 		self.put_object_and_index(&session.server, put_arg, arg)

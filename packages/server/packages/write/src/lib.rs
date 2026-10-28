@@ -529,7 +529,8 @@ impl Component {
 		touched_at: i64,
 		permission_expires_at: i64,
 	) -> tg::Result<tangram_index::batch::Arg> {
-		let (put_checkout_args, put_object_args, put_permission_args) = Self::write_index_args(
+		// Create the index args.
+		let (put_checkout_args, mut put_object_args, put_permission_args) = Self::write_index_args(
 			blob,
 			checkout_pointer,
 			touched_at,
@@ -542,13 +543,22 @@ impl Component {
 			session.server.config.object.permission_time_to_touch,
 			session.server.config.object.time_to_touch,
 		);
+
+		// Get the usage account.
 		let account = session
 			.server
 			.components
 			.usage
 			.usage_account(session, &session.context.principal)
 			.await?;
+
+		// Put the account's storage entry with the root object.
 		let root_object = tg::object::Id::from(blob.id.clone());
+		if let Some(arg) = put_object_args.iter_mut().find(|arg| arg.id == root_object) {
+			arg.account = account;
+		}
+
+		// Create the batch.
 		let arg = tangram_index::batch::Arg {
 			items: put_checkout_args
 				.into_iter()
@@ -563,15 +573,6 @@ impl Component {
 						.into_iter()
 						.map(tangram_index::batch::Item::PutPermission),
 				)
-				.chain(account.map(|account| {
-					tangram_index::batch::Item::PutAccountObject(
-						tangram_index::usage::storage::put::ObjectArg {
-							account,
-							object: root_object,
-							touched_at,
-						},
-					)
-				}))
 				.collect(),
 		};
 
@@ -611,6 +612,7 @@ impl Component {
 			}
 			let id = blob.id.clone().into();
 			let arg = tangram_index::object::put::Arg {
+				account: None,
 				checkout,
 				children,
 				id,

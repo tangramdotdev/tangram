@@ -310,10 +310,14 @@ impl Index {
 						Self::put_indexer_with_transaction(db, subspace, &mut transaction, &arg)
 							.map(|()| Response::Unit)
 					},
-					Request::PutObjects(args) => {
-						Self::put_objects_with_transaction(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
-					},
+					Request::PutObjects(args) => Self::put_objects_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&args,
+						usage_partition_total,
+					)
+					.map(|()| Response::Unit),
 					Request::PutOrganizationMembers(args) => {
 						Self::put_organization_members_with_transaction(
 							db,
@@ -336,6 +340,7 @@ impl Index {
 						&mut transaction,
 						&args,
 						process_data_fragment_size,
+						usage_partition_total,
 					)
 					.map(Response::Mutation),
 					Request::PutSandboxes(args) => Self::put_sandboxes_with_transaction(

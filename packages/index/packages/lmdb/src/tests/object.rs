@@ -22,6 +22,7 @@ fn object_arg(
 	checkout: Option<tg::artifact::Id>,
 ) -> tangram_index::object::put::Arg {
 	tangram_index::object::put::Arg {
+		account: None,
 		checkout,
 		children: BTreeSet::new(),
 		id,

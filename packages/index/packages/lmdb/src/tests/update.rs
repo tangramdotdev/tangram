@@ -50,6 +50,7 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 		.batch(tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutProcess(
 				tangram_index::process::put::Arg {
+					account: None,
 					cached: false,
 					children: None,
 					command: Some(vec![command.clone()]),
@@ -134,6 +135,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 	let wrapper = object_id(0);
 	let put_object = |id: tg::object::Id, children| {
 		tangram_index::batch::Item::PutObject(tangram_index::object::put::Arg {
+			account: None,
 			checkout: None,
 			children,
 			id,
@@ -159,6 +161,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 				put_object(unrelated.clone(), BTreeSet::new()),
 				put_object(wrapper.clone(), BTreeSet::from([child.clone()])),
 				tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
+					account: None,
 					cached: false,
 					children: None,
 					command: Some(vec![wrapper.clone()]),
@@ -802,6 +805,7 @@ async fn materialized_permissions_are_rewritten_only_when_their_expiration_moves
 	let parent = object_id(1);
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
 	let put_object = tangram_index::object::put::Arg {
+		account: None,
 		checkout: None,
 		children: BTreeSet::from([child.clone()]),
 		id: parent.clone(),
@@ -977,6 +981,7 @@ fn node_log_objects() -> tg::authorization::Permission {
 
 async fn put_log_object(index: &Index, log: &tg::object::Id) {
 	let object = tangram_index::object::put::Arg {
+		account: None,
 		checkout: None,
 		children: BTreeSet::new(),
 		id: log.clone(),
@@ -1004,6 +1009,7 @@ fn put_process_with_log_items(
 	let subject = tg::authorization::Subject::Process(process.clone());
 	let creator = tg::Principal::Process(process.clone());
 	let put_process = tangram_index::process::put::Arg {
+		account: None,
 		cached: false,
 		children: None,
 		command: None,
@@ -1090,6 +1096,7 @@ fn put_parent_object_items(
 ) -> Vec<tangram_index::batch::Item> {
 	let creator = subject.try_to_principal().unwrap();
 	let put_object = tangram_index::object::put::Arg {
+		account: None,
 		checkout: None,
 		children: BTreeSet::from([child.clone()]),
 		id: parent.clone(),

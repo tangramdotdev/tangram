@@ -592,6 +592,7 @@ impl Component {
 		});
 		let mut items = vec![tangram_index::batch::Item::PutProcess(
 			tangram_index::process::put::Arg {
+				account,
 				cached: false,
 				children: None,
 				command: Some(
@@ -625,15 +626,6 @@ impl Component {
 		let permission_arg =
 			Self::create_process_sandbox_permission_arg(session, &id, sandbox_id, touched_at)?;
 		items.push(tangram_index::batch::Item::PutPermission(permission_arg));
-		if let Some(account) = account {
-			items.push(tangram_index::batch::Item::PutAccountProcess(
-				tangram_index::usage::storage::put::ProcessArg {
-					account,
-					process: id.clone(),
-					touched_at,
-				},
-			));
-		}
 		if assign {
 			let parent = parent
 				.as_ref()
