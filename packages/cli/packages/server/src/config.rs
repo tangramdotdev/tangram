@@ -9,11 +9,11 @@ use {
 			DatabaseIndexQueue, DatabasePool, Dax, FdbIndex, FdbIndexVerification,
 			FilesystemProjectIds, FjallCache, Github, Http, HttpListener, HttpTls, IdMap, Index,
 			IndexQueue, Indexer, IndexerBatch, IndexerBillingCleanup, IndexerCache,
-			IndexerCleaning, IndexerLogCache, IndexerPartitions, IndexerPermissionCapture,
-			IndexerQueue, IndexerRequest, IndexerUpdate, IndexerUpdates, IndexerUsage,
-			IndexerUsageAggregation, IndexerUsageExpiration, IndexerWriter, Insecure, JavaScript,
-			JavaScriptEngine, LmdbCache, LmdbIndex, MemoryMessenger, Messenger, NatsMessenger,
-			Object, ObjectCache, Pagination, PermissionSearch, PermissionSearches,
+			IndexerCleaning, IndexerDatabaseIndexQueue, IndexerLogCache, IndexerPartitions,
+			IndexerPermissionCapture, IndexerQueue, IndexerRequest, IndexerUpdate, IndexerUpdates,
+			IndexerUsage, IndexerUsageAggregation, IndexerUsageExpiration, IndexerWriter, Insecure,
+			JavaScript, JavaScriptEngine, LmdbCache, LmdbIndex, MemoryMessenger, Messenger,
+			NatsMessenger, Object, ObjectCache, Pagination, PermissionSearch, PermissionSearches,
 			PermissionSubtree, Pool, PostgresDatabase, PostgresDatabaseConnection, Process,
 			Progress, Read, Reconnect, Region, Remote, RemoteCache, Retry, RocksdbCache, Role,
 			RootAuthentication, Runner, RunnerBackend, RunnerResources, S3Archive, Sandbox,
@@ -951,6 +951,9 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.cleaning {
 		target.cleaning = resolve_indexer_cleaning(source);
 	}
+	if let Some(source) = source.database_index_queue {
+		target.database_index_queue = resolve_indexer_database_index_queue(source);
+	}
 	if let Some(id) = &source.id {
 		target.id = Some(id.clone());
 	}
@@ -1077,6 +1080,16 @@ fn resolve_indexer_cleaning(source: BoolOr<IndexerCleaning>) -> server::IndexerC
 	}
 
 	target
+}
+
+fn resolve_indexer_database_index_queue(
+	source: BoolOr<IndexerDatabaseIndexQueue>,
+) -> server::IndexerDatabaseIndexQueue {
+	let enabled = match source {
+		BoolOr::Bool(enabled) => enabled,
+		BoolOr::Value(IndexerDatabaseIndexQueue {}) => true,
+	};
+	server::IndexerDatabaseIndexQueue { enabled }
 }
 
 fn resolve_indexer_partitions(source: IndexerPartitions) -> server::IndexerPartitions {
@@ -3666,6 +3679,20 @@ mod tests {
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
 		assert!(!target.indexer.cleaning.enabled);
+	}
+
+	#[test]
+	fn resolves_indexer_database_index_queue() {
+		let source: Config = serde_json::from_value(serde_json::json!({})).unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		assert!(target.indexer.database_index_queue.enabled);
+
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": { "database_index_queue": false },
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		assert!(!target.indexer.database_index_queue.enabled);
 	}
 
 	#[test]

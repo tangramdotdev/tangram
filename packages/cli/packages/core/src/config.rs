@@ -958,6 +958,9 @@ pub struct Indexer {
 	pub cleaning: Option<BoolOr<IndexerCleaning>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub database_index_queue: Option<BoolOr<IndexerDatabaseIndexQueue>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::indexer::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1072,6 +1075,10 @@ pub struct IndexerCleaning {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub poll_interval: Option<Duration>,
 }
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerDatabaseIndexQueue {}
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]

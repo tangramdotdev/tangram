@@ -582,6 +582,8 @@ pub struct Indexer {
 
 	pub cleaning: IndexerCleaning,
 
+	pub database_index_queue: IndexerDatabaseIndexQueue,
+
 	pub id: Option<tg::indexer::Id>,
 
 	pub log_cache: IndexerLogCache,
@@ -650,6 +652,11 @@ pub struct IndexerCleaning {
 	pub partitions: IndexerPartitions,
 
 	pub poll_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerDatabaseIndexQueue {
+	pub enabled: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -2495,6 +2502,7 @@ impl Default for Indexer {
 			billing_cleanup: IndexerBillingCleanup::default(),
 			cache: IndexerCache::default(),
 			cleaning: IndexerCleaning::default(),
+			database_index_queue: IndexerDatabaseIndexQueue::default(),
 			id: None,
 			log_cache: IndexerLogCache::default(),
 			object_cache_partitions: IndexerPartitions::default(),
@@ -2560,6 +2568,12 @@ impl Default for IndexerCleaning {
 			partitions: IndexerPartitions::default(),
 			poll_interval: Duration::from_secs(1),
 		}
+	}
+}
+
+impl Default for IndexerDatabaseIndexQueue {
+	fn default() -> Self {
+		Self { enabled: true }
 	}
 }
 
