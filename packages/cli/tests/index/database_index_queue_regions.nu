@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # Database index batches are fanned out to every configured region.
 
 let regions = [

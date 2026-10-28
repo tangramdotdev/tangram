@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
+skip_test --cloud
 
 # Pulling through a secondary region writes database nodes in the primary region while keeping
 # objects, processes, and sandboxes in the secondary region.

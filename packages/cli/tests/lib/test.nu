@@ -615,27 +615,6 @@ export def --env "server spawn" [
 		}
 	}
 
-	if $use_fskit {
-		$default_config = $default_config | merge deep {
-			vfs: {
-				kind: 'fskit',
-			},
-		}
-	}
-
-	let use_vfs = (($env.TANGRAM_TEST_VFS? | default "") | str length) > 0
-
-	let use_vm = (($env.TANGRAM_TEST_VM? | default "") | str length) > 0
-	if $use_vm {
-		let kernel_path = $env.TANGRAM_TEST_KERNEL_PATH? | default ""
-		if ($kernel_path | str length) == 0 {
-			error make { msg: 'TANGRAM_TEST_VM is set but TANGRAM_TEST_KERNEL_PATH is empty' }
-		}
-		$default_config = $default_config | merge deep {
-			runner: { backend: { kind: 'cloud-hypervisor', kernel_path: $kernel_path } },
-		}
-	}
-
 	if $cloud and $instance != null {
 		error make { msg: '--cloud may not be combined with --instance' }
 	}
@@ -814,16 +793,14 @@ export def --env "server spawn" [
 		$config
 	}
 
-	# Force the selected VFS unless the test disables it.
-	let forced_vfs_kind = if $use_fskit { 'fskit' } else if $use_vfs { 'fuse' } else { null }
-	let config = if $forced_vfs_kind == null {
+	# Use FSKit for the VFS when it is enabled and available.
+	let vfs = $config | get --optional vfs
+	let config = if not $use_fskit or $vfs == null or $vfs == false {
 		$config
-	} else if ($config | get --optional vfs) == false {
-		$config
-	} else if (($config | get --optional vfs | describe) | str starts-with 'record') {
-		$config | upsert vfs ($config | get vfs | upsert kind $forced_vfs_kind)
+	} else if (($vfs | describe) | str starts-with 'record') {
+		$config | upsert vfs ($vfs | upsert kind 'fskit')
 	} else {
-		$config | upsert vfs { kind: $forced_vfs_kind }
+		$config | upsert vfs { kind: 'fskit' }
 	}
 	# Start the server's virtual clock at the requested time.
 	let config = if $now == null { $config } else { $config | upsert advanced (($config.advanced? | default {}) | upsert clock { start: $now }) }
@@ -871,7 +848,7 @@ export def --env "server spawn" [
 
 	# Tag busybox if requested.
 	if $busybox {
-		skip_if_offline
+		skip_test --offline
 		let path = mktemp -d
 		let source = '
 			const SOURCES: Record<string, { url: string, checksum: tg.Checksum }> = {
@@ -1101,12 +1078,12 @@ export def instance [
 		$config | upsert regions (allocate_region_urls $config.regions)
 	}
 	validate_instance_config $config | ignore
-	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default '') | str length) > 0
-	if not $use_cloud {
+	if not $cloud {
 		let directory = mktemp -d
 
 		return { config: $config, directory: $directory, kind: 'local' }
 	}
+	skip_test --cloud
 	let pool_path = $env.TANGRAM_TEST_DATABASE_POOL? | default ''
 	if ($pool_path | is-empty) {
 		error make { msg: 'TANGRAM_TEST_DATABASE_POOL is not set' }
@@ -1232,24 +1209,36 @@ export def --env success [
 	}
 }
 
-# Skip the test, reporting the reason. The runner treats exit code 77 as skipped rather than passed or failed. This is named skip_test because skip is a Nushell builtin.
-export def skip_test [reason: string] {
+# Skip the test, reporting the reason. With --cloud or --offline, skip only when the cloud databases or the network are not available. The runner treats exit code 77 as skipped rather than passed or failed. This is named skip_test because skip is a Nushell builtin.
+export def skip_test [
+	reason?: string
+	--cloud # Skip the test only when the cloud databases are not available.
+	--offline # Skip the test only when the runner was invoked with --offline.
+] {
+	if $cloud and $offline {
+		error make { msg: '--cloud may not be combined with --offline' }
+	}
+	if $cloud and (($env.TANGRAM_TEST_CLOUD? | default '') | str length) > 0 {
+		return
+	}
+	if $offline and (($env.TANGRAM_TEST_OFFLINE? | default '') | str length) == 0 {
+		return
+	}
+	let reason = if $reason != null {
+		$reason
+	} else if $cloud {
+		'this test requires cloud databases'
+	} else if $offline {
+		'this test requires network access'
+	} else {
+		error make { msg: 'skip_test requires a reason' }
+	}
 	print --stderr $reason
+	let path = $env.TANGRAM_TEST_SKIP_PATH? | default ''
+	if not ($path | is-empty) {
+		$reason | save --force $path
+	}
 	exit 77
-}
-
-# Skip the test when the runner was invoked with --offline. Call this at the top of tests which require network access.
-export def skip_if_offline [] {
-	if (($env.TANGRAM_TEST_OFFLINE? | default '') | str length) > 0 {
-		skip_test 'this test requires network access'
-	}
-}
-
-export def skip_if_no_cloud [] {
-	let cloud = (($env.TANGRAM_TEST_CLOUD? | default '') | str length) > 0
-	if not $cloud {
-		skip_test 'this test requires cloud databases'
-	}
 }
 
 # Determine whether the running kernel has enabled the FUSE io_uring transport.

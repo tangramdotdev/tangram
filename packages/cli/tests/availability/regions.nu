@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # Availability can be requested from a specific peer region.
 
 let regions = [

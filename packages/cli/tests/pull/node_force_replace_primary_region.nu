@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # Pulling with force through a secondary region replaces conflicting nodes in the primary region.
 
 let local_source = server spawn --cloud --name local-source

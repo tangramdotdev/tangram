@@ -3,16 +3,19 @@ use ../lib/test.nu *
 # A DAX sandbox can read an artifact through its mounted path.
 
 if $nu.os-info.name != 'linux' {
-	return
+	skip_test 'this test requires linux'
 }
-
-if (($env.TANGRAM_TEST_VM? | default "") | str length) == 0 {
-	return
+if (which cloud-hypervisor | is-empty) {
+	skip_test 'this test requires cloud-hypervisor'
+}
+let kernel_path = $env.TANGRAM_TEST_KERNEL_PATH? | default ''
+if ($kernel_path | is-empty) {
+	skip_test 'TANGRAM_TEST_KERNEL_PATH is required for cloud-hypervisor'
 }
 
 for dax in [true false] {
 	let local = server spawn --busybox --config {
-		runner: { backend: { kind: 'cloud-hypervisor', dax: $dax } },
+		runner: { backend: { kind: 'cloud-hypervisor', dax: $dax, kernel_path: $kernel_path } },
 	}
 
 	let mount = mktemp -d | str trim

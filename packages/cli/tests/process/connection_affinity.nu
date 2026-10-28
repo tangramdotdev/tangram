@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # A runner and a local server whose clients spread requests over several connections to an instance with several servers send each process's correlated requests over one connection, so that every server answers them over its local channel instead of the messenger.
 
 const proxy_path = path self ../lib/round_robin_proxy.mjs

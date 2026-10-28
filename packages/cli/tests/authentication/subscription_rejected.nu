@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/nats.nu *
 
-skip_if_no_cloud
+skip_test --cloud
 
 # A rejected invalidation subscription keeps authentication on the database path.
 let nats = spawn_nats --config {

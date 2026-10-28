@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # A departing indexer leaves shared work for a fresh wait, even if the replacement already responded.
 let instance = instance --cloud --config {
 	advanced: { checkpoints: true },

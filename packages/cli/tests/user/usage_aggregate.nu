@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # Default usage totals include each regional index exactly once.
 def sum_usage [left: record, right: record] {
 	mut output = $left

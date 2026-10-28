@@ -10,8 +10,6 @@ def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from FoundationDB, PostgreSQL, and ScyllaDB.
 	--jobs (-j): int # The number of concurrent tests to run.
-	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
-	--no-cloud # Use local backends for test instances.
 	--preserve-failing-temps # Keep the temporary directories for failed tests.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
@@ -26,25 +24,15 @@ def main [
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 2min # The timeout for each test.
 	--turso # Use Turso for the server database.
-	--vfs # Run every test against the VFS: FSKit on macOS and FUSE on Linux. On macOS, this requires the app and its file system extension to be installed and enabled.
-	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
 ] {
 	# Validate the flags that affect the build.
-	let cloud = $nu.os-info.name in ['linux', 'macos'] and not $no_cloud
 	if $release and $tangram_path != null {
 		error make { msg: '--release may not be combined with --tangram-path' }
 	}
 	if $tangram_path != null and not ($tangram_path | path exists) {
 		error make { msg: $'--tangram-path does not exist: ($tangram_path)' }
 	}
-	if $kernel_path != null and not $vm {
-		error make { msg: '--kernel-path may only be set with --vm' }
-	}
-	if $kernel_path != null and not ($kernel_path | path exists) {
-		error make { msg: $'--kernel-path does not exist: ($kernel_path)' }
-	}
-	let fskit = $vfs and $nu.os-info.name == 'macos'
 
 	# Determine which language clients the selected tests require.
 	let filter = if ($filters | is-empty) {
@@ -59,21 +47,17 @@ def main [
 	let node = $names | any { |name| $name | str starts-with 'node/' }
 	let python = $names | any { |name| $name | str starts-with 'python/' }
 
-	# Build and install the current macOS app and file system extension. Isolate its default-feature Cargo build from the all-features test binary.
+	# Use FSKit for the VFS on macOS when the file system extension is enabled. Unmount the VFS left by crashed servers and stop the provider so the tests start fresh.
+	let fskit = $nu.os-info.name == 'macos' and (fskit_enabled $release)
 	if $fskit and not $clean {
 		force_unmount_vfs_macos (fskit_temp_root)
 		stop_fskit_provider $release
-		let build_args = if $release { ['--release'] } else { [] }
-		let cargo_target_dir = ($repository_path | path join 'target/macos')
-		^bun run macos:build --cargo-target-dir $cargo_target_dir ...$build_args
-		^nu ($repository_path | path join 'scripts/macos/install.nu') ...$build_args --no-build
 	}
 
 	# Build the test runner with Tangram in one Cargo invocation, and add both to the path. With --tangram-path, use the prebuilt binary instead.
 	let profile = if $release { 'release' } else { 'debug' }
 	let profile_args = if $release { ['--release'] } else { [] }
-	let packages = ['--package' 'tangram_cli_test']
-	let packages = if $cloud or $clean { $packages | append ['--package' 'tangram_scylla_client'] } else { $packages }
+	let packages = ['--package' 'tangram_cli_test' '--package' 'tangram_scylla_client']
 	let packages = if $node { $packages | append ['--package' 'tangram_javascript_native'] } else { $packages }
 	let target_path = $env.CARGO_TARGET_DIR? | default ($repository_path | path join 'target') | path join $profile
 	if $tangram_path != null {
@@ -115,10 +99,8 @@ def main [
 	# Run the tests.
 	let args = [
 		(if $accept { ['--accept'] } else { [] })
-		(if $cloud { ['--cloud'] } else { [] })
 		(if $fskit { ['--fskit'] } else { [] })
 		(if $jobs != null { ['--jobs' ($jobs | into string)] } else { [] })
-		(if $kernel_path != null { ['--kernel-path' ($kernel_path | path expand)] } else { [] })
 		(if $no_capture { ['--no-capture'] } else { [] })
 		(if $no_progress_details { ['--no-progress-details'] } else { [] })
 		(if $offline { ['--offline'] } else { [] })
@@ -131,12 +113,18 @@ def main [
 		(if $stress_count != null { ['--stress-count' ($stress_count | into string)] } else { [] })
 		['--timeout' ($timeout / 1sec | math ceil | into string)]
 		(if $turso { ['--turso'] } else { [] })
-		(if $vfs { ['--vfs'] } else { [] })
-		(if $vm { ['--vm'] } else { [] })
 		['--']
 		$filters
 	] | flatten
 	exec tangram_cli_test run ...$args
+}
+
+# Determine whether pluginkit reports the file system extension as enabled, which it marks with a leading '+'.
+def fskit_enabled [release: bool] {
+	let profile = if $release { 'release' } else { 'debug' }
+	let bundle_id = (identifiers).fskit_bundle_id | get $profile
+	let output = ^pluginkit -m -i $bundle_id | complete
+	$output.exit_code == 0 and ($output.stdout | str trim | str starts-with '+')
 }
 
 def fskit_provider_pids [executable: path] {

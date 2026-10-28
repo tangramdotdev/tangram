@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # A cross-region cache hit should touch the child without retaining it through a foreign parent.
 
 # Create isolated regions with shared tag metadata and separate object stores.

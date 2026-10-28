@@ -2,7 +2,6 @@ use ../lib/test.nu *
 
 # Sandbox creation completes when a second cloud scheduler joins without any registered runners.
 
-skip_if_no_cloud
 let root_token = random chars
 let instance = instance --cloud --config {
 	authentication: { root: { token: $root_token } },

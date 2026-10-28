@@ -186,7 +186,10 @@ impl Progress {
 		)
 		.unwrap();
 		if output.code == SKIPPED {
-			let reason = output.log.trim();
+			let reason = output
+				.skip_reason
+				.as_deref()
+				.unwrap_or_else(|| output.log.trim());
 			if !reason.is_empty() {
 				writeln!(text, "  {reason}").unwrap();
 			}

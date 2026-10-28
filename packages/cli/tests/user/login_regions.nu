@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # Explicit regions choose where a database-backed request executes.
 let common = {
 	authentication: { users: { providers: { insecure: true } } },

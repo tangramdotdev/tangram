@@ -3,7 +3,7 @@ use ../lib/archive.nu *
 
 # A put whose archive and index batches span several indexer requests is archived and indexed.
 
-skip_if_no_cloud
+skip_test --cloud
 let archive = spawn_archive
 let local = server spawn --cloud --config {
 	archive: $archive.config,

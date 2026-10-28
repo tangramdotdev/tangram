@@ -2,8 +2,6 @@ use ../lib/test.nu *
 
 # Cleaning an object that was put twice deletes every copy of it from a cloud server's cache.
 
-skip_if_no_cloud
-
 let local = server spawn --cloud --now '2026-01-01T00:00:00Z' --config {
 	advanced: { checkpoints: true },
 	object: { ttl: 60, ttt: 0 },

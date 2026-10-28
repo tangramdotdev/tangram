@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/stripe.nu *
 
-skip_if_no_cloud
+skip_test --cloud
 
 # Authentication invalidations reach other servers and regions in the same instance.
 let stripe = spawn_stripe

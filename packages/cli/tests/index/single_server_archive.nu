@@ -2,7 +2,7 @@ use ../lib/test.nu *
 use ../lib/archive.nu *
 
 # Single-server indexing completes independently of background archiving, including retries after an upload failure.
-skip_if_no_cloud
+skip_test --cloud
 let archive = spawn_archive
 let local = server spawn --cloud --config {
 	archive: $archive.config,

@@ -61,7 +61,8 @@ record includes the resolved `config` and its `config_path`.
 
 The runner removes these resources when the test finishes. Use `--clean` while
 the databases are running to remove resources left behind by interrupted test
-runs. Pass `--no-cloud` to use local backends instead.
+runs. When the databases are not running, the tests that require them are
+skipped.
 
 ## Conventions
 
@@ -207,6 +208,9 @@ if $nu.os-info.name != 'linux' {
 The runner reports skipped tests separately from passed and failed tests, so a
 silent early return never masquerades as a pass.
 
+A test which requires the cloud databases calls `skip_test --cloud`, which skips
+only when the databases are not running. `server spawn --cloud` calls it itself.
+
 ### 8. Prefer the template form of `tg.run` and `tg.build`
 
 In test artifacts, invoke commands with the tagged template form rather than
@@ -222,10 +226,10 @@ Use the object form (`tg.run({ args, env, executable, host })`) only when the
 template form cannot express the invocation, or when the object form itself is
 the behavior under test.
 
-### 9. Gate network access behind `skip_if_offline`
+### 9. Gate network access behind `skip_test --offline`
 
 A test which performs real network I/O — downloading from an external URL,
-tagging busybox with `server spawn --busybox` — must call `skip_if_offline` at the
+tagging busybox with `server spawn --busybox` — must call `skip_test --offline` at the
 top. Running the suite with `--offline` skips these tests, so the rest of the
 suite is hermetic:
 
@@ -233,7 +237,7 @@ suite is hermetic:
 nu packages/cli/test.nu --offline
 ```
 
-The `server spawn --busybox` helper calls `skip_if_offline` itself, so a test only
+The `server spawn --busybox` helper calls `skip_test --offline` itself, so a test only
 needs an explicit call when it reaches the network some other way.
 
 ### 10. Use a local HTTP server for download tests

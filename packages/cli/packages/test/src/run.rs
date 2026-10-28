@@ -7,7 +7,6 @@ use {
 	},
 	std::{
 		collections::{BTreeMap, VecDeque},
-		path::PathBuf,
 		process::ExitCode,
 		sync::Arc,
 		time::{Duration, Instant},
@@ -23,10 +22,6 @@ pub struct Args {
 	#[arg(long, short)]
 	accept: bool,
 
-	/// Use the shared cloud databases for cloud test instances.
-	#[arg(long)]
-	cloud: bool,
-
 	/// Regular expressions matched against each test's path.
 	filters: Vec<String>,
 
@@ -37,10 +32,6 @@ pub struct Args {
 	/// The number of concurrent tests to run.
 	#[arg(long, short)]
 	jobs: Option<usize>,
-
-	/// The path to the Linux kernel image to use with --vm.
-	#[arg(long)]
-	kernel_path: Option<PathBuf>,
 
 	/// Do not capture the output of each test. This sets --jobs to 1.
 	#[arg(long)]
@@ -89,14 +80,6 @@ pub struct Args {
 	/// Use Turso for the server database.
 	#[arg(long)]
 	turso: bool,
-
-	/// Run every test against the VFS.
-	#[arg(long)]
-	vfs: bool,
-
-	/// Use VM isolation as the default for the test harness.
-	#[arg(long)]
-	vm: bool,
 }
 
 /// A test waiting to run.
@@ -120,9 +103,6 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 	if args.timeout == 0 {
 		return Err("--timeout must be greater than zero".into());
 	}
-	if args.vm && args.kernel_path.is_none() {
-		return Err("--kernel-path is required when --vm is set".into());
-	}
 
 	// Select the tests.
 	let tests = discover(&args.filters)?;
@@ -130,9 +110,16 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		return Err("no tests matched the provided filters".into());
 	}
 
-	// Check the cloud databases, take this run's lock on its database pool leases, and reclaim the leases of exited runs.
-	let (cluster_path, database_run) = if args.cloud {
-		database::check().await?;
+	// Check the cloud databases. If they are ready, take this run's lock on its database pool leases and reclaim the leases of exited runs. Otherwise, skip the tests that require them.
+	let cloud = match database::check().await {
+		Ok(()) => true,
+		Err(error) => {
+			eprintln!("\x1b[33mwarning\x1b[0m: {error}");
+			eprintln!("the tests that require the cloud databases will be skipped");
+			false
+		},
+	};
+	let (cluster_path, database_run) = if cloud {
 		let run = database::Run::new(&database::pool_path())?;
 		database::reclaim().await?;
 		(Some(database::cluster_path()?), Some(run))
@@ -142,11 +129,10 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 
 	// Create the options.
 	let options = Arc::new(Options {
-		cloud: args.cloud,
+		cloud,
 		cluster_path,
 		database_run: database_run.as_ref().map(|run| run.id().to_owned()),
 		fskit: args.fskit,
-		kernel_path: args.kernel_path.clone(),
 		no_capture: args.no_capture,
 		offline: args.offline,
 		preserve_failing_temps: args.preserve_failing_temps,
@@ -155,8 +141,6 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		stress,
 		timeout: Duration::from_secs(args.timeout),
 		turso: args.turso,
-		vfs: args.vfs,
-		vm: args.vm,
 	});
 
 	// Run the tests.
@@ -198,6 +182,9 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 		failed.len(),
 		results.len()
 	);
+	for (reason, count) in skips(&results) {
+		eprintln!("\x1b[33m⊘\x1b[0m {count} skipped: {reason}");
+	}
 	for output in &failed {
 		eprintln!(
 			"\x1b[31m✗\x1b[0m {} {}, exit {} ({})",
@@ -231,6 +218,21 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 	};
 
 	Ok(code)
+}
+
+/// Count the skipped tests by reason, with the most common reason first.
+fn skips(results: &[Output]) -> Vec<(&str, usize)> {
+	let mut counts = BTreeMap::<&str, usize>::new();
+	for output in results.iter().filter(|output| output.code == SKIPPED) {
+		let reason = output
+			.skip_reason
+			.as_deref()
+			.unwrap_or("no reason was reported");
+		*counts.entry(reason).or_default() += 1;
+	}
+	let mut counts = counts.into_iter().collect::<Vec<_>>();
+	counts.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+	counts
 }
 
 /// Find the test files whose paths match any of the filters.

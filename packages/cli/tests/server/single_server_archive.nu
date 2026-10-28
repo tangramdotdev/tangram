@@ -2,7 +2,7 @@ use ../lib/test.nu *
 use ../lib/archive.nu *
 
 # Graceful shutdown waits for a single-server blob batch to finish archiving.
-skip_if_no_cloud
+skip_test --cloud
 let archive = spawn_archive
 let local = server spawn --cloud --config {
 	archive: $archive.config,

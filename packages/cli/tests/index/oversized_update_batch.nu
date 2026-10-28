@@ -1,7 +1,6 @@
 use ../lib/test.nu *
 
 # FoundationDB must split an update batch that exceeds its transaction limit.
-skip_if_no_cloud
 let local = server spawn --cloud --config {
 	advanced: { checkpoints: true },
 	indexer: { cleaning: false },

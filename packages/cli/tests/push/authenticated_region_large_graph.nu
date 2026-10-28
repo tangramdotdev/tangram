@@ -3,7 +3,6 @@ use ../lib/test.nu *
 # Pushing a large graph to an authenticated region in a multi-region cloud
 # instance completes under bidirectional backpressure.
 
-skip_if_no_cloud
 let regions = [
 	{ name: a },
 	{ name: b },

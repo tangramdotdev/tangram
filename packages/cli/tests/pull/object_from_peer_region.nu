@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # Pulling an object through a remote region fetches it from a peer region when it is absent in the region serving the request.
 
 let regions = [

@@ -2,8 +2,6 @@ use ../lib/test.nu *
 
 # An indexer recovers a cloud queue whose pending fragments exceed ScyllaDB's memory limit for unpaged queries.
 
-skip_if_no_cloud
-
 let local = server spawn --cloud --config {
 	advanced: { checkpoints: true },
 }

@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
+skip_test --cloud
 
 # A get that lists a region before a remote is served by the region without the remote when the region has the entry.
 

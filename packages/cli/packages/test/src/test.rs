@@ -31,7 +31,6 @@ pub struct Options {
 	pub cluster_path: Option<PathBuf>,
 	pub database_run: Option<String>,
 	pub fskit: bool,
-	pub kernel_path: Option<PathBuf>,
 	pub no_capture: bool,
 	pub offline: bool,
 	pub preserve_failing_temps: bool,
@@ -40,8 +39,6 @@ pub struct Options {
 	pub stress: bool,
 	pub timeout: Duration,
 	pub turso: bool,
-	pub vfs: bool,
-	pub vm: bool,
 }
 
 /// The result of running a test.
@@ -53,6 +50,7 @@ pub struct Output {
 	pub execution_duration: Duration,
 	pub log: String,
 	pub name: String,
+	pub skip_reason: Option<String>,
 	pub stop: Option<Stop>,
 	pub temp_path: Option<PathBuf>,
 }
@@ -81,6 +79,7 @@ pub async fn run(
 			execution_duration: Duration::ZERO,
 			log: format!("error: {error}\n"),
 			name: test.name,
+			skip_reason: None,
 			stop: None,
 			temp_path: None,
 		},
@@ -180,8 +179,12 @@ async fn run_inner(
 	let cleanup_start = Instant::now();
 	let mut errors = cleanup(test, options, &temp_path, code).await;
 
-	// Read the output.
+	// Read the output and the skip reason.
 	let mut output = std::fs::read_to_string(&output_path).unwrap_or_default();
+	let skip_reason = (code == SKIPPED)
+		.then(|| std::fs::read_to_string(temp_path.join("skip")).ok())
+		.flatten()
+		.map(|reason| reason.trim().to_owned());
 	if matches!(stop, Some(Stop::TimedOut)) {
 		writeln!(output, "the test timed out after {:?}", options.timeout).unwrap();
 	}
@@ -219,6 +222,7 @@ async fn run_inner(
 		execution_duration,
 		log: output,
 		name: test.name.clone(),
+		skip_reason,
 		stop,
 		temp_path: Some(temp_path),
 	};
@@ -297,16 +301,6 @@ fn config(options: &Options) -> Option<serde_json::Value> {
 			serde_json::json!({ "preserve_temp_directories": true }),
 		);
 	}
-	if options.vm {
-		let kernel_path = options
-			.kernel_path
-			.as_ref()
-			.map(|path| path.display().to_string());
-		config.insert(
-			"runner".to_owned(),
-			serde_json::json!({ "backend": { "kind": "cloud-hypervisor", "kernel_path": kernel_path } }),
-		);
-	}
 	(!config.is_empty()).then_some(serde_json::Value::Object(config))
 }
 
@@ -344,15 +338,13 @@ fn environment(options: &Options, temp_path: &Path) -> Vec<(String, String)> {
 			path(&options.cluster_path),
 		),
 		("TANGRAM_TEST_FSKIT".to_owned(), flag(options.fskit)),
-		(
-			"TANGRAM_TEST_KERNEL_PATH".to_owned(),
-			path(&options.kernel_path),
-		),
 		("TANGRAM_TEST_OFFLINE".to_owned(), flag(options.offline)),
 		("TANGRAM_TEST_QUICKJS".to_owned(), flag(options.quickjs)),
+		(
+			"TANGRAM_TEST_SKIP_PATH".to_owned(),
+			temp_path.join("skip").display().to_string(),
+		),
 		("TANGRAM_TEST_TURSO".to_owned(), flag(options.turso)),
-		("TANGRAM_TEST_VFS".to_owned(), flag(options.vfs)),
-		("TANGRAM_TEST_VM".to_owned(), flag(options.vm)),
 		("TMPDIR".to_owned(), temp_path.display().to_string()),
 	]
 }

@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # Logout preserves the explicit region when the receiving region has account management disabled.
 let common = {
 	authentication: { users: { providers: { insecure: true } } },

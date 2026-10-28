@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/nats.nu *
 
-skip_if_no_cloud
+skip_test --cloud
 
 # A messenger outage clears cached authentication and does not make a committed deletion fail.
 let nats = spawn_nats

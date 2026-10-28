@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # A tag charges storage only in regions where its target is present, including
 # when the target arrives after the tag.
 

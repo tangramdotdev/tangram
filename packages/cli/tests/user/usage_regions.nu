@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-skip_if_no_cloud
-
 # Explicit region selection reads that region's usage through local and remote routing.
 let common = {
 	authentication: { users: { providers: { insecure: true } } },

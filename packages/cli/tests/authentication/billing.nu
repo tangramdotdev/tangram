@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/stripe.nu *
 
-skip_if_no_cloud
+skip_test --cloud
 
 # Billing-unready users recheck the database, and readiness revocation invalidates a warm cache.
 let stripe = spawn_stripe

@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/stripe.nu *
 
-skip_if_no_cloud
+skip_test --cloud
 
 # All named-node replacement paths revoke cached user tokens after committing.
 let stripe = spawn_stripe
