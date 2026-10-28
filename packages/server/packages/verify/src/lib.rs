@@ -50,7 +50,6 @@ struct Entry {
 
 enum RequestState {
 	Complete,
-	Indexing,
 	InFlight { abort: futures::future::AbortHandle },
 	Queued,
 }
@@ -471,13 +470,10 @@ impl Component {
 		let mut restart = false;
 		let mut errors = vec![None; outputs.len()];
 		loop {
-			// Stop storage discovery once availability is proven, including after an exhausted search.
+			// Stop searching for storage once it is proven.
 			for (index_position, (position, arg)) in
 				std::iter::zip(&index_positions, &mut index_args).enumerate()
 			{
-				if stored[*position].contains(resources[*position].1) {
-					requests.resolve_indexing(*position);
-				}
 				if stored[*position].contains(resources[*position].1) && !arg.storage.is_empty() {
 					arg.storage = arg.storage.empty_like();
 					searches[index_position] = true;
@@ -607,11 +603,7 @@ impl Component {
 					searching = false;
 					match result {
 						Ok(results) => {
-							// A completed search ends the wait for indexing to prove the storage of its positions.
-							for index_position in &search_positions {
-								errors[index_positions[*index_position]] = None;
-								requests.resolve_indexing(index_positions[*index_position]);
-							}
+							for index_position in &search_positions { errors[index_positions[*index_position]] = None; }
 							Some(results)
 						},
 						Err(error) => {
@@ -630,20 +622,8 @@ impl Component {
 								tg::sync::service::Output::Process(output) => tg::storage::Set::Process(output.storage),
 							};
 							requests.resolve(&request);
-							let arg = &index_args[request.index_position];
-							if output.permissions().contains(request.arg.permissions)
-								&& storage.contains(request.arg.storage)
-								&& !request.arg.storage.is_empty()
-								&& arg.resource != tg::Selector::Id(request.arg.node.clone())
-								&& !stored[request.position].contains(resources[request.position].1)
-							{
-								requests.await_indexing(&request);
-								restart |= searching && search_positions.contains(&request.index_position);
-							}
 							let arg = &mut index_args[request.index_position];
-							let exact = arg.resource == tg::Selector::Id(request.arg.node.clone());
-							// A child's storage does not prove the parent's storage.
-							if exact { stored[request.position].insert(storage); }
+							stored[request.position].insert(storage);
 							let now = session.server.clock.unix_timestamp();
 							for body in output.tokens() {
 								if body.resource != request.arg.node {
@@ -651,19 +631,17 @@ impl Component {
 								}
 								body.validate_at(now).map_err(|error| tg::error!(!error, "received an invalid authorization body from a sync"))?;
 
-								// Prove the permissions that a sync authorizes for the resource itself without searching the index.
-								if exact {
-									let mut permissions = arg.requested.empty_like();
-									for permission in arg.requested.iter().filter(|permission| body.authorizes(*permission)) {
-										permissions.insert(tg::authorization::permission::Set::from_permission(permission));
-									}
-									let output = Authorization {
-										expires_at: Some(body.expires_at),
-										outcome: Outcome::Satisfied,
-										permissions,
-									};
-									proofs[request.position].insert(arg.requested, output);
+								// Prove the permissions that a sync authorizes for the resource without searching the index.
+								let mut permissions = arg.requested.empty_like();
+								for permission in arg.requested.iter().filter(|permission| body.authorizes(*permission)) {
+									permissions.insert(tg::authorization::permission::Set::from_permission(permission));
 								}
+								let output = Authorization {
+									expires_at: Some(body.expires_at),
+									outcome: Outcome::Satisfied,
+									permissions,
+								};
+								proofs[request.position].insert(arg.requested, output);
 
 								if !arg.tokens.contains(body) {
 									arg.tokens.push(body.clone());
@@ -695,90 +673,8 @@ impl Component {
 						permissions: result.permissions,
 					};
 					proofs[position].insert(arg.requested, output);
-
-					// Discovery remains useful after permission success and on search exhaustion.
-					let output = proofs[position].output(arg.requested);
-					let requested = if wait_for_requested_permissions {
-						arg.requested
-					} else {
-						arg.required
-					};
-					let missing_permissions =
-						!output.is_some_and(|output| output.permissions.contains(requested));
-					let missing_storage = !stored[position].contains(resources[position].1);
-					for sync in result.syncs {
-						if current_sync == Some(&sync.sync) {
-							continue;
-						}
-						let mut args = Vec::new();
-						let exact = arg.resource == tg::Selector::Id(sync.resource.clone());
-						if missing_permissions {
-							let permissions = if exact {
-								requested
-									.iter()
-									.filter(|permission| {
-										!output.is_some_and(|output| {
-											output.permissions.contains(*permission)
-										}) && sync.permission.implies(*permission)
-									})
-									.collect::<Vec<_>>()
-							} else {
-								vec![sync.permission]
-							};
-							for permission in permissions {
-								let permissions =
-									tg::authorization::permission::Set::from_permission(permission);
-								args.push(tg::sync::service::Arg {
-									node: sync.resource.clone(),
-									permissions,
-									storage: empty_storage(permissions),
-								});
-							}
-						}
-						if missing_storage {
-							let permissions = if exact {
-								tangram_index::verify::storage_permissions(
-									resources[position].1,
-									requested,
-								)
-								.iter()
-								.filter(|permission| sync.permission.implies(*permission))
-								.collect::<Vec<_>>()
-							} else {
-								vec![sync.permission]
-							};
-							for permission in permissions {
-								let Some(storage) = permission_storage(permission) else {
-									continue;
-								};
-								if exact && stored[position].contains(storage) {
-									continue;
-								}
-								let permissions =
-									tg::authorization::permission::Set::from_permission(permission)
-										.empty_like();
-								args.push(tg::sync::service::Arg {
-									node: sync.resource.clone(),
-									permissions,
-									storage,
-								});
-							}
-						}
-
-						for arg in args {
-							let request = Request {
-								arg,
-								index_position,
-								position,
-								sync: sync.sync.clone(),
-							};
-							requests.push(request);
-						}
-					}
 				}
 			}
-			// Query newly discovered syncs.
-			requests.start_queued();
 		}
 	}
 
@@ -1186,22 +1082,6 @@ impl<'a> Requests<'a> {
 		self.entries.get_mut(&request.key()).unwrap().cancel();
 	}
 
-	fn await_indexing(&mut self, request: &Request) {
-		// Keep a descendant's storage proof pending until a search proves the root's storage or completes.
-		self.entries
-			.get_mut(&request.key())
-			.unwrap()
-			.await_indexing();
-	}
-
-	fn resolve_indexing(&mut self, position: usize) {
-		for entry in self.entries.values_mut() {
-			if entry.request.position == position && matches!(entry.state, RequestState::Indexing) {
-				entry.cancel();
-			}
-		}
-	}
-
 	fn error(&self, position: usize) -> Option<&tg::Error> {
 		self.errors
 			.iter()
@@ -1245,16 +1125,12 @@ impl Entry {
 	fn pending(&self) -> bool {
 		match self.state {
 			RequestState::Complete | RequestState::Queued => false,
-			RequestState::Indexing | RequestState::InFlight { .. } => true,
+			RequestState::InFlight { .. } => true,
 		}
 	}
 
 	fn awaiting(&self) -> bool {
 		matches!(self.state, RequestState::InFlight { .. })
-	}
-
-	fn await_indexing(&mut self) {
-		self.state = RequestState::Indexing;
 	}
 
 	fn cancel(&mut self) {
@@ -1293,63 +1169,5 @@ impl tangram_server_core::verify::Component for Component {
 		arg: VerifyBatchArg<'a>,
 	) -> BoxFuture<'a, tg::Result<Vec<Output>>> {
 		self.verify_batch(session, arg).boxed()
-	}
-}
-
-#[must_use]
-fn permission_storage(permission: tg::authorization::Permission) -> Option<tg::storage::Set> {
-	match permission {
-		tg::authorization::Permission::Object(permission) => {
-			let storage = match permission {
-				tg::authorization::permission::object::Permission::Node => {
-					tg::object::storage::Storage::Node
-				},
-				tg::authorization::permission::object::Permission::Subtree => {
-					tg::object::storage::Storage::Subtree
-				},
-			};
-			Some(tg::storage::Set::Object(
-				tg::object::storage::Set::from_storage(storage),
-			))
-		},
-		tg::authorization::Permission::Process(permission) => {
-			let storage = match permission {
-				tg::authorization::permission::process::Permission::Node => {
-					tg::process::storage::Storage::Node
-				},
-				tg::authorization::permission::process::Permission::NodeCommandObjects => {
-					tg::process::storage::Storage::NodeCommandObjects
-				},
-				tg::authorization::permission::process::Permission::NodeErrorObjects => {
-					tg::process::storage::Storage::NodeErrorObjects
-				},
-				tg::authorization::permission::process::Permission::NodeLogObjects => {
-					tg::process::storage::Storage::NodeLogObjects
-				},
-				tg::authorization::permission::process::Permission::NodeOutputObjects => {
-					tg::process::storage::Storage::NodeOutputObjects
-				},
-				tg::authorization::permission::process::Permission::Subtree => {
-					tg::process::storage::Storage::Subtree
-				},
-				tg::authorization::permission::process::Permission::SubtreeCommandObjects => {
-					tg::process::storage::Storage::SubtreeCommandObjects
-				},
-				tg::authorization::permission::process::Permission::SubtreeErrorObjects => {
-					tg::process::storage::Storage::SubtreeErrorObjects
-				},
-				tg::authorization::permission::process::Permission::SubtreeLogObjects => {
-					tg::process::storage::Storage::SubtreeLogObjects
-				},
-				tg::authorization::permission::process::Permission::SubtreeOutputObjects => {
-					tg::process::storage::Storage::SubtreeOutputObjects
-				},
-				tg::authorization::permission::process::Permission::Parent => return None,
-			};
-			Some(tg::storage::Set::Process(
-				tg::process::storage::Set::from_storage(storage),
-			))
-		},
-		_ => None,
 	}
 }

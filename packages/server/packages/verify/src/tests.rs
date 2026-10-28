@@ -1,40 +1,4 @@
 #[test]
-fn storage_proofs_preserve_explicit_flags() {
-	use tangram_client as tg;
-	for storage in tg::process::storage::Set::all().iter() {
-		let storage = tg::storage::Set::Process(tg::process::storage::Set::from_storage(storage));
-		let permissions = tangram_index::verify::storage_permissions(
-			storage,
-			tg::authorization::permission::Set::Process(
-				tg::authorization::permission::process::Set::empty(),
-			),
-		);
-		assert_eq!(permissions.iter().count(), 1);
-		assert_eq!(
-			super::permission_storage(permissions.iter().next().unwrap()),
-			Some(storage)
-		);
-	}
-	for storage in [
-		tg::object::storage::Set::NODE,
-		tg::object::storage::Set::SUBTREE,
-	] {
-		let storage = tg::storage::Set::Object(storage);
-		let permissions = tangram_index::verify::storage_permissions(
-			storage,
-			tg::authorization::permission::Set::Object(
-				tg::authorization::permission::object::Set::empty(),
-			),
-		);
-		assert_eq!(permissions.iter().count(), 1);
-		assert_eq!(
-			super::permission_storage(permissions.iter().next().unwrap()),
-			Some(storage)
-		);
-	}
-}
-
-#[test]
 fn exhaustion_preserves_partial_proofs_and_independent_batch_outcomes() {
 	use {
 		crate::Component,
@@ -78,18 +42,6 @@ fn exhaustion_preserves_partial_proofs_and_independent_batch_outcomes() {
 	assert_eq!(outputs[1].outcome, Outcome::Satisfied);
 	assert_eq!(outputs[2].outcome, Outcome::Unsatisfied);
 	assert!(outputs[2].permissions.is_empty());
-}
-
-#[test]
-fn descendant_storage_waits_for_indexing_without_requerying_the_sync() {
-	let mut entry = entry();
-	entry.await_indexing();
-	assert!(entry.pending());
-	assert!(!entry.awaiting());
-	let (abort, _) = futures::future::AbortHandle::new_pair();
-	assert!(!entry.start(abort));
-	entry.cancel();
-	assert!(!entry.pending());
 }
 
 #[test]
