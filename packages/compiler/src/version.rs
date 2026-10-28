@@ -13,6 +13,17 @@ impl Compiler {
 		module: &tg::module::Data,
 		language: tg::module::load::Language,
 	) -> tg::Result<u64> {
+		self.get_module_version_with_language_inner(module, language, true)
+			.await
+	}
+
+	/// Get the version of a module as a checker in a language loads it, including its extracted interface only if `typed` is true.
+	pub(crate) async fn get_module_version_with_language_inner(
+		&self,
+		module: &tg::module::Data,
+		language: tg::module::load::Language,
+		typed: bool,
+	) -> tg::Result<u64> {
 		let version = self.get_module_version(module).await?;
 		#[cfg(all(feature = "javascript", feature = "python"))]
 		if crate::load::generated_language(module, Some(language))
@@ -21,13 +32,16 @@ impl Compiler {
 			.is_some()
 		{
 			use std::hash::{Hash as _, Hasher as _};
-			let interface = self.try_get_interface(module).map(|entry| entry.version);
+			let interface = typed
+				.then(|| self.try_get_interface(module))
+				.flatten()
+				.map(|entry| entry.version);
 			let mut hasher = fnv::FnvHasher::default();
 			(version, interface).hash(&mut hasher);
 			return Ok(hasher.finish());
 		}
 		#[cfg(not(all(feature = "javascript", feature = "python")))]
-		let _ = language;
+		let _ = (language, typed);
 		Ok(version)
 	}
 

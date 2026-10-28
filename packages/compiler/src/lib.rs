@@ -1329,11 +1329,23 @@ impl Compiler {
 		module: &tg::module::Data,
 		language: Option<tg::module::load::Language>,
 	) -> tg::Result<String> {
+		self.load_module_with_language_inner(module, language, true)
+			.await
+	}
+
+	/// Load a module for a runtime or checker, generating a module in another language from the module's extracted interface only if `typed` is true.
+	pub(crate) async fn load_module_with_language_inner(
+		&self,
+		module: &tg::module::Data,
+		language: Option<tg::module::load::Language>,
+		typed: bool,
+	) -> tg::Result<String> {
 		// Generate a module in another language from the module's extracted interface, if there is one.
 		#[cfg(all(feature = "javascript", feature = "python"))]
 		if let Some(language) = load::generated_language(module, language)? {
 			let text = self.load_module_inner(module, None).await?;
-			let output = if let Some(entry) = self.try_get_interface(module) {
+			let entry = typed.then(|| self.try_get_interface(module)).flatten();
+			let output = if let Some(entry) = entry {
 				load::generate(&entry.interface, &text, language)
 			} else {
 				load::module(module, &text, Some(language))?
@@ -1341,6 +1353,8 @@ impl Compiler {
 			return Ok(output);
 		}
 
+		#[cfg(not(all(feature = "javascript", feature = "python")))]
+		let _ = typed;
 		self.load_module_inner(module, language).await
 	}
 

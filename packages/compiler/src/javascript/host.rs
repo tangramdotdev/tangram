@@ -15,6 +15,9 @@ use {
 pub(super) struct Host {
 	pub(super) compiler: Compiler,
 	files: Mutex<Files>,
+
+	/// The modules in other languages to load without their extracted interfaces.
+	untyped: BTreeSet<crate::document::Key>,
 }
 
 pub(super) struct Changes {
@@ -47,11 +50,20 @@ struct Import {
 
 impl Host {
 	#[must_use]
-	pub(super) fn new(compiler: Compiler) -> Self {
+	pub(super) fn with_untyped(
+		compiler: Compiler,
+		untyped: BTreeSet<crate::document::Key>,
+	) -> Self {
 		Self {
 			compiler,
 			files: Mutex::default(),
+			untyped,
 		}
+	}
+
+	/// Determine whether to load a module with its extracted interface.
+	fn typed(&self, module: &tg::module::Data) -> bool {
+		self.untyped.is_empty() || !self.untyped.contains(&crate::document::Key::new(module))
 	}
 
 	pub(super) fn try_module(&self, path: &str) -> tg::Result<Option<tg::module::Data>> {
@@ -133,10 +145,11 @@ impl Host {
 		let revision = self
 			.compiler
 			.main_runtime_handle
-			.block_on(
-				self.compiler
-					.get_module_version_with_language(module, tg::module::load::Language::JavaScript),
-			)
+			.block_on(self.compiler.get_module_version_with_language_inner(
+				module,
+				tg::module::load::Language::JavaScript,
+				self.typed(module),
+			))
 			.ok();
 		let lockfile = self
 			.compiler
@@ -254,9 +267,10 @@ impl Host {
 				.states
 				.insert(path.to_owned(), state);
 			Some(self.compiler.main_runtime_handle.block_on(
-				self.compiler.load_module_with_language(
+				self.compiler.load_module_with_language_inner(
 					&module,
 					Some(tg::module::load::Language::JavaScript),
+					self.typed(&module),
 				),
 			)?)
 		} else {

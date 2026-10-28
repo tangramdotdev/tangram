@@ -150,6 +150,21 @@ pub(crate) trait Backend: Send + Sync {
 		unavailable(self.feature())
 	}
 
+	/// Get the interface of a module, by default from its source without types.
+	#[cfg(all(feature = "javascript", feature = "python"))]
+	fn interface(
+		&self,
+		compiler: &Compiler,
+		arg: crate::interfaces::Arg,
+	) -> BoxFuture<'static, tg::Result<tg::Interface>> {
+		let compiler = compiler.clone();
+		async move {
+			let text = compiler.load_module(&arg.module).await?;
+			crate::interface::module(&arg.module, &text)
+		}
+		.boxed()
+	}
+
 	fn prepare_rename(
 		&self,
 		_compiler: &Compiler,

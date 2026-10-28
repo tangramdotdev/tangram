@@ -534,7 +534,7 @@ mod tests {
 		);
 		assert!(text.contains("type _tg_type_0 = _tg_record_0\n"), "{text}");
 		assert!(
-			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str] | tuple[str, _tg_type_0], tg.File]\", tg.command(_tg_function_0))\n"),
+			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str, *tuple[_tg_type_0, ...]], tg.File]\", tg.command(_tg_function_0))\n"),
 			"{text}"
 		);
 	}

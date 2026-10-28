@@ -1,5 +1,5 @@
 use {
-	crate::Compiler,
+	crate::{Compiler, document::Key},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		hash::{Hash as _, Hasher as _},
@@ -8,6 +8,15 @@ use {
 	tangram_client::prelude::*,
 };
 
+/// The arg of an interface extraction.
+pub(crate) struct Arg {
+	/// The module.
+	pub(crate) module: tg::module::Data,
+
+	/// The modules in other languages that the extraction loads without their interfaces, which are the other members of the module's cycle.
+	pub(crate) untyped: BTreeSet<Key>,
+}
+
 /// The graph of the modules that the checkers reach, with the interface of each module that a checker loads from another language.
 #[derive(Default)]
 pub(crate) struct Interfaces {
@@ -15,7 +24,7 @@ pub(crate) struct Interfaces {
 	lock: tokio::sync::Mutex<()>,
 
 	/// The modules, keyed by their identities.
-	nodes: Mutex<BTreeMap<String, Node>>,
+	nodes: Mutex<BTreeMap<Key, Node>>,
 }
 
 #[derive(Clone)]
@@ -102,8 +111,10 @@ impl Compiler {
 			}
 			let mut entries = Vec::new();
 			for key in &component {
-				let module = &nodes[key].module;
-				let interface = match self.extract_interface(module).await {
+				let module = nodes[key].module.clone();
+				let untyped = component.iter().cloned().collect();
+				let arg = Arg { module, untyped };
+				let interface = match self.backend(arg.module.kind).interface(self, arg).await {
 					Ok(interface) => interface,
 					Err(error) => {
 						tracing::debug!(error = %error.trace(), "failed to extract the interface");
@@ -150,12 +161,6 @@ impl Compiler {
 			.unwrap()
 			.get(&key(module))
 			.and_then(|node| node.interface.clone())
-	}
-
-	/// Extract the interface of a module.
-	async fn extract_interface(&self, module: &tg::module::Data) -> tg::Result<tg::Interface> {
-		let text = self.load_module(module).await?;
-		crate::interface::module(module, &text)
 	}
 
 	/// Get the modules that a module imports.
@@ -213,16 +218,16 @@ fn language(kind: tg::module::Kind) -> Option<tg::module::load::Language> {
 	}
 }
 
-fn key(module: &tg::module::Data) -> String {
-	module.without_token().to_string()
+fn key(module: &tg::module::Data) -> Key {
+	Key::new(module)
 }
 
 /// Get the modules in other languages that a module's checker loads, which are those it reaches through modules in its own language.
-fn cross_language_imports(nodes: &BTreeMap<String, Node>, key: &str) -> BTreeSet<String> {
+fn cross_language_imports(nodes: &BTreeMap<Key, Node>, key: &Key) -> BTreeSet<Key> {
 	let language = language(nodes[key].module.kind);
 	let mut imports = BTreeSet::new();
 	let mut visited = BTreeSet::new();
-	let mut pending = vec![key.to_owned()];
+	let mut pending = vec![key.clone()];
 	while let Some(key) = pending.pop() {
 		if !visited.insert(key.clone()) {
 			continue;
@@ -243,33 +248,36 @@ fn cross_language_imports(nodes: &BTreeMap<String, Node>, key: &str) -> BTreeSet
 }
 
 /// Get the strongly connected components that the targets reach, with each component after the components it depends on.
-fn components(
-	dependencies: &BTreeMap<String, BTreeSet<String>>,
-	targets: &BTreeSet<String>,
-) -> Vec<Vec<String>> {
-	struct State<'a> {
-		components: Vec<Vec<String>>,
-		dependencies: &'a BTreeMap<String, BTreeSet<String>>,
-		indices: BTreeMap<&'a str, (usize, usize)>,
+fn components<K>(dependencies: &BTreeMap<K, BTreeSet<K>>, targets: &BTreeSet<K>) -> Vec<Vec<K>>
+where
+	K: Clone + Ord,
+{
+	struct State<'a, K> {
+		components: Vec<Vec<K>>,
+		dependencies: &'a BTreeMap<K, BTreeSet<K>>,
+		indices: BTreeMap<&'a K, (usize, usize)>,
 		next: usize,
-		stack: Vec<&'a str>,
-		stacked: BTreeSet<&'a str>,
+		stack: Vec<&'a K>,
+		stacked: BTreeSet<&'a K>,
 	}
 
-	fn visit<'a>(state: &mut State<'a>, key: &'a str) {
+	fn visit<'a, K>(state: &mut State<'a, K>, key: &'a K)
+	where
+		K: Clone + Ord,
+	{
 		let index = state.next;
 		state.next += 1;
 		state.indices.insert(key, (index, index));
 		state.stack.push(key);
 		state.stacked.insert(key);
 		for dependency in &state.dependencies[key] {
-			if !state.indices.contains_key(dependency.as_str()) {
+			if !state.indices.contains_key(dependency) {
 				visit(state, dependency);
-				let low = state.indices[dependency.as_str()].1;
+				let low = state.indices[dependency].1;
 				let entry = state.indices.get_mut(key).unwrap();
 				entry.1 = entry.1.min(low);
-			} else if state.stacked.contains(dependency.as_str()) {
-				let low = state.indices[dependency.as_str()].0;
+			} else if state.stacked.contains(dependency) {
+				let low = state.indices[dependency].0;
 				let entry = state.indices.get_mut(key).unwrap();
 				entry.1 = entry.1.min(low);
 			}
@@ -280,7 +288,7 @@ fn components(
 			loop {
 				let member = state.stack.pop().unwrap();
 				state.stacked.remove(member);
-				component.push(member.to_owned());
+				component.push(member.clone());
 				if member == key {
 					break;
 				}
@@ -299,7 +307,7 @@ fn components(
 		stacked: BTreeSet::new(),
 	};
 	for target in targets {
-		if !state.indices.contains_key(target.as_str()) {
+		if !state.indices.contains_key(target) {
 			visit(&mut state, target);
 		}
 	}
@@ -307,9 +315,9 @@ fn components(
 }
 
 /// Hash the versions of the modules that a module reaches.
-fn fingerprint(nodes: &BTreeMap<String, Node>, key: &str) -> u64 {
+fn fingerprint(nodes: &BTreeMap<Key, Node>, key: &Key) -> u64 {
 	let mut reachable = BTreeSet::new();
-	let mut pending = vec![key.to_owned()];
+	let mut pending = vec![key.clone()];
 	while let Some(key) = pending.pop() {
 		let Some(node) = nodes.get(&key) else {
 			continue;

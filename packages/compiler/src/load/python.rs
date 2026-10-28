@@ -68,7 +68,7 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 				tg::interface::Type::Array { item } => {
 					format!("tuple[{}, ...]", self::type_(item, names))
 				},
-				tg::interface::Type::Tuple { .. } => self::type_(args, names),
+				tg::interface::Type::Tuple { elements, rest } => args_tuple(elements, rest.as_deref(), names),
 				_ => format!("tuple[{client}.Value.Type, ...]"),
 			};
 			let output = self::type_(output, names);
@@ -167,5 +167,39 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 			format!("({})", types.join(" | "))
 		},
 		tg::interface::Type::Value => format!("{client}.Value.Type"),
+	}
+}
+
+/// Print the args of a command as a single tuple type, which a command's typed build method can bind to its parameters, by widening optional elements to a variadic tail.
+fn args_tuple(
+	elements: &[tg::interface::Element],
+	rest: Option<&tg::interface::Type>,
+	names: &Names,
+) -> String {
+	let required = elements
+		.iter()
+		.take_while(|element| !element.optional)
+		.count();
+	let mut items = elements[..required]
+		.iter()
+		.map(|element| self::type_(&element.type_, names))
+		.collect::<Vec<_>>();
+	let mut tail = elements[required..]
+		.iter()
+		.map(|element| self::type_(&element.type_, names))
+		.collect::<Vec<_>>();
+	if let Some(rest) = rest {
+		tail.push(self::type_(rest, names));
+	}
+	tail.dedup();
+	match tail.as_slice() {
+		[] => (),
+		[item] => items.push(format!("*tuple[{item}, ...]")),
+		_ => items.push(format!("*tuple[{}, ...]", tail.join(" | "))),
+	}
+	if items.is_empty() {
+		"tuple[()]".to_owned()
+	} else {
+		format!("tuple[{}]", items.join(", "))
 	}
 }

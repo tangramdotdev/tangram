@@ -24,6 +24,8 @@ mod host;
 mod hover;
 mod implementation;
 mod inlay_hint;
+#[cfg(feature = "python")]
+mod interface;
 mod module;
 mod prepare_rename;
 mod project;
@@ -379,6 +381,23 @@ impl crate::backend::Backend for Backend {
 		compiler
 			.javascript
 			.run(compiler, modules, move |project| project.inlay_hint(&arg))
+	}
+
+	#[cfg(feature = "python")]
+	fn interface(
+		&self,
+		compiler: &Compiler,
+		arg: crate::interfaces::Arg,
+	) -> BoxFuture<'static, tg::Result<tg::Interface>> {
+		// Extract the interface with a separate program rather than the editor project.
+		compiler.javascript.job(compiler, move |compiler, _| {
+			let text = compiler
+				.main_runtime_handle
+				.block_on(compiler.load_module(&arg.module))?;
+			let modules = vec![arg.module.clone()];
+			let project = Project::with_untyped(compiler, modules, arg.untyped)?;
+			project.interface(&arg.module, &text)
+		})
 	}
 
 	fn prepare_rename(

@@ -39,8 +39,17 @@ pub(super) struct SnapshotLease(pub(super) Arc<Snapshot>);
 
 impl Project {
 	pub(super) fn new(compiler: &Compiler, modules: Vec<tg::module::Data>) -> tg::Result<Self> {
+		Self::with_untyped(compiler, modules, BTreeSet::new())
+	}
+
+	/// Create a project that loads the given modules in other languages without their extracted interfaces.
+	pub(super) fn with_untyped(
+		compiler: &Compiler,
+		modules: Vec<tg::module::Data>,
+		untyped: BTreeSet<crate::document::Key>,
+	) -> tg::Result<Self> {
 		// Create the filesystem and the native snapshot host.
-		let host = Host::new(compiler.clone());
+		let host = Host::with_untyped(compiler.clone(), untyped);
 		let host = Arc::new(host);
 		let context = Self::context();
 		let options = SessionOptions {
