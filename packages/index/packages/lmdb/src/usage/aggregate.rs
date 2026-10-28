@@ -5,7 +5,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Deltas {
 	object_count: i128,
 	object_size: i128,
@@ -27,6 +27,7 @@ impl Index {
 		arg: &tangram_index::usage::aggregate::Arg,
 	) -> tg::Result<tangram_index::usage::aggregate::Output> {
 		let current_hour = arg.now.as_second().div_euclid(60 * 60) * 60 * 60;
+		let delta_cutoff = delta_cutoff(arg.now, arg.delta_time_to_live)?;
 		let mut candidates = Vec::new();
 		for partition in arg.partition_start..arg.partition_end {
 			let prefix = Self::pack(
@@ -70,6 +71,7 @@ impl Index {
 				account,
 				*partition,
 				current_hour,
+				delta_cutoff,
 				Some(limit),
 			)?;
 			count += value;
@@ -82,6 +84,7 @@ impl Index {
 		Ok(output)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	pub(crate) fn aggregate_usage_for_account_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -89,6 +92,7 @@ impl Index {
 		account: &tangram_index::usage::Account,
 		partition: u64,
 		end_hour: i64,
+		delta_cutoff: i64,
 		limit: Option<usize>,
 	) -> tg::Result<usize> {
 		let mut count = 0;
@@ -107,6 +111,35 @@ impl Index {
 			let Some(hour) = hour else {
 				break;
 			};
+
+			// Drop late deltas for an hour that already has a total and whose earlier deltas may have expired, rather than recomputing its total without them.
+			let period = tangram_index::usage::Period::from_kind_and_start(
+				tangram_index::usage::PeriodKind::Hour,
+				hour,
+			)?;
+			if period.end().as_second() <= delta_cutoff
+				&& Self::try_get_usage_aggregate_with_transaction(
+					db,
+					subspace,
+					transaction,
+					account,
+					partition,
+					period,
+				)?
+				.is_some()
+			{
+				Self::drop_usage_deltas_with_transaction(
+					db,
+					subspace,
+					transaction,
+					account,
+					hour,
+					partition,
+				)?;
+				count += 1;
+				continue;
+			}
+
 			Self::aggregate_usage_hour_with_transaction(
 				db,
 				subspace,
@@ -460,6 +493,67 @@ impl Index {
 		Ok(())
 	}
 
+	fn drop_usage_deltas_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		account: &tangram_index::usage::Account,
+		hour: i64,
+		partition: u64,
+	) -> tg::Result<()> {
+		// Read the deltas, so that the error names the dropped usage.
+		let deltas = Self::get_usage_deltas_with_transaction(
+			db,
+			subspace,
+			transaction,
+			account,
+			hour,
+			partition,
+		)?;
+
+		// Delete the deltas and the aggregation.
+		let account_bytes = account.id().to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(
+				Kind::UsageDelta.to_i32().unwrap(),
+				partition,
+				hour,
+				account_bytes.as_ref(),
+			),
+		);
+		let keys = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to iterate the usage deltas"))?
+			.map(|entry| {
+				let (key, _) =
+					entry.map_err(|error| tg::error!(!error, "failed to read a usage delta"))?;
+				Ok(key.to_vec())
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		for key in keys {
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete a usage delta"))?;
+		}
+		Self::clear_usage_aggregation_with_transaction(
+			db,
+			subspace,
+			transaction,
+			account,
+			hour,
+			partition,
+		)?;
+
+		tracing::error!(
+			account = %account.id(),
+			hour,
+			?deltas,
+			"dropped late usage because the hour's earlier usage deltas may have expired"
+		);
+
+		Ok(())
+	}
+
 	fn get_usage_deltas_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -588,6 +682,18 @@ impl Index {
 
 		Ok(aggregate)
 	}
+}
+
+/// Get the time at or before which an hour must end for its usage deltas to be eligible for expiration.
+pub(crate) fn delta_cutoff(
+	now: jiff::Timestamp,
+	delta_time_to_live: std::time::Duration,
+) -> tg::Result<i64> {
+	let delta_time_to_live = i64::try_from(delta_time_to_live.as_secs())
+		.map_err(|_| tg::error!("the usage delta time to live is out of range"))?;
+	let cutoff = now.as_second().saturating_sub(delta_time_to_live);
+
+	Ok(cutoff)
 }
 
 fn apply_delta(value: i128, delta: i128) -> tg::Result<i128> {

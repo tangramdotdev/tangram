@@ -48,9 +48,11 @@ impl Index {
 		account: &tangram_index::usage::Account,
 		period: tangram_index::usage::Period,
 		now: jiff::Timestamp,
+		delta_time_to_live: std::time::Duration,
 	) -> tg::Result<tangram_index::usage::Aggregate> {
 		let request = Request::GetUsage {
 			account: account.clone(),
+			delta_time_to_live,
 			now,
 			period,
 		};
@@ -127,8 +129,10 @@ impl tangram_index::usage::Index for Index {
 		account: &tangram_index::usage::Account,
 		period: tangram_index::usage::Period,
 		now: jiff::Timestamp,
+		delta_time_to_live: std::time::Duration,
 	) -> tg::Result<tangram_index::usage::Aggregate> {
-		self.get_usage(account, period, now).await
+		self.get_usage(account, period, now, delta_time_to_live)
+			.await
 	}
 
 	async fn start_usage(&self, at: jiff::Timestamp) -> tg::Result<()> {

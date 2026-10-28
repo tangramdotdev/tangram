@@ -109,7 +109,12 @@ impl Component {
 			return Err(tg::error!("usage tracking is disabled"));
 		}
 		let now = session.server.clock.now();
-		let aggregate = session.server.index.get_usage(account, period, now).await?;
+		let delta_time_to_live = session.server.config.usage.delta_time_to_live;
+		let aggregate = session
+			.server
+			.index
+			.get_usage(account, period, now, delta_time_to_live)
+			.await?;
 		let output = usage_output(account, period, aggregate);
 		Ok(output)
 	}

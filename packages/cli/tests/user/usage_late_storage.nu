@@ -11,7 +11,7 @@ let local = server spawn --now '2025-12-29T00:00:00Z' --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer runner scheduler],
 	# Retain the original deltas and hours while the clock advances into February.
-	usage: { delta_time_to_live: 5184000, hour_time_to_live: 5184000 },
+	usage: { delta_time_to_live: 5184000, hour_time_to_live: 5266800 },
 }
 set_time $local '2026-01-01T00:00:00Z'
 let alice = tg login --verbose --name alice | from json

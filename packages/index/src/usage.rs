@@ -107,6 +107,7 @@ pub trait Index {
 		account: &crate::usage::Account,
 		period: crate::usage::Period,
 		now: jiff::Timestamp,
+		delta_time_to_live: std::time::Duration,
 	) -> impl Future<Output = tg::Result<crate::usage::Aggregate>> + Send;
 
 	fn start_usage(&self, at: jiff::Timestamp) -> impl Future<Output = tg::Result<()>> + Send;
