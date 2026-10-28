@@ -31,29 +31,20 @@ async fn cleaning_supports_different_partition_totals() {
 		index.clean(clean_arg(100, 0, 1)).await.unwrap();
 		let blocker = tg::Either::Right(tg::process::Id::new());
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
-		for (kind, queue) in [
-			(
-				Kind::Permission(subject),
-				tangram_index::update::Kind::Permission,
-			),
-			(
-				Kind::StorageAndMetadata,
-				tangram_index::update::Kind::StorageAndMetadata,
-			),
-		] {
-			enqueue(index, &blocker, &kind).await;
-			let last = partition_totals.update(queue) - 1;
-			assign(index, &blocker, &kind, queue, last).await;
-			enqueue(index, &id, &kind).await;
-			assign(index, &id, &kind, queue, 0).await;
-			index.update_batch(queue, 100, 0, 1).await.unwrap();
-			let expected = version(index, &id, &kind).await.unwrap();
-			index.clean(clean_arg(100, 0, 1)).await.unwrap();
-			assert_eq!(version(index, &id, &kind).await, Some(expected));
-			drain(index).await;
-			index.clean(clean_arg(100, 0, 1)).await.unwrap();
-			assert!(version(index, &id, &kind).await.is_none());
-		}
+		let kind = Kind::Permission(subject);
+		let queue = tangram_index::update::Kind::Permission;
+		enqueue(index, &blocker, &kind).await;
+		let last = partition_totals.update(queue) - 1;
+		assign(index, &blocker, &kind, queue, last).await;
+		enqueue(index, &id, &kind).await;
+		assign(index, &id, &kind, queue, 0).await;
+		index.update_batch(queue, 100, 0, 1).await.unwrap();
+		let expected = version(index, &id, &kind).await.unwrap();
+		index.clean(clean_arg(100, 0, 1)).await.unwrap();
+		assert_eq!(version(index, &id, &kind).await, Some(expected));
+		drain(index).await;
+		index.clean(clean_arg(100, 0, 1)).await.unwrap();
+		assert!(version(index, &id, &kind).await.is_none());
 		assert_eq!(count_clean_entries(index).await, 0);
 	})
 	.await;
@@ -94,7 +85,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 			tg::Either::Right(process_id.clone()),
 		];
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
-		let kinds = [Kind::Permission(subject), Kind::StorageAndMetadata];
+		let kinds = [Kind::Permission(subject)];
 		let arg = tangram_index::write::Arg {
 			items: vec![
 				tangram_index::Item::PutObject(object),
@@ -159,7 +150,7 @@ async fn cleans_versions_without_collecting_the_objects() {
 			enqueue(index, &id, &Kind::Permission(subject)).await;
 		}
 		drain(index).await;
-		assert_eq!(count_versions(index).await, 3);
+		assert_eq!(count_versions(index).await, 2);
 		let mut done = false;
 		for _ in 0..20 {
 			let before = count_versions(index).await;
@@ -198,83 +189,74 @@ async fn cleaning_respects_other_partitions_and_newer_versions() {
 		drain(index).await;
 		index.clean(clean_arg(100, 0, 2)).await.unwrap();
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
-		for (kind, queue) in [
-			(
-				Kind::Permission(subject),
-				tangram_index::update::Kind::Permission,
-			),
-			(
-				Kind::StorageAndMetadata,
-				tangram_index::update::Kind::StorageAndMetadata,
-			),
-		] {
-			enqueue(index, &id, &kind).await;
-			drain(index).await;
-			let previous = version(index, &id, &kind).await.unwrap();
-			enqueue(index, &blocker_id, &kind).await;
-			assign(index, &blocker_id, &kind, queue, other_partition).await;
-			enqueue(index, &id, &kind).await;
-			assign(index, &id, &kind, queue, partition).await;
-			index
-				.update_batch(queue, 100, partition, partition + 1)
-				.await
-				.unwrap();
-			let expected = version(index, &id, &kind).await.unwrap();
-
-			// Recreate a stale cleanup entry to verify that it cannot delete a newer version.
-			crate::run(&index.database, async |txn| {
-				let key = crate::Key::Update(Key::Clean {
-					id: id.clone(),
-					kind: kind.clone(),
-					partition,
-					version: previous.clone(),
-				});
-				txn.set(&Index::pack(&index.subspace, &key), &[]);
-				Ok(ControlFlow::Break(()))
-			})
+		let kind = Kind::Permission(subject);
+		let queue = tangram_index::update::Kind::Permission;
+		enqueue(index, &id, &kind).await;
+		drain(index).await;
+		let previous = version(index, &id, &kind).await.unwrap();
+		enqueue(index, &blocker_id, &kind).await;
+		assign(index, &blocker_id, &kind, queue, other_partition).await;
+		enqueue(index, &id, &kind).await;
+		assign(index, &id, &kind, queue, partition).await;
+		index
+			.update_batch(queue, 100, partition, partition + 1)
 			.await
 			.unwrap();
+		let expected = version(index, &id, &kind).await.unwrap();
 
-			// The old cleanup entry is eligible, but the current version is still needed.
-			let output = index
-				.clean(clean_arg(100, partition, partition + 1))
-				.await
-				.unwrap();
-			assert!(!output.done);
-			assert_eq!(version(index, &id, &kind).await, Some(expected.clone()));
-			let output = index
-				.clean(clean_arg(100, partition, partition + 1))
-				.await
-				.unwrap();
-			assert!(
-				output.done,
-				"blocked versions must not keep the cleaner busy"
-			);
+		// Recreate a stale cleanup entry to verify that it cannot delete a newer version.
+		crate::run(&index.database, async |txn| {
+			let key = crate::Key::Update(Key::Clean {
+				id: id.clone(),
+				kind: kind.clone(),
+				partition,
+				version: previous.clone(),
+			});
+			txn.set(&Index::pack(&index.subspace, &key), &[]);
+			Ok(ControlFlow::Break(()))
+		})
+		.await
+		.unwrap();
 
-			// An update at exactly the recorded version also prevents its collection.
-			drain(index).await;
-			crate::run(&index.database, async |txn| {
-				let id = &blocker_id;
-				Index::enqueue_update_propagate(txn, &index.subspace, id, &kind, &expected, 2).await
-			})
+		// The old cleanup entry is eligible, but the current version is still needed.
+		let output = index
+			.clean(clean_arg(100, partition, partition + 1))
 			.await
 			.unwrap();
-			index.clean(clean_arg(100, 0, 2)).await.unwrap();
-			assert_eq!(version(index, &id, &kind).await, Some(expected));
+		assert!(!output.done);
+		assert_eq!(version(index, &id, &kind).await, Some(expected.clone()));
+		let output = index
+			.clean(clean_arg(100, partition, partition + 1))
+			.await
+			.unwrap();
+		assert!(
+			output.done,
+			"blocked versions must not keep the cleaner busy"
+		);
 
-			// Collection is restricted to the cleaner's assigned partitions.
-			drain(index).await;
-			index
-				.clean(clean_arg(100, other_partition, other_partition + 1))
-				.await
-				.unwrap();
-			assert!(version(index, &id, &kind).await.is_some());
-			index
-				.clean(clean_arg(100, partition, partition + 1))
-				.await
-				.unwrap();
-			assert!(version(index, &id, &kind).await.is_none());
-		}
+		// An update at exactly the recorded version also prevents its collection.
+		drain(index).await;
+		crate::run(&index.database, async |txn| {
+			let id = &blocker_id;
+			Index::enqueue_update_propagate(txn, &index.subspace, id, &kind, &expected, 2).await
+		})
+		.await
+		.unwrap();
+		index.clean(clean_arg(100, 0, 2)).await.unwrap();
+		assert_eq!(version(index, &id, &kind).await, Some(expected));
+
+		// Collection is restricted to the cleaner's assigned partitions.
+		drain(index).await;
+		index
+			.clean(clean_arg(100, other_partition, other_partition + 1))
+			.await
+			.unwrap();
+		assert!(version(index, &id, &kind).await.is_some());
+		index
+			.clean(clean_arg(100, partition, partition + 1))
+			.await
+			.unwrap();
+		assert!(version(index, &id, &kind).await.is_none());
 	})
 	.await;
 }
@@ -286,6 +268,9 @@ async fn concurrent_propagation_conflicts_with_cleaning() {
 		object.touched_at = 100;
 		let id = tg::Either::Left(object.id.clone());
 		put(index, vec![object]).await;
+		let subject = tg::authorization::Subject::User(tg::user::Id::new());
+		let kind = Kind::Permission(subject);
+		enqueue(index, &id, &kind).await;
 		drain(index).await;
 		let transaction = index.database.create_trx().unwrap();
 		let arg = crate::clean::TransactionArg {
@@ -304,22 +289,13 @@ async fn concurrent_propagation_conflicts_with_cleaning() {
 			panic!("the cleaning transaction failed");
 		};
 		assert!(!output.done);
-		enqueue(index, &id, &Kind::StorageAndMetadata).await;
+		enqueue(index, &id, &kind).await;
 		drain(index).await;
-		let expected = version(index, &id, &Kind::StorageAndMetadata)
-			.await
-			.unwrap();
+		let expected = version(index, &id, &kind).await.unwrap();
 		assert!(transaction.commit().await.is_err());
-		assert_eq!(
-			version(index, &id, &Kind::StorageAndMetadata).await,
-			Some(expected)
-		);
+		assert_eq!(version(index, &id, &kind).await, Some(expected));
 		index.clean(clean_arg(100, 0, 2)).await.unwrap();
-		assert!(
-			version(index, &id, &Kind::StorageAndMetadata)
-				.await
-				.is_none()
-		);
+		assert!(version(index, &id, &kind).await.is_none());
 	})
 	.await;
 }
@@ -337,46 +313,36 @@ async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
 		put(index, vec![object, unrelated]).await;
 		drain(index).await;
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
-		for (kind, queue) in [
-			(
-				Kind::Permission(subject),
-				tangram_index::update::Kind::Permission,
-			),
-			(
-				Kind::StorageAndMetadata,
-				tangram_index::update::Kind::StorageAndMetadata,
-			),
-		] {
-			index.clean(clean_arg(100, 0, 2)).await.unwrap();
-			enqueue(index, &id, &kind).await;
-			drain(index).await;
-			enqueue(index, &unrelated_id, &kind).await;
+		let kind = Kind::Permission(subject);
+		let queue = tangram_index::update::Kind::Permission;
+		index.clean(clean_arg(100, 0, 2)).await.unwrap();
+		enqueue(index, &id, &kind).await;
+		drain(index).await;
+		enqueue(index, &unrelated_id, &kind).await;
 
-			// Pause cleanup after it has read the queue heads and selected this item's version.
-			let transaction = index.database.create_trx().unwrap();
-			let arg = crate::clean::TransactionArg {
-				batch_size: 100,
-				max_object_touched_at: 0,
-				max_process_touched_at: 0,
-				max_sandbox_touched_at: 0,
-				now: 0,
-				partition_end: 2,
-				partition_start: 0,
-				partition_totals: index.partition_totals,
-				subspace: &index.subspace,
-				txn: &transaction,
-			};
-			let ControlFlow::Break(output) = Index::clean_with_transaction(arg).await.unwrap()
-			else {
-				panic!("the cleaning transaction failed");
-			};
-			assert!(!output.done);
+		// Pause cleanup after it has read the queue heads and selected this item's version.
+		let transaction = index.database.create_trx().unwrap();
+		let arg = crate::clean::TransactionArg {
+			batch_size: 100,
+			max_object_touched_at: 0,
+			max_process_touched_at: 0,
+			max_sandbox_touched_at: 0,
+			now: 0,
+			partition_end: 2,
+			partition_start: 0,
+			partition_totals: index.partition_totals,
+			subspace: &index.subspace,
+			txn: &transaction,
+		};
+		let ControlFlow::Break(output) = Index::clean_with_transaction(arg).await.unwrap() else {
+			panic!("the cleaning transaction failed");
+		};
+		assert!(!output.done);
 
-			// Consuming another item's queue entry must not invalidate the cleanup transaction.
-			assert_eq!(index.update_batch(queue, 100, 0, 2).await.unwrap().count, 1);
-			transaction.commit().await.unwrap();
-			assert!(version(index, &id, &kind).await.is_none());
-		}
+		// Consuming another item's queue entry must not invalidate the cleanup transaction.
+		assert_eq!(index.update_batch(queue, 100, 0, 2).await.unwrap().count, 1);
+		transaction.commit().await.unwrap();
+		assert!(version(index, &id, &kind).await.is_none());
 	})
 	.await;
 }
@@ -390,7 +356,7 @@ async fn replacing_propagated_versions_replaces_cleanup_entries() {
 		put(index, vec![object]).await;
 		drain(index).await;
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
-		for kind in [Kind::Permission(subject), Kind::StorageAndMetadata] {
+		for kind in [Kind::Permission(subject)] {
 			enqueue(index, &id, &kind).await;
 			drain(index).await;
 			let previous = version(index, &id, &kind).await.unwrap();
@@ -531,18 +497,12 @@ fn clean_arg(
 }
 
 async fn count_versions(index: &Index) -> usize {
-	let kinds = [
-		crate::Kind::PermissionUpdatePropagatedVersion,
-		crate::Kind::StorageAndMetadataUpdatePropagatedVersion,
-	];
+	let kinds = [crate::Kind::PermissionUpdatePropagatedVersion];
 	count_keys(index, &kinds).await
 }
 
 async fn count_clean_entries(index: &Index) -> usize {
-	let kinds = [
-		crate::Kind::PermissionUpdateClean,
-		crate::Kind::StorageAndMetadataUpdateClean,
-	];
+	let kinds = [crate::Kind::PermissionUpdateClean];
 	count_keys(index, &kinds).await
 }
 

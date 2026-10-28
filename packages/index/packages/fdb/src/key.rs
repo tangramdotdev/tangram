@@ -77,19 +77,16 @@ pub enum Kind {
 	UsageAggregation = 57,
 	PermissionUpdate = 58,
 	PermissionUpdateVersion = 59,
-	StorageAndMetadataUpdate = 60,
 	StorageAndMetadataUpdateVersion = 61,
 	UsageUpdate = 62,
 	UsageUpdateVersion = 63,
 	UsageStarted = 64,
 	UsageUnavailable = 65,
 	PermissionUpdatePropagatedVersion = 66,
-	StorageAndMetadataUpdatePropagatedVersion = 67,
 	UsageUpdatePropagatedVersion = 69,
 	UsageUpdatePutVersion = 68,
 	Indexer = 70,
 	PermissionUpdateClean = 71,
-	StorageAndMetadataUpdateClean = 72,
 	Delegation = 73,
 	DelegationSource = 74,
 	DelegationExpiresAt = 75,
@@ -648,9 +645,6 @@ impl fdbt::TuplePack for Key {
 			Key::Update(crate::update::Key::PropagatedVersion { id, kind }) => {
 				let key_kind = match kind {
 					crate::update::Kind::Permission(_) => Kind::PermissionUpdatePropagatedVersion,
-					crate::update::Kind::StorageAndMetadata => {
-						Kind::StorageAndMetadataUpdatePropagatedVersion
-					},
 					crate::update::Kind::Usage(_) => unreachable!(),
 				};
 				key_kind.to_i32().unwrap().pack(w, tuple_depth)?;
@@ -680,6 +674,31 @@ impl fdbt::TuplePack for Key {
 					.pack(w, tuple_depth)
 			},
 
+			Key::Update(crate::update::Key::StorageAndMetadataUpdate {
+				id,
+				partition,
+				source,
+				version,
+			}) => {
+				let mut offset = Kind::StorageAndMetadataUpdateVersion
+					.to_i32()
+					.unwrap()
+					.pack(w, tuple_depth)?;
+				offset += partition.pack(w, tuple_depth)?;
+				offset += version.pack(w, tuple_depth)?;
+				let id = match id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				offset += id.as_ref().pack(w, tuple_depth)?;
+				let source = match source {
+					crate::update::Source::Put => 0i32,
+					crate::update::Source::Propagate => 1i32,
+				};
+				offset += source.pack(w, tuple_depth)?;
+				Ok(offset)
+			},
+
 			Key::Update(
 				crate::update::Key::UsageUpdatePropagatedVersion { account, id }
 				| crate::update::Key::UsageUpdatePutVersion { account, id },
@@ -705,7 +724,6 @@ impl fdbt::TuplePack for Key {
 			Key::Update(crate::update::Key::Update { id, kind }) => {
 				let key_kind = match kind {
 					crate::update::Kind::Permission(_) => Kind::PermissionUpdate,
-					crate::update::Kind::StorageAndMetadata => Kind::StorageAndMetadataUpdate,
 					crate::update::Kind::Usage(_) => Kind::UsageUpdate,
 				};
 				key_kind.to_i32().unwrap().pack(w, tuple_depth)?;
@@ -736,12 +754,7 @@ impl fdbt::TuplePack for Key {
 				let key_kind = match kind {
 					crate::update::Kind::Permission(_) if clean => Kind::PermissionUpdateClean,
 					crate::update::Kind::Permission(_) => Kind::PermissionUpdateVersion,
-					crate::update::Kind::StorageAndMetadata if clean => {
-						Kind::StorageAndMetadataUpdateClean
-					},
-					crate::update::Kind::StorageAndMetadata => {
-						Kind::StorageAndMetadataUpdateVersion
-					},
+					crate::update::Kind::Usage(_) if clean => unreachable!(),
 					crate::update::Kind::Usage(_) => Kind::UsageUpdateVersion,
 				};
 				let mut offset = key_kind.to_i32().unwrap().pack(w, tuple_depth)?;
@@ -1747,17 +1760,8 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::Update(key)))
 			},
 
-			Kind::PermissionUpdatePropagatedVersion
-			| Kind::StorageAndMetadataUpdatePropagatedVersion => {
-				let update_kind = match kind {
-					Kind::PermissionUpdatePropagatedVersion => {
-						tangram_index::update::Kind::Permission
-					},
-					Kind::StorageAndMetadataUpdatePropagatedVersion => {
-						tangram_index::update::Kind::StorageAndMetadata
-					},
-					_ => unreachable!(),
-				};
+			Kind::PermissionUpdatePropagatedVersion => {
+				let update_kind = tangram_index::update::Kind::Permission;
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
@@ -1773,12 +1777,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::PermissionUpdate | Kind::StorageAndMetadataUpdate | Kind::UsageUpdate => {
+			Kind::PermissionUpdate | Kind::UsageUpdate => {
 				let update_kind = match kind {
 					Kind::PermissionUpdate => tangram_index::update::Kind::Permission,
-					Kind::StorageAndMetadataUpdate => {
-						tangram_index::update::Kind::StorageAndMetadata
-					},
 					Kind::UsageUpdate => tangram_index::update::Kind::Usage,
 					_ => unreachable!(),
 				};
@@ -1796,21 +1797,33 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::Update(crate::update::Key::Update { id, kind })))
 			},
 
+			Kind::StorageAndMetadataUpdateVersion => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = unpack_item_id(&id)?;
+				let (input, source): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let source = match source {
+					0 => crate::update::Source::Put,
+					1 => crate::update::Source::Propagate,
+					_ => return Err(fdbt::PackError::Message("invalid update source".into())),
+				};
+				let key = Key::Update(crate::update::Key::StorageAndMetadataUpdate {
+					id,
+					partition,
+					source,
+					version,
+				});
+				Ok((input, key))
+			},
+
 			Kind::PermissionUpdateClean
 			| Kind::PermissionUpdateVersion
-			| Kind::StorageAndMetadataUpdateClean
-			| Kind::StorageAndMetadataUpdateVersion
 			| Kind::UsageUpdateVersion => {
-				let clean = matches!(
-					kind,
-					Kind::PermissionUpdateClean | Kind::StorageAndMetadataUpdateClean
-				);
+				let clean = matches!(kind, Kind::PermissionUpdateClean);
 				let update_kind = match kind {
 					Kind::PermissionUpdateClean | Kind::PermissionUpdateVersion => {
 						tangram_index::update::Kind::Permission
-					},
-					Kind::StorageAndMetadataUpdateClean | Kind::StorageAndMetadataUpdateVersion => {
-						tangram_index::update::Kind::StorageAndMetadata
 					},
 					Kind::UsageUpdateVersion => tangram_index::update::Kind::Usage,
 					_ => unreachable!(),
@@ -1857,7 +1870,6 @@ fn pack_update_kind<W: std::io::Write>(
 ) -> std::io::Result<fdbt::VersionstampOffset> {
 	match kind {
 		crate::update::Kind::Permission(subject) => subject.to_string().pack(w, tuple_depth),
-		crate::update::Kind::StorageAndMetadata => ().pack(w, tuple_depth),
 		crate::update::Kind::Usage(kind) => match kind {
 			crate::update::UsageKind::Clean(account) => {
 				let mut offset = 1i32.pack(w, tuple_depth)?;
@@ -1904,9 +1916,9 @@ fn unpack_update_kind(
 				.map_err(|_| fdbt::PackError::Message("invalid verification subject".into()))?;
 			Ok((input, crate::update::Kind::Permission(subject)))
 		},
-		tangram_index::update::Kind::StorageAndMetadata => {
-			Ok((input, crate::update::Kind::StorageAndMetadata))
-		},
+		tangram_index::update::Kind::StorageAndMetadata => Err(fdbt::PackError::Message(
+			"invalid storage and metadata update kind".into(),
+		)),
 		tangram_index::update::Kind::Usage => {
 			let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 			let (input, kind) = match kind {

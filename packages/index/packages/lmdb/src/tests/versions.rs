@@ -212,50 +212,41 @@ async fn propagation_versions_reset_and_repeated_updates_stop() {
 	index.put_permissions(&[permission]).await.unwrap();
 	drain(&index, tangram_index::update::Kind::Permission).await;
 
-	for (kind, queue) in [
-		(
-			Kind::StorageAndMetadata,
-			tangram_index::update::Kind::StorageAndMetadata,
-		),
-		(
-			Kind::Permission(subject.clone()),
-			tangram_index::update::Kind::Permission,
-		),
+	let kind = Kind::Permission(subject.clone());
+	let queue = tangram_index::update::Kind::Permission;
+	for (source, version, propagated) in [
+		(Source::Put, 100, true),
+		(Source::Propagate, 90, true),
+		(Source::Propagate, 90, false),
+		(Source::Propagate, 110, false),
+		(Source::Put, 200, true),
+		(Source::Propagate, 150, true),
 	] {
-		for (source, version, propagated) in [
-			(Source::Put, 100, true),
-			(Source::Propagate, 90, true),
-			(Source::Propagate, 90, false),
-			(Source::Propagate, 110, false),
-			(Source::Put, 200, true),
-			(Source::Propagate, 150, true),
-		] {
-			{
-				let mut transaction = index.env.write_txn().unwrap();
-				Index::enqueue_update_with_kind(
-					&index.db,
-					&index.subspace,
-					&mut transaction,
-					tg::Either::Left(child.id.clone()),
-					kind.clone(),
-					source,
-					Some(version),
-				)
-				.unwrap();
-				transaction.commit().unwrap();
-			}
-			assert_eq!(index.update_batch(queue, 1).await.unwrap().count, 1);
-			let oldest = index
-				.try_get_oldest_update_transaction_id(queue)
-				.await
-				.unwrap();
-			assert_eq!(
-				oldest,
-				propagated.then_some(version),
-				"{kind:?}, {source:?}, {version}"
-			);
-			drain(&index, queue).await;
+		{
+			let mut transaction = index.env.write_txn().unwrap();
+			Index::enqueue_update_with_kind(
+				&index.db,
+				&index.subspace,
+				&mut transaction,
+				tg::Either::Left(child.id.clone()),
+				kind.clone(),
+				source,
+				Some(version),
+			)
+			.unwrap();
+			transaction.commit().unwrap();
 		}
+		assert_eq!(index.update_batch(queue, 1).await.unwrap().count, 1);
+		let oldest = index
+			.try_get_oldest_update_transaction_id(queue)
+			.await
+			.unwrap();
+		assert_eq!(
+			oldest,
+			propagated.then_some(version),
+			"{kind:?}, {source:?}, {version}"
+		);
+		drain(&index, queue).await;
 	}
 
 	// Retained propagation versions must neither prevent collection nor survive the objects.
@@ -287,19 +278,17 @@ async fn propagation_versions_reset_and_repeated_updates_stop() {
 	);
 	let transaction = index.env.read_txn().unwrap();
 	for id in ids {
-		for kind in [Kind::StorageAndMetadata, Kind::Permission(subject.clone())] {
-			let key = Key::Update(super::super::update::Key::PropagatedVersion {
-				id: tg::Either::Left(id.clone()),
-				kind,
-			});
-			assert!(
-				index
-					.db
-					.get(&transaction, &Index::pack(&index.subspace, &key))
-					.unwrap()
-					.is_none()
-			);
-		}
+		let key = Key::Update(super::super::update::Key::PropagatedVersion {
+			id: tg::Either::Left(id.clone()),
+			kind: Kind::Permission(subject.clone()),
+		});
+		assert!(
+			index
+				.db
+				.get(&transaction, &Index::pack(&index.subspace, &key))
+				.unwrap()
+				.is_none()
+		);
 	}
 }
 

@@ -21,6 +21,13 @@ pub enum Key {
 		child: tg::Either<tg::object::Id, tg::process::Id>,
 		parent: tg::Either<tg::object::Id, tg::process::Id>,
 	},
+	/// A storage and metadata update queued in version order within a partition, which is written blindly and carries its source in the key.
+	StorageAndMetadataUpdate {
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+		partition: u64,
+		source: super::Source,
+		version: fdbt::Versionstamp,
+	},
 	/// A completed traversal can be replayed if an older queue marker arrives later.
 	UsageUpdatePropagatedVersion {
 		account: tangram_index::usage::Account,
@@ -46,7 +53,6 @@ pub enum Key {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
 	Permission(tg::authorization::Subject),
-	StorageAndMetadata,
 	Usage(UsageKind),
 }
 

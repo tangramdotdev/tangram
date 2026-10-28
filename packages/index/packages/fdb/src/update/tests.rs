@@ -1,7 +1,6 @@
 use {
 	super::{Index, Key, Kind},
 	crate::tests::{directory, put},
-	foundationdb as fdb,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
@@ -10,13 +9,89 @@ mod clean;
 mod storage;
 
 #[tokio::test]
-async fn coalesced_updates_preserve_the_oldest_version() {
-	run(async |index| reproduce(index, false).await).await;
+async fn propagation_preserves_the_wait_version() {
+	run(async |index| {
+		// Establish a directory chain whose metadata is incomplete until the leaf arrives.
+		let mut leaf = directory(&[]);
+		let middle = directory(&[("leaf", leaf.id.clone())]);
+		let top = directory(&[("middle", middle.id.clone())]);
+		put(index, vec![top.clone(), middle]).await;
+		drain(index).await;
+		assert_eq!(count(index, &top.id).await, None);
+
+		// Put the complete leaf.
+		leaf.metadata.subtree = tg::object::metadata::Subtree {
+			count: Some(1),
+			depth: Some(1),
+			size: Some(leaf.metadata.node.size),
+			solvable: Some(false),
+			solved: Some(true),
+		};
+		leaf.storage.insert(tg::object::storage::Set::SUBTREE);
+		put(index, vec![leaf]).await;
+		let cutoff = index.get_transaction_id().await.unwrap();
+
+		// Waiting must include every ancestor until the top directory is complete.
+		for _ in 0..100 {
+			if count(index, &top.id).await.is_some() {
+				break;
+			}
+			let oldest = index
+				.try_get_oldest_update_transaction_id(
+					tangram_index::update::Kind::StorageAndMetadata,
+				)
+				.await
+				.unwrap();
+			assert!(
+				oldest.is_some_and(|version| version <= cutoff),
+				"the wait cutoff lost its pending propagation: {oldest:?} > {cutoff}"
+			);
+			index
+				.update_batch(tangram_index::update::Kind::StorageAndMetadata, 1, 0, 2)
+				.await
+				.unwrap();
+		}
+		assert_eq!(count(index, &top.id).await, Some(3));
+		drain(index).await;
+		let oldest = index
+			.try_get_oldest_update_transaction_id(tangram_index::update::Kind::StorageAndMetadata)
+			.await
+			.unwrap();
+		assert!(oldest.is_none());
+	})
+	.await;
 }
 
 #[tokio::test]
-async fn late_updates_preserve_the_oldest_version() {
-	run(async |index| reproduce(index, true).await).await;
+async fn duplicate_updates_are_idempotent() {
+	run(async |index| {
+		// Put a directory whose child is complete.
+		let mut leaf = directory(&[]);
+		leaf.metadata.subtree = tg::object::metadata::Subtree {
+			count: Some(1),
+			depth: Some(1),
+			size: Some(leaf.metadata.node.size),
+			solvable: Some(false),
+			solved: Some(true),
+		};
+		leaf.storage.insert(tg::object::storage::Set::SUBTREE);
+		let parent = directory(&[("leaf", leaf.id.clone())]);
+		put(index, vec![leaf, parent.clone()]).await;
+
+		// Enqueue duplicate updates for the directory.
+		let id = tg::Either::Left(parent.id.clone());
+		for _ in 0..4 {
+			crate::run(&index.database, async |txn| {
+				Index::enqueue_update(txn, &index.subspace, &id, 2);
+				Ok(ControlFlow::Break(()))
+			})
+			.await
+			.unwrap();
+		}
+		drain(index).await;
+		assert_eq!(count(index, &parent.id).await, Some(2));
+	})
+	.await;
 }
 
 async fn run(test: impl AsyncFnOnce(&Index)) {
@@ -66,132 +141,6 @@ async fn run_with_partition_totals(
 	crate::tests::run(&options, test).await;
 }
 
-async fn reproduce(index: &Index, late: bool) {
-	// Establish a directory chain whose metadata is incomplete until the leaf arrives.
-	let mut leaf = directory(&[]);
-	let mut middle = directory(&[("leaf", leaf.id.clone())]);
-	let top = directory(&[("middle", middle.id.clone())]);
-	put(index, vec![top.clone(), middle.clone()]).await;
-	drain(index).await;
-	assert_eq!(count(index, &top.id).await, None);
-	leaf.metadata.subtree = tg::object::metadata::Subtree {
-		count: Some(1),
-		depth: Some(1),
-		size: Some(leaf.metadata.node.size),
-		solvable: Some(false),
-		solved: Some(true),
-	};
-	leaf.storage.insert(tg::object::storage::Set::SUBTREE);
-	put(index, vec![leaf.clone()]).await;
-	if !late {
-		step(index).await;
-	}
-	let cutoff = index.get_transaction_id().await.unwrap();
-	let entries = queue(index).await;
-	let Key::UpdateVersion { version, .. } = &entries[0] else {
-		unreachable!()
-	};
-	let version = version.clone();
-
-	// Place the newer middle update before the older work in the partition scan order.
-	let old = if late { &leaf.id } else { &middle.id };
-	partition(index, old, 1).await;
-	middle.metadata.subtree = tg::object::metadata::Subtree {
-		count: Some(2),
-		depth: Some(2),
-		size: Some(middle.metadata.node.size + leaf.metadata.node.size),
-		solvable: Some(false),
-		solved: Some(true),
-	};
-	put(index, vec![middle.clone()]).await;
-	partition_newest(index, &middle.id, 0).await;
-	step(index).await;
-	assert_eq!(count(index, &middle.id).await, Some(2));
-	partition(index, &top.id, 1).await;
-	if late {
-		step(index).await;
-	}
-	step(index).await;
-
-	// Waiting must still include the top directory even though its metadata is unchanged locally.
-	let oldest = index
-		.try_get_oldest_update_transaction_id(tangram_index::update::Kind::StorageAndMetadata)
-		.await
-		.unwrap();
-	assert!(
-		oldest.is_some_and(|version| version <= cutoff),
-		"the wait cutoff lost its pending propagation: {oldest:?} > {cutoff}"
-	);
-	assert_eq!(count(index, &top.id).await, None);
-	drain(index).await;
-	assert_eq!(count(index, &top.id).await, Some(3));
-
-	// Repeating an already covered propagation must not walk the ancestors again.
-	crate::run(&index.database, async |txn| {
-		let id = tg::Either::Left(middle.id.clone());
-		Index::enqueue_update_propagate(
-			txn,
-			&index.subspace,
-			&id,
-			&Kind::StorageAndMetadata,
-			&version,
-			2,
-		)
-		.await
-	})
-	.await
-	.unwrap();
-	step(index).await;
-	let entries = queue(index).await;
-	assert!(entries.is_empty());
-
-	// Collection must remove the retained versions along with their objects.
-	let arg = tangram_index::clean::Arg {
-		batch_size: 100,
-		max_object_touched_at: 0,
-		max_process_touched_at: 0,
-		max_sandbox_touched_at: 0,
-		now: 0,
-		partition_end: 2,
-		partition_start: 0,
-	};
-	let mut done = false;
-	for _ in 0..10 {
-		if index.clean(arg.clone()).await.unwrap().done {
-			done = true;
-			break;
-		}
-	}
-	assert!(done);
-	let ids = [leaf.id, middle.id, top.id];
-	assert!(
-		index
-			.try_get_objects(&ids)
-			.await
-			.unwrap()
-			.iter()
-			.all(Option::is_none)
-	);
-	crate::run(&index.database, async |txn| {
-		for id in &ids {
-			let id = tg::Either::Left(id.clone());
-			let version = crate::propagate!(
-				Index::try_get_update_propagated_version(
-					txn,
-					&index.subspace,
-					&id,
-					&Kind::StorageAndMetadata
-				)
-				.await
-			);
-			assert!(version.is_none());
-		}
-		Ok(ControlFlow::Break(()))
-	})
-	.await
-	.unwrap();
-}
-
 async fn count(index: &Index, id: &tg::object::Id) -> Option<u64> {
 	index
 		.try_get_objects(std::slice::from_ref(id))
@@ -216,80 +165,4 @@ async fn drain(index: &Index) {
 		}
 	}
 	panic!("the storage and metadata updates did not drain");
-}
-
-async fn step(index: &Index) {
-	assert_eq!(
-		index
-			.update_batch(tangram_index::update::Kind::StorageAndMetadata, 1, 0, 2)
-			.await
-			.unwrap()
-			.count,
-		1
-	);
-}
-
-async fn queue(index: &Index) -> Vec<Key> {
-	crate::run(&index.database, async |txn| {
-		let begin = Index::pack(&index.subspace, &(61i32,));
-		let end = Index::pack(&index.subspace, &(62i32,));
-		let range = fdb::RangeOption::from((begin.as_slice(), end.as_slice()));
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-		let entries = entries
-			.iter()
-			.map(|entry| {
-				let crate::Key::Update(key) = Index::unpack(&index.subspace, entry.key())? else {
-					unreachable!()
-				};
-				Ok(key)
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
-		Ok(ControlFlow::Break(entries))
-	})
-	.await
-	.unwrap()
-}
-
-async fn partition(index: &Index, id: &tg::object::Id, partition: u64) {
-	move_entries(index, id, partition, false).await;
-}
-
-async fn partition_newest(index: &Index, id: &tg::object::Id, partition: u64) {
-	move_entries(index, id, partition, true).await;
-}
-
-async fn move_entries(index: &Index, id: &tg::object::Id, partition: u64, newest: bool) {
-	let id = tg::Either::Left(id.clone());
-	let mut entries = queue(index)
-		.await
-		.into_iter()
-		.filter(|key| matches!(key, Key::UpdateVersion { id: entry, .. } if *entry == id))
-		.collect::<Vec<_>>();
-	entries.sort_by_key(|entry| match entry {
-		Key::UpdateVersion { version, .. } => version.clone(),
-		_ => unreachable!(),
-	});
-	if newest {
-		entries = vec![entries.pop().unwrap()];
-	}
-	crate::run(&index.database, async |txn| {
-		for entry in &entries {
-			let key = Index::pack(&index.subspace, &crate::Key::Update(entry.clone()));
-			txn.clear(&key);
-			let Key::UpdateVersion { version, .. } = entry else {
-				unreachable!()
-			};
-			let key = crate::Key::Update(Key::UpdateVersion {
-				id: id.clone(),
-				kind: Kind::StorageAndMetadata,
-				partition,
-				version: version.clone(),
-			});
-			txn.set(&Index::pack(&index.subspace, &key), &[]);
-		}
-		Ok(ControlFlow::Break(()))
-	})
-	.await
-	.unwrap();
 }

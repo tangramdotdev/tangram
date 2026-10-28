@@ -594,12 +594,6 @@ impl Index {
 		let result = futures::try_join!(
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ChildObject, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::PermissionUpdate, id.as_ref()),
-			Self::count_entries_for_kind_and_id(
-				txn,
-				subspace,
-				Kind::StorageAndMetadataUpdate,
-				id.as_ref()
-			),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ObjectAccount, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ObjectProcess, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::UsageUpdate, id.as_ref()),
@@ -608,7 +602,6 @@ impl Index {
 		let (
 			child_object_count,
 			permission_update_count,
-			storage_and_metadata_update_count,
 			object_account_count,
 			object_process_count,
 			usage_update_count,
@@ -616,7 +609,6 @@ impl Index {
 		) = crate::retry!(result);
 		let count = child_object_count
 			+ permission_update_count
-			+ storage_and_metadata_update_count
 			+ object_account_count
 			+ object_process_count
 			+ usage_update_count
@@ -634,12 +626,6 @@ impl Index {
 		let result = futures::try_join!(
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ChildProcess, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::PermissionUpdate, id.as_ref()),
-			Self::count_entries_for_kind_and_id(
-				txn,
-				subspace,
-				Kind::StorageAndMetadataUpdate,
-				id.as_ref()
-			),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ProcessAccount, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ProcessSandbox, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::UsageUpdate, id.as_ref()),
@@ -648,7 +634,6 @@ impl Index {
 		let (
 			child_process_count,
 			permission_update_count,
-			storage_and_metadata_update_count,
 			process_account_count,
 			process_sandbox_count,
 			usage_update_count,
@@ -656,7 +641,6 @@ impl Index {
 		) = crate::retry!(result);
 		let count = child_process_count
 			+ permission_update_count
-			+ storage_and_metadata_update_count
 			+ process_account_count
 			+ process_sandbox_count
 			+ usage_update_count
