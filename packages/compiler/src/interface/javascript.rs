@@ -184,7 +184,7 @@ mod tests {
 
 	fn exports(text: &str) -> tg::Result<BTreeSet<String>> {
 		let exports = super::exports(
-			&crate::load::tests::source(tg::module::Kind::TypeScript),
+			&crate::interface::tests::source(tg::module::Kind::TypeScript),
 			text,
 		)?;
 		Ok(exports.into_keys().collect())

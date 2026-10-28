@@ -24,4 +24,14 @@ where
 			tg::Either::Right(s) => s.load_module(arg).right_future(),
 		}
 	}
+
+	fn module_interface(
+		&self,
+		arg: tg::module::interface::Arg,
+	) -> impl Future<Output = tg::Result<tg::module::interface::Output>> {
+		match self {
+			tg::Either::Left(s) => s.module_interface(arg).left_future(),
+			tg::Either::Right(s) => s.module_interface(arg).right_future(),
+		}
+	}
 }

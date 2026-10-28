@@ -17,6 +17,12 @@ pub trait Component: crate::component::Lifecycle {
 		arg: tg::module::load::Arg,
 	) -> BoxFuture<'a, tg::Result<tg::module::load::Output>>;
 
+	fn module_interface<'a>(
+		&'a self,
+		session: &'a Session,
+		arg: tg::module::interface::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::module::interface::Output>>;
+
 	fn request<'a>(
 		&'a self,
 		session: &'a Session,

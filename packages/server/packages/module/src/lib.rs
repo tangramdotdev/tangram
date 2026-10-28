@@ -5,6 +5,7 @@ use {
 	tangram_server_core::Session,
 };
 
+pub mod interface;
 pub mod load;
 pub mod resolve;
 
@@ -27,6 +28,9 @@ impl Component {
 		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		match (method, path_components.as_slice()) {
+			(http::Method::POST, ["modules", "interface"]) => {
+				self.module_interface_request(session, request).await
+			},
 			(http::Method::POST, ["modules", "load"]) => {
 				self.load_module_request(session, request).await
 			},
@@ -55,6 +59,14 @@ impl tangram_server_core::module::Component for Component {
 		arg: tg::module::load::Arg,
 	) -> BoxFuture<'a, tg::Result<tg::module::load::Output>> {
 		self.load_module(session, arg).boxed()
+	}
+
+	fn module_interface<'a>(
+		&'a self,
+		session: &'a Session,
+		arg: tg::module::interface::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::module::interface::Output>> {
+		self.module_interface(session, arg).boxed()
 	}
 
 	fn request<'a>(

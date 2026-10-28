@@ -60,7 +60,7 @@ impl Component {
 		Ok(output)
 	}
 
-	async fn load_module_inner(
+	pub(crate) async fn load_module_inner(
 		&self,
 		session: &Session,
 		module: &tg::module::Data,

@@ -12,6 +12,7 @@ mod tests;
 pub mod data;
 pub mod handle;
 pub mod import;
+pub mod interface;
 pub mod load;
 pub mod resolve;
 

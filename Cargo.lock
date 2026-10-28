@@ -9237,6 +9237,7 @@ dependencies = [
  "tangram_cli_id",
  "tangram_cli_index",
  "tangram_cli_init",
+ "tangram_cli_interface",
  "tangram_cli_list",
  "tangram_cli_lsp",
  "tangram_cli_match",
@@ -9640,6 +9641,16 @@ dependencies = [
  "indoc",
  "tangram_client",
  "tokio",
+]
+
+[[package]]
+name = "tangram_cli_interface"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_cli_reference",
+ "tangram_client",
 ]
 
 [[package]]

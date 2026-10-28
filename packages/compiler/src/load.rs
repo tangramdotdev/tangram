@@ -2,27 +2,15 @@
 use tangram_client::prelude::*;
 #[cfg(all(feature = "javascript", feature = "python"))]
 use {
-	std::{collections::BTreeMap, fmt::Write as _, ops::Range},
+	std::{collections::BTreeMap, fmt::Write as _},
 	tangram_client::prelude::*,
 };
 
-#[cfg(all(feature = "javascript", feature = "python"))]
-mod javascript;
 #[cfg(all(feature = "javascript", feature = "python"))]
 mod python;
 
 /// The prefix of the comment that records the source of each export in a generated module.
 const MARKER: &str = "tangram: ";
-
-/// An export of a module that another language imports.
-#[cfg(all(feature = "javascript", feature = "python"))]
-struct Export {
-	/// The text of the export's documentation comment.
-	documentation: Option<String>,
-
-	/// The byte range of the export's name in the module's source.
-	range: Option<Range<usize>>,
-}
 
 /// The source of an export in a generated module, recorded so that positions in the generated module can be mapped to the original module.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -44,20 +32,20 @@ pub fn module(
 	text: &str,
 	language: Option<tg::module::load::Language>,
 ) -> tg::Result<String> {
-	let exports = match (language, module.kind) {
-		(Some(tg::module::load::Language::JavaScript), tg::module::Kind::Python) => {
-			python::exports(module, text)
-		},
-		(
+	match (language, module.kind) {
+		(Some(tg::module::load::Language::JavaScript), tg::module::Kind::Python)
+		| (
 			Some(tg::module::load::Language::Python),
 			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
-		) => javascript::exports(module, text),
+		) => (),
 		(Some(tg::module::load::Language::Python), tg::module::Kind::TypeScriptDeclaration) => {
 			return Err(tg::error!("cannot execute a declaration module in python"));
 		},
 		_ => return Ok(text.to_owned()),
-	};
-	let exports = exports.map_err(|error| tg::error!(!error, module = ?module.without_token(), "failed to discover the cross-language exports"))?;
+	}
+	let interface = crate::interface::module(module, text)
+		.map_err(|error| tg::error!(!error, "failed to discover the cross-language exports"))?;
+	let exports = interface.exports;
 
 	let mut output = String::new();
 	match language.unwrap() {
@@ -199,8 +187,10 @@ pub(crate) fn source(text: &str, offset: usize) -> Option<Source> {
 
 impl Source {
 	#[cfg(all(feature = "javascript", feature = "python"))]
-	fn new(name: &str, export: &Export, text: &str) -> Option<Self> {
-		let range = export.range.clone()?;
+	fn new(name: &str, export: &tg::interface::Export, text: &str) -> Option<Self> {
+		let range = export
+			.range?
+			.try_to_byte_range_in_string(text, tg::position::Encoding::Utf8)?;
 		let convert = |encoding| {
 			let range = tg::Range::try_from_byte_range_in_string(text, range.clone(), encoding)?;
 			Some([
@@ -236,31 +226,6 @@ impl Source {
 			},
 		}
 	}
-}
-
-#[cfg(all(feature = "javascript", feature = "python"))]
-fn located_error(
-	module: &tg::module::Data,
-	text: &str,
-	range: std::ops::Range<usize>,
-	error: tg::Error,
-) -> tg::Error {
-	let Ok(module) = tg::Module::try_from_data(module.without_token()) else {
-		return error;
-	};
-	let Some(range) =
-		tg::Range::try_from_byte_range_in_string(text, range, tg::position::Encoding::Utf8)
-	else {
-		return error;
-	};
-	let location = tg::error::Location {
-		file: tg::error::File::Module(module),
-		range,
-		symbol: None,
-	};
-	let mut object = (**error.state().object().unwrap().unwrap_error_ref()).clone();
-	object.location = Some(location);
-	tg::Error::with_object(object)
 }
 
 #[cfg(all(test, feature = "javascript", feature = "python"))]

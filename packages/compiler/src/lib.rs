@@ -41,6 +41,7 @@ pub mod hover;
 pub mod implementation;
 pub mod initialize;
 pub mod inlay_hint;
+pub mod interface;
 pub mod jsonrpc;
 pub mod load;
 pub mod metadata;

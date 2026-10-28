@@ -73,6 +73,7 @@ tangram_cli_health = { workspace = true }
 tangram_cli_id = { workspace = true }
 tangram_cli_index = { workspace = true }
 tangram_cli_init = { workspace = true }
+tangram_cli_interface = { workspace = true }
 tangram_cli_list = { workspace = true }
 tangram_cli_lsp = { workspace = true }
 tangram_cli_match = { workspace = true }

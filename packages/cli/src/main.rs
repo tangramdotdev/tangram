@@ -95,6 +95,9 @@ enum Command {
 
 	Init(tangram_cli_init::Args),
 
+	Interface(tangram_cli_interface::Args),
+
+
 	#[command(alias = "ls")]
 	List(tangram_cli_list::Args),
 
@@ -491,6 +494,8 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 		Command::Index(args) => tangram_cli_index::run(cli, args).boxed_local().await,
 
 		Command::Init(args) => tangram_cli_init::run(args).boxed_local().await,
+
+		Command::Interface(args) => tangram_cli_interface::run(cli, args).boxed_local().await,
 
 		Command::List(args) => tangram_cli_list::run(cli, args).boxed_local().await,
 
