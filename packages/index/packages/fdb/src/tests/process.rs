@@ -47,6 +47,7 @@ fn process_arg(id: &tg::process::Id, data: tg::process::Data) -> tangram_index::
 	tangram_index::process::put::Arg {
 		account: None,
 		cached: false,
+		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
 		command: Some(vec![command.clone().into()]),
 		command_id: command.into(),

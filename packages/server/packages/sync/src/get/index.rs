@@ -1359,6 +1359,7 @@ impl Component {
 						let arg = tangram_index::process::put::Arg {
 							account: None,
 							cached: false,
+							captures: tangram_index::permission::capture::Captures::default(),
 							children: Some(children),
 							command: Some(command_objects),
 							command_id,
