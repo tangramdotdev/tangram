@@ -61,11 +61,12 @@ pub(super) struct Database {
 #[derive(Default)]
 struct Modules {
 	children: BTreeMap<(String, String), resolve::Target>,
-	entries: Vec<Arc<Entry>>,
+	entries: BTreeMap<usize, Arc<Entry>>,
 	files: HashMap<File, usize>,
 	keys: BTreeMap<String, usize>,
 	links: HashMap<File, BTreeSet<String>>,
 	namespaces: BTreeMap<String, (ModuleName, Box<resolve::Namespace>)>,
+	next: usize,
 }
 
 #[derive(Clone)]
@@ -154,7 +155,20 @@ impl Database {
 		let mut changed = self.documents.keys().ne(documents.keys());
 		let previous_documents = std::mem::replace(&mut self.documents, Arc::new(documents));
 		self.error.lock().unwrap().take();
-		let entries = self.modules.lock().unwrap().entries.clone();
+
+		// Remove the modules that the open documents no longer reach.
+		if changed {
+			self.prune();
+		}
+
+		let entries = self
+			.modules
+			.lock()
+			.unwrap()
+			.entries
+			.values()
+			.cloned()
+			.collect::<Vec<_>>();
 		for entry in entries {
 			let key = Key::new(&entry.module);
 			if !matches!(
@@ -201,7 +215,7 @@ impl Database {
 				updated.version = version;
 				let mut modules = self.modules.lock().unwrap();
 				let index = modules.files[&entry.file];
-				modules.entries[index] = Arc::new(updated);
+				modules.entries.insert(index, Arc::new(updated));
 				continue;
 			}
 			let mut updated = (*entry).clone();
@@ -220,7 +234,11 @@ impl Database {
 					.map_err(|error| tg::error!(!error, "failed to update the python source"))?;
 			}
 			let index = self.modules.lock().unwrap().files[&entry.file];
-			self.modules.lock().unwrap().entries[index] = Arc::new(updated);
+			self.modules
+				.lock()
+				.unwrap()
+				.entries
+				.insert(index, Arc::new(updated));
 			self.resolutions.lock().unwrap().remove(&entry.file);
 			self.modules.lock().unwrap().links.remove(&entry.file);
 			entry.file.sync(self);
@@ -254,6 +272,63 @@ impl Database {
 			revision.set_value(self).to(value);
 		}
 		Ok(())
+	}
+
+	/// Remove the modules that the open documents no longer reach.
+	fn prune(&mut self) {
+		// Find the modules that the open documents reach.
+		let entries = self
+			.modules
+			.lock()
+			.unwrap()
+			.entries
+			.values()
+			.cloned()
+			.collect::<Vec<_>>();
+		let mut pending = entries
+			.iter()
+			.filter(|entry| self.documents.contains_key(&Key::new(&entry.module)))
+			.cloned()
+			.collect::<Vec<_>>();
+		let mut reachable = BTreeSet::new();
+		while let Some(entry) = pending.pop() {
+			if !reachable.insert(entry.module.without_token().to_string()) {
+				continue;
+			}
+			pending.extend(self.dependencies(entry.file));
+		}
+
+		// Remove the other modules and their sources.
+		for entry in entries {
+			let key = entry.module.without_token().to_string();
+			if reachable.contains(&key) {
+				continue;
+			}
+			let path = entry.file.path(self).as_system_path().unwrap().to_owned();
+			self.system.memory.remove_file(&path).ok();
+			self.system.memory.remove_directory(path.parent().unwrap()).ok();
+			entry.file.sync(self);
+			let mut modules = self.modules.lock().unwrap();
+			if let Some(index) = modules.files.remove(&entry.file) {
+				modules.entries.remove(&index);
+			}
+			modules.keys.remove(&key);
+			modules.links.remove(&entry.file);
+			drop(modules);
+			self.resolutions.lock().unwrap().remove(&entry.file);
+		}
+
+		// Remove the removed sources from the project.
+		let paths = self
+			.project_paths
+			.iter()
+			.filter(|path| self.system.memory.exists(path))
+			.cloned()
+			.collect::<Vec<_>>();
+		if paths != self.project_paths {
+			self.project_paths.clone_from(&paths);
+			self.project.unwrap().set_included_paths(self, paths);
+		}
 	}
 
 	fn version(&self, module: &tg::module::Data) -> Option<u64> {
@@ -433,7 +508,7 @@ impl Database {
 		{
 			let modules = self.modules.lock().unwrap();
 			if let Some(index) = modules.keys.get(&key) {
-				let entry = modules.entries[*index].clone();
+				let entry = modules.entries[index].clone();
 				if let Some(error) = &entry.error {
 					return Err(error.clone());
 				}
@@ -449,13 +524,14 @@ impl Database {
 		let (imports, diagnostics) = Self::metadata(&module, &text)?;
 		let mut modules = self.modules.lock().unwrap();
 		if let Some(index) = modules.keys.get(&key) {
-			let entry = modules.entries[*index].clone();
+			let entry = modules.entries[index].clone();
 			if let Some(error) = &entry.error {
 				return Err(error.clone());
 			}
 			return Ok(entry);
 		}
-		let index = modules.entries.len();
+		let index = modules.next;
+		modules.next += 1;
 		let name = ModuleName::new(&format!("m{index}")).unwrap();
 		let filename = if package { "__init__.py" } else { "module.py" };
 		let directory = if matches!(module.referent.node, tg::module::data::Source::Path(_)) {
@@ -487,7 +563,7 @@ impl Database {
 		});
 		modules.files.insert(file, index);
 		modules.keys.insert(key, index);
-		modules.entries.push(entry.clone());
+		modules.entries.insert(index, entry.clone());
 		drop(modules);
 		if let Some(error) = &entry.error {
 			return Err(error.clone());
@@ -705,7 +781,7 @@ impl Database {
 		modules
 			.files
 			.get(&file)
-			.map(|index| modules.entries[*index].clone())
+			.map(|index| modules.entries[index].clone())
 	}
 
 	#[must_use]
@@ -753,7 +829,7 @@ impl Database {
 		let modules = self.modules.lock().unwrap();
 		match target {
 			resolve::Target::Module(module) => {
-				self.module(&modules.entries[modules.keys[&module.key]], environment)
+				self.module(&modules.entries[&modules.keys[&module.key]], environment)
 			},
 			resolve::Target::Namespace(namespace) => {
 				let (name, _) = &modules.namespaces[&namespace.key];
@@ -820,7 +896,7 @@ impl Database {
 				modules
 					.keys
 					.get(&key)
-					.map(|index| modules.entries[*index].clone())
+					.map(|index| modules.entries[index].clone())
 			})
 			.collect()
 	}
