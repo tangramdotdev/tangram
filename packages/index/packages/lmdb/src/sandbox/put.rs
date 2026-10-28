@@ -12,289 +12,308 @@ impl Index {
 		args: &[tangram_index::sandbox::put::Arg],
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
+		let mut rejection = None;
 		for arg in args {
-			if let Err(error) = arg.validate() {
+			let result = Self::put_sandbox_with_transaction(
+				db,
+				subspace,
+				transaction,
+				arg,
+				usage_partition_total,
+			)?;
+			if let Err(error) = result {
+				rejection.get_or_insert(error);
+			}
+		}
+
+		// Return the first rejection, since a rejected sandbox does not affect the other sandboxes.
+		let result = rejection.map_or(Ok(()), Err);
+
+		Ok(result)
+	}
+
+	pub(crate) fn put_sandbox_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: &tangram_index::sandbox::put::Arg,
+		usage_partition_total: u64,
+	) -> tg::Result<tg::Result<()>> {
+		if let Err(error) = arg.validate() {
+			return Ok(Err(error));
+		}
+		if let Some(registration) = &arg.registration {
+			let result = Self::check_runner_registration_with_transaction(
+				db,
+				subspace,
+				transaction,
+				registration,
+			)?;
+			if let Err(error) = result {
 				return Ok(Err(error));
 			}
-			if let Some(registration) = &arg.registration {
-				let result = Self::check_runner_registration_with_transaction(
-					db,
-					subspace,
-					transaction,
-					registration,
-				)?;
-				if let Err(error) = result {
-					return Ok(Err(error));
-				}
-			}
-			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(arg.id.clone()));
-			let key = Self::pack(subspace, &key);
-			let existing = db
-				.get(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
-				.map(tangram_index::sandbox::Sandbox::deserialize)
-				.transpose()?;
+		}
+		let key = Key::Sandbox(crate::sandbox::Key::Sandbox(arg.id.clone()));
+		let key = Self::pack(subspace, &key);
+		let existing = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
+			.map(tangram_index::sandbox::Sandbox::deserialize)
+			.transpose()?;
 
-			// Validate sandbox data and processes against the existing record in this write transaction.
-			if let Some(existing) = &existing {
-				if let Err(error) = arg.validate_existing(existing)? {
-					return Ok(Err(error));
-				}
-				if !arg.principal.is_root()
-					&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
-					&& let Some(processes) = &arg.processes
-				{
-					if !existing.set.processes {
-						return Ok(Err(tg::error!(
-							"cannot verify the existing sandbox processes"
-						)));
-					}
-					let existing = Self::try_get_sandbox_processes_page_with_transaction(
-						db,
-						subspace,
-						transaction,
-						&arg.id,
-						std::io::SeekFrom::Start(0),
-						processes.len() as u64 + 1,
-					)?
-					.unwrap_or_default();
-					if *processes != existing {
-						return Ok(Err(tg::error!(
-							"cannot replace the existing sandbox processes"
-						)));
-					}
-				}
+		// Validate sandbox data and processes against the existing record in this write transaction.
+		if let Some(existing) = &existing {
+			if let Err(error) = arg.validate_existing(existing)? {
+				return Ok(Err(error));
 			}
-
-			if existing.is_none() || (arg.data.is_some() && arg.processes.is_some()) {
-				Self::put_permissions_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&arg.permissions,
-				)?;
-			}
-
-			let mut arg = std::borrow::Cow::Borrowed(arg);
-			if let Some(existing) = &existing
-				&& !arg.principal.is_root()
+			if !arg.principal.is_root()
 				&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
+				&& let Some(processes) = &arg.processes
 			{
-				let arg = arg.to_mut();
-				arg.account.clone_from(&existing.account);
-				arg.data = None;
-				arg.runner.clone_from(&existing.runner);
-			}
-			let arg = arg.as_ref();
-
-			// Keep the data that is latest in the sandbox lifecycle, because writes may be applied out of order.
-			let tangram_index::sandbox::put::Merge {
-				mut data,
-				stopped_usages,
-				usages,
-			} = arg.merge(existing.as_ref());
-			let location = arg.location.clone().or_else(|| {
-				existing
-					.as_ref()
-					.and_then(|sandbox| sandbox.location.clone())
-			});
-			let account = arg.account.clone();
-			if let Some(data) = &mut data {
-				data.location.clone_from(&location);
-			}
-			let runner = arg
-				.runner
-				.clone()
-				.or_else(|| existing.as_ref().and_then(|sandbox| sandbox.runner.clone()));
-			let touched_at = existing.as_ref().map_or(arg.touched_at, |sandbox| {
-				sandbox.touched_at.max(arg.touched_at)
-			});
-			let scheduler = arg.scheduler(existing.as_ref(), data.as_ref());
-			let scheduled = data
-				.as_ref()
-				.and_then(|data| arg.scheduled(&data.data))
-				.cloned();
-			let sandbox = tangram_index::sandbox::Sandbox {
-				account,
-				created_at: existing
-					.as_ref()
-					.map_or(arg.created_at, |sandbox| sandbox.created_at),
-				data,
-				location,
-				reference_count: existing
-					.as_ref()
-					.map_or(0, |sandbox| sandbox.reference_count),
-				runner,
-				scheduler,
-				set: tangram_index::sandbox::Set {
-					processes: arg.processes.is_some()
-						|| existing
-							.as_ref()
-							.is_some_and(|sandbox| sandbox.set.processes),
-				},
-				stopped_usages,
-				touched_at,
-				usages,
-			};
-			if let Some(processes) = &arg.processes {
-				Self::put_sandbox_processes_with_transaction(
+				if !existing.set.processes {
+					return Ok(Err(tg::error!(
+						"cannot verify the existing sandbox processes"
+					)));
+				}
+				let existing = Self::try_get_sandbox_processes_page_with_transaction(
 					db,
 					subspace,
 					transaction,
 					&arg.id,
-					processes,
-				)?;
+					std::io::SeekFrom::Start(0),
+					processes.len() as u64 + 1,
+				)?
+				.unwrap_or_default();
+				if *processes != existing {
+					return Ok(Err(tg::error!(
+						"cannot replace the existing sandbox processes"
+					)));
+				}
 			}
-			let value = sandbox.serialize()?;
-			db.put(transaction, &key, &value)
-				.map_err(|error| tg::error!(!error, "failed to put the sandbox"))?;
+		}
 
-			// Update the key that associates the sandbox with its scheduler, in the same transaction as the sandbox's status.
-			if let Some(scheduler) = existing
+		if existing.is_none() || (arg.data.is_some() && arg.processes.is_some()) {
+			Self::put_permissions_with_transaction(db, subspace, transaction, &arg.permissions)?;
+		}
+
+		let mut arg = std::borrow::Cow::Borrowed(arg);
+		if let Some(existing) = &existing
+			&& !arg.principal.is_root()
+			&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
+		{
+			let arg = arg.to_mut();
+			arg.account.clone_from(&existing.account);
+			arg.data = None;
+			arg.runner.clone_from(&existing.runner);
+		}
+		let arg = arg.as_ref();
+
+		// Keep the data that is latest in the sandbox lifecycle, because writes may be applied out of order.
+		let tangram_index::sandbox::put::Merge {
+			mut data,
+			stopped_usages,
+			usages,
+		} = arg.merge(existing.as_ref());
+		let location = arg.location.clone().or_else(|| {
+			existing
 				.as_ref()
-				.and_then(|sandbox| sandbox.scheduler.clone())
-				.filter(|scheduler| sandbox.scheduler.as_ref() != Some(scheduler))
-			{
-				let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
-					sandbox: arg.id.clone(),
-					scheduler,
-				});
-				let key = Self::pack(subspace, &key);
-				db.delete(transaction, &key).map_err(|error| {
-					tg::error!(!error, "failed to delete the scheduler sandbox")
-				})?;
-			}
-			if let Some(scheduled) = &scheduled {
-				let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
-					sandbox: arg.id.clone(),
-					scheduler: scheduled.scheduler.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				db.put(transaction, &key, &scheduled.request)
-					.map_err(|error| tg::error!(!error, "failed to put the scheduler sandbox"))?;
-			}
-
-			let destroyed = existing
+				.and_then(|sandbox| sandbox.location.clone())
+		});
+		let account = arg.account.clone();
+		if let Some(data) = &mut data {
+			data.location.clone_from(&location);
+		}
+		let runner = arg
+			.runner
+			.clone()
+			.or_else(|| existing.as_ref().and_then(|sandbox| sandbox.runner.clone()));
+		let touched_at = existing.as_ref().map_or(arg.touched_at, |sandbox| {
+			sandbox.touched_at.max(arg.touched_at)
+		});
+		let scheduler = arg.scheduler(existing.as_ref(), data.as_ref());
+		let scheduled = data
+			.as_ref()
+			.and_then(|data| arg.scheduled(&data.data))
+			.cloned();
+		let sandbox = tangram_index::sandbox::Sandbox {
+			account,
+			created_at: existing
 				.as_ref()
-				.and_then(|sandbox| sandbox.data.as_ref())
-				.is_some_and(|data| data.data.status.is_destroyed());
-			if !destroyed
-				&& let (Some(account), Some(data)) = (&sandbox.account, &sandbox.data)
-				&& data.data.status.is_destroyed()
-			{
-				let arg = tangram_index::usage::compute::put::Arg {
-					account,
-					at: touched_at,
-					sandbox_count: 1,
-					usage: data.data.usage.as_ref(),
-				};
-				Self::put_compute_usage(db, subspace, transaction, arg, usage_partition_total)?;
-			}
-
-			if let Some(existing) = &existing {
-				let key = Key::Clean(crate::clean::Key::Sandbox {
-					id: arg.id.clone(),
-					touched_at: existing.touched_at,
-				});
-				let key = Self::pack(subspace, &key);
-				db.delete(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to delete the clean key"))?;
-			}
-
-			if sandbox
-				.data
+				.map_or(arg.created_at, |sandbox| sandbox.created_at),
+			data,
+			location,
+			reference_count: existing
 				.as_ref()
-				.is_some_and(|data| data.data.status.is_destroyed())
-			{
-				let key = Key::Clean(crate::clean::Key::Sandbox {
-					id: arg.id.clone(),
-					touched_at,
-				});
-				let key = Self::pack(subspace, &key);
-				db.put(transaction, &key, &[])
-					.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
-			}
+				.map_or(0, |sandbox| sandbox.reference_count),
+			runner,
+			scheduler,
+			set: tangram_index::sandbox::Set {
+				processes: arg.processes.is_some()
+					|| existing
+						.as_ref()
+						.is_some_and(|sandbox| sandbox.set.processes),
+			},
+			stopped_usages,
+			touched_at,
+			usages,
+		};
+		if let Some(processes) = &arg.processes {
+			Self::put_sandbox_processes_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&arg.id,
+				processes,
+			)?;
+		}
+		let value = sandbox.serialize()?;
+		db.put(transaction, &key, &value)
+			.map_err(|error| tg::error!(!error, "failed to put the sandbox"))?;
 
-			// Move the creator and owner keys when the creator, owner, or status changes.
-			let previous = existing
-				.as_ref()
-				.and_then(|sandbox| sandbox.data.as_ref())
-				.map(|data| {
-					(
-						data.data.creator.clone(),
-						data.data.owner.clone(),
-						data.data.status,
-					)
-				});
-			let current = sandbox.data.as_ref().map(|data| {
+		// Update the key that associates the sandbox with its scheduler, in the same transaction as the sandbox's status.
+		if let Some(scheduler) = existing
+			.as_ref()
+			.and_then(|sandbox| sandbox.scheduler.clone())
+			.filter(|scheduler| sandbox.scheduler.as_ref() != Some(scheduler))
+		{
+			let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
+				sandbox: arg.id.clone(),
+				scheduler,
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the scheduler sandbox"))?;
+		}
+		if let Some(scheduled) = &scheduled {
+			let key = Key::Runner(crate::runner::Key::SchedulerSandbox {
+				sandbox: arg.id.clone(),
+				scheduler: scheduled.scheduler.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &scheduled.request)
+				.map_err(|error| tg::error!(!error, "failed to put the scheduler sandbox"))?;
+		}
+
+		let destroyed = existing
+			.as_ref()
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.is_some_and(|data| data.data.status.is_destroyed());
+		if !destroyed
+			&& let (Some(account), Some(data)) = (&sandbox.account, &sandbox.data)
+			&& data.data.status.is_destroyed()
+		{
+			let arg = tangram_index::usage::compute::put::Arg {
+				account,
+				at: touched_at,
+				sandbox_count: 1,
+				usage: data.data.usage.as_ref(),
+			};
+			Self::put_compute_usage(db, subspace, transaction, arg, usage_partition_total)?;
+		}
+
+		if let Some(existing) = &existing {
+			let key = Key::Clean(crate::clean::Key::Sandbox {
+				id: arg.id.clone(),
+				touched_at: existing.touched_at,
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the clean key"))?;
+		}
+
+		if sandbox
+			.data
+			.as_ref()
+			.is_some_and(|data| data.data.status.is_destroyed())
+		{
+			let key = Key::Clean(crate::clean::Key::Sandbox {
+				id: arg.id.clone(),
+				touched_at,
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
+		}
+
+		// Move the creator and owner keys when the creator, owner, or status changes.
+		let previous = existing
+			.as_ref()
+			.and_then(|sandbox| sandbox.data.as_ref())
+			.map(|data| {
 				(
 					data.data.creator.clone(),
 					data.data.owner.clone(),
 					data.data.status,
 				)
 			});
-			if previous != current {
-				if let Some((creator, owner, status)) = &previous {
-					for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
-						let key = Self::pack(subspace, &Key::Sandbox(key));
-						db.delete(transaction, &key).map_err(|error| {
-							tg::error!(!error, "failed to delete a sandbox principal key")
-						})?;
-					}
-				}
-				if let Some((creator, owner, status)) = &current {
-					for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
-						let key = Self::pack(subspace, &Key::Sandbox(key));
-						db.put(transaction, &key, &[]).map_err(|error| {
-							tg::error!(!error, "failed to put a sandbox principal key")
-						})?;
-					}
+		let current = sandbox.data.as_ref().map(|data| {
+			(
+				data.data.creator.clone(),
+				data.data.owner.clone(),
+				data.data.status,
+			)
+		});
+		if previous != current {
+			if let Some((creator, owner, status)) = &previous {
+				for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
+					let key = Self::pack(subspace, &Key::Sandbox(key));
+					db.delete(transaction, &key).map_err(|error| {
+						tg::error!(!error, "failed to delete a sandbox principal key")
+					})?;
 				}
 			}
-
-			if let Some(runner) = existing
-				.as_ref()
-				.and_then(|sandbox| sandbox.runner.as_ref())
-			{
-				let key = Key::Runner(crate::runner::Key::RunnerSandbox {
-					runner: runner.clone(),
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				db.delete(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to delete the runner sandbox"))?;
-
-				let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
-					runner: runner.clone(),
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				db.delete(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to delete the sandbox runner"))?;
+			if let Some((creator, owner, status)) = &current {
+				for key in crate::sandbox::Key::principals(creator, owner, *status, &arg.id) {
+					let key = Self::pack(subspace, &Key::Sandbox(key));
+					db.put(transaction, &key, &[]).map_err(|error| {
+						tg::error!(!error, "failed to put a sandbox principal key")
+					})?;
+				}
 			}
+		}
 
-			if sandbox
-				.data
-				.as_ref()
-				.is_some_and(|data| !data.data.status.is_destroyed())
-				&& let Some(runner) = &sandbox.runner
-			{
-				let key = Key::Runner(crate::runner::Key::RunnerSandbox {
-					runner: runner.clone(),
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				db.put(transaction, &key, &[])
-					.map_err(|error| tg::error!(!error, "failed to put the runner sandbox"))?;
+		if let Some(runner) = existing
+			.as_ref()
+			.and_then(|sandbox| sandbox.runner.as_ref())
+		{
+			let key = Key::Runner(crate::runner::Key::RunnerSandbox {
+				runner: runner.clone(),
+				sandbox: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the runner sandbox"))?;
 
-				let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
-					runner: runner.clone(),
-					sandbox: arg.id.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				db.put(transaction, &key, &[])
-					.map_err(|error| tg::error!(!error, "failed to put the sandbox runner"))?;
-			}
+			let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
+				runner: runner.clone(),
+				sandbox: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the sandbox runner"))?;
+		}
+
+		if sandbox
+			.data
+			.as_ref()
+			.is_some_and(|data| !data.data.status.is_destroyed())
+			&& let Some(runner) = &sandbox.runner
+		{
+			let key = Key::Runner(crate::runner::Key::RunnerSandbox {
+				runner: runner.clone(),
+				sandbox: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the runner sandbox"))?;
+
+			let key = Key::Sandbox(crate::sandbox::Key::SandboxRunner {
+				runner: runner.clone(),
+				sandbox: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the sandbox runner"))?;
 		}
 		Ok(Ok(()))
 	}
