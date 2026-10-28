@@ -15,7 +15,7 @@ use {
 		pin::pin,
 		sync::{
 			Arc, Mutex,
-			atomic::{AtomicI64, AtomicU64, Ordering},
+			atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
 		},
 	},
 	tangram_client::prelude::*,
@@ -135,6 +135,7 @@ struct Authority {
 	id: tg::object::Id,
 	parent: Mutex<Option<Arc<Authority>>>,
 	previous: Mutex<Vec<Arc<Authority>>>,
+	proven: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -1348,7 +1349,13 @@ impl Provider {
 			.copied()
 			.filter(|expires_at| *expires_at >= now);
 		if let Some(expires_at) = expires_at {
+			authority.release(id);
 			return Ok(Some(expires_at));
+		}
+
+		// Accept new paths again once the object's own proof has expired.
+		if authority.id == *id {
+			authority.proven.store(false, Ordering::Relaxed);
 		}
 		let Some(expires_at) = self.authority_expiration(authority, now) else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
@@ -1418,7 +1425,10 @@ impl Provider {
 		}
 
 		// Get the object with the tokens of the paths that reached it, which authorizes it.
-		self.try_get_object_with_tokens(authority, id).await?;
+		if let Err(source) = self.try_get_object_with_tokens(authority, id).await {
+			tracing::debug!(error = %source.trace(), %id, "failed to get the object with its tokens");
+			return Err(error);
+		}
 		let expires_at = self.authorize(authority, id).map_err(|_| error)?;
 
 		Ok(expires_at)
@@ -1471,7 +1481,7 @@ impl Provider {
 		&self,
 		authority: &Authority,
 		id: &tg::object::Id,
-	) -> std::io::Result<Option<tg::object::get::Output>> {
+	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Get the object, which waits for an object that is still being pushed.
 		let tokens = self.tokens(authority, id);
 		let arg = tg::object::get::Arg {
@@ -1484,8 +1494,7 @@ impl Provider {
 			.components
 			.object
 			.try_get_object(&session, id, arg)
-			.await
-			.map_err(|error| Self::map_cache_sync_error(&error))?;
+			.await?;
 		let Some(output) = output else {
 			return Ok(None);
 		};
@@ -1501,7 +1510,9 @@ impl Provider {
 			.map(|token| token.body.expires_at)
 			.max();
 		if let Some(expires_at) = subtree {
-			let expires_at = self.token_expiration(Some(expires_at))?;
+			let expires_at = self
+				.token_expiration(Some(expires_at))
+				.map_err(|error| tg::error!(!error, "failed to compute the expiration"))?;
 			self.insert_expiration(id, expires_at);
 		} else {
 			let node = tg::authorization::Permission::Object(
@@ -1514,7 +1525,9 @@ impl Provider {
 				.filter(|token| token.authorizes(&resource, node))
 				.map(|token| token.body.expires_at)
 				.max();
-			let expires_at = self.token_expiration(expires_at)?;
+			let expires_at = self
+				.token_expiration(expires_at)
+				.map_err(|error| tg::error!(!error, "failed to compute the expiration"))?;
 			self.authorizations
 				.lock()
 				.unwrap()
@@ -3275,6 +3288,7 @@ impl Provider {
 			id: id.clone().into(),
 			parent: Mutex::new(Some(parent.clone())),
 			previous: Mutex::new(Vec::new()),
+			proven: AtomicBool::new(false),
 		};
 		ArtifactState {
 			authority: Arc::new(authority),
@@ -3323,7 +3337,16 @@ impl Provider {
 		};
 
 		// Get the object with its tokens, and require that the get authorize it when the local proofs did not.
-		let output = self.try_get_object_with_tokens(authority, id).await?;
+		let output = match self.try_get_object_with_tokens(authority, id).await {
+			Ok(output) => output,
+			Err(source) => {
+				let Some(error) = error else {
+					return Err(Self::map_cache_sync_error(&source));
+				};
+				tracing::debug!(error = %source.trace(), %id, "failed to get the object with its tokens");
+				return Err(error);
+			},
+		};
 		if let Some(error) = error
 			&& self.authorize(authority, id).is_err()
 		{
@@ -4065,6 +4088,15 @@ impl Authority {
 		self.parent.lock().unwrap().clone()
 	}
 
+	/// Release the paths that reached this authority's object once its subtree is proven, because the object's own tokens authorize the objects reached through it.
+	fn release(&self, id: &tg::object::Id) {
+		if self.id != *id || self.proven.swap(true, Ordering::Relaxed) {
+			return;
+		}
+		self.parent.lock().unwrap().take();
+		self.previous.lock().unwrap().clear();
+	}
+
 	/// Get the parents of every path that reached this authority.
 	fn parents(&self) -> Vec<Arc<Self>> {
 		let mut parents = self.previous.lock().unwrap().clone();
@@ -4072,9 +4104,9 @@ impl Authority {
 		parents
 	}
 
-	/// Authorize this authority through the path that reached another authority for the same object, unless that path passes through this authority.
+	/// Authorize this authority through the path that reached another authority for the same object, unless this authority is proven or that path passes through it.
 	fn adopt(&self, incoming: &Self) {
-		if std::ptr::eq(self, incoming) {
+		if std::ptr::eq(self, incoming) || self.proven.load(Ordering::Relaxed) {
 			return;
 		}
 		let Some(parent) = incoming.parent() else {
@@ -4282,6 +4314,7 @@ impl Nodes {
 			id: id.clone().into(),
 			parent: Mutex::new(None),
 			previous: Mutex::new(Vec::new()),
+			proven: AtomicBool::new(false),
 		};
 		ArtifactState {
 			authority: Arc::new(authority),
@@ -4883,7 +4916,10 @@ fn named_node_error(error: &tg::Error) -> std::io::Error {
 mod tests {
 	use {
 		super::{ArtifactState, Authority, Nodes, Provider},
-		std::sync::{Arc, Mutex, atomic::AtomicI64},
+		std::sync::{
+			Arc, Mutex,
+			atomic::{AtomicBool, AtomicI64, Ordering},
+		},
 		tangram_client::prelude::*,
 		tangram_vfs as vfs,
 	};
@@ -5060,6 +5096,16 @@ mod tests {
 	}
 
 	#[test]
+	fn a_proven_authority_does_not_adopt_a_path() {
+		let source = artifact(b"source");
+		let child = artifact(b"child");
+		child.authority.proven.store(true, Ordering::Relaxed);
+		let incoming = Provider::artifact(file_id(b"child"), &source.authority);
+		child.authority.adopt(&incoming.authority);
+		assert!(child.authority.parents().is_empty());
+	}
+
+	#[test]
 	fn adopting_a_path_retains_the_replaced_path() {
 		let first = artifact(b"first");
 		let second = artifact(b"second");
@@ -5086,6 +5132,7 @@ mod tests {
 			id: id.clone().into(),
 			parent: Mutex::new(None),
 			previous: Mutex::new(Vec::new()),
+			proven: AtomicBool::new(false),
 		};
 		ArtifactState {
 			authority: Arc::new(authority),
