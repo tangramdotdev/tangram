@@ -1,5 +1,6 @@
 use {
 	crate::{Component, Graph, Variant},
+	futures::TryStreamExt as _,
 	std::{
 		collections::BTreeMap,
 		path::{Path, PathBuf},
@@ -84,9 +85,15 @@ impl Component {
 			.authorize_object_read(referent.clone(), true)
 			.await?
 			.check_exhaustion()?;
-		if !authorization.permissions.contains(subtree) {
-			return Err(tg::error!("unauthorized"));
-		}
+		let expiration = if authorization.permissions.contains(subtree) {
+			authorization.expires_at
+		} else {
+			let expiration = self
+				.checkin_store_path_pull(session, &referent)
+				.await?
+				.ok_or_else(|| tg::error!("unauthorized"))?;
+			Some(expiration)
+		};
 		let now = session.server.clock.unix_timestamp();
 		let time_to_live = i64::try_from(
 			session
@@ -100,9 +107,7 @@ impl Component {
 		let expires_at = now
 			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
-		let expires_at = authorization
-			.expires_at
-			.map_or(expires_at, |expiration| expiration.min(expires_at));
+		let expires_at = expiration.map_or(expires_at, |expiration| expiration.min(expires_at));
 		let root_token = session.server.components.authorization.create_token(
 			session,
 			id.clone().into(),
@@ -172,6 +177,59 @@ impl Component {
 		let output = tg::checkin::Output { artifact: referent };
 
 		Ok(output)
+	}
+
+	/// Pull a store path's root from the configured remote with its tokens, which waits for a root that is still being pushed, and return the expiration of the subtree authorization that the pull proves.
+	async fn checkin_store_path_pull(
+		&self,
+		session: &Session,
+		referent: &tg::Referent<tg::artifact::Id>,
+	) -> tg::Result<Option<i64>> {
+		// Get the configured remote.
+		let remote = session
+			.try_get_remote("default", tg::remote::get::Arg::default())
+			.await?;
+		if remote.is_none() {
+			return Ok(None);
+		}
+		let source = tg::Location::Remote(tg::location::Remote {
+			name: "default".to_owned(),
+			region: None,
+		});
+
+		// Pull the root.
+		let arg = tg::pull::Arg {
+			nodes: vec![referent.clone().map(tg::Id::from)],
+			source: Some(source),
+			..Default::default()
+		};
+		let (_, stream) = session
+			.pull(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to pull the store path"))?;
+		let mut stream = std::pin::pin!(stream);
+		let mut output = None;
+		while let Some(event) = stream.try_next().await? {
+			if let tg::progress::Event::Output(value) = event {
+				output = Some(value);
+				break;
+			}
+		}
+		let output = output.ok_or_else(|| tg::error!("the pull ended without an output"))?;
+
+		// Find the subtree authorization that the pull returned for the root.
+		let resource = tg::Id::from(tg::object::Id::from(referent.node.clone()));
+		let expiration = output
+			.nodes
+			.iter()
+			.filter(|node| node.node == resource)
+			.flat_map(|node| node.options.tokens.iter())
+			.flat_map(|(_, entry)| &entry.authorization)
+			.filter(|token| token.authorizes_object_subtree(&resource))
+			.map(|token| token.body.expires_at)
+			.max();
+
+		Ok(expiration)
 	}
 
 	fn try_get_checkin_origin_sandbox(session: &Session) -> tg::Result<Option<tg::sandbox::Id>> {

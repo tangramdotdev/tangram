@@ -7,7 +7,7 @@ use {
 	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
 	std::{
-		collections::{BTreeMap, HashMap},
+		collections::{BTreeMap, HashMap, HashSet},
 		ops::Deref,
 		os::fd::OwnedFd,
 		os::unix::{ffi::OsStrExt as _, fs::FileExt as _},
@@ -15,7 +15,7 @@ use {
 		pin::pin,
 		sync::{
 			Arc, Mutex,
-			atomic::{AtomicI64, AtomicU64, Ordering},
+			atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
 		},
 	},
 	tangram_client::prelude::*,
@@ -62,12 +62,12 @@ pub struct Inner {
 	server: Server,
 }
 
-/// The tokens given to the provider, and the objects known to be authorized.
+/// The tokens given to the provider, the objects whose subtrees are known to be authorized, and the objects known to be authorized individually.
 #[derive(Default)]
 struct Authorizations {
 	expirations: HashMap<tg::object::Id, i64>,
+	nodes: HashMap<tg::object::Id, i64>,
 	pruned: usize,
-	syncs: tg::authorization::Tokens,
 	tokens: HashMap<tg::Id, tg::authorization::Tokens>,
 }
 
@@ -132,8 +132,11 @@ struct ArtifactState {
 /// A link in the chain of objects through which an artifact was reached. An object is authorized while it or an object earlier in its chain is authorized.
 struct Authority {
 	expires_at: AtomicI64,
+	has_previous: AtomicBool,
 	id: tg::object::Id,
 	parent: Mutex<Option<Arc<Authority>>>,
+	previous: Mutex<Vec<Arc<Authority>>>,
+	proven: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -233,7 +236,8 @@ impl Provider {
 		self.principal.lock().unwrap().replace(principal);
 	}
 
-	pub fn seed_tokens(&self, tokens: &tg::authorization::Tokens) {
+	/// Retain the tokens given with an object, so that its sync tokens apply only to the objects reached through it.
+	pub fn seed_tokens(&self, id: &tg::Id, tokens: &tg::authorization::Tokens) {
 		let session = self.session();
 		let mut tokens = tokens.clone();
 		let authorization = tokens.remove_local_authorization();
@@ -246,7 +250,7 @@ impl Provider {
 		}) {
 			tokens.insert_local_authorization(token);
 		}
-		self.insert_tokens(&tokens, true);
+		self.insert_tokens(id, &tokens, true);
 	}
 
 	/// Get the tokens that authorize an artifact at the root of the mount.
@@ -1127,7 +1131,7 @@ impl Provider {
 	}
 
 	fn register_target_tokens(&self, target: &tg::Referent<tg::Id>) {
-		self.seed_tokens(&target.options.tokens);
+		self.seed_tokens(&target.node, &target.options.tokens);
 	}
 
 	fn session(&self) -> Session {
@@ -1270,14 +1274,9 @@ impl Provider {
 			else {
 				return Ok(None);
 			};
-			// Return not found if the principal is not authorized to access the artifact.
+			// Defer to the asynchronous path if the local proofs do not authorize the artifact.
 			let artifact = self.nodes.root_artifact(&id);
-			if self
-				.authorize_sync(&artifact.authority, &id.clone().into())
-				.is_err()
-			{
-				return Ok(None);
-			}
+			self.authorize_sync(&artifact.authority, &id.clone().into())?;
 			Some((artifact, 1))
 		};
 
@@ -1317,8 +1316,20 @@ impl Provider {
 		Ok(Some(id))
 	}
 
-	/// Authorize an object reached through an authority, returning the expiration of the authorization.
+	/// Authorize an object reached through an authority through its subtree authorization or its individual authorization, returning the expiration of the authorization.
 	fn authorize(
+		&self,
+		authority: &Authority,
+		id: &tg::object::Id,
+	) -> std::io::Result<Option<i64>> {
+		self.authorize_subtree(authority, id).or_else(|error| {
+			let expires_at = self.authorize_node(id).ok_or(error)?;
+			authority.clear_previous(id);
+			Ok(Some(expires_at))
+		})
+	}
+
+	fn authorize_subtree(
 		&self,
 		authority: &Authority,
 		id: &tg::object::Id,
@@ -1328,6 +1339,7 @@ impl Provider {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
 		if matches!(principal, tg::Principal::Root) {
+			authority.clear_previous(id);
 			return Ok(None);
 		}
 		let now = self.server.clock.unix_timestamp();
@@ -1340,12 +1352,30 @@ impl Provider {
 			.copied()
 			.filter(|expires_at| *expires_at >= now);
 		if let Some(expires_at) = expires_at {
+			authority.release(id);
 			return Ok(Some(expires_at));
+		}
+
+		// Accept new paths again once the object's own proof has expired.
+		if authority.id == *id && authority.proven.load(Ordering::Relaxed) {
+			authority.proven.store(false, Ordering::Relaxed);
 		}
 		let Some(expires_at) = self.authority_expiration(authority, now) else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
 		Ok(Some(expires_at))
+	}
+
+	/// Get the expiration of an object's individual authorization, which does not extend to the objects reached through it.
+	fn authorize_node(&self, id: &tg::object::Id) -> Option<i64> {
+		let now = self.server.clock.unix_timestamp();
+		self.authorizations
+			.lock()
+			.unwrap()
+			.nodes
+			.get(id)
+			.copied()
+			.filter(|expires_at| *expires_at >= now)
 	}
 
 	/// Get the expiration of the authorization of an authority's chain, remembering it on each link walked.
@@ -1374,16 +1404,42 @@ impl Provider {
 			walked.extend(link.replace(parent));
 		};
 
-		// Remember the expiration on the links that were walked.
+		// Remember the expiration on the links that were walked, which no longer need their other paths.
 		authority.expires_at.store(expires_at, Ordering::Relaxed);
+		authority.clear_previous(&authority.id);
 		for link in walked {
 			link.expires_at.store(expires_at, Ordering::Relaxed);
+			link.clear_previous(&link.id);
 		}
 
 		Some(expires_at)
 	}
 
 	async fn authorize_inner(
+		&self,
+		authority: &Authority,
+		id: &tg::object::Id,
+	) -> std::io::Result<Option<i64>> {
+		// Authorize the object with the local proofs.
+		let error = match self.authorize_local(authority, id).await {
+			Ok(expires_at) => return Ok(expires_at),
+			Err(error) => error,
+		};
+		if self.principal.lock().unwrap().is_none() || !self.has_given_tokens(authority, id) {
+			return Err(error);
+		}
+
+		// Get the object with the tokens of the paths that reached it, which authorizes it.
+		if let Err(source) = self.try_get_object_with_tokens(authority, id).await {
+			tracing::debug!(error = %source.trace(), %id, "failed to get the object with its tokens");
+			return Err(error);
+		}
+		let expires_at = self.authorize(authority, id).map_err(|_| error)?;
+
+		Ok(expires_at)
+	}
+
+	async fn authorize_local(
 		&self,
 		authority: &Authority,
 		id: &tg::object::Id,
@@ -1420,6 +1476,76 @@ impl Provider {
 
 		// Remember the authorization, so that the object and the objects reached through it are not searched again.
 		let expires_at = self.token_expiration(output.expires_at)?;
+		self.insert_expiration(id, expires_at);
+
+		Ok(Some(expires_at))
+	}
+
+	/// Get an object with the tokens given to the provider, remembering the authorization that the get grants.
+	async fn try_get_object_with_tokens(
+		&self,
+		authority: &Authority,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		// Get the object, which waits for an object that is still being pushed.
+		let tokens = self.tokens(authority, id);
+		let arg = tg::object::get::Arg {
+			tokens,
+			..Default::default()
+		};
+		let session = self.session();
+		let output = self
+			.server
+			.components
+			.object
+			.try_get_object(&session, id, arg)
+			.await?;
+		let Some(output) = output else {
+			return Ok(None);
+		};
+		self.register_output(id, &output);
+
+		// Remember the subtree authorization that the get granted, or otherwise the object's individual authorization.
+		let resource = tg::Id::from(id.clone());
+		let subtree = output
+			.tokens
+			.iter()
+			.flat_map(|(_, entry)| &entry.authorization)
+			.filter(|token| token.authorizes_object_subtree(&resource))
+			.map(|token| token.body.expires_at)
+			.max();
+		if let Some(expires_at) = subtree {
+			let expires_at = self
+				.token_expiration(Some(expires_at))
+				.map_err(|error| tg::error!(!error, "failed to compute the expiration"))?;
+			self.insert_expiration(id, expires_at);
+		} else {
+			let node = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			);
+			let expires_at = output
+				.tokens
+				.iter()
+				.flat_map(|(_, entry)| &entry.authorization)
+				.filter(|token| token.authorizes(&resource, node))
+				.map(|token| token.body.expires_at)
+				.max();
+			let expires_at = self
+				.token_expiration(expires_at)
+				.map_err(|error| tg::error!(!error, "failed to compute the expiration"))?;
+			self.authorizations
+				.lock()
+				.unwrap()
+				.nodes
+				.entry(id.clone())
+				.and_modify(|existing| *existing = (*existing).max(expires_at))
+				.or_insert(expires_at);
+		}
+
+		Ok(Some(output))
+	}
+
+	fn insert_expiration(&self, id: &tg::object::Id, expires_at: i64) {
 		self.authorizations
 			.lock()
 			.unwrap()
@@ -1427,8 +1553,6 @@ impl Provider {
 			.entry(id.clone())
 			.and_modify(|existing| *existing = (*existing).max(expires_at))
 			.or_insert(expires_at);
-
-		Ok(Some(expires_at))
 	}
 
 	fn authorize_sync(
@@ -1436,22 +1560,40 @@ impl Provider {
 		authority: &Authority,
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<i64>> {
-		self.authorize(authority, id)
-			.or_else(|_| self.runtime.block_on(self.authorize_inner(authority, id)))
+		// Defer to the asynchronous path when the local proofs do not authorize the object.
+		self.authorize(authority, id).or_else(|_| {
+			self.runtime
+				.block_on(self.authorize_local(authority, id))
+				.map_err(|_| std::io::Error::from_raw_os_error(libc::ENOSYS))
+		})
 	}
 
 	/// Get the tokens to hand out for an object reached through an authority, signing a token for the object when it is authorized.
 	fn tokens(&self, authority: &Authority, id: &tg::object::Id) -> tg::authorization::Tokens {
 		let mut tokens = self.given_tokens(authority, id);
 		let session = self.session();
-		if let Ok(expires_at) = self.authorize(authority, id)
+
+		// Sign a subtree token for an object whose subtree is authorized, and a node token for an object that is authorized individually.
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let node = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		let authorization = self
+			.authorize_subtree(authority, id)
+			.map(|expires_at| (subtree, expires_at))
+			.ok()
+			.or_else(|| {
+				self.authorize_node(id)
+					.map(|expires_at| (node, Some(expires_at)))
+			});
+		if let Some((permission, expires_at)) = authorization
 			&& let Ok(expires_at) = self.token_expiration(expires_at)
 			&& let Ok(Some(token)) = session.server.components.authorization.create_token(
 				&session,
 				id.clone().into(),
-				vec![tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				)],
+				vec![permission],
 				expires_at,
 			) {
 			tokens.insert_local_authorization(token);
@@ -1460,30 +1602,67 @@ impl Provider {
 		tokens
 	}
 
-	/// Get the tokens given to the provider for an object and the objects in its authority's chain.
+	/// Get the tokens given to the provider for an object and the objects on every path that reached it.
 	fn given_tokens(
 		&self,
 		authority: &Authority,
 		id: &tg::object::Id,
 	) -> tg::authorization::Tokens {
-		let mut ids = vec![id.clone(), authority.id.clone()];
-		let mut link = authority.parent();
-		while let Some(current) = link {
-			ids.push(current.id.clone());
-			link = current.parent();
-		}
+		let ids = Self::path_ids(authority, id);
 		let authorizations = self.authorizations.lock().unwrap();
-		let mut tokens = authorizations.syncs.clone();
+		let mut tokens = tg::authorization::Tokens::default();
 		for id in ids {
 			if let Some(given) = authorizations.tokens.get(&id.into()) {
 				tokens.inherit(given);
 			}
 		}
+
 		tokens
 	}
 
-	/// Retain tokens given to the provider. Verified local subtree tokens also authorize their objects.
-	fn insert_tokens(&self, tokens: &tg::authorization::Tokens, verified: bool) {
+	/// Determine whether any tokens were given for an object or the objects on the paths that reached it.
+	fn has_given_tokens(&self, authority: &Authority, id: &tg::object::Id) -> bool {
+		let ids = Self::path_ids(authority, id);
+		let authorizations = self.authorizations.lock().unwrap();
+		ids.into_iter().any(|id| {
+			authorizations
+				.tokens
+				.get(&id.into())
+				.is_some_and(|tokens| !tokens.is_empty())
+		})
+	}
+
+	/// Get an object and the objects on the paths that reached it.
+	fn path_ids(authority: &Authority, id: &tg::object::Id) -> Vec<tg::object::Id> {
+		// Walk the current path.
+		let mut ids = vec![id.clone(), authority.id.clone()];
+		let mut branched = authority.has_previous.load(Ordering::Relaxed);
+		let mut link = authority.parent();
+		while let Some(current) = link {
+			ids.push(current.id.clone());
+			branched |= current.has_previous.load(Ordering::Relaxed);
+			link = current.parent();
+		}
+		if !branched {
+			return ids;
+		}
+
+		// Walk every path when a link retains other paths.
+		let mut visited = HashSet::new();
+		let mut stack = authority.parents();
+		while let Some(current) = stack.pop() {
+			if !visited.insert(Arc::as_ptr(&current)) {
+				continue;
+			}
+			ids.push(current.id.clone());
+			stack.extend(current.parents());
+		}
+
+		ids
+	}
+
+	/// Retain tokens given to the provider. Sync tokens are retained for the object they were given with, and verified local subtree tokens also authorize their objects.
+	fn insert_tokens(&self, id: &tg::Id, tokens: &tg::authorization::Tokens, verified: bool) {
 		let now = self.server.clock.unix_timestamp();
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
@@ -1496,7 +1675,9 @@ impl Provider {
 				}
 				if token.body.resource.kind() == tg::id::Kind::Sync {
 					authorizations
-						.syncs
+						.tokens
+						.entry(id.clone())
+						.or_default()
 						.insert_authorization(location.clone(), token.clone());
 					continue;
 				}
@@ -1508,11 +1689,11 @@ impl Provider {
 				if verified
 					&& matches!(location, tg::Location::Local(_))
 					&& token.body.authorizes(subtree)
-					&& let Ok(id) = tg::object::Id::try_from(token.body.resource.clone())
+					&& let Ok(object) = tg::object::Id::try_from(token.body.resource.clone())
 				{
 					authorizations
 						.expirations
-						.entry(id)
+						.entry(object)
 						.and_modify(|existing| *existing = (*existing).max(token.body.expires_at))
 						.or_insert(token.body.expires_at);
 				}
@@ -3138,8 +3319,11 @@ impl Provider {
 	fn artifact(id: tg::artifact::Id, parent: &Arc<Authority>) -> ArtifactState {
 		let authority = Authority {
 			expires_at: AtomicI64::new(i64::MIN),
+			has_previous: AtomicBool::new(false),
 			id: id.clone().into(),
 			parent: Mutex::new(Some(parent.clone())),
+			previous: Mutex::new(Vec::new()),
+			proven: AtomicBool::new(false),
 		};
 		ArtifactState {
 			authority: Arc::new(authority),
@@ -3149,10 +3333,10 @@ impl Provider {
 	}
 
 	/// Retain the tokens returned with an object.
-	fn register_output(&self, output: &tg::object::get::Output) {
-		self.insert_tokens(&output.tokens, false);
-		for child in output.children.values() {
-			self.insert_tokens(&child.tokens, false);
+	fn register_output(&self, id: &tg::object::Id, output: &tg::object::get::Output) {
+		self.insert_tokens(&id.clone().into(), &output.tokens, false);
+		for (id, child) in &output.children {
+			self.insert_tokens(&id.clone().into(), &child.tokens, false);
 		}
 	}
 
@@ -3161,38 +3345,54 @@ impl Provider {
 		authority: &Arc<Authority>,
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<tg::object::Data>> {
-		self.authorize_inner(authority, id).await?;
-		if let Some(output) = self
-			.server
-			.components
-			.object
-			.try_get_object_local_with_server(&self.server, id, false)
-			.await
-			.map_err(|error| Self::map_cache_sync_error(&error))?
+		// Get the object locally if the local proofs authorize it.
+		let local = self.authorize_local(authority, id).await;
+		if local.is_ok()
+			&& let Some(output) = self
+				.server
+				.components
+				.object
+				.try_get_object_local_with_server(&self.server, id, false)
+				.await
+				.map_err(|error| Self::map_cache_sync_error(&error))?
 		{
 			let data = tg::object::Data::deserialize(id.kind(), output.bytes)
 				.map_err(|error| Self::map_cache_sync_error(&error))?;
 			return Ok(Some(data));
 		}
-		let tokens = self.tokens(authority, id);
-		let arg = tg::object::get::Arg {
-			tokens,
-			..Default::default()
+		let error = match local {
+			Ok(_) => None,
+			Err(error)
+				if self.principal.lock().unwrap().is_none()
+					|| !self.has_given_tokens(authority, id) =>
+			{
+				return Err(error);
+			},
+			Err(error) => Some(error),
 		};
-		let session = self.session();
-		let output = self
-			.server
-			.components
-			.object
-			.try_get_object(&session, id, arg)
-			.await
-			.map_err(|error| Self::map_cache_sync_error(&error))?;
+
+		// Get the object with its tokens, and require that the get authorize it when the local proofs did not.
+		let output = match self.try_get_object_with_tokens(authority, id).await {
+			Ok(output) => output,
+			Err(source) => {
+				let Some(error) = error else {
+					return Err(Self::map_cache_sync_error(&source));
+				};
+				tracing::debug!(error = %source.trace(), %id, "failed to get the object with its tokens");
+				return Err(error);
+			},
+		};
+		if let Some(error) = error
+			&& self.authorize(authority, id).is_err()
+		{
+			return Err(error);
+		}
 		let Some(output) = output else {
 			return Ok(None);
 		};
-		self.register_output(&output);
 		let data = tg::object::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|error| Self::map_cache_sync_error(&error))?;
+
 		Ok(Some(data))
 	}
 
@@ -3923,9 +4123,43 @@ impl Authority {
 		self.parent.lock().unwrap().clone()
 	}
 
-	/// Authorize this authority through the path that reached another authority for the same object, unless that path passes through this authority.
+	/// Release the paths that reached this authority's object once its subtree is proven, because the object's own tokens authorize the objects reached through it.
+	fn release(&self, id: &tg::object::Id) {
+		if self.id != *id
+			|| self.proven.load(Ordering::Relaxed)
+			|| self.proven.swap(true, Ordering::Relaxed)
+		{
+			return;
+		}
+		self.parent.lock().unwrap().take();
+		self.clear_previous(id);
+	}
+
+	/// Release the other paths that reached this authority's object once it is authorized, keeping the current path.
+	fn clear_previous(&self, id: &tg::object::Id) {
+		if self.id != *id || !self.has_previous.load(Ordering::Relaxed) {
+			return;
+		}
+		let mut previous = self.previous.lock().unwrap();
+		previous.clear();
+		self.has_previous.store(false, Ordering::Relaxed);
+	}
+
+	/// Determine whether this authority is known to have been authorized, through its own proof or its current path.
+	fn authorized(&self) -> bool {
+		self.proven.load(Ordering::Relaxed) || self.expires_at.load(Ordering::Relaxed) != i64::MIN
+	}
+
+	/// Get the parents of every path that reached this authority.
+	fn parents(&self) -> Vec<Arc<Self>> {
+		let mut parents = self.previous.lock().unwrap().clone();
+		parents.extend(self.parent());
+		parents
+	}
+
+	/// Authorize this authority through the path that reached another authority for the same object, unless this authority is proven or that path passes through it.
 	fn adopt(&self, incoming: &Self) {
-		if std::ptr::eq(self, incoming) {
+		if std::ptr::eq(self, incoming) || self.proven.load(Ordering::Relaxed) {
 			return;
 		}
 		let Some(parent) = incoming.parent() else {
@@ -3938,7 +4172,21 @@ impl Authority {
 			}
 			link = current.parent();
 		}
-		self.parent.lock().unwrap().replace(parent);
+
+		// Replace the path, and retain the replaced path so that its tokens still apply unless the new path is known to be authorized.
+		if let Some(replaced) = self.parent.lock().unwrap().replace(parent.clone())
+			&& !Arc::ptr_eq(&replaced, &parent)
+			&& !parent.authorized()
+		{
+			let mut previous = self.previous.lock().unwrap();
+			if !previous
+				.iter()
+				.any(|existing| Arc::ptr_eq(existing, &replaced))
+			{
+				previous.push(replaced);
+				self.has_previous.store(true, Ordering::Relaxed);
+			}
+		}
 		self.expires_at.store(i64::MIN, Ordering::Relaxed);
 	}
 }
@@ -3946,17 +4194,17 @@ impl Authority {
 impl Authorizations {
 	/// Remove the expired tokens and authorizations once the retained tokens have doubled since the last pruning.
 	fn prune(&mut self, now: i64) {
-		let count = self.expirations.len() + self.tokens.len();
+		let count = self.expirations.len() + self.nodes.len() + self.tokens.len();
 		if count < self.pruned.saturating_mul(2).max(1024) {
 			return;
 		}
 		self.expirations.retain(|_, expires_at| *expires_at >= now);
+		self.nodes.retain(|_, expires_at| *expires_at >= now);
 		for tokens in self.tokens.values_mut() {
 			Self::retain_unexpired(tokens, now);
 		}
 		self.tokens.retain(|_, tokens| !tokens.is_empty());
-		Self::retain_unexpired(&mut self.syncs, now);
-		self.pruned = self.expirations.len() + self.tokens.len();
+		self.pruned = self.expirations.len() + self.nodes.len() + self.tokens.len();
 	}
 
 	fn retain_unexpired(tokens: &mut tg::authorization::Tokens, now: i64) {
@@ -4118,8 +4366,11 @@ impl Nodes {
 		}
 		let authority = Authority {
 			expires_at: AtomicI64::new(i64::MIN),
+			has_previous: AtomicBool::new(false),
 			id: id.clone().into(),
 			parent: Mutex::new(None),
+			previous: Mutex::new(Vec::new()),
+			proven: AtomicBool::new(false),
 		};
 		ArtifactState {
 			authority: Arc::new(authority),
@@ -4498,9 +4749,9 @@ impl tangram_server_vfs_core::Provider for Weak {
 			.unwrap_or_default()
 	}
 
-	fn seed_tokens(&self, tokens: &tg::authorization::Tokens) {
+	fn seed_tokens(&self, id: &tg::Id, tokens: &tg::authorization::Tokens) {
 		if let Some(provider) = self.upgrade() {
-			provider.seed_tokens(tokens);
+			provider.seed_tokens(id, tokens);
 		}
 	}
 
@@ -4721,7 +4972,10 @@ fn named_node_error(error: &tg::Error) -> std::io::Error {
 mod tests {
 	use {
 		super::{ArtifactState, Authority, Nodes, Provider},
-		std::sync::{Arc, Mutex, atomic::AtomicI64},
+		std::sync::{
+			Arc, Mutex,
+			atomic::{AtomicBool, AtomicI64, Ordering},
+		},
 		tangram_client::prelude::*,
 		tangram_vfs as vfs,
 	};
@@ -4897,12 +5151,61 @@ mod tests {
 		assert!(source.authority.parent().is_none());
 	}
 
+	#[test]
+	fn a_proven_authority_does_not_adopt_a_path() {
+		let source = artifact(b"source");
+		let child = artifact(b"child");
+		child.authority.proven.store(true, Ordering::Relaxed);
+		let incoming = Provider::artifact(file_id(b"child"), &source.authority);
+		child.authority.adopt(&incoming.authority);
+		assert!(child.authority.parents().is_empty());
+	}
+
+	#[test]
+	fn adopting_an_authorized_path_does_not_retain_the_replaced_path() {
+		let first = artifact(b"first");
+		let second = artifact(b"second");
+		second
+			.authority
+			.expires_at
+			.store(i64::MAX, Ordering::Relaxed);
+		let child = Provider::artifact(file_id(b"child"), &first.authority);
+		let incoming = Provider::artifact(file_id(b"child"), &second.authority);
+		child.authority.adopt(&incoming.authority);
+		let parents = child.authority.parents();
+		assert_eq!(parents.len(), 1);
+		assert!(Arc::ptr_eq(&parents[0], &second.authority));
+	}
+
+	#[test]
+	fn adopting_a_path_retains_the_replaced_path() {
+		let first = artifact(b"first");
+		let second = artifact(b"second");
+		let child = Provider::artifact(file_id(b"child"), &first.authority);
+		let incoming = Provider::artifact(file_id(b"child"), &second.authority);
+		child.authority.adopt(&incoming.authority);
+		assert!(Arc::ptr_eq(
+			&child.authority.parent().unwrap(),
+			&second.authority
+		));
+		let parents = child.authority.parents();
+		assert_eq!(parents.len(), 2);
+		assert!(
+			parents
+				.iter()
+				.any(|parent| Arc::ptr_eq(parent, &first.authority))
+		);
+	}
+
 	fn artifact(bytes: &[u8]) -> ArtifactState {
 		let id = file_id(bytes);
 		let authority = Authority {
 			expires_at: AtomicI64::new(i64::MIN),
+			has_previous: AtomicBool::new(false),
 			id: id.clone().into(),
 			parent: Mutex::new(None),
+			previous: Mutex::new(Vec::new()),
+			proven: AtomicBool::new(false),
 		};
 		ArtifactState {
 			authority: Arc::new(authority),
