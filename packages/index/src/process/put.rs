@@ -70,7 +70,7 @@ pub struct Arg {
 
 	/// Register sandbox membership during verified process initialization; ordinary writes leave this unset.
 	#[tangram_serialize(id = 9)]
-	pub sandbox: Option<tg::sandbox::Id>,
+	pub sandbox: Option<Sandbox>,
 
 	#[tangram_serialize(id = 10)]
 	pub storage: Set,
@@ -80,6 +80,18 @@ pub struct Arg {
 
 	#[tangram_serialize(id = 12)]
 	pub touched_at: i64,
+}
+
+/// The sandbox in which a process registers its membership.
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub enum Sandbox {
+	/// An existing sandbox.
+	#[tangram_serialize(id = 0)]
+	Id(tg::sandbox::Id),
+
+	/// A sandbox to put before the process.
+	#[tangram_serialize(id = 1)]
+	Put(crate::sandbox::put::Arg),
 }
 
 impl Arg {
@@ -200,6 +212,16 @@ impl Arg {
 			error_objects: self.error.is_some(),
 			log_objects: self.log.is_some(),
 			output_objects: self.output.is_some(),
+		}
+	}
+}
+
+impl Sandbox {
+	#[must_use]
+	pub fn id(&self) -> &tg::sandbox::Id {
+		match self {
+			Self::Id(id) => id,
+			Self::Put(arg) => &arg.id,
 		}
 	}
 }

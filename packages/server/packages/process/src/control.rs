@@ -590,6 +590,10 @@ impl Component {
 		let location = tg::Location::Local(tg::location::Local {
 			region: session.server.config.region.clone(),
 		});
+		let sandbox = match sandbox {
+			Some(arg) => tangram_index::process::put::Sandbox::Put(arg),
+			None => tangram_index::process::put::Sandbox::Id(sandbox_id.clone()),
+		};
 		let mut items = vec![tangram_index::batch::Item::PutProcess(
 			tangram_index::process::put::Arg {
 				account,
@@ -614,15 +618,12 @@ impl Component {
 				parent: parent.clone(),
 				permissions: Vec::new(),
 				principal: tg::Principal::Process(id.clone()),
-				sandbox: Some(sandbox_id.clone()),
+				sandbox: Some(sandbox),
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: session.server.config.process.time_to_touch,
 				touched_at,
 			},
 		)];
-		if let Some(sandbox) = sandbox {
-			items.insert(0, tangram_index::batch::Item::PutSandbox(sandbox));
-		}
 		let permission_arg =
 			Self::create_process_sandbox_permission_arg(session, &id, sandbox_id, touched_at)?;
 		items.push(tangram_index::batch::Item::PutPermission(permission_arg));
