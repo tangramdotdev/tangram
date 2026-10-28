@@ -4,18 +4,33 @@ use tangram_client::prelude::*;
 pub struct Arg {
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub account: Option<crate::usage::Account>,
+
+	/// The captures to put after the tag, which check the tag's version.
+	#[tangram_serialize(
+		default,
+		id = 9,
+		skip_serializing_if = "crate::permission::capture::Captures::is_empty"
+	)]
+	pub captures: crate::permission::capture::Captures,
+
 	#[tangram_serialize(id = 0)]
 	pub id: tg::tag::Id,
+
 	#[tangram_serialize(id = 2)]
 	pub name: String,
+
 	#[tangram_serialize(id = 3)]
 	pub parent: Option<tg::Id>,
+
 	#[tangram_serialize(id = 5)]
 	pub specifier: tg::Specifier,
+
 	#[tangram_serialize(id = 1)]
 	pub target: tg::Either<tg::object::Id, tg::process::Id>,
+
 	#[tangram_serialize(id = 8)]
 	pub touched_at: i64,
+
 	#[tangram_serialize(id = 7)]
 	pub version: String,
 }

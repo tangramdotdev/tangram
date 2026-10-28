@@ -174,6 +174,7 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 	let id = tg::tag::Id::new();
 	let mut tag = tangram_index::tag::put::Arg {
 		account: None,
+		captures: tangram_index::permission::capture::Captures::default(),
 		id: id.clone(),
 		name: "test".into(),
 		parent: None,

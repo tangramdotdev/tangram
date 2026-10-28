@@ -8,7 +8,7 @@ pub use tangram_index::verify::Outcome;
 
 /// The authorization component.
 pub trait Component: crate::component::Lifecycle {
-	fn create_capture_permissions_batch_items(
+	fn create_captures(
 		&self,
 		session: &Session,
 		resource: tg::Id,
@@ -16,9 +16,9 @@ pub trait Component: crate::component::Lifecycle {
 		roots: Vec<tg::Referent<tg::Id>>,
 		principal: tg::Principal,
 		created_at: i64,
-	) -> tg::Result<Vec<tangram_index::batch::Item>>;
+	) -> tg::Result<tangram_index::permission::capture::Captures>;
 
-	fn create_capture_permissions_batch_items_with_permissions(
+	fn create_captures_with_permissions(
 		&self,
 		session: &Session,
 		resource: tg::Id,
@@ -26,7 +26,7 @@ pub trait Component: crate::component::Lifecycle {
 		roots: Vec<(tg::Referent<tg::Id>, tg::authorization::permission::Set)>,
 		principal: tg::Principal,
 		created_at: i64,
-	) -> tg::Result<Vec<tangram_index::batch::Item>>;
+	) -> tg::Result<tangram_index::permission::capture::Captures>;
 
 	fn add_permanent_token_to_object_reference<'a>(
 		&'a self,

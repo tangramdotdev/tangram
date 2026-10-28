@@ -2,6 +2,19 @@ use tangram_client::prelude::*;
 
 pub mod enqueue;
 
+/// The permissions, delegations, and capture that grant a resource a principal's authority over a set of roots.
+#[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct Captures {
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
+	pub delegations: Vec<crate::delegation::put::Arg>,
+
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Vec::is_empty")]
+	pub enqueues: Vec<enqueue::Arg>,
+
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
+	pub permissions: Vec<crate::permission::put::Arg>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Entry {
 	pub arg: enqueue::Arg,
@@ -35,4 +48,28 @@ pub fn validate_permissions(
 		));
 	}
 	Ok(())
+}
+
+impl Captures {
+	#[must_use]
+	pub fn is_empty(&self) -> bool {
+		self.delegations.is_empty() && self.enqueues.is_empty() && self.permissions.is_empty()
+	}
+
+	/// Convert the captures into independent batch items, for a resource that is already indexed.
+	pub fn into_items(self) -> impl Iterator<Item = crate::batch::Item> {
+		let permissions = self
+			.permissions
+			.into_iter()
+			.map(crate::batch::Item::PutPermission);
+		let delegations = self
+			.delegations
+			.into_iter()
+			.map(crate::batch::Item::PutDelegation);
+		let enqueues = self
+			.enqueues
+			.into_iter()
+			.map(crate::batch::Item::EnqueuePermissionCapture);
+		permissions.chain(delegations).chain(enqueues)
+	}
 }

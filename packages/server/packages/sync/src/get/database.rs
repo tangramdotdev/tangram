@@ -1356,19 +1356,46 @@ impl Component {
 					)
 				},
 				tg::sync::PutNodeMessage::Tag(message) => {
-					let (_, version) = tag_permissions
+					let (permissions, version) = tag_permissions
 						.get(&message.id)
 						.cloned()
 						.ok_or_else(|| tg::error!("missing the tag permissions"))?;
 					let target = Self::sync_get_database_tag_target(&message.target)?;
+					let mut proven =
+						tangram_server_authorization_common::permission_capture_permissions(
+							&message.target,
+						)?
+						.empty_like();
+					for permission in permissions {
+						proven.insert(permission.into());
+					}
+					let resource = tg::Referent::with_node_and_local_tokens(
+						message.target.clone(),
+						message.tokens.clone(),
+					);
+					let root = (resource, proven);
+					let destination = message.id.clone().into();
+					let captures = session
+						.server
+						.components
+						.authorization
+						.create_captures_with_permissions(
+							session,
+							destination,
+							Some(version.clone()),
+							vec![root],
+							session.context.principal.clone(),
+							touched_at,
+						)?;
 					tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
-						touched_at,
 						account: tag_accounts.get(&message.id).cloned().flatten(),
+						captures,
 						id: message.id.clone(),
 						name: message.name.clone(),
 						parent: message.parent.clone(),
 						specifier: message.specifier.clone(),
 						target,
+						touched_at,
 						version,
 					})
 				},
@@ -1381,39 +1408,6 @@ impl Component {
 				},
 			};
 			batch.items.push(item);
-			if let tg::sync::PutNodeMessage::Tag(message) = node {
-				let (permissions, version) = tag_permissions
-					.get(&message.id)
-					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
-				let mut proven =
-					tangram_server_authorization_common::permission_capture_permissions(
-						&message.target,
-					)?
-					.empty_like();
-				for permission in permissions {
-					proven.insert((*permission).into());
-				}
-				let resource = tg::Referent::with_node_and_local_tokens(
-					message.target.clone(),
-					message.tokens.clone(),
-				);
-				let root = (resource, proven);
-				let destination = message.id.clone().into();
-				batch.items.extend(
-					session
-						.server
-						.components
-						.authorization
-						.create_capture_permissions_batch_items_with_permissions(
-							session,
-							destination,
-							Some(version.clone()),
-							vec![root],
-							session.context.principal.clone(),
-							touched_at,
-						)?,
-				);
-			}
 
 			if created.contains(&id)
 				&& let Some(arg) = Self::sync_get_create_permission(session, &id, None)?
