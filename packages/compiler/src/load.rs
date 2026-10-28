@@ -34,27 +34,45 @@ pub fn module(
 	text: &str,
 	language: Option<tg::module::load::Language>,
 ) -> tg::Result<String> {
+	let Some(language) = generated_language(module, language)? else {
+		return Ok(text.to_owned());
+	};
+	let interface = crate::interface::module(module, text)
+		.map_err(|error| tg::error!(!error, "failed to discover the cross-language exports"))?;
+	let output = generate(&interface, text, language);
+	Ok(output)
+}
+
+/// Get the language of the module that a consuming language loads in place of a module, or `None` when the consuming language loads the module as written.
+#[cfg(all(feature = "javascript", feature = "python"))]
+pub(crate) fn generated_language(
+	module: &tg::module::Data,
+	language: Option<tg::module::load::Language>,
+) -> tg::Result<Option<tg::module::load::Language>> {
 	match (language, module.kind) {
 		(Some(tg::module::load::Language::JavaScript), tg::module::Kind::Python)
 		| (
 			Some(tg::module::load::Language::Python),
 			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
-		) => (),
+		) => Ok(language),
 		(Some(tg::module::load::Language::Python), tg::module::Kind::TypeScriptDeclaration) => {
-			return Err(tg::error!("cannot execute a declaration module in python"));
+			Err(tg::error!("cannot execute a declaration module in python"))
 		},
-		_ => return Ok(text.to_owned()),
+		_ => Ok(None),
 	}
-	let interface = crate::interface::module(module, text)
-		.map_err(|error| tg::error!(!error, "failed to discover the cross-language exports"))?;
+}
 
-	// Generate the module.
-	let output = match language.unwrap() {
-		tg::module::load::Language::JavaScript => typescript_module(&interface, text),
-		tg::module::load::Language::Python => python_module(&interface, text),
-	};
-
-	Ok(output)
+/// Generate a module in a language that exports a command for each export of an interface.
+#[cfg(all(feature = "javascript", feature = "python"))]
+pub(crate) fn generate(
+	interface: &tg::Interface,
+	text: &str,
+	language: tg::module::load::Language,
+) -> String {
+	match language {
+		tg::module::load::Language::JavaScript => typescript_module(interface, text),
+		tg::module::load::Language::Python => python_module(interface, text),
+	}
 }
 
 #[cfg(not(all(feature = "javascript", feature = "python")))]

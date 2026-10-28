@@ -21,6 +21,10 @@ pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface
 	let _ = text;
 
 	// Discover the exports.
+	#[cfg_attr(
+		not(any(feature = "javascript", feature = "python")),
+		expect(unused_variables)
+	)]
 	let exports = match module.kind {
 		tg::module::Kind::JavaScript | tg::module::Kind::TypeScript => {
 			#[cfg(feature = "javascript")]

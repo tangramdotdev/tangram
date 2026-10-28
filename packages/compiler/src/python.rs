@@ -58,17 +58,37 @@ impl Service {
 			+ 'static,
 	{
 		let encoding = *compiler.position_encoding.read().unwrap();
-		self.run(compiler, move |database| {
+		let modules = vec![module.clone()];
+		self.run(compiler, modules, move |database| {
 			database.query(&module, sync, |database, file| f(database, file, encoding))
 		})
 	}
 
-	/// Run a function with the database, after updating it with the open documents.
-	fn run<T, F>(&self, compiler: &Compiler, f: F) -> BoxFuture<'static, tg::Result<T>>
+	/// Run a function with the database, after updating it with the open documents and preparing the interfaces of the modules in other languages that the modules and the open documents load.
+	fn run<T, F>(
+		&self,
+		compiler: &Compiler,
+		modules: Vec<tg::module::Data>,
+		f: F,
+	) -> BoxFuture<'static, tg::Result<T>>
 	where
 		T: Send + 'static,
 		F: FnOnce(&mut db::Database) -> tg::Result<T> + Send + 'static,
 	{
+		#[cfg(feature = "javascript")]
+		let prepare = {
+			let compiler = compiler.clone();
+			let mut modules = modules;
+			modules.extend(compiler.py_documents().into_values().map(|document| document.module));
+			modules.retain(|module| module.kind == tg::module::Kind::Python);
+			async move { compiler.prepare_interfaces(modules).await }
+		};
+		#[cfg(not(feature = "javascript"))]
+		let prepare = {
+			drop(modules);
+			std::future::ready(())
+		};
+
 		// Create the job, which sends its output.
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let job: Job = Box::new(move |compiler, database| {
@@ -85,11 +105,11 @@ impl Service {
 			sender.send(output).ok();
 		});
 
-		// Send the job to the worker.
-		let result = self.send(compiler, job);
-
+		// Prepare the interfaces, and then send the job to the worker.
+		let compiler = compiler.clone();
 		async move {
-			result?;
+			prepare.await;
+			compiler.python.send(&compiler, job)?;
 			receiver
 				.await
 				.map_err(|error| tg::error!(!error, "failed to receive the python output"))?
@@ -201,7 +221,8 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::check::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::check::Output>> {
-		compiler.python.run(compiler, move |database| {
+		let modules = arg.modules.clone();
+		compiler.python.run(compiler, modules, move |database| {
 			let diagnostics = database
 				.check(arg.modules)?
 				.iter()
@@ -294,7 +315,8 @@ impl crate::backend::Backend for Backend {
 		arg: crate::diagnostics::DocumentArg,
 	) -> BoxFuture<'static, tg::Result<crate::diagnostics::DocumentOutput>> {
 		let encoding = *compiler.position_encoding.read().unwrap();
-		compiler.python.run(compiler, move |database| {
+		let modules = arg.modules.clone();
+		compiler.python.run(compiler, modules, move |database| {
 			database.document_diagnostics(arg.modules, encoding)
 		})
 	}
@@ -478,7 +500,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::workspace_symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::workspace_symbols::Output>> {
 		let encoding = *compiler.position_encoding.read().unwrap();
-		compiler.python.run(compiler, move |database| {
+		compiler.python.run(compiler, Vec::new(), move |database| {
 			database.sync_project(None)?;
 			database.workspace_symbols(&arg.query, encoding)
 		})

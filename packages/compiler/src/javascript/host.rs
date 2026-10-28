@@ -133,7 +133,10 @@ impl Host {
 		let revision = self
 			.compiler
 			.main_runtime_handle
-			.block_on(self.compiler.get_module_version(module))
+			.block_on(
+				self.compiler
+					.get_module_version_with_language(module, tg::module::load::Language::JavaScript),
+			)
 			.ok();
 		let lockfile = self
 			.compiler

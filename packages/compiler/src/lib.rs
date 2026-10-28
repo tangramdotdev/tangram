@@ -19,6 +19,9 @@ use {
 };
 
 mod backend;
+#[cfg(all(feature = "javascript", feature = "python"))]
+#[cfg_attr(not(any(feature = "tsrs", feature = "ty")), expect(dead_code))]
+mod interfaces;
 #[cfg(feature = "tsrs")]
 mod javascript;
 #[cfg(feature = "javascript")]
@@ -80,6 +83,10 @@ pub struct State {
 
 	/// The Tangram instance.
 	instance: tg::instance::dynamic::Instance,
+
+	/// The interfaces of the modules that the checkers load from other languages.
+	#[cfg(all(feature = "javascript", feature = "python"))]
+	interfaces: interfaces::Interfaces,
 
 	/// The JavaScript service.
 	#[cfg(feature = "tsrs")]
@@ -157,6 +164,9 @@ impl Compiler {
 			documents,
 
 			instance,
+
+			#[cfg(all(feature = "javascript", feature = "python"))]
+			interfaces: interfaces::Interfaces::default(),
 
 			#[cfg(feature = "tsrs")]
 			javascript: javascript::Service::new(),
@@ -1315,6 +1325,26 @@ impl Compiler {
 
 	/// Load a module for a runtime or checker.
 	pub async fn load_module_with_language(
+		&self,
+		module: &tg::module::Data,
+		language: Option<tg::module::load::Language>,
+	) -> tg::Result<String> {
+		// Generate a module in another language from the module's extracted interface, if there is one.
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		if let Some(language) = load::generated_language(module, language)? {
+			let text = self.load_module_inner(module, None).await?;
+			let output = if let Some(entry) = self.try_get_interface(module) {
+				load::generate(&entry.interface, &text, language)
+			} else {
+				load::module(module, &text, Some(language))?
+			};
+			return Ok(output);
+		}
+
+		self.load_module_inner(module, language).await
+	}
+
+	async fn load_module_inner(
 		&self,
 		module: &tg::module::Data,
 		language: Option<tg::module::load::Language>,

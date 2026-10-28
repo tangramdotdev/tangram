@@ -7,6 +7,30 @@ use {
 };
 
 impl Compiler {
+	/// Get the version of a module as a checker in a language loads it, which for a module in another language includes its extracted interface.
+	pub async fn get_module_version_with_language(
+		&self,
+		module: &tg::module::Data,
+		language: tg::module::load::Language,
+	) -> tg::Result<u64> {
+		let version = self.get_module_version(module).await?;
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		if crate::load::generated_language(module, Some(language))
+			.ok()
+			.flatten()
+			.is_some()
+		{
+			use std::hash::{Hash as _, Hasher as _};
+			let interface = self.try_get_interface(module).map(|entry| entry.version);
+			let mut hasher = fnv::FnvHasher::default();
+			(version, interface).hash(&mut hasher);
+			return Ok(hasher.finish());
+		}
+		#[cfg(not(all(feature = "javascript", feature = "python")))]
+		let _ = language;
+		Ok(version)
+	}
+
 	pub async fn get_module_version(&self, module: &tg::module::Data) -> tg::Result<u64> {
 		// If there is an open document, then return its version.
 		let key = Key::new(module);

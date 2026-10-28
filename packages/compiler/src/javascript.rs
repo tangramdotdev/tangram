@@ -66,25 +66,52 @@ impl Service {
 		T: Send + 'static,
 		F: FnOnce(&mut Project) -> tg::Result<T> + Send + 'static,
 	{
-		self.job(compiler, move |compiler, project| {
+		let compiler = compiler.clone();
+		async move {
 			// Add the open documents to the modules.
 			let mut modules = modules;
-			modules.extend(
-				compiler
-					.main_runtime_handle
-					.block_on(compiler.list_documents()),
-			);
+			modules.extend(compiler.list_documents().await);
 
-			// Update the project, or create it.
-			let project = if let Some(project) = project {
-				project.update(modules)?;
-				project
-			} else {
-				project.insert(Project::new(compiler, modules)?)
-			};
+			// Prepare the interfaces of the modules in other languages that the modules load.
+			Self::prepare(&compiler, &modules).await;
 
-			f(project)
-		})
+			// Update the project, or create it, and run the function.
+			compiler
+				.javascript
+				.job(&compiler, move |compiler, project| {
+					let project = if let Some(project) = project {
+						project.update(modules)?;
+						project
+					} else {
+						project.insert(Project::new(compiler, modules)?)
+					};
+					f(project)
+				})
+				.await
+		}
+		.boxed()
+	}
+
+	/// Prepare the interfaces of the modules in other languages that JavaScript and TypeScript modules load.
+	async fn prepare(compiler: &Compiler, modules: &[tg::module::Data]) {
+		#[cfg(feature = "python")]
+		{
+			let modules = modules
+				.iter()
+				.filter(|module| {
+					matches!(
+						module.kind,
+						tg::module::Kind::JavaScript
+							| tg::module::Kind::TypeScript
+							| tg::module::Kind::TypeScriptDeclaration
+					)
+				})
+				.cloned()
+				.collect();
+			compiler.prepare_interfaces(modules).await;
+		}
+		#[cfg(not(feature = "python"))]
+		let _ = (compiler, modules);
 	}
 
 	/// Run a function on the worker thread and return its output.
@@ -200,9 +227,15 @@ impl crate::backend::Backend for Backend {
 		arg: crate::check::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::check::Output>> {
 		// Check with a separate program rather than the editor project.
-		compiler
-			.javascript
-			.job(compiler, move |compiler, _| check::handle(compiler, arg))
+		let compiler = compiler.clone();
+		async move {
+			Service::prepare(&compiler, &arg.modules).await;
+			compiler
+				.javascript
+				.job(&compiler, move |compiler, _| check::handle(compiler, arg))
+				.await
+		}
+		.boxed()
 	}
 
 	fn code_action(

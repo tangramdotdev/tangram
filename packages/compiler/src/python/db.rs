@@ -332,33 +332,34 @@ impl Database {
 	}
 
 	fn version(&self, module: &tg::module::Data) -> Option<u64> {
-		if let Some(document) = self.documents.get(&Key::new(module)) {
+		if module.kind == tg::module::Kind::Python
+			&& let Some(document) = self.documents.get(&Key::new(module))
+		{
 			return Some(document.revision);
 		}
 		self.compiler
 			.main_runtime_handle
-			.block_on(self.compiler.get_module_version(module))
+			.block_on(
+				self.compiler
+					.get_module_version_with_language(module, tg::module::load::Language::Python),
+			)
 			.ok()
 	}
 
 	fn load(&self, module: &tg::module::Data) -> tg::Result<String> {
-		if let Some(document) = self.documents.get(&Key::new(module)) {
-			return crate::load::module(
-				module,
-				document.text.as_ref().unwrap(),
-				Some(tg::module::load::Language::Python),
-			);
+		if module.kind == tg::module::Kind::Python
+			&& let Some(document) = self.documents.get(&Key::new(module))
+		{
+			return Ok(document.text.clone().unwrap());
 		}
-		let arg = tg::module::load::Arg {
-			language: Some(tg::module::load::Language::Python),
-			module: module.clone(),
-		};
 		let text = self
 			.compiler
 			.main_runtime_handle
-			.block_on(self.compiler.instance.load_module(arg))
-			.map_err(|error| tg::error!(!error, %module, "failed to load the python module"))?
-			.text;
+			.block_on(
+				self.compiler
+					.load_module_with_language(module, Some(tg::module::load::Language::Python)),
+			)
+			.map_err(|error| tg::error!(!error, %module, "failed to load the python module"))?;
 		Ok(text)
 	}
 
