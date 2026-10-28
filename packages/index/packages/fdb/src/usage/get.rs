@@ -16,6 +16,7 @@ impl Index {
 		account: &tangram_index::usage::Account,
 		period: tangram_index::usage::Period,
 		now: jiff::Timestamp,
+		delta_time_to_live: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<tangram_index::usage::Aggregate, fdb::FdbError>> {
 		let started =
@@ -62,10 +63,17 @@ impl Index {
 		let mut aggregate = tangram_index::usage::PartitionAggregate::default();
 		let current_hour = now.as_second().div_euclid(60 * 60) * 60 * 60;
 		let end_hour = period.end().as_second().min(current_hour);
+		let delta_cutoff = crate::usage::aggregate::delta_cutoff(now, delta_time_to_live)?;
 		for partition in 0..partition_total {
 			crate::propagate!(
 				Self::aggregate_usage_for_account_with_transaction(
-					txn, subspace, account, partition, end_hour, None,
+					txn,
+					subspace,
+					account,
+					partition,
+					end_hour,
+					delta_cutoff,
+					None,
 				)
 				.await
 			);

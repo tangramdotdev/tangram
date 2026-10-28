@@ -30,12 +30,21 @@ impl Index {
 		account: &index::usage::Account,
 		period: index::usage::Period,
 		now: jiff::Timestamp,
+		delta_time_to_live: std::time::Duration,
 	) -> tg::Result<index::usage::Aggregate> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_usage(account, period, now).await,
+			Self::Fdb(index) => {
+				index
+					.get_usage(account, period, now, delta_time_to_live)
+					.await
+			},
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_usage(account, period, now).await,
+			Self::Lmdb(index) => {
+				index
+					.get_usage(account, period, now, delta_time_to_live)
+					.await
+			},
 		}
 	}
 
@@ -79,8 +88,10 @@ impl index::usage::Index for Index {
 		account: &index::usage::Account,
 		period: index::usage::Period,
 		now: jiff::Timestamp,
+		delta_time_to_live: std::time::Duration,
 	) -> tg::Result<index::usage::Aggregate> {
-		self.get_usage(account, period, now).await
+		self.get_usage(account, period, now, delta_time_to_live)
+			.await
 	}
 
 	async fn start_usage(&self, at: jiff::Timestamp) -> tg::Result<()> {

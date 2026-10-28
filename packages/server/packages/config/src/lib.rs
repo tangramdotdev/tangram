@@ -2056,6 +2056,13 @@ impl Usage {
 				"the usage hour time to live must be at least 24 hours"
 			));
 		}
+
+		// Retain each hour total for as long as a late delta can recompute an hour of its day, because recomputing the day reads every hour total of the day.
+		if self.hour_time_to_live < self.delta_time_to_live + Duration::from_hours(23) {
+			return Err(tg::error!(
+				"the usage hour time to live must be at least 23 hours longer than the usage delta time to live"
+			));
+		}
 		if self.day_time_to_live < Duration::from_hours(31 * 24) {
 			return Err(tg::error!(
 				"the usage day time to live must be at least 31 days"

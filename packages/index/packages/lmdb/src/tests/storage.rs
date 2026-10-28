@@ -253,7 +253,12 @@ async fn get_usage(
 	let period =
 		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
 
-	index.get_usage(account, period, now).await.unwrap()
+	// Read with a delta time to live that spans from the deltas' synthetic times to the current time, so that their later deltas are not dropped as late.
+	let delta_time_to_live = std::time::Duration::from_secs(u64::from(u32::MAX));
+	index
+		.get_usage(account, period, now, delta_time_to_live)
+		.await
+		.unwrap()
 }
 
 #[tokio::test]
@@ -1424,7 +1429,15 @@ async fn tag_storage_follows_captured_object_permissions() {
 				now,
 			);
 			assert_eq!(
-				index.get_usage(&account, period, now).await.unwrap(),
+				index
+					.get_usage(
+						&account,
+						period,
+						now,
+						crate::tests::USAGE_DELTA_TIME_TO_LIVE
+					)
+					.await
+					.unwrap(),
 				tangram_index::usage::Aggregate::default()
 			);
 		}
@@ -1556,7 +1569,15 @@ async fn tag_storage_follows_captured_process_permissions() {
 				tangram_index::usage::PeriodKind::Hour,
 				now,
 			);
-			let usage = index.get_usage(&account, period, now).await.unwrap();
+			let usage = index
+				.get_usage(
+					&account,
+					period,
+					now,
+					crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+				)
+				.await
+				.unwrap();
 			let (object_count, object_size, process_count) = match case {
 				0 => (0, 0, 1),
 				1 => (2, 5, 0),
@@ -1589,7 +1610,15 @@ async fn tag_storage_follows_captured_process_permissions() {
 				now,
 			);
 			assert_eq!(
-				index.get_usage(&account, period, now).await.unwrap(),
+				index
+					.get_usage(
+						&account,
+						period,
+						now,
+						crate::tests::USAGE_DELTA_TIME_TO_LIVE
+					)
+					.await
+					.unwrap(),
 				tangram_index::usage::Aggregate::default()
 			);
 		}
@@ -1667,7 +1696,15 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 	let now = jiff::Timestamp::new(created_at + 2 * 3600, 0).unwrap();
 	let period =
 		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 1);
 
@@ -1684,7 +1721,15 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 		.unwrap()
 		.count != 0
 	{}
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.object_count, 2);
 	assert_eq!(usage.object_size, 3);
 }
@@ -1940,7 +1985,15 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 	let now = jiff::Timestamp::new(created_at, 0).unwrap();
 	let period =
 		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.object_count, 2);
 	assert_eq!(usage.object_size, 5);
 	assert_eq!(usage.process_count, 0);
@@ -1964,7 +2017,15 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 	let now = jiff::Timestamp::new(created_at + 2 * 3600, 0).unwrap();
 	let period =
 		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 3);
 	assert_eq!(usage.process_count, 0);
@@ -2128,7 +2189,15 @@ async fn tag_storage_expands_permissions_during_propagation() {
 	let now = jiff::Timestamp::new(7200, 0).unwrap();
 	let period =
 		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.object_count, 7);
 	assert_eq!(usage.object_size, 28);
 	assert_eq!(usage.process_count, 7);
@@ -2403,7 +2472,15 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 	let now = jiff::Timestamp::new(18000, 0).unwrap();
 	let period =
 		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(
 		usage.object_count,
 		if processes {

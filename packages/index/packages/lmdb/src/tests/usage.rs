@@ -39,6 +39,7 @@ async fn aggregate(index: &Index, now: jiff::Timestamp) {
 		let output = index
 			.aggregate_usage(tangram_index::usage::aggregate::Arg {
 				batch_size: 1_000,
+				delta_time_to_live: crate::tests::USAGE_DELTA_TIME_TO_LIVE,
 				now,
 				partition_end: 1,
 				partition_start: 0,
@@ -131,12 +132,22 @@ async fn usage_start_time_is_initialized_once() {
 
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let error = index
-		.get_usage(&account, hour(0), second)
+		.get_usage(
+			&account,
+			hour(0),
+			second,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
 		.await
 		.unwrap_err();
 	assert!(error.to_string().contains("usage is unavailable"));
 	let usage = index
-		.get_usage(&account, hour(60 * 60), second)
+		.get_usage(
+			&account,
+			hour(60 * 60),
+			second,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
 		.await
 		.unwrap();
 	assert_eq!(usage, tangram_index::usage::Aggregate::default());
@@ -196,9 +207,20 @@ async fn usage_unavailability_is_scoped_by_account_and_partition() {
 		.await
 		.unwrap();
 
-	let error = index.get_usage(&account, period, now).await.unwrap_err();
+	let error = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap_err();
 	assert!(error.to_string().contains("usage is unavailable"));
-	let usage = index.get_usage(&other, period, now).await.unwrap();
+	let usage = index
+		.get_usage(&other, period, now, crate::tests::USAGE_DELTA_TIME_TO_LIVE)
+		.await
+		.unwrap();
 	assert_eq!(usage, tangram_index::usage::Aggregate::default());
 	let mut transaction = index.env.write_txn().unwrap();
 	let cutoff = Index::try_get_usage_unavailable_with_transaction(
@@ -322,7 +344,15 @@ async fn aggregates_compute_and_carries_storage_across_empty_hours() {
 	);
 
 	let now = jiff::Timestamp::new(3 * 60 * 60, 0).unwrap();
-	let first = index.get_usage(&account, hour(0), now).await.unwrap();
+	let first = index
+		.get_usage(
+			&account,
+			hour(0),
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(first.sandbox_cpu_consumption, 3);
 	assert_eq!(first.sandbox_memory_consumption, 5);
 	assert_eq!(first.object_count, 1);
@@ -332,7 +362,12 @@ async fn aggregates_compute_and_carries_storage_across_empty_hours() {
 	let period = tangram_index::usage::Period::day("1970-01-01").unwrap();
 	let during_third = jiff::Timestamp::new(2 * 60 * 60 + 1, 0).unwrap();
 	let partial = index
-		.get_usage(&account, period, during_third)
+		.get_usage(
+			&account,
+			period,
+			during_third,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
 		.await
 		.unwrap();
 	assert_eq!(partial.sandbox_cpu_consumption, 3);
@@ -342,7 +377,12 @@ async fn aggregates_compute_and_carries_storage_across_empty_hours() {
 	assert_eq!(partial.sandbox_count, 1);
 
 	let third = index
-		.get_usage(&account, hour(2 * 60 * 60), now)
+		.get_usage(
+			&account,
+			hour(2 * 60 * 60),
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
 		.await
 		.unwrap();
 	assert_eq!(third.sandbox_cpu_consumption, 0);
@@ -359,25 +399,41 @@ async fn aggregates_late_storage_deltas_into_future_hours() {
 	add_delta(
 		&index,
 		&account,
-		1,
+		2 * 60 * 60 + 1,
 		tangram_index::usage::DeltaKind::ObjectCount,
 		1,
 	);
-	let now = jiff::Timestamp::new(3 * 60 * 60, 0).unwrap();
+	let now = jiff::Timestamp::new(3 * 60 * 60 + 30 * 60, 0).unwrap();
 	aggregate(&index, now).await;
-	let period = hour(60 * 60);
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let period = hour(3 * 60 * 60);
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.object_count, 1);
 
 	add_delta(
 		&index,
 		&account,
-		1,
+		2 * 60 * 60 + 2,
 		tangram_index::usage::DeltaKind::ObjectCount,
 		1,
 	);
 	aggregate(&index, now).await;
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.object_count, 2);
 }
 
@@ -423,7 +479,15 @@ async fn aggregates_hourly_storage_gauges_into_a_day() {
 
 	let period = tangram_index::usage::Period::day("1970-01-01").unwrap();
 	let now = jiff::Timestamp::new(24 * 60 * 60, 0).unwrap();
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.sandbox_cpu_consumption, 3);
 	assert_eq!(usage.sandbox_memory_consumption, 0);
 	assert_eq!(usage.object_count, 2);
@@ -455,7 +519,15 @@ async fn aggregates_signed_storage_across_partitions() {
 
 	let period = tangram_index::usage::Period::day("1970-01-01").unwrap();
 	let now = jiff::Timestamp::new(4 * 60 * 60, 0).unwrap();
-	let usage = index.get_usage(&account, period, now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.object_count, 2);
 }
 
@@ -507,7 +579,15 @@ async fn expire_usage_preserves_aggregates_before_deleting_deltas() {
 	);
 	let now = jiff::Timestamp::new(2 * 60 * 60, 0).unwrap();
 	let period = hour(0);
-	let expected = index.get_usage(&account, period, now).await.unwrap();
+	let expected = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	aggregate(&index, now).await;
 	let retained = std::time::Duration::new(365 * 86_400, 0);
 	let arg = tangram_index::usage::expire::Arg {
@@ -522,7 +602,15 @@ async fn expire_usage_preserves_aggregates_before_deleting_deltas() {
 		week_time_to_live: retained,
 	};
 	index.expire_usage(arg.clone()).await.unwrap();
-	let actual = index.get_usage(&account, period, now).await.unwrap();
+	let actual = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(actual, expected);
 
 	let arg = tangram_index::usage::expire::Arg {
@@ -530,17 +618,36 @@ async fn expire_usage_preserves_aggregates_before_deleting_deltas() {
 		..arg
 	};
 	index.expire_usage(arg.clone()).await.unwrap();
-	let actual = index.get_usage(&account, period, now).await.unwrap();
+	let actual = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(actual, expected);
 
 	let now = jiff::Timestamp::new(24 * 60 * 60, 0).unwrap();
 	aggregate(&index, now).await;
 	let arg = tangram_index::usage::expire::Arg { now, ..arg };
 	index.expire_usage(arg).await.unwrap();
-	let error = index.get_usage(&account, period, now).await.unwrap_err();
+	let error = index
+		.get_usage(
+			&account,
+			period,
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap_err();
 	assert!(error.to_string().contains("usage is unavailable"));
 	let day = tangram_index::usage::Period::day("1970-01-01").unwrap();
-	let actual = index.get_usage(&account, day, now).await.unwrap();
+	let actual = index
+		.get_usage(&account, day, now, crate::tests::USAGE_DELTA_TIME_TO_LIVE)
+		.await
+		.unwrap();
 	assert_eq!(actual.object_count, 24);
 }
 
@@ -578,7 +685,12 @@ async fn expire_usage_preserves_a_zero_storage_checkpoint() {
 	index.expire_usage(arg).await.unwrap();
 
 	let usage = index
-		.get_usage(&account, hour(3 * 60 * 60), now)
+		.get_usage(
+			&account,
+			hour(3 * 60 * 60),
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
 		.await
 		.unwrap();
 	assert_eq!(usage, tangram_index::usage::Aggregate::default());
@@ -596,7 +708,15 @@ async fn get_current_usage_does_not_queue_future_aggregation() {
 		1,
 	);
 	let now = jiff::Timestamp::new(1, 0).unwrap();
-	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			hour(0),
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.object_count, 1);
 
 	let transaction = index.env.write_txn().unwrap();
@@ -698,7 +818,15 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		.unwrap();
 
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
-	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			hour(0),
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.sandbox_cpu_consumption, 123);
 	assert_eq!(usage.sandbox_cpu_reservation, 789);
 	assert_eq!(usage.sandbox_memory_consumption, 456);
@@ -746,7 +874,15 @@ async fn records_compute_once_when_destroy_precedes_start() {
 		index.batch(arg).await.unwrap().unwrap();
 	}
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
-	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			hour(0),
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage.sandbox_cpu_consumption, 123);
 	assert_eq!(usage.sandbox_cpu_reservation, 789);
 	assert_eq!(usage.sandbox_memory_consumption, 456);
@@ -820,6 +956,234 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		.unwrap();
 
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
-	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
+	let usage = index
+		.get_usage(
+			&account,
+			hour(0),
+			now,
+			crate::tests::USAGE_DELTA_TIME_TO_LIVE,
+		)
+		.await
+		.unwrap();
 	assert_eq!(usage, tangram_index::usage::Aggregate::default());
+}
+
+const HOUR: i64 = 60 * 60;
+
+/// The time to live configuration used by the usage expiration CLI test.
+fn expire_arg(now: jiff::Timestamp) -> tangram_index::usage::expire::Arg {
+	tangram_index::usage::expire::Arg {
+		batch_size: 1_000,
+		day_time_to_live: std::time::Duration::from_hours(744),
+		delta_time_to_live: std::time::Duration::from_hours(1),
+		hour_time_to_live: std::time::Duration::from_hours(24),
+		month_time_to_live: std::time::Duration::from_hours(744),
+		now,
+		partition_end: 1,
+		partition_start: 0,
+		week_time_to_live: std::time::Duration::from_hours(168),
+	}
+}
+
+async fn expire(index: &Index, now: jiff::Timestamp) {
+	for _ in 0..16 {
+		let output = index.expire_usage(expire_arg(now)).await.unwrap();
+		if output.done {
+			break;
+		}
+	}
+}
+
+fn at(seconds: i64) -> jiff::Timestamp {
+	jiff::Timestamp::new(seconds, 0).unwrap()
+}
+
+/// Read a period's usage, or `None` when it is unavailable.
+async fn usage(
+	index: &Index,
+	account: &tangram_index::usage::Account,
+	period: tangram_index::usage::Period,
+	now: jiff::Timestamp,
+) -> Option<tangram_index::usage::Aggregate> {
+	match index
+		.get_usage(account, period, now, crate::tests::USAGE_DELTA_TIME_TO_LIVE)
+		.await
+	{
+		Ok(usage) => Some(usage),
+		Err(error) if error.to_string().contains("usage is unavailable") => None,
+		Err(error) => panic!("failed to get the usage: {error}"),
+	}
+}
+
+/// Aggregate and expire once per hour from `start` through `end`, as a server polling in real time would.
+async fn step_hourly(index: &Index, start: i64, end: i64) {
+	for hour in start..=end {
+		let now = at(hour * HOUR);
+		aggregate(index, now).await;
+		expire(index, now).await;
+	}
+}
+
+fn day() -> tangram_index::usage::Period {
+	tangram_index::usage::Period::day("1970-01-01").unwrap()
+}
+
+#[tokio::test]
+async fn expiration_before_aggregation_after_a_jump_matches_incremental_aggregation() {
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let now = at(25 * HOUR);
+
+	// Aggregate and expire hourly, as the reference.
+	let (_reference_dir, reference) = new_index();
+	add_delta(
+		&reference,
+		&account,
+		1,
+		tangram_index::usage::DeltaKind::ObjectCount,
+		2,
+	);
+	step_hourly(&reference, 1, 25).await;
+	let expected = usage(&reference, &account, day(), now).await.unwrap();
+	assert_eq!(expected.object_count, 48);
+
+	// Jump past the delta and hour time to live, and expire before aggregating.
+	let (_dir, index) = new_index();
+	add_delta(
+		&index,
+		&account,
+		1,
+		tangram_index::usage::DeltaKind::ObjectCount,
+		2,
+	);
+	expire(&index, now).await;
+	aggregate(&index, now).await;
+	expire(&index, now).await;
+	let actual = usage(&index, &account, day(), now).await.unwrap();
+	assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn aggregation_before_expiration_after_a_jump_matches_incremental_aggregation() {
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let now = at(25 * HOUR);
+
+	// Aggregate and expire hourly, as the reference.
+	let (_reference_dir, reference) = new_index();
+	add_delta(
+		&reference,
+		&account,
+		1,
+		tangram_index::usage::DeltaKind::ObjectCount,
+		2,
+	);
+	step_hourly(&reference, 1, 25).await;
+	let expected = usage(&reference, &account, day(), now).await.unwrap();
+
+	// Jump past the delta and hour time to live, and aggregate before expiring.
+	let (_dir, index) = new_index();
+	add_delta(
+		&index,
+		&account,
+		1,
+		tangram_index::usage::DeltaKind::ObjectCount,
+		2,
+	);
+	aggregate(&index, now).await;
+	expire(&index, now).await;
+	let actual = usage(&index, &account, day(), now).await.unwrap();
+	assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn a_late_delta_within_the_delta_time_to_live_is_counted() {
+	let (_dir, index) = new_index();
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let now = at(3 * HOUR + HOUR / 2);
+
+	// Aggregate and expire an hour, then write a late delta for it before its deltas may expire.
+	add_delta(
+		&index,
+		&account,
+		2 * HOUR + 1,
+		tangram_index::usage::DeltaKind::ObjectCount,
+		1,
+	);
+	aggregate(&index, now).await;
+	expire(&index, now).await;
+	add_delta(
+		&index,
+		&account,
+		2 * HOUR + 2,
+		tangram_index::usage::DeltaKind::ObjectCount,
+		1,
+	);
+	aggregate(&index, now).await;
+	let usage = usage(&index, &account, hour(2 * HOUR), now).await.unwrap();
+	assert_eq!(usage.object_count, 2);
+}
+
+#[tokio::test]
+async fn a_late_delta_after_its_hour_s_deltas_may_have_expired_is_dropped() {
+	let (_dir, index) = new_index();
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let now = at(4 * HOUR);
+
+	// Aggregate and expire an hour.
+	for second in [1, 2] {
+		add_delta(
+			&index,
+			&account,
+			2 * HOUR + second,
+			tangram_index::usage::DeltaKind::ObjectCount,
+			1,
+		);
+	}
+	aggregate(&index, now).await;
+	expire(&index, now).await;
+	let expected = usage(&index, &account, hour(2 * HOUR), now).await.unwrap();
+	assert_eq!(expected.object_count, 2);
+
+	// Write a late delta for the hour, which must not replace its total with one that lacks the expired deltas.
+	add_delta(
+		&index,
+		&account,
+		2 * HOUR + 3,
+		tangram_index::usage::DeltaKind::ObjectCount,
+		1,
+	);
+	aggregate(&index, now).await;
+	let actual = usage(&index, &account, hour(2 * HOUR), now).await.unwrap();
+	assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn a_late_delta_after_its_previous_hour_total_expired_is_dropped() {
+	let (_dir, index) = new_index();
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let now = at(27 * HOUR);
+
+	// Aggregate and expire hourly past the hour time to live.
+	for time in [1, 2 * HOUR + 1] {
+		add_delta(
+			&index,
+			&account,
+			time,
+			tangram_index::usage::DeltaKind::ObjectCount,
+			1,
+		);
+	}
+	step_hourly(&index, 1, 27).await;
+	let expected = usage(&index, &account, day(), now).await.unwrap();
+
+	// Write a late delta for an hour whose previous hour total has expired, which must not change the day's total.
+	add_delta(
+		&index,
+		&account,
+		2 * HOUR + 1,
+		tangram_index::usage::DeltaKind::ObjectCount,
+		1,
+	);
+	aggregate(&index, now).await;
+	let actual = usage(&index, &account, day(), now).await.unwrap();
+	assert_eq!(actual, expected);
 }

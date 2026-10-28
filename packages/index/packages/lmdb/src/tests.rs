@@ -18,6 +18,9 @@ mod versions;
 
 use super::{Config, Index};
 
+/// The usage delta time to live that the tests aggregate and read usage with.
+const USAGE_DELTA_TIME_TO_LIVE: std::time::Duration = std::time::Duration::from_hours(1);
+
 fn new_index() -> (tempfile::TempDir, Index) {
 	new_index_with_usage_partition_total(1)
 }

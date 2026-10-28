@@ -42,6 +42,7 @@ impl Indexer {
 			let now = self.server.clock.now();
 			let arg = tangram_index::usage::aggregate::Arg {
 				batch_size: config.batch_size,
+				delta_time_to_live: self.server.config.usage.delta_time_to_live,
 				now,
 				partition_end,
 				partition_start,

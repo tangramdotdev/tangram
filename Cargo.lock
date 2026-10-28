@@ -10416,6 +10416,7 @@ dependencies = [
  "tangram_util",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

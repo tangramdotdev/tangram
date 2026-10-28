@@ -25,6 +25,7 @@ pub(super) enum Request {
 	DeleteUsers(Vec<tg::user::Id>),
 	GetUsage {
 		account: tangram_index::usage::Account,
+		delta_time_to_live: std::time::Duration,
 		now: jiff::Timestamp,
 		period: tangram_index::usage::Period,
 	},
@@ -142,6 +143,7 @@ pub(super) enum Kind {
 	DeleteUsers,
 	GetUsage {
 		account: tangram_index::usage::Account,
+		delta_time_to_live: std::time::Duration,
 		now: jiff::Timestamp,
 		period: tangram_index::usage::Period,
 	},

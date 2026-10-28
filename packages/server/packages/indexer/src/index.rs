@@ -249,6 +249,7 @@ impl Component {
 		loop {
 			let arg = tangram_index::usage::aggregate::Arg {
 				batch_size: server.config.indexer.usage.aggregation.batch_size,
+				delta_time_to_live: server.config.usage.delta_time_to_live,
 				now,
 				partition_end: partition_total,
 				partition_start: 0,

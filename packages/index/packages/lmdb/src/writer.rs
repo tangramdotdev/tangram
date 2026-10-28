@@ -270,6 +270,7 @@ impl Index {
 					},
 					Request::GetUsage {
 						account,
+						delta_time_to_live,
 						now,
 						period,
 					} => Self::get_usage_with_transaction(
@@ -279,6 +280,7 @@ impl Index {
 						&account,
 						period,
 						now,
+						delta_time_to_live,
 						usage_partition_total,
 					)
 					.map(Response::Usage),
@@ -700,12 +702,14 @@ impl Index {
 			},
 			Request::GetUsage {
 				account,
+				delta_time_to_live,
 				now,
 				period,
 			} => (
 				vec![Item::GetUsage],
 				Kind::GetUsage {
 					account,
+					delta_time_to_live,
 					now,
 					period,
 				},
@@ -921,6 +925,7 @@ impl Index {
 			},
 			Kind::GetUsage {
 				account,
+				delta_time_to_live,
 				now,
 				period,
 			} => {
@@ -930,6 +935,7 @@ impl Index {
 				};
 				Request::GetUsage {
 					account: account.clone(),
+					delta_time_to_live: *delta_time_to_live,
 					now: *now,
 					period: *period,
 				}
