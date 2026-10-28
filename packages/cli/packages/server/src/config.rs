@@ -882,6 +882,9 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.max_write_operation_batch_size {
 		target.max_write_operation_batch_size = value;
 	}
+	if let Some(value) = source.write_item_transaction_concurrency {
+		target.write_item_transaction_concurrency = value;
+	}
 	if let Some(value) = source.write_operation_batch_size {
 		target.write_operation_batch_size = value;
 	}
