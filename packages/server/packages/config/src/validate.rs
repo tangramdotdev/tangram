@@ -112,14 +112,6 @@ impl Config {
 				self.sync.metadata_poll_interval,
 			),
 			("sync progress interval", self.sync.progress_interval),
-			(
-				"verification poll interval",
-				self.verification.poll_interval,
-			),
-			(
-				"verification request timeout",
-				self.verification.request_timeout,
-			),
 		] {
 			if duration.is_zero() {
 				return Err(tg::error!("the {name} must be greater than zero"));

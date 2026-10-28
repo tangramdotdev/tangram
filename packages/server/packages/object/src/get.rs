@@ -121,10 +121,7 @@ impl Component {
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
-		let wait_for_subtree = metadata || availability;
-		let authorize_future = session
-			.authorize_object_read(resource.clone(), wait_for_subtree)
-			.boxed();
+		let authorize_future = session.authorize_object_read(resource.clone()).boxed();
 		let get_future = self.try_get_object_local_with_server(&session.server, id, false);
 		let (authorization, output) = future::join(authorize_future, get_future).await;
 		let authorization = authorization?.check_exhaustion()?;
