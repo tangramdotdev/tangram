@@ -2504,7 +2504,8 @@ impl Component {
 			.and_then(|state| state.vfs.clone());
 		if let Some(vfs) = vfs {
 			for artifact in &artifacts {
-				vfs.seed_tokens(&artifact.options.tokens);
+				let id = tg::object::Id::from(artifact.node.clone()).into();
+				vfs.seed_tokens(&id, &artifact.options.tokens);
 			}
 		}
 

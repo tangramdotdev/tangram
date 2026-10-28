@@ -14,7 +14,7 @@ pub trait Server: Send {
 pub trait Provider: Send + Sync {
 	fn root_tokens(&self, id: &tg::artifact::Id) -> tg::authorization::Tokens;
 
-	fn seed_tokens(&self, tokens: &tg::authorization::Tokens);
+	fn seed_tokens(&self, id: &tg::Id, tokens: &tg::authorization::Tokens);
 
 	#[cfg(target_os = "linux")]
 	fn set_principal(&self, principal: tg::Principal);
