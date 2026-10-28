@@ -422,6 +422,11 @@ impl Index {
 		};
 		let mut object = tangram_index::object::Object::deserialize(bytes)?;
 
+		// Skip reading the children of an object that an update can no longer change.
+		if object.complete() {
+			return Ok(false);
+		}
+
 		let children = crate::page::collect(|after| {
 			Self::get_object_children_page_with_transaction(
 				db,
