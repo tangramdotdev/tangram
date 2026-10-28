@@ -83,6 +83,7 @@ fn sandbox_arg(
 		data: tg::sandbox::Data {
 			cpu: None,
 			creator: None,
+			error: None,
 			hostname: None,
 			id: id.clone(),
 			memory: None,

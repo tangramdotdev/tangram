@@ -49,7 +49,7 @@ for remote_runner in [false true] {
 	let status = http get --max-time 10sec --raw --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/status?source=index&timeout=0'
 	assert ($status | str contains 'data: "started"')
 	assert ($status | str contains 'event: end')
-	assert equal (timeout 10s tg --url $runner.url sandbox wait --source=runner $sandbox | from json) destroyed
+	assert equal (timeout 10s tg --url $runner.url sandbox wait --source=runner $sandbox | from json) {}
 	let index = tg --url $local_owner.url checkpoint watch sandbox.get.index | from json | get watch
 	let waiter = job spawn {
 		let job_id = job id
@@ -62,7 +62,7 @@ for remote_runner in [false true] {
 	tg --url $local_owner.url checkpoint unwatch sandbox.control.destroy $watch
 	let waited = job recv --tag $waiter --timeout 20sec
 	success $waited
-	assert equal ($waited.stdout | from json) destroyed
+	assert equal ($waited.stdout | from json) {}
 	timeout 10s tg --url $local_owner.url sandbox wait $sandbox | ignore
 	tg --url $local_owner.url index
 	assert equal (tg --url $local_client.url sandbox get --source=index $sandbox | from json | get data.status) destroyed

@@ -2185,7 +2185,7 @@ impl Component {
 				url: guest_url.clone(),
 			};
 			sandbox
-				.spawn(&sandbox_process, entry)
+				.spawn_process(&sandbox_process, entry)
 				.await
 				.map_err(|error| {
 					tg::error!(!error, "failed to spawn the process in the sandbox")
@@ -2296,7 +2296,7 @@ impl Component {
 			stopper,
 		} = arg;
 		let wait_future = sandbox
-			.wait(sandbox_process)
+			.wait_process(sandbox_process)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start waiting for the process"))?;
 		let mut wait_future = std::pin::pin!(wait_future);
@@ -2308,14 +2308,14 @@ impl Component {
 					(exit, false)
 				},
 				() = stopper.wait() => {
-					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
+					sandbox.kill_process(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
 					let exit = wait_future.await.map_err(
 						|error| tg::error!(!error, "failed to wait for the process"),
 					)?;
 					(exit, true)
 				},
 				() = process_stopper.wait() => {
-					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
+					sandbox.kill_process(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
 					let exit = wait_future.await.map_err(
 						|error| tg::error!(!error, "failed to wait for the process"),
 					)?;

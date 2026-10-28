@@ -389,6 +389,7 @@ impl Component {
 			data: tg::sandbox::Data {
 				cpu: create.cpu,
 				creator,
+				error: None,
 				hostname: create.hostname,
 				id: id.clone(),
 				memory: create.memory,

@@ -55,6 +55,29 @@ where
 		}
 	}
 
+	fn try_wait_sandbox_future(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::wait::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Future<Output = tg::Result<Option<tg::sandbox::outcome::Data>>> + Send + 'static,
+			>,
+		>,
+	> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_wait_sandbox_future(id, arg.clone())
+				.map_ok(|option| option.map(futures::FutureExt::left_future))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_wait_sandbox_future(id, arg)
+				.map_ok(|option| option.map(futures::FutureExt::right_future))
+				.right_future(),
+		}
+	}
+
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,

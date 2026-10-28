@@ -80,6 +80,22 @@ impl tg::instance::Sandbox for Session {
 			.await
 	}
 
+	async fn try_wait_sandbox_future(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::wait::Arg,
+	) -> tg::Result<
+		Option<
+			impl Future<Output = tg::Result<Option<tg::sandbox::outcome::Data>>> + Send + 'static,
+		>,
+	> {
+		self.server
+			.components
+			.sandbox
+			.try_wait_sandbox_future(self, id, arg)
+			.await
+	}
+
 	async fn get_sandbox_control_stream(
 		&self,
 		arg: tg::sandbox::control::Arg,

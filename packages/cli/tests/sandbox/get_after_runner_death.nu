@@ -45,3 +45,11 @@ advance_time $remote 4sec
 let output = job recv --tag $get --timeout 15sec
 success $output "the sandbox get must complete before the control read timeout"
 assert equal ($output.stdout | from json | get data.status) "destroyed" "the pending get must observe destruction once the runner expires"
+
+# Waiting for the sandbox returns the error that destroyed it.
+let output = tg --url $remote.url --token $root_token sandbox wait $sandbox | complete
+success $output
+snapshot $output.stdout '
+	{"error":{"code":"internal","message":"heartbeat expired"}}
+
+'

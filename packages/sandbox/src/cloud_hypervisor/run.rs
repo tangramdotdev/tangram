@@ -248,7 +248,7 @@ pub(crate) fn command(
 		.kill_on_drop(true)
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
-		.stderr(std::process::Stdio::inherit());
+		.stderr(std::process::Stdio::piped());
 
 	Ok((command, config))
 }

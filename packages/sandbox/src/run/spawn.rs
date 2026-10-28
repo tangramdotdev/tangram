@@ -395,7 +395,7 @@ pub(crate) async fn spawn(
 		.process_group(0)
 		.stdin(std::process::Stdio::piped())
 		.stdout(std::process::Stdio::piped())
-		.stderr(std::process::Stdio::inherit());
+		.stderr(std::process::Stdio::piped());
 
 	// Spawn the launcher and install the identity maps.
 	let child = spawn_command(&mut command, &launcher_cgroup, cgroup.affinity())?;

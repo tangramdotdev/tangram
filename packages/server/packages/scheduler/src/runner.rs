@@ -226,8 +226,12 @@ impl Component {
 		tracing::warn!(%runner, sandboxes = sandboxes.len(), "finishing the expired runner sandboxes");
 		tangram_server_core::checkpoint!(server, "scheduler.runner.expired", %runner).await;
 		for sandbox in sandboxes {
-			self.destroy_runner_sandbox(server, &sandbox, "heartbeat expired")
-				.await?;
+			let error = tg::error::Data {
+				code: Some(tg::error::Code::Internal),
+				message: Some("heartbeat expired".to_owned()),
+				..Default::default()
+			};
+			self.destroy_runner_sandbox(server, &sandbox, error).await?;
 		}
 
 		Ok(())
@@ -237,15 +241,10 @@ impl Component {
 		&self,
 		server: &Server,
 		id: &tg::sandbox::Id,
-		reason: &str,
+		error: tg::error::Data,
 	) -> tg::Result<()> {
-		tracing::warn!(sandbox = %id, reason, "finishing the runner sandbox");
+		tracing::warn!(sandbox = %id, reason = error.message.as_deref(), "finishing the runner sandbox");
 		let now = server.clock.unix_timestamp();
-		let error = tg::error::Data {
-			code: Some(tg::error::Code::Internal),
-			message: Some(reason.to_owned()),
-			..Default::default()
-		};
 		let length = server
 			.index
 			.try_get_sandbox_processes_count(id)
@@ -398,6 +397,7 @@ impl Component {
 			.data
 			.as_mut()
 			.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?;
+		data.data.error = Some(tg::Either::Left(error));
 		data.data.status = tg::sandbox::Status::Destroyed;
 		let account = if server.config.usage.enabled {
 			indexed.account

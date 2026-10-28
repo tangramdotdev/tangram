@@ -21,10 +21,15 @@ impl Component {
 		outputs
 			.into_iter()
 			.map(|output| async move {
+				let error = tg::error::Data {
+					code: Some(tg::error::Code::Internal),
+					message: Some("server restarted".to_owned()),
+					..Default::default()
+				};
 				let result = server
 					.components
 					.scheduler
-					.destroy_runner_sandbox(server, &output.id, "server restarted")
+					.destroy_runner_sandbox(server, &output.id, error)
 					.boxed()
 					.await;
 				if let Err(error) = result {

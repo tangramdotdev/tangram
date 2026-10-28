@@ -22,10 +22,10 @@ tg sandbox destroy $sandbox
 
 let output = job recv --tag $wait --timeout 10sec
 success $output
-assert equal ($output.stdout | from json) destroyed "waiting for the sandbox should return its terminal status"
+assert equal ($output.stdout | from json) {} "waiting for the sandbox should return its outcome"
 
 let output = tg sandbox wait $sandbox | from json
-assert equal $output destroyed "waiting for a destroyed sandbox should return immediately"
+assert equal $output {} "waiting for a destroyed sandbox should return immediately"
 
 # A sandbox can be waited on through a remote reference.
 let local_origin = server spawn --name local-origin
@@ -40,7 +40,7 @@ let wait = job spawn {
 tg --url $local_origin.url sandbox destroy $sandbox
 let output = job recv --tag $wait --timeout 10sec
 success $output
-assert equal ($output.stdout | from json) destroyed "waiting through a remote reference should succeed"
+assert equal ($output.stdout | from json) {} "waiting through a remote reference should succeed"
 
 # Waiting for a missing sandbox fails.
 let missing = tg sandbox wait sbx_010000000000000000000000000000000000000000000000000000 | complete

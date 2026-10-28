@@ -52,4 +52,4 @@ tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sandbox.c
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers $reader_headers $'http://localhost/sandboxes/($sandbox)/destroy' '{"location":"remote"}'
 assert equal $output.status 409
 tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.destroy $report
-assert equal (timeout 30s tg --url $remote.url --token $root_token sandbox wait $sandbox | from json) destroyed
+assert equal (timeout 30s tg --url $remote.url --token $root_token sandbox wait $sandbox | from json) {}

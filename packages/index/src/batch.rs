@@ -140,6 +140,7 @@ mod tests {
 			data: tg::sandbox::Data {
 				cpu: Some(2.into()),
 				creator: Some(tg::Principal::User(user.clone())),
+				error: None,
 				hostname: Some("host".into()),
 				id: sandbox.clone(),
 				memory: Some(1024.into()),

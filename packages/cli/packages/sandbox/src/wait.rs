@@ -38,14 +38,14 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 pub async fn run_inner(cli: &mut Cli, sandbox: tg::Sandbox, options: Options) -> tg::Result<()> {
 	let client = cli.client().await?;
 	let id = sandbox.id().clone();
-	let options_ = tg::sandbox::status::Options {
+	let options_ = tg::sandbox::wait::Options {
+		location: None,
 		source: options.source,
-		..Default::default()
 	};
-	let output = sandbox
+	let outcome = sandbox
 		.wait_with_instance(&client, options_)
 		.await
 		.map_err(|error| tg::error!(!error, %id, "failed to wait for the sandbox"))?;
-	cli.print_serde(output, options.print).await?;
+	cli.print_serde(outcome.to_data(), options.print).await?;
 	Ok(())
 }

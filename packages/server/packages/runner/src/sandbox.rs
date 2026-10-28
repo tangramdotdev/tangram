@@ -50,14 +50,21 @@ type SandboxControlSender = tangram_server_core::control::Sender<
 	tg::sandbox::control::ClientMessage,
 >;
 
+struct SpawnSandboxArg {
+	arg: SpawnSandboxTaskArg,
+	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
+	stopper: Stopper,
+}
+
 struct SandboxTaskArg {
 	allocation: tangram_server_runner_core::capacity::Allocation,
 	arg: tg::sandbox::create::Arg,
 	creator: Option<tg::Principal>,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
-	id: Option<tg::sandbox::Id>,
+	id: tg::sandbox::Id,
 	location: tg::Location,
 	process: Option<tg::runner::control::Process>,
+	proof: Option<tg::sandbox::id::Proof>,
 	stopper: Stopper,
 	token: Option<String>,
 }
@@ -76,6 +83,17 @@ struct ConnectedSandboxControl {
 	requests:
 		BoxStream<'static, tg::Result<tg::control::Event<tg::sandbox::control::ServerMessage>>>,
 	token: String,
+}
+
+struct DestroyFailedSandboxArg<'a> {
+	arg: tg::sandbox::create::Arg,
+	connection: ConnectedSandboxControl,
+	created_at: i64,
+	creator: Option<tg::Principal>,
+	error: &'a tg::Error,
+	id: &'a tg::sandbox::Id,
+	input: tokio::sync::mpsc::Sender<tg::sandbox::control::ClientMessage>,
+	location: &'a tg::Location,
 }
 
 struct SandboxTaskInnerArg {
@@ -186,28 +204,12 @@ impl Component {
 			async move {
 				// Run the sandbox task.
 				let session = server.session(&server.context);
-				let arg = SandboxTaskArg {
-					allocation: arg.allocation,
-					arg: arg.arg,
-					creator: arg.creator,
-					event_sender: event_sender.clone(),
-					id: arg.id,
-					location: arg.location,
-					process: arg.process,
+				let arg = SpawnSandboxArg {
+					arg,
+					event_sender,
 					stopper,
-					token: arg.token,
 				};
-				let result = if server.shutdown.borrow().is_some() {
-					Err(tg::error!("the server is shutting down"))
-				} else {
-					component.sandbox_task(&session, arg).boxed().await
-				};
-				if let Err(error) = &result {
-					event_sender.send(Err(error.clone())).ok();
-				}
-				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), "the sandbox task failed");
-				}
+				component.sandbox_task(&session, arg).boxed().await;
 			}
 			.in_current_span()
 		});
@@ -268,35 +270,78 @@ impl Component {
 		Ok(())
 	}
 
-	#[tracing::instrument(name = "sandbox.lifecycle", level = "info", skip_all, fields(runner = self.state.id().as_ref().map(ToString::to_string), sandbox = arg.id.as_ref().map(ToString::to_string)), err(level = "debug"))]
-	async fn sandbox_task(&self, session: &Session, arg: SandboxTaskArg) -> tg::Result<()> {
-		let SandboxTaskArg {
-			allocation,
+	#[tracing::instrument(name = "sandbox.lifecycle", level = "info", skip_all, fields(runner = self.state.id().as_ref().map(ToString::to_string), sandbox = arg.arg.id.as_ref().map(ToString::to_string)))]
+	async fn sandbox_task(&self, session: &Session, arg: SpawnSandboxArg) {
+		let SpawnSandboxArg {
 			arg,
-			creator,
 			event_sender,
-			id,
-			location,
-			process,
 			stopper,
-			token,
 		} = arg;
-		#[cfg(target_os = "linux")]
-		let mut allocation = allocation;
-
-		// Limit each resource without a maximum to the capacity that the sandbox was allocated, which is its lender's capacity when it borrows.
-		let mut arg = arg;
-		tangram_server_sandbox_common::limit_sandbox_resources(&mut arg, allocation.capacity());
 
 		// Use the sandbox's ID and token from its assignment, or, on the shortcut path, derive the ID and receive the token in the control connection's header.
-		let runner = session
-			.server
-			.components
-			.runner
-			.state()
+		let (id, token, proof) = match self.create_sandbox_identity(arg.id, arg.token) {
+			Ok(identity) => identity,
+			Err(error) => {
+				tracing::error!(error = %error.trace(), "the sandbox task failed");
+				event_sender.send(Err(error)).ok();
+				return;
+			},
+		};
+
+		// Run the sandbox task.
+		let task_arg = SandboxTaskArg {
+			allocation: arg.allocation,
+			arg: arg.arg,
+			creator: arg.creator,
+			event_sender: event_sender.clone(),
+			id: id.clone(),
+			location: arg.location,
+			process: arg.process,
+			proof,
+			stopper: stopper.clone(),
+			token,
+		};
+		let result = if session.server.shutdown.borrow().is_some() {
+			Err(tg::error!("the server is shutting down"))
+		} else {
+			std::panic::AssertUnwindSafe(self.sandbox_task_with_id(session, task_arg).boxed())
+				.catch_unwind()
+				.await
+				.unwrap_or_else(|_| Err(tg::error!("the sandbox task panicked")))
+		};
+		let Err(error) = result else {
+			return;
+		};
+		tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox task failed");
+		event_sender.send(Err(error.clone())).ok();
+
+		// Report the sandbox's destruction through the runner control stream, so that a sandbox that failed without reporting its destruction does not remain started.
+		let arg = tg::runner::control::DestroySandboxClientRequestArg {
+			error: Some(Self::sandbox_error_data(session, &error)),
+			sandbox: id.clone(),
+		};
+		if let Err(error) = self
+			.destroy_sandbox_with_runner_control(arg, &stopper)
+			.await
+		{
+			tracing::error!(error = %error.trace(), sandbox = %id, "failed to destroy the failed sandbox");
+		}
+	}
+
+	fn create_sandbox_identity(
+		&self,
+		id: Option<tg::sandbox::Id>,
+		token: Option<String>,
+	) -> tg::Result<(
+		tg::sandbox::Id,
+		Option<String>,
+		Option<tg::sandbox::id::Proof>,
+	)> {
+		let runner = self
+			.state
 			.id()
 			.ok_or_else(|| tg::error!("missing the runner id"))?;
-		let (id, token, proof) = match (id, token) {
+		let identity = match (id, token) {
 			(Some(id), Some(token)) => (id, Some(token), None),
 			(None, None) => {
 				let (id, proof) = tg::sandbox::Id::with_runner(&runner);
@@ -308,6 +353,36 @@ impl Component {
 				));
 			},
 		};
+		Ok(identity)
+	}
+
+	async fn sandbox_task_with_id(&self, session: &Session, arg: SandboxTaskArg) -> tg::Result<()> {
+		let SandboxTaskArg {
+			allocation,
+			arg,
+			creator,
+			event_sender,
+			id,
+			location,
+			process,
+			proof,
+			stopper,
+			token,
+		} = arg;
+		#[cfg(target_os = "linux")]
+		let mut allocation = allocation;
+
+		// Limit each resource without a maximum to the capacity that the sandbox was allocated, which is its lender's capacity when it borrows.
+		let mut arg = arg;
+		tangram_server_sandbox_common::limit_sandbox_resources(&mut arg, allocation.capacity());
+
+		let runner = session
+			.server
+			.components
+			.runner
+			.state()
+			.id()
+			.ok_or_else(|| tg::error!("missing the runner id"))?;
 		let shortcut = proof.is_some();
 		let (token_sender, token_receiver) = tokio::sync::watch::channel(token.clone());
 		let context = if let Some(token) = &token {
@@ -372,11 +447,37 @@ impl Component {
 		let mut connection = None;
 		let create_output = loop {
 			tokio::select! {
-				result = &mut create_future => break result?,
+				result = &mut create_future => break result,
 				result = &mut connect_future, if connection.is_none() => {
 					connection = Some(result?);
 				},
 			}
+		};
+
+		// Report a failure to create the sandbox as its destruction, so that the sandbox does not remain started after its control connection is available.
+		let create_output = match create_output {
+			Ok(output) => output,
+			Err(error) => {
+				tracing::error!(error = %error.trace(), sandbox = %id, "failed to create the sandbox");
+				let connection = match connection {
+					Some(connection) => connection,
+					None => connect_future.await?,
+				};
+				let arg = DestroyFailedSandboxArg {
+					arg,
+					connection,
+					created_at,
+					creator,
+					error: &error,
+					id: &id,
+					input,
+					location: &location,
+				};
+				if let Err(source) = self.destroy_failed_sandbox(session, arg).boxed().await {
+					tracing::error!(error = %source.trace(), sandbox = %id, "failed to report the failed sandbox");
+				}
+				return Err(error);
+			},
 		};
 		tracing::Span::current().record("sandbox", tracing::field::display(&id));
 		tracing::info!(runner = self.state.id().as_ref().map(ToString::to_string), sandbox = %id, "created the sandbox");
@@ -431,6 +532,8 @@ impl Component {
 			create: arg,
 
 			creator,
+
+			error: None,
 
 			id: id.clone(),
 
@@ -562,36 +665,7 @@ impl Component {
 			state,
 			stopper,
 		};
-		let result = self.sandbox_task_inner(&session, arg).boxed().await;
-		if let Err(error) = &result {
-			tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox failed");
-			let mut error = error.to_data_or_id();
-			if !session.server.config.advanced.internal_error_locations
-				&& let tg::Either::Left(error) = &mut error
-			{
-				error.remove_internal_locations();
-			}
-			let arg = tg::sandbox::destroy::Arg {
-				error: Some(error),
-				location: Some(location.into()),
-				tokens: tg::authorization::Tokens::default(),
-			};
-			match session.try_destroy_sandbox(&id, arg).boxed().await {
-				Ok(Some(_)) => {},
-				Ok(None) => {
-					tracing::error!(sandbox = %id, "failed to find the sandbox after the sandbox failed");
-				},
-				Err(error) => {
-					tracing::error!(
-						error = %error.trace(),
-						sandbox = %id,
-						"failed to destroy the sandbox after the sandbox failed"
-					);
-				},
-			}
-		}
-
-		result
+		self.sandbox_task_inner(&session, arg).boxed().await
 	}
 
 	#[tracing::instrument(
@@ -1096,184 +1170,210 @@ impl Component {
 		let mut ready = false;
 		let mut ready_connection = connected.clone();
 
-		loop {
-			let current_timer_future = timer_future.as_mut().map_or_else(
-				|| future::pending().left_future(),
-				|timer_future| timer_future.as_mut().right_future(),
-			);
+		// Wait for the sandbox process to exit.
+		let mut sandbox_wait = {
+			let sandbox = sandbox.clone();
+			async move { sandbox.wait().await }.boxed()
+		};
+		let mut failure = None;
 
-			tokio::select! {
-				result = &mut ready_connection, if reusable && !ready => {
-					result?;
-					if pending.is_empty() && process_events.is_empty() && let Some(ttl) = ttl {
-						timer_future.replace(session.server.clock.sleep(ttl).boxed());
-					}
-					let event = ReadyEvent { connected_event: None, sandbox: id.clone() };
-					event_sender.send(Ok(Event::Ready(event))).ok();
-					tracing::info!(sandbox = %id, "the sandbox is ready");
-					ready = true;
-				},
-				output = pending.next(), if !pending.is_empty() => {
-					let (result, events, reply) = output.unwrap();
-					let connected_event = match result {
-						Ok(event) => event,
-						Err(error) => {
-							if let Some(reply) = reply {
-								reply.send(Err(error.clone())).await?;
-							}
-							tracing::error!(error = %error.trace(), sandbox = %id, "failed to start a sandbox process");
+		// Run the sandbox until it should be destroyed, destroying it with the error if the loop fails.
+		let result = async {
+			loop {
+				let current_timer_future = timer_future.as_mut().map_or_else(
+					|| future::pending().left_future(),
+					|timer_future| timer_future.as_mut().right_future(),
+				);
+
+				tokio::select! {
+					result = &mut ready_connection, if reusable && !ready => {
+						result?;
+						if pending.is_empty() && process_events.is_empty() && let Some(ttl) = ttl {
+							timer_future.replace(session.server.clock.sleep(ttl).boxed());
+						}
+						let event = ReadyEvent { connected_event: None, sandbox: id.clone() };
+						event_sender.send(Ok(Event::Ready(event))).ok();
+						tracing::info!(sandbox = %id, "the sandbox is ready");
+						ready = true;
+					},
+					output = pending.next(), if !pending.is_empty() => {
+						let (result, events, reply) = output.unwrap();
+						let connected_event = match result {
+							Ok(event) => event,
+							Err(error) => {
+								if let Some(reply) = reply {
+									reply.send(Err(error.clone())).await?;
+								}
+								tracing::error!(error = %error.trace(), sandbox = %id, "failed to start a sandbox process");
+								if !ready {
+									event_sender.send(Err(error)).ok();
+								}
+								break;
+							},
+						};
+						process_events.insert(connected_event.process.node.clone(), UnboundedReceiverStream::new(events));
+						if let Some(reply) = reply {
+							let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
+								lease: connected_event.lease,
+								process: connected_event.process,
+							};
+							reply.send(Ok(tg::sandbox::control::ClientResponseOutput::SpawnProcess(output))).await?;
+						} else {
+							let event = ReadyEvent { connected_event: Some(connected_event), sandbox: id.clone() };
+							event_sender.send(Ok(Event::Ready(event))).ok();
+							tracing::info!(sandbox = %id, "the sandbox is ready");
+							ready = true;
+						}
+					},
+					message = control.recv() => {
+						// Get the message.
+						let message = message
+							.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
+						let Some(message) = message else {
+							break;
+						};
+						let mut destroy = false;
+						let result = match message.arg {
+							tg::sandbox::control::ServerRequestArg::Destroy(request) => {
+								let error = request.error.unwrap_or_else(|| tg::error::Data {
+									code: Some(tg::error::Code::Cancellation),
+									message: Some("the process was canceled".into()),
+									..Default::default()
+								});
+								let sandbox = session
+									.server
+									.components
+									.runner
+									.state()
+									.sandboxes
+									.get_by_id(&id)
+									.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+								for mut process in sandbox.processes.iter_mut() {
+									if !process.value().data.status.is_finished() {
+										process.value_mut().finish.get_or_insert(
+											tg::process::control::FinishServerRequestArg {
+												error: Some(error.clone()),
+												exit: 1,
+											},
+										);
+										process.stopper.stop();
+									}
+								}
+								destroy = true;
+								Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
+									tg::sandbox::control::DestroyClientResponseOutput {
+										destroyed: true,
+									},
+								))
+							},
+							tg::sandbox::control::ServerRequestArg::Get(_) => {
+								let data = session
+									.server
+									.components
+									.runner
+									.state()
+									.try_get_sandbox(&id)
+									.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+								let output = tg::sandbox::control::GetClientResponseOutput { data };
+								Ok(tg::sandbox::control::ClientResponseOutput::Get(output))
+							},
+							tg::sandbox::control::ServerRequestArg::GetProcesses(arg) => session.server.components.runner.state().sandboxes.get_by_id(&id)
+								.map(|sandbox| tg::sandbox::control::ClientResponseOutput::GetProcesses(sandbox.processes(arg.position, arg.length)))
+								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
+							tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
+								timer_future.take();
+
+								// Spawn the process task.
+								let process = Self::prepare_process(request.process, &id)?;
+								let arg = SpawnProcessTaskArg {
+									guest_url: &guest_url,
+									location: location.clone(),
+									process,
+									process_stopper: &process_stopper,
+									process_tasks: &mut process_tasks,
+									processes: processes.clone(),
+									retention_stopper: stopper.clone(),
+									sandbox: &sandbox,
+									sandbox_create: None,
+									sandbox_ready_receiver: None,
+								};
+								let task = self.spawn_process_task(session, arg);
+								pending.push(wait_for_process_attachion(task, Some(message.sender)));
+								continue;
+							},
+						};
+						message.sender
+							.send(result)
+							.await
+							.map_err(|error| {
+								tg::error!(!error, "failed to send the sandbox control response")
+							})?;
+						if destroy {
+							break;
+						}
+					},
+
+					// Handle an underlying process event.
+					event = process_events.next(), if !process_events.is_empty() => {
+						let Some((process, event)) = event else {
+							break;
+						};
+						match event? {
+							ProcessEvent::Buffered | ProcessEvent::Released => {
+								process_events.remove(&process);
+								if ready && process_events.is_empty() && pending.is_empty() {
+									if !reusable {
+										break;
+									}
+									if let Some(ttl) = ttl {
+										timer_future.replace(session.server.clock.sleep(ttl).boxed());
+									}
+								}
+							},
+							ProcessEvent::Connected(_) => {
+								return Err(tg::error!(%process, "received a duplicate process connected event"));
+							},
+							ProcessEvent::Exited => {},
+						}
+					},
+
+					// Reap a process task after its retained state expires.
+					output = process_tasks.join_next(), if !process_tasks.is_empty() => {
+						let result = output
+							.unwrap()
+							.map_err(|error| tg::error!(!error, "a process task panicked"))?
+							.map_err(|error| tg::error!(!error, "a process task failed"));
+						if let Err(error) = result {
+							tracing::error!(error = %error.trace(), sandbox = %id, "a sandbox process failed");
 							if !ready {
 								event_sender.send(Err(error)).ok();
 							}
 							break;
-						},
-					};
-					process_events.insert(connected_event.process.node.clone(), UnboundedReceiverStream::new(events));
-					if let Some(reply) = reply {
-						let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
-							lease: connected_event.lease,
-							process: connected_event.process,
-						};
-						reply.send(Ok(tg::sandbox::control::ClientResponseOutput::SpawnProcess(output))).await?;
-					} else {
-						let event = ReadyEvent { connected_event: Some(connected_event), sandbox: id.clone() };
-						event_sender.send(Ok(Event::Ready(event))).ok();
-						tracing::info!(sandbox = %id, "the sandbox is ready");
-						ready = true;
-					}
-				},
-				message = control.recv() => {
-					// Get the message.
-					let message = message
-						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
-					let Some(message) = message else {
-						break;
-					};
-					let mut destroy = false;
-					let result = match message.arg {
-						tg::sandbox::control::ServerRequestArg::Destroy(request) => {
-							let error = request.error.unwrap_or_else(|| tg::error::Data {
-								code: Some(tg::error::Code::Cancellation),
-								message: Some("the process was canceled".into()),
-								..Default::default()
-							});
-							let sandbox = session
-								.server
-								.components
-								.runner
-								.state()
-								.sandboxes
-								.get_by_id(&id)
-								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-							for mut process in sandbox.processes.iter_mut() {
-								if !process.value().data.status.is_finished() {
-									process.value_mut().finish.get_or_insert(
-										tg::process::control::FinishServerRequestArg {
-											error: Some(error.clone()),
-											exit: 1,
-										},
-									);
-									process.stopper.stop();
-								}
-							}
-							destroy = true;
-							Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
-								tg::sandbox::control::DestroyClientResponseOutput {
-									destroyed: true,
-								},
-							))
-						},
-						tg::sandbox::control::ServerRequestArg::Get(_) => {
-							let data = session
-								.server
-								.components
-								.runner
-								.state()
-								.try_get_sandbox(&id)
-								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-							let output = tg::sandbox::control::GetClientResponseOutput { data };
-							Ok(tg::sandbox::control::ClientResponseOutput::Get(output))
-						},
-						tg::sandbox::control::ServerRequestArg::GetProcesses(arg) => session.server.components.runner.state().sandboxes.get_by_id(&id)
-							.map(|sandbox| tg::sandbox::control::ClientResponseOutput::GetProcesses(sandbox.processes(arg.position, arg.length)))
-							.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
-						tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
-							timer_future.take();
+						}
+					},
 
-							// Spawn the process task.
-							let process = Self::prepare_process(request.process, &id)?;
-							let arg = SpawnProcessTaskArg {
-								guest_url: &guest_url,
-								location: location.clone(),
-								process,
-								process_stopper: &process_stopper,
-								process_tasks: &mut process_tasks,
-								processes: processes.clone(),
-								retention_stopper: stopper.clone(),
-								sandbox: &sandbox,
-								sandbox_create: None,
-								sandbox_ready_receiver: None,
-							};
-							let task = self.spawn_process_task(session, arg);
-							pending.push(wait_for_process_attachion(task, Some(message.sender)));
-							continue;
-						},
-					};
-					message.sender
-						.send(result)
-						.await
-						.map_err(|error| {
-							tg::error!(!error, "failed to send the sandbox control response")
-						})?;
-					if destroy {
-						break;
-					}
-				},
-
-				// Handle an underlying process event.
-				event = process_events.next(), if !process_events.is_empty() => {
-					let Some((process, event)) = event else {
-						break;
-					};
-					match event? {
-						ProcessEvent::Buffered | ProcessEvent::Released => {
-							process_events.remove(&process);
-							if ready && process_events.is_empty() && pending.is_empty() {
-								if !reusable {
-									break;
-								}
-								if let Some(ttl) = ttl {
-									timer_future.replace(session.server.clock.sleep(ttl).boxed());
-								}
-							}
-						},
-						ProcessEvent::Connected(_) => {
-							return Err(tg::error!(%process, "received a duplicate process connected event"));
-						},
-						ProcessEvent::Exited => {},
-					}
-				},
-
-				// Reap a process task after its retained state expires.
-				output = process_tasks.join_next(), if !process_tasks.is_empty() => {
-					let result = output
-						.unwrap()
-						.map_err(|error| tg::error!(!error, "a process task panicked"))?
-						.map_err(|error| tg::error!(!error, "a process task failed"));
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace(), sandbox = %id, "a sandbox process failed");
-						if !ready {
-							event_sender.send(Err(error)).ok();
+					// If the sandbox process exits, then break and destroy the sandbox with the error that describes its exit.
+					result = &mut sandbox_wait => {
+						if let Err(error) = result {
+							tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox process exited");
+							failure = Some(error);
 						}
 						break;
-					}
-				},
+					},
 
-				// If the timer fires, then break and destroy the sandbox.
-				() = current_timer_future => {
-					break;
-				},
+					// If the timer fires, then break and destroy the sandbox.
+					() = current_timer_future => {
+						break;
+					},
+				}
 			}
+
+			Ok::<_, tg::Error>(())
+		}
+		.await;
+		if let Err(error) = result {
+			tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox failed");
+			failure.get_or_insert(error);
 		}
 
 		let destroy = async {
@@ -1370,6 +1470,9 @@ impl Component {
 					.get_mut_by_id(&id)
 					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 				state.status = tg::sandbox::Status::Destroyed;
+				state.error = failure
+					.as_ref()
+					.map(|error| Self::sandbox_error_data(session, error));
 				state.changed.send_replace(());
 				state.sandbox.take();
 				(
@@ -1391,36 +1494,7 @@ impl Component {
 			)
 			.await?;
 
-			let request_id = tangram_server_core::control::id();
-			let request =
-				tg::sandbox::control::ClientMessage::Request(tg::sandbox::control::ClientRequest {
-					arg: tg::sandbox::control::ClientRequestArg::Destroy(
-						tg::sandbox::control::DestroyClientRequestArg { data, processes },
-					),
-					id: request_id.clone(),
-				});
-			let response = sender
-				.request(request, tangram_server_core::control::Priority::High)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to send the destroy sandbox request"),
-				)?;
-			let response = response
-				.await
-				.map_err(|_| tg::error!("the sandbox control response stream ended"))?;
-			let tg::sandbox::control::ServerMessage::Response(response) = response else {
-				return Err(tg::error!("expected a sandbox control response"));
-			};
-			if let Some(error) = response.error {
-				let error = tg::Error::try_from(error)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-				return Err(tg::error!(!error, "the destroy sandbox request failed"));
-			}
-			response
-				.output
-				.ok_or_else(|| tg::error!("missing the destroy sandbox response output"))?
-				.try_unwrap_destroy()
-				.map_err(|_| tg::error!("expected a destroy sandbox response"))?;
+			Self::request_sandbox_destroy(&sender, &id, data, processes).await?;
 
 			tangram_server_core::checkpoint!(
 				session.server,
@@ -1509,6 +1583,139 @@ impl Component {
 		}
 
 		Ok(())
+	}
+
+	async fn destroy_failed_sandbox(
+		&self,
+		session: &Session,
+		arg: DestroyFailedSandboxArg<'_>,
+	) -> tg::Result<()> {
+		let DestroyFailedSandboxArg {
+			arg,
+			connection,
+			created_at,
+			creator,
+			error,
+			id,
+			input,
+			location,
+		} = arg;
+
+		// Create the destroyed sandbox's data.
+		let error = Self::sandbox_error_data(session, error);
+		let data = tg::sandbox::Data {
+			cpu: arg.cpu,
+			creator,
+			error: Some(error),
+			hostname: arg.hostname,
+			id: id.clone(),
+			memory: arg.memory,
+			mounts: arg.mounts,
+			network: arg.network,
+			owner: arg.owner,
+			status: tg::sandbox::Status::Destroyed,
+			storage: arg.storage,
+			ttl: arg.ttl,
+			usage: None,
+		};
+		let data = tg::sandbox::get::Output {
+			data,
+			location: Some(location.clone()),
+			tokens: tg::authorization::Tokens::default(),
+		};
+
+		// Create the control stream.
+		let context = Context {
+			principal: tg::Principal::Sandbox(id.clone()),
+			token: Some(connection.token.clone()),
+			..session.context.clone()
+		};
+		let session = session.server.session(&context);
+		let (_, local) = tokio::sync::mpsc::channel(1);
+		let control = tangram_server_core::control::Stream::new_reconnecting(
+			connection.requests,
+			input,
+			tangram_server_core::control::stream_options(&session.server.config.control),
+		);
+		let mut control = control::Control::new(control, local);
+		let sender = control.sender();
+
+		// Index and report the destruction while answering the server's requests.
+		let destroy = async {
+			self.index_remote_sandbox(&session, id, location, created_at, Some(&data), Some(&[]))
+				.await?;
+			Self::request_sandbox_destroy(&sender, id, data.clone(), Vec::new()).await?;
+			Ok::<_, tg::Error>(())
+		};
+		let mut destroy = pin!(destroy);
+		loop {
+			tokio::select! {
+				result = &mut destroy => {
+					result?;
+					break;
+				},
+				message = control.recv() => {
+					if let Some(message) = message? {
+						self.handle_destroyed_sandbox_control_request(&session, id, message).await?;
+					}
+				},
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn request_sandbox_destroy(
+		sender: &SandboxControlSender,
+		id: &tg::sandbox::Id,
+		data: tg::sandbox::get::Output,
+		processes: Vec<tg::process::Id>,
+	) -> tg::Result<()> {
+		let request_id = tangram_server_core::control::id();
+		let request =
+			tg::sandbox::control::ClientMessage::Request(tg::sandbox::control::ClientRequest {
+				arg: tg::sandbox::control::ClientRequestArg::Destroy(
+					tg::sandbox::control::DestroyClientRequestArg { data, processes },
+				),
+				id: request_id,
+			});
+		let response = sender
+			.request(request, tangram_server_core::control::Priority::High)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to send the destroy sandbox request"),
+			)?;
+		let response = response
+			.await
+			.map_err(|_| tg::error!("the sandbox control response stream ended"))?;
+		let tg::sandbox::control::ServerMessage::Response(response) = response else {
+			return Err(tg::error!("expected a sandbox control response"));
+		};
+		if let Some(error) = response.error {
+			let error = tg::Error::try_from(error)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+			return Err(tg::error!(!error, "the destroy sandbox request failed"));
+		}
+		response
+			.output
+			.ok_or_else(|| tg::error!("missing the destroy sandbox response output"))?
+			.try_unwrap_destroy()
+			.map_err(|_| tg::error!("expected a destroy sandbox response"))?;
+
+		Ok(())
+	}
+
+	fn sandbox_error_data(
+		session: &Session,
+		error: &tg::Error,
+	) -> tg::Either<tg::error::Data, tg::error::Id> {
+		let mut error = error.to_data_or_id();
+		if !session.server.config.advanced.internal_error_locations
+			&& let tg::Either::Left(error) = &mut error
+		{
+			error.remove_internal_locations();
+		}
+		error
 	}
 
 	async fn get_sandbox_control_stream(

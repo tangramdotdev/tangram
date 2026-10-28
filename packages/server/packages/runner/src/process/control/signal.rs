@@ -67,7 +67,7 @@ impl Component {
 		signal: tg::process::control::SignalServerRequestArg,
 	) -> tg::Result<()> {
 		sandbox
-			.kill(sandbox_process, signal.signal)
+			.kill_process(sandbox_process, signal.signal)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to signal the process"))?;
 		Ok(())

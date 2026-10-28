@@ -44,4 +44,4 @@ assert equal $output.status 409
 
 tg --url $runner.url checkpoint unwatch runner.sandbox.control.connect $control_watch
 success (job recv --tag $create --timeout 30sec)
-assert equal (timeout 30s tg --url $remote.url --token $root_token sandbox wait $sandbox | from json) destroyed
+assert equal (timeout 30s tg --url $remote.url --token $root_token sandbox wait $sandbox | from json) {}
