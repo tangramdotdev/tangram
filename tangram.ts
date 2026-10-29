@@ -89,6 +89,7 @@ export const build = async (...args: tg.Args<Arg>) => {
 		proxy = false,
 		sdk,
 		source: source_ = source,
+		standalone = false,
 	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
@@ -105,9 +106,24 @@ export const build = async (...args: tg.Args<Arg>) => {
 		sandboxRootfs(host),
 	];
 
-	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp.
+	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp. Standalone builds link them statically.
 	if (std.triple.os(host) === "linux") {
-		envs.push(libcapNg({ build, host }), libseccomp({ build, host }));
+		const capNg = libcapNg({ build, host });
+		const seccomp = libseccomp({ build, host });
+		envs.push(capNg, seccomp);
+		if (standalone) {
+			envs.push({
+				LIBCAPNG_LIB_PATH: tg`${capNg}/lib`,
+				LIBCAPNG_LINK_TYPE: "static",
+				LIBSECCOMP_LIB_PATH: tg`${seccomp}/lib`,
+				LIBSECCOMP_LINK_TYPE: "static",
+			});
+		}
+	}
+
+	// Link OpenSSL and the libraries found with pkg-config statically into standalone builds.
+	if (standalone) {
+		envs.push({ OPENSSL_STATIC: "1", PKG_CONFIG_ALL_STATIC: "1" });
 	}
 
 	if (build !== host) {
@@ -152,8 +168,14 @@ export const build = async (...args: tg.Args<Arg>) => {
 		proxy,
 		...std.args.optional("sdk", sdk),
 		source: source_,
+		standalone,
 		useCargoVendor: true,
 	});
+
+	// Return standalone builds unwrapped.
+	if (standalone) {
+		return tg.directory(output, { "bin/tg": tg.symlink("tangram") });
+	}
 
 	// Add xz library path.
 	const libraryPaths = [];
@@ -182,6 +204,10 @@ export const build = async (...args: tg.Args<Arg>) => {
 
 	return directory;
 };
+
+/** Build a native executable that runs after checkout without a Tangram wrapper or artifact store. */
+export const standalone = async (...args: tg.Args<Arg>) =>
+	build(...args, { standalone: { glibcVersion: "2.39" } });
 
 export const cloud = async (...args: tg.Args<Arg>) => {
 	const merged = await mergeArgs(args);
