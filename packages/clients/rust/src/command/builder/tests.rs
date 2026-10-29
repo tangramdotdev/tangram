@@ -86,3 +86,34 @@ fn tokens(resource: tg::Id, location: &tg::Location) -> tg::authorization::Token
 
 	tokens
 }
+
+#[test]
+fn module_commands_run_the_builtin_runtime_for_the_module_kind() {
+	let source = tg::module::Source::Path("main.tg.py".into());
+	let module = tg::Module {
+		kind: tg::module::Kind::Python,
+		referent: tg::Referent::with_node(source),
+	};
+	let args = [
+		tg::command::Value::String(tg::Value::String("raw".to_owned())),
+		tg::command::Value::Value(tg::Value::Number(42.0)),
+	];
+	let builder = Builder::with_module(module, Some("default".to_owned()), args);
+	let args = builder
+		.args
+		.iter()
+		.map(|arg| match arg {
+			tg::command::Value::String(tg::Value::String(string)) => string.clone(),
+			tg::command::Value::String(_) | tg::command::Value::Value(_) => "<value>".to_owned(),
+		})
+		.collect::<Vec<_>>();
+	assert_eq!(
+		args,
+		[
+			"builtin", "python", "--export", "default", "<value>", "-a", "raw", "-A", "<value>"
+		]
+	);
+	let executable = builder.executable.unwrap();
+	assert!(executable.artifact.is_none());
+	assert_eq!(executable.path.unwrap(), std::path::Path::new("tg"));
+}

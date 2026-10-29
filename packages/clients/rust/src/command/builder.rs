@@ -58,6 +58,38 @@ impl Builder {
 		Ok(builder)
 	}
 
+	/// Create a builder for a command that runs an export of a module with the builtin runtime for the module's kind, passing each arg as a string with `-a` or as a value with `-A`.
+	#[must_use]
+	pub fn with_module(
+		module: tg::Module,
+		export: Option<String>,
+		args: impl IntoIterator<Item = tg::command::Value>,
+	) -> Self {
+		let runtime = match module.kind {
+			tg::module::Kind::Python => "python",
+			_ => "javascript",
+		};
+		let mut args_ = vec!["builtin".into(), runtime.into()];
+		if let Some(export) = export {
+			args_.push("--export".into());
+			args_.push(export.into());
+		}
+		args_.push(tg::command::Value::Value(module.into()));
+		for arg in args {
+			let flag = match &arg {
+				tg::command::Value::String(_) => "-a",
+				tg::command::Value::Value(_) => "-A",
+			};
+			args_.push(flag.into());
+			args_.push(arg);
+		}
+		let executable = tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		};
+		Self::new().args(args_).executable(executable)
+	}
+
 	#[must_use]
 	pub fn with_object(object: &tg::command::Object) -> Self {
 		Self {
