@@ -2,13 +2,13 @@ use {super::super::Index, futures::future, std::time::Duration, tangram_client::
 
 // Run the stress regression with four workers; its deadline depends on available CPU and database latency.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn concurrent_verifications_complete_before_the_deadline() {
+	let Some(cluster) = tangram_tests_util::database::cluster() else {
+		return;
+	};
 	let options = crate::Options {
 		cleaning_partition_total: 1,
-		cluster: std::env::var_os("FDB_CLUSTER_FILE")
-			.expect("set FDB_CLUSTER_FILE")
-			.into(),
+		cluster,
 		instance: Some(format!(
 			"index_reader_test_{:032x}/",
 			rand::random::<u128>()

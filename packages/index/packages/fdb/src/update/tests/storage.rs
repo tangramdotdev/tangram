@@ -7,25 +7,21 @@ use {
 };
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn coalesced_storage_puts_preserve_the_oldest_version() {
 	super::run(async |index| puts(index, false).await).await;
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn late_storage_puts_preserve_the_oldest_version() {
 	super::run(async |index| puts(index, true).await).await;
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn paginated_usage_updates_preserve_the_oldest_version() {
 	super::run(pages).await;
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn completed_usage_updates_preserve_the_oldest_version() {
 	super::run(async |index| {
 		let leaf = super::directory(&[]);

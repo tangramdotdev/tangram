@@ -30,11 +30,6 @@ def process_id():
     return "pcs_00" + encode(body)
 
 
-def derived_process_id(runner):
-    # Derive an ID from a runner's ID and a random salt, and return it with its proof.
-    return derived_id("pcs_00", "tangram process id v1", runner)
-
-
 def sandbox_id():
     # Create an ID with a random UUIDv7 body.
     body = uuidv7(int(time.time() * 1000), os.urandom(10))

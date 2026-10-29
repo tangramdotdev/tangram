@@ -8,132 +8,6 @@ const repository_path = path self '../../../'
 const supervisors_name = 'supervisors'
 export const vfs_cleanup_marker_name = '.tangram_test_vfs_cleanup'
 
-def acquire_database_instance [pool_path: string] {
-	let postgres_schema_path = $repository_path | path join packages/server/packages/database/src/postgres.sql
-	let scylla_schema_path = $repository_path | path join packages/cache/packages/scylla/schema.cql
-	let result = (^bash -c (database_pool_acquire) _ $pool_path $postgres_schema_path $scylla_schema_path | complete)
-	if $result.exit_code != 0 {
-		error make {
-			msg: 'failed to acquire a database pool instance'
-			help: ($result.stderr | str trim)
-		}
-	}
-	let instance = $result.stdout | str trim
-	if ($instance | is-empty) {
-		error make { msg: 'the acquired database pool instance is empty' }
-	}
-
-	$instance
-}
-
-export def database_pool_acquire [] {
-	r#'
-set -euo pipefail
-
-pool_path=$1
-postgres_schema_path=$2
-scylla_schema_path=$3
-operation_timeout=30
-mkdir -p -- "$pool_path"
-
-# Record the test run as the lease owner, so that the lease stays owned while the run resets the instance after the test exits.
-owner=${TANGRAM_TEST_DATABASE_RUN:-}
-if [ -z "$owner" ]; then
-	echo "the database lease owner is not set" >&2
-	exit 1
-fi
-
-try_lease_existing() {
-	for slot_path in "$pool_path"/pool[0-9]*; do
-		if [ ! -d "$slot_path" ]; then
-			continue
-		fi
-		temporary_lease_path=$(mktemp "$slot_path/.lease.XXXXXX")
-		printf '%s\n' "$owner" > "$temporary_lease_path"
-		if ln "$temporary_lease_path" "$slot_path/lease" 2>/dev/null; then
-			rm -f -- "$temporary_lease_path"
-			basename "$slot_path"
-			return 0
-		fi
-		rm -f -- "$temporary_lease_path"
-	done
-	return 1
-}
-
-if instance=$(try_lease_existing); then
-	echo "$instance"
-	exit 0
-fi
-
-# Schema changes are coordinated globally by Scylla. Serialize only on-demand provisioning so a cold expansion cannot overwhelm it; the database operations themselves remain unrestricted.
-if [ "${TANGRAM_TEST_DATABASE_PROVISION_CONCURRENT:-}" != 1 ]; then
-	exec 9>"$pool_path/provision.lock"
-	if [ "$(uname -s)" = Darwin ]; then
-		lockf 9
-	else
-		flock 9
-	fi
-	if instance=$(try_lease_existing); then
-		echo "$instance"
-		exit 0
-	fi
-fi
-
-index=0
-while true; do
-	instance=$(printf 'pool%04d' "$index")
-	slot_path="$pool_path/$instance"
-	temporary_slot_path="$pool_path/.provisioning.$instance"
-	if [ ! -e "$slot_path" ] && mkdir "$temporary_slot_path" 2>/dev/null; then
-		if [ ! -e "$slot_path" ]; then
-			break
-		fi
-		rmdir "$temporary_slot_path"
-	fi
-	index=$((index + 1))
-done
-postgres_created=false
-scylla_created=false
-
-cleanup_provision() {
-	status=$?
-	trap - EXIT
-	rm -rf -- "$temporary_slot_path"
-	if $scylla_created; then
-		timeout --kill-after=2s 10 tangram_scylla_client 127.0.0.1 9042 -e "drop keyspace if exists \"cache_$instance\";" >/dev/null 2>&1 || true
-	fi
-	if $postgres_created; then
-		timeout --kill-after=2s 10 dropdb --host=127.0.0.1 --username=postgres --if-exists --force "database_$instance" >/dev/null 2>&1 || true
-	fi
-	exit "$status"
-}
-trap cleanup_provision EXIT
-
-printf '%s\n' "$owner" > "$temporary_slot_path/lease"
-run_phase() {
-	phase=$1
-	shift
-	"$@" || {
-		status=$?
-		echo "$phase failed with exit code $status" >&2
-		return "$status"
-	}
-}
-
-run_phase "creating PostgreSQL database $instance" timeout --kill-after=2s "$operation_timeout" createdb --host=127.0.0.1 --username=postgres "database_$instance"
-postgres_created=true
-run_phase "initializing PostgreSQL database $instance" timeout --kill-after=2s "$operation_timeout" psql --host=127.0.0.1 --username=postgres --dbname="database_$instance" --set=ON_ERROR_STOP=1 --single-transaction --file="$postgres_schema_path" >/dev/null
-
-run_phase "creating ScyllaDB keyspace $instance" timeout --kill-after=2s "$operation_timeout" tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"cache_$instance\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
-scylla_created=true
-run_phase "initializing ScyllaDB keyspace $instance" timeout --kill-after=2s "$operation_timeout" tangram_scylla_client 127.0.0.1 9042 -k "cache_$instance" -f "$scylla_schema_path" >/dev/null
-
-mv -- "$temporary_slot_path" "$slot_path"
-trap - EXIT
-echo "$instance"
-'#
-}
-
 export def foundationdb_cluster_description [] {
 	if $nu.os-info.name == 'linux' { 'local:local@127.0.0.1:4500' } else { 'docker:docker@127.0.0.1:4500' }
 }
@@ -565,56 +439,7 @@ export def --env "server spawn" [
 		}
 	}
 
-	# Use unique semaphore names in the namespace FSKit can access.
-	let cache_posix_sem_prefix = if $use_fskit {
-		let app_group_identifier = (identifiers).app_group_identifier
-		$'($app_group_identifier)/((random chars) | str lowercase | str substring 0..5)'
-	} else {
-		$'/tg-((random chars) | str lowercase | str substring 0..7)'
-	}
-
-	mut default_config: any = {
-		accounts: true,
-		runners: true,
-		advanced: {
-			disable_version_check: true
-			internal_error_locations: false
-		},
-		index: {
-			kind: 'lmdb',
-			map_size: 10_485_760,
-		},
-		cache: {
-			kind: 'lmdb',
-			map_size: 10_485_760,
-			posix_sem_prefix: $cache_posix_sem_prefix,
-		},
-		remotes: {},
-		tokio_single_threaded: true,
-		v8_thread_pool_size: 1,
-	}
-
-	let use_quickjs = $quickjs or (($env.TANGRAM_TEST_QUICKJS? | default "") | str length) > 0
-	if $use_quickjs {
-		$default_config = $default_config | merge deep {
-			runner: {
-				javascript: {
-					engine: 'quickjs',
-				},
-			},
-		}
-	}
-
-	let use_turso = (($env.TANGRAM_TEST_TURSO? | default "") | str length) > 0
-	if $use_turso {
-		$default_config = $default_config | merge deep {
-			database: {
-				kind: 'turso',
-				path: 'database.sqlite3',
-			},
-		}
-	}
-
+	# Create the instance unless one is given.
 	if $cloud and $instance != null {
 		error make { msg: '--cloud may not be combined with --instance' }
 	}
@@ -625,132 +450,32 @@ export def --env "server spawn" [
 	} else {
 		instance
 	}
-	let instance_kind = $instance.kind
-	let use_cloud = match $instance_kind {
-		'cloud' => true,
-		'local' => false,
-		_ => {
-			error make { msg: $'invalid instance kind: ($instance_kind)' }
-		},
-	}
+	let use_cloud = $instance.cloud != null
 
 	# Create the server directory. Local instances own one directory, while every cloud server owns its own directory.
 	let directory_path = if $directory != null {
 		$directory
-	} else if $instance_kind == 'local' {
+	} else if not $use_cloud {
 		$instance.directory
 	} else {
 		mktemp -d
 	}
 	try { mkdir $directory_path }
 
-	let cloud_instance = if $use_cloud { $instance.id } else { null }
-	let region_names = validate_instance_config $instance.config
-	if not ($region_names | is-empty) and $region == null {
-		error make { msg: 'a region is required when spawning a server in a regional instance' }
-	}
-	if $region != null and $region not-in $region_names {
-		error make { msg: $'the server region is not in the instance regions list: ($region)' }
-	}
-	mut storage_instance: any = null
-	if $use_cloud {
-		if ($cloud_instance | is-empty) {
-			error make { msg: 'the Tangram cloud instance is empty' }
-		}
-		let pool_path = $env.TANGRAM_TEST_DATABASE_POOL? | default ''
-		if ($pool_path | is-empty) {
-			error make { msg: 'TANGRAM_TEST_DATABASE_POOL is not set' }
-		}
-		let cluster = fdb_cluster
-		$storage_instance = cloud_region_storage $cloud_instance $region $pool_path
-		if ($storage_instance | is-empty) {
-			error make { msg: 'the Tangram region storage instance is empty' }
-		}
-		track_database_pool_instance $storage_instance
-		let partition_offset = $storage_instance | str replace 'pool' '' | into int
-
-		let advanced = $default_config.advanced | merge { multi_server: true }
-		let config = {
-			advanced: $advanced,
-			database: {
-				kind: 'postgres',
-				read: {
-					pool: {
-						max: 1,
-					},
-					url: $'postgres://postgres@127.0.0.1:5432/database_($cloud_instance)?sslmode=disable',
-				},
-				write: {
-					pool: {
-						max: 1,
-					},
-					url: $'postgres://postgres@127.0.0.1:5432/database_($cloud_instance)?sslmode=disable',
-				},
-			},
-			instance: $cloud_instance,
-			index: {
-				cluster: $cluster,
-				instance: $storage_instance,
-				kind: 'fdb',
-			},
-			messenger: {
-				kind: 'nats',
-				url: 'nats://127.0.0.1:4222',
-			},
-			cache: {
-				addr: '127.0.0.1:9042',
-				connections: 1,
-				keepalive: false,
-				keyspace: $'cache_($storage_instance)',
-				kind: 'scylla',
-				partition_offset: $partition_offset,
-			},
-			remotes: {},
-		}
-		$default_config = $default_config | merge $config
+	# Select QuickJS and Turso when requested. Cloud servers use PostgreSQL.
+	let use_quickjs = $quickjs or (($env.TANGRAM_TEST_QUICKJS? | default "") | str length) > 0
+	let use_turso = (($env.TANGRAM_TEST_TURSO? | default "") | str length) > 0 and not $use_cloud
+	let overrides = if $use_quickjs { { runner: { javascript: { engine: 'quickjs' } } } } else { {} }
+	let overrides = if $use_turso {
+		$overrides | merge deep { database: { kind: 'turso', path: 'database.sqlite3' } }
+	} else {
+		$overrides
 	}
 
-	# Replace the backend defaults when selecting another cache backend.
-	let cache_kind = $server_config.cache?.kind? | default $instance.config.cache?.kind?
-	if $cache_kind != null and $cache_kind != $default_config.cache.kind {
-		$default_config = $default_config | upsert cache { kind: $cache_kind }
-	}
-
-	# Replace the backend defaults when selecting another index backend.
-	let index_kind = $server_config.index?.kind? | default $instance.config.index?.kind?
-	if $index_kind != null and $index_kind != $default_config.index.kind {
-		$default_config = $default_config | upsert index { kind: $index_kind }
-	}
-
-	# Write the config.
-	let config = $default_config
-		| merge deep --strategy append $instance.config
-		| merge deep --strategy append $server_config
-	let config = if $instance.config.primary_region? == null {
-		$config
-	} else {
-		$config | upsert primary_region $instance.config.primary_region
-	}
-	let config = if $instance.config.regions? == null {
-		$config
-	} else {
-		$config | upsert regions $instance.config.regions
-	}
-	let config = if $use_cloud { $config | upsert instance $cloud_instance } else { $config }
-	let config = if $region != null { $config | upsert region $region } else { $config }
-	let config = if $use_cloud and $config.roles? == null {
-		$config | upsert roles [api indexer scheduler]
-	} else {
-		$config
-	}
-	let roles = $config.roles? | default [api indexer runner scheduler]
-	let multi_server = $config.advanced.multi_server? | default false
-	let config = if $multi_server and ('indexer' in $roles) and ($config.indexer?.id? == null) {
-		let id = bytes build 0x[00 00 10 00] (random binary 16) | tg id | into string
-		$config | upsert indexer.id $id
-	} else {
-		$config
-	}
+	# Create the config from the instance's config for the region, with the server's config merged.
+	let region_args = if $region == null { [] } else { ['--region' $region] }
+	let server_json = $overrides | merge deep $server_config | to json --raw
+	let config = ^tangram_tests_runner instance config --instance ($instance | to json --raw) --config $server_json ...$region_args | from json
 
 	# Pin the token signing secret to the server directory so restarts can verify existing tokens.
 	let config = if $preserve_keys {
@@ -777,8 +502,8 @@ export def --env "server spawn" [
 		$config
 	}
 
-	# Give a shared index the same semaphore names across servers and restarts.
-	let config = if $config.index.kind? == 'lmdb' and $config.index.posix_sem_prefix? == null {
+	# Give the index in a given directory the same semaphore names across servers and restarts.
+	let config = if $directory != null and $config.index.kind? == 'lmdb' and $server_config.index?.posix_sem_prefix? == null {
 		let path = $directory_path | path join ($config.index.path? | default 'index.lmdb') | path expand
 		let prefix = $'/tgi-($path | hash sha256 | str substring 0..15)'
 		$config | upsert index.posix_sem_prefix $prefix
@@ -802,7 +527,7 @@ export def --env "server spawn" [
 	$config | to json | save -f $config_path
 
 	# Determine the url.
-	let url = $url | default (unix_socket_url $directory_path)
+	let url = $url | default ($config.http?.listeners?.0?.url? | default (unix_socket_url $directory_path))
 	$env.TANGRAM_URL = $url
 
 	# Create a path for the server's captured output.
@@ -1062,120 +787,31 @@ export def instance [
 	--primary-region: string
 	--regions: list
 ] {
-	let config = $config | default {}
-	let config = if $primary_region == null { $config } else { $config | upsert primary_region $primary_region }
-	let config = if $regions == null { $config } else { $config | upsert regions $regions }
-	let config = if $config.regions? == null {
-		$config
-	} else {
-		$config | upsert regions (allocate_region_urls $config.regions)
+	if $cloud {
+		skip_test --cloud
 	}
-	validate_instance_config $config | ignore
-	if not $cloud {
-		let directory = mktemp -d
-
-		return { config: $config, directory: $directory, kind: 'local' }
-	}
-	skip_test --cloud
-	let pool_path = $env.TANGRAM_TEST_DATABASE_POOL? | default ''
-	if ($pool_path | is-empty) {
-		error make { msg: 'TANGRAM_TEST_DATABASE_POOL is not set' }
-	}
-	let id = acquire_database_instance $pool_path
-	track_database_pool_instance $id
-
-	{ config: $config, id: $id, kind: 'cloud' }
+	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
+	let args = [
+		(if $cloud { ['--cloud'] } else { [] })
+		(if $config != null { ['--config' ($config | to json --raw)] } else { [] })
+		(if $primary_region != null { ['--primary-region' $primary_region] } else { [] })
+		($regions | default [] | each { |region| ['--region' $region.name] } | flatten)
+		(if $use_fskit { ['--semaphore-namespace' (identifiers).app_group_identifier] } else { [] })
+	] | flatten
+	^tangram_tests_runner instance create ...$args | from json
 }
 
 export def "instance region url" [instance: record, region: string] {
-	let matches = $instance.config.regions? | default [] | where name == $region
-	if ($matches | is-empty) {
+	let url = $instance.regions | get --optional $region
+	if $url == null {
 		error make { msg: $'the instance does not contain region ($region)' }
 	}
 
-	$matches | first | get url
-}
-
-def allocate_region_urls [regions: list] {
-	$regions | each { |region|
-		if $region.url? != null {
-			$region
-		} else {
-			let socket_directory = mktemp -d
-			$region | upsert url (unix_socket_url $socket_directory)
-		}
-	}
+	$url
 }
 
 def unix_socket_url [directory: string] {
 	$'http+unix://($directory | url encode --all)%2Fsocket'
-}
-
-def validate_instance_config [config: record] {
-	let invalid_topology_keys = $config | columns | where { |key| $key in [instance region] }
-	if not ($invalid_topology_keys | is-empty) {
-		error make {
-			msg: $'instance config contains server topology fields: ($invalid_topology_keys | str join ", ")'
-			help: 'set the server region with --region'
-		}
-	}
-	let primary_region = $config.primary_region?
-	let regions = $config.regions?
-	if $primary_region != null and $regions == null {
-		error make { msg: 'regions are required when a primary region is set' }
-	}
-	let region_names = $regions | default [] | get name
-	if ($region_names | uniq | length) != ($region_names | length) {
-		error make { msg: 'the instance regions list contains duplicate names' }
-	}
-	if $primary_region != null and $primary_region not-in $region_names {
-		error make { msg: $'the primary region is not in the regions list: ($primary_region)' }
-	}
-
-	$region_names
-}
-
-def track_database_pool_instance [instance: string] {
-	$instance ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'instances')
-}
-
-def cloud_region_storage [instance: string, region: any, pool_path: string] {
-	let region = $region | default '' | into string
-	let key = $'($instance)\n($region)' | hash sha256
-	let storages_path = ($nu.temp-dir? | default $nu.temp-path?) | path join 'region_storages'
-	mkdir $storages_path
-	let storage_path = $storages_path | path join $key
-	if ($storage_path | path exists) {
-		return (open --raw $storage_path | str trim)
-	}
-	let lock_path = $storage_path + '.lock'
-	let lock_output = ^mkdir $lock_path | complete
-	if $lock_output.exit_code != 0 {
-		let output = (open /dev/null | timeout 10 bash -c 'while [ ! -s "$1" ]; do sleep 0.05; done' _ $storage_path | complete)
-		if $output.exit_code != 0 {
-			error make { msg: $'timed out waiting for the Tangram region storage: ($region)' }
-		}
-
-		return (open --raw $storage_path | str trim)
-	}
-	let storage = if (try_claim_cloud_instance_storage $instance) {
-		$instance
-	} else {
-		acquire_database_instance $pool_path
-	}
-	$storage | save -f $storage_path
-	rm $lock_path
-
-	$storage
-}
-
-def try_claim_cloud_instance_storage [instance: string] {
-	let claims_path = ($nu.temp-dir? | default $nu.temp-path?) | path join 'instance_storage_claims'
-	mkdir $claims_path
-	let claim_path = $claims_path | path join $instance
-	let output = ^mkdir $claim_path | complete
-
-	$output.exit_code == 0
 }
 
 export def diff [old: string, new: string, --path] {
@@ -1478,17 +1114,6 @@ export def normalize_tokens [value?: string] {
 	$output = $output | str replace --all --regex '(?<![A-Za-z0-9_])(?=[0-9a-z]*[g-z])[0-9a-hjkmnp-tv-z]{60,}(?![A-Za-z0-9_])' '<token>'
 
 	$output
-}
-
-export def fdb_cluster [] {
-	let env_cluster = $env.TANGRAM_TEST_FDB_CLUSTER? | default ''
-	if ($env_cluster | str length) > 0 {
-		return $env_cluster
-	}
-
-	let cluster = mktemp -t
-	foundationdb_cluster_description | save -f $cluster
-	$cluster
 }
 
 # Remove this test's semaphore names after its processes have stopped.

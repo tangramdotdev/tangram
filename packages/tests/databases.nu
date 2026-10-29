@@ -2,7 +2,7 @@
 
 use std/util 'path add'
 
-use util/test.nu [database_pool_acquire foundationdb_cluster_description]
+use util/test.nu [foundationdb_cluster_description]
 
 const repository_path = path self '../../'
 const database_pool_directory_name = 'tangram_test_database_pool'
@@ -13,24 +13,26 @@ const scylla_image = 'scylladb/scylla:2026.3.0'
 
 # Run the shared cloud databases for the CLI tests in the foreground. This is supported on Linux and macOS.
 def main [
-	--release # Use a release build of the Scylla client.
+	--release # Use release builds of the Scylla client and the test runner.
 ] {
 	if $nu.os-info.name not-in ['linux', 'macos'] {
 		error make { msg: 'the cloud databases are supported on Linux and macOS only' }
 	}
-	let scylla_client_path = if $release { build_scylla_client --release } else { build_scylla_client }
-	path add ($scylla_client_path | path dirname)
+	let target_path = if $release { build --release } else { build }
+	path add $target_path
+	let runner_path = $target_path | path join tangram_tests_runner
 	let database_pool_workers = sys cpu | length
 	let database_pool_size = $database_pool_workers * 4
-	run_databases $database_pool_workers $database_pool_size
+	run_databases $runner_path $database_pool_workers $database_pool_size
 }
 
-def build_scylla_client [--release] {
+# Build the Scylla client and the test runner, which provisions the database pool, and return their directory.
+def build [--release] {
 	let args = if $release { ['--release'] } else { [] }
-	cargo build --package tangram_scylla_client ...$args
+	cargo build --package tangram_scylla_client --package tangram_tests_runner ...$args
 	let profile = if $release { 'release' } else { 'debug' }
 
-	$repository_path | path join target $profile tangram_scylla_client
+	$repository_path | path join target $profile
 }
 
 def check_docker [] {
@@ -65,9 +67,7 @@ scylla_container=$7
 scylla_image=$8
 database_pool_workers=$9
 database_pool_size=${10}
-postgres_schema_path=${11}
-scylla_schema_path=${12}
-database_pool_acquire_script=${13}
+runner_path=${11}
 declare -a logs=()
 declare -a names=()
 declare -a pids=()
@@ -213,34 +213,11 @@ wait_for_exit() {
 
 provision_database_pool() {
 	echo "pre-provisioning $database_pool_size database pool instances..." >&2
-	for ((batch_start = 0; batch_start < database_pool_size; batch_start += database_pool_workers)); do
-		declare -a provision_pids=()
-		batch_end=$((batch_start + database_pool_workers))
-		if [ "$batch_end" -gt "$database_pool_size" ]; then
-			batch_end=$database_pool_size
-		fi
-		for ((index = batch_start; index < batch_end; index++)); do
-			TANGRAM_TEST_DATABASE_PROVISION_CONCURRENT=1 TANGRAM_TEST_DATABASE_RUN=provision bash -c "$database_pool_acquire_script" _ "$database_pool_path" "$postgres_schema_path" "$scylla_schema_path" >/dev/null &
-			provision_pids+=("$!")
-		done
-		failed=false
-		for pid in "${provision_pids[@]}"; do
-			if ! wait "$pid" 2>/dev/null; then
-				failed=true
-			fi
-		done
-		if $failed; then
-			echo 'failed to pre-provision the database pool' >&2
-			exit 1
-		fi
-	done
-	find "$database_pool_path" -mindepth 2 -maxdepth 2 -type f -name lease -delete
-	actual_size=$(find "$database_pool_path" -mindepth 1 -maxdepth 1 -type d -name 'pool[0-9]*' | wc -l | tr -d ' ')
-	if [ "$actual_size" -ne "$database_pool_size" ]; then
-		echo "expected $database_pool_size database pool instances, found $actual_size" >&2
+	if ! TANGRAM_TEST_DATABASE_POOL="$database_pool_path" "$runner_path" database provision --count "$database_pool_size" --workers "$database_pool_workers"; then
+		echo 'failed to pre-provision the database pool' >&2
 		exit 1
 	fi
-	echo "database pool is ready with $actual_size instances" >&2
+	echo "database pool is ready with $database_pool_size instances" >&2
 }
 
 trap cleanup EXIT
@@ -366,7 +343,7 @@ def ensure_docker_image [image: string] {
 	}
 }
 
-def run_databases [database_pool_workers: int, database_pool_size: int] {
+def run_databases [runner_path: string, database_pool_workers: int, database_pool_size: int] {
 	# Check the required programs.
 	let lock_command = database_lock_command
 	let commands = if $nu.os-info.name == 'linux' {
@@ -415,8 +392,6 @@ def run_databases [database_pool_workers: int, database_pool_size: int] {
 	}
 	let cluster_path = $state_path | path join 'fdb.cluster'
 	let database_pool_path = database_pool_path
-	let postgres_schema_path = $repository_path | path join packages/server/packages/database/src/postgres.sql
-	let scylla_schema_path = $repository_path | path join packages/cache/packages/scylla/schema.cql
 	if ($database_pool_path | path exists) {
 		rm -rf $database_pool_path
 	}
@@ -441,7 +416,7 @@ def run_databases [database_pool_workers: int, database_pool_size: int] {
 	print -e 'waiting for FoundationDB, NATS, PostgreSQL, and ScyllaDB to become ready...'
 
 	# Run the supervisor in the foreground.
-	exec bash -c (database_supervisor) _ $nu.os-info.name $state_path $cluster_path $database_pool_path $foundationdb_container_name $foundationdb_image $scylla_container_name $scylla_image $database_pool_workers $database_pool_size $postgres_schema_path $scylla_schema_path (database_pool_acquire)
+	exec bash -c (database_supervisor) _ $nu.os-info.name $state_path $cluster_path $database_pool_path $foundationdb_container_name $foundationdb_image $scylla_container_name $scylla_image $database_pool_workers $database_pool_size $runner_path
 }
 
 def tcp_port_open [port: int] {
