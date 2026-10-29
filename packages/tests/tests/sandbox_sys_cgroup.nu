@@ -1,4 +1,4 @@
-use lib/test.nu *
+use ../util/test.nu *
 
 # Common setup exposes the sandbox cgroup independently of the builtin launcher.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }

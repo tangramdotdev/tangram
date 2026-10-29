@@ -1,4 +1,4 @@
-use lib/test.nu *
+use ../util/test.nu *
 
 # A container sandbox provides the standard devices and the host's optional FUSE and TUN devices, even when its dev mount replaces the current /dev.
 

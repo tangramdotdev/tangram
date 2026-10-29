@@ -1,4 +1,4 @@
-use lib/test.nu *
+use ../util/test.nu *
 
 # A remote runner renews its heartbeat while it is connected.
 

@@ -1,5 +1,5 @@
 
-use lib/test.nu *
+use ../util/test.nu *
 
 # The children of a build process report their named options and cached status, and named child processes can be built individually.
 

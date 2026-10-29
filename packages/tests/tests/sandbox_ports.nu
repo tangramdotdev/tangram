@@ -1,4 +1,4 @@
-use lib/test.nu *
+use ../util/test.nu *
 
 # Sandbox port mappings are created and reported correctly, and ports are rejected when networking is disabled, when host networking is used, or when targeting an existing sandbox.
 
