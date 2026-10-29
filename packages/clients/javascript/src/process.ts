@@ -1835,6 +1835,7 @@ async function isModuleProcessBuilderArg(
 			if (node instanceof tg.Command) {
 				command = node;
 			} else if (
+				tg.Command.Arg.isConfig(node) ||
 				tg.Command.Arg.isJavaScript(node) ||
 				tg.Command.Arg.isPython(node)
 			) {
@@ -1843,7 +1844,8 @@ async function isModuleProcessBuilderArg(
 		}
 		if (
 			command !== undefined &&
-			(tg.Command.Object.isJavaScript(await command.object()) ||
+			(tg.Command.Object.isConfig(await command.object()) ||
+				tg.Command.Object.isJavaScript(await command.object()) ||
 				tg.Command.Object.isPython(await command.object()))
 		) {
 			return true;

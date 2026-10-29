@@ -207,7 +207,12 @@ export class Command<
 		export_: string | null | undefined,
 		args: Array<tg.Value | tg.Command.Value>,
 	): tg.Command.ResolvedArg {
-		let runtime = module.kind === "python" ? "python" : "javascript";
+		let runtime =
+			module.kind === "config"
+				? "config"
+				: module.kind === "python"
+					? "python"
+					: "javascript";
 		let commandArgs = [
 			tg.Command.Value.string("builtin"),
 			tg.Command.Value.string(runtime),
@@ -466,6 +471,10 @@ export namespace Command {
 		| tg.Command.Arg.Object;
 
 	export namespace Arg {
+		export let isConfig = (arg: tg.Command.Arg.Object): boolean => {
+			return isModuleCommand(arg, ["config"]);
+		};
+
 		export let isJavaScript = (arg: tg.Command.Arg.Object): boolean => {
 			return isModuleCommand(arg, ["javascript", "js"]);
 		};
@@ -619,6 +628,10 @@ export namespace Command {
 	};
 
 	export namespace Object {
+		export let isConfig = (object: tg.Command.Object): boolean => {
+			return isModuleCommand(object, ["config"]);
+		};
+
 		export let isJavaScript = (object: tg.Command.Object): boolean => {
 			return isModuleCommand(object, ["javascript", "js"]);
 		};
@@ -1026,7 +1039,8 @@ async function isModuleCommandBuilderArg(
 	for (let arg of args_) {
 		if (
 			arg instanceof tg.Command &&
-			(tg.Command.Object.isJavaScript(await arg.object()) ||
+			(tg.Command.Object.isConfig(await arg.object()) ||
+				tg.Command.Object.isJavaScript(await arg.object()) ||
 				tg.Command.Object.isPython(await arg.object()))
 		) {
 			return true;

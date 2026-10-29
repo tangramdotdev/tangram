@@ -1041,11 +1041,19 @@ async def is_module_process_builder_arg(args, client):
         if isinstance(command, dict) and "node" in command:
             command = command["node"]
         if isinstance(command, dict):
-            if Command.Arg.is_javascript(command) or Command.Arg.is_python(command):
+            if (
+                Command.Arg.is_config(command)
+                or Command.Arg.is_javascript(command)
+                or Command.Arg.is_python(command)
+            ):
                 return True
         if isinstance(command, Command):
             object = await command.load(client)
-            if CommandObject.is_javascript(object) or CommandObject.is_python(object):
+            if (
+                CommandObject.is_config(object)
+                or CommandObject.is_javascript(object)
+                or CommandObject.is_python(object)
+            ):
                 return True
     return False
 
