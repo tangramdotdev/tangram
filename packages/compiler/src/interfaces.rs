@@ -1,5 +1,7 @@
 use {
 	crate::{Compiler, document::Key},
+	futures::future,
+	petgraph::graph::DiGraph,
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		hash::{Hash as _, Hasher as _},
@@ -75,41 +77,28 @@ impl Compiler {
 	) -> BTreeMap<Key, tg::Error> {
 		let _guard = self.interfaces.lock.lock().await;
 
-		// Discover the modules that the roots reach.
+		// Discover the modules that the roots reach, getting the modules of each level concurrently.
 		let mut nodes = BTreeMap::new();
 		let mut pending = roots.clone();
-		while let Some(module) = pending.pop() {
-			if language(module.kind).is_none() {
-				continue;
+		while !pending.is_empty() {
+			let mut keys = BTreeSet::new();
+			let modules = pending
+				.drain(..)
+				.filter(|module| {
+					let key = key(module);
+					language(module.kind).is_some() && !nodes.contains_key(&key) && keys.insert(key)
+				})
+				.collect::<Vec<_>>();
+			let output =
+				future::join_all(modules.into_iter().map(|module| self.node(module))).await;
+			for node in output {
+				pending.extend(node.imports.iter().cloned());
+				nodes.insert(key(&node.module), node);
 			}
-			let key = key(&module);
-			if nodes.contains_key(&key) {
-				continue;
-			}
-			let version = self.get_module_version(&module).await.unwrap_or_default();
-			let cached = self.interfaces.nodes.lock().unwrap().get(&key).cloned();
-			let node = match cached {
-				Some(node) if node.version == version => node,
-				cached => {
-					let imports = self.module_imports(&module).await.unwrap_or_default();
-					let interface = cached.and_then(|node| node.interface);
-					Node {
-						imports,
-						interface,
-						module,
-						version,
-					}
-				},
-			};
-			pending.extend(node.imports.iter().cloned());
-			nodes.insert(key, node);
 		}
 
 		// Find the interfaces that each module's checker loads from other languages.
-		let dependencies = nodes
-			.keys()
-			.map(|key| (key.clone(), cross_language_imports(&nodes, key)))
-			.collect::<BTreeMap<_, _>>();
+		let dependencies = cross_language_imports(&nodes);
 		let mut targets = roots
 			.iter()
 			.filter_map(|module| dependencies.get(&key(module)))
@@ -190,6 +179,31 @@ impl Compiler {
 		errors
 	}
 
+	/// Get the node of a module, reusing the cached node if the module is unchanged.
+	async fn node(&self, module: tg::module::Data) -> Node {
+		let version = self.get_module_version(&module).await.unwrap_or_default();
+		let cached = self
+			.interfaces
+			.nodes
+			.lock()
+			.unwrap()
+			.get(&key(&module))
+			.cloned();
+		match cached {
+			Some(node) if node.version == version => node,
+			cached => {
+				let imports = self.module_imports(&module).await.unwrap_or_default();
+				let interface = cached.and_then(|node| node.interface);
+				Node {
+					imports,
+					interface,
+					module,
+					version,
+				}
+			},
+		}
+	}
+
 	/// Get the cached interface of a module, if there is one.
 	pub(crate) fn try_get_interface(&self, module: &tg::module::Data) -> Option<Arc<Entry>> {
 		self.interfaces
@@ -221,20 +235,17 @@ impl Compiler {
 			Self::analyze(module, &text)?.imports.into_iter().collect()
 		};
 
-		// Resolve the imports.
-		let mut modules = Vec::new();
-		for import in imports {
-			let arg = tg::module::resolve::Arg {
-				import,
-				referrer: Some(module.clone()),
-			};
-			let Ok(output) = self.instance.resolve_module(arg).await else {
-				continue;
-			};
-			if language(output.module.kind).is_some() {
-				modules.push(output.module);
-			}
-		}
+		// Resolve the imports concurrently.
+		let modules = future::join_all(
+			imports
+				.into_iter()
+				.map(|import| self.resolve_import(module, import)),
+		)
+		.await
+		.into_iter()
+		.filter_map(Result::ok)
+		.filter(|module| language(module.kind).is_some())
+		.collect();
 
 		Ok(modules)
 	}
@@ -255,29 +266,55 @@ fn key(module: &tg::module::Data) -> Key {
 	Key::new(module)
 }
 
-/// Get the modules in other languages that a module's checker loads, which are those it reaches through modules in its own language.
-fn cross_language_imports(nodes: &BTreeMap<Key, Node>, key: &Key) -> BTreeSet<Key> {
-	let language = language(nodes[key].module.kind);
-	let mut imports = BTreeSet::new();
-	let mut visited = BTreeSet::new();
-	let mut pending = vec![key.clone()];
-	while let Some(key) = pending.pop() {
-		if !visited.insert(key.clone()) {
-			continue;
-		}
-		for module in &nodes[&key].imports {
+/// Get the modules in other languages that each module's checker loads, which are those it reaches through modules in its own language.
+fn cross_language_imports(nodes: &BTreeMap<Key, Node>) -> BTreeMap<Key, BTreeSet<Key>> {
+	// Create the graph of the imports between modules in the same language, and collect each module's imports of modules in other languages.
+	let mut graph = DiGraph::<&Key, ()>::new();
+	let indices = nodes
+		.keys()
+		.map(|key| (key, graph.add_node(key)))
+		.collect::<BTreeMap<_, _>>();
+	let mut direct = BTreeMap::<&Key, BTreeSet<Key>>::new();
+	for (key, node) in nodes {
+		let language = language(node.module.kind);
+		for module in &node.imports {
 			let import = self::key(module);
-			if !nodes.contains_key(&import) {
+			let Some(&index) = indices.get(&import) else {
 				continue;
-			}
+			};
 			if self::language(module.kind) == language {
-				pending.push(import);
+				graph.add_edge(indices[key], index, ());
 			} else {
-				imports.insert(import);
+				direct.entry(key).or_default().insert(import);
 			}
 		}
 	}
-	imports
+
+	// Collect the imports of each group of mutually dependent modules after the groups that it imports.
+	let condensation = petgraph::algo::condensation(graph, true);
+	let order = petgraph::algo::toposort(&condensation, None)
+		.unwrap_or_else(|_| unreachable!("a condensation is acyclic"));
+	let mut imports = vec![BTreeSet::new(); condensation.node_count()];
+	for index in order.into_iter().rev() {
+		let mut set = BTreeSet::new();
+		for key in &condensation[index] {
+			set.extend(direct.get(key).into_iter().flatten().cloned());
+		}
+		for neighbor in condensation.neighbors(index) {
+			set.extend(imports[neighbor.index()].iter().cloned());
+		}
+		imports[index.index()] = set;
+	}
+
+	// Give each module the imports of its group.
+	let mut output = BTreeMap::new();
+	for index in condensation.node_indices() {
+		for key in &condensation[index] {
+			output.insert((*key).clone(), imports[index.index()].clone());
+		}
+	}
+
+	output
 }
 
 /// Get the strongly connected components that the targets reach, with each component after the components it depends on.
@@ -285,66 +322,35 @@ fn components<K>(dependencies: &BTreeMap<K, BTreeSet<K>>, targets: &BTreeSet<K>)
 where
 	K: Clone + Ord,
 {
-	struct State<'a, K> {
-		components: Vec<Vec<K>>,
-		dependencies: &'a BTreeMap<K, BTreeSet<K>>,
-		indices: BTreeMap<&'a K, (usize, usize)>,
-		next: usize,
-		stack: Vec<&'a K>,
-		stacked: BTreeSet<&'a K>,
+	// Create the graph of the keys that the targets reach.
+	let mut graph = DiGraph::<&K, ()>::new();
+	let mut indices = BTreeMap::new();
+	let mut pending = targets.iter().collect::<Vec<_>>();
+	while let Some(key) = pending.pop() {
+		if indices.contains_key(key) {
+			continue;
+		}
+		indices.insert(key, graph.add_node(key));
+		pending.extend(dependencies.get(key).into_iter().flatten());
+	}
+	for (key, index) in &indices {
+		for dependency in dependencies.get(*key).into_iter().flatten() {
+			graph.add_edge(*index, indices[dependency], ());
+		}
 	}
 
-	fn visit<'a, K>(state: &mut State<'a, K>, key: &'a K)
-	where
-		K: Clone + Ord,
-	{
-		let index = state.next;
-		state.next += 1;
-		state.indices.insert(key, (index, index));
-		state.stack.push(key);
-		state.stacked.insert(key);
-		for dependency in &state.dependencies[key] {
-			if !state.indices.contains_key(dependency) {
-				visit(state, dependency);
-				let low = state.indices[dependency].1;
-				let entry = state.indices.get_mut(key).unwrap();
-				entry.1 = entry.1.min(low);
-			} else if state.stacked.contains(dependency) {
-				let low = state.indices[dependency].0;
-				let entry = state.indices.get_mut(key).unwrap();
-				entry.1 = entry.1.min(low);
-			}
-		}
-		let (index, low) = state.indices[key];
-		if index == low {
-			let mut component = Vec::new();
-			loop {
-				let member = state.stack.pop().unwrap();
-				state.stacked.remove(member);
-				component.push(member.clone());
-				if member == key {
-					break;
-				}
-			}
+	// Get the components, which petgraph returns with each component after the components it depends on.
+	petgraph::algo::tarjan_scc(&graph)
+		.into_iter()
+		.map(|component| {
+			let mut component = component
+				.into_iter()
+				.map(|index| graph[index].clone())
+				.collect::<Vec<_>>();
 			component.sort();
-			state.components.push(component);
-		}
-	}
-
-	let mut state = State {
-		components: Vec::new(),
-		dependencies,
-		indices: BTreeMap::new(),
-		next: 0,
-		stack: Vec::new(),
-		stacked: BTreeSet::new(),
-	};
-	for target in targets {
-		if !state.indices.contains_key(target) {
-			visit(&mut state, target);
-		}
-	}
-	state.components
+			component
+		})
+		.collect()
 }
 
 /// Hash the versions of the modules that a module reaches.

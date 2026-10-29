@@ -112,6 +112,9 @@ pub struct State {
 	/// The pending outgoing requests.
 	requests: DashMap<i32, tokio::sync::oneshot::Sender<jsonrpc::Response>>,
 
+	/// The resolutions of the imports of each module, so that the checkers and preparing interfaces resolve each import once.
+	resolutions: DashMap<document::Key, resolve::Resolutions, fnv::FnvBuildHasher>,
+
 	/// The sender.
 	sender: RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
 
@@ -154,6 +157,7 @@ impl Compiler {
 		drop(main_runtime_handle);
 		let documents = DashMap::default();
 		let requests = DashMap::new();
+		let resolutions = DashMap::default();
 		let request_id = AtomicI32::new(1);
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = Mutex::new(None);
@@ -184,6 +188,8 @@ impl Compiler {
 			request_id,
 
 			requests,
+
+			resolutions,
 
 			sender,
 

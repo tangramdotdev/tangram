@@ -73,6 +73,7 @@ oxc = { workspace = true, optional = true }
 oxc_formatter = { workspace = true, optional = true }
 oxc_formatter_core = { workspace = true, optional = true }
 pep440_rs = { workspace = true, optional = true }
+petgraph = { workspace = true }
 ruff_db = { workspace = true, optional = true }
 ruff_notebook = { workspace = true, optional = true }
 ruff_python_ast = { workspace = true, optional = true }

@@ -10161,6 +10161,7 @@ dependencies = [
  "oxc_formatter",
  "oxc_formatter_core",
  "pep440_rs",
+ "petgraph",
  "ruff_db",
  "ruff_notebook",
  "ruff_python_ast",
