@@ -86,5 +86,6 @@ tangram_server_watch = { workspace = true }
 tangram_server_write = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 tangram_tests_util = { workspace = true, features = ["server"] }
 tokio = { workspace = true }

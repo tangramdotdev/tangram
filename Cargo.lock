@@ -10678,6 +10678,7 @@ name = "tangram_server"
 version = "0.0.0"
 dependencies = [
  "futures",
+ "serde_json",
  "tangram_client",
  "tangram_server_authentication",
  "tangram_server_authorization",
