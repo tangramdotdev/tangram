@@ -19,7 +19,6 @@ use {
 		},
 	},
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 	tangram_server_core::{Server, Session, context::Context},
 	tangram_vfs as vfs,
 };
@@ -997,13 +996,15 @@ impl Provider {
 			return Ok(None);
 		};
 		let location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		let id = self
+		let selector = tg::Selector::Specifier(specifier.clone());
+		let node = session
 			.server
-			.index
-			.try_get_id_for_specifier(specifier)
+			.components
+			.node
+			.try_resolve_named_node(&session, &selector)
 			.await
 			.map_err(|error| named_node_error(&error))?;
-		let Some(id) = id else {
+		let Some((id, _)) = node else {
 			return Ok(None);
 		};
 		if id.kind() != tg::id::Kind::Tag {
