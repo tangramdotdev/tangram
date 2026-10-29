@@ -456,14 +456,14 @@ export namespace Command {
 
 	export namespace Arg {
 		export let isJavaScript = (arg: tg.Command.Arg.Object): boolean => {
-			return isBuiltin(arg, ["javascript", "js"]);
+			return isModule(arg, ["javascript", "js"]);
 		};
 
 		export let isPython = (arg: tg.Command.Arg.Object): boolean => {
-			return isBuiltin(arg, ["python", "py"]);
+			return isModule(arg, ["python", "py"]);
 		};
 
-		let isBuiltin = (
+		let isModule = (
 			arg: tg.Command.Arg.Object,
 			names: Array<string>,
 		): boolean => {
@@ -609,14 +609,14 @@ export namespace Command {
 
 	export namespace Object {
 		export let isJavaScript = (object: tg.Command.Object): boolean => {
-			return isBuiltin(object, ["javascript", "js"]);
+			return isModule(object, ["javascript", "js"]);
 		};
 
 		export let isPython = (object: tg.Command.Object): boolean => {
-			return isBuiltin(object, ["python", "py"]);
+			return isModule(object, ["python", "py"]);
 		};
 
-		let isBuiltin = (
+		let isModule = (
 			object: tg.Command.Object,
 			names: Array<string>,
 		): boolean => {
