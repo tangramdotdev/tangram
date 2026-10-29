@@ -1,0 +1,18 @@
+use ../../lib/test.nu *
+
+# A private group is not visible to a user without read permission.
+
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
+
+tg --token $alice.token group create private
+
+let output = tg --token $eve.token group get private | complete
+failure $output "a user without read permission should not be able to get a private group"
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to find the group
+
+'

@@ -1,0 +1,63 @@
+use ../../lib/test.nu *
+
+# Cleaning deletes a process while a storage and metadata update for it is still queued, because the two run independently. The indexer must tolerate the missing process. Failing the update instead leaves the entry at the head of the update queue, which blocks every later update and logs the failure on every retry, including after a restart.
+
+let local = server spawn --now '2026-01-01T00:00:00Z' --config {
+	advanced: {
+		checkpoints: true,
+	},
+	process: {
+		time_to_live: 1,
+	},
+	# The sandbox retains its processes until it is cleaned.
+	sandbox: { time_to_live: 1 },
+	tracing: {
+		stderr_format: 'json',
+	},
+}
+
+let path = artifact {
+	tangram.ts: '
+		export default () => tg.file("hello");
+	'
+}
+
+let build = tg build --detach --verbose $path | from json
+let process = $build.process
+tg wait $process
+let data = tg process get $process
+
+# Hold the update task so that the queue cannot drain.
+let batch_watch = (
+	tg checkpoint watch indexer.update.storage_and_metadata.batch
+	| from json
+	| get watch
+)
+tg checkpoint wait indexer.update.storage_and_metadata.batch $batch_watch 0 | ignore
+
+# Putting the process queues a storage and metadata update for it.
+$data | tg process put $process
+
+# Watch cleaning only now, so that the hit below is necessarily a deletion that follows the queued update.
+let delete_watch = (
+	tg checkpoint watch cleaning.process.delete --params $'{"process": "($process)"}'
+	| from json
+	| get watch
+)
+
+# Wait for cleaning to delete the process, so that the queued storage and metadata update refers to a process that is gone.
+advance_time $local 2sec
+tg checkpoint wait cleaning.process.delete $delete_watch 0 | ignore
+tg checkpoint continue cleaning.process.delete $delete_watch 0
+tg checkpoint unwatch cleaning.process.delete $delete_watch
+
+# Release the update task.
+tg checkpoint continue indexer.update.storage_and_metadata.batch $batch_watch 0
+tg checkpoint unwatch indexer.update.storage_and_metadata.batch $batch_watch
+
+# The update queue must drain.
+let index = timeout 15 tg index | complete
+success $index "the update queue must drain after a storage and metadata update for a cleaned process"
+
+let errors = server_errors $local | where { $in | str starts-with 'tangram_server_core::indexer' }
+snapshot $errors ''

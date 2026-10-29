@@ -1,0 +1,12 @@
+use ../../../lib/test.nu *
+
+# A file's bytes accessor returns its contents as a byte array.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'export default async function () { return await (await tg.file("hello")).bytes; }'
+}
+
+let output = tg build $path
+snapshot $output 'tg.bytes("aGVsbG8=")'

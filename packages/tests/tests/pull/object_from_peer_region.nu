@@ -1,0 +1,41 @@
+use ../../lib/test.nu *
+
+# Pulling an object through a remote region fetches it from a peer region when it is absent in the region serving the request.
+
+let regions = [
+	{ name: 'a' },
+	{ name: 'b' },
+]
+let instance = instance --cloud --primary-region a --regions $regions
+let remote_region_a = server spawn --instance $instance --region a --name remote-region-a --url (instance region url $instance a)
+let remote_region_b = server spawn --instance $instance --region b --name remote-region-b --url (instance region url $instance b)
+let local = server spawn --name local --config {
+	remotes: {
+		default: {
+			url: $remote_region_b.url,
+		},
+	},
+}
+
+# Put a directory and its subtree in region A only.
+let directory = tg --url $remote_region_a.url put --no-tokens 'tg.directory({ "file": tg.file("contents") })' | referent node
+let file = tg --url $remote_region_a.url children $directory | from json | get 0
+let blob = tg --url $remote_region_a.url children $file | from json | get 0
+
+# Confirm that region B and the local server do not have the objects.
+for id in [$directory $file $blob] {
+	let region_b_object = tg --url $remote_region_b.url object get --bytes --location='local(b)' $id | complete
+	failure $region_b_object "the object should be absent in region B before the pull"
+	let local_object = tg --url $local.url object get --bytes --local $id | complete
+	failure $local_object "the object should be absent locally before the pull"
+}
+
+# Pull through region B, which should fetch the objects from region A.
+let output = tg --url $local.url pull $directory | complete
+success $output "the pull should succeed through a region that does not have the object"
+
+# Confirm that the directory and its subtree were pulled.
+for id in [$directory $file $blob] {
+	let local_object = tg --url $local.url object get --bytes --local $id | complete
+	success $local_object "the object should be present locally after the pull"
+}

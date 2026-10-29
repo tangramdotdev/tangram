@@ -1,0 +1,36 @@
+use ../../lib/test.nu *
+
+# A process can return a new object that wraps the output of its own remote cache-hit child.
+
+let remote = server spawn --name remote
+
+let path = artifact {
+	tangram.ts: '
+		export function dependency() {
+			return tg.directory({ file: tg.file("hello") });
+		}
+
+		export default async function () {
+			let directory = await tg.build(dependency).then(tg.Directory.expect);
+			return tg.directory({ dependency: directory });
+		}
+	',
+}
+
+# Populate the remote cache for the dependency.
+let dependency = tg --url $remote.url build --no-tokens --detach $"($path)#dependency" | referent node
+tg --url $remote.url wait $dependency | ignore
+
+let local = server spawn --name local --config {
+	remotes: { default: { url: $remote.url } },
+}
+
+let process = tg --url $local.url build --no-tokens --detach $path | referent node
+let result = tg --url $local.url wait $process | from json
+let children = tg --url $local.url process children $process | from json
+assert equal ($children | length) 1 "the build should have spawned the dependency."
+assert ($children | first | get cached) "the dependency should be a remote cache hit."
+assert equal $result.exit 0 "a process should be able to wrap its cache-hit child's output in a new object."
+# Read across both locations because the cached child remains on the remote.
+let output = tg --url $local.url get --location='local,remote' $result.output.value --depth inf | complete
+success $output "the wrapped child output should be readable."

@@ -1,0 +1,12 @@
+use ../../../lib/test.nu *
+
+# tg.sleep resolves to undefined.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'export default async function () { return (await tg.sleep(0.05)) === undefined; }'
+}
+
+let output = tg build $path
+snapshot $output 'true'

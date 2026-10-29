@@ -1,0 +1,28 @@
+use ../../lib/test.nu *
+
+# A process's status is masked from a principal without a grant, so knowing the process id is not an existence or liveness oracle.
+
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
+
+# Alice builds a private process.
+let path = artifact { tangram.ts: 'export default function () { return 5; }' }
+let process = tg --token $alice.token build --no-tokens --detach $path | referent node
+tg --token $alice.token wait $process
+
+# The owner can read the status.
+let owner = tg --token $alice.token process status $process | complete
+success $owner "the owner should read the process status."
+
+# Eve must not learn the status of a process she cannot see.
+let status = tg --token $eve.token process status $process | complete
+failure $status "Eve must not learn the status of a process she cannot see."
+snapshot --normalize $status.stderr '
+	error an error occurred
+	-> failed to get the process status
+	   id = pcs_0000000000000000000000000000
+	-> failed to get the process
+
+'

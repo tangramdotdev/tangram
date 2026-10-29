@@ -1,0 +1,53 @@
+use ../../lib/test.nu *
+
+# Spawning and finishing with a command authorized by the current index do not need to await indexing.
+
+let directory = mktemp -d
+let root_token = random chars
+let config = {
+	advanced: { multi_server: true },
+	authentication: {
+		root: { token: $root_token },
+		users: { providers: { insecure: true } },
+	},
+}
+let local = server spawn --preserve-keys --directory $directory --config $config
+let alice = tg --url $local.url login --verbose --name alice | from json
+let path = artifact {
+	tangram.ts: '
+		export function run() {
+			return "hello";
+		}
+
+		export default function () {
+			return tg.command(run);
+		}
+	',
+}
+let id = checkin push $local $path --token $alice.token
+let build = tg --url $local.url --token $alice.token build --detach --verbose $id | from json
+let command = tg --url $local.url --token $alice.token wait $build.process | from json | get output.value
+tg --url $local.url --token $alice.token grant $alice.user.id object_subtree $command | ignore
+tg --url $local.url --token $alice.token index
+let config = (
+	$local.config
+	| upsert advanced.multi_server false
+	| upsert authorization.tokens null
+	| upsert roles [api runner scheduler]
+)
+
+# Restart without an indexer so attempting to await indexing fails.
+let pid = open ($local.directory | path join 'lock') | into int
+kill --signal 2 $pid
+wait_for_exit $pid
+let local = server spawn --directory $directory --config $config
+failure (tg --url $local.url --token $alice.token index | complete)
+
+let output = (
+	tg --url $local.url --token $alice.token run --cached=false --detach --local --stderr null --stdout null --verbose $command
+	| complete
+)
+success $output "a current subtree authorization should avoid awaiting indexing."
+let process = $output.stdout | from json | get process
+let output = tg --url $local.url --token $root_token wait $process | complete
+success $output "finishing with a current subtree authorization should avoid awaiting indexing."

@@ -1,0 +1,80 @@
+use ../../lib/test.nu *
+use ../../lib/command.nu
+
+# Provides the shared helper that builds a module, pushes the resulting process to a remote, and verifies that the process and any selected commands, children, and outputs are present and identical on the remote. The behavior is exercised by the importing tests under various flag combinations.
+
+export def test [path: string, ...args] {
+	# Create a remote server.
+	let remote = server spawn --cloud --name remote
+
+	# Create a local server.
+	let local = server spawn --name local
+
+	# Add the remote.
+	tg remote put default $remote.url | complete
+
+	# Build the module.
+	let process_id = tg build --no-tokens --detach $path | referent node
+
+	# Wait for the process to finish.
+	tg wait --source=index $process_id
+
+	tg index
+
+	let output = tg get $process_id | from json
+	let command = (command module-input $output.command)
+	let children = $output.children
+
+	# Push the process.
+	tg push ...$args $process_id
+
+	# Confirm the process is on the remote and the same.
+	let local_process = tg get $process_id --no-tokens --pretty
+	let remote_process = tg --url $remote.url get $process_id --no-tokens --pretty
+	assert equal $local_process $remote_process
+
+	# Confirm the error is present.
+	if $output.error? != null and (($output.error | describe) == "string") {
+		tg --url $remote.url get $output.error --no-tokens --pretty
+	}
+
+	# Confirm output is present.
+	if $output.output? != null and (($output.output.node | describe) | str starts-with 'record') {
+		if $output.output.node.kind == "object" {
+			tg --url $remote.url get $output.output.node.value --no-tokens --pretty
+		}
+	}
+
+	# Confirm commands are present if --commmands.
+	if "--process-command-objects" in $args {
+		tg --url $remote.url get (command module-input $output.command) --no-tokens --pretty
+	}
+
+	# Confirm children are present if --process-children.
+	if "--process-children" in $args {
+		for child in $children {
+			tg --url $remote.url get $child.process
+		}
+	}
+
+	# Confirm children commands are present if --process-children and --process-command-objects.
+	if "--process-command-objects" in $args and "--process-children" in $args {
+		for child in $children {
+			let output = tg --url $remote.url get $child.process | from json
+			tg --url $remote.url get (command module-input $output.command) --no-tokens --pretty
+		}
+	}
+
+	# Confirm children output is present if --process-children.
+	if "--process-children" in $args {
+		for child in $children {
+			let output = tg get $child.process | from json
+			if (($output.output?.node? | describe) | str starts-with 'record') {
+				if $output.output.node.kind == "object" {
+					tg --url $remote.url get $output.output.node.value --no-tokens --pretty
+				}
+			}
+		}
+	}
+
+}

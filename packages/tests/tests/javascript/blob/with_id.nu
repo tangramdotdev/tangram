@@ -1,0 +1,17 @@
+use ../../../lib/test.nu *
+
+# tg.Blob.withId returns a blob that preserves the given id.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			let blob = await tg.blob("hello");
+			return tg.Blob.withId(blob.id).id === blob.id;
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output 'true'

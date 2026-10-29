@@ -1,0 +1,17 @@
+use ../../../lib/test.nu *
+
+# tg.assert returns without throwing when the condition is truthy.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default function () {
+			tg.assert(true);
+			return "ok";
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output '"ok"'

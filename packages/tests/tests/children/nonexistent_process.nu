@@ -1,0 +1,15 @@
+use ../../lib/test.nu *
+
+# Getting the children of a process by a well formed id that does not exist fails.
+
+let local = server spawn --config { control: { read_timeout: 0.25 } }
+
+let output = tg process children pcs_010000000000000000000000000000000000000000000000000000 | complete
+failure $output
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to get the process children
+	   id = pcs_010000000000000000000000000000000000000000000000000000
+	-> failed to get the process
+
+'

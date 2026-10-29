@@ -9939,20 +9939,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_cli_test"
-version = "0.0.0"
-dependencies = [
- "clap",
- "crossterm",
- "futures",
- "libc",
- "regex",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "tangram_cli_touch"
 version = "0.0.0"
 dependencies = [
@@ -12049,6 +12035,28 @@ dependencies = [
  "tangram_util",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "tangram_tests_runner"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "crossterm",
+ "futures",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_tests_supervise"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "libc",
 ]
 
 [[package]]

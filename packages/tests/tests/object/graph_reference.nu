@@ -1,0 +1,61 @@
+use ../../lib/test.nu *
+
+# Getting a graph object built from a module with mutually referencing file nodes returns the full graph that matches the snapshot.
+
+let local = server spawn
+
+# Create a directory with nested structure.
+let path = artifact {
+	tangram.ts: r#'
+        export default function () {
+            return tg.graph({
+                nodes: [
+                    {
+                        kind: "file",
+                        contents: tg.blob("foo"),
+                        dependencies: { "./bar": 1 },
+                    },
+                    {
+                        kind: "file",
+                        contents: tg.blob("bar"),
+                        dependencies: { "./foo": 0 },
+                    },
+                ],
+            });
+        }
+    '#
+}
+
+let output = tg build $path | complete
+success $output
+
+let graph = $output.stdout | str trim
+
+let output = tg get --no-tokens --pretty --depth=inf $graph | complete
+success $output
+# Verify the output is a file ID.
+snapshot $output.stdout '
+	tg.graph({
+	  "nodes": [
+	    {
+	      "kind": "file",
+	      "contents": blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0,
+	      "dependencies": {
+	        "./bar": {
+	          "node": 1,
+	        },
+	      },
+	    },
+	    {
+	      "kind": "file",
+	      "contents": blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg,
+	      "dependencies": {
+	        "./foo": {
+	          "node": 0,
+	        },
+	      },
+	    },
+	  ],
+	})
+
+'

@@ -1,0 +1,21 @@
+use ../../../lib/test.nu *
+
+# tg.Artifact.withId throws when the id is not a string.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default function () {
+			try {
+				tg.Artifact.withId(42);
+				return "did not throw";
+			} catch (error) {
+				return error.message;
+			}
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output '"expected a string: 42"'

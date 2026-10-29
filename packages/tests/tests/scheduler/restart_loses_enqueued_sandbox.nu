@@ -1,0 +1,106 @@
+use ../../lib/test.nu *
+
+# A sandbox create acknowledged by a scheduler is lost when that scheduler dies, so its parent fails instead of replaying the create on the replacement scheduler.
+
+let root_token = random chars
+let config = {
+	advanced: {
+		multi_server: true,
+	},
+	authentication: { root: { token: $root_token } },
+	indexer: { id: 'idx_0000000000000000000000000000' },
+	roles: [api indexer scheduler],
+	scheduler: {
+		default_cpu: 1,
+		default_memory: 1_073_741_824,
+		heartbeat_ttl: 3,
+	},
+}
+let remote = server spawn --name remote --preserve-keys --config $config
+let created = tg --url $remote.url --token $root_token runner create | from json
+let replacement_created = tg --url $remote.url --token $root_token runner create | from json
+
+let runner = server spawn --name runner --config {
+	remotes: {
+		default: {
+			token: $created.token.token
+			url: $remote.url,
+		},
+	},
+	runner: {
+		cpus: 1,
+		overcommit: { cpu: 1 },
+		id: $created.data.id
+		remote: "default",
+		token: $created.token.token
+	},
+	scheduler: {
+		default_cpu: 1,
+		default_memory: 1_073_741_824,
+		heartbeat_ttl: 3,
+	},
+}
+
+let local = server spawn --name local --config {
+	remotes: {
+		default: {
+			token: $root_token
+			url: $remote.url,
+		},
+	},
+	scheduler: {
+		default_cpu: 1,
+		default_memory: 1_073_741_824,
+		heartbeat_ttl: 3,
+	},
+}
+
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			await using blocker = await tg.spawn(block).sandbox();
+			const promise = Promise.resolve(tg.build(child).sandbox());
+			await tg.sleep(0.25);
+			console.log("child spawn is pending");
+			return await promise;
+		}
+
+		export async function block() {
+			await tg.sleep(2);
+		}
+
+		export function child() {
+			return 42;
+		}
+	',
+}
+
+let process = tg --url $local.url build --no-tokens --detach --remote $path | referent node
+let output = timeout 30s tg --url $local.url process log --no-timeout --stream stdout --length 23 $process | complete
+success $output "the child spawn was not enqueued"
+assert equal $output.stdout "child spawn is pending\n"
+
+let pid = open ($remote.directory | path join 'lock') | into int
+kill --signal 9 $pid
+wait_for_exit $pid
+
+let remote = server start $remote
+let runner_replacement = server spawn --name runner-replacement --config {
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
+	remotes: {
+		default: {
+			token: $replacement_created.token.token
+			url: $remote.url,
+		},
+	},
+	runner: {
+		cpus: 1,
+		overcommit: { cpu: 1 },
+		id: $replacement_created.data.id
+		remote: "default",
+		token: $replacement_created.token.token
+	},
+}
+
+let output = tg --url $local.url wait $process | from json
+assert equal $output.exit 1

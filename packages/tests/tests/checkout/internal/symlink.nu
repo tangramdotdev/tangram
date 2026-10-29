@@ -1,0 +1,19 @@
+use ../../../lib/test.nu *
+
+# Checking out a symlink with an absolute target path writes the symlink into the checkouts directory.
+
+let local = server spawn
+
+# Create the artifact.
+let artifact = '
+	tg.symlink({
+		"path": "/bin/sh"
+	})
+'
+let id = tg put --no-tokens $artifact | referent node
+
+# Check out.
+tg checkout $id
+
+# Snapshot.
+snapshot --path $local.checkout_directory

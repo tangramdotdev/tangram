@@ -1,0 +1,12 @@
+use ../../../lib/test.nu *
+
+# tg.Value.toData wraps a placeholder under the placeholder kind.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'export default function () { return tg.Value.toData(tg.placeholder("foo")); }'
+}
+
+let output = tg build $path
+snapshot $output '{"kind":"placeholder","value":{"name":"foo"}}'

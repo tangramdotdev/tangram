@@ -1,0 +1,21 @@
+use ../../../lib/test.nu *
+
+# tg.Command.expect throws when the value is not a command.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default function () {
+			try {
+				tg.Command.expect("x");
+				return "did not throw";
+			} catch (error) {
+				return error.message;
+			}
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output '"failed assertion"'

@@ -1,0 +1,18 @@
+use ../../lib/test.nu *
+
+# A build whose return value is a self-referential array fails because of the cyclic value.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default function () {
+			let x = [];
+			x[0] = x;
+			return x;
+		}
+	'
+}
+
+let output = tg build $path | complete
+failure $output

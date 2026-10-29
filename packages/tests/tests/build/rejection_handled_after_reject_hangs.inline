@@ -1,0 +1,8 @@
+[
+  {
+    "position": 552,
+    "length": 1012,
+    "old": "error an error occurred\n-> the process failed\n   id = pcs_0000000000000000000000000000\n-> reject is not defined\n   ╭─[./tangram.ts:3:10]\n 2 │     let promise = new Promise(() => reject(new Error(\"kaboom\")));\n 3 │     promise.catch(() => {});\n   ·             ▲\n   ·             ╰── reject is not defined\n 4 │     await new Promise(() => {});\n   ╰────\n   ╭─[./tangram.ts:2:16]\n 1 │ export default async function () {\n 2 │     let promise = new Promise(() => reject(new Error(\"kaboom\")));\n   ·                   ▲\n   ·                   ╰── reject is not defined\n 3 │     promise.catch(() => {});\n   ╰────\n   ╭─[./tangram.ts:2:34]\n 1 │ export default async function () {\n 2 │     let promise = new Promise(() => reject(new Error(\"kaboom\")));\n   ·                                     ▲\n   ·                                     ╰── reject is not defined\n 3 │     promise.catch(() => {});\n   ╰────\n",
+    "new": ""
+  }
+]

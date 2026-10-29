@@ -1,0 +1,50 @@
+use ../../lib/test.nu *
+
+# Test getting from an object with ?get= when there's a cyclical import.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'import * as a from "./file.tg.ts";',
+	file.tg.ts: 'import * as root from "./tangram.ts";',
+}
+let id = tg checkin --no-tokens $path | referent node
+let output = tg get $"($id)?get=./file.tg.ts" --depth=inf --no-tokens --pretty | complete
+success $output
+snapshot $output.stdout '
+	tg.file({
+	  "graph": tg.graph({
+	    "nodes": [
+	      {
+	        "kind": "file",
+	        "contents": blb_01b7ka1dzz1k7n5fh52av0vxtkycf3z2kntyvnvv549x2xdy36mm9g,
+	        "dependencies": {
+	          "./file.tg.ts": {
+	            "node": 1,
+	            "options": {
+	              "path": "file.tg.ts",
+	            },
+	          },
+	        },
+	        "module": "typescript",
+	      },
+	      {
+	        "kind": "file",
+	        "contents": blb_010pwqd32ehjhaj9eswh61x95cgqby7x5w0fybj56a34cmbehs3mhg,
+	        "dependencies": {
+	          "./tangram.ts": {
+	            "node": 0,
+	            "options": {
+	              "path": "tangram.ts",
+	            },
+	          },
+	        },
+	        "module": "typescript",
+	      },
+	    ],
+	  }),
+	  "index": 1,
+	  "kind": "file",
+	})
+
+'

@@ -1,0 +1,22 @@
+use ../../lib/test.nu *
+
+# Checking in a package whose two modules import each other produces the expected object and writes no lockfile.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'import * as foo from "./foo.tg.ts";'
+	foo.tg.ts: 'import * as root from "./tangram.ts";'
+}
+
+let id = tg checkin --no-tokens $path | referent node
+tg index
+
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
+snapshot --name object $object
+
+let metadata = tg object metadata --pretty $id
+snapshot --name metadata $metadata
+
+let lockfile_path = $path | path join 'tangram.lock'
+assert (not ($lockfile_path | path exists))

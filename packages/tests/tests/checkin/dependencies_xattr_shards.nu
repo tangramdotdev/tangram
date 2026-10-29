@@ -1,0 +1,15 @@
+use ../../lib/test.nu *
+
+# Checking in a file reads dependency metadata split across numbered xattr shards.
+
+let local = server spawn
+let directory = artifact {
+	dependency: dependency
+	input: (file --xattrs {
+		"user.tangram.dependencies.0": '["./depen'
+		"user.tangram.dependencies.1": 'dency"]'
+	} input)
+}
+let id = tg checkin --no-tokens $directory | referent node
+let object = tg get --depth 2 --no-tokens --pretty $id
+assert ($object | str contains './dependency') 'the sharded dependency was not preserved'

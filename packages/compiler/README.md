@@ -74,5 +74,5 @@ Run the repository checks and relevant CLI tests with Nushell:
 ```nu
 bun run format
 bun run check
-nu packages/cli/test.nu '(check|document|lsp)/'
+nu packages/tests/test.nu '(check|document|lsp)/'
 ```

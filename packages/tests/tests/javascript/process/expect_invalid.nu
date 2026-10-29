@@ -1,0 +1,21 @@
+use ../../../lib/test.nu *
+
+# tg.Process.expect throws a failed assertion when the value is not a process.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			try {
+				tg.Process.expect({});
+				return "did not throw";
+			} catch (error) {
+				return error.message;
+			}
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output '"failed assertion"'

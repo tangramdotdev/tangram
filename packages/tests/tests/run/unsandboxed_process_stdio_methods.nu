@@ -1,0 +1,52 @@
+use ../../lib/test.nu *
+
+# The piped stdio methods of an unsandboxed process allow writing to stdin and reading the full stdout and stderr streams.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			let process = await tg
+				.spawn`
+					awk '{print "stdout:" $0; print "stderr:" $0 > "/dev/stderr"}'
+				`
+				.stdio("pipe");
+			let input = tg.encoding.utf8.encode("hello\n");
+			let [written, stdout, stderr] = await Promise.all([
+				process.stdin.write(input).then(async (written) => {
+					await process.stdin.close();
+					return written;
+				}),
+				(async () => {
+					let chunks = [];
+					while (true) {
+						let chunk = await process.stdout.read();
+						if (chunk === null) {
+							break;
+						}
+						chunks.push(tg.encoding.utf8.decode(chunk));
+					}
+					return chunks.join("");
+				})(),
+				(async () => {
+					let chunks = [];
+					while (true) {
+						let chunk = await process.stderr.read();
+						if (chunk === null) {
+							break;
+						}
+						chunks.push(tg.encoding.utf8.decode(chunk));
+					}
+					return chunks.join("");
+				})(),
+			]);
+			tg.assert(written === input.length);
+			let outcome = await process.wait();
+			return { exit: outcome.exit, stderr, stdout };
+		}
+	',
+}
+
+let output = tg run $path | from json
+assert ($output == { exit: 0, stderr: "stderr:hello\n", stdout: "stdout:hello\n" })

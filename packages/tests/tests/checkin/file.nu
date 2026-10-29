@@ -1,0 +1,21 @@
+use ../../lib/test.nu *
+
+# Checking in a single file produces the expected object and writes no lockfile.
+
+let local = server spawn
+
+let path = artifact {
+	README.md: 'Hello, World!'
+}
+
+let id = tg checkin --no-tokens $path | referent node
+tg index
+
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
+snapshot --name object $object
+
+let metadata = tg object metadata --pretty $id
+snapshot --name metadata $metadata
+
+let lockfile_path = $path | path join 'tangram.lock'
+assert (not ($lockfile_path | path exists))

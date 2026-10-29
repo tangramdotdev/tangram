@@ -1,0 +1,59 @@
+use ../../lib/test.nu *
+
+# Checking in a package with --no-solve leaves the tag dependency unresolved rather than solving it.
+
+let local = server spawn
+
+# Tag the a dependency.
+let a_path = artifact {
+	tangram.ts: '// a 1.0.0'
+}
+tg tag -p a/1.0.0 $a_path
+
+let id = tg tag get a/1.0.0 | from json | get target.id
+let lock = {
+	nodes: [
+		{
+			kind: "directory",
+			entries: {
+				"tangram.ts": 1
+			}
+		},
+		{
+			kind: "file",
+			dependencies: {
+				"a/^1": {
+					node: null,
+					options: {
+						id: $id,
+						tag: "a/1.0.0"
+					}
+				}
+			}
+			module: "typescript"
+		},
+	]
+} | to json
+let path = artifact {
+	tangram.ts: '
+		import a from "a/^1";
+	'
+	tangram.lock: $lock
+
+}
+
+let id = tg checkin --no-tokens $path --no-solve | referent node
+tg index
+
+let object = tg get --depth=inf --no-tokens --pretty $id
+snapshot $object '
+	tg.directory({
+	  "tangram.ts": tg.file({
+	    "contents": blb_01mzk6yctk6vb8f7k35qw07218x9mv26x7kaxq78ynd1ym1an10x8g,
+	    "dependencies": {
+	      "a/^1": null,
+	    },
+	    "module": "typescript",
+	  }),
+	})
+'

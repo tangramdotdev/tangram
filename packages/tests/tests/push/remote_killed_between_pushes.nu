@@ -1,0 +1,32 @@
+use ../../lib/test.nu *
+
+# A push that fails because the remote is down does not corrupt state: an earlier push remains intact after the remote restarts, and a retry of the failed push succeeds.
+
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
+	remotes: { default: { url: $remote.url } }
+}
+
+# Push an object.
+let a = tg put --no-tokens 'tg.file("a")' | referent node
+tg push $a
+success (tg --url $remote.url get $a --local | complete) "the first object should be present on the remote"
+
+# Stop the remote server.
+server stop $remote
+
+# Push another object while the remote is down.
+let b = tg put --no-tokens 'tg.file("b")' | referent node
+let output = tg push $b | complete
+failure $output
+
+# Restart the remote server.
+let remote = server start $remote
+
+# The first object is still present on the remote.
+let output = tg --url $remote.url get $a --local | complete
+success $output
+
+# Retrying the failed push succeeds.
+let output = tg --url $local.url push $b | complete
+success $output

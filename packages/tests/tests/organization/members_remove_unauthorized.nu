@@ -1,0 +1,27 @@
+use ../../lib/test.nu *
+
+# Membership confers write but not admin, so a member cannot remove another member.
+
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
+let carol = tg login --verbose --name carol | from json
+
+tg --token $alice.token organization create acme
+tg --token $alice.token organization members add acme $bob.user.id
+tg --token $alice.token organization members add acme $carol.user.id
+
+# Bob's membership grants him write but not admin, so he cannot remove another member.
+let output = tg --token $bob.token organization members remove acme $carol.user.id | complete
+failure $output "a member without admin should not be able to remove another member"
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to remove the organization member
+	   member = usr_0000000000000000000000000000
+	   organization = acme
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> unauthorized
+
+'

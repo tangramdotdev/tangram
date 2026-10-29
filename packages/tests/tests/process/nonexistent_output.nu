@@ -1,0 +1,15 @@
+use ../../lib/test.nu *
+
+# Requesting the output of a process that does not exist fails with a missing-process error.
+
+let local = server spawn --config { control: { read_timeout: 0.25 } }
+
+let output = tg output pcs_010000000000000000000000000000000000000000000000000000 | complete
+failure $output
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to get the process output
+	   id = pcs_010000000000000000000000000000000000000000000000000000
+	-> failed to find the process
+
+'

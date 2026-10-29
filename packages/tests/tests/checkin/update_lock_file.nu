@@ -1,0 +1,92 @@
+use ../../lib/test.nu *
+
+# --update with --lock=file writes a sibling lockfile.
+
+let local = server spawn
+
+# Tag the a dependency versions.
+let a_path = artifact {
+	tangram.ts: '// a 1.0.0'
+}
+tg tag -p a/1.0.0 $a_path
+
+let a_path = artifact {
+	tangram.ts: '// a 1.1.0'
+}
+tg tag -p a/1.1.0 $a_path
+
+let a_id = tg tag get a/1.0.0 | from json | get target.id
+let lock = {
+	nodes: [
+		{
+			kind: "file",
+			dependencies: {
+				"a/^1": {
+					node: null,
+					options: {
+						id: $a_id,
+						tag: "a/1.0.0"
+					}
+				}
+			}
+			module: "typescript"
+		},
+	]
+} | to json
+
+let path = artifact {
+	foo.tg.ts: '
+		import a from "a/^1";
+	'
+	foo.tg.lock: $lock
+}
+
+let id = tg checkin --no-tokens ($path | path join 'foo.tg.ts') --update a --lock=file | referent node
+tg index
+
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
+snapshot $object '
+	tg.file({
+	  "contents": tg.blob("import a from \"a/^1\";"),
+	  "dependencies": {
+	    "a/^1": {
+	      "node": tg.directory({
+	        "tangram.ts": tg.file({
+	          "contents": tg.blob("// a 1.1.0"),
+	          "module": "typescript",
+	        }),
+	      }),
+	      "options": {
+	        "id": "dir_01k7z4eb0kyaqdjhgefddk1ktf6b0yqtavtx30r9n25z908nngsyd0",
+	        "tag": "a/1.1.0",
+	      },
+	    },
+	  },
+	  "module": "typescript",
+	})
+'
+
+let lock = open ($path | path join 'foo.tg.lock')
+snapshot $lock '
+	{
+	  "nodes": [
+	    {
+	      "kind": "file",
+	      "dependencies": {
+	        "a/^1": {
+	          "node": null,
+	          "options": {
+	            "id": "dir_01k7z4eb0kyaqdjhgefddk1ktf6b0yqtavtx30r9n25z908nngsyd0",
+	            "tag": "a/1.1.0"
+	          }
+	        }
+	      },
+	      "module": "typescript"
+	    }
+	  ]
+	}
+'
+
+# The xattr should not exist.
+let xattrs = xattr_list ($path | path join 'foo.tg.ts') | where { |name| $name == 'user.tangram.lock' }
+assert ($xattrs | is-empty)

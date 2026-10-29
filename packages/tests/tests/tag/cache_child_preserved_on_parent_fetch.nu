@@ -1,0 +1,25 @@
+use ../../lib/test.nu *
+
+# A cached child tag is not evicted when its parent branch is later fetched.
+
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
+	remotes: { default: { url: $remote.url } }
+}
+let local_source = server spawn --name local-source --config {
+	remotes: { default: { url: $remote.url } }
+}
+
+let path = artifact 'Hello, World!'
+let id = tg --url $local_source.url checkin --no-tokens $path | referent node
+tg --url $local_source.url push $id
+tg --url $remote.url tag put -p "a/q/r/s" $id
+tg --url $remote.url tag put -p "a/q/t" $id
+
+# Cache the child, then fetch its parent.
+let s1 = tg --url $local.url get "a/q/r/s?follow=true" | str trim
+tg --url $local.url get "a/q?follow=true" | ignore
+
+# The child should still be in the cache.
+let s2 = tg --url $local.url get --remote --cached "a/q/r/s?follow=true" | str trim
+assert equal $s1 $s2 "the child tag should still be cached after fetching its parent"

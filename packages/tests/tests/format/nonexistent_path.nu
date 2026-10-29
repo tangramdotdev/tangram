@@ -1,0 +1,14 @@
+use ../../lib/test.nu *
+
+# Formatting a path that does not exist fails.
+
+let local = server spawn
+
+let output = tg format /nonexistent/path/nowhere | complete
+failure $output
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to canonicalize the path
+	-> No such file or directory (os error 2)
+
+'

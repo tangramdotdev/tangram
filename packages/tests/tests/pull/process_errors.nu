@@ -1,0 +1,28 @@
+use ../../lib/test.nu *
+
+# Pulling a process includes its error by default.
+
+let remote = server spawn --cloud --name remote
+let local_source = server spawn --name local-source --config {
+	remotes: { default: { url: $remote.url } },
+}
+let local = server spawn --name local
+tg remote put default $remote.url
+
+let path = artifact {
+	tangram.ts: r#'
+		export default function () {
+			throw tg.error.sync("whoops");
+		}
+	'#
+}
+let process = tg --url $local_source.url build --no-tokens --detach $path | referent node
+tg --url $local_source.url wait $process
+tg --url $local_source.url push $process
+tg --url $remote.url wait $process
+let error = tg --url $remote.url get $process | from json | get error
+
+tg pull $process
+
+let local_error = tg object get --local $error | complete
+success $local_error "the process error should be present locally after the pull"

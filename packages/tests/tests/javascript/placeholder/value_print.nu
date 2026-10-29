@@ -1,0 +1,12 @@
+use ../../../lib/test.nu *
+
+# A placeholder returned from a build prints as a tg.placeholder call.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'export default function () { return tg.placeholder("foo"); }'
+}
+
+let output = tg build $path
+snapshot $output 'tg.placeholder("foo")'

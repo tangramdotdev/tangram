@@ -1,0 +1,14 @@
+use ../../lib/test.nu *
+
+# The tg.file template literal strips the leading indentation from a multiline file and the text matches the snapshot.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default function () { return tg.file`\n\tHello, World!\n`.then((f) => f.text); }
+	'
+}
+
+let output = tg build $path
+snapshot $output

@@ -1,0 +1,61 @@
+use ../../lib/test.nu *
+
+# Cached descendants inherit sync context even when they already carry authorization.
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export function identity(arg: tg.Value) {
+			return arg;
+		}
+		export default async function () {
+			const child = tg.Directory.withObject({ entries: {} });
+			child.state.tokens = { local: ["child-authorization"] };
+			const parent = tg.Directory.withObject({ entries: { a: child } });
+			parent.state.tokens = { local: ["parent-authorization", "incoming-sync"] };
+			const result = await parent.get("a");
+			tg.assert(JSON.stringify(result.state.tokens.local) === JSON.stringify(["child-authorization", "incoming-sync", "parent-authorization"]));
+			tg.assert(result.state.tokens.local?.[1] === "incoming-sync");
+			const copy = result.state.tokens;
+			copy.local![1] = "changed-sync";
+			tg.assert(result.state.tokens.local?.[1] === "incoming-sync");
+			const inherited = result.state.tokens;
+			tg.Authorization.Tokens.inherit(inherited, { remote: ["remote-sync"] });
+			tg.assert(parent.state.tokens.remote === undefined);
+			inherited.local[0] = "mutated";
+			tg.assert(parent.state.tokens.local[1] === "parent-authorization");
+			tg.assert(result.state.tokens.local[0] === "child-authorization");
+			inherited.local[0] = "child-authorization";
+			inherited.local.push("another-authorization");
+			tg.Authorization.Tokens.normalize(inherited);
+			const referent = { node: "a", options: { tokens: inherited } };
+			const encoded = tg.Referent.toDataString(referent, (value) => value);
+			const decoded = tg.Referent.fromDataString(encoded, (value) => value);
+			tg.assert(JSON.stringify(decoded.options?.tokens?.local) === JSON.stringify(inherited.local));
+			tg.assert(decoded.options?.tokens?.local?.includes("incoming-sync"));
+			tg.assert(decoded.options?.tokens?.remote?.[0] === "remote-sync");
+			const argument = tg.Directory.withObject({ entries: {} });
+			argument.state.tokens = inherited;
+			const command = await tg.command(identity, argument);
+			tg.assert(tg.Authorization.Tokens.isEmpty(command.state.tokens));
+			tg.assert(JSON.stringify(argument.state.tokens) === JSON.stringify(inherited));
+			const data = tg.Object.Object.toData(command.state.object!);
+			tg.Object.Data.withoutLocationAndTokens(data);
+			tg.assert(JSON.stringify(argument.state.tokens) === JSON.stringify(inherited));
+			const first = tg.Directory.withObject({ entries: {} });
+			const second = tg.Directory.withObject({ entries: {} });
+			first.state.tokens = { local: ["first-authorization", "first-sync"] };
+			second.state.tokens = { local: ["second-authorization", "second-sync"] };
+			const inputs = tg.Directory.withObject({ entries: { first, second, shared: first } });
+			const wrapper = tg.Directory.withObject({ entries: { inputs } });
+			const lifted = tg.Object.toReferent(wrapper).options!.tokens!.local!;
+			tg.assert(JSON.stringify(lifted.toSorted()) === JSON.stringify(["first-authorization", "first-sync", "second-authorization", "second-sync"]));
+			tg.assert(tg.Authorization.Tokens.isEmpty(wrapper.state.tokens));
+			tg.assert(tg.Authorization.Tokens.isEmpty(inputs.state.tokens));
+			tg.assert(first.state.tokens.local!.length === 2);
+			tg.assert(second.state.tokens.local!.length === 2);
+			return true;
+		}
+	'
+}
+assert equal (tg build $path | from json) true

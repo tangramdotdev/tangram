@@ -1,0 +1,22 @@
+use ../../lib/test.nu *
+
+# Standard input and output remain available after the process transport reconnects.
+
+const driver = path self ../../lib/stdio_transport.mjs
+let local = server spawn
+let tangram = which tg | where type == external | get path | first
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			let child = await tg.spawn`read line; echo "$line"`.stdin("pipe").stdout("log").stderr("null").sandbox();
+			console.log(child.id);
+			await child.output();
+		}
+	'
+}
+let parent = tg build --no-tokens --detach $path | referent node
+let length = ($parent | str length) + 1
+let id = timeout 30s tg log --no-timeout --length $length $parent | str trim
+let output = node $driver $tangram ($local.directory | path join socket) $id | complete
+success $output
+tg wait $parent | ignore

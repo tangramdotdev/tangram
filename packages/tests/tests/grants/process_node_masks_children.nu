@@ -1,0 +1,26 @@
+use ../../lib/test.nu *
+
+# A process_node grant confers the node but not its child processes, so a node grantee reads the parent while its children stay masked.
+
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
+
+# Alice builds a private process that builds a child process.
+let path = artifact { tangram.ts: 'export default function () { return tg.build(child); } export function child() { return 42; }' }
+let parent = tg --token $alice.token build --no-tokens --detach $path | referent node
+tg --token $alice.token wait $parent
+tg --token $alice.token index
+let child = tg --token $alice.token get $parent | from json | get children | get 0.process | referent node
+
+# Alice grants Eve only the process node of the parent.
+tg --token $alice.token grant $eve.user.id process_node $parent | ignore
+
+# Eve can read the parent process node she was granted.
+let parent_read = tg --token $eve.token get $parent | complete
+success $parent_read "Eve should read the parent process node she was granted."
+
+# Eve cannot read the child process: a node grant does not confer the subtree.
+let child_read = tg --token $eve.token get $child | complete
+failure $child_read "a process_node grant must not confer read on child processes."

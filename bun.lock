@@ -37,6 +37,9 @@
     "packages/python": {
       "name": "@tangramdotdev/python-runtime",
     },
+    "packages/tests": {
+      "name": "@tangramdotdev/tests",
+    },
     "packages/vscode": {
       "name": "tangram",
       "version": "0.0.0",
@@ -250,6 +253,8 @@
     "@tangramdotdev/python-client": ["@tangramdotdev/python-client@workspace:packages/clients/python"],
 
     "@tangramdotdev/python-runtime": ["@tangramdotdev/python-runtime@workspace:packages/python"],
+
+    "@tangramdotdev/tests": ["@tangramdotdev/tests@workspace:packages/tests"],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

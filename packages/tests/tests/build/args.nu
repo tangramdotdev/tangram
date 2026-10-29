@@ -1,0 +1,12 @@
+use ../../lib/test.nu *
+
+# A build forwards a command-line argument to the default export function and produces the expected output.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'export default function (name: string) { return `Hello, ${name}!`; }'
+}
+
+let output = tg build $path --arg-string 'Tangram'
+snapshot $output

@@ -1,0 +1,36 @@
+use ../../lib/test.nu *
+
+# Resolving a branch tag returns the cached child within its TTL and returns the newest child when fetched with --ttl 0.
+
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
+	remotes: { default: { url: $remote.url } }
+}
+let local_source = server spawn --name local-source --config {
+	remotes: { default: { url: $remote.url } }
+}
+
+let path = artifact 'Hello, World!'
+let id = tg --url $local_source.url checkin --no-tokens $path | referent node
+tg --url $local_source.url push $id
+let old = tg --url $remote.url get --no-tokens $id | str trim
+tg --url $remote.url tag put -p "a/c/d" $id
+
+# Prime the cache by resolving the branch through the local server.
+let c1 = tg --url $local.url get --no-tokens "a/c?follow=true" | str trim
+assert equal $c1 $old "the branch should resolve to its only child"
+
+# Add a newer child on the remote.
+let path2 = artifact 'Goodbye, World!'
+let id2 = tg --url $local_source.url checkin --no-tokens $path2 | referent node
+tg --url $local_source.url push $id2
+let new = tg --url $remote.url get --no-tokens $id2 | str trim
+tg --url $remote.url tag put -p "a/c/h" $id2
+
+# Within the TTL the cached resolution is returned.
+let c2 = tg --url $local.url get --no-tokens "a/c?follow=true" | str trim
+assert equal $c2 $c1 "within the TTL the same result should be returned"
+
+# With --ttl 0 the newest child is returned.
+let c3 = tg --url $local.url get --no-tokens --ttl 0 "a/c?follow=true" | str trim
+assert equal $c3 $new "with --ttl 0 the newest child should be returned"

@@ -1,0 +1,22 @@
+use ../../../lib/test.nu *
+
+# console.log formats a number argument as its decimal representation.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default function () {
+			console.log(42);
+		}
+	'
+}
+
+let id = tg build --no-tokens -d $path | referent node
+tg wait $id
+tg index
+let stdout = tg process log --stream stdout $id | complete
+snapshot $stdout.stdout '
+	42
+
+'

@@ -1,0 +1,33 @@
+use ../../lib/test.nu *
+
+# A deep chain of sandboxed builds completes with a single runner allocation.
+# Each parent process waits for a sandboxed child, so the child must be able
+# to borrow the parent's capacity.
+
+let local = server spawn --config {
+	scheduler: { default_cpu: 1, default_memory: 1_073_741_824 },
+	runner: {
+		cpus: 1,
+		overcommit: { cpu: 1 },
+		memory: 1_073_741_824,
+	},
+}
+
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			return await tg.build(step, 24).sandbox();
+		}
+
+		export async function step(depth: number): Promise<string> {
+			if (depth === 0) {
+				return "done";
+			}
+			return await tg.build(step, depth - 1).sandbox();
+		}
+	',
+}
+
+let output = timeout 60s tg build $path | complete
+success $output "a deep sandboxed process tree should complete by borrowing parent capacity"
+assert equal ($output.stdout | from json) done

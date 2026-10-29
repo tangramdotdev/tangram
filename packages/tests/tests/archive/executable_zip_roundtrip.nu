@@ -1,0 +1,11 @@
+use ../../lib/test.nu *
+
+# Archiving and extracting a directory with an executable file as zip preserves the executable bit.
+
+let local = server spawn
+
+let dir = tg put --no-tokens 'tg.directory({ "tool": tg.file({ "contents": tg.blob("#!/bin/sh"), "executable": true }) })' | referent node
+
+let blob = tg archive --format zip $dir | str trim
+let extracted = tg extract --no-tokens $blob | str trim
+assert equal $extracted $dir "the extracted directory should equal the original"

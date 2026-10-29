@@ -1,0 +1,95 @@
+use ../../lib/test.nu *
+
+# A shortcut child must finish while its parent's command sync is held and be recorded under the parent on the remote.
+
+if $nu.os-info.name != 'linux' {
+	skip_test 'this test requires linux'
+}
+
+let root_token = random chars
+
+# Spawn the remote and create the runner.
+let remote = server spawn --preserve-keys --name remote --config {
+	advanced: { checkpoints: true, multi_server: true },
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
+	roles: [api indexer scheduler],
+}
+let created = tg --url $remote.url --token $root_token runner create | from json
+
+# Give the runner room for the scheduled grandparent, the shortcut parent, and the shortcut child.
+let runner = server spawn --name runner --config {
+	advanced: { checkpoints: true },
+	remotes: { default: { token: $created.token.token, url: $remote.url } },
+	roles: [api indexer runner],
+	runner: { cpus: 3, id: $created.data.id, remote: default, token: $created.token.token },
+}
+
+let inserted_watch = tg --url $runner.url checkpoint watch runner.process.state.inserted | from json | get watch
+let sync_watch = tg --url $runner.url checkpoint watch runner.process.command.sync.started | from json | get watch
+let finished_watch = tg --url $runner.url checkpoint watch runner.process.finished | from json | get watch
+
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			return await tg.build(parent).sandbox();
+		}
+
+		export async function parent() {
+			return await tg.build(child).sandbox();
+		}
+
+		export function child() {
+			return 42;
+		}
+	',
+}
+let build = job spawn {
+	let job_id = job id
+	let id = checkin push $remote $path --token $root_token
+	let output = tg --url $remote.url --token $root_token build $id | complete
+	$output | job send --tag $job_id 0
+}
+
+# Record the scheduled grandparent and the shortcut parent.
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.state.inserted $inserted_watch 0 | complete
+success $output "the grandparent should enter the runner state"
+tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 0
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.state.inserted $inserted_watch 1 | complete
+success $output "the parent should enter the runner state"
+let parent = $output.stdout | from json | get params.process
+tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 1
+
+# Hold the parent's command sync while Start proceeds independently.
+success (tg --url $runner.url checkpoint wait --timeout 60s runner.process.command.sync.started $sync_watch 0 | complete) "the parent should reach its command sync"
+
+# Let the child's command sync proceed while its parent's command sync is held.
+let output = tg --url $runner.url checkpoint wait --timeout 60s runner.process.state.inserted $inserted_watch 2 | complete
+success $output "the child should enter the runner state"
+let child = $output.stdout | from json | get params.process
+tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 2
+success (tg --url $runner.url checkpoint wait --timeout 60s runner.process.command.sync.started $sync_watch 1 | complete) "the child should reach its command sync"
+tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 1
+
+# The child runs to completion while the parent's command sync is held.
+let finished = tg --url $runner.url checkpoint wait --timeout 30s runner.process.finished $finished_watch 0 | complete
+success $finished "the child should finish while its parent command sync is held"
+assert equal ($finished.stdout | from json | get params.process) $child "the child should finish first"
+tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
+tg --url $runner.url checkpoint unwatch runner.process.state.inserted $inserted_watch
+
+# Release the parent's command sync.
+tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $sync_watch
+
+let output = job recv --tag $build --timeout 60sec
+success $output "the build should succeed"
+assert equal ($output.stdout | str trim) '42'
+
+let output = timeout 60s tg --url $remote.url --token $root_token wait $parent | complete
+success $output "the parent should finish on the remote"
+let outcome = $output.stdout | from json
+assert equal $outcome.exit 0 "the parent should succeed"
+let children = tg --url $remote.url --token $root_token process children --no-tokens $parent | from json
+assert equal ($children | length) 1 "the remote should record the child under the parent"
+assert equal ($children | get 0.process | split row '?' | first) $child

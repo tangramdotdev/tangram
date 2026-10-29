@@ -1,0 +1,15 @@
+use ../../lib/test.nu *
+
+# Following a group selects the most recent matching version.
+
+let local = server spawn
+
+let one = tg put --no-tokens 'tg.file("one")' | referent node
+tg tag put -p a/1.0.0 $one
+let two = tg put --no-tokens 'tg.file("two")' | referent node
+tg tag put -p a/1.1.0 $two
+
+let output = tg get --no-tokens "a?follow=true" | complete
+success $output
+let expected = tg get --no-tokens $two | str trim
+assert (($output.stdout | str trim) == $expected) "the tag should resolve to the latest version"

@@ -1,0 +1,20 @@
+use ../../lib/test.nu *
+
+# Bundling a checked-in directory with no dependencies produces a bundled object that matches the snapshot.
+
+let local = server spawn
+
+let path = artifact {
+	file: 'hello'
+	link: (symlink 'link')
+}
+
+# Check in the directory.
+let id = tg checkin --no-tokens $path | referent node
+
+# Bundle the directory.
+let bundle_id = tg bundle --no-tokens $id | referent node
+
+# Get the bundled object.
+let output = tg object get $bundle_id --blobs --depth=inf --no-tokens --pretty
+snapshot $output

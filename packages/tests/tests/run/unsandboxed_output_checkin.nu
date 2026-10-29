@@ -1,0 +1,19 @@
+use ../../lib/test.nu *
+
+# The output directory written by an unsandboxed process is checked in as a directory artifact containing the expected file contents.
+
+let local = server spawn --busybox
+
+let path = artifact {
+	tangram.ts: '
+		import busybox from "busybox";
+
+		export default async function () {
+			return await tg.run`mkdir -p ${tg.output} && printf "Hello, World!\n" > ${tg.output}/message.txt`.env(tg.build(busybox));
+		}
+	',
+}
+
+let id = tg run $path
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
+snapshot $object

@@ -1,0 +1,12 @@
+use ../../../lib/test.nu *
+
+# tg.path.components preserves parent-directory components rather than resolving them.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'export default function () { return tg.path.components("a/../b"); }'
+}
+
+let output = tg build $path
+snapshot $output '["a","..","b"]'

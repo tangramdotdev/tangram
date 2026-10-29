@@ -1,0 +1,21 @@
+use ../../../lib/test.nu *
+
+# tg.Graph.expect throws when the value is not a graph.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default function () {
+			try {
+				tg.Graph.expect("x");
+				return "did not throw";
+			} catch (error) {
+				return error.message;
+			}
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output '"failed assertion"'

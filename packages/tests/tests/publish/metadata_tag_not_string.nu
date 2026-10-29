@@ -1,0 +1,25 @@
+use ../../lib/test.nu *
+
+# Publishing a package whose metadata tag is not a string fails.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default function () { return "x"; }
+
+		export let metadata = {
+			tag: 123,
+		};
+	'
+}
+
+let output = tg publish $path | complete
+failure $output
+snapshot --normalize --redact $path $output.stderr r#'
+	error an error occurred
+	-> failed to create publishing plan
+	-> expected 'tag' to be a string
+	   path = <redacted>/tangram.ts
+
+'#

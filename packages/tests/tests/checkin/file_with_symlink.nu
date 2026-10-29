@@ -1,0 +1,27 @@
+use ../../lib/test.nu *
+
+# Checking in a package that imports a symlink with an explicit symlink kind produces the expected object and writes no lockfile.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		import foo from "./foo.tg.ts" with { kind: "symlink" };
+	'
+	foo.tg.ts: (symlink 'bar.tg.ts')
+	bar.tg.ts: '
+		export default bar = "bar";
+	'
+}
+
+let id = tg checkin --no-tokens $path | referent node
+tg index
+
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
+snapshot --name object $object
+
+let metadata = tg object metadata --pretty $id
+snapshot --name metadata $metadata
+
+let lockfile_path = $path | path join 'tangram.lock'
+assert (not ($lockfile_path | path exists))

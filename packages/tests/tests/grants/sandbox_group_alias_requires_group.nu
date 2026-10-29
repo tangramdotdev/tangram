@@ -1,0 +1,39 @@
+use ../../lib/test.nu *
+
+# The --group owner alias resolves only a group; an organization or a user is rejected.
+
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
+
+tg --token $alice.token group create team
+tg --token $alice.token grant $bob.user.id write team
+tg --token $alice.token organization create acme
+
+let team = tg --token $bob.token group get team | from json
+
+# A group resolves and is stored as the owner.
+let sandbox = tg --token $bob.token sandbox create --no-tokens --group team --no-network | referent node
+let data = tg --token $bob.token sandbox get $sandbox | from json | get data
+assert equal $data.owner $team.id "the --group alias should resolve a group owner"
+
+# An organization is not a group, so --group must reject it.
+let organization = tg --token $bob.token sandbox create --no-tokens --group acme --no-network | complete
+failure $organization "--group must reject an organization"
+snapshot --normalize $organization.stderr '
+	error an error occurred
+	-> failed to resolve the owner as a group
+
+'
+
+# A user is not a group, so --group must reject it.
+let user = tg --token $bob.token sandbox create --no-tokens --group $alice.user.id --no-network | complete
+failure $user "--group must reject a user"
+snapshot --normalize $user.stderr '
+	error an error occurred
+	-> the owner is not a group
+
+'
+
+tg --token $bob.token sandbox destroy $sandbox

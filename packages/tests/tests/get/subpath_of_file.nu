@@ -1,0 +1,21 @@
+use ../../lib/test.nu *
+
+# A reference with a get option on a file fails because only directories support subpaths.
+
+let local = server spawn
+
+let file = tg put --no-tokens 'tg.file("solo")' | referent node
+
+let output = tg get $"($file)?get=foo" | complete
+failure $output
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to get the reference
+	   reference = fil_01hywsaeq340a2qtmce8y2cxddkj8bshswktye8j3mvj6bgnqc3hk0?get=foo
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to get the reference
+	   reference = fil_01hywsaeq340a2qtmce8y2cxddkj8bshswktye8j3mvj6bgnqc3hk0?get=foo
+	-> unexpected reference get option
+
+'

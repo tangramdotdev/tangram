@@ -1,0 +1,18 @@
+use ../../lib/test.nu *
+
+# Destroying a sandbox requires access to it.
+
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
+
+let sandbox = tg --token $alice.token sandbox create --no-tokens --no-network | referent node
+
+let eve_destroy = tg --token $eve.token sandbox destroy $sandbox | complete
+failure $eve_destroy "Eve must not destroy a sandbox she cannot access"
+
+let alice_get = tg --token $alice.token sandbox get $sandbox | complete
+success $alice_get "Alice's sandbox should still exist after Eve's failed destroy"
+
+tg --token $alice.token sandbox destroy $sandbox

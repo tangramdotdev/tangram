@@ -1,0 +1,12 @@
+use ../../../lib/test.nu *
+
+# tg.encoding.utf8.encode encodes a string to its UTF-8 byte representation.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'export default function () { return tg.encoding.utf8.encode("hi"); }'
+}
+
+let output = tg build $path
+snapshot $output 'tg.bytes("aGk=")'

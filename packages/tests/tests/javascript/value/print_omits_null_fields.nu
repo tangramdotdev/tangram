@@ -1,0 +1,28 @@
+use ../../../lib/test.nu *
+
+# tg.Value.print omits absent optional error and executable fields rather than rendering them as null.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			let errorPrint = tg.Value.print(tg.error.sync("boom"));
+			let errorOmitsNull =
+				!errorPrint.includes(`"code":`) &&
+				!errorPrint.includes(`"diagnostics":`) &&
+				!errorPrint.includes(`"source":`);
+			let executable = await tg.file("run");
+			let command = await tg.command({
+				executable: { artifact: executable },
+				host: tg.host.current,
+			});
+			let commandPrint = tg.Value.print(command);
+			let executableOmitsNull = !commandPrint.includes(`"path":`);
+			return errorOmitsNull && executableOmitsNull;
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output 'true'

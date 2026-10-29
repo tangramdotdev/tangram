@@ -1,0 +1,28 @@
+use ../../lib/test.nu *
+
+# A process's log is masked from a principal without a grant: the owner reads it, but knowing the process id is not enough for another principal.
+
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
+
+# Alice builds a private process that logs a secret.
+let path = artifact { tangram.ts: 'export default async function () { console.log("topsecret"); return 0 }' }
+let process = tg --token $alice.token build --no-tokens --detach $path | referent node
+tg --token $alice.token wait $process
+
+# The owner can read the log.
+let owner = tg --token $alice.token log $process | complete
+snapshot --normalize $owner.stdout '
+	topsecret
+
+'
+
+# Eve cannot read Alice's private process.
+let denied = tg --token $eve.token get $process | complete
+failure $denied "Eve should not read Alice's private process."
+
+# Eve must not read the process's log either.
+let leaked = tg --token $eve.token log $process | complete
+snapshot --normalize $leaked.stdout ''

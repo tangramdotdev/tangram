@@ -1,0 +1,56 @@
+use ../../lib/test.nu *
+
+# Checking in a package with conflicting tag version constraints that resolve to unsolvable cycles fails with the expected output.
+
+let local = server spawn
+
+# Tag the dependencies.
+let c1_path = artifact {
+	tangram.ts: '
+        // c/1.0.0
+        import * as foo from "./foo.tg.ts";
+    ',
+    foo.tg.ts: '
+        import * as root from "./tangram.ts";
+    '
+}
+tg tag -p c/1.0.0 ($c1_path | path join 'foo.tg.ts')
+
+let c2_path = artifact {
+    tangram.ts: '
+        // c/2.0.0
+        import * as foo from "./foo.tg.ts";
+    ',
+    foo.tg.ts: '
+        import * as root from "./tangram.ts";
+    '
+}
+tg tag -p c/2.0.0 ($c2_path | path join 'foo.tg.ts')
+tg index
+
+let a_path = artifact {
+	tangram.ts: '
+		import * as c from "c/^1"
+	'
+}
+tg tag -p a/1.0.0 $a_path
+
+let b_path = artifact {
+	tangram.ts: '
+		import * as c from "c/^2"
+	'
+}
+tg tag -p b/1.0.0 $b_path
+
+let path = artifact {
+	tangram.ts: '
+		import * as a from "a/*";
+		import * as b from "b/*";
+	'
+}
+
+let output = tg checkin --no-tokens $path | complete
+failure $output "the checkin should fail when no solution exists"
+
+snapshot --name stderr --normalize-ids --redact $path $output.stderr
+snapshot --name stdout --normalize-ids --redact $path $output.stdout

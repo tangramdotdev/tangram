@@ -1,0 +1,21 @@
+use ../../../lib/test.nu *
+
+# A spawned process exposes the working directory set on its command.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			let process = await tg.spawn({
+				host: tg.host.current,
+				executable: "echo",
+				cwd: "/work",
+			}).sandbox();
+			return await process.cwd;
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output '"/work"'

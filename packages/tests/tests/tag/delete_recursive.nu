@@ -1,0 +1,35 @@
+use ../../lib/test.nu *
+
+# tg tag delete --recursive removes all tags in a nested hierarchy, deleting children before their parents, and leaves no matching tags behind.
+
+let local = server spawn --config {
+	database: {
+		kind: 'sqlite',
+		path: 'database.sqlite3',
+		pool: {
+			max: 1,
+		},
+	},
+}
+
+# Create and tag an artifact.
+let path = artifact 'test'
+let id = tg checkin --no-tokens $path | referent node
+
+# Create a nested tag structure: test/a/b/c, test/a/b/d, test/a/e
+let tags = ["test/a/b/c" "test/a/b/d" "test/a/e"]
+for tag in $tags {
+	tg tag put -p $tag $id
+}
+
+# Verify tags exist.
+let output = tg list --no-groups --recursive test
+assert (($output | from json | length) > 0) "the tags should exist"
+
+# Recursively delete from the root - should delete all children in correct order.
+let output = tg tag delete --recursive "test/*" | from json | get deleted.specifier | to json -r
+snapshot --name deleted $output
+
+# Verify all tags are deleted.
+let output = tg list --no-groups --recursive test
+snapshot --name list $output

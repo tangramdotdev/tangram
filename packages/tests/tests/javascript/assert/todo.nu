@@ -1,0 +1,21 @@
+use ../../../lib/test.nu *
+
+# tg.todo throws a fixed message.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default function () {
+			try {
+				tg.todo();
+				return "did not throw";
+			} catch (error) {
+				return error.message;
+			}
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output '"reached todo"'

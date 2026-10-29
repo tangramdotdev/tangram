@@ -1,0 +1,66 @@
+use ../../lib/test.nu *
+
+# Cleaning removes processes unreachable from any tag while retaining tagged processes and the processes they depend on.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export async function a() {
+			await tg.build(c);
+			await tg.build(b);
+			return tg.file("a");
+		}
+		export async function b() {
+			await tg.build(e);
+			await tg.build(d);
+			return tg.file("b");
+		}
+		export function c() { return tg.file("c"); }
+		export function d() { return tg.file("d"); }
+		export function e() { return tg.file("e"); }
+	'
+}
+
+# Build all exports and get their process IDs.
+let a_process = tg process spawn --no-tokens --sandbox ($path + '#a') | referent node
+tg process output $a_process
+
+let b_process = tg process spawn --no-tokens --sandbox ($path + '#b') | referent node
+
+let c_process = tg process spawn --no-tokens --sandbox ($path + '#c') | referent node
+
+let d_process = tg process spawn --no-tokens --sandbox ($path + '#d') | referent node
+
+let e_process = tg process spawn --no-tokens --sandbox ($path + '#e') | referent node
+
+tg wait $a_process
+tg wait $b_process
+tg wait $c_process
+tg wait $d_process
+tg wait $e_process
+tg index
+
+# Tag b and d.
+tg tag b $b_process
+tg tag d $d_process
+
+# Clean.
+tg clean
+
+# Verify a was cleaned (should fail to get).
+let a_get = tg process get $a_process | complete
+failure $a_get
+
+# Verify b is still there (should succeed).
+tg process get $b_process
+
+# Verify c was cleaned (should fail to get).
+let c_get = tg process get $c_process | complete
+failure $c_get
+
+# Verify d is still there (should succeed).
+tg process get $d_process
+
+# Verify e is still there (should succeed).
+tg process get $e_process

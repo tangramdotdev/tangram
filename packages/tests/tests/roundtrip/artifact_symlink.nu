@@ -1,0 +1,28 @@
+use ../../lib/test.nu *
+
+# Building a directory containing an artifact symlink, checking it out with dependencies, cleaning, and checking it back in yields the same artifact ID.
+
+let local = server spawn
+
+let artifact = artifact {
+	tangram.ts: '
+		export default function () {
+			const directory = tg.directory();
+			return tg.directory({
+				directory: directory,
+				link: tg.symlink({ artifact: directory }),
+			});
+		}
+	'
+}
+let id = tg build --no-tokens $artifact
+
+let tmp = mktemp --directory
+let path = $tmp | path join "checkout"
+tg checkout --dependencies=true $id --path $path
+
+tg clean
+
+let left = tg checkin --no-tokens $path | referent node
+
+assert equal $left $id

@@ -1,0 +1,49 @@
+use ../../lib/test.nu *
+
+# Waiting for a sandbox blocks until it is destroyed and is idempotent.
+
+let local_default = server spawn --config { control: { read_timeout: 0.25 } }
+
+let sandbox = tg sandbox create --no-tokens | referent node
+let wait = job spawn {
+	let job_id = job id
+	let output = tg wait $sandbox | complete
+	$output | job send --tag $job_id 0
+}
+
+let early = try {
+	job recv --tag $wait --timeout 250ms
+} catch {
+	null
+}
+assert ($early == null) "waiting for the sandbox should block"
+
+tg sandbox destroy $sandbox
+
+let output = job recv --tag $wait --timeout 10sec
+success $output
+assert equal ($output.stdout | from json) {} "waiting for the sandbox should return its outcome"
+
+let output = tg sandbox wait $sandbox | from json
+assert equal $output {} "waiting for a destroyed sandbox should return immediately"
+
+# A sandbox can be waited on through a remote reference.
+let local_origin = server spawn --name local-origin --config { control: { read_timeout: 0.25 } }
+let local = server spawn --name local --config { control: { read_timeout: 0.25 } }
+tg --url $local.url remote put origin $local_origin.url
+let sandbox = tg --url $local_origin.url sandbox create --no-tokens | referent node
+let wait = job spawn {
+	let job_id = job id
+	let output = tg --url $local.url wait $'($sandbox)?location=remote:origin' | complete
+	$output | job send --tag $job_id 0
+}
+tg --url $local_origin.url sandbox destroy $sandbox
+let output = job recv --tag $wait --timeout 10sec
+success $output
+assert equal ($output.stdout | from json) {} "waiting through a remote reference should succeed"
+
+# Waiting for a missing sandbox fails.
+let missing = tg sandbox wait sbx_010000000000000000000000000000000000000000000000000000 | complete
+failure $missing
+assert ($missing.stderr | str contains "failed to wait for the sandbox")
+assert ($missing.stderr | str contains "failed to find the sandbox")

@@ -1,0 +1,10 @@
+use ../../lib/test.nu *
+
+# Reading a file artifact returns its contents.
+
+let local = server spawn
+
+let file_id = tg put --no-tokens 'tg.file("file contents")' | referent node
+
+let contents = tg read $file_id
+assert equal $contents "file contents" "the read contents should match the file contents"

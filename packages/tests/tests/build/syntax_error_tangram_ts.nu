@@ -1,0 +1,14 @@
+use ../../lib/test.nu *
+
+# Building a package whose root module has a syntax error fails with a diagnostic instead of succeeding or hanging.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default () => {
+	'
+}
+
+let output = tg build $path | complete
+failure $output

@@ -1,0 +1,24 @@
+use ../../../lib/test.nu *
+
+# A file node's dependency edge resolves to the node at that index.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			let graph = await tg.graph({
+				nodes: [
+					{ kind: "file", contents: "main", dependencies: { "./dep": 1 } },
+					{ kind: "file", contents: "dependency contents" },
+				],
+			});
+			let file = (await graph.get(0)) as tg.File;
+			let dependencies = await file.dependencies;
+			return await dependencies["./dep"].node.text;
+		}
+	'
+}
+
+let output = tg build $path
+snapshot $output '"dependency contents"'

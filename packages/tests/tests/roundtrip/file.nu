@@ -1,0 +1,22 @@
+use ../../lib/test.nu *
+
+# Building a file, checking it out with dependencies, cleaning, and checking it back in yields the same artifact ID.
+
+let local = server spawn
+
+let artifact = artifact {
+	tangram.ts: '
+		export default function () { return tg.file("hello, world!"); }
+	'
+}
+let id = tg build --no-tokens $artifact
+
+let tmp = mktemp --directory
+let path = $tmp | path join "checkout"
+tg checkout --dependencies=true $id --path $path
+
+tg clean
+
+let left = tg checkin --no-tokens $path | referent node
+
+assert equal $left $id

@@ -1,0 +1,46 @@
+use ../../lib/test.nu *
+
+# Checking in a package whose existing lockfile is out of date discards the stale lockfile and removes it.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'import "./b.tg.ts";'
+	b.tg.ts: ''
+	tangram.lock: '{
+		"nodes": [
+			{
+				"kind": "directory",
+				"entries": {
+					"a.tg.ts": 1,
+					"tangram.ts": 2
+				}
+			},
+			{
+				"kind": "file"
+			},
+			{
+				"kind": "file",
+				"dependencies": {
+					"./a.tg.ts": {
+						"node": 0,
+						"path": "./a.tg.ts"
+					}
+				}
+			}
+		]
+	}'
+}
+
+let id = tg checkin --no-tokens $path | referent node
+tg index
+
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
+snapshot --name object $object
+
+let metadata = tg object metadata --pretty $id
+snapshot --name metadata $metadata
+
+# The old lockfile should be removed since it was out of date.
+let lockfile_path = $path | path join 'tangram.lock'
+assert (not ($lockfile_path | path exists))

@@ -1,0 +1,62 @@
+use ../../lib/test.nu *
+
+# Checking in a package that imports by relative path a dependency which itself imports a sibling by relative path with a get path option resolves the full transitive graph.
+
+let local = server spawn
+
+# Create a directory with nested structure where inner package imports sibling by path with path option.
+let path = artifact {
+	sibling: {
+		lib: {
+			utils.tg.ts: 'export function helper() { return "helper"; }'
+		}
+		tangram.ts: "import * as utils from ./lib/utils.tg.ts;"
+	}
+	inner: {
+		tangram.ts: '
+			import { helper } from "../sibling" with { get: "lib/utils.tg.ts" };
+		'
+	}
+	outer: {
+		tangram.ts: '
+			import * as inner from "../inner";
+		'
+	}
+}
+
+# Checkin outer package and verify the snapshot.
+let id = tg checkin --no-tokens ($path | path join 'outer') | referent node
+tg index
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
+snapshot $object '
+	tg.directory({
+	  "tangram.ts": tg.file({
+	    "contents": tg.blob("import * as inner from \"../inner\";"),
+	    "dependencies": {
+	      "../inner": {
+	        "node": tg.directory({
+	          "tangram.ts": tg.file({
+	            "contents": tg.blob("import { helper } from \"../sibling\" with { get: \"lib/utils.tg.ts\" };"),
+	            "dependencies": {
+	              "../sibling?get=lib/utils.tg.ts": {
+	                "node": tg.file({
+	                  "contents": tg.blob("export function helper() { return \"helper\"; }"),
+	                  "module": "typescript",
+	                }),
+	                "options": {
+	                  "path": "../sibling/lib/utils.tg.ts",
+	                },
+	              },
+	            },
+	            "module": "typescript",
+	          }),
+	        }),
+	        "options": {
+	          "path": "../inner",
+	        },
+	      },
+	    },
+	    "module": "typescript",
+	  }),
+	})
+'

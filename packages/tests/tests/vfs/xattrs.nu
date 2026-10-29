@@ -1,0 +1,35 @@
+use ../../lib/test.nu *
+use ../../lib/vfs.nu
+
+# The VFS preserves extended attributes on files.
+
+vfs skip_unless_supported
+
+# Listing and reading a file's Tangram xattrs through the mounted VFS returns its metadata.
+
+let server_path = mktemp --directory
+let local = server spawn --directory $server_path --config { vfs: true }
+vfs assert_mounted $server_path
+
+let id = tg build (artifact {
+	tangram.ts: '
+		export default () => {
+			let dependency = tg.file("dependency");
+			return tg.directory({
+				"file.txt": tg.file({
+					contents: "contents",
+					dependencies: { dependency },
+					module: "typescript",
+				}),
+			});
+		}
+	'
+})
+
+let path = vfs root $server_path $id | path join 'file.txt'
+let names = xattr_list $path | sort
+assert ($names == ['user.tangram.dependencies', 'user.tangram.module', 'user.tangram.token']) 'unexpected xattr names'
+let dependency = xattr_read 'user.tangram.dependencies' $path | from json | first
+assert equal ($dependency | split row '?' | first) 'dependency' 'unexpected dependency xattr'
+assert ((xattr_read 'user.tangram.module' $path) == 'typescript') 'unexpected module xattr'
+assert (not (xattr_read 'user.tangram.token' $path | is-empty)) 'missing file token xattr'

@@ -1,0 +1,70 @@
+use ../../lib/test.nu *
+use ../../lib/module.nu *
+
+# Resolving Edge::Pointer modules returns a token for their graph ID, so a user who holds only the command token can resolve each subsequent import.
+
+let local = server spawn --config {
+	authentication: { users: { providers: { insecure: true } } }
+}
+
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
+
+# The command makes the pointer to node A a child and provides the sole token Bob uses for the first resolution.
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			const dependencyGraph = await tg.graph({
+				nodes: [
+					{ kind: "directory", entries: { "tangram.ts": 1 } },
+					{ kind: "file", contents: `import "./c"; export default 2;`, dependencies: { "./c": 2 }, module: "typescript" },
+					{ kind: "file", contents: "export default 3;", module: "typescript" },
+				],
+			});
+			const graph = await tg.graph({
+				nodes: [
+					{
+						kind: "file",
+						contents: `import "./b"; export default 1;`,
+						dependencies: { "./b": { graph: dependencyGraph, index: 0, kind: "directory" } },
+						module: "typescript",
+					},
+				],
+			});
+			const pointer: tg.Graph.Pointer = { graph, index: 0, kind: "file" };
+			const module = new tg.Module({
+				kind: "typescript",
+				referent: { node: pointer, options: {} },
+			});
+			const command = await tg.command({
+				args: [tg.Command.Value.value(module)],
+				executable: "tg",
+				host: tg.host.current,
+			});
+			await command.store();
+			graph.state.tokens = {};
+			module.referent.options ??= {};
+			module.referent.options.tokens = command.state.tokens;
+			return {
+				dependencyGraph: dependencyGraph.id,
+				graph: graph.id,
+				module: tg.Module.toData(module),
+			};
+		}
+	'
+}
+
+let case = tg --token $alice.token build $path | from json
+tg --token $alice.token index
+assert equal $case.module.referent.node $'graph=($case.graph)&index=0&kind=file'
+
+let socket = $local.url | str replace 'http+unix://' '' | url decode
+
+# The first resolution returns a token through which Bob can read the dependency graph, which Bob cannot read by its ID alone.
+failure (tg --token $bob.token get $case.dependencyGraph | complete) 'bob must not read the object by its ID alone'
+let b = resolve-module $socket $bob.token $case.module './b'
+success (read-with-module-tokens $bob.token $case.dependencyGraph $b.module) 'bob must read the dependency graph through the returned token'
+
+# Resolving B with the returned token returns a token through which Bob can read the dependency graph.
+let c = resolve-module $socket $bob.token $b.module './c'
+success (read-with-module-tokens $bob.token $case.dependencyGraph $c.module) 'bob must read the dependency graph through the returned token'

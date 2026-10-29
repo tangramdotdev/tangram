@@ -1,0 +1,15 @@
+use ../../lib/test.nu *
+
+# Writing a file through standard input creates a blob whose retrieved contents match the snapshot.
+
+let local = server spawn
+
+let temp_file = mktemp --tmpdir
+"hello, world!\n" | save --force $temp_file
+
+# Write the file to create a blob.
+let id = cat $temp_file | tg write --no-tokens | referent node
+
+# Get the blob.
+let output = tg get $id --blobs --depth=inf --no-tokens --pretty
+snapshot $output

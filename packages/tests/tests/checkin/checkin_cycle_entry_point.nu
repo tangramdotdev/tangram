@@ -1,0 +1,43 @@
+use ../../lib/test.nu *
+
+# Bug: Checking in from different entry points in a cycle produces different graph node orderings,
+# which results in different IDs for the same packages.
+
+let local = server spawn --name local
+
+# Create a cycle: A -> B -> C -> A
+let root = artifact {
+	packages: {
+		a: {
+			tangram.ts: '
+				import b from "b" with { source: "../b" };
+				export default "a";
+			'
+		}
+		b: {
+			tangram.ts: '
+				import c from "c" with { source: "../c" };
+				export default "b";
+			'
+		}
+		c: {
+			tangram.ts: '
+				import a from "a" with { source: "../a" };
+				export default "c";
+			'
+		}
+	}
+}
+
+# Check in from A.
+let a_from_a = tg checkin --no-tokens ($root | path join "packages/a") | referent node
+
+# Check in from B.
+let b_from_b = tg checkin --no-tokens ($root | path join "packages/b") | referent node
+
+# Get the graph ID for each using tg children.
+let a_graph = tg children $a_from_a | from json | get 0
+let b_graph = tg children $b_from_b | from json | get 0
+
+# The graphs should be the same since the cycle content is identical.
+assert ($a_graph == $b_graph) $"Graphs differ based on entry point. From A: ($a_graph), from B: ($b_graph)"

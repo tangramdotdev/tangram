@@ -1,0 +1,95 @@
+use ../../lib/test.nu *
+use ../../lib/command.nu
+
+# Recursively pushing a process without command objects leaves them absent on the remote, and a subsequent recursive push with command objects makes them present and records the expected metadata fields, under both eager and lazy push.
+
+# Recursively find all children commands and collect them into a list.
+def collect_commands [process_id: string] {
+	let process = tg get $process_id | from json
+	mut commands = [(command module-input $process.command)]
+	for child in $process.children {
+		$commands = $commands | append (collect_commands $child.process)
+	}
+	$commands
+}
+
+def test [path: string, ...args] {
+	# Create a remote server.
+	let remote = server spawn --cloud --name remote
+
+	# Create a local server.
+	let local = server spawn --name local
+
+	# Add the remote.
+	tg remote put default $remote.url
+
+	# Build the module.
+	let process_id = tg build --no-tokens --detach $path | referent node
+
+	# Wait for the process to finish.
+	tg wait $process_id
+	tg index
+
+	let output = tg get $process_id | from json
+	let command = (command module-input $output.command)
+	let children = $output.children
+
+	# Push the process without commands.
+	tg push "--process-children" ...$args $process_id
+
+	# Confirm the process is on the remote and the same.
+	let local_process = tg get $process_id --no-tokens --pretty
+	let remote_process = tg --url $remote.url get $process_id --no-tokens --pretty
+	assert equal $local_process $remote_process
+
+	# Confirm output is present.
+	if (($output.output.node | describe) | str starts-with 'record') {
+		if $output.output.node.kind == "object" {
+			tg --url $remote.url get $output.output.node.value --no-tokens --pretty
+		}
+	}
+
+	# Collect all commands from the process tree.
+	let commands = collect_commands $process_id
+
+	# For each command, confirm that they are NOT present on the remote.
+	for command in $commands {
+		let output = tg --url $remote.url get $command | complete
+		failure $output
+	}
+
+	# Push the process again now with commands.
+	tg push "--process-children" "--process-command-objects" ...$args $process_id
+
+	# Index on the remote.
+	tg --url $remote.url index
+
+	# Confirm that all expected fields are present in the top-level metadata.
+	let remote_metadata = tg --url $remote.url metadata $process_id | from json
+	assert ($remote_metadata.subtree?.count? != null) "the metadata should contain the subtree.count field"
+	assert ($remote_metadata.subtree?.command_objects? != null) "the metadata should contain the subtree.command_objects field"
+	assert ($remote_metadata.subtree?.output_objects? != null) "the metadata should contain the subtree.output_objects field"
+	assert ($remote_metadata.node?.command_objects? != null) "the metadata should contain the node.command_objects field"
+	assert ($remote_metadata.node?.output_objects? != null) "the metadata should contain the node.output_objects field"
+
+	# For each of the commands, confirm that they are present.
+	for command in $commands {
+		tg --url $remote.url get $command --no-tokens --pretty
+	}
+}
+
+# Create some test content.
+let path = artifact {
+	tangram.ts: r#'
+		export default async function () {
+			let a = await tg.build(x)
+			return 5
+		}
+		export async function x() {
+			return tg.file("hello")
+		}
+	'#
+}
+
+test $path "--eager"
+test $path "--lazy"

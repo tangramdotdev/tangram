@@ -1,0 +1,43 @@
+use ../../lib/test.nu *
+
+# A subtree grant lets the grantee rely on the granted objects already stored on the remote, transferring only the new object.
+
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let bob = tg --url $remote.url login --verbose --name bob | from json
+
+let alice_local = server spawn --name alice-local --config {
+	remotes: { default: { url: $remote.url, token: $alice.token } },
+}
+let bob_local = server spawn --name bob-local --config {
+	remotes: { default: { url: $remote.url, token: $bob.token } },
+}
+
+# Alice stores a private file and blob on the remote.
+let directory = tg --url $alice_local.url put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
+tg --url $alice_local.url index
+let file = tg --url $alice_local.url children $directory | from json | get 0
+tg --url $alice_local.url push --lazy $file
+tg --url $remote.url index
+
+# Bob has the directory structure but not Alice's private file or blob.
+tg --url $alice_local.url get --bytes $directory | tg --url $bob_local.url put --no-tokens --bytes --kind dir | referent node
+
+# Without a grant Bob can neither transfer nor rely on Alice's private file.
+let denied = tg --url $bob_local.url --no-quiet push --lazy $directory | complete
+failure $denied "Bob should not rely on Alice's private file without a grant."
+
+# Alice grants Bob the file subtree.
+tg --url $remote.url --token $alice.token grant $bob.user.id object_subtree $file | ignore
+
+# Use a new directory because the failed push may have already transferred the original directory node.
+let directory = tg --url $bob_local.url put --no-tokens ('tg.directory({ "world.txt": ' + $file + ' })') | referent node
+
+# Now Bob skips the granted file and blob and transfers only the new directory.
+let output = tg --url $bob_local.url --no-quiet push --lazy $directory | complete
+success $output "Bob should rely on the granted file subtree."
+snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped)'} | sort | str join "\n") '
+	info skipped 2 objects, 50 B
+	info transferred 1 object, 61 B
+'

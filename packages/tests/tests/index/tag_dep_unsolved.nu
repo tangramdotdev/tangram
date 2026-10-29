@@ -1,0 +1,73 @@
+use ../../lib/test.nu *
+
+# Test metadata for a package with conflicting tag dependencies that cannot be solved.
+
+let local = server spawn --name local
+let remote = server spawn --cloud --name remote
+# Create conflicting versions of a dependency.
+let c1 = artifact {
+	tangram.ts: ''
+}
+let c1_id = tg --url $local.url checkin --no-tokens $c1 | referent node
+tg --url $local.url tag -p c/1.0.0 $c1_id
+
+let c2 = artifact {
+	tangram.ts: ''
+}
+let c2_id = tg --url $local.url checkin --no-tokens $c2 | referent node
+tg --url $local.url tag -p c/2.0.0 $c2_id
+
+# Create packages that require incompatible versions.
+let a = artifact {
+	tangram.ts: '
+		import * as c from "c/^1"
+	'
+}
+let a_id = tg --url $local.url checkin --no-tokens $a | referent node
+tg --url $local.url tag -p a/1.0.0 $a_id
+
+let b = artifact {
+	tangram.ts: '
+		import * as c from "c/^2"
+	'
+}
+let b_id = tg --url $local.url checkin --no-tokens $b | referent node
+tg --url $local.url tag -p b/1.0.0 $b_id
+
+# A package that imports both, creating an unsolvable conflict.
+let path = artifact {
+	tangram.ts: '
+		import * as a from "a/*";
+		import * as b from "b/*";
+	'
+}
+let id = tg --url $local.url checkin --no-tokens --unsolved-dependencies $path | referent node
+tg --url $local.url index
+let metadata = tg --url $local.url object metadata --pretty $id
+snapshot --name metadata $metadata '
+	{
+	  "node": {
+	    "size": 62,
+	    "solvable": false,
+	    "solved": true,
+	  },
+	  "subtree": {
+	    "count": 9,
+	    "depth": 5,
+	    "size": 657,
+	    "solvable": true,
+	    "solved": false,
+	  },
+	}
+'
+
+# Push to push and verify metadata matches.
+tg --url $local.url remote put push $remote.url
+tg --url $local.url push --remote=push $id
+tg --url $remote.url tag -p c/1.0.0 $c1_id
+tg --url $remote.url tag -p c/2.0.0 $c2_id
+tg --url $remote.url tag -p a/1.0.0 $a_id
+tg --url $remote.url tag -p b/1.0.0 $b_id
+tg --url $remote.url index
+let remote_metadata = tg --url $remote.url object metadata --pretty $id
+assert equal $remote_metadata $metadata

@@ -1,0 +1,43 @@
+use ../../lib/test.nu *
+
+# Checking in a package with a remote tag dependency produces the same object after a clean restart of the local server, confirming the lockfile round-trips correctly.
+
+let remote = server spawn --name remote
+
+# Tag the referent on the remote server.
+let referent_path = artifact {
+	tangram.ts: '
+		export default function () { return "foo"; }
+	'
+}
+tg --url $remote.url tag foo $referent_path
+
+# Create a local server with the remote configured.
+let local = server spawn --name local --config {
+	remotes: { default: { url: $remote.url } }
+}
+
+# Check in the referrer on the local server.
+let referrer_path = artifact {
+	tangram.ts: '
+		import foo from "foo";
+		export default function () { return foo(); }
+	'
+}
+
+let id1 = tg checkin --no-tokens $referrer_path | referent node
+tg index
+let output1 = tg object get --blobs --depth=inf --no-tokens --pretty $id1
+
+# Stop and recreate the local server (simulates a clean restart). This tests that the lockfile is correctly written and read back.
+let local_two = server spawn --name local-two --config {
+	remotes: { default: { url: $remote.url } }
+}
+
+# Check in the same artifact again on the new local server.
+let id2 = tg --url $local_two.url checkin --no-tokens $referrer_path | referent node
+tg --url $local_two.url index
+let output2 = tg --url $local_two.url object get --blobs --depth=inf --no-tokens --pretty $id2
+
+# Confirm that the two outputs are the same.
+assert ($output1 == $output2) "the checkin should produce the same output after clean"

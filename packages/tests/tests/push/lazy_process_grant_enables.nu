@@ -1,0 +1,42 @@
+use ../../lib/test.nu *
+
+# A process subtree grant covering each transferred field lets the grantee rely on a private child process subtree the remote already holds.
+
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let bob = tg --url $remote.url login --verbose --name bob | from json
+
+let alice_local = server spawn --name alice-local --config {
+	remotes: { default: { url: $remote.url, token: $alice.token } },
+}
+let bob_local = server spawn --name bob-local --config {
+	remotes: { default: { url: $remote.url, token: $bob.token } },
+}
+
+# Alice builds a parent process that calls a child, and pushes the whole tree privately to the remote. A push includes outputs by default, so the command, log, and output subtrees all become resident.
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			return await tg.build(child)
+		}
+
+		export function child() {
+			return tg.file("hello")
+		}
+	'
+}
+let parent = tg --url $alice_local.url build --no-tokens --detach $path | referent node
+tg --url $alice_local.url wait $parent
+tg --url $alice_local.url index
+tg --url $alice_local.url push $parent --process-children --process-command-objects --process-log-objects
+tg --url $remote.url index
+
+# Bob has only the parent process node and relies on the granted subtree for the rest.
+tg --url $alice_local.url get $parent | tg --url $bob_local.url put --no-tokens --id $parent | referent node
+tg --url $bob_local.url index
+tg --url $remote.url --token $alice.token grant $bob.user.id process_subtree,process_subtree_command_objects,process_subtree_error_objects,process_subtree_log_objects,process_subtree_output_objects $parent | ignore
+
+# The grant covers every resident field, so Bob relies on the private child subtree and the recursive lazy push succeeds.
+let output = tg --url $bob_local.url --no-quiet push --lazy $parent --process-children --process-command-objects --process-log-objects | complete
+success $output "Bob should rely on the granted process subtree."

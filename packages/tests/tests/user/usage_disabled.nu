@@ -1,0 +1,18 @@
+use ../../lib/test.nu *
+
+# Usage tracking is disabled by default.
+
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let alice = tg login --verbose --name alice | from json
+tg --token $alice.token put --no-tokens 'tg.file("hello")' | referent node
+tg --token $alice.token index
+
+let output = tg --token $alice.token usage --local | complete
+failure $output
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> usage tracking is disabled
+
+'

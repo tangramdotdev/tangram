@@ -1,0 +1,44 @@
+use ../../lib/test.nu *
+
+# Checking in a package that imports a sibling by relative path with a get path option resolves to the artifact at that path.
+
+let local = server spawn
+
+# Create a directory with nested structure.
+let path = artifact {
+	sibling: {
+		lib: {
+			utils.tg.ts: 'export function helper() { return "helper"; }'
+		},
+		tangram.ts: "import * as utils from ./lib/utils.tg.ts;"
+	}
+	package: {
+		tangram.ts: '
+			import { helper } from "../sibling" with { get: "lib/utils.tg.ts" };
+		'
+	}
+}
+
+# Checkin and verify the snapshot.
+let id = tg checkin --no-tokens ($path | path join 'package') | referent node
+tg index
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
+snapshot $object '
+	tg.directory({
+	  "tangram.ts": tg.file({
+	    "contents": tg.blob("import { helper } from \"../sibling\" with { get: \"lib/utils.tg.ts\" };"),
+	    "dependencies": {
+	      "../sibling?get=lib/utils.tg.ts": {
+	        "node": tg.file({
+	          "contents": tg.blob("export function helper() { return \"helper\"; }"),
+	          "module": "typescript",
+	        }),
+	        "options": {
+	          "path": "../sibling/lib/utils.tg.ts",
+	        },
+	      },
+	    },
+	    "module": "typescript",
+	  }),
+	})
+'

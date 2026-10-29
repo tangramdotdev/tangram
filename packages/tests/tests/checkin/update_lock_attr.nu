@@ -1,0 +1,97 @@
+use ../../lib/test.nu *
+
+# Checking in with --update and --lock=attr updates the tag dependency in the file lock xattr and writes no sibling lockfile.
+
+let local = server spawn
+
+let a_path = artifact {
+	tangram.ts: '// a 1.0.0'
+}
+tg tag -p a/1.0.0 $a_path
+
+let a_path = artifact {
+	tangram.ts: '// a 1.1.0'
+}
+tg tag -p a/1.1.0 $a_path
+
+let a_id = tg tag get a/1.0.0 | from json | get target.id
+let lock = {
+	nodes: [
+		{
+			kind: "file",
+			dependencies: {
+				"a/^1": {
+					node: null,
+					options: {
+						id: $a_id,
+						tag: "a/1.0.0"
+					}
+				}
+			}
+			module: "typescript"
+		},
+	]
+} | to json
+let path = artifact {
+	foo.tg.ts: {
+		kind: "file",
+		executable: false,
+		contents: '
+			import a from "a/^1";
+		',
+		xattrs: {
+			"user.tangram.lock": $lock,
+		}
+	}
+}
+
+tg checkin --no-tokens ($path | path join 'foo.tg.ts') | referent node
+
+let id = tg checkin --no-tokens ($path | path join 'foo.tg.ts') --update a --lock=attr | referent node
+tg index
+
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
+snapshot $object '
+	tg.file({
+	  "contents": tg.blob("\n\t\t\timport a from \"a/^1\";\n\t\t"),
+	  "dependencies": {
+	    "a/^1": {
+	      "node": tg.directory({
+	        "tangram.ts": tg.file({
+	          "contents": tg.blob("// a 1.1.0"),
+	          "module": "typescript",
+	        }),
+	      }),
+	      "options": {
+	        "id": "dir_01k7z4eb0kyaqdjhgefddk1ktf6b0yqtavtx30r9n25z908nngsyd0",
+	        "tag": "a/1.1.0",
+	      },
+	    },
+	  },
+	  "module": "typescript",
+	})
+'
+
+let lockfile_path = $path | path join 'foo.tg.lock'
+assert (not ($lockfile_path | path exists))
+
+let lock = xattr_read 'user.tangram.lock' ($path | path join 'foo.tg.ts') | from json | to json
+snapshot $lock '
+	{
+	  "nodes": [
+	    {
+	      "kind": "file",
+	      "dependencies": {
+	        "a/^1": {
+	          "node": null,
+	          "options": {
+	            "id": "dir_01k7z4eb0kyaqdjhgefddk1ktf6b0yqtavtx30r9n25z908nngsyd0",
+	            "tag": "a/1.1.0"
+	          }
+	        }
+	      },
+	      "module": "typescript"
+	    }
+	  ]
+	}
+'

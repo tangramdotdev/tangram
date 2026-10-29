@@ -1,0 +1,34 @@
+use ../../lib/test.nu *
+
+# A client that reuses another user's public process from its remote must be able to use that
+# process's output. The remote authorizes the cache hit because the process is public, but finishing
+# the local parent that holds its output then fails to authorize that output.
+
+let remote = server spawn --name remote --config {
+	authentication: { users: { providers: { insecure: true } } },
+}
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let eve = tg --url $remote.url login --verbose --name eve | from json
+
+let path = artifact {
+	tangram.ts: 'export function dep() { return tg.file("dep"); }
+export default async function () { return tg.build(dep); }'
+}
+
+# Alice makes the dependency's process public on the remote.
+tg --url $remote.url --token $alice.token build --public $"($path)#dep" | ignore
+
+# The client accesses the remote as Eve, who can reuse Alice's process only because it is public.
+let local_client = server spawn --name local-client --config {
+	remotes: { default: { token: $eve.token, url: $remote.url } },
+}
+
+# The premise of the test is that the dependency is reused rather than built.
+let process = tg --url $local_client.url build --no-tokens --detach $path | referent node
+tg --url $local_client.url wait $process | ignore
+let children = tg --url $local_client.url process children $process | from json
+assert equal ($children | length) 1 "the build should have spawned the dependency"
+assert ($children | first | get cached) "the dependency should have been reused from the remote"
+
+let output = tg --url $local_client.url build $path | complete
+success $output "returning the output of a reused process should be authorized"

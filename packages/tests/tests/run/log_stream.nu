@@ -1,0 +1,40 @@
+use ../../lib/test.nu *
+
+# tg log can read a process's log output by position and length, both forwards and backwards.
+
+let local = server spawn
+let path = artifact {
+	tangram.ts: r#'
+		export default async function () {
+			let alphabet = "abcdefghijklmnopqrstuvwxyz";
+			for (let i = 0; i < 26; i++) {
+				let s = "";
+				for (let j = 0; j < 20; j++) {
+					s = s + alphabet[i];
+				}
+				console.log(s);
+			}
+			while(true) {
+				await tg.sleep(100);
+			}
+		}
+	'#
+}
+let process = tg build --detach --verbose $path | from json
+
+# Follow the log until the first two log lines are written.
+let output = timeout 30s tg log --no-timeout $process.process --position 21 --length 20 | complete
+success $output "the first two log lines should be written"
+assert equal $output.stdout 'bbbbbbbbbbbbbbbbbbbb'
+
+# Check that we can read just one chunk forwards
+let output = tg log $process.process --position 0 --length 20
+snapshot $output 'aaaaaaaaaaaaaaaaaaaa'
+
+# Check that we can read chunks backwards.
+let output = tg log $process.process --position 41 --length='-20'
+snapshot $output 'bbbbbbbbbbbbbbbbbbbb'
+
+# Cancel the process.
+tg cancel $process.process $process.lease
+tg wait $process.process
