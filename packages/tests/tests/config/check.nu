@@ -5,16 +5,17 @@ use ../../util/test.nu *
 let local = server spawn
 
 let runtime = '
-	export default async () => null;
-	const getInterface = () => ({ exports: {} });
-	export { getInterface as interface };
-	export let check = async (arg: { args: Array<tg.Value>; package?: tg.Directory }) => {
+	export default async (arg: { export: string; args: Array<tg.Value>; package?: tg.Directory }) => {
+		if (arg.export !== "check") {
+			return null;
+		}
 		if (arg.args[0] === "package") {
 			tg.assert(arg.package !== undefined, "expected the package");
 		}
 		if (arg.args[0] === "fail") {
 			throw new Error("the runtime check failed");
 		}
+		return null;
 	};
 '
 
@@ -47,3 +48,25 @@ let path = artifact {
 let output = tg check ($path | path join env.tg.json) | complete
 failure $output
 assert ($output.stderr | str contains 'unknown field') $output.stderr
+
+# Checking a TypeScript package builds its check export, and a package without one checks without it.
+let path = artifact {
+	tangram.ts: '
+		export default () => "Hello!";
+		export let check = () => { throw new Error("the package check failed"); };
+	'
+}
+let output = tg check $path | complete
+failure $output
+assert ($output.stderr | str contains 'the package check failed') $output.stderr
+let path = artifact {
+	tangram.ts: '
+		export default () => "Hello!";
+		export let check = () => null;
+	'
+}
+success (tg check $path | complete)
+let path = artifact {
+	tangram.ts: 'export default () => "Hello!";'
+}
+success (tg check $path | complete)
