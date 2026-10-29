@@ -1382,22 +1382,43 @@ impl Compiler {
 
 	/// Find the lockfile for a given path.
 	pub async fn find_lockfile_for_path(&self, path: &Path) -> Option<document::Lockfile> {
-		// Search ancestors for the lockfile.
-		let mut lockfile_path = None;
+		// Find the lockfile of the file, and the nearest lockfile of an ancestor.
+		let mut paths = vec![path.with_extension("lock")];
 		for ancestor in path.parent()?.ancestors() {
 			let candidate = ancestor.join(tg::module::LOCKFILE_FILE_NAME);
 			if tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
-				lockfile_path = Some(candidate);
+				paths.push(candidate);
 				break;
 			}
 		}
 
-		// Get the lockfile's mtime.
-		let path = lockfile_path?;
-		let metadata = tokio::fs::symlink_metadata(&path).await.ok()?;
-		let mtime = metadata.modified().ok()?;
+		// Get the modification times of the lockfiles that exist.
+		let mut files = Vec::new();
+		for path in paths {
+			let Ok(metadata) = tokio::fs::symlink_metadata(&path).await else {
+				continue;
+			};
+			let Ok(mtime) = metadata.modified() else {
+				continue;
+			};
+			files.push((path, mtime));
+		}
 
-		let lockfile = document::Lockfile { mtime, path };
+		// Hash the lock attribute of the file.
+		let attr = tg::file::xattrs::read_lock(path)
+			.ok()
+			.flatten()
+			.map(|lock| {
+				use std::hash::{Hash as _, Hasher as _};
+				let mut hasher = fnv::FnvHasher::default();
+				lock.hash(&mut hasher);
+				hasher.finish()
+			});
+
+		if attr.is_none() && files.is_empty() {
+			return None;
+		}
+		let lockfile = document::Lockfile { attr, files };
 
 		Some(lockfile)
 	}

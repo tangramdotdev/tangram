@@ -43,11 +43,14 @@ pub(crate) struct Key {
 	source: tg::module::data::Source,
 }
 
-/// The lockfile associated with a document.
+/// The locks that bind a document's imports to objects, which are compared to detect when its resolutions change.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Lockfile {
-	pub mtime: std::time::SystemTime,
-	pub path: std::path::PathBuf,
+	/// The hash of the lock attribute of the document's file.
+	pub attr: Option<u64>,
+
+	/// The paths and modification times of the lockfiles that apply to the document.
+	pub files: Vec<(std::path::PathBuf, std::time::SystemTime)>,
 }
 
 impl Key {
