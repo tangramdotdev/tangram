@@ -28,6 +28,8 @@ struct Args {
 enum Command {
 	Archive(tangram_cli_archive::Args),
 
+	Authorization(tangram_cli_authorization::Args),
+
 	Availability(tangram_cli_availability::Args),
 
 	#[command(alias = "b")]
@@ -415,6 +417,8 @@ async fn main_inner(
 async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 	match command {
 		Command::Archive(args) => tangram_cli_archive::run(cli, args).boxed_local().await,
+
+		Command::Authorization(args) => tangram_cli_authorization::run(args),
 
 		Command::Availability(args) => tangram_cli_availability::run(cli, args).boxed_local().await,
 

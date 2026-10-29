@@ -2,6 +2,7 @@
 default-members = [
   "packages/cli",
   "packages/cli/packages/archive",
+  "packages/cli/packages/authorization",
   "packages/cli/packages/availability",
   "packages/cli/packages/builtin",
   "packages/cli/packages/builtin/packages/javascript",
@@ -371,6 +372,7 @@ tangram_cache_memory = { path = "packages/cache/packages/memory" }
 tangram_cache_rocksdb = { path = "packages/cache/packages/rocksdb" }
 tangram_cache_scylla = { path = "packages/cache/packages/scylla" }
 tangram_cli_archive = { path = "packages/cli/packages/archive" }
+tangram_cli_authorization = { path = "packages/cli/packages/authorization" }
 tangram_cli_availability = { path = "packages/cli/packages/availability" }
 tangram_cli_builtin = { path = "packages/cli/packages/builtin" }
 tangram_cli_builtin_javascript = { path = "packages/cli/packages/builtin/packages/javascript" }

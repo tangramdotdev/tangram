@@ -32,6 +32,12 @@ for preserve_keys in [true false] {
 	# Recover the dependency referent directly from a checkout, as a wrapper consumer would.
 	let path = tg --token $root_token checkout $wrapper | str trim
 	let reference = xattr_read user.tangram.dependencies $path | from json | first
+	let token = $'http://localhost/($reference)' | url parse | get params
+		| where key == 'tokens[local][0]' | first | get value
+	let body = $token | token body
+	assert equal $body.resource $library
+	assert equal $body.permissions [object_subtree]
+	assert equal $body.expires_at 9223372036854775807
 
 	# Store a new parent with the recovered child token before the restart.
 	let source = 'tg.file({"contents":"before restart","dependencies":{"library":{"node":REFERENCE}}})'

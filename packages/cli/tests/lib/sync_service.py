@@ -13,8 +13,6 @@ import threading
 import time
 import urllib.parse
 
-import token_body
-
 case, socket_path, tangram, url, port, source_url, directory, root_token = sys.argv[1:]
 TTL = 2
 
@@ -181,7 +179,12 @@ def missing_id(index=0):
 
 
 def subject(token):
-    return f"syncs.{token_body.body(token)['resource']}.service"
+    return f"syncs.{decode_token(token)['resource']}.service"
+
+
+def decode_token(token):
+    output = subprocess.check_output([tangram, "authorization", "token", "decode", token], timeout=15)
+    return json.loads(output)
 
 
 def command(*args, token=None):
@@ -1458,7 +1461,7 @@ def test_authorization_storage(messenger):
                 assert b"failed to verify the resource through a sync" in body, body
             if status == 200:
                 token = json.loads(body)["tokens"]["local"][0]
-                proof = token_body.body(token)
+                proof = decode_token(token)
                 response_proof = output.value.value[2][0]
                 assert proof["resource"] == id, proof
                 assert proof["expires_at"] <= response_proof[0], "the object proof must not outlive the returned authorization body"

@@ -5,7 +5,6 @@ use ../../../../scripts/macos/identifiers.nu
 export use std/assert
 
 const repository_path = path self '../../../../'
-const token_body_path = path self token_body.py
 const supervisors_name = 'supervisors'
 export const vfs_cleanup_marker_name = '.tangram_test_vfs_cleanup'
 
@@ -339,7 +338,7 @@ export def "referent tokens" [location: string, value?: string] {
 export def "token body" [value?: string] {
 	let input = $in
 	let value = if $value == null { $input } else { $value }
-	python3 -I $token_body_path $value | from json
+	tg authorization token decode $value | from json
 }
 
 # Decode the length-prefixed JSON header before reading the SSE stream.
