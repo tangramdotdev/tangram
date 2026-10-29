@@ -864,6 +864,20 @@ async fn resolve_module_with_graphs(
 	if let Some(compiler) = &resolver.compiler
 		&& let Some(referrer) = &arg.referrer
 	{
+		// Resolve an import in the bindings of a module in another language to a module that the module's interface imports.
+		#[cfg(feature = "javascript")]
+		if matches!(
+			referrer.kind,
+			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript
+		) && let Some(entry) = compiler.try_get_interface(referrer)
+			&& let Some(module) = entry
+				.interface
+				.imports
+				.get(&arg.import.reference.to_string())
+		{
+			return Ok(module.clone());
+		}
+
 		return compiler.resolve_import(referrer, arg.import).await;
 	}
 	let module = resolver.instance.resolve_module(arg).await?.module;

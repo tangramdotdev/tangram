@@ -15,6 +15,9 @@ pub(super) struct Names {
 	/// The names of the interface's definitions.
 	pub(super) definitions: BTreeMap<String, String>,
 
+	/// The names of the modules that import the modules that the interface imports.
+	pub(super) imports: BTreeMap<String, String>,
+
 	/// The prefix of the names of generated helpers.
 	pub(super) prefix: String,
 
@@ -45,7 +48,7 @@ pub(super) fn binding(name: &str, exports: &BTreeSet<String>) -> tg::Result<Stri
 	Ok(binding)
 }
 
-fn is_identifier(name: &str) -> bool {
+pub(super) fn is_identifier(name: &str) -> bool {
 	let assignment = format!("{name} = None");
 	let Ok(parsed) = ruff_python_parser::parse_module(&assignment) else {
 		return false;
@@ -74,6 +77,51 @@ pub(super) fn export(export: &tg::interface::Export, names: &Names) -> String {
 		return format!("{client}.NonValue[{typing}.Literal['{error}']]");
 	};
 	self::type_(type_, names)
+}
+
+/// Collect the names that a type refers to in the interfaces of imported modules.
+pub(super) fn references(type_: &tg::interface::Type, references: &mut BTreeSet<(String, String)>) {
+	match type_ {
+		tg::interface::Type::Array { item } => self::references(item, references),
+		tg::interface::Type::Command { args, output } => {
+			self::references(args, references);
+			self::references(output, references);
+		},
+		tg::interface::Type::Map { value } => self::references(value, references),
+		tg::interface::Type::Record { fields } => {
+			for field in fields.values() {
+				self::references(&field.type_, references);
+			}
+		},
+		tg::interface::Type::Reference {
+			import: Some(import),
+			name,
+		} if is_identifier(name) => {
+			references.insert((import.clone(), name.clone()));
+		},
+		tg::interface::Type::Tuple { elements, rest } => {
+			for element in elements {
+				self::references(&element.type_, references);
+			}
+			if let Some(rest) = rest {
+				self::references(rest, references);
+			}
+		},
+		tg::interface::Type::Union { types } => {
+			for type_ in types {
+				self::references(type_, references);
+			}
+		},
+		_ => (),
+	}
+}
+
+/// Print the statement that defines one of the interface's named types, defining a record as a typed dict with the definition's name.
+pub(super) fn definition(name: &str, type_: &tg::interface::Type, names: &Names) -> String {
+	if let tg::interface::Type::Record { fields } = type_ {
+		return typed_dict(name, fields, names);
+	}
+	format!("type {name} = {}", self::type_(type_, names))
 }
 
 /// Print a type as a Python type expression.
@@ -120,35 +168,23 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 		tg::interface::Type::Object => format!("{client}.Object"),
 		tg::interface::Type::Placeholder => format!("{client}.Placeholder"),
 		tg::interface::Type::Record { fields } => {
-			// Define a typed dict whose field types are forward references, because the functional syntax evaluates its fields.
-			let fields = fields
-				.iter()
-				.map(|(name, field)| {
-					let name = serde_json::to_string(name).unwrap();
-					let type_ = self::type_(&field.type_, names);
-					let type_ = if field.optional {
-						format!("{typing}.NotRequired[{type_}]")
-					} else {
-						type_
-					};
-					let type_ = serde_json::to_string(&type_).unwrap();
-					format!("{name}: {type_}")
-				})
-				.collect::<Vec<_>>();
-			let mut records = names.records.borrow_mut();
-			let record = format!("{}_record_{}", names.prefix, records.len());
-			let quoted = serde_json::to_string(&record).unwrap();
-			let fields = fields.join(", ");
-			records.push(format!(
-				"{record} = {typing}.TypedDict({quoted}, {{{fields}}})"
-			));
+			let record = format!("{}_record_{}", names.prefix, names.records.borrow().len());
+			let statement = typed_dict(&record, fields, names);
+			names.records.borrow_mut().push(statement);
 			record
 		},
-		tg::interface::Type::Reference { name } => names
+		tg::interface::Type::Reference { import: None, name } => names
 			.definitions
 			.get(name)
 			.cloned()
 			.unwrap_or_else(|| format!("{client}.Value.Type")),
+		tg::interface::Type::Reference {
+			import: Some(import),
+			name,
+		} => names.imports.get(import).map_or_else(
+			|| format!("{client}.Value.Type"),
+			|module| format!("{module}_{name}"),
+		),
 		tg::interface::Type::String => "str".to_owned(),
 		tg::interface::Type::Symlink => format!("{client}.Symlink"),
 		tg::interface::Type::Template => format!("{client}.Template"),
@@ -193,6 +229,32 @@ pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 		},
 		tg::interface::Type::Value => format!("{client}.Value.Type"),
 	}
+}
+
+/// Print the statement that defines a closed typed dict, whose field types are forward references because the functional syntax evaluates its fields.
+fn typed_dict(
+	name: &str,
+	fields: &BTreeMap<String, tg::interface::Field>,
+	names: &Names,
+) -> String {
+	let typing = &names.typing;
+	let fields = fields
+		.iter()
+		.map(|(name, field)| {
+			let name = serde_json::to_string(name).unwrap();
+			let type_ = self::type_(&field.type_, names);
+			let type_ = if field.optional {
+				format!("{typing}.NotRequired[{type_}]")
+			} else {
+				type_
+			};
+			let type_ = serde_json::to_string(&type_).unwrap();
+			format!("{name}: {type_}")
+		})
+		.collect::<Vec<_>>()
+		.join(", ");
+	let quoted = serde_json::to_string(name).unwrap();
+	format!("{name} = {typing}.TypedDict({quoted}, {{{fields}}}, closed=True)")
 }
 
 /// Print the args of a command as a single tuple type, which a command's typed build method can bind to its parameters, by widening optional elements to a variadic tail.

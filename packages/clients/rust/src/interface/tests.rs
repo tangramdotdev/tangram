@@ -25,6 +25,7 @@ fn an_interface_round_trips_through_json() {
 			},
 		],
 		rest: Some(Box::new(Type::Reference {
+			import: None,
 			name: "Options".to_owned(),
 		})),
 	};
@@ -69,6 +70,7 @@ fn an_interface_round_trips_through_json() {
 	let interface = Interface {
 		definitions: BTreeMap::from([("Options".to_owned(), options)]),
 		exports: BTreeMap::from([("greeting".to_owned(), greeting)]),
+		imports: BTreeMap::new(),
 	};
 	let json = interface.serialize_json().unwrap();
 	assert_eq!(Interface::deserialize_json(&json).unwrap(), interface);
@@ -107,6 +109,7 @@ fn an_interface_uses_the_documented_json_shape() {
 	let expected = Interface {
 		definitions: BTreeMap::new(),
 		exports: BTreeMap::from([("greeting".to_owned(), greeting)]),
+		imports: BTreeMap::new(),
 	};
 	assert_eq!(interface, expected);
 }
@@ -124,6 +127,7 @@ fn an_export_that_is_not_a_value_has_an_error() {
 	let expected = Interface {
 		definitions: BTreeMap::new(),
 		exports: BTreeMap::from([("curry".to_owned(), curry)]),
+		imports: BTreeMap::new(),
 	};
 	assert_eq!(interface, expected);
 	assert_eq!(
@@ -146,7 +150,7 @@ fn literals_keep_their_json_type() {
 
 #[test]
 fn an_interface_rejects_unknown_fields() {
-	let json = r#"{ "exports": {}, "imports": {} }"#;
+	let json = r#"{ "exports": {}, "types": {} }"#;
 	assert!(Interface::deserialize_json(json).is_err());
 	let json = r#"{ "exports": { "x": { "type": { "kind": "number" }, "default": 1 } } }"#;
 	assert!(Interface::deserialize_json(json).is_err());

@@ -247,6 +247,17 @@ impl Host {
 		let Some(referrer) = self.files.lock().unwrap().try_module(containing_file)? else {
 			return Ok(None);
 		};
+
+		// Resolve an import in the bindings of a module in another language to a module that the module's interface imports.
+		#[cfg(feature = "python")]
+		if referrer.kind == tg::module::Kind::Python
+			&& let Some(entry) = self.compiler.try_get_interface(&referrer)
+			&& let Some(module) = entry.interface.imports.get(specifier)
+		{
+			let path = self.path(module);
+			return Ok(Some(path));
+		}
+
 		let key = Import {
 			attributes: attributes.clone(),
 			referrer: containing_file.to_owned(),

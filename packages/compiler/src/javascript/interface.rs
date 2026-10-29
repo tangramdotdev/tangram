@@ -14,7 +14,10 @@ struct Converter<'a> {
 	checker: &'a mut Checker,
 	definitions: BTreeMap<String, tg::interface::Type>,
 	depth: usize,
+	host: &'a super::host::Host,
+	imports: BTreeMap<String, tg::module::Data>,
 	names: HashMap<P<Symbol>, String>,
+	path: String,
 }
 
 impl Project {
@@ -39,21 +42,30 @@ impl Project {
 			checker: &mut checker,
 			definitions: BTreeMap::new(),
 			depth: 0,
+			host: &self.host,
+			imports: BTreeMap::new(),
 			names: HashMap::new(),
+			path: path.clone(),
 		};
 
-		// Give each export its type, or the reason that it is not a value, discarding the definitions of an export that is not a value.
+		// Define the module's exported named types, so that other interfaces can refer to them.
 		let symbols = converter
 			.module_exports(source_file)
 			.into_iter()
 			.map(|symbol| (symbol.name().to_owned(), symbol))
 			.collect::<BTreeMap<_, _>>();
+		for (name, symbol) in &symbols {
+			converter.export_definition(name, *symbol);
+		}
+
+		// Give each export its type, or the reason that it is not a value, discarding the definitions and imports of an export that is not a value.
 		for (name, export) in &mut interface.exports {
 			let symbol = symbols
 				.get(name)
 				.copied()
 				.ok_or_else(|| tg::error!(%name, "failed to find the export"))?;
 			let definitions = converter.definitions.clone();
+			let imports = converter.imports.clone();
 			let names = converter.names.clone();
 			match converter.export(symbol) {
 				Ok(type_) => {
@@ -62,6 +74,7 @@ impl Project {
 				},
 				Err(error) => {
 					converter.definitions = definitions;
+					converter.imports = imports;
 					converter.names = names;
 					export.error = Some(crate::interface::non_value_message(&error));
 					export.type_ = None;
@@ -69,6 +82,7 @@ impl Project {
 			}
 		}
 		interface.definitions = converter.definitions;
+		interface.imports = converter.imports;
 
 		Ok(interface)
 	}
@@ -81,6 +95,38 @@ impl Converter<'_> {
 		};
 		let symbol = self.checker.get_merged_symbol(symbol);
 		self.checker.get_exports_of_module_exported(symbol)
+	}
+
+	/// Define an exported named object type by its export name, leaving the definitions unchanged if the type is not a value.
+	fn export_definition(&mut self, name: &str, symbol: P<Symbol>) {
+		let symbol = if symbol.flags().intersects(SymbolFlags::Alias) {
+			self.checker.get_aliased_symbol(symbol)
+		} else {
+			symbol
+		};
+		if !symbol
+			.flags()
+			.intersects(SymbolFlags::Interface | SymbolFlags::TypeAlias)
+			|| self.names.contains_key(&symbol)
+			|| self.definitions.contains_key(name)
+		{
+			return;
+		}
+		let type_ = self.checker.get_declared_type_of_symbol_exported(symbol);
+		if !type_.flags.get().intersects(TypeFlags::Object) {
+			return;
+		}
+		let definitions = self.definitions.clone();
+		let imports = self.imports.clone();
+		let names = self.names.clone();
+		self.names.insert(symbol, name.to_owned());
+		if let Ok(definition) = self.record(type_) {
+			self.definitions.insert(name.to_owned(), definition);
+		} else {
+			self.definitions = definitions;
+			self.imports = imports;
+			self.names = names;
+		}
 	}
 
 	/// Get the type of the command that runs an export, which calls a function and returns any other value.
@@ -420,7 +466,13 @@ impl Converter<'_> {
 		type_: P<tsrs_checker::Type>,
 	) -> tg::Result<tg::interface::Type> {
 		if let Some(name) = self.names.get(&symbol) {
-			return Ok(tg::interface::Type::Reference { name: name.clone() });
+			return Ok(tg::interface::Type::Reference {
+				import: None,
+				name: name.clone(),
+			});
+		}
+		if let Some(reference) = self.try_import(symbol) {
+			return Ok(reference);
 		}
 		let mut name = symbol.name().to_owned();
 		let mut suffix = 1;
@@ -433,7 +485,35 @@ impl Converter<'_> {
 		self.names.insert(symbol, name.clone());
 		let definition = self.record(type_)?;
 		self.definitions.insert(name.clone(), definition);
-		Ok(tg::interface::Type::Reference { name })
+		Ok(tg::interface::Type::Reference { import: None, name })
+	}
+
+	/// Refer to a named type that another module declares and exports, importing that module.
+	fn try_import(&mut self, symbol: P<Symbol>) -> Option<tg::interface::Type> {
+		let declaration = symbol.declarations().first().copied()?;
+		let source_file = tsrs_ast::get_source_file_of_node(declaration)?;
+		let path = source_file.file_name().to_owned();
+		if path == self.path || path.starts_with("/__library__/") {
+			return None;
+		}
+		let name = self
+			.module_exports(source_file)
+			.into_iter()
+			.find_map(|export| {
+				let target = if export.flags().intersects(SymbolFlags::Alias) {
+					self.checker.get_aliased_symbol(export)
+				} else {
+					export
+				};
+				(target == symbol).then(|| export.name().to_owned())
+			})?;
+		let module = self.host.try_module(&path).ok().flatten()?;
+		let import = crate::interface::import(&mut self.imports, &module);
+		let reference = tg::interface::Type::Reference {
+			import: Some(import),
+			name,
+		};
+		Some(reference)
 	}
 
 	/// Convert an object type to a record, or to a map when it only has a string index signature.

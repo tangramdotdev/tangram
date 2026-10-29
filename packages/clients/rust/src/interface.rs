@@ -13,6 +13,10 @@ pub struct Interface {
 
 	/// The exports, by name.
 	pub exports: BTreeMap<String, Export>,
+
+	/// The modules whose definitions the types refer to, by the names that references use.
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub imports: BTreeMap<String, tg::module::Data>,
 }
 
 /// An export of a module.
@@ -97,8 +101,13 @@ pub enum Type {
 	/// A map with a fixed set of fields.
 	Record { fields: BTreeMap<String, Field> },
 
-	/// A reference to a named type in the interface's definitions.
-	Reference { name: String },
+	/// A reference to a named type in the interface's definitions, or in the definitions of an imported module's interface.
+	Reference {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		import: Option<String>,
+
+		name: String,
+	},
 
 	/// A string.
 	String,

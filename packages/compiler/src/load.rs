@@ -2,7 +2,10 @@
 use tangram_client::prelude::*;
 #[cfg(all(feature = "javascript", feature = "python"))]
 use {
-	std::{collections::BTreeMap, fmt::Write as _},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		fmt::Write as _,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -160,17 +163,40 @@ impl Source {
 fn typescript_bindings(interface: &tg::Interface, text: &str) -> String {
 	let mut output = String::new();
 
-	// Define the interface's named types.
+	// Import the modules whose definitions the types refer to, as namespaces that the compiler resolves from the interface's imports.
+	let imports = interface
+		.imports
+		.keys()
+		.enumerate()
+		.map(|(index, name)| (name.clone(), format!("$i{index}")))
+		.collect::<BTreeMap<_, _>>();
+	for (name, namespace) in &imports {
+		let quoted = serde_json::to_string(name).unwrap();
+		writeln!(output, "import type * as {namespace} from {quoted};").unwrap();
+	}
+
+	// Export the interface's named types by their names, so that other bindings can import them.
 	let definitions = interface
 		.definitions
 		.keys()
 		.enumerate()
-		.map(|(index, name)| (name.clone(), format!("T{index}")))
+		.map(|(index, name)| {
+			let alias = if typescript::is_identifier(name) {
+				name.clone()
+			} else {
+				format!("$t{index}")
+			};
+			(name.clone(), alias)
+		})
 		.collect::<BTreeMap<_, _>>();
+	let names = typescript::Names {
+		definitions,
+		imports,
+	};
 	for (name, type_) in &interface.definitions {
-		let alias = &definitions[name];
-		let type_ = typescript::type_(type_, &definitions);
-		writeln!(output, "type {alias} = {type_};").unwrap();
+		let alias = &names.definitions[name];
+		let type_ = typescript::type_(type_, &names);
+		writeln!(output, "export type {alias} = {type_};").unwrap();
 	}
 
 	for (index, (name, export)) in interface.exports.iter().enumerate() {
@@ -204,7 +230,7 @@ fn typescript_bindings(interface: &tg::Interface, text: &str) -> String {
 		}
 
 		// Export the command.
-		let type_ = typescript::export(export, &definitions);
+		let type_ = typescript::export(export, &names);
 		writeln!(
 			output,
 			"const c{index}: {type_} = tg.command(f{index}) as unknown as {type_};\nexport {{ c{index} as {quoted} }};"
@@ -232,14 +258,53 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		})
 		.collect::<BTreeMap<_, _>>();
 
-	// Choose helper names that cannot shadow a binding, preferring the client's global name.
+	// Choose helper names that cannot shadow a binding or a definition, preferring the client's global name.
 	let mut prefix = "_tg".to_owned();
-	while bindings.keys().any(|binding| binding.starts_with(&prefix)) {
+	while bindings
+		.keys()
+		.chain(interface.definitions.keys())
+		.any(|name| name.starts_with(&prefix))
+	{
 		prefix.push('_');
+	}
+
+	// Declare the modules whose definitions the types refer to as dependencies, which the compiler resolves from the interface's imports.
+	let imports = interface
+		.imports
+		.keys()
+		.enumerate()
+		.map(|(index, name)| (name.clone(), format!("{prefix}_import_{index}")))
+		.collect::<BTreeMap<_, _>>();
+	if !imports.is_empty() {
+		output.push_str("# /// script\n");
+		for (name, module) in &imports {
+			let quoted = serde_json::to_string(name).unwrap();
+			writeln!(output, "# [tool.tangram.dependencies.{module}]").unwrap();
+			writeln!(output, "# specifier = {quoted}").unwrap();
+		}
+		output.push_str("# ///\n");
 	}
 	output.push_str("from __future__ import annotations\n");
 	let typing = format!("{prefix}_typing");
 	writeln!(output, "import typing as {typing}").unwrap();
+	let mut references = BTreeSet::new();
+	for type_ in interface.definitions.values().chain(
+		interface
+			.exports
+			.values()
+			.filter_map(|export| export.type_.as_ref()),
+	) {
+		python::references(type_, &mut references);
+	}
+	if !references.is_empty() {
+		writeln!(output, "if {typing}.TYPE_CHECKING:").unwrap();
+		for (import, name) in &references {
+			let Some(module) = imports.get(import) else {
+				continue;
+			};
+			writeln!(output, "    from {module} import {name} as {module}_{name}").unwrap();
+		}
+	}
 	let client = if bindings.contains_key("tg") {
 		writeln!(output, "import tangram as {prefix}_client").unwrap();
 		format!("{prefix}_client")
@@ -247,16 +312,24 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		"tg".to_owned()
 	};
 
-	// Name the interface's definitions.
+	// Name the interface's definitions by their names, so that other bindings can import them, unless a name is not a Python identifier or a binding uses it.
 	let definitions = interface
 		.definitions
 		.keys()
 		.enumerate()
-		.map(|(index, name)| (name.clone(), format!("{prefix}_type_{index}")))
+		.map(|(index, name)| {
+			let alias = if python::is_identifier(name) && !bindings.contains_key(name) {
+				name.clone()
+			} else {
+				format!("{prefix}_type_{index}")
+			};
+			(name.clone(), alias)
+		})
 		.collect::<BTreeMap<_, _>>();
 	let names = python::Names {
 		client: client.clone(),
 		definitions,
+		imports,
 		prefix: prefix.clone(),
 		records: std::cell::RefCell::default(),
 		typing: typing.clone(),
@@ -266,12 +339,7 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	let definitions = interface
 		.definitions
 		.iter()
-		.map(|(name, type_)| {
-			(
-				names.definitions[name].clone(),
-				python::type_(type_, &names),
-			)
-		})
+		.map(|(name, type_)| python::definition(&names.definitions[name], type_, &names))
 		.collect::<Vec<_>>();
 	let types = bindings
 		.values()
@@ -280,8 +348,8 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	for record in names.records.borrow().iter() {
 		writeln!(output, "{record}").unwrap();
 	}
-	for (alias, type_) in &definitions {
-		writeln!(output, "type {alias} = {type_}").unwrap();
+	for definition in &definitions {
+		writeln!(output, "{definition}").unwrap();
 	}
 
 	for (index, ((binding, (name, export)), type_)) in bindings.iter().zip(types).enumerate() {
@@ -313,7 +381,17 @@ fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 		}
 	}
 
-	let names = bindings.keys().collect::<Vec<_>>();
+	// List the bindings and the definitions that keep their names as the module's public names.
+	let names = bindings
+		.keys()
+		.chain(
+			names
+				.definitions
+				.iter()
+				.filter(|(name, alias)| name == alias)
+				.map(|(name, _)| name),
+		)
+		.collect::<BTreeSet<_>>();
 	let names = serde_json::to_string(&names).unwrap();
 	writeln!(output, "__all__ = {names}").unwrap();
 
@@ -485,6 +563,7 @@ mod tests {
 				tg::interface::Element {
 					optional: true,
 					type_: tg::interface::Type::Reference {
+						import: None,
 						name: "Options".to_owned(),
 					},
 				},
@@ -510,17 +589,18 @@ mod tests {
 		let interface = tg::Interface {
 			definitions: [("Options".to_owned(), options)].into(),
 			exports: [("greeting".to_owned(), greeting)].into(),
+			imports: BTreeMap::new(),
 		};
 
 		// The TypeScript module declares the command's type.
 		let text = typescript_bindings(&interface, "");
 		assert!(
-			text.contains("type T0 = { \"loud\"?: boolean };\n"),
+			text.contains("export type Options = { \"loud\"?: boolean };\n"),
 			"{text}"
 		);
 		assert!(
 			text.contains(
-				"const c0: tg.Command<([string] | [string, T0]), tg.File> = tg.command(f0)"
+				"const c0: tg.Command<([string] | [string, Options]), tg.File> = tg.command(f0)"
 			),
 			"{text}"
 		);
@@ -532,12 +612,11 @@ mod tests {
 		let text = python_bindings(&interface, "");
 		assert!(ruff_python_parser::parse_module(&text).is_ok(), "{text}");
 		assert!(
-			text.contains("_tg_record_0 = _tg_typing.TypedDict(\"_tg_record_0\", {\"loud\": \"_tg_typing.NotRequired[bool]\"})\n"),
+			text.contains("Options = _tg_typing.TypedDict(\"Options\", {\"loud\": \"_tg_typing.NotRequired[bool]\"}, closed=True)\n"),
 			"{text}"
 		);
-		assert!(text.contains("type _tg_type_0 = _tg_record_0\n"), "{text}");
 		assert!(
-			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str, *tuple[_tg_type_0, ...]], tg.File]\", tg.command(_tg_function_0))\n"),
+			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str, *tuple[Options, ...]], tg.File]\", tg.command(_tg_function_0))\n"),
 			"{text}"
 		);
 	}
@@ -553,6 +632,7 @@ mod tests {
 		let interface = tg::Interface {
 			definitions: BTreeMap::new(),
 			exports: [("curry".to_owned(), curry)].into(),
+			imports: BTreeMap::new(),
 		};
 
 		// The TypeScript module types the export with the reason.
@@ -567,6 +647,64 @@ mod tests {
 		assert!(ruff_python_parser::parse_module(&text).is_ok(), "{text}");
 		assert!(
 			text.contains("curry = _tg_typing.cast(\"tg.NonValue[_tg_typing.Literal['a function is not a value']]\", tg.command(_tg_function_0))\n"),
+			"{text}"
+		);
+	}
+
+	#[test]
+	fn imports_the_modules_that_references_name() {
+		let module = source(tg::module::Kind::TypeScript);
+		let greeting = tg::interface::Export {
+			documentation: None,
+			error: None,
+			range: None,
+			type_: Some(tg::interface::Type::Command {
+				args: Box::new(tg::interface::Type::Tuple {
+					elements: Vec::new(),
+					rest: None,
+				}),
+				output: Box::new(tg::interface::Type::Reference {
+					import: Some("greeting".to_owned()),
+					name: "Greeting".to_owned(),
+				}),
+			}),
+		};
+		let interface = tg::Interface {
+			definitions: BTreeMap::new(),
+			exports: [("greet".to_owned(), greeting)].into(),
+			imports: [("greeting".to_owned(), module)].into(),
+		};
+
+		// The TypeScript module imports the referenced module as a namespace.
+		let text = typescript_bindings(&interface, "");
+		assert!(
+			text.contains("import type * as $i0 from \"greeting\";\n"),
+			"{text}"
+		);
+		assert!(
+			text.contains("const c0: tg.Command<[], $i0.Greeting> = tg.command(f0)"),
+			"{text}"
+		);
+
+		// The Python module declares the referenced module as a dependency and imports it while type checking.
+		let text = python_bindings(&interface, "");
+		assert!(ruff_python_parser::parse_module(&text).is_ok(), "{text}");
+		assert!(
+			text.starts_with(
+				"# /// script\n# [tool.tangram.dependencies._tg_import_0]\n# specifier = \"greeting\"\n# ///\n"
+			),
+			"{text}"
+		);
+		assert!(
+			text.contains(
+				"if _tg_typing.TYPE_CHECKING:\n    from _tg_import_0 import Greeting as _tg_import_0_Greeting\n"
+			),
+			"{text}"
+		);
+		assert!(
+			text.contains(
+				"greet = _tg_typing.cast(\"tg.Command[tuple[()], _tg_import_0_Greeting]\""
+			),
 			"{text}"
 		);
 	}

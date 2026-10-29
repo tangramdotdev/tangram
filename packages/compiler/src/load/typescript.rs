@@ -1,10 +1,16 @@
 use {std::collections::BTreeMap, tangram_client::prelude::*};
 
+/// The names that printed TypeScript types use.
+pub(super) struct Names {
+	/// The names of the interface's definitions.
+	pub(super) definitions: BTreeMap<String, String>,
+
+	/// The names of the namespaces that import the modules that the interface imports.
+	pub(super) imports: BTreeMap<String, String>,
+}
+
 /// Print the type of an export as TypeScript, giving an export that is not a value a type that carries the reason.
-pub(super) fn export(
-	export: &tg::interface::Export,
-	definitions: &BTreeMap<String, String>,
-) -> String {
+pub(super) fn export(export: &tg::interface::Export, names: &Names) -> String {
 	let Some(type_) = &export.type_ else {
 		let error = export
 			.error
@@ -13,13 +19,56 @@ pub(super) fn export(
 		let error = serde_json::to_string(error).unwrap();
 		return format!("tg.NonValue<{error}>");
 	};
-	self::type_(type_, definitions)
+	self::type_(type_, names)
+}
+
+/// Determine whether a name is a TypeScript identifier that can name a type.
+pub(super) fn is_identifier(name: &str) -> bool {
+	let mut characters = name.chars();
+	characters
+		.next()
+		.is_some_and(|character| character.is_ascii_alphabetic() || matches!(character, '_' | '$'))
+		&& characters
+			.all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '$'))
+		&& !matches!(
+			name,
+			"any"
+				| "bigint" | "boolean"
+				| "break" | "case"
+				| "catch" | "class"
+				| "const" | "continue"
+				| "debugger" | "default"
+				| "delete" | "do"
+				| "else" | "enum"
+				| "export" | "extends"
+				| "false" | "finally"
+				| "for" | "function"
+				| "if" | "implements"
+				| "import" | "in"
+				| "instanceof"
+				| "interface"
+				| "let" | "never"
+				| "new" | "null"
+				| "number" | "object"
+				| "package" | "private"
+				| "protected"
+				| "public" | "return"
+				| "static" | "string"
+				| "super" | "switch"
+				| "symbol" | "this"
+				| "throw" | "true"
+				| "try" | "typeof"
+				| "undefined"
+				| "unknown" | "var"
+				| "void" | "while"
+				| "with" | "yield"
+		)
 }
 
 /// Print a type as TypeScript, naming the interface's definitions with the given names.
-pub(super) fn type_(type_: &tg::interface::Type, definitions: &BTreeMap<String, String>) -> String {
+pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 	match type_ {
-		tg::interface::Type::Array { item } => format!("Array<{}>", self::type_(item, definitions)),
+		tg::interface::Type::Array { item } => format!("Array<{}>", self::type_(item, names)),
 		tg::interface::Type::Artifact => "tg.Artifact".to_owned(),
 		tg::interface::Type::Blob => "tg.Blob".to_owned(),
 		tg::interface::Type::Boolean => "boolean".to_owned(),
@@ -27,11 +76,11 @@ pub(super) fn type_(type_: &tg::interface::Type, definitions: &BTreeMap<String, 
 		tg::interface::Type::Command { args, output } => {
 			let args = match args.as_ref() {
 				tg::interface::Type::Array { .. } | tg::interface::Type::Tuple { .. } => {
-					self::type_(args, definitions)
+					self::type_(args, names)
 				},
 				_ => "Array<tg.Value>".to_owned(),
 			};
-			let output = self::type_(output, definitions);
+			let output = self::type_(output, names);
 			format!("tg.Command<{args}, {output}>")
 		},
 		tg::interface::Type::Directory => "tg.Directory".to_owned(),
@@ -40,7 +89,7 @@ pub(super) fn type_(type_: &tg::interface::Type, definitions: &BTreeMap<String, 
 		tg::interface::Type::Graph => "tg.Graph".to_owned(),
 		tg::interface::Type::Literal { value } => literal(value),
 		tg::interface::Type::Map { value } => {
-			format!("{{ [key: string]: {} }}", self::type_(value, definitions))
+			format!("{{ [key: string]: {} }}", self::type_(value, names))
 		},
 		tg::interface::Type::Module => "tg.Module".to_owned(),
 		tg::interface::Type::Mutation => "tg.Mutation".to_owned(),
@@ -54,7 +103,7 @@ pub(super) fn type_(type_: &tg::interface::Type, definitions: &BTreeMap<String, 
 				.map(|(name, field)| {
 					let name = serde_json::to_string(name).unwrap();
 					let optional = if field.optional { "?" } else { "" };
-					let type_ = self::type_(&field.type_, definitions);
+					let type_ = self::type_(&field.type_, names);
 					format!("{name}{optional}: {type_}")
 				})
 				.collect::<Vec<_>>();
@@ -64,10 +113,18 @@ pub(super) fn type_(type_: &tg::interface::Type, definitions: &BTreeMap<String, 
 				format!("{{ {} }}", fields.join("; "))
 			}
 		},
-		tg::interface::Type::Reference { name } => definitions
+		tg::interface::Type::Reference { import: None, name } => names
+			.definitions
 			.get(name)
 			.cloned()
 			.unwrap_or_else(|| "tg.Value".to_owned()),
+		tg::interface::Type::Reference {
+			import: Some(import),
+			name,
+		} => names
+			.imports
+			.get(import)
+			.map_or_else(|| "tg.Value".to_owned(), |alias| format!("{alias}.{name}")),
 		tg::interface::Type::String => "string".to_owned(),
 		tg::interface::Type::Symlink => "tg.Symlink".to_owned(),
 		tg::interface::Type::Template => "tg.Template".to_owned(),
@@ -79,12 +136,12 @@ pub(super) fn type_(type_: &tg::interface::Type, definitions: &BTreeMap<String, 
 				.count();
 			let rest = rest
 				.as_ref()
-				.map(|rest| format!("...Array<{}>", self::type_(rest, definitions)));
+				.map(|rest| format!("...Array<{}>", self::type_(rest, names)));
 			let mut tuples = Vec::new();
 			for length in required..=elements.len() {
 				let mut items = elements[..length]
 					.iter()
-					.map(|element| self::type_(&element.type_, definitions))
+					.map(|element| self::type_(&element.type_, names))
 					.collect::<Vec<_>>();
 				if length == elements.len()
 					&& let Some(rest) = &rest
@@ -105,7 +162,7 @@ pub(super) fn type_(type_: &tg::interface::Type, definitions: &BTreeMap<String, 
 			}
 			let types = types
 				.iter()
-				.map(|member| self::type_(member, definitions))
+				.map(|member| self::type_(member, names))
 				.collect::<Vec<_>>();
 			format!("({})", types.join(" | "))
 		},

@@ -21,7 +21,10 @@ struct Converter<'a, 'db> {
 	definitions: BTreeMap<String, tg::interface::Type>,
 	depth: usize,
 	environment: &'a ProgramEnvironment<'db>,
+	file: File,
+	imports: BTreeMap<String, tg::module::Data>,
 	names: BTreeMap<(Option<File>, String), String>,
+	program: Program<'db>,
 }
 
 impl Database {
@@ -43,14 +46,31 @@ impl Database {
 			definitions: BTreeMap::new(),
 			depth: 0,
 			environment: &environment,
+			file: entry.file,
+			imports: BTreeMap::new(),
 			names: BTreeMap::new(),
+			program,
 		};
 
-		// Give each export its type, or the reason that it is not a value, discarding the definitions of an export that is not a value.
+		// Define the module's exported typed dicts, which are types rather than values, so that other interfaces can refer to them.
+		let mut types = Vec::new();
+		for name in interface.exports.keys() {
+			let type_ = describe::module_member(self, program_file, name)
+				.ok_or_else(|| tg::error!(%name, "failed to find the export"))?;
+			if converter.export_definition(type_) {
+				types.push(name.clone());
+			}
+		}
+		for name in types {
+			interface.exports.remove(&name);
+		}
+
+		// Give each export its type, or the reason that it is not a value, discarding the definitions and imports of an export that is not a value.
 		for (name, export) in &mut interface.exports {
 			let type_ = describe::module_member(self, program_file, name)
 				.ok_or_else(|| tg::error!(%name, "failed to find the export"))?;
 			let definitions = converter.definitions.clone();
+			let imports = converter.imports.clone();
 			let names = converter.names.clone();
 			match converter.export(type_) {
 				Ok(type_) => {
@@ -59,6 +79,7 @@ impl Database {
 				},
 				Err(error) => {
 					converter.definitions = definitions;
+					converter.imports = imports;
 					converter.names = names;
 					export.error = Some(crate::interface::non_value_message(&error));
 					export.type_ = None;
@@ -66,6 +87,7 @@ impl Database {
 			}
 		}
 		interface.definitions = converter.definitions;
+		interface.imports = converter.imports;
 
 		Ok(interface)
 	}
@@ -74,6 +96,25 @@ impl Database {
 impl<'db> Converter<'_, 'db> {
 	fn describe(&self, type_: Type<'db>) -> Description<'db> {
 		describe::describe(self.database, self.environment, type_)
+	}
+
+	/// Define an exported typed dict class, returning whether the export is a typed dict class, and leaving the definitions unchanged if it is not a value.
+	fn export_definition(&mut self, type_: Type<'db>) -> bool {
+		let Description::Class(instance) = self.describe(type_) else {
+			return false;
+		};
+		if !matches!(self.describe(instance), Description::TypedDict(_)) {
+			return false;
+		}
+		let definitions = self.definitions.clone();
+		let imports = self.imports.clone();
+		let names = self.names.clone();
+		if self.type_(instance).is_err() {
+			self.definitions = definitions;
+			self.imports = imports;
+			self.names = names;
+		}
+		true
 	}
 
 	/// Get the type of the command that runs an export, which calls a function and returns any other value.
@@ -291,12 +332,28 @@ impl<'db> Converter<'_, 'db> {
 				Ok(tg::interface::Type::Tuple { elements, rest })
 			},
 			Description::TypedDict(typed_dict) => {
+				// Reject an open typed dict, which may have items that are not values.
+				if !typed_dict.closed {
+					return Err(tg::error!(
+						type = %type_.display(self.database, self.environment),
+						"a typed dict must be closed to be a value"
+					));
+				}
+
 				// Name the typed dict with a definition, so that a recursive type refers to itself.
 				let key = typed_dict.name.clone().map(|name| (typed_dict.file, name));
 				if let Some(key) = &key
 					&& let Some(name) = self.names.get(key)
 				{
-					return Ok(tg::interface::Type::Reference { name: name.clone() });
+					return Ok(tg::interface::Type::Reference {
+						import: None,
+						name: name.clone(),
+					});
+				}
+				if let (Some(name), Some(file)) = (&typed_dict.name, typed_dict.file)
+					&& let Some(reference) = self.try_import(file, name)
+				{
+					return Ok(reference);
 				}
 				let name = key.as_ref().map(|key| {
 					let mut name = key.1.clone();
@@ -321,7 +378,7 @@ impl<'db> Converter<'_, 'db> {
 					return Ok(record);
 				};
 				self.definitions.insert(name.clone(), record);
-				Ok(tg::interface::Type::Reference { name })
+				Ok(tg::interface::Type::Reference { import: None, name })
 			},
 			Description::Union(members) => {
 				let mut types = Vec::new();
@@ -339,12 +396,39 @@ impl<'db> Converter<'_, 'db> {
 				}
 				Ok(tg::interface::Type::Union { types })
 			},
+			Description::Class(_) => Err(tg::error!(
+				type = %type_.display(self.database, self.environment),
+				"a class is not a value"
+			)),
 			Description::Callable(_) => Err(tg::error!(
 				type = %type_.display(self.database, self.environment),
 				"a function is not a value"
 			)),
 			Description::Other => Err(self.error(type_)),
 		}
+	}
+
+	/// Refer to a typed dict class that another module declares at its top level, importing that module.
+	fn try_import(&mut self, file: File, name: &str) -> Option<tg::interface::Type> {
+		if file == self.file || self.is_library(file) {
+			return None;
+		}
+		let program_file = self.program.program_file(self.database, file);
+		let member = describe::module_member(self.database, program_file, name)?;
+		if !matches!(self.describe(member), Description::Class(_)) {
+			return None;
+		}
+		let module = {
+			let modules = self.database.modules.lock().unwrap();
+			let index = modules.files.get(&file)?;
+			modules.entries.get(index)?.module.clone()
+		};
+		let import = crate::interface::import(&mut self.imports, &module);
+		let reference = tg::interface::Type::Reference {
+			import: Some(import),
+			name: name.to_owned(),
+		};
+		Some(reference)
 	}
 
 	/// Determine whether a file belongs to the Tangram Python client library.

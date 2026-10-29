@@ -80,10 +80,63 @@ pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface
 		let interface = tg::Interface {
 			definitions: std::collections::BTreeMap::new(),
 			exports,
+			imports: std::collections::BTreeMap::new(),
 		};
 
 		Ok(interface)
 	}
+}
+
+/// Get the name of an interface's import of a module, adding the import if the interface does not import the module yet.
+#[cfg(all(feature = "javascript", feature = "python"))]
+#[cfg_attr(not(any(feature = "tsrs", feature = "ty")), expect(dead_code))]
+pub(crate) fn import(
+	imports: &mut std::collections::BTreeMap<String, tg::module::Data>,
+	module: &tg::module::Data,
+) -> String {
+	// Reuse the name of an existing import of the module, keeping the module's tokens so that the compiler can load it.
+	let identity = module.without_token();
+	if let Some((name, _)) = imports
+		.iter()
+		.find(|(_, import)| import.without_token() == identity)
+	{
+		return name.clone();
+	}
+
+	// Name the import after the module's file, and make the name unique.
+	let path = match &module.referent.node {
+		tg::module::data::Source::Path(path) => Some(path.as_path()),
+		tg::module::data::Source::Edge(_) => module.referent.path(),
+	};
+	let stem = path
+		.and_then(|path| path.file_name())
+		.and_then(|name| name.to_str())
+		.and_then(|name| name.split('.').next())
+		.unwrap_or_default()
+		.chars()
+		.map(|character| {
+			if character.is_ascii_alphanumeric() || character == '_' {
+				character
+			} else {
+				'_'
+			}
+		})
+		.collect::<String>();
+	let stem = if stem.is_empty() || stem.starts_with(|character: char| character.is_ascii_digit())
+	{
+		format!("module{stem}")
+	} else {
+		stem
+	};
+	let mut name = stem.clone();
+	let mut suffix = 1;
+	while imports.contains_key(&name) {
+		suffix += 1;
+		name = format!("{stem}{suffix}");
+	}
+	imports.insert(name.clone(), module.clone());
+
+	name
 }
 
 /// Describe why an export is not a value, with the message and values of each error in the error's chain.

@@ -80,29 +80,70 @@ impl Compiler {
 		let entry = self
 			.try_get_interface(module)
 			.ok_or_else(|| tg::error!("failed to get the interface of the module"))?;
-		Ok(entry.interface.clone())
+
+		// Remove the tokens of the imports, which belong to this compiler's session.
+		let mut interface = entry.interface.clone();
+		for module in interface.imports.values_mut() {
+			*module = module.without_token();
+		}
+
+		Ok(interface)
 	}
 
 	/// Get the interfaces of the modules in other languages that a checker has loaded, in dependency order, so that getting no interface waits on another checker.
 	pub(crate) async fn prepare_interfaces(&self, language: tg::module::load::Language) {
-		let modules = self
-			.interfaces
-			.loaded(language)
-			.lock()
-			.unwrap()
-			.modules
-			.clone();
-		if modules.is_empty() {
-			return;
+		loop {
+			// Prepare the interfaces of the modules that the checker has loaded.
+			let modules = self
+				.interfaces
+				.loaded(language)
+				.lock()
+				.unwrap()
+				.modules
+				.clone();
+			if modules.is_empty() {
+				return;
+			}
+			let roots = modules.values().cloned().collect();
+			self.prepare_interfaces_inner(roots, true).await;
+			let mut loaded = self.interfaces.loaded(language).lock().unwrap();
+			loaded.prepared.extend(modules.keys().cloned());
+
+			// Add the modules in other languages that the interfaces import, whose bindings the checker loads with the bindings that import them, and stop when there are none.
+			let imports = modules
+				.keys()
+				.filter_map(|key| {
+					self.interfaces
+						.nodes
+						.lock()
+						.unwrap()
+						.get(key)?
+						.interface
+						.clone()
+				})
+				.flat_map(|entry| {
+					entry
+						.interface
+						.imports
+						.values()
+						.cloned()
+						.collect::<Vec<_>>()
+				})
+				.filter(|module| {
+					crate::load::bindings_language(module, Some(language))
+						.ok()
+						.flatten()
+						.is_some()
+				})
+				.filter(|module| !loaded.modules.contains_key(&key(module)))
+				.collect::<Vec<_>>();
+			if imports.is_empty() {
+				return;
+			}
+			for module in imports {
+				loaded.modules.insert(key(&module), module);
+			}
 		}
-		let roots = modules.values().cloned().collect();
-		self.prepare_interfaces_inner(roots, true).await;
-		self.interfaces
-			.loaded(language)
-			.lock()
-			.unwrap()
-			.prepared
-			.extend(modules.into_keys());
 	}
 
 	/// Record that a checker loads a module, and determine whether to load it with its interface, which is only if the module is in another language and its interface has been prepared.
@@ -482,9 +523,14 @@ fn fingerprint(nodes: &BTreeMap<Key, Node>, key: &Key) -> u64 {
 	hasher.finish()
 }
 
+/// Hash an interface without the tokens of its imports, so that refreshed authorization does not change its version.
 fn hash(interface: &tg::Interface) -> u64 {
+	let mut interface = interface.clone();
+	for module in interface.imports.values_mut() {
+		*module = module.without_token();
+	}
 	let mut hasher = fnv::FnvHasher::default();
-	serde_json::to_string(interface).unwrap().hash(&mut hasher);
+	serde_json::to_string(&interface).unwrap().hash(&mut hasher);
 	hasher.finish()
 }
 
