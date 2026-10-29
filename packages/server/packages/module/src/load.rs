@@ -43,7 +43,8 @@ impl Component {
 		if arg.language == Some(tg::module::load::Language::Python)
 			&& !matches!(
 				arg.module.kind,
-				tg::module::Kind::JavaScript
+				tg::module::Kind::Config
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
 					| tg::module::Kind::Python
@@ -53,6 +54,23 @@ impl Component {
 				text,
 				tokens: tg::authorization::Tokens::default(),
 			});
+		}
+
+		// Generate the bindings of a config module from its interface, because its runtime declares its exports.
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		if arg.module.kind == tg::module::Kind::Config
+			&& let Some(language) = arg.language
+		{
+			let mut output = self.load_module_inner(session, &arg.module).await?;
+			let interface_arg = tg::module::interface::Arg {
+				module: arg.module.clone(),
+			};
+			let interface = self
+				.module_interface(session, interface_arg)
+				.await?
+				.interface;
+			output.text = tangram_compiler::load::bindings(&interface, &output.text, language);
+			return Ok(output);
 		}
 
 		let mut output = self.load_module_inner(session, &arg.module).await?;
@@ -88,7 +106,8 @@ impl Component {
 			// Handle a JavaScript, Python, or TypeScript module from a path.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Config
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::Python,
 				referent:
@@ -111,7 +130,8 @@ impl Component {
 			// Handle a JavaScript, Python, or TypeScript module from an object.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Config
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::Python,
 				referent:

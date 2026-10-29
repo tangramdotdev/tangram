@@ -1482,12 +1482,14 @@ fn bindings_language(
 	module_kind: tg::module::Kind,
 ) -> Option<(tg::module::load::Language, &'static str)> {
 	match (kind, module_kind) {
-		(tg::module::Kind::Python, tg::module::Kind::JavaScript | tg::module::Kind::TypeScript) => {
-			Some((tg::module::load::Language::Python, "py"))
-		},
-		(tg::module::Kind::JavaScript | tg::module::Kind::TypeScript, tg::module::Kind::Python) => {
-			Some((tg::module::load::Language::JavaScript, "js"))
-		},
+		(
+			tg::module::Kind::Python,
+			tg::module::Kind::Config | tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
+		) => Some((tg::module::load::Language::Python, "py")),
+		(
+			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
+			tg::module::Kind::Config | tg::module::Kind::Python,
+		) => Some((tg::module::load::Language::JavaScript, "js")),
 		_ => None,
 	}
 }

@@ -37,10 +37,22 @@ impl Compiler {
 					.and_then(tg::module::config::Format::for_path)
 					.ok_or_else(|| tg::error!("failed to get the format of the config module"))?;
 				let config = tg::module::Config::parse(text, format)?;
-				let imports = std::iter::once(&config.runtime)
+				let mut imports = std::iter::once(&config.runtime)
 					.chain(config.dependencies.values())
 					.map(tg::module::config::Dependency::import)
-					.collect::<tg::Result<_>>()?;
+					.collect::<tg::Result<HashSet<_, fnv::FnvBuildHasher>>>()?;
+
+				// Import the interface beside a config on disk, so that checking in the config includes it.
+				if let tg::module::data::Source::Path(path) = &module.referent.node
+					&& let Some(name) = tg::module::config::interface_file_name(path)
+					&& path.with_file_name(&name).is_file()
+				{
+					let reference = format!("./{name}").parse::<tg::Reference>()?;
+					imports.insert(tg::module::Import {
+						kind: Some(tg::module::Kind::File),
+						reference,
+					});
+				}
 				let analysis = Analysis {
 					diagnostics: Vec::new(),
 					imports,

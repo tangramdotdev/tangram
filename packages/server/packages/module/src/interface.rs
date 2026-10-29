@@ -13,7 +13,10 @@ impl Component {
 	) -> tg::Result<tg::module::interface::Output> {
 		if !matches!(
 			arg.module.kind,
-			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript | tg::module::Kind::Python
+			tg::module::Kind::Config
+				| tg::module::Kind::JavaScript
+				| tg::module::Kind::Python
+				| tg::module::Kind::TypeScript
 		) {
 			return Err(
 				tg::error!(kind = %arg.module.kind, "cannot get the interface of the module"),

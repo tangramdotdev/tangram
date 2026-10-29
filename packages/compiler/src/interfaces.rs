@@ -48,6 +48,14 @@ struct Loaded {
 	unprepared: bool,
 }
 
+/// The group of modules that one checker checks, or the config modules, whose runtimes check them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Group {
+	Config,
+	JavaScript,
+	Python,
+}
+
 #[derive(Clone)]
 struct Node {
 	imports: Vec<tg::module::Data>,
@@ -209,7 +217,7 @@ impl Compiler {
 				.drain(..)
 				.filter(|module| {
 					let key = key(module);
-					language(module.kind).is_some() && !nodes.contains_key(&key) && keys.insert(key)
+					group(module.kind).is_some() && !nodes.contains_key(&key) && keys.insert(key)
 				})
 				.collect::<Vec<_>>();
 			let output =
@@ -356,6 +364,11 @@ impl Compiler {
 
 	/// Get the modules that a module imports.
 	async fn module_imports(&self, module: &tg::module::Data) -> tg::Result<Vec<tg::module::Data>> {
+		// Do not follow the imports of a config module, whose interface its runtime gets without loading other modules in a checker.
+		if module.kind == tg::module::Kind::Config {
+			return Ok(Vec::new());
+		}
+
 		// Get the imports from the dependencies of a checked-in Python module, or otherwise from the module's source.
 		let imports = if module.kind == tg::module::Kind::Python
 			&& let tg::module::data::Source::Edge(_) = &module.referent.node
@@ -384,7 +397,7 @@ impl Compiler {
 		.await
 		.into_iter()
 		.filter_map(Result::ok)
-		.filter(|module| language(module.kind).is_some())
+		.filter(|module| group(module.kind).is_some())
 		.collect();
 
 		Ok(modules)
@@ -400,13 +413,14 @@ impl Interfaces {
 	}
 }
 
-/// Get the language of a module's checker.
-fn language(kind: tg::module::Kind) -> Option<tg::module::load::Language> {
+/// Get the group of a module's checker.
+fn group(kind: tg::module::Kind) -> Option<Group> {
 	match kind {
+		tg::module::Kind::Config => Some(Group::Config),
 		tg::module::Kind::JavaScript
 		| tg::module::Kind::TypeScript
-		| tg::module::Kind::TypeScriptDeclaration => Some(tg::module::load::Language::JavaScript),
-		tg::module::Kind::Python => Some(tg::module::load::Language::Python),
+		| tg::module::Kind::TypeScriptDeclaration => Some(Group::JavaScript),
+		tg::module::Kind::Python => Some(Group::Python),
 		_ => None,
 	}
 }
@@ -425,13 +439,13 @@ fn cross_language_imports(nodes: &BTreeMap<Key, Node>) -> BTreeMap<Key, BTreeSet
 		.collect::<BTreeMap<_, _>>();
 	let mut direct = BTreeMap::<&Key, BTreeSet<Key>>::new();
 	for (key, node) in nodes {
-		let language = language(node.module.kind);
+		let group = group(node.module.kind);
 		for module in &node.imports {
 			let import = self::key(module);
 			let Some(&index) = indices.get(&import) else {
 				continue;
 			};
-			if self::language(module.kind) == language {
+			if self::group(module.kind) == group {
 				graph.add_edge(indices[key], index, ());
 			} else {
 				direct.entry(key).or_default().insert(import);

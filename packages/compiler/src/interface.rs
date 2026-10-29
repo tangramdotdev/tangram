@@ -46,6 +46,26 @@ pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface
 				return Err(tg::error!("the python feature is not enabled"));
 			}
 		},
+		tg::module::Kind::Config => {
+			// Give a config module a default export, because its runtime declares its exports.
+			#[cfg(any(feature = "javascript", feature = "python"))]
+			{
+				let export = Export {
+					documentation: None,
+					range: None,
+				};
+				Ok(std::collections::BTreeMap::from([(
+					"default".to_owned(),
+					export,
+				)]))
+			}
+			#[cfg(not(any(feature = "javascript", feature = "python")))]
+			{
+				return Err(tg::error!(
+					"the javascript and python features are not enabled"
+				));
+			}
+		},
 		_ => {
 			return Err(tg::error!(kind = %module.kind, "cannot get the interface of the module"));
 		},

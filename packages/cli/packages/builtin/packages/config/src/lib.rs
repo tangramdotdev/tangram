@@ -27,6 +27,10 @@ pub struct Args {
 	#[arg(long)]
 	pub export: Option<String>,
 
+	/// Run a named export of the runtime, such as `interface` or `check`, rather than the runtime's default export with the module's export.
+	#[arg(conflicts_with = "export", long)]
+	pub runtime_export: Option<String>,
+
 	#[arg(index = 1, value_parser = tg::value::parse)]
 	pub module: tg::Value,
 
@@ -149,10 +153,13 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		dependencies.insert(name.clone(), tg::Value::Map(referent));
 	}
 
-	// Create the arg of the runtime's default export.
+	// Create the arg of the runtime's export, which includes the module's export when it is the runtime's default export.
 	let mut arg = tg::value::Map::new();
-	let export = args.export.unwrap_or_else(|| "default".to_owned());
-	arg.insert("export".to_owned(), tg::Value::String(export));
+	let runtime_export = args.runtime_export.unwrap_or_else(|| "default".to_owned());
+	if runtime_export == "default" {
+		let export = args.export.unwrap_or_else(|| "default".to_owned());
+		arg.insert("export".to_owned(), tg::Value::String(export));
+	}
 	let args = config.args.into_iter().chain(args_).collect();
 	arg.insert("args".to_owned(), tg::Value::Array(args));
 	if let Some(package) = package {
@@ -160,10 +167,10 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	}
 	arg.insert("dependencies".to_owned(), tg::Value::Map(dependencies));
 
-	// Replace this process with the runtime's default export, so that it runs as a direct child of the caller's sandbox.
+	// Replace this process with the runtime's export, so that it runs as a direct child of the caller's sandbox.
 	let command = tg::command::Builder::with_module(
 		runtime,
-		Some("default".to_owned()),
+		Some(runtime_export),
 		[tg::command::Value::Value(tg::Value::Map(arg))],
 	)
 	.build()?;

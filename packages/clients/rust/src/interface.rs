@@ -178,4 +178,33 @@ impl Interface {
 		serde_json::from_str(text)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the interface"))
 	}
+
+	/// Convert a value that a runtime returns to an interface.
+	pub fn try_from_value(value: &tg::Value) -> tg::Result<Self> {
+		let value = json(value)?;
+		serde_json::from_value(value)
+			.map_err(|error| tg::error!(argument, !error, "the value is not an interface"))
+	}
+}
+
+/// Convert a value to JSON, rejecting values that JSON cannot represent.
+fn json(value: &tg::Value) -> tg::Result<serde_json::Value> {
+	let value = match value {
+		tg::Value::Null => serde_json::Value::Null,
+		tg::Value::Bool(value) => serde_json::Value::Bool(*value),
+		tg::Value::Number(value) => serde_json::Number::from_f64(*value)
+			.map(serde_json::Value::Number)
+			.ok_or_else(|| tg::error!(argument, "the number is not finite"))?,
+		tg::Value::String(value) => serde_json::Value::String(value.clone()),
+		tg::Value::Array(values) => {
+			serde_json::Value::Array(values.iter().map(json).collect::<tg::Result<_>>()?)
+		},
+		tg::Value::Map(map) => serde_json::Value::Object(
+			map.iter()
+				.map(|(key, value)| Ok((key.clone(), json(value)?)))
+				.collect::<tg::Result<_>>()?,
+		),
+		_ => return Err(tg::error!(argument, "the value is not an interface")),
+	};
+	Ok(value)
 }
