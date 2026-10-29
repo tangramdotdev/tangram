@@ -29,6 +29,7 @@ default-members = [
   "packages/cli/packages/id",
   "packages/cli/packages/index",
   "packages/cli/packages/init",
+  "packages/cli/packages/interface",
   "packages/cli/packages/list",
   "packages/cli/packages/lsp",
   "packages/cli/packages/match",
@@ -402,6 +403,7 @@ tangram_cli_health = { path = "packages/cli/packages/health" }
 tangram_cli_id = { path = "packages/cli/packages/id" }
 tangram_cli_index = { path = "packages/cli/packages/index" }
 tangram_cli_init = { path = "packages/cli/packages/init" }
+tangram_cli_interface = { path = "packages/cli/packages/interface" }
 tangram_cli_list = { path = "packages/cli/packages/list" }
 tangram_cli_lsp = { path = "packages/cli/packages/lsp" }
 tangram_cli_match = { path = "packages/cli/packages/match" }

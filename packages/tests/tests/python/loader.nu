@@ -6,13 +6,13 @@ let local = server spawn
 let path = artifact {
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.child]
+        # [tool.tangram.dependencies.child]
         # specifier = "./child.tg.py"
-        # [tool.tangram.imports.same]
+        # [tool.tangram.dependencies.same]
         # specifier = "./child.tg.py"
-        # [tool.tangram.imports.broken]
+        # [tool.tangram.dependencies.broken]
         # specifier = "./broken.tg.py"
-        # [tool.tangram.imports.pkg]
+        # [tool.tangram.dependencies.pkg]
         # specifier = "./pkg"
         # ///
         import importlib.util
@@ -102,7 +102,7 @@ assert equal ($output.stdout | str trim) '42'
 let path = artifact {
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.child]
+        # [tool.tangram.dependencies.child]
         # specifier = "./pkg/child.tg.py"
         # ///
         import builtins

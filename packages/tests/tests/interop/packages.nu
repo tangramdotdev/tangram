@@ -19,7 +19,7 @@ let keeper = artifact {
     'tangram.ts': '
         import { adopt } from "dragons/^1";
         export default async function () {
-            const dragon = await adopt("Noodle");
+            const dragon = await adopt.build("Noodle");
             tg.assert(dragon instanceof tg.File);
             return dragon;
         }
@@ -47,18 +47,18 @@ rm --recursive $stars
 let astronomer = artifact {
     'tangram.py': '
         # /// script
-        # [tool.tangram.imports.stars]
+        # [tool.tangram.dependencies.stars]
         # specifier = "stars/^1"
-        # [tool.tangram.imports.comet]
+        # [tool.tangram.dependencies.comet]
         # specifier = "stars/^1"
         # attributes = { get = "comet.tg.js" }
         # ///
         import stars
         from comet import visit
         async def default():
-            assert await stars.map("Orion") == {"constellation": "Orion", "stars": [1, 2, 3]}
-            assert await visit() == "a JavaScript comet"
-            greeting = await stars.default("Saturn")
+            assert await stars.map.build("Orion") == {"constellation": "Orion", "stars": [1, 2, 3]}
+            assert await visit.build() == "a JavaScript comet"
+            greeting = await stars.default.build("Saturn")
             assert isinstance(greeting, tg.File)
             return greeting
     '

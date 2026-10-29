@@ -7,13 +7,13 @@ rm --recursive $dependency
 let path = artifact {
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.local]
+        # [tool.tangram.dependencies.local]
         # specifier = "./local.txt"
         # attributes = { type = "file" }
-        # [tool.tangram.imports.remote]
+        # [tool.tangram.dependencies.remote]
         # specifier = "python-assets/^1"
         # attributes = { get = "hello.txt", type = "file" }
-        # [tool.tangram.imports.directory]
+        # [tool.tangram.dependencies.directory]
         # specifier = "python-assets/^1"
         # attributes = { type = "directory" }
         # ///
@@ -58,7 +58,7 @@ for case in [
 ] {
     let source = ([
         '# /// script'
-        '# [tool.tangram.imports.asset]'
+        '# [tool.tangram.dependencies.asset]'
         '# specifier = "asset"'
         ('# attributes = { type = "' + $case.kind + '" }')
         '# ///'

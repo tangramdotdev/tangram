@@ -35,7 +35,7 @@ struct Tool {
 #[serde(deny_unknown_fields)]
 struct Config {
 	#[serde(default)]
-	imports: BTreeMap<String, toml::Spanned<Declaration>>,
+	dependencies: BTreeMap<String, toml::Spanned<Declaration>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -194,7 +194,7 @@ fn parse_script(
 		return Err(locate(
 			dependencies.span(),
 			tg::error!(
-				"PEP 508 dependencies are not supported; declare Tangram imports under tool.tangram.imports"
+				"PEP 508 dependencies are not supported; declare Tangram dependencies under tool.tangram.dependencies"
 			),
 		));
 	}
@@ -228,7 +228,7 @@ fn parse_script(
 		}
 	}
 	let mut imports = BTreeMap::new();
-	for (name, declaration) in script.tool.tangram.imports {
+	for (name, declaration) in script.tool.tangram.dependencies {
 		let valid = !name.contains('.') && ruff_python_parser::parse_module(&format!("import {name}")).is_ok_and(|parsed| {
 			matches!(parsed.syntax().body.as_slice(), [Stmt::Import(import)] if import.names.len() == 1 && import.names[0].name.as_str() == name && import.names[0].asname.is_none())
 		});
@@ -317,7 +317,7 @@ mod tests {
 
 	#[test]
 	fn declarations_preserve_attributed_imports() {
-		let text = "# /// script\n# [tool.tangram.imports.debug]\n# specifier = 'tools/^1'\n# attributes = { get = 'debug/tangram.py' }\n# [tool.tangram.imports.release]\n# specifier = 'tools/^1'\n# attributes = { get = 'release/tangram.py' }\n# ///\n\nimport debug\n";
+		let text = "# /// script\n# [tool.tangram.dependencies.debug]\n# specifier = 'tools/^1'\n# attributes = { get = 'debug/tangram.py' }\n# [tool.tangram.dependencies.release]\n# specifier = 'tools/^1'\n# attributes = { get = 'release/tangram.py' }\n# ///\n\nimport debug\n";
 		let metadata = parse(Path::new("/test/main.tg.py"), text).unwrap();
 		assert_eq!(metadata.imports.len(), 2);
 		assert_ne!(metadata.imports["debug"], metadata.imports["release"]);
@@ -349,10 +349,10 @@ mod tests {
 			"dependencies = ['requests']",
 			"requires-python = '<3'",
 			"requires-python = 'invalid'",
-			"[tool.tangram.imports.bad]\nspecifier = 1",
-			"[tool.tangram.imports.'bad.name']\nspecifier = 'tools'",
-			"[tool.tangram.imports.bad]\nspecifier = ''",
-			"[tool.tangram.imports.bad]\nspecifier = 'tools'\nattributes = { get = true }",
+			"[tool.tangram.dependencies.bad]\nspecifier = 1",
+			"[tool.tangram.dependencies.'bad.name']\nspecifier = 'tools'",
+			"[tool.tangram.dependencies.bad]\nspecifier = ''",
+			"[tool.tangram.dependencies.bad]\nspecifier = 'tools'\nattributes = { get = true }",
 		] {
 			let contents = format!("# {}\n", contents.replace('\n', "\n# "));
 			let text = format!("# /// script\n{contents}# ///\n\npass\n");
@@ -369,7 +369,7 @@ mod tests {
 	fn duplicate_blocks_are_rejected_and_crlf_is_supported() {
 		let duplicate = "# /// script\n# ///\n\n# /// script\n# ///\n";
 		assert!(parse(Path::new("/test/main.tg.py"), duplicate).is_err());
-		let text = "# /// script\r\n# [tool.tangram.imports.tools]\r\n# specifier = 'tools/^1'\r\n# ///\r\n\r\npass\r\n";
+		let text = "# /// script\r\n# [tool.tangram.dependencies.tools]\r\n# specifier = 'tools/^1'\r\n# ///\r\n\r\npass\r\n";
 		assert_eq!(
 			parse(Path::new("/test/main.tg.py"), text)
 				.unwrap()

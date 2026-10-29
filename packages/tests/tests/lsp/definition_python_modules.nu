@@ -58,7 +58,7 @@ for missing in [false true] {
     }
     let dependency = tg run $builder
     let source = $'# /// script
-# [tool.tangram.imports.dep]
+# [tool.tangram.dependencies.dep]
 # specifier = "($dependency)"
 # ///
 from dep import left

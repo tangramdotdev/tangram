@@ -54,6 +54,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		return attach.attach<O>(id, options);
 	}
 
+	static build<A extends Array<tg.Value>, O extends tg.Value>(
+		command: tg.Command<A, O> | tg.Command.Builder<A, O>,
+	): tg.Process.Builder<"run", A, O>;
 	static build<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,
@@ -78,6 +81,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		return build.builder(...args);
 	}
 
+	static exec<A extends Array<tg.Value>, O extends tg.Value>(
+		command: tg.Command<A, O> | tg.Command.Builder<A, O>,
+	): tg.Process.Builder<"exec", A, never>;
 	static exec<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,
@@ -100,6 +106,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		return exec.builder(...args);
 	}
 
+	static run<A extends Array<tg.Value>, O extends tg.Value>(
+		command: tg.Command<A, O> | tg.Command.Builder<A, O>,
+	): tg.Process.Builder<"run", A, O>;
 	static run<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,
@@ -124,6 +133,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		return run.builder(...args);
 	}
 
+	static spawn<A extends Array<tg.Value>, O extends tg.Value>(
+		command: tg.Command<A, O> | tg.Command.Builder<A, O>,
+	): tg.Process.Builder<"spawn", A, O>;
 	static spawn<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,
@@ -913,20 +925,27 @@ export namespace Process {
 			this.#module = isModuleProcessBuilderArg(args);
 			this.#args = args.map((arg) => this.builderArg(arg));
 			this.#mode = mode;
-			return new Proxy(this, {
+			// Return the proxy wherever a method returns the builder, so that the builder remains callable.
+			let proxy: this = new Proxy(this, {
 				get(this_: any, prop, _receiver) {
 					if (typeof this_[prop] === "function") {
-						return this_[prop].bind(this_);
+						let method = this_[prop].bind(this_);
+						return (...args: Array<unknown>) => {
+							let output = method(...args);
+							return output === this_ ? proxy : output;
+						};
 					}
 					return this_[prop];
 				},
 				apply: (this_, _, args) => {
-					return this_.args(args);
+					this_.args(args);
+					return proxy;
 				},
 				getPrototypeOf: (this_) => {
 					return Object.getPrototypeOf(this_);
 				},
 			});
+			return proxy;
 		}
 
 		arg(...args: Array<tg.Unresolved<tg.Command.Arg.Value>>): this {

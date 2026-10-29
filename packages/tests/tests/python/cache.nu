@@ -50,7 +50,7 @@ let package = artifact {
 let task = $package | path join task.tg.py
 ('
 # /// script
-# [tool.tangram.imports.myself]
+# [tool.tangram.dependencies.myself]
 # specifier = ' + ($task | to json --raw) + '
 # ///
 from . import value

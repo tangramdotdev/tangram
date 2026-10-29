@@ -24,6 +24,8 @@ mod host;
 mod hover;
 mod implementation;
 mod inlay_hint;
+#[cfg(feature = "python")]
+mod interface;
 mod module;
 mod prepare_rename;
 mod project;
@@ -57,7 +59,6 @@ impl Service {
 
 	/// Run a function with the editor project, after updating it with the modules and the open documents.
 	fn run<T, F>(
-		&self,
 		compiler: &Compiler,
 		modules: Vec<tg::module::Data>,
 		f: F,
@@ -66,25 +67,82 @@ impl Service {
 		T: Send + 'static,
 		F: FnOnce(&mut Project) -> tg::Result<T> + Send + 'static,
 	{
-		self.job(compiler, move |compiler, project| {
+		let compiler = compiler.clone();
+		async move {
 			// Add the open documents to the modules.
 			let mut modules = modules;
-			modules.extend(
-				compiler
-					.main_runtime_handle
-					.block_on(compiler.list_documents()),
-			);
+			modules.extend(compiler.list_documents().await);
 
-			// Update the project, or create it.
-			let project = if let Some(project) = project {
-				project.update(modules)?;
-				project
-			} else {
-				project.insert(Project::new(compiler, modules)?)
+			// Prepare the interfaces of the modules in other languages that the project has loaded.
+			Self::prepare(&compiler).await;
+
+			// Update the project, and run the function unless the update loaded a module in another language whose interface has not been prepared.
+			let output = compiler
+				.javascript
+				.job(&compiler, {
+					let modules = modules.clone();
+					move |compiler, project| {
+						let project = Self::update(compiler, project, modules)?;
+						if Self::unprepared(compiler) {
+							return Ok(Err(f));
+						}
+						f(project).map(Ok)
+					}
+				})
+				.await?;
+			let f = match output {
+				Ok(output) => return Ok(output),
+				Err(f) => f,
 			};
 
-			f(project)
-		})
+			// Prepare the interfaces of the newly loaded modules, and then update the project again and run the function.
+			Self::prepare(&compiler).await;
+			compiler
+				.javascript
+				.job(&compiler, move |compiler, project| {
+					let project = Self::update(compiler, project, modules)?;
+					f(project)
+				})
+				.await
+		}
+		.boxed()
+	}
+
+	/// Update the project with the modules, or create it.
+	fn update<'a>(
+		compiler: &Compiler,
+		project: &'a mut Option<Project>,
+		modules: Vec<tg::module::Data>,
+	) -> tg::Result<&'a mut Project> {
+		let project = if let Some(project) = project {
+			project.update(modules)?;
+			project
+		} else {
+			project.insert(Project::new(compiler, modules)?)
+		};
+		Ok(project)
+	}
+
+	/// Prepare the interfaces of the modules in other languages that the project has loaded.
+	async fn prepare(compiler: &Compiler) {
+		#[cfg(feature = "python")]
+		compiler
+			.prepare_interfaces(tg::module::load::Language::JavaScript)
+			.await;
+		#[cfg(not(feature = "python"))]
+		let _ = compiler;
+	}
+
+	/// Determine whether the project has loaded a module in another language whose interface has not been prepared.
+	fn unprepared(compiler: &Compiler) -> bool {
+		#[cfg(feature = "python")]
+		let unprepared = compiler.take_unprepared(tg::module::load::Language::JavaScript);
+		#[cfg(not(feature = "python"))]
+		let unprepared = {
+			let _ = compiler;
+			false
+		};
+		unprepared
 	}
 
 	/// Run a function on the worker thread and return its output.
@@ -167,7 +225,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::IncomingArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::IncomingOutput>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.call_hierarchy_incoming(&arg)
 		})
 	}
@@ -178,7 +236,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::OutgoingArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::OutgoingOutput>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.call_hierarchy_outgoing(&arg)
 		})
 	}
@@ -189,7 +247,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::PrepareArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::PrepareOutput>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.call_hierarchy_prepare(&arg)
 		})
 	}
@@ -199,10 +257,36 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::check::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::check::Output>> {
-		// Check with a separate program rather than the editor project.
-		compiler
-			.javascript
-			.job(compiler, move |compiler, _| check::handle(compiler, arg))
+		// Check with a separate program rather than the editor project, creating the program again if it loaded a module in another language whose interface had not been prepared.
+		let compiler = compiler.clone();
+		async move {
+			Service::prepare(&compiler).await;
+			let output = compiler
+				.javascript
+				.job(&compiler, {
+					let modules = arg.modules.clone();
+					move |compiler, _| {
+						let project = Project::new(compiler, modules)?;
+						if Service::unprepared(compiler) {
+							return Ok(None);
+						}
+						check::handle(&project).map(Some)
+					}
+				})
+				.await?;
+			if let Some(output) = output {
+				return Ok(output);
+			}
+			Service::prepare(&compiler).await;
+			compiler
+				.javascript
+				.job(&compiler, move |compiler, _| {
+					let project = Project::new(compiler, arg.modules)?;
+					check::handle(&project)
+				})
+				.await
+		}
+		.boxed()
 	}
 
 	fn code_action(
@@ -211,9 +295,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::code_action::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::code_action::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.code_action(&arg))
+		Service::run(compiler, modules, move |project| project.code_action(&arg))
 	}
 
 	fn completion(
@@ -222,9 +304,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::completion::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::completion::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.completion(&arg))
+		Service::run(compiler, modules, move |project| project.completion(&arg))
 	}
 
 	fn completion_resolve(
@@ -233,7 +313,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::completion::ResolveArg,
 	) -> BoxFuture<'static, tg::Result<crate::completion::ResolveOutput>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.completion_resolve(arg)
 		})
 	}
@@ -244,9 +324,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.declaration(&arg))
+		Service::run(compiler, modules, move |project| project.declaration(&arg))
 	}
 
 	fn definition(
@@ -255,9 +333,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.definition(&arg))
+		Service::run(compiler, modules, move |project| project.definition(&arg))
 	}
 
 	fn document(
@@ -266,9 +342,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::document::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::document::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.document(&arg))
+		Service::run(compiler, modules, move |project| project.document(&arg))
 	}
 
 	fn document_diagnostics(
@@ -277,9 +351,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::diagnostics::DocumentArg,
 	) -> BoxFuture<'static, tg::Result<crate::diagnostics::DocumentOutput>> {
 		let modules = arg.modules.clone();
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.diagnostics(arg))
+		Service::run(compiler, modules, move |project| project.diagnostics(arg))
 	}
 
 	fn document_highlight(
@@ -288,7 +360,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::document_highlight::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::document_highlight::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.document_highlight(&arg)
 		})
 	}
@@ -299,7 +371,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::document_link::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::document_link::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.document_link(&arg)
 		})
 	}
@@ -310,7 +382,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::folding_range::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::folding_range::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.folding_range(&arg)
 		})
 	}
@@ -321,9 +393,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::hover::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::hover::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.hover(&arg))
+		Service::run(compiler, modules, move |project| project.hover(&arg))
 	}
 
 	fn implementation(
@@ -332,7 +402,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::implementation::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::implementation::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.implementation(&arg)
 		})
 	}
@@ -343,9 +413,24 @@ impl crate::backend::Backend for Backend {
 		arg: crate::inlay_hint::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::inlay_hint::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.inlay_hint(&arg))
+		Service::run(compiler, modules, move |project| project.inlay_hint(&arg))
+	}
+
+	#[cfg(feature = "python")]
+	fn interface(
+		&self,
+		compiler: &Compiler,
+		arg: crate::interfaces::Arg,
+	) -> BoxFuture<'static, tg::Result<tg::Interface>> {
+		// Get the interface with a separate program rather than the editor project.
+		compiler.javascript.job(compiler, move |compiler, _| {
+			let text = compiler
+				.main_runtime_handle
+				.block_on(compiler.load_module(&arg.module))?;
+			let modules = vec![arg.module.clone()];
+			let project = Project::with_untyped(compiler, modules, arg.untyped)?;
+			project.interface(&arg.module, &text)
+		})
 	}
 
 	fn prepare_rename(
@@ -354,7 +439,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::prepare_rename::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::prepare_rename::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.prepare_rename(&arg)
 		})
 	}
@@ -365,9 +450,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::references::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::references::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.references(&arg))
+		Service::run(compiler, modules, move |project| project.references(&arg))
 	}
 
 	fn rename(
@@ -376,9 +459,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::rename::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::rename::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.rename(arg))
+		Service::run(compiler, modules, move |project| project.rename(arg))
 	}
 
 	fn selection_range(
@@ -387,7 +468,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::selection_range::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::selection_range::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.selection_range(arg)
 		})
 	}
@@ -398,7 +479,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::semantic_tokens::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::semantic_tokens::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.semantic_tokens(&arg)
 		})
 	}
@@ -409,7 +490,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::signature_help::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::signature_help::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.signature_help(&arg)
 		})
 	}
@@ -420,9 +501,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::symbols::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler
-			.javascript
-			.run(compiler, modules, move |project| project.symbols(&arg))
+		Service::run(compiler, modules, move |project| project.symbols(&arg))
 	}
 
 	fn type_definition(
@@ -431,7 +510,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let modules = vec![arg.module.clone()];
-		compiler.javascript.run(compiler, modules, move |project| {
+		Service::run(compiler, modules, move |project| {
 			project.type_definition(&arg)
 		})
 	}
@@ -441,11 +520,9 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::workspace_symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::workspace_symbols::Output>> {
-		compiler
-			.javascript
-			.run(compiler, Vec::new(), move |project| {
-				project.workspace_symbols(&arg)
-			})
+		Service::run(compiler, Vec::new(), move |project| {
+			project.workspace_symbols(&arg)
+		})
 	}
 }
 

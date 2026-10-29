@@ -27,7 +27,7 @@ pub(super) fn exports(
 			module,
 			text,
 			span,
-			tg::error!(!error, "failed to parse the JavaScript module"),
+			tg::error!(argument, !error, "failed to parse the JavaScript module"),
 		));
 	}
 	let mut names = BTreeMap::new();
@@ -184,7 +184,7 @@ mod tests {
 
 	fn exports(text: &str) -> tg::Result<BTreeSet<String>> {
 		let exports = super::exports(
-			&crate::load::tests::source(tg::module::Kind::TypeScript),
+			&crate::interface::tests::source(tg::module::Kind::TypeScript),
 			text,
 		)?;
 		Ok(exports.into_keys().collect())
@@ -192,10 +192,9 @@ mod tests {
 
 	#[test]
 	fn parse_errors_have_original_source_locations() {
-		let error = exports("\nexport const = 42;")
-			.unwrap_err()
-			.to_data_or_id()
-			.unwrap_left();
+		let error = exports("\nexport const = 42;").unwrap_err();
+		assert_eq!(error.kind(), Some(tg::error::Kind::Argument));
+		let error = error.to_data_or_id().unwrap_left();
 		assert!(error.source.is_some());
 		let location = error.location.unwrap();
 		assert_eq!(location.range.start.line, 1);

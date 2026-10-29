@@ -19,6 +19,11 @@ export type Value =
 	| tg.Template
 	| tg.Placeholder;
 
+declare const nonValue: unique symbol;
+
+/** The type of an export of a module in another language that is not a value, which carries the reason that it is not a value. */
+export type NonValue<Reason extends string> = { readonly [nonValue]: Reason };
+
 export namespace Value {
 	/** Parse TGON to a value. */
 	export let parse = (value: string): tg.Value => {

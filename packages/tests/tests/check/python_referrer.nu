@@ -9,14 +9,14 @@ let path = artifact {
     '
     'left.tg.py': '
         # /// script
-        # [tool.tangram.imports.common]
+        # [tool.tangram.dependencies.common]
         # specifier = "./integer.tg.py"
         # ///
         from common import value
     '
     'right.tg.py': '
         # /// script
-        # [tool.tangram.imports.common]
+        # [tool.tangram.dependencies.common]
         # specifier = "./string.tg.py"
         # ///
         from common import value

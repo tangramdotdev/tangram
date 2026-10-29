@@ -6,7 +6,7 @@ let dependency = artifact {'tangram.py': "def greet(name: str) -> str:\n    \"\"
 tg tag -p greetings/1.0.0 $dependency
 rm --recursive $dependency
 let source = '# /// script
-# [tool.tangram.imports.friend]
+# [tool.tangram.dependencies.friend]
 # specifier = "greetings/^1"
 # ///
 from friend import greet

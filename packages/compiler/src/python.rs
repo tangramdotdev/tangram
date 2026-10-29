@@ -45,49 +45,107 @@ impl Service {
 
 	/// Run a query on a module's file with the database.
 	fn query<T, F>(
-		&self,
 		compiler: &Compiler,
 		module: tg::module::Data,
 		sync: bool,
-		f: F,
+		mut f: F,
 	) -> BoxFuture<'static, tg::Result<T>>
 	where
 		T: Send + 'static,
-		F: FnOnce(&db::Database, ruff_db::files::File, tg::position::Encoding) -> tg::Result<T>
+		F: FnMut(&db::Database, ruff_db::files::File, tg::position::Encoding) -> tg::Result<T>
 			+ Send
 			+ 'static,
 	{
 		let encoding = *compiler.position_encoding.read().unwrap();
-		self.run(compiler, move |database| {
+		Self::run(compiler, move |database| {
 			database.query(&module, sync, |database, file| f(database, file, encoding))
 		})
 	}
 
-	/// Run a function with the database, after updating it with the open documents.
-	fn run<T, F>(&self, compiler: &Compiler, f: F) -> BoxFuture<'static, tg::Result<T>>
+	/// Run a function with the database after updating it with the open documents, running it again if it loaded a module in another language whose interface had not been prepared.
+	fn run<T, F>(compiler: &Compiler, f: F) -> BoxFuture<'static, tg::Result<T>>
 	where
 		T: Send + 'static,
-		F: FnOnce(&mut db::Database) -> tg::Result<T> + Send + 'static,
+		F: FnMut(&mut db::Database) -> tg::Result<T> + Send + 'static,
 	{
-		// Create the job, which sends its output.
+		let compiler = compiler.clone();
+		async move {
+			// Prepare the interfaces of the modules in other languages that the database has loaded.
+			Self::prepare(&compiler).await;
+
+			// Update the database and run the function, keeping the function to run again if it loaded a module in another language whose interface has not been prepared.
+			let output = Self::job(&compiler, move |compiler, database| {
+				let mut f = f;
+				let database = Self::update(compiler, database)?;
+				let output = f(database);
+				if Self::unprepared(compiler) {
+					return Ok(Err(f));
+				}
+				output.map(Ok)
+			})
+			.await?;
+			let mut f = match output {
+				Ok(output) => return Ok(output),
+				Err(f) => f,
+			};
+
+			// Prepare the interfaces of the newly loaded modules, and then update the database again and run the function.
+			Self::prepare(&compiler).await;
+			Self::job(&compiler, move |compiler, database| {
+				let database = Self::update(compiler, database)?;
+				f(database)
+			})
+			.await
+		}
+		.boxed()
+	}
+
+	/// Update the database with the open documents, or create it.
+	fn update<'a>(
+		compiler: &Compiler,
+		database: &'a mut Option<db::Database>,
+	) -> tg::Result<&'a mut db::Database> {
+		if database.is_none() {
+			database.replace(db::Database::new(compiler.clone(), Documents::new())?);
+		}
+		let database = database.as_mut().unwrap();
+		database.update(compiler.py_documents())?;
+		Ok(database)
+	}
+
+	/// Prepare the interfaces of the modules in other languages that the database has loaded.
+	async fn prepare(compiler: &Compiler) {
+		#[cfg(feature = "javascript")]
+		compiler
+			.prepare_interfaces(tg::module::load::Language::Python)
+			.await;
+		#[cfg(not(feature = "javascript"))]
+		let _ = compiler;
+	}
+
+	/// Determine whether the database has loaded a module in another language whose interface has not been prepared.
+	fn unprepared(compiler: &Compiler) -> bool {
+		#[cfg(feature = "javascript")]
+		let unprepared = compiler.take_unprepared(tg::module::load::Language::Python);
+		#[cfg(not(feature = "javascript"))]
+		let unprepared = {
+			let _ = compiler;
+			false
+		};
+		unprepared
+	}
+
+	/// Run a function on the worker and return its output.
+	fn job<T, F>(compiler: &Compiler, f: F) -> BoxFuture<'static, tg::Result<T>>
+	where
+		T: Send + 'static,
+		F: FnOnce(&Compiler, &mut Option<db::Database>) -> tg::Result<T> + Send + 'static,
+	{
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let job: Job = Box::new(move |compiler, database| {
-			let output = (|| {
-				// Update the database, or create it.
-				if database.is_none() {
-					database.replace(db::Database::new(compiler.clone(), Documents::new())?);
-				}
-				let database = database.as_mut().unwrap();
-				database.update(compiler.py_documents())?;
-
-				f(database)
-			})();
-			sender.send(output).ok();
+			sender.send(f(compiler, database)).ok();
 		});
-
-		// Send the job to the worker.
-		let result = self.send(compiler, job);
-
+		let result = compiler.python.send(compiler, job);
 		async move {
 			result?;
 			receiver
@@ -163,11 +221,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::IncomingArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::IncomingOutput>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.call_hierarchy_incoming(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.call_hierarchy_incoming(file, &arg, encoding)
+		})
 	}
 
 	fn call_hierarchy_outgoing(
@@ -176,11 +232,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::OutgoingArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::OutgoingOutput>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.call_hierarchy_outgoing(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.call_hierarchy_outgoing(file, &arg, encoding)
+		})
 	}
 
 	fn call_hierarchy_prepare(
@@ -189,11 +243,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::call_hierarchy::PrepareArg,
 	) -> BoxFuture<'static, tg::Result<crate::call_hierarchy::PrepareOutput>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.call_hierarchy_prepare(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.call_hierarchy_prepare(file, &arg, encoding)
+		})
 	}
 
 	fn check(
@@ -201,9 +253,9 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::check::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::check::Output>> {
-		compiler.python.run(compiler, move |database| {
+		Service::run(compiler, move |database| {
 			let diagnostics = database
-				.check(arg.modules)?
+				.check(arg.modules.clone())?
 				.iter()
 				.map(tg::Diagnostic::to_data)
 				.collect();
@@ -217,11 +269,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::code_action::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::code_action::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.code_actions(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.code_actions(file, &arg, encoding)
+		})
 	}
 
 	fn completion(
@@ -230,11 +280,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::completion::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::completion::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.completion(file, arg.position, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.completion(file, arg.position, encoding)
+		})
 	}
 
 	fn completion_resolve(
@@ -258,11 +306,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.declaration(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.declaration(file, &arg, encoding)
+		})
 	}
 
 	fn definition(
@@ -271,11 +317,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.definition(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.definition(file, &arg, encoding)
+		})
 	}
 
 	fn document(
@@ -283,9 +327,7 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::document::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::document::Output>> {
-		compiler
-			.python
-			.query(compiler, arg.module, false, db::Database::document)
+		Service::query(compiler, arg.module, false, db::Database::document)
 	}
 
 	fn document_diagnostics(
@@ -294,8 +336,8 @@ impl crate::backend::Backend for Backend {
 		arg: crate::diagnostics::DocumentArg,
 	) -> BoxFuture<'static, tg::Result<crate::diagnostics::DocumentOutput>> {
 		let encoding = *compiler.position_encoding.read().unwrap();
-		compiler.python.run(compiler, move |database| {
-			database.document_diagnostics(arg.modules, encoding)
+		Service::run(compiler, move |database| {
+			database.document_diagnostics(arg.modules.clone(), encoding)
 		})
 	}
 
@@ -305,11 +347,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::document_highlight::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::document_highlight::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.document_highlight(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.document_highlight(file, &arg, encoding)
+		})
 	}
 
 	fn document_link(
@@ -328,11 +368,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::folding_range::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::folding_range::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.folding_range(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.folding_range(file, &arg, encoding)
+		})
 	}
 
 	fn hover(
@@ -341,11 +379,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::hover::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::hover::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.hover(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.hover(file, &arg, encoding)
+		})
 	}
 
 	fn implementation(
@@ -354,11 +390,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::implementation::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::implementation::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.implementation(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.implementation(file, &arg, encoding)
+		})
 	}
 
 	fn inlay_hint(
@@ -367,11 +401,42 @@ impl crate::backend::Backend for Backend {
 		arg: crate::inlay_hint::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::inlay_hint::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.inlay_hint(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.inlay_hint(file, &arg, encoding)
+		})
+	}
+
+	#[cfg(feature = "javascript")]
+	fn interface(
+		&self,
+		compiler: &Compiler,
+		arg: crate::interfaces::Arg,
+	) -> BoxFuture<'static, tg::Result<tg::Interface>> {
+		// Get the interface on the worker, loading the other members of the module's cycle without their interfaces.
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let job: Job = Box::new(move |compiler, database| {
+			let output = (|| {
+				if database.is_none() {
+					database.replace(db::Database::new(compiler.clone(), Documents::new())?);
+				}
+				let database = database.as_mut().unwrap();
+				database.set_untyped(Some(arg.untyped));
+				let output = database
+					.update(compiler.py_documents())
+					.and_then(|()| database.interface(arg.module));
+				database.set_untyped(None);
+				output
+			})();
+			sender.send(output).ok();
+		});
+		let result = compiler.python.send(compiler, job);
+		async move {
+			result?;
+			receiver
+				.await
+				.map_err(|error| tg::error!(!error, "failed to receive the python output"))?
+		}
+		.boxed()
 	}
 
 	fn prepare_rename(
@@ -380,11 +445,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::prepare_rename::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::prepare_rename::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.prepare_rename(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.prepare_rename(file, &arg, encoding)
+		})
 	}
 
 	fn references(
@@ -393,11 +456,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::references::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::references::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.references(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.references(file, &arg, encoding)
+		})
 	}
 
 	fn rename(
@@ -406,11 +467,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::rename::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::rename::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, true, move |database, file, encoding| {
-				database.rename(file, &arg, encoding)
-			})
+		Service::query(compiler, module, true, move |database, file, encoding| {
+			database.rename(file, &arg, encoding)
+		})
 	}
 
 	fn selection_range(
@@ -419,11 +478,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::selection_range::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::selection_range::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.selection_range(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.selection_range(file, &arg, encoding)
+		})
 	}
 
 	fn semantic_tokens(
@@ -431,9 +488,7 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::semantic_tokens::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::semantic_tokens::Output>> {
-		compiler
-			.python
-			.query(compiler, arg.module, false, db::Database::semantic_tokens)
+		Service::query(compiler, arg.module, false, db::Database::semantic_tokens)
 	}
 
 	fn signature_help(
@@ -442,11 +497,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::signature_help::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::signature_help::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.signature_help(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.signature_help(file, &arg, encoding)
+		})
 	}
 
 	fn symbols(
@@ -454,9 +507,7 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::symbols::Output>> {
-		compiler
-			.python
-			.query(compiler, arg.module, false, db::Database::symbols)
+		Service::query(compiler, arg.module, false, db::Database::symbols)
 	}
 
 	fn type_definition(
@@ -465,11 +516,9 @@ impl crate::backend::Backend for Backend {
 		arg: crate::definition::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::definition::Output>> {
 		let module = arg.module.clone();
-		compiler
-			.python
-			.query(compiler, module, false, move |database, file, encoding| {
-				database.type_definition(file, &arg, encoding)
-			})
+		Service::query(compiler, module, false, move |database, file, encoding| {
+			database.type_definition(file, &arg, encoding)
+		})
 	}
 
 	fn workspace_symbol(
@@ -478,7 +527,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::workspace_symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::workspace_symbols::Output>> {
 		let encoding = *compiler.position_encoding.read().unwrap();
-		compiler.python.run(compiler, move |database| {
+		Service::run(compiler, move |database| {
 			database.sync_project(None)?;
 			database.workspace_symbols(&arg.query, encoding)
 		})

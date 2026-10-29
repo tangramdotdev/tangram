@@ -1,4 +1,4 @@
-use lib/test.nu *
+use ../util/test.nu *
 
 # A package with a circular dependency between two packages can be built, cleaned, and built again successfully.
 

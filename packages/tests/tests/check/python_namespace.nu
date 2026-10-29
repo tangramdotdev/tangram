@@ -29,9 +29,9 @@ tg tag put -p namespace/1.0.0 $package
 let entry = artifact {
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.pkg]
+        # [tool.tangram.dependencies.pkg]
         # specifier = "namespace/^1"
-        # [tool.tangram.imports.leaf]
+        # [tool.tangram.dependencies.leaf]
         # specifier = "namespace/^1"
         # attributes = { get = "namespace/leaf.tg.py" }
         # ///

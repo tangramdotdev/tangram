@@ -30,7 +30,7 @@ let javascript = artifact {
 let python = artifact {
     'tangram.py': '
         # /// script
-        # [tool.tangram.imports.task]
+        # [tool.tangram.dependencies.task]
         # specifier = "alias/^1"
         # attributes = { get = "task.tg.py" }
         # ///

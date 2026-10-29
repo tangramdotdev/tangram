@@ -9,7 +9,7 @@ version = "0.0.0"
 description = "The Tangram Python client."
 requires-python = ">=3.12"
 license = "MIT"
-dependencies = ["h2>=4.3,<5", "tomli-w>=1,<2", "PyYAML>=6,<7"]
+dependencies = ["h2>=4.3,<5", "tomli-w>=1,<2"]
 
 [tool.maturin]
 manifest-path = "native/Cargo.toml"

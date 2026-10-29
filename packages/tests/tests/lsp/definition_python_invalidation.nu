@@ -37,7 +37,7 @@ assert equal $response.result.0.range.start {line: 2, character: 4}
 let other = artifact {'helper.tg.py': "# Another dependency.\ndef greet(): return 44\n"}
 let other_uri = lsp uri ($other | path join helper.tg.py)
 let source = $'# /// script
-# [tool.tangram.imports.dep]
+# [tool.tangram.dependencies.dep]
 # specifier = "($other)/helper.tg.py"
 # ///
 from dep import greet

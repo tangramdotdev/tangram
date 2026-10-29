@@ -31,7 +31,7 @@ assert equal $declaration.location.range [3 10 3 14]
 let path = artifact {
 	'tangram.py': '
 		# /// script
-		# [tool.tangram.imports.icing]
+		# [tool.tangram.dependencies.icing]
 		# specifier = "./icing.tg.ts"
 		# ///
 		from icing import decorate as decorate
@@ -49,6 +49,5 @@ assert equal $declaration.name decorate
 assert equal $declaration.comment.text 'Decorate the order.'
 assert equal ($json.modules | get $declaration.location.module | get referent.options.path) icing.tg.ts
 assert equal $declaration.location.range [1 13 1 21]
-let parameter = $declaration.signature.parameters.0
-assert equal $parameter.name args
-assert equal $parameter.type.value {name: tg.Value.Type, runtime: true}
+assert equal $declaration.kind variable
+assert equal $declaration.type.value 'Command[tuple[File, str], File]'

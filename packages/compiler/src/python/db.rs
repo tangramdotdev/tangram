@@ -32,6 +32,8 @@ use {
 mod completion;
 mod diagnostics;
 mod document;
+#[cfg(feature = "javascript")]
+mod interface;
 mod query;
 mod symbols;
 mod tokens;
@@ -55,17 +57,22 @@ pub(super) struct Database {
 	settings: Arc<ProgramSettings>,
 	storage: salsa::Storage<Self>,
 	system: System,
+
+	/// The modules in other languages to load without their cached interfaces while getting an interface, or `None` when the database loads a module with its interface once the interface has been prepared.
+	untyped: Option<BTreeSet<Key>>,
+
 	uv_environments: ty_project::UvEnvironments,
 }
 
 #[derive(Default)]
 struct Modules {
 	children: BTreeMap<(String, String), resolve::Target>,
-	entries: Vec<Arc<Entry>>,
+	entries: BTreeMap<usize, Arc<Entry>>,
 	files: HashMap<File, usize>,
 	keys: BTreeMap<String, usize>,
 	links: HashMap<File, BTreeSet<String>>,
 	namespaces: BTreeMap<String, (ModuleName, Box<resolve::Namespace>)>,
+	next: usize,
 }
 
 #[derive(Clone)]
@@ -101,11 +108,11 @@ impl Database {
 			.extra_paths
 			.push(SystemPathBuf::from("/library"));
 		let mut settings = ProgramSettings::empty(ty_vendored::file_system());
-		settings.python_version.version = PythonVersion::PY314;
+		settings.python_version.version = PythonVersion::PY315;
 		settings.search_paths = search_paths
 			.to_search_paths(&system, ty_vendored::file_system(), &FallibleStrategy)
 			.map_err(|error| tg::error!(!error, "failed to configure the python library"))?;
-		let resolver = Arc::new(resolve::Resolver::new(compiler.instance.clone()));
+		let resolver = Arc::new(resolve::Resolver::with_compiler(compiler.clone()));
 		let mut db = Self {
 			analysis: Arc::new(AnalysisSettings::default()),
 			compiler,
@@ -124,6 +131,7 @@ impl Database {
 			settings: Arc::new(settings),
 			storage: salsa::Storage::default(),
 			system,
+			untyped: None,
 			uv_environments: ty_project::UvEnvironments::default(),
 		};
 		// The project contains only explicitly supplied module files, including when that set is empty.
@@ -154,13 +162,27 @@ impl Database {
 		let mut changed = self.documents.keys().ne(documents.keys());
 		let previous_documents = std::mem::replace(&mut self.documents, Arc::new(documents));
 		self.error.lock().unwrap().take();
-		let entries = self.modules.lock().unwrap().entries.clone();
+
+		// Remove the modules that the open documents no longer reach.
+		if changed {
+			self.prune();
+		}
+
+		let entries = self
+			.modules
+			.lock()
+			.unwrap()
+			.entries
+			.values()
+			.cloned()
+			.collect::<Vec<_>>();
 		for entry in entries {
 			let key = Key::new(&entry.module);
-			if !matches!(
-				entry.module.referent.node,
-				tg::module::data::Source::Path(_)
-			) && !self.documents.contains_key(&key)
+			if entry.module.kind == tg::module::Kind::Python
+				&& !matches!(
+					entry.module.referent.node,
+					tg::module::data::Source::Path(_)
+				) && !self.documents.contains_key(&key)
 				&& !previous_documents.contains_key(&key)
 			{
 				continue;
@@ -201,7 +223,7 @@ impl Database {
 				updated.version = version;
 				let mut modules = self.modules.lock().unwrap();
 				let index = modules.files[&entry.file];
-				modules.entries[index] = Arc::new(updated);
+				modules.entries.insert(index, Arc::new(updated));
 				continue;
 			}
 			let mut updated = (*entry).clone();
@@ -220,7 +242,11 @@ impl Database {
 					.map_err(|error| tg::error!(!error, "failed to update the python source"))?;
 			}
 			let index = self.modules.lock().unwrap().files[&entry.file];
-			self.modules.lock().unwrap().entries[index] = Arc::new(updated);
+			self.modules
+				.lock()
+				.unwrap()
+				.entries
+				.insert(index, Arc::new(updated));
 			self.resolutions.lock().unwrap().remove(&entry.file);
 			self.modules.lock().unwrap().links.remove(&entry.file);
 			entry.file.sync(self);
@@ -256,35 +282,129 @@ impl Database {
 		Ok(())
 	}
 
+	/// Remove the modules that the open documents no longer reach.
+	fn prune(&mut self) {
+		// Find the modules that the open documents reach.
+		let entries = self
+			.modules
+			.lock()
+			.unwrap()
+			.entries
+			.values()
+			.cloned()
+			.collect::<Vec<_>>();
+		let mut pending = entries
+			.iter()
+			.filter(|entry| self.documents.contains_key(&Key::new(&entry.module)))
+			.cloned()
+			.collect::<Vec<_>>();
+		let mut reachable = BTreeSet::new();
+		while let Some(entry) = pending.pop() {
+			if !reachable.insert(entry.module.without_token().to_string()) {
+				continue;
+			}
+			pending.extend(self.dependencies(entry.file));
+		}
+
+		// Remove the other modules and their sources.
+		for entry in entries {
+			let key = entry.module.without_token().to_string();
+			if reachable.contains(&key) {
+				continue;
+			}
+			let path = entry.file.path(self).as_system_path().unwrap().to_owned();
+			self.system.memory.remove_file(&path).ok();
+			self.system
+				.memory
+				.remove_directory(path.parent().unwrap())
+				.ok();
+			entry.file.sync(self);
+			let mut modules = self.modules.lock().unwrap();
+			if let Some(index) = modules.files.remove(&entry.file) {
+				modules.entries.remove(&index);
+			}
+			modules.keys.remove(&key);
+			modules.links.remove(&entry.file);
+			drop(modules);
+			self.resolutions.lock().unwrap().remove(&entry.file);
+		}
+
+		// Retain the documents and resolutions of the modules that the database holds.
+		let keys = self
+			.modules
+			.lock()
+			.unwrap()
+			.entries
+			.values()
+			.map(|entry| Key::new(&entry.module))
+			.collect();
+		self.compiler
+			.retain_modules(tg::module::load::Language::Python, keys);
+
+		// Remove the removed sources from the project.
+		let paths = self
+			.project_paths
+			.iter()
+			.filter(|path| self.system.memory.exists(path))
+			.cloned()
+			.collect::<Vec<_>>();
+		if paths != self.project_paths {
+			self.project_paths.clone_from(&paths);
+			self.project.unwrap().set_included_paths(self, paths);
+		}
+	}
+
 	fn version(&self, module: &tg::module::Data) -> Option<u64> {
-		if let Some(document) = self.documents.get(&Key::new(module)) {
+		if module.kind == tg::module::Kind::Python
+			&& let Some(document) = self.documents.get(&Key::new(module))
+		{
 			return Some(document.revision);
 		}
 		self.compiler
 			.main_runtime_handle
-			.block_on(self.compiler.get_module_version(module))
+			.block_on(self.compiler.get_module_version_with_language_inner(
+				module,
+				tg::module::load::Language::Python,
+				self.typed(module),
+			))
 			.ok()
 	}
 
 	fn load(&self, module: &tg::module::Data) -> tg::Result<String> {
-		if let Some(document) = self.documents.get(&Key::new(module)) {
-			return crate::load::module(
-				module,
-				document.text.as_ref().unwrap(),
-				Some(tg::module::load::Language::Python),
-			);
+		if module.kind == tg::module::Kind::Python
+			&& let Some(document) = self.documents.get(&Key::new(module))
+		{
+			return Ok(document.text.clone().unwrap());
 		}
-		let arg = tg::module::load::Arg {
-			language: Some(tg::module::load::Language::Python),
-			module: module.clone(),
-		};
 		let text = self
 			.compiler
 			.main_runtime_handle
-			.block_on(self.compiler.instance.load_module(arg))
-			.map_err(|error| tg::error!(!error, %module, "failed to load the python module"))?
-			.text;
+			.block_on(self.compiler.load_module_with_language_inner(
+				module,
+				Some(tg::module::load::Language::Python),
+				self.typed(module),
+			))
+			.map_err(|error| tg::error!(!error, %module, "failed to load the python module"))?;
 		Ok(text)
+	}
+
+	/// Determine whether to load a module with its cached interface.
+	fn typed(&self, module: &tg::module::Data) -> bool {
+		if let Some(untyped) = &self.untyped {
+			return !untyped.contains(&Key::new(module));
+		}
+		#[cfg(feature = "javascript")]
+		let typed = self
+			.compiler
+			.load_typed(tg::module::load::Language::Python, module);
+		#[cfg(not(feature = "javascript"))]
+		let typed = true;
+		typed
+	}
+
+	/// Set the modules in other languages to load without their cached interfaces while getting an interface, or `None` to load a module with its interface once the interface has been prepared.
+	pub(super) fn set_untyped(&mut self, untyped: Option<BTreeSet<Key>>) {
+		self.untyped = untyped;
 	}
 
 	fn metadata(
@@ -433,7 +553,7 @@ impl Database {
 		{
 			let modules = self.modules.lock().unwrap();
 			if let Some(index) = modules.keys.get(&key) {
-				let entry = modules.entries[*index].clone();
+				let entry = modules.entries[index].clone();
 				if let Some(error) = &entry.error {
 					return Err(error.clone());
 				}
@@ -449,13 +569,14 @@ impl Database {
 		let (imports, diagnostics) = Self::metadata(&module, &text)?;
 		let mut modules = self.modules.lock().unwrap();
 		if let Some(index) = modules.keys.get(&key) {
-			let entry = modules.entries[*index].clone();
+			let entry = modules.entries[index].clone();
 			if let Some(error) = &entry.error {
 				return Err(error.clone());
 			}
 			return Ok(entry);
 		}
-		let index = modules.entries.len();
+		let index = modules.next;
+		modules.next += 1;
 		let name = ModuleName::new(&format!("m{index}")).unwrap();
 		let filename = if package { "__init__.py" } else { "module.py" };
 		let directory = if matches!(module.referent.node, tg::module::data::Source::Path(_)) {
@@ -487,7 +608,7 @@ impl Database {
 		});
 		modules.files.insert(file, index);
 		modules.keys.insert(key, index);
-		modules.entries.push(entry.clone());
+		modules.entries.insert(index, entry.clone());
 		drop(modules);
 		if let Some(error) = &entry.error {
 			return Err(error.clone());
@@ -705,7 +826,7 @@ impl Database {
 		modules
 			.files
 			.get(&file)
-			.map(|index| modules.entries[*index].clone())
+			.map(|index| modules.entries[index].clone())
 	}
 
 	#[must_use]
@@ -753,7 +874,7 @@ impl Database {
 		let modules = self.modules.lock().unwrap();
 		match target {
 			resolve::Target::Module(module) => {
-				self.module(&modules.entries[modules.keys[&module.key]], environment)
+				self.module(&modules.entries[&modules.keys[&module.key]], environment)
 			},
 			resolve::Target::Namespace(namespace) => {
 				let (name, _) = &modules.namespaces[&namespace.key];
@@ -820,7 +941,7 @@ impl Database {
 				modules
 					.keys
 					.get(&key)
-					.map(|index| modules.entries[*index].clone())
+					.map(|index| modules.entries[index].clone())
 			})
 			.collect()
 	}

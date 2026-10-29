@@ -98,7 +98,7 @@ impl Compiler {
 		position: tg::Position,
 		new_name: String,
 	) -> tg::Result<Option<Vec<Edit>>> {
-		if self.is_generated_module(module) {
+		if self.is_bindings(module) {
 			return Ok(None);
 		}
 
@@ -112,13 +112,13 @@ impl Compiler {
 		// Get the output.
 		let output = self.backend(module.kind).rename(self, arg).await?;
 
-		// A rename must never apply generated positions to a source in another language.
+		// A rename must never apply positions in bindings to a source in another language.
 		if output.edits.as_ref().is_some_and(|edits| {
 			edits.iter().any(|edit| {
 				let location = &edit.location;
 				(location.module.kind == tg::module::Kind::Python)
 					!= (module.kind == tg::module::Kind::Python)
-					|| self.is_generated_module(&location.module)
+					|| self.is_bindings(&location.module)
 			})
 		}) {
 			return Ok(None);

@@ -28,7 +28,7 @@ for layout in [direct reexport cycle] {
             $'import { greet } from "($id)";(char nl)const value = greet();'
         } else {
             $'# /// script
-# [tool.tangram.imports.dep]
+# [tool.tangram.dependencies.dep]
 # specifier = "($id)"
 # ///
 from dep import greet

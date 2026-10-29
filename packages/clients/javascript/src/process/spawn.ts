@@ -4,7 +4,10 @@ import { Connection } from "./attach.ts";
 import * as stdio from "./stdio.ts";
 
 export let builder = (...args: any): any => {
-	if (typeof args[0] === "function") {
+	if (
+		typeof args[0] === "function" &&
+		!(args[0] instanceof tg.Command.Builder)
+	) {
 		let command = tg.Command.javascriptArg(args[0], args.slice(1)).then(
 			(command) => ({
 				command,

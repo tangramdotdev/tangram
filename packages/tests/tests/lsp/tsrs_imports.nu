@@ -19,6 +19,6 @@ let responses = lsp exchange [
         context: {diagnostics: [], only: ['quickfix']}
     })
 ]
-# Generated module specifiers need a Tangram-aware rewrite before auto-imports can be offered.
+# Module specifiers in bindings need a Tangram-aware rewrite before auto-imports can be offered.
 assert ('secret' not-in (lsp result $responses 10 | default [] | get -o label | default []))
 assert equal (lsp result $responses 11) null

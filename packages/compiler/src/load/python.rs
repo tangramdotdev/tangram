@@ -1,10 +1,32 @@
 use {
-	super::Export,
 	ruff_python_ast::{Expr, Stmt},
-	std::collections::{BTreeMap, BTreeSet},
+	std::{
+		cell::RefCell,
+		collections::{BTreeMap, BTreeSet},
+	},
 	tangram_client::prelude::*,
-	ty_text_size::Ranged,
 };
+
+/// The names that printed Python types use.
+pub(super) struct Names {
+	/// The name of the Tangram client module.
+	pub(super) client: String,
+
+	/// The names of the interface's definitions.
+	pub(super) definitions: BTreeMap<String, String>,
+
+	/// The names of the modules that import the modules that the interface imports.
+	pub(super) imports: BTreeMap<String, String>,
+
+	/// The prefix of the names of generated helpers.
+	pub(super) prefix: String,
+
+	/// The statements that define the typed dicts of records, which are printed before the types that use them.
+	pub(super) records: RefCell<Vec<String>>,
+
+	/// The name of the typing module.
+	pub(super) typing: String,
+}
 
 /// Escape keywords without displacing an export that already has a valid Python name.
 pub(super) fn binding(name: &str, exports: &BTreeSet<String>) -> tg::Result<String> {
@@ -26,169 +48,7 @@ pub(super) fn binding(name: &str, exports: &BTreeSet<String>) -> tg::Result<Stri
 	Ok(binding)
 }
 
-/// Discover a module's exports, with the ranges of their names and their docstrings.
-pub(super) fn exports(
-	module: &tg::module::Data,
-	text: &str,
-) -> tg::Result<BTreeMap<String, Export>> {
-	let parsed = ruff_python_parser::parse_module(text).map_err(|error| {
-		let range = usize::from(error.location.start())..usize::from(error.location.end());
-		super::located_error(
-			module,
-			text,
-			range,
-			tg::error!(!error, "failed to parse the python module"),
-		)
-	})?;
-	crate::analyze::python::validate_imports(module, text, &parsed.syntax().body)?;
-	let mut names = BTreeSet::new();
-	let mut all = None;
-	let mut sources = BTreeMap::new();
-	let body = &parsed.syntax().body;
-	for (index, statement) in body.iter().enumerate() {
-		// Record the range of each name the statement binds and its docstring.
-		let documentation = match statement {
-			Stmt::ClassDef(class) => class.body.first().and_then(docstring),
-			Stmt::FunctionDef(function) => function.body.first().and_then(docstring),
-			_ => body.get(index + 1).and_then(docstring),
-		};
-		let mut ranges = Vec::new();
-		match statement {
-			Stmt::AnnAssign(assign) => ranges.push(assign.target.range()),
-			Stmt::Assign(assign) => ranges.extend(assign.targets.iter().map(Ranged::range)),
-			Stmt::ClassDef(class) => ranges.push(class.name.range()),
-			Stmt::FunctionDef(function) => ranges.push(function.name.range()),
-			Stmt::ImportFrom(import) => ranges.extend(
-				import
-					.names
-					.iter()
-					.map(|alias| alias.asname.as_ref().unwrap_or(&alias.name).range()),
-			),
-			_ => {},
-		}
-		for range in ranges {
-			let Some(name) = text.get(usize::from(range.start())..usize::from(range.end())) else {
-				continue;
-			};
-			let export = Export {
-				documentation: documentation.clone(),
-				range: Some(usize::from(range.start())..usize::from(range.end())),
-			};
-			sources.insert(name.to_owned(), export);
-		}
-
-		match statement {
-			Stmt::AnnAssign(assign) => {
-				if let Some(value) = &assign.value {
-					bindings(&assign.target, &mut names);
-					if matches!(assign.target.as_ref(), Expr::Name(name) if name.id.as_str() == "__all__")
-					{
-						all = Some(literal_names(value).map_err(|error| {
-							super::located_error(
-								module,
-								text,
-								usize::from(assign.range.start())..usize::from(assign.range.end()),
-								error,
-							)
-						})?);
-					}
-				}
-			},
-			Stmt::Assign(assign) => {
-				for target in &assign.targets {
-					bindings(target, &mut names);
-					if matches!(target, Expr::Name(name) if name.id.as_str() == "__all__") {
-						all = Some(literal_names(&assign.value).map_err(|error| {
-							super::located_error(
-								module,
-								text,
-								usize::from(assign.range.start())..usize::from(assign.range.end()),
-								error,
-							)
-						})?);
-					}
-				}
-			},
-			Stmt::AugAssign(assign) if matches!(assign.target.as_ref(), Expr::Name(name) if name.id.as_str() == "__all__") =>
-			{
-				return Err(tg::error!(
-					"cross-language imports require a literal __all__ assignment"
-				));
-			},
-			Stmt::ClassDef(class) => {
-				names.insert(class.name.to_string());
-			},
-			Stmt::Delete(delete) => {
-				let mut deleted = BTreeSet::new();
-				for target in &delete.targets {
-					bindings(target, &mut deleted);
-				}
-				names.retain(|name| !deleted.contains(name));
-			},
-			Stmt::FunctionDef(function) => {
-				names.insert(function.name.to_string());
-			},
-			Stmt::ImportFrom(import) => {
-				for alias in &import.names {
-					names.insert(alias.asname.as_ref().unwrap_or(&alias.name).to_string());
-				}
-			},
-			_ => {},
-		}
-	}
-	if let Some(all) = all {
-		names = all;
-	} else {
-		names.retain(|name| !name.starts_with('_'));
-	}
-
-	// Attach the source of each export.
-	let exports = names
-		.into_iter()
-		.map(|name| {
-			let export = sources.remove(&name).unwrap_or(Export {
-				documentation: None,
-				range: None,
-			});
-			(name, export)
-		})
-		.collect();
-
-	Ok(exports)
-}
-
-/// Get the cleaned text of a statement that is a docstring.
-fn docstring(statement: &Stmt) -> Option<String> {
-	let Stmt::Expr(expression) = statement else {
-		return None;
-	};
-	let literal = expression.value.as_string_literal_expr()?;
-	let text = literal.value.to_str();
-	let mut lines = text.lines();
-	let first = lines.next().unwrap_or_default().trim();
-	let rest = lines.collect::<Vec<_>>();
-	let indentation = rest
-		.iter()
-		.filter(|line| !line.trim().is_empty())
-		.map(|line| line.len() - line.trim_start().len())
-		.min()
-		.unwrap_or(0);
-	let text = std::iter::once(first)
-		.chain(
-			rest.iter()
-				.map(|line| line.get(indentation..).unwrap_or_default()),
-		)
-		.collect::<Vec<_>>()
-		.join("\n")
-		.trim()
-		.to_owned();
-	if text.is_empty() {
-		return None;
-	}
-	Some(text)
-}
-
-fn is_identifier(name: &str) -> bool {
+pub(super) fn is_identifier(name: &str) -> bool {
 	let assignment = format!("{name} = None");
 	let Ok(parsed) = ruff_python_parser::parse_module(&assignment) else {
 		return false;
@@ -196,86 +56,237 @@ fn is_identifier(name: &str) -> bool {
 	matches!(parsed.syntax().body.as_slice(), [Stmt::Assign(assign)] if matches!(assign.targets.as_slice(), [Expr::Name(target)] if target.id.as_str() == name))
 }
 
-fn bindings(expression: &Expr, names: &mut BTreeSet<String>) {
-	match expression {
-		Expr::List(list) => {
-			for element in &list.elts {
-				bindings(element, names);
-			}
-		},
-		Expr::Name(name) => {
-			names.insert(name.id.to_string());
-		},
-		Expr::Starred(starred) => bindings(&starred.value, names),
-		Expr::Tuple(tuple) => {
-			for element in &tuple.elts {
-				bindings(element, names);
-			}
-		},
-		_ => {},
-	}
-}
-
-fn literal_names(expression: &Expr) -> tg::Result<BTreeSet<String>> {
-	let elements = match expression {
-		Expr::List(list) => &list.elts,
-		Expr::Tuple(tuple) => &tuple.elts,
-		_ => {
-			return Err(tg::error!(
-				"cross-language imports require a literal __all__ list or tuple"
-			));
-		},
+/// Print the type of an export as a Python type expression, giving an export that is not a value a type that carries the reason.
+pub(super) fn export(export: &tg::interface::Export, names: &Names) -> String {
+	let Some(type_) = &export.type_ else {
+		let client = &names.client;
+		let typing = &names.typing;
+		// Replace the characters that a string annotation cannot contain without an escape sequence.
+		let error = export
+			.error
+			.as_deref()
+			.unwrap_or("the export is not a value")
+			.chars()
+			.map(|character| match character {
+				'"' | '\'' => '`',
+				'\\' => '/',
+				character if character.is_control() => ' ',
+				character => character,
+			})
+			.collect::<String>();
+		return format!("{client}.NonValue[{typing}.Literal['{error}']]");
 	};
-	elements
-		.iter()
-		.map(|element| match element {
-			Expr::StringLiteral(literal) => Ok(literal.value.to_string()),
-			_ => Err(tg::error!(
-				"cross-language imports require literal strings in __all__"
-			)),
-		})
-		.collect()
+	self::type_(type_, names)
 }
 
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	fn exports(text: &str) -> tg::Result<BTreeSet<String>> {
-		let exports = super::exports(&crate::load::tests::source(tg::module::Kind::Python), text)?;
-		Ok(exports.into_keys().collect())
+/// Collect the names that a type refers to in the interfaces of imported modules.
+pub(super) fn references(type_: &tg::interface::Type, references: &mut BTreeSet<(String, String)>) {
+	match type_ {
+		tg::interface::Type::Array { item } => self::references(item, references),
+		tg::interface::Type::Command { args, output } => {
+			self::references(args, references);
+			self::references(output, references);
+		},
+		tg::interface::Type::Map { value } => self::references(value, references),
+		tg::interface::Type::Record { fields } => {
+			for field in fields.values() {
+				self::references(&field.type_, references);
+			}
+		},
+		tg::interface::Type::Reference {
+			import: Some(import),
+			name,
+		} if is_identifier(name) => {
+			references.insert((import.clone(), name.clone()));
+		},
+		tg::interface::Type::Tuple { elements, rest } => {
+			for element in elements {
+				self::references(&element.type_, references);
+			}
+			if let Some(rest) = rest {
+				self::references(rest, references);
+			}
+		},
+		tg::interface::Type::Union { types } => {
+			for type_ in types {
+				self::references(type_, references);
+			}
+		},
+		_ => (),
 	}
+}
 
-	#[test]
-	fn parse_errors_have_original_source_locations() {
-		let error = exports("\ndef broken(: pass")
-			.unwrap_err()
-			.to_data_or_id()
-			.unwrap_left();
-		let location = error.location.unwrap();
-		assert_eq!(location.range.start.line, 1);
+/// Print the statement that defines one of the interface's named types, defining a record as a typed dict with the definition's name.
+pub(super) fn definition(name: &str, type_: &tg::interface::Type, names: &Names) -> String {
+	if let tg::interface::Type::Record { fields } = type_ {
+		return typed_dict(name, fields, names);
 	}
+	format!("type {name} = {}", self::type_(type_, names))
+}
 
-	#[test]
-	fn discovers_public_bindings_and_aliases() {
-		let text = "from .other import a as renamed\nimport os\ndef default(): pass\nasync def work(): pass\nalias = work\n_hidden = work\ndef removed(): pass\ndel removed\n";
-		assert_eq!(
-			exports(text).unwrap(),
-			["alias", "default", "renamed", "work"]
-				.map(str::to_owned)
-				.into()
-		);
+/// Print a type as a Python type expression.
+pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
+	let client = &names.client;
+	let typing = &names.typing;
+	match type_ {
+		tg::interface::Type::Array { item } => format!("list[{}]", self::type_(item, names)),
+		tg::interface::Type::Artifact => format!("{client}.Artifact"),
+		tg::interface::Type::Blob => format!("{client}.Blob"),
+		tg::interface::Type::Boolean => "bool".to_owned(),
+		tg::interface::Type::Bytes => "bytes".to_owned(),
+		tg::interface::Type::Command { args, output } => {
+			let args = match args.as_ref() {
+				tg::interface::Type::Array { item } => {
+					format!("tuple[{}, ...]", self::type_(item, names))
+				},
+				tg::interface::Type::Tuple { elements, rest } => {
+					args_tuple(elements, rest.as_deref(), names)
+				},
+				_ => format!("tuple[{client}.Value.Type, ...]"),
+			};
+			let output = self::type_(output, names);
+			format!("{client}.Command[{args}, {output}]")
+		},
+		tg::interface::Type::Directory => format!("{client}.Directory"),
+		tg::interface::Type::Error => format!("{client}.Error"),
+		tg::interface::Type::File => format!("{client}.File"),
+		tg::interface::Type::Graph => format!("{client}.Graph"),
+		tg::interface::Type::Literal { value } => match value {
+			tg::interface::Literal::Boolean(true) => format!("{typing}.Literal[True]"),
+			tg::interface::Literal::Boolean(false) => format!("{typing}.Literal[False]"),
+			tg::interface::Literal::Number(_) => "float".to_owned(),
+			tg::interface::Literal::String(value) => {
+				let value = serde_json::to_string(value).unwrap();
+				format!("{typing}.Literal[{value}]")
+			},
+		},
+		tg::interface::Type::Map { value } => format!("dict[str, {}]", self::type_(value, names)),
+		tg::interface::Type::Module => format!("{client}.Module"),
+		tg::interface::Type::Mutation => format!("{client}.Mutation"),
+		tg::interface::Type::Null => "None".to_owned(),
+		tg::interface::Type::Number => "float".to_owned(),
+		tg::interface::Type::Object => format!("{client}.Object"),
+		tg::interface::Type::Placeholder => format!("{client}.Placeholder"),
+		tg::interface::Type::Record { fields } => {
+			let record = format!("{}_record_{}", names.prefix, names.records.borrow().len());
+			let statement = typed_dict(&record, fields, names);
+			names.records.borrow_mut().push(statement);
+			record
+		},
+		tg::interface::Type::Reference { import: None, name } => names
+			.definitions
+			.get(name)
+			.cloned()
+			.unwrap_or_else(|| format!("{client}.Value.Type")),
+		tg::interface::Type::Reference {
+			import: Some(import),
+			name,
+		} => names.imports.get(import).map_or_else(
+			|| format!("{client}.Value.Type"),
+			|module| format!("{module}_{name}"),
+		),
+		tg::interface::Type::String => "str".to_owned(),
+		tg::interface::Type::Symlink => format!("{client}.Symlink"),
+		tg::interface::Type::Template => format!("{client}.Template"),
+		tg::interface::Type::Tuple { elements, rest } => {
+			// Express optional elements as a union of the tuples that end at each optional element.
+			let required = elements
+				.iter()
+				.take_while(|element| !element.optional)
+				.count();
+			let rest = rest
+				.as_ref()
+				.map(|rest| format!("*tuple[{}, ...]", self::type_(rest, names)));
+			let mut tuples = Vec::new();
+			for length in required..=elements.len() {
+				let mut items = elements[..length]
+					.iter()
+					.map(|element| self::type_(&element.type_, names))
+					.collect::<Vec<_>>();
+				if length == elements.len()
+					&& let Some(rest) = &rest
+				{
+					items.push(rest.clone());
+				}
+				let tuple = if items.is_empty() {
+					"tuple[()]".to_owned()
+				} else {
+					format!("tuple[{}]", items.join(", "))
+				};
+				tuples.push(tuple);
+			}
+			tuples.join(" | ")
+		},
+		tg::interface::Type::Union { types } => {
+			if types.is_empty() {
+				return format!("{typing}.Never");
+			}
+			let types = types
+				.iter()
+				.map(|member| self::type_(member, names))
+				.collect::<Vec<_>>();
+			format!("({})", types.join(" | "))
+		},
+		tg::interface::Type::Value => format!("{client}.Value.Type"),
 	}
+}
 
-	#[test]
-	fn honors_explicit_exports() {
-		let text = "from .other import _private, default\n__all__ = ['_private', 'default']\n";
-		assert_eq!(
-			exports(text).unwrap(),
-			["_private", "default"].map(str::to_owned).into()
-		);
-		assert!(exports("__all__ = compute_exports()").is_err());
-		assert!(exports("from .other import *").is_err());
-		assert!(exports("from .other import *\n__all__ = ['default']").is_err());
+/// Print the statement that defines a closed typed dict, whose field types are forward references because the functional syntax evaluates its fields.
+fn typed_dict(
+	name: &str,
+	fields: &BTreeMap<String, tg::interface::Field>,
+	names: &Names,
+) -> String {
+	let typing = &names.typing;
+	let fields = fields
+		.iter()
+		.map(|(name, field)| {
+			let name = serde_json::to_string(name).unwrap();
+			let type_ = self::type_(&field.type_, names);
+			let type_ = if field.optional {
+				format!("{typing}.NotRequired[{type_}]")
+			} else {
+				type_
+			};
+			let type_ = serde_json::to_string(&type_).unwrap();
+			format!("{name}: {type_}")
+		})
+		.collect::<Vec<_>>()
+		.join(", ");
+	let quoted = serde_json::to_string(name).unwrap();
+	format!("{name} = {typing}.TypedDict({quoted}, {{{fields}}}, closed=True)")
+}
+
+/// Print the args of a command as a single tuple type, which a command's typed build method can bind to its parameters, by widening optional elements to a variadic tail.
+fn args_tuple(
+	elements: &[tg::interface::Element],
+	rest: Option<&tg::interface::Type>,
+	names: &Names,
+) -> String {
+	let required = elements
+		.iter()
+		.take_while(|element| !element.optional)
+		.count();
+	let mut items = elements[..required]
+		.iter()
+		.map(|element| self::type_(&element.type_, names))
+		.collect::<Vec<_>>();
+	let mut tail = elements[required..]
+		.iter()
+		.map(|element| self::type_(&element.type_, names))
+		.collect::<Vec<_>>();
+	if let Some(rest) = rest {
+		tail.push(self::type_(rest, names));
+	}
+	tail.dedup();
+	match tail.as_slice() {
+		[] => (),
+		[item] => items.push(format!("*tuple[{item}, ...]")),
+		_ => items.push(format!("*tuple[{}, ...]", tail.join(" | "))),
+	}
+	if items.is_empty() {
+		"tuple[()]".to_owned()
+	} else {
+		format!("tuple[{}]", items.join(", "))
 	}
 }

@@ -57,7 +57,7 @@ import type {
 	UnresolvedArgs,
 	ValueOrMaybeMutationMap,
 } from "./util.ts";
-import { Value } from "./value.ts";
+import { type NonValue, Value } from "./value.ts";
 
 export type {
 	ArchiveFormat,
@@ -70,6 +70,7 @@ export type {
 	MaybePromise,
 	MaybeReferent,
 	MutationMap,
+	NonValue,
 	Property,
 	Range,
 	Resolved,

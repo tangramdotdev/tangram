@@ -265,6 +265,17 @@ class Process[O: ValueType]:
 
     @overload
     @classmethod
+    def spawn[A, R: ValueType](
+        cls,
+        command: Command[A, R],
+        /,
+        *args: ProcessInput,
+        client: Client | None = None,
+        **options: Unpack[ArgObject],
+    ) -> _Builder[Literal["spawn"], R]: ...
+
+    @overload
+    @classmethod
     def spawn(
         cls,
         *args: ProcessInput,
@@ -295,6 +306,17 @@ class Process[O: ValueType]:
 
     @overload
     @classmethod
+    def run[A, R: ValueType](
+        cls,
+        command: Command[A, R],
+        /,
+        *args: ProcessInput,
+        client: Client | None = None,
+        **options: Unpack[ArgObject],
+    ) -> _Builder[Literal["run"], R]: ...
+
+    @overload
+    @classmethod
     def run(
         cls,
         *args: ProcessInput,
@@ -319,6 +341,17 @@ class Process[O: ValueType]:
         cls,
         function_: Callable[..., Unresolved[R]],
         *args: CommandArgument,
+        client: Client | None = None,
+        **options: Unpack[ArgObject],
+    ) -> _Builder[Literal["run"], R]: ...
+
+    @overload
+    @classmethod
+    def build[A, R: ValueType](
+        cls,
+        command: Command[A, R],
+        /,
+        *args: ProcessInput,
         client: Client | None = None,
         **options: Unpack[ArgObject],
     ) -> _Builder[Literal["run"], R]: ...
@@ -419,7 +452,7 @@ class Process[O: ValueType]:
     @tg.property
     async def command(
         self, client: Client | None = None
-    ) -> Command[list[ValueType], O] | ProcessCommandData:
+    ) -> Command[tuple[ValueType, ...], O] | ProcessCommandData:
         from ..command import Command
 
         state = await self.load(client)

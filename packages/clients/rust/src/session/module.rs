@@ -14,4 +14,11 @@ impl tg::instance::Module for tg::Session {
 	) -> impl Future<Output = tg::Result<tg::module::load::Output>> {
 		self.load_module(arg)
 	}
+
+	fn module_interface(
+		&self,
+		arg: tg::module::interface::Arg,
+	) -> impl Future<Output = tg::Result<tg::module::interface::Output>> {
+		self.module_interface(arg)
+	}
 }

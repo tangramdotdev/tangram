@@ -1,4 +1,4 @@
-use lib/test.nu *
+use ../util/test.nu *
 
 # Outdated reports a dependency pinned below its latest compatible and latest available versions, in both text and JSON output, matching the snapshots.
 

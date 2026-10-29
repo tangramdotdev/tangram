@@ -6,7 +6,7 @@ const response_timeout = 30sec
 let local = server spawn
 let path = artifact {
     'main.tg.py': '# /// script
-# [tool.tangram.imports.dep]
+# [tool.tangram.dependencies.dep]
 # specifier = "./helper.tg.ts"
 # ///
 from dep import greet

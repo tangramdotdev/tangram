@@ -78,7 +78,7 @@ impl Compiler {
 		kind: tg::module::Kind,
 	) -> tg::Result<Vec<Symbol>> {
 		for symbol in &mut symbols {
-			let is_wrapper = matches!(
+			let is_bindings = matches!(
 				(kind, symbol.module.kind),
 				(
 					tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
@@ -88,7 +88,7 @@ impl Compiler {
 					tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
 				)
 			);
-			if !is_wrapper {
+			if !is_bindings {
 				continue;
 			}
 			let uri = self

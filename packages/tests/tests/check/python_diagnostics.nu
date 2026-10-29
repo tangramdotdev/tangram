@@ -4,7 +4,7 @@ let local = server spawn
 let path = artifact {
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.missing]
+        # [tool.tangram.dependencies.missing]
         # specifier = "./missing.tg.py"
         # ///
         import missing
@@ -65,7 +65,7 @@ assert ($output.stderr | str contains 'namespace` has no member `missing`') $out
 let builder = artifact {
     'tangram.ts': 'export default async function () {
         const dep = await tg.file("value: int = 42").module("python");
-        const source = "# /// script\n# [tool.tangram.imports.dep]\n# specifier = \"dep\"\n# ///\nimport dep\nvalue = dep.missing";
+        const source = "# /// script\n# [tool.tangram.dependencies.dep]\n# specifier = \"dep\"\n# ///\nimport dep\nvalue = dep.missing";
         return tg.directory({ "tangram.py": tg.file(source).module("python").dependency("dep", { node: dep, options: { id: dep.id } }) });
     }'
 }

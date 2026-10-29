@@ -21,7 +21,10 @@ export function command(
 ): tg.Command.Builder;
 export function command(...args: tg.Args<tg.Command.Arg>): tg.Command.Builder;
 export function command(...args: any): any {
-	if (typeof args[0] === "function") {
+	if (
+		typeof args[0] === "function" &&
+		!(args[0] instanceof tg.Command.Builder)
+	) {
 		let command = tg.Command.javascript(args[0], args.slice(1)).then(
 			(referent) => referent.node,
 		);
@@ -825,20 +828,27 @@ export namespace Command {
 				return module;
 			};
 			this.#args = args.map((arg) => this.builderArg(arg));
-			return new Proxy(this, {
+			// Return the proxy wherever a method returns the builder, so that the builder remains callable.
+			let proxy: this = new Proxy(this, {
 				get(this_: any, prop, _receiver) {
 					if (typeof this_[prop] === "function") {
-						return this_[prop].bind(this_);
+						let method = this_[prop].bind(this_);
+						return (...args: Array<unknown>) => {
+							let output = method(...args);
+							return output === this_ ? proxy : output;
+						};
 					}
 					return this_[prop];
 				},
 				apply: (this_, _, args) => {
-					return this_.args(args);
+					this_.args(args);
+					return proxy;
 				},
 				getPrototypeOf: (this_) => {
 					return globalThis.Object.getPrototypeOf(this_);
 				},
 			});
+			return proxy;
 		}
 
 		arg(...args: Array<tg.Unresolved<tg.Command.Arg.Value>>): this {

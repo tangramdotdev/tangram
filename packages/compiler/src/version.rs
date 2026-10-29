@@ -7,16 +7,53 @@ use {
 };
 
 impl Compiler {
-	pub async fn get_module_version(&self, module: &tg::module::Data) -> tg::Result<u64> {
-		// Get the entry for the document.
-		let entry = self.documents.entry(Key::new(module));
+	/// Get the version of a module as a checker in a language loads it, which for a module in another language includes its cached interface.
+	pub async fn get_module_version_with_language(
+		&self,
+		module: &tg::module::Data,
+		language: tg::module::load::Language,
+	) -> tg::Result<u64> {
+		self.get_module_version_with_language_inner(module, language, true)
+			.await
+	}
 
+	/// Get the version of a module as a checker in a language loads it, including its cached interface only if `typed` is true.
+	pub(crate) async fn get_module_version_with_language_inner(
+		&self,
+		module: &tg::module::Data,
+		language: tg::module::load::Language,
+		typed: bool,
+	) -> tg::Result<u64> {
+		let version = self.get_module_version(module).await?;
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		if crate::load::bindings_language(module, Some(language))
+			.ok()
+			.flatten()
+			.is_some()
+		{
+			use std::hash::{Hash as _, Hasher as _};
+			let interface = typed
+				.then(|| self.try_get_interface(module))
+				.flatten()
+				.map(|entry| entry.version);
+			let mut hasher = fnv::FnvHasher::default();
+			(version, interface).hash(&mut hasher);
+			return Ok(hasher.finish());
+		}
+		#[cfg(not(all(feature = "javascript", feature = "python")))]
+		let _ = (language, typed);
+		Ok(version)
+	}
+
+	pub async fn get_module_version(&self, module: &tg::module::Data) -> tg::Result<u64> {
 		// If there is an open document, then return its version.
-		if let dashmap::Entry::Occupied(entry) = &entry {
-			let document = entry.get();
-			if document.open {
-				return Ok(document.revision);
-			}
+		let key = Key::new(module);
+		let revision = self
+			.documents
+			.get(&key)
+			.map(|document| (document.open, document.revision));
+		if let Some((true, revision)) = revision {
+			return Ok(revision);
 		}
 
 		// Get the path.
@@ -36,10 +73,7 @@ impl Compiler {
 			..
 		} = &module
 		else {
-			return Ok(match entry {
-				dashmap::Entry::Occupied(entry) => entry.get().revision,
-				dashmap::Entry::Vacant(_) => 0,
-			});
+			return Ok(revision.map_or(0, |(_, revision)| revision));
 		};
 
 		// Get the modified time.
@@ -53,22 +87,25 @@ impl Compiler {
 		// Find the lockfile.
 		let lockfile = self.get_module_resolution_version(module).await;
 
-		// Get or create the document.
-		let mut document = entry.or_insert(Document {
+		// Get or create the document, without holding its lock across an await.
+		let mut document = self.documents.entry(key).or_insert_with(|| Document {
 			dirty: false,
 			lockfile,
 			modified: Some(modified),
 			module: module.clone(),
 			open: false,
-			revision: 0,
+			revision: self.next_revision(),
 			text: None,
 			version: 0,
 		});
+		if document.open {
+			return Ok(document.revision);
+		}
 
 		// Update the modified time if necessary.
 		if document.modified != Some(modified) {
 			document.modified = Some(modified);
-			document.revision += 1;
+			document.revision = self.next_revision();
 		}
 
 		Ok(document.revision)

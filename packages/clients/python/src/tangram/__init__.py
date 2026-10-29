@@ -75,7 +75,7 @@ from .util import (
     UnresolvedArgs,
     ValueOrMaybeMutationMap,
 )
-from .value import Value
+from .value import NonValue, Value
 
 __all__ = [
     "ArchiveFormat",
@@ -108,6 +108,7 @@ __all__ = [
     "Module",
     "Mutation",
     "MutationMap",
+    "NonValue",
     "Object",
     "Placeholder",
     "Pointer",

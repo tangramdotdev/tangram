@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 let local = server spawn
 let source = '# /// script
-# [tool.tangram.imports.tools]
+# [tool.tangram.dependencies.tools]
 # specifier = "tools/^1"
 # attributes = { get = "debug/tangram.py" }
 # ///
@@ -10,7 +10,7 @@ let source = '# /// script
 def default( ):
  return {"value":42}'
 let expected = '# /// script
-# [tool.tangram.imports.tools]
+# [tool.tangram.dependencies.tools]
 # specifier = "tools/^1"
 # attributes = { get = "debug/tangram.py" }
 # ///

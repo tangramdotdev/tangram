@@ -230,7 +230,7 @@ impl<'a> Converter<'a> {
 			return slot;
 		}
 
-		// Name a declaration from a module generated for another language by its export.
+		// Name a declaration from the bindings of a module in another language by its export.
 		let source = binding_name_ranges(binding)
 			.first()
 			.and_then(|range| self.source(context, range.start()));
@@ -988,7 +988,7 @@ impl<'a> Converter<'a> {
 		Type::Other(return_.to_owned())
 	}
 
-	/// Get the source of a position in a module generated for another language.
+	/// Get the source of a position in the bindings of a module in another language.
 	fn source(&self, context: &Context<'a>, offset: TextSize) -> Option<crate::load::Source> {
 		let entry = self.database.entry(context.file)?;
 		if !matches!(
@@ -1012,7 +1012,7 @@ impl<'a> Converter<'a> {
 			index
 		};
 
-		// Get the range, using the source of an export in a module generated for another language.
+		// Get the range, using the source of an export in the bindings of a module in another language.
 		let range = if let Some(source) = self.source(context, range.start()) {
 			source.range(self.encoding)
 		} else {

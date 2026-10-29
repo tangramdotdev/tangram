@@ -8,7 +8,10 @@ use {
 		ops::Deref,
 		path::{Path, PathBuf},
 		pin::pin,
-		sync::{Arc, Mutex, RwLock, atomic::AtomicI32},
+		sync::{
+			Arc, Mutex, RwLock,
+			atomic::{AtomicI32, AtomicU64},
+		},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
@@ -19,6 +22,9 @@ use {
 };
 
 mod backend;
+#[cfg(all(feature = "javascript", feature = "python"))]
+#[cfg_attr(not(any(feature = "tsrs", feature = "ty")), expect(dead_code))]
+mod interfaces;
 #[cfg(feature = "tsrs")]
 mod javascript;
 #[cfg(feature = "javascript")]
@@ -41,6 +47,7 @@ pub mod hover;
 pub mod implementation;
 pub mod initialize;
 pub mod inlay_hint;
+pub mod interface;
 pub mod jsonrpc;
 pub mod load;
 pub mod metadata;
@@ -80,6 +87,10 @@ pub struct State {
 	/// The Tangram instance.
 	instance: tg::instance::dynamic::Instance,
 
+	/// The interfaces of the modules that the checkers load from other languages.
+	#[cfg(all(feature = "javascript", feature = "python"))]
+	interfaces: interfaces::Interfaces,
+
 	/// The JavaScript service.
 	#[cfg(feature = "tsrs")]
 	javascript: javascript::Service,
@@ -103,6 +114,15 @@ pub struct State {
 
 	/// The pending outgoing requests.
 	requests: DashMap<i32, tokio::sync::oneshot::Sender<jsonrpc::Response>>,
+
+	/// The resolutions of the imports of each module, so that the checkers and preparing interfaces resolve each import once.
+	resolutions: DashMap<document::Key, resolve::Resolutions, fnv::FnvBuildHasher>,
+
+	/// The modules that each checker holds, whose documents and resolutions are retained.
+	retained: Mutex<document::Retained>,
+
+	/// The last source revision, which increases across all documents so that a removed and recreated document never reuses a revision.
+	revision: AtomicU64,
 
 	/// The sender.
 	sender: RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
@@ -146,6 +166,9 @@ impl Compiler {
 		drop(main_runtime_handle);
 		let documents = DashMap::default();
 		let requests = DashMap::new();
+		let resolutions = DashMap::default();
+		let retained = Mutex::default();
+		let revision = AtomicU64::new(0);
 		let request_id = AtomicI32::new(1);
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = Mutex::new(None);
@@ -156,6 +179,9 @@ impl Compiler {
 			documents,
 
 			instance,
+
+			#[cfg(all(feature = "javascript", feature = "python"))]
+			interfaces: interfaces::Interfaces::default(),
 
 			#[cfg(feature = "tsrs")]
 			javascript: javascript::Service::new(),
@@ -173,6 +199,12 @@ impl Compiler {
 			request_id,
 
 			requests,
+
+			resolutions,
+
+			retained,
+
+			revision,
 
 			sender,
 
@@ -1019,8 +1051,8 @@ impl Compiler {
 		Ok(module)
 	}
 
-	fn is_generated_module(&self, module: &tg::module::Data) -> bool {
-		matches!(&module.referent.node, tg::module::data::Source::Path(path) if path.starts_with(self.library_path.join("generated")))
+	fn is_bindings(&self, module: &tg::module::Data) -> bool {
+		matches!(&module.referent.node, tg::module::data::Source::Path(path) if path.starts_with(self.library_path.join("bindings")))
 	}
 
 	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::module::Data> {
@@ -1037,7 +1069,7 @@ impl Compiler {
 		}
 
 		// Handle a path in the library directory.
-		if path.starts_with(self.library_path.join("generated")) {
+		if path.starts_with(self.library_path.join("bindings")) {
 			let kind = tg::module::module_kind_for_path(path)?;
 			let module = tg::module::Data {
 				kind,
@@ -1078,14 +1110,14 @@ impl Compiler {
 		Ok(module)
 	}
 
-	/// Convert a location returned by a language service for a module of the given kind, mapping a position in a generated module to its source in the original module.
+	/// Convert a location returned by a language service for a module of the given kind, mapping a position in bindings to its source in the original module.
 	async fn lsp_location_with_language(
 		&self,
 		location: &tg::module::data::Location,
 		kind: tg::module::Kind,
 	) -> tg::Result<lsp::Location> {
-		// Map a position in a generated module to the source of its export.
-		if let Some((language, _)) = generated_language(kind, location.module.kind) {
+		// Map a position in bindings to the source of its export.
+		if let Some((language, _)) = bindings_language(kind, location.module.kind) {
 			let text = self
 				.load_module_with_language(&location.module, Some(language))
 				.await?;
@@ -1118,7 +1150,7 @@ impl Compiler {
 		module: &tg::module::Data,
 		kind: tg::module::Kind,
 	) -> tg::Result<lsp::Uri> {
-		let Some((language, extension)) = generated_language(kind, module.kind) else {
+		let Some((language, extension)) = bindings_language(kind, module.kind) else {
 			return self.lsp_uri_for_module(module).await;
 		};
 
@@ -1127,16 +1159,14 @@ impl Compiler {
 			.load_module_with_language(module, Some(language))
 			.await?;
 		let id = tg::blob::Id::new(text.as_bytes());
-		let directory = self.library_path.join("generated");
+		let directory = self.library_path.join("bindings");
 		let path = directory.join(format!("{id}.tg.{extension}"));
 		tokio::fs::create_dir_all(&directory)
 			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to create the generated module directory")
-			})?;
+			.map_err(|error| tg::error!(!error, "failed to create the bindings directory"))?;
 		tokio::fs::write(&path, text)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to materialize the generated module"))?;
+			.map_err(|error| tg::error!(!error, "failed to materialize the bindings"))?;
 		let uri = format!("file://{}", path.display()).parse().unwrap();
 
 		Ok(uri)
@@ -1318,6 +1348,40 @@ impl Compiler {
 		module: &tg::module::Data,
 		language: Option<tg::module::load::Language>,
 	) -> tg::Result<String> {
+		self.load_module_with_language_inner(module, language, true)
+			.await
+	}
+
+	/// Load a module for a runtime or checker, generating the bindings of a module in another language from the module's cached interface only if `typed` is true.
+	pub(crate) async fn load_module_with_language_inner(
+		&self,
+		module: &tg::module::Data,
+		language: Option<tg::module::load::Language>,
+		typed: bool,
+	) -> tg::Result<String> {
+		// Generate the bindings of a module in another language from the module's cached interface, if there is one.
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		if let Some(language) = load::bindings_language(module, language)? {
+			let text = self.load_module_inner(module, None).await?;
+			let entry = typed.then(|| self.try_get_interface(module)).flatten();
+			let output = if let Some(entry) = entry {
+				load::bindings(&entry.interface, &text, language)
+			} else {
+				load::module(module, &text, Some(language))?
+			};
+			return Ok(output);
+		}
+
+		#[cfg(not(all(feature = "javascript", feature = "python")))]
+		let _ = typed;
+		self.load_module_inner(module, language).await
+	}
+
+	async fn load_module_inner(
+		&self,
+		module: &tg::module::Data,
+		language: Option<tg::module::load::Language>,
+	) -> tg::Result<String> {
 		if let Some(document) = self.documents.get(&document::Key::new(module))
 			&& document.open
 		{
@@ -1333,22 +1397,43 @@ impl Compiler {
 
 	/// Find the lockfile for a given path.
 	pub async fn find_lockfile_for_path(&self, path: &Path) -> Option<document::Lockfile> {
-		// Search ancestors for the lockfile.
-		let mut lockfile_path = None;
+		// Find the lockfile of the file, and the nearest lockfile of an ancestor.
+		let mut paths = vec![path.with_extension("lock")];
 		for ancestor in path.parent()?.ancestors() {
 			let candidate = ancestor.join(tg::module::LOCKFILE_FILE_NAME);
 			if tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
-				lockfile_path = Some(candidate);
+				paths.push(candidate);
 				break;
 			}
 		}
 
-		// Get the lockfile's mtime.
-		let path = lockfile_path?;
-		let metadata = tokio::fs::symlink_metadata(&path).await.ok()?;
-		let mtime = metadata.modified().ok()?;
+		// Get the modification times of the lockfiles that exist.
+		let mut files = Vec::new();
+		for path in paths {
+			let Ok(metadata) = tokio::fs::symlink_metadata(&path).await else {
+				continue;
+			};
+			let Ok(mtime) = metadata.modified() else {
+				continue;
+			};
+			files.push((path, mtime));
+		}
 
-		let lockfile = document::Lockfile { mtime, path };
+		// Hash the lock attribute of the file.
+		let attr = tg::file::xattrs::read_lock(path)
+			.ok()
+			.flatten()
+			.map(|lock| {
+				use std::hash::{Hash as _, Hasher as _};
+				let mut hasher = fnv::FnvHasher::default();
+				lock.hash(&mut hasher);
+				hasher.finish()
+			});
+
+		if attr.is_none() && files.is_empty() {
+			return None;
+		}
+		let lockfile = document::Lockfile { attr, files };
 
 		Some(lockfile)
 	}
@@ -1388,7 +1473,7 @@ impl Drop for Owned {
 }
 
 /// Get the language and extension of the representation that a module of the given kind uses for a module in another language.
-fn generated_language(
+fn bindings_language(
 	kind: tg::module::Kind,
 	module_kind: tg::module::Kind,
 ) -> Option<(tg::module::load::Language, &'static str)> {

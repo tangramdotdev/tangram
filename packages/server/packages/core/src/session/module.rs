@@ -18,4 +18,15 @@ impl tg::instance::Module for Session {
 	) -> tg::Result<tg::module::load::Output> {
 		self.server.components.module.load_module(self, arg).await
 	}
+
+	async fn module_interface(
+		&self,
+		arg: tg::module::interface::Arg,
+	) -> tg::Result<tg::module::interface::Output> {
+		self.server
+			.components
+			.module
+			.module_interface(self, arg)
+			.await
+	}
 }

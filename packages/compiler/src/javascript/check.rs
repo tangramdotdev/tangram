@@ -1,13 +1,6 @@
-use {
-	super::Project,
-	crate::{Compiler, check},
-	tangram_client::prelude::*,
-};
+use {super::Project, crate::check, tangram_client::prelude::*};
 
-pub(super) fn handle(compiler: &Compiler, arg: check::Arg) -> tg::Result<check::Output> {
-	// Create a separate compiler program.
-	let project = Project::new(compiler, arg.modules)?;
-
+pub(super) fn handle(project: &Project) -> tg::Result<check::Output> {
 	// Collect and convert the diagnostics while the snapshot owns their source files.
 	let context = Project::context();
 	let snapshot = project.snapshot.borrow();

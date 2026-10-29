@@ -23,7 +23,7 @@ tg tag put -p tools/1.0.0 $package
 let path = artifact {
     'tangram.py': '
         # /// script
-        # [tool.tangram.imports.pkg]
+        # [tool.tangram.dependencies.pkg]
         # specifier = "tools/^1"
         # ///
         import asyncio

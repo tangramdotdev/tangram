@@ -59,7 +59,7 @@ impl Compiler {
 	#[cfg(feature = "python")]
 	fn format_python(text: &str) -> tg::Result<String> {
 		let options = ruff_python_formatter::PyFormatOptions::default()
-			.with_target_version(ruff_python_ast::PythonVersion::PY314);
+			.with_target_version(ruff_python_ast::PythonVersion::PY315);
 		let formatted = ruff_python_formatter::format_module_source(text, options)
 			.map_err(|error| tg::error!(!error, "failed to format the module"))?
 			.into_code();
@@ -74,7 +74,7 @@ impl Compiler {
 	) -> tg::Result<Option<Vec<lsp::TextEdit>>> {
 		// Get the module.
 		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
-		if self.is_generated_module(&module) {
+		if self.is_bindings(&module) {
 			return Ok(None);
 		}
 

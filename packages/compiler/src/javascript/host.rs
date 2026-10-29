@@ -15,6 +15,9 @@ use {
 pub(super) struct Host {
 	pub(super) compiler: Compiler,
 	files: Mutex<Files>,
+
+	/// The modules in other languages to load without their cached interfaces while getting an interface, or `None` for the editor project, which loads a module with its interface once the interface has been prepared.
+	untyped: Option<BTreeSet<crate::document::Key>>,
 }
 
 pub(super) struct Changes {
@@ -47,11 +50,29 @@ struct Import {
 
 impl Host {
 	#[must_use]
-	pub(super) fn new(compiler: Compiler) -> Self {
+	pub(super) fn with_untyped(
+		compiler: Compiler,
+		untyped: Option<BTreeSet<crate::document::Key>>,
+	) -> Self {
 		Self {
 			compiler,
 			files: Mutex::default(),
+			untyped,
 		}
+	}
+
+	/// Determine whether to load a module with its cached interface.
+	fn typed(&self, module: &tg::module::Data) -> bool {
+		if let Some(untyped) = &self.untyped {
+			return !untyped.contains(&crate::document::Key::new(module));
+		}
+		#[cfg(feature = "python")]
+		let typed = self
+			.compiler
+			.load_typed(tg::module::load::Language::JavaScript, module);
+		#[cfg(not(feature = "python"))]
+		let typed = true;
+		typed
 	}
 
 	pub(super) fn try_module(&self, path: &str) -> tg::Result<Option<tg::module::Data>> {
@@ -133,7 +154,11 @@ impl Host {
 		let revision = self
 			.compiler
 			.main_runtime_handle
-			.block_on(self.compiler.get_module_version(module))
+			.block_on(self.compiler.get_module_version_with_language_inner(
+				module,
+				tg::module::load::Language::JavaScript,
+				self.typed(module),
+			))
 			.ok();
 		let lockfile = self
 			.compiler
@@ -167,6 +192,19 @@ impl Host {
 		files.states.retain(|path, _| paths.contains(path));
 		files.texts.retain(|path, _| paths.contains(path));
 		files.unresolved.retain(|import| imports.contains(import));
+
+		// Retain the documents and resolutions of the modules that the editor project holds.
+		if self.untyped.is_none() {
+			let keys = files
+				.states
+				.keys()
+				.filter_map(|path| files.try_module(path).ok().flatten())
+				.map(|module| crate::document::Key::new(&module))
+				.collect();
+			drop(files);
+			self.compiler
+				.retain_modules(tg::module::load::Language::JavaScript, keys);
+		}
 	}
 
 	pub(super) fn path(&self, module: &tg::module::Data) -> String {
@@ -209,6 +247,17 @@ impl Host {
 		let Some(referrer) = self.files.lock().unwrap().try_module(containing_file)? else {
 			return Ok(None);
 		};
+
+		// Resolve an import in the bindings of a module in another language to a module that the module's interface imports.
+		#[cfg(feature = "python")]
+		if referrer.kind == tg::module::Kind::Python
+			&& let Some(entry) = self.compiler.try_get_interface(&referrer)
+			&& let Some(module) = entry.interface.imports.get(specifier)
+		{
+			let path = self.path(module);
+			return Ok(Some(path));
+		}
+
 		let key = Import {
 			attributes: attributes.clone(),
 			referrer: containing_file.to_owned(),
@@ -251,9 +300,10 @@ impl Host {
 				.states
 				.insert(path.to_owned(), state);
 			Some(self.compiler.main_runtime_handle.block_on(
-				self.compiler.load_module_with_language(
+				self.compiler.load_module_with_language_inner(
 					&module,
 					Some(tg::module::load::Language::JavaScript),
+					self.typed(&module),
 				),
 			)?)
 		} else {

@@ -100,25 +100,25 @@ tg tag put -p namespace/1.0.0 $namespace
 let entry = artifact {
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.left]
+        # [tool.tangram.dependencies.left]
         # specifier = "namespace/^1"
         # attributes = { get = "left.tg.py" }
-        # [tool.tangram.imports.right]
+        # [tool.tangram.dependencies.right]
         # specifier = "namespace/^1"
         # attributes = { get = "right.tg.py" }
-        # [tool.tangram.imports.unloaded]
+        # [tool.tangram.dependencies.unloaded]
         # specifier = "tools/^1"
         # attributes = { get = "value.tg.py" }
-        # [tool.tangram.imports.child]
+        # [tool.tangram.dependencies.child]
         # specifier = "tools/^1"
         # attributes = { get = "sub/child.tg.py" }
-        # [tool.tangram.imports.same]
+        # [tool.tangram.dependencies.same]
         # specifier = "tools/^1"
         # attributes = { get = "sub/child.tg.py" }
-        # [tool.tangram.imports.sub]
+        # [tool.tangram.dependencies.sub]
         # specifier = "tools/^1"
         # attributes = { get = "sub/tangram.py" }
-        # [tool.tangram.imports.pkg]
+        # [tool.tangram.dependencies.pkg]
         # specifier = "tools/^1"
         # ///
         import importlib

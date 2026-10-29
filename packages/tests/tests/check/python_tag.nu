@@ -13,7 +13,7 @@ rm --recursive $dependency
 let path = artifact {
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.maths]
+        # [tool.tangram.dependencies.maths]
         # specifier = "python-check/^1"
         # ///
         from maths import double

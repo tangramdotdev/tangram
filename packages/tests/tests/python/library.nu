@@ -42,7 +42,6 @@ let path = artifact {
                 } == distributions
             assert importlib.resources.files(json.encoder).joinpath("decoder.py").read_bytes()
             assert importlib.metadata.version("h2")
-            assert importlib.metadata.version("PyYAML")
             assert importlib.metadata.version("tangram") == "0.0.0"
             assert importlib.metadata.packages_distributions()["tangram"] == ["tangram"]
             assert "tangram/__init__.py" in {
