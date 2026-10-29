@@ -27,7 +27,7 @@ let path = artifact {
     namespace: {nested: {'leaf.tg.py': 'value = 43'}}
 }
 let file = $path | path join tangram.py
-success (tg python --export default $file | complete)
+success (tg builtin python --export default $file | complete)
 let checked = tg checkin $file
 rm --recursive $path
 assert equal (tg run $checked | str trim) '42'
@@ -66,7 +66,7 @@ let path = artifact {
 }
 let file = $path | path join tangram.py
 success (tg check $file | complete)
-success (tg python --export default $file | complete)
+success (tg builtin python --export default $file | complete)
 let checked = tg checkin $file
 rm --recursive $path $package
 success (tg check $checked | complete)

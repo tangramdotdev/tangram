@@ -290,7 +290,8 @@ class Command[A, O: ValueType](Object):
         for name in ("id", "name", "path", "tag"):
             module.referent.options.pop(name, None)
         command_args: list[CommandArgument] = [
-            CommandValue.string("python" if module.kind == "python" else "javascript")
+            CommandValue.string("builtin"),
+            CommandValue.string("python" if module.kind == "python" else "javascript"),
         ]
         export = target.get("export")
         if export is not None:
@@ -492,17 +493,24 @@ class CommandArg:
     def _is_module(arg, languages):
         executable = arg.get("executable")
         args = arg.get("args") or []
-        first_arg = args[0] if args else None
+
+        def is_string(value, names):
+            return value in names or (
+                isinstance(value, CommandValue)
+                and value.kind == "string"
+                and value.value in names
+            )
+
         return (
-            executable == "tg"
-            or isinstance(executable, dict)
-            and executable.get("artifact") is None
-            and executable.get("path") == "tg"
-        ) and (
-            first_arg in languages
-            or isinstance(first_arg, CommandValue)
-            and first_arg.kind == "string"
-            and first_arg.value in languages
+            (
+                executable == "tg"
+                or isinstance(executable, dict)
+                and executable.get("artifact") is None
+                and executable.get("path") == "tg"
+            )
+            and len(args) >= 2
+            and is_string(args[0], ("builtin",))
+            and is_string(args[1], languages)
         )
 
     class Value:
@@ -528,26 +536,24 @@ class CommandArg:
 class CommandObject:
     @staticmethod
     def is_javascript(object):
-        executable = object["executable"]
-        args = object["args"]
-        return (
-            executable.get("artifact") is None
-            and executable.get("path") == "tg"
-            and bool(args)
-            and args[0].kind == "string"
-            and args[0].value in ("javascript", "js")
-        )
+        return CommandObject._is_module(object, ("javascript", "js"))
 
     @staticmethod
     def is_python(object):
+        return CommandObject._is_module(object, ("python", "py"))
+
+    @staticmethod
+    def _is_module(object, languages):
         executable = object["executable"]
         args = object["args"]
         return (
             executable.get("artifact") is None
             and executable.get("path") == "tg"
-            and bool(args)
+            and len(args) >= 2
             and args[0].kind == "string"
-            and args[0].value in ("python", "py")
+            and args[0].value == "builtin"
+            and args[1].kind == "string"
+            and args[1].value in languages
         )
 
     @staticmethod

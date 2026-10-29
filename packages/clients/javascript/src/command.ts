@@ -194,6 +194,7 @@ export class Command<
 		} = module.referent.options ?? {};
 		module.referent.options = rest;
 		let commandArgs = [
+			tg.Command.Value.string("builtin"),
 			tg.Command.Value.string(
 				module.kind === "python" ? "python" : "javascript",
 			),
@@ -455,27 +456,23 @@ export namespace Command {
 
 	export namespace Arg {
 		export let isJavaScript = (arg: tg.Command.Arg.Object): boolean => {
-			let executable = arg.executable;
-			let firstArg = arg.args?.[0];
-			return (
-				(executable === "tg" ||
-					(typeof executable === "object" &&
-						executable !== null &&
-						!tg.Artifact.is(executable) &&
-						(executable.artifact === undefined ||
-							executable.artifact === null) &&
-						executable.path === "tg")) &&
-				(firstArg === "javascript" ||
-					firstArg === "js" ||
-					(firstArg instanceof tg.Command.Value &&
-						firstArg.kind === "string" &&
-						(firstArg.value === "javascript" || firstArg.value === "js")))
-			);
+			return isBuiltin(arg, ["javascript", "js"]);
 		};
 
 		export let isPython = (arg: tg.Command.Arg.Object): boolean => {
+			return isBuiltin(arg, ["python", "py"]);
+		};
+
+		let isBuiltin = (
+			arg: tg.Command.Arg.Object,
+			names: Array<string>,
+		): boolean => {
 			let executable = arg.executable;
-			let firstArg = arg.args?.[0];
+			let isString = (value: unknown, names: Array<string>): boolean =>
+				(typeof value === "string" && names.includes(value)) ||
+				(value instanceof tg.Command.Value &&
+					value.kind === "string" &&
+					names.some((name) => name === value.value));
 			return (
 				(executable === "tg" ||
 					(typeof executable === "object" &&
@@ -484,11 +481,8 @@ export namespace Command {
 						(executable.artifact === undefined ||
 							executable.artifact === null) &&
 						executable.path === "tg")) &&
-				(firstArg === "python" ||
-					firstArg === "py" ||
-					(firstArg instanceof tg.Command.Value &&
-						firstArg.kind === "string" &&
-						(firstArg.value === "python" || firstArg.value === "py")))
+				isString(arg.args?.[0], ["builtin"]) &&
+				isString(arg.args?.[1], names)
 			);
 		};
 
@@ -615,22 +609,25 @@ export namespace Command {
 
 	export namespace Object {
 		export let isJavaScript = (object: tg.Command.Object): boolean => {
-			let firstArg = object.args[0];
-			return (
-				object.executable.artifact === null &&
-				object.executable.path === "tg" &&
-				firstArg?.kind === "string" &&
-				(firstArg.value === "javascript" || firstArg.value === "js")
-			);
+			return isBuiltin(object, ["javascript", "js"]);
 		};
 
 		export let isPython = (object: tg.Command.Object): boolean => {
-			let firstArg = object.args[0];
+			return isBuiltin(object, ["python", "py"]);
+		};
+
+		let isBuiltin = (
+			object: tg.Command.Object,
+			names: Array<string>,
+		): boolean => {
+			let [first, second] = object.args;
 			return (
 				object.executable.artifact === null &&
 				object.executable.path === "tg" &&
-				firstArg?.kind === "string" &&
-				(firstArg.value === "python" || firstArg.value === "py")
+				first?.kind === "string" &&
+				first.value === "builtin" &&
+				second?.kind === "string" &&
+				names.some((name) => name === second.value)
 			);
 		};
 

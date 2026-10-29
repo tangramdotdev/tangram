@@ -72,7 +72,7 @@ let path = artifact {
     return value'}
     }
 }
-success (tg python --export default ($path | path join main.tg.py) | complete)
+success (tg builtin python --export default ($path | path join main.tg.py) | complete)
 let module = tg checkin ($path | path join main.tg.py)
 rm --recursive $path
 let output = tg run $module | complete
@@ -91,7 +91,7 @@ from . import child'
             return value
     '
 }
-success (tg python --export default ($path | path join child.tg.py) | complete)
+success (tg builtin python --export default ($path | path join child.tg.py) | complete)
 let module = tg checkin ($path | path join child.tg.py)
 rm --recursive $path
 let output = tg run $module | complete
@@ -127,7 +127,7 @@ let path = artifact {
         'child.tg.py': 'from . import value'
     }
 }
-success (tg python --export default ($path | path join main.tg.py) | complete)
+success (tg builtin python --export default ($path | path join main.tg.py) | complete)
 let module = tg checkin ($path | path join main.tg.py)
 rm --recursive $path
 let output = tg run $module | complete

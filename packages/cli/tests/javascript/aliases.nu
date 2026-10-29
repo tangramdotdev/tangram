@@ -11,7 +11,7 @@ let path = artifact {
 }
 let module = tg run $path
 for language in [javascript js] {
-    let output = tg $language --export default $module | complete
+    let output = tg builtin $language --export default $module | complete
     success $output
     assert equal ($output.stdout | str trim) 'javascript alias'
 }

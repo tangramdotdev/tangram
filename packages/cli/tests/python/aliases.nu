@@ -7,7 +7,7 @@ let path = artifact {
 '
 }
 for language in [python py] {
-    let output = tg $language --export default ($path | path join main.tg.py) | complete
+    let output = tg builtin $language --export default ($path | path join main.tg.py) | complete
     success $output
     assert equal ($output.stdout | str trim) 'python alias'
 }

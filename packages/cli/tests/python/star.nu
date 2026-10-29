@@ -11,7 +11,7 @@ from . import *'
 ] {
     let path = artifact {'main.tg.py': $source}
     let file = $path | path join main.tg.py
-    for output in [(tg checkin $file | complete) (tg check $file | complete) (tg python $file | complete)] {
+    for output in [(tg checkin $file | complete) (tg check $file | complete) (tg builtin python $file | complete)] {
         failure $output
         assert ($output.stderr | str contains $message) $output.stderr
         assert ($output.stderr | str contains 'main.tg.py:') $output.stderr

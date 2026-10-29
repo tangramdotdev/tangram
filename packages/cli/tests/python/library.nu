@@ -115,7 +115,7 @@ let path = artifact {
 
 # Interpreter initialization ignores external Python installations and search paths.
 let output = with-env {PYTHONHOME: '/missing/python', PYTHONPATH: '/missing/modules'} {
-    tg python --export default ($path | path join my-script.v1.tg.py) | complete
+    tg builtin python --export default ($path | path join my-script.v1.tg.py) | complete
 }
 success $output
 assert equal ($output.stdout | str trim) 'embedded Python'

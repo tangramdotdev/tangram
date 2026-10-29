@@ -12,7 +12,7 @@ let path = artifact {
 let module = tg build $'($path)#module'
 let path = mktemp
 let engine = if ($env.TANGRAM_TEST_QUICKJS? | default '') != '' { 'quickjs' } else { 'v8' }
-let output = with-env { TANGRAM_OUTPUT: $path } { tg javascript --engine $engine --export default $module } | complete
+let output = with-env { TANGRAM_OUTPUT: $path } { tg builtin javascript --engine $engine --export default $module } | complete
 failure $output
 let outcome = open --raw $path | from json
 assert equal $outcome.error.message boom
