@@ -173,11 +173,6 @@ async fn spawn(tangram: &Path, path: &Path) -> tg::Result<Child> {
 			if libc::dup2(writer_fd, 3) < 0 {
 				return Err(std::io::Error::last_os_error());
 			}
-			// Kill the server if the test process dies.
-			#[cfg(target_os = "linux")]
-			if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
-				return Err(std::io::Error::last_os_error());
-			}
 			Ok(())
 		});
 	}

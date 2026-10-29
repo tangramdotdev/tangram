@@ -1,4 +1,18 @@
+experimental = ["setup-scripts", "wrapper-scripts"]
+
 # Timing ratios require an uncontended test runner.
 [[profile.default.overrides]]
 filter = "package(tangram_index_lmdb) & test(scales_linearly)"
 threads-required = "num-test-threads"
+
+# Run the server and CLI tests under the test supervisor, which the setup script builds.
+[scripts.setup.build-supervisor]
+command = { command-line = "scripts/nextest/setup.nu", relative-to = "workspace-root" }
+
+[scripts.wrapper.supervisor]
+command = { command-line = "scripts/nextest/wrapper.sh", relative-to = "workspace-root" }
+
+[[profile.default.scripts]]
+filter = "binary_id(tangram_server::tests) | binary_id(tangram_cli::tests)"
+run-wrapper = "supervisor"
+setup = "build-supervisor"
