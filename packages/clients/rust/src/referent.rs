@@ -374,7 +374,7 @@ mod tests {
 				resource: id.clone().into(),
 			},
 			metadata: tg::authorization::token::Metadata {
-				algorithm: tg::authorization::token::Algorithm::Ed25519,
+				algorithm: tg::authorization::Algorithm::Blake3,
 				key: "default".into(),
 			},
 			signature: Vec::new(),
@@ -395,7 +395,7 @@ mod tests {
 				resource: tg::sync::Id::new().into(),
 			},
 			metadata: tg::authorization::token::Metadata {
-				algorithm: tg::authorization::token::Algorithm::Ed25519,
+				algorithm: tg::authorization::Algorithm::Blake3,
 				key: "default".into(),
 			},
 			signature: Vec::new(),

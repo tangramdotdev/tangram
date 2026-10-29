@@ -8,7 +8,7 @@ let path = artifact {
 		export default async function () {
 			const id = "pcs_010000000000000000000000000000000000000000000000000000";
 			const encode = (value) => tg.encoding.base64.encode(tg.encoding.utf8.encode(JSON.stringify(value)));
-			const token = (permissions, expires_at, resource = id, key = "default", algorithm = "ed25519") =>
+			const token = (permissions, expires_at, resource = id, key = "default", algorithm = "blake3") =>
 				`0.${encode({ expires_at: expires_at * 60, permissions, resource })}.${encode({ algorithm, key })}.`;
 			const node = token(["process_node"], 30);
 			const output = token(["process_node_output_objects"], 20);
@@ -42,7 +42,7 @@ let path = artifact {
 			file.state.inheritTokens({ local: [longer] });
 			tg.assert(file.state.tokens.local.length === 1 && file.state.tokens.local[0] === fileToken);
 			const permanentBody = '{"expires_at":9223372036854775807,"permissions":["process_parent"],"resource":"' + id + '"}';
-			const permanent = "0." + tg.encoding.base64.encode(tg.encoding.utf8.encode(permanentBody)) + "." + encode({ algorithm: "ed25519", key: "default" }) + ".";
+			const permanent = "0." + tg.encoding.base64.encode(tg.encoding.utf8.encode(permanentBody)) + "." + encode({ algorithm: "blake3", key: "default" }) + ".";
 			tg.Authorization.Tokens.inherit(tokens, { local: [permanent] });
 			tg.assert(tokens.local.length === 1 && tokens.local[0] === [parent, differentKey, differentAlgorithm, permanent].sort()[0]);
 			tg.assert(!tg.Authorization.Token.covers(token(["process_node"], 40), output));

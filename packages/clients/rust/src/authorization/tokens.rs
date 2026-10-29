@@ -242,9 +242,7 @@ mod tests {
 
 	#[test]
 	fn collects_loaded_descendant_tokens_without_mutating_handles() {
-		let key =
-			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-				.unwrap();
+		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 		let first = tg::Directory::with_id(tg::directory::Id::new(b"first"));
 		let second = tg::Directory::with_id(tg::directory::Id::new(b"second"));
 		let mut expected = Tokens::default();
@@ -296,9 +294,7 @@ mod tests {
 
 	#[test]
 	fn prunes_descendant_tokens_only_for_the_same_location() {
-		let key =
-			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-				.unwrap();
+		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 		let local = tg::Location::Local(tg::location::Local::default());
 		let remote = tg::Location::Remote(tg::location::Remote {
 			name: "default".into(),
@@ -370,9 +366,7 @@ mod tests {
 	#[test]
 	fn inherits_each_kind_and_rebases_locations() {
 		let id = tg::object::Id::new(tg::object::Kind::File, &bytes::Bytes::new());
-		let key =
-			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-				.unwrap();
+		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: i64::MAX,
 			permissions: vec![tg::authorization::Permission::Sync(
@@ -503,9 +497,7 @@ mod tests {
 		parent
 			.state()
 			.set_tokens(Tokens::with_authorization([parent_proof.clone()]));
-		let key =
-			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-				.unwrap();
+		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: 30,
 			permissions: vec![tg::authorization::Permission::Sync(
@@ -672,10 +664,10 @@ mod tests {
 				resource,
 			},
 			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Ed25519,
+				algorithm: tg::authorization::Algorithm::Blake3,
 				key: "test".into(),
 			},
-			signature: vec![0; 64],
+			signature: vec![0; 32],
 		}
 	}
 }

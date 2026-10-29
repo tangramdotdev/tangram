@@ -3,8 +3,11 @@ use ../lib/test.nu *
 # A process and a sandbox can read their own nodes without authorization searches.
 
 let root_token = random chars
-let local = server spawn --preserve-keys --config {
-	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
+let secret_path = $env.PWD | path join secret
+'U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=' | decode base64 | save -f $secret_path
+let secret = { algorithm: hmac_sha256, name: default, path: $secret_path }
+let local = server spawn --config {
+	authentication: { root: { token: $root_token }, tokens: { secret: $secret }, users: { providers: { insecure: true } } },
 	verification: { permissions: { initial: false, final: false } },
 }
 let path = artifact { tangram.ts: 'export default () => 42;' }
@@ -12,10 +15,10 @@ let process = tg --token $root_token build --detach --no-tokens $path | referent
 success (tg --token $root_token wait $process | complete)
 let sandbox = tg --token $root_token process get $process | from json | get sandbox
 
-# Sign authentication tokens with the same test key as the server.
+# Sign authentication tokens with the same secret as the server.
 let signer = artifact {
 	'sign.mjs': '
-		import { createPrivateKey, sign } from "node:crypto";
+		import { createHmac } from "node:crypto";
 		const encode = (bytes) => {
 			const alphabet = "0123456789abcdefghjkmnpqrstvwxyz";
 			let output = "", bits = 0, value = 0;
@@ -32,11 +35,10 @@ let signer = artifact {
 		};
 		const now = Math.floor(Date.now() / 1000);
 		const body = { expires_at: now + 60, issued_at: now, principal: { kind: process.argv[2], value: process.argv[3] } };
-		const metadata = { algorithm: "ed25519", key: "default" };
+		const metadata = { algorithm: "hmac_sha256", key: "default" };
 		const input = `authentication.0.${encode(Buffer.from(JSON.stringify(body)))}.${encode(Buffer.from(JSON.stringify(metadata)))}`;
-		const seed = Buffer.from("U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=", "base64");
-		const key = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" });
-		console.log(`${input}.${encode(sign(null, Buffer.from(input), key))}`);
+		const secret = Buffer.from("U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=", "base64");
+		console.log(`${input}.${encode(createHmac("sha256", secret).update(input).digest())}`);
 	'
 } | path join sign.mjs
 

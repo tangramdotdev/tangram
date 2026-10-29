@@ -26,9 +26,7 @@ fn optional_sandbox_roundtrips() {
 
 #[test]
 fn outcome_referents_roundtrip() {
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let sync = sync_token(&key);
 	let tokens = tg::authorization::Tokens::with_authorization([sync]);
 	let file = tg::object::Id::from(tg::file::Id::new(b"file"));
@@ -59,9 +57,7 @@ fn outcome_referents_roundtrip() {
 
 #[test]
 fn output_with_location_and_tokens_inherits_the_outer_tokens() {
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let sync = sync_token(&key);
 	let tokens = tg::authorization::Tokens::with_authorization([sync.clone()]);
 	let files = [b"first".as_slice(), b"second".as_slice()]
@@ -109,9 +105,7 @@ fn output_with_location_and_tokens_inherits_the_outer_tokens() {
 
 #[test]
 fn error_with_location_and_tokens_inherits_the_outer_tokens_into_an_inline_error() {
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let sync = sync_token(&key);
 	let source = tg::error::Data {
 		source: Some(tg::Referent::with_node(tg::Either::Right(
@@ -133,9 +127,7 @@ fn error_with_location_and_tokens_inherits_the_outer_tokens_into_an_inline_error
 
 #[test]
 fn without_location_and_tokens_except_sync_keeps_only_the_outer_sync_tokens() {
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let sync = sync_token(&key);
 	let file = tg::object::Id::from(tg::file::Id::new(b"file"));
 	let read = object_token(&key, file.clone().into());
@@ -198,7 +190,7 @@ fn process_data() -> Data {
 	serde_json::from_value(value).unwrap()
 }
 
-fn sync_token(key: &tg::authorization::PrivateKey) -> tg::authorization::Token {
+fn sync_token(key: &tg::authorization::Secret) -> tg::authorization::Token {
 	let body = tg::authorization::Body {
 		expires_at: i64::MAX,
 		permissions: vec![tg::authorization::Permission::Sync(
@@ -209,7 +201,7 @@ fn sync_token(key: &tg::authorization::PrivateKey) -> tg::authorization::Token {
 	tg::authorization::Token::sign(body, key).unwrap()
 }
 
-fn object_token(key: &tg::authorization::PrivateKey, resource: tg::Id) -> tg::authorization::Token {
+fn object_token(key: &tg::authorization::Secret, resource: tg::Id) -> tg::authorization::Token {
 	let body = tg::authorization::Body {
 		expires_at: i64::MAX,
 		permissions: vec![tg::authorization::Permission::Object(

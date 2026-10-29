@@ -1874,11 +1874,10 @@ mod tests {
 	#[test]
 	fn parse_object_id_with_token() {
 		let id = crate::object::Id::new(crate::object::Kind::File, &bytes::Bytes::new());
-		let private_key = crate::authorization::PrivateKey::generate(
+		let secret = crate::authorization::Secret::generate(
 			"default",
-			crate::authorization::Algorithm::Ed25519,
-		)
-		.unwrap();
+			crate::authorization::Algorithm::Blake3,
+		);
 		let body = crate::authorization::Body {
 			expires_at: 20,
 			permissions: vec![crate::authorization::Permission::Object(
@@ -1886,7 +1885,7 @@ mod tests {
 			)],
 			resource: id.clone().into(),
 		};
-		let token = crate::authorization::Token::sign(body, &private_key).unwrap();
+		let token = crate::authorization::Token::sign(body, &secret).unwrap();
 		let tgon = crate::Referent::with_node_and_local_tokens(id.clone(), Some(token.clone()))
 			.to_string();
 
@@ -1916,17 +1915,15 @@ mod tests {
 			)],
 			resource: id.clone().into(),
 		};
-		let local_key = crate::authorization::PrivateKey::generate(
+		let local_key = crate::authorization::Secret::generate(
 			"local",
-			crate::authorization::Algorithm::Ed25519,
-		)
-		.unwrap();
+			crate::authorization::Algorithm::Blake3,
+		);
 		let local_token = crate::authorization::Token::sign(body.clone(), &local_key).unwrap();
-		let remote_key = crate::authorization::PrivateKey::generate(
+		let remote_key = crate::authorization::Secret::generate(
 			"remote",
-			crate::authorization::Algorithm::Ed25519,
-		)
-		.unwrap();
+			crate::authorization::Algorithm::Blake3,
+		);
 		let remote_token = crate::authorization::Token::sign(body, &remote_key).unwrap();
 		let local = crate::Location::Local(crate::location::Local::default());
 		let remote = crate::Location::Remote(crate::location::Remote {

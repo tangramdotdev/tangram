@@ -322,18 +322,18 @@ impl Component {
 		principal: token::Principal,
 		expires_at: i64,
 	) -> tg::Result<String> {
-		let private_key = server
+		let secret = server
 			.authentication_tokens
-			.private_key
+			.secret
 			.as_ref()
-			.ok_or_else(|| tg::error!("missing the authentication token private key"))?;
+			.ok_or_else(|| tg::error!("missing the authentication token signing secret"))?;
 		let issued_at = server.clock.unix_timestamp();
 		let body = token::Body {
 			expires_at,
 			issued_at,
 			principal,
 		};
-		let token = token::Token::sign(body, private_key)?;
+		let token = token::Token::sign(body, secret)?;
 
 		Ok(token.to_string())
 	}
@@ -562,11 +562,10 @@ impl Component {
 		if matches {
 			return Some(principal);
 		}
-		let public_key = server
+		let secret = server
 			.authentication_tokens
-			.public_keys
-			.get(&token.metadata.key)?;
-		token.verify_at(public_key, now, clock_skew).ok()?;
+			.verification_secret(&token.metadata.key)?;
+		token.verify_at(secret, now, clock_skew).ok()?;
 
 		Some(principal)
 	}

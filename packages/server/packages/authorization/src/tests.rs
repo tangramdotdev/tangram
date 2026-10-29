@@ -3,9 +3,7 @@ use tangram_client::prelude::*;
 #[test]
 fn capture_entries_stay_bounded_when_roots_share_a_token() {
 	// Create a sync token that every root carries, as a finished process's outputs do.
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let body = tg::authorization::Body {
 		expires_at: i64::MAX,
 		permissions: vec![tg::authorization::Permission::Sync(

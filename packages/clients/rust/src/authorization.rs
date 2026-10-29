@@ -1,7 +1,7 @@
 pub use {
 	permission::Permission,
 	subject::Subject,
-	token::{Algorithm, Body, Metadata, PrivateKey, PublicKey, Token},
+	token::{Algorithm, Body, Metadata, Secret, Token},
 	tokens::Tokens,
 };
 

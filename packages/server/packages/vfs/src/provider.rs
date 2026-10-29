@@ -685,7 +685,7 @@ impl Provider {
 	/// Determine whether a token for an artifact can be handed out, without signing one.
 	fn can_create_artifact_token(&self, artifact: &ArtifactState) -> std::io::Result<bool> {
 		self.authorize(&artifact.authority, &artifact.id.clone().into())?;
-		if self.server.authorization_tokens.private_key.is_some() {
+		if self.server.authorization_tokens.secret.is_some() {
 			return Ok(true);
 		}
 		let resource = tg::Id::from(artifact.id.clone());

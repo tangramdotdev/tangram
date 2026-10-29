@@ -23,6 +23,8 @@ pub struct Config {
 
 	pub authentication: Authentication,
 
+	pub authorization: Authorization,
+
 	pub billing: Option<Billing>,
 
 	pub cache: Cache,
@@ -227,7 +229,7 @@ pub struct RootAuthentication {
 pub struct AuthenticationTokens {
 	pub clock_skew: Duration,
 
-	pub keys: TokenKeys,
+	pub secrets: TokenSecrets,
 
 	pub ttl: Duration,
 }
@@ -266,6 +268,11 @@ pub struct Github {
 	pub token_url: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Authorization {
+	pub tokens: Option<TokenSecrets>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Billing {
 	pub stripe: tangram_billing_stripe::Config,
@@ -280,8 +287,6 @@ pub struct Verification {
 	pub poll_interval: Duration,
 
 	pub request_timeout: Duration,
-
-	pub tokens: Option<TokenKeys>,
 
 	pub write_retry: Retry,
 }
@@ -328,14 +333,14 @@ pub struct PermissionSubtree {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TokenKeys {
-	pub private_key: Option<TokenPrivateKey>,
+pub struct TokenSecrets {
+	pub previous_secrets: Vec<TokenPreviousSecret>,
 
-	pub public_keys: Vec<TokenPublicKey>,
+	pub secret: Option<TokenSecret>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TokenPrivateKey {
+pub struct TokenSecret {
 	pub algorithm: tg::authorization::Algorithm,
 
 	pub name: String,
@@ -344,12 +349,12 @@ pub struct TokenPrivateKey {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TokenPublicKey {
+pub struct TokenPreviousSecret {
 	pub algorithm: tg::authorization::Algorithm,
 
 	pub name: String,
 
-	pub path: Option<PathBuf>,
+	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2110,8 +2115,16 @@ impl Default for AuthenticationTokens {
 	fn default() -> Self {
 		Self {
 			clock_skew: Duration::from_mins(1),
-			keys: TokenKeys::default(),
+			secrets: TokenSecrets::default(),
 			ttl: default_authentication_token_ttl(),
+		}
+	}
+}
+
+impl Default for Authorization {
+	fn default() -> Self {
+		Self {
+			tokens: Some(TokenSecrets::default()),
 		}
 	}
 }
@@ -2123,7 +2136,6 @@ impl Default for Verification {
 			permissions: VerificationPermissions::default(),
 			poll_interval: Duration::from_secs(1),
 			request_timeout: Duration::from_mins(1),
-			tokens: default_authorization_tokens(),
 			write_retry: tangram_futures::retry::Options::default().into(),
 		}
 	}
@@ -2138,19 +2150,21 @@ impl Default for VerificationPermissions {
 	}
 }
 
-impl Default for TokenKeys {
+impl Default for TokenSecrets {
 	fn default() -> Self {
 		Self {
-			private_key: Some(TokenPrivateKey {
-				algorithm: tg::authorization::Algorithm::Ed25519,
-				name: "default".to_owned(),
-				path: None,
-			}),
-			public_keys: vec![TokenPublicKey {
-				algorithm: tg::authorization::Algorithm::Ed25519,
-				name: "default".to_owned(),
-				path: None,
-			}],
+			previous_secrets: Vec::new(),
+			secret: Some(TokenSecret::default()),
+		}
+	}
+}
+
+impl Default for TokenSecret {
+	fn default() -> Self {
+		Self {
+			algorithm: tg::authorization::Algorithm::Blake3,
+			name: "default".to_owned(),
+			path: None,
 		}
 	}
 }
@@ -2191,6 +2205,7 @@ impl Default for Config {
 			advanced: Advanced::default(),
 			archive: None,
 			authentication: Authentication::default(),
+			authorization: Authorization::default(),
 			billing: None,
 			cache: Cache::default(),
 			checkin: Checkin::default(),
@@ -3537,11 +3552,6 @@ fn sync_retry_default() -> Retry {
 		max_delay: options.max_delay,
 		max_retries: options.max_retries,
 	}
-}
-
-#[expect(clippy::unnecessary_wraps)]
-fn default_authorization_tokens() -> Option<TokenKeys> {
-	Some(TokenKeys::default())
 }
 
 fn default_roles() -> BTreeSet<Role> {

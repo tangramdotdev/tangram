@@ -361,11 +361,7 @@ fn token(contents: &str) -> tg::authorization::Token {
 		)],
 		resource: file.id().into(),
 	};
-	let key = tg::authorization::token::PrivateKey::generate(
-		"test",
-		tg::authorization::token::Algorithm::Ed25519,
-	)
-	.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let mut token = tg::authorization::Token::sign(body, &key).unwrap();
 	// Invalidate the signature to verify that reading the metadata does not verify the token.
 	token.signature.fill(0);

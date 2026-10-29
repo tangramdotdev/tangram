@@ -45,9 +45,7 @@ fn binary_rejects_incomplete_headers_and_incorrect_payload_sizes() {
 
 fn output(bytes: Bytes) -> Output {
 	let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let body = tg::authorization::Body {
 		expires_at: 100,
 		permissions: vec![tg::authorization::Permission::Object(

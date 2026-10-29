@@ -25,7 +25,7 @@ impl Component {
 		permissions: Vec<tg::authorization::Permission>,
 		expires_at: i64,
 	) -> tg::Result<Option<tg::authorization::Token>> {
-		let Some(private_key) = session.server.authorization_tokens.private_key.as_ref() else {
+		let Some(secret) = session.server.authorization_tokens.secret.as_ref() else {
 			return Ok(None);
 		};
 		let body = tg::authorization::Body {
@@ -33,7 +33,7 @@ impl Component {
 			permissions,
 			resource,
 		};
-		let token = tg::authorization::Token::sign(body, private_key)?;
+		let token = tg::authorization::Token::sign(body, secret)?;
 		Ok(Some(token))
 	}
 
@@ -85,24 +85,23 @@ impl Component {
 		session
 			.server
 			.authorization_tokens
-			.private_key
+			.secret
 			.as_ref()
-			.is_some_and(|private_key| private_key.name == token.metadata.key)
+			.is_some_and(|secret| secret.name == token.metadata.key)
 			&& Self::verify_token(session, token)
 	}
 
 	#[must_use]
 	pub(crate) fn verify_token(session: &Session, token: &tg::authorization::Token) -> bool {
 		let now = session.server.clock.unix_timestamp();
-		let Some(public_key) = session
+		let Some(secret) = session
 			.server
 			.authorization_tokens
-			.public_keys
-			.get(&token.metadata.key)
+			.verification_secret(&token.metadata.key)
 		else {
 			return false;
 		};
-		if token.verify_at(public_key, now).is_err() {
+		if token.verify_at(secret, now).is_err() {
 			return false;
 		}
 		true

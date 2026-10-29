@@ -10729,7 +10729,6 @@ dependencies = [
 name = "tangram_server_authentication"
 version = "0.0.0"
 dependencies = [
- "aws-lc-rs",
  "blake3",
  "futures",
  "indoc",

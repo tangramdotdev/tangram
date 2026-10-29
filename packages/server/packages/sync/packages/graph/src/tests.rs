@@ -5,9 +5,7 @@ use {
 
 #[test]
 fn local_authorization_sync_token_collection_scales() {
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let body = tg::authorization::Body {
 		expires_at: i64::MAX,
 		permissions: vec![tg::authorization::Permission::Sync(
@@ -75,9 +73,7 @@ fn local_authorization_sync_token_collection_scales() {
 
 #[test]
 fn ancestor_token_collection_scales() {
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	for count in [64_usize, 256, 1024] {
 		let arg = tg::sync::Arg::default();
 		let mut graph = Graph::new(&arg, false);
@@ -224,9 +220,7 @@ fn lifted_authorization_tokens_for_sync_follow_attachment_ancestors() {
 		b"second contents",
 	]
 	.map(|seed| tg::object::Id::from(tg::blob::Id::new(seed)));
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let mut tokens = (0..3)
 		.map(|_| {
 			let body = tg::authorization::Body {

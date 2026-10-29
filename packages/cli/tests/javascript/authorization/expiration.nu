@@ -8,7 +8,7 @@ let path = artifact {
 			const id = "fil_010000000000000000000000000000000000000000000000000000";
 			const other = "dir_010000000000000000000000000000000000000000000000000000";
 			const encode = (value) => tg.encoding.base64.encode(tg.encoding.utf8.encode(JSON.stringify(value)));
-			const proof = (resource, expires_at, permission) => `0.${encode({ expires_at, permissions: [permission], resource })}.${encode({ algorithm: "ed25519", key: "test" })}.`;
+			const proof = (resource, expires_at, permission) => `0.${encode({ expires_at, permissions: [permission], resource })}.${encode({ algorithm: "blake3", key: "test" })}.`;
 			const inputs = [id, other].flatMap((resource) => [120, 179, 180, 181].flatMap((expiration) => ["object_node", "object_subtree"].map((permission) => ({ local: [proof(resource, expiration, permission)] }))));
 			const merge = (a, b, resource) => {
 				const output = tg.Authorization.Tokens.clone(a);
