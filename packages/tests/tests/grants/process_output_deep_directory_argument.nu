@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Passing a deeply nested directory as a child build argument is authorized.
 

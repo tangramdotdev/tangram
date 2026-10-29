@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/stripe.nu *
+use ../../util/test.nu *
+use ../../util/stripe.nu *
 
 # Managing user billing creates one Stripe customer and reuses it for subsequent portal sessions.
 

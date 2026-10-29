@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Extracting a well formed blob id that does not exist fails.
 

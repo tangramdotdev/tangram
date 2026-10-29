@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Live logs expire after finish, while the finished blob remains readable.
 for cache in [lmdb rocksdb fjall] {

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Equal subpaths in different artifact roots must not collide in the publishing graph.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Availability can be requested from a specific peer region.
 

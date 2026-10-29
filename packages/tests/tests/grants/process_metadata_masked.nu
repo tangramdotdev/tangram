@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Private process metadata fields remain masked while the importing sync can answer verification requests.
 

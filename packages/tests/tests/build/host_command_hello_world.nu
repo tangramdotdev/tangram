@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build running a host shell command in a busybox environment writes to the output file and the resulting object matches the snapshot.
 

@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/http.nu *
+use ../../util/test.nu *
+use ../../util/http.nu *
 
 # tg.download fails when the checksum argument is not a well-formed checksum.
 

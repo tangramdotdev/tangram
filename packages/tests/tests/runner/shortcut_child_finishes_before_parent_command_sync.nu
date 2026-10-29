@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut child must finish while its parent's command sync is held and be recorded under the parent on the remote.
 

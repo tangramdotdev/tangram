@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process spawned with a retained connection and piped stdio round trips its stdio and can be waited repeatedly.
 let local = server spawn

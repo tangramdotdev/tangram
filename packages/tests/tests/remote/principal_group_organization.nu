@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Groups and organizations can be remote principals, and process tokens use the sandbox owner's remotes.
 

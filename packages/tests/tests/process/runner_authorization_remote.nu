@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote capability must fall through to its issuer; runner credentials must not authorize a caller.
 

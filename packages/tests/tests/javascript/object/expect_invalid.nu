@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Object.expect throws when the value is not an object.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Indexing with --capture returns only after a tag's permissions are captured, so another user's access outlives the delegation.
 

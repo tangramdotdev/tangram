@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cleaning fails when the server is in multi-server mode.
 

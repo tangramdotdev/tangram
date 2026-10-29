@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Documenting an export from another language uses the export's name, documentation, and location in the original module.
 

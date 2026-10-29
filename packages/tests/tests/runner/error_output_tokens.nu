@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The runner must retain the error's tokens when pushing it to the remote.
 let root_token = random chars

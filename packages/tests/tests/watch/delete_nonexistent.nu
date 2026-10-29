@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Deleting a watch on a path that has no watch fails with a missing-watch error.
 

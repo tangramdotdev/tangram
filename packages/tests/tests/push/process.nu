@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/command.nu
+use ../../util/test.nu *
+use ../../util/command.nu
 
 # Provides the shared helper that builds a module, pushes the resulting process to a remote, and verifies that the process and any selected commands, children, and outputs are present and identical on the remote. The behavior is exercised by the importing tests under various flag combinations.
 

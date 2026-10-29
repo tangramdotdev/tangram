@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A command's executable accessor returns an artifact executable wrapped in an artifact field.
 

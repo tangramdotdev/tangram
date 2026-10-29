@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Building with a checksum flag that does not match the output fails with a checksum mismatch.
 

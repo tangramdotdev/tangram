@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Touching a watch injects a synthetic file system event so a subsequent checkin reflects the modified file.
 

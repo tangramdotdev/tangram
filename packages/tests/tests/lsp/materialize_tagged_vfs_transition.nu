@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 # A physical tag checkout left by a non-VFS run is removed when returning from the VFS to the physical store.
 

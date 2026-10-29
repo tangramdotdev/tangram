@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A spawned sandboxed process has a string id.
 

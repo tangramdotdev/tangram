@@ -1,6 +1,6 @@
 # This test checks in an unsolvable cycle, tags it, then checks in another package that imports it by tag, demonstrating that we can check in dependencies on pre-solved unsolvable cycles.
 
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 let local = server spawn
 

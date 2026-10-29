@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 # Checking and editor diagnostics preserve the same complete, indented TypeScript message chain.
 

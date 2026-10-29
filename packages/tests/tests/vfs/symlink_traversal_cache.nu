@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A warmed artifact path traverses a symlink without contacting the FUSE server again.
 

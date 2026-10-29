@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Value.print renders a command whose cwd, stdin, and user are absent without crashing and omits those fields.
 

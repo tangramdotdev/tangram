@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A finished remote process is a cache hit while the runner is still pushing its output. Readers of the output wait for the push to complete instead of failing.
 

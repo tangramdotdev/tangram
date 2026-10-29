@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.sleep with a zero duration resolves immediately.
 

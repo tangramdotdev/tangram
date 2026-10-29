@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Node-authorized control reads return output tokens that authorize reading the output once its pending transfer completes.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.file with more contents than fit in a blob leaf creates the same file as checking in the same contents, chunking the contents like checkin.
 

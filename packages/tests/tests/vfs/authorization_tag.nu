@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The VFS can authorize a tag target using the tag token returned by enumeration.
 

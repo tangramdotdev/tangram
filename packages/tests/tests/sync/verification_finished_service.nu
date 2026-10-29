@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Verification retries the index when a discovered sync finishes before its service can be contacted.
 let root_token = random chars

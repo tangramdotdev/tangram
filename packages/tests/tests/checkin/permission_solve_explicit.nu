@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu reference-access
+use ../../util/test.nu *
+use ../../util/checkin.nu reference-access
 
 # Solving an explicit unsolved artifact produces a reference that grants another user read access to the solved subtree.
 

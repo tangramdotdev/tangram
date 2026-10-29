@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Value.print renders a value across multiple indented lines when given an indentation option.
 

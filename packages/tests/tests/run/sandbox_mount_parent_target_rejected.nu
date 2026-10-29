@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox mount target cannot traverse above the guest root.
 

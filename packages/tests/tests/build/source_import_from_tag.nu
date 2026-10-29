@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Imports with source attributes resolve correctly when building from a published tag.
 # Building from a local path works, but building from a tag fails to resolve the sibling dependency.

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Membership confers write but not admin, so a member cannot delete the group.
 

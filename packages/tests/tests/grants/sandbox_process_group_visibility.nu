@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Sandbox access does not confer process access; a process grant is required.
 

@@ -1,4 +1,4 @@
-use ../../lib/sync_service.nu
+use ../../util/sync_service.nu
 
 # A pending sync request reports an error when its required object is missing.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process can return a child of the output of its own remote cache-hit child. Resolving the entry
 # pulls the output directory node, but the returned file remains remote until it is read.

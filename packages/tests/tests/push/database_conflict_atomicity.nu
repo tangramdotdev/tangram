@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A conflicting database node rejects the complete batch without committing non-conflicting siblings.
 

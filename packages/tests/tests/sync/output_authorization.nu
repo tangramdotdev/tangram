@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Starting a failed pull must not grant access to a private object already on the destination.
 let local_source = server spawn --name local-source

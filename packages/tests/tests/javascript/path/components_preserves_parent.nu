@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.path.components preserves parent-directory components rather than resolving them.
 

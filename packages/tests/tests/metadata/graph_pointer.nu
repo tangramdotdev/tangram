@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Requesting metadata for a graph directory pointer fails with an error indicating that a pointer was found instead of an object.
 

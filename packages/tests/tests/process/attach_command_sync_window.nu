@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The header, carrying the command sync, must arrive before the command push completes, and requests must not block the push.
 
-const script = path self ../../lib/process_attach_window.mjs
+const script = path self ../../util/process_attach_window.mjs
 let root_token = random chars
 
 # Spawn a scheduler with checkpoints enabled and no local runner.

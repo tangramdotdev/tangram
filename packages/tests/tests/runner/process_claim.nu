@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Only the runner that started a process may claim to act for it with the process header.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A run's stdio requests open concurrently with its attach, locating the process by the attach's nonce before the attach selects it.
 

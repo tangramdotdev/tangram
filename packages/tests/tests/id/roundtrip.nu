@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # tg id converts an id string to its binary form and back without requiring a server.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Container teardown kills a surviving descendant before returning, so the descendant releases the inherited standard output.
 

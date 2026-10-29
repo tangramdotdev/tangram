@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Two sandbox owners must not see or control each other's sandboxes.
 

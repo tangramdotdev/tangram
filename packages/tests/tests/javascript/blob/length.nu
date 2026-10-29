@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A blob's length accessor returns the byte length of its contents.
 

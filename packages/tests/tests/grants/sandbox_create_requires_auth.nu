@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Creating a sandbox requires authentication when the server enforces it.
 

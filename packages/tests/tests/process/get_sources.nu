@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Live control requests do not wait for the index; finished process gets do so to preserve finished logs.
 

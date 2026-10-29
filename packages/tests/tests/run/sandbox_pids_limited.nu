@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A container's process limit makes forking beyond the limit fail inside the container.
 

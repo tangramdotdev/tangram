@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 let host = $'(^uname -m | str trim | str replace arm64 aarch64)-(if $nu.os-info.name == macos { 'darwin' } else { $nu.os-info.name })'
 let remote = server spawn --name remote

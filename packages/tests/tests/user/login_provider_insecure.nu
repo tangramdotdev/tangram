@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The insecure login provider is selected implicitly when it is configured.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Putting non-utf-8 input without the bytes flag fails because values must be parsed from text.
 

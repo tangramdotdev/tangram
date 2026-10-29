@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Many concurrent sandboxed processes spawn through per-sandbox FUSE mounts that use the automatic io_uring transport.
 

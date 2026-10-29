@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Test metadata for a package with conflicting tag dependencies that cannot be solved.
 

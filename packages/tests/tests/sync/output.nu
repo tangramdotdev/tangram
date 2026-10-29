@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Setup returns a reusable sync referent before transfer messages arrive and rejects missing, mismatched, and forged proofs.
 
-const helper = path self ../../lib/sync_service.py
+const helper = path self ../../util/sync_service.py
 let root_token = random chars
 let local = server spawn --name local --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },

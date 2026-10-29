@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A command builder preserves its env mapper when creating a process builder.
 

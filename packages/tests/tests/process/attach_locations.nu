@@ -1,7 +1,7 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote connection can select another region, and an existing process can be discovered there.
-const proxy_path = path self ../../lib/process_attach_proxy.mjs
+const proxy_path = path self ../../util/process_attach_proxy.mjs
 let port = port
 let log = mktemp
 let ready = mktemp -d | path join ready

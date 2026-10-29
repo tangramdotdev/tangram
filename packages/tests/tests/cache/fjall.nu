@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The Fjall cache preserves object bytes and process logs across a server restart.
 

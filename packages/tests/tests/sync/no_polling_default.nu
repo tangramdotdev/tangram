@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A tokenless local miss fails without waiting for a polling timeout.
 

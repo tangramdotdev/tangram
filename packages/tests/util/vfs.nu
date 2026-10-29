@@ -1,4 +1,4 @@
-use ../lib/test.nu *
+use ../util/test.nu *
 
 export def skip_unless_supported [] {
 	if $nu.os-info.name == 'macos' and (($env.TANGRAM_TEST_FSKIT? | default '') | str length) == 0 {

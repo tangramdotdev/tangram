@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Sandbox creation completes when a second cloud scheduler joins without any registered runners.
 

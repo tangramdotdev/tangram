@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Publishing a package with a transitive chain of source-path dependencies publishes all three packages in topological order, tags them on the remote, syncs objects and metadata, and rewrites every dependency reference to use a tag rather than a path.
 

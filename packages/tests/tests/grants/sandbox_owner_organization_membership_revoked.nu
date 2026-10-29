@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An organization member loses get, list, and destroy on an organization-owned sandbox once their membership is revoked.
 

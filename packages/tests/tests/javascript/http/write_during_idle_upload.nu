@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # An active upload must keep its HTTP/2 connection available for another request.
 let local = server spawn --config { http: { idle_timeout: 0.1 } }

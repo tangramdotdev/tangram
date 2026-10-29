@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox read falls back to the index when control cannot answer within the configured deadline.
 let local_owner = server spawn --name local-owner --config {

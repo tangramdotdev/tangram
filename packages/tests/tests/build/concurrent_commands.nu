@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The results of commands run concurrently with `Promise.all` are
 # all returned and can be aggregated correctly.

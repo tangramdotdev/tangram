@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # --no-lock does not write any lock for a file with a tag dependency.
 

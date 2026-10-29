@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote process's children stream uses runner notifications and preserves pagination and locations.
 

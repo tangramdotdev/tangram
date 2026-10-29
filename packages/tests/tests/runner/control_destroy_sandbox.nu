@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 let quota_root = $env.TANGRAM_TEST_PROJECT_QUOTA_PATH? | default ''
 if $nu.os-info.name == 'linux' and ($quota_root | is-empty) {
@@ -7,7 +7,7 @@ if $nu.os-info.name == 'linux' and ($quota_root | is-empty) {
 
 # DestroySandbox control requests enforce runner ownership and are idempotent.
 
-const driver = path self ../../lib/runner_control_destroy_sandbox.py
+const driver = path self ../../util/runner_control_destroy_sandbox.py
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { multi_server: true },

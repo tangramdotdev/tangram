@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pushing a tag captures only the permissions available at the destination.
 

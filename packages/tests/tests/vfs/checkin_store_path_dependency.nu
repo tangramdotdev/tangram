@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process checks in a dependency it has read through the VFS without an authorization search.
 

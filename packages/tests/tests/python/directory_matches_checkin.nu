@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # tg.directory in Python creates the same directory as checking in the same entries, splitting a directory with more entries than fit in a leaf into branches.
 

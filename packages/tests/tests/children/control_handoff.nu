@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A children request refreshes the index if its control response becomes unavailable during completion.
 

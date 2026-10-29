@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking out a directory containing a file with an id-keyed dependency, with dependencies enabled, materializes the directory and its dependency on disk.
 

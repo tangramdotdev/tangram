@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.archive and tg.extract round-trip a directory through the zip format.
 

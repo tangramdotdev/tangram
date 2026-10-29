@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Revoking group membership removes a group process grant while the builder keeps independent access.
 

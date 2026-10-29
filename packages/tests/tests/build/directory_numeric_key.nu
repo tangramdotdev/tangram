@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A directory can be created with a numeric string key and produces the expected directory identifier.
 

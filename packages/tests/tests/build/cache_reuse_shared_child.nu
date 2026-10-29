@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Two different builds that depend on the same child reuse the cached child process rather than re-running it.
 

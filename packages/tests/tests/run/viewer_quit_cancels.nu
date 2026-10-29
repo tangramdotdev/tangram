@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Typing q in the fullscreen viewer exits successfully and cancels the process through its wait lease.
 
-const driver = path self ../../lib/pty_driver.py
+const driver = path self ../../util/pty_driver.py
 
 if (which python3 | is-empty) {
 	skip_test "this test requires python3"

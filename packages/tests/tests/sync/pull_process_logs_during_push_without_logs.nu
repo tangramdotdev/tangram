@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A pull for missing logs fails once the sync completes; a pull for what it carries succeeds.
 

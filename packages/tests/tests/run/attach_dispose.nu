@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Disposing an attached handle cancels its process and closes the connection.
 let local = server spawn

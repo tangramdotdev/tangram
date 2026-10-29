@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The processes health reflects a started process in the started count and the available capacity.
 

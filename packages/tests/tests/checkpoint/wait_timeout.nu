@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A checkpoint wait with a timeout fails when the hit does not occur in time.
 

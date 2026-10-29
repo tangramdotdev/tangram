@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Account and usage commands select the default remote when their local features are disabled.
 let remote = server spawn --name remote --config {

@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/archive.nu *
+use ../../util/test.nu *
+use ../../util/archive.nu *
 
 # Graceful shutdown waits for a single-server blob batch to finish archiving.
 skip_test --cloud

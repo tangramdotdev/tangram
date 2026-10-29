@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 let local = server spawn
 let source = "export class Box {\n    size(): number {\n        return 1;\n    }\n}\n/** Greet a friend. */\nexport function greet(name: string): string {\n    return name;\n}\nconst answer = greet(\"Ada\");\nconst box = new Box();\nbox.size();\nanswer;\n"

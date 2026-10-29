@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An object with more than 1 MiB of data is rejected by the server, whether it is put with the CLI or sent directly.
 

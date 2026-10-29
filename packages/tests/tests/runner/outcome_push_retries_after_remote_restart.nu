@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A runner whose outcome push is interrupted by a remote restart retries the push, so the outcome objects reach the remote.
 

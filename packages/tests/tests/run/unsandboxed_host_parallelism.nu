@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # tg.host.parallelism reports a positive value to an unsandboxed process.
 

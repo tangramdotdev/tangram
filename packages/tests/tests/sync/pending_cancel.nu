@@ -1,4 +1,4 @@
-use ../../lib/sync_service.nu
+use ../../util/sync_service.nu
 
 # Canceling a pending sync request removes its pending transfer.
 

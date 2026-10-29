@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A subtree grant lets the grantee rely on the granted objects already stored on the remote, transferring only the new object.
 

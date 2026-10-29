@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A node cannot replace a different kind at the same specifier without force.
 

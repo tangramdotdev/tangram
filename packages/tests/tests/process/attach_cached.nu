@@ -1,7 +1,7 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A local spawn that selects a remote cached process forwards the connection, and the cached process's logs remain readable.
-const driver = path self ../../lib/process_attach.mjs
+const driver = path self ../../util/process_attach.mjs
 let remote = server spawn --name remote
 let path = artifact {
 	tangram.ts: '

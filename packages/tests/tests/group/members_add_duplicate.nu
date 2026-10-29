@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Adding a member that is already in the group fails because the membership already exists.
 

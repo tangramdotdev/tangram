@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A wait that locates a process by an attach's nonce before the attach exists receives the process's outcome, and a wait by a nonce that no attach owns is not found.
 
-const script = path self ../../lib/process_nonce.mjs
+const script = path self ../../util/process_nonce.mjs
 let server = server spawn --config {
 	advanced: { checkpoints: true },
 	process: { attach: { service: { request_timeout: 5 } } },

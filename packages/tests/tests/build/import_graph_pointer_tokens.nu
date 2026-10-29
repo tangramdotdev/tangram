@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Building through a graph pointer preserves the tokens needed to authorize its imports.
 

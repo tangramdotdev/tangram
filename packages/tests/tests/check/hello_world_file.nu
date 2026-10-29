@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The check command succeeds for a package whose default export returns a tg.file constructed from a string.
 

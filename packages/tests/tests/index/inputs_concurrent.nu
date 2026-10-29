@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Start the queue and indexer waits together, without waiting for log cleanup.
 let local = server spawn --config {

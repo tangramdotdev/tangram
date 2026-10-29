@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Node grants permit reading and sharing, while parent grants permit spawn and destroy.
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }

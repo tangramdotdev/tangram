@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A child's output is readable through the tokens its wait returns when authorization searches are disabled.
 

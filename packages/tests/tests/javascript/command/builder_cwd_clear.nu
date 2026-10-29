@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # The builder's cwd method accepts null to clear the working directory.
 

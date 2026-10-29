@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Reusing a tag solution lets a trusted referrer make the reference grant another user read access to the dependency, independent of traversal order.
 

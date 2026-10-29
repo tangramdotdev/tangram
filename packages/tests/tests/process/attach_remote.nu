@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process connection can reach a process located on a remote server.
 
-const driver = path self ../../lib/process_attach.mjs
+const driver = path self ../../util/process_attach.mjs
 let remote = server spawn --name remote --config { advanced: { checkpoints: true } }
 let local = server spawn --name local --config { remotes: { default: { url: $remote.url } } }
 let path = artifact { tangram.ts: 'export default async () => { await tg.sleep(60); };' }

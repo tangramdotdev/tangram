@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # tg tag delete --recursive removes all tags in a nested hierarchy, deleting children before their parents, and leaves no matching tags behind.
 

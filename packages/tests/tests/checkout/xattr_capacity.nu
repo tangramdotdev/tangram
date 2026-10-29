@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Increasing dependency counts must not let optional tokens crowd out required module and lock xattrs.
 

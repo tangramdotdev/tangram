@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Reading a graph directory pointer directly fails with an error indicating that a directory cannot be read.
 

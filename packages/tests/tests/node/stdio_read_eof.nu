@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A reverse stdout read resumes from the clipped position after losing its connection.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A directory's sync waits on both producer syncs when its files are still transferring.
 let root_token = random chars

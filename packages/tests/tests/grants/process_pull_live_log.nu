@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pulling a process with its logs must not let a node-only reader obtain a live log. Sync omits live logs, and the process is kept running so its log cannot be transferred as a finished object.
 

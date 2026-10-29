@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 # Python go-to-definition into a tagged dependency stays correct after authorization refreshes and follows dependency updates.
 

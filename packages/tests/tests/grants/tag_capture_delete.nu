@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A capture write prepared before deletion must not restore a deleted tag's target permissions.
 

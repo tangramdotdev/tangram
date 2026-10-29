@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Stdout written after a delay by a sandboxed child process is inherited and captured on the parent run's stdout.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Value.print omits absent optional error and executable fields rather than rendering them as null.
 

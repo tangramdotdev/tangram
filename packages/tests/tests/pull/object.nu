@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pulling an object by id fetches it from the remote and makes it present locally.
 

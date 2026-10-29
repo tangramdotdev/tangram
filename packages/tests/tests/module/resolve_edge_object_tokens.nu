@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/module.nu *
+use ../../util/test.nu *
+use ../../util/module.nu *
 
 # Resolving Edge::Object modules returns tokens for the resolved file IDs, so a user who holds only the command token can resolve each subsequent import.
 

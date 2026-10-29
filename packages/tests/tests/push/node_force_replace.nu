@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Force replaces conflicting destination nodes and their complete named subtrees during push.
 

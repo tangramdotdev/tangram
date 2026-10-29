@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A pull omits local index requests for incoming objects and processes whose requested fields are
 # already available in the sync graph.

@@ -1,7 +1,7 @@
 # CLI tests
 
 These are the end-to-end tests for tangram. Each `.nu`
-file in `tests/` is one self-contained test, and `lib/` holds the shared helpers. The `packages/tests/test.nu` script builds
+file in `tests/` is one self-contained test, and `util/` holds the shared helpers. The `packages/tests/test.nu` script builds
 Tangram and the test runner in `packages/tests/packages/runner`, then runs the tests with it.
 Run them with `bun run test:cli [pattern]`, which runs
 `nu packages/tests/test.nu [pattern]`, where `pattern` is an optional regex
@@ -74,7 +74,7 @@ not the mechanics that the code already makes obvious. Avoid boilerplate
 prefixes such as "Verifies that" or "This test".
 
 ```nushell
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # <The single behavior that must hold>.
 ```
@@ -86,7 +86,7 @@ Comments are complete sentences that end in periods and do not use contractions.
 A test verifies a single behavior and ideally takes a single snapshot (or a
 tight cluster of snapshots for that one behavior). Reuse the `server spawn`,
 `artifact { ... }`, `snapshot`, `success`, and `failure` helpers from
-`lib/test.nu`. Tests import this helper module, not the launcher in
+`util/test.nu`. Tests import this helper module, not the launcher in
 `test.nu`. When a file would test several independent behaviors, split it
 into one file per behavior.
 
@@ -161,7 +161,7 @@ snapshot --normalize --redact [$path $server.directory] $output.stderr '…'
 ### 5. Synchronize with `wait_until`, not `sleep`
 
 Never wait for the system with a bare `sleep` or a hand-rolled polling loop.
-Use the `wait_until` helper from `lib/test.nu`, which polls a condition and errors
+Use the `wait_until` helper from `util/test.nu`, which polls a condition and errors
 with a clear message after a timeout:
 
 ```nushell
@@ -196,7 +196,7 @@ the commit that introduced the test, when the fix cannot be attributed):
 ### 7. Skip tests whose prerequisites are missing
 
 When a test cannot run in the current environment — a platform-specific
-feature, a missing external tool — call the `skip_test` helper from `lib/test.nu`
+feature, a missing external tool — call the `skip_test` helper from `util/test.nu`
 with the reason instead of returning early or failing:
 
 ```nushell
@@ -242,13 +242,13 @@ needs an explicit call when it reaches the network some other way.
 
 ### 10. Use a local HTTP server for download tests
 
-Import `lib/http.nu` and call `spawn_http_server` with responses keyed by URL
+Import `util/http.nu` and call `spawn_http_server` with responses keyed by URL
 path. The helper listens on an OS-assigned port, waits for startup,
 and uses the test harness to clean up the server, including on failure or timeout.
 These tests can run with `--offline`.
 
 ```nushell
-use ../../lib/http.nu *
+use ../../util/http.nu *
 
 let http = spawn_http_server {
 	'/file.txt': { body: "hello, world!\n" },
@@ -290,7 +290,7 @@ failure $output "a user without read permission should not be able to get anothe
 ### 12. Leave nothing running
 
 A test must stop every process it starts. Start servers and fixtures with the
-helpers in `lib/`, which stop them when the test ends, and stop anything else
+helpers in `util/`, which stop them when the test ends, and stop anything else
 before the test exits. The runner fails a test whose processes are still running
 two seconds after it exits, and reports them as leaks.
 

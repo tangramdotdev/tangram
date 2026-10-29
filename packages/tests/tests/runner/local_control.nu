@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Connected and standalone runtime operations on processes in a runner succeed.
 

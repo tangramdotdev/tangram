@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Reading local runner state must not redirect signals away from the remote process control connection.
 

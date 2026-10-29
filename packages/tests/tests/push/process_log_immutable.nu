@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A finished log is present on the first push and remains immutable for ordinary users.
 let root_token = random chars

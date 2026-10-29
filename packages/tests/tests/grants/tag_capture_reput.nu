@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Putting a tag again with the same target recaptures the permissions that were established after the first put.
 

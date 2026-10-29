@@ -1,7 +1,7 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A local node capability must not hide parent authority on the owner or in a local grant.
-const attach_helper = path self '../../lib/process_attach.mjs'
+const attach_helper = path self '../../util/process_attach.mjs'
 let remote_root = random chars
 let runner_root = random chars
 let remote = server spawn --name remote --config {

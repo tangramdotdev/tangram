@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Only a token accepted by authorization limits how long the returned tokens grant access.
 

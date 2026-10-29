@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Duplicate references share their tokens without changing the output paths or authorizing other artifacts.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process can return a readable wrapper around an unreadable object without gaining access to the child.
 

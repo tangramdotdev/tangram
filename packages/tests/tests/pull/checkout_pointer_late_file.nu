@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A pull that receives a blob before the file that uses it leaves the blob and the file readable without the remote.
 

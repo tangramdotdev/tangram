@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 # The language server exits after the exit notification even though its client keeps stdin open, as an editor does.
 

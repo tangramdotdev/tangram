@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Getting a sandbox succeeds when one remote has it, even if another remote fails.
 

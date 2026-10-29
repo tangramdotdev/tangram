@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Indexing correctly computes metadata for packages with tagged dependencies.
 # This test creates a package that imports a tagged dependency, then incrementally puts

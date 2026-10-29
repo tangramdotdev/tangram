@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A stdin relay whose response body fails mid-stream is reopened, so every byte arrives exactly once.
 
-const proxy_path = path self ../../lib/stdio_reset_proxy.mjs
+const proxy_path = path self ../../util/stdio_reset_proxy.mjs
 
 let root_token = random chars
 let remote = server spawn --name remote --config {

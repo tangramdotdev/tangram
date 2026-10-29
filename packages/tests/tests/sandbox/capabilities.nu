@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Every Linux backend keeps podman's default capabilities for a root workload and drops them for other users.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }

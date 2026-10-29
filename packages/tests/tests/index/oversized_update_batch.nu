@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # FoundationDB must split an update batch that exceeds its transaction limit.
 let local = server spawn --cloud --config {

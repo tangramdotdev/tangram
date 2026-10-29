@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Getting the children of an object by a well formed id that does not exist fails.
 

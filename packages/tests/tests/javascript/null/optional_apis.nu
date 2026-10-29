@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Public APIs accept null for optional values and interpret it as None.
 

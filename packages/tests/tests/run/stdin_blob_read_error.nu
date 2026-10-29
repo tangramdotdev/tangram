@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A missing stdin blob fails the process, including when the child exits without reading stdin.
 

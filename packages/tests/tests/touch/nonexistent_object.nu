@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Touching an object by a well formed id that does not exist fails.
 

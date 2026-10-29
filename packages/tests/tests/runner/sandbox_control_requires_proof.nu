@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Only a runner that proves that it derived a sandbox's ID may open a sandbox control connection for a new sandbox and receive its token.
 
-const helper = path self '../../lib/sandbox_control_connect.py'
+const helper = path self '../../util/sandbox_control_connect.py'
 let root_token = random chars
 let local = server spawn --config { authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } } }
 let mallory = tg login --verbose --name mallory | from json

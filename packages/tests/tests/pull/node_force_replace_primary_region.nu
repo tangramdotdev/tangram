@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pulling with force through a secondary region replaces conflicting nodes in the primary region.
 

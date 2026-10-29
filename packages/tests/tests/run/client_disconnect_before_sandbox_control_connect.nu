@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Disconnecting tg run before sandbox control connects can leave the accepted pre-wait sandbox running.
 

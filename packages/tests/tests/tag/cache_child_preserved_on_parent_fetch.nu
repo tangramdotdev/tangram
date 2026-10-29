@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A cached child tag is not evicted when its parent branch is later fetched.
 

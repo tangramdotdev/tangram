@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu checkin-output
+use ../../util/test.nu *
+use ../../util/checkin.nu checkin-output
 
 # Canonicalization determines which store root must be authorized.
 

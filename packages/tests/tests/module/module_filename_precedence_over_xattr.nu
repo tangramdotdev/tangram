@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Filename pattern takes precedence over xattr.
 # A file named foo.tg.ts with xattr "javascript" should be detected as "typescript".

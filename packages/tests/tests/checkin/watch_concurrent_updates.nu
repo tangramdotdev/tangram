@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Concurrent selective updates compare against the watcher revision they originally observed.
 

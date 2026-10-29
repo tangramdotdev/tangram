@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The serve command can define a remote while the global options mark it as trusted.
 

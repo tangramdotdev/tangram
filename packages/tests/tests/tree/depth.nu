@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The depth flag limits the tree to the given number of levels below the root.
 

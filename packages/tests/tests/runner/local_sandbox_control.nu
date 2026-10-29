@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Local sandbox operations succeed on the runner without borrowing the runner's authority.
 let root_token = random chars

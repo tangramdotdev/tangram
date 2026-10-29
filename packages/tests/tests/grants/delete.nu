@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Deleting a grant removes it, and revoke is an alias for delete.
 

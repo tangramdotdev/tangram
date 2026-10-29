@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A restarted runner destroys its previous sandboxes and finishes their processes before the scheduler TTL expires.
 let root_token = random chars

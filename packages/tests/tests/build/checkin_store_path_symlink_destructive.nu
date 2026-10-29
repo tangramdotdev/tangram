@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process can check in the store path of a symlink target that a destructive check-in put in the store without an authorization search.
 

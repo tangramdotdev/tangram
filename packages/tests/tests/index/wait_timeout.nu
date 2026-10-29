@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An acknowledged request to await indexing must survive its acknowledgment timeout without being replaced.
 let local = server spawn --config {

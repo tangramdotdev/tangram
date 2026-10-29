@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Releasing the same lease more than once is an idempotent no-op while the process is still running.
 

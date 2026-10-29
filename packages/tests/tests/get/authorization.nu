@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A reference token for an ancestor authorizes pattern selection, listing, and following.
 

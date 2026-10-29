@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Placeholder.expect returns the value unchanged when it is a placeholder.
 

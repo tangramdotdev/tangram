@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Process put preserves permissions authorized by supplied tokens without authorization searches or widening their scope.
 def get-object [socket: string, token: string, id: string] {

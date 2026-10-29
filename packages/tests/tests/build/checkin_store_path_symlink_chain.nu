@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Directory checkout tokens authorize symlink targets through chains, duplicate inputs, and reused checkouts.
 

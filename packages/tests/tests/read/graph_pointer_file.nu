@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Reading a graph file pointer returns the contents of the referenced file.
 

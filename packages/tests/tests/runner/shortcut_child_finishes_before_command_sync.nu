@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut child must deliver its outcome while command sync is still held.
 

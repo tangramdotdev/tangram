@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Logging in with an email associates the email with the user, and re-logging in with the same email is idempotent.
 

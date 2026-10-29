@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.encoding.hex.encode encodes a byte array to a lowercase hexadecimal string.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A file's bytes accessor returns its contents as a byte array.
 

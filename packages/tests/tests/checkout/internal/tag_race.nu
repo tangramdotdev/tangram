@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A tag mutation racing a checkout takes effect for later checkouts.
 

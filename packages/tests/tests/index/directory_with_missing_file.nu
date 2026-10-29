@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Indexing correctly computes metadata for incomplete objects.
 # This test puts a directory object with a missing file child, verifies the metadata

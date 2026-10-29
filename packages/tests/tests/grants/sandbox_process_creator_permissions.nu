@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The process creator receives parent authority independently of the sandbox creator.
 let local = server spawn --name local --config { authentication: { users: { providers: { insecure: true } } } }

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Requesting compression with the zip format fails, because zip archives have their own internal compression.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Applying a prepend mutation inserts its values before an existing array.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A finished process retains the sync token for its log, so a process node reader can read the log across servers.
 

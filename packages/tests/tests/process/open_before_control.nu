@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The runner of a scheduled process opens the stdio streams that the attach declared before its process control connection returns, because the assignment carries the opens.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Extra remove and rename notifications are accepted, but real changes invalidate a snapshotted checkin.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Applying a prefix mutation prepends a template to the existing value, joined by the separator.
 

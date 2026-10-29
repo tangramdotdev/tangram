@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # At most one of the owner, user, group, and organization options may be provided.
 

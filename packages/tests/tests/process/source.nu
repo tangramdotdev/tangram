@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Source selection distinguishes live completion from indexed completion locally and across remotes.
 for remote_runner in [false true] {

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # An unresolved promise does not keep a completed JavaScript result pending.
 

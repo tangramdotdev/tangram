@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Process get returns scoped tokens that let a user without grants read the authorized objects when searches are disabled, including with metadata and availability reads.
 def get-process [socket: string, user_token: string, process: string, token: string = '', metadata: bool = false, availability: bool = false] {

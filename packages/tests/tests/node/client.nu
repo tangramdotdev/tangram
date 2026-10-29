@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The node client reads and writes its protocol messages using the expected framing.
 

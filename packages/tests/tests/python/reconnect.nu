@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A detached process preserves its stdio cursors across an HTTP/2 disconnect.
 

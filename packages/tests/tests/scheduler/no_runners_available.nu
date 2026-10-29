@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox request that no runner can satisfy keeps waiting for a compatible runner instead of failing.
 

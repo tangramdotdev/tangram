@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Publishing a package whose dependency graph contains both an import cycle and acyclic dependencies tags every package in a valid order on both servers, syncs the objects, and produces matching metadata.
 

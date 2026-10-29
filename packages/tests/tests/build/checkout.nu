@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Building with --checkout and no path prints a path to the checked out output.
 

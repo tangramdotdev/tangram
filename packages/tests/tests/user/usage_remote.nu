@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Usage forwards account selection and period selectors to the requested remote.
 let remote = server spawn --now 2026-08-11T12:00:00Z --config {

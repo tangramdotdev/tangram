@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.graph concatenates multiple graphs, offsetting the second graph's node indices.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A slow remote must not hold up another remote's successful sandbox read.
 let remote_slow = server spawn --name remote-slow --config { control: { read_timeout: 60 } }

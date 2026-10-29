@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Killing a sandbox while its process is logging must not block indexing.
 

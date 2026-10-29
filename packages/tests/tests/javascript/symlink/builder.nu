@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # The builder's artifact and path methods set the symlink's fields.
 

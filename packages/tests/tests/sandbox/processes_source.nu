@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Listings preserve their source, pagination, and IDs after individual runner processes retire.
 let local_owner = server spawn --name local-owner --config {

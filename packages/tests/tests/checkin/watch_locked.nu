@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # --watch with --locked prevents updating a stale lock.
 

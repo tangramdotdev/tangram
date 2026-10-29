@@ -1,4 +1,4 @@
-use ../../lib/sync_service.nu
+use ../../util/sync_service.nu
 
 # A client cancellation stops its pending sync service request.
 

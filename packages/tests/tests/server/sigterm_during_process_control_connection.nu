@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # SIGTERM terminates a process that starts before its process control stream connects.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Granting several permissions in a single command confers all of them at once.
 

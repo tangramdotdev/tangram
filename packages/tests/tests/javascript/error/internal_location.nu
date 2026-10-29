@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Errors thrown by the embedded runtime include source-mapped internal stack locations when enabled.
 

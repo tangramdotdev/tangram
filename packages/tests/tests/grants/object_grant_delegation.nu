@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Granting an object permission requires only that permission, not admin, so a subtree grantee can delegate the subtree but a node grantee cannot.
 

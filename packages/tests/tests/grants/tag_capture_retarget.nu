@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A capture write prepared for an old version must do nothing after a tag changes targets.
 

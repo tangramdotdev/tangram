@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut child starts, stores its output, and sends Finish while the remote holds its control header.
 

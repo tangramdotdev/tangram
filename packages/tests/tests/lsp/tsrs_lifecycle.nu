@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 # Repeated, interleaved, changed, and failed TypeScript requests return correct results from the retained language service.
 

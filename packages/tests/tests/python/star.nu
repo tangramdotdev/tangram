@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 let local = server spawn
 let message = 'star imports are not supported in python modules; use explicit imports'

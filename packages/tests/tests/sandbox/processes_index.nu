@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Synthetic checksum results have no sandbox and must not appear in sandbox process lists.
 

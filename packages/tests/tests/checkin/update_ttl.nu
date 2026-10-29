@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The checkin and update commands honor the remote cache TTL, keeping the cached version by default and picking up a newer remote version only with --tag-ttl 0.
 

@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu reference-access
+use ../../util/test.nu *
+use ../../util/checkin.nu reference-access
 
 # A dependency grant that is not embedded in its reference is not observed with solving disabled, so the checked-in file's reference does not grant another user access to the dependency.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process error carries the authorization token for the receiving sync while its object is still being pushed.
 

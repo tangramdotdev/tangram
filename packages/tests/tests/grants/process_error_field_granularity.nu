@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A grant on the process error field confers only the error object, leaving the process node and other fields masked.
 

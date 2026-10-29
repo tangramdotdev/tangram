@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking out a simple file preserves writable permissions with and without a prior internal checkout.
 

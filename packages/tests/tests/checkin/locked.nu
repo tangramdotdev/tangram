@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a package whose lockfile is missing a newly added import fails under --locked, even when combined with --unsolved-dependencies.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The --mount flag mounts an artifact into a sandboxed process at the given target path so its contents are accessible.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote runner must be able to push the error of a process whose child failed. The parent's error names the child's error object by id, the parent holds no grant on it, so the parent's error object is stored with only a node grant and the push reports the child's error object as missing.
 

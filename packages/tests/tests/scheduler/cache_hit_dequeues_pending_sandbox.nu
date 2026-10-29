@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A cache hit removes the process from the pending sandbox queue.
 

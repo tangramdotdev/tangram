@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/vfs.nu
+use ../../util/test.nu *
+use ../../util/vfs.nu
 
 # Every VFS directory entry reports a nonzero inode number.
 

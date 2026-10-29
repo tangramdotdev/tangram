@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.encoding.json.encode serializes a value to a compact JSON string.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A child build that provides a checksum may enable the network even though its parent build's sandbox does not have the network enabled.
 

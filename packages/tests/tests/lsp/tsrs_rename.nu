@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 let source = "const value = 1; const object = {value}; object.value;\nconst record = {\"123\": 1}; record[\"123\"];\n"
 let local = server spawn

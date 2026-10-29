@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # With concurrent pushes enabled, a process without logged stdio queues Finish before control or initial indexing completes.
 

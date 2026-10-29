@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A queued process connects after the scheduler makes it runnable.
 

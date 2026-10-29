@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A process spawned from within a sandbox inherits the sandbox's host before the server default.
 

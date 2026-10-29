@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # --public does not require --detach: a foreground public build is reusable by another owner.
 

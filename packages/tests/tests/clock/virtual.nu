@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A server's virtual clock reports its time, moves only when set or advanced, and can be set to an earlier time.
 

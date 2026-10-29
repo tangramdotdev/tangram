@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A push with subtree authorization can use a missing child stored at the destination.
 

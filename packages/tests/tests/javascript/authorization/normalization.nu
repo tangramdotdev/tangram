@@ -1,6 +1,6 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
-const authorization = path self ../../../lib/authorization.ts
+const authorization = path self ../../../util/authorization.ts
 
 # Assignment, inheritance, loading, storing, and collection use the same coverage rules.
 let local = server spawn

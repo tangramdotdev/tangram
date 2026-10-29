@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The runner seeds existing executable, argument, and environment tokens before starting the process.
 

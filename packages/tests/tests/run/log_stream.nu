@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # tg log can read a process's log output by position and length, both forwards and backwards.
 

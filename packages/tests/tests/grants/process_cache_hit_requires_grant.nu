@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A cache hit must not confer read access to a process the principal cannot read: building a command another principal already built returns a fresh process for the unauthorized principal, while an authorized principal still reuses the cached process.
 

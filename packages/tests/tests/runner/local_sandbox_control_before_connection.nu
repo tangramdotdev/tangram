@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A scheduled sandbox can be destroyed before its control connection returns.
 let root_token = random chars

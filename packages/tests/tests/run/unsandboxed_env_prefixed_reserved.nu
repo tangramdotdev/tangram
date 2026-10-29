@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Passing a TANGRAM_ENV_ prefixed environment variable via --env-string fails because the prefix is reserved.
 

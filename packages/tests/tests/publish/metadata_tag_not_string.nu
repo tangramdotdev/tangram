@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Publishing a package whose metadata tag is not a string fails.
 

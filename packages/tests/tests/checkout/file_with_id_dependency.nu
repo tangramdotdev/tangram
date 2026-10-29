@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking out a file with an id-keyed dependency, with dependencies disabled, materializes only the file on disk.
 

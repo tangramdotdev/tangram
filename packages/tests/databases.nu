@@ -2,7 +2,7 @@
 
 use std/util 'path add'
 
-use tests/lib/test.nu [database_pool_acquire foundationdb_cluster_description]
+use util/test.nu [database_pool_acquire foundationdb_cluster_description]
 
 const repository_path = path self '../../'
 const database_pool_directory_name = 'tangram_test_database_pool'

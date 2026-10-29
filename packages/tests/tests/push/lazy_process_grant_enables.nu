@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process subtree grant covering each transferred field lets the grantee rely on a private child process subtree the remote already holds.
 

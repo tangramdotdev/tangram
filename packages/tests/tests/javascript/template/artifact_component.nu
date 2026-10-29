@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.template keeps an artifact as its own component, separating the surrounding string components.
 

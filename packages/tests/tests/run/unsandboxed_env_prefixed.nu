@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An environment variable set on an unsandboxed process is visible both under its plain name and under its TANGRAM_ENV_ prefixed name.
 

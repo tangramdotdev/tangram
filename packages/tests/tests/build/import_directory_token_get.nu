@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Importing a token-bearing directory reference resolves its dependency with a get path.
 let local = server spawn

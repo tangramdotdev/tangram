@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A destructive checkin of a package that imports a tagged dependency resolves the dependency from the local store.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A forcibly terminated server leaves locks which the test harness can remove.
 let local = server spawn

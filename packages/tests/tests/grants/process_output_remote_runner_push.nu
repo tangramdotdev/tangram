@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Verify whether a remote runner can spawn a process created by a credentialed user, push its output, and the user can see the result.
 

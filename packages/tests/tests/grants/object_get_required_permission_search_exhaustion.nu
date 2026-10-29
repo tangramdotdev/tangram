@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Exhausting a required permission search must not report that an existing object is absent.
 let local = server spawn --config {

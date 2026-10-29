@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Default usage totals include each regional index exactly once.
 def sum_usage [left: record, right: record] {

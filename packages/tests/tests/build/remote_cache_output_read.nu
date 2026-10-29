@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox can read an artifact returned by a remote process cache lookup without network access.
 

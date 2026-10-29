@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An indexed wait returns the authorization token for the process sync while the outcome sync is still blocked.
 let root_token = random chars

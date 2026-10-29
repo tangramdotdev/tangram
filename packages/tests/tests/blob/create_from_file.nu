@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Writing a file through standard input creates a blob whose retrieved contents match the snapshot.
 

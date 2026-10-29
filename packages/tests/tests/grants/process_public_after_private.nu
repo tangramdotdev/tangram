@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # --public publicizes a process even on a cache hit: building privately and then --public the same command must make the output publicly readable.
 

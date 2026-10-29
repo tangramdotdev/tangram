@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A file's token authorizes the checkin of its dependencies when the dependency references have no tokens.
 

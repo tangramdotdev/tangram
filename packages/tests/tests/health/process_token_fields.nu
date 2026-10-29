@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process may request only the diagnostics and version health fields from its sandbox.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build can invoke tg.run on a command from within a nested build and complete successfully.
 

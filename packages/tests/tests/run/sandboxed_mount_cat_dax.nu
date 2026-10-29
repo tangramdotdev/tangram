@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A DAX sandbox can read an artifact through its mounted path.
 

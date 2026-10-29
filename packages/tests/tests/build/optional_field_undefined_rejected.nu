@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Optional fields may be omitted or set to null, but they may not be set to undefined.
 

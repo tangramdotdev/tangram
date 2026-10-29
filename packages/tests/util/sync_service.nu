@@ -1,4 +1,4 @@
-use ../lib/test.nu *
+use ../util/test.nu *
 
 const helper = path self sync_service.py
 

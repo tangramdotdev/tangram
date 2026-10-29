@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A symlink created from an artifact-and-path template splits into an artifact and a path.
 

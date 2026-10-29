@@ -1,4 +1,4 @@
-use ../../lib/sync_service.nu
+use ../../util/sync_service.nu
 
 # The sync service selects candidates that meet the requested requirements.
 

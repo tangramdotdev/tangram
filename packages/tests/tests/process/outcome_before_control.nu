@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The runner of a scheduled process pushes the outcome before its process control connection returns, because the assignment carries the outcome sync.
 

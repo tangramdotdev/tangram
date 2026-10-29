@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The format flag selects the compression encoding, as evidenced by each format's magic bytes.
 

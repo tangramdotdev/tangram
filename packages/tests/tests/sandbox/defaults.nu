@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Omitted resources are unlimited, configured defaults are enforced, and explicit requests take precedence.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux cgroups' }

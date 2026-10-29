@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Removing a file from a watched directory invalidates the directory so the next watched checkin drops it and matches a cold checkin.
 

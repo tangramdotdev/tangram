@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The organization members subcommand exposes the ls and rm aliases for list and remove.
 

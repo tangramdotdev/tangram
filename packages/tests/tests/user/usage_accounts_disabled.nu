@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Usage selects local independently of account management.
 let remote = server spawn --name remote --config { usage: true }

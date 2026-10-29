@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A registered checkpoint panic fails the request that hits the checkpoint.
 let root_token = random chars

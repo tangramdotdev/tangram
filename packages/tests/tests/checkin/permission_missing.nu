@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Solving fails when an explicit dependency is unavailable. Without solving, the checkin succeeds.
 

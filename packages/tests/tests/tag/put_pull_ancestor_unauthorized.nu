@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A denied ancestor probe preserves its specifier and falls back to local creation.
 

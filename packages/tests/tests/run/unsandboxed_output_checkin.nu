@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The output directory written by an unsandboxed process is checked in as a directory artifact containing the expected file contents.
 

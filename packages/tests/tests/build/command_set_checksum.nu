@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build whose command sets an explicit sha256 checksum fails when the command is not eligible for a checksum.
 

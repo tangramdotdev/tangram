@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.encoding.yaml.decode parses a YAML string into a value.
 

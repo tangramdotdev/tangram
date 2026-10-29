@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Internal and external directory checkouts retain exact permanent tokens on roots and nested directories.
 

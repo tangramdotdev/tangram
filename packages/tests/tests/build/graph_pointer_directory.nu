@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A graph pointer referencing a directory node can be built and resolves to the default export of the module file inside that directory.
 

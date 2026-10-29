@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An attach's command push that retries after the remote restarts still completes.
 let root_token = random chars

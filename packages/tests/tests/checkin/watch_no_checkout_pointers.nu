@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A watched package checked in with --no-checkout-pointers resolves a tag dependency once it is created and the module contents remain readable.
 

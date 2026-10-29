@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Tagging with a subtree proof that is verified only by a previous secret confers permanent access to the target subtree.
 

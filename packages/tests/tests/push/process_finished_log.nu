@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Finish waits for log finalization while output checkin proceeds concurrently.
 for mode in [--eager --lazy] {

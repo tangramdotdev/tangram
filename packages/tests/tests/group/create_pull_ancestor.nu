@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Creating a nested group pulls an existing remote parent by default.
 

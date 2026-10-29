@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Tagging with an exact subtree token confers permanent access to the target subtree that outlives the token.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Renewing a parent token refreshes cached descendants and graph symlink targets without authorization search.
 

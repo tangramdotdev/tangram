@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cleaning retains the contents of a tagged file produced by sync.
 

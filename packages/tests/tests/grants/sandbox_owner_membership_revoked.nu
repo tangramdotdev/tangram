@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A group member loses get, list, and destroy on a group-owned sandbox once their membership is revoked.
 

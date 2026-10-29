@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build that waits on its process through an attach fails when the remote crashes and stays down.
 let root_token = random chars

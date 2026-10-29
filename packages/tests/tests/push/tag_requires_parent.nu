@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pushing a nested tag rejects a missing parent with ancestors=never and pulls it by default.
 

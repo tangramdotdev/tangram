@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An unsandboxed child process inherits the parent's cwd and TANGRAM_URL while receiving a distinct TANGRAM_OUTPUT path.
 

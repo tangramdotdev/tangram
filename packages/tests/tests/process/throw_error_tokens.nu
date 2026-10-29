@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A thrown JavaScript error should be indexed without an authorization search.
 

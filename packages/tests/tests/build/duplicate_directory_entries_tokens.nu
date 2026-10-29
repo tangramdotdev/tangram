@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Duplicate directory entries retain build authorization when authorization searches are disabled.
 

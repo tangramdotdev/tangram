@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # When a child process throws an error, both the child error and the parent's wrapping error carry the expected message, source, and stack information.
 

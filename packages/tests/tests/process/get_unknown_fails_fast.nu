@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A request for an unknown process that is too old to be starting fails without waiting for the process's control service.
 

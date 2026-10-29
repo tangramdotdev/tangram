@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A package whose modules import each other in a cycle builds successfully.
 

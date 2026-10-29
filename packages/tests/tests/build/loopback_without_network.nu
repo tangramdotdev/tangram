@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process without network access can reach a service it starts on the loopback interface.
 

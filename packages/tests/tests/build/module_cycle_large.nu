@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Building and checking out a package whose modules form a large import cycle must take time linear in the number of modules.
 

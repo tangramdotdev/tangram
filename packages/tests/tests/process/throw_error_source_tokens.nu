@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Module referents cover both an error and its inline cause without an authorization search.
 

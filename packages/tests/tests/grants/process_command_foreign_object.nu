@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Referencing a private command by id does not leak it: building tg.Command.withId of a command the builder cannot read must not grant the builder read access to that command.
 

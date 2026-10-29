@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The --executable flag sets the path on the artifact executable rather than resolving the path to the artifact at it.
 

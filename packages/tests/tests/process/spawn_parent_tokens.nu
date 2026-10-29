@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Every CLI process referent carries a parent capability, including cached and remote results.
 let remote = server spawn --name remote

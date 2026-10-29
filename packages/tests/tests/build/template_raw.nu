@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The tg.Template.raw template literal preserves the literal indentation and whitespace of its body and matches the snapshot.
 

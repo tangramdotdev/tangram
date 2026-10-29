@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The tree stays on the exact remote selected by the initial get.
 

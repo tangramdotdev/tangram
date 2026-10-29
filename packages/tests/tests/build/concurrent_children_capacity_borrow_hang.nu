@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # With one CPU, a parent holding the runner's only allocation spawns more children
 # than there is capacity for, so children run by borrowing the parent's allocation.

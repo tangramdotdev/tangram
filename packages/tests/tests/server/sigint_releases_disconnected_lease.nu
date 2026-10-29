@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A client disconnect during graceful shutdown must still release its process lease.
 let local = server spawn --name local --config {

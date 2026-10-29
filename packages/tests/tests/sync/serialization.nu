@@ -1,7 +1,7 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Request and response encodings are independent, including the framed arg and header.
-const helper = path self ../../lib/sync_serialization.py
+const helper = path self ../../util/sync_serialization.py
 let source = server spawn --name source
 let group = tg --url $source.url group create foo | from json
 let id_hex = tg id $group.id | into binary | encode hex

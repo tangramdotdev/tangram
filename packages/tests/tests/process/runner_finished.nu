@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cleaned processes disappear after local cleaning or remote runner state expiry.
 

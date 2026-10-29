@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Decompressing a blob that is not compressed fails with an invalid compression format error.
 

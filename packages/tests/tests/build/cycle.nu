@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build whose command builds itself fails because it creates a process cycle.
 

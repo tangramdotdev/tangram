@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The installed Python client uses its default host and the inherited Tangram URL.
 

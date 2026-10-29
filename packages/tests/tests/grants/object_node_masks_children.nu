@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An object_node grant confers the node but not its children, so a node grantee reads the directory itself while its entries stay masked.
 

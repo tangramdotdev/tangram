@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A checkin cannot update a watcher that was replaced by a concurrent checkin with different options.
 

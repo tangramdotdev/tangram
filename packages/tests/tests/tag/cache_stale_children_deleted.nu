@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A stale child tag is removed from the cache when a branch is refreshed after the child is deleted on the remote.
 

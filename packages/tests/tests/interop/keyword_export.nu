@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Python escapes keywords without displacing existing exports or changing command targets, and omits exports that it cannot name.
 

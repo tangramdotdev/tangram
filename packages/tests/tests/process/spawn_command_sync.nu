@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Direct spawn returns before the command sync completes for command IDs and inline command objects.
 for location in [remote 'local(east)'] {

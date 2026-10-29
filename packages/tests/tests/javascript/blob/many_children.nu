@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.blob with more children than fit in a branch nests them in branches, like a blob written by checkin.
 

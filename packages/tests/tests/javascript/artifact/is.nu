@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Artifact.is is true for directories, files, and symlinks and false for other objects.
 

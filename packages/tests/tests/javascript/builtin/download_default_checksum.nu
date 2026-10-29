@@ -1,5 +1,5 @@
-use ../../../lib/test.nu *
-use ../../../lib/http.nu *
+use ../../../util/test.nu *
+use ../../../util/http.nu *
 
 # tg.download without a checksum fails because the default checksum matches nothing.
 

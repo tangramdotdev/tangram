@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 let local = server spawn
 let dependency = artifact {'tangram.py': "def greet(name: str) -> str:\n    \"\"\"Greet a tagged friend.\"\"\"\n    return name\n"}

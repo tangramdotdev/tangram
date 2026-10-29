@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Existing processes support a combined initial log read without a separate read request.
 let local = server spawn

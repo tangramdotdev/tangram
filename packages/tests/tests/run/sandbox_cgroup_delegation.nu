@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox can run a resource-limited nested container while retaining its outer limits.
 

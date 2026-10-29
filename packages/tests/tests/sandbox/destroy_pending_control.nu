@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Destruction observes indexed completion while its control request remains pending.
 let local_owner = server spawn --name local-owner --config {

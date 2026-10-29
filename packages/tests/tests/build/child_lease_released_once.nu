@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cancelling one of two handles to a deduplicated child leaves the parent able to finish, and the child is cancelled once the parent finishes.
 

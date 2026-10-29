@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/command.nu
+use ../../util/test.nu *
+use ../../util/command.nu
 
 # A grant on the process command field confers only the command object, leaving the process node and other fields masked.
 

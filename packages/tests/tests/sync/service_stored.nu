@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Storing a node answers every retained request while an unrelated node keeps the sync open.
 for kind in [object process] {

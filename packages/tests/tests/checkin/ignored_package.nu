@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a package respects both the root and the nested .tangramignore files when selecting entries.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A process stderr reader reads the standard error stream, configured independently with the per-stream stderr setter.
 

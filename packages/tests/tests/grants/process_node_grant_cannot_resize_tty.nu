@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Granting process_node to a principal should not allow that principal to resize the process's tty.
 

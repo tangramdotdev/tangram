@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A standalone module file that is not part of a package can be built directly.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Setting a TANGRAM_ENV_ prefixed environment variable on a sandboxed process fails because the prefix is reserved.
 

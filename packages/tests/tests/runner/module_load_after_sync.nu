@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/vfs.nu
+use ../../util/test.nu *
+use ../../util/vfs.nu
 
 vfs skip_unless_supported
 

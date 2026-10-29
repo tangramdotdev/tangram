@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Tags capture permissions internally, but cannot receive user-created grants.
 

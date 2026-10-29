@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Accessing the stdin, stdout, or stderr of an unsandboxed process whose stdio is set to null fails with an unavailable error.
 

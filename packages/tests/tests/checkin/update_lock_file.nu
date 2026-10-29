@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # --update with --lock=file writes a sibling lockfile.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build can produce a symlink that points to an artifact and the resulting object and checkout match their snapshots.
 

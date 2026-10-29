@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A group checkout materializes its visible subtree and participates in checkout cleaning.
 

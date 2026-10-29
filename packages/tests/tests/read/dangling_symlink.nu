@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Reading a symlink with only a path target fails because it cannot be resolved.
 

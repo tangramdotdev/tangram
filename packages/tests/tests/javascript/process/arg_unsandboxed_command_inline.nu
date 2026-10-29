@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Unsandboxed process arguments keep the command inline and leave the host unset for the server to choose.
 

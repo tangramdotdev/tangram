@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Archiving and extracting an empty directory as zip roundtrips to the original directory.
 

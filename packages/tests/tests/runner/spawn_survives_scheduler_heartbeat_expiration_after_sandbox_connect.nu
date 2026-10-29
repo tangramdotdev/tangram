@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Once the sandbox connects, scheduler heartbeat expiration must not cancel a spawn that is still waiting for its process connection.
 let root_token = random chars

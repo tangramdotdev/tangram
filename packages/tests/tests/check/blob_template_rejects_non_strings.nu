@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The check command fails when a tg.blob template interpolates a value that is not a string, such as an imported file.
 

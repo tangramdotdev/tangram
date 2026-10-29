@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Building a package whose root module has a syntax error fails with a diagnostic instead of succeeding or hanging.
 

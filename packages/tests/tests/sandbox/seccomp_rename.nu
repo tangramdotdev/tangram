@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox with the default seccomp policy can rename files, which libc does with renameat on architectures without a rename syscall.
 

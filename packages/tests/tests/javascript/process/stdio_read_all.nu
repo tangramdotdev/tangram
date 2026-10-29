@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A process stdout reader's readAll method drains the whole stream as bytes, configured with the per-stream stdout setter.
 

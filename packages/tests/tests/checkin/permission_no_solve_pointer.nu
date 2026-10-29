@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu reference-access
+use ../../util/test.nu *
+use ../../util/checkin.nu reference-access
 
 # An embedded graph token lets a checked-in file's reference grant another user read access to a pointer dependency with solving disabled.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Value.print renders an error whose source is another error, recursing into the nested error without crashing.
 

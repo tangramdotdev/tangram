@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/archive.nu *
+use ../../util/test.nu *
+use ../../util/archive.nu *
 
 # Single-server indexing completes independently of background archiving, including retries after an upload failure.
 skip_test --cloud

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A rejected sandbox or process shortcut handshake fails the child, and the runner keeps capacity for a later build.
 

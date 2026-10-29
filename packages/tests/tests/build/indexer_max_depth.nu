@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The indexer fails a build whose process tree exceeds the configured maximum depth and reports a maximum depth exceeded error.
 

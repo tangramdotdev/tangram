@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A built file's printed reference carries the authorization to read it, so another user can read the file through the reference but not through its bare ID.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Updating a watched dependency rebuilds its referrers and removes the previous solution.
 

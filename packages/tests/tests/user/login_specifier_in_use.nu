@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A user cannot log in with a specifier already claimed by a group.
 

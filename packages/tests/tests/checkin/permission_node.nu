@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu checkin-output
+use ../../util/test.nu *
+use ../../util/checkin.nu checkin-output
 
 # Solving fails when node permission does not reveal whether an artifact's subtree needs solving.
 

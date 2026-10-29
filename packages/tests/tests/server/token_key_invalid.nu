@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A damaged persisted token signing secret prevents startup instead of silently invalidating existing tokens.
 

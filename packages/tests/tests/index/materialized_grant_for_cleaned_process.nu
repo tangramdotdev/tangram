@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A non-expiring materialized grant must not survive after a supporting explicit grant is revoked while the process is absent from the index.
 

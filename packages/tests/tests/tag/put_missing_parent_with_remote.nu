@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Putting a nested tag with a configured remote fails when the parent does not exist and -p was not passed.
 

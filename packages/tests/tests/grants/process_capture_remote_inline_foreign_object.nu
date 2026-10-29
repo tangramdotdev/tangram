@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Indexing a remote inline command must not turn its unused private argument into a process permission.
 

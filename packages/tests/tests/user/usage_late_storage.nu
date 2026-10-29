@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Late storage deltas re-aggregate every period they affect.
 

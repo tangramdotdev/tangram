@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Running a command in the current sandbox (no .sandbox()) widens the sandbox's permissions to the referenced artifact.
 

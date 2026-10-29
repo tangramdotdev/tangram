@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An authorized caller can pull a finished process log even when a runner cannot read it.
 

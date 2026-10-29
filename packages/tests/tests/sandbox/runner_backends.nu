@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Every runner backend supports the same sandbox lifecycle and workload API.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }

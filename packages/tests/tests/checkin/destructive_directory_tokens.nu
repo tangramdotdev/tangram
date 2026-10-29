@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A directory checked in destructively leaves a checkout whose files another user can check in, while preserving their modes and dependencies.
 let local = server spawn --config {

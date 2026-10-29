@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A failing tg.assert reached through a tagged, cyclic dependency causes the run to fail and produces the expected diagnostic on stderr.
 

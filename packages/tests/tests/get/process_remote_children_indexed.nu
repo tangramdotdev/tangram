@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Getting a finished process from a remote indexes its complete child list locally.
 

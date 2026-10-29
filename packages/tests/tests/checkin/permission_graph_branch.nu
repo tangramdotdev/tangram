@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A dependency on an artifact in a graph that is split into leaves and a branch is readable by another user through the checked-in file's reference with a trusted remote but not with an untrusted remote, as an artifact in an unsplit graph is.
 

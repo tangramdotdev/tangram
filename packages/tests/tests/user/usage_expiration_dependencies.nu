@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The minimum retention windows preserve children until their parents can be aggregated.
 

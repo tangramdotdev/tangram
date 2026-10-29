@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # The ambient tg.process.cwd is the root directory for a sandboxed build on Linux, and the scratch directory on macOS.
 

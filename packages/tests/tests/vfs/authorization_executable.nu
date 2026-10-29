@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An artifact executable and a file backed by nested blob branches work without authorization search.
 

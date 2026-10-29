@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.encoding.base64.decode fails when the input contains a character outside the base64 alphabet.
 

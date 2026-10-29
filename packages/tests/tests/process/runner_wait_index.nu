@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Runner waits retain output and error capabilities before the finished process reaches the index.
 

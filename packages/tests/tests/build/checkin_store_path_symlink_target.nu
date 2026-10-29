@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process can check in the store path of an artifact it received as a symlink target without an authorization search.
 

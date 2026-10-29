@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Test metadata for a graph that imports an unsolved dependency.
 

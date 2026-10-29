@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A trusted runner re-signs a remote token locally, so a second principal can use a stored artifact without pulling it again.
 

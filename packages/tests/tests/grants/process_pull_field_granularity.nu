@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/command.nu
+use ../../util/test.nu *
+use ../../util/command.nu
 
 # A field-scoped process grant must not let a reader pull a different field through sync. Alice grants Eve the process subtree and its output, but not the command; pulling the process with its command must not ship the command object.
 

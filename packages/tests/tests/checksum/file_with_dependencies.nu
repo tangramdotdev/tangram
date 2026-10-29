@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A file's dependencies do not affect the checksum of its contents bytes.
 

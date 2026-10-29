@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Capture preserves node permissions on both a directory and its file without granting their unavailable dependency.
 

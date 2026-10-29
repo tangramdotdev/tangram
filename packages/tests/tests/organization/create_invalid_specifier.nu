@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An organization is flat, so a multi-component specifier is rejected.
 

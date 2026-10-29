@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The Node process reader uses file contents for empty output, error, and outcome attributes.
 

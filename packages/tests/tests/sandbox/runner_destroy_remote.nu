@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote sandbox's local index entry must not send destruction through local control.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Setting the executable bit on a watched file invalidates that file so the next watched checkin reflects the new mode and matches a cold checkin.
 

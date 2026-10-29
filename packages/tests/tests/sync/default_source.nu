@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An absent source selects the default remote for both push and pull.
 let source = server spawn --name source

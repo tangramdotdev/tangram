@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # macOS checkouts retain exact authorization tokens on symlinks without following their targets.
 

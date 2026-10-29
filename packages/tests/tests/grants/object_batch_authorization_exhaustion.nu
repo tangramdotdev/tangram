@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 let root_token = random chars
 let local = server spawn --config {

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Store subpaths retain their root, and their references grant another user read access to both the artifact and its root.
 

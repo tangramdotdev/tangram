@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 use ./process.nu test
 
 # Pushing a process that threw an error includes the error by default.

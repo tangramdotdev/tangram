@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Hardened containers reject host networking and writable host mounts before creation.
 

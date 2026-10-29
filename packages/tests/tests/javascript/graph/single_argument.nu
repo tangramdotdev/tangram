@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.graph preserves an unloaded graph passed as its sole argument without loading it.
 

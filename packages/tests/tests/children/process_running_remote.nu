@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The children of a process running on a remote runner are readable through the remote API server while its indexed children list is incomplete.
 

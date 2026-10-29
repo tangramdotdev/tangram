@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Object get returns child tokens that let a user without grants read the object's descendants.
 

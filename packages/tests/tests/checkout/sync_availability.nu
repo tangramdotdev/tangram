@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Local checkout verification waits for an incoming sync without a default remote or a pull.
 for internal in [true false] {

@@ -1,10 +1,10 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # CLI, file, and inherited-descriptor inputs preserve the workload's standard streams.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }
 let tangram = which tangram | first | get path
 let program = which 'true' | first | get path
-const helper = path self ../../lib/run_config.py
+const helper = path self ../../util/run_config.py
 let script = 'read line; test "$line" = provided; test "$TEST" = "value with spaces"; printf "output\n"; printf "error\n" >&2; exit 7'
 {
     backend: { kind: builtin },

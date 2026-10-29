@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut process must load a new module while its command sync is paused.
 

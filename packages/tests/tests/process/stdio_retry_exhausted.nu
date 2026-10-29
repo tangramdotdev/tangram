@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A client whose stdio stream cannot reconnect fails once its stream retries are exhausted, instead of reconnecting forever.
 
-const proxy_path = path self ../../lib/stdio_reset_proxy.mjs
+const proxy_path = path self ../../util/stdio_reset_proxy.mjs
 
 let server = server spawn
 let path = artifact {

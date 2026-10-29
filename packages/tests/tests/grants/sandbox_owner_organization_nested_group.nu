@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A member of a group that belongs to an organization can access an organization-owned sandbox, and loses access when the group is removed from the organization.
 

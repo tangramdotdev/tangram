@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.encoding.hex.decode fails when the input is not valid lowercase hexadecimal.
 

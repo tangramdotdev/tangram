@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process log stream resumes after its connection is interrupted.
 
-const driver = path self ../../lib/log_control.py
+const driver = path self ../../util/log_control.py
 if (which python3 | is-empty) {
 	skip_test "this test requires python3"
 }

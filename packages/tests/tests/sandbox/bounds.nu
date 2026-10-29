@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An idle sandbox accrues reservation time for its CPU minimum and no consumption time for its capacity above the minimum.
 

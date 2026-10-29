@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Renaming a file in a watched directory invalidates the directory so the next watched checkin reflects the new name and matches a cold checkin.
 

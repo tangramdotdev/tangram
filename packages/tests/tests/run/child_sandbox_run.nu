@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote run that nested a sandboxed run should succeed and capture the output of both processes.
 

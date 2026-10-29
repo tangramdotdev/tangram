@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Publishing with force replaces conflicting local and remote groups and their descendants.
 

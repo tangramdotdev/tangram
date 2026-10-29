@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote process that outlives the sync token pushes its outcome with a refreshed token.
 

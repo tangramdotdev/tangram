@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Checking out a simple file writes the file into the checkouts directory.
 

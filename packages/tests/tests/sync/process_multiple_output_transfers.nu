@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Returning a directory must preserve the syncs of files produced on other runners.
 let root_token = random chars

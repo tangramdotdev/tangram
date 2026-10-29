@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/stripe.nu *
+use ../../util/test.nu *
+use ../../util/stripe.nu *
 
 skip_test --cloud
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A command ID stays an ID in process data and resolves to the same execution interface.
 

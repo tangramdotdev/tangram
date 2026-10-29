@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A waiting parent with a CPU maximum lends its capacity to children without a CPU maximum, which take the parent's maximum.
 

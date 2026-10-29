@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Object metadata for an indexed file reports the node and the aggregated subtree.
 

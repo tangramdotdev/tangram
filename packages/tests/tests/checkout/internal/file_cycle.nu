@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Checking out two files that depend on each other, forming a cycle, writes the files into the checkouts directory.
 

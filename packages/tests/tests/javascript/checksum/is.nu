@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Checksum.is accepts well-formed checksums and rejects unsupported algorithms, malformed strings, and non-strings.
 

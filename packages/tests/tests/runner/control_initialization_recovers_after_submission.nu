@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A successful Start must remain recoverable when the remote crashes before indexing it.
 let root_token = random chars

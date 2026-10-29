@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Waiting on an already finished process returns the same outcome on every call.
 

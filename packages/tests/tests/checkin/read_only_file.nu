@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in read-only files writes cache xattrs without changing the source permissions.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Solving a dependency resolves a descendant dependency reached through branches, graphs, symlinks, and dependencies.
 

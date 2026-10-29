@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Getting the output of a canceled process fails with a canceled
 # error, whether the process is canceled explicitly with `tg cancel` or by killing

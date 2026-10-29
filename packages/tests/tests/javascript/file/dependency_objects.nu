@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A file's dependencyObjects accessor returns its dependencies' objects as an array.
 

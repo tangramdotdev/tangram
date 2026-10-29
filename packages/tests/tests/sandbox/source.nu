@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Sandbox get, status, and wait preserve their selected source across local and remote runners.
 

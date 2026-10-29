@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A directory's tryGet method returns null when the path does not exist.
 

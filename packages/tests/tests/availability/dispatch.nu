@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The availability commands report local object and process availability and dispatch by reference kind.
 

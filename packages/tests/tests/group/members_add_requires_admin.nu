@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Adding a member grants that member write on the group, so the operation requires admin: a write user cannot add members.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Artifact.Id.is is true for directory, file, and symlink id strings and false otherwise.
 

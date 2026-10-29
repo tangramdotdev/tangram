@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A status notification ends an idle listing without waiting for the polling interval.
 let local_owner = server spawn --name local-owner --config {

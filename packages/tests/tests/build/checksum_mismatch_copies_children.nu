@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # When a build fails with a checksum mismatch, a subsequent build with a different checksum copies the original process's children rather than losing them.
 

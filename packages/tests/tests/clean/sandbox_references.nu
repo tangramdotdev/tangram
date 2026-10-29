@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox retains its processes, but a tagged process does not retain its destroyed sandbox.
 

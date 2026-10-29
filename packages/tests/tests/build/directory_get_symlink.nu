@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Directory.get returns the symlink artifact itself when the requested entry is a symlink.
 

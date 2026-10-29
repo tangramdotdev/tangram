@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A locked checkin rejects removing the last dependency instead of deleting the lockfile.
 

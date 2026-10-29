@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process's complete direct children list is available before its child processes are pulled.
 

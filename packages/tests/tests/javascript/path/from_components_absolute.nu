@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.path.fromComponents reconstructs an absolute path from a leading root component.
 

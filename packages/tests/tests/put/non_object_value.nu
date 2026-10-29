@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Putting a value that is not an object fails because only objects have ids to print.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Without solving, a destructively checked-in file with an unproven dependency leaves a checkout that another user cannot check in.
 let local = server spawn --config {

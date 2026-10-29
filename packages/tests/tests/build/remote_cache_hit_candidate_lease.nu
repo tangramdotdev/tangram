@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Releasing a candidate's lease after selecting a remote cache hit does not
 # cancel the candidate while another caller holds a lease on it.

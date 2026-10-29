@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/vfs.nu
+use ../../util/test.nu *
+use ../../util/vfs.nu
 
 # A generated file without a backing descriptor falls back to regular FUSE I/O even when passthrough is required.
 

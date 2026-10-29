@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut child in a new sandbox derives its own sandbox and process IDs. It runs and finishes before the control server starts its sandbox or process.
 

@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/stripe.nu *
+use ../../util/test.nu *
+use ../../util/stripe.nu *
 
 let root_token = random chars
 let webhook_secret = 'whsec_mock'

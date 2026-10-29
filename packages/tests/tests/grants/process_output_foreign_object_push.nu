@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pushing a process that names a foreign object as its output must not leak the object on the remote: the remote must not write direct permissions for the subtree of an output the pusher cannot access.
 

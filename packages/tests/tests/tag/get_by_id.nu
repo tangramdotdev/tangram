@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A tag can be retrieved by its tag id, not just by its specifier.
 

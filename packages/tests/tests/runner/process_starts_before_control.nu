@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A runner starts a locally available command without waiting for process control to connect.
 

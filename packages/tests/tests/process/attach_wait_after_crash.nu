@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build that waits on its process through an attach survives the remote crashing while the process runs.
 let root_token = random chars

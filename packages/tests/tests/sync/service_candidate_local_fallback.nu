@@ -1,4 +1,4 @@
-use ../../lib/sync_service.nu
+use ../../util/sync_service.nu
 
 # The sync service falls back to a local candidate when no remote candidate is available.
 

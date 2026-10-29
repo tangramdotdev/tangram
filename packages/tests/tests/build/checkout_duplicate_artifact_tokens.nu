@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checkout should combine the tokens of duplicate artifact references before authorizing them.
 

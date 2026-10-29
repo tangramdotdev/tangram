@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A null module override clears the inherited file module, and the object and fluent forms are equivalent.
 

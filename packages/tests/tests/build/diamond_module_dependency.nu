@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build whose module graph forms a diamond must authorize the shared
 # dependency without hanging.

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build with an active viewer exits with a wait error after its server is killed.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Blob.branch builds a branch node whose children concatenate to the contents.
 

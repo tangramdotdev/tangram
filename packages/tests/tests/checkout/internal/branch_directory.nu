@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Checking out a directory with more entries than fit in a directory leaf, forcing it into a branch directory, writes all of the entries into the checkouts directory.
 

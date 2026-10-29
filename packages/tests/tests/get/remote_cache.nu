@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An exact remote get can be served from the principal-scoped remote cache.
 

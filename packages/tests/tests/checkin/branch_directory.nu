@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a directory with more entries than fit in a directory leaf produces a branched directory object.
 

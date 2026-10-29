@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The VFS answers distinct missed lookups in a large checked-in directory quickly.
 

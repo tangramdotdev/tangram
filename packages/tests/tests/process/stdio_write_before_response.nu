@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A stdio writer streams its request body without waiting for the response headers.
 

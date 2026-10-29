@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a package that depends on a nonexistent tag fails with the expected output.
 

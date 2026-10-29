@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/vfs.nu
+use ../../util/test.nu *
+use ../../util/vfs.nu
 
 # The VFS reads an object from a remote when it is absent locally.
 

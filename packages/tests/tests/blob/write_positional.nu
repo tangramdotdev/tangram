@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Writing a blob from a positional argument creates the same blob as writing the same bytes from standard input.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A module imported along two paths is checked once, regardless of the import order.
 

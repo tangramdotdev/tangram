@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A successful lazy push writes direct permissions, so the same principal's next push skips its whole available subtree and transfers nothing.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process reference can carry a provenance path, but a get option cannot traverse into a process.
 

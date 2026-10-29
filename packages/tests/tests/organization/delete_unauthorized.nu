@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Write on an organization does not confer admin, so a write user cannot delete it.
 

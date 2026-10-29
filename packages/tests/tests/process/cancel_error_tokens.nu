@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A canceled process finishes and is indexed when authorization searches are disabled.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A cache lookup uses finished runner state when the index is stale and process control has retired.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A warmed sandbox begins charging only after its identity is assigned.
 if $nu.os-info.name != 'linux' {

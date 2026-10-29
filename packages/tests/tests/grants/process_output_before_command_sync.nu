@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote runner can return a token-bearing output before its command sync completes.
 

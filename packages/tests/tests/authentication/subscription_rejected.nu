@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/nats.nu *
+use ../../util/test.nu *
+use ../../util/nats.nu *
 
 skip_test --cloud
 

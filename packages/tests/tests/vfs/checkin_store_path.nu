@@ -1,6 +1,6 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu checkin-output
-use ../../lib/vfs.nu
+use ../../util/test.nu *
+use ../../util/checkin.nu checkin-output
+use ../../util/vfs.nu
 
 # Checkin resolves a VFS store subpath to its artifact and a reference to the subpath.
 

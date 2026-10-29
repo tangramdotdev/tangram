@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The bubblewrap runtime starts with a /proc that matches its PID namespace.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }

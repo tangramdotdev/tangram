@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A stalled outcome sync must leave the runner control stream able to deliver heartbeats and the process control stream able to acknowledge Finish.
 

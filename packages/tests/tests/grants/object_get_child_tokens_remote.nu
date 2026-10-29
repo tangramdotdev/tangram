@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Child tokens follow the same remote trust and location rules as the object's own token.
 

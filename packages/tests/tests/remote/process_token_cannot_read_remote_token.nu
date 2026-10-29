@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process may use its owner's remote, but it must not receive the owner's remote authentication token.
 

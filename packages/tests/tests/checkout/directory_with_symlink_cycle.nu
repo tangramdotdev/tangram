@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking out a directory containing a symlink that points back into the directory, forming a cycle, materializes the directory and symlink on disk.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Checking out an executable file writes the file into the checkouts directory with its executable bit preserved.
 

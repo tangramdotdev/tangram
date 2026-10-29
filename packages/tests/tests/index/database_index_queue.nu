@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Index updates committed without an indexer are applied in commit order by a later indexer.
 

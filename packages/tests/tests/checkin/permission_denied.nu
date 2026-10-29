@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu reference-access
+use ../../util/test.nu *
+use ../../util/checkin.nu reference-access
 
 # Solving fails when an explicit dependency is inaccessible. Without solving, the reference grants another user read access to the checked-in file but not to the dependency.
 

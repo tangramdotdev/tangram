@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Granting a permission on a resource requires admin on it, so a write user cannot grant.
 

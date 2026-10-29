@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Checking out a directory containing a symlink that targets a sibling file writes the directory into the checkouts directory.
 

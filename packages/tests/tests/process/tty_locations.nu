@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # TTY size writes discover an existing process across multiple candidate locations.
 let remote = server spawn --name remote

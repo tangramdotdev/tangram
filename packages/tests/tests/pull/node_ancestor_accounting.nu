@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A pull stores a named node's ancestor even when the pulled process finishes storing while the ancestor request is outstanding.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut process that forwards a child spawn to the remote before the remote has started the shortcut process must still own the child's sandbox correctly.
 

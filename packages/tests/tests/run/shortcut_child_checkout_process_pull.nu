@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandboxed child checkout must use a process-aware pull when local authorization is insufficient.
 # The first run stores the child command and its executable on the runner. The second run holds command sync while the runner indexes the command permissions.

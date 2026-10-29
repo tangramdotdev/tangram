@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An unsandboxed process can read an arbitrary host temp file whose path is passed as an argument.
 

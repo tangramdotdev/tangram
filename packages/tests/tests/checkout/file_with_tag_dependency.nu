@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking out a file with a tagged dependency, with dependencies disabled, materializes the file with the lock recorded in its user.tangram.lock xattr.
 

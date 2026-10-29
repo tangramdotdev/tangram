@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An authorization token for a sync authorizes only the nodes and permissions proven by its sync graph.
 let root_token = random chars

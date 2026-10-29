@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Spawn returns before the command transfer completes.
 let root_token = random chars

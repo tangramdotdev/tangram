@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A successful push invalidates cached reads for the destination remote.
 

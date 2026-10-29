@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a module cycle whose graph has more than 1,024 children splits the graph into leaves and a branch, and the modules can still be checked out.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An organization can be retrieved by its id and by its specifier.
 

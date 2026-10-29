@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Eagerly pushing a built file object to a remote makes the object and its metadata identical on the local and remote servers.
 

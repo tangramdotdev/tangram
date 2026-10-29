@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/command.nu
+use ../../util/test.nu *
+use ../../util/command.nu
 
 # Node output permissions cover this process's object subtrees, not child processes' outputs.
 

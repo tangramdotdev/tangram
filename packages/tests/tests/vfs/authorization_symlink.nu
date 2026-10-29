@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process follows artifact symlinks, nested targets, and chains without authorization search.
 

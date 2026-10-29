@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a module that depends on a tag with an unsatisfied transitive source dependency fails, then succeeds once the transitive dependency is tagged.
 

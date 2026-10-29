@@ -126,7 +126,7 @@ async fn run_inner(
 	}
 
 	// Spawn the test under the supervisor.
-	let library_path = crate::repository_path().join("packages/tests/lib/test.nu");
+	let library_path = crate::repository_path().join("packages/tests/util/test.nu");
 	let script = [
 		format!("use {} cleanup_background_jobs", nuon(&library_path)),
 		"$env.config.display_errors.exit_code = true".to_owned(),

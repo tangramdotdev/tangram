@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # With authentication disabled, the root principal may create a sandbox owned by root.
 

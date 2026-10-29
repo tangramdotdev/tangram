@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The memory messenger must keep an acknowledged request alive past its acknowledgment timeout.
 let local = server spawn --config {

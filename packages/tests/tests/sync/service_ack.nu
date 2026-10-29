@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A read that waits on an incoming sync completes once the object arrives, even when its first sync service requests are lost.
 let root_token = random chars

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An indexer recovers a cloud queue whose pending fragments exceed ScyllaDB's memory limit for unpaged queries.
 

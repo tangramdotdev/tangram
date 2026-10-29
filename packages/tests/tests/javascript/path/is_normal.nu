@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.path.Component.isNormal distinguishes ordinary components from the current, parent, and root components.
 

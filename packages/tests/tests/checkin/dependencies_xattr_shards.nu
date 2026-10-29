@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a file reads dependency metadata split across numbered xattr shards.
 

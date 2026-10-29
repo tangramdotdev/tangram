@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu reference-access
+use ../../util/test.nu *
+use ../../util/checkin.nu reference-access
 
 # A newly created pointer artifact's reference grants another user read access to its graph subtree.
 

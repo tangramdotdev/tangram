@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Arrival order, rather than ID order, defines positions and survives final indexing.
 let local = server spawn --name local --config {

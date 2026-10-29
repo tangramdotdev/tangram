@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An admin cannot revoke a grant another grantor created; revocation only affects the actor's own grant.
 

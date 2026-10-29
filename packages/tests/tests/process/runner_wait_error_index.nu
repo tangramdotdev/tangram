@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A runner wait returns when the process finishes, before the error object or finished process is indexed.
 

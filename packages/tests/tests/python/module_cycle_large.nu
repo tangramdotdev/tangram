@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Building a Python package whose modules form a large import cycle must take time linear in the number of modules.
 

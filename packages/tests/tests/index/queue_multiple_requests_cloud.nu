@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/archive.nu *
+use ../../util/test.nu *
+use ../../util/archive.nu *
 
 # A put whose archive and index batches span several indexer requests is archived and indexed.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Compressing and decompressing a file roundtrips to the original file, as documented by both commands.
 

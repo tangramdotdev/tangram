@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Putting input that does not parse as a value fails with a parse error.
 

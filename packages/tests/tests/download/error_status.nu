@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/http.nu *
+use ../../util/test.nu *
+use ../../util/http.nu *
 
 # Downloading a URL that responds with an error status fails with the reason on the CLI.
 

@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 let local = server spawn
 let source = "def greet(name: str) -> str:\n    return name\n\ngreet(\"Ada\")\n"

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Runner management defaults depend on runners rather than accounts or execution configuration.
 let remote = server spawn --name remote --config { runners: true }

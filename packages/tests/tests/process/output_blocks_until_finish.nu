@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Requesting the output of a running process blocks until the process finishes and then returns its output.
 

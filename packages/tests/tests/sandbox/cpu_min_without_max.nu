@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A CPU minimum without a maximum leaves every CPU visible, and a configured default maximum rises to meet a larger minimum.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A reference token remains valid across graceful and abrupt restarts and is rejected by a different server.
 

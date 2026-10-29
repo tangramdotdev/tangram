@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Physical directory checkout tokens remain valid after the input authorization token expires, including graph symlink targets.
 

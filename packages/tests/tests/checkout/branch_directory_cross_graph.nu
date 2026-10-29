@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Flattening a branch keeps the graph context of both nested branches and leaf entries.
 let local = server spawn

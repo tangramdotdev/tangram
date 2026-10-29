@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process's finished index write can be indexed before its started write. The started write is then rejected, and the rest of its batch, which charges the process to its owner's usage, is lost.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Process references reuse both inline and stored commands, with the new CLI options controlling execution.
 

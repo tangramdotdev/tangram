@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A checkin replacing a watch with incompatible options rejects a concurrent filesystem change.
 

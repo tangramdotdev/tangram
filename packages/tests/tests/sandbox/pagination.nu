@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 let remote = server spawn --name remote
 let local = server spawn --name local --config { remotes: { default: { url: $remote.url } } }

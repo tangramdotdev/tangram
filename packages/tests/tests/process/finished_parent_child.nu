@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process that starts after its parent finished does not receive the parent's authority over the command's objects.
 
@@ -6,7 +6,7 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux sandboxes'
 }
 
-const helper = path self '../../lib/process_control_start.py'
+const helper = path self '../../util/process_control_start.py'
 let root_token = random chars
 let local = server spawn --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An attach's command push whose connection breaks when the remote crashes retries and completes.
 let root_token = random chars

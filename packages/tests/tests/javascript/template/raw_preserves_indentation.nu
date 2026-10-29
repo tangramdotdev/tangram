@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Template.raw preserves the leading whitespace of a tagged template instead of unindenting it.
 

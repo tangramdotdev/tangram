@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An admin can add a user to a group; the member is listed and gains write on the group.
 

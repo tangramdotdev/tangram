@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A user may explicitly name themselves as the owner of a sandbox they create.
 

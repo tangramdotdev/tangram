@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote build executed through a runner completes with a zero exit code and returns the expected output.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox get issued after its runner dies must observe destruction without waiting for the control read timeout.
 let root_token = random chars

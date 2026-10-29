@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote build succeeds on a trusted runner whose verification search budget is smaller than the package, so reads of the command's objects must be authorized by tokens.
 

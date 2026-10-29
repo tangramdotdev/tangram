@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build whose sandbox is owned by a group must run, not fail to read its command.
 

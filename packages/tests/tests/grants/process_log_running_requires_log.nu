@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A running process's log is the live process stream. Reading it requires the log permission, just as reading the log once finished to a blob does: the owner reads it, a principal holding only the process node is denied, and granting the log permission restores access. This guards the live-log read path, which a node-only reader must not use to read a log it could not read once finished.
 

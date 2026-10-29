@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Documenting a JavaScript module uses the types from its JSDoc comments.
 

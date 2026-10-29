@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A push with a different exit code must not change the stored process or grant node permission.
 let root_token = random chars

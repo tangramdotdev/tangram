@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An executable reads its file and symlink dependencies by store path without authorization search.
 

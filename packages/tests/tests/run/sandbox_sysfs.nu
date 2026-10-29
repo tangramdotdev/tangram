@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandboxed process can read the host's sysfs, both with its own network namespace and with host networking.
 

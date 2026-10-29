@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A status notification restarts a read whose control result is stalled.
 let local_owner = server spawn --name local-owner --config {

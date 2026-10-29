@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A log referent authorizes a pull while the runner is still transferring the finished blob.
 

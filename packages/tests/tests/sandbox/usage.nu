@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 let quota_root = $env.TANGRAM_TEST_PROJECT_QUOTA_PATH? | default ''
 if $nu.os-info.name == 'linux' and ($quota_root | is-empty) {

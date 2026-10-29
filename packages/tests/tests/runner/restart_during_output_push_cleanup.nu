@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A trusted runner that dies while pushing a finished child's output to the remote cleans up its previous sandboxes after it restarts and accepts new work, when neither the remote nor the runner may search for authorization.
 

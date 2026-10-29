@@ -1,7 +1,7 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Finish is acknowledged before the header, and every header carries a sync.
-const driver = path self ../../lib/log_control.py
+const driver = path self ../../util/log_control.py
 if (which python3 | is-empty) {
 	skip_test "this test requires python3"
 }

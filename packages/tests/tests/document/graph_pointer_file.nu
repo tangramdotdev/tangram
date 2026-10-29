@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Documenting a graph file pointer treated as a tangram.ts module produces documentation JSON that matches the snapshot.
 

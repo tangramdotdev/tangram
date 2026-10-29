@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Setting a TANGRAM_ENV_ prefixed environment variable on a nested unsandboxed tg.run call fails because the prefix is reserved.
 

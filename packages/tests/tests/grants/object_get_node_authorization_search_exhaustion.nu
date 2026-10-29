@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Getting an object succeeds when its required node permission is authorized but its optional subtree permission exhausts the authorization search.
 

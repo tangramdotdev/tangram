@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 let local = server spawn
 let source = "/** Greet a friend. */\nexport function greet(name = \"\") {\n    return name;\n}\nexport function welcome() {\n    return greet(\"Ada\");\n}\ngre\n"

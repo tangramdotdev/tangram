@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A tg template literal whose line contains only adjacent artifact placeholders renders them concatenated and matches the snapshot.
 

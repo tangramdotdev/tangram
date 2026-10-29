@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Loading state merges the returned tokens without dropping existing tokens or locations.
 

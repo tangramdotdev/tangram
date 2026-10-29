@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Exact command and output subtree proofs authorize a spawn, and the process permissions they confer outlive the proofs.
 

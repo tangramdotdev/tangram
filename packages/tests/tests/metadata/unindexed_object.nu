@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Object metadata for an object that has not been indexed reports only the node.
 

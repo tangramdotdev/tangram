@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Two checkins subscribed to the same root progress stream both receive its
 # output.

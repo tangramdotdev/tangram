@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process on a trusted runner whose verification search budget is smaller than the package spawns a child with an artifact another process built, so the runner must push the child's command, including that artifact and its module files, to the remote.
 

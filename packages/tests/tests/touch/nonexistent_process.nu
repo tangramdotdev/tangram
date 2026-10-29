@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Touching a process by a well formed id that does not exist fails.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Two distinct parent processes that concurrently build the same cacheable child
 # race to create it: one parent creates the process and the other gets a cache

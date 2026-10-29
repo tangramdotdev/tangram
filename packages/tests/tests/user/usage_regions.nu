@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Explicit region selection reads that region's usage through local and remote routing.
 let common = {

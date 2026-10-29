@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Loading an object preserves child tokens and inherits parent tokens, including tokens added after the object was loaded.
 let local = server spawn

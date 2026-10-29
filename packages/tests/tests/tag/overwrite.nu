@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Re-tagging the same node is idempotent, and forcing a new target preserves the tag ID.
 

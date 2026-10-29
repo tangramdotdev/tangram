@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An anonymous lazy push makes its objects public, so a later anonymous push can rely on them.
 

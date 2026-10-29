@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Two packages with a cyclic import graph build successfully as long as their processes do not form a cycle.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Capture must finish verification before preserving a partial exact token's permissions.
 

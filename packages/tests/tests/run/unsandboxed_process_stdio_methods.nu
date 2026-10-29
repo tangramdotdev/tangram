@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The piped stdio methods of an unsandboxed process allow writing to stdin and reading the full stdout and stderr streams.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A process stdin writer's writeAll method writes all input and closes the stream, read back through the stdout reader's text method.
 

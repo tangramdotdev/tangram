@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu checkin-output
+use ../../util/test.nu *
+use ../../util/checkin.nu checkin-output
 
 # A store subpath backed by a graph pointer returns a stored artifact with its own usable token.
 

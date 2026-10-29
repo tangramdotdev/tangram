@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 let local = server spawn
 let dependency = artifact {'tangram.ts': "/** Greet a tagged friend. */\nexport function greet(name: string): string {\n    return name;\n}\n"}

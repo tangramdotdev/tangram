@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A null cwd override clears the inherited cwd, and the object and fluent forms are equivalent.
 

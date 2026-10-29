@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Filesystem modules require root, while embedded declarations remain available to all callers.
 

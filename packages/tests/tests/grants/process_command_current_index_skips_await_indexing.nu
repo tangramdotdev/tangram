@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Spawning and finishing with a command authorized by the current index do not need to await indexing.
 

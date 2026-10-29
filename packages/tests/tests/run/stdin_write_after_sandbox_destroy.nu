@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A stdin write that is in flight when a cancelled process's sandbox is destroyed returns EOF instead of repeatedly retrying at the same position.
 

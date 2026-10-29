@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Running with --no-sandbox writes only the process's stdout and emits no process-info noise on stderr.
 

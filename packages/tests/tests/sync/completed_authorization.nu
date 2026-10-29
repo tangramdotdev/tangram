@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Sync authorization survives the control task and requires the bearer token for another user.
 let root_token = random chars

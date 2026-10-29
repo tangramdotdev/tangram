@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Waiting on a cancelled process reports the cancellation as an error outcome.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A file checked in destructively leaves a checkout that another user can check in, as an ordinary checkin does, including when the checkout is reused.
 

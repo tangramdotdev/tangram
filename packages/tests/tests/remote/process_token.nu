@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process authenticated client lists its creator's remotes but may not put a remote.
 

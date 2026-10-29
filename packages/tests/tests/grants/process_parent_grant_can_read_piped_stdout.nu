@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process_parent grant permits consuming piped stdout, while process_node does not.
 

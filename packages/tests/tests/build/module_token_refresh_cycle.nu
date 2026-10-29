@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A broad cyclic module graph builds successfully when module resolution refreshes authorization tokens.
 

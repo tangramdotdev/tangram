@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The default lock mode reuses an existing lockfile for a file dependency lock.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A blob's text accessor returns its contents decoded as a string.
 

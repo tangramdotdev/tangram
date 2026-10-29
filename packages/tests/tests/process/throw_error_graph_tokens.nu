@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Graph-backed module referents retain their proofs across static and repeated dynamic imports.
 

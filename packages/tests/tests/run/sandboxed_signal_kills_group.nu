@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Signaling a sandboxed process also kills a child that inherited its process group and log pipe.
 

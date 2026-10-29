@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # SIGTERM stops a runner promptly even when a shortcut has not completed its sandbox or process control handshake.
 

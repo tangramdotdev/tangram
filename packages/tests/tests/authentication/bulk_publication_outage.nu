@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/nats.nu *
+use ../../util/test.nu *
+use ../../util/nats.nu *
 
 # Bulk invalidation publication does not delay the response after its database commit.
 let nats = spawn_nats

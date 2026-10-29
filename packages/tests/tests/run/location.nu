@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A location implies a sandbox and cannot be combined with --no-sandbox.
 

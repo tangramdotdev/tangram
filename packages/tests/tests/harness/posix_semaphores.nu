@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cleanup removes orphaned test semaphores without touching another environment.
 let prefix = $'/tgt-((random chars) | str lowercase | str substring 0..15)'

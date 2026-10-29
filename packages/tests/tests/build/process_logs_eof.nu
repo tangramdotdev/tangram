@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Process log reads return the requested bytes at the end of a stream.
 

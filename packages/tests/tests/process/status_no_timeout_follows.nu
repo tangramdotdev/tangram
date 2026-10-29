@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Following a process status with --no-timeout streams observed statuses through to completion.
 

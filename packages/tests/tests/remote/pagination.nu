@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Internal remote discovery follows every page even though the CLI defaults to one page.
 let empty = server spawn --name empty

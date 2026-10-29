@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Artifact.withId throws when the id prefix is not an artifact kind.
 

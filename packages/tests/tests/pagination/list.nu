@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Every listing uses the same page, collection, and CLI output contract.
 def check_pages [args: list<string>] {

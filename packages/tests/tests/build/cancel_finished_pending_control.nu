@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cancellation observes completion after its first index lookup while control is pending.
 

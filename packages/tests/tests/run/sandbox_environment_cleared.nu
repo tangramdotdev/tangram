@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A container workload does not inherit the runner's ambient environment.
 

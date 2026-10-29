@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote runner sends Finish concurrently with the outcome sync by default.
 let root_token = random chars

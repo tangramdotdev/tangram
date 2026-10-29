@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Resolving a value whose optional field is unset reports the path to the offending key.
 

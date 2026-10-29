@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The view command renders the expected process tree for a process that builds a command which itself builds another command.
 

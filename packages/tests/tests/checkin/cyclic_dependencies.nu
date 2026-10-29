@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a package with a cyclic path dependency between two sibling packages succeeds and writes no lockfile.
 

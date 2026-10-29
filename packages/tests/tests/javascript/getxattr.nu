@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The host reads exactly one xattr without interpreting Tangram shards.
 

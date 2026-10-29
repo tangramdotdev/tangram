@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A local server can run a process remotely in an existing sandbox created on the remote.
 

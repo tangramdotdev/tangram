@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Directory.get retrieves a file by name from a directory large enough to be split into branch nodes.
 

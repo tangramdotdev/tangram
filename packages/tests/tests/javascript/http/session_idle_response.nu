@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A server closing an idle HTTP/2 connection must not discard a buffered response.
 let local = server spawn --config { http: { idle_timeout: 0.01 } }

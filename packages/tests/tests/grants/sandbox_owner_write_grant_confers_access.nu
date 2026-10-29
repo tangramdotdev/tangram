@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A write grant on the owning group confers sandbox access, but a read-only grant on the owner does not.
 

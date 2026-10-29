@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Adding a user to the owning group after the sandbox is created grants them access to it.
 

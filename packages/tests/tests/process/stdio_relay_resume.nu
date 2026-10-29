@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A relay that fails mid-stream is replaced by one that resumes from the delivered position, so every byte arrives exactly once.
 

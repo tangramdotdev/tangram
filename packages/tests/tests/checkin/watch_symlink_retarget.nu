@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Retargeting a symlink in a watched directory invalidates it so the next watched checkin reflects the new target and matches a cold checkin.
 

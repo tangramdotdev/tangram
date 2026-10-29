@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process can use an object from its own remote cache-hit child after receiving a local grant.
 #

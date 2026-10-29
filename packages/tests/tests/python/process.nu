@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A Python process connection can write stdin while reading stdout over HTTP/2.
 

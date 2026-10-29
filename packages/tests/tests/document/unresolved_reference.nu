@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Documenting a module that references an unresolved import keeps the reference's name without qualifying it.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A reconnect resumes outcome sync after Finish has already been acknowledged.
 let root_token = random chars

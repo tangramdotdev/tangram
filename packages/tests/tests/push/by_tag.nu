@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pushing by a tag specifier transfers the object and creates the tag on the remote.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Metadata is masked by the indexed permissions for the authenticated principal.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Sandbox ownership does not confer process authority; an explicit parent grant does.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Object batches merge tokens for duplicate parent entries without authorizing incomplete entries.
 

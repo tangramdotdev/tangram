@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a cycle that contains a directory with more entries than fit in a directory leaf splits the directory into nodes of the graph, and the directory can still be checked out, iterated, and read.
 

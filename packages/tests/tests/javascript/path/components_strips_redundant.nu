@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.path.components drops current-directory components and empty components produced by repeated separators.
 

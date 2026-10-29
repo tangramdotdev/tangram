@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # gVisor receives its own OCI bundle and native runtime arguments.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }

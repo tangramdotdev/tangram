@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Putting a process with references that have no authorizing tokens succeeds and returns a token without searching for object or process permissions.
 let searches = {

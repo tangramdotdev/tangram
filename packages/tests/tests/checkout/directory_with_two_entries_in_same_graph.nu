@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking out a directory whose two entries reference each other within the same graph materializes the directory on disk.
 

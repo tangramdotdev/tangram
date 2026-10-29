@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote build that finishes before its command transfer reports the process result instead of the transfer's interruption.
 let remote = server spawn --name remote --config {

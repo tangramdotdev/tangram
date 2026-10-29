@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Repeated object puts should not get slower as the same shared child gains more fresh parents.
 

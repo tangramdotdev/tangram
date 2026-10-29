@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Bridge networking permits communication within a sandbox while isolating peer sandboxes.
 

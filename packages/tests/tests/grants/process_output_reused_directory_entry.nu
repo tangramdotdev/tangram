@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Reusing a child entry in a process output preserves the required authorization.
 

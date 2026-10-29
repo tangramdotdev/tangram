@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Error source referents pass their proofs to inline children and stored source handles.
 

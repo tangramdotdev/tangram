@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A departing indexer leaves shared work for a fresh wait, even if the replacement already responded.
 let instance = instance --cloud --config {

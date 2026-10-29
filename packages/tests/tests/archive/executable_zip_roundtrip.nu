@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Archiving and extracting a directory with an executable file as zip preserves the executable bit.
 

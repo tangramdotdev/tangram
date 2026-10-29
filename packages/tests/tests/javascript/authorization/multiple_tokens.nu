@@ -1,6 +1,6 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
-const authorization = path self ../../../lib/authorization.ts
+const authorization = path self ../../../util/authorization.ts
 
 # Clients retain complementary proofs, prune covered permissions regardless of expiration, and keep the latest of equivalent proofs.
 

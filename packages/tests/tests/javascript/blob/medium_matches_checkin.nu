@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.file with contents larger than the minimum blob leaf size but smaller than the maximum creates the same file as checking in the same contents, chunking the contents like checkin.
 

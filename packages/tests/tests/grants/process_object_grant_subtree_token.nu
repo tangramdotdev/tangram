@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An exact subtree token authorizes spawning a command that the user reaches only through that token, alongside a command the user reaches through a grant.
 

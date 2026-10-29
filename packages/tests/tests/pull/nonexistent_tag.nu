@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pulling a tag that exists on neither the local server nor the remote fails.
 

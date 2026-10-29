@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The Linux launch adapters preserve mounts, environment, stdio, and command status.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cancelling a process that does not exist fails with a missing-process error.
 

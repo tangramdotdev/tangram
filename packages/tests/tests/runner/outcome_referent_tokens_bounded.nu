@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The process data stored in the remote index carries each sync token once, on the outer command and output referents, rather than once per output object.
 

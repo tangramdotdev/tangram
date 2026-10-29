@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Recover an older index's default names from its surviving lock file.
 let local = server spawn

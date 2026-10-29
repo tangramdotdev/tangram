@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Compute for a group-owned sandbox is charged to the group's user account.
 

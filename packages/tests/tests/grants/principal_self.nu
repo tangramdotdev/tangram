@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process and a sandbox can read their own nodes without authorization searches.
 

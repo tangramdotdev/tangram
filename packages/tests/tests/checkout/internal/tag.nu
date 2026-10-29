@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # An internal checkout of a tag follows the tag when it is replaced or deleted.
 

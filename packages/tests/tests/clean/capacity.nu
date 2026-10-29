@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Capacity cleaning removes an unreferenced object before its time to live expires.
 

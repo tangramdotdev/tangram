@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A cross-region cache hit should touch the child without retaining it through a foreign parent.
 

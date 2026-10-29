@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in an artifact path reached through a symlink inside a process returns the existing artifact.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Explicit regions choose where a database-backed request executes.
 let common = {

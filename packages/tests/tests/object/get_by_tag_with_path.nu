@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Getting an object by a tag reference with a get path option resolves to the nested file and reports the resolved referent on stderr.
 

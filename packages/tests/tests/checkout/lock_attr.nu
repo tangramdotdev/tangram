@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # --lock=attr writes an xattr for a file with a tag dependency.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A tg.file template literal interpolates a string placeholder into a multiline file and the resulting text matches the snapshot.
 

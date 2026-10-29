@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process reads nested and shared directory entries without authorization search, while unrelated artifacts remain inaccessible.
 

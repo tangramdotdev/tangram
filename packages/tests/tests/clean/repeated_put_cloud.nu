@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cleaning an object that was put twice deletes every copy of it from a cloud server's cache.
 

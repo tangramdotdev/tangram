@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 for mode in [--eager --lazy] {
  let remote = server spawn --cloud --name remote

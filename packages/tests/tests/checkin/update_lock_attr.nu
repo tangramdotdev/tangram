@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in with --update and --lock=attr updates the tag dependency in the file lock xattr and writes no sibling lockfile.
 

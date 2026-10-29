@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote runner must push a cache-hit child's output when the module graph has a cycle.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a directory containing a self-referential symlink produces the expected object and writes no lockfile.
 

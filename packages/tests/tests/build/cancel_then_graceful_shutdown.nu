@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cancelling a build with Ctrl-C and then gracefully stopping the server with Ctrl-C exits the server successfully.
 

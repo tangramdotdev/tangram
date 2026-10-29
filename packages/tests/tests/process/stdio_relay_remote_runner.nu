@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Piped stdin and stdout cross servers over the relay when the process runs on a remote runner.
 

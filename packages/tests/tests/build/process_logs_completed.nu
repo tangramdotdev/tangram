@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A reader opened after the close notifications still reaches the stored end.
 let local = server spawn --config { advanced: { checkpoints: true }, runner: { process_state_ttl: 0.01 } }

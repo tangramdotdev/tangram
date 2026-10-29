@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cancelling a finished process with a lease that the process does not hold succeeds.
 

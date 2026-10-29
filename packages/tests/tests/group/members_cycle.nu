@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A group cannot be added as a member of one of its own members, which would form a cycle.
 

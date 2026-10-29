@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Checking out a symlink with an absolute target path writes the symlink into the checkouts directory.
 

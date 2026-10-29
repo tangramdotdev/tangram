@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process whose sandbox is killed by the out-of-memory killer reports the OOM kill.
 

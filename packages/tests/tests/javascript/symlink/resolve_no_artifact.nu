@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Resolving a symlink that has a path but no artifact throws.
 

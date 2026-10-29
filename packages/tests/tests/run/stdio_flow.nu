@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Piped writes exceed one flow window while an idle stdout reader leaves stderr usable.
 let local = server spawn

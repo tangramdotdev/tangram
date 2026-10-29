@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Closing reads and failing a stdin input iterator leave the process usable.
 let local = server spawn

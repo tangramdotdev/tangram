@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Solving a branch directory preserves the graph context of an internal pointer in a child, and the reference grants another user read access to the solved subtree.
 

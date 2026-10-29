@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process that fails with an internal error is not reused as a cache hit, so a second build of the same command runs a fresh process.
 

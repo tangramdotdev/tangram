@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A null nodes override clears inherited graph nodes, and the object and fluent forms are equivalent.
 

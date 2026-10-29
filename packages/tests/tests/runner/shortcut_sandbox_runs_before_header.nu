@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut sandbox becomes active before its control connection receives its header, and its process completes once the connection is released.
 

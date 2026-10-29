@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A package can import a sibling package through a relative path and run its default export.
 

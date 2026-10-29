@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Sandbox read capabilities authorize get and status, including explicit sources.
 let local = server spawn --name local --config {

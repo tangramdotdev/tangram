@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Hardened container defaults preserve a plain sandboxed run and apply each resource boundary.
 

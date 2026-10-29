@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Resolving a get path through a directory object preserves its graph context.
 let local = server spawn

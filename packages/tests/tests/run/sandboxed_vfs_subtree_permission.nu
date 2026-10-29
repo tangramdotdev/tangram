@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A permission on a referenced directory covers its whole subtree, so a deeply nested file is readable.
 

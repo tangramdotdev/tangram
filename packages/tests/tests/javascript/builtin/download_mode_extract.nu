@@ -1,5 +1,5 @@
-use ../../../lib/test.nu *
-use ../../../lib/http.nu *
+use ../../../util/test.nu *
+use ../../../util/http.nu *
 
 # tg.download with the "extract" mode unpacks the downloaded archive, returning a directory artifact.
 

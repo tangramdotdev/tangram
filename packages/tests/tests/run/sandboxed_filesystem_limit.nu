@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A configured container filesystem limit bounds the writable sandbox filesystem.
 

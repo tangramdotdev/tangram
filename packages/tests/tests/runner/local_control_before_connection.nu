@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A scheduled process accepts local stdio before process control connects.
 let root_token = random chars

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Reading the log of a process that does not exist fails because its stdio cannot be retrieved.
 

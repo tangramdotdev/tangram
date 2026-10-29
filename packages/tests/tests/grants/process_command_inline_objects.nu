@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Process node access exposes inline fields; command access covers each input subtree.
 

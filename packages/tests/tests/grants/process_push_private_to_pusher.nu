@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pushing a process to a shared remote keeps it private to the pusher: a second authenticated user and an anonymous client must not read the process node without a grant.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox whose creation fails on its runner after the sandbox is connected is destroyed with the error that caused the failure.
 

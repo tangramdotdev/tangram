@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Concurrent sandboxes with a CPU maximum are pinned to different hardware threads.
 

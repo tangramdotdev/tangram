@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # The builder's executable method sets the executable bit, defaulting to true and accepting false.
 

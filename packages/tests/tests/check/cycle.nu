@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The check command succeeds for a package whose modules import each other in a cycle.
 

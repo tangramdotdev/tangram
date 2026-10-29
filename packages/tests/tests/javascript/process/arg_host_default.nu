@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Sandboxed process arguments leave the host unset for the server to choose.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A package whose root module imports and runs a command from a sibling module within the same package builds successfully.
 

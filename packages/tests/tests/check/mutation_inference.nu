@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The check command succeeds when a mutation produced by tg.Mutation.setIfUnset is assigned to a field typed as tg.MaybeMutation.
 

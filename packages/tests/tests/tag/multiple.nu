@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # tg match and tg tag get over many tags handle empty, prefix, exact, and version-range patterns correctly and reject pattern operators inside parent components.
 

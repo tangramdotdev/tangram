@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cached descendants inherit sync context even when they already carry authorization.
 let local = server spawn

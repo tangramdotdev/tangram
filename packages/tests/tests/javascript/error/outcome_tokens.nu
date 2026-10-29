@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Serialized process outcomes carry tokens on stack module referents.
 

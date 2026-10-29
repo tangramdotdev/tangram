@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process's piped stdout reaches the client when its stdout reader is created after the process exits.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The permission lattice is admin implies write implies read, and the implication does not run the other way.
 

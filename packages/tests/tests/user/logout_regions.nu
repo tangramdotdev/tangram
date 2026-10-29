@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Logout preserves the explicit region when the receiving region has account management disabled.
 let common = {

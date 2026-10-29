@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The fields flag restricts the health to the requested comma separated fields.
 

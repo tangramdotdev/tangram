@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checksumming a graph file pointer fails with an error indicating that checksumming graph pointers is unsupported.
 

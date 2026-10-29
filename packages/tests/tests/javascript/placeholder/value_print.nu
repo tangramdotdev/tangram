@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A placeholder returned from a build prints as a tg.placeholder call.
 

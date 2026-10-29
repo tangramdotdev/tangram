@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cancellation rechecks completion when runner control retires after the initial status check.
 

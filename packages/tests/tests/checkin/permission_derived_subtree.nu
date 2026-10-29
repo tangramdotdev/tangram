@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu reference-access
+use ../../util/test.nu *
+use ../../util/checkin.nu reference-access
 
 # Permissions proven across a dependency's direct children make a checked-in file's reference grant another user read access to its subtree.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Local pulls return bounded capabilities for the permissions they actually verify.
 

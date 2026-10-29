@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/module.nu *
+use ../../util/test.nu *
+use ../../util/module.nu *
 
 # Resolving Edge::Pointer modules returns a token for their graph ID, so a user who holds only the command token can resolve each subsequent import.
 

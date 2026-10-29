@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process_parent grant permits signaling a running non-cacheable process.
 

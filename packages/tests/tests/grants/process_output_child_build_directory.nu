@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process can return a directory that nests a child build's output file, and the builder can read the nested file.
 

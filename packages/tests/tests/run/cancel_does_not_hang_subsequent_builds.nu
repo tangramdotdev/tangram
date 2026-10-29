@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Canceling a running build releases its sandbox's capacity so that a subsequent
 # build can start.

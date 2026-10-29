@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A server restarts on its initialized directory and refuses to start when the directory version is unsupported or missing.
 

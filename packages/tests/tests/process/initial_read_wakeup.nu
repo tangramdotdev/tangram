@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A completion notification restarts the first status/wait observation.
 let local_owner = server spawn --name local-owner --config {

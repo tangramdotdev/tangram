@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A pull computes whether each object's subtree is fully stored from the children as they arrive, and
 # the local index reports the same thing, but can be behind: a plain get stores a single object and

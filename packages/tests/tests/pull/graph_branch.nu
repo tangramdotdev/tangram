@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pulling a cycle whose graph is split into leaves and a branch pulls every leaf, and the pulled artifacts can be checked out and built.
 

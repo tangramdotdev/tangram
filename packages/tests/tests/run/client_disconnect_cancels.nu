@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Disconnecting tg run after its wait lease is attached cancels the process and destroys its sandbox.
 

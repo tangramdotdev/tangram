@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # When a Promise.race settles, the losing branch is canceled, so its
 # later side effects (here, a log line after a long sleep) never run.

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A reference with a get option that names an entry the directory does not contain fails.
 

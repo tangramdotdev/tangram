@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a package whose import path traverses a symlinked directory resolves to the target artifact and writes no lockfile.
 

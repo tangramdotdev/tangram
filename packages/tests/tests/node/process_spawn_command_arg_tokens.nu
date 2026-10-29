@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Command argument tokens remain scoped to the user who received them.
 

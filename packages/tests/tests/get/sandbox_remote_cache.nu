@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Only destroyed sandbox get responses can be served from the principal-scoped remote cache.
 

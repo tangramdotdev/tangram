@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/checkin.nu reference-access
+use ../../util/test.nu *
+use ../../util/checkin.nu reference-access
 
 # A watched no-solve update of a cyclic directory returns a reference that still grants another user read access to its subtree.
 

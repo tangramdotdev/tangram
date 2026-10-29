@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A branch directory renews the tokens of a leaf that an earlier lookup reused.
 

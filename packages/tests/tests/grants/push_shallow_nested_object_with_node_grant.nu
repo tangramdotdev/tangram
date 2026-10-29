@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pushing a directory must follow the authorization graph through an intermediate object the pusher's server does not have. Alice holds the middle directory's node and the leaf file's subtree, so the remote descends through the middle directory and resolves the leaf without requesting either.
 

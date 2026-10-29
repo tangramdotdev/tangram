@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A runner runs no more sandboxes at once than its sandbox capacity, and a waiting parent lends its sandbox capacity to its children.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Process output capture preserves directory and file nodes whose dependency cannot be read.
 

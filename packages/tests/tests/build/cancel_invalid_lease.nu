@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cancelling with a lease that the process does not hold is an idempotent no-op, while cancelling with the valid lease stops the process.
 

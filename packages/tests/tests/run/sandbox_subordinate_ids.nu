@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Container sandboxes can map workload identities into subordinate host ranges.
 

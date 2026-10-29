@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A symlink authorization token does not authorize an unmaterialized artifact or an ID mentioned only in its path.
 

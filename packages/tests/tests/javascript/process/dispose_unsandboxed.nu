@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Disposing an unsandboxed process handle cancels its owned child.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox whose runner task fails before it reports the sandbox's destruction is destroyed with the error that caused the failure.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 let local = server spawn
 let first = artifact {tangram.ts: 'export const value = 1;'}

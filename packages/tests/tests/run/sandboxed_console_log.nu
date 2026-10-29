@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Console.log output from a sandboxed run is captured on stdout.
 

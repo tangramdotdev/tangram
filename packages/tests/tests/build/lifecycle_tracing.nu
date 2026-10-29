@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Lifecycle events correlate nested successful and failed builds without recording their arguments.
 

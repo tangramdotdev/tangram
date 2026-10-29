@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An artifact produced by a build is readable through the mount when a sandboxed process references it.
 

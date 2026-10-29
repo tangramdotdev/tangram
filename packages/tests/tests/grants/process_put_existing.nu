@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # PUT with matching process data and children grants node permission. PUT with a different exit code fails.
 let root_token = random chars

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # An internal checkout accepts multiple artifacts, while an external checkout accepts exactly one.
 

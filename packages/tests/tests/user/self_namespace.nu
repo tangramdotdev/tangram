@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A user inherently has permission over their own namespace, so they can tag and create groups directly under their username.
 

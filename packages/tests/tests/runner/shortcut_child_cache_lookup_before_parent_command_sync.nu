@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut child's cache lookup on the remote must succeed while its parent's command sync is pending.
 

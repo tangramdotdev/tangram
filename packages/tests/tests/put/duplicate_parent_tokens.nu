@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Putting duplicate parent references preserves authorization for the stored directory.
 

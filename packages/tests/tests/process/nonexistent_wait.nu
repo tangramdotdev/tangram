@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Waiting on a process that does not exist fails with a missing-process error.
 

@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.archive accepts a compression format and round-trips through tg.extract.
 

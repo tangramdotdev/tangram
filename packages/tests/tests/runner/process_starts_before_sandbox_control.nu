@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A scheduled process starts in a pooled sandbox before sandbox control connects.
 

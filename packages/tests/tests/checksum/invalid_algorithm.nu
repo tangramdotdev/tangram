@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An unsupported algorithm is rejected by the command line parser.
 

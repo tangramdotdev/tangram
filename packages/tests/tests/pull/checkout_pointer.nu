@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pulled files and blobs remain readable after the remote stops, whether checkout pointers are enabled, disabled, or enabled after earlier pulls.
 

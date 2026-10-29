@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut sandbox's connection and a shortcut process's connection replay initialization after a remote restart.
 

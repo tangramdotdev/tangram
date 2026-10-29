@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Remote cache reads use the configured default TTL and honor finite and infinite overrides.
 

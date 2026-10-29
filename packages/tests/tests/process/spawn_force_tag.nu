@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Spawning with force-tag replaces an existing tag, while the default preserves it.
 

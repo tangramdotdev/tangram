@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cleaning removes processes unreachable from any tag while retaining tagged processes and the processes they depend on.
 

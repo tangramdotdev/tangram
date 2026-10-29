@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a package that imports a sibling by relative path with a get path option resolves to the artifact at that path.
 

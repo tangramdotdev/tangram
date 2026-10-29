@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Repeating an eager push skips an available subtree without transferring any objects.
 

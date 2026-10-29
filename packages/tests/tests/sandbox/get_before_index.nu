@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A missing index result must not end a read while control is becoming available.
 let local_owner = server spawn --name local-owner --config {

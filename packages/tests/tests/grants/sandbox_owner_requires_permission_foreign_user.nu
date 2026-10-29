@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Creating a sandbox owned by another user requires write on that user, so an unrelated user must not assign them as owner.
 

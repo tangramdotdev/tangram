@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process can pass a child of its own remote cache-hit child's output to another child's command.
 

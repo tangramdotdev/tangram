@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Minimal, deterministic reproduction of the nested-sandbox pipe data-loss bug.
 #

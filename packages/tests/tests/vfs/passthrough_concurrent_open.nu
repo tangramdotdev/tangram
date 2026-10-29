@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/vfs.nu
+use ../../util/test.nu *
+use ../../util/vfs.nu
 
 # A file served by the VFS must support more than one concurrent open. The provider supplies a new
 # backing descriptor for each open, and the kernel refuses the second one because the inode already

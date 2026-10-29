@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Process metadata after a build and indexing reports subtrees for the command, error, log, and output.
 

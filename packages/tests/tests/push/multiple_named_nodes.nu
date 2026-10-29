@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A single push commits multiple nested groups and tags as one named-node batch.
 

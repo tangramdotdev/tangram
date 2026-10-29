@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Remote management requires authentication and each authenticated user manages their own isolated set of remotes.
 

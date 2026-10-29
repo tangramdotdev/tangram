@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A tag deleted after it is read is returned from the consistent snapshot rather than causing an internal error.
 

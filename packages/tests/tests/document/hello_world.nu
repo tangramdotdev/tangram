@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Documenting a package with a default export produces documentation JSON that matches the snapshot.
 

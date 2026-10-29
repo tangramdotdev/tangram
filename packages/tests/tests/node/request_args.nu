@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Node requests preserve their arguments when dispatched to the process.
 

@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/lsp.nu
+use ../../util/test.nu *
+use ../../util/lsp.nu
 
 let local = server spawn
 let source = "class Box:\n    def size(self) -> int:\n        return 1\n\ndef greet(name: str) -> str:\n    \"\"\"Greet a friend.\"\"\"\n    return name\n\nanswer = greet(\"Ada\")\nbox = Box()\nbox.size()\n"

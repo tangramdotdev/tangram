@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pushing a process's logs lazily makes them readable from the remote, and a lazy log push of a process with no logs still succeeds.
 

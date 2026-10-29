@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A server that signals an invalid readiness byte is rejected and its readiness FIFO is removed.
 

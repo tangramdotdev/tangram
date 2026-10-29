@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A shortcut child's command push succeeds after the child's control connection reconnects.
 let root_token = random chars

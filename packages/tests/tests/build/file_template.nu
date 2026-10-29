@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The tg.file template literal strips the leading indentation from a multiline file and the text matches the snapshot.
 

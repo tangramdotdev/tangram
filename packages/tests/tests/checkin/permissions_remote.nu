@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A trusted remote lets a checked-in file's reference grant another user read access to its dependency, while an untrusted remote does not.
 

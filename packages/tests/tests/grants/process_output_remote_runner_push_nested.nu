@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A remote runner must be able to push a parent process output assembled from its children's outputs, and the user who spawned the build must be able to read every object in it.
 

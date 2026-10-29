@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # `foo` and `bar` are exports that both `tg.build(shared)` but have different commands.
 # `foo` runs on one runner and pushes its output to the remote

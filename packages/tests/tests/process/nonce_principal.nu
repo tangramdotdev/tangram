@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A wait that locates a process by an attach's nonce is rejected unless it is authenticated as the principal that opened the attach.
 
-const script = path self ../../lib/process_nonce.mjs
+const script = path self ../../util/process_nonce.mjs
 let root = random chars
 let server = server spawn --config {
 	advanced: { checkpoints: true },

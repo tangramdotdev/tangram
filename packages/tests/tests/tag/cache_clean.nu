@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cleaning deletes cached remote tags and the tags can be re-fetched from the remote afterward.
 

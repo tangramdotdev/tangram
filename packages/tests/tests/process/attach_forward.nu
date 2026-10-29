@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process connection forwards requests to the selected location.
 
-const proxy_path = path self ../../lib/process_attach_proxy.mjs
+const proxy_path = path self ../../util/process_attach_proxy.mjs
 let remote = server spawn --name remote
 let port = port
 let log = mktemp

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Getting the raw bytes of an object that does not exist fails with a missing-object error.
 

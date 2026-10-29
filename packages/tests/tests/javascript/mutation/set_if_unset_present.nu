@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Applying a set-if-unset mutation leaves an existing value unchanged.
 

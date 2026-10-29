@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Usage requires account administration and missing selectors fail cleanly.
 

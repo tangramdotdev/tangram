@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/vfs.nu
+use ../../util/test.nu *
+use ../../util/vfs.nu
 
 # A group appears in the VFS as soon as it is created, and a tag inside it as soon as it is put.
 

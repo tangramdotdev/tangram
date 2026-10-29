@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A JavaScript build that creates an object with more than 1,024 children or more than 1 MiB of data fails before storing the object.
 

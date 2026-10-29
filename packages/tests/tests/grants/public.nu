@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A public read grant makes a resource readable by an anonymous client.
 

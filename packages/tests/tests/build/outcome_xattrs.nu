@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # All process readers decode inline metadata and empty attributes that mark serialized file contents.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Force replaces conflicting local nodes and their complete named subtrees during pull.
 

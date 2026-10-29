@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Indexed cached children retain the remote authorization tokens needed to read their outputs.
 

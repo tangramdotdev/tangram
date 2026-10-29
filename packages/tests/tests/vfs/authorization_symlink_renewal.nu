@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A fresh symlink refreshes an already loaded target and its descendants without authorization search.
 

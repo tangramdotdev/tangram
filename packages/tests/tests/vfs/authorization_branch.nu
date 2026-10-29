@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process enumerates a branch directory and follows its artifact symlinks without authorization search.
 

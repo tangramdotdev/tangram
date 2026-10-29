@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A waiting parent lends what it can to its child, which acquires the rest from the runner. The parent lends all of its CPU, including its minimum, and the memory above its memory minimum.
 

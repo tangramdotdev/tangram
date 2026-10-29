@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/http.nu *
+use ../../util/test.nu *
+use ../../util/http.nu *
 
 # Downloading a URL with a wildcard checksum returns a blob with the downloaded contents.
 

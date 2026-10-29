@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A spawn whose runner dies after the sandbox connects but before the process connects must observe destruction without waiting for the control read timeout.
 let root_token = random chars

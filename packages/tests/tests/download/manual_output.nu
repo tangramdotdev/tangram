@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/http.nu *
+use ../../util/test.nu *
+use ../../util/http.nu *
 
 # A manual builtin invocation reports the reason on stderr without writing to a process output path.
 

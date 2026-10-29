@@ -1,5 +1,5 @@
-use ../../../lib/test.nu *
-use ../../../lib/http.nu *
+use ../../../util/test.nu *
+use ../../../util/http.nu *
 
 # tg.download accepts a "raw" mode option, downloading the contents without any postprocessing.
 

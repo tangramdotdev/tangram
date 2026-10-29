@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Verify that a large finished log can be transferred and read completely without an early EOF.
 

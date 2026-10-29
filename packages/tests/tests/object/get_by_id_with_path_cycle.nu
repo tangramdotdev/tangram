@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Test getting from an object with ?get= when there's a cyclical import.
 

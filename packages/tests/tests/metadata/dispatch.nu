@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The top level metadata command dispatches a reference to object metadata or process metadata.
 

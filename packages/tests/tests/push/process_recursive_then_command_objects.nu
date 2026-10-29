@@ -1,5 +1,5 @@
-use ../../lib/test.nu *
-use ../../lib/command.nu
+use ../../util/test.nu *
+use ../../util/command.nu
 
 # Recursively pushing a process without command objects leaves them absent on the remote, and a subsequent recursive push with command objects makes them present and records the expected metadata fields, under both eager and lazy push.
 

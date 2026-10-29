@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The check command succeeds when building the default export of a tagged dependency imported either as a directory or as a TypeScript file, treating its return as a tg.Directory.
 

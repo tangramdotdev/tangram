@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A mutation's objects method returns the artifacts contained in its value.
 

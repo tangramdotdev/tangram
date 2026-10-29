@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A sandbox whose process exits after it is created is destroyed with the error that describes the exit.
 

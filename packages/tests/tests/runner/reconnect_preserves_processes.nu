@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Reconnecting to the server without restarting the runner preserves its running processes.
 let root_token = random chars

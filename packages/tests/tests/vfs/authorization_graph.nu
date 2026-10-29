@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process follows graph pointers, a directory cycle, and internal and external symlink targets without authorization search.
 

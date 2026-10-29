@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Each supported algorithm produces a checksum tagged with the algorithm name and the expected digest length.
 

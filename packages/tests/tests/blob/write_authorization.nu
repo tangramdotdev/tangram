@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Writing bytes returns subtree authorization for the blob.
 

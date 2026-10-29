@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A read that reaches a forwarding server is forwarded with the attach's nonce, so that it claims the open that the destination's attach put in the scheduled process's assignment, before the process control connection returns.
 

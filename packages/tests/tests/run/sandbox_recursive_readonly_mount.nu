@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A readonly sandbox bind recursively protects nested mounts.
 

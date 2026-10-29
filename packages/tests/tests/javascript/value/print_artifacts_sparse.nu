@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.Value.print renders files and symlinks with absent optional fields without crashing and omits those fields.
 

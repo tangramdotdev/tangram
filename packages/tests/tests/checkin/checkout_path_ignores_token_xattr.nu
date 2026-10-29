@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Another user can check in a file that its owner checked out, although the user cannot read the file by its ID.
 

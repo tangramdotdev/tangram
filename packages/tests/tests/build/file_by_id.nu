@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A module file checked in by its identifier can be built directly and returns its default export value.
 

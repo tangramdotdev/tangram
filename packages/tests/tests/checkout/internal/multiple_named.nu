@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # An internal checkout materializes multiple tags with a shared ancestor.
 

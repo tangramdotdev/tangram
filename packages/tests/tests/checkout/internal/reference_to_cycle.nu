@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Checking out a reference to a directory that points into a cycle writes the directory into the checkouts directory.
 

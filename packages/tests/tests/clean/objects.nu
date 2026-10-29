@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Cleaning removes objects unreachable from any tag while retaining tagged objects and their transitive children.
 

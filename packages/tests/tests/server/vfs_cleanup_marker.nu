@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Server starts record cleanup intent for explicit, instance, and restart VFS configurations, while non-VFS starts do not.
 

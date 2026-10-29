@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Two unsandboxed processes produce the same output artifact. The second run's
 # cache rename fails with AlreadyExists, leaving the tempdir source in place

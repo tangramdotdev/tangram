@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # --public is idempotent: re-building a public command, and another owner building it, are cache hits that succeed without error rather than re-granting.
 

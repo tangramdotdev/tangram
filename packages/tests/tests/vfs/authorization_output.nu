@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A process can read a child build output through the VFS when its result lacks an exact token.
 

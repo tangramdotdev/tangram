@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A runner must not start a shortcut child of a process that it does not run, since the child would receive the parent's authority over the command's objects, or in a sandbox that it does not host, since the sandbox's owner is billed for the child.
 
@@ -6,7 +6,7 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux sandboxes'
 }
 
-const helper = path self '../../lib/process_control_start.py'
+const helper = path self '../../util/process_control_start.py'
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 let mallory = tg login --verbose --name mallory | from json

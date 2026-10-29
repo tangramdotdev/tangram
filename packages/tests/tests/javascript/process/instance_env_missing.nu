@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # A spawned process's env getter returns undefined for a name that is not set.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A runner that restarts during startup cleanup retries using the indexed sandboxes.
 let root_token = random chars

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Pulling a remote cache-hit process replaces its local index-only record with complete process data.
 

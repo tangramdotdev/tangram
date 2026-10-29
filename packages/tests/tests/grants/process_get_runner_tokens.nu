@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Runner reads return child and object tokens that let a user without grants read the process's command, output, and child.
 def get-process [socket: string, bearer: string, process: string, token: string, metadata: bool = false, availability: bool = false] {

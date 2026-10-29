@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking in a package with conflicting tag version constraints that have no solution fails with the expected output.
 

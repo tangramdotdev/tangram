@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Checking out an artifact must require its subtree: a principal without an artifact's subtree must not be able to check it out. An artifact the principal cannot access should be masked as not found.
 

@@ -1,4 +1,4 @@
-use ../lib/test.nu *
+use ../util/test.nu *
 
 const signature_source = r#'
 import { createHmac } from "node:crypto";

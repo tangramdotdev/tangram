@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An explicit newline escape between two artifact placeholders in a single-line tg template literal is preserved and matches the snapshot.
 

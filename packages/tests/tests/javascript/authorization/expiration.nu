@@ -1,6 +1,6 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
-const authorization = path self ../../../lib/authorization.ts
+const authorization = path self ../../../util/authorization.ts
 
 # Token pruning ignores expiration except to keep the latest of equivalent proofs, and preserves the merge laws.
 let local = server spawn

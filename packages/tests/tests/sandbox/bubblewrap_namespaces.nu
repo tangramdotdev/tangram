@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Builtin and bubblewrap agree on PID-1 behavior and the isolation of the reaper's root.
 if $nu.os-info.name != 'linux' { skip_test 'this test requires linux' }

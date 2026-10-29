@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A build parses each `--arg-value` value kind into the corresponding JavaScript type, unlike `--arg-string` which always produces a string.
 

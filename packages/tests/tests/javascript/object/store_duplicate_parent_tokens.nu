@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # Storing a directory through duplicate parent references preserves subtree authorization.
 

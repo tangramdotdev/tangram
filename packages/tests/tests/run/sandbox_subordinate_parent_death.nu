@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A mapped workload dies when its launcher exits, including across a PID namespace.
 
-const driver = path self ../../lib/container_parent.py
+const driver = path self ../../util/container_parent.py
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'

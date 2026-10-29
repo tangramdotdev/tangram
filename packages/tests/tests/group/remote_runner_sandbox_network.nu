@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A runner sandbox cannot use the runner's configured remote for an unrelated remote API.
 

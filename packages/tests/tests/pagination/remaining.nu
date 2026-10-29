@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Compare identities because authorization tokens can be refreshed between requests.
 def identities [data: list, key: string] {

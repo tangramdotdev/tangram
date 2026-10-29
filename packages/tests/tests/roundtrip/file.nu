@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Building a file, checking it out with dependencies, cleaning, and checking it back in yields the same artifact ID.
 

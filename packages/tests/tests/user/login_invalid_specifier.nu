@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A user specifier must be a single component, so a multi-component login is rejected.
 

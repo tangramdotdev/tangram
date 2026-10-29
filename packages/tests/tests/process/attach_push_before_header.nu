@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A forwarding server starts its command push before the destination's attach returns its header, joining the destination's command sync by the attach's nonce.
 

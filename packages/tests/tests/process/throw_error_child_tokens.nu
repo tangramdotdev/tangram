@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Wrapping a failed child retains its error proofs along with the parent module proof.
 

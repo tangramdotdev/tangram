@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Calling process.signal with TERM on a running unsandboxed process terminates it and wait reports the corresponding exit status.
 

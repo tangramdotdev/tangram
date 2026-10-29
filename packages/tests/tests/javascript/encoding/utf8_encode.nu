@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # tg.encoding.utf8.encode encodes a string to its UTF-8 byte representation.
 

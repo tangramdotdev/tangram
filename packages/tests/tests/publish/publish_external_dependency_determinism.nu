@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Graph IDs are deterministic when a package with cycles is entered via an external dependency.
 #

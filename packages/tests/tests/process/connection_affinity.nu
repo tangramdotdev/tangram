@@ -1,8 +1,8 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A runner and a local server whose clients spread requests over several connections to an instance with several servers send each process's correlated requests over one connection, so that every server answers them over its local channel instead of the messenger.
 
-const proxy_path = path self ../../lib/round_robin_proxy.mjs
+const proxy_path = path self ../../util/round_robin_proxy.mjs
 
 # Spawn two servers in one instance, and route connections to them in turn, like a layer 4 load balancer.
 let root_token = random chars

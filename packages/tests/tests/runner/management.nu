@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Runner management enforces owner administration and supports exact-owner listing and token lifecycle operations.
 

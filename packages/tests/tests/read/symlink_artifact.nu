@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Reading a symlink with an artifact target resolves to the target file's contents.
 

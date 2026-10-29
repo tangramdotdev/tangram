@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # An unsandboxed tg.run command inherits stdio by default so its stdout is captured.
 

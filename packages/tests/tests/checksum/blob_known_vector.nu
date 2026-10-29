@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # The sha256 checksum of a blob matches the standard sha256 hash of its contents, formatted as algorithm:hex.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A stdin close that reaches the runner after the process exits, but before the runner observes the exit, succeeds.
 

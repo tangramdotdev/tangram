@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Dependency tokens recovered from a reused checkout should authorize object storage after restart.
 

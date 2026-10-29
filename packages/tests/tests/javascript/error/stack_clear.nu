@@ -1,4 +1,4 @@
-use ../../../lib/test.nu *
+use ../../../util/test.nu *
 
 # An explicit null stack suppresses capture while an omitted stack captures one.
 

@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # tg.graph in Python with nodes that have more than 1,024 children splits the nodes into leaves and a branch, and the graph's artifacts can still be read.
 

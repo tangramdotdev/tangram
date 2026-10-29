@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # Getting the children of a process by a well formed id that does not exist fails.
 

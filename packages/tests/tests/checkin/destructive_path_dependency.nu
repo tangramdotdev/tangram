@@ -1,4 +1,4 @@
-use ../../lib/test.nu *
+use ../../util/test.nu *
 
 # A destructive checkin of a package with a sibling path dependency resolves and embeds the dependency.
 
