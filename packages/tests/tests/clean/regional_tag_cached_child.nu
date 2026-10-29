@@ -15,7 +15,7 @@ let instance = instance --cloud --primary-region primary --regions [{ name: prim
 let primary = server spawn --instance $instance --region primary --preserve-keys --name primary --now '2026-01-01T00:00:00Z' --url (instance region url $instance primary)
 let secondary = server spawn --instance $instance --region secondary --preserve-keys --name secondary --now '2026-01-01T00:00:00Z' --url (instance region url $instance secondary)
 
-# Populate only the secondary region with the child process and its output.
+# Push the package to both regions, since multi-server regions do not support check-in.
 let path = artifact {
 	tangram.ts: '
 		export function child() { return tg.file("cached peer child output"); }
@@ -26,10 +26,14 @@ let path = artifact {
 		}
 	'
 }
-let child = tg --url $secondary.url build --no-tokens --detach $'($path)#child' | referent node
+let package = checkin push $secondary $path
+checkin push $primary $path | ignore
+
+# Populate only the secondary region with the child process and its output.
+let child = tg --url $secondary.url build --no-tokens --detach $'($package)#child' | referent node
 tg --url $secondary.url wait --source=index $child | ignore
 tg --url $secondary.url index
-let process_sentinel = tg --url $secondary.url build --no-tokens --detach $'($path)#sentinel' | referent node
+let process_sentinel = tg --url $secondary.url build --no-tokens --detach $'($package)#sentinel' | referent node
 tg --url $secondary.url wait --source=index $process_sentinel | ignore
 tg --url $secondary.url index
 let child_data = tg --url $secondary.url process get --source=index --location='local(secondary)' $child | from json
@@ -41,7 +45,7 @@ advance_time $secondary 23hr
 
 # The parent must reuse that exact process from the peer cache rather than execute a new child.
 let watch = tg --url $secondary.url checkpoint watch process.spawn.child.add --params ({ cached: true, child: $child } | to json --raw) | from json | get watch
-let parent = tg --url $primary.url build --no-tokens --detach $path | referent node
+let parent = tg --url $primary.url build --no-tokens --detach $package | referent node
 tg --url $secondary.url checkpoint wait --timeout 30s process.spawn.child.add $watch 0 | ignore
 tg --url $secondary.url checkpoint continue process.spawn.child.add $watch 0
 tg --url $secondary.url checkpoint unwatch process.spawn.child.add $watch
