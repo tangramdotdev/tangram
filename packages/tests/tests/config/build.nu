@@ -83,6 +83,29 @@ let output = tg build $path | complete
 success $output
 assert equal ($output.stdout | from json) true
 
+# The runtime can pass the package and the dependencies to its own processes.
+let path = artifact {
+	tangram.json: '{ "runtime": "./runtime", "dependencies": { "greeting": "./greeting.txt" } }'
+	data.txt: 'data'
+	greeting.txt: 'Hello!'
+	runtime: {
+		tangram.ts: '
+			export default async (arg: { package: tg.Directory; dependencies: { greeting: { item: tg.File } } }) => {
+				const output = await tg.build(tg.command({
+					args: ["-c", "read -r a < \"$1/data.txt\" || true; read -r b < \"$2\" || true; printf %s%s \"$a\" \"$b\" > \"$3\"", "sh", arg.package, arg.dependencies.greeting.item, tg.output],
+					executable: "/bin/sh",
+					host: tg.host.current,
+				}));
+				tg.File.assert(output);
+				return output.text;
+			};
+		'
+	}
+}
+let output = tg build $path | complete
+success $output
+assert equal ($output.stdout | from json) 'dataHello!'
+
 # A config with an unknown key is invalid.
 let path = artifact {
 	env.tg.json: '{ "runtime": "./runtime", "imports": {} }'
