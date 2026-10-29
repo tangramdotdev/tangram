@@ -17,6 +17,7 @@ let artifact = artifact {
 let artifact = tg checkin --no-tokens $artifact | referent node
 tg tag -p foo/bar $artifact
 tg tag -p foo/baz/qux $artifact
+tg index
 
 let root = vfs store_path $server_path
 let root_entries = ls $root | get name | path basename
@@ -27,6 +28,7 @@ assert ((ls ($root | path join 'foo') | get name | path basename | sort) == ['ba
 assert ((ls ($root | path join 'foo/baz') | get name | path basename) == ['qux']) 'unexpected nested tag entries'
 
 tg tag delete foo/bar | ignore
+tg index
 assert ((ls ($root | path join 'foo') | get name | path basename) == ['baz']) 'expected the deleted tag to disappear from enumeration'
 
 # Tags for unsupported VFS node kinds remain visible as dangling symlinks.
@@ -38,6 +40,7 @@ let process = tg build --no-tokens --detach $process_path | referent node
 tg wait $process | ignore
 tg tag -p foo/blob $blob
 tg tag -p foo/process $process
+tg index
 
 let entries = ls ($root | path join 'foo') | get name | path basename | sort
 assert ($entries == ['baz', 'blob', 'process']) 'expected unsupported tag targets to be enumerated'

@@ -8,7 +8,7 @@ if $nu.os-info.name == 'macos' {
 }
 vfs skip_unless_supported
 
-# Tag paths resolve their current target and disappear after deletion without remounting the VFS.
+# Tag paths resolve their current target and disappear after deletion without remounting the VFS, once the tag change is indexed.
 
 let server_path = mktemp --directory
 let local = server spawn --directory $server_path --config { vfs: true }
@@ -21,6 +21,7 @@ let initial = artifact {
 	tangram.ts: 'export default () => "initial";'
 }
 tg tag dep $initial
+tg index
 
 assert ((open $path) =~ 'initial') 'expected the initial tag target'
 
@@ -28,16 +29,20 @@ let updated = artifact {
 	tangram.ts: 'export default () => "updated";'
 }
 tg tag --force dep $updated
+tg index
 assert ((open $path) =~ 'updated') 'expected the updated tag target'
 
 tg tag delete dep | ignore
+tg index
 assert (not ($path | path exists)) 'expected the deleted tag to disappear'
 
 # A miss in an existing named directory must not hide a new tag.
 tg tag -p group/initial $initial
+tg index
 let group = vfs store_path $server_path | path join 'group'
 assert ((open ($group | path join 'initial/tangram.ts')) =~ 'initial') 'expected the existing nested tag'
 let path = $group | path join 'added/tangram.ts'
 assert (not ($path | path exists)) 'expected the nested tag to be absent initially'
 tg tag group/added $updated
+tg index
 assert ((open $path) =~ 'updated') 'expected the new nested tag to appear'

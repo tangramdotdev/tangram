@@ -24,6 +24,7 @@ let dep_path = artifact {
 	'
 }
 tg tag dep $dep_path
+tg index
 
 let path = artifact {
 	tangram.ts: '
@@ -69,7 +70,9 @@ let updated_dep_path = artifact {
 	'
 }
 tg tag --force dep $updated_dep_path
+tg index
 assert ((open $definition_path) =~ 'updated') "expected the VFS tag to reflect the new target"
 
 tg tag delete dep | ignore
+tg index
 assert (not ($definition_path | path exists)) "expected the deleted VFS tag to disappear"
