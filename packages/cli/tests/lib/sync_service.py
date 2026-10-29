@@ -597,10 +597,9 @@ def test_output(messenger):
     other = Sync()
     wrong_id = other.sync["node"]
     other.close()
-    # Change the expiration without updating the signature.
-    data = bytearray(token_body.decode(token))
-    data[1] ^= 1
-    forged = token_body.encode(bytes(data))
+    # Change a character of the signature.
+    index = len(token) - 2
+    forged = token[:index] + ("1" if token[index] == "0" else "0") + token[index + 1 :]
     invalid = [
         {"node": referent["node"]},
         {"node": wrong_id, "options": referent["options"]},
