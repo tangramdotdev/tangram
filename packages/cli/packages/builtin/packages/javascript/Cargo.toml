@@ -1,5 +1,5 @@
 [package]
-name = "tangram_cli_javascript"
+name = "tangram_cli_builtin_javascript"
 
 description = { workspace = true }
 edition = { workspace = true }

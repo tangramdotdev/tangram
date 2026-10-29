@@ -9,6 +9,11 @@ mod extract;
 mod progress;
 mod util;
 
+#[cfg(any(feature = "quickjs", feature = "v8"))]
+pub use tangram_cli_builtin_javascript as javascript;
+#[cfg(feature = "cpython")]
+pub use tangram_cli_builtin_python as python;
+
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -24,6 +29,12 @@ pub enum Command {
 	Decompress(decompress::Args),
 	Download(download::Args),
 	Extract(extract::Args),
+	#[cfg(any(feature = "quickjs", feature = "v8"))]
+	#[command(name = "javascript", alias = "js")]
+	JavaScript(javascript::Args),
+	#[cfg(feature = "cpython")]
+	#[command(alias = "py")]
+	Python(python::Args),
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -34,6 +45,10 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		Command::Decompress(args) => (&args.output_named, &args.output_positional),
 		Command::Download(args) => (&args.output_named, &args.output_positional),
 		Command::Extract(args) => (&args.output_named, &args.output_positional),
+		#[cfg(any(feature = "quickjs", feature = "v8"))]
+		Command::JavaScript(_) => (&None, &None),
+		#[cfg(feature = "cpython")]
+		Command::Python(_) => (&None, &None),
 	};
 	let output_path = util::resolve_path(named.clone(), positional.clone());
 
@@ -45,6 +60,10 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		Command::Decompress(args) => decompress::run(args, progress_interval).await,
 		Command::Download(args) => download::run(args, progress_interval).await,
 		Command::Extract(args) => extract::run(args, progress_interval).await,
+		#[cfg(any(feature = "quickjs", feature = "v8"))]
+		Command::JavaScript(args) => javascript::run(cli, args).await,
+		#[cfg(feature = "cpython")]
+		Command::Python(args) => python::run(cli, args).await,
 	};
 
 	if let Err(error) = &result

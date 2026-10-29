@@ -9236,7 +9236,6 @@ dependencies = [
  "tangram_cli_id",
  "tangram_cli_index",
  "tangram_cli_init",
- "tangram_cli_javascript",
  "tangram_cli_list",
  "tangram_cli_lsp",
  "tangram_cli_match",
@@ -9250,7 +9249,6 @@ dependencies = [
  "tangram_cli_pull",
  "tangram_cli_push",
  "tangram_cli_put",
- "tangram_cli_python",
  "tangram_cli_read",
  "tangram_cli_remote",
  "tangram_cli_repl",
@@ -9312,6 +9310,8 @@ dependencies = [
  "num",
  "reqwest 0.13.5",
  "serde_json",
+ "tangram_cli_builtin_javascript",
+ "tangram_cli_builtin_python",
  "tangram_cli_core",
  "tangram_client",
  "tangram_futures",
@@ -9319,6 +9319,35 @@ dependencies = [
  "tangram_util",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "tangram_cli_builtin_javascript"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "deno_core_icudata",
+ "derive_more",
+ "futures",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_cli_process",
+ "tangram_client",
+ "tangram_javascript",
+ "tokio",
+ "v8",
+]
+
+[[package]]
+name = "tangram_cli_builtin_python"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_client",
+ "tangram_python",
+ "tokio",
 ]
 
 [[package]]
@@ -9603,23 +9632,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_cli_javascript"
-version = "0.0.0"
-dependencies = [
- "clap",
- "deno_core_icudata",
- "derive_more",
- "futures",
- "serde_json",
- "tangram_cli_core",
- "tangram_cli_process",
- "tangram_client",
- "tangram_javascript",
- "tokio",
- "v8",
-]
-
-[[package]]
 name = "tangram_cli_list"
 version = "0.0.0"
 dependencies = [
@@ -9789,18 +9801,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_cli_python"
-version = "0.0.0"
-dependencies = [
- "clap",
- "serde_json",
- "tangram_cli_core",
- "tangram_client",
- "tangram_python",
- "tokio",
-]
-
-[[package]]
 name = "tangram_cli_read"
 version = "0.0.0"
 dependencies = [
@@ -9841,8 +9841,8 @@ dependencies = [
  "nu-ansi-term",
  "reedline",
  "syntect",
+ "tangram_cli_builtin_javascript",
  "tangram_cli_core",
- "tangram_cli_javascript",
  "tangram_client",
  "tangram_javascript",
  "tokio",

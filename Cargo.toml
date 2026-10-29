@@ -4,6 +4,8 @@ default-members = [
   "packages/cli/packages/archive",
   "packages/cli/packages/availability",
   "packages/cli/packages/builtin",
+  "packages/cli/packages/builtin/packages/javascript",
+  "packages/cli/packages/builtin/packages/python",
   "packages/cli/packages/bundle",
   "packages/cli/packages/check",
   "packages/cli/packages/checkin",
@@ -26,7 +28,6 @@ default-members = [
   "packages/cli/packages/id",
   "packages/cli/packages/index",
   "packages/cli/packages/init",
-  "packages/cli/packages/javascript",
   "packages/cli/packages/list",
   "packages/cli/packages/lsp",
   "packages/cli/packages/match",
@@ -40,7 +41,6 @@ default-members = [
   "packages/cli/packages/pull",
   "packages/cli/packages/push",
   "packages/cli/packages/put",
-  "packages/cli/packages/python",
   "packages/cli/packages/read",
   "packages/cli/packages/reference",
   "packages/cli/packages/remote",
@@ -373,6 +373,8 @@ tangram_cache_scylla = { path = "packages/cache/packages/scylla" }
 tangram_cli_archive = { path = "packages/cli/packages/archive" }
 tangram_cli_availability = { path = "packages/cli/packages/availability" }
 tangram_cli_builtin = { path = "packages/cli/packages/builtin" }
+tangram_cli_builtin_javascript = { path = "packages/cli/packages/builtin/packages/javascript" }
+tangram_cli_builtin_python = { path = "packages/cli/packages/builtin/packages/python" }
 tangram_cli_bundle = { path = "packages/cli/packages/bundle" }
 tangram_cli_check = { path = "packages/cli/packages/check" }
 tangram_cli_checkin = { path = "packages/cli/packages/checkin" }
@@ -396,7 +398,6 @@ tangram_cli_health = { path = "packages/cli/packages/health" }
 tangram_cli_id = { path = "packages/cli/packages/id" }
 tangram_cli_index = { path = "packages/cli/packages/index" }
 tangram_cli_init = { path = "packages/cli/packages/init" }
-tangram_cli_javascript = { path = "packages/cli/packages/javascript" }
 tangram_cli_list = { path = "packages/cli/packages/list" }
 tangram_cli_lsp = { path = "packages/cli/packages/lsp" }
 tangram_cli_match = { path = "packages/cli/packages/match" }
@@ -410,7 +411,6 @@ tangram_cli_publish = { path = "packages/cli/packages/publish" }
 tangram_cli_pull = { path = "packages/cli/packages/pull" }
 tangram_cli_push = { path = "packages/cli/packages/push" }
 tangram_cli_put = { path = "packages/cli/packages/put" }
-tangram_cli_python = { path = "packages/cli/packages/python" }
 tangram_cli_read = { path = "packages/cli/packages/read" }
 tangram_cli_reference = { path = "packages/cli/packages/reference" }
 tangram_cli_remote = { path = "packages/cli/packages/remote" }
