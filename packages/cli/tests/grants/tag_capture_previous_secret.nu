@@ -19,7 +19,7 @@ let token = $object.tokens.local.0
 let reference = $'($directory)?tokens[local][0]=($token | url encode --all)'
 
 # Keep the authorization secret only as a previous secret, so the server verifies existing tokens without signing new ones.
-let secret = { algorithm: blake3, name: default, path: ($local.directory | path join secret) }
+let secret = { algorithm: blake3, id: 0, path: ($local.directory | path join secret) }
 let config = open $local.config_path | upsert authorization.tokens { secret: false, previous_secrets: [$secret] }
 $config | to json | save --force $local.config_path
 let server = server restart $local

@@ -602,7 +602,7 @@ mod tests {
 	#[tokio::test]
 	async fn accessing_a_loaded_object_does_not_copy_tokens_onto_children() {
 		// Create a loaded parent with a child and give the parent a token.
-		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+		let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let child = tg::Directory::with_id(tg::directory::Id::new(b"child"));
 		let parent =
 			tg::Directory::with_entries(BTreeMap::from([("child".into(), child.clone().into())]));

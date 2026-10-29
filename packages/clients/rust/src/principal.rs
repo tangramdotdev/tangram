@@ -44,6 +44,34 @@ pub enum Principal {
 
 #[derive(
 	Clone,
+	Copy,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
+#[repr(u8)]
+pub enum Kind {
+	Anonymous = 0,
+	Group = 1,
+	Organization = 2,
+	Process = 3,
+	Root = 4,
+	Runner = 5,
+	Sandbox = 6,
+	User = 7,
+}
+
+#[derive(
+	Clone,
 	Debug,
 	Eq,
 	Hash,
@@ -97,6 +125,20 @@ impl std::str::FromStr for Principal {
 
 impl Principal {
 	#[must_use]
+	pub fn kind(&self) -> Kind {
+		match self {
+			Self::Anonymous => Kind::Anonymous,
+			Self::Group(_) => Kind::Group,
+			Self::Organization(_) => Kind::Organization,
+			Self::Process(_) => Kind::Process,
+			Self::Root => Kind::Root,
+			Self::Runner(_) => Kind::Runner,
+			Self::Sandbox(_) => Kind::Sandbox,
+			Self::User(_) => Kind::User,
+		}
+	}
+
+	#[must_use]
 	pub fn to_id(&self) -> Option<tg::Id> {
 		match self {
 			Self::Anonymous | Self::Root => None,
@@ -133,6 +175,30 @@ impl Principal {
 			Self::Runner(id) => Ok(tg::authorization::Subject::Runner(id.clone())),
 			Self::Sandbox(id) => Ok(tg::authorization::Subject::Sandbox(id.clone())),
 			Self::User(id) => Ok(tg::authorization::Subject::User(id.clone())),
+		}
+	}
+}
+
+impl From<Kind> for u8 {
+	fn from(value: Kind) -> Self {
+		value as u8
+	}
+}
+
+impl TryFrom<u8> for Kind {
+	type Error = tg::Error;
+
+	fn try_from(value: u8) -> tg::Result<Self> {
+		match value {
+			0 => Ok(Self::Anonymous),
+			1 => Ok(Self::Group),
+			2 => Ok(Self::Organization),
+			3 => Ok(Self::Process),
+			4 => Ok(Self::Root),
+			5 => Ok(Self::Runner),
+			6 => Ok(Self::Sandbox),
+			7 => Ok(Self::User),
+			_ => Err(tg::error!(%value, "invalid principal kind")),
 		}
 	}
 }

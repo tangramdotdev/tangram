@@ -87,7 +87,7 @@ impl Component {
 			.authorization_tokens
 			.secret
 			.as_ref()
-			.is_some_and(|secret| secret.name == token.metadata.key)
+			.is_some_and(|secret| secret.id == token.secret_id)
 			&& Self::verify_token(session, token)
 	}
 
@@ -97,7 +97,7 @@ impl Component {
 		let Some(secret) = session
 			.server
 			.authorization_tokens
-			.verification_secret(&token.metadata.key)
+			.verification_secret(token.secret_id)
 		else {
 			return false;
 		};

@@ -58,7 +58,8 @@ impl Component {
 			return self.create_user_token_primary_region(session, arg).await;
 		}
 		let user = Self::authenticated_user(session)?.clone();
-		let (id, token) = tangram_server_authentication_common::token::create();
+		let (id, token) =
+			tangram_server_authentication_common::token::create(tg::principal::Kind::User);
 		let created_at = session.server.clock.unix_timestamp();
 		let token_hash = tangram_server_authentication_common::token::hash(&token);
 		session

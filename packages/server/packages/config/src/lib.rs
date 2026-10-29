@@ -227,8 +227,6 @@ pub struct RootAuthentication {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AuthenticationTokens {
-	pub clock_skew: Duration,
-
 	pub secrets: TokenSecrets,
 
 	pub ttl: Duration,
@@ -343,7 +341,7 @@ pub struct TokenSecrets {
 pub struct TokenSecret {
 	pub algorithm: tg::authorization::Algorithm,
 
-	pub name: String,
+	pub id: u64,
 
 	pub path: Option<PathBuf>,
 }
@@ -352,7 +350,7 @@ pub struct TokenSecret {
 pub struct TokenPreviousSecret {
 	pub algorithm: tg::authorization::Algorithm,
 
-	pub name: String,
+	pub id: u64,
 
 	pub path: PathBuf,
 }
@@ -2114,7 +2112,6 @@ impl Default for AuthenticationCache {
 impl Default for AuthenticationTokens {
 	fn default() -> Self {
 		Self {
-			clock_skew: Duration::from_mins(1),
 			secrets: TokenSecrets::default(),
 			ttl: default_authentication_token_ttl(),
 		}
@@ -2163,7 +2160,7 @@ impl Default for TokenSecret {
 	fn default() -> Self {
 		Self {
 			algorithm: tg::authorization::Algorithm::Blake3,
-			name: "default".to_owned(),
+			id: 0,
 			path: None,
 		}
 	}

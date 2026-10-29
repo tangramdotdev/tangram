@@ -41,23 +41,9 @@ if $nu.os-info.name == 'linux' {
 		| first
 		| get value
 	)
-	let body = (
-		$token
-		| split row '.'
-		| get 1
-		| decode base64
-		| decode utf-8
-		| from json
-	)
+	let body = $token | token body
 	assert equal $body.resource $artifacts.dependency
-	let file_body = (
-		$file_token
-		| split row '.'
-		| get 1
-		| decode base64
-		| decode utf-8
-		| from json
-	)
+	let file_body = $file_token | token body
 	assert equal $body.expires_at $file_body.expires_at
 	assert ($file_body.expires_at < 9223372036854775807)
 	assert equal $file_body.resource $artifacts.file

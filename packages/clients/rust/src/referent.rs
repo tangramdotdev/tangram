@@ -373,11 +373,8 @@ mod tests {
 				)],
 				resource: id.clone().into(),
 			},
-			metadata: tg::authorization::token::Metadata {
-				algorithm: tg::authorization::Algorithm::Blake3,
-				key: "default".into(),
-			},
-			signature: Vec::new(),
+			secret_id: 0,
+			signature: vec![0; 16],
 		};
 		let remote = tg::Location::Remote(tg::location::Remote {
 			name: "default".into(),
@@ -394,11 +391,8 @@ mod tests {
 				)],
 				resource: tg::sync::Id::new().into(),
 			},
-			metadata: tg::authorization::token::Metadata {
-				algorithm: tg::authorization::Algorithm::Blake3,
-				key: "default".into(),
-			},
-			signature: Vec::new(),
+			secret_id: 0,
+			signature: vec![0; 16],
 		};
 		tokens.insert_authorization(
 			tg::Location::Local(tg::location::Local::default()),
@@ -412,7 +406,7 @@ mod tests {
 		other.body.expires_at = 100;
 		tokens.insert_local_authorization(other.clone());
 		tokens.insert_authorization(remote.clone(), other.clone());
-		for index in 0..20 {
+		for index in 0..100 {
 			let mut token = other.clone();
 			token.body.resource = tg::file::Id::new(format!("file{index}").as_bytes()).into();
 			tokens.insert_local_authorization(token);

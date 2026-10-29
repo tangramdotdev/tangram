@@ -59,7 +59,7 @@ fn rendering_preserves_each_inputs_tokens() {
 }
 
 fn input(bytes: &[u8]) -> tg::command::data::Value {
-	let key = tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
+	let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 	let token = tg::authorization::Token::sign(
 		tg::authorization::Body {
 			expires_at: i64::MAX,

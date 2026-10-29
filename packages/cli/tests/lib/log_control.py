@@ -10,6 +10,8 @@ import threading
 import time
 import urllib.parse
 
+import token_body
+
 from process_id import process_id
 
 case, socket_path, tangram, url, parent, data_path = sys.argv[1:]
@@ -234,7 +236,7 @@ def early_finish():
     else:
         params = urllib.parse.parse_qs(urllib.parse.urlsplit(value).query)
         tokens = [token for name, values in params.items() if name.startswith("tokens[") for token in values]
-    bodies = [json.loads(base64.b64decode(token.split(".")[1])) for token in tokens]
+    bodies = [token_body.body(token) for token in tokens]
     assert any(body["resource"].startswith("syn_") and "sync_read" in body["permissions"] for body in bodies), value
     assert process["status"] == "finished", process
 

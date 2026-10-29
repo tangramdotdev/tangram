@@ -50,9 +50,10 @@ success (tg --token $bob.token get --bytes (reference $directory $refreshed.toke
 success (tg --token $bob.token get --bytes (reference $child $child_token) | complete) "the refreshed child token must grant access."
 
 # An invalid signature with an expired body must not limit a grant-authorized refresh either.
-let parts = $first.tokens.local.0 | split row '.'
-let signature = $parts.3 | decode base64 | bytes reverse | encode base64
-let forged = [$parts.0 $parts.1 $parts.2 $signature] | str join '.'
+let token = $first.tokens.local.0
+let index = ($token | str length) - 2
+let symbol = if ($token | str substring $index..$index) == '0' { '1' } else { '0' }
+let forged = ($token | str substring ..<$index) + $symbol + ($token | str substring ($index + 1)..)
 let output = get-object $socket $alice.token $directory --token $forged
 success (tg --token $bob.token get --bytes (reference $directory $output.tokens.local.0) | complete) "a forged token must not limit the refreshed token."
 success (tg --token $bob.token get --bytes (reference $child ($output.children | get $child | get tokens.local.0)) | complete) "a forged token must not limit the refreshed child token."

@@ -159,6 +159,134 @@ impl Permission {
 		}
 	}
 
+	/// Get the permission's ID, which is stable within its resource kind.
+	#[must_use]
+	pub fn id(self) -> u8 {
+		match self {
+			Self::Group(permission) => match permission {
+				group::Permission::Admin => 0,
+				group::Permission::Read => 1,
+				group::Permission::Write => 2,
+			},
+			Self::Object(permission) => match permission {
+				object::Permission::Node => 0,
+				object::Permission::Subtree => 1,
+			},
+			Self::Organization(permission) => match permission {
+				organization::Permission::Admin => 0,
+				organization::Permission::Read => 1,
+				organization::Permission::Write => 2,
+			},
+			Self::Process(permission) => match permission {
+				process::Permission::Node => 0,
+				process::Permission::NodeCommandObjects => 1,
+				process::Permission::NodeErrorObjects => 2,
+				process::Permission::NodeLogObjects => 3,
+				process::Permission::NodeOutputObjects => 4,
+				process::Permission::Parent => 5,
+				process::Permission::Subtree => 6,
+				process::Permission::SubtreeCommandObjects => 7,
+				process::Permission::SubtreeErrorObjects => 8,
+				process::Permission::SubtreeLogObjects => 9,
+				process::Permission::SubtreeOutputObjects => 10,
+			},
+			Self::Sandbox(permission) => match permission {
+				sandbox::Permission::Node => 0,
+				sandbox::Permission::Parent => 1,
+			},
+			Self::Sync(permission) => match permission {
+				sync::Permission::Read => 0,
+			},
+			Self::Tag(permission) => match permission {
+				tag::Permission::Admin => 0,
+				tag::Permission::Read => 1,
+				tag::Permission::Write => 2,
+			},
+			Self::User(permission) => match permission {
+				user::Permission::Admin => 0,
+				user::Permission::Read => 1,
+				user::Permission::Write => 2,
+			},
+		}
+	}
+
+	#[must_use]
+	pub fn with_kind_and_id(kind: tg::authorization::ResourceKind, id: u8) -> Option<Self> {
+		match (kind, id) {
+			(tg::authorization::ResourceKind::Group, 0) => {
+				Some(Self::Group(group::Permission::Admin))
+			},
+			(tg::authorization::ResourceKind::Group, 1) => {
+				Some(Self::Group(group::Permission::Read))
+			},
+			(tg::authorization::ResourceKind::Group, 2) => {
+				Some(Self::Group(group::Permission::Write))
+			},
+			(tg::authorization::ResourceKind::Object, 0) => {
+				Some(Self::Object(object::Permission::Node))
+			},
+			(tg::authorization::ResourceKind::Object, 1) => {
+				Some(Self::Object(object::Permission::Subtree))
+			},
+			(tg::authorization::ResourceKind::Organization, 0) => {
+				Some(Self::Organization(organization::Permission::Admin))
+			},
+			(tg::authorization::ResourceKind::Organization, 1) => {
+				Some(Self::Organization(organization::Permission::Read))
+			},
+			(tg::authorization::ResourceKind::Organization, 2) => {
+				Some(Self::Organization(organization::Permission::Write))
+			},
+			(tg::authorization::ResourceKind::Process, 0) => {
+				Some(Self::Process(process::Permission::Node))
+			},
+			(tg::authorization::ResourceKind::Process, 1) => {
+				Some(Self::Process(process::Permission::NodeCommandObjects))
+			},
+			(tg::authorization::ResourceKind::Process, 2) => {
+				Some(Self::Process(process::Permission::NodeErrorObjects))
+			},
+			(tg::authorization::ResourceKind::Process, 3) => {
+				Some(Self::Process(process::Permission::NodeLogObjects))
+			},
+			(tg::authorization::ResourceKind::Process, 4) => {
+				Some(Self::Process(process::Permission::NodeOutputObjects))
+			},
+			(tg::authorization::ResourceKind::Process, 5) => {
+				Some(Self::Process(process::Permission::Parent))
+			},
+			(tg::authorization::ResourceKind::Process, 6) => {
+				Some(Self::Process(process::Permission::Subtree))
+			},
+			(tg::authorization::ResourceKind::Process, 7) => {
+				Some(Self::Process(process::Permission::SubtreeCommandObjects))
+			},
+			(tg::authorization::ResourceKind::Process, 8) => {
+				Some(Self::Process(process::Permission::SubtreeErrorObjects))
+			},
+			(tg::authorization::ResourceKind::Process, 9) => {
+				Some(Self::Process(process::Permission::SubtreeLogObjects))
+			},
+			(tg::authorization::ResourceKind::Process, 10) => {
+				Some(Self::Process(process::Permission::SubtreeOutputObjects))
+			},
+			(tg::authorization::ResourceKind::Sandbox, 0) => {
+				Some(Self::Sandbox(sandbox::Permission::Node))
+			},
+			(tg::authorization::ResourceKind::Sandbox, 1) => {
+				Some(Self::Sandbox(sandbox::Permission::Parent))
+			},
+			(tg::authorization::ResourceKind::Sync, 0) => Some(Self::Sync(sync::Permission::Read)),
+			(tg::authorization::ResourceKind::Tag, 0) => Some(Self::Tag(tag::Permission::Admin)),
+			(tg::authorization::ResourceKind::Tag, 1) => Some(Self::Tag(tag::Permission::Read)),
+			(tg::authorization::ResourceKind::Tag, 2) => Some(Self::Tag(tag::Permission::Write)),
+			(tg::authorization::ResourceKind::User, 0) => Some(Self::User(user::Permission::Admin)),
+			(tg::authorization::ResourceKind::User, 1) => Some(Self::User(user::Permission::Read)),
+			(tg::authorization::ResourceKind::User, 2) => Some(Self::User(user::Permission::Write)),
+			_ => None,
+		}
+	}
+
 	#[must_use]
 	pub fn implies(self, needed: Self) -> bool {
 		match (self, needed) {

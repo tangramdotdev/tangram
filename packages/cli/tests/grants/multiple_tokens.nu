@@ -33,7 +33,7 @@ let output = get-object $socket $bob.token $directory [$node $other]
 assert equal ($output.children? | default {}) {}
 
 # A large collection of distinct authorization tokens uses the framed arg through the Rust client.
-let objects = 0..<16 | each { |i|
+let objects = 0..<48 | each { |i|
 	let value = ['tg.file("proof ' ($i | into string) '")'] | str join
 	tg --token $alice.token put --no-tokens $value | referent node
 }

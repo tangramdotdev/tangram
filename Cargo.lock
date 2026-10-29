@@ -10733,8 +10733,6 @@ dependencies = [
  "futures",
  "indoc",
  "moka",
- "serde",
- "serde_json",
  "tangram_client",
  "tangram_database",
  "tangram_futures",
@@ -10754,6 +10752,7 @@ dependencies = [
  "rand 0.10.3",
  "tangram_client",
  "tangram_index",
+ "tangram_util",
 ]
 
 [[package]]

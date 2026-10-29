@@ -134,7 +134,7 @@ fn print_values(options: tg::referent::Options) -> [String; 3] {
 }
 
 fn token() -> tg::authorization::Token {
-	let secret = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+	let secret = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 	let body = tg::authorization::Body {
 		expires_at: i64::MAX,
 		permissions: vec![tg::authorization::Permission::Object(

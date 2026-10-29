@@ -215,7 +215,8 @@ impl Component {
 				.await;
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
 		}
-		let (token_id, token) = tangram_server_authentication_common::token::create();
+		let (token_id, token) =
+			tangram_server_authentication_common::token::create(tg::principal::Kind::User);
 		let token_hash = tangram_server_authentication_common::token::hash(&token);
 		let p = transaction.p();
 		let statement = formatdoc!(

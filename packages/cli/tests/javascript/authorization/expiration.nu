@@ -1,14 +1,17 @@
 use ../../lib/test.nu *
 
-# Token pruning ignores expiration and preserves the merge laws.
+const authorization = path self ../../lib/authorization.ts
+
+# Token pruning ignores expiration except to keep the latest of equivalent proofs, and preserves the merge laws.
 let local = server spawn
 let path = artifact {
+	authorization.tg.ts: (open --raw $authorization | decode utf-8)
 	tangram.ts: '
+		import { token } from "./authorization.tg.ts";
 		export default function () {
 			const id = "fil_010000000000000000000000000000000000000000000000000000";
 			const other = "dir_010000000000000000000000000000000000000000000000000000";
-			const encode = (value) => tg.encoding.base64.encode(tg.encoding.utf8.encode(JSON.stringify(value)));
-			const proof = (resource, expires_at, permission) => `0.${encode({ expires_at, permissions: [permission], resource })}.${encode({ algorithm: "blake3", key: "test" })}.`;
+			const proof = (resource, expires_at, permission) => token(resource, expires_at, [permission]);
 			const inputs = [id, other].flatMap((resource) => [120, 179, 180, 181].flatMap((expiration) => ["object_node", "object_subtree"].map((permission) => ({ local: [proof(resource, expiration, permission)] }))));
 			const merge = (a, b, resource) => {
 				const output = tg.Authorization.Tokens.clone(a);
@@ -47,7 +50,7 @@ let path = artifact {
 			}
 			const earlier = { local: [proof(id, 120, "object_subtree")] };
 			const later = { local: [proof(id, 121, "object_subtree")] };
-			const expected = { local: [earlier.local[0], later.local[0]].sort().slice(0, 1) };
+			const expected = { local: [later.local[0]] };
 			equal(merge(earlier, later, id), expected);
 			equal(merge(later, earlier, id), expected);
 			const leaf = tg.Directory.withId(other);

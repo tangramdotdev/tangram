@@ -24,7 +24,7 @@ for path in [
 	($external_directory | path join link),
 ] {
 	let token = xattr -s -p user.tangram.token $path | str trim
-	let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+	let body = $token | token body
 	assert equal $body.resource $symlink
 	assert equal $body.permissions [object_subtree]
 	assert equal $body.expires_at 9223372036854775807

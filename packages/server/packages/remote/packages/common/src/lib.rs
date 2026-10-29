@@ -37,13 +37,10 @@ mod tests {
 				)],
 				resource: resource.clone().into(),
 			},
-			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Blake3,
-				key: "default".into(),
-			},
-			signature: Vec::new(),
+			secret_id: 0,
+			signature: vec![0; 16],
 		};
-		let mut expired = token(i64::MIN);
+		let mut expired = token(0);
 		expired.body.resource = tg::process::Id::new().into();
 		let valid = token(i64::MAX);
 		let mut tokens =
@@ -53,7 +50,7 @@ mod tests {
 			region: None,
 		});
 		tokens.insert_authorization(remote.clone(), expired.clone());
-		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+		let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let sync = tg::authorization::Token::sign(
 			tg::authorization::Body {
 				expires_at: i64::MAX,

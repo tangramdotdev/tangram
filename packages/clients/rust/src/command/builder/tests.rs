@@ -78,11 +78,8 @@ fn tokens(resource: tg::Id, location: &tg::Location) -> tg::authorization::Token
 			)],
 			resource,
 		},
-		metadata: tg::authorization::Metadata {
-			algorithm: tg::authorization::Algorithm::Blake3,
-			key: "test".to_owned(),
-		},
-		signature: Vec::new(),
+		secret_id: 0,
+		signature: vec![0; 16],
 	};
 	let mut tokens = tg::authorization::Tokens::default();
 	tokens.insert_authorization(location.clone(), token);

@@ -80,7 +80,7 @@ fn references_and_tokens() {
 	];
 
 	// Write the shards in reverse order to verify that their numeric indices determine the order.
-	let xattrs = encode_dependencies(&references, 64).unwrap();
+	let xattrs = encode_dependencies(&references, 32).unwrap();
 	assert!(xattrs.len() > 10);
 	for xattr in xattrs.into_iter().rev() {
 		xattr::set(&temp, &xattr.name, &xattr.value).unwrap();
@@ -361,7 +361,7 @@ fn token(contents: &str) -> tg::authorization::Token {
 		)],
 		resource: file.id().into(),
 	};
-	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+	let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 	let mut token = tg::authorization::Token::sign(body, &key).unwrap();
 	// Invalidate the signature to verify that reading the metadata does not verify the token.
 	token.signature.fill(0);

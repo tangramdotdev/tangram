@@ -256,7 +256,7 @@ fn command_id_referent_has_only_the_command_as_a_root() {
 fn inheritance_normalizes_object_referents() {
 	let mut command = command();
 	let resource = command.executable.node.artifact.clone().unwrap().into();
-	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+	let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 	let body = tg::authorization::Body {
 		expires_at: 30,
 		permissions: vec![tg::authorization::Permission::Object(
@@ -311,7 +311,7 @@ fn command() -> Command {
 }
 
 fn tokens() -> tg::authorization::Tokens {
-	let key = tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
+	let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 	let token = tg::authorization::Token::sign(
 		tg::authorization::Body {
 			expires_at: i64::MAX,

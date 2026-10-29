@@ -553,12 +553,12 @@ impl Component {
 		.await;
 
 		// Register the token before starting the process.
-		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
-			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
-		};
 		let token = loop {
-			let bytes = rand::random::<[u8; 32]>();
-			let token = ENCODING.encode(&bytes);
+			let unsigned = tangram_server_authentication_common::token::Unsigned::generate(
+				tg::principal::Kind::Process,
+			);
+			let token =
+				tangram_server_authentication_common::token::Token::Unsigned(unsigned).to_string();
 			match session
 				.server
 				.components

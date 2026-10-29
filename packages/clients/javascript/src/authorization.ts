@@ -10,10 +10,6 @@ export namespace Authorization {
 				permissions: Array<string>;
 				resource: string;
 			};
-			metadata: {
-				algorithm: string;
-				key: string;
-			};
 		};
 
 		const cache = new Map<string, Data | null>();
@@ -58,49 +54,16 @@ export namespace Authorization {
 		export let resource = (token: Token): string | null =>
 			parse(token)?.body.resource ?? null;
 
+		export let expiresAt = (token: Token): bigint | null =>
+			parse(token)?.body.expires_at ?? null;
+
 		let parse = (token: Token): Data | null => {
 			if (cache.has(token)) {
 				return cache.get(token)!;
 			}
 			let output: Data | null = null;
 			try {
-				let parts = token.split(".");
-				if (parts.length === 4 && parts[0] === "0") {
-					let decode = (part: string) =>
-						JSON.parse(
-							tg.encoding.utf8.decode(tg.encoding.base64.decode(part)),
-						);
-					let bodyString = tg.encoding.utf8.decode(
-						tg.encoding.base64.decode(parts[1]!),
-					);
-					let expiration = bodyString.match(/"expires_at"\s*:\s*(-?\d+)/g);
-					if (expiration?.length !== 1) {
-						return null;
-					}
-					let body = JSON.parse(
-						bodyString.replace(/("expires_at"\s*:\s*)(-?\d+)/, '$1"$2"'),
-					);
-					body.expires_at = BigInt(body.expires_at);
-					let metadata = decode(parts[2]!);
-					if (
-						body !== null &&
-						typeof body === "object" &&
-						typeof body.resource === "string" &&
-						typeof body.expires_at === "bigint" &&
-						body.expires_at >= -(1n << 63n) &&
-						body.expires_at < 1n << 63n &&
-						Array.isArray(body.permissions) &&
-						body.permissions.every(
-							(permission: unknown) => typeof permission === "string",
-						) &&
-						metadata !== null &&
-						typeof metadata === "object" &&
-						typeof metadata.algorithm === "string" &&
-						typeof metadata.key === "string"
-					) {
-						output = { body, metadata };
-					}
-				}
+				output = { body: decode(token) };
 			} catch {
 				// Opaque tokens are retained for the server to validate.
 			}
@@ -109,6 +72,189 @@ export namespace Authorization {
 			}
 			cache.set(token, output);
 			return output;
+		};
+
+		// Decode the body that precedes the secret ID and the signature.
+		let decode = (token: Token): Data["body"] => {
+			let bytes = decodeBase32(token);
+			let position = 0;
+			if (bytes[position++] !== 0) {
+				throw new Error("unsupported token version");
+			}
+			let expiration: bigint;
+			[expiration, position] = readUvarint(bytes, position);
+			if (expiration >= 1n << 63n) {
+				throw new Error("invalid expiration");
+			}
+			let mask: bigint;
+			[mask, position] = readUvarint(bytes, position);
+			let resource: string;
+			let kind: string;
+			[resource, kind, position] = readId(bytes, position);
+			let names = permissionNames[kind];
+			if (names === undefined) {
+				throw new Error("invalid resource");
+			}
+			let permissions: Array<string> = [];
+			for (let id = 0; id < 64; id++) {
+				if ((mask >> BigInt(id)) & 1n) {
+					let name = names[id];
+					if (name === undefined) {
+						throw new Error("invalid permissions");
+					}
+					permissions.push(`${kind}_${name}`);
+				}
+			}
+			[, position] = readUvarint(bytes, position);
+			if (position >= bytes.length) {
+				throw new Error("missing the signature");
+			}
+			return { expires_at: expiration, permissions, resource };
+		};
+
+		const symbols = "0123456789abcdefghjkmnpqrstvwxyz";
+
+		let decodeBase32 = (value: string): Array<number> => {
+			let bytes: Array<number> = [];
+			let buffer = 0;
+			let bits = 0;
+			for (let character of value) {
+				let symbol = symbols.indexOf(character);
+				if (symbol === -1) {
+					throw new Error("invalid symbol");
+				}
+				buffer = ((buffer << 5) | symbol) & 0xfff;
+				bits += 5;
+				if (bits >= 8) {
+					bits -= 8;
+					bytes.push((buffer >> bits) & 0xff);
+				}
+			}
+			if (bits >= 5 || (buffer & ((1 << bits) - 1)) !== 0) {
+				throw new Error("invalid trailing bits");
+			}
+			return bytes;
+		};
+
+		let encodeBase32 = (bytes: Array<number>): string => {
+			let output = "";
+			let buffer = 0;
+			let bits = 0;
+			for (let byte of bytes) {
+				buffer = ((buffer << 8) | byte) & 0xfff;
+				bits += 8;
+				while (bits >= 5) {
+					bits -= 5;
+					output += symbols[(buffer >> bits) & 31];
+				}
+			}
+			if (bits > 0) {
+				output += symbols[(buffer << (5 - bits)) & 31];
+			}
+			return output;
+		};
+
+		let readUvarint = (
+			bytes: Array<number>,
+			position: number,
+		): [bigint, number] => {
+			let value = 0n;
+			for (let shift = 0n; shift < 64n; shift += 7n) {
+				let byte = bytes[position++];
+				if (byte === undefined) {
+					throw new Error("truncated varint");
+				}
+				value |= BigInt(byte & 0x7f) << shift;
+				if ((byte & 0x80) === 0) {
+					if (value >= 1n << 64n) {
+						throw new Error("varint overflow");
+					}
+					return [value, position];
+				}
+			}
+			throw new Error("varint overflow");
+		};
+
+		// Read a binary ID and return it with its resource kind.
+		let readId = (
+			bytes: Array<number>,
+			position: number,
+		): [string, string, number] => {
+			let [version, , kind, algorithm] = bytes.slice(position, position + 4);
+			let prefix = kind === undefined ? undefined : idPrefixes[kind];
+			let length = algorithm === 0 ? 16 : algorithm === 1 ? 32 : undefined;
+			if (version !== 0 || prefix === undefined || length === undefined) {
+				throw new Error("invalid ID");
+			}
+			let body = bytes.slice(position + 4, position + 4 + length);
+			if (body.length !== length) {
+				throw new Error("invalid ID");
+			}
+			let id = `${prefix}_0${algorithm}${encodeBase32(body)}`;
+			let resourceKind = resourceKinds[prefix] ?? "";
+			return [id, resourceKind, position + 4 + length];
+		};
+
+		const idPrefixes: Record<number, string> = {
+			0: "blb",
+			1: "dir",
+			2: "fil",
+			3: "sym",
+			4: "gph",
+			5: "cmd",
+			6: "err",
+			7: "sbx",
+			8: "pcs",
+			9: "usr",
+			10: "grp",
+			11: "org",
+			12: "tag",
+			13: "rnr",
+			14: "sch",
+			15: "tok",
+			16: "idx",
+			17: "syn",
+		};
+
+		const resourceKinds: Record<string, string> = {
+			blb: "object",
+			cmd: "object",
+			dir: "object",
+			err: "object",
+			fil: "object",
+			gph: "object",
+			grp: "group",
+			org: "organization",
+			pcs: "process",
+			sbx: "sandbox",
+			sym: "object",
+			syn: "sync",
+			tag: "tag",
+			usr: "user",
+		};
+
+		// List each resource kind's permissions in the order of their IDs.
+		const permissionNames: Record<string, Array<string>> = {
+			group: ["admin", "read", "write"],
+			object: ["node", "subtree"],
+			organization: ["admin", "read", "write"],
+			process: [
+				"node",
+				"node_command_objects",
+				"node_error_objects",
+				"node_log_objects",
+				"node_output_objects",
+				"parent",
+				"subtree",
+				"subtree_command_objects",
+				"subtree_error_objects",
+				"subtree_log_objects",
+				"subtree_output_objects",
+			],
+			sandbox: ["node", "parent"],
+			sync: ["read"],
+			tag: ["admin", "read", "write"],
+			user: ["admin", "read", "write"],
 		};
 
 		let implies = (granted: string, needed: string): boolean => {
@@ -193,10 +339,10 @@ export namespace Authorization {
 		// Normalize each location independently, optionally pruning proofs redundant for the receiving object.
 		export let normalize = (tokens: Tokens, resource?: string): void => {
 			for (let [location, entry] of Object.entries(tokens)) {
-				// Compare proofs only within the same resource, using the encoded token to break ties.
+				// Compare proofs only within the same resource, so that among equivalent proofs the one that expires last is kept, with the encoded token breaking remaining ties.
 				let resources = new Map<string, Array<Authorization.Token>>();
 				let authorization: Array<Authorization.Token> = [];
-				for (let token of [...new Set(entry)].sort()) {
+				for (let token of [...new Set(entry)].sort(compare)) {
 					let resource = Authorization.Token.resource(token);
 					if (resource === null) {
 						authorization.push(token);
@@ -241,6 +387,15 @@ export namespace Authorization {
 				}
 				tokens[location] = authorization;
 			}
+		};
+
+		let compare = (a: Authorization.Token, b: Authorization.Token): number => {
+			let x = Authorization.Token.expiresAt(a) ?? -1n;
+			let y = Authorization.Token.expiresAt(b) ?? -1n;
+			if (x !== y) {
+				return x > y ? -1 : 1;
+			}
+			return a < b ? -1 : a > b ? 1 : 0;
 		};
 
 		let cloneEntry = (entry: Entry): Entry => [...entry];

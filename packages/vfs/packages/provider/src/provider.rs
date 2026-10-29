@@ -2672,11 +2672,8 @@ mod tests {
 				permissions: vec![permission],
 				resource: tg::object::Id::from(artifact.clone()).into(),
 			},
-			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Blake3,
-				key: "test".to_owned(),
-			},
-			signature: Vec::new(),
+			secret_id: 0,
+			signature: vec![0; 16],
 		}
 	}
 }

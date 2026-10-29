@@ -178,7 +178,7 @@ pub enum Shutdown {
 }
 
 pub struct Tokens {
-	pub previous_secrets: BTreeMap<String, tg::authorization::Secret>,
+	pub previous_secrets: BTreeMap<u64, tg::authorization::Secret>,
 	pub secret: Option<tg::authorization::Secret>,
 }
 
@@ -290,13 +290,13 @@ impl Server {
 }
 
 impl Tokens {
-	/// Get the secret with the given name that verifies tokens, which is either the signing secret or one of the previous secrets.
+	/// Get the secret with the given ID that verifies tokens, which is either the signing secret or one of the previous secrets.
 	#[must_use]
-	pub fn verification_secret(&self, name: &str) -> Option<&tg::authorization::Secret> {
+	pub fn verification_secret(&self, id: u64) -> Option<&tg::authorization::Secret> {
 		self.secret
 			.as_ref()
-			.filter(|secret| secret.name == name)
-			.or_else(|| self.previous_secrets.get(name))
+			.filter(|secret| secret.id == id)
+			.or_else(|| self.previous_secrets.get(&id))
 	}
 }
 
@@ -354,11 +354,8 @@ async fn load_token_secrets(
 				)?,
 				None => load_or_create_token_secret(config, path).await?,
 			};
-			let secret = tg::authorization::Secret::from_slice(
-				config.name.clone(),
-				config.algorithm,
-				&bytes,
-			)?;
+			let secret =
+				tg::authorization::Secret::from_slice(config.id, config.algorithm, &bytes)?;
 			Some(secret)
 		},
 		None => None,
@@ -372,16 +369,14 @@ async fn load_token_secrets(
 			|error| tg::error!(!error, path = %config.path.display(), "failed to read the previous secret"),
 		)?;
 		let previous_secret =
-			tg::authorization::Secret::from_slice(config.name.clone(), config.algorithm, &bytes)?;
-		let duplicate = secret
-			.as_ref()
-			.is_some_and(|secret| secret.name == config.name);
+			tg::authorization::Secret::from_slice(config.id, config.algorithm, &bytes)?;
+		let duplicate = secret.as_ref().is_some_and(|secret| secret.id == config.id);
 		if duplicate
 			|| previous_secrets
-				.insert(config.name.clone(), previous_secret)
+				.insert(config.id, previous_secret)
 				.is_some()
 		{
-			return Err(tg::error!(name = %config.name, "duplicate secret"));
+			return Err(tg::error!(id = %config.id, "duplicate secret"));
 		}
 	}
 
@@ -409,7 +404,7 @@ async fn load_or_create_token_secret(
 	}
 
 	// Publish a complete secret while the server holds the directory lock.
-	let secret = tg::authorization::Secret::generate(config.name.clone(), config.algorithm);
+	let secret = tg::authorization::Secret::generate(config.id, config.algorithm);
 	let directory = path.parent().unwrap();
 	let temp_path = directory.join("tmp").join(uuid::Uuid::now_v7().to_string());
 	let mut file = tokio::fs::OpenOptions::new()

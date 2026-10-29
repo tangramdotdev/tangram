@@ -22,3 +22,4 @@ blake3 = { workspace = true }
 rand = { workspace = true }
 tangram_client = { workspace = true }
 tangram_index = { workspace = true }
+tangram_util = { workspace = true }
