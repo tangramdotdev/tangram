@@ -395,10 +395,6 @@ pub struct RootAuthentication {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationTokens {
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub clock_skew: Option<Duration>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub previous_secrets: Option<Vec<TokenPreviousSecret>>,
 
@@ -597,7 +593,7 @@ pub struct TokenSecret {
 	pub algorithm: Option<tg::authorization::Algorithm>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
+	pub id: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -611,7 +607,7 @@ pub struct TokenPreviousSecret {
 	pub algorithm: Option<tg::authorization::Algorithm>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
+	pub id: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,

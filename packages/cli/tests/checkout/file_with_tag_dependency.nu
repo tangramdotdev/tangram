@@ -39,15 +39,7 @@ let token = (
 	| first
 	| get value
 )
-let expires_at = (
-	$token
-	| split row '.'
-	| get 1
-	| decode base64
-	| decode utf-8
-	| from json
-	| get expires_at
-)
+let expires_at = $token | token body | get expires_at
 assert equal $expires_at 9223372036854775807
 
 snapshot --path $path '

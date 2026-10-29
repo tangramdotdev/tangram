@@ -9211,6 +9211,7 @@ dependencies = [
  "futures",
  "rustls",
  "tangram_cli_archive",
+ "tangram_cli_authorization",
  "tangram_cli_availability",
  "tangram_cli_builtin",
  "tangram_cli_bundle",
@@ -9280,6 +9281,16 @@ dependencies = [
  "tangram_cli_core",
  "tangram_cli_process",
  "tangram_cli_reference",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_cli_authorization"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
  "tangram_client",
 ]
 
@@ -10733,8 +10744,6 @@ dependencies = [
  "futures",
  "indoc",
  "moka",
- "serde",
- "serde_json",
  "tangram_client",
  "tangram_database",
  "tangram_futures",
@@ -10754,6 +10763,7 @@ dependencies = [
  "rand 0.10.3",
  "tangram_client",
  "tangram_index",
+ "tangram_util",
 ]
 
 [[package]]

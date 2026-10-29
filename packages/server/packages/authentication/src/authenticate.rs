@@ -1,10 +1,11 @@
 use {
-	crate::{Component, token},
+	crate::Component,
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_server_authentication_common::token,
 	tangram_server_core::{
 		Server, Session,
 		authentication::{Entry, Process, RemoteToken},
@@ -308,32 +309,22 @@ impl Component {
 		server: &Server,
 		principal: token::Principal,
 	) -> tg::Result<String> {
-		let issued_at = server.clock.unix_timestamp();
+		let now = server.clock.unix_timestamp();
 		let ttl = i64::try_from(server.config.authentication.tokens.ttl.as_secs())
 			.map_err(|_| tg::error!("invalid authentication token ttl"))?;
-		let expires_at = issued_at
+		let expires_at = now
 			.checked_add(ttl)
 			.ok_or_else(|| tg::error!("invalid authentication token expiration"))?;
-		Self::create_authentication_token_inner(server, principal, expires_at)
-	}
-
-	fn create_authentication_token_inner(
-		server: &Server,
-		principal: token::Principal,
-		expires_at: i64,
-	) -> tg::Result<String> {
 		let secret = server
 			.authentication_tokens
 			.secret
 			.as_ref()
 			.ok_or_else(|| tg::error!("missing the authentication token signing secret"))?;
-		let issued_at = server.clock.unix_timestamp();
 		let body = token::Body {
 			expires_at,
-			issued_at,
 			principal,
 		};
-		let token = token::Token::sign(body, secret)?;
+		let token = token::Token::Signed(token::Signed::sign(body, secret)?);
 
 		Ok(token.to_string())
 	}
@@ -422,10 +413,11 @@ impl Component {
 		})
 	}
 
-	async fn authenticate_inner(&self, server: &Server, token: Option<&str>) -> tg::Result<Entry> {
-		if let Some((token, root_token)) =
-			token.zip(server.config.authentication.root.token.as_deref())
-			&& tangram_server_authentication_common::token::matches(token, root_token)
+	async fn authenticate_inner(&self, server: &Server, value: Option<&str>) -> tg::Result<Entry> {
+		// Authenticate the root token.
+		if let Some((value, root_token)) =
+			value.zip(server.config.authentication.root.token.as_deref())
+			&& token::matches(value, root_token)
 		{
 			return Ok(Entry {
 				billing_ready: None,
@@ -433,55 +425,40 @@ impl Component {
 			});
 		}
 
-		if let Some(value) = token.filter(|value| token::Token::has_prefix(value)) {
-			let principal =
-				Self::authenticate_token(server, value).unwrap_or(tg::Principal::Anonymous);
-			return Ok(Entry {
-				billing_ready: None,
-				principal,
-			});
-		}
-
-		if let Some((sandbox_index, id)) = token.and_then(|token| {
-			server
-				.components
-				.runner
-				.state()
-				.process_for_token()
-				.get(token)
-				.map(|process| process.value().clone())
-		}) {
-			let state = server.components.runner.state();
-			let Some(sandbox) = state.sandboxes().get(sandbox_index) else {
+		// Authenticate the token according to its kind.
+		let token = value.and_then(|value| value.parse::<token::Token>().ok());
+		match value.zip(token) {
+			Some((value, token::Token::Signed(signed))) => {
+				let principal = Self::authenticate_signed_token(server, value, &signed)
+					.unwrap_or(tg::Principal::Anonymous);
 				return Ok(Entry {
 					billing_ready: None,
-					principal: tg::Principal::Anonymous,
+					principal,
 				});
-			};
-			let Some(process) = sandbox.processes.get(&id) else {
-				return Ok(Entry {
-					billing_ready: None,
-					principal: tg::Principal::Anonymous,
-				});
-			};
-			let index_task = process.index_task.clone();
-			drop(process);
-			drop(sandbox);
-			index_task
-				.wait()
-				.await
-				.map_err(|error| tg::error!(!error, "the process index task panicked"))?
-				.map_err(|error| tg::error!(!error, %id, "failed to index the process"))?;
-			return Ok(Entry {
-				billing_ready: None,
-				principal: tg::Principal::Process(id),
-			});
-		}
-
-		if let Some(token) = token
-			&& let Some(entry) = self.authenticate_token_cached(server, token).await?
-		{
-			return Ok(entry);
+			},
+			Some((value, token::Token::Unsigned(unsigned))) => match unsigned.kind {
+				tg::principal::Kind::Process => {
+					if let Some(entry) =
+						Self::authenticate_runner_process_token(server, value).await?
+					{
+						return Ok(entry);
+					}
+				},
+				tg::principal::Kind::Runner | tg::principal::Kind::User => {
+					if let Some(entry) = self
+						.authenticate_token_cached(server, value, unsigned.kind)
+						.await?
+					{
+						return Ok(entry);
+					}
+				},
+				tg::principal::Kind::Anonymous
+				| tg::principal::Kind::Group
+				| tg::principal::Kind::Organization
+				| tg::principal::Kind::Root
+				| tg::principal::Kind::Sandbox => (),
+			},
+			None => (),
 		}
 
 		if server.config.authentication.users.is_none() {
@@ -495,6 +472,49 @@ impl Component {
 			billing_ready: None,
 			principal: tg::Principal::Anonymous,
 		})
+	}
+
+	async fn authenticate_runner_process_token(
+		server: &Server,
+		value: &str,
+	) -> tg::Result<Option<Entry>> {
+		let Some((sandbox_index, id)) = server
+			.components
+			.runner
+			.state()
+			.process_for_token()
+			.get(value)
+			.map(|process| process.value().clone())
+		else {
+			return Ok(None);
+		};
+		let state = server.components.runner.state();
+		let Some(sandbox) = state.sandboxes().get(sandbox_index) else {
+			return Ok(Some(Entry {
+				billing_ready: None,
+				principal: tg::Principal::Anonymous,
+			}));
+		};
+		let Some(process) = sandbox.processes.get(&id) else {
+			return Ok(Some(Entry {
+				billing_ready: None,
+				principal: tg::Principal::Anonymous,
+			}));
+		};
+		let index_task = process.index_task.clone();
+		drop(process);
+		drop(sandbox);
+		index_task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the process index task panicked"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to index the process"))?;
+		let entry = Entry {
+			billing_ready: None,
+			principal: tg::Principal::Process(id),
+		};
+
+		Ok(Some(entry))
 	}
 
 	fn origin_can_authenticate_as(
@@ -522,11 +542,15 @@ impl Component {
 		Ok(can_authenticate)
 	}
 
-	fn authenticate_token(server: &Server, value: &str) -> Option<tg::Principal> {
-		let token = value.parse::<token::Token>().ok()?;
+	fn authenticate_signed_token(
+		server: &Server,
+		value: &str,
+		token: &token::Signed,
+	) -> Option<tg::Principal> {
 		let now = server.clock.unix_timestamp();
-		let clock_skew = server.config.authentication.tokens.clock_skew;
-		token.validate_at(now, clock_skew).ok()?;
+		if now > token.body.expires_at {
+			return None;
+		}
 		let principal = token.body.principal.clone().into();
 		let matches = match &principal {
 			tg::Principal::Process(id) => server
@@ -564,8 +588,8 @@ impl Component {
 		}
 		let secret = server
 			.authentication_tokens
-			.verification_secret(&token.metadata.key)?;
-		token.verify_at(secret, now, clock_skew).ok()?;
+			.verification_secret(token.secret_id)?;
+		token.verify_at(secret, now).ok()?;
 
 		Some(principal)
 	}
@@ -574,12 +598,15 @@ impl Component {
 		&self,
 		server: &Server,
 		token: &str,
+		kind: tg::principal::Kind,
 	) -> tg::Result<Option<Entry>> {
-		let hash = tangram_server_authentication_common::token::hash_bytes(token);
+		let hash = token::hash_bytes(token);
 		if let Some(entry) = self.cache.get(&hash).await {
 			return Ok(Some(entry));
 		}
-		let entry = self.authenticate_token_from_database(server, &hash).await?;
+		let entry = self
+			.authenticate_token_from_database(server, &hash, kind)
+			.await?;
 		if let Some(entry) = &entry {
 			self.cache.insert(hash, entry.clone()).await;
 		}
@@ -591,6 +618,7 @@ impl Component {
 		&self,
 		server: &Server,
 		hash: &tangram_server_core::authentication::cache::Hash,
+		kind: tg::principal::Kind,
 	) -> tg::Result<Option<Entry>> {
 		let hash = blake3::Hash::from_bytes(*hash).to_hex().to_string();
 		let entry = server
@@ -598,8 +626,12 @@ impl Component {
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let hash = hash.clone();
 				async move {
-					Self::authenticate_token_from_database_with_transaction(transaction, &hash)
-						.await
+					Self::authenticate_token_from_database_with_transaction(
+						transaction,
+						&hash,
+						kind,
+					)
+					.await
 				}
 				.boxed()
 			})
@@ -611,26 +643,40 @@ impl Component {
 	async fn authenticate_token_from_database_with_transaction(
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		hash: &str,
+		kind: tg::principal::Kind,
 	) -> tg::Result<ControlFlow<Option<Entry>, tangram_server_core::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			billing_ready: bool,
 			id: String,
-			kind: String,
 		}
+
+		// Look up the token in the table for its kind.
 		let p = transaction.p();
-		let statement = formatdoc!(
-			r#"
-				select users.billing_ready, users.id, 'user' as kind
-				from user_tokens join users on users.id = user_tokens."user"
-				where user_tokens.token = {p}1
-				union all
-				select false as billing_ready, runner_tokens.runner as id, 'runner' as kind
-				from runner_tokens join runners on runners.id = runner_tokens.runner
-				where runner_tokens.token = {p}1
-				order by kind desc limit 1;
-			"#
-		);
+		let statement = match kind {
+			tg::principal::Kind::Runner => formatdoc!(
+				r"
+					select false as billing_ready, runner_tokens.runner as id
+					from runner_tokens join runners on runners.id = runner_tokens.runner
+					where runner_tokens.token = {p}1;
+				"
+			),
+			tg::principal::Kind::User => formatdoc!(
+				r#"
+					select users.billing_ready, users.id
+					from user_tokens join users on users.id = user_tokens."user"
+					where user_tokens.token = {p}1;
+				"#
+			),
+			tg::principal::Kind::Anonymous
+			| tg::principal::Kind::Group
+			| tg::principal::Kind::Organization
+			| tg::principal::Kind::Process
+			| tg::principal::Kind::Root
+			| tg::principal::Kind::Sandbox => {
+				return Ok(ControlFlow::Break(None));
+			},
+		};
 		let result = transaction
 			.query_optional_into::<Row>(statement.into(), db::params![hash])
 			.await;
@@ -638,10 +684,19 @@ impl Component {
 		let Some(row) = row else {
 			return Ok(ControlFlow::Break(None));
 		};
-		let principal = match row.kind.as_str() {
-			"runner" => tg::Principal::Runner(row.id.parse()?),
-			"user" => tg::Principal::User(row.id.parse()?),
-			_ => return Err(tg::error!("invalid token principal kind")),
+
+		// Create the entry.
+		let principal = match kind {
+			tg::principal::Kind::Runner => tg::Principal::Runner(row.id.parse()?),
+			tg::principal::Kind::User => tg::Principal::User(row.id.parse()?),
+			tg::principal::Kind::Anonymous
+			| tg::principal::Kind::Group
+			| tg::principal::Kind::Organization
+			| tg::principal::Kind::Process
+			| tg::principal::Kind::Root
+			| tg::principal::Kind::Sandbox => {
+				return Err(tg::error!("invalid token principal kind"));
+			},
 		};
 		let entry = Entry {
 			billing_ready: row.billing_ready.then_some(true),

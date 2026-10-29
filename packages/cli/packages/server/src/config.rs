@@ -318,9 +318,6 @@ fn resolve_authentication_tokens(
 	source: AuthenticationTokens,
 ) -> tg::Result<server::AuthenticationTokens> {
 	let mut target = server::AuthenticationTokens::default();
-	if let Some(value) = source.clock_skew {
-		target.clock_skew = value;
-	}
 	if let Some(previous_secrets) = source.previous_secrets {
 		target.secrets.previous_secrets = previous_secrets
 			.into_iter()
@@ -556,11 +553,11 @@ fn resolve_token_secrets(source: TokenSecrets) -> tg::Result<server::TokenSecret
 
 fn resolve_token_secret(source: TokenSecret) -> tg::Result<server::TokenSecret> {
 	let algorithm = required(source.algorithm, "secret.algorithm")?;
-	let name = required(source.name, "secret.name")?;
+	let id = required(source.id, "secret.id")?;
 	let path = source.path;
 	let target = server::TokenSecret {
 		algorithm,
-		name,
+		id,
 		path,
 	};
 
@@ -571,11 +568,11 @@ fn resolve_token_previous_secret(
 	source: TokenPreviousSecret,
 ) -> tg::Result<server::TokenPreviousSecret> {
 	let algorithm = required(source.algorithm, "previous_secrets[].algorithm")?;
-	let name = required(source.name, "previous_secrets[].name")?;
+	let id = required(source.id, "previous_secrets[].id")?;
 	let path = required(source.path, "previous_secrets[].path")?;
 	let target = server::TokenPreviousSecret {
 		algorithm,
-		name,
+		id,
 		path,
 	};
 

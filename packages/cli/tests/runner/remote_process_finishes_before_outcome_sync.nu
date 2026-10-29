@@ -48,7 +48,7 @@ let file = $outcome.output.value
 assert equal ($output.stdout | str trim | split row '?' | first) ($file | split row '?' | first)
 let params = $'http://localhost/($file)' | url parse | get params
 assert ($params | where {|param| $param.key starts-with 'tokens[' } | any {|param|
-	let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+	let body = $param.value | token body
 	($body.resource | str starts-with 'syn_') and ('sync_read' in $body.permissions)
 }) "the outcome must carry sync authorization"
 

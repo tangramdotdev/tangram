@@ -6,7 +6,7 @@ use ../lib/test.nu *
 def target_permissions [url: string, token: string, tag: string] {
 	let target = tg --url $url --token $token children --verbose $tag | from json | get data.0
 	$target.options?.tokens?.local? | default [] | each {|token|
-		$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json | get permissions
+		$token | token body | get permissions
 	} | flatten
 }
 

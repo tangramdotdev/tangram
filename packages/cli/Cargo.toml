@@ -47,6 +47,7 @@ foundationdb = { workspace = true, optional = true }
 futures = { workspace = true }
 rustls = { workspace = true }
 tangram_cli_archive = { workspace = true }
+tangram_cli_authorization = { workspace = true }
 tangram_cli_availability = { workspace = true }
 tangram_cli_builtin = { workspace = true }
 tangram_cli_bundle = { workspace = true }

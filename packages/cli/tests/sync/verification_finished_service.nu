@@ -28,7 +28,7 @@ let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[re
 let referent = $referent | str replace --all 'tokens[remote]' 'tokens[local]'
 # Read through only the sync token, so that authorization must wait for the sync's queued permissions.
 let token = $'http://localhost/($referent)' | url parse | get params | where {|param| $param.key =~ '^tokens\[' } | get value | where {|token|
-	$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json | get resource | str starts-with 'syn_'
+	$token | token body | get resource | str starts-with 'syn_'
 } | first
 let referent = $'($file)?tokens[local][0]=($token | url encode --all)'
 # Hold the sync batch until verification has started contacting its service.

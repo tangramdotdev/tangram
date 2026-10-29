@@ -9,7 +9,6 @@ use {
 
 mod authenticate;
 mod cache;
-mod token;
 
 /// The component.
 #[derive(Clone)]

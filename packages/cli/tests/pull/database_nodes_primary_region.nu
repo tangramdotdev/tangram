@@ -77,7 +77,7 @@ assert equal $primary_tag.id $tag.id
 assert equal $primary_tag.target.id $process
 let target = tg --url $remote_primary.url children --verbose $tag.id | from json | get data.0
 let permissions = $target.options?.tokens?.local? | default [] | each {|token|
-	$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json | get permissions
+	$token | token body | get permissions
 } | flatten
 assert (
 	$permissions

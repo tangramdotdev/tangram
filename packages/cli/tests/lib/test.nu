@@ -338,7 +338,7 @@ export def "referent tokens" [location: string, value?: string] {
 export def "token body" [value?: string] {
 	let input = $in
 	let value = if $value == null { $input } else { $value }
-	$value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+	tg authorization token decode $value | from json
 }
 
 # Decode the length-prefixed JSON header before reading the SSE stream.
@@ -761,7 +761,7 @@ export def --env "server spawn" [
 		let secrets = {
 			secret: {
 				algorithm: 'blake3',
-				name: 'default',
+				id: 0,
 				path: $secret_path,
 			},
 		}
@@ -1474,7 +1474,8 @@ export def normalize_tokens [value?: string] {
 	let input = $in
 	mut output = ($value | default $input)
 	$output = $output | str replace --all --regex '([?&]token=|"token":\s*")[A-Za-z0-9._~%+/=-]+' '${1}<token>'
-	$output = $output | str replace --all --regex '0\.[A-Za-z0-9_~%+/=-]+\.[A-Za-z0-9_~%+/=-]+\.[A-Za-z0-9_~%+/=-]+' '<token>'
+	# Match ID-encoded tokens that stand alone, contain a non-hex symbol, and are longer than any ID body.
+	$output = $output | str replace --all --regex '(?<![A-Za-z0-9_])(?=[0-9a-z]*[g-z])[0-9a-hjkmnp-tv-z]{60,}(?![A-Za-z0-9_])' '<token>'
 
 	$output
 }

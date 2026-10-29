@@ -179,9 +179,12 @@ def missing_id(index=0):
 
 
 def subject(token):
-    body = token.split(".")[1]
-    body = json.loads(base64.b64decode(body + "=" * (-len(body) % 4)))
-    return f"syncs.{body['resource']}.service"
+    return f"syncs.{decode_token(token)['resource']}.service"
+
+
+def decode_token(token):
+    output = subprocess.check_output([tangram, "authorization", "token", "decode", token], timeout=15)
+    return json.loads(output)
 
 
 def command(*args, token=None):
@@ -597,14 +600,13 @@ def test_output(messenger):
     other = Sync()
     wrong_id = other.sync["node"]
     other.close()
-    parts = token.split(".")
-    body = json.loads(base64.b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
-    body["expires_at"] += 1
-    parts[1] = base64.b64encode(json.dumps(body).encode()).decode()
+    # Change a character of the signature.
+    index = len(token) - 2
+    forged = token[:index] + ("1" if token[index] == "0" else "0") + token[index + 1 :]
     invalid = [
         {"node": referent["node"]},
         {"node": wrong_id, "options": referent["options"]},
-        {"node": referent["node"], "options": {"tokens": {"local": [".".join(parts)]}}},
+        {"node": referent["node"], "options": {"tokens": {"local": [forged]}}},
     ]
     for referent in invalid:
         sync = Sync({"get": missing_id(), "sync": referent}, status=500)
@@ -1459,8 +1461,7 @@ def test_authorization_storage(messenger):
                 assert b"failed to verify the resource through a sync" in body, body
             if status == 200:
                 token = json.loads(body)["tokens"]["local"][0]
-                proof = token.split(".")[1]
-                proof = json.loads(base64.b64decode(proof + "=" * (-len(proof) % 4)))
+                proof = decode_token(token)
                 response_proof = output.value.value[2][0]
                 assert proof["resource"] == id, proof
                 assert proof["expires_at"] <= response_proof[0], "the object proof must not outlive the returned authorization body"

@@ -206,9 +206,11 @@ impl Entry {
 	}
 
 	pub fn normalize(&mut self, resource: Option<&tg::Id>) {
-		// Compare proofs only within the same resource, using the encoded token to break ties.
+		// Compare proofs only within the same resource, so that among equivalent proofs the one that expires last is kept, with the encoded token breaking remaining ties.
 		let mut authorization = std::mem::take(&mut self.authorization);
-		authorization.sort_by_cached_key(ToString::to_string);
+		authorization.sort_by_cached_key(|token| {
+			(std::cmp::Reverse(token.body.expires_at), token.to_string())
+		});
 		let mut resources = BTreeMap::<tg::Id, Vec<tg::authorization::Token>>::new();
 		for token in authorization {
 			let proofs = resources.entry(token.body.resource.clone()).or_default();
@@ -242,7 +244,7 @@ mod tests {
 
 	#[test]
 	fn collects_loaded_descendant_tokens_without_mutating_handles() {
-		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+		let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let first = tg::Directory::with_id(tg::directory::Id::new(b"first"));
 		let second = tg::Directory::with_id(tg::directory::Id::new(b"second"));
 		let mut expected = Tokens::default();
@@ -294,7 +296,7 @@ mod tests {
 
 	#[test]
 	fn prunes_descendant_tokens_only_for_the_same_location() {
-		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+		let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let local = tg::Location::Local(tg::location::Local::default());
 		let remote = tg::Location::Remote(tg::location::Remote {
 			name: "default".into(),
@@ -366,7 +368,7 @@ mod tests {
 	#[test]
 	fn inherits_each_kind_and_rebases_locations() {
 		let id = tg::object::Id::new(tg::object::Kind::File, &bytes::Bytes::new());
-		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+		let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: i64::MAX,
 			permissions: vec![tg::authorization::Permission::Sync(
@@ -497,7 +499,7 @@ mod tests {
 		parent
 			.state()
 			.set_tokens(Tokens::with_authorization([parent_proof.clone()]));
-		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+		let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: 30,
 			permissions: vec![tg::authorization::Permission::Sync(
@@ -636,15 +638,12 @@ mod tests {
 	}
 
 	#[test]
-	fn equivalent_proofs_use_the_encoded_token_to_break_ties() {
+	fn equivalent_proofs_prefer_the_later_expiration() {
 		let resource = tg::file::Id::new(b"file").into();
 		let earlier = proof(resource, 120);
 		let mut later = earlier.clone();
-		later.body.expires_at = 121;
-		let expected = [earlier.clone(), later.clone()]
-			.into_iter()
-			.min_by_key(ToString::to_string)
-			.unwrap();
+		later.body.expires_at = i64::MAX;
+		let expected = later.clone();
 		for authorization in [[earlier.clone(), later.clone()], [later.clone(), earlier]] {
 			let tokens = Tokens::with_authorization(authorization);
 			assert_eq!(
@@ -663,10 +662,7 @@ mod tests {
 				)],
 				resource,
 			},
-			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Blake3,
-				key: "test".into(),
-			},
+			secret_id: 0,
 			signature: vec![0; 32],
 		}
 	}

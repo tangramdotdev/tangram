@@ -88,9 +88,9 @@ let child = http get --headers { Accept: 'application/json', Authorization: $'Be
 let wrong = $child.tokens.local.0
 xattr_write user.tangram.token $wrong $root
 failure (tg --token $bob.token checkin --no-tokens $root | complete)
-let parts = $proof | split row '.'
-let signature = $parts.3 | decode base64 | bytes reverse | encode base64
-let forged = [$parts.0 $parts.1 $parts.2 $signature] | str join '.'
+let index = ($proof | str length) - 2
+let symbol = if ($proof | str substring $index..$index) == '0' { '1' } else { '0' }
+let forged = ($proof | str substring ..<$index) + $symbol + ($proof | str substring ($index + 1)..)
 xattr_write user.tangram.token $forged $root
 failure (tg --token $bob.token checkin --no-tokens $root | complete)
 

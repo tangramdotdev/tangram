@@ -46,7 +46,7 @@ for authority in [remote local] {
 		tg --url $runner.url --token $runner_root checkpoint unwatch runner.process.state.inserted $watch
 		let spawned = job recv --tag $spawn --timeout 30sec
 		let process = $spawned.process
-		let capability = $spawned.tokens.local.0 | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+		let capability = $spawned.tokens.local.0 | token body
 		assert equal $capability.resource $process
 		assert equal $capability.permissions [process_parent]
 		tg --url $runner.url --token $runner_root grant $alice.user.id process_node $process | ignore

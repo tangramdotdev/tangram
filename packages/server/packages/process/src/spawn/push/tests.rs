@@ -2,7 +2,7 @@ use {crate::Component, tangram_client::prelude::*};
 
 #[test]
 fn spawn_command_authorization_tokens_for_sync_survive_forwarding() {
-	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+	let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 	let sync = tg::sync::Id::new();
 	let body = tg::authorization::Body {
 		expires_at: i64::MAX,
@@ -86,7 +86,7 @@ fn spawn_command_authorization_tokens_for_sync_survive_forwarding() {
 
 #[test]
 fn spawn_command_uses_push_output_tokens() {
-	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+	let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 	let file = tg::file::Id::new(b"file");
 	let blob = tg::blob::Id::new(b"input");
 	let executable = tg::command::data::Executable {

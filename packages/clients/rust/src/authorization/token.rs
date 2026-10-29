@@ -1,6 +1,9 @@
-use crate::prelude::*;
+use {
+	crate::prelude::*,
+	tangram_util::varint::{ReadExt as _, WriteExt as _},
+};
 
-const VERSION: &str = "0";
+const VERSION: u8 = 0;
 
 #[derive(
 	Clone,
@@ -18,7 +21,7 @@ const VERSION: &str = "0";
 #[tangram_serialize(display, from_str)]
 pub struct Token {
 	pub body: Body,
-	pub metadata: Metadata,
+	pub secret_id: u64,
 	pub signature: Vec<u8>,
 }
 
@@ -42,14 +45,6 @@ pub struct Body {
 	pub permissions: Vec<tg::authorization::Permission>,
 	#[tangram_serialize(id = 2)]
 	pub resource: tg::Id,
-}
-
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-pub struct Metadata {
-	pub algorithm: Algorithm,
-	pub key: String,
 }
 
 #[derive(
@@ -77,61 +72,46 @@ pub enum Algorithm {
 pub struct Secret {
 	pub algorithm: Algorithm,
 	pub bytes: [u8; 32],
-	pub name: String,
+	pub id: u64,
 }
 
 impl Secret {
 	#[must_use]
-	pub fn new(name: impl Into<String>, algorithm: Algorithm, bytes: [u8; 32]) -> Self {
+	pub fn new(id: u64, algorithm: Algorithm, bytes: [u8; 32]) -> Self {
 		Self {
 			algorithm,
 			bytes,
-			name: name.into(),
+			id,
 		}
 	}
 
 	#[must_use]
-	pub fn generate(name: impl Into<String>, algorithm: Algorithm) -> Self {
-		Self::new(name, algorithm, rand::random())
+	pub fn generate(id: u64, algorithm: Algorithm) -> Self {
+		Self::new(id, algorithm, rand::random())
 	}
 
-	pub fn from_slice(
-		name: impl Into<String>,
-		algorithm: Algorithm,
-		bytes: &[u8],
-	) -> tg::Result<Self> {
+	pub fn from_slice(id: u64, algorithm: Algorithm, bytes: &[u8]) -> tg::Result<Self> {
 		let bytes = bytes.try_into().map_err(|_| tg::error!("invalid secret"))?;
-		Ok(Self::new(name, algorithm, bytes))
+		Ok(Self::new(id, algorithm, bytes))
 	}
 
+	/// Compute the MAC of the input, truncated to 16 bytes.
 	#[must_use]
 	pub fn sign(&self, input: &[u8]) -> Vec<u8> {
 		match self.algorithm {
-			Algorithm::Blake3 => blake3::keyed_hash(&self.bytes, input).as_bytes().to_vec(),
+			Algorithm::Blake3 => blake3::keyed_hash(&self.bytes, input).as_bytes()[..16].to_vec(),
 			Algorithm::HmacSha256 => {
 				let key = aws_lc_rs::hmac::Key::new(aws_lc_rs::hmac::HMAC_SHA256, &self.bytes);
-				aws_lc_rs::hmac::sign(&key, input).as_ref().to_vec()
+				aws_lc_rs::hmac::sign(&key, input).as_ref()[..16].to_vec()
 			},
 		}
 	}
 
 	/// Verify the signature in constant time.
 	pub fn verify(&self, input: &[u8], signature: &[u8]) -> tg::Result<()> {
-		match self.algorithm {
-			Algorithm::Blake3 => {
-				let signature: [u8; 32] = signature
-					.try_into()
-					.map_err(|_| tg::error!("invalid signature"))?;
-				if blake3::keyed_hash(&self.bytes, input) != blake3::Hash::from_bytes(signature) {
-					return Err(tg::error!("invalid signature"));
-				}
-			},
-			Algorithm::HmacSha256 => {
-				let key = aws_lc_rs::hmac::Key::new(aws_lc_rs::hmac::HMAC_SHA256, &self.bytes);
-				aws_lc_rs::hmac::verify(&key, input, signature)
-					.map_err(|_| tg::error!("invalid signature"))?;
-			},
-		}
+		let expected = self.sign(input);
+		aws_lc_rs::constant_time::verify_slices_are_equal(&expected, signature)
+			.map_err(|_| tg::error!("invalid signature"))?;
 		Ok(())
 	}
 }
@@ -164,25 +144,22 @@ impl Token {
 		self.authorizes(resource, subtree)
 	}
 
-	pub fn sign(body: Body, secret: &Secret) -> tg::Result<Self> {
+	pub fn sign(mut body: Body, secret: &Secret) -> tg::Result<Self> {
+		// Order the permissions as the encoding does, so that the token equals its decoded form.
 		body.validate()?;
-		let metadata = Metadata {
-			algorithm: secret.algorithm,
-			key: secret.name.clone(),
-		};
-		let body_string = serde_json::to_vec(&body)
-			.map_err(|error| tg::error!(!error, "failed to serialize the body"))
-			.map(|bytes| data_encoding::BASE64.encode(&bytes))?;
-		let metadata_string = serde_json::to_vec(&metadata)
-			.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))
-			.map(|bytes| data_encoding::BASE64.encode(&bytes))?;
-		let input = format!("{VERSION}.{body_string}.{metadata_string}");
-		let signature = secret.sign(input.as_bytes());
-		Ok(Self {
+		body.permissions.sort_by_key(|permission| permission.id());
+		body.permissions.dedup();
+
+		// Sign the body.
+		let input = body.to_bytes()?;
+		let signature = secret.sign(&input);
+		let token = Self {
 			body,
-			metadata,
+			secret_id: secret.id,
 			signature,
-		})
+		};
+
+		Ok(token)
 	}
 
 	pub fn verify(&self, secret: &Secret) -> tg::Result<()> {
@@ -197,21 +174,72 @@ impl Token {
 	}
 
 	pub fn verify_signature(&self, secret: &Secret) -> tg::Result<()> {
-		if self.metadata.algorithm != secret.algorithm {
-			return Err(tg::error!("invalid algorithm"));
+		if self.secret_id != secret.id {
+			return Err(tg::error!("invalid secret"));
 		}
-		if self.metadata.key != secret.name {
-			return Err(tg::error!("invalid key"));
-		}
-		let body = serde_json::to_vec(&self.body)
-			.map_err(|error| tg::error!(!error, "failed to serialize the body"))
-			.map(|bytes| data_encoding::BASE64.encode(&bytes))?;
-		let metadata = serde_json::to_vec(&self.metadata)
-			.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))
-			.map(|bytes| data_encoding::BASE64.encode(&bytes))?;
-		let input = format!("{VERSION}.{body}.{metadata}");
-		secret.verify(input.as_bytes(), &self.signature)?;
+		let input = self.body.to_bytes()?;
+		secret.verify(&input, &self.signature)?;
 		Ok(())
+	}
+
+	/// Encode the token as the signed body, followed by the secret ID and the signature.
+	pub fn to_bytes(&self) -> tg::Result<Vec<u8>> {
+		let mut bytes = self.body.to_bytes()?;
+		bytes.write_uvarint(self.secret_id).unwrap();
+		bytes.extend_from_slice(&self.signature);
+		Ok(bytes)
+	}
+
+	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {
+		// Read the version.
+		let Some((&version, mut reader)) = bytes.split_first() else {
+			return Err(tg::error!("missing the version"));
+		};
+		if version != VERSION {
+			return Err(tg::error!("unsupported token version"));
+		}
+
+		// Read the expiration, the permissions, and the resource.
+		let expires_at = reader
+			.read_uvarint()
+			.map_err(|error| tg::error!(!error, "failed to read the expiration"))?;
+		let expires_at = i64::try_from(expires_at).map_err(|_| tg::error!("invalid expiration"))?;
+		let permissions = reader
+			.read_uvarint()
+			.map_err(|error| tg::error!(!error, "failed to read the permissions"))?;
+		let resource = tg::Id::from_reader(&mut reader)?;
+		let Some(kind) = tg::authorization::ResourceKind::from_id_kind(resource.kind()) else {
+			return Err(tg::error!("invalid resource"));
+		};
+		let permissions = (0..64u8)
+			.filter(|id| permissions & (1 << id) != 0)
+			.map(|id| {
+				tg::authorization::Permission::with_kind_and_id(kind, id)
+					.ok_or_else(|| tg::error!("invalid permissions"))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		// Read the secret ID and the signature.
+		let secret_id = reader
+			.read_uvarint()
+			.map_err(|error| tg::error!(!error, "failed to read the secret ID"))?;
+		if reader.is_empty() {
+			return Err(tg::error!("missing the signature"));
+		}
+		let signature = reader.to_vec();
+
+		let body = Body {
+			expires_at,
+			permissions,
+			resource,
+		};
+		let token = Self {
+			body,
+			secret_id,
+			signature,
+		};
+
+		Ok(token)
 	}
 }
 
@@ -244,6 +272,22 @@ impl Body {
 			.iter()
 			.any(|granted| granted.implies(permission))
 	}
+
+	/// Encode the version, the expiration, the permissions, and the resource, which are the bytes that the signature covers.
+	pub fn to_bytes(&self) -> tg::Result<Vec<u8>> {
+		let expires_at =
+			u64::try_from(self.expires_at).map_err(|_| tg::error!("invalid expiration"))?;
+		let permissions = self
+			.permissions
+			.iter()
+			.fold(0u64, |mask, permission| mask | (1 << permission.id()));
+		let mut bytes = Vec::new();
+		bytes.push(VERSION);
+		bytes.write_uvarint(expires_at).unwrap();
+		bytes.write_uvarint(permissions).unwrap();
+		self.resource.to_writer(&mut bytes)?;
+		Ok(bytes)
+	}
 }
 
 impl std::str::FromStr for Algorithm {
@@ -263,21 +307,15 @@ impl std::fmt::Debug for Secret {
 		// Omit the bytes so that the secret is not written to logs.
 		f.debug_struct("Secret")
 			.field("algorithm", &self.algorithm)
-			.field("name", &self.name)
+			.field("id", &self.id)
 			.finish_non_exhaustive()
 	}
 }
 
 impl std::fmt::Display for Token {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let body = serde_json::to_vec(&self.body)
-			.map_err(|_| std::fmt::Error)
-			.map(|bytes| data_encoding::BASE64.encode(&bytes))?;
-		let metadata = serde_json::to_vec(&self.metadata)
-			.map_err(|_| std::fmt::Error)
-			.map(|bytes| data_encoding::BASE64.encode(&bytes))?;
-		let signature = data_encoding::BASE64.encode(&self.signature);
-		write!(f, "{VERSION}.{body}.{metadata}.{signature}")
+		let bytes = self.to_bytes().map_err(|_| std::fmt::Error)?;
+		write!(f, "{}", tg::id::ENCODING.encode(&bytes))
 	}
 }
 
@@ -285,42 +323,10 @@ impl std::str::FromStr for Token {
 	type Err = tg::Error;
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let mut parts = value.split('.');
-		let version = parts
-			.next()
-			.ok_or_else(|| tg::error!("missing the version"))?;
-		if version != VERSION {
-			return Err(tg::error!("unsupported token version"));
-		}
-		let body = parts.next().ok_or_else(|| tg::error!("missing the body"))?;
-		let metadata = parts
-			.next()
-			.ok_or_else(|| tg::error!("missing the metadata"))?;
-		let signature = parts
-			.next()
-			.ok_or_else(|| tg::error!("missing the signature"))?;
-		if parts.next().is_some() {
-			return Err(tg::error!("invalid token"));
-		}
-		let body_bytes = data_encoding::BASE64
-			.decode(body.as_bytes())
-			.map_err(|error| tg::error!(!error, "invalid body"))?;
-		let body = serde_json::from_slice(&body_bytes)
-			.map_err(|error| tg::error!(!error, "invalid body"))?;
-		let metadata_bytes = data_encoding::BASE64
-			.decode(metadata.as_bytes())
-			.map_err(|error| tg::error!(!error, "invalid metadata"))?;
-		let metadata: Metadata = serde_json::from_slice(&metadata_bytes)
-			.map_err(|error| tg::error!(!error, "invalid metadata"))?;
-		let bytes = data_encoding::BASE64
-			.decode(signature.as_bytes())
-			.map_err(|error| tg::error!(!error, "invalid signature"))?;
-		let token = Self {
-			body,
-			metadata,
-			signature: bytes,
-		};
-		token.body.validate()?;
+		let bytes = tg::id::ENCODING
+			.decode(value.as_bytes())
+			.map_err(|error| tg::error!(!error, "invalid token"))?;
+		let token = Self::from_slice(&bytes)?;
 		Ok(token)
 	}
 }
@@ -409,7 +415,7 @@ mod tests {
 	#[test]
 	fn authorizes_checks_resources_and_permission_implications() {
 		use tg::authorization::permission::{object, process};
-		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
+		let key = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let object_node = tg::authorization::Permission::Object(object::Permission::Node);
 		let object_subtree = tg::authorization::Permission::Object(object::Permission::Subtree);
 		let process_node = tg::authorization::Permission::Process(process::Permission::Node);
@@ -455,7 +461,7 @@ mod tests {
 			tg::authorization::Algorithm::Blake3,
 			tg::authorization::Algorithm::HmacSha256,
 		] {
-			let secret = tg::authorization::Secret::generate("default", algorithm);
+			let secret = tg::authorization::Secret::generate(0, algorithm);
 			let body = tg::authorization::Body {
 				expires_at: 20,
 				permissions: vec![tg::authorization::Permission::Object(
@@ -468,56 +474,29 @@ mod tests {
 
 			let parsed = string.parse::<tg::authorization::Token>().unwrap();
 
+			assert_eq!(parsed, token);
 			assert_eq!(parsed.body, body);
-			assert_eq!(parsed.metadata.algorithm, algorithm);
-			assert_eq!(parsed.metadata.key, "default");
+			assert_eq!(parsed.secret_id, 0);
 			parsed.verify_at(&secret, 15).unwrap();
 		}
 	}
 
 	#[test]
 	fn secret_debug_omits_the_bytes() {
-		let secret = tg::authorization::Secret::new(
-			"default",
-			tg::authorization::Algorithm::Blake3,
-			[0xab; 32],
-		);
+		let secret =
+			tg::authorization::Secret::new(0, tg::authorization::Algorithm::Blake3, [0xab; 32]);
 		let output = format!("{secret:?}");
-		assert_eq!(
-			output,
-			r#"Secret { algorithm: Blake3, name: "default", .. }"#
-		);
+		assert_eq!(output, "Secret { algorithm: Blake3, id: 0, .. }");
 	}
 
 	#[test]
-	fn token_rejects_a_different_algorithm() {
-		let secret =
-			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
+	fn token_rejects_a_secret_with_a_different_algorithm() {
+		let secret = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let other_secret = tg::authorization::Secret::new(
-			"default",
+			0,
 			tg::authorization::Algorithm::HmacSha256,
 			secret.bytes,
 		);
-		let body = tg::authorization::Body {
-			expires_at: 20,
-			permissions: vec![tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			)],
-			resource: tg::Id::new_uuidv7(tg::id::Kind::File),
-		};
-		let token = tg::authorization::Token::sign(body, &secret).unwrap();
-
-		let error = token.verify_at(&other_secret, 15).unwrap_err();
-
-		assert_eq!(error.to_string(), "invalid algorithm");
-	}
-
-	#[test]
-	fn token_rejects_an_invalid_signature() {
-		let secret =
-			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
-		let other_secret =
-			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: 20,
 			permissions: vec![tg::authorization::Permission::Object(
@@ -533,9 +512,118 @@ mod tests {
 	}
 
 	#[test]
+	fn token_rejects_an_invalid_signature() {
+		let secret = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
+		let other_secret =
+			tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
+		let body = tg::authorization::Body {
+			expires_at: 20,
+			permissions: vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)],
+			resource: tg::Id::new_uuidv7(tg::id::Kind::File),
+		};
+		let token = tg::authorization::Token::sign(body, &secret).unwrap();
+
+		let error = token.verify_at(&other_secret, 15).unwrap_err();
+
+		assert_eq!(error.to_string(), "invalid signature");
+	}
+
+	#[test]
+	fn tokens_match_the_shared_fixtures() {
+		#[derive(serde::Deserialize)]
+		struct Fixture {
+			expires_at: String,
+			permissions: Vec<String>,
+			resource: String,
+			secret_id: u64,
+			token: String,
+		}
+		let fixtures: Vec<Fixture> =
+			serde_json::from_str(include_str!("../../fixtures/tokens.json")).unwrap();
+		for fixture in fixtures {
+			let secret = tg::authorization::Secret::new(
+				fixture.secret_id,
+				tg::authorization::Algorithm::Blake3,
+				[0; 32],
+			);
+			let body = tg::authorization::Body {
+				expires_at: fixture.expires_at.parse().unwrap(),
+				permissions: fixture
+					.permissions
+					.iter()
+					.map(|permission| permission.parse().unwrap())
+					.collect(),
+				resource: fixture.resource.parse().unwrap(),
+			};
+			let token = tg::authorization::Token::sign(body, &secret).unwrap();
+			assert_eq!(token.to_string(), fixture.token);
+			let parsed = fixture.token.parse::<tg::authorization::Token>().unwrap();
+			assert_eq!(parsed, token);
+			parsed.verify_at(&secret, 0).unwrap();
+		}
+	}
+
+	#[test]
+	fn token_rejects_a_different_secret_id() {
+		let secret = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
+		let other_secret =
+			tg::authorization::Secret::new(1, tg::authorization::Algorithm::Blake3, secret.bytes);
+		let body = tg::authorization::Body {
+			expires_at: 20,
+			permissions: vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)],
+			resource: tg::Id::new_uuidv7(tg::id::Kind::File),
+		};
+		let token = tg::authorization::Token::sign(body, &secret).unwrap();
+
+		let error = token.verify_at(&other_secret, 15).unwrap_err();
+
+		assert_eq!(error.to_string(), "invalid secret");
+	}
+
+	#[test]
+	fn token_rejects_malformed_bytes() {
+		let secret = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
+		let body = tg::authorization::Body {
+			expires_at: 20,
+			permissions: vec![tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Subtree,
+			)],
+			resource: tg::Id::new_uuidv7(tg::id::Kind::Process),
+		};
+		let token = tg::authorization::Token::sign(body, &secret).unwrap();
+		let bytes = token.to_bytes().unwrap();
+
+		let mut version = bytes.clone();
+		version[0] = 1;
+		assert!(tg::authorization::Token::from_slice(&version).is_err());
+		let signature = token.signature.len();
+		assert!(tg::authorization::Token::from_slice(&bytes[..bytes.len() - signature]).is_err());
+		assert!(tg::authorization::Token::from_slice(&bytes[..4]).is_err());
+		assert!(tg::authorization::Token::from_slice(&[]).is_err());
+	}
+
+	#[test]
+	fn token_rejects_permissions_of_another_resource_kind() {
+		let mut bytes = vec![0, 20];
+		bytes.push(1 << 6);
+		tg::Id::new_uuidv7(tg::id::Kind::Sandbox)
+			.to_writer(&mut bytes)
+			.unwrap();
+		bytes.push(0);
+		bytes.extend_from_slice(&[0; 16]);
+
+		let error = tg::authorization::Token::from_slice(&bytes).unwrap_err();
+
+		assert_eq!(error.to_string(), "invalid permissions");
+	}
+
+	#[test]
 	fn token_rejects_an_expired_body() {
-		let secret =
-			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
+		let secret = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: 20,
 			permissions: vec![tg::authorization::Permission::Process(
@@ -552,8 +640,7 @@ mod tests {
 
 	#[test]
 	fn tokens_strip_regions() {
-		let secret =
-			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
+		let secret = tg::authorization::Secret::generate(0, tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: 20,
 			permissions: vec![tg::authorization::Permission::Object(
@@ -602,11 +689,8 @@ mod tests {
 					.collect(),
 				resource: resource.clone(),
 			},
-			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Blake3,
-				key: "default".into(),
-			},
-			signature: vec![0; 32],
+			secret_id: 0,
+			signature: vec![0; 16],
 		};
 		let node = token(vec![Permission::Node], 30);
 		let output = token(vec![Permission::NodeOutputObjects], 20);
@@ -641,7 +725,7 @@ mod tests {
 
 	#[test]
 	fn inheritance_ignores_keys_and_retains_resources_and_locations() {
-		let token = |resource, key: &str| tg::authorization::Token {
+		let token = |resource, secret_id: u64| tg::authorization::Token {
 			body: tg::authorization::Body {
 				expires_at: i64::MAX,
 				permissions: vec![tg::authorization::Permission::Object(
@@ -649,16 +733,13 @@ mod tests {
 				)],
 				resource,
 			},
-			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Blake3,
-				key: key.into(),
-			},
-			signature: vec![0; 32],
+			secret_id,
+			signature: vec![0; 16],
 		};
 		let first = tg::Id::new_blake3(tg::id::Kind::File, b"first");
 		let second = tg::Id::new_blake3(tg::id::Kind::File, b"second");
-		let a = token(first.clone(), "a");
-		let b = token(first, "b");
+		let a = token(first.clone(), 0);
+		let b = token(first, 1);
 		assert!(a.covers(&b));
 		assert!(b.covers(&a));
 		let file = tg::File::with_id(a.body.resource.clone().try_into().unwrap());
@@ -675,7 +756,7 @@ mod tests {
 			file.state().tokens().local_authorization(),
 			std::slice::from_ref(&a)
 		);
-		let c = token(second, "a");
+		let c = token(second, 0);
 		let mut tokens = tg::authorization::Tokens::with_authorization([a.clone()]);
 		let mut incoming = tg::authorization::Tokens::with_authorization([b.clone(), c.clone()]);
 		let remote = tg::Location::Remote(tg::location::Remote {

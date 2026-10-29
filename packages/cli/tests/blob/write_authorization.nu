@@ -16,6 +16,6 @@ let output = (
 let uri = $'http://localhost/($output.blob)' | url parse
 let tokens = $uri.params | where key == 'tokens[local][0]'
 assert equal ($tokens | length) 1 'the write should return an authorization token'
-let body = $tokens.0.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+let body = $tokens.0.value | token body
 assert equal $body.resource ($uri.path | str substring 1..)
 assert equal $body.permissions [object_subtree]

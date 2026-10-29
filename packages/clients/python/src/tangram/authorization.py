@@ -1,10 +1,7 @@
 """Authorization proof normalization; the server verifies signatures and expiration."""
 
-import base64
-import json
-import re
 from collections.abc import Mapping, Sequence
-from typing import TypedDict, cast
+from typing import TypedDict
 
 
 class TokenBody(TypedDict):
@@ -47,45 +44,183 @@ def resource(token: str) -> str | None:
     return data["resource"] if data is not None else None
 
 
+def expires_at(token: str) -> int | None:
+    data = parse(token)
+    return data["expires_at"] if data is not None else None
+
+
 def parse(token: str) -> TokenBody | None:
     if token in _cache:
         return _cache[token]
     output = None
     try:
-        parts = token.split(".")
-        if len(parts) == 4 and parts[0] == "0":
-
-            def decode(value: str) -> str:
-                return base64.b64decode(value + "=" * (-len(value) % 4)).decode("utf-8")
-
-            body_string = decode(parts[1])
-            # Match JavaScript integer syntax and reject duplicate expiration fields.
-            expiration = re.findall(r'"expires_at"\s*:\s*(-?\d+)', body_string)
-            if len(expiration) != 1:
-                return None
-            body = json.loads(
-                re.sub(r'("expires_at"\s*:\s*)(-?\d+)', r'\1"\2"', body_string, count=1)
-            )
-            body["expires_at"] = int(body["expires_at"])
-            metadata = json.loads(decode(parts[2]))
-            if (
-                isinstance(body["resource"], str)
-                and -(2**63) <= body["expires_at"] < 2**63
-                and isinstance(body["permissions"], list)
-                and all(
-                    isinstance(permission, str) for permission in body["permissions"]
-                )
-                and isinstance(metadata["algorithm"], str)
-                and isinstance(metadata["key"], str)
-            ):
-                output = cast(TokenBody, body)
-    except (ValueError, KeyError, TypeError, UnicodeError):
+        output = decode(token)
+    except ValueError:
         # Opaque tokens are retained for the server to validate.
         pass
     if len(_cache) >= 1024:
         _cache.clear()
     _cache[token] = output
     return output
+
+
+def decode(token: str) -> TokenBody:
+    """Decode the body that precedes the secret ID and the signature."""
+    data = decode_base32(token)
+    position = 0
+    if data[position : position + 1] != b"\x00":
+        raise ValueError("unsupported token version")
+    position += 1
+    expiration, position = read_uvarint(data, position)
+    if expiration >= 1 << 63:
+        raise ValueError("invalid expiration")
+    mask, position = read_uvarint(data, position)
+    resource, kind, position = read_id(data, position)
+    names = _permission_names.get(kind)
+    if names is None:
+        raise ValueError("invalid resource")
+    permissions: list[str] = []
+    for id in range(64):
+        if (mask >> id) & 1:
+            if id >= len(names):
+                raise ValueError("invalid permissions")
+            permissions.append(f"{kind}_{names[id]}")
+    _, position = read_uvarint(data, position)
+    if position >= len(data):
+        raise ValueError("missing the signature")
+    return {"expires_at": expiration, "permissions": permissions, "resource": resource}
+
+
+_symbols = "0123456789abcdefghjkmnpqrstvwxyz"
+
+
+def decode_base32(value: str) -> bytes:
+    output = bytearray()
+    buffer = 0
+    bits = 0
+    for character in value:
+        symbol = _symbols.find(character)
+        if symbol == -1:
+            raise ValueError("invalid symbol")
+        buffer = ((buffer << 5) | symbol) & 0xFFF
+        bits += 5
+        if bits >= 8:
+            bits -= 8
+            output.append((buffer >> bits) & 0xFF)
+    if bits >= 5 or (buffer & ((1 << bits) - 1)) != 0:
+        raise ValueError("invalid trailing bits")
+    return bytes(output)
+
+
+def encode_base32(data: bytes) -> str:
+    output = ""
+    buffer = 0
+    bits = 0
+    for byte in data:
+        buffer = ((buffer << 8) | byte) & 0xFFF
+        bits += 8
+        while bits >= 5:
+            bits -= 5
+            output += _symbols[(buffer >> bits) & 31]
+    if bits > 0:
+        output += _symbols[(buffer << (5 - bits)) & 31]
+    return output
+
+
+def read_uvarint(data: bytes, position: int) -> tuple[int, int]:
+    value = 0
+    for shift in range(0, 64, 7):
+        if position >= len(data):
+            raise ValueError("truncated varint")
+        byte = data[position]
+        position += 1
+        value |= (byte & 0x7F) << shift
+        if byte & 0x80 == 0:
+            if value >= 1 << 64:
+                raise ValueError("varint overflow")
+            return value, position
+    raise ValueError("varint overflow")
+
+
+def read_id(data: bytes, position: int) -> tuple[str, str, int]:
+    """Read a binary ID and return it with its resource kind."""
+    header = data[position : position + 4]
+    if len(header) != 4:
+        raise ValueError("invalid ID")
+    version, _, kind, algorithm = header
+    prefix = _id_prefixes.get(kind)
+    length = 16 if algorithm == 0 else 32 if algorithm == 1 else None
+    if version != 0 or prefix is None or length is None:
+        raise ValueError("invalid ID")
+    body = data[position + 4 : position + 4 + length]
+    if len(body) != length:
+        raise ValueError("invalid ID")
+    id = f"{prefix}_0{algorithm}{encode_base32(body)}"
+    resource_kind = _resource_kinds.get(prefix, "")
+    return id, resource_kind, position + 4 + length
+
+
+_id_prefixes = {
+    0: "blb",
+    1: "dir",
+    2: "fil",
+    3: "sym",
+    4: "gph",
+    5: "cmd",
+    6: "err",
+    7: "sbx",
+    8: "pcs",
+    9: "usr",
+    10: "grp",
+    11: "org",
+    12: "tag",
+    13: "rnr",
+    14: "sch",
+    15: "tok",
+    16: "idx",
+    17: "syn",
+}
+
+_resource_kinds = {
+    "blb": "object",
+    "cmd": "object",
+    "dir": "object",
+    "err": "object",
+    "fil": "object",
+    "gph": "object",
+    "grp": "group",
+    "org": "organization",
+    "pcs": "process",
+    "sbx": "sandbox",
+    "sym": "object",
+    "syn": "sync",
+    "tag": "tag",
+    "usr": "user",
+}
+
+# List each resource kind's permissions in the order of their IDs.
+_permission_names = {
+    "group": ["admin", "read", "write"],
+    "object": ["node", "subtree"],
+    "organization": ["admin", "read", "write"],
+    "process": [
+        "node",
+        "node_command_objects",
+        "node_error_objects",
+        "node_log_objects",
+        "node_output_objects",
+        "parent",
+        "subtree",
+        "subtree_command_objects",
+        "subtree_error_objects",
+        "subtree_log_objects",
+        "subtree_output_objects",
+    ],
+    "sandbox": ["node", "parent"],
+    "sync": ["read"],
+    "tag": ["admin", "read", "write"],
+    "user": ["admin", "read", "write"],
+}
 
 
 def implies(granted: str, needed: str) -> bool:
@@ -150,14 +285,19 @@ def inherit(
     return tokens
 
 
+def compare(token: str) -> tuple[int, str]:
+    expiration = expires_at(token)
+    return (-(expiration if expiration is not None else -1), token)
+
+
 def normalize(
     tokens: dict[str, list[str]], resource: str | None = None
 ) -> dict[str, list[str]]:
-    # Compare proofs independently at each location and within the same resource.
+    # Compare proofs per location and resource, keeping the latest of equivalent proofs.
     for location, entry in list(tokens.items()):
         resources: dict[str, list[str]] = {}
         authorization = []
-        for token in sorted(set(entry)):
+        for token in sorted(set(entry), key=compare):
             token_resource = Token.resource(token)
             if token_resource is None:
                 authorization.append(token)
@@ -206,6 +346,7 @@ class Token(str):
     authorizes = staticmethod(authorizes)
     authorizes_object_subtree = staticmethod(authorizes_object_subtree)
     resource = staticmethod(resource)
+    expires_at = staticmethod(expires_at)
 
 
 class Tokens(dict[str, list[str]]):

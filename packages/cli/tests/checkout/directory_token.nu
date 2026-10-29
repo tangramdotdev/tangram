@@ -16,7 +16,7 @@ for path in [$internal $external] {
 		{ path: ($path | path join nested), id: $nested },
 	] {
 		let token = xattr_read user.tangram.token $entry.path
-		let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+		let body = $token | token body
 		assert equal $body.resource $entry.id
 		assert equal $body.permissions [object_subtree]
 		assert equal $body.expires_at 9223372036854775807

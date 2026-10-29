@@ -49,9 +49,10 @@ assert equal ($output.children? | default {}) {}
 failure (tg --token $bob.token get $child | complete) "a node-only read must not grant access to the child."
 
 # An invalid subtree token must not add permissions to the node grant.
-let parts = $first.tokens.local.0 | split row '.'
-let signature = $parts.3 | decode base64 | bytes reverse | encode base64
-let forged = [$parts.0 $parts.1 $parts.2 $signature] | str join '.'
+let token = $first.tokens.local.0
+let index = ($token | str length) - 2
+let symbol = if ($token | str substring $index..$index) == '0' { '1' } else { '0' }
+let forged = ($token | str substring ..<$index) + $symbol + ($token | str substring ($index + 1)..)
 let output = get-object $socket $bob.token $directory --token $forged
 assert equal ($output.children? | default {}) {}
 

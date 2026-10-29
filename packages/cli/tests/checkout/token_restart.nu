@@ -34,7 +34,7 @@ for preserve_keys in [true false] {
 	let reference = xattr_read user.tangram.dependencies $path | from json | first
 	let token = $'http://localhost/($reference)' | url parse | get params
 		| where key == 'tokens[local][0]' | first | get value
-	let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+	let body = $token | token body
 	assert equal $body.resource $library
 	assert equal $body.permissions [object_subtree]
 	assert equal $body.expires_at 9223372036854775807
