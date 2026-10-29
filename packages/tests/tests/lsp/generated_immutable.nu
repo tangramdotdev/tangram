@@ -6,7 +6,7 @@ use ../../util/lsp.nu
 let local = server spawn
 let javascript = "import { greet } from './helper.tg.py';\ngreet();"
 let python = '# /// script
-# [tool.tangram.imports.friend]
+# [tool.tangram.dependencies.friend]
 # specifier = "./helper.tg.ts"
 # ///
 from friend import greet

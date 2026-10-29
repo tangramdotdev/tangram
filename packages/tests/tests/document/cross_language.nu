@@ -31,7 +31,7 @@ assert equal $declaration.location.range [3 10 3 14]
 let path = artifact {
 	'tangram.py': '
 		# /// script
-		# [tool.tangram.imports.icing]
+		# [tool.tangram.dependencies.icing]
 		# specifier = "./icing.tg.ts"
 		# ///
 		from icing import decorate as decorate

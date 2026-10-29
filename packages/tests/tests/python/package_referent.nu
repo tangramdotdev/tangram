@@ -29,10 +29,10 @@ let checked_package = tg checkin $package
 mut checked = []
 for imports in ["import leaf\nimport pkg.namespace.leaf" "import pkg.namespace.leaf\nimport leaf"] {
     let source = '# /// script
-# [tool.tangram.imports.leaf]
+# [tool.tangram.dependencies.leaf]
 # specifier = "tools/^1"
 # attributes = { get = "namespace/leaf.tg.py" }
-# [tool.tangram.imports.pkg]
+# [tool.tangram.dependencies.pkg]
 # specifier = "tools/^1"
 # ///
 ' + $imports + '

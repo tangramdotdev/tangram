@@ -7,7 +7,7 @@ let path = artifact {
             const first = await tg.file("value = 1").module("python");
             const second = await tg.file("value = 2").module("python");
             const source = `# /// script
-# [tool.tangram.imports.helper]
+# [tool.tangram.dependencies.helper]
 # specifier = "./helper.tg.py"
 # ///
 from helper import value`;
@@ -75,7 +75,7 @@ for imports in ['import alias; from . import leaf' 'from . import leaf; import a
             export default async function () {
                 const leaf = await tg.file("package = __spec__.submodule_search_locations is not None").module("python");
                 return await tg.file(`# /// script
-# [tool.tangram.imports.alias]
+# [tool.tangram.dependencies.alias]
 # specifier = "./leaf.tg.py"
 # ///
 ' + $imports + '

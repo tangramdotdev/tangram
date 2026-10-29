@@ -6,7 +6,7 @@ let local = server spawn
 for name in [sys types typing_extensions builtins] {
     let source = ([
         '# /// script'
-        ('# [tool.tangram.imports.' + $name + ']')
+        ('# [tool.tangram.dependencies.' + $name + ']')
         '# specifier = "./dep.tg.py"'
         '# ///'
         ('import ' + $name)

@@ -9,7 +9,7 @@ export function greet() { return 42; }
 export const other = () => 43;'
 }
 let source = $'# /// script
-# [tool.tangram.imports.dep]
+# [tool.tangram.dependencies.dep]
 # specifier = "($dependency)"
 # ///
 from dep import greet, other

@@ -15,13 +15,13 @@ rm --recursive $dependency
 let path = artifact {
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.first]
+        # [tool.tangram.dependencies.first]
         # specifier = "python-attributes/^1"
         # attributes = { get = "integer.tg.py" }
-        # [tool.tangram.imports.alias]
+        # [tool.tangram.dependencies.alias]
         # specifier = "python-attributes/^1"
         # attributes = { get = "integer.tg.py" }
-        # [tool.tangram.imports.second]
+        # [tool.tangram.dependencies.second]
         # specifier = "python-attributes/^1"
         # attributes = { get = "string.tg.py" }
         # ///

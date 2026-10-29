@@ -4,7 +4,7 @@ let local = server spawn
 let path = artifact {
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.maths]
+        # [tool.tangram.dependencies.maths]
         # specifier = "./helper.tg.py"
         # ///
         import maths

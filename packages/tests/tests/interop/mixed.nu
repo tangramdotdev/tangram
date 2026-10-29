@@ -22,7 +22,7 @@ let path = artifact {
     '
     'bakery.tg.py': '
         # /// script
-        # [tool.tangram.imports.icing]
+        # [tool.tangram.dependencies.icing]
         # specifier = "./tangram.ts"
         # ///
         from icing import decorate

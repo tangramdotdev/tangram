@@ -4,9 +4,9 @@ let local = server spawn
 for contents in [
     '# requires-python = "<3"'
     '# dependencies = ["requests"]'
-    '# [tool.tangram.imports.bad]
+    '# [tool.tangram.dependencies.bad]
 # specifier = 1'
-    '# [tool.tangram.imports.bad]
+    '# [tool.tangram.dependencies.bad]
 # specifier = "tools"
 # attributes = { get = true }'
 ] {

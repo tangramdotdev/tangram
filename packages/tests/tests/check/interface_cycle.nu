@@ -17,7 +17,7 @@ let path = artifact {
 	'
 	bakery.tg.py: '
 		# /// script
-		# [tool.tangram.imports.root]
+		# [tool.tangram.dependencies.root]
 		# specifier = "./tangram.ts"
 		# ///
 		from root import decorate
@@ -43,7 +43,7 @@ let path = artifact {
 	'
 	bakery.tg.py: '
 		# /// script
-		# [tool.tangram.imports.root]
+		# [tool.tangram.dependencies.root]
 		# specifier = "./tangram.ts"
 		# ///
 		from root import decorate

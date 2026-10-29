@@ -50,7 +50,7 @@ tg tag put -p dynamic/1.0.0 $package
 let path = artifact {
     'tangram.py': '
         # /// script
-        # [tool.tangram.imports.pkg]
+        # [tool.tangram.dependencies.pkg]
         # specifier = "dynamic/^1"
         # ///
         import pkg.namespace

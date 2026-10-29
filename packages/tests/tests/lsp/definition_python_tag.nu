@@ -6,7 +6,7 @@ let first = artifact {'tangram.py': 'def greet(): return 42'}
 tg tag -p incremental/1.0.0 $first
 rm --recursive $first
 let path = artifact {'tangram.py': '# /// script
-# [tool.tangram.imports.dep]
+# [tool.tangram.dependencies.dep]
 # specifier = "incremental/^1"
 # ///
 from dep import greet

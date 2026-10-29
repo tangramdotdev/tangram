@@ -14,7 +14,7 @@ let path = artifact {
     '
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.tools]
+        # [tool.tangram.dependencies.tools]
         # specifier = "./tools.tg.ts"
         # ///
 

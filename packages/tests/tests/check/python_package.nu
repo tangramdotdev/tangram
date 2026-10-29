@@ -4,7 +4,7 @@ let local = server spawn
 let path = artifact {
     'tangram.py': '
         # /// script
-        # [tool.tangram.imports.alias]
+        # [tool.tangram.dependencies.alias]
         # specifier = "./package"
         # ///
         import alias.child

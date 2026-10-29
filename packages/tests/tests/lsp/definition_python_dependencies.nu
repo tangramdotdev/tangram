@@ -9,7 +9,7 @@ let dependency = artifact {
 tg tag lsp-python $dependency
 for specifier in [$dependency 'lsp-python'] {
     let source = $'# /// script
-# [tool.tangram.imports.dep]
+# [tool.tangram.dependencies.dep]
 # specifier = "($specifier)"
 # ///
 from dep import greet
@@ -35,7 +35,7 @@ value = greet()
 let path = artifact {'main.tg.py': 'pass'}
 let uri = lsp uri ($path | path join main.tg.py)
 let source = $'# /// script
-# [tool.tangram.imports.dep]
+# [tool.tangram.dependencies.dep]
 # specifier = "($dependency)"
 # ///
 from dep import greet

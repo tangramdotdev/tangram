@@ -7,7 +7,7 @@ let local = server spawn
 let path = artifact {
 	tangram.py: '
 		# /// script
-		# [tool.tangram.imports.greeting]
+		# [tool.tangram.dependencies.greeting]
 		# specifier = "./greeting.tg.ts"
 		# ///
 		from greeting import greet, greeting
@@ -28,7 +28,7 @@ success (tg check $path | complete)
 let path = artifact {
 	tangram.py: '
 		# /// script
-		# [tool.tangram.imports.greeting]
+		# [tool.tangram.dependencies.greeting]
 		# specifier = "./greeting.tg.ts"
 		# ///
 		from greeting import greet

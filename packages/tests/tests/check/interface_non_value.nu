@@ -45,7 +45,7 @@ assert ($output.stderr | str contains 'a function is not a value') $output.stder
 let path = artifact {
 	tangram.py: '
 		# /// script
-		# [tool.tangram.imports.greet]
+		# [tool.tangram.dependencies.greet]
 		# specifier = "./greet.tg.ts"
 		# ///
 		from greet import greet
@@ -65,7 +65,7 @@ assert equal ($output.stdout | from json) 'Hello, world!'
 let path = artifact {
 	tangram.py: '
 		# /// script
-		# [tool.tangram.imports.greet]
+		# [tool.tangram.dependencies.greet]
 		# specifier = "./greet.tg.ts"
 		# ///
 		from greet import curry

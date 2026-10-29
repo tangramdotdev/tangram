@@ -8,7 +8,7 @@ let dependency = artifact {'tangram.py': 'def greet(): return 42'}
 tg tag -p lsp-token/1.0.0 $dependency
 rm --recursive $dependency
 let path = artifact {'main.tg.py': '# /// script
-# [tool.tangram.imports.dep]
+# [tool.tangram.dependencies.dep]
 # specifier = "lsp-token/^1"
 # ///
 from dep import greet

@@ -29,7 +29,7 @@ let path = artifact {
     '
     'mirror.tg.py': '
         # /// script
-        # [tool.tangram.imports.mirror]
+        # [tool.tangram.dependencies.mirror]
         # specifier = "./mirror.tg.ts"
         # ///
         import mirror
@@ -69,7 +69,7 @@ assert ($output.stderr | str contains 'tangram.ts:')
 let bad = artifact {
     'tangram.py': '
         # /// script
-        # [tool.tangram.imports.mirror]
+        # [tool.tangram.dependencies.mirror]
         # specifier = "./mirror.tg.ts"
         # ///
         import mirror

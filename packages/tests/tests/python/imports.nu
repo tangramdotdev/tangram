@@ -12,7 +12,7 @@ let tools = artifact {
     namespace: {'leaf.tg.py': 'value = 9'}
     'cycle_a.tg.py': '
         # /// script
-        # [tool.tangram.imports.other]
+        # [tool.tangram.dependencies.other]
         # specifier = "./cycle_b.tg.py"
         # ///
         value = "a"
@@ -21,7 +21,7 @@ let tools = artifact {
     '
     'cycle_b.tg.py': '
         # /// script
-        # [tool.tangram.imports.other]
+        # [tool.tangram.dependencies.other]
         # specifier = "./cycle_a.tg.py"
         # ///
         value = "b"
@@ -49,36 +49,36 @@ let path = artifact {
     'main.tg.py': '
         # /// script
         # requires-python = ">=3.14,<3.15"
-        # [tool.tangram.imports.alternate]
+        # [tool.tangram.dependencies.alternate]
         # specifier = "./left.tg.py"
         # attributes = { source = "./right.tg.py" }
-        # [tool.tangram.imports.debug]
+        # [tool.tangram.dependencies.debug]
         # specifier = "tools/^1"
         # attributes = { get = "debug/tangram.py" }
-        # [tool.tangram.imports.same]
+        # [tool.tangram.dependencies.same]
         # specifier = "tools/^1"
         # attributes = { get = "debug/tangram.py" }
-        # [tool.tangram.imports.release]
+        # [tool.tangram.dependencies.release]
         # specifier = "tools/^1"
         # attributes = { get = "release/tangram.py" }
-        # [tool.tangram.imports.cycle]
+        # [tool.tangram.dependencies.cycle]
         # specifier = "tools/^1"
         # attributes = { get = "cycle_a.tg.py" }
-        # [tool.tangram.imports.flaky]
+        # [tool.tangram.dependencies.flaky]
         # specifier = "tools/^1"
         # attributes = { get = "flaky.tg.py" }
-        # [tool.tangram.imports.cycle_asset]
+        # [tool.tangram.dependencies.cycle_asset]
         # specifier = "tools/^1"
         # attributes = { get = "cycle_a.tg.py", type = "file" }
-        # [tool.tangram.imports.asset]
+        # [tool.tangram.dependencies.asset]
         # specifier = "tools/^1"
         # attributes = { get = "child.tg.py", type = "file" }
-        # [tool.tangram.imports.local_child]
+        # [tool.tangram.dependencies.local_child]
         # specifier = "./local/child.tg.py"
-        # [tool.tangram.imports.direct_child]
+        # [tool.tangram.dependencies.direct_child]
         # specifier = "tools/^1"
         # attributes = { get = "child.tg.py" }
-        # [tool.tangram.imports.pkg]
+        # [tool.tangram.dependencies.pkg]
         # specifier = "tools/^1"
         # ///
 
@@ -136,7 +136,7 @@ let path = artifact {
     }
     'left.tg.py': '
         # /// script
-        # [tool.tangram.imports.common]
+        # [tool.tangram.dependencies.common]
         # specifier = "tools/^1"
         # attributes = { get = "debug/tangram.py" }
         # ///
@@ -146,7 +146,7 @@ let path = artifact {
     '
     'right.tg.py': '
         # /// script
-        # [tool.tangram.imports.common]
+        # [tool.tangram.dependencies.common]
         # specifier = "tools/^1"
         # attributes = { get = "release/tangram.py" }
         # ///

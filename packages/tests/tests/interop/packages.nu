@@ -47,9 +47,9 @@ rm --recursive $stars
 let astronomer = artifact {
     'tangram.py': '
         # /// script
-        # [tool.tangram.imports.stars]
+        # [tool.tangram.dependencies.stars]
         # specifier = "stars/^1"
-        # [tool.tangram.imports.comet]
+        # [tool.tangram.dependencies.comet]
         # specifier = "stars/^1"
         # attributes = { get = "comet.tg.js" }
         # ///

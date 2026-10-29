@@ -22,7 +22,7 @@ let path = artifact {
     '
     'main.tg.py': '
         # /// script
-        # [tool.tangram.imports.functions]
+        # [tool.tangram.dependencies.functions]
         # specifier = "./functions.tg.ts"
         # ///
         import functions
