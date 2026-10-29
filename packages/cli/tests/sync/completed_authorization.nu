@@ -14,7 +14,7 @@ let local_source = server spawn --name local-source --config {
 }
 let file = tg --url $local_source.url put --no-tokens 'tg.file("private")' | referent node
 tg --url $remote_destination.url --token $root_token index
-let batch_watch = tg --url $remote_destination.url --token $root_token checkpoint watch index.batch | from json | get watch
+let enqueue_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.get.index.enqueue | from json | get watch
 let stopped_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.service.stopped | from json | get watch
 let push_log = $env.TMPDIR | path join push.log
 '' | save --force $push_log
@@ -31,8 +31,8 @@ let token = $'http://localhost/($referent)' | url parse | get params | where {|p
 	$token | token body | get resource | str starts-with 'syn_'
 } | first
 let referent = $'($file)?tokens[local][0]=($token | url encode --all)'
-# Leave the sync batch queued until a read reaches authorization's indexing wait.
-tg --url $remote_destination.url --token $root_token checkpoint wait index.batch $batch_watch 0 | ignore
+# Hold the batch that indexes the sync's permissions until a read reaches authorization's indexing wait.
+tg --url $remote_destination.url --token $root_token checkpoint wait sync.get.index.enqueue $enqueue_watch 0 | ignore
 let wait_watch = tg --url $remote_destination.url --token $root_token checkpoint watch verification.index.wait | from json | get watch
 let read = job spawn {
 	let job_id = job id
@@ -42,7 +42,7 @@ let read = job spawn {
 tg --url $remote_destination.url --token $root_token checkpoint wait verification.index.wait $wait_watch 0 | ignore
 assert equal (try { job recv --tag $read --timeout 0sec } catch { null }) null 'the read should wait for indexing'
 tg --url $remote_destination.url --token $root_token checkpoint unwatch verification.index.wait $wait_watch
-tg --url $remote_destination.url --token $root_token checkpoint unwatch index.batch $batch_watch
+tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.get.index.enqueue $enqueue_watch
 success (job recv --tag $push --timeout 10sec) 'the sync should complete after its final index writes'
 tg --url $remote_destination.url --token $root_token checkpoint wait sync.service.stopped $stopped_watch 0 | ignore
 tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.service.stopped $stopped_watch

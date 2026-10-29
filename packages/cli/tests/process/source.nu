@@ -30,6 +30,10 @@ for remote_runner in [false true] {
 		assert equal $output.output done
 		let output = timeout 10s tg --url $url wait --source=runner $process | from json
 		assert equal $output.output done
+		# Wait for the client to index the finished record that it cached.
+		if $url == $local_client.url {
+			tg --url $url index
+		}
 		assert equal (tg --url $url get --source=runner $process | from json | get status) finished
 		let indexed_status = if $url == $local_owner.url { 'started' } else { 'finished' }
 		assert equal (tg --url $url get --source=index $process | from json | get status) $indexed_status
@@ -38,16 +42,17 @@ for remote_runner in [false true] {
 		assert equal (tg --url $url process children --source=runner $process | from json) []
 	}
 
-	# An index wait must stay pending after reading the unfinished indexed data.
-	let watch = tg --url $local_owner.url checkpoint watch process.get.index | from json | get watch
+	# An index wait must stay pending after subscribing while the finish is held.
+	let params = { process: $process } | to json --raw
+	let watch = tg --url $local_owner.url checkpoint watch process.wait.subscribed --params $params | from json | get watch
 	let waiter = job spawn {
 		let job_id = job id
 		let output = timeout 30s tg --url $local_owner.url wait --source=index $process | complete
 		$output | job send --tag $job_id 0
 	}
-	tg --url $local_owner.url checkpoint wait --timeout 10s process.get.index $watch 0 | ignore
-	tg --url $local_owner.url checkpoint unwatch process.get.index $watch
-	assert equal (try { job recv --tag $waiter --timeout 300ms } catch { null }) null
+	tg --url $local_owner.url checkpoint wait --timeout 10s process.wait.subscribed $watch 0 | ignore
+	tg --url $local_owner.url checkpoint unwatch process.wait.subscribed $watch
+	assert equal (try { job recv --tag $waiter --timeout 0sec } catch { null }) null
 	tg --url $runner.url checkpoint unwatch runner.process.control.finish.request $finish
 	let output = job recv --tag $waiter --timeout 30sec
 	success $output

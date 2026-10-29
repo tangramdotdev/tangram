@@ -8,7 +8,10 @@ def get-process [socket: string, bearer: string, process: string, token: string,
 	http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($bearer)' } $'http://localhost/processes/($process)?($query)'
 }
 def module-referent [command: record] {
-	let referent = $command.node.args.3.value.value.referent
+	let referent = $command.node.args
+		| where {|arg| $arg.kind == 'value' and $arg.value.kind == 'module' }
+		| first
+		| get value.value.referent
 	$'($referent.node)?tokens[local][0]=($referent.options.tokens.local.0 | url encode --all)'
 }
 let root = random chars
