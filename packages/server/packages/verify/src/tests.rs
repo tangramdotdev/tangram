@@ -138,7 +138,7 @@ fn cancellation_aborts_the_request_and_prevents_retries() {
 fn entry() -> super::Entry {
 	use tangram_client as tg;
 	let node = tg::blob::Id::new(b"descendant").into();
-	let arg = tg::sync::service::Arg {
+	let arg = tg::sync::service::VerifyArg {
 		node,
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::empty(),

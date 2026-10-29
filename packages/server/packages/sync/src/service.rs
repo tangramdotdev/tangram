@@ -23,14 +23,18 @@ pub(super) struct Handle {
 
 /// A request that waits until the sync can answer it.
 struct Retained {
-	arg: tg::sync::service::Arg,
+	arg: tg::sync::service::VerifyArg,
 	reply: service::Reply<Protocol>,
 }
 
 /// The protocol of a sync's service, which verifies nodes for other servers.
 pub(crate) struct Protocol;
 
-pub(crate) struct Request(pub tg::sync::service::Arg);
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub(crate) enum Request {
+	#[tangram_serialize(id = 0)]
+	Verify(tg::sync::service::VerifyArg),
+}
 
 pub(crate) struct Response(pub tg::sync::service::Response);
 
@@ -91,11 +95,11 @@ impl Component {
 	pub(crate) async fn request_sync_verification(
 		&self,
 		sync: &tg::sync::Id,
-		arg: tg::sync::service::Arg,
+		arg: tg::sync::service::VerifyArg,
 	) -> tg::Result<Option<tg::sync::service::Output>> {
 		let mut request = self
 			.clients
-			.request(&subject(sync), Request(arg))
+			.request(&subject(sync), Request::Verify(arg))
 			.map_err(|source| tg::error!(!source, "failed to send the sync request"))?;
 		let Response(response) = request.wait().await.map_err(|error| match error {
 			service::Error::Stopped => {
@@ -176,7 +180,7 @@ impl Component {
 					let Some(incoming) = incoming else {
 						return Err(tg::error!("the sync service stopped"));
 					};
-					let Request(arg) = incoming.request;
+					let Request::Verify(arg) = incoming.request;
 					let node = arg.node.clone();
 					let request = Retained { arg, reply: incoming.reply };
 					let requests = Self::sync_service_answer(server, &graph, finished.as_ref(), vec![request]);
@@ -261,7 +265,7 @@ impl Component {
 	fn sync_service_result(
 		graph: &Mutex<Graph>,
 		finished: Option<&tg::Result<()>>,
-		arg: &tg::sync::service::Arg,
+		arg: &tg::sync::service::VerifyArg,
 	) -> Option<tg::Result<Option<tg::sync::service::Output>>> {
 		let result = graph
 			.lock()
@@ -276,7 +280,7 @@ impl Component {
 	/// Create the response to a request, with a token for the verified permissions.
 	fn sync_service_response(
 		server: &Server,
-		arg: &tg::sync::service::Arg,
+		arg: &tg::sync::service::VerifyArg,
 		result: tg::Result<Option<tg::sync::service::Output>>,
 	) -> tg::sync::service::Response {
 		let result = result.map(|mut output| {
@@ -305,7 +309,7 @@ impl Component {
 
 	fn sync_service_add_token(
 		server: &Server,
-		arg: &tg::sync::service::Arg,
+		arg: &tg::sync::service::VerifyArg,
 		output: &mut tg::sync::service::Output,
 	) {
 		let permissions = output.permissions().iter().collect::<Vec<_>>();
@@ -331,12 +335,16 @@ impl service::Protocol for Protocol {
 	type Response = Response;
 
 	fn accepts(request: &Self::Request, response: &Self::Response) -> bool {
-		response.0.error.is_some()
-			|| response
-				.0
-				.output
-				.as_ref()
-				.is_none_or(|output| output.satisfies(&request.0))
+		match request {
+			Request::Verify(arg) => {
+				response.0.error.is_some()
+					|| response
+						.0
+						.output
+						.as_ref()
+						.is_none_or(|output| output.satisfies(arg))
+			},
+		}
 	}
 }
 
@@ -358,7 +366,9 @@ impl service::Observer<Protocol> for Observer {
 				} => {
 					insert("attempt", attempt);
 					insert("id", id);
-					insert("node", &request.0.node.to_string());
+					match request {
+						Request::Verify(arg) => insert("node", &arg.node.to_string()),
+					}
 					"sync.service.ack"
 				},
 				service::Event::Attempt { attempt, client } => {
@@ -395,7 +405,9 @@ impl service::Observer<Protocol> for Observer {
 						insert("attempt", attempt);
 					}
 					insert("id", id);
-					insert("node", &request.0.node.to_string());
+					match request {
+						Request::Verify(arg) => insert("node", &arg.node.to_string()),
+					}
 					"sync.service.request"
 				},
 				service::Event::Responded { attempt, id } => {
@@ -422,15 +434,13 @@ impl service::Observer<Protocol> for Observer {
 
 impl tangram_messenger::Payload for Request {
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		tangram_serialize::to_vec(&self.0)
+		tangram_serialize::to_vec(self)
 			.map(Into::into)
 			.map_err(tangram_messenger::Error::serialization)
 	}
 
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error> {
-		tangram_serialize::from_slice(&bytes)
-			.map(Self)
-			.map_err(tangram_messenger::Error::deserialization)
+		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
 	}
 }
 

@@ -1538,7 +1538,7 @@ impl Graph {
 
 	pub fn try_verify_node_local_service_output(
 		&self,
-		arg: &tg::sync::service::Arg,
+		arg: &tg::sync::service::VerifyArg,
 	) -> tg::Result<Option<tg::sync::service::Output>> {
 		use tg::sync::service::{ObjectOutput, Output, ProcessOutput};
 		arg.validate()?;

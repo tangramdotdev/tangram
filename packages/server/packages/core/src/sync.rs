@@ -47,7 +47,7 @@ pub trait Component: crate::component::Lifecycle {
 	fn request_sync_verification<'a>(
 		&'a self,
 		sync: &'a tg::sync::Id,
-		arg: tg::sync::service::Arg,
+		arg: tg::sync::service::VerifyArg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::sync::service::Output>>>;
 
 	fn sync_inner<'a>(

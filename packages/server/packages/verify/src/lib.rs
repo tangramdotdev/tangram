@@ -68,7 +68,7 @@ enum RequestState {
 
 #[derive(Clone)]
 struct Request {
-	arg: tg::sync::service::Arg,
+	arg: tg::sync::service::VerifyArg,
 	index_position: usize,
 	position: usize,
 	sync: tg::sync::Id,
@@ -365,7 +365,7 @@ impl Component {
 						) {
 							continue;
 						}
-						let arg = tg::sync::service::Arg {
+						let arg = tg::sync::service::VerifyArg {
 							node: id.clone(),
 							permissions: requested,
 							storage,
@@ -701,7 +701,7 @@ impl Component {
 							for permission in permissions {
 								let permissions =
 									tg::authorization::permission::Set::from_permission(permission);
-								args.push(tg::sync::service::Arg {
+								args.push(tg::sync::service::VerifyArg {
 									node: sync.resource.clone(),
 									permissions,
 									storage: empty_storage(permissions),
@@ -730,7 +730,7 @@ impl Component {
 								let permissions =
 									tg::authorization::permission::Set::from_permission(permission)
 										.empty_like();
-								args.push(tg::sync::service::Arg {
+								args.push(tg::sync::service::VerifyArg {
 									node: sync.resource.clone(),
 									permissions,
 									storage,

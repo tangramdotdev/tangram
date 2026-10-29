@@ -767,24 +767,24 @@ fn control_responses_preserve_storage_and_permissions_on_the_wire() {
 
 #[test]
 fn control_requirements_are_independent_in_either_order() {
-	use tg::sync::service::{Arg, ObjectOutput, Output};
+	use tg::sync::service::{ObjectOutput, Output, VerifyArg};
 	for storage_first in [false, true] {
 		let config = tg::sync::Arg::default();
 		let mut graph = Graph::new(&config, false);
 		let node: tg::Id = tg::blob::Id::new(b"independent").into();
 		let permissions = tg::authorization::permission::object::Set::SUBTREE;
-		let permission_request = Arg {
+		let permission_request = VerifyArg {
 			node: node.clone(),
 			permissions: tg::authorization::permission::Set::Object(permissions),
 			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		};
-		let stored_request = Arg {
+		let stored_request = VerifyArg {
 			storage: tg::storage::Set::Object(
 				tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 			),
 			..permission_request.clone()
 		};
-		let storage_only_request = Arg {
+		let storage_only_request = VerifyArg {
 			permissions: stored_request.permissions.empty_like(),
 			..stored_request.clone()
 		};
@@ -859,7 +859,7 @@ fn control_requirements_are_independent_in_either_order() {
 
 #[test]
 fn process_data_and_permissions_do_not_prove_storage() {
-	use tg::sync::service::Arg;
+	use tg::sync::service::VerifyArg;
 	let config = tg::sync::Arg::default();
 	let mut graph = Graph::new(&config, false);
 	let id = tg::process::Id::new();
@@ -878,7 +878,7 @@ fn process_data_and_permissions_do_not_prove_storage() {
 		storage: None,
 	};
 	graph.update_process_local(update);
-	let request = Arg {
+	let request = VerifyArg {
 		node: id.clone().into(),
 		permissions,
 		storage: tg::storage::Set::Process(tg::process::storage::Set::empty()),
@@ -894,7 +894,7 @@ fn process_data_and_permissions_do_not_prove_storage() {
 			.get_process_local_storage(&id)
 			.is_some_and(tg::process::storage::Set::is_empty)
 	);
-	let request = Arg {
+	let request = VerifyArg {
 		storage: tg::storage::Set::Process(tg::process::storage::Set::NODE),
 		..request
 	};
@@ -920,7 +920,7 @@ fn process_data_and_permissions_do_not_prove_storage() {
 			.unwrap()
 			.is_some()
 	);
-	let request = Arg {
+	let request = VerifyArg {
 		storage: tg::storage::Set::Process(
 			tg::process::storage::Set::NODE | tg::process::storage::Set::NODE_COMMAND_OBJECTS,
 		),
@@ -936,7 +936,7 @@ fn process_data_and_permissions_do_not_prove_storage() {
 
 #[test]
 fn permissions_aggregate_without_storage() {
-	use tg::sync::service::{Arg, ObjectOutput, Output};
+	use tg::sync::service::{ObjectOutput, Output, VerifyArg};
 	let config = tg::sync::Arg::default();
 	let mut graph = Graph::new(&config, false);
 	let parent = tg::object::Id::from(tg::blob::Id::new(b"parent"));
@@ -960,7 +960,7 @@ fn permissions_aggregate_without_storage() {
 		storage: None,
 	};
 	graph.update_object_local(update);
-	let request = Arg {
+	let request = VerifyArg {
 		node: parent.clone().into(),
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::SUBTREE,
@@ -1047,7 +1047,7 @@ fn process_command_permissions_aggregate_without_process_storage() {
 
 #[test]
 fn control_requests_preserve_storage_variants_on_the_wire() {
-	use tg::sync::service::Arg;
+	use tg::sync::service::VerifyArg;
 	let object: tg::Id = tg::blob::Id::new(b"object").into();
 	let process: tg::Id = tg::process::Id::new().into();
 	for (node, permissions, storage) in [
@@ -1068,22 +1068,22 @@ fn control_requests_preserve_storage_variants_on_the_wire() {
 	] {
 		for permissions in [permissions.empty_like(), permissions] {
 			for storage in [storage.empty_like(), storage] {
-				let request = Arg {
+				let request = VerifyArg {
 					node: node.clone(),
 					permissions,
 					storage,
 				};
 				request.validate().unwrap();
 				let json = serde_json::to_value(&request).unwrap();
-				let decoded: Arg = serde_json::from_value(json.clone()).unwrap();
+				let decoded: VerifyArg = serde_json::from_value(json.clone()).unwrap();
 				assert_eq!(serde_json::to_value(decoded).unwrap(), json);
 				let bytes = tangram_serialize::to_vec(&request).unwrap();
-				let decoded: Arg = tangram_serialize::from_slice(&bytes).unwrap();
+				let decoded: VerifyArg = tangram_serialize::from_slice(&bytes).unwrap();
 				assert_eq!(serde_json::to_value(decoded).unwrap(), json);
 			}
 		}
 	}
-	let request = Arg {
+	let request = VerifyArg {
 		node: tg::blob::Id::new(b"mismatched").into(),
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::NODE,

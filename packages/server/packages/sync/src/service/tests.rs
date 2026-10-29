@@ -16,7 +16,7 @@ fn empty_requests_are_notified_when_a_child_enters_the_graph() {
 	graph.set_changed(sender.downgrade());
 	let parent: tg::object::Id = tg::blob::Id::new(b"parent").into();
 	let child = tg::blob::Id::new(b"child");
-	let request = protocol::Arg {
+	let request = protocol::VerifyArg {
 		node: child.clone().into(),
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::empty(),
@@ -65,8 +65,8 @@ fn requests_wait_for_their_own_requirements() {
 	let graph = graph();
 	let permissions = tg::authorization::permission::object::Set::SUBTREE;
 	let permissions_arg =
-		protocol::Arg::object(id.clone(), permissions, tg::object::storage::Set::empty());
-	let storage_arg = protocol::Arg::object(
+		protocol::VerifyArg::object(id.clone(), permissions, tg::object::storage::Set::empty());
+	let storage_arg = protocol::VerifyArg::object(
 		id.clone(),
 		permissions,
 		tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
@@ -103,9 +103,9 @@ fn finished_sync_distinguishes_missing_from_permission_only_success() {
 		let graph = graph();
 		let permissions = tg::authorization::permission::object::Set::NODE;
 		let permissions_arg =
-			protocol::Arg::object(id.clone(), permissions, tg::object::storage::Set::empty());
+			protocol::VerifyArg::object(id.clone(), permissions, tg::object::storage::Set::empty());
 		let storage_arg =
-			protocol::Arg::object(id.clone(), permissions, tg::object::storage::Set::NODE);
+			protocol::VerifyArg::object(id.clone(), permissions, tg::object::storage::Set::NODE);
 		graph.lock().unwrap().update_object_local_permissions(
 			&id,
 			tg::authorization::permission::Set::Object(permissions),

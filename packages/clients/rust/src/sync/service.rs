@@ -9,7 +9,7 @@ use crate::prelude::*;
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Arg {
+pub struct VerifyArg {
 	#[tangram_serialize(id = 0)]
 	pub node: tg::Id,
 
@@ -94,7 +94,7 @@ pub struct ProcessOutput {
 	pub tokens: Vec<tg::authorization::Body>,
 }
 
-impl Arg {
+impl VerifyArg {
 	#[must_use]
 	pub fn object(
 		node: tg::object::Id,
@@ -142,7 +142,7 @@ impl Arg {
 
 impl Output {
 	#[must_use]
-	pub fn satisfies(&self, arg: &Arg) -> bool {
+	pub fn satisfies(&self, arg: &VerifyArg) -> bool {
 		if !self.permissions().contains(arg.permissions) {
 			return false;
 		}

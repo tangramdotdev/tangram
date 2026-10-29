@@ -642,7 +642,7 @@ impl tangram_server_core::sync::Component for Component {
 	fn request_sync_verification<'a>(
 		&'a self,
 		sync: &'a tg::sync::Id,
-		arg: tg::sync::service::Arg,
+		arg: tg::sync::service::VerifyArg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::sync::service::Output>>> {
 		self.request_sync_verification(sync, arg).boxed()
 	}
