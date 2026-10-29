@@ -229,7 +229,8 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Config
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript,
 				),
@@ -295,7 +296,8 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Config
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
@@ -326,7 +328,8 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Config
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration,
@@ -465,7 +468,8 @@ impl Component {
 				&& matches!(
 					import.kind,
 					None | Some(
-						tg::module::Kind::JavaScript
+						tg::module::Kind::Config
+							| tg::module::Kind::JavaScript
 							| tg::module::Kind::Python
 							| tg::module::Kind::TypeScript
 					)
@@ -569,7 +573,8 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Config
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript,
 				),
@@ -635,7 +640,8 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Config
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
@@ -660,7 +666,8 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Config
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration,

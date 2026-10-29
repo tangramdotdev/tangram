@@ -14,6 +14,7 @@ impl Compiler {
 			| tg::module::Kind::Graph
 			| tg::module::Kind::Object
 			| tg::module::Kind::Symlink => Err(tg::error!(%kind, "cannot format the module")),
+			tg::module::Kind::Config => Ok(text.to_owned()),
 			tg::module::Kind::TypeScriptDeclaration
 			| tg::module::Kind::JavaScript
 			| tg::module::Kind::TypeScript => {

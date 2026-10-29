@@ -27,6 +27,26 @@ impl Compiler {
 			| tg::module::Kind::Graph
 			| tg::module::Kind::Object
 			| tg::module::Kind::Symlink => Err(tg::error!(kind = %module.kind, "cannot analyze the module")),
+			tg::module::Kind::Config => {
+				// Get the imports of the runtime and the dependencies.
+				let path = match &module.referent.node {
+					tg::module::data::Source::Edge(_) => module.referent.path(),
+					tg::module::data::Source::Path(path) => Some(path.as_path()),
+				};
+				let format = path
+					.and_then(tg::module::config::Format::for_path)
+					.ok_or_else(|| tg::error!("failed to get the format of the config module"))?;
+				let config = tg::module::Config::parse(text, format)?;
+				let imports = std::iter::once(&config.runtime)
+					.chain(config.dependencies.values())
+					.map(tg::module::config::Dependency::import)
+					.collect::<tg::Result<_>>()?;
+				let analysis = Analysis {
+					diagnostics: Vec::new(),
+					imports,
+				};
+				Ok(analysis)
+			},
 			tg::module::Kind::JavaScript
 			| tg::module::Kind::TypeScript
 			| tg::module::Kind::TypeScriptDeclaration => {

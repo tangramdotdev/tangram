@@ -18,6 +18,7 @@ export class Module {
 
 export namespace Module {
 	export type Kind =
+		| "config"
 		| "javascript"
 		| "python"
 		| "typescript"

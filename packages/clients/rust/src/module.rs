@@ -1,6 +1,7 @@
 use {crate::prelude::*, std::path::Path};
 
 pub use self::{
+	config::Config,
 	data::Module as Data,
 	handle::{Location, Module as Handle, Source},
 	import::Import,
@@ -9,6 +10,7 @@ pub use self::{
 #[cfg(test)]
 mod tests;
 
+pub mod config;
 pub mod data;
 pub mod handle;
 pub mod import;
@@ -17,7 +19,14 @@ pub mod load;
 pub mod resolve;
 
 /// The possible file names for the root module in a package.
-pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.py", "tangram.ts"];
+pub const ROOT_MODULE_FILE_NAMES: &[&str] = &[
+	"tangram.js",
+	"tangram.json",
+	"tangram.py",
+	"tangram.toml",
+	"tangram.ts",
+	"tangram.yaml",
+];
 
 /// The file name of a lockfile.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
@@ -47,6 +56,9 @@ pub enum Kind {
 
 	#[tangram_serialize(id = 10)]
 	Command,
+
+	#[tangram_serialize(id = 13)]
+	Config,
 
 	#[tangram_serialize(id = 6)]
 	Directory,
@@ -95,6 +107,12 @@ pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Ki
 		Ok(tg::module::Kind::TypeScript)
 	} else if name == "tangram.py" || name.ends_with(".tg.py") {
 		Ok(tg::module::Kind::Python)
+	} else if matches!(name, "tangram.json" | "tangram.toml" | "tangram.yaml")
+		|| [".tg.json", ".tg.toml", ".tg.yaml"]
+			.iter()
+			.any(|suffix| name.ends_with(suffix))
+	{
+		Ok(tg::module::Kind::Config)
 	} else {
 		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
 	}
@@ -109,9 +127,11 @@ pub fn is_module_path(path: &Path) -> bool {
 		return false;
 	};
 	tg::module::ROOT_MODULE_FILE_NAMES.contains(&name)
-		|| name.ends_with(".tg.js")
-		|| name.ends_with(".tg.py")
-		|| name.ends_with(".tg.ts")
+		|| [
+			".tg.js", ".tg.json", ".tg.py", ".tg.toml", ".tg.ts", ".tg.yaml",
+		]
+		.iter()
+		.any(|suffix| name.ends_with(suffix))
 }
 
 #[must_use]
@@ -196,6 +216,7 @@ impl std::str::FromStr for Kind {
 			"artifact" => Self::Artifact,
 			"blob" => Self::Blob,
 			"command" => Self::Command,
+			"config" => Self::Config,
 			"directory" => Self::Directory,
 			"error" => Self::Error,
 			"file" => Self::File,
