@@ -19,7 +19,7 @@ path = "src/main.rs"
 
 [features]
 default = ["cpython", "lmdb", "sqlite", "tls", "tsrs", "ty", "v8"]
-cpython = ["dep:tangram_cli_python", "python", "tangram_cli_core/cpython"]
+cpython = ["python", "tangram_cli_builtin/cpython", "tangram_cli_core/cpython"]
 fjall = ["tangram_cli_server/fjall"]
 foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_cli_server/foundationdb"]
 javascript = ["tangram_cli_server/javascript"]
@@ -27,7 +27,7 @@ lmdb = ["tangram_cli_server/lmdb"]
 nats = ["tangram_cli_server/nats"]
 postgres = ["tangram_cli_server/postgres"]
 python = ["tangram_cli_server/python"]
-quickjs = ["dep:tangram_cli_javascript", "dep:tangram_cli_repl", "javascript", "tangram_cli_core/quickjs", "tangram_cli_javascript/quickjs", "tangram_cli_repl/quickjs"]
+quickjs = ["dep:tangram_cli_repl", "javascript", "tangram_cli_builtin/quickjs", "tangram_cli_core/quickjs", "tangram_cli_repl/quickjs"]
 rocksdb = ["tangram_cli_server/rocksdb"]
 scylla = ["tangram_cli_server/scylla"]
 sqlite = ["tangram_cli_server/sqlite"]
@@ -35,7 +35,7 @@ tls = ["tangram_cli_core/tls", "tangram_cli_server/tls"]
 tsrs = ["javascript", "tangram_cli_server/tsrs"]
 turso = ["tangram_cli_server/turso"]
 ty = ["python", "tangram_cli_server/ty"]
-v8 = ["dep:tangram_cli_javascript", "dep:tangram_cli_repl", "javascript", "tangram_cli_core/v8", "tangram_cli_javascript/v8", "tangram_cli_repl/v8"]
+v8 = ["dep:tangram_cli_repl", "javascript", "tangram_cli_builtin/v8", "tangram_cli_core/v8", "tangram_cli_repl/v8"]
 vsock = ["tangram_cli_core/vsock", "tangram_cli_server/vsock"]
 
 [lints]
@@ -72,7 +72,6 @@ tangram_cli_health = { workspace = true }
 tangram_cli_id = { workspace = true }
 tangram_cli_index = { workspace = true }
 tangram_cli_init = { workspace = true }
-tangram_cli_javascript = { workspace = true, optional = true }
 tangram_cli_list = { workspace = true }
 tangram_cli_lsp = { workspace = true }
 tangram_cli_match = { workspace = true }
@@ -86,7 +85,6 @@ tangram_cli_publish = { workspace = true }
 tangram_cli_pull = { workspace = true }
 tangram_cli_push = { workspace = true }
 tangram_cli_put = { workspace = true }
-tangram_cli_python = { workspace = true, optional = true }
 tangram_cli_read = { workspace = true }
 tangram_cli_remote = { workspace = true }
 tangram_cli_repl = { workspace = true, optional = true }

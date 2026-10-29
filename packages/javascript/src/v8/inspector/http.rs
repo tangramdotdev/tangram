@@ -79,7 +79,7 @@ impl Server {
 		let id = ENCODING.encode(&id.into_bytes());
 		let target = Arc::new(Target {
 			id,
-			title: format!("tangram javascript [pid: {}]", std::process::id()),
+			title: format!("tangram builtin javascript [pid: {}]", std::process::id()),
 			url: "tangram:javascript".to_owned(),
 		});
 		let state = ServerState {
@@ -127,7 +127,7 @@ impl Server {
 impl ServerState {
 	fn target_metadata(&self, host: &str) -> TargetMetadata {
 		TargetMetadata {
-			description: "tangram javascript".to_owned(),
+			description: "tangram builtin javascript".to_owned(),
 			devtools_frontend_url: self.frontend_url(host),
 			id: self.target.id.clone(),
 			title: self.target.title.clone(),

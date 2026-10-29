@@ -661,6 +661,7 @@ pub(crate) async fn spawn_inner(
 						let module = tg::Module { kind, referent };
 						let export = reference.export().unwrap_or("default").to_owned();
 						let mut args = vec![
+							"builtin".into(),
 							if kind == tg::module::Kind::Python {
 								"python"
 							} else {
@@ -710,6 +711,7 @@ pub(crate) async fn spawn_inner(
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
 							let mut args = vec![
+								"builtin".into(),
 								if kind == tg::module::Kind::Python {
 									"python"
 								} else {

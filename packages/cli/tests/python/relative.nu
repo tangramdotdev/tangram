@@ -48,7 +48,7 @@ let path = artifact {
         '
     }
 }
-let output = tg python --export default ($path | path join tangram.py) | complete
+let output = tg builtin python --export default ($path | path join tangram.py) | complete
 success $output
 assert equal ($output.stdout | str trim) 'relative modules completed'
 
@@ -59,7 +59,7 @@ let entry = artifact {
     '__entry__.tg.py': 'sentinel = 7'
     'helper.tg.py': 'value = 99'
 }
-let output = tg python ($entry | path join my-script.v1.tg.py) | complete
+let output = tg builtin python ($entry | path join my-script.v1.tg.py) | complete
 success $output
 assert equal ($output.stdout | str trim) '99'
 
@@ -74,7 +74,7 @@ let entry = artifact {
             print(value)
     '
 }
-let output = tg python --export default ($entry | path join child.tg.py) | complete
+let output = tg builtin python --export default ($entry | path join child.tg.py) | complete
 success $output
 assert equal ($output.stdout | str trim) '42'
 
@@ -89,7 +89,7 @@ let entry = artifact {
     '
     namespace: {'leaf.tg.py': 'value = 42'}
 }
-success (tg python --export default ($entry | path join tangram.py) | complete)
+success (tg builtin python --export default ($entry | path join tangram.py) | complete)
 let checked = tg checkin ($entry | path join tangram.py)
 rm --recursive $entry
 assert equal (tg run $checked | str trim) '42'

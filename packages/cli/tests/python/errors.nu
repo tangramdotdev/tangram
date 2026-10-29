@@ -18,7 +18,7 @@ let path = artifact {
 }
 let output_path = mktemp
 let output = with-env {TANGRAM_OUTPUT: $output_path} {
-    tg python --export run ($path | path join main.tg.py) | complete
+    tg builtin python --export run ($path | path join main.tg.py) | complete
 }
 failure $output
 assert ($output.stderr | str contains 'RuntimeError: outer')
@@ -30,13 +30,13 @@ assert equal $outcome.error.location.file.value.kind 'python'
 assert ($outcome.error.location.file.value.referent.node | str ends-with 'helper.tg.py')
 assert equal $outcome.error.source.node.message 'ValueError: inner'
 
-let output = tg python --export missing ($path | path join main.tg.py) | complete
+let output = tg builtin python --export missing ($path | path join main.tg.py) | complete
 failure $output
 assert ($output.stderr | str contains 'failed to find the export named missing')
 
 let syntax = artifact {'main.tg.py': 'def broken('}
 let output_path = mktemp
-let output = with-env {TANGRAM_OUTPUT: $output_path} { tg python ($syntax | path join main.tg.py) | complete }
+let output = with-env {TANGRAM_OUTPUT: $output_path} { tg builtin python ($syntax | path join main.tg.py) | complete }
 failure $output
 let outcome = open --raw $output_path | from json
 assert equal $outcome.error.location.range.start.line 0
@@ -58,17 +58,17 @@ failure $output
 assert ($output.stderr | str contains 'main.tg.py:2:13')
 
 let exit = artifact {'main.tg.py': 'raise SystemExit(7)'}
-let output = tg python ($exit | path join main.tg.py) | complete
+let output = tg builtin python ($exit | path join main.tg.py) | complete
 assert equal $output.exit_code 7
 
 for code in ['2**100', '-(2**100)'] {
     let exit = artifact {'main.tg.py': ('raise SystemExit(' + $code + ')')}
-    let output = tg python ($exit | path join main.tg.py) | complete
+    let output = tg builtin python ($exit | path join main.tg.py) | complete
     assert equal $output.exit_code 255
 }
 
 let plain = artifact {'main.py': 'print("wrong extension")'}
-let output = tg python ($plain | path join main.py) | complete
+let output = tg builtin python ($plain | path join main.py) | complete
 failure $output
 assert ($output.stderr | str contains 'expected tangram.py or a .tg.py module')
 
@@ -78,7 +78,7 @@ let unicode = artifact {'main.tg.py': '
 '}
 let output_path = mktemp
 let output = with-env {TANGRAM_OUTPUT: $output_path} {
-    tg python --export run ($unicode | path join main.tg.py) | complete
+    tg builtin python --export run ($unicode | path join main.tg.py) | complete
 }
 failure $output
 let outcome = open --raw $output_path | from json
@@ -95,7 +95,7 @@ let source = artifact {
 }
 let module = tg run $source
 let output_path = mktemp
-let output = with-env {TANGRAM_OUTPUT: $output_path} { tg python $module | complete }
+let output = with-env {TANGRAM_OUTPUT: $output_path} { tg builtin python $module | complete }
 failure $output
 let outcome = open --raw $output_path | from json
 assert equal $outcome.error.location.range.start.line 0

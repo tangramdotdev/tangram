@@ -44,7 +44,7 @@ def default():
     return leaf.read()
 '
     let entry = artifact {'main.tg.py': $source}
-    let output = tg python --export default ($entry | path join main.tg.py) | complete
+    let output = tg builtin python --export default ($entry | path join main.tg.py) | complete
     success $output
     $checked = $checked | append (tg checkin ($entry | path join main.tg.py))
     rm --recursive $entry

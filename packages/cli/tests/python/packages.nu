@@ -17,7 +17,7 @@ let standalone = artifact {
     '
     'helper.tg.py': 'value = 42'
 }
-let output = tg python --export default ($standalone | path join main.tg.py) | complete
+let output = tg builtin python --export default ($standalone | path join main.tg.py) | complete
 success $output
 assert equal ($output.stdout | str trim) ''
 let checked = tg checkin ($standalone | path join main.tg.py)
@@ -56,7 +56,7 @@ let package = artifact {
     '
     }
 }
-let output = tg python --export default ($package | path join tangram.py) | complete
+let output = tg builtin python --export default ($package | path join tangram.py) | complete
 success $output
 assert equal ($output.stdout | str trim) ''
 let checked_file = tg checkin ($package | path join tangram.py)

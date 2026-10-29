@@ -10,6 +10,11 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+cpython = ["dep:tangram_cli_builtin_python"]
+quickjs = ["dep:tangram_cli_builtin_javascript", "tangram_cli_builtin_javascript/quickjs"]
+v8 = ["dep:tangram_cli_builtin_javascript", "tangram_cli_builtin_javascript/v8"]
+
 [lib]
 doctest = false
 
@@ -28,6 +33,8 @@ liblzma = { workspace = true }
 num = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
+tangram_cli_builtin_javascript = { workspace = true, optional = true }
+tangram_cli_builtin_python = { workspace = true, optional = true }
 tangram_cli_core = { workspace = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }

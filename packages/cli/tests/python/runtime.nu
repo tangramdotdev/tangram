@@ -26,7 +26,7 @@ let path = artifact {
 }
 let output_path = mktemp
 let output = with-env {TANGRAM_OUTPUT: $output_path} {
-    tg python --export run -a one -A true -a two -A 3 ($path | path join main.tg.py) trailing | complete
+    tg builtin python --export run -a one -A true -a two -A 3 ($path | path join main.tg.py) trailing | complete
 }
 success $output
 assert equal ($output.stdout | str trim) 'helloworld'
@@ -58,13 +58,13 @@ let values = artifact {
 }
 let output_path = mktemp
 let output = with-env {TANGRAM_OUTPUT: $output_path} {
-    tg python --export answer ($values | path join main.tg.py) | complete
+    tg builtin python --export answer ($values | path join main.tg.py) | complete
 }
 success $output
 assert equal ((open --raw $output_path | from json).output.value.ready) true
 let output_path = mktemp
 let output = with-env {TANGRAM_OUTPUT: $output_path} {
-    tg python --export nothing ($values | path join main.tg.py) | complete
+    tg builtin python --export nothing ($values | path join main.tg.py) | complete
 }
 success $output
 assert equal ((open --raw $output_path | from json).output) null

@@ -1,5 +1,5 @@
 [package]
-name = "tangram_cli_python"
+name = "tangram_cli_builtin_python"
 
 description = { workspace = true }
 edition = { workspace = true }

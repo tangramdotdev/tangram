@@ -11,8 +11,8 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-quickjs = ["tangram_cli_javascript/quickjs", "tangram_javascript/quickjs"]
-v8 = ["tangram_cli_javascript/v8", "tangram_javascript/v8"]
+quickjs = ["tangram_cli_builtin_javascript/quickjs", "tangram_javascript/quickjs"]
+v8 = ["tangram_cli_builtin_javascript/v8", "tangram_javascript/v8"]
 
 [lib]
 doctest = false
@@ -26,7 +26,7 @@ nu-ansi-term = { workspace = true }
 reedline = { workspace = true }
 syntect = { workspace = true }
 tangram_cli_core = { workspace = true }
-tangram_cli_javascript = { workspace = true }
+tangram_cli_builtin_javascript = { workspace = true }
 tangram_client = { workspace = true }
 tangram_javascript = { workspace = true }
 tokio = { workspace = true }

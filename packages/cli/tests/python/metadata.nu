@@ -15,7 +15,7 @@ for contents in [
     let output = tg checkin ($path | path join main.tg.py) | complete
     failure $output
     assert ($output.stderr | str contains 'main.tg.py:')
-    let output = tg python ($path | path join main.tg.py) | complete
+    let output = tg builtin python ($path | path join main.tg.py) | complete
     failure $output
     assert ($output.stderr | str contains 'main.tg.py')
 }
@@ -29,6 +29,6 @@ let path = artifact {
 print("string contents ignored")
 '
 }
-let output = tg python ($path | path join main.tg.py) | complete
+let output = tg builtin python ($path | path join main.tg.py) | complete
 success $output
 assert equal ($output.stdout | str trim) 'string contents ignored'

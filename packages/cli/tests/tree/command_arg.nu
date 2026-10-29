@@ -31,6 +31,9 @@ snapshot --normalize-ids $tree '
 	│ ├╴args: array
 	│ │ ├╴map
 	│ │ │ ├╴kind: "string"
+	│ │ │ └╴value: "builtin"
+	│ │ ├╴map
+	│ │ │ ├╴kind: "string"
 	│ │ │ └╴value: "javascript"
 	│ │ ├╴map
 	│ │ │ ├╴kind: "string"
@@ -65,6 +68,9 @@ snapshot --normalize-ids $tree '
 	  ├╴output: "hello"
 	  ├╴command: map
 	  │ ├╴args: array
+	  │ │ ├╴map
+	  │ │ │ ├╴kind: "string"
+	  │ │ │ └╴value: "builtin"
 	  │ │ ├╴map
 	  │ │ │ ├╴kind: "string"
 	  │ │ │ └╴value: "javascript"
@@ -111,6 +117,9 @@ snapshot --normalize-ids $tree '
 	    ├╴output: "hello"
 	    └╴command: map
 	      ├╴args: array
+	      │ ├╴map
+	      │ │ ├╴kind: "string"
+	      │ │ └╴value: "builtin"
 	      │ ├╴map
 	      │ │ ├╴kind: "string"
 	      │ │ └╴value: "javascript"

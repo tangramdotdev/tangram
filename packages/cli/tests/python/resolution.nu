@@ -29,12 +29,12 @@ let path = artifact {
     }
     'broken.tg.py': 'raise RuntimeError("failed initialization")'
 }
-let output = tg python ($path | path join main.tg.py) | complete
+let output = tg builtin python ($path | path join main.tg.py) | complete
 success $output
 assert equal ($output.stdout | str trim) 'resolution completed'
 
 let missing = artifact {'tangram.py': 'pass', 'main.tg.py': 'from . import missing'}
-let output = tg python ($missing | path join main.tg.py) | complete
+let output = tg builtin python ($missing | path join main.tg.py) | complete
 failure $output
 assert ($output.stderr | str contains 'missing')
 
@@ -44,7 +44,7 @@ let ambiguous = artifact {
     'helper.tg.py': 'value = 1'
     helper: {'tangram.py': 'value = 2'}
 }
-let output = tg python ($ambiguous | path join main.tg.py) | complete
+let output = tg builtin python ($ambiguous | path join main.tg.py) | complete
 failure $output
 assert ($output.stderr | str contains 'ambiguous Tangram module')
 
@@ -137,10 +137,10 @@ let entry = artifact {
     '
 }
 for module in ['tangram.py' 'sub/tangram.py' 'sub/child.tg.py'] {
-    let output = tg python --export default ($package | path join $module) | complete
+    let output = tg builtin python --export default ($package | path join $module) | complete
     success $output
 }
-let output = tg python --export default ($entry | path join main.tg.py) | complete
+let output = tg builtin python --export default ($entry | path join main.tg.py) | complete
 success $output
 let checked = ['tangram.py' 'sub/tangram.py' 'sub/child.tg.py'] | each {|module| tg checkin ($package | path join $module)}
 let checked_entry = tg checkin ($entry | path join main.tg.py)

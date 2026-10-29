@@ -155,7 +155,7 @@ let path = artifact {
             return value
     '
 }
-let output = tg python --export default ($path | path join main.tg.py) | complete
+let output = tg builtin python --export default ($path | path join main.tg.py) | complete
 success $output
 assert equal ($output.stdout | str trim) 'declared imports completed'
 let checked = tg checkin ($path | path join main.tg.py)

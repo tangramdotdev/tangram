@@ -1,8 +1,8 @@
 use {
 	nu_ansi_term::Color,
 	std::{borrow::Cow, path::PathBuf},
+	tangram_cli_builtin_javascript::Engine,
 	tangram_cli_core::Cli,
-	tangram_cli_javascript::Engine,
 	tangram_client::prelude::*,
 };
 

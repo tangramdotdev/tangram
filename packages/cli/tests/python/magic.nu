@@ -41,7 +41,7 @@ let path = artifact {
             assert await tg.command(pkg.read).build() == 42
             assert await tg.command(pkg.read_child).build() == 42
             referent = await tg.Command.python(pkg.read, [])
-            module = (await referent.node.args)[3].value
+            module = (await referent.node.args)[4].value
             assert all(module.referent.options.get(key) is None for key in ("id", "name", "path", "tag"))
             assert tg.host.magic(renamed)["export"] == "renamed"
             assert await tg.command(renamed, "hello").build() == "hello sync"
@@ -67,7 +67,7 @@ let path = artifact {
             return list(args)
     '
 }
-let output = tg python --export default ($path | path join tangram.py) | complete
+let output = tg builtin python --export default ($path | path join tangram.py) | complete
 success $output
 assert equal ($output.stdout | str trim) 'Python function commands completed'
 let checked = tg checkin $path
@@ -98,7 +98,7 @@ let path = artifact {
         '
     }
 }
-let output = tg python --export default ($path | path join tangram.py) | complete
+let output = tg builtin python --export default ($path | path join tangram.py) | complete
 success $output
 let checked = tg checkin ($path | path join tangram.py)
 rm --recursive $path

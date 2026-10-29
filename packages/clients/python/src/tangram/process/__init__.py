@@ -947,37 +947,11 @@ class Builder[M: Mode, O: ValueType]:
         return self._mode("exec", args)
 
     async def _is_module(self):
-        from ..command import CommandObject
-
         if self._module is None:
-
-            async def detect():
-                for arg in await resolve(self._originals):
-                    command = (
-                        arg
-                        if isinstance(arg, Command)
-                        else arg.get("command")
-                        if isinstance(arg, dict)
-                        else None
-                    )
-                    if isinstance(command, Referent):
-                        command = command.node
-                    if isinstance(command, dict) and "node" in command:
-                        command = command["node"]
-                    if isinstance(command, dict):
-                        if Command.Arg.is_javascript(command) or Command.Arg.is_python(
-                            command
-                        ):
-                            return True
-                    if isinstance(command, Command):
-                        object = await command.load(self.client)
-                        if CommandObject.is_javascript(
-                            object
-                        ) or CommandObject.is_python(object):
-                            return True
-                return False
-
-            self._module = capture(detect(), self._memo)
+            self._module = capture(
+                is_module_process_builder_arg(self._originals, self.client),
+                self._memo,
+            )
         return await resolve(self._module)
 
     async def builder_arg(self, arg):
@@ -1016,6 +990,31 @@ class Builder[M: Mode, O: ValueType]:
             "spawn": spawn_resolved,
         }[self.operation]
         return await operation(self, resolved)
+
+
+async def is_module_process_builder_arg(args, client):
+    from ..command import CommandObject
+
+    for arg in await resolve(args):
+        command = (
+            arg
+            if isinstance(arg, Command)
+            else arg.get("command")
+            if isinstance(arg, dict)
+            else None
+        )
+        if isinstance(command, Referent):
+            command = command.node
+        if isinstance(command, dict) and "node" in command:
+            command = command["node"]
+        if isinstance(command, dict):
+            if Command.Arg.is_javascript(command) or Command.Arg.is_python(command):
+                return True
+        if isinstance(command, Command):
+            object = await command.load(client)
+            if CommandObject.is_javascript(object) or CommandObject.is_python(object):
+                return True
+    return False
 
 
 async def process_arg_resolved(*args, client: Client | None = None):

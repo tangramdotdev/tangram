@@ -93,10 +93,6 @@ enum Command {
 
 	Init(tangram_cli_init::Args),
 
-	#[cfg(any(feature = "quickjs", feature = "v8"))]
-	#[command(name = "javascript", alias = "js", hide = true)]
-	JavaScript(tangram_cli_javascript::Args),
-
 	#[command(alias = "ls")]
 	List(tangram_cli_list::Args),
 
@@ -137,10 +133,6 @@ enum Command {
 
 	#[command(alias = "add")]
 	Put(tangram_cli_put::Args),
-
-	#[cfg(feature = "cpython")]
-	#[command(alias = "py")]
-	Python(tangram_cli_python::Args),
 
 	#[command(alias = "cat")]
 	Read(tangram_cli_read::Args),
@@ -237,21 +229,14 @@ async fn main_inner(
 	// Handle internal commands.
 	let result = match command.clone() {
 		Command::Builtin(command_args) => {
+			#[cfg(feature = "v8")]
+			if let tangram_cli_builtin::Command::JavaScript(args) = &command_args.command
+				&& (args.engine.is_auto() || args.engine.is_v_8())
+			{
+				tangram_cli_builtin::javascript::initialize_v8(0);
+			}
 			Some(tangram_cli_builtin::run(&mut cli, command_args).await)
 		},
-
-		#[cfg(any(feature = "quickjs", feature = "v8"))]
-		Command::JavaScript(command_args) => {
-			#[cfg(feature = "v8")]
-			if command_args.engine.is_auto() || command_args.engine.is_v_8() {
-				tangram_cli_javascript::initialize_v8(0);
-			}
-			let result = tangram_cli_javascript::run(&mut cli, command_args).await;
-			Some(result)
-		},
-
-		#[cfg(feature = "cpython")]
-		Command::Python(command_args) => Some(tangram_cli_python::run(&mut cli, command_args).await),
 
 		Command::Sandbox(tangram_cli_sandbox::Args {
 			command: tangram_cli_sandbox::Command::Serve(command_args),
@@ -369,7 +354,9 @@ async fn main_inner(
 		#[cfg(feature = "v8")]
 		{
 			match &command {
-				Command::JavaScript(args) => args.engine.is_auto() || args.engine.is_v_8(),
+				Command::Builtin(tangram_cli_builtin::Args {
+					command: tangram_cli_builtin::Command::JavaScript(args),
+				}) => args.engine.is_auto() || args.engine.is_v_8(),
 				Command::Repl(args) => args.engine.is_auto() || args.engine.is_v_8(),
 				_ => false,
 			}
@@ -386,7 +373,7 @@ async fn main_inner(
 			.as_ref()
 			.and_then(|config| config.v8_thread_pool_size)
 			.unwrap_or(0);
-		tangram_cli_javascript::initialize_v8(thread_pool_size);
+		tangram_cli_builtin::javascript::initialize_v8(thread_pool_size);
 	}
 
 	// Initialize telemetry and tracing.
@@ -501,9 +488,6 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 
 		Command::Init(args) => tangram_cli_init::run(args).boxed_local().await,
 
-		#[cfg(any(feature = "quickjs", feature = "v8"))]
-		Command::JavaScript(args) => tangram_cli_javascript::run(cli, args).boxed_local().await,
-
 		Command::List(args) => tangram_cli_list::run(cli, args).boxed_local().await,
 
 		Command::Login(args) => tangram_cli_user::login::run(cli, args).boxed_local().await,
@@ -549,9 +533,6 @@ async fn run(cli: &mut Cli, command: Command) -> tg::Result<()> {
 		Command::Pull(args) => tangram_cli_pull::run(cli, args).boxed_local().await,
 
 		Command::Push(args) => tangram_cli_push::run(cli, args).boxed_local().await,
-
-		#[cfg(feature = "cpython")]
-		Command::Python(args) => tangram_cli_python::run(cli, args).boxed_local().await,
 
 		Command::Put(args) => tangram_cli_put::run(cli, args).boxed_local().await,
 

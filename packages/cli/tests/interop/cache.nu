@@ -19,7 +19,7 @@ let javascript = artifact {
         import task from "tasks/^1" with { get: "task.tg.py" };
         export default async function () {
             const command = await tg.command(task);
-            const module = (await command.args)[3].value as tg.Module;
+            const module = (await command.args)[4].value as tg.Module;
             for (const key of ["id", "name", "path", "tag"] as const) {
                 tg.assert(module.referent.options?.[key] == null);
             }
@@ -37,7 +37,7 @@ let python = artifact {
         import task
         async def default():
             command = await tg.command(task.default)
-            module = (await command.args)[3].value
+            module = (await command.args)[4].value
             assert all(module.referent.options.get(key) is None for key in ("id", "name", "path", "tag"))
             return command
     '

@@ -22,7 +22,7 @@ let package = artifact {
 # The checker and runtime resolve the same namespace ancestry from paths and artifacts.
 let file = $package | path join tangram.py
 success (tg check $file | complete)
-success (tg python --export default $file | complete)
+success (tg builtin python --export default $file | complete)
 let checked_file = tg checkin $file
 let checked_package = tg checkin $package
 tg tag put -p namespace/1.0.0 $package
@@ -44,7 +44,7 @@ let entry = artifact {
 }
 let entry = $entry | path join main.tg.py
 success (tg check $entry | complete)
-success (tg python --export default $entry | complete)
+success (tg builtin python --export default $entry | complete)
 let checked_entry = tg checkin $entry
 rm --recursive $package
 rm $entry
@@ -68,4 +68,4 @@ let invalid = artifact {
     namespace: {'leaf.tg.py': 'from ... import outside'}
 }
 failure (tg check $invalid | complete)
-failure (tg python ($invalid | path join tangram.py) | complete)
+failure (tg builtin python ($invalid | path join tangram.py) | complete)
