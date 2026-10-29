@@ -17,7 +17,7 @@ pub(super) fn exports(
 			module,
 			text,
 			range,
-			tg::error!(!error, "failed to parse the python module"),
+			tg::error!(argument, !error, "failed to parse the python module"),
 		)
 	})?;
 	crate::analyze::python::validate_imports(module, text, &parsed.syntax().body)?;
@@ -223,10 +223,9 @@ mod tests {
 
 	#[test]
 	fn parse_errors_have_original_source_locations() {
-		let error = exports("\ndef broken(: pass")
-			.unwrap_err()
-			.to_data_or_id()
-			.unwrap_left();
+		let error = exports("\ndef broken(: pass").unwrap_err();
+		assert_eq!(error.kind(), Some(tg::error::Kind::Argument));
+		let error = error.to_data_or_id().unwrap_left();
 		let location = error.location.unwrap();
 		assert_eq!(location.range.start.line, 1);
 	}
