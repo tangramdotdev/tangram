@@ -97,7 +97,6 @@ enum Command {
 
 	Interface(tangram_cli_interface::Args),
 
-
 	#[command(alias = "ls")]
 	List(tangram_cli_list::Args),
 
