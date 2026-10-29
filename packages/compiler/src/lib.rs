@@ -22,6 +22,7 @@ use {
 };
 
 mod backend;
+mod config;
 #[cfg(all(feature = "javascript", feature = "python"))]
 #[cfg_attr(not(any(feature = "tsrs", feature = "ty")), expect(dead_code))]
 mod interfaces;
@@ -856,6 +857,9 @@ impl Compiler {
 	/// Get the backend for modules of a kind.
 	#[expect(clippy::unused_self)]
 	fn backend(&self, kind: tg::module::Kind) -> &'static dyn backend::Backend {
+		if kind == tg::module::Kind::Config {
+			return &config::Backend;
+		}
 		if kind == tg::module::Kind::Python {
 			#[cfg(feature = "ty")]
 			return &python::Backend;
