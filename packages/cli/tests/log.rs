@@ -30,32 +30,19 @@ async fn control_early_finish() -> tg::Result<()> {
 		config.merge(serde_json::json!({ "advanced": { "checkpoints": true } }));
 		let server = Server::start(env!("CARGO_BIN_EXE_tangram"), config).await?;
 		let package = package(source)?;
-		let submitted = watch(&server, "process.control.finish.submitted").await?;
-		let parent = build(&server, &package).await?;
-		server
-			.tg(
+		let submitted = server
+			.watch_checkpoint(
 				None,
-				[
-					"checkpoint",
-					"wait",
-					"--timeout",
-					"30s",
-					"process.control.finish.submitted",
-					&submitted,
-					"0",
-				],
+				"process.control.finish.submitted",
+				serde_json::json!({}),
 			)
 			.await?;
+		let parent = build(&server, &package).await?;
 		server
-			.tg(
-				None,
-				[
-					"checkpoint",
-					"unwatch",
-					"process.control.finish.submitted",
-					&submitted,
-				],
-			)
+			.wait_checkpoint(None, "process.control.finish.submitted", submitted, 0)
+			.await?;
+		server
+			.unwatch_checkpoint(None, "process.control.finish.submitted", submitted)
 			.await?;
 		let finished = server
 			.get::<tg::process::Data>(None, &parent.to_string())
@@ -63,8 +50,12 @@ async fn control_early_finish() -> tg::Result<()> {
 		assert!(matches!(finished.status, tg::process::Status::Finished));
 
 		// Start a process whose control stream sends its finish before the header is returned.
-		let header_watch = watch(&server, "process.control.header").await?;
-		let finish_watch = watch(&server, "process.control.finish").await?;
+		let header_watch = server
+			.watch_checkpoint(None, "process.control.header", serde_json::json!({}))
+			.await?;
+		let finish_watch = server
+			.watch_checkpoint(None, "process.control.finish", serde_json::json!({}))
+			.await?;
 		let finished = finished_data(finished);
 		let finish = tg::process::control::ClientRequestArg::Finish(
 			tg::process::control::FinishClientRequestArg {
@@ -87,23 +78,13 @@ async fn control_early_finish() -> tg::Result<()> {
 
 		// Wait for the request body to reach the server before the header is returned.
 		for (name, watch) in [
-			("process.control.header", &header_watch),
-			("process.control.finish", &finish_watch),
+			("process.control.header", header_watch),
+			("process.control.finish", finish_watch),
 		] {
-			server
-				.tg(None, ["checkpoint", "wait", name, watch, "0"])
-				.await?;
+			server.wait_checkpoint(None, name, watch, 0).await?;
 		}
 		server
-			.tg(
-				None,
-				[
-					"checkpoint",
-					"unwatch",
-					"process.control.header",
-					&header_watch,
-				],
-			)
+			.unwatch_checkpoint(None, "process.control.header", header_watch)
 			.await?;
 		let (mut control, header) = tokio::time::timeout(Duration::from_secs(10), pending)
 			.await
@@ -115,22 +96,16 @@ async fn control_early_finish() -> tg::Result<()> {
 		control.receive_ack("early-finish").await?;
 		control.close();
 		server
-			.tg(
-				None,
-				[
-					"checkpoint",
-					"unwatch",
-					"process.control.finish",
-					&finish_watch,
-				],
-			)
+			.unwatch_checkpoint(None, "process.control.finish", finish_watch)
 			.await?;
 
 		// End the empty log.
 		write(&server, &id, &token, end(0, 0, 0)).await?;
 
 		// Reconnect after losing the acknowledged finish, which must not initialize the process again.
-		let started_watch = watch(&server, "process.control.index.started").await?;
+		let started_watch = server
+			.watch_checkpoint(None, "process.control.index.started", serde_json::json!({}))
+			.await?;
 		let resume = tg::process::control::Mode::Resume {
 			lease: LEASE.parse()?,
 		};
@@ -144,15 +119,7 @@ async fn control_early_finish() -> tg::Result<()> {
 		)
 		.await;
 		server
-			.tg(
-				None,
-				[
-					"checkpoint",
-					"unwatch",
-					"process.control.index.started",
-					&started_watch,
-				],
-			)
+			.unwatch_checkpoint(None, "process.control.index.started", started_watch)
 			.await?;
 		let (mut control, _) = connected?;
 		control.request("early-finish", finish).await?;
@@ -700,17 +667,6 @@ async fn build(server: &Server, package: &Temp) -> tg::Result<tg::process::Id> {
 		.await?;
 	let process = output.split('?').next().unwrap_or(&output).parse()?;
 	Ok(process)
-}
-
-async fn watch(server: &Server, name: &str) -> tg::Result<String> {
-	let output = server.tg(None, ["checkpoint", "watch", name]).await?;
-	let output = serde_json::from_str::<serde_json::Value>(&output)
-		.map_err(|error| tg::error!(!error, "failed to deserialize the watch"))?;
-	let watch = output["watch"]
-		.as_u64()
-		.ok_or_else(|| tg::error!("expected the watch"))?
-		.to_string();
-	Ok(watch)
 }
 
 /// Get the tokens in a process's output or error, which is a referent string with tokens in its query or an object with tokens in its options.

@@ -1,3 +1,4 @@
+mod attach;
 mod instance;
 mod lifecycle;
 mod log;
