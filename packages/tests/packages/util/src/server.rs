@@ -17,7 +17,8 @@ pub struct Server {
 
 impl Server {
 	/// Start a server in a new temporary directory.
-	pub async fn start(config: Config) -> tg::Result<Self> {
+	pub async fn start(mut config: Config) -> tg::Result<Self> {
+		crate::instance::assign_indexer_id(&mut config);
 		let semaphores = config.semaphore_names();
 		crate::semaphore::record(&semaphores);
 		Self::start_inner(config, None, semaphores).await

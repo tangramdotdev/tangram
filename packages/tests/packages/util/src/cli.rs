@@ -27,10 +27,23 @@ pub struct Server {
 
 impl Server {
 	/// Start a server with the `tangram` binary at the path, such as `env!("CARGO_BIN_EXE_tangram")`, in a new temporary directory.
-	pub async fn start(tangram: impl Into<PathBuf>, config: Config) -> tg::Result<Self> {
+	pub async fn start(tangram: impl Into<PathBuf>, mut config: Config) -> tg::Result<Self> {
+		crate::instance::assign_indexer_id(&mut config);
 		let semaphores = config.semaphore_names();
 		crate::semaphore::record(&semaphores);
 		Self::start_inner(tangram.into(), config, None, semaphores).await
+	}
+
+	/// Start a server whose directory is at the path, such as a directory on a file system with project quotas. The caller removes the directory.
+	pub async fn start_with_path(
+		tangram: impl Into<PathBuf>,
+		mut config: Config,
+		path: impl Into<PathBuf>,
+	) -> tg::Result<Self> {
+		crate::instance::assign_indexer_id(&mut config);
+		let semaphores = config.semaphore_names();
+		crate::semaphore::record(&semaphores);
+		Self::start_inner(tangram.into(), config, Some(path.into()), semaphores).await
 	}
 
 	/// Start a server in an instance with a configuration from `Instance::config`. A server in a local instance uses the instance's directory.
@@ -182,11 +195,11 @@ impl Server {
 	}
 
 	/// Get an object's or a process's data without its tokens.
-	pub async fn get<T>(&self, token: &str, id: &str) -> tg::Result<T>
+	pub async fn get<T>(&self, token: Option<&str>, id: &str) -> tg::Result<T>
 	where
 		T: serde::de::DeserializeOwned,
 	{
-		let output = self.tg(Some(token), ["get", "--no-tokens", id]).await?;
+		let output = self.tg(token, ["get", "--no-tokens", id]).await?;
 		deserialize(&output)
 	}
 
