@@ -26,6 +26,7 @@ impl Server {
 	/// Start a server with the `tangram` binary at the path, such as `env!("CARGO_BIN_EXE_tangram")`, in a new temporary directory.
 	pub async fn start(tangram: impl Into<PathBuf>, config: Config) -> tg::Result<Self> {
 		let tangram = tangram.into();
+		crate::semaphore::record(&config.semaphore_names());
 		let temp = Temp::new()?;
 
 		// Write the configuration.
@@ -51,18 +52,13 @@ impl Server {
 		crate::client::client(&self.path())
 	}
 
-	/// Kill the server with `SIGKILL`, as a crash would, and wait for it to exit.
+	/// Kill the server and the rest of its process group with `SIGKILL`, as a crash would, and wait for the server to exit.
 	pub async fn kill(&mut self) -> tg::Result<()> {
-		let Some(mut child) = self.child.take() else {
+		let Some(child) = self.child.take() else {
 			return Ok(());
 		};
-		tokio::task::spawn_blocking(move || {
-			child.kill().ok();
-			child.wait()
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "the wait task panicked"))?
-		.map_err(|error| tg::error!(!error, "failed to wait for the server"))?;
+		signal_group(&child, libc::SIGKILL);
+		wait(child).await?;
 
 		Ok(())
 	}
@@ -89,28 +85,24 @@ impl Server {
 		Ok(())
 	}
 
-	/// Interrupt the server and wait for it to exit, killing it if it does not exit in time.
+	/// Interrupt the server and wait for it to exit, killing its process group if it does not exit in time.
 	async fn shutdown(&mut self) -> tg::Result<()> {
-		let Some(mut child) = self.child.take() else {
+		let Some(child) = self.child.take() else {
 			return Ok(());
 		};
-		let pid = libc::pid_t::try_from(child.id())
-			.map_err(|error| tg::error!(!error, "invalid process ID"))?;
-		// SAFETY: The process is a child that has not been waited for, so the ID still refers to it.
+		let pid = pid(&child);
+		// SAFETY: The child has not been reaped, so the ID still refers to it.
 		unsafe { libc::kill(pid, libc::SIGINT) };
-		let wait = tokio::task::spawn_blocking(move || child.wait());
+		let wait = wait(child);
 		tokio::pin!(wait);
-		let status = match tokio::time::timeout(Duration::from_secs(30), &mut wait).await {
-			Ok(status) => status,
-			Err(_) => {
-				// SAFETY: The child has not been reaped, because the wait has not returned.
-				unsafe { libc::kill(pid, libc::SIGKILL) };
-				wait.await
-			},
-		};
-		status
-			.map_err(|error| tg::error!(!error, "the wait task panicked"))?
-			.map_err(|error| tg::error!(!error, "failed to wait for the server"))?;
+		if tokio::time::timeout(Duration::from_secs(30), &mut wait)
+			.await
+			.is_err()
+		{
+			// SAFETY: The child has not been reaped, because the wait has not returned, so its process group still exists.
+			unsafe { libc::kill(-pid, libc::SIGKILL) };
+			wait.await?;
+		}
 
 		Ok(())
 	}
@@ -120,7 +112,7 @@ impl Drop for Server {
 	fn drop(&mut self) {
 		// Kill the server, and print its log if the test is failing.
 		if let Some(mut child) = self.child.take() {
-			child.kill().ok();
+			signal_group(&child, libc::SIGKILL);
 			child.wait().ok();
 		}
 		if std::thread::panicking()
@@ -163,9 +155,17 @@ async fn spawn(tangram: &Path, path: &Path) -> tg::Result<Child> {
 		.arg("serve")
 		.arg("--ready-fd")
 		.arg("3")
+		.process_group(0)
 		.stdin(Stdio::null())
 		.stdout(log)
 		.stderr(stderr);
+
+	// Keep Tangram environment variables from the test's environment out of the server's.
+	for (key, _) in std::env::vars_os() {
+		if key.to_str().is_some_and(|key| key.starts_with("TANGRAM_")) {
+			command.env_remove(key);
+		}
+	}
 	let writer_fd = writer.as_raw_fd();
 	// SAFETY: The closure calls only async-signal-safe functions.
 	unsafe {
@@ -197,4 +197,23 @@ async fn spawn(tangram: &Path, path: &Path) -> tg::Result<Child> {
 	}
 
 	Ok(child)
+}
+
+async fn wait(mut child: Child) -> tg::Result<()> {
+	tokio::task::spawn_blocking(move || child.wait())
+		.await
+		.map_err(|error| tg::error!(!error, "the wait task panicked"))?
+		.map_err(|error| tg::error!(!error, "failed to wait for the server"))?;
+
+	Ok(())
+}
+
+/// Signal the child's process group, which the child leads.
+fn signal_group(child: &Child, signal: libc::c_int) {
+	// SAFETY: The child has not been reaped, so its process group still exists.
+	unsafe { libc::kill(-pid(child), signal) };
+}
+
+fn pid(child: &Child) -> libc::pid_t {
+	libc::pid_t::try_from(child.id()).unwrap()
 }

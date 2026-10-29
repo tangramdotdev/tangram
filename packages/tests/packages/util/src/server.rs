@@ -14,6 +14,7 @@ pub struct Server {
 impl Server {
 	/// Start a server in a new temporary directory.
 	pub async fn start(config: Config) -> tg::Result<Self> {
+		crate::semaphore::record(&config.semaphore_names());
 		let temp = Temp::new()?;
 		let owned = start(&config, &directory(&temp)).await?;
 		let server = Self {
