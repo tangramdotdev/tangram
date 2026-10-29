@@ -94,7 +94,7 @@ impl Compiler {
 				modified: None,
 				module: module.clone(),
 				open: false,
-				revision: 0,
+				revision: self.next_revision(),
 				text: None,
 				version: 0,
 			});

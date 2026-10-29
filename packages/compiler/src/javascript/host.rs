@@ -193,8 +193,7 @@ impl Host {
 		files.texts.retain(|path, _| paths.contains(path));
 		files.unresolved.retain(|import| imports.contains(import));
 
-		// Forget the modules in other languages that the editor project no longer loads.
-		#[cfg(feature = "python")]
+		// Retain the documents and resolutions of the modules that the editor project holds.
 		if self.untyped.is_none() {
 			let keys = files
 				.states
@@ -204,7 +203,7 @@ impl Host {
 				.collect();
 			drop(files);
 			self.compiler
-				.retain_loaded(tg::module::load::Language::JavaScript, &keys);
+				.retain_modules(tg::module::load::Language::JavaScript, keys);
 		}
 	}
 

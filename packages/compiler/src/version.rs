@@ -88,13 +88,13 @@ impl Compiler {
 		let lockfile = self.get_module_resolution_version(module).await;
 
 		// Get or create the document, without holding its lock across an await.
-		let mut document = self.documents.entry(key).or_insert(Document {
+		let mut document = self.documents.entry(key).or_insert_with(|| Document {
 			dirty: false,
 			lockfile,
 			modified: Some(modified),
 			module: module.clone(),
 			open: false,
-			revision: 0,
+			revision: self.next_revision(),
 			text: None,
 			version: 0,
 		});
@@ -105,7 +105,7 @@ impl Compiler {
 		// Update the modified time if necessary.
 		if document.modified != Some(modified) {
 			document.modified = Some(modified);
-			document.revision += 1;
+			document.revision = self.next_revision();
 		}
 
 		Ok(document.revision)

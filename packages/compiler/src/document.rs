@@ -1,4 +1,4 @@
-use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
+use {super::Compiler, lsp_types as lsp, std::collections::BTreeSet, tangram_client::prelude::*};
 
 #[derive(Debug)]
 pub struct Arg {
@@ -41,6 +41,13 @@ pub struct Document {
 pub(crate) struct Key {
 	kind: tg::module::Kind,
 	source: tg::module::data::Source,
+}
+
+/// The modules that each checker holds.
+#[derive(Default)]
+pub(crate) struct Retained {
+	javascript: BTreeSet<Key>,
+	python: BTreeSet<Key>,
 }
 
 /// The locks that bind a document's imports to objects, which are compared to detect when its resolutions change.
@@ -101,11 +108,8 @@ impl Compiler {
 		};
 
 		// Advance the source revision even when the editor restarts its version sequence.
+		let revision = self.next_revision();
 		let entry = self.documents.entry(Key::new(module));
-		let revision = match &entry {
-			dashmap::Entry::Occupied(entry) => entry.get().revision + 1,
-			dashmap::Entry::Vacant(_) => 1,
-		};
 
 		// Create the document.
 		let document = Document {
@@ -157,7 +161,7 @@ impl Compiler {
 
 		// Switch back to the disk contents and invalidate the cached source text.
 		document.text = None;
-		document.revision += 1;
+		document.revision = self.next_revision();
 
 		// Set the document's modified time if it is a path module.
 		let tg::module::data::Source::Path(path) = &module.referent.node else {
@@ -177,6 +181,45 @@ impl Compiler {
 		document.modified = Some(modified);
 
 		Ok(())
+	}
+
+	/// Record the modules that a checker holds, and remove the documents and resolutions of the modules that no checker holds, that the interface graph does not reach, and that are not open or unsaved.
+	pub(crate) fn retain_modules(&self, language: tg::module::load::Language, keys: BTreeSet<Key>) {
+		// Forget the modules in other languages that the checker no longer loads.
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		self.retain_loaded(language, &keys);
+
+		// Record the modules that the checker holds, and get the modules to retain.
+		let retained = {
+			let mut retained = self.retained.lock().unwrap();
+			match language {
+				tg::module::load::Language::JavaScript => retained.javascript = keys,
+				tg::module::load::Language::Python => retained.python = keys,
+			}
+			retained
+				.javascript
+				.union(&retained.python)
+				.cloned()
+				.collect::<BTreeSet<_>>()
+		};
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		let retained = retained
+			.into_iter()
+			.chain(self.interface_keys())
+			.collect::<BTreeSet<_>>();
+
+		// Remove the documents and resolutions of the other modules.
+		self.documents
+			.retain(|key, document| document.open || document.dirty || retained.contains(key));
+		self.resolutions
+			.retain(|key, _| self.documents.contains_key(key) || retained.contains(key));
+	}
+
+	/// Get the next source revision.
+	pub(crate) fn next_revision(&self) -> u64 {
+		self.revision
+			.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+			+ 1
 	}
 }
 
@@ -232,7 +275,7 @@ impl Compiler {
 
 		// Set the version.
 		document.version = params.text_document.version;
-		document.revision += 1;
+		document.revision = self.next_revision();
 
 		// Drop the document.
 		drop(document);

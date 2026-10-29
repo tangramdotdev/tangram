@@ -133,6 +133,17 @@ impl Compiler {
 		std::mem::take(&mut self.interfaces.loaded(language).lock().unwrap().unprepared)
 	}
 
+	/// Get the modules in the interface graph.
+	pub(crate) fn interface_keys(&self) -> Vec<Key> {
+		self.interfaces
+			.nodes
+			.lock()
+			.unwrap()
+			.keys()
+			.cloned()
+			.collect()
+	}
+
 	/// Forget the modules in other languages that a checker no longer loads.
 	pub(crate) fn retain_loaded(&self, language: tg::module::load::Language, keys: &BTreeSet<Key>) {
 		let mut loaded = self.interfaces.loaded(language).lock().unwrap();

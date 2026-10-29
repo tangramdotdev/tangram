@@ -329,20 +329,17 @@ impl Database {
 			self.resolutions.lock().unwrap().remove(&entry.file);
 		}
 
-		// Forget the modules in other languages that the database no longer loads.
-		#[cfg(feature = "javascript")]
-		{
-			let keys = self
-				.modules
-				.lock()
-				.unwrap()
-				.entries
-				.values()
-				.map(|entry| Key::new(&entry.module))
-				.collect();
-			self.compiler
-				.retain_loaded(tg::module::load::Language::Python, &keys);
-		}
+		// Retain the documents and resolutions of the modules that the database holds.
+		let keys = self
+			.modules
+			.lock()
+			.unwrap()
+			.entries
+			.values()
+			.map(|entry| Key::new(&entry.module))
+			.collect();
+		self.compiler
+			.retain_modules(tg::module::load::Language::Python, keys);
 
 		// Remove the removed sources from the project.
 		let paths = self

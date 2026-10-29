@@ -8,7 +8,10 @@ use {
 		ops::Deref,
 		path::{Path, PathBuf},
 		pin::pin,
-		sync::{Arc, Mutex, RwLock, atomic::AtomicI32},
+		sync::{
+			Arc, Mutex, RwLock,
+			atomic::{AtomicI32, AtomicU64},
+		},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
@@ -115,6 +118,12 @@ pub struct State {
 	/// The resolutions of the imports of each module, so that the checkers and preparing interfaces resolve each import once.
 	resolutions: DashMap<document::Key, resolve::Resolutions, fnv::FnvBuildHasher>,
 
+	/// The modules that each checker holds, whose documents and resolutions are retained.
+	retained: Mutex<document::Retained>,
+
+	/// The last source revision, which increases across all documents so that a removed and recreated document never reuses a revision.
+	revision: AtomicU64,
+
 	/// The sender.
 	sender: RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
 
@@ -158,6 +167,8 @@ impl Compiler {
 		let documents = DashMap::default();
 		let requests = DashMap::new();
 		let resolutions = DashMap::default();
+		let retained = Mutex::default();
+		let revision = AtomicU64::new(0);
 		let request_id = AtomicI32::new(1);
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = Mutex::new(None);
@@ -190,6 +201,10 @@ impl Compiler {
 			requests,
 
 			resolutions,
+
+			retained,
+
+			revision,
 
 			sender,
 
