@@ -647,11 +647,18 @@ pub(crate) async fn spawn_inner(
 						} else {
 							referent.options.path.replace(root_module_file_name.into());
 						}
-						let edge = directory
-							.get_entry_edge_with_instance(&client, root_module_file_name)
-							.await
-							.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
-						let source = tg::module::Source::Edge(edge.into());
+						// Refer to the package directory for a config module, whose runtime receives the package, and to the root module otherwise.
+						let source = if kind == tg::module::Kind::Config {
+							tg::module::Source::Edge(edge.clone())
+						} else {
+							let edge = directory
+								.get_entry_edge_with_instance(&client, root_module_file_name)
+								.await
+								.map_err(|error| {
+									tg::error!(!error, "failed to get the root module")
+								})?;
+							tg::module::Source::Edge(edge.into())
+						};
 						command_options = Some(referent.options.clone());
 						let mut referent = referent.clone().map(|_| source);
 						referent.options.name.take();

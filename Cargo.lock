@@ -9325,6 +9325,7 @@ dependencies = [
  "num",
  "reqwest 0.13.5",
  "serde_json",
+ "tangram_cli_builtin_config",
  "tangram_cli_builtin_javascript",
  "tangram_cli_builtin_python",
  "tangram_cli_core",
@@ -9334,6 +9335,16 @@ dependencies = [
  "tangram_util",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "tangram_cli_builtin_config"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+ "tokio",
 ]
 
 [[package]]
