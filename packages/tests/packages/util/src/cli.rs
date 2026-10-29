@@ -27,10 +27,23 @@ pub struct Server {
 
 impl Server {
 	/// Start a server with the `tangram` binary at the path, such as `env!("CARGO_BIN_EXE_tangram")`, in a new temporary directory.
-	pub async fn start(tangram: impl Into<PathBuf>, config: Config) -> tg::Result<Self> {
+	pub async fn start(tangram: impl Into<PathBuf>, mut config: Config) -> tg::Result<Self> {
+		crate::instance::assign_indexer_id(&mut config);
 		let semaphores = config.semaphore_names();
 		crate::semaphore::record(&semaphores);
 		Self::start_inner(tangram.into(), config, None, semaphores).await
+	}
+
+	/// Start a server whose directory is at the path, such as a directory on a file system with project quotas. The caller removes the directory.
+	pub async fn start_with_path(
+		tangram: impl Into<PathBuf>,
+		mut config: Config,
+		path: impl Into<PathBuf>,
+	) -> tg::Result<Self> {
+		crate::instance::assign_indexer_id(&mut config);
+		let semaphores = config.semaphore_names();
+		crate::semaphore::record(&semaphores);
+		Self::start_inner(tangram.into(), config, Some(path.into()), semaphores).await
 	}
 
 	/// Start a server in an instance with a configuration from `Instance::config`. A server in a local instance uses the instance's directory.
@@ -182,12 +195,76 @@ impl Server {
 	}
 
 	/// Get an object's or a process's data without its tokens.
-	pub async fn get<T>(&self, token: &str, id: &str) -> tg::Result<T>
+	pub async fn get<T>(&self, token: Option<&str>, id: &str) -> tg::Result<T>
 	where
 		T: serde::de::DeserializeOwned,
 	{
-		let output = self.tg(Some(token), ["get", "--no-tokens", id]).await?;
+		let output = self.tg(token, ["get", "--no-tokens", id]).await?;
 		deserialize(&output)
+	}
+
+	/// Watch a checkpoint with the parameters, and return the watch's ID.
+	pub async fn watch_checkpoint(
+		&self,
+		token: Option<&str>,
+		name: &str,
+		params: serde_json::Value,
+	) -> tg::Result<u64> {
+		let params = params.to_string();
+		let output = self
+			.tg(token, ["checkpoint", "watch", name, "--params", &params])
+			.await?;
+		let output = deserialize::<serde_json::Value>(&output)?;
+		let watch = output["watch"]
+			.as_u64()
+			.ok_or_else(|| tg::error!(%output, "expected the watch"))?;
+		Ok(watch)
+	}
+
+	/// Wait up to 30 seconds for a hit of a watched checkpoint.
+	pub async fn wait_checkpoint(
+		&self,
+		token: Option<&str>,
+		name: &str,
+		watch: u64,
+		hit: u64,
+	) -> tg::Result<()> {
+		let watch = watch.to_string();
+		let hit = hit.to_string();
+		self.tg(
+			token,
+			["checkpoint", "wait", "--timeout", "30s", name, &watch, &hit],
+		)
+		.await?;
+		Ok(())
+	}
+
+	/// Let a held hit of a watched checkpoint continue.
+	pub async fn continue_checkpoint(
+		&self,
+		token: Option<&str>,
+		name: &str,
+		watch: u64,
+		hit: u64,
+	) -> tg::Result<()> {
+		let watch = watch.to_string();
+		let hit = hit.to_string();
+		self.tg(token, ["checkpoint", "continue", name, &watch, &hit])
+			.await?;
+		Ok(())
+	}
+
+	/// Stop watching a checkpoint, which lets every held hit continue.
+	pub async fn unwatch_checkpoint(
+		&self,
+		token: Option<&str>,
+		name: &str,
+		watch: u64,
+	) -> tg::Result<()> {
+		let watch = watch.to_string();
+		self.tg(token, ["checkpoint", "unwatch", name, &watch])
+			.await?;
+		Ok(())
 	}
 
 	/// Kill the server and the rest of its process group with `SIGKILL`, as a crash would, and wait for the server to exit.

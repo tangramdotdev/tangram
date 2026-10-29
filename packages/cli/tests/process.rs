@@ -34,7 +34,7 @@ async fn shortcut_start_requires_proof() -> tg::Result<()> {
 		.await?;
 	server.tg(None, ["index"]).await?;
 	let data = server
-		.get::<tg::process::Data>(&alice.token, &parent_string)
+		.get::<tg::process::Data>(Some(&alice.token), &parent_string)
 		.await?;
 	let readable = server
 		.output(Some(&mallory.token), ["get", &secret])
@@ -196,7 +196,7 @@ async fn finished_parent_child() -> tg::Result<()> {
 		.await?;
 	server.tg(None, ["index"]).await?;
 	let mut data = server
-		.get::<tg::process::Data>(&alice.token, &parent_string)
+		.get::<tg::process::Data>(Some(&alice.token), &parent_string)
 		.await?;
 	assert!(matches!(data.status, tg::process::Status::Finished));
 

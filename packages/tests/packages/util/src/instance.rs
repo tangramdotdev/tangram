@@ -161,16 +161,7 @@ impl Instance {
 		if self.data.cloud.is_some() && config.value()["roles"].is_null() {
 			config.merge(json!({ "roles": ["api", "indexer", "scheduler"] }));
 		}
-		let multi_server = config.value()["advanced"]["multi_server"]
-			.as_bool()
-			.unwrap_or_default();
-		let indexer = config.value()["roles"]
-			.as_array()
-			.is_none_or(|roles| roles.iter().any(|role| role == "indexer"));
-		if multi_server && indexer && config.value()["indexer"]["id"].is_null() {
-			let id = tg::indexer::Id::new();
-			config.merge(json!({ "indexer": { "id": id.to_string() } }));
-		}
+		assign_indexer_id(&mut config);
 		if let Some(region) = config.value()["region"].as_str()
 			&& config.value()["http"]["listeners"].is_null()
 		{
@@ -308,6 +299,20 @@ impl Cloud {
 		}));
 
 		Ok(config)
+	}
+}
+
+/// Give a multi-server indexer an ID if its configuration does not set one.
+pub(crate) fn assign_indexer_id(config: &mut Config) {
+	let multi_server = config.value()["advanced"]["multi_server"]
+		.as_bool()
+		.unwrap_or_default();
+	let indexer = config.value()["roles"]
+		.as_array()
+		.is_none_or(|roles| roles.iter().any(|role| role == "indexer"));
+	if multi_server && indexer && config.value()["indexer"]["id"].is_null() {
+		let id = tg::indexer::Id::new();
+		config.merge(json!({ "indexer": { "id": id.to_string() } }));
 	}
 }
 

@@ -678,7 +678,7 @@ impl Component {
 
 		// Parse the arg.
 		let (arg, request) = request
-			.arg::<tg::sandbox::control::Arg>()
+			.arg_with_tangram::<tg::sandbox::control::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();

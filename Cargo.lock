@@ -9272,6 +9272,7 @@ dependencies = [
  "tangram_cli_write",
  "tangram_client",
  "tangram_fdb",
+ "tangram_server_authentication_common",
  "tangram_tests_util",
  "tokio",
 ]
@@ -10678,6 +10679,7 @@ name = "tangram_server"
 version = "0.0.0"
 dependencies = [
  "futures",
+ "serde_json",
  "tangram_client",
  "tangram_server_authentication",
  "tangram_server_authorization",

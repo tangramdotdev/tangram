@@ -1,11 +1,45 @@
 use ../../../util/test.nu *
 
-const authorization = path self ../../../util/authorization.ts
-
 # Token pruning ignores expiration except to keep the latest of equivalent proofs, and preserves the merge laws.
 let local = server spawn
+
+# Get the IDs of the directories that the test creates.
+let ids = tg build (artifact {
+	tangram.ts: '
+		export default () => {
+			const leaf = tg.Directory.withId("dir_010000000000000000000000000000000000000000000000000000");
+			const middle = tg.Directory.withObject({ entries: { leaf } });
+			const root = tg.Directory.withObject({ entries: { middle } });
+			return { middle: middle.id, root: root.id };
+		};
+	'
+}) | from json
+
+# Encode the tokens that the test uses.
+let id = 'fil_010000000000000000000000000000000000000000000000000000'
+let other = 'dir_010000000000000000000000000000000000000000000000000000'
+let process = 'pcs_010000000000000000000000000000000000000000000000000000'
+let specs = [$id $other]
+	| each { |resource|
+		[120 179 180 181] | each { |expires_at|
+			[object_node object_subtree] | each { |permission| { resource: $resource, expires_at: $expires_at, permissions: [$permission] } }
+		}
+	}
+	| flatten
+	| flatten
+	| append [
+		{ resource: $process, expires_at: 120, permissions: [process_subtree] }
+		{ resource: $process, expires_at: 120, permissions: [process_parent] }
+		{ resource: $process, expires_at: 179, permissions: [process_subtree] }
+		{ resource: $process, expires_at: 238, permissions: [process_node] }
+		{ resource: $id, expires_at: 121, permissions: [object_subtree] }
+		{ resource: $ids.root, expires_at: 120, permissions: [object_subtree] }
+		{ resource: $ids.middle, expires_at: 179, permissions: [object_subtree] }
+		{ resource: $other, expires_at: 238, permissions: [object_subtree] }
+	]
+
 let path = artifact {
-	authorization.tg.ts: (open --raw $authorization | decode utf-8)
+	authorization.tg.ts: (token module $specs)
 	tangram.ts: '
 		import { token } from "./authorization.tg.ts";
 		export default function () {

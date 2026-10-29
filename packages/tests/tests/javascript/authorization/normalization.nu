@@ -1,11 +1,31 @@
 use ../../../util/test.nu *
 
-const authorization = path self ../../../util/authorization.ts
-
 # Assignment, inheritance, loading, storing, and collection use the same coverage rules.
 let local = server spawn
+
+# Get the IDs of the directories that the test creates.
+let ids = tg build (artifact {
+	tangram.ts: '
+		export default () => {
+			const other = tg.Directory.withObject({ entries: {} }).id;
+			const child = tg.Directory.withId(other);
+			const parent = tg.Directory.withObject({ entries: { child } });
+			return { other, parent: parent.id };
+		};
+	'
+}) | from json
+
+# Encode the tokens that the test uses.
+let id = 'dir_010000000000000000000000000000000000000000000000000000'
+let specs = [
+	{ resource: $id, expires_at: 20, permissions: [object_subtree] }
+	{ resource: $ids.other, expires_at: 20, permissions: [object_subtree] }
+	{ resource: 'cmd_010000000000000000000000000000000000000000000000000000', expires_at: 20, permissions: [object_subtree] }
+	{ resource: 'syn_0000000000000000000000000000', expires_at: 120, permissions: [sync_read] }
+	{ resource: $ids.parent, expires_at: 120, permissions: [object_subtree] }
+] | append ([60 120 121 179 180 181 240] | each { |expires_at| { resource: $ids.other, expires_at: $expires_at, permissions: [object_subtree] } })
 let path = artifact {
-	authorization.tg.ts: (open --raw $authorization | decode utf-8)
+	authorization.tg.ts: (token module $specs)
 	tangram.ts: '
 		import { token } from "./authorization.tg.ts";
 		export default async function () {

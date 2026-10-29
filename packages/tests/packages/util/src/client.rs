@@ -1,6 +1,7 @@
 use {std::path::Path, tangram_client::prelude::*};
 
 /// Create a client for the server at the URL.
+#[cfg(any(feature = "cli", feature = "server"))]
 pub fn client(url: &tangram_uri::Uri) -> tg::Result<tg::Client> {
 	let arg = tg::Arg {
 		url: Some(url.clone()),
@@ -27,6 +28,7 @@ pub fn url(path: &Path) -> tg::Result<tangram_uri::Uri> {
 }
 
 /// Get the URL that a server listens on, which is its first configured listener or a socket in its directory.
+#[cfg(any(feature = "cli", feature = "server"))]
 pub fn server_url(config: &crate::Config, path: &Path) -> tg::Result<tangram_uri::Uri> {
 	match config.value()["http"]["listeners"][0]["url"].as_str() {
 		Some(url) => url

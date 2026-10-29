@@ -1,6 +1,7 @@
 use tangram_client::prelude::*;
 
 pub mod decode;
+pub mod encode;
 
 /// Work with authorization tokens.
 #[derive(Clone, Debug, clap::Args)]
@@ -13,11 +14,13 @@ pub struct Args {
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Decode(self::decode::Args),
+	Encode(self::encode::Args),
 }
 
 pub fn run(args: Args) -> tg::Result<()> {
 	match args.command {
 		Command::Decode(args) => crate::token::decode::run(args)?,
+		Command::Encode(args) => crate::token::encode::run(args)?,
 	}
 
 	Ok(())
