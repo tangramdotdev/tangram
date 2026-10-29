@@ -58,11 +58,7 @@ impl crate::backend::Backend for Backend {
 			let mut diagnostics = Vec::new();
 			for module in arg.modules {
 				let text = compiler.load_module(&module).await?;
-				let path = match &module.referent.node {
-					tg::module::data::Source::Edge(_) => module.referent.path(),
-					tg::module::data::Source::Path(path) => Some(path.as_path()),
-				};
-				let Some(format) = path.and_then(tg::module::config::Format::for_path) else {
+				let Some(format) = tg::module::config::Format::for_kind(module.kind) else {
 					continue;
 				};
 				let Err((error, range)) = tg::module::Config::parse_with_range(&text, format)

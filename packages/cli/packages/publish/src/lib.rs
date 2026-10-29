@@ -740,6 +740,31 @@ async fn try_get_package_tag(
 			else {
 				return Ok(None);
 			};
+
+			// Get the metadata of a config package from its config.
+			if let Some(format) = tg::module::config::Format::for_path(name) {
+				let file = directory
+					.get_with_instance(client, name)
+					.await?
+					.try_unwrap_file()
+					.map_err(|_| tg::error!("expected a file"))?;
+				let text = file.text_with_instance(client).await?;
+				let config = tg::module::Config::parse(&text, format)?;
+				let Some(metadata) = config.metadata else {
+					return Ok(None);
+				};
+				let tag = metadata
+					.get("tag")
+					.ok_or_else(|| tg::error!(%name, "metadata is missing the 'tag' field"))?;
+				let tg::Value::String(tag) = tag else {
+					return Err(tg::error!(%name, "expected 'tag' to be a string"));
+				};
+				let tag = tag
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
+				return Ok(Some(tag));
+			}
+
 			let file = directory
 				.get_with_instance(client, name)
 				.await?

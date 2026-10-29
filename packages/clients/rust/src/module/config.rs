@@ -18,6 +18,9 @@ pub struct Config {
 	/// The dependencies, by name.
 	pub dependencies: BTreeMap<String, Dependency>,
 
+	/// The metadata, such as the tag to publish the package with.
+	pub metadata: Option<BTreeMap<String, tg::Value>>,
+
 	/// The runtime.
 	pub runtime: Dependency,
 }
@@ -48,6 +51,9 @@ struct Raw {
 
 	#[serde(default)]
 	dependencies: BTreeMap<String, RawDependency>,
+
+	#[serde(default)]
+	metadata: Option<BTreeMap<String, serde_json::Value>>,
 
 	runtime: RawDependency,
 }
@@ -140,10 +146,21 @@ impl Config {
 			.into_iter()
 			.map(|(name, dependency)| (name, dependency.into()))
 			.collect();
+		let metadata = raw
+			.metadata
+			.map(|metadata| {
+				metadata
+					.into_iter()
+					.map(|(key, value)| Ok((key, value_from_json(value)?)))
+					.collect::<tg::Result<_>>()
+			})
+			.transpose()
+			.map_err(|error| (error, None))?;
 		let runtime = raw.runtime.into();
 		let config = Self {
 			args,
 			dependencies,
+			metadata,
 			runtime,
 		};
 
