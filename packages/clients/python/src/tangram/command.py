@@ -304,7 +304,7 @@ class Command[A, O: ValueType](Object):
         """
         runtime = (
             "config"
-            if module.kind == "config"
+            if module.kind in ("json", "toml", "yaml")
             else "python"
             if module.kind == "python"
             else "javascript"

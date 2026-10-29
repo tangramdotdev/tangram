@@ -121,6 +121,27 @@ impl Dependency {
 }
 
 impl Format {
+	/// Get the format of a config module's kind.
+	#[must_use]
+	pub fn for_kind(kind: tg::module::Kind) -> Option<Self> {
+		match kind {
+			tg::module::Kind::Json => Some(Self::Json),
+			tg::module::Kind::Toml => Some(Self::Toml),
+			tg::module::Kind::Yaml => Some(Self::Yaml),
+			_ => None,
+		}
+	}
+
+	/// Get the kind of a config module in the format.
+	#[must_use]
+	pub fn kind(self) -> tg::module::Kind {
+		match self {
+			Self::Json => tg::module::Kind::Json,
+			Self::Toml => tg::module::Kind::Toml,
+			Self::Yaml => tg::module::Kind::Yaml,
+		}
+	}
+
 	/// Get the format of a config module from its path.
 	#[must_use]
 	pub fn for_path(path: impl AsRef<Path>) -> Option<Self> {
@@ -136,15 +157,6 @@ impl Format {
 		};
 		Some(format)
 	}
-}
-
-/// Get the file name of the interface beside a config: `tangram.json` has `tangram.tgi`, and `foo.tg.json` has `foo.tg.tgi`.
-#[must_use]
-pub fn interface_file_name(path: impl AsRef<Path>) -> Option<String> {
-	Format::for_path(path.as_ref())?;
-	let name = path.as_ref().file_name()?.to_str()?;
-	let stem = name.rsplit_once('.')?.0;
-	Some(format!("{stem}.tgi"))
 }
 
 impl From<RawDependency> for Dependency {

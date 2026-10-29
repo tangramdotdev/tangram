@@ -7,7 +7,9 @@ fn language_names_preserve_numeric_ids() {
 		(Kind::TypeScript, "typescript", 1),
 		(Kind::TypeScriptDeclaration, "typescript_declaration", 2),
 		(Kind::Python, "python", 12),
-		(Kind::Config, "config", 13),
+		(Kind::Json, "json", 13),
+		(Kind::Toml, "toml", 14),
+		(Kind::Yaml, "yaml", 15),
 	] {
 		assert_eq!(kind.to_string(), name);
 		assert_eq!(name.parse::<Kind>().unwrap(), kind);

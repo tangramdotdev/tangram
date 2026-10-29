@@ -858,7 +858,7 @@ impl Compiler {
 	/// Get the backend for modules of a kind.
 	#[expect(clippy::unused_self)]
 	fn backend(&self, kind: tg::module::Kind) -> &'static dyn backend::Backend {
-		if kind == tg::module::Kind::Config {
+		if kind.is_config() {
 			return &config::Backend;
 		}
 		if kind == tg::module::Kind::Python {
@@ -1485,11 +1485,18 @@ fn bindings_language(
 	match (kind, module_kind) {
 		(
 			tg::module::Kind::Python,
-			tg::module::Kind::Config | tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
+			tg::module::Kind::Json
+			| tg::module::Kind::Toml
+			| tg::module::Kind::Yaml
+			| tg::module::Kind::JavaScript
+			| tg::module::Kind::TypeScript,
 		) => Some((tg::module::load::Language::Python, "py")),
 		(
 			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
-			tg::module::Kind::Config | tg::module::Kind::Python,
+			tg::module::Kind::Json
+			| tg::module::Kind::Toml
+			| tg::module::Kind::Yaml
+			| tg::module::Kind::Python,
 		) => Some((tg::module::load::Language::JavaScript, "js")),
 		_ => None,
 	}

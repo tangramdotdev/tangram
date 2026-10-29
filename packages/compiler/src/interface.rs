@@ -46,7 +46,7 @@ pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface
 				return Err(tg::error!("the python feature is not enabled"));
 			}
 		},
-		tg::module::Kind::Config => {
+		tg::module::Kind::Json | tg::module::Kind::Toml | tg::module::Kind::Yaml => {
 			// Give a config module a default export, because its runtime declares its exports.
 			#[cfg(any(feature = "javascript", feature = "python"))]
 			{

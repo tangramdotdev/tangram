@@ -383,11 +383,6 @@ impl Compiler {
 
 	/// Get the modules that a module imports.
 	async fn module_imports(&self, module: &tg::module::Data) -> tg::Result<Vec<tg::module::Data>> {
-		// Do not follow the imports of a config module, whose interface its runtime gets without loading other modules in a checker.
-		if module.kind == tg::module::Kind::Config {
-			return Ok(Vec::new());
-		}
-
 		// Get the imports from the dependencies of a checked-in Python module, or otherwise from the module's source.
 		let imports = if module.kind == tg::module::Kind::Python
 			&& let tg::module::data::Source::Edge(_) = &module.referent.node
@@ -435,7 +430,9 @@ impl Interfaces {
 /// Get the group of a module's checker.
 fn group(kind: tg::module::Kind) -> Option<Group> {
 	match kind {
-		tg::module::Kind::Config => Some(Group::Config),
+		tg::module::Kind::Json | tg::module::Kind::Toml | tg::module::Kind::Yaml => {
+			Some(Group::Config)
+		},
 		tg::module::Kind::JavaScript
 		| tg::module::Kind::TypeScript
 		| tg::module::Kind::TypeScriptDeclaration => Some(Group::JavaScript),
@@ -467,7 +464,11 @@ fn cross_language_imports(nodes: &BTreeMap<Key, Node>) -> BTreeMap<Key, BTreeSet
 		.collect::<BTreeMap<_, _>>();
 	let mut direct = BTreeMap::<&Key, BTreeSet<Key>>::new();
 	for (key, node) in nodes {
+		// Skip the imports of a config module, whose runtime gets its interface without a checker loading the modules that it imports.
 		let group = group(node.module.kind);
+		if group == Some(Group::Config) {
+			continue;
+		}
 		for module in &node.imports {
 			let import = self::key(module);
 			let Some(&index) = indices.get(&import) else {

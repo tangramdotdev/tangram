@@ -57,9 +57,6 @@ pub enum Kind {
 	#[tangram_serialize(id = 10)]
 	Command,
 
-	#[tangram_serialize(id = 13)]
-	Config,
-
 	#[tangram_serialize(id = 6)]
 	Directory,
 
@@ -76,6 +73,9 @@ pub enum Kind {
 	#[display("javascript")]
 	JavaScript,
 
+	#[tangram_serialize(id = 13)]
+	Json,
+
 	#[tangram_serialize(id = 3)]
 	Object,
 
@@ -85,6 +85,9 @@ pub enum Kind {
 	#[tangram_serialize(id = 8)]
 	Symlink,
 
+	#[tangram_serialize(id = 14)]
+	Toml,
+
 	#[tangram_serialize(id = 1)]
 	#[display("typescript")]
 	TypeScript,
@@ -92,6 +95,9 @@ pub enum Kind {
 	#[tangram_serialize(id = 2)]
 	#[display("typescript_declaration")]
 	TypeScriptDeclaration,
+
+	#[tangram_serialize(id = 15)]
+	Yaml,
 }
 
 pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Kind> {
@@ -107,12 +113,8 @@ pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Ki
 		Ok(tg::module::Kind::TypeScript)
 	} else if name == "tangram.py" || name.ends_with(".tg.py") {
 		Ok(tg::module::Kind::Python)
-	} else if matches!(name, "tangram.json" | "tangram.toml" | "tangram.yaml")
-		|| [".tg.json", ".tg.toml", ".tg.yaml"]
-			.iter()
-			.any(|suffix| name.ends_with(suffix))
-	{
-		Ok(tg::module::Kind::Config)
+	} else if let Some(format) = tg::module::config::Format::for_path(path) {
+		Ok(format.kind())
 	} else {
 		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
 	}
@@ -209,6 +211,14 @@ pub fn try_get_root_module_file_name_sync(path: &Path) -> tg::Result<Option<&'st
 	Ok(name)
 }
 
+impl Kind {
+	/// Determine whether the kind is a kind of config module.
+	#[must_use]
+	pub fn is_config(self) -> bool {
+		matches!(self, Self::Json | Self::Toml | Self::Yaml)
+	}
+}
+
 impl std::str::FromStr for Kind {
 	type Err = tg::Error;
 	fn from_str(value: &str) -> tg::Result<Self> {
@@ -216,17 +226,19 @@ impl std::str::FromStr for Kind {
 			"artifact" => Self::Artifact,
 			"blob" => Self::Blob,
 			"command" => Self::Command,
-			"config" => Self::Config,
 			"directory" => Self::Directory,
 			"error" => Self::Error,
 			"file" => Self::File,
 			"graph" => Self::Graph,
 			"javascript" => Self::JavaScript,
+			"json" => Self::Json,
 			"object" => Self::Object,
 			"python" => Self::Python,
 			"symlink" => Self::Symlink,
+			"toml" => Self::Toml,
 			"typescript" => Self::TypeScript,
 			"typescript_declaration" => Self::TypeScriptDeclaration,
+			"yaml" => Self::Yaml,
 			_ => return Err(tg::error!("invalid module kind")),
 		};
 		Ok(kind)

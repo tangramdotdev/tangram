@@ -77,22 +77,31 @@ let output = tg check $path | complete
 failure $output
 assert ($output.stderr | str contains 'tangram.py:7:') $output.stderr
 
-# An interface beside the config is used instead of the runtime's.
-let path = artifact {
-	greet.tg.json: '{ "runtime": "./runtime" }'
-	greet.tg.tgi: '{ "exports": { "hello": { "type": { "kind": "command", "args": { "kind": "tuple", "elements": [] }, "output": { "kind": "number" } } } } }'
-	runtime: { tangram.ts: $runtime }
-}
-let output = tg interface ($path | path join greet.tg.json) | complete
-success $output
-assert equal ($output.stdout | from json | get exports | columns) [hello]
-
-# An interface beside the config may import a module relative to the config, which resolves like the config's dependencies.
+# An interface may import a module relative to the config, which resolves like the config's dependencies.
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime", "dependencies": { "greeting": "./greeting.tg.ts" } }'
-	greet.tg.tgi: '{ "imports": { "greeting": { "kind": "typescript", "referent": { "node": "./greeting.tg.ts" } } }, "exports": { "greet": { "type": { "kind": "command", "args": { "kind": "tuple", "elements": [] }, "output": { "kind": "reference", "import": "greeting", "name": "Greeting" } } } } }'
 	greeting.tg.ts: 'export interface Greeting { text: string; }'
-	runtime: { tangram.ts: $runtime }
+	runtime: {
+		tangram.ts: '
+			export default async (arg: { export: string }) => {
+				if (arg.export === "interface") {
+					return {
+						imports: { greeting: { kind: "typescript", referent: { node: "./greeting.tg.ts" } } },
+						exports: {
+							greet: {
+								type: {
+									kind: "command",
+									args: { kind: "tuple", elements: [] },
+									output: { kind: "reference", import: "greeting", name: "Greeting" },
+								},
+							},
+						},
+					};
+				}
+				return { text: "Hello!" };
+			};
+		'
+	}
 	tangram.ts: '
 		import { greet } from "./greet.tg.json";
 		export default async () => { const text: number = (await greet.build()).text; return text; };

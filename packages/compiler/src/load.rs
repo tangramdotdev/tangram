@@ -53,7 +53,7 @@ pub(crate) fn bindings_language(
 	language: Option<tg::module::load::Language>,
 ) -> tg::Result<Option<tg::module::load::Language>> {
 	match (language, module.kind) {
-		(Some(_), tg::module::Kind::Config)
+		(Some(_), tg::module::Kind::Json | tg::module::Kind::Toml | tg::module::Kind::Yaml)
 		| (Some(tg::module::load::Language::JavaScript), tg::module::Kind::Python)
 		| (
 			Some(tg::module::load::Language::Python),

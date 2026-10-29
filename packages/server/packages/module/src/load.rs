@@ -43,7 +43,9 @@ impl Component {
 		if arg.language == Some(tg::module::load::Language::Python)
 			&& !matches!(
 				arg.module.kind,
-				tg::module::Kind::Config
+				tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
@@ -58,7 +60,7 @@ impl Component {
 
 		// Generate the bindings of a config module from its interface, because its runtime declares its exports.
 		#[cfg(all(feature = "javascript", feature = "python"))]
-		if arg.module.kind == tg::module::Kind::Config
+		if arg.module.kind.is_config()
 			&& let Some(language) = arg.language
 		{
 			let mut output = self.load_module_inner(session, &arg.module).await?;
@@ -106,7 +108,9 @@ impl Component {
 			// Handle a JavaScript, Python, or TypeScript module from a path.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::Config
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::Python,
@@ -130,7 +134,9 @@ impl Component {
 			// Handle a JavaScript, Python, or TypeScript module from an object.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::Config
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::Python,

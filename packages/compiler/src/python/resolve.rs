@@ -868,7 +868,11 @@ async fn resolve_module_with_graphs(
 		#[cfg(feature = "javascript")]
 		if matches!(
 			referrer.kind,
-			tg::module::Kind::Config | tg::module::Kind::JavaScript | tg::module::Kind::TypeScript
+			tg::module::Kind::Json
+				| tg::module::Kind::Toml
+				| tg::module::Kind::Yaml
+				| tg::module::Kind::JavaScript
+				| tg::module::Kind::TypeScript
 		) && let Some(entry) = compiler.try_get_interface(referrer)
 			&& let Some(module) = entry
 				.interface

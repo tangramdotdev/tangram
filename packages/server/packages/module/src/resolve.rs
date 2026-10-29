@@ -229,7 +229,9 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::Config
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript,
@@ -296,7 +298,9 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::Config
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
@@ -328,7 +332,9 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::Config
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
@@ -468,7 +474,9 @@ impl Component {
 				&& matches!(
 					import.kind,
 					None | Some(
-						tg::module::Kind::Config
+						tg::module::Kind::Json
+							| tg::module::Kind::Toml
+							| tg::module::Kind::Yaml
 							| tg::module::Kind::JavaScript
 							| tg::module::Kind::Python
 							| tg::module::Kind::TypeScript
@@ -573,7 +581,9 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::Config
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript,
@@ -640,7 +650,9 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::Config
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
@@ -666,7 +678,9 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::Config
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
 					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript

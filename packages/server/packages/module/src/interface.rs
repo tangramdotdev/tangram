@@ -13,7 +13,9 @@ impl Component {
 	) -> tg::Result<tg::module::interface::Output> {
 		if !matches!(
 			arg.module.kind,
-			tg::module::Kind::Config
+			tg::module::Kind::Json
+				| tg::module::Kind::Toml
+				| tg::module::Kind::Yaml
 				| tg::module::Kind::JavaScript
 				| tg::module::Kind::Python
 				| tg::module::Kind::TypeScript

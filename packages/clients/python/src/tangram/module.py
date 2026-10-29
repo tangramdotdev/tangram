@@ -47,11 +47,13 @@ class Module:
     referent: Referent[ModuleSource]
 
     Kind = Literal[
-        "config",
         "javascript",
+        "json",
         "python",
         "typescript",
         "typescript_declaration",
+        "toml",
+        "yaml",
         "object",
         "artifact",
         "blob",

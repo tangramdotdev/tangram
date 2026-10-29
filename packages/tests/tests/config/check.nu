@@ -6,6 +6,10 @@ let local = server spawn
 
 let runtime = '
 	export default async (arg: { export: string; args: Array<tg.Value>; package?: tg.Directory }) => {
+		if (arg.export === "interface") {
+			const type = { kind: "command", args: { kind: "tuple", elements: [] }, output: { kind: "null" } };
+			return { exports: { check: { type } } };
+		}
 		if (arg.export !== "check") {
 			return null;
 		}

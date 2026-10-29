@@ -979,8 +979,8 @@ impl Component {
 		if name == "tangram.py" || name.ends_with(".tg.py") {
 			return Ok(Some(tg::module::Kind::Python));
 		}
-		if tg::module::config::Format::for_path(path).is_some() {
-			return Ok(Some(tg::module::Kind::Config));
+		if let Some(format) = tg::module::config::Format::for_path(path) {
+			return Ok(Some(format.kind()));
 		}
 		tg::file::xattrs::read_module(path)
 	}

@@ -252,7 +252,10 @@ impl Host {
 		#[cfg(feature = "python")]
 		if matches!(
 			referrer.kind,
-			tg::module::Kind::Config | tg::module::Kind::Python
+			tg::module::Kind::Json
+				| tg::module::Kind::Toml
+				| tg::module::Kind::Yaml
+				| tg::module::Kind::Python
 		) && let Some(entry) = self.compiler.try_get_interface(&referrer)
 			&& let Some(module) = entry.interface.imports.get(specifier)
 		{

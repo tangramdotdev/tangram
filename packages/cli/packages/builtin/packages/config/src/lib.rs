@@ -62,7 +62,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.module
 		.try_unwrap_module()
 		.map_err(|_| tg::error!("expected a config module"))?;
-	if module.kind != tg::module::Kind::Config {
+	if !module.kind.is_config() {
 		return Err(tg::error!("expected a config module"));
 	}
 
@@ -75,19 +75,11 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let file = artifact
 		.try_unwrap_file()
 		.map_err(|_| tg::error!("expected a config file"))?;
-	let name = module
-		.referent
-		.path()
-		.and_then(|path| path.file_name())
-		.and_then(|name| name.to_str())
-		.map(ToOwned::to_owned);
 
-	// Parse the config, in the format that the file name implies, or in the first format that it parses in.
+	// Parse the config in the format of the module's kind.
 	let text = file.text_with_instance(&client).await?;
-	let format = name
-		.as_deref()
-		.and_then(tg::module::config::Format::for_path);
-	let config = parse(&text, format)?;
+	let format = tg::module::config::Format::for_kind(module.kind).unwrap();
+	let config = tg::module::Config::parse(&text, format)?;
 
 	// Resolve the runtime, the dependencies, and the package, which a root config imports as `.`, relative to the config file.
 	let referrer = module.to_data();
@@ -167,25 +159,6 @@ fn module_artifact(module: &tg::Module) -> tg::Result<tg::Artifact> {
 		},
 		tg::graph::Edge::Pointer(pointer) => Ok(tg::Artifact::with_pointer(pointer)),
 	}
-}
-
-/// Parse a config in a format, or in the first format that it parses in if the format is not known.
-fn parse(text: &str, format: Option<tg::module::config::Format>) -> tg::Result<tg::module::Config> {
-	if let Some(format) = format {
-		return tg::module::Config::parse(text, format);
-	}
-	let mut error = None;
-	for format in [
-		tg::module::config::Format::Json,
-		tg::module::config::Format::Toml,
-		tg::module::config::Format::Yaml,
-	] {
-		match tg::module::Config::parse(text, format) {
-			Ok(config) => return Ok(config),
-			Err(error_) => error = Some(error_),
-		}
-	}
-	Err(error.unwrap())
 }
 
 /// Resolve an import of a config module.

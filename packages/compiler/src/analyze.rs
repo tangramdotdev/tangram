@@ -27,15 +27,9 @@ impl Compiler {
 			| tg::module::Kind::Graph
 			| tg::module::Kind::Object
 			| tg::module::Kind::Symlink => Err(tg::error!(kind = %module.kind, "cannot analyze the module")),
-			tg::module::Kind::Config => {
+			tg::module::Kind::Json | tg::module::Kind::Toml | tg::module::Kind::Yaml => {
 				// Get the imports of the runtime and the dependencies.
-				let path = match &module.referent.node {
-					tg::module::data::Source::Edge(_) => module.referent.path(),
-					tg::module::data::Source::Path(path) => Some(path.as_path()),
-				};
-				let format = path
-					.and_then(tg::module::config::Format::for_path)
-					.ok_or_else(|| tg::error!("failed to get the format of the config module"))?;
+				let format = tg::module::config::Format::for_kind(module.kind).unwrap();
 				let config = tg::module::Config::parse(text, format)?;
 				let mut imports = std::iter::once(&config.runtime)
 					.chain(config.dependencies.values())
@@ -43,6 +37,10 @@ impl Compiler {
 					.collect::<tg::Result<HashSet<_, fnv::FnvBuildHasher>>>()?;
 
 				// Import the package of a root config, like a root module that imports its package as `.`.
+				let path = match &module.referent.node {
+					tg::module::data::Source::Edge(_) => module.referent.path(),
+					tg::module::data::Source::Path(path) => Some(path.as_path()),
+				};
 				let root = path
 					.and_then(|path| path.file_name())
 					.and_then(|name| name.to_str())
@@ -54,17 +52,6 @@ impl Compiler {
 					});
 				}
 
-				// Import the interface beside a config on disk, so that checking in the config includes it.
-				if let tg::module::data::Source::Path(path) = &module.referent.node
-					&& let Some(name) = tg::module::config::interface_file_name(path)
-					&& path.with_file_name(&name).is_file()
-				{
-					let reference = format!("./{name}").parse::<tg::Reference>()?;
-					imports.insert(tg::module::Import {
-						kind: Some(tg::module::Kind::File),
-						reference,
-					});
-				}
 				let analysis = Analysis {
 					diagnostics: Vec::new(),
 					imports,

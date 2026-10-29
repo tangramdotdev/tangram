@@ -208,7 +208,7 @@ export class Command<
 		args: Array<tg.Value | tg.Command.Value>,
 	): tg.Command.ResolvedArg {
 		let runtime =
-			module.kind === "config"
+			module.kind === "json" || module.kind === "toml" || module.kind === "yaml"
 				? "config"
 				: module.kind === "python"
 					? "python"

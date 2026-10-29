@@ -17,13 +17,13 @@ impl Compiler {
 		let roots = modules.clone();
 		let (config, modules): (Vec<_>, Vec<_>) = modules
 			.into_iter()
-			.partition(|module| module.kind == tg::module::Kind::Config);
+			.partition(|module| module.kind.is_config());
 		let (python, javascript): (Vec<_>, Vec<_>) = modules
 			.into_iter()
 			.partition(|module| module.kind == tg::module::Kind::Python);
 		let mut diagnostics = Vec::new();
 		for (kind, modules) in [
-			(tg::module::Kind::Config, config),
+			(tg::module::Kind::Json, config),
 			(tg::module::Kind::Python, python),
 			(tg::module::Kind::TypeScript, javascript),
 		] {
@@ -49,18 +49,21 @@ impl Compiler {
 		Ok(diagnostics)
 	}
 
-	/// Determine whether a module has a check export, which a config module always has, because its runtime handles it.
+	/// Determine whether a module has a check export, from the exports of its interface.
 	async fn has_check_export(&self, module: &tg::module::Data) -> tg::Result<bool> {
-		match module.kind {
-			tg::module::Kind::Config => Ok(true),
-			tg::module::Kind::JavaScript
-			| tg::module::Kind::Python
-			| tg::module::Kind::TypeScript => {
-				let text = self.load_module(module).await?;
-				let interface = crate::interface::module(module, &text)?;
-				Ok(interface.exports.contains_key("check"))
-			},
-			_ => Ok(false),
+		if !(module.kind.is_config()
+			|| matches!(
+				module.kind,
+				tg::module::Kind::JavaScript
+					| tg::module::Kind::Python
+					| tg::module::Kind::TypeScript
+			)) {
+			return Ok(false);
 		}
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		let check = self.interface(module).await?.exports.contains_key("check");
+		#[cfg(not(all(feature = "javascript", feature = "python")))]
+		let check = false;
+		Ok(check)
 	}
 }
