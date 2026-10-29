@@ -26,7 +26,7 @@ E2e tests must assert user-observable behavior, not implementation details. Obse
 
 To run all tests, run `bun run test`. The most important tests are the e2e tests in `packages/tests/tests`. You can run the e2e tests with `bun run test:cli`, which runs `nu packages/tests/test.nu` and passes along its arguments; when the cloud databases are not running, the tests that require them are skipped. Run the cloud databases in another terminal with `bun run test:databases`. Provide a regex pattern as an arg for the tests in the tests directory. For example, `bun run test:cli build` will run all the build tests. To accept new and updated snapshots, run the tests with `--accept`.
 
-Run `bun run test:fdb` to run the FoundationDB index tests against a temporary FoundationDB server. It requires `fdbserver` and `fdbcli` on Linux and Docker on macOS, and passes extra arguments to the test binary as a test name filter.
+The FoundationDB index tests and the cloud instance tests in `packages/cli/tests` and `packages/server/tests` use the cloud databases too, and skip themselves when they are not running.
 
 ## macOS
 

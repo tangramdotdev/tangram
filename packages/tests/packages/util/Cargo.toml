@@ -17,19 +17,17 @@ doctest = false
 workspace = true
 
 [features]
-cli = ["dep:tangram_client", "dep:tangram_uri", "dep:tokio"]
-server = [
-	"dep:tangram_cli_core",
-	"dep:tangram_cli_server",
-	"dep:tangram_client",
-	"dep:tangram_server",
-	"dep:tangram_uri",
-	"dep:tokio",
-]
+cli = ["instance"]
+database = ["dep:futures", "dep:regex", "dep:tokio"]
+instance = ["database", "dep:serde", "dep:tangram_client", "dep:tangram_uri"]
+server = ["dep:tangram_cli_core", "dep:tangram_cli_server", "dep:tangram_server", "instance"]
 
 [dependencies]
+futures = { workspace = true, optional = true }
 libc = { workspace = true }
 rand = { workspace = true }
+regex = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 serde_json = { workspace = true }
 tangram_cli_core = { workspace = true, optional = true }
 tangram_cli_server = { workspace = true, optional = true }

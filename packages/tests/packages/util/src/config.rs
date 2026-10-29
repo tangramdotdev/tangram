@@ -10,8 +10,14 @@ impl Config {
 	/// Create a configuration with the defaults for tests, which give the LMDB index and cache unique semaphore prefixes.
 	#[must_use]
 	pub fn new() -> Self {
-		let cache = semaphore_prefix();
-		let index = semaphore_prefix();
+		Self::with_semaphore_namespace(None)
+	}
+
+	/// Create a configuration with the defaults for tests, with the semaphore prefixes in the namespace if one is given, such as the app group that the `FSKit` extension can access.
+	#[must_use]
+	pub fn with_semaphore_namespace(namespace: Option<&str>) -> Self {
+		let cache = semaphore_prefix(namespace);
+		let index = semaphore_prefix(namespace);
 		let value = json!({
 			"accounts": true,
 			"advanced": {
@@ -37,7 +43,14 @@ impl Config {
 		Self { value }
 	}
 
-	/// Merge a value into the configuration, merging objects recursively and replacing all other values.
+	/// Create an empty configuration.
+	#[cfg(feature = "instance")]
+	pub(crate) fn empty() -> Self {
+		let value = json!({});
+		Self { value }
+	}
+
+	/// Merge a value into the configuration, merging objects recursively and replacing all other values. An object whose `kind` differs from the existing object's replaces it, so that selecting another backend drops the previous backend's settings.
 	pub fn merge(&mut self, value: serde_json::Value) {
 		merge(&mut self.value, value);
 	}
@@ -74,7 +87,9 @@ impl Default for Config {
 
 fn merge(target: &mut serde_json::Value, source: serde_json::Value) {
 	match (target, source) {
-		(serde_json::Value::Object(target), serde_json::Value::Object(source)) => {
+		(serde_json::Value::Object(target), serde_json::Value::Object(source))
+			if !kinds_differ(target, &source) =>
+		{
 			for (key, value) in source {
 				match target.get_mut(&key) {
 					Some(existing) => merge(existing, value),
@@ -90,8 +105,21 @@ fn merge(target: &mut serde_json::Value, source: serde_json::Value) {
 	}
 }
 
+fn kinds_differ(
+	target: &serde_json::Map<String, serde_json::Value>,
+	source: &serde_json::Map<String, serde_json::Value>,
+) -> bool {
+	match (target.get("kind"), source.get("kind")) {
+		(Some(target), Some(source)) => target != source,
+		_ => false,
+	}
+}
+
 /// Create a unique semaphore name prefix that fits within the shortest platform limit.
-fn semaphore_prefix() -> String {
+fn semaphore_prefix(namespace: Option<&str>) -> String {
 	let suffix = rand::random::<u32>();
-	format!("/tg-{suffix:08x}")
+	match namespace {
+		Some(namespace) => format!("{namespace}/{:05x}", suffix & 0xf_ffff),
+		None => format!("/tg-{suffix:08x}"),
+	}
 }

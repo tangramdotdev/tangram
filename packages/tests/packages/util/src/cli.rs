@@ -1,6 +1,7 @@
 use {
-	crate::{Config, Temp},
+	crate::{Config, Instance, Temp},
 	std::{
+		ffi::OsStr,
 		fs::File,
 		io::Read as _,
 		os::{
@@ -17,40 +18,176 @@ use {
 /// A server that runs as a `tangram serve` subprocess.
 pub struct Server {
 	child: Option<Child>,
-	config: Config,
+	path: PathBuf,
+	semaphores: Vec<String>,
 	tangram: PathBuf,
 	temp: Temp,
+	url: tangram_uri::Uri,
 }
 
 impl Server {
 	/// Start a server with the `tangram` binary at the path, such as `env!("CARGO_BIN_EXE_tangram")`, in a new temporary directory.
 	pub async fn start(tangram: impl Into<PathBuf>, config: Config) -> tg::Result<Self> {
-		let tangram = tangram.into();
-		crate::semaphore::record(&config.semaphore_names());
+		let semaphores = config.semaphore_names();
+		crate::semaphore::record(&semaphores);
+		Self::start_inner(tangram.into(), config, None, semaphores).await
+	}
+
+	/// Start a server in an instance with a configuration from `Instance::config`. A server in a local instance uses the instance's directory.
+	pub async fn start_with_instance(
+		tangram: impl Into<PathBuf>,
+		instance: &Instance,
+		config: Config,
+	) -> tg::Result<Self> {
+		let config = instance.server_config(config)?;
+		let path = instance.directory().map(ToOwned::to_owned);
+		Self::start_inner(tangram.into(), config, path, Vec::new()).await
+	}
+
+	async fn start_inner(
+		tangram: PathBuf,
+		config: Config,
+		path: Option<PathBuf>,
+		semaphores: Vec<String>,
+	) -> tg::Result<Self> {
 		let temp = Temp::new()
 			.map_err(|error| tg::error!(!error, "failed to create the temporary directory"))?;
+		let path = path.unwrap_or_else(|| temp.path().join("server"));
+		let url = crate::client::server_url(&config, &path)?;
 
 		// Write the configuration.
 		let bytes = serde_json::to_vec_pretty(config.value())
 			.map_err(|error| tg::error!(!error, "failed to serialize the configuration"))?;
-		let path = temp.path().join("config.json");
-		std::fs::write(&path, bytes)
+		std::fs::write(temp.path().join("config.json"), bytes)
 			.map_err(|error| tg::error!(!error, "failed to write the configuration"))?;
 
 		// Start the server.
-		let child = spawn(&tangram, temp.path()).await?;
+		let child = spawn(&tangram, temp.path(), &path, &url).await?;
 		let server = Self {
 			child: Some(child),
-			config,
+			path,
+			semaphores,
 			tangram,
 			temp,
+			url,
 		};
 
 		Ok(server)
 	}
 
 	pub fn client(&self) -> tg::Result<tg::Client> {
-		crate::client::client(&self.path())
+		crate::client::client(&self.url)
+	}
+
+	/// Create a command that runs the `tangram` binary as a client of the server in an empty working directory, with its own configuration file and without the Tangram environment variables from the test's environment.
+	pub fn command(&self) -> tg::Result<tokio::process::Command> {
+		let work_path = self.temp.path().join("work");
+		std::fs::create_dir_all(&work_path)
+			.map_err(|error| tg::error!(!error, "failed to create the working directory"))?;
+		let mut command = tokio::process::Command::new(&self.tangram);
+		for key in tangram_env_keys() {
+			command.env_remove(key);
+		}
+		command
+			.env("TANGRAM_MODE", "client")
+			.env("TANGRAM_QUIET", "true")
+			.arg("--config")
+			.arg(self.temp.path().join("client.json"))
+			.arg("--url")
+			.arg(self.url.to_string())
+			.current_dir(work_path)
+			.stdin(Stdio::null());
+
+		Ok(command)
+	}
+
+	/// Run the CLI against the server with a token if one is given, and return its trimmed standard output, or an error with its standard error if it fails.
+	pub async fn tg<I, S>(&self, token: Option<&str>, args: I) -> tg::Result<String>
+	where
+		I: IntoIterator<Item = S>,
+		S: AsRef<OsStr>,
+	{
+		let args = args
+			.into_iter()
+			.map(|arg| arg.as_ref().to_owned())
+			.collect::<Vec<_>>();
+		let output = self.output(token, &args).await?;
+		if !output.status.success() {
+			let stderr = String::from_utf8_lossy(&output.stderr);
+			return Err(tg::error!(%stderr, ?args, "the command failed"));
+		}
+		let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+
+		Ok(stdout)
+	}
+
+	/// Run the CLI against the server with a token if one is given, and return its output.
+	pub async fn output<I, S>(
+		&self,
+		token: Option<&str>,
+		args: I,
+	) -> tg::Result<std::process::Output>
+	where
+		I: IntoIterator<Item = S>,
+		S: AsRef<OsStr>,
+	{
+		let mut command = self.command()?;
+		if let Some(token) = token {
+			command.arg("--token").arg(token);
+		}
+		let output = command
+			.args(args)
+			.output()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to run the command"))?;
+
+		Ok(output)
+	}
+
+	/// Log in a user with the insecure provider.
+	pub async fn login(&self, name: &str) -> tg::Result<tg::user::login::wait::Output> {
+		let output = self
+			.tg(None, ["login", "--verbose", "--name", name])
+			.await?;
+		deserialize(&output)
+	}
+
+	/// Create a runner, owned by the owner if one is given.
+	pub async fn create_runner(
+		&self,
+		token: &str,
+		owner: Option<&tg::principal::Selector>,
+	) -> tg::Result<tg::runner::create::Output> {
+		let mut args = vec!["runner".to_owned(), "create".to_owned()];
+		if let Some(owner) = owner {
+			args.push("--owner".to_owned());
+			args.push(owner.to_string());
+		}
+		let output = self.tg(Some(token), args).await?;
+		deserialize(&output)
+	}
+
+	/// Spawn a process with the arguments to `tg spawn`.
+	pub async fn spawn<I, S>(&self, token: &str, args: I) -> tg::Result<tg::process::spawn::Output>
+	where
+		I: IntoIterator<Item = S>,
+		S: AsRef<OsStr>,
+	{
+		let args = ["spawn", "--no-tokens", "--verbose"]
+			.into_iter()
+			.map(|arg| OsStr::new(arg).to_owned())
+			.chain(args.into_iter().map(|arg| arg.as_ref().to_owned()));
+		let output = self.tg(Some(token), args).await?;
+		deserialize(&output)
+	}
+
+	/// Get an object's or a process's data without its tokens.
+	pub async fn get<T>(&self, token: &str, id: &str) -> tg::Result<T>
+	where
+		T: serde::de::DeserializeOwned,
+	{
+		let output = self.tg(Some(token), ["get", "--no-tokens", id]).await?;
+		deserialize(&output)
 	}
 
 	/// Kill the server and the rest of its process group with `SIGKILL`, as a crash would, and wait for the server to exit.
@@ -66,14 +203,14 @@ impl Server {
 
 	/// Get the server's directory.
 	#[must_use]
-	pub fn path(&self) -> PathBuf {
-		self.temp.path().join("server")
+	pub fn path(&self) -> &Path {
+		&self.path
 	}
 
 	/// Stop the server gracefully if it is running, and start it again with the same directory.
 	pub async fn restart(&mut self) -> tg::Result<()> {
 		self.shutdown().await?;
-		let child = spawn(&self.tangram, self.temp.path()).await?;
+		let child = spawn(&self.tangram, self.temp.path(), &self.path, &self.url).await?;
 		self.child = Some(child);
 
 		Ok(())
@@ -121,12 +258,25 @@ impl Drop for Server {
 		{
 			eprintln!("{log}");
 		}
-		crate::semaphore::unlink(&self.config.semaphore_names());
+		crate::semaphore::unlink(&self.semaphores);
 	}
 }
 
-/// Spawn `tangram serve` and wait for it to signal that it is ready.
-async fn spawn(tangram: &Path, path: &Path) -> tg::Result<Child> {
+fn deserialize<T>(output: &str) -> tg::Result<T>
+where
+	T: serde::de::DeserializeOwned,
+{
+	serde_json::from_str(output)
+		.map_err(|error| tg::error!(!error, %output, "failed to deserialize the output"))
+}
+
+/// Spawn `tangram serve` with the configuration and log in the temporary directory, and wait for it to signal that it is ready.
+async fn spawn(
+	tangram: &Path,
+	temp: &Path,
+	path: &Path,
+	url: &tangram_uri::Uri,
+) -> tg::Result<Child> {
 	// Create the ready pipe. Both ends close on exec, and the child duplicates the write end to descriptor 3.
 	let mut fds = [0; 2];
 	// SAFETY: The array has room for the two descriptors.
@@ -142,7 +292,10 @@ async fn spawn(tangram: &Path, path: &Path) -> tg::Result<Child> {
 	let (reader, writer) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
 
 	// Create the command, sending its output to the log.
-	let log = File::create(path.join("log"))
+	let log = File::options()
+		.append(true)
+		.create(true)
+		.open(temp.join("log"))
 		.map_err(|error| tg::error!(!error, "failed to create the log"))?;
 	let stderr = log
 		.try_clone()
@@ -150,9 +303,11 @@ async fn spawn(tangram: &Path, path: &Path) -> tg::Result<Child> {
 	let mut command = Command::new(tangram);
 	command
 		.arg("--config")
-		.arg(path.join("config.json"))
+		.arg(temp.join("config.json"))
 		.arg("--directory")
-		.arg(path.join("server"))
+		.arg(path)
+		.arg("--url")
+		.arg(url.to_string())
 		.arg("serve")
 		.arg("--ready-fd")
 		.arg("3")
@@ -162,10 +317,8 @@ async fn spawn(tangram: &Path, path: &Path) -> tg::Result<Child> {
 		.stderr(stderr);
 
 	// Keep Tangram environment variables from the test's environment out of the server's.
-	for (key, _) in std::env::vars_os() {
-		if key.to_str().is_some_and(|key| key.starts_with("TANGRAM_")) {
-			command.env_remove(key);
-		}
+	for key in tangram_env_keys() {
+		command.env_remove(key);
 	}
 	let writer_fd = writer.as_raw_fd();
 	// SAFETY: The closure calls only async-signal-safe functions.
@@ -193,7 +346,7 @@ async fn spawn(tangram: &Path, path: &Path) -> tg::Result<Child> {
 	.map_err(|error| tg::error!(!error, "failed to read the ready signal"))?;
 	if ready == 0 {
 		child.wait().ok();
-		let log = std::fs::read_to_string(path.join("log")).unwrap_or_default();
+		let log = std::fs::read_to_string(temp.join("log")).unwrap_or_default();
 		return Err(tg::error!(%log, "the server exited before it was ready"));
 	}
 
@@ -217,4 +370,12 @@ fn signal_group(child: &Child, signal: libc::c_int) {
 
 fn pid(child: &Child) -> libc::pid_t {
 	libc::pid_t::try_from(child.id()).unwrap()
+}
+
+/// Get the names of the Tangram environment variables in the test's environment.
+fn tangram_env_keys() -> Vec<std::ffi::OsString> {
+	std::env::vars_os()
+		.map(|(key, _)| key)
+		.filter(|key| key.to_str().is_some_and(|key| key.starts_with("TANGRAM_")))
+		.collect()
 }

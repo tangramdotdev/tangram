@@ -5,6 +5,7 @@ use {
 
 mod clean;
 mod database;
+mod instance;
 mod progress;
 mod run;
 mod semaphore;
@@ -12,6 +13,7 @@ mod snapshot;
 mod temp;
 mod test;
 mod vfs;
+mod wrap;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -21,9 +23,14 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(clap::Parser)]
 enum Args {
 	Clean(clean::Args),
+	#[command(subcommand)]
+	Database(database::Subcommand),
+	#[command(subcommand)]
+	Instance(instance::Subcommand),
 	Run(run::Args),
 	#[command(subcommand)]
 	Semaphore(semaphore::Command),
+	Wrap(wrap::Args),
 }
 
 /// Get the path to the repository.
@@ -36,8 +43,15 @@ fn main() -> ExitCode {
 	let args = Args::parse();
 	let result = match args {
 		Args::Clean(args) => runtime().and_then(|runtime| runtime.block_on(clean::clean(args))),
+		Args::Database(subcommand) => {
+			runtime().and_then(|runtime| runtime.block_on(database::command(subcommand)))
+		},
+		Args::Instance(subcommand) => {
+			runtime().and_then(|runtime| runtime.block_on(instance::command(subcommand)))
+		},
 		Args::Run(args) => runtime().and_then(|runtime| runtime.block_on(run::run(args))),
 		Args::Semaphore(command) => semaphore::command(&command),
+		Args::Wrap(args) => runtime().and_then(|runtime| runtime.block_on(wrap::wrap(args))),
 	};
 	match result {
 		Ok(code) => code,

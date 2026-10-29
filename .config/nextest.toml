@@ -7,14 +7,14 @@ experimental = ["setup-scripts", "wrapper-scripts"]
 filter = "package(tangram_index_lmdb) & test(scales_linearly)"
 threads-required = "num-test-threads"
 
-# Run the server and CLI tests under the test supervisor, which the setup script builds with the test runner.
+# Run the server, CLI, and FoundationDB index tests with the test runner, which runs each test under the test supervisor and cleans up after it. The setup script builds both, and exports the cloud databases' environment when they are ready.
 [scripts.setup.build]
 command = { command-line = "scripts/nextest/setup.nu", relative-to = "workspace-root" }
 
 [scripts.wrapper.supervisor]
-command = { command-line = "scripts/nextest/wrapper.sh", relative-to = "workspace-root" }
+command = { command-line = "debug/tangram_tests_runner wrap --", relative-to = "target" }
 
 [[profile.default.scripts]]
-filter = "binary_id(tangram_server::tests) | binary_id(tangram_cli::tests)"
+filter = "binary_id(tangram_server::tests) | binary_id(tangram_cli::tests) | package(tangram_index_fdb)"
 run-wrapper = "supervisor"
 setup = "build"

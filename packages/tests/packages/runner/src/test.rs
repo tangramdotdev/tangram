@@ -1,5 +1,5 @@
 use {
-	crate::{Result, database, semaphore, snapshot, temp, vfs},
+	crate::{Result, database, semaphore, snapshot, vfs},
 	std::{
 		fmt::Write as _,
 		fs::File,
@@ -263,30 +263,13 @@ async fn cleanup(test: &Test, options: &Options, temp_path: &Path, code: i32) ->
 	if let (true, Some(cluster_path), Some(run)) =
 		(options.cloud, &options.cluster_path, &options.database_run)
 	{
-		let instances = std::fs::read_to_string(temp_path.join("instances")).unwrap_or_default();
-		let mut instances = instances
-			.lines()
-			.filter(|line| !line.is_empty())
-			.collect::<Vec<_>>();
-		instances.sort_unstable();
-		instances.dedup();
-		let results = futures::future::join_all(
-			instances
-				.iter()
-				.map(|instance| database::reset(instance, cluster_path, run)),
-		)
-		.await;
-		for result in results {
-			if let Err(error) = result {
-				errors.push(error.to_string());
-			}
-		}
+		errors.extend(database::reset_recorded(temp_path, cluster_path, run).await);
 	}
 
 	errors
 }
 
-fn code(status: std::process::ExitStatus) -> i32 {
+pub fn code(status: std::process::ExitStatus) -> i32 {
 	use std::os::unix::process::ExitStatusExt as _;
 	status
 		.code()

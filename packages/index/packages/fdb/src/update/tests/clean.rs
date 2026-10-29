@@ -6,7 +6,6 @@ use {
 };
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn cleaning_supports_different_partition_totals() {
 	let partition_totals = crate::PartitionTotals {
 		cleaning: 1,
@@ -61,7 +60,6 @@ async fn cleaning_supports_different_partition_totals() {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn cleans_versions_after_collecting_their_objects_and_processes() {
 	run(async |index| {
 		let object = directory(&[]);
@@ -145,7 +143,6 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn cleans_versions_without_collecting_the_objects() {
 	run(async |index| {
 		let mut object = directory(&[]);
@@ -184,7 +181,6 @@ async fn cleans_versions_without_collecting_the_objects() {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn cleaning_respects_other_partitions_and_newer_versions() {
 	run(async |index| {
 		let mut object = directory(&[]);
@@ -282,7 +278,6 @@ async fn cleaning_respects_other_partitions_and_newer_versions() {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn concurrent_propagation_conflicts_with_cleaning() {
 	run(async |index| {
 		let mut object = directory(&[]);
@@ -328,7 +323,6 @@ async fn concurrent_propagation_conflicts_with_cleaning() {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
 	run(async |index| {
 		let mut object = directory(&[]);
@@ -386,7 +380,6 @@ async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn replacing_propagated_versions_replaces_cleanup_entries() {
 	run(async |index| {
 		let mut object = directory(&[]);

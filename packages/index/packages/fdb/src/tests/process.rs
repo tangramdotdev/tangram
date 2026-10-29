@@ -7,11 +7,11 @@ use {
 	tangram_client::prelude::*,
 };
 
-fn options() -> crate::Options {
-	let cluster = std::env::var_os("FDB_CLUSTER_FILE")
-		.expect("set FDB_CLUSTER_FILE")
-		.into();
-	options_with_cluster(cluster)
+/// Get the options for an index in the cloud databases' cluster, or `None` if the cloud databases are not available.
+fn options() -> Option<crate::Options> {
+	let cluster = tangram_tests_util::database::cluster()?;
+	let options = options_with_cluster(cluster);
+	Some(options)
 }
 
 fn options_with_cluster(cluster: std::path::PathBuf) -> crate::Options {
@@ -120,9 +120,11 @@ async fn put_process(index: &Index, arg: tangram_index::process::put::Arg) {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn rewriting_process_data_replaces_its_fragments() {
-	super::run(&options(), async |index| {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
 		let id = tg::process::Id::new();
 
 		// Put started process data that spans many fragments.
@@ -156,9 +158,11 @@ async fn rewriting_process_data_replaces_its_fragments() {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn cleaning_a_process_deletes_its_data() {
-	super::run(&options(), async |index| {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
 		let id = tg::process::Id::new();
 		let data = process_data(tg::process::Status::Finished, "host".repeat(100));
 		put_process(index, process_arg(&id, data)).await;
@@ -193,9 +197,11 @@ async fn cleaning_a_process_deletes_its_data() {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn putting_a_process_without_data_keeps_its_cache_entry() {
-	super::run(&options(), async |index| {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
 		let id = tg::process::Id::new();
 		let command: tg::object::Id = tg::command::Id::new(b"command").into();
 		let mut data = process_data(tg::process::Status::Finished, String::new());
@@ -224,9 +230,11 @@ async fn putting_a_process_without_data_keeps_its_cache_entry() {
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn touching_a_process_with_data_returns_its_data() {
-	super::run(&options(), async |index| {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
 		let id = tg::process::Id::new();
 		let missing = tg::process::Id::new();
 		let data = process_data(tg::process::Status::Finished, "host".repeat(100));
@@ -287,9 +295,11 @@ async fn count_delegations(index: &Index, subject: &tg::authorization::Subject) 
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn a_finished_process_accepts_only_the_children_that_it_lists() {
-	super::run(&options(), async |index| {
+	let Some(options) = options() else {
+		return;
+	};
+	super::run(&options, async |index| {
 		let parent = tg::process::Id::new();
 		let listed = tg::process::Id::new();
 		let unlisted = tg::process::Id::new();

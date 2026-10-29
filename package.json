@@ -25,7 +25,6 @@
 		"test": "nu packages/tests/test.nu $@ && cargo nextest run --no-fail-fast --workspace && bun run --if-present --parallel --filter \"*\" test",
 		"test:cli": "nu packages/tests/test.nu",
 		"test:databases": "nu packages/tests/databases.nu",
-		"test:fdb": "nu scripts/fdb/test.nu",
 		"tg": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client",
 		"stg": "PATH=\"$PWD/target/debug:$PATH\" cargo build --all-features && sudo target/debug/tangram -c .config/tangram/config.json -d .tangram -m client",
 		"tgr": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m client",

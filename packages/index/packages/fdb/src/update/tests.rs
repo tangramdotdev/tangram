@@ -10,13 +10,11 @@ mod clean;
 mod storage;
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn coalesced_updates_preserve_the_oldest_version() {
 	run(async |index| reproduce(index, false).await).await;
 }
 
 #[tokio::test]
-#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn late_updates_preserve_the_oldest_version() {
 	run(async |index| reproduce(index, true).await).await;
 }
@@ -36,12 +34,13 @@ async fn run_with_partition_totals(
 	partition_totals: crate::PartitionTotals,
 	test: impl AsyncFnOnce(&Index),
 ) {
+	let Some(cluster) = tangram_tests_util::database::cluster() else {
+		return;
+	};
 	let options = crate::Options {
 		verification: crate::VerificationConfig { concurrency: 1 },
 		cleaning_partition_total: partition_totals.cleaning,
-		cluster: std::env::var_os("FDB_CLUSTER_FILE")
-			.expect("set FDB_CLUSTER_FILE")
-			.into(),
+		cluster,
 		permission_update_partition_total: partition_totals.permission_update,
 		process_data_fragment_size: 16,
 		process_permission_time_to_touch: std::time::Duration::ZERO,

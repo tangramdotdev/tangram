@@ -9210,6 +9210,7 @@ dependencies = [
  "foundationdb",
  "futures",
  "rustls",
+ "serde_json",
  "tangram_cli_archive",
  "tangram_cli_authorization",
  "tangram_cli_availability",
@@ -10400,6 +10401,7 @@ dependencies = [
  "tangram_index",
  "tangram_index_verify",
  "tangram_serialize",
+ "tangram_tests_util",
  "tangram_util",
  "tokio",
  "tracing",
@@ -12080,8 +12082,11 @@ dependencies = [
 name = "tangram_tests_util"
 version = "0.0.0"
 dependencies = [
+ "futures",
  "libc",
  "rand 0.10.3",
+ "regex",
+ "serde",
  "serde_json",
  "tangram_cli_core",
  "tangram_cli_server",
