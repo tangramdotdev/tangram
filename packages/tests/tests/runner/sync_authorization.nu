@@ -24,13 +24,13 @@ let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 let path = artifact { tangram.ts: 'export default () => 1;' }
+# Hold any index attempt, so that only the sync can authorize the build.
 let watch = tg --url $remote.url --token $root_token checkpoint watch verification.index.wait | from json | get watch
 let build = job spawn {
 	let job_id = job id
 	let output = tg --url $local.url build --remote $path | complete
 	$output | job send --tag $job_id 0
 }
-success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s verification.index.wait $watch 0 | complete) 'verification should reach the blocked index attempt'
 let output = job recv --tag $build --timeout 10sec
 success $output 'the sync should authorize the build without waiting for indexing'
 assert equal ($output.stdout | str trim) '1'

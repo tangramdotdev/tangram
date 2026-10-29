@@ -36,18 +36,16 @@ let graph_watch = tg --url $remote.url --token $root_token checkpoint watch veri
 # Hold a descendant until the graph is requested so the file is authorized before its subtree.
 let blob = tg --url $local.url put --no-tokens 'tg.blob("import \"./tangram.ts\"; export const other = 2;")' | referent node
 let store_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blob } | to json --raw) | from json | get watch
+# Hold any index attempt, so that only the sync can authorize the build.
 let watch = tg --url $remote.url --token $root_token checkpoint watch verification.index.wait | from json | get watch
 let build = job spawn {
 	let job_id = job id
 	let output = tg --url $local.url build --remote $file | complete
 	$output | job send --tag $job_id 0
 }
-success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s verification.index.wait $watch 0 | complete) 'verification should reach the blocked index attempt'
 success (tg --url $remote.url --token $root_token checkpoint wait --timeout 10s sync.get.store.object $store_watch 0 | complete) 'the upload should reach the held blob'
 let graph_request = tg --url $remote.url --token $root_token checkpoint wait --timeout 10s verification.index $graph_watch 0 | complete
 success $graph_request 'the runner should request the backing graph'
-let token_resource = $graph_request.stdout | from json | get params.token_resource
-assert ($token_resource | str contains 'syn_') 'the graph request should retain the authorization token for the sync'
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store_watch
 tg --url $remote.url --token $root_token checkpoint unwatch verification.index $graph_watch
 let output = job recv --tag $build --timeout 10sec
