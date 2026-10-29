@@ -27,10 +27,6 @@ pub struct Args {
 	#[arg(long)]
 	pub export: Option<String>,
 
-	/// Run a named export of the runtime, such as `interface` or `check`, rather than the runtime's default export with the module's export.
-	#[arg(conflicts_with = "export", long)]
-	pub runtime_export: Option<String>,
-
 	#[arg(index = 1, value_parser = tg::value::parse)]
 	pub module: tg::Value,
 
@@ -74,43 +70,17 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.create_client()?;
 	client.connect().await?;
 
-	// Get the config file, and the package if the module is a package directory.
+	// Get the config file.
 	let artifact = module_artifact(&module)?;
-	let (file, edge, package, name) = match artifact {
-		tg::Artifact::Directory(directory) => {
-			let name = tg::module::try_get_root_module_file_name_with_instance(
-				&client,
-				tg::Either::Left(&directory),
-			)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the root module of the package"))?;
-			let edge = directory
-				.get_entry_edge_with_instance(&client, name)
-				.await?;
-			let file = tg::Artifact::with_edge(edge.clone())?
-				.try_unwrap_file()
-				.map_err(|_| tg::error!("expected the root module to be a file"))?;
-			let edge = match edge {
-				tg::graph::Edge::Index(index) => tg::graph::Edge::Index(index),
-				tg::graph::Edge::Object(artifact) => tg::graph::Edge::Object(artifact.into()),
-				tg::graph::Edge::Pointer(pointer) => tg::graph::Edge::Pointer(pointer),
-			};
-			(file, edge, Some(directory), Some(name.to_owned()))
-		},
-		tg::Artifact::File(file) => {
-			let name = module
-				.referent
-				.path()
-				.and_then(|path| path.file_name())
-				.and_then(|name| name.to_str())
-				.map(ToOwned::to_owned);
-			let tg::module::Source::Edge(edge) = module.referent.node().clone() else {
-				unreachable!()
-			};
-			(file, edge, None, name)
-		},
-		tg::Artifact::Symlink(_) => return Err(tg::error!("expected a config file")),
-	};
+	let file = artifact
+		.try_unwrap_file()
+		.map_err(|_| tg::error!("expected a config file"))?;
+	let name = module
+		.referent
+		.path()
+		.and_then(|path| path.file_name())
+		.and_then(|name| name.to_str())
+		.map(ToOwned::to_owned);
 
 	// Parse the config, in the format that the file name implies, or in the first format that it parses in.
 	let text = file.text_with_instance(&client).await?;
@@ -119,15 +89,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.and_then(tg::module::config::Format::for_path);
 	let config = parse(&text, format)?;
 
-	// Resolve the runtime and the dependencies relative to the config file.
-	let source = tg::module::Source::Edge(edge);
-	let mut referent = module.referent.clone().map(|_| source);
-	referent.options.path = name.map(Into::into);
-	let referrer = tg::Module {
-		kind: tg::module::Kind::Config,
-		referent,
-	}
-	.to_data();
+	// Resolve the runtime, the dependencies, and the package, which a root config imports as `.`, relative to the config file.
+	let referrer = module.to_data();
 	let import = config.runtime.import()?;
 	let runtime = resolve(&client, &referrer, import).await?;
 	let mut dependencies = BTreeMap::new();
@@ -153,13 +116,19 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		dependencies.insert(name.clone(), tg::Value::Map(referent));
 	}
 
-	// Create the arg of the runtime's export, which includes the module's export when it is the runtime's default export.
+	let import = tg::module::Import {
+		kind: Some(tg::module::Kind::Directory),
+		reference: ".".parse()?,
+	};
+	let package = match resolve(&client, &referrer, import).await {
+		Ok(module) => Some(module_artifact(&module)?),
+		Err(_) => None,
+	};
+
+	// Create the arg of the runtime's default export, which receives every export name, including `interface` and `check`.
 	let mut arg = tg::value::Map::new();
-	let runtime_export = args.runtime_export.unwrap_or_else(|| "default".to_owned());
-	if runtime_export == "default" {
-		let export = args.export.unwrap_or_else(|| "default".to_owned());
-		arg.insert("export".to_owned(), tg::Value::String(export));
-	}
+	let export = args.export.unwrap_or_else(|| "default".to_owned());
+	arg.insert("export".to_owned(), tg::Value::String(export));
 	let args = config.args.into_iter().chain(args_).collect();
 	arg.insert("args".to_owned(), tg::Value::Array(args));
 	if let Some(package) = package {
@@ -167,10 +136,10 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	}
 	arg.insert("dependencies".to_owned(), tg::Value::Map(dependencies));
 
-	// Replace this process with the runtime's export, so that it runs as a direct child of the caller's sandbox.
+	// Replace this process with the runtime's default export, so that it runs as a direct child of the caller's sandbox.
 	let command = tg::command::Builder::with_module(
 		runtime,
-		Some(runtime_export),
+		Some("default".to_owned()),
 		[tg::command::Value::Value(tg::Value::Map(arg))],
 	)
 	.build()?;

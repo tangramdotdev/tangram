@@ -42,6 +42,18 @@ impl Compiler {
 					.map(tg::module::config::Dependency::import)
 					.collect::<tg::Result<HashSet<_, fnv::FnvBuildHasher>>>()?;
 
+				// Import the package of a root config, like a root module that imports its package as `.`.
+				let root = path
+					.and_then(|path| path.file_name())
+					.and_then(|name| name.to_str())
+					.is_some_and(|name| tg::module::ROOT_MODULE_FILE_NAMES.contains(&name));
+				if root {
+					imports.insert(tg::module::Import {
+						kind: Some(tg::module::Kind::Directory),
+						reference: ".".parse()?,
+					});
+				}
+
 				// Import the interface beside a config on disk, so that checking in the config includes it.
 				if let tg::module::data::Source::Path(path) = &module.referent.node
 					&& let Some(name) = tg::module::config::interface_file_name(path)

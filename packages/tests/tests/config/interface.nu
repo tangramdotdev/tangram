@@ -6,21 +6,22 @@ let local = server spawn
 
 let runtime = '
 	export default async (arg: { export: string; args: Array<tg.Value> }) => {
+		if (arg.export === "interface") {
+			return {
+				exports: {
+					greet: {
+						type: {
+							kind: "command",
+							args: { kind: "tuple", elements: [{ type: { kind: "string" } }] },
+							output: { kind: "string" },
+						},
+					},
+				},
+			};
+		}
 		tg.assert(arg.export === "greet");
 		return `Hello, ${arg.args[0]}!`;
 	};
-	const getInterface = () => ({
-		exports: {
-			greet: {
-				type: {
-					kind: "command",
-					args: { kind: "tuple", elements: [{ type: { kind: "string" } }] },
-					output: { kind: "string" },
-				},
-			},
-		},
-	});
-	export { getInterface as interface };
 '
 
 let path = artifact {

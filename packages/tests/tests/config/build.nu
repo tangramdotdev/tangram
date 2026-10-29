@@ -11,6 +11,10 @@ let runtime = '
 		package?: tg.Directory;
 		dependencies: { [name: string]: { item: tg.Artifact } };
 	}) => {
+		if (arg.export === "interface") {
+			const type = { kind: "command", args: { kind: "array", item: { kind: "value" } }, output: { kind: "value" } };
+			return { exports: { default: { type }, greet: { type } } };
+		}
 		const dependencies: { [name: string]: string } = {};
 		for (const [name, dependency] of Object.entries(arg.dependencies)) {
 			tg.File.assert(dependency.item);
@@ -63,6 +67,24 @@ let path = artifact {
 let output = tg build $path | complete
 success $output
 assert equal ($output.stdout | from json | get package) true
+
+# A module that imports a config package runs its exports with the package.
+let path = artifact {
+	greet: {
+		tangram.json: '{ "runtime": "./runtime" }'
+		runtime: { tangram.ts: $runtime }
+	}
+	tangram.ts: '
+		import * as greet from "./greet";
+		export default async () => {
+			const output = await greet.default.build() as { package: boolean };
+			return output.package;
+		};
+	'
+}
+let output = tg build $path | complete
+success $output
+assert equal ($output.stdout | from json) true
 
 # A config with an unknown key is invalid.
 let path = artifact {

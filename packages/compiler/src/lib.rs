@@ -22,6 +22,7 @@ use {
 };
 
 mod backend;
+mod build;
 mod config;
 #[cfg(all(feature = "javascript", feature = "python"))]
 #[cfg_attr(not(any(feature = "tsrs", feature = "ty")), expect(dead_code))]
