@@ -10,10 +10,17 @@ use {
 
 /// The Python import policy shared by the runtime and the type checker.
 pub struct Resolver {
+	/// The compiler, whose resolution cache the type checker's resolutions share.
+	compiler: Option<crate::Compiler>,
+
 	dependency_paths: Mutex<HashMap<tg::file::Id, Arc<DependencyPaths>>>,
+
 	graphs: Graphs,
+
 	instance: tg::instance::dynamic::Instance,
+
 	paths: Mutex<BTreeSet<PathBuf>>,
+
 	prepared: Mutex<HashMap<String, tg::module::Data>>,
 }
 
@@ -216,12 +223,22 @@ impl Resolver {
 	#[must_use]
 	pub fn new(instance: tg::instance::dynamic::Instance) -> Self {
 		Self {
+			compiler: None,
 			dependency_paths: Mutex::new(HashMap::new()),
 			graphs: Graphs::default(),
 			instance,
 			paths: Mutex::new(BTreeSet::new()),
 			prepared: Mutex::new(HashMap::new()),
 		}
+	}
+
+	/// Create a resolver for the type checker, which shares the compiler's resolution cache.
+	#[cfg(feature = "ty")]
+	#[must_use]
+	pub(crate) fn with_compiler(compiler: crate::Compiler) -> Self {
+		let mut resolver = Self::new(compiler.instance.clone());
+		resolver.compiler = Some(compiler);
+		resolver
 	}
 
 	/// Set the unsaved editor files in the filesystem view used by relative imports.
@@ -315,7 +332,7 @@ impl Resolver {
 			import: import.clone(),
 			referrer: Some(referrer.clone()),
 		};
-		let module = resolve_module_with_graphs(&self.instance, &self.graphs, arg).await?;
+		let module = resolve_module_with_graphs(self, arg).await?;
 		// Preserve directory lookup only when the import itself resolves to a directory.
 		let directory = if module.kind == tg::module::Kind::Python
 			&& matches!(module.referent.node, tg::module::data::Source::Edge(_))
@@ -328,7 +345,7 @@ impl Resolver {
 				import,
 				referrer: Some(referrer),
 			};
-			let mut module = resolve_module_with_graphs(&self.instance, &self.graphs, arg).await?;
+			let mut module = resolve_module_with_graphs(self, arg).await?;
 			let is_directory = match &module.referent.node {
 				tg::module::data::Source::Edge(tg::graph::data::Edge::Object(id)) => {
 					id.kind() == tg::object::Kind::Directory
@@ -785,7 +802,6 @@ async fn resolve_path(
 	kind: tg::module::Kind,
 ) -> tg::Result<Option<tg::module::Data>> {
 	let instance = resolver.instance.clone();
-	let graphs = &resolver.graphs;
 	if module.kind == tg::module::Kind::Directory {
 		let Some(referent) = directory_member(instance.clone(), module, path, kind).await? else {
 			return Ok(None);
@@ -827,25 +843,30 @@ async fn resolve_path(
 		import,
 		referrer: Some(module),
 	};
-	let module = resolve_module_with_graphs(&instance, graphs, arg).await?;
+	let module = resolve_module_with_graphs(resolver, arg).await?;
 	let module = resolver.prepare_module(module).await?;
 	Ok(Some(module))
 }
 
-/// Resolve a module without the instance when the loaded graphs allow it, and with the instance otherwise.
+/// Resolve a module without the instance when the loaded graphs allow it, and otherwise with the compiler's resolution cache or the instance.
 async fn resolve_module_with_graphs(
-	instance: &tg::instance::dynamic::Instance,
-	graphs: &Graphs,
+	resolver: &Resolver,
 	arg: tg::module::resolve::Arg,
 ) -> tg::Result<tg::module::Data> {
 	if let Some(referrer) = &arg.referrer
-		&& let Some(module) = graphs
-			.try_resolve_module(instance, referrer, &arg.import)
+		&& let Some(module) = resolver
+			.graphs
+			.try_resolve_module(&resolver.instance, referrer, &arg.import)
 			.await
 	{
 		return Ok(module);
 	}
-	let module = instance.resolve_module(arg).await?.module;
+	if let Some(compiler) = &resolver.compiler
+		&& let Some(referrer) = &arg.referrer
+	{
+		return compiler.resolve_import(referrer, arg.import).await;
+	}
+	let module = resolver.instance.resolve_module(arg).await?.module;
 	Ok(module)
 }
 

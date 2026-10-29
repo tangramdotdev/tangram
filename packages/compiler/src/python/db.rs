@@ -112,7 +112,7 @@ impl Database {
 		settings.search_paths = search_paths
 			.to_search_paths(&system, ty_vendored::file_system(), &FallibleStrategy)
 			.map_err(|error| tg::error!(!error, "failed to configure the python library"))?;
-		let resolver = Arc::new(resolve::Resolver::new(compiler.instance.clone()));
+		let resolver = Arc::new(resolve::Resolver::with_compiler(compiler.clone()));
 		let mut db = Self {
 			analysis: Arc::new(AnalysisSettings::default()),
 			compiler,
