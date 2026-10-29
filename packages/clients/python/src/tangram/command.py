@@ -483,14 +483,14 @@ class CommandValueDataNamespace:
 class CommandArg:
     @staticmethod
     def is_javascript(arg):
-        return CommandArg._is_module(arg, ("javascript", "js"))
+        return CommandArg._is_module_command(arg, ("javascript", "js"))
 
     @staticmethod
     def is_python(arg):
-        return CommandArg._is_module(arg, ("python", "py"))
+        return CommandArg._is_module_command(arg, ("python", "py"))
 
     @staticmethod
-    def _is_module(arg, languages):
+    def _is_module_command(arg, languages):
         executable = arg.get("executable")
         args = arg.get("args") or []
 
@@ -536,14 +536,14 @@ class CommandArg:
 class CommandObject:
     @staticmethod
     def is_javascript(object):
-        return CommandObject._is_module(object, ("javascript", "js"))
+        return CommandObject._is_module_command(object, ("javascript", "js"))
 
     @staticmethod
     def is_python(object):
-        return CommandObject._is_module(object, ("python", "py"))
+        return CommandObject._is_module_command(object, ("python", "py"))
 
     @staticmethod
-    def _is_module(object, languages):
+    def _is_module_command(object, languages):
         executable = object["executable"]
         args = object["args"]
         return (
