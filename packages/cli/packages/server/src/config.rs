@@ -41,7 +41,7 @@ pub fn resolve_config(cli: &Cli) -> tg::Result<server::Config> {
 	Ok(config)
 }
 
-fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
+pub fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	// Create the default server configuration.
 	let source = source.clone();
 	let mut target = server::Config::default();

@@ -1,0 +1,32 @@
+[package]
+name = "tangram_tests_util"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[features]
+cli = []
+server = ["dep:tangram_cli_core", "dep:tangram_cli_server", "dep:tangram_server"]
+
+[dependencies]
+libc = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
+tangram_cli_core = { workspace = true, optional = true }
+tangram_cli_server = { workspace = true, optional = true }
+tangram_client = { workspace = true }
+tangram_server = { workspace = true, features = ["lmdb", "sqlite"], optional = true }
+tangram_uri = { workspace = true }
+tokio = { workspace = true }

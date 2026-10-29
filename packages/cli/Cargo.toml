@@ -8,6 +8,7 @@ license = { workspace = true }
 publish = false
 repository = { workspace = true }
 rust-version = { workspace = true }
+autotests = false
 version = { workspace = true }
 
 [package.metadata.cargo-shear]
@@ -16,6 +17,10 @@ ignored = ["tangram_fdb"]
 [[bin]]
 name = "tangram"
 path = "src/main.rs"
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"
 
 [features]
 default = ["cpython", "lmdb", "sqlite", "tls", "tsrs", "ty", "v8"]
@@ -107,3 +112,6 @@ tangram_cli_write = { workspace = true }
 tangram_client = { workspace = true }
 tangram_fdb = { workspace = true, optional = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+tangram_tests_util = { workspace = true, features = ["cli"] }

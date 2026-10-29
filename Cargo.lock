@@ -9270,6 +9270,7 @@ dependencies = [
  "tangram_cli_write",
  "tangram_client",
  "tangram_fdb",
+ "tangram_tests_util",
  "tokio",
 ]
 
@@ -10706,6 +10707,8 @@ dependencies = [
  "tangram_server_vfs",
  "tangram_server_watch",
  "tangram_server_write",
+ "tangram_tests_util",
+ "tokio",
 ]
 
 [[package]]
@@ -12057,6 +12060,21 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "libc",
+]
+
+[[package]]
+name = "tangram_tests_util"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "rand 0.10.3",
+ "serde_json",
+ "tangram_cli_core",
+ "tangram_cli_server",
+ "tangram_client",
+ "tangram_server",
+ "tangram_uri",
+ "tokio",
 ]
 
 [[package]]

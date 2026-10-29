@@ -8,7 +8,12 @@ license = { workspace = true }
 publish = false
 repository = { workspace = true }
 rust-version = { workspace = true }
+autotests = false
 version = { workspace = true }
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"
 
 [features]
 fjall = ["tangram_server_core/fjall"]
@@ -79,3 +84,7 @@ tangram_server_verify = { workspace = true }
 tangram_server_vfs = { workspace = true }
 tangram_server_watch = { workspace = true }
 tangram_server_write = { workspace = true }
+
+[dev-dependencies]
+tangram_tests_util = { workspace = true, features = ["server"] }
+tokio = { workspace = true }

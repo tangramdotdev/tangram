@@ -185,6 +185,7 @@ members = [
   "packages/server/packages/write",
   "packages/tests/packages/runner",
   "packages/tests/packages/supervisor",
+  "packages/tests/packages/util",
   "packages/uri",
   "packages/util",
   "packages/v8",
@@ -539,6 +540,7 @@ tangram_server_vfs_core = { path = "packages/server/packages/vfs/packages/core" 
 tangram_server_watch = { path = "packages/server/packages/watch" }
 tangram_server_watch_core = { path = "packages/server/packages/watch/packages/core" }
 tangram_server_write = { path = "packages/server/packages/write" }
+tangram_tests_util = { path = "packages/tests/packages/util" }
 tangram_uri = { path = "packages/uri" }
 tangram_util = { path = "packages/util" }
 tangram_v8 = { path = "packages/v8" }
