@@ -81,27 +81,60 @@ pub fn interface_file_stem(path: impl AsRef<Path>) -> Option<String> {
 impl Config {
 	/// Parse a config in a format, rejecting unknown keys and values that are not Tangram values.
 	pub fn parse(text: &str, format: Format) -> tg::Result<Self> {
-		// Parse the text as a generic value.
-		let value = match format {
-			Format::Json => serde_json::from_str::<serde_json::Value>(text).map_err(|error| {
-				tg::error!(argument, !error, "failed to parse the config as json")
-			})?,
-			Format::Toml => toml::from_str::<serde_json::Value>(text).map_err(|error| {
-				tg::error!(argument, !error, "failed to parse the config as toml")
-			})?,
-			Format::Yaml => serde_yaml::from_str::<serde_json::Value>(text).map_err(|error| {
-				tg::error!(argument, !error, "failed to parse the config as yaml")
-			})?,
-		};
+		Self::parse_with_range(text, format).map_err(|(error, _)| error)
+	}
 
-		// Validate the schema.
-		let raw = serde_json::from_value::<Raw>(value)
-			.map_err(|error| tg::error!(argument, !error, "invalid config"))?;
+	/// Parse a config in a format, returning the range of the error in the text if it has one.
+	pub fn parse_with_range(
+		text: &str,
+		format: Format,
+	) -> std::result::Result<Self, (tg::Error, Option<tg::Range>)> {
+		// Parse and validate the config.
+		let raw = match format {
+			Format::Json => serde_json::from_str::<Raw>(text).map_err(|error| {
+				let position = tg::Position {
+					character: u32::try_from(error.column().saturating_sub(1)).unwrap_or(0),
+					line: u32::try_from(error.line().saturating_sub(1)).unwrap_or(0),
+				};
+				let range = tg::Range {
+					end: position,
+					start: position,
+				};
+				(error.to_string(), Some(range))
+			}),
+			Format::Toml => toml::from_str::<Raw>(text).map_err(|error| {
+				let range = error.span().and_then(|span| {
+					tg::Range::try_from_byte_range_in_string(
+						text,
+						span,
+						tg::position::Encoding::Utf8,
+					)
+				});
+				(error.message().to_owned(), range)
+			}),
+			Format::Yaml => serde_yaml::from_str::<Raw>(text).map_err(|error| {
+				let range = error.location().map(|location| {
+					let position = tg::Position {
+						character: u32::try_from(location.column().saturating_sub(1)).unwrap_or(0),
+						line: u32::try_from(location.line().saturating_sub(1)).unwrap_or(0),
+					};
+					tg::Range {
+						end: position,
+						start: position,
+					}
+				});
+				(error.to_string(), range)
+			}),
+		}
+		.map_err(|(message, range)| (tg::error!(argument, %message, "invalid config"), range))?;
+
+		// Convert the config.
 		let args = raw
 			.args
 			.into_iter()
 			.map(value_from_json)
-			.collect::<tg::Result<_>>()?;
+			.collect::<tg::Result<_>>()
+			.map_err(|error| (error, None))?;
 		let dependencies = raw
 			.dependencies
 			.into_iter()
