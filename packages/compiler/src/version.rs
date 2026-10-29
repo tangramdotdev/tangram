@@ -26,7 +26,7 @@ impl Compiler {
 	) -> tg::Result<u64> {
 		let version = self.get_module_version(module).await?;
 		#[cfg(all(feature = "javascript", feature = "python"))]
-		if crate::load::generated_language(module, Some(language))
+		if crate::load::bindings_language(module, Some(language))
 			.ok()
 			.flatten()
 			.is_some()

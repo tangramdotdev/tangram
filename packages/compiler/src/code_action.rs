@@ -33,7 +33,7 @@ impl Compiler {
 		range: tg::Range,
 		only: Option<Vec<String>>,
 	) -> tg::Result<Option<Vec<Action>>> {
-		if self.is_generated_module(module) {
+		if self.is_bindings(module) {
 			return Ok(None);
 		}
 
@@ -56,7 +56,7 @@ impl Compiler {
 						edits.iter().all(|edit| {
 							(edit.module.kind == tg::module::Kind::Python)
 								== (module.kind == tg::module::Kind::Python)
-								&& !self.is_generated_module(&edit.module)
+								&& !self.is_bindings(&edit.module)
 						})
 					})
 				})

@@ -11,10 +11,10 @@ mod python;
 #[cfg(all(feature = "javascript", feature = "python"))]
 mod typescript;
 
-/// The prefix of the comment that records the source of each export in a generated module.
+/// The prefix of the comment that records the source of each export in bindings.
 const MARKER: &str = "tangram: ";
 
-/// The source of an export in a generated module, recorded so that positions in the generated module can be mapped to the original module.
+/// The source of an export in bindings, recorded so that positions in the bindings can be mapped to the original module.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct Source {
 	/// The name of the export.
@@ -27,25 +27,25 @@ pub(crate) struct Source {
 	utf16: [u32; 4],
 }
 
-/// Generate the consuming language's representation without changing the module's identity.
+/// Load a module in a consuming language, generating its bindings from its interface without types if the module is in another language.
 #[cfg(all(feature = "javascript", feature = "python"))]
 pub fn module(
 	module: &tg::module::Data,
 	text: &str,
 	language: Option<tg::module::load::Language>,
 ) -> tg::Result<String> {
-	let Some(language) = generated_language(module, language)? else {
+	let Some(language) = bindings_language(module, language)? else {
 		return Ok(text.to_owned());
 	};
 	let interface = crate::interface::module(module, text)
 		.map_err(|error| tg::error!(!error, "failed to discover the cross-language exports"))?;
-	let output = generate(&interface, text, language);
+	let output = bindings(&interface, text, language);
 	Ok(output)
 }
 
-/// Get the language of the module that a consuming language loads in place of a module, or `None` when the consuming language loads the module as written.
+/// Get the language of the bindings that a consuming language loads in place of a module, or `None` when the consuming language loads the module as written.
 #[cfg(all(feature = "javascript", feature = "python"))]
-pub(crate) fn generated_language(
+pub(crate) fn bindings_language(
 	module: &tg::module::Data,
 	language: Option<tg::module::load::Language>,
 ) -> tg::Result<Option<tg::module::load::Language>> {
@@ -62,16 +62,16 @@ pub(crate) fn generated_language(
 	}
 }
 
-/// Generate a module in a language that exports a command for each export of an interface.
+/// Generate the bindings of an interface in a language, which export a command for each export of the interface.
 #[cfg(all(feature = "javascript", feature = "python"))]
-pub(crate) fn generate(
+pub(crate) fn bindings(
 	interface: &tg::Interface,
 	text: &str,
 	language: tg::module::load::Language,
 ) -> String {
 	match language {
-		tg::module::load::Language::JavaScript => typescript_module(interface, text),
-		tg::module::load::Language::Python => python_module(interface, text),
+		tg::module::load::Language::JavaScript => typescript_bindings(interface, text),
+		tg::module::load::Language::Python => python_bindings(interface, text),
 	}
 }
 
@@ -100,7 +100,7 @@ pub fn module(
 	Ok(text.to_owned())
 }
 
-/// Get the source of the export that contains an offset in a generated module.
+/// Get the source of the export that contains an offset in bindings.
 pub(crate) fn source(text: &str, offset: usize) -> Option<Source> {
 	let text = text.get(..offset)?;
 	text.lines().rev().find_map(|line| {
@@ -155,9 +155,9 @@ impl Source {
 	}
 }
 
-/// Generate a TypeScript module that exports a command for each export of the interface.
+/// Generate the TypeScript bindings of an interface, which export a command for each export of the interface.
 #[cfg(all(feature = "javascript", feature = "python"))]
-fn typescript_module(interface: &tg::Interface, text: &str) -> String {
+fn typescript_bindings(interface: &tg::Interface, text: &str) -> String {
 	let mut output = String::new();
 
 	// Define the interface's named types.
@@ -216,9 +216,9 @@ fn typescript_module(interface: &tg::Interface, text: &str) -> String {
 	output
 }
 
-/// Generate a Python module that binds a command to each export of the interface that Python can name.
+/// Generate the Python bindings of an interface, which bind a command to each export of the interface that Python can name.
 #[cfg(all(feature = "javascript", feature = "python"))]
-fn python_module(interface: &tg::Interface, text: &str) -> String {
+fn python_bindings(interface: &tg::Interface, text: &str) -> String {
 	let mut output = String::new();
 
 	// Bind each export that Python can name.
@@ -345,7 +345,7 @@ mod tests {
 	}
 
 	#[test]
-	fn generates_parseable_modules_in_both_languages() {
+	fn generates_parseable_bindings_in_both_languages() {
 		let source = source(tg::module::Kind::Python);
 		let text = module(
 			&source,
@@ -513,7 +513,7 @@ mod tests {
 		};
 
 		// The TypeScript module declares the command's type.
-		let text = typescript_module(&interface, "");
+		let text = typescript_bindings(&interface, "");
 		assert!(
 			text.contains("type T0 = { \"loud\"?: boolean };\n"),
 			"{text}"
@@ -529,7 +529,7 @@ mod tests {
 		assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
 
 		// The Python module declares the command's type.
-		let text = python_module(&interface, "");
+		let text = python_bindings(&interface, "");
 		assert!(ruff_python_parser::parse_module(&text).is_ok(), "{text}");
 		assert!(
 			text.contains("_tg_record_0 = _tg_typing.TypedDict(\"_tg_record_0\", {\"loud\": \"_tg_typing.NotRequired[bool]\"})\n"),
@@ -556,14 +556,14 @@ mod tests {
 		};
 
 		// The TypeScript module types the export with the reason.
-		let text = typescript_module(&interface, "");
+		let text = typescript_bindings(&interface, "");
 		assert!(
 			text.contains("const c0: tg.NonValue<\"a function is not a value\"> = tg.command(f0)"),
 			"{text}"
 		);
 
 		// The Python module types the export with the reason.
-		let text = python_module(&interface, "");
+		let text = python_bindings(&interface, "");
 		assert!(ruff_python_parser::parse_module(&text).is_ok(), "{text}");
 		assert!(
 			text.contains("curry = _tg_typing.cast(\"tg.NonValue[_tg_typing.Literal['a function is not a value']]\", tg.command(_tg_function_0))\n"),

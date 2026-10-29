@@ -126,7 +126,7 @@ fn includes(only: Option<&[String]>, kind: &str) -> bool {
 }
 
 fn supports_diagnostic(code: i32) -> bool {
-	// Limit the fixes to declarations and interface implementations until generated imports use Tangram specifiers.
+	// Limit the fixes to declarations and interface implementations until imports in bindings use Tangram specifiers.
 	let codes = [
         diagnostics::ADD_SATISFIES_AND_A_TYPE_ASSERTION_TO_THIS_EXPRESSION_SATISFIES_T_AS_T_TO_MAKE_THE_TYPE_EXPLICIT.code(),
         diagnostics::ARRAYS_WITH_SPREAD_ELEMENTS_CAN_T_INFERRED_WITH_ISOLATED_DECLARATIONS.code(),

@@ -111,7 +111,7 @@ impl Compiler {
 		language: tg::module::load::Language,
 		module: &tg::module::Data,
 	) -> bool {
-		if crate::load::generated_language(module, Some(language))
+		if crate::load::bindings_language(module, Some(language))
 			.ok()
 			.flatten()
 			.is_none()

@@ -138,7 +138,7 @@ impl Compiler {
 			.try_collect::<Vec<_>>()
 			.await?;
 
-		// Remove duplicate locations, such as several generated declarations that map to the same source.
+		// Remove duplicate locations, such as several declarations in bindings that map to the same source.
 		let mut unique = Vec::new();
 		for location in locations {
 			if !unique.contains(&location) {
@@ -186,7 +186,7 @@ impl Compiler {
 			.try_collect::<Vec<_>>()
 			.await?;
 
-		// Remove duplicate locations, such as several generated declarations that map to the same source.
+		// Remove duplicate locations, such as several declarations in bindings that map to the same source.
 		let mut unique = Vec::new();
 		for location in locations {
 			if !unique.contains(&location) {
@@ -234,7 +234,7 @@ impl Compiler {
 			.try_collect::<Vec<_>>()
 			.await?;
 
-		// Remove duplicate locations, such as several generated declarations that map to the same source.
+		// Remove duplicate locations, such as several declarations in bindings that map to the same source.
 		let mut unique = Vec::new();
 		for location in locations {
 			if !unique.contains(&location) {

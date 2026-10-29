@@ -88,7 +88,7 @@ impl Compiler {
 		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		if self.is_generated_module(module) {
+		if self.is_bindings(module) {
 			return Ok(None);
 		}
 
@@ -112,7 +112,7 @@ impl Compiler {
 		source: Option<String>,
 		data: Option<serde_json::Value>,
 	) -> tg::Result<Option<EntryDetails>> {
-		if self.is_generated_module(module) {
+		if self.is_bindings(module) {
 			return Ok(None);
 		}
 

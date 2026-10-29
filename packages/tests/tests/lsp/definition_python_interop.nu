@@ -3,7 +3,7 @@ use ../../util/lsp.nu
 
 let local = server spawn
 let dependency = artifact {
-    'tangram.ts': '// The source positions differ from the generated Python wrapper.
+    'tangram.ts': '// The source positions differ from the Python bindings.
 
 export function greet() { return 42; }
 export const other = () => 43;'

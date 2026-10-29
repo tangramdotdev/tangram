@@ -74,7 +74,7 @@ impl Compiler {
 	) -> tg::Result<Option<Vec<lsp::TextEdit>>> {
 		// Get the module.
 		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
-		if self.is_generated_module(&module) {
+		if self.is_bindings(&module) {
 			return Ok(None);
 		}
 

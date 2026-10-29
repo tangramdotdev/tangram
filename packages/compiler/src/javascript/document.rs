@@ -175,7 +175,7 @@ impl Converter<'_> {
 			return slot;
 		}
 		let flags = symbol.flags();
-		// Name a declaration from a module generated for another language by its export.
+		// Name a declaration from the bindings of a module in another language by its export.
 		let name = symbol
 			.declarations()
 			.first()
@@ -1418,7 +1418,7 @@ impl Converter<'_> {
 		Type::Reference(reference)
 	}
 
-	/// Get the source of a node in a module generated for another language.
+	/// Get the source of a node in the bindings of a module in another language.
 	fn source(&self, node: P<Node>) -> Option<crate::load::Source> {
 		let source_file = tsrs_ast::get_source_file_of_node(node)?;
 		let module = self
@@ -1460,7 +1460,7 @@ impl Converter<'_> {
 			index
 		};
 
-		// Get the range, using the source of an export in a module generated for another language.
+		// Get the range, using the source of an export in the bindings of a module in another language.
 		let start = tsrs_scanner::get_token_pos_of_node(node, source_file, false);
 		let end = node.loc().source_end()?;
 		let range_ = if let Some(source) = self.source(node) {
