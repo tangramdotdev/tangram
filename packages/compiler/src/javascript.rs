@@ -73,19 +73,34 @@ impl Service {
 			let mut modules = modules;
 			modules.extend(compiler.list_documents().await);
 
-			// Prepare the interfaces of the modules in other languages that the modules load.
-			Self::prepare(&compiler, &modules).await;
+			// Prepare the interfaces of the modules in other languages that the project has loaded.
+			Self::prepare(&compiler).await;
 
-			// Update the project, or create it, and run the function.
+			// Update the project, and run the function unless the update loaded a module in another language whose interface has not been prepared.
+			let output = compiler
+				.javascript
+				.job(&compiler, {
+					let modules = modules.clone();
+					move |compiler, project| {
+						let project = Self::update(compiler, project, modules)?;
+						if Self::unprepared(compiler) {
+							return Ok(Err(f));
+						}
+						f(project).map(Ok)
+					}
+				})
+				.await?;
+			let f = match output {
+				Ok(output) => return Ok(output),
+				Err(f) => f,
+			};
+
+			// Prepare the interfaces of the newly loaded modules, and then update the project again and run the function.
+			Self::prepare(&compiler).await;
 			compiler
 				.javascript
 				.job(&compiler, move |compiler, project| {
-					let project = if let Some(project) = project {
-						project.update(modules)?;
-						project
-					} else {
-						project.insert(Project::new(compiler, modules)?)
-					};
+					let project = Self::update(compiler, project, modules)?;
 					f(project)
 				})
 				.await
@@ -93,26 +108,41 @@ impl Service {
 		.boxed()
 	}
 
-	/// Prepare the interfaces of the modules in other languages that JavaScript and TypeScript modules load.
-	async fn prepare(compiler: &Compiler, modules: &[tg::module::Data]) {
+	/// Update the project with the modules, or create it.
+	fn update<'a>(
+		compiler: &Compiler,
+		project: &'a mut Option<Project>,
+		modules: Vec<tg::module::Data>,
+	) -> tg::Result<&'a mut Project> {
+		let project = if let Some(project) = project {
+			project.update(modules)?;
+			project
+		} else {
+			project.insert(Project::new(compiler, modules)?)
+		};
+		Ok(project)
+	}
+
+	/// Prepare the interfaces of the modules in other languages that the project has loaded.
+	async fn prepare(compiler: &Compiler) {
 		#[cfg(feature = "python")]
-		{
-			let modules = modules
-				.iter()
-				.filter(|module| {
-					matches!(
-						module.kind,
-						tg::module::Kind::JavaScript
-							| tg::module::Kind::TypeScript
-							| tg::module::Kind::TypeScriptDeclaration
-					)
-				})
-				.cloned()
-				.collect();
-			compiler.prepare_interfaces(modules).await;
-		}
+		compiler
+			.prepare_interfaces(tg::module::load::Language::JavaScript)
+			.await;
 		#[cfg(not(feature = "python"))]
-		let _ = (compiler, modules);
+		let _ = compiler;
+	}
+
+	/// Determine whether the project has loaded a module in another language whose interface has not been prepared.
+	fn unprepared(compiler: &Compiler) -> bool {
+		#[cfg(feature = "python")]
+		let unprepared = compiler.take_unprepared(tg::module::load::Language::JavaScript);
+		#[cfg(not(feature = "python"))]
+		let unprepared = {
+			let _ = compiler;
+			false
+		};
+		unprepared
 	}
 
 	/// Run a function on the worker thread and return its output.
@@ -227,13 +257,33 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::check::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::check::Output>> {
-		// Check with a separate program rather than the editor project.
+		// Check with a separate program rather than the editor project, creating the program again if it loaded a module in another language whose interface had not been prepared.
 		let compiler = compiler.clone();
 		async move {
-			Service::prepare(&compiler, &arg.modules).await;
+			Service::prepare(&compiler).await;
+			let output = compiler
+				.javascript
+				.job(&compiler, {
+					let modules = arg.modules.clone();
+					move |compiler, _| {
+						let project = Project::new(compiler, modules)?;
+						if Service::unprepared(compiler) {
+							return Ok(None);
+						}
+						check::handle(&project).map(Some)
+					}
+				})
+				.await?;
+			if let Some(output) = output {
+				return Ok(output);
+			}
+			Service::prepare(&compiler).await;
 			compiler
 				.javascript
-				.job(&compiler, move |compiler, _| check::handle(compiler, arg))
+				.job(&compiler, move |compiler, _| {
+					let project = Project::new(compiler, arg.modules)?;
+					check::handle(&project)
+				})
 				.await
 		}
 		.boxed()

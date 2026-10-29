@@ -16,8 +16,8 @@ pub(super) struct Host {
 	pub(super) compiler: Compiler,
 	files: Mutex<Files>,
 
-	/// The modules in other languages to load without their cached interfaces.
-	untyped: BTreeSet<crate::document::Key>,
+	/// The modules in other languages to load without their cached interfaces while getting an interface, or `None` for the editor project, which loads a module with its interface once the interface has been prepared.
+	untyped: Option<BTreeSet<crate::document::Key>>,
 }
 
 pub(super) struct Changes {
@@ -52,7 +52,7 @@ impl Host {
 	#[must_use]
 	pub(super) fn with_untyped(
 		compiler: Compiler,
-		untyped: BTreeSet<crate::document::Key>,
+		untyped: Option<BTreeSet<crate::document::Key>>,
 	) -> Self {
 		Self {
 			compiler,
@@ -63,7 +63,16 @@ impl Host {
 
 	/// Determine whether to load a module with its cached interface.
 	fn typed(&self, module: &tg::module::Data) -> bool {
-		self.untyped.is_empty() || !self.untyped.contains(&crate::document::Key::new(module))
+		if let Some(untyped) = &self.untyped {
+			return !untyped.contains(&crate::document::Key::new(module));
+		}
+		#[cfg(feature = "python")]
+		let typed = self
+			.compiler
+			.load_typed(tg::module::load::Language::JavaScript, module);
+		#[cfg(not(feature = "python"))]
+		let typed = true;
+		typed
 	}
 
 	pub(super) fn try_module(&self, path: &str) -> tg::Result<Option<tg::module::Data>> {
@@ -183,6 +192,20 @@ impl Host {
 		files.states.retain(|path, _| paths.contains(path));
 		files.texts.retain(|path, _| paths.contains(path));
 		files.unresolved.retain(|import| imports.contains(import));
+
+		// Forget the modules in other languages that the editor project no longer loads.
+		#[cfg(feature = "python")]
+		if self.untyped.is_none() {
+			let keys = files
+				.states
+				.keys()
+				.filter_map(|path| files.try_module(path).ok().flatten())
+				.map(|module| crate::document::Key::new(&module))
+				.collect();
+			drop(files);
+			self.compiler
+				.retain_loaded(tg::module::load::Language::JavaScript, &keys);
+		}
 	}
 
 	pub(super) fn path(&self, module: &tg::module::Data) -> String {

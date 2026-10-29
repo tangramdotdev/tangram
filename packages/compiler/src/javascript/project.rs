@@ -39,7 +39,7 @@ pub(super) struct SnapshotLease(pub(super) Arc<Snapshot>);
 
 impl Project {
 	pub(super) fn new(compiler: &Compiler, modules: Vec<tg::module::Data>) -> tg::Result<Self> {
-		Self::with_untyped(compiler, modules, BTreeSet::new())
+		Self::with_untyped_inner(compiler, modules, None)
 	}
 
 	/// Create a project that loads the given modules in other languages without their cached interfaces.
@@ -47,6 +47,14 @@ impl Project {
 		compiler: &Compiler,
 		modules: Vec<tg::module::Data>,
 		untyped: BTreeSet<crate::document::Key>,
+	) -> tg::Result<Self> {
+		Self::with_untyped_inner(compiler, modules, Some(untyped))
+	}
+
+	fn with_untyped_inner(
+		compiler: &Compiler,
+		modules: Vec<tg::module::Data>,
+		untyped: Option<BTreeSet<crate::document::Key>>,
 	) -> tg::Result<Self> {
 		// Create the filesystem and the native snapshot host.
 		let host = Host::with_untyped(compiler.clone(), untyped);

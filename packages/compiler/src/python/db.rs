@@ -58,8 +58,8 @@ pub(super) struct Database {
 	storage: salsa::Storage<Self>,
 	system: System,
 
-	/// The modules in other languages to load without their cached interfaces.
-	untyped: BTreeSet<Key>,
+	/// The modules in other languages to load without their cached interfaces while getting an interface, or `None` when the database loads a module with its interface once the interface has been prepared.
+	untyped: Option<BTreeSet<Key>>,
 
 	uv_environments: ty_project::UvEnvironments,
 }
@@ -131,7 +131,7 @@ impl Database {
 			settings: Arc::new(settings),
 			storage: salsa::Storage::default(),
 			system,
-			untyped: BTreeSet::new(),
+			untyped: None,
 			uv_environments: ty_project::UvEnvironments::default(),
 		};
 		// The project contains only explicitly supplied module files, including when that set is empty.
@@ -329,6 +329,21 @@ impl Database {
 			self.resolutions.lock().unwrap().remove(&entry.file);
 		}
 
+		// Forget the modules in other languages that the database no longer loads.
+		#[cfg(feature = "javascript")]
+		{
+			let keys = self
+				.modules
+				.lock()
+				.unwrap()
+				.entries
+				.values()
+				.map(|entry| Key::new(&entry.module))
+				.collect();
+			self.compiler
+				.retain_loaded(tg::module::load::Language::Python, &keys);
+		}
+
 		// Remove the removed sources from the project.
 		let paths = self
 			.project_paths
@@ -378,11 +393,20 @@ impl Database {
 
 	/// Determine whether to load a module with its cached interface.
 	fn typed(&self, module: &tg::module::Data) -> bool {
-		self.untyped.is_empty() || !self.untyped.contains(&Key::new(module))
+		if let Some(untyped) = &self.untyped {
+			return !untyped.contains(&Key::new(module));
+		}
+		#[cfg(feature = "javascript")]
+		let typed = self
+			.compiler
+			.load_typed(tg::module::load::Language::Python, module);
+		#[cfg(not(feature = "javascript"))]
+		let typed = true;
+		typed
 	}
 
-	/// Set the modules in other languages to load without their cached interfaces.
-	pub(super) fn set_untyped(&mut self, untyped: BTreeSet<Key>) {
+	/// Set the modules in other languages to load without their cached interfaces while getting an interface, or `None` to load a module with its interface once the interface has been prepared.
+	pub(super) fn set_untyped(&mut self, untyped: Option<BTreeSet<Key>>) {
 		self.untyped = untyped;
 	}
 

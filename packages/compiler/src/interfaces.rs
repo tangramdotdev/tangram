@@ -22,11 +22,30 @@ pub(crate) struct Arg {
 /// The graph of the modules that the checkers reach, with the interface of each module that a checker loads from another language.
 #[derive(Default)]
 pub(crate) struct Interfaces {
+	/// The modules in other languages that the JavaScript checker loads.
+	javascript: Mutex<Loaded>,
+
 	/// The lock that serializes preparing interfaces.
 	lock: tokio::sync::Mutex<()>,
 
 	/// The modules, keyed by their identities.
 	nodes: Mutex<BTreeMap<Key, Node>>,
+
+	/// The modules in other languages that the Python checker loads.
+	python: Mutex<Loaded>,
+}
+
+/// The modules in other languages that a checker loads.
+#[derive(Default)]
+struct Loaded {
+	/// The modules.
+	modules: BTreeMap<Key, tg::module::Data>,
+
+	/// The modules whose interfaces have been prepared, which the checker loads with their interfaces.
+	prepared: BTreeSet<Key>,
+
+	/// Whether the checker has loaded a module whose interface has not been prepared.
+	unprepared: bool,
 }
 
 #[derive(Clone)]
@@ -64,9 +83,61 @@ impl Compiler {
 		Ok(entry.interface.clone())
 	}
 
-	/// Get the interfaces of the modules in other languages that the checker of the roots loads, in dependency order, so that getting no interface waits on another checker.
-	pub(crate) async fn prepare_interfaces(&self, roots: Vec<tg::module::Data>) {
-		self.prepare_interfaces_inner(roots, false).await;
+	/// Get the interfaces of the modules in other languages that a checker has loaded, in dependency order, so that getting no interface waits on another checker.
+	pub(crate) async fn prepare_interfaces(&self, language: tg::module::load::Language) {
+		let modules = self
+			.interfaces
+			.loaded(language)
+			.lock()
+			.unwrap()
+			.modules
+			.clone();
+		if modules.is_empty() {
+			return;
+		}
+		let roots = modules.values().cloned().collect();
+		self.prepare_interfaces_inner(roots, true).await;
+		self.interfaces
+			.loaded(language)
+			.lock()
+			.unwrap()
+			.prepared
+			.extend(modules.into_keys());
+	}
+
+	/// Record that a checker loads a module, and determine whether to load it with its interface, which is only if the module is in another language and its interface has been prepared.
+	pub(crate) fn load_typed(
+		&self,
+		language: tg::module::load::Language,
+		module: &tg::module::Data,
+	) -> bool {
+		if crate::load::generated_language(module, Some(language))
+			.ok()
+			.flatten()
+			.is_none()
+		{
+			return true;
+		}
+		let key = key(module);
+		let mut loaded = self.interfaces.loaded(language).lock().unwrap();
+		if loaded.prepared.contains(&key) {
+			return true;
+		}
+		loaded.modules.insert(key, module.clone());
+		loaded.unprepared = true;
+		false
+	}
+
+	/// Determine whether a checker has loaded a module whose interface has not been prepared since the last call.
+	pub(crate) fn take_unprepared(&self, language: tg::module::load::Language) -> bool {
+		std::mem::take(&mut self.interfaces.loaded(language).lock().unwrap().unprepared)
+	}
+
+	/// Forget the modules in other languages that a checker no longer loads.
+	pub(crate) fn retain_loaded(&self, language: tg::module::load::Language, keys: &BTreeSet<Key>) {
+		let mut loaded = self.interfaces.loaded(language).lock().unwrap();
+		loaded.modules.retain(|key, _| keys.contains(key));
+		loaded.prepared.retain(|key| keys.contains(key));
 	}
 
 	/// Get the interfaces of the modules in other languages that the roots load, and of the roots too if `include_roots` is true, returning the errors of the modules whose interfaces could not be gotten.
@@ -159,12 +230,29 @@ impl Compiler {
 			}
 		}
 
-		// Store the modules, and remove the modules that neither the roots nor the open documents reach.
+		// Store the modules, and remove the modules that neither the roots, the open documents, nor the modules that the checkers load reach.
 		let documents = self.list_documents().await;
+		let loaded = [&self.interfaces.javascript, &self.interfaces.python]
+			.into_iter()
+			.flat_map(|loaded| {
+				loaded
+					.lock()
+					.unwrap()
+					.modules
+					.keys()
+					.cloned()
+					.collect::<Vec<_>>()
+			})
+			.collect::<Vec<_>>();
 		let mut shared = self.interfaces.nodes.lock().unwrap();
 		shared.extend(nodes);
 		let mut reachable = BTreeSet::new();
-		let mut pending = roots.iter().chain(&documents).map(key).collect::<Vec<_>>();
+		let mut pending = roots
+			.iter()
+			.chain(&documents)
+			.map(key)
+			.chain(loaded)
+			.collect::<Vec<_>>();
 		while let Some(key) = pending.pop() {
 			if !reachable.insert(key.clone()) {
 				continue;
@@ -248,6 +336,15 @@ impl Compiler {
 		.collect();
 
 		Ok(modules)
+	}
+}
+
+impl Interfaces {
+	fn loaded(&self, language: tg::module::load::Language) -> &Mutex<Loaded> {
+		match language {
+			tg::module::load::Language::JavaScript => &self.javascript,
+			tg::module::load::Language::Python => &self.python,
+		}
 	}
 }
 

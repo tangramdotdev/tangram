@@ -48,71 +48,106 @@ impl Service {
 		compiler: &Compiler,
 		module: tg::module::Data,
 		sync: bool,
-		f: F,
+		mut f: F,
 	) -> BoxFuture<'static, tg::Result<T>>
 	where
 		T: Send + 'static,
-		F: FnOnce(&db::Database, ruff_db::files::File, tg::position::Encoding) -> tg::Result<T>
+		F: FnMut(&db::Database, ruff_db::files::File, tg::position::Encoding) -> tg::Result<T>
 			+ Send
 			+ 'static,
 	{
 		let encoding = *compiler.position_encoding.read().unwrap();
-		let modules = vec![module.clone()];
-		Self::run(compiler, modules, move |database| {
+		Self::run(compiler, move |database| {
 			database.query(&module, sync, |database, file| f(database, file, encoding))
 		})
 	}
 
-	/// Run a function with the database, after updating it with the open documents and preparing the interfaces of the modules in other languages that the modules and the open documents load.
-	fn run<T, F>(
-		compiler: &Compiler,
-		modules: Vec<tg::module::Data>,
-		f: F,
-	) -> BoxFuture<'static, tg::Result<T>>
+	/// Run a function with the database after updating it with the open documents, running it again if it loaded a module in another language whose interface had not been prepared.
+	fn run<T, F>(compiler: &Compiler, f: F) -> BoxFuture<'static, tg::Result<T>>
 	where
 		T: Send + 'static,
-		F: FnOnce(&mut db::Database) -> tg::Result<T> + Send + 'static,
+		F: FnMut(&mut db::Database) -> tg::Result<T> + Send + 'static,
 	{
-		#[cfg(feature = "javascript")]
-		let prepare = {
-			let compiler = compiler.clone();
-			let mut modules = modules;
-			modules.extend(
-				compiler
-					.py_documents()
-					.into_values()
-					.map(|document| document.module),
-			);
-			modules.retain(|module| module.kind == tg::module::Kind::Python);
-			async move { compiler.prepare_interfaces(modules).await }
-		};
-		#[cfg(not(feature = "javascript"))]
-		let prepare = {
-			drop(modules);
-			std::future::ready(())
-		};
-
-		// Create the job, which sends its output.
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let job: Job = Box::new(move |compiler, database| {
-			let output = (|| {
-				// Update the database, or create it.
-				if database.is_none() {
-					database.replace(db::Database::new(compiler.clone(), Documents::new())?);
-				}
-				let database = database.as_mut().unwrap();
-				database.update(compiler.py_documents())?;
-
-				f(database)
-			})();
-			sender.send(output).ok();
-		});
-
-		// Prepare the interfaces, and then send the job to the worker.
 		let compiler = compiler.clone();
 		async move {
-			prepare.await;
-			compiler.python.send(&compiler, job)?;
+			// Prepare the interfaces of the modules in other languages that the database has loaded.
+			Self::prepare(&compiler).await;
+
+			// Update the database and run the function, keeping the function to run again if it loaded a module in another language whose interface has not been prepared.
+			let output = Self::job(&compiler, move |compiler, database| {
+				let mut f = f;
+				let database = Self::update(compiler, database)?;
+				let output = f(database);
+				if Self::unprepared(compiler) {
+					return Ok(Err(f));
+				}
+				output.map(Ok)
+			})
+			.await?;
+			let mut f = match output {
+				Ok(output) => return Ok(output),
+				Err(f) => f,
+			};
+
+			// Prepare the interfaces of the newly loaded modules, and then update the database again and run the function.
+			Self::prepare(&compiler).await;
+			Self::job(&compiler, move |compiler, database| {
+				let database = Self::update(compiler, database)?;
+				f(database)
+			})
+			.await
+		}
+		.boxed()
+	}
+
+	/// Update the database with the open documents, or create it.
+	fn update<'a>(
+		compiler: &Compiler,
+		database: &'a mut Option<db::Database>,
+	) -> tg::Result<&'a mut db::Database> {
+		if database.is_none() {
+			database.replace(db::Database::new(compiler.clone(), Documents::new())?);
+		}
+		let database = database.as_mut().unwrap();
+		database.update(compiler.py_documents())?;
+		Ok(database)
+	}
+
+	/// Prepare the interfaces of the modules in other languages that the database has loaded.
+	async fn prepare(compiler: &Compiler) {
+		#[cfg(feature = "javascript")]
+		compiler
+			.prepare_interfaces(tg::module::load::Language::Python)
+			.await;
+		#[cfg(not(feature = "javascript"))]
+		let _ = compiler;
+	}
+
+	/// Determine whether the database has loaded a module in another language whose interface has not been prepared.
+	fn unprepared(compiler: &Compiler) -> bool {
+		#[cfg(feature = "javascript")]
+		let unprepared = compiler.take_unprepared(tg::module::load::Language::Python);
+		#[cfg(not(feature = "javascript"))]
+		let unprepared = {
+			let _ = compiler;
+			false
+		};
+		unprepared
+	}
+
+	/// Run a function on the worker and return its output.
+	fn job<T, F>(compiler: &Compiler, f: F) -> BoxFuture<'static, tg::Result<T>>
+	where
+		T: Send + 'static,
+		F: FnOnce(&Compiler, &mut Option<db::Database>) -> tg::Result<T> + Send + 'static,
+	{
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let job: Job = Box::new(move |compiler, database| {
+			sender.send(f(compiler, database)).ok();
+		});
+		let result = compiler.python.send(compiler, job);
+		async move {
+			result?;
 			receiver
 				.await
 				.map_err(|error| tg::error!(!error, "failed to receive the python output"))?
@@ -218,10 +253,9 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::check::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::check::Output>> {
-		let modules = arg.modules.clone();
-		Service::run(compiler, modules, move |database| {
+		Service::run(compiler, move |database| {
 			let diagnostics = database
-				.check(arg.modules)?
+				.check(arg.modules.clone())?
 				.iter()
 				.map(tg::Diagnostic::to_data)
 				.collect();
@@ -302,9 +336,8 @@ impl crate::backend::Backend for Backend {
 		arg: crate::diagnostics::DocumentArg,
 	) -> BoxFuture<'static, tg::Result<crate::diagnostics::DocumentOutput>> {
 		let encoding = *compiler.position_encoding.read().unwrap();
-		let modules = arg.modules.clone();
-		Service::run(compiler, modules, move |database| {
-			database.document_diagnostics(arg.modules, encoding)
+		Service::run(compiler, move |database| {
+			database.document_diagnostics(arg.modules.clone(), encoding)
 		})
 	}
 
@@ -387,11 +420,11 @@ impl crate::backend::Backend for Backend {
 					database.replace(db::Database::new(compiler.clone(), Documents::new())?);
 				}
 				let database = database.as_mut().unwrap();
-				database.set_untyped(arg.untyped);
+				database.set_untyped(Some(arg.untyped));
 				let output = database
 					.update(compiler.py_documents())
 					.and_then(|()| database.interface(arg.module));
-				database.set_untyped(std::collections::BTreeSet::new());
+				database.set_untyped(None);
 				output
 			})();
 			sender.send(output).ok();
@@ -494,7 +527,7 @@ impl crate::backend::Backend for Backend {
 		arg: crate::workspace_symbols::Arg,
 	) -> BoxFuture<'static, tg::Result<crate::workspace_symbols::Output>> {
 		let encoding = *compiler.position_encoding.read().unwrap();
-		Service::run(compiler, Vec::new(), move |database| {
+		Service::run(compiler, move |database| {
 			database.sync_project(None)?;
 			database.workspace_symbols(&arg.query, encoding)
 		})
