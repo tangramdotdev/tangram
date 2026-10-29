@@ -178,8 +178,8 @@ pub enum Shutdown {
 }
 
 pub struct Tokens {
-	pub private_key: Option<tg::authorization::PrivateKey>,
-	pub public_keys: BTreeMap<String, tg::authorization::PublicKey>,
+	pub previous_secrets: BTreeMap<String, tg::authorization::Secret>,
+	pub secret: Option<tg::authorization::Secret>,
 }
 
 impl Owned {
@@ -289,6 +289,17 @@ impl Server {
 	}
 }
 
+impl Tokens {
+	/// Get the secret with the given name that verifies tokens, which is either the signing secret or one of the previous secrets.
+	#[must_use]
+	pub fn verification_secret(&self, name: &str) -> Option<&tg::authorization::Secret> {
+		self.secret
+			.as_ref()
+			.filter(|secret| secret.name == name)
+			.or_else(|| self.previous_secrets.get(name))
+	}
+}
+
 impl From<Owned> for Shared {
 	fn from(value: Owned) -> Self {
 		Self(Arc::new(value))
@@ -330,85 +341,75 @@ impl Deref for Server {
 	}
 }
 
-async fn load_token_keys(config: Option<&config::TokenKeys>, path: &Path) -> tg::Result<Tokens> {
-	let private_key = match config.and_then(|config| config.private_key.as_ref()) {
+async fn load_token_secrets(
+	config: Option<&config::TokenSecrets>,
+	path: &Path,
+) -> tg::Result<Tokens> {
+	// Load the signing secret.
+	let secret = match config.and_then(|config| config.secret.as_ref()) {
 		Some(config) => {
 			let bytes = match &config.path {
-				Some(path) => match config.algorithm {
-					tg::authorization::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
-						|error| tg::error!(!error, path = %path.display(), "failed to read the private key"),
-					)?,
-				},
-				None => load_or_create_token_private_key(config, path).await?,
+				Some(path) => tokio::fs::read(path).await.map_err(
+					|error| tg::error!(!error, path = %path.display(), "failed to read the signing secret"),
+				)?,
+				None => load_or_create_token_secret(config, path).await?,
 			};
-			let key =
-				tg::authorization::PrivateKey::new(config.name.clone(), config.algorithm, bytes);
-			tg::authorization::PublicKey::from_private_key(&key)?;
-
-			Some(key)
+			let secret = tg::authorization::Secret::from_slice(
+				config.name.clone(),
+				config.algorithm,
+				&bytes,
+			)?;
+			Some(secret)
 		},
 		None => None,
 	};
-	let mut public_keys = BTreeMap::new();
-	if let Some(config) = config {
-		for config in &config.public_keys {
-			let bytes = match &config.path {
-				Some(path) => match config.algorithm {
-					tg::authorization::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
-						|error| tg::error!(!error, path = %path.display(), "failed to read the public key"),
-					)?,
-				},
-				None => match config.algorithm {
-					tg::authorization::Algorithm::Ed25519 => {
-						let matching_private_key = private_key.as_ref().filter(|private_key| {
-							private_key.name == config.name
-								&& private_key.algorithm == config.algorithm
-						});
-						let key = if let Some(private_key) = matching_private_key {
-							tg::authorization::PublicKey::from_private_key(private_key)?
-						} else {
-							let private_key = tg::authorization::PrivateKey::generate(
-								config.name.clone(),
-								config.algorithm,
-							)?;
-							tg::authorization::PublicKey::from_private_key(&private_key)?
-						};
-						key.bytes
-					},
-				},
-			};
-			let key =
-				tg::authorization::PublicKey::new(config.name.clone(), config.algorithm, bytes);
-			if public_keys.insert(config.name.clone(), key).is_some() {
-				return Err(tg::error!(name = %config.name, "duplicate public key"));
-			}
+
+	// Load the previous secrets.
+	let mut previous_secrets = BTreeMap::new();
+	let configs = config.map_or(&[][..], |config| &config.previous_secrets);
+	for config in configs {
+		let bytes = tokio::fs::read(&config.path).await.map_err(
+			|error| tg::error!(!error, path = %config.path.display(), "failed to read the previous secret"),
+		)?;
+		let previous_secret =
+			tg::authorization::Secret::from_slice(config.name.clone(), config.algorithm, &bytes)?;
+		let duplicate = secret
+			.as_ref()
+			.is_some_and(|secret| secret.name == config.name);
+		if duplicate
+			|| previous_secrets
+				.insert(config.name.clone(), previous_secret)
+				.is_some()
+		{
+			return Err(tg::error!(name = %config.name, "duplicate secret"));
 		}
 	}
+
 	let tokens = Tokens {
-		private_key,
-		public_keys,
+		previous_secrets,
+		secret,
 	};
 
 	Ok(tokens)
 }
 
-async fn load_or_create_token_private_key(
-	config: &config::TokenPrivateKey,
+async fn load_or_create_token_secret(
+	config: &config::TokenSecret,
 	path: &Path,
 ) -> tg::Result<Vec<u8>> {
-	// Reuse the private key for the lifetime of the server directory.
+	// Reuse the signing secret for the lifetime of the server directory.
 	match tokio::fs::read(path).await {
 		Ok(bytes) => return Ok(bytes),
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
 		Err(error) => {
 			return Err(
-				tg::error!(!error, path = %path.display(), "failed to read the private key"),
+				tg::error!(!error, path = %path.display(), "failed to read the signing secret"),
 			);
 		},
 	}
 
-	// Publish a complete key while the server holds the directory lock.
-	let key = tg::authorization::PrivateKey::generate(config.name.clone(), config.algorithm)?;
+	// Publish a complete secret while the server holds the directory lock.
+	let secret = tg::authorization::Secret::generate(config.name.clone(), config.algorithm);
 	let directory = path.parent().unwrap();
 	let temp_path = directory.join("tmp").join(uuid::Uuid::now_v7().to_string());
 	let mut file = tokio::fs::OpenOptions::new()
@@ -417,25 +418,27 @@ async fn load_or_create_token_private_key(
 		.mode(0o600)
 		.open(&temp_path)
 		.await
-		.map_err(|error| tg::error!(!error, "failed to create the temporary private key file"))?;
+		.map_err(|error| {
+			tg::error!(!error, "failed to create the temporary signing secret file")
+		})?;
 	scopeguard::defer! {
 		std::fs::remove_file(&temp_path).ok();
 	}
-	file.write_all(&key.bytes)
+	file.write_all(&secret.bytes)
 		.await
-		.map_err(|error| tg::error!(!error, "failed to write the private key"))?;
+		.map_err(|error| tg::error!(!error, "failed to write the signing secret"))?;
 	file.sync_all()
 		.await
-		.map_err(|error| tg::error!(!error, "failed to sync the private key"))?;
+		.map_err(|error| tg::error!(!error, "failed to sync the signing secret"))?;
 	tokio::fs::rename(&temp_path, path).await.map_err(
-		|error| tg::error!(!error, path = %path.display(), "failed to persist the private key"),
+		|error| tg::error!(!error, path = %path.display(), "failed to persist the signing secret"),
 	)?;
 	tokio::fs::File::open(directory)
 		.await
-		.map_err(|error| tg::error!(!error, "failed to open the private key directory"))?
+		.map_err(|error| tg::error!(!error, "failed to open the signing secret directory"))?
 		.sync_all()
 		.await
-		.map_err(|error| tg::error!(!error, "failed to sync the private key directory"))?;
+		.map_err(|error| tg::error!(!error, "failed to sync the signing secret directory"))?;
 
-	Ok(key.bytes)
+	Ok(secret.bytes.to_vec())
 }

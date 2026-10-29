@@ -134,9 +134,7 @@ fn print_values(options: tg::referent::Options) -> [String; 3] {
 }
 
 fn token() -> tg::authorization::Token {
-	let private_key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let secret = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let body = tg::authorization::Body {
 		expires_at: i64::MAX,
 		permissions: vec![tg::authorization::Permission::Object(
@@ -144,5 +142,5 @@ fn token() -> tg::authorization::Token {
 		)],
 		resource: tg::file::Id::new(b"source").into(),
 	};
-	tg::authorization::Token::sign(body, &private_key).unwrap()
+	tg::authorization::Token::sign(body, &secret).unwrap()
 }

@@ -79,7 +79,7 @@ fn tokens(resource: tg::Id, location: &tg::Location) -> tg::authorization::Token
 			resource,
 		},
 		metadata: tg::authorization::Metadata {
-			algorithm: tg::authorization::Algorithm::Ed25519,
+			algorithm: tg::authorization::Algorithm::Blake3,
 			key: "test".to_owned(),
 		},
 		signature: Vec::new(),

@@ -4,7 +4,7 @@ use {
 		context::{Context, Origin},
 		database::Database,
 		index::Index,
-		load_token_keys,
+		load_token_secrets,
 		messenger::Messenger,
 	},
 	dashmap::{DashMap, DashSet},
@@ -229,14 +229,14 @@ impl Server {
 			.clone()
 			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
 
-		// Load or create the token keys.
-		let authentication_tokens = load_token_keys(
-			Some(&config.authentication.tokens.keys),
+		// Load or create the token secrets.
+		let authentication_tokens = load_token_secrets(
+			Some(&config.authentication.tokens.secrets),
 			&path.join("authentication.key"),
 		)
 		.await?;
-		let authorization_tokens = load_token_keys(
-			config.verification.tokens.as_ref(),
+		let authorization_tokens = load_token_secrets(
+			config.authorization.tokens.as_ref(),
 			&path.join("authorization.key"),
 		)
 		.await?;

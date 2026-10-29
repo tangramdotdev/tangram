@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A damaged persisted token key prevents startup instead of silently invalidating existing tokens.
+# A damaged persisted token signing secret prevents startup instead of silently invalidating existing tokens.
 
 for kind in [authentication authorization] {
 	let local = server spawn --config { vfs: false }
@@ -9,31 +9,11 @@ for kind in [authentication authorization] {
 	'invalid' | save -f $path
 
 	let output = tangram -c $local.config_path -d $local.directory serve | complete
-	failure $output 'the server must reject a damaged private key'
+	failure $output 'the server must reject a damaged signing secret'
 	snapshot $output.stderr '
 		error an error occurred
 		-> failed to start the server
-		-> invalid private key
+		-> invalid secret
 
 	'
 }
-
-# Validate the private key independently of the configured public keys.
-let local = server spawn --config {
-	verification: {
-		tokens: { public_keys: [] }
-	}
-	vfs: false
-}
-server stop $local
-let path = $local.directory | path join 'authorization.key'
-'invalid' | save -f $path
-
-let output = tangram -c $local.config_path -d $local.directory serve | complete
-failure $output 'the server must reject a damaged private key'
-snapshot $output.stderr '
-	error an error occurred
-	-> failed to start the server
-	-> invalid private key
-
-'

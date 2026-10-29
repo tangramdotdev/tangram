@@ -2673,7 +2673,7 @@ mod tests {
 				resource: tg::object::Id::from(artifact.clone()).into(),
 			},
 			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Ed25519,
+				algorithm: tg::authorization::Algorithm::Blake3,
 				key: "test".to_owned(),
 			},
 			signature: Vec::new(),

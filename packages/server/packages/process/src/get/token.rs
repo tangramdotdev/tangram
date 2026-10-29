@@ -11,7 +11,7 @@ impl Component {
 		authorization: tangram_server_core::authorization::Output,
 		output: &mut tg::process::get::Output,
 	) -> tg::Result<()> {
-		if session.server.authorization_tokens.private_key.is_none() {
+		if session.server.authorization_tokens.secret.is_none() {
 			return Ok(());
 		}
 

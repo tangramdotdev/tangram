@@ -752,32 +752,25 @@ export def --env "server spawn" [
 		$config
 	}
 
-	# Pin token keys to the server directory so restarts can verify existing tokens.
+	# Pin the token signing secret to the server directory so restarts can verify existing tokens.
 	let config = if $preserve_keys {
-		let private_key_path = $directory_path | path join 'private_key'
-		let public_key_path = $directory_path | path join 'public_key'
-		if not ($private_key_path | path exists) {
-			'U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=' | decode base64 | save -f $private_key_path
-			'MKmfiiYtaN4W/pP+V2hmmjtT2/+ILjYfiMJ9y4EsG1U=' | decode base64 | save -f $public_key_path
+		let secret_path = $directory_path | path join 'secret'
+		if not ($secret_path | path exists) {
+			'U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=' | decode base64 | save -f $secret_path
 		}
-		let keys = {
-			private_key: {
-				algorithm: 'ed25519',
+		let secrets = {
+			secret: {
+				algorithm: 'blake3',
 				name: 'default',
-				path: $private_key_path,
+				path: $secret_path,
 			},
-			public_keys: [{
-				algorithm: 'ed25519',
-				name: 'default',
-				path: $public_key_path,
-			}],
 		}
 		$config | merge deep {
 			authentication: {
-				tokens: $keys,
+				tokens: $secrets,
 			},
-			verification: {
-				tokens: $keys
+			authorization: {
+				tokens: $secrets
 			},
 		}
 	} else {

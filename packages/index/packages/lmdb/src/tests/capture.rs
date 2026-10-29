@@ -508,8 +508,7 @@ fn permissions(
 }
 
 fn tokens(object: &tg::object::Id, name: &str) -> tg::authorization::Tokens {
-	let key = tg::authorization::PrivateKey::generate(name, tg::authorization::Algorithm::Ed25519)
-		.unwrap();
+	let key = tg::authorization::Secret::generate(name, tg::authorization::Algorithm::Blake3);
 	let body = tg::authorization::Body {
 		expires_at: 100,
 		permissions: vec![tg::authorization::Permission::Object(

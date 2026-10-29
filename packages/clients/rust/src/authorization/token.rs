@@ -66,77 +66,73 @@ pub struct Metadata {
 	serde_with::SerializeDisplay,
 )]
 pub enum Algorithm {
-	#[display("ed25519")]
-	Ed25519,
+	#[display("blake3")]
+	Blake3,
+
+	#[display("hmac_sha256")]
+	HmacSha256,
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct PrivateKey {
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Secret {
 	pub algorithm: Algorithm,
-	pub bytes: Vec<u8>,
+	pub bytes: [u8; 32],
 	pub name: String,
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct PublicKey {
-	pub algorithm: Algorithm,
-	pub bytes: Vec<u8>,
-	pub name: String,
-}
-
-impl PrivateKey {
+impl Secret {
 	#[must_use]
-	pub fn new(name: impl Into<String>, algorithm: Algorithm, bytes: impl Into<Vec<u8>>) -> Self {
+	pub fn new(name: impl Into<String>, algorithm: Algorithm, bytes: [u8; 32]) -> Self {
 		Self {
 			algorithm,
-			bytes: bytes.into(),
+			bytes,
 			name: name.into(),
 		}
 	}
 
-	pub fn generate(name: impl Into<String>, algorithm: Algorithm) -> tg::Result<Self> {
-		let bytes = match algorithm {
-			Algorithm::Ed25519 => {
-				use aws_lc_rs::encoding::AsBigEndian as _;
-				let key_pair = aws_lc_rs::signature::Ed25519KeyPair::generate()
-					.map_err(|_| tg::error!("failed to generate the private key"))?;
-				key_pair
-					.seed()
-					.and_then(|seed| seed.as_be_bytes())
-					.map_err(|_| tg::error!("failed to export the private key"))?
-					.as_ref()
-					.to_vec()
-			},
-		};
+	#[must_use]
+	pub fn generate(name: impl Into<String>, algorithm: Algorithm) -> Self {
+		Self::new(name, algorithm, rand::random())
+	}
+
+	pub fn from_slice(
+		name: impl Into<String>,
+		algorithm: Algorithm,
+		bytes: &[u8],
+	) -> tg::Result<Self> {
+		let bytes = bytes.try_into().map_err(|_| tg::error!("invalid secret"))?;
 		Ok(Self::new(name, algorithm, bytes))
 	}
-}
 
-impl PublicKey {
 	#[must_use]
-	pub fn new(name: impl Into<String>, algorithm: Algorithm, bytes: impl Into<Vec<u8>>) -> Self {
-		Self {
-			algorithm,
-			bytes: bytes.into(),
-			name: name.into(),
+	pub fn sign(&self, input: &[u8]) -> Vec<u8> {
+		match self.algorithm {
+			Algorithm::Blake3 => blake3::keyed_hash(&self.bytes, input).as_bytes().to_vec(),
+			Algorithm::HmacSha256 => {
+				let key = aws_lc_rs::hmac::Key::new(aws_lc_rs::hmac::HMAC_SHA256, &self.bytes);
+				aws_lc_rs::hmac::sign(&key, input).as_ref().to_vec()
+			},
 		}
 	}
 
-	pub fn from_private_key(private_key: &PrivateKey) -> tg::Result<Self> {
-		let bytes = match private_key.algorithm {
-			Algorithm::Ed25519 => {
-				use aws_lc_rs::signature::KeyPair as _;
-				let key_pair =
-					aws_lc_rs::signature::Ed25519KeyPair::from_seed_unchecked(&private_key.bytes)
-						.map_err(|_| tg::error!("invalid private key"))?;
-				key_pair.public_key().as_ref().to_vec()
+	/// Verify the signature in constant time.
+	pub fn verify(&self, input: &[u8], signature: &[u8]) -> tg::Result<()> {
+		match self.algorithm {
+			Algorithm::Blake3 => {
+				let signature: [u8; 32] = signature
+					.try_into()
+					.map_err(|_| tg::error!("invalid signature"))?;
+				if blake3::keyed_hash(&self.bytes, input) != blake3::Hash::from_bytes(signature) {
+					return Err(tg::error!("invalid signature"));
+				}
 			},
-		};
-		Ok(Self::new(
-			private_key.name.clone(),
-			private_key.algorithm,
-			bytes,
-		))
+			Algorithm::HmacSha256 => {
+				let key = aws_lc_rs::hmac::Key::new(aws_lc_rs::hmac::HMAC_SHA256, &self.bytes);
+				aws_lc_rs::hmac::verify(&key, input, signature)
+					.map_err(|_| tg::error!("invalid signature"))?;
+			},
+		}
+		Ok(())
 	}
 }
 
@@ -168,11 +164,11 @@ impl Token {
 		self.authorizes(resource, subtree)
 	}
 
-	pub fn sign(body: Body, private_key: &PrivateKey) -> tg::Result<Self> {
+	pub fn sign(body: Body, secret: &Secret) -> tg::Result<Self> {
 		body.validate()?;
 		let metadata = Metadata {
-			algorithm: private_key.algorithm,
-			key: private_key.name.clone(),
+			algorithm: secret.algorithm,
+			key: secret.name.clone(),
 		};
 		let body_string = serde_json::to_vec(&body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the body"))
@@ -181,14 +177,7 @@ impl Token {
 			.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))
 			.map(|bytes| data_encoding::BASE64.encode(&bytes))?;
 		let input = format!("{VERSION}.{body_string}.{metadata_string}");
-		let signature = match metadata.algorithm {
-			Algorithm::Ed25519 => {
-				let key =
-					aws_lc_rs::signature::Ed25519KeyPair::from_seed_unchecked(&private_key.bytes)
-						.map_err(|_| tg::error!("invalid private key"))?;
-				key.sign(input.as_bytes()).as_ref().to_vec()
-			},
-		};
+		let signature = secret.sign(input.as_bytes());
 		Ok(Self {
 			body,
 			metadata,
@@ -196,19 +185,24 @@ impl Token {
 		})
 	}
 
-	pub fn verify(&self, public_key: &PublicKey) -> tg::Result<()> {
+	pub fn verify(&self, secret: &Secret) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		self.verify_at(public_key, now)
+		self.verify_at(secret, now)
 	}
 
-	pub fn verify_at(&self, public_key: &PublicKey, now: i64) -> tg::Result<()> {
-		self.verify_key(public_key)?;
-		self.verify_signature(public_key)?;
+	pub fn verify_at(&self, secret: &Secret, now: i64) -> tg::Result<()> {
+		self.verify_signature(secret)?;
 		self.body.validate_at(now)?;
 		Ok(())
 	}
 
-	pub fn verify_signature(&self, public_key: &PublicKey) -> tg::Result<()> {
+	pub fn verify_signature(&self, secret: &Secret) -> tg::Result<()> {
+		if self.metadata.algorithm != secret.algorithm {
+			return Err(tg::error!("invalid algorithm"));
+		}
+		if self.metadata.key != secret.name {
+			return Err(tg::error!("invalid key"));
+		}
 		let body = serde_json::to_vec(&self.body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the body"))
 			.map(|bytes| data_encoding::BASE64.encode(&bytes))?;
@@ -216,26 +210,7 @@ impl Token {
 			.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))
 			.map(|bytes| data_encoding::BASE64.encode(&bytes))?;
 		let input = format!("{VERSION}.{body}.{metadata}");
-		match self.metadata.algorithm {
-			Algorithm::Ed25519 => {
-				let key = aws_lc_rs::signature::UnparsedPublicKey::new(
-					&aws_lc_rs::signature::ED25519,
-					&public_key.bytes,
-				);
-				key.verify(input.as_bytes(), &self.signature)
-					.map_err(|_| tg::error!("invalid signature"))?;
-			},
-		}
-		Ok(())
-	}
-
-	fn verify_key(&self, public_key: &PublicKey) -> tg::Result<()> {
-		if self.metadata.algorithm != public_key.algorithm {
-			return Err(tg::error!("invalid algorithm"));
-		}
-		if self.metadata.key != public_key.name {
-			return Err(tg::error!("invalid key"));
-		}
+		secret.verify(input.as_bytes(), &self.signature)?;
 		Ok(())
 	}
 }
@@ -276,9 +251,20 @@ impl std::str::FromStr for Algorithm {
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
 		match value {
-			"ed25519" => Ok(Self::Ed25519),
+			"blake3" => Ok(Self::Blake3),
+			"hmac_sha256" => Ok(Self::HmacSha256),
 			_ => Err(tg::error!("invalid algorithm")),
 		}
+	}
+}
+
+impl std::fmt::Debug for Secret {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		// Omit the bytes so that the secret is not written to logs.
+		f.debug_struct("Secret")
+			.field("algorithm", &self.algorithm)
+			.field("name", &self.name)
+			.finish_non_exhaustive()
 	}
 }
 
@@ -345,11 +331,16 @@ mod tests {
 
 	#[test]
 	fn algorithm_round_trips() {
-		assert_eq!(tg::authorization::Algorithm::Ed25519.to_string(), "ed25519");
-		assert_eq!(
-			"ed25519".parse::<tg::authorization::Algorithm>().unwrap(),
-			tg::authorization::Algorithm::Ed25519,
-		);
+		for algorithm in [
+			tg::authorization::Algorithm::Blake3,
+			tg::authorization::Algorithm::HmacSha256,
+		] {
+			let string = algorithm.to_string();
+			assert_eq!(
+				string.parse::<tg::authorization::Algorithm>().unwrap(),
+				algorithm
+			);
+		}
 	}
 
 	#[test]
@@ -418,9 +409,7 @@ mod tests {
 	#[test]
 	fn authorizes_checks_resources_and_permission_implications() {
 		use tg::authorization::permission::{object, process};
-		let key =
-			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-				.unwrap();
+		let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 		let object_node = tg::authorization::Permission::Object(object::Permission::Node);
 		let object_subtree = tg::authorization::Permission::Object(object::Permission::Subtree);
 		let process_node = tg::authorization::Permission::Process(process::Permission::Node);
@@ -462,12 +451,53 @@ mod tests {
 
 	#[test]
 	fn token_round_trips_and_verifies() {
-		let private_key = tg::authorization::PrivateKey::generate(
+		for algorithm in [
+			tg::authorization::Algorithm::Blake3,
+			tg::authorization::Algorithm::HmacSha256,
+		] {
+			let secret = tg::authorization::Secret::generate("default", algorithm);
+			let body = tg::authorization::Body {
+				expires_at: 20,
+				permissions: vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				)],
+				resource: tg::Id::new_uuidv7(tg::id::Kind::File),
+			};
+			let token = tg::authorization::Token::sign(body.clone(), &secret).unwrap();
+			let string = token.to_string();
+
+			let parsed = string.parse::<tg::authorization::Token>().unwrap();
+
+			assert_eq!(parsed.body, body);
+			assert_eq!(parsed.metadata.algorithm, algorithm);
+			assert_eq!(parsed.metadata.key, "default");
+			parsed.verify_at(&secret, 15).unwrap();
+		}
+	}
+
+	#[test]
+	fn secret_debug_omits_the_bytes() {
+		let secret = tg::authorization::Secret::new(
 			"default",
-			tg::authorization::Algorithm::Ed25519,
-		)
-		.unwrap();
-		let public_key = tg::authorization::PublicKey::from_private_key(&private_key).unwrap();
+			tg::authorization::Algorithm::Blake3,
+			[0xab; 32],
+		);
+		let output = format!("{secret:?}");
+		assert_eq!(
+			output,
+			r#"Secret { algorithm: Blake3, name: "default", .. }"#
+		);
+	}
+
+	#[test]
+	fn token_rejects_a_different_algorithm() {
+		let secret =
+			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
+		let other_secret = tg::authorization::Secret::new(
+			"default",
+			tg::authorization::Algorithm::HmacSha256,
+			secret.bytes,
+		);
 		let body = tg::authorization::Body {
 			expires_at: 20,
 			permissions: vec![tg::authorization::Permission::Object(
@@ -475,34 +505,19 @@ mod tests {
 			)],
 			resource: tg::Id::new_uuidv7(tg::id::Kind::File),
 		};
-		let token = tg::authorization::Token::sign(body.clone(), &private_key).unwrap();
-		let string = token.to_string();
+		let token = tg::authorization::Token::sign(body, &secret).unwrap();
 
-		let parsed = string.parse::<tg::authorization::Token>().unwrap();
+		let error = token.verify_at(&other_secret, 15).unwrap_err();
 
-		assert_eq!(parsed.body, body);
-		assert_eq!(
-			parsed.metadata.algorithm,
-			tg::authorization::Algorithm::Ed25519
-		);
-		assert_eq!(parsed.metadata.key, "default");
-		parsed.verify_at(&public_key, 15).unwrap();
+		assert_eq!(error.to_string(), "invalid algorithm");
 	}
 
 	#[test]
 	fn token_rejects_an_invalid_signature() {
-		let private_key = tg::authorization::PrivateKey::generate(
-			"default",
-			tg::authorization::Algorithm::Ed25519,
-		)
-		.unwrap();
-		let other_private_key = tg::authorization::PrivateKey::generate(
-			"default",
-			tg::authorization::Algorithm::Ed25519,
-		)
-		.unwrap();
-		let other_public_key =
-			tg::authorization::PublicKey::from_private_key(&other_private_key).unwrap();
+		let secret =
+			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
+		let other_secret =
+			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: 20,
 			permissions: vec![tg::authorization::Permission::Object(
@@ -510,21 +525,17 @@ mod tests {
 			)],
 			resource: tg::Id::new_uuidv7(tg::id::Kind::File),
 		};
-		let token = tg::authorization::Token::sign(body, &private_key).unwrap();
+		let token = tg::authorization::Token::sign(body, &secret).unwrap();
 
-		let error = token.verify_at(&other_public_key, 15).unwrap_err();
+		let error = token.verify_at(&other_secret, 15).unwrap_err();
 
 		assert_eq!(error.to_string(), "invalid signature");
 	}
 
 	#[test]
 	fn token_rejects_an_expired_body() {
-		let private_key = tg::authorization::PrivateKey::generate(
-			"default",
-			tg::authorization::Algorithm::Ed25519,
-		)
-		.unwrap();
-		let public_key = tg::authorization::PublicKey::from_private_key(&private_key).unwrap();
+		let secret =
+			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: 20,
 			permissions: vec![tg::authorization::Permission::Process(
@@ -532,20 +543,17 @@ mod tests {
 			)],
 			resource: tg::Id::new_uuidv7(tg::id::Kind::Process),
 		};
-		let token = tg::authorization::Token::sign(body, &private_key).unwrap();
+		let token = tg::authorization::Token::sign(body, &secret).unwrap();
 
-		let error = token.verify_at(&public_key, 21).unwrap_err();
+		let error = token.verify_at(&secret, 21).unwrap_err();
 
 		assert_eq!(error.to_string(), "expired token");
 	}
 
 	#[test]
 	fn tokens_strip_regions() {
-		let private_key = tg::authorization::PrivateKey::generate(
-			"default",
-			tg::authorization::Algorithm::Ed25519,
-		)
-		.unwrap();
+		let secret =
+			tg::authorization::Secret::generate("default", tg::authorization::Algorithm::Blake3);
 		let body = tg::authorization::Body {
 			expires_at: 20,
 			permissions: vec![tg::authorization::Permission::Object(
@@ -553,7 +561,7 @@ mod tests {
 			)],
 			resource: tg::Id::new_uuidv7(tg::id::Kind::File),
 		};
-		let token = tg::authorization::Token::sign(body, &private_key).unwrap();
+		let token = tg::authorization::Token::sign(body, &secret).unwrap();
 		let mut tokens = tg::authorization::Tokens::default();
 		let local = tg::Location::Local(tg::location::Local {
 			region: Some("east".into()),
@@ -595,10 +603,10 @@ mod tests {
 				resource: resource.clone(),
 			},
 			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Ed25519,
+				algorithm: tg::authorization::Algorithm::Blake3,
 				key: "default".into(),
 			},
-			signature: vec![0; 64],
+			signature: vec![0; 32],
 		};
 		let node = token(vec![Permission::Node], 30);
 		let output = token(vec![Permission::NodeOutputObjects], 20);
@@ -642,10 +650,10 @@ mod tests {
 				resource,
 			},
 			metadata: tg::authorization::Metadata {
-				algorithm: tg::authorization::Algorithm::Ed25519,
+				algorithm: tg::authorization::Algorithm::Blake3,
 				key: key.into(),
 			},
-			signature: vec![0; 64],
+			signature: vec![0; 32],
 		};
 		let first = tg::Id::new_blake3(tg::id::Kind::File, b"first");
 		let second = tg::Id::new_blake3(tg::id::Kind::File, b"second");

@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Tagging with a subtree proof that is verified only by its public key confers permanent access to the target subtree.
+# Tagging with a subtree proof that is verified only by a previous secret confers permanent access to the target subtree.
 
 let root_token = random chars
 let local = server spawn --preserve-keys --now '2026-01-01T00:00:00Z' --config {
@@ -18,18 +18,19 @@ let object = http get --headers { Accept: application/json, Authorization: $'Bea
 let token = $object.tokens.local.0
 let reference = $'($directory)?tokens[local][0]=($token | url encode --all)'
 
-# Retain the accepted public key and the authentication keys, but remove the authorization signer.
-let config = open $local.config_path | upsert verification.tokens.private_key null
+# Keep the authorization secret only as a previous secret, so the server verifies existing tokens without signing new ones.
+let secret = { algorithm: blake3, name: default, path: ($local.directory | path join secret) }
+let config = open $local.config_path | upsert authorization.tokens { secret: false, previous_secrets: [$secret] }
 $config | to json | save --force $local.config_path
 let server = server restart $local
 failure (tg --token $bob.token get --bytes $directory | complete) "Bob must have no indexed source permission on the target."
 failure (tg --token $reader.token get --bytes $directory | complete) "the reader must have no access before tagging."
 
 let tagged = tg --token $bob.token tag put accepted $reference --public | complete
-success $tagged "a public-key-only subtree proof must authorize tagging."
+success $tagged "a subtree proof verified only by a previous secret must authorize tagging."
 tg --token $root_token index
 
-# Neither a signing key nor an unexpired source proof is needed to read the captured subtree.
+# Neither a signing secret nor an unexpired source proof is needed to read the captured subtree.
 advance_time $server 2min
 tg --token $root_token clean
 success (tg --token $reader.token get --bytes $directory | complete) "the tag must retain its immediately captured permissions."

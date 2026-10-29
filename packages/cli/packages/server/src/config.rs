@@ -3,7 +3,7 @@ use {
 		Cli,
 		config::{
 			Advanced, Archive, ArchiveQueue, Authentication, AuthenticationCache,
-			AuthenticationProviders, AuthenticationTokens, Billing, BoolOr, Cache,
+			AuthenticationProviders, AuthenticationTokens, Authorization, Billing, BoolOr, Cache,
 			CapacityThreshold, CapacityThresholdDirection, Checkin, CheckinBlob, CheckinCheckout,
 			CheckinSolve, ClientProcessControl, CloudHypervisorBackend, Config, Control, Database,
 			DatabaseIndexQueue, DatabasePool, Dax, FdbIndex, FdbIndexVerification,
@@ -22,7 +22,7 @@ use {
 			ScyllaCacheSpeculativeExecution, ServerClient, Service, Spawn, SqliteDatabase, SyncGet,
 			SyncGetCheckout, SyncGetDatabase, SyncGetIndex, SyncGetQueue, SyncGetStore,
 			SyncGetStoreObject, SyncOptions, SyncPut, SyncPutIndex, SyncPutQueue, SyncPutResolve,
-			SyncPutStore, TokenKeys, TokenPrivateKey, TokenPublicKey, TursoDatabase, Usage,
+			SyncPutStore, TokenPreviousSecret, TokenSecret, TokenSecrets, TursoDatabase, Usage,
 			UserAuthentication, Verification, VerificationIndex, VerificationPermissions, Vfs,
 			VfsFuse, VfsIo, VfsKind, VfsNfs, VfsPassthrough, Watch, Write,
 		},
@@ -61,6 +61,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	}
 	if let Some(source) = source.authentication {
 		target.authentication = resolve_authentication(source)?;
+	}
+	if let Some(source) = source.authorization {
+		target.authorization = resolve_authorization(source)?;
 	}
 	if let Some(source) = source.verification {
 		target.verification = resolve_verification(source)?;
@@ -318,14 +321,14 @@ fn resolve_authentication_tokens(
 	if let Some(value) = source.clock_skew {
 		target.clock_skew = value;
 	}
-	if let Some(source) = source.private_key {
-		target.keys.private_key = Some(resolve_token_private_key(source)?);
-	}
-	if let Some(public_keys) = source.public_keys {
-		target.keys.public_keys = public_keys
+	if let Some(previous_secrets) = source.previous_secrets {
+		target.secrets.previous_secrets = previous_secrets
 			.into_iter()
-			.map(resolve_token_public_key)
+			.map(resolve_token_previous_secret)
 			.collect::<tg::Result<_>>()?;
+	}
+	if let Some(source) = source.secret {
+		target.secrets.secret = resolve_bool_or(source, resolve_token_secret)?;
 	}
 	if let Some(value) = source.ttl {
 		target.ttl = value;
@@ -395,6 +398,15 @@ fn resolve_github(source: Github) -> tg::Result<server::Github> {
 	Ok(target)
 }
 
+fn resolve_authorization(source: Authorization) -> tg::Result<server::Authorization> {
+	let mut target = server::Authorization::default();
+	if let Some(source) = source.tokens {
+		target.tokens = resolve_bool_or(source, resolve_token_secrets)?;
+	}
+
+	Ok(target)
+}
+
 fn resolve_billing(source: Billing) -> tg::Result<server::Billing> {
 	let source = required(source.stripe, "billing.stripe")?;
 	let stripe = source.try_into()?;
@@ -416,9 +428,6 @@ fn resolve_verification(source: Verification) -> tg::Result<server::Verification
 	}
 	if let Some(value) = source.request_timeout {
 		target.request_timeout = value;
-	}
-	if let Some(source) = source.tokens {
-		target.tokens = resolve_bool_or(source, resolve_token_keys)?;
 	}
 	if let Some(source) = source.write_retry {
 		target.write_retry = resolve_retry_with_default(source, target.write_retry);
@@ -530,26 +539,26 @@ fn resolve_permission_subtree(source: PermissionSubtree) -> server::PermissionSu
 	target
 }
 
-fn resolve_token_keys(source: TokenKeys) -> tg::Result<server::TokenKeys> {
-	let mut target = server::TokenKeys::default();
-	if let Some(source) = source.private_key {
-		target.private_key = Some(resolve_token_private_key(source)?);
-	}
-	if let Some(public_keys) = source.public_keys {
-		target.public_keys = public_keys
+fn resolve_token_secrets(source: TokenSecrets) -> tg::Result<server::TokenSecrets> {
+	let mut target = server::TokenSecrets::default();
+	if let Some(previous_secrets) = source.previous_secrets {
+		target.previous_secrets = previous_secrets
 			.into_iter()
-			.map(resolve_token_public_key)
+			.map(resolve_token_previous_secret)
 			.collect::<tg::Result<_>>()?;
+	}
+	if let Some(source) = source.secret {
+		target.secret = resolve_bool_or(source, resolve_token_secret)?;
 	}
 
 	Ok(target)
 }
 
-fn resolve_token_private_key(source: TokenPrivateKey) -> tg::Result<server::TokenPrivateKey> {
-	let algorithm = required(source.algorithm, "private_key.algorithm")?;
-	let name = required(source.name, "private_key.name")?;
+fn resolve_token_secret(source: TokenSecret) -> tg::Result<server::TokenSecret> {
+	let algorithm = required(source.algorithm, "secret.algorithm")?;
+	let name = required(source.name, "secret.name")?;
 	let path = source.path;
-	let target = server::TokenPrivateKey {
+	let target = server::TokenSecret {
 		algorithm,
 		name,
 		path,
@@ -558,11 +567,13 @@ fn resolve_token_private_key(source: TokenPrivateKey) -> tg::Result<server::Toke
 	Ok(target)
 }
 
-fn resolve_token_public_key(source: TokenPublicKey) -> tg::Result<server::TokenPublicKey> {
-	let algorithm = required(source.algorithm, "public_keys[].algorithm")?;
-	let name = required(source.name, "public_keys[].name")?;
-	let path = source.path;
-	let target = server::TokenPublicKey {
+fn resolve_token_previous_secret(
+	source: TokenPreviousSecret,
+) -> tg::Result<server::TokenPreviousSecret> {
+	let algorithm = required(source.algorithm, "previous_secrets[].algorithm")?;
+	let name = required(source.name, "previous_secrets[].name")?;
+	let path = required(source.path, "previous_secrets[].path")?;
+	let target = server::TokenPreviousSecret {
 		algorithm,
 		name,
 		path,

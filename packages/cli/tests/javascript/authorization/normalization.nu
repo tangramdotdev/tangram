@@ -8,7 +8,7 @@ let path = artifact {
 			const id = "dir_010000000000000000000000000000000000000000000000000000" as tg.Directory.Id;
 			const other = tg.Directory.withObject({ entries: {} }).id;
 			const encode = (value) => tg.encoding.base64.encode(tg.encoding.utf8.encode(JSON.stringify(value)));
-			const proof = (resource, expires_at) => `0.${encode({ expires_at, permissions: ["object_subtree"], resource })}.${encode({ algorithm: "ed25519", key: "test" })}.`;
+			const proof = (resource, expires_at) => `0.${encode({ expires_at, permissions: ["object_subtree"], resource })}.${encode({ algorithm: "blake3", key: "test" })}.`;
 			const direct = proof(id, 20);
 			const inherited = proof(other, 20);
 			for (const authorization of [[direct, inherited], [inherited, direct]]) {
@@ -46,7 +46,7 @@ let path = artifact {
 			} finally {
 				tg.client.getObject = getObject;
 			}
-			const sync = `0.${encode({ expires_at: 120, permissions: ["sync_read"], resource: "syn_0000000000000000000000000000" })}.${encode({ algorithm: "ed25519", key: "test" })}.`;
+			const sync = `0.${encode({ expires_at: 120, permissions: ["sync_read"], resource: "syn_0000000000000000000000000000" })}.${encode({ algorithm: "blake3", key: "test" })}.`;
 			const child = tg.Directory.withId(other);
 			const parent = tg.Directory.withObject({ entries: { child } });
 			const parentToken = proof(parent.id, 120);

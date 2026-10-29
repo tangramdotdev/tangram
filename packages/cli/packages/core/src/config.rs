@@ -30,6 +30,9 @@ pub struct Config {
 	pub authentication: Option<Authentication>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub authorization: Option<Authorization>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub billing: Option<Billing>,
 
 	/// Configure the builtin commands.
@@ -397,10 +400,10 @@ pub struct AuthenticationTokens {
 	pub clock_skew: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub private_key: Option<TokenPrivateKey>,
+	pub previous_secrets: Option<Vec<TokenPreviousSecret>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub public_keys: Option<Vec<TokenPublicKey>>,
+	pub secret: Option<BoolOr<TokenSecret>>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -465,6 +468,14 @@ pub struct Github {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct Authorization {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tokens: Option<BoolOr<TokenSecrets>>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Billing {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stripe: Option<tangram_billing_stripe::config::Options>,
@@ -487,9 +498,6 @@ pub struct Verification {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request_timeout: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub tokens: Option<BoolOr<TokenKeys>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_retry: Option<Retry>,
@@ -571,18 +579,20 @@ pub struct PermissionSubtree {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct TokenKeys {
+pub struct TokenSecrets {
+	/// The secrets that verify tokens but do not sign new tokens.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub private_key: Option<TokenPrivateKey>,
+	pub previous_secrets: Option<Vec<TokenPreviousSecret>>,
 
+	/// The secret that signs new tokens and verifies tokens.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub public_keys: Option<Vec<TokenPublicKey>>,
+	pub secret: Option<BoolOr<TokenSecret>>,
 }
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct TokenPrivateKey {
+pub struct TokenSecret {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub algorithm: Option<tg::authorization::Algorithm>,
 
@@ -596,7 +606,7 @@ pub struct TokenPrivateKey {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct TokenPublicKey {
+pub struct TokenPreviousSecret {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub algorithm: Option<tg::authorization::Algorithm>,
 

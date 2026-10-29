@@ -2,9 +2,7 @@ use {super::*, tangram_http::request::builder::Ext as _};
 
 #[tokio::test]
 async fn request_arg_preserves_list_and_node_options() {
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let body = tg::authorization::Body {
 		expires_at: i64::MAX,
 		permissions: vec![tg::authorization::Permission::Object(

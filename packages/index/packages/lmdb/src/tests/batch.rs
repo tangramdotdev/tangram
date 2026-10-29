@@ -398,9 +398,7 @@ async fn process_child_tokens_belong_to_the_parent() {
 	let (_dir, index) = new_index();
 	let child = tg::process::Id::new();
 	let parent = tg::process::Id::new();
-	let key =
-		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
-			.unwrap();
+	let key = tg::authorization::Secret::generate("test", tg::authorization::Algorithm::Blake3);
 	let body = tg::authorization::Body {
 		expires_at: 3600,
 		permissions: vec![tg::authorization::Permission::Process(

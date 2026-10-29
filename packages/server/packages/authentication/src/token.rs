@@ -25,21 +25,14 @@ pub enum Principal {
 }
 
 impl Token {
-	pub fn sign(body: Body, private_key: &tg::authorization::PrivateKey) -> tg::Result<Self> {
+	pub fn sign(body: Body, secret: &tg::authorization::Secret) -> tg::Result<Self> {
 		body.validate()?;
 		let metadata = tg::authorization::Metadata {
-			algorithm: private_key.algorithm,
-			key: private_key.name.clone(),
+			algorithm: secret.algorithm,
+			key: secret.name.clone(),
 		};
 		let input = Self::input(&body, &metadata)?;
-		let signature = match metadata.algorithm {
-			tg::authorization::Algorithm::Ed25519 => {
-				let key =
-					aws_lc_rs::signature::Ed25519KeyPair::from_seed_unchecked(&private_key.bytes)
-						.map_err(|_| tg::error!("invalid private key"))?;
-				key.sign(input.as_bytes()).as_ref().to_vec()
-			},
-		};
+		let signature = secret.sign(input.as_bytes());
 		let token = Self {
 			body,
 			metadata,
@@ -51,27 +44,18 @@ impl Token {
 
 	pub fn verify_at(
 		&self,
-		public_key: &tg::authorization::PublicKey,
+		secret: &tg::authorization::Secret,
 		now: i64,
 		clock_skew: Duration,
 	) -> tg::Result<()> {
-		if self.metadata.algorithm != public_key.algorithm {
+		if self.metadata.algorithm != secret.algorithm {
 			return Err(tg::error!("invalid algorithm"));
 		}
-		if self.metadata.key != public_key.name {
+		if self.metadata.key != secret.name {
 			return Err(tg::error!("invalid key"));
 		}
 		let input = Self::input(&self.body, &self.metadata)?;
-		match self.metadata.algorithm {
-			tg::authorization::Algorithm::Ed25519 => {
-				let key = aws_lc_rs::signature::UnparsedPublicKey::new(
-					&aws_lc_rs::signature::ED25519,
-					&public_key.bytes,
-				);
-				key.verify(input.as_bytes(), &self.signature)
-					.map_err(|_| tg::error!("invalid signature"))?;
-			},
-		}
+		secret.verify(input.as_bytes(), &self.signature)?;
 		self.body.validate_at(now, clock_skew)?;
 
 		Ok(())
