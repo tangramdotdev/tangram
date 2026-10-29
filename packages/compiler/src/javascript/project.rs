@@ -42,7 +42,7 @@ impl Project {
 		Self::with_untyped(compiler, modules, BTreeSet::new())
 	}
 
-	/// Create a project that loads the given modules in other languages without their extracted interfaces.
+	/// Create a project that loads the given modules in other languages without their cached interfaces.
 	pub(super) fn with_untyped(
 		compiler: &Compiler,
 		modules: Vec<tg::module::Data>,

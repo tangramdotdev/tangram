@@ -23,13 +23,17 @@ pub struct Export {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub documentation: Option<String>,
 
+	/// The reason that the export is not a value, if it is not.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<String>,
+
 	/// The range of the export's name in the module's source, with UTF-8 character offsets.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub range: Option<tg::Range>,
 
-	/// The export's type.
-	#[serde(rename = "type")]
-	pub type_: Type,
+	/// The export's type, if it is a value.
+	#[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+	pub type_: Option<Type>,
 }
 
 /// A type over values.

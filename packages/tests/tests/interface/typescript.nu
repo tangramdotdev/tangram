@@ -1,4 +1,4 @@
-use ../lib/test.nu *
+use ../../util/test.nu *
 
 # The interface of a TypeScript module lists its exports with their documentation and the ranges of their names, and types each export as a command with the types that the checker infers.
 
@@ -39,12 +39,14 @@ let expected = {
 }
 assert equal $interface $expected
 
-# An export whose type is not a value has no interface.
+# An export whose type is not a value has the reason instead of a type.
 let path = artifact {
 	tangram.ts: '
 		export function curry(name: string) { return () => name; }
 	'
 }
 let output = tg interface $path | complete
-failure $output
-assert ($output.stderr | str contains 'a function is not a value') $output.stderr
+success $output
+let curry = $output.stdout | from json | get exports.curry
+assert ('type' not-in $curry)
+assert ($curry.error | str contains 'a function is not a value') $curry.error

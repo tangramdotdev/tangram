@@ -8,12 +8,12 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// The arg of an interface extraction.
+/// The arg of getting the interface of a module.
 pub(crate) struct Arg {
 	/// The module.
 	pub(crate) module: tg::module::Data,
 
-	/// The modules in other languages that the extraction loads without their interfaces, which are the other members of the module's cycle.
+	/// The modules in other languages that getting the interface loads without their interfaces, which are the other members of the module's cycle.
 	pub(crate) untyped: BTreeSet<Key>,
 }
 
@@ -35,9 +35,9 @@ struct Node {
 	version: u64,
 }
 
-/// An interface that has been extracted for a module.
+/// An interface that has been gotten for a module.
 pub(crate) struct Entry {
-	/// The hash of the versions of the modules that the module reaches when its interface was extracted.
+	/// The hash of the versions of the modules that the module reaches when its interface was gotten.
 	fingerprint: u64,
 
 	/// The interface.
@@ -62,12 +62,12 @@ impl Compiler {
 		Ok(entry.interface.clone())
 	}
 
-	/// Extract the interfaces of the modules in other languages that the checker of the roots loads, in dependency order, so that no extraction waits on another checker.
+	/// Get the interfaces of the modules in other languages that the checker of the roots loads, in dependency order, so that getting no interface waits on another checker.
 	pub(crate) async fn prepare_interfaces(&self, roots: Vec<tg::module::Data>) {
 		self.prepare_interfaces_inner(roots, false).await;
 	}
 
-	/// Extract the interfaces of the modules in other languages that the roots load, and of the roots too if `include_roots` is true, returning the errors of the extractions that failed.
+	/// Get the interfaces of the modules in other languages that the roots load, and of the roots too if `include_roots` is true, returning the errors of the modules whose interfaces could not be gotten.
 	async fn prepare_interfaces_inner(
 		&self,
 		roots: Vec<tg::module::Data>,
@@ -125,7 +125,7 @@ impl Compiler {
 			);
 		}
 
-		// Extract the interfaces of each group of mutually dependent modules after the groups they depend on, and remove the interface of a module whose extraction fails.
+		// Get the interfaces of each group of mutually dependent modules after the groups they depend on, and remove the interface of a module whose interface cannot be gotten.
 		let mut errors = BTreeMap::new();
 		for component in components(&dependencies, &targets) {
 			let fingerprints = component
@@ -149,7 +149,7 @@ impl Compiler {
 				let interface = match self.backend(arg.module.kind).interface(self, arg).await {
 					Ok(interface) => interface,
 					Err(error) => {
-						tracing::debug!(error = %error.trace(), "failed to extract the interface");
+						tracing::debug!(error = %error.trace(), "failed to get the interface");
 						errors.insert(key.clone(), error);
 						entries.push((key.clone(), None));
 						continue;
@@ -190,7 +190,7 @@ impl Compiler {
 		errors
 	}
 
-	/// Get the extracted interface of a module, if there is one.
+	/// Get the cached interface of a module, if there is one.
 	pub(crate) fn try_get_interface(&self, module: &tg::module::Data) -> Option<Arc<Entry>> {
 		self.interfaces
 			.nodes

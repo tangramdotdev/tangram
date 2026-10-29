@@ -7,7 +7,7 @@ import base64
 import json
 import math
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, TypeGuard, cast, final
 
 from .. import _native, authorization
 from ..module import Module
@@ -65,6 +65,16 @@ type ValueInput = (
     | Awaitable[ValueInput]
     | Callable[..., ValueInput]
 )
+
+
+@final
+class NonValue[Reason: str]:
+    """The type of an export from another language that is not a value.
+
+    The type argument is the reason that the export is not a value.
+    """
+
+    __slots__ = ()
 
 
 class ObjectValueData(TypedDict):

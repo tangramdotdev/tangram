@@ -1,4 +1,4 @@
-use ../lib/test.nu *
+use ../../util/test.nu *
 
 # The interface of a Python module lists its public exports with their docstrings and the ranges of their names, and types each export as a command with the types that the checker infers.
 
@@ -42,7 +42,7 @@ let expected = {
 }
 assert equal $interface $expected
 
-# An export whose type is not a value has no interface.
+# An export whose type is not a value has the reason instead of a type.
 let path = artifact {
 	tangram.py: '
 		from collections.abc import Callable
@@ -52,5 +52,7 @@ let path = artifact {
 	'
 }
 let output = tg interface $path | complete
-failure $output
-assert ($output.stderr | str contains 'a function is not a value') $output.stderr
+success $output
+let curry = $output.stdout | from json | get exports.curry
+assert ('type' not-in $curry)
+assert ($curry.error | str contains 'a function is not a value') $curry.error

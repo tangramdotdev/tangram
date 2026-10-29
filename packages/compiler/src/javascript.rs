@@ -372,7 +372,7 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::interfaces::Arg,
 	) -> BoxFuture<'static, tg::Result<tg::Interface>> {
-		// Extract the interface with a separate program rather than the editor project.
+		// Get the interface with a separate program rather than the editor project.
 		compiler.javascript.job(compiler, move |compiler, _| {
 			let text = compiler
 				.main_runtime_handle

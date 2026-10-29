@@ -204,7 +204,7 @@ fn typescript_module(interface: &tg::Interface, text: &str) -> String {
 		}
 
 		// Export the command.
-		let type_ = typescript::type_(&export.type_, &definitions);
+		let type_ = typescript::export(export, &definitions);
 		writeln!(
 			output,
 			"const c{index}: {type_} = tg.command(f{index}) as unknown as {type_};\nexport {{ c{index} as {quoted} }};"
@@ -275,7 +275,7 @@ fn python_module(interface: &tg::Interface, text: &str) -> String {
 		.collect::<Vec<_>>();
 	let types = bindings
 		.values()
-		.map(|(_, export)| python::type_(&export.type_, &names))
+		.map(|(_, export)| python::export(export, &names))
 		.collect::<Vec<_>>();
 	for record in names.records.borrow().iter() {
 		writeln!(output, "{record}").unwrap();
@@ -493,11 +493,12 @@ mod tests {
 		};
 		let greeting = tg::interface::Export {
 			documentation: None,
+			error: None,
 			range: None,
-			type_: tg::interface::Type::Command {
+			type_: Some(tg::interface::Type::Command {
 				args: Box::new(args),
 				output: Box::new(tg::interface::Type::File),
-			},
+			}),
 		};
 		let field = tg::interface::Field {
 			optional: true,
@@ -537,6 +538,35 @@ mod tests {
 		assert!(text.contains("type _tg_type_0 = _tg_record_0\n"), "{text}");
 		assert!(
 			text.contains("greeting = _tg_typing.cast(\"tg.Command[tuple[str, *tuple[_tg_type_0, ...]], tg.File]\", tg.command(_tg_function_0))\n"),
+			"{text}"
+		);
+	}
+
+	#[test]
+	fn types_an_export_that_is_not_a_value_with_its_reason() {
+		let curry = tg::interface::Export {
+			documentation: None,
+			error: Some("a function is not a value".to_owned()),
+			range: None,
+			type_: None,
+		};
+		let interface = tg::Interface {
+			definitions: BTreeMap::new(),
+			exports: [("curry".to_owned(), curry)].into(),
+		};
+
+		// The TypeScript module types the export with the reason.
+		let text = typescript_module(&interface, "");
+		assert!(
+			text.contains("const c0: tg.NonValue<\"a function is not a value\"> = tg.command(f0)"),
+			"{text}"
+		);
+
+		// The Python module types the export with the reason.
+		let text = python_module(&interface, "");
+		assert!(ruff_python_parser::parse_module(&text).is_ok(), "{text}");
+		assert!(
+			text.contains("curry = _tg_typing.cast(\"tg.NonValue[_tg_typing.Literal['a function is not a value']]\", tg.command(_tg_function_0))\n"),
 			"{text}"
 		);
 	}

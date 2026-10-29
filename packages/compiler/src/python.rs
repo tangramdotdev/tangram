@@ -379,7 +379,7 @@ impl crate::backend::Backend for Backend {
 		compiler: &Compiler,
 		arg: crate::interfaces::Arg,
 	) -> BoxFuture<'static, tg::Result<tg::Interface>> {
-		// Extract the interface on the worker, loading the other members of the module's cycle without their interfaces.
+		// Get the interface on the worker, loading the other members of the module's cycle without their interfaces.
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let job: Job = Box::new(move |compiler, database| {
 			let output = (|| {

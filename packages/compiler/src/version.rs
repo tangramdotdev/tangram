@@ -7,7 +7,7 @@ use {
 };
 
 impl Compiler {
-	/// Get the version of a module as a checker in a language loads it, which for a module in another language includes its extracted interface.
+	/// Get the version of a module as a checker in a language loads it, which for a module in another language includes its cached interface.
 	pub async fn get_module_version_with_language(
 		&self,
 		module: &tg::module::Data,
@@ -17,7 +17,7 @@ impl Compiler {
 			.await
 	}
 
-	/// Get the version of a module as a checker in a language loads it, including its extracted interface only if `typed` is true.
+	/// Get the version of a module as a checker in a language loads it, including its cached interface only if `typed` is true.
 	pub(crate) async fn get_module_version_with_language_inner(
 		&self,
 		module: &tg::module::Data,

@@ -16,7 +16,7 @@ pub(super) struct Host {
 	pub(super) compiler: Compiler,
 	files: Mutex<Files>,
 
-	/// The modules in other languages to load without their extracted interfaces.
+	/// The modules in other languages to load without their cached interfaces.
 	untyped: BTreeSet<crate::document::Key>,
 }
 
@@ -61,7 +61,7 @@ impl Host {
 		}
 	}
 
-	/// Determine whether to load a module with its extracted interface.
+	/// Determine whether to load a module with its cached interface.
 	fn typed(&self, module: &tg::module::Data) -> bool {
 		self.untyped.is_empty() || !self.untyped.contains(&crate::document::Key::new(module))
 	}

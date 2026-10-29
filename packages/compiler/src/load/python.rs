@@ -53,6 +53,29 @@ fn is_identifier(name: &str) -> bool {
 	matches!(parsed.syntax().body.as_slice(), [Stmt::Assign(assign)] if matches!(assign.targets.as_slice(), [Expr::Name(target)] if target.id.as_str() == name))
 }
 
+/// Print the type of an export as a Python type expression, giving an export that is not a value a type that carries the reason.
+pub(super) fn export(export: &tg::interface::Export, names: &Names) -> String {
+	let Some(type_) = &export.type_ else {
+		let client = &names.client;
+		let typing = &names.typing;
+		// Replace the characters that a string annotation cannot contain without an escape sequence.
+		let error = export
+			.error
+			.as_deref()
+			.unwrap_or("the export is not a value")
+			.chars()
+			.map(|character| match character {
+				'"' | '\'' => '`',
+				'\\' => '/',
+				character if character.is_control() => ' ',
+				character => character,
+			})
+			.collect::<String>();
+		return format!("{client}.NonValue[{typing}.Literal['{error}']]");
+	};
+	self::type_(type_, names)
+}
+
 /// Print a type as a Python type expression.
 pub(super) fn type_(type_: &tg::interface::Type, names: &Names) -> String {
 	let client = &names.client;

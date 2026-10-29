@@ -46,13 +46,24 @@ impl Database {
 			names: BTreeMap::new(),
 		};
 
-		// Give each export its type.
+		// Give each export its type, or the reason that it is not a value, discarding the definitions of an export that is not a value.
 		for (name, export) in &mut interface.exports {
 			let type_ = describe::module_member(self, program_file, name)
 				.ok_or_else(|| tg::error!(%name, "failed to find the export"))?;
-			export.type_ = converter.export(type_).map_err(
-				|error| tg::error!(!error, %name, "failed to get the type of the export"),
-			)?;
+			let definitions = converter.definitions.clone();
+			let names = converter.names.clone();
+			match converter.export(type_) {
+				Ok(type_) => {
+					export.error = None;
+					export.type_ = Some(type_);
+				},
+				Err(error) => {
+					converter.definitions = definitions;
+					converter.names = names;
+					export.error = Some(crate::interface::non_value_message(&error));
+					export.type_ = None;
+				},
+			}
 		}
 		interface.definitions = converter.definitions;
 

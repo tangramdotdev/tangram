@@ -58,7 +58,7 @@ pub(super) struct Database {
 	storage: salsa::Storage<Self>,
 	system: System,
 
-	/// The modules in other languages to load without their extracted interfaces.
+	/// The modules in other languages to load without their cached interfaces.
 	untyped: BTreeSet<Key>,
 
 	uv_environments: ty_project::UvEnvironments,
@@ -376,12 +376,12 @@ impl Database {
 		Ok(text)
 	}
 
-	/// Determine whether to load a module with its extracted interface.
+	/// Determine whether to load a module with its cached interface.
 	fn typed(&self, module: &tg::module::Data) -> bool {
 		self.untyped.is_empty() || !self.untyped.contains(&Key::new(module))
 	}
 
-	/// Set the modules in other languages to load without their extracted interfaces.
+	/// Set the modules in other languages to load without their cached interfaces.
 	pub(super) fn set_untyped(&mut self, untyped: BTreeSet<Key>) {
 		self.untyped = untyped;
 	}

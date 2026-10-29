@@ -1,5 +1,21 @@
 use {std::collections::BTreeMap, tangram_client::prelude::*};
 
+/// Print the type of an export as TypeScript, giving an export that is not a value a type that carries the reason.
+pub(super) fn export(
+	export: &tg::interface::Export,
+	definitions: &BTreeMap<String, String>,
+) -> String {
+	let Some(type_) = &export.type_ else {
+		let error = export
+			.error
+			.as_deref()
+			.unwrap_or("the export is not a value");
+		let error = serde_json::to_string(error).unwrap();
+		return format!("tg.NonValue<{error}>");
+	};
+	self::type_(type_, definitions)
+}
+
 /// Print a type as TypeScript, naming the interface's definitions with the given names.
 pub(super) fn type_(type_: &tg::interface::Type, definitions: &BTreeMap<String, String>) -> String {
 	match type_ {

@@ -30,6 +30,7 @@ fn an_interface_round_trips_through_json() {
 	};
 	let greeting = Export {
 		documentation: Some("Greet someone.".to_owned()),
+		error: None,
 		range: Some(tg::Range {
 			end: tg::Position {
 				character: 24,
@@ -40,10 +41,10 @@ fn an_interface_round_trips_through_json() {
 				line: 0,
 			},
 		}),
-		type_: Type::Command {
+		type_: Some(Type::Command {
 			args: Box::new(args),
 			output: Box::new(Type::File),
-		},
+		}),
 	};
 	let options = Type::Record {
 		fields: BTreeMap::from([
@@ -96,17 +97,39 @@ fn an_interface_uses_the_documented_json_shape() {
 	};
 	let greeting = Export {
 		documentation: None,
+		error: None,
 		range: None,
-		type_: Type::Command {
+		type_: Some(Type::Command {
 			args: Box::new(args),
 			output: Box::new(Type::File),
-		},
+		}),
 	};
 	let expected = Interface {
 		definitions: BTreeMap::new(),
 		exports: BTreeMap::from([("greeting".to_owned(), greeting)]),
 	};
 	assert_eq!(interface, expected);
+}
+
+#[test]
+fn an_export_that_is_not_a_value_has_an_error() {
+	let json = r#"{ "exports": { "curry": { "error": "a function is not a value" } } }"#;
+	let interface = Interface::deserialize_json(json).unwrap();
+	let curry = Export {
+		documentation: None,
+		error: Some("a function is not a value".to_owned()),
+		range: None,
+		type_: None,
+	};
+	let expected = Interface {
+		definitions: BTreeMap::new(),
+		exports: BTreeMap::from([("curry".to_owned(), curry)]),
+	};
+	assert_eq!(interface, expected);
+	assert_eq!(
+		Interface::deserialize_json(&interface.serialize_json().unwrap()).unwrap(),
+		interface
+	);
 }
 
 #[test]

@@ -70,8 +70,9 @@ pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface
 				});
 				let export = tg::interface::Export {
 					documentation: export.documentation,
+					error: None,
 					range,
-					type_: untyped_command(),
+					type_: Some(untyped_command()),
 				};
 				(name, export)
 			})
@@ -83,6 +84,36 @@ pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface
 
 		Ok(interface)
 	}
+}
+
+/// Describe why an export is not a value, with the message and values of each error in the error's chain.
+#[cfg(all(feature = "javascript", feature = "python"))]
+#[cfg_attr(not(any(feature = "tsrs", feature = "ty")), expect(dead_code))]
+pub(crate) fn non_value_message(error: &tg::Error) -> String {
+	let mut messages = Vec::new();
+	let mut current = Some(error);
+	while let Some(error) = current {
+		let mut message = error
+			.message()
+			.unwrap_or_else(|| "an error occurred".to_owned());
+		if let Some(object) = error.state().object()
+			&& let Ok(object) = object.try_unwrap_error_ref()
+			&& !object.values.is_empty()
+		{
+			let values = object
+				.values
+				.iter()
+				.map(|(key, value)| format!("{key} = {value}"))
+				.collect::<Vec<_>>()
+				.join(", ");
+			message = format!("{message} ({values})");
+		}
+		messages.push(message);
+		current =
+			std::error::Error::source(error).and_then(|source| source.downcast_ref::<tg::Error>());
+	}
+
+	messages.join(": ")
 }
 
 /// Get the type of a command whose args and output are any values.
