@@ -12052,7 +12052,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_tests_supervise"
+name = "tangram_tests_supervisor"
 version = "0.0.0"
 dependencies = [
  "clap",

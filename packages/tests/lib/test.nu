@@ -903,7 +903,7 @@ export def "checkin push" [server: record, path: string, --token: string] {
 export def --env "server start" [server: record] {
 	# Wait for the previous supervisor, which finishes shortly after its server exits.
 	if (server_is_running $server) {
-		let output = ^tangram_tests_supervise wait --directory $server.supervisor --timeout 10 | complete
+		let output = ^tangram_tests_supervisor wait --directory $server.supervisor --timeout 10 | complete
 		if $output.exit_code != 0 {
 			error make { msg: 'the server is already running' }
 		}
@@ -942,7 +942,7 @@ export def --env "server start" [server: record] {
 	let remove = if $macos_app_group_socket == null { [] } else { [--remove $macos_app_group_socket] }
 	let output = try {
 		with-env $environment {
-			^tangram_tests_supervise start --description server --directory $supervisor --name $server.name --ready-fd 3 ...$remove -- tangram -c $server.config_path -d $server.directory -u $server.url serve --ready-fd 3
+			^tangram_tests_supervisor start --description server --directory $supervisor --name $server.name --ready-fd 3 ...$remove -- tangram -c $server.config_path -d $server.directory -u $server.url serve --ready-fd 3
 		} | from json
 	} catch {
 		let error_path = $supervisor | path join 'error'
@@ -962,7 +962,7 @@ export def --env "server start" [server: record] {
 export def "server stop" [server: record] {
 	let supervisor = $server.supervisor?
 	if $supervisor != null {
-		^tangram_tests_supervise stop --directory $supervisor
+		^tangram_tests_supervisor stop --directory $supervisor
 	}
 	remove_macos_app_group_socket $server.macos_app_group_socket?
 }
@@ -980,7 +980,7 @@ def server_is_running [server: record] {
 		return false
 	}
 
-	(^tangram_tests_supervise status --directory $supervisor | complete).exit_code == 0
+	(^tangram_tests_supervisor status --directory $supervisor | complete).exit_code == 0
 }
 
 # Record a supervisor directory so the test cleanup stops its process.
@@ -1339,7 +1339,7 @@ export def wait_for_exit [
 	--timeout: duration = 60sec
 ] {
 	let seconds = $timeout / 1sec | math ceil
-	let output = ^tangram_tests_supervise exit --pid $pid --timeout $seconds | complete
+	let output = ^tangram_tests_supervisor exit --pid $pid --timeout $seconds | complete
 	if $output.exit_code != 0 {
 		error make { msg: ($message | default $'the process ($pid) did not exit within ($timeout)') }
 	}
@@ -1501,7 +1501,7 @@ export def cleanup_background_jobs [temp_path: string] {
 	let path = $temp_path | path join $supervisors_name
 	let supervisors = if ($path | path exists) { open --raw $path | lines | where { $in != '' } } else { [] }
 	for supervisor in ($supervisors | reverse) {
-		try { ^tangram_tests_supervise stop --directory $supervisor }
+		try { ^tangram_tests_supervisor stop --directory $supervisor }
 	}
 
 	# Kill every remaining test job and its process group, including unlabelled helpers and mock services.

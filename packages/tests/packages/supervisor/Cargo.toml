@@ -1,5 +1,5 @@
 [package]
-name = "tangram_tests_supervise"
+name = "tangram_tests_supervisor"
 
 description = { workspace = true }
 edition = { workspace = true }
@@ -11,7 +11,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [[bin]]
-name = "tangram_tests_supervise"
+name = "tangram_tests_supervisor"
 path = "src/main.rs"
 
 [lints]

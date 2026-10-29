@@ -12,7 +12,7 @@ export def --env spawn_http_server [routes: record] {
 	let supervisor = mktemp -d
 	track_supervisor $supervisor
 	try {
-		^tangram_tests_supervise start --directory $supervisor --name http --ready-fd 3 -- bun run $http_path $routes_path $port_path o> /dev/null
+		^tangram_tests_supervisor start --directory $supervisor --name http --ready-fd 3 -- bun run $http_path $routes_path $port_path o> /dev/null
 	} catch {
 		error make { msg: 'the local HTTP server must start' }
 	}

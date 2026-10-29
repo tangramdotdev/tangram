@@ -14,7 +14,7 @@ let remote = $'default=($remote_upstream.url)'
 # Start the server under a supervisor, which waits for it to signal readiness.
 let supervisor = mktemp --directory
 track_supervisor $supervisor
-^tangram_tests_supervise start --description server --directory $supervisor --name local --ready-fd 3 -- tangram -c $config_path -d $directory -u $url --trusted-remotes default serve --remotes $remote --ready-fd 3 | from json | ignore
+^tangram_tests_supervisor start --description server --directory $supervisor --name local --ready-fd 3 -- tangram -c $config_path -d $directory -u $url --trusted-remotes default serve --remotes $remote --ready-fd 3 | from json | ignore
 
 let remote = tg --url $url remote get default | from json
 assert equal $remote.trusted true "the global option should mark the serve remote as trusted"

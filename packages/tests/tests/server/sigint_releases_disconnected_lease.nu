@@ -27,6 +27,6 @@ wait_for_log $local 'stopped listening on'
 
 # Disconnect the build only after the listener stops, so the wait guard sees a stopped server.
 kill --signal 2 (job list | where id == $build | get 0.pids.0)
-let output = ^tangram_tests_supervise wait --directory $local.supervisor --timeout 10 | complete
+let output = ^tangram_tests_supervisor wait --directory $local.supervisor --timeout 10 | complete
 success $output 'the server must shut down after the build disconnects'
 assert equal ($output.stdout | str trim | into int) 0 'the server must exit successfully'

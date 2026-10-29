@@ -29,7 +29,7 @@ let pid = open ($local.directory | path join 'lock') | into int
 print -e $'killing the server ($pid)'
 kill --signal 9 $pid
 wait_for_exit $pid "the server must stop"
-let output = ^tangram_tests_supervise wait --directory $local.supervisor --timeout 10 | complete
+let output = ^tangram_tests_supervisor wait --directory $local.supervisor --timeout 10 | complete
 success $output "the server supervisor must report completion"
 assert equal ($output.stdout | str trim | into int) 137 "the supervisor must report the killed server's status"
 print -e 'the server stopped'

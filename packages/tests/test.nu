@@ -57,7 +57,7 @@ def main [
 	# Build the test runner with Tangram in one Cargo invocation, and add both to the path. With --tangram-path, use the prebuilt binary instead.
 	let profile = if $release { 'release' } else { 'debug' }
 	let profile_args = if $release { ['--release'] } else { [] }
-	let packages = ['--package' 'tangram_tests_runner' '--package' 'tangram_tests_supervise' '--package' 'tangram_scylla_client']
+	let packages = ['--package' 'tangram_tests_runner' '--package' 'tangram_tests_supervisor' '--package' 'tangram_scylla_client']
 	let packages = if $node { $packages | append ['--package' 'tangram_javascript_native'] } else { $packages }
 	let target_path = $env.CARGO_TARGET_DIR? | default ($repository_path | path join 'target') | path join $profile
 	if $tangram_path != null {

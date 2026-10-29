@@ -184,7 +184,7 @@ members = [
   "packages/server/packages/watch/packages/core",
   "packages/server/packages/write",
   "packages/tests/packages/runner",
-  "packages/tests/packages/supervise",
+  "packages/tests/packages/supervisor",
   "packages/uri",
   "packages/util",
   "packages/v8",

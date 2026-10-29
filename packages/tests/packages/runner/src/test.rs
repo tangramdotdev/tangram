@@ -139,7 +139,7 @@ async fn run_inner(
 	.join("\n");
 	let output_path = temp_path.join("output");
 	let leaks_path = temp_path.join("leaks");
-	let mut command = Command::new("tangram_tests_supervise");
+	let mut command = Command::new("tangram_tests_supervisor");
 	command
 		.arg("run")
 		.arg("--leaks")

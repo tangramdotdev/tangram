@@ -34,5 +34,5 @@ let pid = open --raw ($local.directory | path join lock) | str trim | into int
 ^kill --signal INT -- $'-($pid)'
 
 # Wait for the graceful shutdown to finish.
-let exit = ^tangram_tests_supervise wait --directory $local.supervisor --timeout 30 | str trim | into int
+let exit = ^tangram_tests_supervisor wait --directory $local.supervisor --timeout 30 | str trim | into int
 assert equal $exit 0 'the server should exit successfully'

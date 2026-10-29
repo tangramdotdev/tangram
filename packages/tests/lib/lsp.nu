@@ -141,7 +141,7 @@ export def start [] {
 		exec 3<>\"($input)\"
 		exec tg lsp <&3 > \"($output)\" 2> \"($stderr)\"
 	"
-	^tangram_tests_supervise start --directory $supervisor --name lsp -- bash -c $script o> /dev/null
+	^tangram_tests_supervisor start --directory $supervisor --name lsp -- bash -c $script o> /dev/null
 	{
 		directory: $directory,
 		input: $input,
@@ -249,9 +249,9 @@ export def stop [session: record] {
 	}
 
 	# Wait for the language server to exit after the exit notification, and stop it if it does not.
-	let output = ^tangram_tests_supervise wait --directory $session.supervisor --timeout 5 | complete
+	let output = ^tangram_tests_supervisor wait --directory $session.supervisor --timeout 5 | complete
 	if $output.exit_code != 0 {
-		^tangram_tests_supervise stop --directory $session.supervisor --timeout 1
+		^tangram_tests_supervisor stop --directory $session.supervisor --timeout 1
 	}
 	try { rm --recursive --force $session.directory }
 }
