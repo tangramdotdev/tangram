@@ -110,7 +110,7 @@ async fn run_inner(
 	} else {
 		std::env::temp_dir()
 	};
-	let temp_path = temp::create(&parent)?;
+	let temp_path = tangram_tests_util::Temp::with_parent(&parent)?.into_path();
 	let working_path = temp_path.join("work");
 	std::fs::create_dir(&working_path)?;
 
@@ -195,7 +195,8 @@ async fn run_inner(
 		!errors.is_empty() || options.preserve_temps || (options.preserve_failing_temps && failed);
 	if !preserve {
 		let path = temp_path.clone();
-		let result = tokio::task::spawn_blocking(move || temp::remove(&path)).await?;
+		let result =
+			tokio::task::spawn_blocking(move || tangram_tests_util::temp::remove(&path)).await?;
 		if let Err(error) = result {
 			errors.push(error.to_string());
 		}

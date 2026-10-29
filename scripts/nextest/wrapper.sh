@@ -1,6 +1,9 @@
 #!/bin/sh
 
 # Run a test under the test supervisor, which contains every process that the test starts, and fail the test if any process outlived it.
+# Outlive the signals that end the test, so that the cleanup below runs after the supervisor stops the test.
+trap : HUP INT TERM
+
 temp=$(mktemp -d "${TMPDIR:-/tmp}/tangram_test_XXXXXX") || exit 1
 TMPDIR=$temp TANGRAM_TEST_SEMAPHORES=$temp/posix_semaphores "$TANGRAM_TESTS_SUPERVISOR" run --leaks "$temp/leaks" --path "$temp" -- "$@"
 code=$?

@@ -27,7 +27,8 @@ impl Server {
 	pub async fn start(tangram: impl Into<PathBuf>, config: Config) -> tg::Result<Self> {
 		let tangram = tangram.into();
 		crate::semaphore::record(&config.semaphore_names());
-		let temp = Temp::new()?;
+		let temp = Temp::new()
+			.map_err(|error| tg::error!(!error, "failed to create the temporary directory"))?;
 
 		// Write the configuration.
 		let bytes = serde_json::to_vec_pretty(config.value())

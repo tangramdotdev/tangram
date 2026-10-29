@@ -17,8 +17,15 @@ doctest = false
 workspace = true
 
 [features]
-cli = []
-server = ["dep:tangram_cli_core", "dep:tangram_cli_server", "dep:tangram_server"]
+cli = ["dep:tangram_client", "dep:tangram_uri", "dep:tokio"]
+server = [
+	"dep:tangram_cli_core",
+	"dep:tangram_cli_server",
+	"dep:tangram_client",
+	"dep:tangram_server",
+	"dep:tangram_uri",
+	"dep:tokio",
+]
 
 [dependencies]
 libc = { workspace = true }
@@ -26,7 +33,7 @@ rand = { workspace = true }
 serde_json = { workspace = true }
 tangram_cli_core = { workspace = true, optional = true }
 tangram_cli_server = { workspace = true, optional = true }
-tangram_client = { workspace = true }
+tangram_client = { workspace = true, optional = true }
 tangram_server = { workspace = true, features = ["lmdb", "sqlite"], optional = true }
-tangram_uri = { workspace = true }
-tokio = { workspace = true }
+tangram_uri = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }

@@ -25,4 +25,5 @@ libc = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tangram_tests_util = { workspace = true }
 tokio = { workspace = true }

@@ -12064,6 +12064,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "tangram_tests_util",
  "tokio",
 ]
 

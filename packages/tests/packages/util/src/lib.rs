@@ -3,7 +3,6 @@ mod client;
 mod config;
 #[cfg(any(feature = "cli", feature = "server"))]
 mod semaphore;
-mod temp;
 
 pub use self::{config::Config, temp::Temp};
 
@@ -11,3 +10,4 @@ pub use self::{config::Config, temp::Temp};
 pub mod cli;
 #[cfg(feature = "server")]
 pub mod server;
+pub mod temp;

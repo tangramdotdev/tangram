@@ -1,10 +1,8 @@
-use {
-	std::{
-		ffi::{CString, OsStr},
-		os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
-		path::{Path, PathBuf},
-	},
-	tangram_client::prelude::*,
+use std::{
+	ffi::{CString, OsStr},
+	io,
+	os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
+	path::{Path, PathBuf},
 };
 
 /// A temporary directory, which is removed when it is dropped unless `TANGRAM_TEST_PRESERVE_TEMPS` is set.
@@ -14,31 +12,33 @@ pub struct Temp {
 
 impl Temp {
 	/// Create a uniquely named directory with the prefix `tangram_test_` in the temporary directory.
-	pub fn new() -> tg::Result<Self> {
-		let parent = std::env::temp_dir();
-		std::fs::create_dir_all(&parent).map_err(
-			|error| tg::error!(!error, path = %parent.display(), "failed to create the temporary directory"),
-		)?;
+	pub fn new() -> io::Result<Self> {
+		Self::with_parent(&std::env::temp_dir())
+	}
+
+	/// Create a uniquely named directory with the prefix `tangram_test_` in a parent directory.
+	pub fn with_parent(parent: &Path) -> io::Result<Self> {
+		std::fs::create_dir_all(parent)?;
 		let template = parent.join("tangram_test_XXXXXX");
-		let template = CString::new(template.as_os_str().as_bytes())
-			.map_err(|error| tg::error!(!error, "invalid temporary directory path"))?;
+		let template = CString::new(template.as_os_str().as_bytes())?;
 		let mut template = template.into_bytes_with_nul();
 		// SAFETY: The template is a valid, mutable, nul-terminated string.
 		let result = unsafe { libc::mkdtemp(template.as_mut_ptr().cast()) };
 		if result.is_null() {
-			let error = std::io::Error::last_os_error();
-			return Err(tg::error!(
-				!error,
-				"failed to create the temporary directory"
-			));
+			return Err(io::Error::last_os_error());
 		}
 		template.pop();
-		let path = std::fs::canonicalize(OsStr::from_bytes(&template)).map_err(|error| {
-			tg::error!(!error, "failed to canonicalize the temporary directory")
-		})?;
+		let path = std::fs::canonicalize(OsStr::from_bytes(&template))?;
 		let temp = Self { path };
 
 		Ok(temp)
+	}
+
+	/// Keep the directory instead of removing it when it is dropped, and return its path.
+	#[must_use]
+	pub fn into_path(self) -> PathBuf {
+		let temp = std::mem::ManuallyDrop::new(self);
+		temp.path.clone()
 	}
 
 	#[must_use]
@@ -53,17 +53,24 @@ impl Drop for Temp {
 			eprintln!("preserved the temporary directory {}", self.path.display());
 			return;
 		}
-		remove(&self.path);
+		remove(&self.path).ok();
 	}
 }
 
 /// Remove a directory. If removal fails, grant the owner full permissions on every directory and try again.
-fn remove(path: &Path) {
+pub fn remove(path: &Path) -> io::Result<()> {
 	if std::fs::remove_dir_all(path).is_ok() || !path.exists() {
-		return;
+		return Ok(());
 	}
 	grant(path);
-	std::fs::remove_dir_all(path).ok();
+	std::fs::remove_dir_all(path).map_err(|error| {
+		io::Error::other(format!(
+			"failed to remove the test temp directory {}: {error}",
+			path.display()
+		))
+	})?;
+
+	Ok(())
 }
 
 /// Grant the owner full permissions on a directory and every directory under it.

@@ -63,7 +63,7 @@ pub async fn clean(args: Args) -> Result<ExitCode> {
 	for path in temp_paths {
 		let result = tokio::task::spawn_blocking(move || {
 			semaphore::cleanup(&path)?;
-			temp::remove(&path)?;
+			tangram_tests_util::temp::remove(&path)?;
 			Ok::<_, crate::Error>(path)
 		})
 		.await?;
