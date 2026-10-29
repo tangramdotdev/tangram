@@ -8,7 +8,7 @@ from pathlib import Path
 
 def copy(client: Path, destination: Path) -> None:
     roots = [client / "tangram"]
-    for name in ["h2", "hpack", "hyperframe", "tomli_w", "yaml"]:
+    for name in ["h2", "hpack", "hyperframe", "tomli_w"]:
         spec = importlib.util.find_spec(name)
         if spec is None or spec.origin is None:
             raise SystemExit(f"missing locked python package: {name}")

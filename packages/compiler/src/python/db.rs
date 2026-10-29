@@ -108,7 +108,7 @@ impl Database {
 			.extra_paths
 			.push(SystemPathBuf::from("/library"));
 		let mut settings = ProgramSettings::empty(ty_vendored::file_system());
-		settings.python_version.version = PythonVersion::PY314;
+		settings.python_version.version = PythonVersion::PY315;
 		settings.search_paths = search_paths
 			.to_search_paths(&system, ty_vendored::file_system(), &FallibleStrategy)
 			.map_err(|error| tg::error!(!error, "failed to configure the python library"))?;

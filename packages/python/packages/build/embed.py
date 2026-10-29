@@ -16,6 +16,37 @@ from llvm import Compiler
 from native import namespace
 
 
+def archive_members(path):
+    """Read the names and contents of the members of a GNU or BSD archive."""
+    data = path.read_bytes()
+    if not data.startswith(b"!<arch>\n"):
+        raise ValueError(f"{path} is not an archive")
+    offset = 8
+    names = b""
+    while offset + 60 <= len(data):
+        header = data[offset : offset + 60]
+        name = header[:16].decode().strip()
+        size = int(header[48:58].decode().strip())
+        start = offset + 60
+        contents = data[start : start + size]
+        offset = start + size + (size % 2)
+        if name == "//":
+            names = contents
+            continue
+        if name in {"/", "/SYM64/"} or name.startswith("__.SYMDEF"):
+            continue
+        if name.startswith("#1/"):
+            length = int(name[3:])
+            name = contents[:length].rstrip(b"\0").decode()
+            contents = contents[length:]
+        elif name.startswith("/") and name[1:].isdigit():
+            index = int(name[1:])
+            name = names[index : names.index(b"/\n", index)].decode()
+        else:
+            name = name.rstrip("/")
+        yield name, contents
+
+
 def main():
     distribution, host, output, client, sysroot, packages = map(Path, sys.argv[1:])
     sys.path.insert(0, str(packages))
@@ -38,14 +69,14 @@ def main():
         "turtledemo",
         "ensurepip",
         "lib-dynload",
-        "config-3.14-darwin",
-        "config-3.14-x86_64-linux-gnu",
-        "config-3.14-aarch64-linux-gnu",
+        "config-3.15-darwin",
+        "config-3.15-x86_64-linux-gnu",
+        "config-3.15-aarch64-linux-gnu",
     }
     for path in sorted(stdlib.rglob("*")):
         relative = path.relative_to(stdlib)
         if any(
-            part in excluded or part.startswith("config-3.14-")
+            part in excluded or part.startswith("config-3.15-")
             for part in relative.parts
         ):
             continue
@@ -57,7 +88,7 @@ def main():
     copy(client, library)
 
     # Preserve distribution metadata for version checks and entry point discovery.
-    for name in ["h2", "hpack", "hyperframe", "tomli-w", "PyYAML"]:
+    for name in ["h2", "hpack", "hyperframe", "tomli-w"]:
         dependency = importlib.metadata.distribution(name)
         for path in dependency.files or []:
             if len(path.parts) < 2 or not path.parts[0].endswith(".dist-info"):
@@ -236,6 +267,23 @@ int tangram_python_initialize(char *error, size_t capacity) {
                 path, output / "objects" / relative, metadata["target_triple"], sysroot
             )
         native.append(str(path))
+
+    # Add the JIT entry shim, which the build metadata omits from the core objects.
+    version = metadata["python_major_minor_version"]
+    archive = distribution / "install" / "lib" / f"libpython{version}.a"
+    for name, contents in archive_members(archive):
+        if name.startswith("jit_shim-") and name.endswith(".o"):
+            path = output / "objects" / "jit_shim" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(contents)
+            path = namespace(
+                path,
+                output / "objects" / "jit_shim" / f"namespaced-{name}",
+                metadata["target_triple"],
+                sysroot,
+            )
+            native.append(str(path))
+
     (output / "native.json").write_text(json.dumps({"objects": native, "links": links}))
 
 

@@ -7,6 +7,8 @@ import tomllib
 from collections.abc import Mapping
 from typing import Any, Never, NotRequired, Protocol, TypedDict, cast
 
+from . import _native
+
 
 class BytesEncoding(Protocol):
     def decode(self, value: str) -> bytes: ...
@@ -124,12 +126,8 @@ class utf8:
 class yaml:
     @staticmethod
     def decode(value: str) -> object:
-        import yaml
-
-        return yaml.safe_load(value)
+        return _json.loads(_native.yaml_decode(value))
 
     @staticmethod
     def encode(value: object) -> str:
-        import yaml
-
-        return yaml.safe_dump(value, sort_keys=False)
+        return _native.yaml_encode(_json.dumps(value))

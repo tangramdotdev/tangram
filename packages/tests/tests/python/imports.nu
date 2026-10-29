@@ -48,7 +48,7 @@ let path = artifact {
     'tangram.py': 'pass'
     'main.tg.py': '
         # /// script
-        # requires-python = ">=3.14,<3.15"
+        # requires-python = ">=3.15,<3.16"
         # [tool.tangram.dependencies.alternate]
         # specifier = "./left.tg.py"
         # attributes = { source = "./right.tg.py" }

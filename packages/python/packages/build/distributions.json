@@ -1,38 +1,38 @@
 {
-  "python": "3.14.8",
-  "release": "20261003",
+  "python": "3.15.2",
+  "release": "20261026",
   "targets": {
     "aarch64-apple-darwin": {
-      "sha256": "6bb6e246d6c2bdfef5b33e833541c232d99afb37b67a08872f233649f4b64ca7",
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-aarch64-apple-darwin-pgo%2Blto-full.tar.zst"
+      "sha256": "17a41099bba8c18c45c527580014e75dc7a77300f619d7f5cdfecc57aca06f39",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-aarch64-apple-darwin-pgo%2Blto-full.tar.zst"
     },
     "x86_64-apple-darwin": {
-      "sha256": "8c87267e110eaeb689f8de33bd98a2ea3a1ccccec9f9f1c295a7837a81e432f1",
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-apple-darwin-pgo%2Blto-full.tar.zst"
+      "sha256": "f3ded442ab28d88ef625b54e936a5c45c9a444763d3f9f02c8653e11f0d99688",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-x86_64-apple-darwin-pgo%2Blto-full.tar.zst"
     },
     "aarch64-unknown-linux-gnu": {
-      "sha256": "72cee1a99dfde64850dd5ffde8d96f84b0d352fd694cc1e92dad78abae6b8f29",
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-aarch64-unknown-linux-gnu-pgo%2Blto-full.tar.zst"
+      "sha256": "b3fc351d2271f6c0b3c6d2b423043771dfcb5267053512b8aebba195dad110e9",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-aarch64-unknown-linux-gnu-pgo%2Blto-full.tar.zst"
     },
     "x86_64-unknown-linux-gnu": {
-      "sha256": "43b8c1b02e3daefbbbf4b5714b656ea00a5cae24f55c4589fb87468bcac682ed",
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst"
+      "sha256": "3488eafeae3c25a44895df9fd52a9be1f2fa11a45cb0580279e03c2bce5339b4",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst"
     },
     "aarch64-unknown-linux-musl": {
-      "sha256": "cd1b31ffb56e3685c1402595a8584bbb1e268adfd39493f1f39af3a0db9d6ce1",
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-aarch64-unknown-linux-musl-noopt-full.tar.zst"
+      "sha256": "0a8da04365b4b1208389e22f7adad092f8b6e62f6a3ba12dc072e53dc590f163",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-aarch64-unknown-linux-musl-noopt-full.tar.zst"
     },
     "aarch64-unknown-linux-musl+static": {
-      "sha256": "0801df75b9c6df25e0a28f19a7dca35dc4c384f157cc2e59cb3dd3b4d4045f0b",
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-aarch64-unknown-linux-musl-noopt%2Bstatic-full.tar.zst"
+      "sha256": "5ab0a40737241d47c3da4e06a000bfb962d6fbcd2e6d16ef7c21ae87af172e61",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-aarch64-unknown-linux-musl-noopt%2Bstatic-full.tar.zst"
     },
     "x86_64-unknown-linux-musl": {
-      "sha256": "e3eab10c167eea22c49625c1e5acfbf7a05a78b7fb2ce27936754b7f5960faf8",
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-unknown-linux-musl-noopt-full.tar.zst"
+      "sha256": "00f6fc583da2f5a6f9454240e21a27c2780107a90d018f1a72aee192cb0da7e4",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-x86_64-unknown-linux-musl-noopt-full.tar.zst"
     },
     "x86_64-unknown-linux-musl+static": {
-      "sha256": "82376074915a59695f0a496146ef062c696e634e022d37fbdd3bd993e15081bd",
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-unknown-linux-musl-noopt%2Bstatic-full.tar.zst"
+      "sha256": "be04c48b78f22b4c4522fd7d5ca58db6211f78980735cdf6242abdc35c8df099",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-x86_64-unknown-linux-musl-noopt%2Bstatic-full.tar.zst"
     }
   }
 }

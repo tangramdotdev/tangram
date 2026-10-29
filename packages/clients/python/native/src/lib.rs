@@ -72,6 +72,25 @@ fn stringify_value(input: &str) -> PyResult<String> {
 	Ok(value.to_string())
 }
 
+#[pyfunction]
+fn yaml_decode(input: &str) -> PyResult<String> {
+	let value = serde_yaml::from_str::<serde_json::Value>(input).map_err(|error| {
+		to_python_error(&tg::error!(!error, "failed to decode the string as yaml"))
+	})?;
+	let output = serde_json::to_string(&value)
+		.map_err(|error| to_python_error(&tg::error!(!error, "failed to serialize the value")))?;
+	Ok(output)
+}
+
+#[pyfunction]
+fn yaml_encode(input: &str) -> PyResult<String> {
+	let value = serde_json::from_str::<serde_json::Value>(input)
+		.map_err(|error| to_python_error(&tg::error!(!error, "failed to deserialize the value")))?;
+	let output = serde_yaml::to_string(&value)
+		.map_err(|error| to_python_error(&tg::error!(!error, "failed to encode the value")))?;
+	Ok(output)
+}
+
 #[pymodule]
 pub fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 	module.add_function(wrap_pyfunction!(blob_chunk_lengths, module)?)?;
@@ -81,6 +100,8 @@ pub fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 	module.add_function(wrap_pyfunction!(object_id, module)?)?;
 	module.add_function(wrap_pyfunction!(parse_value, module)?)?;
 	module.add_function(wrap_pyfunction!(stringify_value, module)?)?;
+	module.add_function(wrap_pyfunction!(yaml_decode, module)?)?;
+	module.add_function(wrap_pyfunction!(yaml_encode, module)?)?;
 	Ok(())
 }
 
