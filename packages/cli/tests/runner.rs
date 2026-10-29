@@ -263,12 +263,8 @@ fn sandbox_control_arg(
 		None => (tg::sandbox::Id::new(), None),
 	};
 	let location = tg::Location::Local(tg::location::Local::default());
-	let create = tg::sandbox::create::Arg {
-		ttl: Some(std::time::Duration::from_secs(60)),
-		..Default::default()
-	};
 	tg::sandbox::control::Arg {
-		create: Some(create),
+		create: Some(tg::sandbox::create::Arg::default()),
 		created_at: None,
 		creator: None,
 		id: Some(id),

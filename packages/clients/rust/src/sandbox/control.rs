@@ -389,28 +389,43 @@ pub struct SpawnProcessClientResponseOutput {
 	pub process: tg::Referent<tg::process::Id>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub create: Option<tg::sandbox::create::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub created_at: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub creator: Option<tg::Principal>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::sandbox::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
 	/// The proof that the runner that opens the connection derived the sandbox's ID.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub proof: Option<tg::sandbox::id::Proof>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub runner: Option<tg::runner::Id>,
 }
 
@@ -451,18 +466,21 @@ impl tg::Session {
 		let uri = Uri::builder().path("/sandboxes/control").build().unwrap();
 		let max_frame_size = self.client().sync.max_frame_size;
 		let body = crate::frame::encode(stream, max_frame_size);
+
+		// Send the arg in the body, since a query cannot represent an empty create.
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
-			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE);
+			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
+			.header(tangram_http::body::arg::HEADER, "true");
 		let request = if let Some(id) = &arg.id {
 			request.extension(crate::http::Affinity::Sandbox(id.clone()))
 		} else {
 			request
 		};
 		let request = request
-			.arg(&arg, body)
+			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = match self

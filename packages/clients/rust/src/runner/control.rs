@@ -383,18 +383,30 @@ pub struct DestroySandboxServerResponseOutput {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Arg {
+	#[tangram_serialize(id = 0)]
 	pub heartbeat: HeartbeatClientNotification,
 
+	#[tangram_serialize(id = 1)]
 	pub host: String,
 
+	#[tangram_serialize(id = 2)]
 	pub id: tg::runner::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
+	#[tangram_serialize(id = 4)]
 	pub scheduler_ttl: Duration,
 }
 
@@ -440,7 +452,7 @@ impl tg::Session {
 			.uri(uri)
 			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
 			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
-			.arg(&arg, body)
+			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = match self

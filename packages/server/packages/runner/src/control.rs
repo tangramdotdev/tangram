@@ -657,7 +657,7 @@ impl Component {
 
 		// Parse the arg.
 		let (arg, request) = request
-			.arg::<tg::runner::control::Arg>()
+			.arg_with_tangram::<tg::runner::control::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the query params"))?;
