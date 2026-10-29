@@ -86,3 +86,18 @@ let path = artifact {
 let output = tg interface ($path | path join greet.tg.json) | complete
 success $output
 assert equal ($output.stdout | from json | get exports | columns) [hello]
+
+# An interface beside the config may import a module relative to the config, which resolves like the config's dependencies.
+let path = artifact {
+	greet.tg.json: '{ "runtime": "./runtime", "dependencies": { "greeting": "./greeting.tg.ts" } }'
+	greet.tg.tgi: '{ "imports": { "greeting": { "kind": "typescript", "referent": { "node": "./greeting.tg.ts" } } }, "exports": { "greet": { "type": { "kind": "command", "args": { "kind": "tuple", "elements": [] }, "output": { "kind": "reference", "import": "greeting", "name": "Greeting" } } } } }'
+	greeting.tg.ts: 'export interface Greeting { text: string; }'
+	runtime: { tangram.ts: $runtime }
+	tangram.ts: '
+		import { greet } from "./greet.tg.json";
+		export default async () => { const text: number = (await greet.build()).text; return text; };
+	'
+}
+let output = tg check $path | complete
+failure $output
+assert ($output.stderr | str contains "Type 'string' is not assignable to type 'number'") $output.stderr

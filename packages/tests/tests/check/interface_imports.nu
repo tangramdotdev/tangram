@@ -32,6 +32,7 @@ let output = tg interface ($path | path join greet.tg.ts) | complete
 success $output
 let interface = $output.stdout | from json
 assert equal ($interface.imports | columns) [greeting]
+assert equal ($interface.imports.greeting.referent.options.path) './greeting.tg.ts' 
 assert equal $interface.exports.greet.type.output { kind: reference, import: greeting, name: Greeting }
 assert ('definitions' not-in $interface)
 let output = tg interface ($path | path join greeting.tg.ts) | complete

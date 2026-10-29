@@ -250,8 +250,10 @@ impl Host {
 
 		// Resolve an import in the bindings of a module in another language to a module that the module's interface imports.
 		#[cfg(feature = "python")]
-		if referrer.kind == tg::module::Kind::Python
-			&& let Some(entry) = self.compiler.try_get_interface(&referrer)
+		if matches!(
+			referrer.kind,
+			tg::module::Kind::Config | tg::module::Kind::Python
+		) && let Some(entry) = self.compiler.try_get_interface(&referrer)
 			&& let Some(module) = entry.interface.imports.get(specifier)
 		{
 			let path = self.path(module);

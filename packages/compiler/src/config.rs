@@ -43,8 +43,11 @@ impl crate::backend::Backend for Backend {
 		async move {
 			// Read the interface beside the config, if there is one.
 			if let Some(text) = compiler.try_read_interface_file(&arg.module).await? {
-				let interface = tg::Interface::deserialize_json(&text)
+				let mut interface = tg::Interface::deserialize_json(&text)
 					.map_err(|error| tg::error!(argument, !error, "invalid interface"))?;
+				compiler
+					.resolve_interface_imports(&arg.module, &mut interface)
+					.await?;
 				return Ok(interface);
 			}
 
@@ -62,6 +65,43 @@ impl crate::backend::Backend for Backend {
 }
 
 impl Compiler {
+	/// Resolve the imports of an interface beside a config whose paths are relative to the config, like the config's dependencies.
+	async fn resolve_interface_imports(
+		&self,
+		module: &tg::module::Data,
+		interface: &mut tg::Interface,
+	) -> tg::Result<()> {
+		for import in interface.imports.values_mut() {
+			let tg::module::data::Source::Path(path) = &import.referent.node else {
+				continue;
+			};
+			if path.is_absolute() {
+				continue;
+			}
+			let path = path
+				.to_str()
+				.ok_or_else(|| tg::error!("invalid import path"))?;
+			let reference = if path.starts_with('.') {
+				path.parse()?
+			} else {
+				format!("./{path}").parse()?
+			};
+			let import_ = tg::module::Import {
+				kind: Some(import.kind),
+				reference,
+			};
+			let arg = tg::module::resolve::Arg {
+				import: import_,
+				referrer: Some(module.clone()),
+			};
+			let output = self.instance.resolve_module(arg).await.map_err(
+				|error| tg::error!(!error, %path, "failed to resolve the import of the interface"),
+			)?;
+			*import = output.module;
+		}
+		Ok(())
+	}
+
 	/// Read the interface beside a config, from the file system for a path or from the config's dependencies otherwise.
 	async fn try_read_interface_file(
 		&self,

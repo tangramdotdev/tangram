@@ -89,10 +89,29 @@ impl Compiler {
 			.try_get_interface(module)
 			.ok_or_else(|| tg::error!("failed to get the interface of the module"))?;
 
-		// Remove the tokens of the imports, which belong to this compiler's session.
+		// Remove the tokens of the imports, which belong to this compiler's session, and make the paths of imported modules relative to the module, so that the interface does not depend on where the module is.
 		let mut interface = entry.interface.clone();
-		for module in interface.imports.values_mut() {
-			*module = module.without_token();
+		let directory = local_path(module).and_then(|path| path.parent().map(ToOwned::to_owned));
+		for import in interface.imports.values_mut() {
+			*import = import.without_token();
+			let Some(directory) = &directory else {
+				continue;
+			};
+			let Some(path) = local_path(import) else {
+				continue;
+			};
+			let Ok(Some(relative)) = tangram_util::path::diff(directory, &path) else {
+				continue;
+			};
+			let relative = if relative.starts_with("..") {
+				relative
+			} else {
+				std::path::Path::new(".").join(relative)
+			};
+			match &mut import.referent.node {
+				tg::module::data::Source::Edge(_) => import.referent.options.path = Some(relative),
+				tg::module::data::Source::Path(path) => *path = relative,
+			}
 		}
 
 		Ok(interface)
@@ -423,6 +442,15 @@ fn group(kind: tg::module::Kind) -> Option<Group> {
 		tg::module::Kind::Python => Some(Group::Python),
 		_ => None,
 	}
+}
+
+/// Get the absolute path of a module on disk, from its source or from the path of a checked-in module.
+fn local_path(module: &tg::module::Data) -> Option<std::path::PathBuf> {
+	let path = match &module.referent.node {
+		tg::module::data::Source::Edge(_) => module.referent.path()?,
+		tg::module::data::Source::Path(path) => path.as_path(),
+	};
+	path.is_absolute().then(|| path.to_owned())
 }
 
 fn key(module: &tg::module::Data) -> Key {
