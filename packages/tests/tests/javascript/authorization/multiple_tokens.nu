@@ -1,12 +1,32 @@
 use ../../../util/test.nu *
 
-const authorization = path self ../../../util/authorization.ts
-
 # Clients retain complementary proofs, prune covered permissions regardless of expiration, and keep the latest of equivalent proofs.
 
 let local = server spawn
+
+# Encode the tokens that the test uses.
+let id = 'pcs_010000000000000000000000000000000000000000000000000000'
+let file = 'fil_010000000000000000000000000000000000000000000000000000'
+let aspects = ['' _command_objects _error_objects _log_objects _output_objects]
+let specs = [
+	{ resource: $id, expires_at: 1800, permissions: [process_node] }
+	{ resource: $id, expires_at: 1200, permissions: [process_node_output_objects] }
+	{ resource: $id, expires_at: 1200, permissions: [process_node_log_objects] }
+	{ resource: $id, expires_at: 1200, permissions: [process_subtree process_subtree_output_objects process_subtree_log_objects] }
+	{ resource: $id, expires_at: 1800, permissions: [process_parent] }
+	{ resource: $id, expires_at: 2400, permissions: [process_parent], secret_id: 1 }
+	{ resource: $file, expires_at: 2400, permissions: [object_subtree], secret_id: 2 }
+	{ resource: $id, expires_at: 3000, permissions: [process_parent] }
+	{ resource: $id, expires_at: 9223372036854775807, permissions: [process_parent] }
+	{ resource: $id, expires_at: 2400, permissions: [process_node] }
+] | append ($aspects | each { |aspect|
+	[
+		{ resource: $id, expires_at: 1200, permissions: [$'process_node($aspect)'] }
+		{ resource: $id, expires_at: 1200, permissions: [$'process_subtree($aspect)'] }
+	]
+} | flatten)
 let path = artifact {
-	authorization.tg.ts: (open --raw $authorization | decode utf-8)
+	authorization.tg.ts: (token module $specs)
 	tangram.ts: r#'
 		import { token } from "./authorization.tg.ts";
 		export default async function () {

@@ -822,6 +822,27 @@ export def diff [old: string, new: string, --path] {
 	$result
 }
 
+# Encode authorization tokens with `tg authorization token encode`, and create a module that exports a `token` function, which returns them by resource, expiration, permissions, and secret ID, for tests of how clients handle tokens.
+export def "token module" [specs: list<record>] {
+	let tokens = $specs | reduce --fold {} { |spec, tokens|
+		let secret_id = $spec.secret_id? | default 0 | into string
+		let expires_at = $spec.expires_at | into string
+		let permissions = $spec.permissions | each { |permission| [--permission $permission] } | flatten
+		let token = tg authorization token encode --resource $spec.resource --expires-at $expires_at --secret-id $secret_id ...$permissions | str trim
+		let key = [$spec.resource $expires_at ($spec.permissions | str join ',') $secret_id] | str join '|'
+		$tokens | upsert $key $token
+	}
+	[
+		$'const tokens: Record<string, string> = ($tokens | to json --raw);'
+		'export const token = (resource: string, expiresAt: number | bigint, permissions: Array<string>, secretId = 0): string => {'
+		'	const key = [resource, String(expiresAt), permissions.join(","), String(secretId)].join("|");'
+		'	const value = tokens[key];'
+		'	if (value === undefined) throw new Error(`missing the token ${key}`);'
+		'	return value;'
+		'};'
+	] | str join "\n"
+}
+
 export def --env success [
 	output: record
 	message?: string
