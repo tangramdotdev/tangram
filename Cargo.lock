@@ -9272,6 +9272,7 @@ dependencies = [
  "tangram_cli_write",
  "tangram_client",
  "tangram_fdb",
+ "tangram_server_authentication_common",
  "tangram_tests_util",
  "tokio",
 ]

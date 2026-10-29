@@ -116,4 +116,5 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+tangram_server_authentication_common = { workspace = true }
 tangram_tests_util = { workspace = true, features = ["cli"] }
