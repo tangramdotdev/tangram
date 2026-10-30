@@ -108,13 +108,20 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		dependencies.insert(name.clone(), tg::Value::Map(referent));
 	}
 
-	let import = tg::module::Import {
-		kind: Some(tg::module::Kind::Directory),
-		reference: ".".parse()?,
-	};
-	let package = match resolve(&client, &referrer, import).await {
-		Ok(module) => Some(module_artifact(&module)?),
-		Err(_) => None,
+	let reference = ".".parse::<tg::Reference>()?;
+	let package = if file
+		.dependencies_with_instance(&client)
+		.await?
+		.contains_key(&reference)
+	{
+		let import = tg::module::Import {
+			kind: Some(tg::module::Kind::Directory),
+			reference,
+		};
+		let module = resolve(&client, &referrer, import).await?;
+		Some(module_artifact(&module)?)
+	} else {
+		None
 	};
 
 	// Create the arg of the runtime's default export, which receives every export name, including `interface` and `check`.

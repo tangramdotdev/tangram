@@ -1,7 +1,7 @@
 use ../../util/test.nu *
 use ../../util/lsp.nu
 
-# Editing the interface in the runtime package of a config module updates the types that its importers see.
+# Editing the interface in the runtime package of a config module, or creating the interface beside it, updates the types that its importers see.
 
 let local = server spawn
 let interface = '{ "exports": { "greet": { "type": { "kind": "command", "args": { "kind": "tuple", "elements": [] }, "output": { "kind": "OUTPUT" } } } } }'
@@ -23,4 +23,10 @@ $session = lsp send $session (lsp diagnostics 11 $uri)
 let response = lsp wait_result $session 11
 $session = $response.session
 assert equal ($response.result.items | where severity == 1 | length) 1
+
+$interface | str replace OUTPUT string | save ($path | path join greet.tg.tgi)
+$session = lsp send $session (lsp diagnostics 12 $uri)
+let response = lsp wait_result $session 12
+$session = $response.session
+assert equal ($response.result.items | where severity == 1 | length) 0
 lsp stop $session

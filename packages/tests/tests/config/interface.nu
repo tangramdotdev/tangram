@@ -124,6 +124,22 @@ let output = tg build $'($path | path join greet.tg.json)#greet' --arg-string Wo
 success $output
 assert equal ($output.stdout | from json) 'Hello, World!'
 
+# A config whose runtime is a single file has no runtime interface for configs.
+let path = artifact {
+	greet.tg.json: '{ "runtime": "./runtime.tg.ts" }'
+	runtime.tg.ts: $runtime
+	tangram.ts: '
+		import { greet } from "./greet.tg.json";
+		export default async () => greet.build("World");
+	'
+}
+let output = tg check $path | complete
+failure $output
+assert ($output.stderr | str contains 'tangram.ts:1:') $output.stderr
+let output = tg build $'($path | path join greet.tg.json)#greet' --arg-string World | complete
+success $output
+assert equal ($output.stdout | from json) 'Hello, World!'
+
 # An interface may import a module relative to itself, in the config's directory or in the runtime package.
 let greeting = {
 	imports: { greeting: { kind: typescript, referent: { node: './greeting.tg.ts' } } },

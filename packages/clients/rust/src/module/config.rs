@@ -68,6 +68,15 @@ struct RawDependencyMap {
 	specifier: String,
 }
 
+/// Get the file name of the interface beside a config: `tangram.json` has `tangram.tgi`, and `foo.tg.json` has `foo.tg.tgi`.
+#[must_use]
+pub fn interface_file_name(path: impl AsRef<Path>) -> Option<String> {
+	Format::for_path(path.as_ref())?;
+	let name = path.as_ref().file_name()?.to_str()?;
+	let stem = name.rsplit_once('.')?.0;
+	Some(format!("{stem}.tgi"))
+}
+
 impl Config {
 	/// Parse a config in a format, rejecting unknown keys and values that are not Tangram values.
 	pub fn parse(text: &str, format: Format) -> tg::Result<Self> {
@@ -160,15 +169,6 @@ impl Format {
 		};
 		Some(format)
 	}
-}
-
-/// Get the file name of the interface beside a config: `tangram.json` has `tangram.tgi`, and `foo.tg.json` has `foo.tg.tgi`.
-#[must_use]
-pub fn interface_file_name(path: impl AsRef<Path>) -> Option<String> {
-	Format::for_path(path.as_ref())?;
-	let name = path.as_ref().file_name()?.to_str()?;
-	let stem = name.rsplit_once('.')?.0;
-	Some(format!("{stem}.tgi"))
 }
 
 impl From<RawDependency> for Dependency {

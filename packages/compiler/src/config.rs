@@ -87,15 +87,47 @@ impl Compiler {
 		Ok(interface)
 	}
 
-	/// Get the interface modules of a config that exist, which its interface may come from.
+	/// Get the interface modules that a config's interface may come from, including the interface files on disk that do not exist yet, so that creating one changes the config's interface.
 	pub(crate) async fn config_interface_modules(
 		&self,
 		module: &tg::module::Data,
 	) -> tg::Result<Vec<tg::module::Data>> {
 		let text = self.load_module(module).await?;
-		let sibling = try_get_sibling_interface_module(&self.instance, module).await?;
-		let runtime = try_get_runtime_interface_module(&self.instance, module, &text).await?;
-		let modules = sibling.into_iter().chain(runtime).collect();
+		let mut modules = Vec::new();
+
+		// Add the interface beside the config.
+		let path = match &module.referent.node {
+			tg::module::data::Source::Path(path) => Some(path),
+			tg::module::data::Source::Edge(_) => None,
+		};
+		if let Some(path) = path {
+			if let Some(name) = tg::module::config::interface_file_name(path) {
+				let path = path.with_file_name(name);
+				modules.push(tg::module::Data {
+					kind: tg::module::Kind::Interface,
+					referent: tg::Referent::with_node(tg::module::data::Source::Path(path)),
+				});
+			}
+		} else if let Some(module) = try_get_sibling_interface_module(&self.instance, module).await? {
+			modules.push(module);
+		}
+
+		// Add the interface in the runtime package.
+		let package = try_resolve_runtime_package(&self.instance, module, &text).await?;
+		if let Some(package) = package
+			&& let tg::module::data::Source::Path(path) = &package.referent.node
+		{
+			let path = path.join(tg::module::config::RUNTIME_INTERFACE_FILE_NAME);
+			modules.push(tg::module::Data {
+				kind: tg::module::Kind::Interface,
+				referent: tg::Referent::with_node(tg::module::data::Source::Path(path)),
+			});
+		} else if let Some(module) =
+			try_get_runtime_interface_module(&self.instance, module, &text).await?
+		{
+			modules.push(module);
+		}
+
 		Ok(modules)
 	}
 
@@ -212,19 +244,9 @@ where
 	I: tg::Instance,
 {
 	// Resolve the runtime's package.
-	let format = tg::module::config::Format::for_kind(module.kind)
-		.ok_or_else(|| tg::error!("expected a config module"))?;
-	let config = tg::module::Config::parse(text, format)?;
-	let mut import = config.runtime.import()?;
-	import.kind = Some(tg::module::Kind::Directory);
-	let arg = tg::module::resolve::Arg {
-		import,
-		referrer: Some(module.clone()),
-	};
-	let Ok(output) = instance.resolve_module(arg).await else {
+	let Some(package) = try_resolve_runtime_package(instance, module, text).await? else {
 		return Ok(None);
 	};
-	let package = output.module;
 	let name = tg::module::config::RUNTIME_INTERFACE_FILE_NAME;
 
 	// Get the interface in the package.
@@ -280,4 +302,52 @@ where
 	};
 
 	Ok(Some(module))
+}
+
+/// Resolve a config's runtime as an artifact, returning it if it is a package directory and `None` if it is a single file.
+async fn try_resolve_runtime_package<I>(
+	instance: &I,
+	module: &tg::module::Data,
+	text: &str,
+) -> tg::Result<Option<tg::module::Data>>
+where
+	I: tg::Instance,
+{
+	// Resolve the runtime.
+	let format = tg::module::config::Format::for_kind(module.kind)
+		.ok_or_else(|| tg::error!("expected a config module"))?;
+	let config = tg::module::Config::parse(text, format)?;
+	let mut import = config.runtime.import()?;
+	import.kind = Some(tg::module::Kind::Artifact);
+	let arg = tg::module::resolve::Arg {
+		import,
+		referrer: Some(module.clone()),
+	};
+	let output = instance
+		.resolve_module(arg)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to resolve the runtime of the config"))?;
+	let package = output.module;
+
+	// Determine whether the runtime is a directory.
+	let directory = match &package.referent.node {
+		tg::module::data::Source::Path(path) => tokio::fs::metadata(path)
+			.await
+			.map_err(|error| tg::error!(!error, path = %path.display(), "failed to get the metadata of the runtime"))?
+			.is_dir(),
+		tg::module::data::Source::Edge(tg::graph::data::Edge::Index(_)) => {
+			return Err(tg::error!("missing graph"));
+		},
+		tg::module::data::Source::Edge(tg::graph::data::Edge::Object(id)) => {
+			id.kind() == tg::object::Kind::Directory
+		},
+		tg::module::data::Source::Edge(tg::graph::data::Edge::Pointer(pointer)) => {
+			pointer.kind == tg::artifact::Kind::Directory
+		},
+	};
+	if !directory {
+		return Ok(None);
+	}
+
+	Ok(Some(package))
 }
