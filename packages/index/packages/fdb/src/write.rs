@@ -212,8 +212,16 @@ impl Index {
 				},
 				tangram_index::Item::PutAccountObject(arg) => {
 					crate::propagate!(
-						Self::put_account_object(txn, subspace, arg, partition_totals, None, None,)
-							.await
+						Self::put_account_object(
+							txn,
+							subspace,
+							arg,
+							partition_totals,
+							None,
+							None,
+							None
+						)
+						.await
 					);
 				},
 				tangram_index::Item::PutAccountProcess(arg) => {
