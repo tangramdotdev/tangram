@@ -184,7 +184,10 @@ async fn late_storage_puts_preserve_the_oldest_version() {
 #[tokio::test]
 async fn propagation_versions_reset_and_repeated_updates_stop() {
 	let (_dir, index) = super::new_index();
-	let child = object(0, []);
+
+	// Keep the parent waiting on the child by never putting the child's child.
+	let missing = object(2, []);
+	let child = object(0, [missing.id]);
 	let parent = object(1, [child.id.clone()]);
 	put(&index, vec![child.clone(), parent.clone()]).await;
 	drain(&index, tangram_index::update::Kind::StorageAndMetadata).await;

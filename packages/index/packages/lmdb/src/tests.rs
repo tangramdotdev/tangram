@@ -7,6 +7,7 @@ mod location;
 mod object;
 mod page;
 mod process;
+mod propagation;
 mod reader;
 mod storage;
 mod sync;
