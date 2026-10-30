@@ -184,6 +184,7 @@ impl Scheduler {
 				return Err(tg::error!(runner = %request.runner, "failed to find the runner"));
 			},
 		};
+		tangram_server_core::checkpoint!(self.server, "scheduler.runner.added", runner = %request.runner).await;
 		let output = AddRunnerResponseOutput {
 			connection_index,
 			runner: request.runner,
