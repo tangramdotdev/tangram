@@ -371,7 +371,7 @@ impl Index {
 						partition_start,
 						partition_end,
 						max_process_depth,
-						partition_total,
+						partition_totals,
 					)
 					.await
 				);
@@ -711,8 +711,11 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 		max_process_depth: Option<u64>,
-		partition_total: u64,
+		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<tangram_index::update::Output, fdb::FdbError>> {
+		let cleaning_partition_total = partition_totals.cleaning;
+		let partition_total = partition_totals.storage_and_metadata_update;
+
 		// Read the queue entries.
 		let key_kind = KeyKind::StorageAndMetadataUpdateVersion.to_i32().unwrap();
 		let mut keys = Vec::new();
@@ -780,16 +783,27 @@ impl Index {
 				},
 			};
 
-			// Enqueue an update on each waiting parent when the item was put or changed.
-			if put || changed {
-				crate::propagate!(
-					Self::enqueue_waiting_parents(txn, subspace, &id, &version, partition_total)
-						.await
-				);
-			}
+			// Enqueue an update on each waiting parent when the item was put or changed, or when the version is older than the version of the latest propagation to the parent.
+			let force = put || changed;
+			let propagations = crate::propagate!(
+				Self::enqueue_waiting_parents(txn, subspace, &id, &version, force, partition_total)
+					.await
+			);
 
-			// Delete the propagations from the item when it is complete, since the item can no longer change.
-			crate::propagate!(Self::delete_complete_item_propagations(txn, subspace, &id).await);
+			// Schedule the deletion of the propagations from the item when it is complete, since the item can no longer change.
+			if !propagations {
+				continue;
+			}
+			crate::propagate!(
+				Self::schedule_complete_item_propagation_clean(
+					txn,
+					subspace,
+					&id,
+					&version,
+					cleaning_partition_total,
+				)
+				.await
+			);
 		}
 
 		output.count = keys.len();
@@ -3551,8 +3565,9 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		version: &fdbt::Versionstamp,
+		force: bool,
 		partition_total: u64,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		// Read the propagations from the item to the parents that are waiting on it.
 		let id_bytes = match id {
 			tg::Either::Left(id) => id.to_bytes(),
@@ -3578,18 +3593,37 @@ impl Index {
 			})
 			.await
 		);
-		let parents = entries
-			.into_iter()
-			.map(|(key, _)| {
-				let crate::Key::Update(Key::Propagation { parent, .. }) = key else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				Ok(parent)
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
 
 		// Enqueue an update on each waiting parent with the child's version, so that waiters for the child's version also wait for its parents. A child that completes before a parent writes its propagation is seen by the parent's own update, which the parent's put enqueues.
-		for parent in parents {
+		let propagations = !entries.is_empty();
+		for (key, value) in entries {
+			let crate::Key::Update(Key::Propagation { parent, .. }) = key else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			let propagated = if value.is_empty() {
+				None
+			} else {
+				let bytes: [u8; 12] = value
+					.as_slice()
+					.try_into()
+					.map_err(|_| tg::error!("invalid propagation version"))?;
+				Some(fdbt::Versionstamp::from(bytes))
+			};
+			let older = propagated
+				.as_ref()
+				.is_none_or(|propagated| version < propagated);
+			if !force && !older {
+				continue;
+			}
+
+			// Record the version of the latest propagation to the parent.
+			let key = crate::Key::Update(Key::Propagation {
+				child: id.clone(),
+				parent: parent.clone(),
+			});
+			txn.set(&Self::pack(subspace, &key), version.as_bytes());
+
+			// Enqueue the update on the parent.
 			let partition = rand::random_range(0..partition_total);
 			let key = crate::Key::Update(Key::StorageAndMetadataUpdate {
 				id: parent,
@@ -3603,15 +3637,44 @@ impl Index {
 			txn.set(&key, &[]);
 		}
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(propagations))
 	}
 
-	async fn delete_complete_item_propagations(
+	async fn schedule_complete_item_propagation_clean(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		version: &fdbt::Versionstamp,
+		cleaning_partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		// Determine whether the item is complete.
+		let complete =
+			crate::propagate!(Self::is_item_complete_with_transaction(txn, subspace, id).await);
+		if !complete {
+			return Ok(ControlFlow::Break(()));
+		}
+
+		// Schedule the deletion of the propagations once the queue has advanced beyond the version, since every version propagated from the item is no newer than it.
+		let id_bytes = match id {
+			tg::Either::Left(id) => id.to_bytes(),
+			tg::Either::Right(id) => id.to_bytes(),
+		};
+		let partition = Self::partition_for_id(id_bytes.as_ref(), cleaning_partition_total);
+		let key = crate::Key::Update(Key::PropagationClean {
+			id: id.clone(),
+			partition,
+			version: version.clone(),
+		});
+		txn.set(&Self::pack(subspace, &key), &[]);
+
+		Ok(ControlFlow::Break(()))
+	}
+
+	pub(super) async fn is_item_complete_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let complete = match id {
 			tg::Either::Left(id) => {
 				crate::propagate!(Self::try_get_object_with_transaction(txn, subspace, id).await)
@@ -3622,23 +3685,7 @@ impl Index {
 					.is_some_and(|process| process.complete())
 			},
 		};
-		if !complete {
-			return Ok(ControlFlow::Break(()));
-		}
-
-		// Delete the propagations from the item.
-		let id_bytes = match id {
-			tg::Either::Left(id) => id.to_bytes(),
-			tg::Either::Right(id) => id.to_bytes(),
-		};
-		let prefix = Self::pack(
-			subspace,
-			&(KeyKind::Propagation.to_i32().unwrap(), id_bytes.as_ref()),
-		);
-		let (begin, end) = Subspace::from_bytes(prefix).range();
-		txn.clear_range(&begin, &end);
-
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(complete))
 	}
 
 	async fn get_object_propagation_items_with_transaction(
