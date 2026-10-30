@@ -93,6 +93,29 @@ impl Index {
 			txn,
 		} = arg;
 		let partition_total = partition_totals.cleaning;
+
+		// Read the oldest updates before writing, because reading an update queue fails after the transaction enqueues an update. An older update in any partition can still propagate to or from an item in this partition.
+		let kind = tangram_index::update::Kind::Permission;
+		let oldest_permission_update = Self::try_get_oldest_update_transaction_id_with_transaction(
+			txn,
+			subspace,
+			kind,
+			partition_totals.update(kind),
+		);
+		let kind = tangram_index::update::Kind::StorageAndMetadata;
+		let oldest_storage_and_metadata_update =
+			Self::try_get_oldest_update_transaction_id_with_transaction(
+				txn,
+				subspace,
+				kind,
+				partition_totals.update(kind),
+			);
+		let (oldest_permission_update, oldest_storage_and_metadata_update) =
+			futures::join!(oldest_permission_update, oldest_storage_and_metadata_update);
+		let oldest_permission_update = crate::propagate!(oldest_permission_update);
+		let oldest_storage_and_metadata_update =
+			crate::propagate!(oldest_storage_and_metadata_update);
+
 		let permissions = crate::propagate!(
 			Self::delete_expired_permissions(
 				txn,
@@ -259,7 +282,7 @@ impl Index {
 				remaining_batch_size,
 				partition_start,
 				partition_end,
-				partition_totals,
+				oldest_permission_update,
 			)
 			.await
 		);
@@ -271,7 +294,7 @@ impl Index {
 				remaining_batch_size,
 				partition_start,
 				partition_end,
-				partition_totals,
+				oldest_storage_and_metadata_update,
 			)
 			.await
 		);
