@@ -23,6 +23,7 @@
 		"image:build": "cargo build --all-features --release && docker build -t ghcr.io/tangramdotdev/tangram:latest .",
 		"image:push": "docker push ghcr.io/tangramdotdev/tangram:latest",
 		"test": "bun run test:javascript && bun run test:rust && bun run test:e2e",
+		"test:clean": "nu packages/tests/clean.nu",
 		"test:databases": "nu packages/tests/databases.nu",
 		"test:e2e": "nu packages/tests/test.nu",
 		"test:rust": "cargo nextest run --all-features --no-fail-fast --workspace",
