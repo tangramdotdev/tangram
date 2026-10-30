@@ -35,7 +35,7 @@ lsp stop $session
 # An invalid interface is reported at the position of its error.
 let path = artifact {'env.tg.tgi': ''}
 let uri = lsp uri ($path | path join env.tg.tgi)
-let source = "{\n  \"exports\": 1\n}\n"
+let source = "// @tangram interface javascript\nexport declare const x: tg.Nope;\n"
 mut session = lsp start
 $session = lsp send_all $session [
     (lsp initialize 1)

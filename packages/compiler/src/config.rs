@@ -59,21 +59,7 @@ impl crate::backend::Backend for Backend {
 			for module in arg.modules {
 				let text = compiler.load_module(&module).await?;
 				let result = if module.kind == tg::module::Kind::Interface {
-					serde_json::from_str::<tg::Interface>(&text)
-						.map(|_| ())
-						.map_err(|error| {
-							let position = tg::Position {
-								character: u32::try_from(error.column().saturating_sub(1))
-									.unwrap_or(0),
-								line: u32::try_from(error.line().saturating_sub(1)).unwrap_or(0),
-							};
-							let range = tg::Range {
-								end: position,
-								start: position,
-							};
-							let error = tg::error!(argument, message = %error, "invalid interface");
-							(error, Some(range))
-						})
+					tg::interface::parse::parse_with_range(&text).map(|_| ())
 				} else if let Some(format) = tg::module::config::Format::for_kind(module.kind) {
 					tg::module::Config::parse_with_range(&text, format).map(|_| ())
 				} else {

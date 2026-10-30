@@ -814,7 +814,7 @@ async fn check_interface(
 		let text = tokio::fs::read_to_string(&interface_path).await.map_err(
 			|error| tg::error!(!error, path = %interface_path.display(), "failed to read the interface"),
 		)?;
-		let interface = tg::Interface::deserialize_json(&text)?;
+		let interface = tg::interface::parse::parse(&text)?;
 		interface == generated
 	} else {
 		let arg = tg::module::interface::Arg {
@@ -843,13 +843,10 @@ async fn check_interface(
 			"the config's interface differs from the interface that its runtime generates, so publish with --update-interface to write it"
 		));
 	}
-	let text = serde_json::to_string_pretty(&generated)
-		.map_err(|error| tg::error!(!error, "failed to serialize the interface"))?;
-	tokio::fs::write(&interface_path, text + "\n")
-		.await
-		.map_err(
-			|error| tg::error!(!error, path = %interface_path.display(), "failed to write the interface"),
-		)?;
+	let text = tg::interface::print::print(&generated, tg::interface::Syntax::JavaScript)?;
+	tokio::fs::write(&interface_path, text).await.map_err(
+		|error| tg::error!(!error, path = %interface_path.display(), "failed to write the interface"),
+	)?;
 
 	Ok(())
 }

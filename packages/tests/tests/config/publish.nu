@@ -29,7 +29,7 @@ let output = tg publish $path | complete
 failure $output
 assert ($output.stderr | str contains '--update-interface') $output.stderr
 success (tg publish --update-interface $path | complete)
-assert equal (open --raw ($path | path join tangram.tgi) | from json | get exports.greet.type.output.kind) string
+assert (open --raw ($path | path join tangram.tgi) | str contains 'export declare const greet: tg.Command<[], string>;')
 success (tg tag get greet/1.0.0 | complete)
 
 let importer = artifact {
