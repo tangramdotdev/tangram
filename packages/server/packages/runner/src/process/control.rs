@@ -558,6 +558,7 @@ impl Component {
 							sender.send(response).await?;
 						},
 						tg::process::control::ServerRequestArg::Signal(signal) => {
+							tangram_server_core::checkpoint!(session.server, "runner.process.control.signal.received", process = %session.context.principal).await;
 							signal_sender
 								.send((request_id, signal, sender))
 								.await
