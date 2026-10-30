@@ -457,7 +457,7 @@ impl Search {
 					}
 					state.storage.insert(child.clone());
 					state.storage_children.insert(child.clone());
-					state.add_sync_dependency(&child, &key);
+					state.add_storage_dependency(&child, &key);
 					self.add_live_dependency(state, &key, &child);
 					self.queue_dependency(state, &key, child, depth + 1);
 				}
@@ -1081,7 +1081,7 @@ impl Search {
 			stack.extend(state.verification_dependents(&key));
 			stack.extend(
 				state
-					.sync_dependents
+					.storage_dependents
 					.get(&key)
 					.into_iter()
 					.flatten()
@@ -1411,7 +1411,7 @@ impl Search {
 				tg::authorization::permission::sync::Permission::Read,
 			);
 			let access = (sync.clone().into(), permission, dependent.2.clone());
-			state.register_sync_read(dependent, sync, &access);
+			state.sync_access.insert(access.clone());
 			return self.add_dependency(state, dependent, access, depth + 1);
 		}
 		let source = (
@@ -1627,7 +1627,6 @@ impl Search {
 			dependency.2.clone_from(&dependent.2);
 		}
 		state.inherit_storage(dependent, &dependency);
-		state.register_sync_scope(&dependency);
 		let edge_known = state.has_verification_dependency(&dependency, dependent);
 		if !edge_known {
 			if !self.budget.add_edge() {
@@ -1652,8 +1651,6 @@ impl Search {
 	) -> bool {
 		state.sync_access.insert(first.clone());
 		state.inherit_storage(dependent, &second);
-		state.register_sync_scope(&first);
-		state.register_sync_scope(&second);
 		if !state.has_verification_conjunction(&first, &second, dependent) {
 			if !self.budget.has_edge_capacity(2) {
 				self.incomplete.insert(dependent.clone());

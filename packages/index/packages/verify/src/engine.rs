@@ -7,7 +7,7 @@ use {
 		},
 	},
 	std::{
-		collections::{BTreeMap, BTreeSet, VecDeque},
+		collections::{BTreeMap, VecDeque},
 		ops::ControlFlow,
 	},
 	tangram_client::prelude::*,
@@ -290,7 +290,6 @@ impl Batch {
 					outcome: super::Outcome::Satisfied,
 					permissions: arg.requested,
 					storage: arg.storage.empty_like(),
-					syncs: Vec::new(),
 				})
 				.collect();
 			Some(outcomes)
@@ -414,7 +413,6 @@ impl Batch {
 				outcome: outcome.outcome,
 				permissions: outcome.permissions,
 				storage: outcome.storage,
-				syncs: outcome.syncs.clone(),
 			})
 			.collect();
 		Ok(results)
@@ -513,7 +511,6 @@ impl Batch {
 					outcome: super::Outcome::Unsatisfied,
 					permissions: arg.requested.empty_like(),
 					storage: arg.storage.empty_like(),
-					syncs: Vec::new(),
 				});
 				continue;
 			};
@@ -523,7 +520,6 @@ impl Batch {
 					outcome: super::Outcome::Unsatisfied,
 					permissions: arg.requested.empty_like(),
 					storage: arg.storage.empty_like(),
-					syncs: Vec::new(),
 				});
 				continue;
 			};
@@ -533,7 +529,6 @@ impl Batch {
 					outcome: super::Outcome::Unsatisfied,
 					permissions: arg.requested.empty_like(),
 					storage: arg.storage.empty_like(),
-					syncs: Vec::new(),
 				});
 				continue;
 			};
@@ -543,11 +538,9 @@ impl Batch {
 					outcome: super::Outcome::Unsatisfied,
 					permissions: arg.requested.empty_like(),
 					storage: arg.storage.empty_like(),
-					syncs: Vec::new(),
 				});
 				continue;
 			}
-			let mut syncs = BTreeSet::new();
 			let mut storage_exhausted = false;
 			let mut search_permissions = requested;
 			search_permissions.insert(super::storage_permissions(arg.storage, requested));
@@ -557,7 +550,6 @@ impl Batch {
 					.get(&context(arg, permission.is_read_like()))
 				{
 					let key = (id.clone(), permission, arg.subject.clone());
-					syncs.extend(self.searches[*search_index].state.sync_candidates(&key));
 					storage_exhausted |= !arg.storage.is_empty()
 						&& self.searches[*search_index]
 							.state
@@ -565,7 +557,6 @@ impl Batch {
 							.contains(&key);
 				}
 			}
-			let syncs = syncs.into_iter().collect();
 			if arg.subject.is_none()
 				&& (matches!(self.principal, tg::Principal::Root)
 					|| principal_is_resource(&self.principal, &id))
@@ -579,7 +570,6 @@ impl Batch {
 					},
 					permissions: arg.requested,
 					storage: arg.storage.empty_like(),
-					syncs,
 				};
 				outcomes.push(output);
 				continue;
@@ -643,7 +633,6 @@ impl Batch {
 				outcome,
 				permissions,
 				storage: arg.storage.empty_like(),
-				syncs,
 			};
 			outcomes.push(output);
 		}
@@ -671,7 +660,6 @@ impl TokenSearch {
 
 		// Apply exact tokens before spending any graph search budget.
 		for root in &roots {
-			state.register_sync_scope(root);
 			if let Some(expires_at) = tokens
 				.iter()
 				.filter(|token| token.resource == root.0 && token.authorizes(root.1))
@@ -723,7 +711,7 @@ impl TokenSearch {
 						}
 						if let Some(outcome) = search.outcome() {
 							if outcome == Outcome::Exhausted {
-								self.state.exhaust_syncs(key);
+								self.state.exhaust_storage(key);
 							}
 							self.final_search.apply(&mut self.state, key, outcome);
 							self.active = None;

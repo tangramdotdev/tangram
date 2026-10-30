@@ -1,8 +1,7 @@
 use {
 	tangram_client::prelude::*,
 	tangram_index::verify::{
-		Arg, Config, Outcome, Output, SearchConfig, SubtreeConfig, Sync, storage_permissions,
-		validate,
+		Arg, Config, Outcome, Output, SearchConfig, SubtreeConfig, storage_permissions, validate,
 	},
 };
 

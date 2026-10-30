@@ -18,7 +18,6 @@ pub struct Output {
 	pub outcome: Outcome,
 	pub permissions: tg::authorization::permission::Set,
 	pub storage: tg::storage::Set,
-	pub syncs: Vec<Sync>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26,13 +25,6 @@ pub enum Outcome {
 	Exhausted,
 	Satisfied,
 	Unsatisfied,
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Sync {
-	pub permission: tg::authorization::Permission,
-	pub resource: tg::Id,
-	pub sync: tg::sync::Id,
 }
 
 #[derive(

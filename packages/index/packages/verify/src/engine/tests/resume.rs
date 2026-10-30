@@ -288,6 +288,5 @@ fn assert_outputs(actual: &[Output], expected: &[Output]) {
 		assert_eq!(actual.outcome, expected.outcome);
 		assert_eq!(actual.permissions, expected.permissions);
 		assert_eq!(actual.storage, expected.storage);
-		assert_eq!(actual.syncs, expected.syncs);
 	}
 }

@@ -10,8 +10,8 @@ use {
 
 mod ancestor;
 mod descendant;
+mod storage;
 mod subtree;
-mod sync;
 
 pub(crate) use {
 	subtree::{Action as SubtreeAction, Search as SubtreeSearch},
@@ -366,11 +366,9 @@ pub(crate) struct State {
 	process_parent_delegation: bool,
 	pub(crate) storage: BTreeSet<Key>,
 	pub(crate) storage_children: BTreeSet<Key>,
+	pub(crate) storage_dependents: BTreeMap<Key, BTreeSet<Key>>,
 	pub(crate) storage_exhausted: BTreeSet<Key>,
 	sync_access: BTreeSet<Key>,
-	sync_dependents: BTreeMap<Key, BTreeSet<Key>>,
-	sync_reads: BTreeMap<Key, BTreeSet<(Key, tg::sync::Id)>>,
-	syncs: BTreeMap<Key, BTreeSet<crate::Sync>>,
 
 	token_subject: Option<tg::authorization::Subject>,
 	subject_key_dependents: BTreeMap<
@@ -779,7 +777,7 @@ impl AncestorOrDescendantSearch {
 					let mut search = self.ancestor.take().unwrap();
 					search.finish(state);
 					for key in &search.incomplete {
-						state.exhaust_syncs(key);
+						state.exhaust_storage(key);
 					}
 					for root in &self.roots {
 						if state.is_verified(root) {
@@ -1095,7 +1093,6 @@ impl State {
 				.or_default()
 				.insert(dependency.clone());
 		}
-		self.inherit_syncs(dependency, &dependent);
 		if self.is_verified(dependency) {
 			let expires_at = self.expires_at(dependency).min(
 				self.verification_expirations
@@ -1137,12 +1134,6 @@ impl State {
 				.or_default()
 				.insert(dependency.clone());
 		}
-		if self.is_verified(first) {
-			self.inherit_syncs(second, dependent);
-		}
-		if self.is_verified(second) {
-			self.inherit_syncs(first, dependent);
-		}
 		if self.is_verified(first) && self.is_verified(second) {
 			let expires_at = self.expires_at(first).min(self.expires_at(second));
 			self.verify_with_expiration(dependent.clone(), expires_at);
@@ -1168,7 +1159,6 @@ impl State {
 				*unresolved = unresolved.saturating_add(1);
 			}
 		}
-		self.inherit_derived_syncs(dependency, &dependent);
 		self.propagate_derived_outcome(dependency);
 		self.try_verify_derived(dependent);
 	}
@@ -1355,7 +1345,6 @@ impl State {
 				self.verification_log.push(key.clone());
 			}
 			self.newly_evaluated.insert(key.clone());
-			self.activate_syncs(&key);
 			stack.extend(
 				crate::permissions_implied_by(key.1)
 					.into_iter()

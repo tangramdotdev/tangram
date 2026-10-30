@@ -4,7 +4,7 @@ use {
 };
 
 impl State {
-	pub(crate) fn exhaust_syncs(&mut self, key: &Key) {
+	pub(crate) fn exhaust_storage(&mut self, key: &Key) {
 		let mut pending = vec![key.clone()];
 		while let Some(key) = pending.pop() {
 			if !self.storage_exhausted.insert(key.clone()) {
@@ -12,7 +12,7 @@ impl State {
 			}
 			pending.extend(self.verification_dependents(&key));
 			pending.extend(
-				self.sync_dependents
+				self.storage_dependents
 					.get(&key)
 					.into_iter()
 					.flatten()
@@ -48,137 +48,11 @@ impl State {
 		}
 	}
 
-	#[must_use]
-	pub(crate) fn sync_candidates(&self, key: &Key) -> Vec<crate::Sync> {
-		self.syncs.get(key).into_iter().flatten().cloned().collect()
-	}
-
-	pub(crate) fn register_sync_scope(&mut self, key: &Key) {
-		// Keep the candidate scoped until the dependencies needed to use this scope are verified.
-		if key.1.is_read_like()
-			&& let Some(tg::authorization::Subject::Sync(sync)) = &key.2
-		{
-			let candidate = crate::Sync {
-				permission: key.1,
-				resource: key.0.clone(),
-				sync: sync.clone(),
-			};
-			self.add_sync(key.clone(), candidate);
-		}
-	}
-
-	pub(super) fn register_sync_read(&mut self, key: &Key, sync: &tg::sync::Id, access: &Key) {
-		self.sync_access.insert(access.clone());
-		self.sync_reads
-			.entry(access.clone())
-			.or_default()
-			.insert((key.clone(), sync.clone()));
-		if self.is_verified(access) {
-			let candidate = crate::Sync {
-				permission: key.1,
-				resource: key.0.clone(),
-				sync: sync.clone(),
-			};
-			self.add_sync(key.clone(), candidate);
-		}
-	}
-
-	pub(super) fn inherit_syncs(&mut self, dependency: &Key, dependent: &Key) {
-		let syncs = self.syncs.get(dependency).cloned().unwrap_or_default();
-		for sync in syncs {
-			let sync = Self::sync_dependency(dependency, dependent, sync);
-			self.add_sync(dependent.clone(), sync);
-		}
-	}
-
-	pub(super) fn inherit_derived_syncs(&mut self, dependency: &Key, dependent: &Key) {
-		// A sync for one child need not contain the entire subtree.
-		let syncs = self.syncs.get(dependency).cloned().unwrap_or_default();
-		for sync in syncs {
-			self.add_sync(dependent.clone(), sync);
-		}
-	}
-
-	pub(super) fn add_sync_dependency(&mut self, dependency: &Key, dependent: &Key) {
-		self.sync_dependents
+	pub(super) fn add_storage_dependency(&mut self, dependency: &Key, dependent: &Key) {
+		self.storage_dependents
 			.entry(dependency.clone())
 			.or_default()
 			.insert(dependent.clone());
-		self.inherit_derived_syncs(dependency, dependent);
-	}
-
-	fn sync_dependency(dependency: &Key, dependent: &Key, mut sync: crate::Sync) -> crate::Sync {
-		if sync.resource == dependency.0
-			&& sync.permission == dependency.1
-			&& dependency.1.implies(dependent.1)
-		{
-			sync.resource = dependent.0.clone();
-			sync.permission = dependent.1;
-		}
-		sync
-	}
-
-	pub(super) fn activate_syncs(&mut self, key: &Key) {
-		let reads = self.sync_reads.get(key).cloned().unwrap_or_default();
-		for (dependent, sync) in reads {
-			let candidate = crate::Sync {
-				permission: dependent.1,
-				resource: dependent.0.clone(),
-				sync,
-			};
-			self.add_sync(dependent.clone(), candidate);
-		}
-		let conjunctions = self
-			.verification_conjunctions
-			.get(key)
-			.cloned()
-			.unwrap_or_default();
-		for (other, dependent) in conjunctions {
-			self.inherit_syncs(&other, &dependent);
-		}
-	}
-
-	fn add_sync(&mut self, key: Key, sync: crate::Sync) {
-		let mut pending = vec![(key, sync)];
-		while let Some((key, sync)) = pending.pop() {
-			if !self
-				.syncs
-				.entry(key.clone())
-				.or_default()
-				.insert(sync.clone())
-			{
-				continue;
-			}
-			for dependent in self.verification_dependents.get(&key).into_iter().flatten() {
-				pending.push((
-					dependent.clone(),
-					Self::sync_dependency(&key, dependent, sync.clone()),
-				));
-			}
-			for dependent in self
-				.derived_dependents
-				.get(&key)
-				.into_iter()
-				.flatten()
-				.chain(self.sync_dependents.get(&key).into_iter().flatten())
-			{
-				pending.push((dependent.clone(), sync.clone()));
-			}
-			// A sync response cannot satisfy the other dependency in a conjunction.
-			for (other, dependent) in self
-				.verification_conjunctions
-				.get(&key)
-				.into_iter()
-				.flatten()
-			{
-				if self.is_verified(other) {
-					pending.push((
-						dependent.clone(),
-						Self::sync_dependency(&key, dependent, sync.clone()),
-					));
-				}
-			}
-		}
 	}
 }
 
@@ -198,52 +72,9 @@ mod tests {
 
 	#[derive(Clone, Copy)]
 	enum Kind {
-		Candidates,
 		Delegations,
 		Permissions,
 		Subjects,
-	}
-
-	#[test]
-	fn sync_candidates_wait_for_the_other_conjunction_dependency() {
-		let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![201].into());
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
-		);
-		let sync = tg::sync::Id::new();
-		let requested = (object.clone().into(), permission, None);
-		let source = (
-			object.into(),
-			permission,
-			Some(tg::authorization::Subject::Sync(sync.clone())),
-		);
-		let access = (
-			tg::process::Id::new().into(),
-			tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::Parent,
-			),
-			None,
-		);
-		for access_first in [false, true] {
-			let mut state = State::default();
-			state.add_verification_conjunction(&access, &source, &requested);
-			if access_first {
-				state.verify_ancestor_or_descendant(access.clone());
-			}
-			state.register_sync_scope(&source);
-			if !access_first {
-				assert_eq!(state.sync_candidates(&requested), []);
-				state.verify_ancestor_or_descendant(access.clone());
-			}
-			assert_eq!(state.sync_candidates(&requested).len(), 1);
-			assert_eq!(state.sync_candidates(&requested)[0].sync, sync);
-			assert!(!state.is_verified(&requested));
-		}
-	}
-
-	#[tokio::test]
-	async fn exhaustion_preserves_discovered_candidates() {
-		bounded(Kind::Candidates).await;
 	}
 
 	#[tokio::test]
@@ -316,7 +147,6 @@ mod tests {
 							limit,
 							resource: requested,
 						} if !matches!(kind, Kind::Permissions) && requested == resource => {
-							let first_page = after.is_none();
 							let next = after
 								.unwrap_or_default()
 								.first()
@@ -324,16 +154,11 @@ mod tests {
 								.unwrap_or(0)
 								.saturating_add(1);
 							let delegations = (0..limit)
-								.enumerate()
-								.map(|(row, _)| tangram_index::delegation::put::Arg {
+								.map(|_| tangram_index::delegation::put::Arg {
 									expires_at: 100,
 									resource: resource.clone(),
 									source: source.clone(),
-									subject: if matches!(kind, Kind::Candidates)
-										&& first_page && row == 0
-									{
-										tg::authorization::Subject::Public
-									} else if matches!(kind, Kind::Subjects) {
+									subject: if matches!(kind, Kind::Subjects) {
 										tg::authorization::Subject::Tag(tg::tag::Id::new())
 									} else {
 										user.clone()
@@ -433,9 +258,6 @@ mod tests {
 		});
 		let (output, ()) = futures::future::join(search, serve).await;
 		assert_eq!(output.outcome, crate::Outcome::Exhausted);
-		if matches!(kind, Kind::Candidates) {
-			assert_eq!(output.syncs.len(), 1);
-		}
 		// Each admitted dependency can request several fact kinds.
 		assert!(
 			work.load(Ordering::Relaxed) <= config.permissions.ancestor.max_edges * 8,
