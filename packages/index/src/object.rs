@@ -100,12 +100,20 @@ impl Object {
 		storage && self.metadata.subtree.complete()
 	}
 
+	/// Serialize the object prefixed with its put, so that a byte maximum keeps the object from the latest put.
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
-		tangram_serialize::to_vec(self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the object"))
+		let object = tangram_serialize::to_vec(self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
+		let mut bytes = Vec::with_capacity(self.put.len() + object.len());
+		bytes.extend_from_slice(&self.put);
+		bytes.extend_from_slice(&object);
+		Ok(bytes)
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		let bytes = bytes
+			.get(16..)
+			.ok_or_else(|| tg::error!("failed to deserialize the object"))?;
 		tangram_serialize::from_slice(bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))
 	}

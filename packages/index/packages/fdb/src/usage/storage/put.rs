@@ -430,6 +430,7 @@ impl Index {
 		partition_totals: crate::PartitionTotals,
 		permissions: Option<tg::authorization::permission::Set>,
 		version: Option<&fdbt::Versionstamp>,
+		size: Option<u64>,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let cleaning_partition_total = partition_totals.cleaning;
 		let usage_partition_total = partition_totals.usage;
@@ -511,11 +512,17 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		}
 
-		let object = crate::propagate!(
-			Self::try_get_object_with_transaction(txn, subspace, &arg.object).await
-		);
-		let Some(object) = object else {
-			return Ok(ControlFlow::Break(false));
+		// Read the object's size unless it is provided, which also determines whether the object exists.
+		let size = if let Some(size) = size {
+			size
+		} else {
+			let object = crate::propagate!(
+				Self::try_get_object_with_transaction(txn, subspace, &arg.object).await
+			);
+			let Some(object) = object else {
+				return Ok(ControlFlow::Break(false));
+			};
+			object.metadata.node.size
 		};
 		let entry = tangram_index::usage::storage::Entry {
 			permissions,
@@ -543,7 +550,7 @@ impl Index {
 			1,
 			usage_partition,
 		);
-		let size = i64::try_from(object.metadata.node.size)
+		let size = i64::try_from(size)
 			.map_err(|_| tg::error!(object = %arg.object, "the object size is too large"))?;
 		Self::add_usage_delta(
 			txn,
