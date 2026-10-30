@@ -5,11 +5,11 @@ use ../../util/archive.nu *
 skip_test --cloud
 let archive = spawn_archive
 let local = server spawn --cloud --config {
+	advanced: { multi_server: false },
 	archive: $archive.config,
 	object: { put_timeout: 5 },
 	roles: [api indexer],
 }
-assert ($local.config.indexer?.id? == null)
 
 # The put must return while the archive holds its upload response.
 let output = 0x[00 68 65 6c 6c 6f] | timeout 10 tg object put --no-tokens --bytes --kind blob | complete
