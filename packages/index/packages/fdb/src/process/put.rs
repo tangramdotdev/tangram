@@ -525,7 +525,21 @@ impl Index {
 			if let Err(error) = result {
 				return Ok(ControlFlow::Break(Err(error)));
 			}
+
+			// Put the account's storage entry, which requires the accepted process.
+			if let Some(account) = &process.account {
+				let entry = tangram_index::usage::storage::put::ProcessArg {
+					account: account.clone(),
+					process: process.id.clone(),
+					touched_at: process.touched_at,
+				};
+				crate::propagate!(
+					Self::put_account_process(txn, subspace, &entry, partition_totals, None, None)
+						.await
+				);
+			}
 		}
+
 		Ok(ControlFlow::Break(Ok(())))
 	}
 

@@ -48,6 +48,7 @@ pub(crate) fn directory(children: &[(&str, tg::object::Id)]) -> tangram_index::o
 		subtree: tg::object::metadata::Subtree::default(),
 	};
 	tangram_index::object::put::Arg {
+		account: None,
 		checkout: None,
 		children: children.iter().map(|(_, id)| id.clone()).collect(),
 		id,

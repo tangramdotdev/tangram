@@ -768,7 +768,7 @@ impl Component {
 			permission_capture_items,
 			put_checkout_args,
 			mut put_permission_args,
-			put_object_args,
+			mut put_object_args,
 			put_process_args,
 			storage_roots,
 		) = {
@@ -822,6 +822,35 @@ impl Component {
 		};
 		session.server.index.batch(arg).await??;
 
+		// Put the account's storage entries for the storage roots, with the object puts for roots that are being indexed.
+		let mut account_items = Vec::new();
+		if let Some(account) = &account {
+			for id in &storage_roots {
+				if let Ok(process) = tg::process::Id::try_from(id.clone()) {
+					let entry = tangram_index::usage::storage::put::ProcessArg {
+						account: account.clone(),
+						process,
+						touched_at,
+					};
+					account_items.push(tangram_index::batch::Item::PutAccountProcess(entry));
+					continue;
+				}
+				let Ok(object) = tg::object::Id::try_from(id.clone()) else {
+					continue;
+				};
+				if let Some(arg) = put_object_args.iter_mut().find(|arg| arg.id == object) {
+					arg.account = Some(account.clone());
+				} else {
+					let entry = tangram_index::usage::storage::put::ObjectArg {
+						account: account.clone(),
+						object,
+						touched_at,
+					};
+					account_items.push(tangram_index::batch::Item::PutAccountObject(entry));
+				}
+			}
+		}
+
 		// Index the objects and permissions.
 		let arg = tangram_index::batch::Arg {
 			items: put_checkout_args
@@ -838,28 +867,7 @@ impl Component {
 						.map(tangram_index::batch::Item::PutPermission),
 				)
 				.chain(permission_capture_items)
-				.chain(account.into_iter().flat_map(|account| {
-					storage_roots.iter().filter_map(move |id| match id.kind() {
-						tg::id::Kind::Process => {
-							Some(tangram_index::batch::Item::PutAccountProcess(
-								tangram_index::usage::storage::put::ProcessArg {
-									account: account.clone(),
-									process: id.clone().try_into().unwrap(),
-									touched_at,
-								},
-							))
-						},
-						_ => tg::object::Id::try_from(id.clone()).ok().map(|object| {
-							tangram_index::batch::Item::PutAccountObject(
-								tangram_index::usage::storage::put::ObjectArg {
-									account: account.clone(),
-									object,
-									touched_at,
-								},
-							)
-						}),
-					})
-				}))
+				.chain(account_items)
 				.collect(),
 		};
 		tangram_server_core::checkpoint!(session.server, "sync.get.index.enqueue", sync = %sync)
@@ -1170,6 +1178,7 @@ impl Component {
 						let storage = node.local_storage();
 						let checkout = graph.checkout_objects().get(&id).cloned();
 						let arg = tangram_index::object::put::Arg {
+							account: None,
 							checkout,
 							children,
 							id,
@@ -1235,6 +1244,7 @@ impl Component {
 							}
 						}
 						let arg = tangram_index::process::put::Arg {
+							account: None,
 							cached: false,
 							children: Some(children),
 							command: Some(command_objects),

@@ -141,6 +141,7 @@ impl Component {
 			.map(|(parent_data, location)| -> tg::Result<_> {
 				let parent_data = parent_data.without_location_and_tokens_except_sync();
 				Ok(tangram_index::process::put::Arg {
+					account: None,
 					cached: false,
 					children: None,
 					command: Some(
@@ -170,7 +171,14 @@ impl Component {
 				})
 			})
 			.transpose()?;
+		let account = session
+			.server
+			.components
+			.usage
+			.usage_account(session, &session.context.principal)
+			.await?;
 		let child_arg = tangram_index::process::put::Arg {
+			account,
 			cached: child.cached,
 			children: None,
 			command: None,
@@ -191,26 +199,11 @@ impl Component {
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,
 		};
-		let account = session
-			.server
-			.components
-			.usage
-			.usage_account(session, &session.context.principal)
-			.await?;
 		let mut items = Vec::with_capacity(3);
 		if let Some(parent_arg) = parent_arg {
 			items.push(tangram_index::batch::Item::PutProcess(parent_arg));
 		}
 		items.push(tangram_index::batch::Item::PutProcess(child_arg));
-		if let Some(account) = account {
-			items.push(tangram_index::batch::Item::PutAccountProcess(
-				tangram_index::usage::storage::put::ProcessArg {
-					account,
-					process: child_id.clone(),
-					touched_at: now,
-				},
-			));
-		}
 		let arg = tangram_index::batch::Arg { items };
 		session
 			.server

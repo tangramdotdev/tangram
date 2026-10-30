@@ -307,6 +307,7 @@ fn object(
 	let id = tg::object::Id::new(tg::object::Kind::Directory, &vec![id].into());
 	let children = children.into_iter().collect::<BTreeSet<_>>();
 	tangram_index::object::put::Arg {
+		account: None,
 		checkout: None,
 		children,
 		id,

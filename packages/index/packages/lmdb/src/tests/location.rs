@@ -8,6 +8,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 		let command = tg::command::Id::new(b"command");
 		let location = location.parse::<tg::Location>().unwrap();
 		let mut process = tangram_index::process::put::Arg {
+			account: None,
 			cached: false,
 			children: None,
 			command: Some(vec![command.clone().into()]),

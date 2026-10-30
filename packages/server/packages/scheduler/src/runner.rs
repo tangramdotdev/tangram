@@ -338,6 +338,7 @@ impl Component {
 					.batch(tangram_index::batch::Arg {
 						items: std::iter::once(tangram_index::batch::Item::PutProcess(
 							tangram_index::process::put::Arg {
+								account: None,
 								cached: false,
 								children: None,
 								command: Some(

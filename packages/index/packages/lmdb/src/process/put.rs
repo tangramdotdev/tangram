@@ -473,6 +473,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		args: &[tangram_index::process::put::Arg],
 		process_data_fragment_size: usize,
+		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
 		for process in args {
 			if let Err(error) = Self::put_process(
@@ -484,7 +485,26 @@ impl Index {
 			)? {
 				return Ok(Err(error));
 			}
+
+			// Put the account's storage entry, which requires the accepted process.
+			if let Some(account) = &process.account {
+				let entry = tangram_index::usage::storage::put::ProcessArg {
+					account: account.clone(),
+					process: process.id.clone(),
+					touched_at: process.touched_at,
+				};
+				Self::put_account_process(
+					db,
+					subspace,
+					transaction,
+					&entry,
+					usage_partition_total,
+					None,
+					None,
+				)?;
+			}
 		}
+
 		Ok(Ok(()))
 	}
 

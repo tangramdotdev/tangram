@@ -15,6 +15,7 @@ fn object_arg(
 	size: u64,
 ) -> tangram_index::object::put::Arg {
 	tangram_index::object::put::Arg {
+		account: None,
 		checkout: None,
 		children: children.into_iter().collect::<BTreeSet<_>>(),
 		id,
@@ -45,6 +46,7 @@ fn process_arg(
 		})
 		.collect();
 	tangram_index::process::put::Arg {
+		account: None,
 		cached: false,
 		children: Some(children),
 		command: Some(vec![command.clone()]),
@@ -369,6 +371,7 @@ async fn account_storage_traverses_new_process_relationships() {
 	let root = tg::process::Id::new();
 	let account = tangram_index::usage::Account::User(tg::user::Id::new());
 	let partial_root = tangram_index::process::put::Arg {
+		account: None,
 		cached: false,
 		children: None,
 		command: Some(vec![command.clone()]),

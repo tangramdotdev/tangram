@@ -1941,6 +1941,7 @@ impl Component {
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 		let now = session.server.clock.unix_timestamp();
 		let put_process_arg = tangram_index::process::put::Arg {
+			account: None,
 			cached: false,
 			children: None,
 			command: Some(
