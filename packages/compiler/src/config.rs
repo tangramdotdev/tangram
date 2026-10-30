@@ -58,8 +58,9 @@ impl crate::backend::Backend for Backend {
 			let mut diagnostics = Vec::new();
 			for module in arg.modules {
 				let text = compiler.load_module(&module).await?;
-				let result = if module.kind == tg::module::Kind::Interface {
-					tg::interface::parse::parse_with_range(&text).map(|_| ())
+				let result = if let Some(language) = tg::interface::Language::for_kind(module.kind)
+				{
+					tg::interface::parse::parse_with_range(&text, language).map(|_| ())
 				} else if let Some(format) = tg::module::config::Format::for_kind(module.kind) {
 					tg::module::Config::parse_with_range(&text, format).map(|_| ())
 				} else {

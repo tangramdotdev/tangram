@@ -16,9 +16,9 @@ impl Compiler {
 		modules: Vec<tg::module::Data>,
 	) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Get the diagnostics for the modules of each language from its backend.
-		let (config, modules): (Vec<_>, Vec<_>) = modules.into_iter().partition(|module| {
-			module.kind.is_config() || module.kind == tg::module::Kind::Interface
-		});
+		let (config, modules): (Vec<_>, Vec<_>) = modules
+			.into_iter()
+			.partition(|module| module.kind.is_config() || module.kind.is_interface());
 		let (python, javascript): (Vec<_>, Vec<_>) = modules
 			.into_iter()
 			.partition(|module| module.kind == tg::module::Kind::Python);

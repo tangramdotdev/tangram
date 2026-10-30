@@ -762,45 +762,46 @@ async fn config_paths(paths: &[PathBuf]) -> tg::Result<BTreeSet<PathBuf>> {
 	Ok(configs)
 }
 
-/// Check the interface of a config against the interface that its runtime's `interface` export generates, and write the generated interface beside the config if `update` is true.
+/// Check the interface of a config against the interface file that its runtime's `interface` export generates, and write the generated file beside the config if `update` is true.
 async fn check_interface(
 	cli: &mut Cli,
 	client: &tg::Client,
 	path: &Path,
 	update: bool,
 ) -> tg::Result<()> {
-	let name = tg::module::config::interface_file_name(path)
+	// Find the interfaces beside the config.
+	let stem = tg::module::config::interface_file_stem(path)
 		.ok_or_else(|| tg::error!("failed to get the file name of the interface"))?;
-	let interface_path = path.with_file_name(name);
+	let stem = path.with_file_name(stem);
+	let mut existing = Vec::new();
+	for language in tg::interface::Language::ALL {
+		let interface_path = interface_file_path(&stem, language);
+		let exists = tokio::fs::try_exists(&interface_path)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to determine whether the interface exists")
+			})?;
+		if exists {
+			existing.push((language, interface_path));
+		}
+	}
+	if existing.len() > 1 {
+		return Err(
+			tg::error!(path = %path.display(), "the config has more than one interface beside it"),
+		);
+	}
 
-	// Build the interface export, and skip the check if the runtime does not generate an interface.
+	// Build the interface export, and skip the check if the runtime does not generate an interface file.
 	let reference = path
 		.to_str()
 		.ok_or_else(|| tg::error!("invalid path"))?
 		.parse::<tg::Reference>()?;
 	let module = tangram_cli_reference::get_module(cli, &reference).await?;
-	let command =
-		tg::command::Builder::with_module(module.clone(), Some("interface".to_owned()), [])
-			.build()?;
-	let command = tg::Referent::with_node(tg::Either::Right(command));
-	let arg = tg::process::Arg {
-		command: Some(command),
-		stderr: tg::process::Stdio::Log,
-		stdin: tg::process::Stdio::Null,
-		stdout: tg::process::Stdio::Log,
-		..Default::default()
-	};
-	let result = tg::process::build::build_with_instance(client, arg)
+	let result = generate_interface(client, module.clone())
 		.boxed_local()
-		.await
-		.and_then(|value| {
-			let tg::Value::String(text) = value else {
-				return Err(tg::error!("expected the interface to be a string"));
-			};
-			tg::interface::parse::parse(&text)
-		});
-	let generated = match result {
-		Ok(interface) => interface,
+		.await;
+	let (language, text, generated) = match result {
+		Ok(output) => output,
 		Err(error) => {
 			let path = path.display();
 			let message = format!(
@@ -812,14 +813,11 @@ async fn check_interface(
 	};
 
 	// Compare the generated interface with the interface beside the config, or else with the config's interface, whose imports resolve relative to where it came from.
-	let exists = tokio::fs::try_exists(&interface_path)
-		.await
-		.map_err(|error| tg::error!(!error, "failed to determine whether the interface exists"))?;
-	let matches = if exists {
-		let text = tokio::fs::read_to_string(&interface_path).await.map_err(
+	let matches = if let Some((language, interface_path)) = existing.first() {
+		let text = tokio::fs::read_to_string(interface_path).await.map_err(
 			|error| tg::error!(!error, path = %interface_path.display(), "failed to read the interface"),
 		)?;
-		let interface = tg::interface::parse::parse(&text)?;
+		let interface = tg::interface::parse::parse(&text, *language)?;
 		interface == generated
 	} else {
 		let arg = tg::module::interface::Arg {
@@ -841,19 +839,68 @@ async fn check_interface(
 		return Ok(());
 	}
 
-	// Write the generated interface beside the config, or fail.
+	// Write the generated interface file beside the config, and remove an interface in another language, or fail.
 	if !update {
 		return Err(tg::error!(
 			path = %path.display(),
 			"the config's interface differs from the interface that its runtime generates, so publish with --update-interfaces to write it"
 		));
 	}
-	let text = tg::interface::print::print(&generated, tg::interface::Syntax::JavaScript)?;
+	let interface_path = interface_file_path(&stem, language);
 	tokio::fs::write(&interface_path, text).await.map_err(
 		|error| tg::error!(!error, path = %interface_path.display(), "failed to write the interface"),
 	)?;
+	for (other, path) in existing {
+		if other != language {
+			tokio::fs::remove_file(&path).await.map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to remove the interface"),
+			)?;
+		}
+	}
 
 	Ok(())
+}
+
+/// Build a config's interface export, which is an interface file whose module kind names its language.
+async fn generate_interface(
+	client: &tg::Client,
+	module: tg::Module,
+) -> tg::Result<(tg::interface::Language, String, tg::Interface)> {
+	let command =
+		tg::command::Builder::with_module(module, Some("interface".to_owned()), []).build()?;
+	let command = tg::Referent::with_node(tg::Either::Right(command));
+	let arg = tg::process::Arg {
+		command: Some(command),
+		stderr: tg::process::Stdio::Log,
+		stdin: tg::process::Stdio::Null,
+		stdout: tg::process::Stdio::Log,
+		..Default::default()
+	};
+	let value = tg::process::build::build_with_instance(client, arg)
+		.boxed_local()
+		.await?;
+	let file = value
+		.try_unwrap_object()
+		.ok()
+		.and_then(|object| object.try_unwrap_file().ok())
+		.ok_or_else(|| tg::error!("expected the interface to be a file"))?;
+	let language = file
+		.module_with_instance(client)
+		.await?
+		.and_then(tg::interface::Language::for_kind)
+		.ok_or_else(|| {
+			tg::error!("expected the interface file to have an interface module kind")
+		})?;
+	let text = file.text_with_instance(client).await?;
+	let interface = tg::interface::parse::parse(&text, language)?;
+	Ok((language, text, interface))
+}
+
+/// Get the path of an interface file from its stem and its language.
+fn interface_file_path(stem: &Path, language: tg::interface::Language) -> PathBuf {
+	let mut path = stem.as_os_str().to_owned();
+	path.push(format!(".{}", language.extension()));
+	path.into()
 }
 
 /// Given an object, get the tag from its internal metadata by statically parsing the module.

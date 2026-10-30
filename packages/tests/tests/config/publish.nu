@@ -10,7 +10,7 @@ let local = server spawn --name local --config {
 let runtime = '
 	export default async (arg: { export: string }) => {
 		if (arg.export === "interface") {
-			return "// @tangram interface javascript\nexport declare const greet: tg.Command<[], string>;\n";
+			return tg.file({ contents: "export declare const greet: tg.Command<[], string>;\n", module: "interface_typescript" });
 		}
 		return "Hello!";
 	};
@@ -25,7 +25,7 @@ let output = tg publish $path | complete
 failure $output
 assert ($output.stderr | str contains '--update-interfaces') $output.stderr
 success (tg publish --update-interfaces $path | complete)
-assert (open --raw ($path | path join tangram.tgi) | str contains 'export declare const greet: tg.Command<[], string>;')
+assert (open --raw ($path | path join tangram.tgi.ts) | str contains 'export declare const greet: tg.Command<[], string>;')
 success (tg tag get greet/1.0.0 | complete)
 
 let importer = artifact {
@@ -70,5 +70,15 @@ let output = tg publish $path | complete
 failure $output
 assert ($output.stderr | str contains '--update-interfaces') $output.stderr
 success (tg publish --update-interfaces $path | complete)
-assert ($path | path join greet tangram.tgi | path exists)
-assert ($path | path join other.tg.tgi | path exists)
+assert ($path | path join greet tangram.tgi.ts | path exists)
+assert ($path | path join other.tgi.ts | path exists)
+
+# Publishing writes the generated interface in its language, and removes the interface in another language.
+let path = artifact {
+	tangram.json: '{ "runtime": "./runtime", "metadata": { "tag": "greet-json/1.0.0" } }'
+	tangram.tgi.json: '{ "exports": {} }'
+	runtime: { tangram.ts: $runtime }
+}
+success (tg publish --update-interfaces $path | complete)
+assert ($path | path join tangram.tgi.ts | path exists)
+assert not ($path | path join tangram.tgi.json | path exists)

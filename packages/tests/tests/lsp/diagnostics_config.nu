@@ -33,14 +33,14 @@ assert equal $response.result.items []
 lsp stop $session
 
 # An invalid interface is reported at the position of its error.
-let path = artifact {'env.tg.tgi': ''}
-let uri = lsp uri ($path | path join env.tg.tgi)
-let source = "// @tangram interface javascript\nexport declare const x: tg.Nope;\n"
+let path = artifact {'env.tgi.ts': ''}
+let uri = lsp uri ($path | path join env.tgi.ts)
+let source = "\nexport declare const x: tg.Nope;\n"
 mut session = lsp start
 $session = lsp send_all $session [
     (lsp initialize 1)
     (lsp initialized)
-    (lsp notification 'textDocument/didOpen' {textDocument: {uri: $uri, languageId: 'json', version: 1, text: $source}})
+    (lsp notification 'textDocument/didOpen' {textDocument: {uri: $uri, languageId: 'typescript', version: 1, text: $source}})
     (lsp diagnostics 10 $uri)
 ]
 let response = lsp wait_result $session 10
