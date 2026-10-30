@@ -9797,11 +9797,13 @@ dependencies = [
  "petgraph",
  "radix_trie",
  "serde",
+ "serde_json",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
  "tangram_compiler",
  "tangram_util",
+ "tokio",
 ]
 
 [[package]]

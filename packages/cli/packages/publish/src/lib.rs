@@ -29,6 +29,10 @@ pub struct Args {
 
 	#[arg(long, short)]
 	pub tag: Option<String>,
+
+	/// Write the interface beside the package's config when it differs from the interface that the config's runtime generates.
+	#[arg(default_value = "false", long)]
+	pub update_interface: bool,
 }
 
 #[derive(Default)]
@@ -69,10 +73,20 @@ struct Item {
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 	let client = cli.client().await?;
 
-	// Check in the root package.
+	// Check the interface of the root package's config against the interface that its runtime generates.
 	let absolute_path = tangram_util::fs::canonicalize_parent(&args.path)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+	check_interface(
+		cli,
+		&client,
+		&absolute_path,
+		args.update_interface && !args.dry_run,
+	)
+	.boxed_local()
+	.await?;
+
+	// Check in the root package.
 	let arg = tg::checkin::Arg {
 		options: tg::checkin::Options::default(),
 		path: absolute_path.clone(),
@@ -715,6 +729,113 @@ async fn push_tag_ancestors(
 			.await
 			.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;
 	}
+
+	Ok(())
+}
+
+/// Check the interface of a package's root config against the interface that its runtime's `interface` export generates, and write the generated interface beside the config if `update` is true.
+async fn check_interface(
+	cli: &mut Cli,
+	client: &tg::Client,
+	path: &Path,
+	update: bool,
+) -> tg::Result<()> {
+	// Get the root config.
+	let path = if path.is_dir() {
+		let name = tg::module::ROOT_MODULE_FILE_NAMES
+			.iter()
+			.filter(|name| tg::module::config::Format::for_path(name).is_some())
+			.find(|name| path.join(name).is_file());
+		let Some(name) = name else {
+			return Ok(());
+		};
+		path.join(name)
+	} else if tg::module::config::Format::for_path(path).is_some() {
+		path.to_owned()
+	} else {
+		return Ok(());
+	};
+	let name = tg::module::config::interface_file_name(&path)
+		.ok_or_else(|| tg::error!("failed to get the file name of the interface"))?;
+	let interface_path = path.with_file_name(name);
+
+	// Build the interface export, and skip the check if the runtime does not generate an interface.
+	let reference = path
+		.to_str()
+		.ok_or_else(|| tg::error!("invalid path"))?
+		.parse::<tg::Reference>()?;
+	let module = tangram_cli_reference::get_module(cli, &reference).await?;
+	let command =
+		tg::command::Builder::with_module(module.clone(), Some("interface".to_owned()), [])
+			.build()?;
+	let command = tg::Referent::with_node(tg::Either::Right(command));
+	let arg = tg::process::Arg {
+		command: Some(command),
+		stderr: tg::process::Stdio::Log,
+		stdin: tg::process::Stdio::Null,
+		stdout: tg::process::Stdio::Log,
+		..Default::default()
+	};
+	let result = tg::process::build::build_with_instance(client, arg)
+		.boxed_local()
+		.await
+		.and_then(|value| tg::Interface::try_from_value(&value));
+	let generated = match result {
+		Ok(interface) => interface,
+		Err(error) => {
+			let path = path.display();
+			let message = format!(
+				"skipped checking the interface of {path} because its runtime did not generate one: {error}"
+			);
+			Cli::print_warning_message(&message);
+			return Ok(());
+		},
+	};
+
+	// Compare the generated interface with the interface beside the config, or else with the config's interface, whose imports resolve relative to where it came from.
+	let exists = tokio::fs::try_exists(&interface_path)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to determine whether the interface exists"))?;
+	let matches = if exists {
+		let text = tokio::fs::read_to_string(&interface_path).await.map_err(
+			|error| tg::error!(!error, path = %interface_path.display(), "failed to read the interface"),
+		)?;
+		let interface = tg::Interface::deserialize_json(&text)?;
+		interface == generated
+	} else {
+		let arg = tg::module::interface::Arg {
+			module: module.to_data(),
+		};
+		let interface = client.module_interface(arg).await?.interface;
+		interface.definitions == generated.definitions
+			&& interface.exports == generated.exports
+			&& interface
+				.imports
+				.iter()
+				.map(|(name, import)| (name, import.kind))
+				.eq(generated
+					.imports
+					.iter()
+					.map(|(name, import)| (name, import.kind)))
+	};
+	if matches {
+		return Ok(());
+	}
+
+	// Write the generated interface beside the config, or fail.
+	if !update {
+		return Err(tg::error!(
+			path = %path.display(),
+			"the config's interface differs from the interface that its runtime generates, so publish with --update-interface to write it"
+		));
+	}
+	let text = serde_json::to_string_pretty(&generated)
+		.map_err(|error| tg::error!(!error, "failed to serialize the interface"))?;
+	tokio::fs::write(&interface_path, text + "\n")
+		.await
+		.map_err(
+			|error| tg::error!(!error, path = %interface_path.display(), "failed to write the interface"),
+		)?;
 
 	Ok(())
 }
