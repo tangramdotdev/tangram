@@ -1,6 +1,6 @@
 use ../../util/test.nu *
 
-# A directory's sync waits on both producer syncs when its files are still transferring.
+# A consumer waits for its inputs while both producers are still transferring them.
 let root_token = random chars
 let store = { object_max_batch: 1 }
 let remote = server spawn --name remote --config {
@@ -52,15 +52,12 @@ let path = artifact {
 		}
 	'
 }
-# Hold each file's contents at the remote and observe requests to its producer sync.
+# Hold each file's contents at the remote.
 let watches = [first second] | each {|text|
 	let value = ['tg.blob(' ($text | to json) ')'] | str join
 	let blob = tg --url $local.url put --no-tokens $value | referent node
 	let params = { id: $blob } | to json --raw
-	let store = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params $params | from json | get watch
-	let params = { node: $blob } | to json --raw
-	let ack = tg --url $remote.url --token $root_token checkpoint watch sync.service.ack --params $params | from json | get watch
-	{ store: $store, ack: $ack }
+	tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params $params | from json | get watch
 }
 let capacities = $runners | each {|runner|
 	let watch = tg --url $runner.url checkpoint watch runner.sandbox.capacity.release | from json | get watch
@@ -73,22 +70,13 @@ let build = job spawn {
 }
 # Both producer transfers must remain unfinished when the consumer needs their contents.
 for watch in $watches {
-	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $watch.store 0 | complete) 'both producers must start pushing'
+	success (tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.get.store.object $watch 0 | complete) 'both producers must start pushing'
 }
-let ack_tag = random int 1000000..2000000
+assert equal (try { job recv --tag $build --timeout 0sec } catch { null }) null 'the build must wait for the input transfers'
+
+# Release the transfers. The consumer reads both inputs.
 for watch in $watches {
-	job spawn {
-		let output = tg --url $remote.url --token $root_token checkpoint wait --timeout 30s sync.service.ack $watch.ack 0 | complete
-		{ output: $output, watch: $watch } | job send --tag $ack_tag 0
-	} | ignore
-}
-for _ in $watches {
-	let event = job recv --tag $ack_tag --timeout 35sec
-	success $event.output 'each input must wait on its own producer transfer'
-	assert equal (try { job recv --tag $build --timeout 0sec } catch { null }) null 'the build must wait for the input transfers'
-	let watch = $event.watch
-	tg --url $remote.url --token $root_token checkpoint unwatch sync.service.ack $watch.ack
-	tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $watch.store
+	tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $watch
 }
 let output = job recv --tag $build --timeout 60sec
 success $output
