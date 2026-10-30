@@ -190,7 +190,7 @@ impl Component {
 			},
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let user = match self
 			.upsert_login_user_with_transaction(transaction, arg, &mut batch)
 			.await?
@@ -269,7 +269,7 @@ impl Component {
 		&self,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		arg: &FinishLoginArg,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<tg::user::Data, tangram_server_core::database::Error>> {
 		// Get the user from the identity.
 		if let Some(identity) = &arg.identity {
@@ -355,7 +355,7 @@ impl Component {
 				.execute(statement.into(), db::params![id.to_string(), name])
 				.await;
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
-			batch.items.push(tangram_index::batch::Item::PutUser(
+			batch.items.push(tangram_index::Item::PutUser(
 				tangram_index::user::put::Arg {
 					billing_ready: Some(false),
 					id: id.clone(),

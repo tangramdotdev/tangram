@@ -121,47 +121,47 @@ async fn partial_account_updates_preserve_billing() {
 	let new_user = tg::user::Id::new();
 	let organization = tg::organization::Id::new();
 	let user = tg::user::Id::new();
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
+			tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
 				billing_ready: None,
 				id: new_organization.clone(),
 				specifier: tg::Specifier::from_str("new_organization").unwrap(),
 			}),
-			tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
+			tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
 				billing_ready: Some(true),
 				id: organization.clone(),
 				specifier: tg::Specifier::from_str("organization").unwrap(),
 			}),
-			tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
+			tangram_index::Item::PutUser(tangram_index::user::put::Arg {
 				billing_ready: None,
 				id: new_user.clone(),
 				specifier: tg::Specifier::from_str("new_user").unwrap(),
 			}),
-			tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
+			tangram_index::Item::PutUser(tangram_index::user::put::Arg {
 				billing_ready: Some(true),
 				id: user.clone(),
 				specifier: tg::Specifier::from_str("user").unwrap(),
 			}),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
+			tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
 				billing_ready: None,
 				id: organization.clone(),
 				specifier: tg::Specifier::from_str("organization").unwrap(),
 			}),
-			tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
+			tangram_index::Item::PutUser(tangram_index::user::put::Arg {
 				billing_ready: None,
 				id: user.clone(),
 				specifier: tg::Specifier::from_str("user").unwrap(),
 			}),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 
 	assert!(
 		!try_get_organization(&index, &new_organization)
@@ -216,8 +216,8 @@ async fn process_children_are_stored_separately_from_data() {
 		stdout: tg::process::Stdio::default(),
 		tty: None,
 	};
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(
 			tangram_index::process::put::Arg {
 				account: None,
 				cached: false,
@@ -243,7 +243,7 @@ async fn process_children_are_stored_separately_from_data() {
 			},
 		)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 
 	let (indexed, data) = index
 		.try_get_processes_with_data(std::slice::from_ref(&process))
@@ -330,9 +330,9 @@ async fn incomplete_process_children_have_values() {
 		cached: true,
 		process: tg::Referent::new(child.clone(), entry),
 	};
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
+			tangram_index::Item::PutProcess(tangram_index::process::put::Arg {
 				account: None,
 				cached: false,
 				captures: tangram_index::permission::capture::Captures::default(),
@@ -355,7 +355,7 @@ async fn incomplete_process_children_have_values() {
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 0,
 			}),
-			tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
+			tangram_index::Item::PutProcess(tangram_index::process::put::Arg {
 				account: None,
 				cached: child_data.cached,
 				captures: tangram_index::permission::capture::Captures::default(),
@@ -380,7 +380,7 @@ async fn incomplete_process_children_have_values() {
 			}),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 
 	let process = index
 		.try_get_processes(std::slice::from_ref(&parent))
@@ -508,8 +508,8 @@ async fn process_children_must_be_unique() {
 		cached: false,
 		process: tg::Referent::with_node(tg::process::Id::new()),
 	};
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(
 			tangram_index::process::put::Arg {
 				account: None,
 				cached: false,
@@ -535,7 +535,7 @@ async fn process_children_must_be_unique() {
 			},
 		)],
 	};
-	let error = index.batch(arg).await.unwrap().unwrap_err();
+	let error = index.write(arg).await.unwrap().unwrap_err();
 	assert!(
 		error
 			.to_string()
@@ -573,10 +573,10 @@ async fn sandbox_status_does_not_regress() {
 	for status in [tg::sandbox::Status::Destroyed, tg::sandbox::Status::Started] {
 		let mut sandbox = sandbox_arg(id.clone(), status);
 		sandbox.location = Some(location.clone());
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(sandbox)],
 		};
-		index.batch(arg).await.unwrap().unwrap();
+		index.write(arg).await.unwrap().unwrap();
 	}
 
 	let sandbox = index.try_get_sandbox(&id).await.unwrap().unwrap();
@@ -597,25 +597,25 @@ async fn preserves_order_and_transaction_boundary() {
 	};
 
 	let before = index.get_transaction_id().await.unwrap();
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutGroup(put_arg.clone()),
-			tangram_index::batch::Item::DeleteGroup(id.clone()),
+			tangram_index::Item::PutGroup(put_arg.clone()),
+			tangram_index::Item::DeleteGroup(id.clone()),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	let after = index.get_transaction_id().await.unwrap();
 	assert_eq!(after, before + 1);
 	assert!(try_get_group(&index, &id).is_none());
 
 	let before = index.get_transaction_id().await.unwrap();
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::DeleteGroup(id.clone()),
-			tangram_index::batch::Item::PutGroup(put_arg),
+			tangram_index::Item::DeleteGroup(id.clone()),
+			tangram_index::Item::PutGroup(put_arg),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	let after = index.get_transaction_id().await.unwrap();
 	assert_eq!(after, before + 1);
 	assert!(try_get_group(&index, &id).is_some());
@@ -633,18 +633,18 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	let mut second_arg = process_arg(second.clone(), tg::process::Status::Started);
 	second_arg.sandbox = None;
 	second_arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutSandbox(sandbox_arg(
+			tangram_index::Item::PutSandbox(sandbox_arg(
 				sandbox.clone(),
 				tg::sandbox::Status::Started,
 			)),
-			tangram_index::batch::Item::PutProcess(second_arg),
-			tangram_index::batch::Item::PutProcess(first_arg.clone()),
-			tangram_index::batch::Item::PutProcess(first_arg),
+			tangram_index::Item::PutProcess(second_arg),
+			tangram_index::Item::PutProcess(first_arg.clone()),
+			tangram_index::Item::PutProcess(first_arg),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	let processes = index
 		.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
 		.await
@@ -665,14 +665,14 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	first_membership.sandbox = Some(tangram_index::process::put::Sandbox::Id(sandbox.clone()));
 	let mut second_membership = first_membership.clone();
 	second_membership.id = second.clone();
-	let arg = tangram_index::batch::Arg {
+	let arg = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutProcess(second_membership),
-			tangram_index::batch::Item::PutProcess(first_membership.clone()),
-			tangram_index::batch::Item::PutProcess(first_membership),
+			tangram_index::Item::PutProcess(second_membership),
+			tangram_index::Item::PutProcess(first_membership.clone()),
+			tangram_index::Item::PutProcess(first_membership),
 		],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
@@ -691,13 +691,13 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	);
 
 	// A data-only snapshot does not claim to contain a complete process history.
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutSandbox(sandbox_arg(
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(sandbox_arg(
 			sandbox.clone(),
 			tg::sandbox::Status::Destroyed,
 		))],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert!(
 		!index
 			.try_get_sandbox(&sandbox)
@@ -715,10 +715,10 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 		.collect::<Vec<_>>();
 	let mut final_arg = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
 	final_arg.processes = Some(processes.clone());
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutSandbox(final_arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(final_arg)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	let indexed = index.try_get_sandbox(&sandbox).await.unwrap().unwrap();
 	assert!(indexed.serialize().unwrap().len() < 1000);
 	assert_eq!(
@@ -763,10 +763,10 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	// Replayed complete lists must not change finalized ordering.
 	let mut replay = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
 	replay.processes = Some(vec![second.clone(), first.clone()]);
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutSandbox(replay)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(replay)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
@@ -780,10 +780,10 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	let mut membership = process_arg(tg::process::Id::new(), tg::process::Status::Started);
 	membership.data = None;
 	membership.sandbox = Some(tangram_index::process::put::Sandbox::Id(sandbox.clone()));
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(membership)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(membership)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
@@ -841,13 +841,13 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 		.delete_sandboxes(std::slice::from_ref(&sandbox))
 		.await
 		.unwrap();
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutSandbox(sandbox_arg(
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(sandbox_arg(
 			sandbox.clone(),
 			tg::sandbox::Status::Started,
 		))],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.try_get_sandbox_processes_count(&sandbox)
@@ -860,10 +860,10 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	let mut arg = process_arg(first.clone(), tg::process::Status::Started);
 	arg.sandbox = None;
 	arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(arg)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 1)
@@ -886,10 +886,10 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 	// A process-only write preserves its sandbox field without establishing membership.
 	for touched_at in [0, 1] {
 		process_arg.touched_at = touched_at;
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutProcess(process_arg.clone())],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutProcess(process_arg.clone())],
 		};
-		index.batch(arg).await.unwrap().unwrap();
+		index.write(arg).await.unwrap().unwrap();
 		assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
 		let indexed = index.try_get_process(&process).await.unwrap().unwrap();
 		assert_eq!(indexed.sandbox, Some(sandbox.clone()));
@@ -913,10 +913,10 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 	// Only the sandbox write establishes membership.
 	let mut membership = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
 	membership.processes = Some(vec![process.clone()]);
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutSandbox(membership)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(membership)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
@@ -934,16 +934,16 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 	membership.data = None;
 	membership.id = process.clone();
 	membership.sandbox = Some(tangram_index::process::put::Sandbox::Id(sandbox.clone()));
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(membership)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(membership)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 
 	process_arg.touched_at = 2;
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(process_arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(process_arg)],
 	};
-	index.batch(arg).await.unwrap().unwrap();
+	index.write(arg).await.unwrap().unwrap();
 	assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
 	let transaction = index.env.read_txn().unwrap();
 	let key = crate::Key::Process(crate::process::Key::ProcessSandbox { process, sandbox });
@@ -1233,18 +1233,18 @@ async fn identical_sandbox_put_grants_permissions_after_comparison() {
 }
 
 async fn put_process(index: &Index, arg: tangram_index::process::put::Arg) -> tg::Result<()> {
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(arg)],
 	};
-	index.batch(arg).await??;
+	index.write(arg).await??;
 	Ok(())
 }
 
 async fn put_sandbox(index: &Index, arg: tangram_index::sandbox::put::Arg) -> tg::Result<()> {
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutSandbox(arg)],
+	let arg = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutSandbox(arg)],
 	};
-	index.batch(arg).await??;
+	index.write(arg).await??;
 	Ok(())
 }
 
@@ -1321,21 +1321,21 @@ async fn process_rejection_commits_the_other_items_and_requests() {
 	let mut conflicting = process_arg(existing.clone(), tg::process::Status::Finished);
 	conflicting.principal = tg::Principal::User(tg::user::Id::new());
 	conflicting.data.as_mut().unwrap().host = "conflict".into();
-	let batch = tangram_index::batch::Arg {
+	let batch = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutProcess(process_arg(
+			tangram_index::Item::PutProcess(process_arg(
 				before.clone(),
 				tg::process::Status::Finished,
 			)),
-			tangram_index::batch::Item::PutProcess(conflicting),
-			tangram_index::batch::Item::PutProcess(process_arg(
+			tangram_index::Item::PutProcess(conflicting),
+			tangram_index::Item::PutProcess(process_arg(
 				after.clone(),
 				tg::process::Status::Finished,
 			)),
 		],
 	};
 	let requests = vec![
-		crate::Request::Batch(batch),
+		crate::Request::Write(batch),
 		crate::Request::PutProcesses(vec![process_arg(
 			unrelated.clone(),
 			tg::process::Status::Finished,
@@ -1518,10 +1518,10 @@ async fn process_rejection_skips_its_captures() {
 			time_to_touch: None,
 			version: None,
 		});
-	let batch = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(conflicting)],
+	let batch = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(conflicting)],
 	};
-	let results = execute_write_requests(&index, vec![crate::Request::Batch(batch)], 64);
+	let results = execute_write_requests(&index, vec![crate::Request::Write(batch)], 64);
 	assert!(matches!(&results[0], Ok(crate::Response::Mutation(Err(_)))));
 
 	// Verify that the subject did not receive the permission.
@@ -1568,10 +1568,10 @@ async fn process_acceptance_puts_its_captures() {
 			time_to_touch: None,
 			version: None,
 		});
-	let batch = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(arg)],
+	let batch = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(arg)],
 	};
-	let results = execute_write_requests(&index, vec![crate::Request::Batch(batch)], 64);
+	let results = execute_write_requests(&index, vec![crate::Request::Write(batch)], 64);
 	assert!(matches!(&results[0], Ok(crate::Response::Mutation(Ok(())))));
 
 	// Verify that the subject received the permission.

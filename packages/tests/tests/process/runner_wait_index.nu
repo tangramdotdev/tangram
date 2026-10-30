@@ -73,11 +73,11 @@ for location in [local remote] {
 		success (tg --url $runner.url --token $root_token checkpoint wait --timeout 10s process.wait.attach $attach_watch 1 | complete) "the node reader must attach before completion"
 		tg --url $runner.url --token $root_token checkpoint unwatch process.wait.attach $attach_watch
 		let batch_params = '{"finished_process":true}'
-		let batch_watch = tg --url $runner.url --token $root_token checkpoint watch index.batch --params $batch_params | from json | get watch
+		let batch_watch = tg --url $runner.url --token $root_token checkpoint watch index.write --params $batch_params | from json | get watch
 		tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
-		success (tg --url $runner.url --token $root_token checkpoint wait --timeout 30s index.batch $batch_watch 0 | complete) "the finished-process batch must reach the checkpoint"
+		success (tg --url $runner.url --token $root_token checkpoint wait --timeout 30s index.write $batch_watch 0 | complete) "the finished-process batch must reach the checkpoint"
 		let premature = try { job recv --tag $wait_job --timeout 1sec } catch { null }
-		tg --url $runner.url --token $root_token checkpoint unwatch index.batch $batch_watch
+		tg --url $runner.url --token $root_token checkpoint unwatch index.write $batch_watch
 		success (tg --url $local_owner.url --token $root_token checkpoint wait --timeout 30s process.control.finish $control_watch 0 | complete) "the control finish handler must reach the checkpoint"
 		let output = if $premature != null { $premature } else {
 			try { job recv --tag $wait_job --timeout 10sec } catch {

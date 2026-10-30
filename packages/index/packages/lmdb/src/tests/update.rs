@@ -47,8 +47,8 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 	drain_permission_updates(&index).await;
 
 	index
-		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutProcess(
+		.write(tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutProcess(
 				tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
@@ -135,7 +135,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 	let unrelated = object_id(2);
 	let wrapper = object_id(0);
 	let put_object = |id: tg::object::Id, children| {
-		tangram_index::batch::Item::PutObject(tangram_index::object::put::Arg {
+		tangram_index::Item::PutObject(tangram_index::object::put::Arg {
 			account: None,
 			checkout: None,
 			children,
@@ -156,12 +156,12 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 	let subject = tg::authorization::Subject::Process(process.clone());
 	let creator = tg::Principal::Process(process.clone());
 	index
-		.batch(tangram_index::batch::Arg {
+		.write(tangram_index::write::Arg {
 			items: vec![
 				put_object(child.clone(), BTreeSet::new()),
 				put_object(unrelated.clone(), BTreeSet::new()),
 				put_object(wrapper.clone(), BTreeSet::from([child.clone()])),
-				tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
+				tangram_index::Item::PutProcess(tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
 					captures: tangram_index::permission::capture::Captures::default(),
@@ -184,7 +184,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				}),
-				tangram_index::batch::Item::PutPermission(tangram_index::permission::put::Arg {
+				tangram_index::Item::PutPermission(tangram_index::permission::put::Arg {
 					created_at: 0,
 					creator: Some(creator.clone()),
 					permissions: node.into(),
@@ -397,7 +397,7 @@ async fn shared_log_objects_do_not_materialize_permissions_on_unrelated_processe
 		let process = tg::process::Id::new();
 		let items = put_process_with_log_items(&process, &log, None);
 		index
-			.batch(tangram_index::batch::Arg { items })
+			.write(tangram_index::write::Arg { items })
 			.await
 			.unwrap()
 			.unwrap();
@@ -451,7 +451,7 @@ async fn shared_log_objects_do_not_materialize_implied_permissions_for_a_parent(
 	let child = tg::process::Id::new();
 	let items = put_process_with_log_items(&parent, &log, None);
 	index
-		.batch(tangram_index::batch::Arg { items })
+		.write(tangram_index::write::Arg { items })
 		.await
 		.unwrap()
 		.unwrap();
@@ -472,9 +472,9 @@ async fn shared_log_objects_do_not_materialize_implied_permissions_for_a_parent(
 		time_to_touch: None,
 		version: None,
 	};
-	items.push(tangram_index::batch::Item::PutPermission(permission));
+	items.push(tangram_index::Item::PutPermission(permission));
 	index
-		.batch(tangram_index::batch::Arg { items })
+		.write(tangram_index::write::Arg { items })
 		.await
 		.unwrap()
 		.unwrap();
@@ -527,11 +527,11 @@ async fn object_aspect_permissions_are_not_materialized_for_a_subject_with_a_par
 		time_to_touch: None,
 		version: None,
 	};
-	items.push(tangram_index::batch::Item::PutPermission(parent));
+	items.push(tangram_index::Item::PutPermission(parent));
 	let permission = subtree_permission_arg(&log, &subject);
-	items.push(tangram_index::batch::Item::PutPermission(permission));
+	items.push(tangram_index::Item::PutPermission(permission));
 	index
-		.batch(tangram_index::batch::Arg { items })
+		.write(tangram_index::write::Arg { items })
 		.await
 		.unwrap()
 		.unwrap();
@@ -557,7 +557,7 @@ async fn shared_child_objects_do_not_enqueue_permission_updates_for_unrelated_pa
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
 		let items = put_parent_object_items(&parent, &child, &subject);
 		index
-			.batch(tangram_index::batch::Arg { items })
+			.write(tangram_index::write::Arg { items })
 			.await
 			.unwrap()
 			.unwrap();
@@ -616,7 +616,7 @@ async fn object_aspect_permissions_materialize_the_longest_cover() {
 		time_to_touch: None,
 		version: None,
 	};
-	items.push(tangram_index::batch::Item::PutPermission(node));
+	items.push(tangram_index::Item::PutPermission(node));
 	for expires_at in [100, 200] {
 		let permission = tangram_index::permission::put::Arg {
 			created_at: 0,
@@ -630,10 +630,10 @@ async fn object_aspect_permissions_materialize_the_longest_cover() {
 			time_to_touch: None,
 			version: None,
 		};
-		items.push(tangram_index::batch::Item::PutPermission(permission));
+		items.push(tangram_index::Item::PutPermission(permission));
 	}
 	index
-		.batch(tangram_index::batch::Arg { items })
+		.write(tangram_index::write::Arg { items })
 		.await
 		.unwrap()
 		.unwrap();
@@ -681,10 +681,10 @@ async fn process_subtree_permissions_materialize_the_longest_cover() {
 			time_to_touch: None,
 			version: None,
 		};
-		items.push(tangram_index::batch::Item::PutPermission(permission));
+		items.push(tangram_index::Item::PutPermission(permission));
 	}
 	index
-		.batch(tangram_index::batch::Arg { items })
+		.write(tangram_index::write::Arg { items })
 		.await
 		.unwrap()
 		.unwrap();
@@ -720,7 +720,7 @@ async fn permission_updates_reach_a_shared_object_process_through_the_subject_pe
 		let process = tg::process::Id::new();
 		let items = put_process_with_log_items(&process, &log, None);
 		index
-			.batch(tangram_index::batch::Arg { items })
+			.write(tangram_index::write::Arg { items })
 			.await
 			.unwrap()
 			.unwrap();
@@ -779,7 +779,7 @@ async fn permission_updates_reach_a_parent_object_for_a_subject_with_many_permis
 	let parent = object_id(1);
 	let items = put_parent_object_items(&parent, &child, &subject);
 	index
-		.batch(tangram_index::batch::Arg { items })
+		.write(tangram_index::write::Arg { items })
 		.await
 		.unwrap()
 		.unwrap();
@@ -818,8 +818,8 @@ async fn materialized_permissions_are_rewritten_only_when_their_expiration_moves
 		touched_at: 0,
 	};
 	index
-		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutObject(put_object)],
+		.write(tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutObject(put_object)],
 		})
 		.await
 		.unwrap()
@@ -884,7 +884,7 @@ async fn object_processes_are_returned_in_pages() {
 		let process = tg::process::Id::new();
 		let items = put_process_with_log_items(&process, &log, None);
 		index
-			.batch(tangram_index::batch::Arg { items })
+			.write(tangram_index::write::Arg { items })
 			.await
 			.unwrap()
 			.unwrap();
@@ -951,9 +951,9 @@ async fn object_aspect_permissions_materialize_their_subtree_permissions_in_the_
 		time_to_touch: None,
 		version: None,
 	};
-	items.push(tangram_index::batch::Item::PutPermission(node));
+	items.push(tangram_index::Item::PutPermission(node));
 	index
-		.batch(tangram_index::batch::Arg { items })
+		.write(tangram_index::write::Arg { items })
 		.await
 		.unwrap()
 		.unwrap();
@@ -994,8 +994,8 @@ async fn put_log_object(index: &Index, log: &tg::object::Id) {
 		touched_at: 0,
 	};
 	index
-		.batch(tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutObject(object)],
+		.write(tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutObject(object)],
 		})
 		.await
 		.unwrap()
@@ -1007,7 +1007,7 @@ fn put_process_with_log_items(
 	process: &tg::process::Id,
 	log: &tg::object::Id,
 	parent: Option<&tg::process::Id>,
-) -> Vec<tangram_index::batch::Item> {
+) -> Vec<tangram_index::Item> {
 	let subject = tg::authorization::Subject::Process(process.clone());
 	let creator = tg::Principal::Process(process.clone());
 	let put_process = tangram_index::process::put::Arg {
@@ -1062,9 +1062,9 @@ fn put_process_with_log_items(
 		version: None,
 	};
 	vec![
-		tangram_index::batch::Item::PutProcess(put_process),
-		tangram_index::batch::Item::PutPermission(put_node_permission),
-		tangram_index::batch::Item::PutPermission(put_log_permission),
+		tangram_index::Item::PutProcess(put_process),
+		tangram_index::Item::PutPermission(put_node_permission),
+		tangram_index::Item::PutPermission(put_log_permission),
 	]
 }
 
@@ -1096,7 +1096,7 @@ fn put_parent_object_items(
 	parent: &tg::object::Id,
 	child: &tg::object::Id,
 	subject: &tg::authorization::Subject,
-) -> Vec<tangram_index::batch::Item> {
+) -> Vec<tangram_index::Item> {
 	let creator = subject.try_to_principal().unwrap();
 	let put_object = tangram_index::object::put::Arg {
 		account: None,
@@ -1125,8 +1125,8 @@ fn put_parent_object_items(
 		version: None,
 	};
 	vec![
-		tangram_index::batch::Item::PutObject(put_object),
-		tangram_index::batch::Item::PutPermission(put_node_permission),
+		tangram_index::Item::PutObject(put_object),
+		tangram_index::Item::PutPermission(put_node_permission),
 	]
 }
 

@@ -185,7 +185,7 @@ impl Component {
 			},
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		match self
 			.delete_tags_with_transaction(session, transaction, &tags, &mut batch)
 			.await?
@@ -195,7 +195,7 @@ impl Component {
 		}
 		batch.items.extend(
 			tags.iter()
-				.map(|tag| tangram_index::batch::Item::DeleteTag(tag.id.clone())),
+				.map(|tag| tangram_index::Item::DeleteTag(tag.id.clone())),
 		);
 		match session
 			.server
@@ -308,7 +308,7 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		tags: &[tg::tag::Data],
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
 		let p = transaction.p();
 		for tag in tags {

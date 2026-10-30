@@ -677,13 +677,13 @@ impl Component {
 			.sync_get_index_sandbox_args(session, &graph, sync)
 			.boxed()
 			.await?;
-		let arg = tangram_index::batch::Arg {
+		let arg = tangram_index::write::Arg {
 			items: put_sandbox_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutSandbox)
+				.map(tangram_index::Item::PutSandbox)
 				.collect(),
 		};
-		session.server.index.batch(arg).await??;
+		session.server.index.write(arg).await??;
 		self.sync_get_index_put_inner(session, graph, sync).await?;
 
 		Ok(())
@@ -814,13 +814,13 @@ impl Component {
 		}
 
 		// Return process write errors to sync before enqueueing object and permission writes.
-		let arg = tangram_index::batch::Arg {
+		let arg = tangram_index::write::Arg {
 			items: put_process_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutProcess)
+				.map(tangram_index::Item::PutProcess)
 				.collect(),
 		};
-		session.server.index.batch(arg).await??;
+		session.server.index.write(arg).await??;
 
 		// Put the account's storage entries for the storage roots, with the object puts for roots that are being indexed.
 		let mut account_items = Vec::new();
@@ -832,7 +832,7 @@ impl Component {
 						process,
 						touched_at,
 					};
-					account_items.push(tangram_index::batch::Item::PutAccountProcess(entry));
+					account_items.push(tangram_index::Item::PutAccountProcess(entry));
 					continue;
 				}
 				let Ok(object) = tg::object::Id::try_from(id.clone()) else {
@@ -846,25 +846,25 @@ impl Component {
 						object,
 						touched_at,
 					};
-					account_items.push(tangram_index::batch::Item::PutAccountObject(entry));
+					account_items.push(tangram_index::Item::PutAccountObject(entry));
 				}
 			}
 		}
 
 		// Index the objects and permissions.
-		let arg = tangram_index::batch::Arg {
+		let arg = tangram_index::write::Arg {
 			items: put_checkout_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutCheckout)
+				.map(tangram_index::Item::PutCheckout)
 				.chain(
 					put_object_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutObject),
+						.map(tangram_index::Item::PutObject),
 				)
 				.chain(
 					put_permission_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutPermission),
+						.map(tangram_index::Item::PutPermission),
 				)
 				.chain(permission_capture_items)
 				.chain(account_items)
@@ -876,7 +876,7 @@ impl Component {
 			.server
 			.components
 			.indexer
-			.index_batch(&session.server, arg)
+			.write(&session.server, arg)
 			.await
 		{
 			Ok(()) => Ok(ControlFlow::Break(())),
@@ -955,7 +955,7 @@ impl Component {
 		graph: &Graph,
 		sync: &tg::sync::Id,
 		created_at: i64,
-	) -> tg::Result<Vec<tangram_index::batch::Item>> {
+	) -> tg::Result<Vec<tangram_index::Item>> {
 		let mut token = None;
 		let mut items = Vec::new();
 		for (id, node) in graph.nodes() {

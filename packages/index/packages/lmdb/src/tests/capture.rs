@@ -193,13 +193,13 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 		subject: tg::authorization::Subject::Tag(id.clone()),
 		version: Some("old".into()),
 	};
-	let batch = tangram_index::batch::Arg {
+	let batch = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::batch::Item::PutDelegation(delegation.clone()),
-			tangram_index::batch::Item::EnqueuePermissionCapture(arg.clone()),
+			tangram_index::Item::PutDelegation(delegation.clone()),
+			tangram_index::Item::EnqueuePermissionCapture(arg.clone()),
 		],
 	};
-	index.batch(batch).await.unwrap().unwrap();
+	index.write(batch).await.unwrap().unwrap();
 	enqueue(&index, arg.clone()).await;
 	let entries = index.permission_capture_batch(1, 0, 1).await.unwrap();
 	let write = permission_args(
@@ -220,26 +220,20 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 		(process.clone().into(), None),
 		vec![(object.clone().into(), subtree())],
 	));
-	let mut items = vec![tangram_index::batch::Item::PutDelegation(
-		delegation.clone(),
-	)];
-	items.extend(
-		writes
-			.into_iter()
-			.map(tangram_index::batch::Item::PutPermission),
-	);
-	let batch = tangram_index::batch::Arg { items };
-	index.batch(batch).await.unwrap().unwrap();
+	let mut items = vec![tangram_index::Item::PutDelegation(delegation.clone())];
+	items.extend(writes.into_iter().map(tangram_index::Item::PutPermission));
+	let batch = tangram_index::write::Arg { items };
+	index.write(batch).await.unwrap().unwrap();
 	let process_subject = tg::authorization::Subject::Process(process);
 	assert_eq!(permissions(&index, &object, &process_subject).len(), 1);
 	index.delete_tags(std::slice::from_ref(&id)).await.unwrap();
 	let destination = (id.clone().into(), Some("new".into()));
 	let writes = permission_args(0, destination, vec![(object.clone().into(), subtree())]);
 	write_permissions(&index, writes).await;
-	let batch = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutDelegation(delegation)],
+	let batch = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutDelegation(delegation)],
 	};
-	index.batch(batch).await.unwrap().unwrap();
+	index.write(batch).await.unwrap().unwrap();
 	enqueue(&index, arg).await;
 	assert_eq!(
 		permissions(
@@ -414,10 +408,10 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
 	};
-	let batch = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(process_arg.clone())],
+	let batch = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(process_arg.clone())],
 	};
-	index.batch(batch).await.unwrap().unwrap();
+	index.write(batch).await.unwrap().unwrap();
 	let children = index
 		.try_get_process_children_and_objects(&process)
 		.await
@@ -428,10 +422,10 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 	process_arg.error = Some(None);
 	process_arg.log = Some(None);
 	process_arg.output = Some(Some(vec![output.clone()]));
-	let batch = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutProcess(process_arg)],
+	let batch = tangram_index::write::Arg {
+		items: vec![tangram_index::Item::PutProcess(process_arg)],
 	};
-	index.batch(batch).await.unwrap().unwrap();
+	index.write(batch).await.unwrap().unwrap();
 	let children = index
 		.try_get_process_children_and_objects(&process)
 		.await

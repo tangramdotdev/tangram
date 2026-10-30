@@ -5,11 +5,11 @@ use {
 };
 
 impl Index {
-	pub async fn batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<tg::Result<()>> {
+	pub async fn write(&self, arg: tangram_index::write::Arg) -> tg::Result<tg::Result<()>> {
 		if arg.is_empty() {
 			return Ok(Ok(()));
 		}
-		let request = Request::Batch(arg);
+		let request = Request::Write(arg);
 		let response = self.send_write_request(request).await?;
 		let Response::Mutation(result) = response else {
 			return Err(tg::error!("unexpected write response"));
@@ -18,11 +18,11 @@ impl Index {
 		Ok(result)
 	}
 
-	pub(crate) fn batch_with_transaction(
+	pub(crate) fn write_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		arg: &tangram_index::batch::Arg,
+		arg: &tangram_index::write::Arg,
 		process_data_fragment_size: usize,
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
@@ -42,7 +42,7 @@ impl Index {
 			}
 
 			match item {
-				tangram_index::batch::Item::DeleteDelegations(subject) => {
+				tangram_index::Item::DeleteDelegations(subject) => {
 					Self::delete_delegations_for_subject_with_transaction(
 						db,
 						subspace,
@@ -51,7 +51,7 @@ impl Index {
 					)?;
 				},
 
-				tangram_index::batch::Item::EnqueuePermissionCapture(arg) => {
+				tangram_index::Item::EnqueuePermissionCapture(arg) => {
 					Self::enqueue_permission_capture_with_transaction(
 						db,
 						subspace,
@@ -60,10 +60,10 @@ impl Index {
 					)?;
 				},
 
-				tangram_index::batch::Item::DeleteCheckout(id) => {
+				tangram_index::Item::DeleteCheckout(id) => {
 					Self::delete_checkout(db, subspace, transaction, id)?;
 				},
-				tangram_index::batch::Item::DeletePermission(arg) => {
+				tangram_index::Item::DeletePermission(arg) => {
 					Self::delete_permissions_with_transaction(
 						db,
 						subspace,
@@ -71,7 +71,7 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::DeleteGroup(id) => {
+				tangram_index::Item::DeleteGroup(id) => {
 					Self::delete_groups_with_transaction(
 						db,
 						subspace,
@@ -79,7 +79,7 @@ impl Index {
 						std::slice::from_ref(id),
 					)?;
 				},
-				tangram_index::batch::Item::DeleteGroupMember(arg) => {
+				tangram_index::Item::DeleteGroupMember(arg) => {
 					Self::delete_group_members_with_transaction(
 						db,
 						subspace,
@@ -87,7 +87,7 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::DeleteOrganization(id) => {
+				tangram_index::Item::DeleteOrganization(id) => {
 					Self::delete_organizations_with_transaction(
 						db,
 						subspace,
@@ -95,7 +95,7 @@ impl Index {
 						std::slice::from_ref(id),
 					)?;
 				},
-				tangram_index::batch::Item::DeleteOrganizationMember(arg) => {
+				tangram_index::Item::DeleteOrganizationMember(arg) => {
 					Self::delete_organization_members_with_transaction(
 						db,
 						subspace,
@@ -103,7 +103,7 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::DeleteSandbox(id) => {
+				tangram_index::Item::DeleteSandbox(id) => {
 					Self::delete_sandboxes_with_transaction(
 						db,
 						subspace,
@@ -111,7 +111,7 @@ impl Index {
 						std::slice::from_ref(id),
 					)?;
 				},
-				tangram_index::batch::Item::DeleteTag(id) => {
+				tangram_index::Item::DeleteTag(id) => {
 					Self::delete_tags_with_transaction(
 						db,
 						subspace,
@@ -119,7 +119,7 @@ impl Index {
 						std::slice::from_ref(id),
 					)?;
 				},
-				tangram_index::batch::Item::DeleteUser(id) => {
+				tangram_index::Item::DeleteUser(id) => {
 					Self::delete_users_with_transaction(
 						db,
 						subspace,
@@ -127,7 +127,7 @@ impl Index {
 						std::slice::from_ref(id),
 					)?;
 				},
-				tangram_index::batch::Item::PutCheckout(arg) => {
+				tangram_index::Item::PutCheckout(arg) => {
 					Self::put_checkouts_with_transaction(
 						db,
 						subspace,
@@ -135,10 +135,10 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::PutDelegation(arg) => {
+				tangram_index::Item::PutDelegation(arg) => {
 					Self::put_delegation_with_transaction(db, subspace, transaction, arg)?;
 				},
-				tangram_index::batch::Item::PutPermission(arg) => {
+				tangram_index::Item::PutPermission(arg) => {
 					Self::put_permissions_with_transaction(
 						db,
 						subspace,
@@ -146,7 +146,7 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::PutGroup(arg) => {
+				tangram_index::Item::PutGroup(arg) => {
 					Self::put_groups_with_transaction(
 						db,
 						subspace,
@@ -154,7 +154,7 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::PutGroupMember(arg) => {
+				tangram_index::Item::PutGroupMember(arg) => {
 					Self::put_group_members_with_transaction(
 						db,
 						subspace,
@@ -162,7 +162,7 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::PutObject(arg) => {
+				tangram_index::Item::PutObject(arg) => {
 					Self::put_objects_with_transaction(
 						db,
 						subspace,
@@ -171,7 +171,7 @@ impl Index {
 						usage_partition_total,
 					)?;
 				},
-				tangram_index::batch::Item::PutAccountObject(arg) => {
+				tangram_index::Item::PutAccountObject(arg) => {
 					Self::put_account_object(
 						db,
 						subspace,
@@ -182,7 +182,7 @@ impl Index {
 						None,
 					)?;
 				},
-				tangram_index::batch::Item::PutAccountProcess(arg) => {
+				tangram_index::Item::PutAccountProcess(arg) => {
 					Self::put_account_process(
 						db,
 						subspace,
@@ -193,7 +193,7 @@ impl Index {
 						None,
 					)?;
 				},
-				tangram_index::batch::Item::PutOrganization(arg) => {
+				tangram_index::Item::PutOrganization(arg) => {
 					Self::put_organizations_with_transaction(
 						db,
 						subspace,
@@ -201,7 +201,7 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::PutOrganizationMember(arg) => {
+				tangram_index::Item::PutOrganizationMember(arg) => {
 					Self::put_organization_members_with_transaction(
 						db,
 						subspace,
@@ -209,7 +209,7 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::PutProcess(arg) => {
+				tangram_index::Item::PutProcess(arg) => {
 					let result = Self::put_processes_with_transaction(
 						db,
 						subspace,
@@ -222,7 +222,7 @@ impl Index {
 						rejection.get_or_insert(error);
 					}
 				},
-				tangram_index::batch::Item::PutSandbox(arg) => {
+				tangram_index::Item::PutSandbox(arg) => {
 					let result = Self::put_sandboxes_with_transaction(
 						db,
 						subspace,
@@ -234,10 +234,10 @@ impl Index {
 						rejection.get_or_insert(error);
 					}
 				},
-				tangram_index::batch::Item::PutSync(arg) => {
+				tangram_index::Item::PutSync(arg) => {
 					Self::put_sync_with_transaction(db, subspace, transaction, arg)?;
 				},
-				tangram_index::batch::Item::PutTag(arg) => {
+				tangram_index::Item::PutTag(arg) => {
 					Self::put_tags_with_transaction(
 						db,
 						subspace,
@@ -245,7 +245,7 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::batch::Item::PutUser(arg) => {
+				tangram_index::Item::PutUser(arg) => {
 					Self::put_users_with_transaction(
 						db,
 						subspace,

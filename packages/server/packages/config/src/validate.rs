@@ -628,7 +628,7 @@ impl Config {
 					"the indexer writer concurrency must be greater than zero"
 				));
 			}
-			if indexer.batch.request_size == 0 {
+			if indexer.enqueue.request_size == 0 {
 				return Err(tg::error!(
 					"the indexer batch request size must be greater than zero"
 				));
@@ -646,7 +646,7 @@ impl Config {
 				"the indexer request poll interval must be greater than zero"
 			));
 		}
-		if self.indexer.batch.timeout.is_zero() {
+		if self.indexer.enqueue.timeout.is_zero() {
 			return Err(tg::error!(
 				"the indexer batch timeout must be greater than zero"
 			));

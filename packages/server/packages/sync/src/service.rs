@@ -271,10 +271,10 @@ impl Component {
 				expires_at,
 				id: id.clone(),
 			};
-			let arg = tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutSync(arg)],
+			let arg = tangram_index::write::Arg {
+				items: vec![tangram_index::Item::PutSync(arg)],
 			};
-			server.components.indexer.index_batch(&server, arg).await?;
+			server.components.indexer.write(&server, arg).await?;
 
 			// Wait for the record to be indexed.
 			Self::sync_service_await_indexing(&session).await?;

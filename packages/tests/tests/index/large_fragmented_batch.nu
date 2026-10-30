@@ -13,7 +13,7 @@ wait_for_log { log: $log } 'Server is ready'
 let local = server spawn --config {
 	advanced: { multi_server: true },
 	index: { map_size: 268_435_456 },
-	indexer: { batch: { retry: { max_retries: 0 } } },
+	indexer: { enqueue: { retry: { max_retries: 0 } } },
 	messenger: { kind: 'nats', url: $'nats://127.0.0.1:($port)' },
 	cache: { map_size: 268_435_456 },
 }

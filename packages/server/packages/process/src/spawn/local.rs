@@ -613,7 +613,7 @@ impl Component {
 		if let Some(permission) =
 			Self::spawn_process_create_creator_permission_arg(session, &id, now)?
 		{
-			items.push(tangram_index::batch::Item::PutPermission(permission));
+			items.push(tangram_index::Item::PutPermission(permission));
 		}
 		if write_command_permissions {
 			let destination = id.clone().into();
@@ -638,12 +638,12 @@ impl Component {
 			);
 		}
 		if !items.is_empty() {
-			let arg = tangram_index::batch::Arg { items };
+			let arg = tangram_index::write::Arg { items };
 			session
 				.server
 				.components
 				.indexer
-				.index_batch(&session.server, arg)
+				.write(&session.server, arg)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to write the process permissions"),

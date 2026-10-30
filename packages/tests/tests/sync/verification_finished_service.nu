@@ -14,7 +14,7 @@ let local_source = server spawn --name local-source --config {
 }
 let file = tg --url $local_source.url put --no-tokens 'tg.file("private")' | referent node
 tg --url $remote_destination.url --token $root_token index
-let batch_watch = tg --url $remote_destination.url --token $root_token checkpoint watch index.batch | from json | get watch
+let batch_watch = tg --url $remote_destination.url --token $root_token checkpoint watch index.write | from json | get watch
 let stopped_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.service.stopped | from json | get watch
 let push_log = $env.TMPDIR | path join push.log
 '' | save --force $push_log
@@ -32,7 +32,7 @@ let token = $'http://localhost/($referent)' | url parse | get params | where {|p
 } | first
 let referent = $'($file)?tokens[local][0]=($token | url encode --all)'
 # Hold the sync batch until verification has started contacting its service.
-tg --url $remote_destination.url --token $root_token checkpoint wait index.batch $batch_watch 0 | ignore
+tg --url $remote_destination.url --token $root_token checkpoint wait index.write $batch_watch 0 | ignore
 let heartbeat_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.service.heartbeat.start | from json | get watch
 let read = job spawn {
 	let job_id = job id
@@ -41,7 +41,7 @@ let read = job spawn {
 }
 tg --url $remote_destination.url --token $root_token checkpoint wait sync.service.heartbeat.start $heartbeat_watch 0 | ignore
 assert equal (try { job recv --tag $read --timeout 0.2sec } catch { null }) null 'verification should still be waiting for a proof'
-tg --url $remote_destination.url --token $root_token checkpoint unwatch index.batch $batch_watch
+tg --url $remote_destination.url --token $root_token checkpoint unwatch index.write $batch_watch
 success (job recv --tag $push --timeout 10sec) 'the sync should complete after its final index writes'
 tg --url $remote_destination.url --token $root_token checkpoint wait sync.service.stopped $stopped_watch 0 | ignore
 tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.service.stopped $stopped_watch

@@ -1,119 +1,26 @@
 use tangram_client::prelude::*;
 
-/// An ordered sequence of mutations that may execute in multiple sequential transactions.
+/// A collection of independent index items, which may execute in any order across multiple transactions.
 #[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
-	pub items: Vec<Item>,
-}
-
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub enum Item {
-	#[tangram_serialize(id = 25)]
-	DeleteDelegations(tg::authorization::Subject),
-
-	#[tangram_serialize(id = 22)]
-	DeleteCheckout(tg::Id),
-
-	#[tangram_serialize(id = 0)]
-	DeletePermission(crate::permission::delete::Arg),
-
-	#[tangram_serialize(id = 1)]
-	DeleteGroup(tg::group::Id),
-
-	#[tangram_serialize(id = 2)]
-	DeleteGroupMember(crate::group::member::delete::Arg),
-
-	#[tangram_serialize(id = 3)]
-	DeleteOrganization(tg::organization::Id),
-
-	#[tangram_serialize(id = 4)]
-	DeleteOrganizationMember(crate::organization::member::delete::Arg),
-
-	#[tangram_serialize(id = 5)]
-	DeleteSandbox(tg::sandbox::Id),
-
-	#[tangram_serialize(id = 6)]
-	DeleteTag(tg::tag::Id),
-
-	#[tangram_serialize(id = 7)]
-	DeleteUser(tg::user::Id),
-
-	#[tangram_serialize(id = 30)]
-	EnqueuePermissionCapture(crate::permission::capture::enqueue::Arg),
-
-	#[tangram_serialize(id = 8)]
-	PutCheckout(crate::checkout::put::Arg),
-
-	#[tangram_serialize(id = 24)]
-	PutDelegation(crate::delegation::put::Arg),
-
-	#[tangram_serialize(id = 9)]
-	PutPermission(crate::permission::put::Arg),
-
-	#[tangram_serialize(id = 10)]
-	PutGroup(crate::group::put::Arg),
-
-	#[tangram_serialize(id = 11)]
-	PutGroupMember(crate::group::member::put::Arg),
-
-	#[tangram_serialize(id = 12)]
-	PutObject(crate::object::put::Arg),
-
-	#[tangram_serialize(id = 13)]
-	PutOrganization(crate::organization::put::Arg),
-
-	#[tangram_serialize(id = 14)]
-	PutOrganizationMember(crate::organization::member::put::Arg),
-
-	#[tangram_serialize(id = 20)]
-	PutAccountObject(crate::usage::storage::put::ObjectArg),
-
-	#[tangram_serialize(id = 21)]
-	PutAccountProcess(crate::usage::storage::put::ProcessArg),
-
-	#[tangram_serialize(id = 15)]
-	PutProcess(crate::process::put::Arg),
-
-	#[tangram_serialize(id = 17)]
-	PutSandbox(crate::sandbox::put::Arg),
-
-	#[tangram_serialize(id = 31)]
-	PutSync(crate::sync::put::Arg),
-
-	#[tangram_serialize(id = 18)]
-	PutTag(crate::tag::put::Arg),
-
-	#[tangram_serialize(id = 19)]
-	PutUser(crate::user::put::Arg),
+	pub items: Vec<crate::Item>,
 }
 
 impl Arg {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the index batch arg"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the index write arg"))
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the index batch arg"))
+			.map_err(|error| tg::error!(!error, "failed to serialize the index write arg"))
 	}
 
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
 		self.items.is_empty()
-	}
-}
-
-impl Item {
-	/// Get the process that grants authority and the other process that receives it, for a delegation or a permission capture from one process to another.
-	#[must_use]
-	pub fn process_grant(&self) -> Option<(tg::process::Id, tg::process::Id)> {
-		match self {
-			Self::EnqueuePermissionCapture(arg) => arg.process_grant(),
-			Self::PutDelegation(arg) => arg.process_grant(),
-			_ => None,
-		}
 	}
 }
 
@@ -162,8 +69,8 @@ mod tests {
 		};
 		let arg = Arg {
 			items: vec![
-				Item::DeleteCheckout(tag.clone().into()),
-				Item::DeletePermission(crate::permission::delete::Arg {
+				crate::Item::DeleteCheckout(tag.clone().into()),
+				crate::Item::DeletePermission(crate::permission::delete::Arg {
 					creator: Some(tg::Principal::Root),
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
@@ -172,11 +79,11 @@ mod tests {
 					source: crate::permission::Source::Grant,
 					subject: tg::authorization::Subject::Root,
 				}),
-				Item::DeleteGroup(group.clone()),
-				Item::DeleteOrganization(organization.clone()),
-				Item::DeleteTag(tag),
-				Item::DeleteUser(user.clone()),
-				Item::PutPermission(crate::permission::put::Arg {
+				crate::Item::DeleteGroup(group.clone()),
+				crate::Item::DeleteOrganization(organization.clone()),
+				crate::Item::DeleteTag(tag),
+				crate::Item::DeleteUser(user.clone()),
+				crate::Item::PutPermission(crate::permission::put::Arg {
 					created_at: 1,
 					creator: Some(tg::Principal::Root),
 					permissions: tg::authorization::permission::Set::Group(
@@ -188,15 +95,15 @@ mod tests {
 					time_to_touch: Some(std::time::Duration::new(30, 456)),
 					version: None,
 				}),
-				Item::PutGroupMember(crate::group::member::put::Arg {
+				crate::Item::PutGroupMember(crate::group::member::put::Arg {
 					group,
 					member: tg::group::Member::User(user.clone()),
 				}),
-				Item::PutOrganizationMember(crate::organization::member::put::Arg {
+				crate::Item::PutOrganizationMember(crate::organization::member::put::Arg {
 					member: tg::organization::Member::User(user),
 					organization,
 				}),
-				Item::PutSandbox(crate::sandbox::put::Arg {
+				crate::Item::PutSandbox(crate::sandbox::put::Arg {
 					account: None,
 					created_at: 1,
 					data: Some(data),
@@ -217,16 +124,19 @@ mod tests {
 
 		// Verify the deserialized items.
 		assert_eq!(arg.items.len(), 10);
-		let Item::PutPermission(permission_arg) = &arg.items[6] else {
+		let crate::Item::PutPermission(permission_arg) = &arg.items[6] else {
 			panic!();
 		};
 		assert_eq!(
 			permission_arg.time_to_touch,
 			Some(std::time::Duration::new(30, 456))
 		);
-		assert!(matches!(&arg.items[7], Item::PutGroupMember(_)));
-		assert!(matches!(&arg.items[8], Item::PutOrganizationMember(_)));
-		let Item::PutSandbox(sandbox_arg) = &arg.items[9] else {
+		assert!(matches!(&arg.items[7], crate::Item::PutGroupMember(_)));
+		assert!(matches!(
+			&arg.items[8],
+			crate::Item::PutOrganizationMember(_)
+		));
+		let crate::Item::PutSandbox(sandbox_arg) = &arg.items[9] else {
 			panic!();
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();

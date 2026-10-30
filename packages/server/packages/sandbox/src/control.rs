@@ -234,14 +234,14 @@ impl Component {
 				runner.clone(),
 			)
 			.await?;
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(sandbox)],
 		};
 		session
 			.server
 			.components
 			.indexer
-			.index_batch(&session.server, arg)
+			.write(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the sandbox"))?;
 		tangram_server_core::checkpoint!(session.server, "sandbox.control.index.submitted", sandbox = %id).await;

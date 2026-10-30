@@ -48,14 +48,14 @@ impl Component {
 			runner,
 			touched_at: now,
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutSandbox(put_sandbox)],
 		};
 		session
 			.server
 			.components
 			.indexer
-			.index_batch(&session.server, arg)
+			.write(&session.server, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to put the destroyed sandbox in the index"),

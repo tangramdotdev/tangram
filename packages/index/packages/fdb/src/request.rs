@@ -10,7 +10,7 @@ pub(super) enum Priority {
 #[derive(Clone)]
 pub(super) enum Request {
 	AggregateUsage(tangram_index::usage::aggregate::Arg),
-	Batch(tangram_index::batch::Arg),
+	Write(tangram_index::write::Arg),
 	Clean(Clean),
 	ExpireUsage(tangram_index::usage::expire::Arg),
 	CompletePermissionCapture(tangram_index::permission::capture::Entry),
@@ -94,7 +94,7 @@ pub(super) struct Update {
 
 pub(super) enum Item {
 	AggregateUsage,
-	Batch(tangram_index::batch::Item),
+	Write(tangram_index::Item),
 	Clean,
 	ExpireUsage,
 	DeletePermission(tangram_index::permission::delete::Arg),
@@ -125,7 +125,7 @@ pub(super) enum Item {
 
 pub(super) enum Kind {
 	AggregateUsage(tangram_index::usage::aggregate::Arg),
-	Batch,
+	Write,
 	Clean {
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
@@ -187,7 +187,7 @@ impl Request {
 	#[must_use]
 	pub(super) fn priority(&self) -> Priority {
 		match self {
-			Self::Batch(_)
+			Self::Write(_)
 			| Self::PutCheckouts(_)
 			| Self::PutPermissions(_)
 			| Self::PutGroupMembers(_)

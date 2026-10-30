@@ -15,7 +15,7 @@ def test [hold_verification: bool ...args] {
 
 	# Hold the remote's index writes.
 	let batch_watch = (
-		tg --url $remote.url checkpoint watch index.batch
+		tg --url $remote.url checkpoint watch index.write
 		| from json
 		| get watch
 	)
@@ -23,7 +23,7 @@ def test [hold_verification: bool ...args] {
 	# Put the child and the parent on the remote.
 	let file = tg --url $remote.url put --no-tokens 'tg.file("hello")' | referent node
 	let directory = tg --url $remote.url put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
-	tg --url $remote.url checkpoint wait index.batch $batch_watch 0 | ignore
+	tg --url $remote.url checkpoint wait index.write $batch_watch 0 | ignore
 
 	# Put the parent on the local server without the child.
 	tg --url $remote.url get --bytes $directory | tg --url $local.url --token $root_token put --no-tokens --bytes --kind dir | referent node
@@ -63,7 +63,7 @@ def test [hold_verification: bool ...args] {
 	# Release the retry and the pending index writes once the destination starts waiting.
 	tg --url $remote.url checkpoint wait sync.get.pending.index $retry_watch 0 | ignore
 	tg --url $remote.url checkpoint unwatch sync.get.pending.index $retry_watch
-	tg --url $remote.url checkpoint unwatch index.batch $batch_watch
+	tg --url $remote.url checkpoint unwatch index.write $batch_watch
 
 	let output = job recv --tag $push --timeout 30sec
 	success $output

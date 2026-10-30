@@ -263,21 +263,21 @@ impl Component {
 			.await?;
 
 		// Put the process in the index.
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutProcess(put_process_arg)],
+		let arg = tangram_index::write::Arg {
+			items: vec![tangram_index::Item::PutProcess(put_process_arg)],
 		};
 		let result = if defer_index {
 			session
 				.server
 				.components
 				.indexer
-				.index_batch(&session.server, arg)
+				.write(&session.server, arg)
 				.await
 		} else {
 			session
 				.server
 				.index
-				.batch(arg)
+				.write(arg)
 				.await
 				.and_then(std::convert::identity)
 		};

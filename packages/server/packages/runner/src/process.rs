@@ -1610,7 +1610,7 @@ impl Component {
 		};
 		tangram_server_core::checkpoint!(
 			session.server,
-			"index.batch",
+			"index.write",
 			command_object_permission = false,
 			finished_process = true,
 			runner = true
@@ -2002,14 +2002,14 @@ impl Component {
 			time_to_touch: session.server.config.process.time_to_touch,
 			touched_at: now,
 		};
-		let items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
+		let items = vec![tangram_index::Item::PutProcess(put_process_arg)];
 
 		// Apply the initial data before the finished data can be written.
-		let arg = tangram_index::batch::Arg { items };
+		let arg = tangram_index::write::Arg { items };
 		session
 			.server
 			.index
-			.batch(arg)
+			.write(arg)
 			.await
 			.and_then(std::convert::identity)
 			.map_err(|error| tg::error!(!error, "failed to index the remote process"))?;

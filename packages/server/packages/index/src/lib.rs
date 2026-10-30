@@ -68,12 +68,12 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn batch(&self, arg: index::batch::Arg) -> tg::Result<tg::Result<()>> {
+	async fn write(&self, arg: index::write::Arg) -> tg::Result<tg::Result<()>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.batch(arg).await,
+			Self::Fdb(index) => index.write(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.batch(arg).await,
+			Self::Lmdb(index) => index.write(arg).await,
 		}
 	}
 

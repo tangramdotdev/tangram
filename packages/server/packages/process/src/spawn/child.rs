@@ -203,15 +203,15 @@ impl Component {
 		};
 		let mut items = Vec::with_capacity(3);
 		if let Some(parent_arg) = parent_arg {
-			items.push(tangram_index::batch::Item::PutProcess(parent_arg));
+			items.push(tangram_index::Item::PutProcess(parent_arg));
 		}
-		items.push(tangram_index::batch::Item::PutProcess(child_arg));
-		let arg = tangram_index::batch::Arg { items };
+		items.push(tangram_index::Item::PutProcess(child_arg));
+		let arg = tangram_index::write::Arg { items };
 		session
 			.server
 			.components
 			.indexer
-			.index_batch(&session.server, arg)
+			.write(&session.server, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the process child"))?;
 

@@ -82,7 +82,7 @@ impl Component {
 		session: &Session,
 		transaction: &Transaction<'_>,
 		ids_and_specifiers: &[(tg::Id, tg::Specifier)],
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 		batch_size: usize,
 	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
 		if ids_and_specifiers.is_empty() {
@@ -131,14 +131,12 @@ impl Component {
 			let rows =
 				tangram_server_core::database::retry!(result, "failed to list the group members");
 			for row in rows {
-				batch
-					.items
-					.push(tangram_index::batch::Item::DeleteGroupMember(
-						tangram_index::group::member::delete::Arg {
-							group: row.group,
-							member: row.member,
-						},
-					));
+				batch.items.push(tangram_index::Item::DeleteGroupMember(
+					tangram_index::group::member::delete::Arg {
+						group: row.group,
+						member: row.member,
+					},
+				));
 			}
 
 			let statement = format!(
@@ -154,7 +152,7 @@ impl Component {
 			for row in rows {
 				batch
 					.items
-					.push(tangram_index::batch::Item::DeleteOrganizationMember(
+					.push(tangram_index::Item::DeleteOrganizationMember(
 						tangram_index::organization::member::delete::Arg {
 							member: row.member,
 							organization: row.organization,
@@ -230,16 +228,16 @@ impl Component {
 		for (id, _) in ids_and_specifiers {
 			let item = match id {
 				id if id.kind() == tg::id::Kind::Group => {
-					tangram_index::batch::Item::DeleteGroup(id.clone().try_into()?)
+					tangram_index::Item::DeleteGroup(id.clone().try_into()?)
 				},
 				id if id.kind() == tg::id::Kind::Organization => {
-					tangram_index::batch::Item::DeleteOrganization(id.clone().try_into()?)
+					tangram_index::Item::DeleteOrganization(id.clone().try_into()?)
 				},
 				id if id.kind() == tg::id::Kind::Tag => {
-					tangram_index::batch::Item::DeleteTag(id.clone().try_into()?)
+					tangram_index::Item::DeleteTag(id.clone().try_into()?)
 				},
 				id if id.kind() == tg::id::Kind::User => {
-					tangram_index::batch::Item::DeleteUser(id.clone().try_into()?)
+					tangram_index::Item::DeleteUser(id.clone().try_into()?)
 				},
 				_ => return Err(tg::error!("invalid named node kind")),
 			};

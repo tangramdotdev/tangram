@@ -328,10 +328,10 @@ impl Component {
 		session
 			.server
 			.index
-			.batch(tangram_index::batch::Arg {
+			.write(tangram_index::write::Arg {
 				items: put_processes
 					.into_iter()
-					.map(tangram_index::batch::Item::PutProcess)
+					.map(tangram_index::Item::PutProcess)
 					.collect(),
 			})
 			.await

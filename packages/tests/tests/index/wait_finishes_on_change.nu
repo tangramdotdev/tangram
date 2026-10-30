@@ -9,7 +9,7 @@ let local = server spawn --config {
 }
 
 # Hold the index write of a put so the wait's first pass finds it pending.
-let batch_watch = tg --url $local.url checkpoint watch index.batch | from json | get watch
+let batch_watch = tg --url $local.url checkpoint watch index.write | from json | get watch
 let wait_watch = tg --url $local.url checkpoint watch indexer.request.wait | from json | get watch
 tg --url $local.url put --no-tokens -k directory 'tg.directory({})' | ignore
 let request = job spawn {
@@ -17,7 +17,7 @@ let request = job spawn {
 	let output = tg --url $local.url index | complete
 	$output | job send --tag $job_id 0
 }
-tg --url $local.url checkpoint wait --timeout 10s index.batch $batch_watch 0 | ignore
+tg --url $local.url checkpoint wait --timeout 10s index.write $batch_watch 0 | ignore
 tg --url $local.url checkpoint wait --timeout 10s indexer.request.wait $wait_watch 0 | ignore
 tg --url $local.url checkpoint continue indexer.request.wait $wait_watch 0
 tg --url $local.url checkpoint unwatch indexer.request.wait $wait_watch
@@ -27,7 +27,7 @@ let early = try { job recv --tag $request --timeout 0sec } catch { null }
 assert ($early == null) "the wait should be pending on the held index write"
 
 # Release the write. The wait must finish without a poll interval tick.
-tg --url $local.url checkpoint continue index.batch $batch_watch 0
-tg --url $local.url checkpoint unwatch index.batch $batch_watch
+tg --url $local.url checkpoint continue index.write $batch_watch 0
+tg --url $local.url checkpoint unwatch index.write $batch_watch
 let output = job recv --tag $request --timeout 30sec
 success $output

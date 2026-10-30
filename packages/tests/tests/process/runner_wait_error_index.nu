@@ -22,7 +22,7 @@ tg --token $root_token grant $bob.user.id process_node $process | ignore
 tg --token $root_token index
 
 # Hold the error object's index batch before the runner stores the error.
-let object_watch = tg --token $root_token checkpoint watch index.batch --params '{"finished_process":false}' | from json | get watch
+let object_watch = tg --token $root_token checkpoint watch index.write --params '{"finished_process":false}' | from json | get watch
 tg --token $root_token cancel $process $spawned.lease
 tg --token $root_token checkpoint wait --timeout 10s runner.process.finish $finish_watch 0 | ignore
 
@@ -38,14 +38,14 @@ let wait_job = job spawn {
 }
 tg --token $root_token checkpoint wait --timeout 10s process.wait.attach $attach_watch 0 | ignore
 tg --token $root_token checkpoint unwatch process.wait.attach $attach_watch
-let process_watch = tg --token $root_token checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
+let process_watch = tg --token $root_token checkpoint watch index.write --params '{"finished_process":true}' | from json | get watch
 tg --token $root_token checkpoint unwatch runner.process.finish $finish_watch
-tg --token $root_token checkpoint wait --timeout 10s index.batch $object_watch 0 | ignore
+tg --token $root_token checkpoint wait --timeout 10s index.write $object_watch 0 | ignore
 let output = job recv --tag $wait_job --timeout 10sec
 let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
 assert equal $output.exit 1 "the runner wait must return before permission preparation completes"
-tg --token $root_token checkpoint unwatch index.batch $object_watch
-tg --token $root_token checkpoint wait --timeout 10s index.batch $process_watch 0 | ignore
+tg --token $root_token checkpoint unwatch index.write $object_watch
+tg --token $root_token checkpoint wait --timeout 10s index.write $process_watch 0 | ignore
 assert (not ($output.error | str contains 'tokens')) "waiting must not mint error capabilities"
 tg --token $root_token checkpoint wait --timeout 10s process.control.finish $control_watch 0 | ignore
 
@@ -57,7 +57,7 @@ let read_job = job spawn {
 }
 let premature = try { job recv --tag $read_job --timeout 1sec } catch { null }
 assert equal $premature null "error authorization must wait for the finished-process batch"
-tg --token $root_token checkpoint unwatch index.batch $process_watch
+tg --token $root_token checkpoint unwatch index.write $process_watch
 let read = job recv --tag $read_job --timeout 10sec
 success $read "error authorization must succeed after indexing without waiting for the control finish handler"
 assert ($read.stdout | str contains 'cancellation')

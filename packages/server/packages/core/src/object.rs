@@ -100,7 +100,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		server: &'a Server,
 		object: crate::cache::object::put::Arg,
-		index: tangram_index::batch::Arg,
+		index: tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn put_object_batch<'a>(
@@ -113,7 +113,7 @@ pub trait Component: crate::component::Lifecycle {
 		&'a self,
 		server: &'a Server,
 		objects: Vec<crate::cache::object::put::Arg>,
-		index: tangram_index::batch::Arg,
+		index: tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn try_get_object_batch_local_with_server<'a>(

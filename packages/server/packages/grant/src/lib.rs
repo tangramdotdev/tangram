@@ -294,7 +294,7 @@ impl Component {
 		permissions: tg::authorization::permission::Set,
 	) -> tg::Result<ControlFlow<tg::grant::Data, tangram_server_core::database::Error>> {
 		arg.permissions = tg::Either::Left(permissions);
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let (grant, inserted) = match self
 			.create_grant_with_transaction(session, transaction, arg, &mut batch)
 			.await?
@@ -406,7 +406,7 @@ impl Component {
 		permissions: tg::authorization::permission::Set,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
 		arg.permissions = tg::Either::Left(permissions);
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let output = match self
 			.delete_grant_with_transaction(session, transaction, arg, &mut batch)
 			.await?
@@ -433,7 +433,7 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		arg: tg::grant::create::Arg,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<(tg::grant::Data, bool), tangram_server_core::database::Error>> {
 		let resource =
 			match Self::resolve_resource_with_transaction(transaction, &arg.resource.node).await? {
@@ -542,7 +542,7 @@ impl Component {
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
 			(created_at, Some(creator.clone()), permissions, true)
 		};
-		batch.items.push(tangram_index::batch::Item::PutPermission(
+		batch.items.push(tangram_index::Item::PutPermission(
 			tangram_index::permission::put::Arg {
 				created_at,
 				creator: output_creator.clone(),
@@ -571,7 +571,7 @@ impl Component {
 		session: &Session,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		arg: tg::grant::delete::Arg,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>> {
 		let resource =
 			match Self::resolve_resource_with_transaction(transaction, &arg.resource.node).await? {
@@ -674,17 +674,15 @@ impl Component {
 			}
 		}
 		if !deleted.is_empty() {
-			batch
-				.items
-				.push(tangram_index::batch::Item::DeletePermission(
-					tangram_index::permission::delete::Arg {
-						creator: Some(creator),
-						permissions: deleted,
-						resource,
-						source: tangram_index::permission::Source::Grant,
-						subject,
-					},
-				));
+			batch.items.push(tangram_index::Item::DeletePermission(
+				tangram_index::permission::delete::Arg {
+					creator: Some(creator),
+					permissions: deleted,
+					resource,
+					source: tangram_index::permission::Source::Grant,
+					subject,
+				},
+			));
 		}
 		Ok(ControlFlow::Break(Some(())))
 	}
@@ -765,7 +763,7 @@ impl Component {
 		&self,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		id: &tg::Id,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
 		match self
 			.delete_node_grants_batch_with_transaction(transaction, std::slice::from_ref(id), batch)
@@ -782,7 +780,7 @@ impl Component {
 		&self,
 		transaction: &tangram_server_core::database::Transaction<'_>,
 		ids: &[tg::Id],
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<(), tangram_server_core::database::Error>> {
 		if ids.is_empty() {
 			return Ok(ControlFlow::Break(()));
@@ -823,17 +821,15 @@ impl Component {
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
 		for row in rows {
-			batch
-				.items
-				.push(tangram_index::batch::Item::DeletePermission(
-					tangram_index::permission::delete::Arg {
-						creator: Some(row.creator),
-						permissions: row.permissions,
-						resource: row.resource,
-						source: tangram_index::permission::Source::Grant,
-						subject: row.subject,
-					},
-				));
+			batch.items.push(tangram_index::Item::DeletePermission(
+				tangram_index::permission::delete::Arg {
+					creator: Some(row.creator),
+					permissions: row.permissions,
+					resource: row.resource,
+					source: tangram_index::permission::Source::Grant,
+					subject: row.subject,
+				},
+			));
 		}
 		let statement = formatdoc!(
 			"
@@ -1357,7 +1353,7 @@ impl tangram_server_core::grant::Component for Component {
 		session: &'a Session,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
 		arg: tg::grant::create::Arg,
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<
 		'a,
 		tg::Result<ControlFlow<(tg::grant::Data, bool), tangram_server_core::database::Error>>,
@@ -1371,7 +1367,7 @@ impl tangram_server_core::grant::Component for Component {
 		session: &'a Session,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
 		arg: tg::grant::delete::Arg,
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<Option<()>, tangram_server_core::database::Error>>> {
 		self.delete_grant_with_transaction(session, transaction, arg, batch)
 			.boxed()
@@ -1382,7 +1378,7 @@ impl tangram_server_core::grant::Component for Component {
 		_session: &'a Session,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
 		ids: &'a [tg::Id],
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(), tangram_server_core::database::Error>>> {
 		self.delete_node_grants_batch_with_transaction(transaction, ids, batch)
 			.boxed()
@@ -1393,7 +1389,7 @@ impl tangram_server_core::grant::Component for Component {
 		_session: &'a Session,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
 		id: &'a tg::Id,
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 	) -> BoxFuture<'a, tg::Result<ControlFlow<(), tangram_server_core::database::Error>>> {
 		self.delete_node_grants_with_transaction(transaction, id, batch)
 			.boxed()

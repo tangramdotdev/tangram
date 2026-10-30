@@ -257,7 +257,7 @@ impl Component {
 			},
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let mut batch = tangram_index::batch::Arg::default();
+		let mut batch = tangram_index::write::Arg::default();
 		let tokens = arg.tokens.clone();
 		let (data, version) = match self
 			.put_tag_with_transaction(session, transaction, arg, &mut batch)
@@ -307,7 +307,7 @@ impl Component {
 			touched_at,
 			version,
 		};
-		batch.items.push(tangram_index::batch::Item::PutTag(arg));
+		batch.items.push(tangram_index::Item::PutTag(arg));
 		match session
 			.server
 			.components
@@ -329,7 +329,7 @@ impl Component {
 		session: &Session,
 		transaction: &Transaction<'_>,
 		arg: tg::tag::put::Arg,
-		batch: &mut tangram_index::batch::Arg,
+		batch: &mut tangram_index::write::Arg,
 	) -> tg::Result<ControlFlow<(tg::tag::Data, String), tangram_server_core::database::Error>> {
 		let existing =
 			match tangram_server_node_common::specifier::try_get_id_for_specifier_with_transaction(

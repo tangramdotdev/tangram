@@ -47,7 +47,7 @@ impl tangram_server_core::node::Component for Component {
 		session: &'a Session,
 		transaction: &'a tangram_server_core::database::Transaction<'_>,
 		ids_and_specifiers: &'a [(tg::Id, tg::Specifier)],
-		batch: &'a mut tangram_index::batch::Arg,
+		batch: &'a mut tangram_index::write::Arg,
 		batch_size: usize,
 	) -> BoxFuture<'a, tg::Result<std::ops::ControlFlow<(), tangram_server_core::database::Error>>>
 	{

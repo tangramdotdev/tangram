@@ -264,7 +264,7 @@ impl Index {
 
 			// Split the request's operations across transactions, limiting batch items to the batch size because they read more.
 			let (items, kind) = Self::request_into_operations(request);
-			let limit = if matches!(kind, Kind::Batch) {
+			let limit = if matches!(kind, Kind::Write) {
 				batch_size
 			} else {
 				max_items
@@ -323,7 +323,7 @@ impl Index {
 			Request::ExpireUsage(_) => {
 				Response::ExpireUsageOutput(tangram_index::usage::expire::Output::default())
 			},
-			Request::Batch(_) | Request::PutProcesses(_) | Request::PutSandboxes(_) => {
+			Request::Write(_) | Request::PutProcesses(_) | Request::PutSandboxes(_) => {
 				Response::Mutation(Ok(()))
 			},
 			Request::CompletePermissionCapture(_)
@@ -358,9 +358,9 @@ impl Index {
 	fn request_into_operations(request: Request) -> (Vec<Item>, Kind) {
 		match request {
 			Request::AggregateUsage(arg) => (vec![Item::AggregateUsage], Kind::AggregateUsage(arg)),
-			Request::Batch(arg) => {
-				let items = arg.items.into_iter().map(Item::Batch).collect();
-				(items, Kind::Batch)
+			Request::Write(arg) => {
+				let items = arg.items.into_iter().map(Item::Write).collect();
+				(items, Kind::Write)
 			},
 			Request::CompletePermissionCapture(_)
 			| Request::DeleteIndexer(_)
@@ -560,15 +560,15 @@ impl Index {
 				};
 				Request::AggregateUsage(arg.clone())
 			},
-			Kind::Batch => {
+			Kind::Write => {
 				let items = items
 					.into_iter()
 					.map(|item| match item {
-						Item::Batch(item) => item,
+						Item::Write(item) => item,
 						_ => unreachable!(),
 					})
 					.collect();
-				Request::Batch(tangram_index::batch::Arg { items })
+				Request::Write(tangram_index::write::Arg { items })
 			},
 			Kind::Clean {
 				max_object_touched_at,
@@ -1007,7 +1007,7 @@ impl Index {
 		let items = requests
 			.iter()
 			.filter_map(|request| match request {
-				Request::Batch(arg) => Some(arg.items.iter()),
+				Request::Write(arg) => Some(arg.items.iter()),
 				_ => None,
 			})
 			.flatten()
@@ -1025,7 +1025,7 @@ impl Index {
 				"a batch exceeds the FoundationDB key or value size limit, so indexing cannot proceed until a fix is rolled out"
 			);
 		};
-		let kind = batch_item_kind(item);
+		let kind = item_kind(item);
 
 		tg::error!(
 			!error,
@@ -1045,7 +1045,7 @@ impl Index {
 			matches!(
 				request,
 				Request::AggregateUsage(_)
-					| Request::Batch(_)
+					| Request::Write(_)
 					| Request::CompletePermissionCapture(_)
 					| Request::Clean(_)
 					| Request::ExpireUsage(_)
@@ -1201,8 +1201,8 @@ impl Index {
 				let output = crate::propagate!(result);
 				Response::AggregateUsageOutput(output)
 			},
-			Request::Batch(arg) => {
-				let result = Self::batch_with_transaction(
+			Request::Write(arg) => {
+				let result = Self::write_with_transaction(
 					txn,
 					subspace,
 					&arg.items,
@@ -1560,34 +1560,34 @@ impl Metrics {
 	}
 }
 
-fn batch_item_kind(item: &tangram_index::batch::Item) -> &'static str {
+fn item_kind(item: &tangram_index::Item) -> &'static str {
 	match item {
-		tangram_index::batch::Item::DeleteCheckout(_) => "delete_checkout",
-		tangram_index::batch::Item::DeleteDelegations(_) => "delete_delegations",
-		tangram_index::batch::Item::DeleteGroup(_) => "delete_group",
-		tangram_index::batch::Item::DeleteGroupMember(_) => "delete_group_member",
-		tangram_index::batch::Item::DeleteOrganization(_) => "delete_organization",
-		tangram_index::batch::Item::DeleteOrganizationMember(_) => "delete_organization_member",
-		tangram_index::batch::Item::DeletePermission(_) => "delete_permission",
-		tangram_index::batch::Item::DeleteSandbox(_) => "delete_sandbox",
-		tangram_index::batch::Item::DeleteTag(_) => "delete_tag",
-		tangram_index::batch::Item::DeleteUser(_) => "delete_user",
-		tangram_index::batch::Item::EnqueuePermissionCapture(_) => "enqueue_permission_capture",
-		tangram_index::batch::Item::PutAccountObject(_) => "put_account_object",
-		tangram_index::batch::Item::PutAccountProcess(_) => "put_account_process",
-		tangram_index::batch::Item::PutCheckout(_) => "put_checkout",
-		tangram_index::batch::Item::PutDelegation(_) => "put_delegation",
-		tangram_index::batch::Item::PutGroup(_) => "put_group",
-		tangram_index::batch::Item::PutGroupMember(_) => "put_group_member",
-		tangram_index::batch::Item::PutObject(_) => "put_object",
-		tangram_index::batch::Item::PutOrganization(_) => "put_organization",
-		tangram_index::batch::Item::PutOrganizationMember(_) => "put_organization_member",
-		tangram_index::batch::Item::PutPermission(_) => "put_permission",
-		tangram_index::batch::Item::PutProcess(_) => "put_process",
-		tangram_index::batch::Item::PutSandbox(_) => "put_sandbox",
-		tangram_index::batch::Item::PutSync(_) => "put_sync",
-		tangram_index::batch::Item::PutTag(_) => "put_tag",
-		tangram_index::batch::Item::PutUser(_) => "put_user",
+		tangram_index::Item::DeleteCheckout(_) => "delete_checkout",
+		tangram_index::Item::DeleteDelegations(_) => "delete_delegations",
+		tangram_index::Item::DeleteGroup(_) => "delete_group",
+		tangram_index::Item::DeleteGroupMember(_) => "delete_group_member",
+		tangram_index::Item::DeleteOrganization(_) => "delete_organization",
+		tangram_index::Item::DeleteOrganizationMember(_) => "delete_organization_member",
+		tangram_index::Item::DeletePermission(_) => "delete_permission",
+		tangram_index::Item::DeleteSandbox(_) => "delete_sandbox",
+		tangram_index::Item::DeleteTag(_) => "delete_tag",
+		tangram_index::Item::DeleteUser(_) => "delete_user",
+		tangram_index::Item::EnqueuePermissionCapture(_) => "enqueue_permission_capture",
+		tangram_index::Item::PutAccountObject(_) => "put_account_object",
+		tangram_index::Item::PutAccountProcess(_) => "put_account_process",
+		tangram_index::Item::PutCheckout(_) => "put_checkout",
+		tangram_index::Item::PutDelegation(_) => "put_delegation",
+		tangram_index::Item::PutGroup(_) => "put_group",
+		tangram_index::Item::PutGroupMember(_) => "put_group_member",
+		tangram_index::Item::PutObject(_) => "put_object",
+		tangram_index::Item::PutOrganization(_) => "put_organization",
+		tangram_index::Item::PutOrganizationMember(_) => "put_organization_member",
+		tangram_index::Item::PutPermission(_) => "put_permission",
+		tangram_index::Item::PutProcess(_) => "put_process",
+		tangram_index::Item::PutSandbox(_) => "put_sandbox",
+		tangram_index::Item::PutSync(_) => "put_sync",
+		tangram_index::Item::PutTag(_) => "put_tag",
+		tangram_index::Item::PutUser(_) => "put_user",
 	}
 }
 
@@ -1642,17 +1642,17 @@ mod tests {
 	async fn batch_items_split_across_transactions_up_to_the_batch_size() {
 		// Create a batch request with more items than the batch size.
 		let items = (0..2_500)
-			.map(|_| tangram_index::batch::Item::DeleteTag(tg::tag::Id::new()))
+			.map(|_| tangram_index::Item::DeleteTag(tg::tag::Id::new()))
 			.collect();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Batch(tangram_index::batch::Arg { items });
+		let request = Request::Write(tangram_index::write::Arg { items });
 
 		// Split the request and complete every transaction.
 		let batches = Index::create_batches(vec![(request, sender)], 8_000, 1_000);
 		let sizes = batches
 			.iter()
 			.map(|batch| {
-				let [Request::Batch(arg)] = batch.requests.as_slice() else {
+				let [Request::Write(arg)] = batch.requests.as_slice() else {
 					panic!()
 				};
 				arg.items.len()

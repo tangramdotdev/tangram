@@ -19,12 +19,12 @@ let local_a = server spawn --instance $instance --name local-a --config {
 	},
 	roles: [api indexer],
 }
-let batch_watch = tg --url $local_a.url checkpoint watch index.batch | from json | get watch
+let batch_watch = tg --url $local_a.url checkpoint watch index.write | from json | get watch
 let a_wait_watch = tg --url $local_a.url checkpoint watch indexer.request.receive | from json | get watch
 
 # Only A exists when the batch is submitted, so its private queue owns the work.
 let object = tg --url $local_a.url put --no-tokens 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | referent node
-tg --url $local_a.url checkpoint wait index.batch $batch_watch 0 | ignore
+tg --url $local_a.url checkpoint wait index.write $batch_watch 0 | ignore
 let local_b = server spawn --instance $instance --name local-b --config { roles: [api indexer] }
 let update_watch = tg --url $local_b.url checkpoint watch indexer.update.storage_and_metadata.batch | from json | get watch
 tg --url $local_b.url checkpoint wait indexer.update.storage_and_metadata.batch $update_watch 0 | ignore
@@ -45,7 +45,7 @@ tg --url $local_api.url checkpoint unwatch indexer.wait.complete $complete_watch
 let b_wait_watch = tg --url $local_b.url checkpoint watch indexer.request.receive | from json | get watch
 
 # A must shut down after applying its private batch, although B is holding the shared updates.
-tg --url $local_a.url checkpoint unwatch index.batch $batch_watch
+tg --url $local_a.url checkpoint unwatch index.write $batch_watch
 let pid = open ($local_a.directory | path join lock) | into int
 kill --signal 2 $pid
 wait_for_exit $pid 'A must shut down without draining shared work'
