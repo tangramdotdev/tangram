@@ -140,18 +140,27 @@ export const build = async (...args: tg.Args<Arg>) => {
 		PATH: tg.Mutation.suffix(tg`${nodeModulesArtifact}/node_modules/.bin`, ":"),
 	});
 
-	// Configure foundationdb.
+	// Configure bindgen, which generates the foundationdb and rocksdb bindings.
 	let pre: tg.Unresolved<tg.Template.Arg> = null;
+	if (useFoundationdb || features.includes("rocksdb")) {
+		envs.push({
+			LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
+		});
+		if (std.triple.os(host) === "linux") {
+			pre = tg`export CPATH=$CPATH:$(gcc -print-sysroot)/include`;
+		}
+	}
+
+	// Configure foundationdb.
 	if (useFoundationdb) {
 		const fdbArtifact = foundationdb({ build, host });
 		envs.push(fdbArtifact, {
-			LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
 			FDB_LIB_PATH: tg`${fdbArtifact}/lib`,
 		});
 		if (std.triple.os(host) === "linux") {
 			pre = tg`
 				export LD_LIBRARY_PATH=$LIBRARY_PATH
-				export CPATH=$CPATH:$(gcc -print-sysroot)/include
+				${pre}
 			`;
 		}
 	}
