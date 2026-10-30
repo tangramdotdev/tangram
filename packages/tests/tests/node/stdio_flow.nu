@@ -40,7 +40,7 @@ let output = timeout 5 node --input-type=module -e '
 	                let event = await input.next();
 	                if (event.done) return;
 	                assert.equal(event.value.event, "ack");
-	                acked = JSON.parse(event.value.data);
+	                acked = JSON.parse(event.value.data).position;
 	            }
 	        })();
 	        let output = async function* () {

@@ -98,8 +98,9 @@ impl Component {
 			let id = id.clone();
 			move |_| async move {
 				let mut input = input;
-				while let Some(Ok(tg::process::stdio::read::ClientMessage::Ack { position })) =
-					input.next().await
+				while let Some(Ok(tg::process::stdio::read::ClientMessage::Ack {
+					position, ..
+				})) = input.next().await
 				{
 					let modified = ack_sender.send_if_modified(|acked| {
 						let modified = position > *acked;
@@ -1132,7 +1133,12 @@ fn read_process_stdio_acks(
 	acks: &Acks,
 ) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>> {
 	tokio_stream::wrappers::WatchStream::new(acks.clone())
-		.map(|position| Ok(tg::process::stdio::read::ClientMessage::Ack { position }))
+		.map(|position| {
+			Ok(tg::process::stdio::read::ClientMessage::Ack {
+				closed: false,
+				position,
+			})
+		})
 		.boxed()
 }
 
@@ -1157,7 +1163,10 @@ fn relay_process_stdio_acks(
 				let acked = *acks.borrow_and_update();
 				if state.sent.is_none_or(|sent| acked > sent) {
 					state.sent = Some(acked);
-					let message = tg::process::stdio::read::ClientMessage::Ack { position: acked };
+					let message = tg::process::stdio::read::ClientMessage::Ack {
+						closed: false,
+						position: acked,
+					};
 					return Some((Ok(super::relay::Ack(message)), state));
 				}
 			}

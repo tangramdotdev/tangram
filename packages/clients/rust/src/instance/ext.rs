@@ -676,8 +676,10 @@ pub trait Ext: tg::Instance {
 			let ack_task = acks.map(|mut acks| {
 				let ack_sender = ack_sender.clone();
 				Task::spawn(move |_| async move {
-					while let Some(Ok(tg::process::stdio::read::ClientMessage::Ack { position })) =
-						acks.next().await
+					while let Some(Ok(tg::process::stdio::read::ClientMessage::Ack {
+						position,
+						..
+					})) = acks.next().await
 					{
 						ack_sender.send_if_modified(|acked| {
 							let modified = position > *acked;
@@ -913,6 +915,11 @@ fn read_process_stdio_acks(
 	ack_receiver: tokio::sync::watch::Receiver<u64>,
 ) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>> {
 	tokio_stream::wrappers::WatchStream::new(ack_receiver)
-		.map(|position| Ok(tg::process::stdio::read::ClientMessage::Ack { position }))
+		.map(|position| {
+			Ok(tg::process::stdio::read::ClientMessage::Ack {
+				closed: false,
+				position,
+			})
+		})
 		.boxed()
 }

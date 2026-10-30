@@ -825,10 +825,12 @@ impl Component {
 			return Err(tg::error!("expected a process principal"));
 		};
 
-		// Read the relay, reporting each written position on the request body.
-		let (written_sender, written_receiver) = tokio::sync::watch::channel(0);
+		// Read the relay, reporting each written position and whether stdin closed on the request body.
+		let (written_sender, written_receiver) = tokio::sync::watch::channel((0, false));
 		let input = tokio_stream::wrappers::WatchStream::from_changes(written_receiver)
-			.map(|position| Ok(tg::process::stdio::read::ClientMessage::Ack { position }))
+			.map(|(position, closed)| {
+				Ok(tg::process::stdio::read::ClientMessage::Ack { closed, position })
+			})
 			.boxed();
 		let arg = tg::process::stdio::read::Arg {
 			id: Some(open),
@@ -869,21 +871,23 @@ impl Component {
 			match chunk {
 				true if !written.closed => {
 					if let Some(written_sender) = &written_sender {
-						written_sender.send_replace(written.position);
+						written_sender.send_replace((written.position, false));
 					}
 				},
 				true => {
 					// Report the bytes written before stdin closed, and read until the acknowledgments finish, so that the position reaches the server before the open request is answered.
 					if let Some(written_sender) = written_sender.take() {
-						written_sender.send_replace(written.position);
+						written_sender.send_replace((written.position, true));
 					}
 					while output.try_next().await?.is_some() {}
 					return Ok(());
 				},
-				// Close stdin and end the request body, so that the server can acknowledge EOF.
+				// Close stdin, report that it closed, and end the request body, so that the server can acknowledge EOF.
 				false => {
 					ended = true;
-					written_sender.take();
+					if let Some(written_sender) = written_sender.take() {
+						written_sender.send_replace((written.position, true));
+					}
 				},
 			}
 		}

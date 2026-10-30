@@ -42,7 +42,7 @@ class Acks {
 		while (true) {
 			if (sent !== this.#position) {
 				sent = this.#position;
-				yield { data: JSON.stringify(sent), event: "ack" };
+				yield { data: JSON.stringify({ position: sent }), event: "ack" };
 				continue;
 			}
 			if (this.#closed) {

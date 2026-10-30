@@ -11,7 +11,7 @@ use {
 	std::{ops::ControlFlow, time::Duration},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::{CommaSeparatedString, SeekFromNumberOrString},
+	tangram_util::serde::{CommaSeparatedString, SeekFromNumberOrString, is_false},
 };
 
 #[serde_as]
@@ -79,9 +79,23 @@ pub enum ClientMessage {
 	/// The position, in the read's coordinates, through which the reader has the read's bytes, so they no longer need to be kept for a new read to resume from.
 	#[tangram_serialize(id = 0)]
 	Ack {
+		/// Whether the destination that the reader writes the read's bytes into has closed, which ends the read, so that the writer can tell a finished read from a lost one.
+		#[serde(default, skip_serializing_if = "is_false")]
+		#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
+		closed: bool,
+
 		#[tangram_serialize(id = 0)]
 		position: u64,
 	},
+}
+
+/// The data of an `ack` event.
+#[derive(serde::Deserialize, serde::Serialize)]
+struct AckData {
+	#[serde(default, skip_serializing_if = "is_false")]
+	closed: bool,
+
+	position: u64,
 }
 
 #[derive(
@@ -378,7 +392,10 @@ impl TryFrom<ClientMessage> for tangram_http::sse::Event {
 	type Error = tg::Error;
 	fn try_from(message: ClientMessage) -> tg::Result<Self> {
 		let (event, data) = match message {
-			ClientMessage::Ack { position } => ("ack", serde_json::to_string(&position)),
+			ClientMessage::Ack { closed, position } => {
+				let data = AckData { closed, position };
+				("ack", serde_json::to_string(&data))
+			},
 		};
 		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 		let event = Self {
@@ -394,7 +411,8 @@ impl TryFrom<tangram_http::sse::Event> for ClientMessage {
 	type Error = tg::Error;
 	fn try_from(event: tangram_http::sse::Event) -> tg::Result<Self> {
 		let message = match event.event.as_deref() {
-			Some("ack") => serde_json::from_str(&event.data).map(|position| Self::Ack { position }),
+			Some("ack") => serde_json::from_str::<AckData>(&event.data)
+				.map(|AckData { closed, position }| Self::Ack { closed, position }),
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
 					serde_json::from_str(&event.data)

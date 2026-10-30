@@ -134,7 +134,7 @@ impl Local {
 		let ack_task = Task::spawn({
 			let control_sender = self.clone();
 			move |_| async move {
-				while let Some(Ok(read::ClientMessage::Ack { position })) = input.next().await {
+				while let Some(Ok(read::ClientMessage::Ack { position, .. })) = input.next().await {
 					let streams = streams.clone();
 					let message = Message::Ack { position, streams };
 					if control_sender.sender.send(message).await.is_err() {

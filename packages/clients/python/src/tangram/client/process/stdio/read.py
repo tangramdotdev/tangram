@@ -66,7 +66,7 @@ class Acks:
         while True:
             if sent != self._position:
                 sent = self._position
-                yield {"data": json.dumps(sent), "event": "ack"}
+                yield {"data": json.dumps({"position": sent}), "event": "ack"}
                 continue
             if self._closed:
                 return

@@ -240,7 +240,7 @@ impl Component {
 					relayed = true;
 				},
 				message = acks.next() => match message {
-					Some(Ok(super::super::relay::Ack(ClientMessage::Ack { position }))) => {
+					Some(Ok(super::super::relay::Ack(ClientMessage::Ack { position, .. }))) => {
 						acked = Some(acked.map_or(position, |acked| acked.max(position)));
 					},
 					Some(Err(error)) => return Err(super::super::relay::error(error)),
@@ -401,6 +401,7 @@ impl Component {
 
 		// Report each position once the runner has written it, or close once stdin closes.
 		let mut acks_open = true;
+		let mut stdin_closed = false;
 		let mut relayed = false;
 		loop {
 			let reading = queue.is_empty() && !*ended;
@@ -445,16 +446,21 @@ impl Component {
 					}
 				},
 				message = acks.next(), if acks_open => match message {
-					Some(Ok(super::super::relay::Ack(ClientMessage::Ack { position: acked }))) => {
+					Some(Ok(super::super::relay::Ack(ClientMessage::Ack { closed, position: acked }))) => {
 						Self::answer_process_stdio_relay_writes(sender, kept, position, acked).await?;
+						stdin_closed |= closed;
 					},
 					Some(Err(error)) if super::super::relay::is_retry(&error) => {
 						return Ok(ControlFlow::Continue(super::super::relay::error(error)));
 					},
 					Some(Err(error)) => return Err(super::super::relay::error(error)),
 
-					// The runner ends a claimed open's relay when stdin closes, because no open response reports it.
+					// The runner ends a claimed open's relay after acknowledging that stdin closed, because no open response reports it, so a relay that ends without that acknowledgment lost its connection and is reopened.
 					None if claimed => {
+						if !stdin_closed {
+							let error = tg::error!("the stdin relay ended before stdin closed");
+							return Ok(ControlFlow::Continue(error));
+						}
 						Self::close_process_stdio_relay(sender, *position).await?;
 						return Ok(ControlFlow::Break(()));
 					},
@@ -472,7 +478,7 @@ impl Component {
 
 					// Answer the writes that the runner reported written before stdin closed.
 					while acks_open
-						&& let Some(Ok(super::super::relay::Ack(ClientMessage::Ack { position: acked }))) = acks.next().await
+						&& let Some(Ok(super::super::relay::Ack(ClientMessage::Ack { position: acked, .. }))) = acks.next().await
 					{
 						Self::answer_process_stdio_relay_writes(sender, kept, position, acked).await?;
 					}
