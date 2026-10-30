@@ -485,6 +485,7 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Right(id.clone()),
+				crate::update::StorageAndMetadataSource::Put,
 				partition_totals.storage_and_metadata_update,
 			);
 			let (parents, relationships) = futures::try_join!(

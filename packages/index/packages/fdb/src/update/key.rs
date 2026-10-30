@@ -31,7 +31,7 @@ pub enum Key {
 	StorageAndMetadataUpdate {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		partition: u64,
-		source: super::Source,
+		source: StorageAndMetadataSource,
 		version: fdbt::Versionstamp,
 	},
 	/// A completed traversal can be replayed if an older queue marker arrives later.
@@ -54,6 +54,18 @@ pub enum Key {
 		partition: u64,
 		version: fdbt::Versionstamp,
 	},
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StorageAndMetadataSource {
+	/// A propagation from a child.
+	Propagate,
+
+	/// A put of the item.
+	Put,
+
+	/// A put of the item with an account, whose write puts the account's storage entries for the item and its children, so the update does not look up the accounts that store the item's parents.
+	PutWithAccount,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

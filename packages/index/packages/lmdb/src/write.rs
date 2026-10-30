@@ -180,6 +180,7 @@ impl Index {
 						usage_partition_total,
 						None,
 						None,
+						None,
 					)?;
 				},
 				tangram_index::Item::PutAccountProcess(arg) => {

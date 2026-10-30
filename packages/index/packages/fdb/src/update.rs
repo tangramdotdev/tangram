@@ -2,7 +2,7 @@ mod key;
 #[cfg(test)]
 mod tests;
 
-pub(super) use key::{Key, Kind, UsageKind};
+pub(super) use key::{Key, Kind, StorageAndMetadataSource, UsageKind};
 
 use {
 	super::{Index, Kind as KeyKind, Request, Response},
@@ -151,6 +151,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		source: StorageAndMetadataSource,
 		partition_total: u64,
 	) {
 		let partition = rand::random_range(0..partition_total);
@@ -158,7 +159,7 @@ impl Index {
 		let key = crate::Key::Update(Key::StorageAndMetadataUpdate {
 			id: id.clone(),
 			partition,
-			source: Source::Put,
+			source,
 			version,
 		});
 		let key = Self::pack_with_versionstamp(subspace, &key);
@@ -750,9 +751,14 @@ impl Index {
 				};
 				keys.push(entry.key().to_vec());
 
-				// Merge the entries for each item, retaining the oldest version and a put source.
-				let (put, oldest) = items.entry(id).or_insert((false, version.clone()));
-				*put |= source == Source::Put;
+				// Merge the entries for each item, retaining the oldest version, whether it was put, and whether a put without an account requires looking up the accounts that store its parents.
+				let (put, accounts, oldest) =
+					items.entry(id).or_insert((false, false, version.clone()));
+				*put |= matches!(
+					source,
+					StorageAndMetadataSource::Put | StorageAndMetadataSource::PutWithAccount
+				);
+				*accounts |= source == StorageAndMetadataSource::Put;
 				if version < *oldest {
 					*oldest = version;
 				}
@@ -766,16 +772,22 @@ impl Index {
 
 		// Update the items in version order.
 		let mut items = items.into_iter().collect::<Vec<_>>();
-		items.sort_by(|(_, (_, left)), (_, (_, right))| left.cmp(right));
+		items.sort_by(|(_, (_, _, left)), (_, (_, _, right))| left.cmp(right));
 		let mut output = tangram_index::update::Output::default();
-		for (id, (put, version)) in items {
+		for (id, (put, accounts, version)) in items {
 			let changed = match &id {
 				tg::Either::Left(id) => {
 					// Enqueue the permission and usage updates that depend on a put object.
 					if put {
 						crate::propagate!(
-							Self::enqueue_object_put_updates(txn, subspace, id, partition_totals)
-								.await
+							Self::enqueue_object_put_updates(
+								txn,
+								subspace,
+								id,
+								accounts,
+								partition_totals
+							)
+							.await
 						);
 					}
 					crate::propagate!(Self::update_object(txn, subspace, id).await)
@@ -823,6 +835,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
+		accounts: bool,
 		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		// Read the object and the subjects with permissions on it.
@@ -849,7 +862,10 @@ impl Index {
 			);
 		}
 
-		// Enqueue a usage put for each account that stores a parent of the object.
+		// Enqueue a usage put for each account that stores a parent of the object, unless the object's write put its account's storage entries.
+		if !accounts {
+			return Ok(ControlFlow::Break(()));
+		}
 		crate::propagate!(
 			Self::enqueue_account_object_from_parents(
 				txn,
@@ -3681,7 +3697,7 @@ impl Index {
 			let key = crate::Key::Update(Key::StorageAndMetadataUpdate {
 				id: parent,
 				partition,
-				source: Source::Propagate,
+				source: StorageAndMetadataSource::Propagate,
 				version: version.clone(),
 			});
 			let key = Self::pack(subspace, &key);

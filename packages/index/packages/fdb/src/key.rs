@@ -712,8 +712,9 @@ impl fdbt::TuplePack for Key {
 				};
 				offset += id.as_ref().pack(w, tuple_depth)?;
 				let source = match source {
-					crate::update::Source::Put => 0i32,
-					crate::update::Source::Propagate => 1i32,
+					crate::update::StorageAndMetadataSource::Put => 0i32,
+					crate::update::StorageAndMetadataSource::Propagate => 1i32,
+					crate::update::StorageAndMetadataSource::PutWithAccount => 2i32,
 				};
 				offset += source.pack(w, tuple_depth)?;
 				Ok(offset)
@@ -1837,8 +1838,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let id = unpack_item_id(&id)?;
 				let (input, source): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let source = match source {
-					0 => crate::update::Source::Put,
-					1 => crate::update::Source::Propagate,
+					0 => crate::update::StorageAndMetadataSource::Put,
+					1 => crate::update::StorageAndMetadataSource::Propagate,
+					2 => crate::update::StorageAndMetadataSource::PutWithAccount,
 					_ => return Err(fdbt::PackError::Message("invalid update source".into())),
 				};
 				let key = Key::Update(crate::update::Key::StorageAndMetadataUpdate {
