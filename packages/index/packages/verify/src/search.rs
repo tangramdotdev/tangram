@@ -643,7 +643,8 @@ impl AncestorOrDescendantSearch {
 		let roots = roots
 			.iter()
 			.filter(|root| {
-				state.ancestor_or_descendant(root) == Outcome::Pending && seen.insert((*root).clone())
+				state.ancestor_or_descendant(root) == Outcome::Pending
+					&& seen.insert((*root).clone())
 			})
 			.cloned()
 			.collect::<Vec<_>>();

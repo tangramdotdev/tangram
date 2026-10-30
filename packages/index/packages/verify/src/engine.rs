@@ -242,9 +242,7 @@ impl Batch {
 		let outcomes = if args.is_empty() {
 			Some(Vec::new())
 		} else if matches!(principal, tg::Principal::Root)
-			&& args
-				.iter()
-				.all(|arg| arg.subject.is_none())
+			&& args.iter().all(|arg| arg.subject.is_none())
 		{
 			let outcomes = args
 				.iter()

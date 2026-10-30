@@ -421,18 +421,20 @@ impl Component {
 		positions: &[usize],
 		subject: Option<&tg::authorization::Subject>,
 	) -> (Vec<usize>, Vec<tangram_index::verify::Arg>) {
-		// Search only for the missing permissions.
+		// Search for the missing required permissions, and for the missing optional permissions in the same search.
 		let mut args = Vec::new();
 		let mut search_positions = Vec::new();
 		for position in positions {
 			let item = &items[*position];
-			let permissions = item.missing_permissions();
-			if permissions.is_empty() {
+			let required = item.missing_permissions();
+			if required.is_empty() {
 				continue;
 			}
+			let mut requested = item.requested;
+			requested.remove(item.permissions());
 			let arg = tangram_index::verify::Arg {
-				requested: permissions,
-				required: permissions,
+				requested,
+				required,
 				resource: item.resource.clone(),
 				subject: subject.cloned(),
 				tokens: item.bodies.clone(),
