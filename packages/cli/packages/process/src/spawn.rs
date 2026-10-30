@@ -660,31 +660,11 @@ pub(crate) async fn spawn_inner(
 						referent.options.tag.take();
 						let module = tg::Module { kind, referent };
 						let export = reference.export().unwrap_or("default").to_owned();
-						let mut args = vec![
-							"builtin".into(),
-							if kind == tg::module::Kind::Python {
-								"python"
-							} else {
-								"javascript"
-							}
-							.into(),
-							"--export".into(),
-							export.into(),
-							tg::command::Value::Value(module.into()),
-						];
-						for arg in std::mem::take(&mut args_) {
-							let flag = match &arg {
-								tg::command::Value::String(_) => "-a",
-								tg::command::Value::Value(_) => "-A",
-							};
-							args.push(flag.into());
-							args.push(arg);
-						}
-						let executable = tg::command::Executable {
-							artifact: None,
-							path: Some("tg".into()),
-						};
-						tg::Command::builder().args(args).executable(executable)
+						tg::command::Builder::with_module(
+							module,
+							Some(export),
+							std::mem::take(&mut args_),
+						)
 					},
 
 					tg::Artifact::File(file) => {
@@ -710,31 +690,11 @@ pub(crate) async fn spawn_inner(
 							referent.options.tag.take();
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
-							let mut args = vec![
-								"builtin".into(),
-								if kind == tg::module::Kind::Python {
-									"python"
-								} else {
-									"javascript"
-								}
-								.into(),
-								"--export".into(),
-								export.into(),
-								tg::command::Value::Value(module.into()),
-							];
-							for arg in std::mem::take(&mut args_) {
-								let flag = match &arg {
-									tg::command::Value::String(_) => "-a",
-									tg::command::Value::Value(_) => "-A",
-								};
-								args.push(flag.into());
-								args.push(arg);
-							}
-							let executable = tg::command::Executable {
-								artifact: None,
-								path: Some("tg".into()),
-							};
-							tg::Command::builder().args(args).executable(executable)
+							tg::command::Builder::with_module(
+								module,
+								Some(export),
+								std::mem::take(&mut args_),
+							)
 						} else {
 							let executable = tg::command::Executable {
 								artifact: Some(file.clone().into()),

@@ -196,20 +196,30 @@ export class Command<
 			...rest
 		} = module.referent.options ?? {};
 		module.referent.options = rest;
+		let command = tg.Command.moduleArg(module, target.export, args_);
+
+		return { node: command, options };
+	}
+
+	/** Get the arg of a command that runs an export of a module with the builtin runtime for the module's kind, passing each arg as a string with `-a` or as a value with `-A`. */
+	static moduleArg(
+		module: tg.Module,
+		export_: string | null | undefined,
+		args: Array<tg.Value | tg.Command.Value>,
+	): tg.Command.ResolvedArg {
+		let runtime = module.kind === "python" ? "python" : "javascript";
 		let commandArgs = [
 			tg.Command.Value.string("builtin"),
-			tg.Command.Value.string(
-				module.kind === "python" ? "python" : "javascript",
-			),
-			...(target.export === undefined || target.export === null
+			tg.Command.Value.string(runtime),
+			...(export_ === undefined || export_ === null
 				? []
 				: [
 						tg.Command.Value.string("--export"),
-						tg.Command.Value.string(target.export),
+						tg.Command.Value.string(export_),
 					]),
 			tg.Command.Value.value(module),
 		];
-		for (let arg of args_) {
+		for (let arg of args) {
 			let arg_ =
 				arg instanceof tg.Command.Value ? arg : tg.Command.Value.value(arg);
 			commandArgs.push(
@@ -217,12 +227,10 @@ export class Command<
 				arg_,
 			);
 		}
-		let command = {
+		return {
 			args: commandArgs,
 			executable: "tg",
 		};
-
-		return { node: command, options };
 	}
 
 	constructor(arg: tg.Command.ConstructorArg) {
@@ -816,6 +824,17 @@ export namespace Command {
 		#args: tg.Args<tg.Command.Arg.Object>;
 		#envMapper: tg.Command.Builder.EnvMapper<E>;
 		#module: () => Promise<boolean>;
+
+		/** Create a builder for a command that runs an export of a module with the builtin runtime for the module's kind, passing each arg as a string with `-a` or as a value with `-A`. */
+		static withModule(
+			module: tg.Module,
+			export_: string | null | undefined,
+			args: Array<tg.Value | tg.Command.Value>,
+		): tg.Command.Builder {
+			return new tg.Command.Builder(
+				tg.Command.moduleArg(module, export_, args),
+			);
+		}
 
 		constructor(...args: tg.Args<tg.Command.Arg.Object>) {
 			super();

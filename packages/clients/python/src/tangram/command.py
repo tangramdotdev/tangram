@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .client import Client
     from .directory import Directory
     from .file import File
+    from .module import Module
     from .process import Builder as ProcessBuilder
     from .referent import Referent
     from .symlink import Symlink
@@ -289,11 +290,23 @@ class Command[A, O: ValueType](Object):
         module.referent.options = deepcopy(options)
         for name in ("id", "name", "path", "tag"):
             module.referent.options.pop(name, None)
+        arg = Command.module_arg(module, target.get("export"), args)
+        return Referent(arg, options)
+
+    @staticmethod
+    def module_arg(
+        module: Module, export: str | None, args: Sequence[CommandArgument]
+    ) -> CommandArgObject:
+        """Get the arg of a command that runs an export of a module.
+
+        The command runs the builtin runtime for the module's kind, and passes each
+        arg as a string with -a or as a value with -A.
+        """
+        runtime = "python" if module.kind == "python" else "javascript"
         command_args: list[CommandArgument] = [
             CommandValue.string("builtin"),
-            CommandValue.string("python" if module.kind == "python" else "javascript"),
+            CommandValue.string(runtime),
         ]
-        export = target.get("export")
         if export is not None:
             command_args.extend(
                 [
@@ -311,7 +324,7 @@ class Command[A, O: ValueType](Object):
             "args": command_args,
             "executable": "tg",
         }
-        return Referent(arg, options)
+        return arg
 
     @tg.property
     async def args(self, client: Client | None = None) -> list[CommandValue]:
@@ -762,6 +775,21 @@ class CommandDataNamespace:
 
 class CommandBuilder[O: ValueType]:
     """A callable, awaitable command builder matching Command.Builder."""
+
+    @staticmethod
+    def with_module(
+        module: Module,
+        export: str | None,
+        args: Sequence[CommandArgument],
+        *,
+        client: Client | None = None,
+    ) -> CommandBuilder[ValueType]:
+        """Create a builder for a command that runs an export of a module.
+
+        The command runs the builtin runtime for the module's kind, and passes each
+        arg as a string with -a or as a value with -A.
+        """
+        return CommandBuilder(Command.module_arg(module, export, args), client=client)
 
     def __init__(
         self,
