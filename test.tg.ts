@@ -2,6 +2,9 @@ import bubblewrap from "bubblewrap" with {
 	source: "../packages/packages/bubblewrap.tg.ts",
 };
 import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
+import cargoNextest from "cargo-nextest" with {
+	source: "../packages/packages/cargo-nextest.tg.ts",
+};
 import curl from "curl" with { source: "../packages/packages/curl.tg.ts" };
 import delta from "delta" with { source: "../packages/packages/delta.tg.ts" };
 import libfuse from "libfuse" with {
@@ -249,4 +252,20 @@ export const testE2e = async (arg: E2eArg = {}) => {
 			`${failures.length} of ${selected.length} tests failed:\n${failures.join("\n")}`,
 		);
 	}
+};
+
+/** Run the Rust tests in a sandbox. */
+export const testRust = async () => {
+	// Run nextest as `bun run test:rust` does. Its setup script builds the test runner with a nested Cargo invocation, so give that invocation this build's target directory and generated configuration.
+	await build({
+		env: std.env.arg(cargoNextest(), nushell(), { CARGO_NET_OFFLINE: "true" }),
+		foundationdb: true,
+		pre: `
+			export CARGO_TARGET_DIR="$TARGET_DIR"
+			cp "$cargo_config_path" "$CARGO_HOME/config.toml"
+		`,
+		profile: "dev",
+		profileFlag: "--cargo-profile",
+		subcommand: "nextest run --all-features --no-fail-fast --workspace",
+	});
 };

@@ -86,10 +86,12 @@ export const build = async (...args: tg.Args<Arg>) => {
 		env: env_,
 		foundationdb: useFoundationdb = false,
 		host: host_,
+		pre: pre_,
 		proxy = false,
 		sdk,
 		source: source_ = source,
 		standalone = false,
+		subcommand,
 	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
@@ -174,13 +176,18 @@ export const build = async (...args: tg.Args<Arg>) => {
 		disableDefaultFeatures,
 		env,
 		features,
-		pre,
+		pre: tg.Template.join("\n", pre, pre_ ?? null),
 		proxy,
 		...std.args.optional("sdk", sdk),
 		source: source_,
 		standalone,
 		useCargoVendor: true,
 	});
+
+	// Return the output of other cargo subcommands, such as test runs, without wrapping.
+	if (subcommand !== undefined) {
+		return output;
+	}
 
 	// Return standalone builds unwrapped.
 	if (standalone) {
