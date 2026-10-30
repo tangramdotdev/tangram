@@ -269,6 +269,7 @@ impl Index {
 							usage_partition_total,
 							Some(*permissions),
 							Some(version),
+							None,
 						)
 					}?,
 					tg::Either::Right(process) => {
