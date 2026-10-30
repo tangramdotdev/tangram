@@ -23,8 +23,8 @@ let path = artifact {
 }
 let output = tg publish $path | complete
 failure $output
-assert ($output.stderr | str contains '--update-interface') $output.stderr
-success (tg publish --update-interface $path | complete)
+assert ($output.stderr | str contains '--update-interfaces') $output.stderr
+success (tg publish --update-interfaces $path | complete)
 assert (open --raw ($path | path join tangram.tgi) | str contains 'export declare const greet: tg.Command<[], string>;')
 success (tg tag get greet/1.0.0 | complete)
 
@@ -68,7 +68,7 @@ let path = artifact {
 }
 let output = tg publish $path | complete
 failure $output
-assert ($output.stderr | str contains '--update-interface') $output.stderr
-success (tg publish --update-interface $path | complete)
+assert ($output.stderr | str contains '--update-interfaces') $output.stderr
+success (tg publish --update-interfaces $path | complete)
 assert ($path | path join greet tangram.tgi | path exists)
 assert ($path | path join other.tg.tgi | path exists)

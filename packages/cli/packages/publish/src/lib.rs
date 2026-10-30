@@ -30,9 +30,9 @@ pub struct Args {
 	#[arg(long, short)]
 	pub tag: Option<String>,
 
-	/// Write the interface beside the package's config when it differs from the interface that the config's runtime generates.
+	/// Write the interface beside each config whose interface differs from the interface that its runtime generates.
 	#[arg(default_value = "false", long)]
-	pub update_interface: bool,
+	pub update_interfaces: bool,
 }
 
 #[derive(Default)]
@@ -128,7 +128,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 			Step::Cycle(items) => paths.extend(items.iter().filter_map(|item| item.path.clone())),
 		}
 	}
-	let update = args.update_interface && !args.dry_run;
+	let update = args.update_interfaces && !args.dry_run;
 	for path in config_paths(&paths).await? {
 		check_interface(cli, &client, &path, update)
 			.boxed_local()
@@ -845,7 +845,7 @@ async fn check_interface(
 	if !update {
 		return Err(tg::error!(
 			path = %path.display(),
-			"the config's interface differs from the interface that its runtime generates, so publish with --update-interface to write it"
+			"the config's interface differs from the interface that its runtime generates, so publish with --update-interfaces to write it"
 		));
 	}
 	let text = tg::interface::print::print(&generated, tg::interface::Syntax::JavaScript)?;
