@@ -115,15 +115,13 @@ impl Index {
 
 	pub async fn get_permissions(
 		&self,
-		ids: &[tg::Id],
-		principal: &tg::Principal,
+		args: &[tangram_index::permission::get::Arg],
 	) -> tg::Result<Vec<Vec<tg::authorization::Permission>>> {
-		if ids.is_empty() {
+		if args.is_empty() {
 			return Ok(Vec::new());
 		}
 		let request = tangram_index::read::Request::GetPermissions {
-			ids: ids.to_owned(),
-			principal: principal.clone(),
+			args: args.to_owned(),
 		};
 		let response = self.send_read_request(request).await?;
 		let tangram_index::read::Response::GetPermissions(output) = response else {
@@ -353,10 +351,9 @@ impl tangram_index::permission::Index for Index {
 
 	async fn get_permissions(
 		&self,
-		ids: &[tg::Id],
-		principal: &tg::Principal,
+		args: &[tangram_index::permission::get::Arg],
 	) -> tg::Result<Vec<Vec<tg::authorization::Permission>>> {
-		self.get_permissions(ids, principal).await
+		self.get_permissions(args).await
 	}
 
 	async fn put_permissions(

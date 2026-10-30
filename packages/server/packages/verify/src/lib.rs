@@ -232,7 +232,7 @@ impl Component {
 			})
 			.collect::<Vec<_>>();
 
-		// Skip the syncs that the index records as finished, whose permissions are already indexed.
+		// Get the syncs that the index records as finished, whose permissions are already indexed.
 		let ids = syncs
 			.iter()
 			.flatten()
@@ -250,6 +250,23 @@ impl Component {
 			.filter_map(|(sync, id)| sync.map(|_| id))
 			.collect::<BTreeSet<_>>();
 
+		// Read the read-like permissions that the finished syncs granted on the resources from the index.
+		let mut args = Vec::new();
+		for (position, (item, syncs)) in std::iter::zip(items.iter(), &syncs).enumerate() {
+			let tg::Selector::Id(id) = &item.resource else {
+				continue;
+			};
+			for sync in syncs.iter().filter(|sync| finished.contains(*sync)) {
+				let arg = tangram_index::permission::get::Arg {
+					resource: id.clone(),
+					subject: tg::authorization::Subject::Sync(sync.clone()),
+				};
+				args.push((position, arg));
+			}
+		}
+		Self::read_permissions(session, items, args, |permission| permission.is_read_like())
+			.await?;
+
 		// Ask each remaining sync for what each unproven item is missing.
 		let mut aborts = vec![Vec::new(); items.len()];
 		let mut futures = FuturesUnordered::new();
@@ -257,6 +274,9 @@ impl Component {
 			let tg::Selector::Id(id) = &item.resource else {
 				continue;
 			};
+			if item.proven() {
+				continue;
+			}
 			let syncs = syncs
 				.into_iter()
 				.filter(|sync| !finished.contains(sync))
@@ -316,9 +336,15 @@ impl Component {
 	}
 
 	async fn verify_permissions(session: &Session, items: &mut [Item]) -> tg::Result<()> {
-		// Collect the resources of the items whose permissions are unproven.
-		let mut ids = Vec::new();
-		let mut positions = Vec::new();
+		// Get the subjects of the principal without its memberships.
+		let principal = &session.context.principal;
+		let mut subjects = vec![tg::authorization::Subject::Public];
+		if !matches!(principal, tg::Principal::Anonymous) {
+			subjects.push(principal.try_to_subject()?);
+		}
+
+		// Read the subjects' permissions on the resources of the items whose permissions are unproven.
+		let mut args = Vec::new();
 		for (position, item) in items.iter().enumerate() {
 			if item.permissions().contains(item.target) {
 				continue;
@@ -326,25 +352,40 @@ impl Component {
 			let tg::Selector::Id(id) = &item.resource else {
 				continue;
 			};
-			ids.push(id.clone());
-			positions.push(position);
-		}
-
-		// Read the principal's permissions on the resources from the index.
-		if !ids.is_empty() {
-			let outputs = session
-				.server
-				.index
-				.get_permissions(&ids, &session.context.principal)
-				.await?;
-			for (position, permissions) in std::iter::zip(positions, outputs) {
-				items[position].insert_permissions(&permissions);
+			for subject in &subjects {
+				let arg = tangram_index::permission::get::Arg {
+					resource: id.clone(),
+					subject: subject.clone(),
+				};
+				args.push((position, arg));
 			}
 		}
+		Self::read_permissions(session, items, args, |_| true).await?;
 
 		// Read the storage.
 		Self::read_storage(session, items).await?;
 
+		Ok(())
+	}
+
+	async fn read_permissions(
+		session: &Session,
+		items: &mut [Item],
+		args: Vec<(usize, tangram_index::permission::get::Arg)>,
+		filter: impl Fn(&tg::authorization::Permission) -> bool,
+	) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let (positions, args): (Vec<_>, Vec<_>) = args.into_iter().unzip();
+		let outputs = session.server.index.get_permissions(&args).await?;
+		for (position, permissions) in std::iter::zip(positions, outputs) {
+			let permissions = permissions
+				.into_iter()
+				.filter(|permission| filter(permission))
+				.collect::<Vec<_>>();
+			items[position].insert_permissions(&permissions);
+		}
 		Ok(())
 	}
 

@@ -12,31 +12,21 @@ impl Index {
 	pub(crate) async fn get_permissions_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		ids: &[tg::Id],
-		principal: &tg::Principal,
+		args: &[tangram_index::permission::get::Arg],
 	) -> tg::Result<ControlFlow<Vec<Vec<tg::authorization::Permission>>, fdb::FdbError>> {
-		// Get the subjects of the principal without its memberships.
-		let mut subjects = vec![tg::authorization::Subject::Public];
-		if !matches!(principal, tg::Principal::Anonymous) {
-			subjects.push(principal.try_to_subject()?);
-		}
-
-		// Get the permissions of the subjects on each resource.
-		let results = futures::future::try_join_all(ids.iter().map(|id| {
-			let subjects = &subjects;
-			async move {
-				let mut permissions = Vec::new();
-				for subject in subjects {
-					let entries = crate::propagate!(
-						Self::get_resource_permission_entries_for_subject_with_transaction(
-							txn, subspace, id, subject,
-						)
-						.await
-					);
-					permissions.extend(entries.into_iter().map(|entry| entry.permission));
-				}
-				Ok::<_, tg::Error>(ControlFlow::Break(permissions))
-			}
+		// Get the permissions of each subject on each resource.
+		let results = futures::future::try_join_all(args.iter().map(|arg| async move {
+			let entries = crate::propagate!(
+				Self::get_resource_permission_entries_for_subject_with_transaction(
+					txn,
+					subspace,
+					&arg.resource,
+					&arg.subject,
+				)
+				.await
+			);
+			let permissions = entries.into_iter().map(|entry| entry.permission).collect();
+			Ok::<_, tg::Error>(ControlFlow::Break(permissions))
 		}))
 		.await?;
 		let mut output = Vec::with_capacity(results.len());

@@ -313,10 +313,9 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::GetIndexers(output)
 			},
-			tangram_index::read::Request::GetPermissions { ids, principal } => {
+			tangram_index::read::Request::GetPermissions { args } => {
 				let result =
-					Self::get_permissions_with_transaction(transaction, subspace, ids, principal)
-						.await;
+					Self::get_permissions_with_transaction(transaction, subspace, args).await;
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::GetPermissions(output)
 			},

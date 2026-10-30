@@ -2,6 +2,7 @@ use tangram_client::prelude::*;
 
 pub mod capture;
 pub mod delete;
+pub mod get;
 pub mod put;
 
 #[derive(
@@ -62,8 +63,7 @@ pub trait Index {
 
 	fn get_permissions(
 		&self,
-		ids: &[tg::Id],
-		principal: &tg::Principal,
+		args: &[crate::permission::get::Arg],
 	) -> impl Future<Output = tg::Result<Vec<Vec<tg::authorization::Permission>>>> + Send;
 
 	fn put_permissions(

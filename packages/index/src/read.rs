@@ -11,8 +11,7 @@ pub enum Request {
 
 	GetIndexers,
 	GetPermissions {
-		ids: Vec<tg::Id>,
-		principal: tg::Principal,
+		args: Vec<crate::permission::get::Arg>,
 	},
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
