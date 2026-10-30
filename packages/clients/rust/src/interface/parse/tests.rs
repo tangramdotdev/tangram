@@ -122,13 +122,11 @@ fn interface() -> Interface {
 	};
 	let greeting = tg::module::Data {
 		kind: tg::module::Kind::TypeScript,
-		referent: tg::Referent::with_node(tg::module::data::Source::Path(
-			"./greeting.tg.ts".into(),
-		)),
+		referent: tg::Referent::with_node(tg::module::data::Source::Path("greeting.tg.ts".into())),
 	};
 	let util = tg::module::Data {
 		kind: tg::module::Kind::Python,
-		referent: tg::Referent::with_node(tg::module::data::Source::Path("./util".into())),
+		referent: tg::Referent::with_node(tg::module::data::Source::Path("util".into())),
 	};
 	Interface {
 		definitions: BTreeMap::from([
@@ -178,6 +176,15 @@ fn an_interface_round_trips_through_the_python_syntax() {
 	let interface = interface();
 	let text = tg::interface::print::print(&interface, Syntax::Python).unwrap();
 	assert!(text.starts_with("# @tangram interface python\n"), "{text}");
+	let parsed = tg::interface::parse::parse(&text).unwrap();
+	assert_eq!(parsed, interface, "{text}");
+}
+
+#[test]
+fn an_interface_round_trips_through_json() {
+	let interface = interface();
+	let text = tg::interface::print::print(&interface, Syntax::Json).unwrap();
+	assert!(text.starts_with('{'), "{text}");
 	let parsed = tg::interface::parse::parse(&text).unwrap();
 	assert_eq!(parsed, interface, "{text}");
 }

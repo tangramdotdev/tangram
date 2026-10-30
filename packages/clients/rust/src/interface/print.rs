@@ -3,10 +3,11 @@ use crate::prelude::*;
 mod javascript;
 mod python;
 
-/// Print an interface as an interface file in a syntax, with the magic comment that names the syntax on its first line.
+/// Print an interface as an interface file in a syntax, with the magic comment that names the syntax on its first line if the syntax is not JSON.
 pub fn print(interface: &tg::Interface, syntax: tg::interface::Syntax) -> tg::Result<String> {
 	match syntax {
 		tg::interface::Syntax::JavaScript => javascript::print(interface),
+		tg::interface::Syntax::Json => Ok(interface.serialize_json()? + "\n"),
 		tg::interface::Syntax::Python => python::print(interface),
 	}
 }

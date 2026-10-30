@@ -54,7 +54,7 @@ const PUNCTUATION: &[&str] = &[
 	"...", "(", ")", "*", ",", "-", ".", ":", ";", "<", "=", ">", "?", "[", "]", "{", "|", "}",
 ];
 
-/// Parse an interface file in the syntax that the magic comment on its first line names, or in the JavaScript syntax if it has none.
+/// Parse an interface file in the syntax that the magic comment on its first line names, or as JSON if it begins with an object, or else in the JavaScript syntax.
 pub fn parse(text: &str) -> tg::Result<tg::Interface> {
 	parse_with_range(text).map_err(|(error, _)| error)
 }
@@ -65,6 +65,7 @@ pub fn parse_with_range(
 ) -> std::result::Result<tg::Interface, (tg::Error, Option<tg::Range>)> {
 	let result = match syntax(text) {
 		Ok(tg::interface::Syntax::JavaScript) => javascript::parse(text),
+		Ok(tg::interface::Syntax::Json) => json(text),
 		Ok(tg::interface::Syntax::Python) => python::parse(text),
 		Err(error) => Err(error),
 	};
@@ -79,8 +80,11 @@ pub fn parse_with_range(
 	})
 }
 
-/// Get the syntax of an interface file from the magic comment on its first line, which is `// @tangram interface javascript` or `# @tangram interface python`.
+/// Get the syntax of an interface file from the magic comment on its first line, which is `// @tangram interface javascript` or `# @tangram interface python`, or else JSON if the file begins with an object.
 fn syntax(text: &str) -> Result<tg::interface::Syntax, Error> {
+	if text.trim_start().starts_with('{') {
+		return Ok(tg::interface::Syntax::Json);
+	}
 	let line = text.lines().next().unwrap_or_default();
 	let range = 0..line.len();
 	let comment = line
@@ -104,6 +108,25 @@ fn syntax(text: &str) -> Result<tg::interface::Syntax, Error> {
 		},
 	};
 	Ok(syntax)
+}
+
+/// Parse an interface file in JSON.
+fn json(text: &str) -> Result<tg::Interface, Error> {
+	serde_json::from_str(text).map_err(|error| {
+		let line = error.line().saturating_sub(1);
+		let start = text
+			.split_inclusive('\n')
+			.take(line)
+			.map(str::len)
+			.sum::<usize>()
+			+ error.column().saturating_sub(1);
+		let start = start.min(text.len());
+		let message = error.to_string();
+		Error {
+			message,
+			range: start..start,
+		}
+	})
 }
 
 /// Split the text of an interface file into tokens, skipping comments other than JavaScript documentation comments.
@@ -133,6 +156,7 @@ fn lex(text: &str, syntax: tg::interface::Syntax) -> Result<Vec<Token>, Error> {
 		let rest = &text[index..];
 		let line_comment = match syntax {
 			tg::interface::Syntax::JavaScript => rest.starts_with("//"),
+			tg::interface::Syntax::Json => false,
 			tg::interface::Syntax::Python => byte == b'#',
 		};
 		let kind = if line_comment {

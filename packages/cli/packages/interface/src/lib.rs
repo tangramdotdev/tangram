@@ -4,11 +4,12 @@ use {tangram_cli_core::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[command(flatten)]
-	pub print: tangram_cli_core::print::Options,
-
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
+
+	/// The syntax to print the interface in, which is javascript, json, or python.
+	#[arg(default_value = "javascript", long)]
+	pub syntax: tg::interface::Syntax,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -27,7 +28,8 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to get the interface"))?;
 
 	// Print the interface.
-	cli.print_serde(output.interface, args.print).await?;
+	let text = tg::interface::print::print(&output.interface, args.syntax)?;
+	print!("{text}");
 
 	Ok(())
 }

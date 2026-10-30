@@ -171,11 +171,16 @@ pub enum Literal {
 	String(String),
 }
 
-/// The syntax of an interface file, which the magic comment on its first line names.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// The syntax of an interface file, which the magic comment on its first line names, or which is JSON if the file begins with an object.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, derive_more::Display)]
+#[display(rename_all = "snake_case")]
 pub enum Syntax {
 	#[default]
+	#[display("javascript")]
 	JavaScript,
+
+	Json,
+
 	Python,
 }
 
@@ -195,6 +200,20 @@ impl Interface {
 		let value = json(value)?;
 		serde_json::from_value(value)
 			.map_err(|error| tg::error!(argument, !error, "the value is not an interface"))
+	}
+}
+
+impl std::str::FromStr for Syntax {
+	type Err = tg::Error;
+
+	fn from_str(value: &str) -> tg::Result<Self> {
+		let syntax = match value {
+			"javascript" => Self::JavaScript,
+			"json" => Self::Json,
+			"python" => Self::Python,
+			_ => return Err(tg::error!(%value, "invalid interface syntax")),
+		};
+		Ok(syntax)
 	}
 }
 
