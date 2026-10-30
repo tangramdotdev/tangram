@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # A client whose stdin write or stdout read stream is reset mid-stream reconnects and resumes, so every byte arrives exactly once.
 
-const proxy_path = path self ../../util/stdio_reset_proxy.mjs
+const proxy_path = path self ../../util/stdio_reset_proxy.js
 
 let root_token = random chars
 let remote = server spawn --name remote --config {

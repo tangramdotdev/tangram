@@ -1,6 +1,7 @@
 {
 	"name": "@tangramdotdev/tests",
 	"private": true,
+	"type": "module",
 	"scripts": {
 		"check": "uv run --locked --package tangram python -m ruff check tests/python",
 		"format": "uv run --locked --package tangram python -m ruff format tests/python"

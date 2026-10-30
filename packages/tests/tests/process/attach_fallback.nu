@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # Process connection falls back to an available location when the preferred one is unavailable.
 
-const proxy_path = path self ../../util/process_attach_proxy.mjs
+const proxy_path = path self ../../util/process_attach_proxy.js
 let remote = server spawn --name remote
 let port = port
 let log = mktemp

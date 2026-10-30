@@ -2,7 +2,7 @@ use ../../util/test.nu *
 
 # Standard input and output remain available after the process transport reconnects.
 
-const driver = path self ../../util/stdio_transport.mjs
+const driver = path self ../../util/stdio_transport.js
 let local = server spawn
 let tangram = which tg | where type == external | get path | first
 let path = artifact {
