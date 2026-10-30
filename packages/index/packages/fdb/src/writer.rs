@@ -247,6 +247,25 @@ impl Index {
 				response: Ok(Self::create_initial_response(&request)),
 				sender: Some(sender),
 			}));
+			// Execute an update or a clean in its own transaction, because they read the update queues, and reading a queue range fails after another request in the transaction enqueues an update.
+			if matches!(request, Request::Clean(_) | Request::Update(_)) {
+				if !current_batch.requests.is_empty() {
+					batches.push(current_batch);
+					current_batch = Batch {
+						requests: Vec::new(),
+						trackers: Vec::new(),
+					};
+					current_count = 0;
+				}
+				tracker.lock().unwrap().remaining = 1;
+				let batch = Batch {
+					requests: vec![request],
+					trackers: vec![tracker],
+				};
+				batches.push(batch);
+				continue;
+			}
+
 			let operation_count = match &request {
 				Request::CompletePermissionCapture(_) => Some(1),
 				Request::DeleteIndexer(_) | Request::PutIndexer(_) | Request::UpdateIndexer(_) => {
@@ -1687,5 +1706,41 @@ mod tests {
 		// The request completes once every transaction completes.
 		let response = receiver.await.unwrap().unwrap();
 		assert!(matches!(response, Response::Mutation(Ok(()))));
+	}
+
+	#[test]
+	fn updates_execute_in_their_own_transactions() {
+		// Create an update between two writes.
+		let mut requests = Vec::new();
+		for _ in 0..2 {
+			let id = tg::tag::Id::new();
+			let item =
+				tangram_index::Item::DeleteTag(Box::new(tangram_index::tag::delete::Arg { id }));
+			let request = Request::Write(tangram_index::write::Arg { items: vec![item] });
+			let (sender, _receiver) = tokio::sync::oneshot::channel();
+			requests.push((request, sender));
+		}
+		let update = crate::Update {
+			batch_size: 16,
+			kind: tangram_index::update::Kind::StorageAndMetadata,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		let (sender, _receiver) = tokio::sync::oneshot::channel();
+		requests.insert(1, (Request::Update(update), sender));
+
+		// The update does not share a transaction with the writes.
+		let batches = Index::create_batches(requests, 8_000, 1_000);
+		let kinds = batches
+			.iter()
+			.map(|batch| {
+				batch
+					.requests
+					.iter()
+					.map(|request| matches!(request, Request::Update(_)))
+					.collect::<Vec<_>>()
+			})
+			.collect::<Vec<_>>();
+		assert_eq!(kinds, [vec![false], vec![true], vec![false]]);
 	}
 }

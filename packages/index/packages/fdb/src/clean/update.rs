@@ -15,23 +15,11 @@ impl Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-		partition_totals: crate::PartitionTotals,
+		oldest: Option<u64>,
 	) -> tg::Result<ControlFlow<usize, fdb::FdbError>> {
 		if batch_size == 0 {
 			return Ok(ControlFlow::Break(0));
 		}
-
-		// An older update in any partition can still propagate to an item in this partition.
-		let kind = tangram_index::update::Kind::Permission;
-		let oldest = crate::propagate!(
-			Self::try_get_oldest_update_transaction_id_with_transaction(
-				txn,
-				subspace,
-				kind,
-				partition_totals.update(kind),
-			)
-			.await
-		);
 
 		// Read the clean keys for versions older than the oldest update.
 		let mut candidates = Vec::new();
@@ -95,23 +83,11 @@ impl Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-		partition_totals: crate::PartitionTotals,
+		oldest: Option<u64>,
 	) -> tg::Result<ControlFlow<usize, fdb::FdbError>> {
 		if batch_size == 0 {
 			return Ok(ControlFlow::Break(0));
 		}
-
-		// An older update in any partition can still propagate from an item in this partition.
-		let kind = tangram_index::update::Kind::StorageAndMetadata;
-		let oldest = crate::propagate!(
-			Self::try_get_oldest_update_transaction_id_with_transaction(
-				txn,
-				subspace,
-				kind,
-				partition_totals.update(kind),
-			)
-			.await
-		);
 
 		// Read the clean keys for versions older than the oldest update.
 		let mut candidates = Vec::new();
