@@ -16,10 +16,23 @@ pub enum Key {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		kind: Kind,
 	},
-	/// A parent that is waiting on a child, which enqueues a storage and metadata update on the parent when the child's update makes progress.
+	/// A parent that is waiting on a child, which enqueues a storage and metadata update on the parent when the child's update makes progress. The value is the version of the latest propagation to the parent, or empty if there has been none.
 	Propagation {
 		child: tg::Either<tg::object::Id, tg::process::Id>,
 		parent: tg::Either<tg::object::Id, tg::process::Id>,
+	},
+	/// A complete child whose propagations can be deleted once the storage and metadata queue has advanced beyond the version.
+	PropagationClean {
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+		partition: u64,
+		version: fdbt::Versionstamp,
+	},
+	/// A storage and metadata update queued in version order within a partition, which is written blindly and carries its source in the key.
+	StorageAndMetadataUpdate {
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+		partition: u64,
+		source: super::Source,
+		version: fdbt::Versionstamp,
 	},
 	/// A completed traversal can be replayed if an older queue marker arrives later.
 	UsageUpdatePropagatedVersion {
@@ -46,7 +59,6 @@ pub enum Key {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
 	Permission(tg::authorization::Subject),
-	StorageAndMetadata,
 	Usage(UsageKind),
 }
 

@@ -39,7 +39,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 		tg::Either::Right(process_id.clone()),
 	];
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
-	let kinds = [Kind::Permission(subject), Kind::StorageAndMetadata];
+	let kinds = [Kind::Permission(subject)];
 	let arg = tangram_index::write::Arg {
 		items: vec![
 			tangram_index::Item::PutObject(object),
@@ -117,7 +117,7 @@ async fn cleans_versions_without_collecting_the_objects() {
 	] {
 		drain(&index, kind).await;
 	}
-	assert_eq!(count_versions(&index), 3);
+	assert_eq!(count_versions(&index), 2);
 	let mut done = false;
 	for _ in 0..20 {
 		let before = count_versions(&index);
@@ -149,56 +149,47 @@ async fn cleaning_retains_pending_versions_and_ignores_stale_entries() {
 	index.clean(clean_arg(100)).await.unwrap();
 	let blocker = tg::Either::Right(tg::process::Id::new());
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
-	for (kind, queue) in [
-		(
-			Kind::Permission(subject),
-			tangram_index::update::Kind::Permission,
-		),
-		(
-			Kind::StorageAndMetadata,
-			tangram_index::update::Kind::StorageAndMetadata,
-		),
-	] {
-		enqueue(&index, &id, &kind, None);
-		drain(&index, queue).await;
-		let previous = version(&index, &id, &kind).unwrap();
-		let oldest = index.get_transaction_id().await.unwrap();
-		assert!(oldest > previous, "oldest {oldest}, previous {previous}");
-		enqueue(&index, &id, &kind, None);
-		drain(&index, queue).await;
-		let expected = version(&index, &id, &kind).unwrap();
-		assert!(expected > oldest);
-		enqueue(&index, &blocker, &kind, Some(oldest));
+	let kind = Kind::Permission(subject);
+	let queue = tangram_index::update::Kind::Permission;
+	enqueue(&index, &id, &kind, None);
+	drain(&index, queue).await;
+	let previous = version(&index, &id, &kind).unwrap();
+	let oldest = index.get_transaction_id().await.unwrap();
+	assert!(oldest > previous, "oldest {oldest}, previous {previous}");
+	enqueue(&index, &id, &kind, None);
+	drain(&index, queue).await;
+	let expected = version(&index, &id, &kind).unwrap();
+	assert!(expected > oldest);
+	enqueue(&index, &blocker, &kind, Some(oldest));
 
-		// Recreate a stale cleanup entry to verify that it cannot delete a newer version.
-		{
-			let mut transaction = index.env.write_txn().unwrap();
-			let key = crate::Key::Update(crate::update::Key::Clean {
-				id: id.clone(),
-				kind: kind.clone(),
-				version: previous,
-			});
-			index
-				.db
-				.put(&mut transaction, &Index::pack(&index.subspace, &key), &[])
-				.unwrap();
-			transaction.commit().unwrap();
-		}
-
-		// The old cleanup entry is eligible, but the current version is still needed.
-		assert!(!index.clean(clean_arg(1)).await.unwrap().done);
-		assert_eq!(version(&index, &id, &kind), Some(expected));
-		assert!(index.clean(clean_arg(100)).await.unwrap().done);
-
-		// An update at exactly the recorded version also prevents its collection.
-		drain(&index, queue).await;
-		enqueue(&index, &blocker, &kind, Some(expected));
-		index.clean(clean_arg(100)).await.unwrap();
-		assert_eq!(version(&index, &id, &kind), Some(expected));
-		drain(&index, queue).await;
-		index.clean(clean_arg(100)).await.unwrap();
-		assert!(version(&index, &id, &kind).is_none());
+	// Recreate a stale cleanup entry to verify that it cannot delete a newer version.
+	{
+		let mut transaction = index.env.write_txn().unwrap();
+		let key = crate::Key::Update(crate::update::Key::Clean {
+			id: id.clone(),
+			kind: kind.clone(),
+			version: previous,
+		});
+		index
+			.db
+			.put(&mut transaction, &Index::pack(&index.subspace, &key), &[])
+			.unwrap();
+		transaction.commit().unwrap();
 	}
+
+	// The old cleanup entry is eligible, but the current version is still needed.
+	assert!(!index.clean(clean_arg(1)).await.unwrap().done);
+	assert_eq!(version(&index, &id, &kind), Some(expected));
+	assert!(index.clean(clean_arg(100)).await.unwrap().done);
+
+	// An update at exactly the recorded version also prevents its collection.
+	drain(&index, queue).await;
+	enqueue(&index, &blocker, &kind, Some(expected));
+	index.clean(clean_arg(100)).await.unwrap();
+	assert_eq!(version(&index, &id, &kind), Some(expected));
+	drain(&index, queue).await;
+	index.clean(clean_arg(100)).await.unwrap();
+	assert!(version(&index, &id, &kind).is_none());
 }
 
 #[tokio::test]
@@ -210,22 +201,13 @@ async fn replacing_propagated_versions_replaces_cleanup_entries() {
 	put(&index, vec![object]).await;
 	drain(&index, tangram_index::update::Kind::StorageAndMetadata).await;
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
-	for (kind, queue) in [
-		(
-			Kind::Permission(subject),
-			tangram_index::update::Kind::Permission,
-		),
-		(
-			Kind::StorageAndMetadata,
-			tangram_index::update::Kind::StorageAndMetadata,
-		),
-	] {
-		for expected in [100, 200, 150, 150, 300, 50] {
-			enqueue(&index, &id, &kind, Some(expected));
-			drain(&index, queue).await;
-			assert_eq!(version(&index, &id, &kind), Some(expected));
-			assert_eq!(count_clean_entries(&index), count_versions(&index));
-		}
+	let kind = Kind::Permission(subject);
+	let queue = tangram_index::update::Kind::Permission;
+	for expected in [100, 200, 150, 150, 300, 50] {
+		enqueue(&index, &id, &kind, Some(expected));
+		drain(&index, queue).await;
+		assert_eq!(version(&index, &id, &kind), Some(expected));
+		assert_eq!(count_clean_entries(&index), count_versions(&index));
 	}
 	index.clean(clean_arg(100)).await.unwrap();
 	assert_eq!(count_clean_entries(&index), 0);
@@ -282,18 +264,12 @@ fn clean_arg(batch_size: usize) -> tangram_index::clean::Arg {
 }
 
 fn count_versions(index: &Index) -> usize {
-	let kinds = [
-		crate::Kind::PermissionUpdatePropagatedVersion,
-		crate::Kind::StorageAndMetadataUpdatePropagatedVersion,
-	];
+	let kinds = [crate::Kind::PermissionUpdatePropagatedVersion];
 	count_keys(index, &kinds)
 }
 
 fn count_clean_entries(index: &Index) -> usize {
-	let kinds = [
-		crate::Kind::PermissionUpdateClean,
-		crate::Kind::StorageAndMetadataUpdateClean,
-	];
+	let kinds = [crate::Kind::PermissionUpdateClean];
 	count_keys(index, &kinds)
 }
 

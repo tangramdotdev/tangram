@@ -30,14 +30,6 @@ pub(super) struct PermissionUpdate {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub(super) struct StorageAndMetadataUpdate {
-	#[tangram_serialize(id = 0)]
-	pub source: Source,
-}
-
-#[derive(
-	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
-)]
 pub(super) struct UsageUpdate {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub cursor: Option<UsageCursor>,
@@ -135,30 +127,6 @@ impl PermissionUpdate {
 	}
 }
 
-impl StorageAndMetadataUpdate {
-	pub fn new(source: Source) -> Self {
-		Self { source }
-	}
-
-	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
-		tangram_serialize::to_vec(self).map_err(|error| {
-			tg::error!(
-				!error,
-				"failed to serialize the storage and metadata update"
-			)
-		})
-	}
-
-	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
-		tangram_serialize::from_slice(bytes).map_err(|error| {
-			tg::error!(
-				!error,
-				"failed to deserialize the storage and metadata update"
-			)
-		})
-	}
-}
-
 impl UsageUpdate {
 	pub fn new() -> Self {
 		Self {
@@ -185,14 +153,18 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
 	) {
-		Self::enqueue_update_with_kind(
-			txn,
-			subspace,
-			id,
-			&Kind::StorageAndMetadata,
-			Source::Put,
-			partition_total,
-		);
+		let partition = rand::random_range(0..partition_total);
+		let version = fdbt::Versionstamp::incomplete(0);
+		let key = crate::Key::Update(Key::StorageAndMetadataUpdate {
+			id: id.clone(),
+			partition,
+			source: Source::Put,
+			version,
+		});
+		let key = Self::pack_with_versionstamp(subspace, &key);
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
 	}
 
 	pub(super) fn enqueue_update_with_kind(
@@ -318,7 +290,10 @@ impl Index {
 					return Ok(ControlFlow::Break(None));
 				};
 				let key = Self::unpack(subspace, entry.key())?;
-				let crate::Key::Update(crate::update::Key::UpdateVersion { version, .. }) = key
+				let crate::Key::Update(
+					crate::update::Key::StorageAndMetadataUpdate { version, .. }
+					| crate::update::Key::UpdateVersion { version, .. },
+				) = key
 				else {
 					return Err(tg::error!("unexpected update key"));
 				};
@@ -384,6 +359,28 @@ impl Index {
 	) -> tg::Result<ControlFlow<tangram_index::update::Output, fdb::FdbError>> {
 		let cleaning_partition_total = partition_totals.cleaning;
 		let partition_total = partition_totals.update(kind);
+
+		// Update the storage and metadata, whose queue entries have no per-item update values.
+		match kind {
+			tangram_index::update::Kind::StorageAndMetadata => {
+				let output = crate::propagate!(
+					Self::update_storage_and_metadata_with_transaction(
+						txn,
+						subspace,
+						batch_size,
+						partition_start,
+						partition_end,
+						max_process_depth,
+						partition_totals,
+					)
+					.await
+				);
+				return Ok(ControlFlow::Break(output));
+			},
+			tangram_index::update::Kind::Permission | tangram_index::update::Kind::Usage => (),
+		}
+
+		// Read the queue entries.
 		let mut entries = Vec::new();
 
 		let key_kind = update_version_key_kind(kind).to_i32().unwrap();
@@ -432,7 +429,7 @@ impl Index {
 			// Read the update and the propagated version.
 			let (value, propagated_version) = futures::join!(txn.get(&key, false), async {
 				match &kind {
-					Kind::Permission(_) | Kind::StorageAndMetadata => {
+					Kind::Permission(_) => {
 						Self::try_get_update_propagated_version(txn, subspace, &id, &kind).await
 					},
 					Kind::Usage(_) => Ok(ControlFlow::Break(None)),
@@ -447,7 +444,6 @@ impl Index {
 			} else {
 				let key = match &kind {
 					Kind::Permission(_)
-					| Kind::StorageAndMetadata
 					| Kind::Usage(UsageKind::Clean(_) | UsageKind::CleanAll) => None,
 					Kind::Usage(UsageKind::Propagate { account, .. }) => {
 						Some(Key::UsageUpdatePropagatedVersion {
@@ -484,9 +480,7 @@ impl Index {
 			};
 
 			let (cursor, source) = match &kind {
-				Kind::Permission(_) | Kind::StorageAndMetadata => {
-					(None, Some(deserialize_source_update(&kind, &value)?))
-				},
+				Kind::Permission(_) => (None, Some(deserialize_source_update(&kind, &value)?)),
 				Kind::Usage(_) => {
 					let update = UsageUpdate::deserialize(&value)?;
 					let previous = update.version.map(fdbt::Versionstamp::from);
@@ -534,20 +528,6 @@ impl Index {
 							)
 							.await
 						)
-					},
-				},
-				Kind::StorageAndMetadata => match &id {
-					tg::Either::Left(id) => {
-						crate::propagate!(Self::update_object(txn, subspace, id).await)
-					},
-					tg::Either::Right(id) => {
-						let process_output = crate::propagate!(
-							Self::update_process(txn, subspace, id, max_process_depth).await
-						);
-						if process_output.depth_exceeded {
-							output.processes_with_depth_exceeded.push(id.clone());
-						}
-						process_output.changed
 					},
 				},
 				Kind::Usage(UsageKind::Clean(account)) => {
@@ -647,29 +627,10 @@ impl Index {
 					.as_ref()
 					.is_some_and(|propagated_version| version < *propagated_version);
 				if propagate {
-					match &kind {
-						Kind::StorageAndMetadata => crate::propagate!(
-							Self::enqueue_waiting_parents(
-								txn,
-								subspace,
-								&id,
-								&version,
-								partition_total,
-							)
+					crate::propagate!(
+						Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total)
 							.await
-						),
-						Kind::Permission(_) | Kind::Usage(_) => crate::propagate!(
-							Self::enqueue_parents(
-								txn,
-								subspace,
-								&id,
-								&kind,
-								&version,
-								partition_total,
-							)
-							.await
-						),
-					}
+					);
 					// Remember the version used to enqueue the parents, including an older version for an unchanged item.
 					let key = crate::Key::Update(Key::PropagatedVersion {
 						id: id.clone(),
@@ -743,6 +704,113 @@ impl Index {
 		Ok(ControlFlow::Break(output))
 	}
 
+	async fn update_storage_and_metadata_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+		max_process_depth: Option<u64>,
+		partition_totals: crate::PartitionTotals,
+	) -> tg::Result<ControlFlow<tangram_index::update::Output, fdb::FdbError>> {
+		let cleaning_partition_total = partition_totals.cleaning;
+		let partition_total = partition_totals.storage_and_metadata_update;
+
+		// Read the queue entries.
+		let key_kind = KeyKind::StorageAndMetadataUpdateVersion.to_i32().unwrap();
+		let mut keys = Vec::new();
+		let mut items = BTreeMap::new();
+		for partition in partition_start..partition_end {
+			let remaining = batch_size.saturating_sub(keys.len());
+			if remaining == 0 {
+				break;
+			}
+			let begin = Self::pack(subspace, &(key_kind, partition));
+			let end = Self::pack(subspace, &(key_kind, partition + 1));
+			let range = fdb::RangeOption {
+				begin: fdb::KeySelector::first_greater_or_equal(begin),
+				end: fdb::KeySelector::first_greater_or_equal(end),
+				limit: Some(remaining),
+				mode: fdb::options::StreamingMode::WantAll,
+				..Default::default()
+			};
+			let result = txn.get_range(&range, 1, false).await;
+			let entries = crate::retry!(result);
+			for entry in entries {
+				let key = Self::unpack(subspace, entry.key())?;
+				let crate::Key::Update(Key::StorageAndMetadataUpdate {
+					id,
+					source,
+					version,
+					..
+				}) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				keys.push(entry.key().to_vec());
+
+				// Merge the entries for each item, retaining the oldest version and a put source.
+				let (put, oldest) = items.entry(id).or_insert((false, version.clone()));
+				*put |= source == Source::Put;
+				if version < *oldest {
+					*oldest = version;
+				}
+			}
+		}
+
+		// Clear the queue entries before updating the items, so that an update can enqueue an entry with the same key again.
+		for key in &keys {
+			txn.clear(key);
+		}
+
+		// Update the items in version order.
+		let mut items = items.into_iter().collect::<Vec<_>>();
+		items.sort_by(|(_, (_, left)), (_, (_, right))| left.cmp(right));
+		let mut output = tangram_index::update::Output::default();
+		for (id, (put, version)) in items {
+			let changed = match &id {
+				tg::Either::Left(id) => {
+					crate::propagate!(Self::update_object(txn, subspace, id).await)
+				},
+				tg::Either::Right(id) => {
+					let process_output = crate::propagate!(
+						Self::update_process(txn, subspace, id, max_process_depth).await
+					);
+					if process_output.depth_exceeded {
+						output.processes_with_depth_exceeded.push(id.clone());
+					}
+					process_output.changed
+				},
+			};
+
+			// Enqueue an update on each waiting parent when the item was put or changed, or when the version is older than the version of the latest propagation to the parent.
+			let force = put || changed;
+			let propagations = crate::propagate!(
+				Self::enqueue_waiting_parents(txn, subspace, &id, &version, force, partition_total)
+					.await
+			);
+
+			// Schedule the deletion of the propagations from the item when it is complete, since the item can no longer change.
+			if !propagations {
+				continue;
+			}
+			crate::propagate!(
+				Self::schedule_complete_item_propagation_clean(
+					txn,
+					subspace,
+					&id,
+					&version,
+					cleaning_partition_total,
+				)
+				.await
+			);
+		}
+
+		output.count = keys.len();
+
+		Ok(ControlFlow::Break(output))
+	}
+
 	async fn try_get_update_propagated_version(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
@@ -786,7 +854,6 @@ impl Index {
 	) {
 		for kind in [
 			KeyKind::PermissionUpdatePropagatedVersion,
-			KeyKind::StorageAndMetadataUpdatePropagatedVersion,
 			KeyKind::UsageUpdatePropagatedVersion,
 			KeyKind::UsageUpdatePutVersion,
 		] {
@@ -3498,8 +3565,9 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		version: &fdbt::Versionstamp,
+		force: bool,
 		partition_total: u64,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		// Read the propagations from the item to the parents that are waiting on it.
 		let id_bytes = match id {
 			tg::Either::Left(id) => id.to_bytes(),
@@ -3525,30 +3593,99 @@ impl Index {
 			})
 			.await
 		);
-		let parents = entries
-			.into_iter()
-			.map(|(key, _)| {
-				let crate::Key::Update(Key::Propagation { parent, .. }) = key else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				Ok(parent)
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
 
-		// Enqueue an update on each waiting parent. A child that completes before a parent writes its propagation is seen by the parent's own update, which the parent's put enqueues.
-		let kind = Kind::StorageAndMetadata;
-		let result = future::try_join_all(parents.iter().map(|parent| {
-			Self::enqueue_update_propagate(txn, subspace, parent, &kind, version, partition_total)
-		}))
-		.await;
-		for result in result? {
-			match result {
-				ControlFlow::Break(()) => (),
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		// Enqueue an update on each waiting parent with the child's version, so that waiters for the child's version also wait for its parents. A child that completes before a parent writes its propagation is seen by the parent's own update, which the parent's put enqueues.
+		let propagations = !entries.is_empty();
+		for (key, value) in entries {
+			let crate::Key::Update(Key::Propagation { parent, .. }) = key else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			let propagated = if value.is_empty() {
+				None
+			} else {
+				let bytes: [u8; 12] = value
+					.as_slice()
+					.try_into()
+					.map_err(|_| tg::error!("invalid propagation version"))?;
+				Some(fdbt::Versionstamp::from(bytes))
+			};
+			let older = propagated
+				.as_ref()
+				.is_none_or(|propagated| version < propagated);
+			if !force && !older {
+				continue;
 			}
+
+			// Record the version of the latest propagation to the parent.
+			let key = crate::Key::Update(Key::Propagation {
+				child: id.clone(),
+				parent: parent.clone(),
+			});
+			txn.set(&Self::pack(subspace, &key), version.as_bytes());
+
+			// Enqueue the update on the parent.
+			let partition = rand::random_range(0..partition_total);
+			let key = crate::Key::Update(Key::StorageAndMetadataUpdate {
+				id: parent,
+				partition,
+				source: Source::Propagate,
+				version: version.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			txn.set(&key, &[]);
 		}
 
+		Ok(ControlFlow::Break(propagations))
+	}
+
+	async fn schedule_complete_item_propagation_clean(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		version: &fdbt::Versionstamp,
+		cleaning_partition_total: u64,
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		// Determine whether the item is complete.
+		let complete =
+			crate::propagate!(Self::is_item_complete_with_transaction(txn, subspace, id).await);
+		if !complete {
+			return Ok(ControlFlow::Break(()));
+		}
+
+		// Schedule the deletion of the propagations once the queue has advanced beyond the version, since every version propagated from the item is no newer than it.
+		let id_bytes = match id {
+			tg::Either::Left(id) => id.to_bytes(),
+			tg::Either::Right(id) => id.to_bytes(),
+		};
+		let partition = Self::partition_for_id(id_bytes.as_ref(), cleaning_partition_total);
+		let key = crate::Key::Update(Key::PropagationClean {
+			id: id.clone(),
+			partition,
+			version: version.clone(),
+		});
+		txn.set(&Self::pack(subspace, &key), &[]);
+
 		Ok(ControlFlow::Break(()))
+	}
+
+	pub(super) async fn is_item_complete_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let complete = match id {
+			tg::Either::Left(id) => {
+				crate::propagate!(Self::try_get_object_with_transaction(txn, subspace, id).await)
+					.is_some_and(|object| object.complete())
+			},
+			tg::Either::Right(id) => {
+				crate::propagate!(Self::try_get_process_with_transaction(txn, subspace, id).await)
+					.is_some_and(|process| process.complete())
+			},
+		};
+		Ok(ControlFlow::Break(complete))
 	}
 
 	async fn get_object_propagation_items_with_transaction(
@@ -3592,7 +3729,7 @@ impl Index {
 						.collect::<tg::Result<Vec<_>>>()?;
 					Ok(ControlFlow::Break(parents))
 				},
-				Kind::StorageAndMetadata | Kind::Usage(_) => {
+				Kind::Usage(_) => {
 					crate::page::collect(|after| async move {
 						Self::get_object_parents_page_with_transaction(
 							txn,
@@ -3625,7 +3762,7 @@ impl Index {
 						.collect::<tg::Result<Vec<_>>>()?;
 					Ok(ControlFlow::Break(processes))
 				},
-				Kind::StorageAndMetadata | Kind::Usage(_) => {
+				Kind::Usage(_) => {
 					let processes = crate::propagate!(
 						crate::page::collect(|after| async move {
 							Self::get_object_processes_page_with_transaction(
@@ -3707,7 +3844,7 @@ impl Index {
 			.into_iter()
 			.map(tg::process::Id::try_from)
 			.collect::<tg::Result<Vec<_>>>()?,
-			Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+			Kind::Usage(_) => crate::propagate!(
 				crate::page::collect(|after| async move {
 					Self::get_process_parents_page_with_transaction(
 						txn,
@@ -3972,7 +4109,6 @@ fn update_version_key_kind(kind: tangram_index::update::Kind) -> KeyKind {
 fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<Source> {
 	let source = match kind {
 		Kind::Permission(_) => PermissionUpdate::deserialize(bytes)?.source,
-		Kind::StorageAndMetadata => StorageAndMetadataUpdate::deserialize(bytes)?.source,
 		Kind::Usage(_) => return Err(tg::error!("expected a source update")),
 	};
 
@@ -3982,7 +4118,6 @@ fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<Source> {
 fn serialize_update(kind: &Kind, source: Source) -> tg::Result<Vec<u8>> {
 	let value = match kind {
 		Kind::Permission(_) => PermissionUpdate::new(source).serialize()?,
-		Kind::StorageAndMetadata => StorageAndMetadataUpdate::new(source).serialize()?,
 		Kind::Usage(_) => UsageUpdate::new().serialize()?,
 	};
 

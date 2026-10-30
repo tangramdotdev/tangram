@@ -281,12 +281,11 @@ async fn separates_update_queues() {
 		None,
 	)
 	.unwrap();
-	Index::enqueue_update_with_kind(
+	Index::enqueue_update(
 		&index.db,
 		&index.subspace,
 		&mut transaction,
 		id.clone(),
-		super::super::update::Kind::StorageAndMetadata,
 		super::super::update::Source::Put,
 		None,
 	)
