@@ -1,5 +1,4 @@
 use {
-	futures::StreamExt as _,
 	std::{
 		io::Write as _,
 		path::{Path, PathBuf},
@@ -16,6 +15,9 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The name of the `FoundationDB` container on macOS.
 pub const FOUNDATIONDB_CONTAINER: &str = "tangram_test_foundationdb";
+
+/// The name of the PostgreSQL database whose initialized schema is cloned for pool instances.
+const POSTGRES_TEMPLATE: &str = "database_template";
 
 /// The time to wait for each database operation.
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -242,26 +244,6 @@ pub fn pool_path() -> PathBuf {
 	std::env::temp_dir().join("tangram_test_database_pool")
 }
 
-/// Provision database pool instances until the pool has the count, creating up to the number of workers at once.
-pub async fn provision(pool_path: &Path, count: usize, workers: usize) -> Result<()> {
-	std::fs::create_dir_all(pool_path)?;
-	let existing = instances(pool_path)?.len();
-	let results = futures::stream::iter(existing..count)
-		.map(|_| create(pool_path, None))
-		.buffer_unordered(workers.max(1))
-		.collect::<Vec<_>>()
-		.await;
-	for result in results {
-		result?;
-	}
-	let actual = instances(pool_path)?.len();
-	if actual != count {
-		return Err(format!("expected {count} database pool instances, found {actual}").into());
-	}
-
-	Ok(())
-}
-
 /// Record a database pool instance in the test's temporary directory, so that it is reset after the test.
 pub fn record(instance: &str) -> Result<()> {
 	let path = std::env::temp_dir().join("instances");
@@ -412,7 +394,7 @@ async fn create(pool_path: &Path, run: Option<&str>) -> Result<String> {
 	let (instance, temporary_path) = reserve(pool_path)?;
 
 	// Create the databases, and remove them if any step fails.
-	if let Err(error) = create_databases(&instance, &temporary_path, run).await {
+	if let Err(error) = create_databases(pool_path, &instance, &temporary_path, run).await {
 		std::fs::remove_dir_all(&temporary_path).ok();
 		drop_databases(&instance).await;
 		return Err(error);
@@ -442,56 +424,115 @@ fn reserve(pool_path: &Path) -> Result<(String, PathBuf)> {
 	}
 }
 
-async fn create_databases(instance: &str, temporary_path: &Path, run: Option<&str>) -> Result<()> {
+async fn create_databases(
+	pool_path: &Path,
+	instance: &str,
+	temporary_path: &Path,
+	run: Option<&str>,
+) -> Result<()> {
 	// Write the lease.
 	if let Some(run) = run {
 		std::fs::write(temporary_path.join("lease"), format!("{run}\n"))?;
 	}
 
-	// Create and initialize the PostgreSQL database.
+	// Provision the independent databases concurrently, and finish both before cleaning up a failure.
+	let (postgres, scylla) = tokio::join!(
+		create_postgres(pool_path, instance),
+		create_scylla(instance),
+	);
+	postgres?;
+	scylla?;
+
+	Ok(())
+}
+
+async fn create_postgres(pool_path: &Path, instance: &str) -> Result<()> {
+	// Initialize the shared template while holding the pool's provisioning lock.
+	create_postgres_template(pool_path).await?;
+
+	// Clone the initialized schema into the pool instance.
 	let database = format!("database_{instance}");
 	let mut command = Command::new("createdb");
-	command.args(["--host=127.0.0.1", "--username=postgres", &database]);
+	command.args([
+		"--host=127.0.0.1",
+		"--username=postgres",
+		"--template",
+		POSTGRES_TEMPLATE,
+		&database,
+	]);
 	phase(
-		&format!("creating PostgreSQL database {instance}"),
-		&mut command,
-	)
-	.await?;
-	let schema_path = repository_path().join("packages/server/packages/database/src/postgres.sql");
-	let mut command = Command::new("psql");
-	command
-		.args([
-			"--host=127.0.0.1",
-			"--username=postgres",
-			&format!("--dbname={database}"),
-			"--set=ON_ERROR_STOP=1",
-			"--single-transaction",
-			"--file",
-		])
-		.arg(schema_path);
-	phase(
-		&format!("initializing PostgreSQL database {instance}"),
+		&format!("cloning PostgreSQL database {instance}"),
 		&mut command,
 	)
 	.await?;
 
-	// Create and initialize the ScyllaDB keyspace.
+	Ok(())
+}
+
+async fn create_postgres_template(pool_path: &Path) -> Result<()> {
+	// Reuse the template if its schema matches the source.
+	let schema_path = repository_path().join("packages/server/packages/database/src/postgres.sql");
+	let schema = std::fs::read_to_string(schema_path)?;
+	let cached_schema_path = pool_path.join("postgres.sql");
+	if std::fs::read_to_string(&cached_schema_path).is_ok_and(|cached| cached == schema) {
+		return Ok(());
+	}
+
+	// Remove an incomplete or outdated template.
+	let mut command = Command::new("dropdb");
+	command.args([
+		"--host=127.0.0.1",
+		"--username=postgres",
+		"--if-exists",
+		"--force",
+		POSTGRES_TEMPLATE,
+	]);
+	phase("removing the PostgreSQL template", &mut command).await?;
+
+	// Create the template and apply the schema once.
+	let mut command = Command::new("createdb");
+	command.args(["--host=127.0.0.1", "--username=postgres", POSTGRES_TEMPLATE]);
+	phase("creating the PostgreSQL template", &mut command).await?;
+	let mut command = Command::new("psql");
+	command.args([
+		"--host=127.0.0.1",
+		"--username=postgres",
+		"--dbname",
+		POSTGRES_TEMPLATE,
+		"--set=ON_ERROR_STOP=1",
+		"--single-transaction",
+		"--command",
+		&schema,
+	]);
+	phase("initializing the PostgreSQL template", &mut command).await?;
+
+	// Prevent connections to the template from blocking subsequent clones.
+	let statement = format!("alter database {POSTGRES_TEMPLATE} allow_connections false;");
+	let mut command = Command::new("psql");
+	command.args([
+		"--host=127.0.0.1",
+		"--username=postgres",
+		"--dbname=postgres",
+		"--set=ON_ERROR_STOP=1",
+		"--command",
+		&statement,
+	]);
+	phase("sealing the PostgreSQL template", &mut command).await?;
+	std::fs::write(cached_schema_path, schema)?;
+
+	Ok(())
+}
+
+async fn create_scylla(instance: &str) -> Result<()> {
+	// Create the keyspace and initialize its tables in one client session.
 	let keyspace = format!("cache_{instance}");
+	let schema_path = repository_path().join("packages/cache/packages/scylla/schema.cql");
+	let schema = std::fs::read_to_string(schema_path)?;
 	let statement = format!(
-		"create keyspace \"{keyspace}\" with replication = {{ 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 }};"
+		"create keyspace \"{keyspace}\" with replication = {{ 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 }}; use \"{keyspace}\"; {schema}"
 	);
 	let mut command = Command::new("tangram_scylla_client");
 	command.args(["127.0.0.1", "9042", "-e", &statement]);
-	phase(
-		&format!("creating ScyllaDB keyspace {instance}"),
-		&mut command,
-	)
-	.await?;
-	let schema_path = repository_path().join("packages/cache/packages/scylla/schema.cql");
-	let mut command = Command::new("tangram_scylla_client");
-	command
-		.args(["127.0.0.1", "9042", "-k", &keyspace, "-f"])
-		.arg(schema_path);
 	phase(
 		&format!("initializing ScyllaDB keyspace {instance}"),
 		&mut command,

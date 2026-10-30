@@ -13,26 +13,15 @@ const scylla_image = 'scylladb/scylla:2026.3.0'
 
 # Run the shared cloud databases for the CLI tests in the foreground. This is supported on Linux and macOS.
 def main [
-	--release # Use release builds of the Scylla client and the test runner.
+	--release # Use a release build of the Scylla client.
 ] {
 	if $nu.os-info.name not-in ['linux', 'macos'] {
 		error make { msg: 'the cloud databases are supported on Linux and macOS only' }
 	}
-	let target_path = if $release { build --release } else { build }
-	path add $target_path
-	let runner_path = $target_path | path join tangram_tests_runner
-	let database_pool_workers = sys cpu | length
-	let database_pool_size = $database_pool_workers * 4
-	run_databases $runner_path $database_pool_workers $database_pool_size
-}
-
-# Build the Scylla client and the test runner, which provisions the database pool, and return their directory.
-def build [--release] {
-	let args = if $release { ['--release'] } else { [] }
-	cargo build --package tangram_scylla_client --package tangram_tests_runner ...$args
 	let profile = if $release { 'release' } else { 'debug' }
-
-	$repository_path | path join target $profile
+	let target_path = $env.CARGO_TARGET_DIR? | default ($repository_path | path join 'target') | path expand
+	path add ($target_path | path join $profile)
+	run_databases $profile $target_path
 }
 
 def check_docker [] {
@@ -65,9 +54,13 @@ foundationdb_container=$5
 foundationdb_image=$6
 scylla_container=$7
 scylla_image=$8
-database_pool_workers=$9
-database_pool_size=${10}
-runner_path=${11}
+repository_path=$9
+profile=${10}
+target_path=${11}
+started_at=$SECONDS
+build_pid=''
+interrupted=false
+starting=false
 declare -a logs=()
 declare -a names=()
 declare -a pids=()
@@ -75,6 +68,9 @@ declare -a pids=()
 cleanup() {
 	status=$?
 	trap - EXIT HUP INT TERM
+	if [ -n "$build_pid" ]; then
+		pids+=("$build_pid")
+	fi
 	if [ "$platform" = macos ]; then
 		docker rm --force "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
 	fi
@@ -104,6 +100,10 @@ cleanup() {
 }
 
 handle_signal() {
+	if $starting; then
+		interrupted=true
+		return
+	fi
 	exit 130
 }
 
@@ -141,6 +141,8 @@ ensure_running() {
 }
 
 start() {
+	# Defer signals until the new process group is registered for cleanup.
+	starting=true
 	name=$1
 	shift
 	log_path="$state_path/logs/$name.log"
@@ -151,6 +153,10 @@ start() {
 		exec "$@"
 	) >"$log_path" 2>&1 &
 	pids+=("$!")
+	starting=false
+	if $interrupted; then
+		exit 130
+	fi
 }
 
 wait_for() {
@@ -159,7 +165,7 @@ wait_for() {
 	shift 2
 	for ((attempt = 0; attempt < attempts; attempt++)); do
 		if timeout --kill-after=1s 4 "$@" >/dev/null 2>&1; then
-			echo "$name is ready" >&2
+			echo "$name is ready ($((SECONDS - started_at))s since startup)" >&2
 			return
 		fi
 		ensure_running
@@ -171,14 +177,19 @@ wait_for() {
 }
 
 configure_foundationdb() {
+	configured=false
 	for ((attempt = 0; attempt < 600; attempt++)); do
-		if foundationdb_cli 2 --exec 'status minimal' >/dev/null 2>&1; then
-			echo 'FoundationDB is ready' >&2
-			return
+		if ! $configured && foundationdb_cli 6 --no-status --exec 'configure new single memory' >/dev/null 2>&1; then
+			configured=true
+			echo "FoundationDB is configured ($((SECONDS - started_at))s since startup)" >&2
 		fi
-		if foundationdb_cli 6 --exec 'configure new single memory' >/dev/null 2>&1; then
-			echo 'FoundationDB is configured' >&2
-			return
+		if $configured && output=$(foundationdb_cli 2 --no-status --exec 'status minimal' 2>/dev/null); then
+			case "$output" in
+				*'The database is available.'*)
+					echo "FoundationDB is ready ($((SECONDS - started_at))s since startup)" >&2
+					return
+					;;
+			esac
 		fi
 		ensure_running
 		sleep 0.1
@@ -211,21 +222,29 @@ wait_for_exit() {
 	done
 }
 
-provision_database_pool() {
-	echo "pre-provisioning $database_pool_size database pool instances..." >&2
-	if ! TANGRAM_TEST_DATABASE_POOL="$database_pool_path" "$runner_path" database provision --count "$database_pool_size" --workers "$database_pool_workers"; then
-		echo 'failed to pre-provision the database pool' >&2
-		exit 1
-	fi
-	echo "database pool is ready with $database_pool_size instances" >&2
-}
-
 trap cleanup EXIT
 trap handle_signal HUP INT TERM
 
 mkdir -p \
 	"$state_path/logs" \
 	"$state_path/postgres"
+
+# Build the Scylla client while the database services start.
+build_args=()
+if [ "$profile" = release ]; then
+	build_args+=(--release)
+fi
+starting=true
+(
+	cd "$repository_path" || exit 1
+	cargo build --package tangram_scylla_client --target-dir "$target_path" "${build_args[@]}" || exit $?
+	echo "Scylla client is built ($((SECONDS - started_at))s since startup)" >&2
+) &
+build_pid=$!
+starting=false
+if $interrupted; then
+	exit 130
+fi
 
 if [ "$platform" = linux ]; then
 	mkdir -p \
@@ -236,17 +255,6 @@ else
 	docker rm --force "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
 fi
 
-initdb --auth=trust --no-instructions --pgdata="$state_path/postgres" --username=postgres >/dev/null
-start postgres \
-	postgres \
-	-D "$state_path/postgres" \
-	-h 127.0.0.1 \
-	-k '' \
-	-p 5432 \
-	-c fsync=off \
-	-c full_page_writes=off \
-	-c max_connections=1024 \
-	-c synchronous_commit=off
 start nats \
 	nats-server \
 	--addr=127.0.0.1 \
@@ -307,16 +315,40 @@ else
 		--write-request-timeout-in-ms=20000
 fi
 
+initdb --auth=trust --no-instructions --no-sync --pgdata="$state_path/postgres" --username=postgres >"$state_path/logs/initdb.log" 2>&1 || {
+	cat "$state_path/logs/initdb.log" >&2
+	exit 1
+}
+echo "PostgreSQL is initialized ($((SECONDS - started_at))s since startup)" >&2
+start postgres \
+	postgres \
+	-D "$state_path/postgres" \
+	-h 127.0.0.1 \
+	-k '' \
+	-p 5432 \
+	-c fsync=off \
+	-c full_page_writes=off \
+	-c max_connections=1024 \
+	-c synchronous_commit=off
+
 # Preserve the database process groups without printing job notifications.
 set +m
 
 configure_foundationdb
 wait_for NATS 600 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'
 wait_for PostgreSQL 600 pg_isready --host=127.0.0.1 --port=5432 --username=postgres
+while process_running "$build_pid"; do
+	ensure_running
+	sleep 0.1
+done
+if ! wait "$build_pid"; then
+	echo 'failed to build the Scylla client' >&2
+	exit 1
+fi
+build_pid=''
 wait_for ScyllaDB 1200 tangram_scylla_client 127.0.0.1 9042 -e 'select release_version from system.local'
-provision_database_pool
 
-echo 'all cloud databases are ready; press Ctrl-C to stop them' >&2
+echo "all cloud databases are ready ($((SECONDS - started_at))s since startup); press Ctrl-C to stop them" >&2
 
 set +e
 wait_for_exit
@@ -343,13 +375,13 @@ def ensure_docker_image [image: string] {
 	}
 }
 
-def run_databases [runner_path: string, database_pool_workers: int, database_pool_size: int] {
+def run_databases [profile: string, target_path: string] {
 	# Check the required programs.
 	let lock_command = database_lock_command
 	let commands = if $nu.os-info.name == 'linux' {
-		[bash createdb dropdb fdbcli fdbserver initdb $lock_command nats-server pg_isready postgres psql scylla sed tail tangram_scylla_client timeout]
+		[bash cargo cat createdb dropdb fdbcli fdbserver initdb $lock_command nats-server pg_isready postgres psql scylla sed tail timeout]
 	} else {
-		[bash createdb docker dropdb initdb $lock_command nats-server pg_isready postgres psql sed tail tangram_scylla_client timeout]
+		[bash cargo cat createdb docker dropdb initdb $lock_command nats-server pg_isready postgres psql sed tail timeout]
 	}
 	let missing = $commands | where { |command| which $command | is-empty }
 	if not ($missing | is-empty) {
@@ -416,7 +448,7 @@ def run_databases [runner_path: string, database_pool_workers: int, database_poo
 	print -e 'waiting for FoundationDB, NATS, PostgreSQL, and ScyllaDB to become ready...'
 
 	# Run the supervisor in the foreground.
-	exec bash -c (database_supervisor) _ $nu.os-info.name $state_path $cluster_path $database_pool_path $foundationdb_container_name $foundationdb_image $scylla_container_name $scylla_image $database_pool_workers $database_pool_size $runner_path
+	exec bash -c (database_supervisor) _ $nu.os-info.name $state_path $cluster_path $database_pool_path $foundationdb_container_name $foundationdb_image $scylla_container_name $scylla_image $repository_path $profile $target_path
 }
 
 def tcp_port_open [port: int] {

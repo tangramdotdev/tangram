@@ -29,6 +29,12 @@ Ctrl-C. Existing services, processes, or containers must not be using ports
 5432, 4500, 9042, or 4222. Database output is written to the log directory shown
 at startup and tailed automatically if startup fails or a database exits
 unexpectedly.
+Database pool instances are created on demand by the tests and reset for reuse
+after each test. Startup does not pre-provision any instances.
+The PostgreSQL schema is initialized in a template on first demand, then cloned
+when the pool grows. The template is rebuilt when the schema changes.
+The ScyllaDB client build runs alongside database startup, and readiness messages
+show elapsed startup time.
 The runner builds and uses `tangram_scylla_client` from
 `packages/scylla/client` for ScyllaDB administration.
 

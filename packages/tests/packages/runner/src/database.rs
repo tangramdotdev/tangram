@@ -10,16 +10,6 @@ pub enum Subcommand {
 
 	/// Print the environment variables that let tests use the cloud databases, or nothing if the databases are not ready.
 	Env,
-
-	/// Provision database pool instances until the pool has the count.
-	Provision {
-		#[arg(long)]
-		count: usize,
-
-		/// The number of instances to create at once.
-		#[arg(long)]
-		workers: usize,
-	},
 }
 
 pub async fn command(subcommand: Subcommand) -> Result<ExitCode> {
@@ -40,9 +30,6 @@ pub async fn command(subcommand: Subcommand) -> Result<ExitCode> {
 			println!("TANGRAM_TEST_CLOUD=1");
 			println!("TANGRAM_TEST_DATABASE_POOL={}", pool_path().display());
 			println!("TANGRAM_TEST_FDB_CLUSTER={}", cluster_path()?.display());
-		},
-		Subcommand::Provision { count, workers } => {
-			provision(&pool_path(), count, workers).await?;
 		},
 	}
 	Ok(ExitCode::SUCCESS)
