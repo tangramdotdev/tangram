@@ -979,6 +979,12 @@ impl Component {
 		if name == "tangram.py" || name.ends_with(".tg.py") {
 			return Ok(Some(tg::module::Kind::Python));
 		}
+		if let Some(format) = tg::module::config::Format::for_path(path) {
+			return Ok(Some(format.kind()));
+		}
+		if let Some(language) = tg::interface::Language::for_path(path) {
+			return Ok(Some(language.kind()));
+		}
 		tg::file::xattrs::read_module(path)
 	}
 }

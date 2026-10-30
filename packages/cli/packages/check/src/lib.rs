@@ -1,4 +1,4 @@
-use {tangram_cli_core::Cli, tangram_client::prelude::*};
+use {futures::FutureExt as _, tangram_cli_core::Cli, tangram_client::prelude::*};
 
 /// Check.
 #[derive(Clone, Debug, clap::Args)]
@@ -23,10 +23,9 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.collect();
 
 	// Check the modules.
-	let modules = modules.iter().map(tg::Module::to_data).collect();
 	let arg = tg::check::Arg {
 		location: None,
-		modules,
+		modules: modules.iter().map(tg::Module::to_data).collect(),
 	};
 	let output = client
 		.check(arg)
@@ -50,6 +49,26 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 
 	if !success {
 		return Err(tg::error!("type checking failed"));
+	}
+
+	// Build the check exports, echoing their stdio.
+	for module in output.checks {
+		let module = tg::Module::try_from_data(module)?;
+		let command =
+			tg::command::Builder::with_module(module, Some("check".to_owned()), []).build()?;
+		let command = tg::Referent::with_node(tg::Either::Right(command));
+		let arg = tg::process::Arg {
+			command: Some(command),
+			echo: true,
+			stderr: tg::process::Stdio::Log,
+			stdin: tg::process::Stdio::Null,
+			stdout: tg::process::Stdio::Log,
+			..Default::default()
+		};
+		tg::Process::<tg::Value>::build_with_instance(&client, arg)
+			.boxed_local()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to build the check export"))?;
 	}
 
 	Ok(())

@@ -11,7 +11,13 @@ pub fn object_module(module: &tg::module::Data) -> tg::Result<String> {
 		tg::module::Kind::Graph => "Graph",
 		tg::module::Kind::Object => "Object",
 		tg::module::Kind::Symlink => "Symlink",
-		tg::module::Kind::TypeScriptDeclaration
+		tg::module::Kind::InterfaceJson
+		| tg::module::Kind::InterfacePython
+		| tg::module::Kind::InterfaceTypeScript
+		| tg::module::Kind::Json
+		| tg::module::Kind::Toml
+		| tg::module::Kind::Yaml
+		| tg::module::Kind::TypeScriptDeclaration
 		| tg::module::Kind::JavaScript
 		| tg::module::Kind::Python
 		| tg::module::Kind::TypeScript => return Err(tg::error!("expected an object module")),

@@ -9,6 +9,7 @@ mod extract;
 mod progress;
 mod util;
 
+pub use tangram_cli_builtin_config as config;
 #[cfg(any(feature = "quickjs", feature = "v8"))]
 pub use tangram_cli_builtin_javascript as javascript;
 #[cfg(feature = "cpython")]
@@ -26,6 +27,7 @@ pub enum Command {
 	Archive(archive::Args),
 	Checksum(checksum::Args),
 	Compress(compress::Args),
+	Config(config::Args),
 	Decompress(decompress::Args),
 	Download(download::Args),
 	Extract(extract::Args),
@@ -42,6 +44,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		Command::Archive(args) => (&args.output_named, &args.output_positional),
 		Command::Checksum(args) => (&args.output_named, &args.output_positional),
 		Command::Compress(args) => (&args.output_named, &args.output_positional),
+		Command::Config(_) => (&None, &None),
 		Command::Decompress(args) => (&args.output_named, &args.output_positional),
 		Command::Download(args) => (&args.output_named, &args.output_positional),
 		Command::Extract(args) => (&args.output_named, &args.output_positional),
@@ -57,6 +60,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		Command::Archive(args) => archive::run(args, progress_interval).await,
 		Command::Checksum(args) => checksum::run(args, progress_interval).await,
 		Command::Compress(args) => compress::run(args, progress_interval).await,
+		Command::Config(args) => config::run(cli, args).await,
 		Command::Decompress(args) => decompress::run(args, progress_interval).await,
 		Command::Download(args) => download::run(args, progress_interval).await,
 		Command::Extract(args) => extract::run(args, progress_interval).await,

@@ -46,6 +46,17 @@ pub fn module(module: &tg::module::Data, text: &str) -> tg::Result<tg::Interface
 				return Err(tg::error!("the python feature is not enabled"));
 			}
 		},
+		tg::module::Kind::Json | tg::module::Kind::Toml | tg::module::Kind::Yaml => {
+			// Give a config module no exports, because its exports come from its interface file.
+			#[cfg(any(feature = "javascript", feature = "python"))]
+			{
+				Ok(std::collections::BTreeMap::<String, Export>::new())
+			}
+			#[cfg(not(any(feature = "javascript", feature = "python")))]
+			{
+				return Ok(tg::Interface::default());
+			}
+		},
 		_ => {
 			return Err(tg::error!(kind = %module.kind, "cannot get the interface of the module"));
 		},

@@ -9325,6 +9325,7 @@ dependencies = [
  "num",
  "reqwest 0.13.5",
  "serde_json",
+ "tangram_cli_builtin_config",
  "tangram_cli_builtin_javascript",
  "tangram_cli_builtin_python",
  "tangram_cli_core",
@@ -9334,6 +9335,16 @@ dependencies = [
  "tangram_util",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "tangram_cli_builtin_config"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "tangram_cli_core",
+ "tangram_client",
+ "tokio",
 ]
 
 [[package]]
@@ -9380,6 +9391,7 @@ name = "tangram_cli_check"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "futures",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",
@@ -10124,6 +10136,7 @@ dependencies = [
  "serde_json",
  "serde_qs",
  "serde_with",
+ "serde_yaml",
  "sha2 0.11.1",
  "tangram_either",
  "tangram_futures",
@@ -10138,6 +10151,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tokio-vsock",
+ "toml",
  "tower",
  "tower-http 0.7.1",
  "tracing",

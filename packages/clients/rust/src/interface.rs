@@ -3,6 +3,9 @@ use {crate::prelude::*, std::collections::BTreeMap};
 #[cfg(test)]
 mod tests;
 
+pub mod parse;
+pub mod print;
+
 /// The interface of a module, which describes its exports with types over values.
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -168,6 +171,20 @@ pub enum Literal {
 	String(String),
 }
 
+/// The language of an interface file, which its extension names: `.tgi.json`, `.tgi.py`, or `.tgi.ts`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, derive_more::Display)]
+pub enum Language {
+	#[display("json")]
+	Json,
+
+	#[display("python")]
+	Python,
+
+	#[default]
+	#[display("typescript")]
+	TypeScript,
+}
+
 impl Interface {
 	pub fn serialize_json(&self) -> tg::Result<String> {
 		serde_json::to_string_pretty(self)
@@ -178,4 +195,92 @@ impl Interface {
 		serde_json::from_str(text)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the interface"))
 	}
+
+	/// Convert a value that a runtime returns to an interface.
+	pub fn try_from_value(value: &tg::Value) -> tg::Result<Self> {
+		let value = json(value)?;
+		serde_json::from_value(value)
+			.map_err(|error| tg::error!(argument, !error, "the value is not an interface"))
+	}
+}
+
+impl Language {
+	/// All of the languages.
+	pub const ALL: [Self; 3] = [Self::Json, Self::Python, Self::TypeScript];
+
+	/// Get the language of an interface module's kind.
+	#[must_use]
+	pub fn for_kind(kind: tg::module::Kind) -> Option<Self> {
+		match kind {
+			tg::module::Kind::InterfaceJson => Some(Self::Json),
+			tg::module::Kind::InterfacePython => Some(Self::Python),
+			tg::module::Kind::InterfaceTypeScript => Some(Self::TypeScript),
+			_ => None,
+		}
+	}
+
+	/// Get the language of an interface file from its path.
+	#[must_use]
+	pub fn for_path(path: impl AsRef<std::path::Path>) -> Option<Self> {
+		let name = path.as_ref().file_name()?.to_str()?;
+		Self::ALL
+			.into_iter()
+			.find(|language| name.ends_with(&format!(".tgi.{}", language.extension())))
+	}
+
+	/// Get the extension that follows `.tgi` in the file names of interfaces in the language.
+	#[must_use]
+	pub fn extension(self) -> &'static str {
+		match self {
+			Self::Json => "json",
+			Self::Python => "py",
+			Self::TypeScript => "ts",
+		}
+	}
+
+	/// Get the kind of interface modules in the language.
+	#[must_use]
+	pub fn kind(self) -> tg::module::Kind {
+		match self {
+			Self::Json => tg::module::Kind::InterfaceJson,
+			Self::Python => tg::module::Kind::InterfacePython,
+			Self::TypeScript => tg::module::Kind::InterfaceTypeScript,
+		}
+	}
+}
+
+impl std::str::FromStr for Language {
+	type Err = tg::Error;
+
+	fn from_str(value: &str) -> tg::Result<Self> {
+		let language = match value {
+			"json" => Self::Json,
+			"python" => Self::Python,
+			"typescript" => Self::TypeScript,
+			_ => return Err(tg::error!(%value, "invalid interface language")),
+		};
+		Ok(language)
+	}
+}
+
+/// Convert a value to JSON, rejecting values that JSON cannot represent.
+fn json(value: &tg::Value) -> tg::Result<serde_json::Value> {
+	let value = match value {
+		tg::Value::Null => serde_json::Value::Null,
+		tg::Value::Bool(value) => serde_json::Value::Bool(*value),
+		tg::Value::Number(value) => serde_json::Number::from_f64(*value)
+			.map(serde_json::Value::Number)
+			.ok_or_else(|| tg::error!(argument, "the number is not finite"))?,
+		tg::Value::String(value) => serde_json::Value::String(value.clone()),
+		tg::Value::Array(values) => {
+			serde_json::Value::Array(values.iter().map(json).collect::<tg::Result<_>>()?)
+		},
+		tg::Value::Map(map) => serde_json::Value::Object(
+			map.iter()
+				.map(|(key, value)| Ok((key.clone(), json(value)?)))
+				.collect::<tg::Result<_>>()?,
+		),
+		_ => return Err(tg::error!(argument, "the value is not an interface")),
+	};
+	Ok(value)
 }

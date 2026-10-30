@@ -53,7 +53,8 @@ pub(crate) fn bindings_language(
 	language: Option<tg::module::load::Language>,
 ) -> tg::Result<Option<tg::module::load::Language>> {
 	match (language, module.kind) {
-		(Some(tg::module::load::Language::JavaScript), tg::module::Kind::Python)
+		(Some(_), tg::module::Kind::Json | tg::module::Kind::Toml | tg::module::Kind::Yaml)
+		| (Some(tg::module::load::Language::JavaScript), tg::module::Kind::Python)
 		| (
 			Some(tg::module::load::Language::Python),
 			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
@@ -67,7 +68,8 @@ pub(crate) fn bindings_language(
 
 /// Generate the bindings of an interface in a language, which export a command for each export of the interface.
 #[cfg(all(feature = "javascript", feature = "python"))]
-pub(crate) fn bindings(
+#[must_use]
+pub fn bindings(
 	interface: &tg::Interface,
 	text: &str,
 	language: tg::module::load::Language,

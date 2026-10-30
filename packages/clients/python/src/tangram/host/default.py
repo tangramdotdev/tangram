@@ -517,8 +517,11 @@ def magic(value: Any) -> MagicOutput:
     module = namespace.get("__tangram_module__")
     if not isinstance(module, Module) or module.kind not in (
         "javascript",
+        "json",
         "python",
+        "toml",
         "typescript",
+        "yaml",
     ):
         raise ValueError("failed to find the Tangram module for the function")
     name = function.__name__
@@ -527,7 +530,7 @@ def magic(value: Any) -> MagicOutput:
         if not names:
             raise ValueError("failed to find an export for the function")
         name = names[0]
-    if module.kind in ("javascript", "typescript"):
+    if module.kind != "python":
         name = getattr(function, "__tangram_export__", name)
     return {"module": module.to_data(), "export": name}
 

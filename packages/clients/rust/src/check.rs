@@ -13,6 +13,9 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub checks: Vec<tg::module::Data>,
+
 	pub diagnostics: Vec<tg::diagnostic::Data>,
 }
 

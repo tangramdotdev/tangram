@@ -5,6 +5,7 @@ default-members = [
   "packages/cli/packages/authorization",
   "packages/cli/packages/availability",
   "packages/cli/packages/builtin",
+  "packages/cli/packages/builtin/packages/config",
   "packages/cli/packages/builtin/packages/javascript",
   "packages/cli/packages/builtin/packages/python",
   "packages/cli/packages/bundle",
@@ -378,6 +379,7 @@ tangram_cli_archive = { path = "packages/cli/packages/archive" }
 tangram_cli_authorization = { path = "packages/cli/packages/authorization" }
 tangram_cli_availability = { path = "packages/cli/packages/availability" }
 tangram_cli_builtin = { path = "packages/cli/packages/builtin" }
+tangram_cli_builtin_config = { path = "packages/cli/packages/builtin/packages/config" }
 tangram_cli_builtin_javascript = { path = "packages/cli/packages/builtin/packages/javascript" }
 tangram_cli_builtin_python = { path = "packages/cli/packages/builtin/packages/python" }
 tangram_cli_bundle = { path = "packages/cli/packages/bundle" }

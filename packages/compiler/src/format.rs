@@ -14,6 +14,12 @@ impl Compiler {
 			| tg::module::Kind::Graph
 			| tg::module::Kind::Object
 			| tg::module::Kind::Symlink => Err(tg::error!(%kind, "cannot format the module")),
+			tg::module::Kind::InterfaceJson
+			| tg::module::Kind::InterfacePython
+			| tg::module::Kind::InterfaceTypeScript
+			| tg::module::Kind::Json
+			| tg::module::Kind::Toml
+			| tg::module::Kind::Yaml => Ok(text.to_owned()),
 			tg::module::Kind::TypeScriptDeclaration
 			| tg::module::Kind::JavaScript
 			| tg::module::Kind::TypeScript => {

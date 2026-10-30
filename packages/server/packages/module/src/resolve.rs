@@ -229,7 +229,10 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript,
 				),
@@ -295,10 +298,16 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
+					| tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript
 					| tg::module::Kind::File,
 				),
 				tg::Object::File(_),
@@ -326,10 +335,16 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
-					| tg::module::Kind::TypeScriptDeclaration,
+					| tg::module::Kind::TypeScriptDeclaration
+					| tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript,
 				),
 				_,
 			) => {
@@ -465,7 +480,10 @@ impl Component {
 				&& matches!(
 					import.kind,
 					None | Some(
-						tg::module::Kind::JavaScript
+						tg::module::Kind::Json
+							| tg::module::Kind::Toml
+							| tg::module::Kind::Yaml
+							| tg::module::Kind::JavaScript
 							| tg::module::Kind::Python
 							| tg::module::Kind::TypeScript
 					)
@@ -569,7 +587,10 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript,
 				),
@@ -635,10 +656,16 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
+					| tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript
 					| tg::module::Kind::File,
 				),
 				tg::Object::File(_),
@@ -660,10 +687,16 @@ impl Component {
 			(
 				None
 				| Some(
-					tg::module::Kind::JavaScript
+					tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
-					| tg::module::Kind::TypeScriptDeclaration,
+					| tg::module::Kind::TypeScriptDeclaration
+					| tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript,
 				),
 				_,
 			) => {

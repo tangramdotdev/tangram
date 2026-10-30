@@ -994,6 +994,11 @@ export namespace Process {
 			return this;
 		}
 
+		echo(echo: tg.Unresolved<tg.MaybeMutation<boolean> | null> = true): this {
+			this.#args.push({ echo });
+			return this;
+		}
+
 		env(...envs: Array<tg.Unresolved<E | null>>): this {
 			this.#args.push(...envs.map((env) => this.envArg(env)));
 			return this;
@@ -1201,7 +1206,7 @@ export namespace Process {
 				return await tg.Process.execUnsandboxed(output.arg);
 			}
 			if (this.#mode === "run") {
-				return run.run<O>(output.arg, output.options);
+				return run.run<O>(output.arg, output.options, arg.echo ?? false);
 			}
 			return attach.spawn<O>(output.arg, output.options, this.#connection);
 		}
@@ -1333,6 +1338,9 @@ export namespace Process {
 
 		/** Configure debugging. */
 		debug?: boolean | tg.Process.Debug | null;
+
+		/** Echo the process's logged stdout and stderr to this process's stdout and stderr while awaiting it. */
+		echo?: boolean | null;
 
 		/** The command's environment. */
 		env?: tg.Command.Arg.Env | null;
@@ -1835,6 +1843,7 @@ async function isModuleProcessBuilderArg(
 			if (node instanceof tg.Command) {
 				command = node;
 			} else if (
+				tg.Command.Arg.isConfig(node) ||
 				tg.Command.Arg.isJavaScript(node) ||
 				tg.Command.Arg.isPython(node)
 			) {
@@ -1843,7 +1852,8 @@ async function isModuleProcessBuilderArg(
 		}
 		if (
 			command !== undefined &&
-			(tg.Command.Object.isJavaScript(await command.object()) ||
+			(tg.Command.Object.isConfig(await command.object()) ||
+				tg.Command.Object.isJavaScript(await command.object()) ||
 				tg.Command.Object.isPython(await command.object()))
 		) {
 			return true;

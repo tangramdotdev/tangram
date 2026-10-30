@@ -35,6 +35,7 @@ pub mod call_hierarchy;
 pub mod check;
 pub mod code_action;
 pub mod completion;
+pub mod config;
 pub mod definition;
 pub mod diagnostics;
 pub mod document;
@@ -856,6 +857,9 @@ impl Compiler {
 	/// Get the backend for modules of a kind.
 	#[expect(clippy::unused_self)]
 	fn backend(&self, kind: tg::module::Kind) -> &'static dyn backend::Backend {
+		if kind.is_config() || kind.is_interface() {
+			return &config::Backend;
+		}
 		if kind == tg::module::Kind::Python {
 			#[cfg(feature = "ty")]
 			return &python::Backend;
@@ -1478,12 +1482,21 @@ fn bindings_language(
 	module_kind: tg::module::Kind,
 ) -> Option<(tg::module::load::Language, &'static str)> {
 	match (kind, module_kind) {
-		(tg::module::Kind::Python, tg::module::Kind::JavaScript | tg::module::Kind::TypeScript) => {
-			Some((tg::module::load::Language::Python, "py"))
-		},
-		(tg::module::Kind::JavaScript | tg::module::Kind::TypeScript, tg::module::Kind::Python) => {
-			Some((tg::module::load::Language::JavaScript, "js"))
-		},
+		(
+			tg::module::Kind::Python,
+			tg::module::Kind::Json
+			| tg::module::Kind::Toml
+			| tg::module::Kind::Yaml
+			| tg::module::Kind::JavaScript
+			| tg::module::Kind::TypeScript,
+		) => Some((tg::module::load::Language::Python, "py")),
+		(
+			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
+			tg::module::Kind::Json
+			| tg::module::Kind::Toml
+			| tg::module::Kind::Yaml
+			| tg::module::Kind::Python,
+		) => Some((tg::module::load::Language::JavaScript, "js")),
 		_ => None,
 	}
 }

@@ -1,6 +1,7 @@
 use {crate::prelude::*, std::path::Path};
 
 pub use self::{
+	config::Config,
 	data::Module as Data,
 	handle::{Location, Module as Handle, Source},
 	import::Import,
@@ -9,6 +10,7 @@ pub use self::{
 #[cfg(test)]
 mod tests;
 
+pub mod config;
 pub mod data;
 pub mod handle;
 pub mod import;
@@ -17,7 +19,14 @@ pub mod load;
 pub mod resolve;
 
 /// The possible file names for the root module in a package.
-pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.py", "tangram.ts"];
+pub const ROOT_MODULE_FILE_NAMES: &[&str] = &[
+	"tangram.js",
+	"tangram.json",
+	"tangram.py",
+	"tangram.toml",
+	"tangram.ts",
+	"tangram.yaml",
+];
 
 /// The file name of a lockfile.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
@@ -60,9 +69,22 @@ pub enum Kind {
 	#[tangram_serialize(id = 9)]
 	Graph,
 
+	#[tangram_serialize(id = 16)]
+	InterfaceJson,
+
+	#[tangram_serialize(id = 17)]
+	InterfacePython,
+
+	#[tangram_serialize(id = 18)]
+	#[display("interface_typescript")]
+	InterfaceTypeScript,
+
 	#[tangram_serialize(id = 0)]
 	#[display("javascript")]
 	JavaScript,
+
+	#[tangram_serialize(id = 13)]
+	Json,
 
 	#[tangram_serialize(id = 3)]
 	Object,
@@ -73,6 +95,9 @@ pub enum Kind {
 	#[tangram_serialize(id = 8)]
 	Symlink,
 
+	#[tangram_serialize(id = 14)]
+	Toml,
+
 	#[tangram_serialize(id = 1)]
 	#[display("typescript")]
 	TypeScript,
@@ -80,6 +105,9 @@ pub enum Kind {
 	#[tangram_serialize(id = 2)]
 	#[display("typescript_declaration")]
 	TypeScriptDeclaration,
+
+	#[tangram_serialize(id = 15)]
+	Yaml,
 }
 
 pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Kind> {
@@ -95,6 +123,10 @@ pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Ki
 		Ok(tg::module::Kind::TypeScript)
 	} else if name == "tangram.py" || name.ends_with(".tg.py") {
 		Ok(tg::module::Kind::Python)
+	} else if let Some(format) = tg::module::config::Format::for_path(path) {
+		Ok(format.kind())
+	} else if let Some(language) = tg::interface::Language::for_path(path) {
+		Ok(language.kind())
 	} else {
 		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
 	}
@@ -109,9 +141,19 @@ pub fn is_module_path(path: &Path) -> bool {
 		return false;
 	};
 	tg::module::ROOT_MODULE_FILE_NAMES.contains(&name)
-		|| name.ends_with(".tg.js")
-		|| name.ends_with(".tg.py")
-		|| name.ends_with(".tg.ts")
+		|| [
+			".tg.js",
+			".tg.json",
+			".tg.py",
+			".tg.toml",
+			".tg.ts",
+			".tg.yaml",
+			".tgi.json",
+			".tgi.py",
+			".tgi.ts",
+		]
+		.iter()
+		.any(|suffix| name.ends_with(suffix))
 }
 
 #[must_use]
@@ -189,6 +231,23 @@ pub fn try_get_root_module_file_name_sync(path: &Path) -> tg::Result<Option<&'st
 	Ok(name)
 }
 
+impl Kind {
+	/// Determine whether the kind is a kind of config module.
+	#[must_use]
+	pub fn is_config(self) -> bool {
+		matches!(self, Self::Json | Self::Toml | Self::Yaml)
+	}
+
+	/// Determine whether the kind is a kind of interface module.
+	#[must_use]
+	pub fn is_interface(self) -> bool {
+		matches!(
+			self,
+			Self::InterfaceJson | Self::InterfacePython | Self::InterfaceTypeScript
+		)
+	}
+}
+
 impl std::str::FromStr for Kind {
 	type Err = tg::Error;
 	fn from_str(value: &str) -> tg::Result<Self> {
@@ -200,12 +259,18 @@ impl std::str::FromStr for Kind {
 			"error" => Self::Error,
 			"file" => Self::File,
 			"graph" => Self::Graph,
+			"interface_json" => Self::InterfaceJson,
+			"interface_python" => Self::InterfacePython,
+			"interface_typescript" => Self::InterfaceTypeScript,
 			"javascript" => Self::JavaScript,
+			"json" => Self::Json,
 			"object" => Self::Object,
 			"python" => Self::Python,
 			"symlink" => Self::Symlink,
+			"toml" => Self::Toml,
 			"typescript" => Self::TypeScript,
 			"typescript_declaration" => Self::TypeScriptDeclaration,
+			"yaml" => Self::Yaml,
 			_ => return Err(tg::error!("invalid module kind")),
 		};
 		Ok(kind)

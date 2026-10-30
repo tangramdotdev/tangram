@@ -72,10 +72,18 @@ async def run(arg, options=None):
 
 
 async def run_resolved(builder, resolved):
+    from . import process_arg_resolved
     from .spawn import spawn_resolved
 
+    arg = await process_arg_resolved(*resolved, client=builder.client)
     process = await spawn_resolved(builder, resolved)
     async with process:
+        # Echo the logged streams while awaiting the process.
+        echoer = (
+            asyncio.ensure_future(echo_stdio(process, arg))
+            if arg.get("echo") is True
+            else None
+        )
         await process.wait()
         if getattr(process, "_forwarders", None):
             await asyncio.gather(*process._forwarders)
@@ -83,4 +91,23 @@ async def run_resolved(builder, resolved):
         if forwarder is not None:
             forwarder.cancel()
             await asyncio.gather(forwarder, return_exceptions=True)
+
+        # Finish echoing the logged streams, even if the process fails.
+        if echoer is not None:
+            await echoer
         return await process.output()
+
+
+async def echo_stdio(process, arg) -> None:
+    """Echo a process's logged stdout and stderr to this process's stdout and stderr.
+
+    The echo reads from the beginning of the process's log until it ends.
+    """
+    from .. import host
+
+    streams = [stream for stream in ("stdout", "stderr") if arg.get(stream) == "log"]
+    if not streams:
+        return
+    iterator = await process.read_stdio(streams=streams)
+    async for chunk in iterator:
+        await host.write(1 if chunk["stream"] == "stdout" else 2, chunk["bytes"])

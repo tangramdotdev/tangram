@@ -302,7 +302,13 @@ class Command[A, O: ValueType](Object):
         The command runs the builtin runtime for the module's kind, and passes each
         arg as a string with -a or as a value with -A.
         """
-        runtime = "python" if module.kind == "python" else "javascript"
+        runtime = (
+            "config"
+            if module.kind in ("json", "toml", "yaml")
+            else "python"
+            if module.kind == "python"
+            else "javascript"
+        )
         command_args: list[CommandArgument] = [
             CommandValue.string("builtin"),
             CommandValue.string(runtime),
@@ -503,6 +509,10 @@ class CommandValueDataNamespace:
 
 class CommandArg:
     @staticmethod
+    def is_config(arg):
+        return CommandArg._is_module_command(arg, ("config",))
+
+    @staticmethod
     def is_javascript(arg):
         return CommandArg._is_module_command(arg, ("javascript", "js"))
 
@@ -555,6 +565,10 @@ class CommandArg:
 
 
 class CommandObject:
+    @staticmethod
+    def is_config(object):
+        return CommandObject._is_module_command(object, ("config",))
+
     @staticmethod
     def is_javascript(object):
         return CommandObject._is_module_command(object, ("javascript", "js"))
@@ -908,7 +922,11 @@ async def is_module_command_builder_arg(args):
     for arg in args:
         if isinstance(arg, Command):
             object = await arg.object()
-            if CommandObject.is_javascript(object) or CommandObject.is_python(object):
+            if (
+                CommandObject.is_config(object)
+                or CommandObject.is_javascript(object)
+                or CommandObject.is_python(object)
+            ):
                 return True
     return False
 

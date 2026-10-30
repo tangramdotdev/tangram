@@ -51,13 +51,29 @@ impl Component {
 
 		// Check the modules.
 		let diagnostics = compiler
-			.check(arg.modules)
+			.check(arg.modules.clone())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check the modules"))?;
 
+		// Get the modules with check exports if the modules check without errors, with the interfaces that checking them prepared.
+		let checks = if diagnostics
+			.iter()
+			.any(|diagnostic| diagnostic.severity.is_error())
+		{
+			Vec::new()
+		} else {
+			compiler
+				.check_exports(&arg.modules)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the check exports"))?
+		};
+
 		// Create the output.
 		let diagnostics = diagnostics.iter().map(tg::Diagnostic::to_data).collect();
-		let output = tg::check::Output { diagnostics };
+		let output = tg::check::Output {
+			checks,
+			diagnostics,
+		};
 
 		// Stop and await the compiler.
 		compiler.stop();

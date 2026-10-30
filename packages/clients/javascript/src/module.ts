@@ -18,10 +18,16 @@ export class Module {
 
 export namespace Module {
 	export type Kind =
+		| "interface_json"
+		| "interface_python"
+		| "interface_typescript"
 		| "javascript"
+		| "json"
 		| "python"
 		| "typescript"
 		| "typescript_declaration"
+		| "toml"
+		| "yaml"
 		| "object"
 		| "artifact"
 		| "blob"

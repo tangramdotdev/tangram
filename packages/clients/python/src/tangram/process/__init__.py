@@ -142,6 +142,7 @@ class ArgObject(CommandArgObject, total=False):
     ]
     cpu: FieldInput[int | float | dict[str, int]]
     debug: Unresolved[bool | DebugObject | Mutation | None]
+    echo: FieldInput[bool]
     location: Unresolved[LocationArgObject | Mutation | None]
     memory: FieldInput[int | float]
     mounts: Unresolved[list[Unresolved[MountValue]] | Mutation | None]
@@ -924,6 +925,9 @@ class Builder[M: Mode, O: ValueType]:
     ) -> Self:
         return self.with_options(cpu=value)
 
+    def echo(self, value: Unresolved[bool | Mutation | None] = True) -> Self:
+        return self.with_options(echo=value)
+
     def memory(self, value: Unresolved[int | float | Mutation | None]) -> Self:
         return self.with_options(memory=value)
 
@@ -1041,11 +1045,19 @@ async def is_module_process_builder_arg(args, client):
         if isinstance(command, dict) and "node" in command:
             command = command["node"]
         if isinstance(command, dict):
-            if Command.Arg.is_javascript(command) or Command.Arg.is_python(command):
+            if (
+                Command.Arg.is_config(command)
+                or Command.Arg.is_javascript(command)
+                or Command.Arg.is_python(command)
+            ):
                 return True
         if isinstance(command, Command):
             object = await command.load(client)
-            if CommandObject.is_javascript(object) or CommandObject.is_python(object):
+            if (
+                CommandObject.is_config(object)
+                or CommandObject.is_javascript(object)
+                or CommandObject.is_python(object)
+            ):
                 return True
     return False
 

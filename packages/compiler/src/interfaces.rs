@@ -48,6 +48,14 @@ struct Loaded {
 	unprepared: bool,
 }
 
+/// The group of modules that one checker checks, or the config modules, whose runtimes check them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Group {
+	Config,
+	JavaScript,
+	Python,
+}
+
 #[derive(Clone)]
 struct Node {
 	imports: Vec<tg::module::Data>,
@@ -81,10 +89,29 @@ impl Compiler {
 			.try_get_interface(module)
 			.ok_or_else(|| tg::error!("failed to get the interface of the module"))?;
 
-		// Remove the tokens of the imports, which belong to this compiler's session.
+		// Remove the tokens of the imports, which belong to this compiler's session, and make the paths of imported modules relative to the module, so that the interface does not depend on where the module is.
 		let mut interface = entry.interface.clone();
-		for module in interface.imports.values_mut() {
-			*module = module.without_token();
+		let directory = local_path(module).and_then(|path| path.parent().map(ToOwned::to_owned));
+		for import in interface.imports.values_mut() {
+			*import = import.without_token();
+			let Some(directory) = &directory else {
+				continue;
+			};
+			let Some(path) = local_path(import) else {
+				continue;
+			};
+			let Ok(Some(relative)) = tangram_util::path::diff(directory, &path) else {
+				continue;
+			};
+			let relative = if relative.starts_with("..") {
+				relative
+			} else {
+				std::path::Path::new(".").join(relative)
+			};
+			match &mut import.referent.node {
+				tg::module::data::Source::Edge(_) => import.referent.options.path = Some(relative),
+				tg::module::data::Source::Path(path) => *path = relative,
+			}
 		}
 
 		Ok(interface)
@@ -209,7 +236,7 @@ impl Compiler {
 				.drain(..)
 				.filter(|module| {
 					let key = key(module);
-					language(module.kind).is_some() && !nodes.contains_key(&key) && keys.insert(key)
+					group(module.kind).is_some() && !nodes.contains_key(&key) && keys.insert(key)
 				})
 				.collect::<Vec<_>>();
 			let output =
@@ -356,6 +383,11 @@ impl Compiler {
 
 	/// Get the modules that a module imports.
 	async fn module_imports(&self, module: &tg::module::Data) -> tg::Result<Vec<tg::module::Data>> {
+		// Get the interface modules of a config, which are the only modules that its interface depends on.
+		if module.kind.is_config() {
+			return self.config_interface_modules(module).await;
+		}
+
 		// Get the imports from the dependencies of a checked-in Python module, or otherwise from the module's source.
 		let imports = if module.kind == tg::module::Kind::Python
 			&& let tg::module::data::Source::Edge(_) = &module.referent.node
@@ -384,7 +416,7 @@ impl Compiler {
 		.await
 		.into_iter()
 		.filter_map(Result::ok)
-		.filter(|module| language(module.kind).is_some())
+		.filter(|module| group(module.kind).is_some())
 		.collect();
 
 		Ok(modules)
@@ -400,15 +432,30 @@ impl Interfaces {
 	}
 }
 
-/// Get the language of a module's checker.
-fn language(kind: tg::module::Kind) -> Option<tg::module::load::Language> {
+/// Get the group of a module's checker.
+fn group(kind: tg::module::Kind) -> Option<Group> {
 	match kind {
+		tg::module::Kind::InterfaceJson
+		| tg::module::Kind::InterfacePython
+		| tg::module::Kind::InterfaceTypeScript
+		| tg::module::Kind::Json
+		| tg::module::Kind::Toml
+		| tg::module::Kind::Yaml => Some(Group::Config),
 		tg::module::Kind::JavaScript
 		| tg::module::Kind::TypeScript
-		| tg::module::Kind::TypeScriptDeclaration => Some(tg::module::load::Language::JavaScript),
-		tg::module::Kind::Python => Some(tg::module::load::Language::Python),
+		| tg::module::Kind::TypeScriptDeclaration => Some(Group::JavaScript),
+		tg::module::Kind::Python => Some(Group::Python),
 		_ => None,
 	}
+}
+
+/// Get the absolute path of a module on disk, from its source or from the path of a checked-in module.
+fn local_path(module: &tg::module::Data) -> Option<std::path::PathBuf> {
+	let path = match &module.referent.node {
+		tg::module::data::Source::Edge(_) => module.referent.path()?,
+		tg::module::data::Source::Path(path) => path.as_path(),
+	};
+	path.is_absolute().then(|| path.to_owned())
 }
 
 fn key(module: &tg::module::Data) -> Key {
@@ -425,13 +472,17 @@ fn cross_language_imports(nodes: &BTreeMap<Key, Node>) -> BTreeMap<Key, BTreeSet
 		.collect::<BTreeMap<_, _>>();
 	let mut direct = BTreeMap::<&Key, BTreeSet<Key>>::new();
 	for (key, node) in nodes {
-		let language = language(node.module.kind);
+		// Skip the imports of a config module, whose runtime gets its interface without a checker loading the modules that it imports.
+		let group = group(node.module.kind);
+		if group == Some(Group::Config) {
+			continue;
+		}
 		for module in &node.imports {
 			let import = self::key(module);
 			let Some(&index) = indices.get(&import) else {
 				continue;
 			};
-			if self::language(module.kind) == language {
+			if self::group(module.kind) == group {
 				graph.add_edge(indices[key], index, ());
 			} else {
 				direct.entry(key).or_default().insert(import);

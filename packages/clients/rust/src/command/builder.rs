@@ -66,6 +66,7 @@ impl Builder {
 		args: impl IntoIterator<Item = tg::command::Value>,
 	) -> Self {
 		let runtime = match module.kind {
+			tg::module::Kind::Json | tg::module::Kind::Toml | tg::module::Kind::Yaml => "config",
 			tg::module::Kind::Python => "python",
 			_ => "javascript",
 		};

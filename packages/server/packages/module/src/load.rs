@@ -43,7 +43,10 @@ impl Component {
 		if arg.language == Some(tg::module::load::Language::Python)
 			&& !matches!(
 				arg.module.kind,
-				tg::module::Kind::JavaScript
+				tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
 					| tg::module::Kind::Python
@@ -53,6 +56,30 @@ impl Component {
 				text,
 				tokens: tg::authorization::Tokens::default(),
 			});
+		}
+
+		// Generate the bindings of a config module from its interface file, without resolving the interface's imports, which the bindings use only for types.
+		#[cfg(all(feature = "javascript", feature = "python"))]
+		if arg.module.kind.is_config()
+			&& let Some(language) = arg.language
+		{
+			let mut output = self.load_module_inner(session, &arg.module).await?;
+			let module = tangram_compiler::config::try_get_interface_module(
+				session,
+				&arg.module,
+				&output.text,
+			)
+			.await?;
+			let interface = if let Some(module) = module {
+				let text = self.load_module_inner(session, &module).await?.text;
+				let language = tg::interface::Language::for_kind(module.kind)
+					.ok_or_else(|| tg::error!("expected an interface module"))?;
+				tg::interface::parse::parse(&text, language)?
+			} else {
+				tg::Interface::default()
+			};
+			output.text = tangram_compiler::load::bindings(&interface, &output.text, language);
+			return Ok(output);
 		}
 
 		let mut output = self.load_module_inner(session, &arg.module).await?;
@@ -85,10 +112,16 @@ impl Component {
 				})
 			},
 
-			// Handle a JavaScript, Python, or TypeScript module from a path.
+			// Handle a text module from a path.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::JavaScript
+					tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript
+					| tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::Python,
 				referent:
@@ -108,10 +141,16 @@ impl Component {
 				})
 			},
 
-			// Handle a JavaScript, Python, or TypeScript module from an object.
+			// Handle a text module from an object.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::JavaScript
+					tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript
+					| tg::module::Kind::Json
+					| tg::module::Kind::Toml
+					| tg::module::Kind::Yaml
+					| tg::module::Kind::JavaScript
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::Python,
 				referent:
