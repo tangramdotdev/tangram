@@ -43,6 +43,10 @@ pub struct Options {
 	#[arg(id = "run.detach", long = "detach", short = 'd')]
 	pub detach: bool,
 
+	/// Echo the process's logged stdout and stderr to stdout and stderr while waiting for the process to finish.
+	#[arg(conflicts_with = "run.detach", id = "run.echo", long = "echo")]
+	pub echo: bool,
+
 	#[command(flatten)]
 	pub print: tangram_cli_core::print::Options,
 
@@ -141,6 +145,30 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 			},
 		}
 	}
+
+	// Get the logged streams to echo, which a view cannot display alongside.
+	let echo = if options.echo {
+		if matches!(options.view, Some(View::Fullscreen | View::Inline)) {
+			return Err(tg::error!("cannot echo the process's stdio with a view"));
+		}
+		[
+			(
+				tg::process::stdio::Stream::Stdout,
+				options.spawn.stdout.as_ref(),
+			),
+			(
+				tg::process::stdio::Stream::Stderr,
+				options.spawn.stderr.as_ref(),
+			),
+		]
+		.into_iter()
+		.filter_map(|(stream, stdio)| {
+			matches!(stdio, Some(tg::process::Stdio::Log)).then_some(stream)
+		})
+		.collect()
+	} else {
+		Vec::new()
+	};
 
 	// Determine the connection mode.
 	let mode = if options.detach {
@@ -244,6 +272,13 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 		view_ready_receiver.await.ok();
 	}
 
+	// Echo the logged streams while awaiting the process.
+	let echo_task = (!echo.is_empty()).then(|| {
+		let client = client.clone();
+		let process = process.node().clone();
+		tokio::spawn(async move { process.echo_with_instance(&client, echo).await })
+	});
+
 	// Await the process or a request to exit from the viewer.
 	let mut wait_future = Box::pin(
 		process
@@ -284,6 +319,14 @@ pub(crate) async fn run_inner(cli: &mut Cli, args: Args) -> tg::Result<tg::Value
 	// Stop and await the view task before handling a wait error, so that the viewer cannot keep the CLI running.
 	if let Some(view_task) = view_task {
 		stop_view_task(view_task).await;
+	}
+
+	// Finish echoing the logged streams, which end when the process finishes, before handling the outcome.
+	if let Some(echo_task) = echo_task {
+		echo_task
+			.await
+			.map_err(|error| tg::error!(!error, "the echo task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to echo the process stdio"))?;
 	}
 	let outcome = outcome?;
 

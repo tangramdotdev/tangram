@@ -9391,6 +9391,7 @@ name = "tangram_cli_check"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "futures",
  "tangram_cli_core",
  "tangram_cli_reference",
  "tangram_client",

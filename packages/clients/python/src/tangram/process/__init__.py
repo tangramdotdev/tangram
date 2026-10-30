@@ -142,6 +142,7 @@ class ArgObject(CommandArgObject, total=False):
     ]
     cpu: FieldInput[int | float | dict[str, int]]
     debug: Unresolved[bool | DebugObject | Mutation | None]
+    echo: FieldInput[bool]
     location: Unresolved[LocationArgObject | Mutation | None]
     memory: FieldInput[int | float]
     mounts: Unresolved[list[Unresolved[MountValue]] | Mutation | None]
@@ -923,6 +924,9 @@ class Builder[M: Mode, O: ValueType]:
         self, value: Unresolved[int | float | dict[str, int] | Mutation | None]
     ) -> Self:
         return self.with_options(cpu=value)
+
+    def echo(self, value: Unresolved[bool | Mutation | None] = True) -> Self:
+        return self.with_options(echo=value)
 
     def memory(self, value: Unresolved[int | float | Mutation | None]) -> Self:
         return self.with_options(memory=value)

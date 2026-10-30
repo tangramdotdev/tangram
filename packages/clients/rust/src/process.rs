@@ -38,6 +38,7 @@ pub mod children;
 pub mod control;
 pub mod data;
 pub mod debug;
+pub mod echo;
 pub mod env;
 pub mod exec;
 pub mod get;
@@ -74,6 +75,7 @@ pub struct Arg {
 	pub cpu: Option<tg::sandbox::Cpu>,
 	pub cwd: Option<PathBuf>,
 	pub debug: Option<tg::Either<bool, tg::process::Debug>>,
+	pub echo: bool,
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,

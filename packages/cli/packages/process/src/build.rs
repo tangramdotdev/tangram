@@ -71,7 +71,7 @@ pub async fn build(cli: &mut Cli, mut args: Args) -> tg::Result<tg::Value> {
 		return Err(tg::error!("a build must be cacheable"));
 	}
 
-	if args.options.view.is_none() {
+	if args.options.view.is_none() && !args.options.echo {
 		args.options.view = Some(crate::run::View::Inline);
 	}
 

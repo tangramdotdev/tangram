@@ -34,6 +34,23 @@ let output = tg check ($path | path join env.tg.json) | complete
 failure $output
 assert ($output.stderr | str contains 'the runtime check failed') $output.stderr
 
+# Checking echoes the stdio of the check export.
+let path = artifact {
+	env.tg.json: '{ "runtime": "./runtime", "args": ["fail"] }'
+	runtime: {
+		config.tgi.ts: $interface
+		tangram.ts: '
+			export default async () => {
+				console.error("the check found a problem");
+				throw new Error("the runtime check failed");
+			};
+		'
+	}
+}
+let output = tg check ($path | path join env.tg.json) | complete
+failure $output
+assert ($output.stderr | str contains 'the check found a problem') $output.stderr
+
 # The check of a package's root config receives the package.
 let path = artifact {
 	tangram.json: '{ "runtime": "./runtime", "args": ["package"] }'
