@@ -428,21 +428,27 @@ impl Index {
 					kind: kind.clone(),
 				}),
 			);
-			let result = txn.get(&key, false).await;
-			let value = crate::retry!(result);
+
+			// Read the update and the propagated version.
+			let (value, propagated_version) = futures::join!(txn.get(&key, false), async {
+				match &kind {
+					Kind::Permission(_) | Kind::StorageAndMetadata => {
+						Self::try_get_update_propagated_version(txn, subspace, &id, &kind).await
+					},
+					Kind::Usage(_) => Ok(ControlFlow::Break(None)),
+				}
+			});
+			let value = crate::retry!(value);
+			let propagated_version = crate::propagate!(propagated_version);
 
 			// A consumed payload does not imply that every queued version has propagated.
 			let value = if let Some(value) = value {
 				value.to_vec()
 			} else {
 				let key = match &kind {
-					Kind::Permission(_) | Kind::StorageAndMetadata => {
-						Some(Key::PropagatedVersion {
-							id: id.clone(),
-							kind: kind.clone(),
-						})
-					},
-					Kind::Usage(UsageKind::Clean(_) | UsageKind::CleanAll) => None,
+					Kind::Permission(_)
+					| Kind::StorageAndMetadata
+					| Kind::Usage(UsageKind::Clean(_) | UsageKind::CleanAll) => None,
 					Kind::Usage(UsageKind::Propagate { account, .. }) => {
 						Some(Key::UsageUpdatePropagatedVersion {
 							account: account.clone(),
@@ -459,7 +465,7 @@ impl Index {
 				let propagated_version = if let Some(key) = key {
 					crate::propagate!(Self::try_get_propagation_version(txn, subspace, &key).await)
 				} else {
-					None
+					propagated_version.clone()
 				};
 				if propagated_version.is_none_or(|propagated_version| version >= propagated_version)
 				{
@@ -636,9 +642,6 @@ impl Index {
 			};
 
 			if let Some(source) = source {
-				let propagated_version = crate::propagate!(
-					Self::try_get_update_propagated_version(txn, subspace, &id, &kind).await
-				);
 				let propagate = source == Source::Put
 					|| changed || propagated_version
 					.as_ref()
@@ -839,13 +842,24 @@ impl Index {
 				process: process.clone(),
 			},
 		};
-		let result = txn
-			.get(&Self::pack(subspace, &crate::Key::Usage(key)), false)
-			.await;
-		let Some(value) = crate::retry!(result) else {
+
+		// Read the entry and the page of relationships.
+		let key = Self::pack(subspace, &crate::Key::Usage(key));
+		let (value, page) = futures::join!(
+			txn.get(&key, false),
+			Self::get_storage_relationships_page(
+				txn,
+				subspace,
+				id,
+				cursor,
+				storage_relation_batch_size,
+			),
+		);
+		let Some(value) = crate::retry!(value) else {
 			return Ok(ControlFlow::Break(None));
 		};
 		let entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
+		let (relationships, next_cursor) = crate::propagate!(page);
 
 		// Resolve the put version once a versionstamped insertion starts propagating.
 		if cursor.is_none() {
@@ -853,16 +867,7 @@ impl Index {
 				Self::lower_usage_update_put_version(txn, subspace, id, account, version).await
 			);
 		}
-		let (relationships, cursor) = crate::propagate!(
-			Self::get_storage_relationships_page(
-				txn,
-				subspace,
-				id,
-				cursor,
-				storage_relation_batch_size,
-			)
-			.await
-		);
+		let cursor = next_cursor;
 		for relationship in relationships {
 			let (id, permissions) = match relationship {
 				UsageRelationship::Object(object, kind) => {
@@ -1454,16 +1459,11 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		// Read the object and its children.
 		let key = crate::Key::Object(crate::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let result = txn.get(&key, false).await;
-		let bytes = crate::retry!(result);
-		let Some(bytes) = bytes else {
-			return Ok(ControlFlow::Break(false));
-		};
-		let mut object = tangram_index::object::Object::deserialize(&bytes)?;
-
-		let children = crate::propagate!(
+		let (bytes, children) = futures::join!(
+			txn.get(&key, false),
 			crate::page::collect(|after| async move {
 				Self::get_object_children_page_with_transaction(
 					txn,
@@ -1473,9 +1473,14 @@ impl Index {
 					crate::page::PAGE_SIZE,
 				)
 				.await
-			})
-			.await
+			}),
 		);
+		let bytes = crate::retry!(bytes);
+		let Some(bytes) = bytes else {
+			return Ok(ControlFlow::Break(false));
+		};
+		let mut object = tangram_index::object::Object::deserialize(&bytes)?;
+		let children = crate::propagate!(children);
 
 		let child_objects = {
 			let result = future::try_join_all(
@@ -1611,12 +1616,45 @@ impl Index {
 		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		// Read the object, the subject's permission entries, and the delegations to the subject with their source permission entries.
 		let resource = tg::Id::from(id.clone());
-		let (object, entries) = futures::try_join!(
+		let prefix = Self::pack(
+			subspace,
+			&(
+				crate::Kind::Delegation.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+				subject.to_string(),
+			),
+		);
+		let delegations_future = async {
+			let delegations = crate::propagate!(
+				Self::get_delegations_with_prefix(txn, subspace, &prefix, usize::MAX).await
+			);
+			let results = future::try_join_all(delegations.iter().map(|delegation| {
+				Self::get_resource_permission_entries_for_subject_with_transaction(
+					txn,
+					subspace,
+					&resource,
+					&delegation.source,
+				)
+			}))
+			.await?;
+			let mut output = Vec::with_capacity(delegations.len());
+			for (delegation, result) in delegations.into_iter().zip(results) {
+				let source_entries = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				output.push((delegation, source_entries));
+			}
+			Ok(ControlFlow::Break(output))
+		};
+		let (object, entries, delegations) = futures::try_join!(
 			Self::try_get_object_with_transaction(txn, subspace, id),
 			Self::get_resource_permission_entries_for_subject_with_transaction(
 				txn, subspace, &resource, subject,
 			),
+			delegations_future,
 		)?;
 		let indexed = match object {
 			ControlFlow::Break(value) => value.is_some(),
@@ -1626,6 +1664,12 @@ impl Index {
 			ControlFlow::Break(value) => value,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
+		let delegations = match delegations {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+
+		// Derive the expected permissions from the delegations.
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
@@ -1633,27 +1677,7 @@ impl Index {
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 		let mut expected = BTreeSet::new();
-		let prefix = Self::pack(
-			subspace,
-			&(
-				crate::Kind::Delegation.to_i32().unwrap(),
-				id.to_bytes().as_ref(),
-				subject.to_string(),
-			),
-		);
-		let delegations = crate::propagate!(
-			Self::get_delegations_with_prefix(txn, subspace, &prefix, usize::MAX).await
-		);
-		for delegation in delegations {
-			let source_entries = crate::propagate!(
-				Self::get_resource_permission_entries_for_subject_with_transaction(
-					txn,
-					subspace,
-					&resource,
-					&delegation.source
-				)
-				.await
-			);
+		for (delegation, source_entries) in delegations {
 			for permission in [node, subtree] {
 				let Some(cover) = Self::permission_entries_cover_expires_at(
 					&source_entries,
@@ -1875,25 +1899,28 @@ impl Index {
 		object: &tg::object::Id,
 		process: &tg::process::Id,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
-		for kind in [
+		let keys = [
 			tangram_index::process::object::Kind::Command,
 			tangram_index::process::object::Kind::Error,
 			tangram_index::process::object::Kind::Log,
 			tangram_index::process::object::Kind::Output,
-		] {
+		]
+		.map(|kind| {
 			let key = crate::Key::Object(crate::object::Key::ObjectProcess {
 				object: object.clone(),
 				kind,
 				process: process.clone(),
 			});
-			let key = Self::pack(subspace, &key);
-			let result = txn.get(&key, false).await;
+			Self::pack(subspace, &key)
+		});
+		let results = future::join_all(keys.iter().map(|key| txn.get(key, false))).await;
+		let mut output = false;
+		for result in results {
 			let value = crate::retry!(result);
-			if value.is_some() {
-				return Ok(ControlFlow::Break(true));
-			}
+			output |= value.is_some();
 		}
-		Ok(ControlFlow::Break(false))
+
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn reconcile_materialized_permissions(
@@ -2047,24 +2074,22 @@ impl Index {
 		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
-		// Get the process.
+		// Get the process and the subject's permission entries, which every materialized permission requires.
 		let key = crate::Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let result = txn.get(&key, false).await;
-		let bytes = crate::retry!(result);
+		let resource = tg::Id::from(id.clone());
+		let (bytes, entries) = futures::join!(
+			txn.get(&key, false),
+			Self::get_resource_permission_entries_for_subject_with_transaction(
+				txn, subspace, &resource, subject,
+			),
+		);
+		let bytes = crate::retry!(bytes);
 		let Some(bytes) = bytes else {
 			return Ok(ControlFlow::Break(false));
 		};
 		let process = tangram_index::process::Process::deserialize(&bytes)?;
-
-		// Get the subject's permission entries, which every materialized permission requires.
-		let resource = tg::Id::from(id.clone());
-		let entries = crate::propagate!(
-			Self::get_resource_permission_entries_for_subject_with_transaction(
-				txn, subspace, &resource, subject,
-			)
-			.await
-		);
+		let entries = crate::propagate!(entries);
 		if entries.is_empty() {
 			return Ok(ControlFlow::Break(false));
 		}
@@ -2102,35 +2127,40 @@ impl Index {
 		}
 
 		// Get the object covers of the object aspects, reading the objects of each kind only while every object read so far is covered.
+		let results = future::try_join_all(aspects.iter().map(|(kind, _)| {
+			let kind = *kind;
+			Self::get_resources_covers_with_transaction(
+				txn,
+				subspace,
+				move |after: Option<Vec<u8>>| async move {
+					let (objects, cursor) = crate::propagate!(
+						Self::get_process_objects_page_with_transaction(
+							txn,
+							subspace,
+							id,
+							Some(kind),
+							after.as_deref(),
+							crate::page::PAGE_SIZE,
+						)
+						.await
+					);
+					let objects = objects
+						.into_iter()
+						.map(|(object, _)| tg::Id::from(object))
+						.collect();
+					Ok::<_, tg::Error>(ControlFlow::Break((objects, cursor)))
+				},
+				subject,
+				[object_subtree],
+			)
+		}))
+		.await?;
 		let mut object_covers = BTreeMap::new();
-		for (kind, permission) in aspects {
-			let (mut covers, any) = crate::propagate!(
-				Self::get_resources_covers_with_transaction(
-					txn,
-					subspace,
-					|after: Option<Vec<u8>>| async move {
-						let (objects, cursor) = crate::propagate!(
-							Self::get_process_objects_page_with_transaction(
-								txn,
-								subspace,
-								id,
-								Some(kind),
-								after.as_deref(),
-								crate::page::PAGE_SIZE,
-							)
-							.await
-						);
-						let objects = objects
-							.into_iter()
-							.map(|(object, _)| tg::Id::from(object))
-							.collect();
-						Ok::<_, tg::Error>(ControlFlow::Break((objects, cursor)))
-					},
-					subject,
-					[object_subtree],
-				)
-				.await
-			);
+		for ((_, permission), result) in aspects.into_iter().zip(results) {
+			let (mut covers, any) = match result {
+				ControlFlow::Break(value) => value,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			if any && let Some(cover) = covers.remove(&object_subtree) {
 				object_covers.insert(permission, cover);
 			}
@@ -2372,19 +2402,9 @@ impl Index {
 		id: &tg::process::Id,
 		max_process_depth: Option<u64>,
 	) -> tg::Result<ControlFlow<ProcessOutput, fdb::FdbError>> {
+		// Read the process, its children, and its objects.
 		let process_key = crate::Key::Process(crate::process::Key::Process(id.clone()));
 		let process_key = Self::pack(subspace, &process_key);
-		let result = txn.get(&process_key, false).await;
-		let bytes = crate::retry!(result);
-		let Some(bytes) = bytes else {
-			let output = ProcessOutput {
-				changed: false,
-				depth_exceeded: false,
-			};
-			return Ok(ControlFlow::Break(output));
-		};
-		let mut process = tangram_index::process::Process::deserialize(&bytes)?;
-
 		let children_future = async {
 			let children = crate::propagate!(
 				crate::page::collect(|after| async move {
@@ -2438,14 +2458,19 @@ impl Index {
 				})
 				.await
 			);
+			let results = future::try_join_all(objects.iter().map(|(object_id, _)| {
+				Self::try_get_object_with_transaction(txn, subspace, object_id)
+			}))
+			.await?;
 			let mut command_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
 			let mut error_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
 			let mut log_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
 			let mut output_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
-			for (object_id, kind) in &objects {
-				let object = crate::propagate!(
-					Self::try_get_object_with_transaction(txn, subspace, object_id).await
-				);
+			for ((_, kind), result) in objects.iter().zip(results) {
+				let object = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
 				match kind {
 					tangram_index::process::object::Kind::Command => {
 						command_objects.push(object);
@@ -2469,15 +2494,22 @@ impl Index {
 				output_objects,
 			)))
 		};
-		let (children, objects) = futures::try_join!(children_future, objects_future)?;
-		let children = match children {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		let (bytes, children, objects) = futures::join!(
+			txn.get(&process_key, false),
+			children_future,
+			objects_future,
+		);
+		let bytes = crate::retry!(bytes);
+		let Some(bytes) = bytes else {
+			let output = ProcessOutput {
+				changed: false,
+				depth_exceeded: false,
+			};
+			return Ok(ControlFlow::Break(output));
 		};
-		let objects = match objects {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
+		let mut process = tangram_index::process::Process::deserialize(&bytes)?;
+		let children = crate::propagate!(children);
+		let objects = crate::propagate!(objects);
 		let (command_objects, error_objects, log_objects, output_objects) = objects;
 
 		let mut changed = false;
@@ -3412,37 +3444,58 @@ impl Index {
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		match id {
-			tg::Either::Left(id) => {
-				if let Kind::Permission(source) = kind {
-					let prefix = Self::pack(
-						subspace,
-						&(
-							crate::Kind::DelegationSource.to_i32().unwrap(),
-							id.to_bytes().as_ref(),
-							source.to_string(),
-						),
-					);
-					let delegations = crate::propagate!(
-						Self::get_delegations_with_prefix(txn, subspace, &prefix, usize::MAX).await
-					);
-					for delegation in delegations {
-						crate::propagate!(
-							Self::enqueue_update_propagate(
-								txn,
-								subspace,
-								&tg::Either::Left(id.clone()),
-								&Kind::Permission(delegation.subject),
-								version,
-								partition_total
-							)
-							.await
-						);
-					}
-				}
+		// Read the items to propagate to.
+		let items = match id {
+			tg::Either::Left(id) => crate::propagate!(
+				Self::get_object_propagation_items_with_transaction(txn, subspace, id, kind).await
+			),
+			tg::Either::Right(id) => crate::propagate!(
+				Self::get_process_propagation_items_with_transaction(txn, subspace, id, kind).await
+			),
+		};
 
-				let parents = match kind {
-					Kind::Permission(subject) => crate::propagate!(
+		// Enqueue a propagation for every item.
+		let result = future::try_join_all(items.iter().map(|(id, kind)| {
+			Self::enqueue_update_propagate(txn, subspace, id, kind, version, partition_total)
+		}))
+		.await;
+		for result in result? {
+			match result {
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+		}
+
+		Ok(ControlFlow::Break(()))
+	}
+
+	async fn get_object_propagation_items_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::object::Id,
+		kind: &Kind,
+	) -> tg::Result<
+		ControlFlow<Vec<(tg::Either<tg::object::Id, tg::process::Id>, Kind)>, fdb::FdbError>,
+	> {
+		// Read the delegations, the parents, and the processes.
+		let delegations_future = async {
+			let Kind::Permission(source) = kind else {
+				return Ok(ControlFlow::Break(Vec::new()));
+			};
+			let prefix = Self::pack(
+				subspace,
+				&(
+					crate::Kind::DelegationSource.to_i32().unwrap(),
+					id.to_bytes().as_ref(),
+					source.to_string(),
+				),
+			);
+			Self::get_delegations_with_prefix(txn, subspace, &prefix, usize::MAX).await
+		};
+		let parents_future = async {
+			match kind {
+				Kind::Permission(subject) => {
+					let resources = crate::propagate!(
 						Self::get_related_resources_for_subject_with_transaction(
 							txn,
 							subspace,
@@ -3450,116 +3503,50 @@ impl Index {
 							subject,
 						)
 						.await
-					)
-					.into_iter()
-					.map(tg::object::Id::try_from)
-					.collect::<tg::Result<Vec<_>>>()?,
-					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
-						crate::page::collect(|after| async move {
-							Self::get_object_parents_page_with_transaction(
-								txn,
-								subspace,
-								id,
-								after.as_deref(),
-								crate::page::PAGE_SIZE,
-							)
-							.await
-						})
-						.await
-					),
-				};
-				for parent in parents {
-					crate::propagate!(
-						Self::enqueue_update_propagate(
+					);
+					let parents = resources
+						.into_iter()
+						.map(tg::object::Id::try_from)
+						.collect::<tg::Result<Vec<_>>>()?;
+					Ok(ControlFlow::Break(parents))
+				},
+				Kind::StorageAndMetadata | Kind::Usage(_) => {
+					crate::page::collect(|after| async move {
+						Self::get_object_parents_page_with_transaction(
 							txn,
 							subspace,
-							&tg::Either::Left(parent),
-							kind,
-							version,
-							partition_total,
+							id,
+							after.as_deref(),
+							crate::page::PAGE_SIZE,
 						)
 						.await
-					);
-				}
-				match kind {
-					Kind::Permission(subject) => {
-						let processes = crate::propagate!(
-							Self::get_related_resources_for_subject_with_transaction(
-								txn,
-								subspace,
-								Relation::ObjectProcesses(id),
-								subject,
-							)
-							.await
-						)
-						.into_iter()
-						.map(tg::process::Id::try_from)
-						.collect::<tg::Result<Vec<_>>>()?;
-						for process in processes {
-							crate::propagate!(
-								Self::enqueue_update_propagate(
-									txn,
-									subspace,
-									&tg::Either::Right(process),
-									kind,
-									version,
-									partition_total,
-								)
-								.await
-							);
-						}
-					},
-					Kind::StorageAndMetadata | Kind::Usage(_) => {
-						let mut after = None;
-						loop {
-							let (processes, cursor) = crate::propagate!(
-								Self::get_object_processes_page_with_transaction(
-									txn,
-									subspace,
-									id,
-									after.as_deref(),
-									crate::page::PAGE_SIZE,
-								)
-								.await
-							);
-							for (process, _) in processes {
-								crate::propagate!(
-									Self::enqueue_update_propagate(
-										txn,
-										subspace,
-										&tg::Either::Right(process),
-										kind,
-										version,
-										partition_total,
-									)
-									.await
-								);
-							}
-							let Some(cursor) = cursor else {
-								break;
-							};
-							after = Some(cursor);
-						}
-					},
-				}
-			},
-			tg::Either::Right(id) => {
-				let parents = match kind {
-					Kind::Permission(subject) => crate::propagate!(
+					})
+					.await
+				},
+			}
+		};
+		let processes_future = async {
+			match kind {
+				Kind::Permission(subject) => {
+					let resources = crate::propagate!(
 						Self::get_related_resources_for_subject_with_transaction(
 							txn,
 							subspace,
-							Relation::ProcessParents(id),
+							Relation::ObjectProcesses(id),
 							subject,
 						)
 						.await
-					)
-					.into_iter()
-					.map(tg::process::Id::try_from)
-					.collect::<tg::Result<Vec<_>>>()?,
-					Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+					);
+					let processes = resources
+						.into_iter()
+						.map(tg::process::Id::try_from)
+						.collect::<tg::Result<Vec<_>>>()?;
+					Ok(ControlFlow::Break(processes))
+				},
+				Kind::StorageAndMetadata | Kind::Usage(_) => {
+					let processes = crate::propagate!(
 						crate::page::collect(|after| async move {
-							Self::get_process_parents_page_with_transaction(
+							Self::get_object_processes_page_with_transaction(
 								txn,
 								subspace,
 								id,
@@ -3569,24 +3556,95 @@ impl Index {
 							.await
 						})
 						.await
-					),
-				};
-				for parent in parents {
-					crate::propagate!(
-						Self::enqueue_update_propagate(
-							txn,
-							subspace,
-							&tg::Either::Right(parent),
-							kind,
-							version,
-							partition_total,
-						)
-						.await
 					);
-				}
-			},
-		}
-		Ok(ControlFlow::Break(()))
+					let processes = processes
+						.into_iter()
+						.map(|(process, _)| process)
+						.collect::<Vec<_>>();
+					Ok(ControlFlow::Break(processes))
+				},
+			}
+		};
+		let (delegations, parents, processes) =
+			futures::try_join!(delegations_future, parents_future, processes_future)?;
+		let delegations = match delegations {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let parents = match parents {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let processes = match processes {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+
+		// Collect the items.
+		let items = delegations
+			.into_iter()
+			.map(|delegation| {
+				(
+					tg::Either::Left(id.clone()),
+					Kind::Permission(delegation.subject),
+				)
+			})
+			.chain(
+				parents
+					.into_iter()
+					.map(|parent| (tg::Either::Left(parent), kind.clone())),
+			)
+			.chain(
+				processes
+					.into_iter()
+					.map(|process| (tg::Either::Right(process), kind.clone())),
+			)
+			.collect::<Vec<_>>();
+
+		Ok(ControlFlow::Break(items))
+	}
+
+	async fn get_process_propagation_items_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::process::Id,
+		kind: &Kind,
+	) -> tg::Result<
+		ControlFlow<Vec<(tg::Either<tg::object::Id, tg::process::Id>, Kind)>, fdb::FdbError>,
+	> {
+		let parents = match kind {
+			Kind::Permission(subject) => crate::propagate!(
+				Self::get_related_resources_for_subject_with_transaction(
+					txn,
+					subspace,
+					Relation::ProcessParents(id),
+					subject,
+				)
+				.await
+			)
+			.into_iter()
+			.map(tg::process::Id::try_from)
+			.collect::<tg::Result<Vec<_>>>()?,
+			Kind::StorageAndMetadata | Kind::Usage(_) => crate::propagate!(
+				crate::page::collect(|after| async move {
+					Self::get_process_parents_page_with_transaction(
+						txn,
+						subspace,
+						id,
+						after.as_deref(),
+						crate::page::PAGE_SIZE,
+					)
+					.await
+				})
+				.await
+			),
+		};
+		let items = parents
+			.into_iter()
+			.map(|parent| (tg::Either::Right(parent), kind.clone()))
+			.collect();
+
+		Ok(ControlFlow::Break(items))
 	}
 
 	async fn get_related_resources_for_subject_with_transaction(

@@ -14,29 +14,12 @@ impl Index {
 		sandbox: &tg::sandbox::Id,
 		process: &tg::process::Id,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		// A replay must not recreate a deleted sandbox or change its finalized list.
-		let indexed =
-			crate::propagate!(Self::try_get_sandbox_with_transaction(txn, subspace, sandbox).await);
-		if indexed.is_none_or(|sandbox| sandbox.set.processes) {
-			return Ok(ControlFlow::Break(()));
-		}
-
-		// Preserve the first indexed position when initialization is replayed.
+		// Read the sandbox, the process's sandbox entry, and the last indexed process.
 		let key = Key::Process(crate::process::Key::ProcessSandbox {
 			process: process.clone(),
 			sandbox: sandbox.clone(),
 		});
 		let key = Self::pack(subspace, &key);
-		if {
-			let result = txn.get(&key, false).await;
-			crate::retry!(result)
-		}
-		.is_some()
-		{
-			return Ok(ControlFlow::Break(()));
-		}
-
-		// Append after the last indexed process.
 		let prefix = Self::pack(
 			subspace,
 			&(
@@ -46,8 +29,25 @@ impl Index {
 		);
 		let (begin, end) = fdbt::Subspace::from_bytes(prefix).range();
 		let selector = fdb::KeySelector::last_less_than(end);
-		let result = txn.get_key(&selector, false).await;
-		let last = crate::retry!(result);
+		let (indexed, existing, last) = futures::join!(
+			Self::try_get_sandbox_with_transaction(txn, subspace, sandbox),
+			txn.get(&key, false),
+			txn.get_key(&selector, false),
+		);
+
+		// A replay must not recreate a deleted sandbox or change its finalized list.
+		let indexed = crate::propagate!(indexed);
+		if indexed.is_none_or(|sandbox| sandbox.set.processes) {
+			return Ok(ControlFlow::Break(()));
+		}
+
+		// Preserve the first indexed position when initialization is replayed.
+		if crate::retry!(existing).is_some() {
+			return Ok(ControlFlow::Break(()));
+		}
+
+		// Append after the last indexed process.
+		let last = crate::retry!(last);
 		let position = if last.as_ref() < begin.as_slice() {
 			0
 		} else {

@@ -23,9 +23,15 @@ impl Index {
 		let key = Key::Object(crate::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		let result = txn.get(&key, false).await;
-		let existing = crate::retry!(result)
+		// Read the existing object and the resource permission subjects.
+		let resource = tg::Id::from(id.clone());
+		let (existing, subjects) = futures::join!(
+			txn.get(&key, false),
+			Self::get_resource_permission_subjects_with_transaction(txn, subspace, &resource),
+		);
+		let existing = crate::retry!(existing)
 			.and_then(|bytes| tangram_index::object::Object::deserialize(&bytes).ok());
+		let subjects = crate::propagate!(subjects);
 		let merge = !arg.complete();
 		let merged = existing.as_ref().filter(|_| merge);
 
@@ -126,14 +132,6 @@ impl Index {
 
 		// Resume permission derivation when the object children become known.
 		if existing.is_none() {
-			let subjects = crate::propagate!(
-				Self::get_resource_permission_subjects_with_transaction(
-					txn,
-					subspace,
-					&id.clone().into()
-				)
-				.await
-			);
 			for subject in subjects {
 				Self::enqueue_update_with_kind(
 					txn,

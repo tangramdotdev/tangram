@@ -839,18 +839,10 @@ impl Index {
 			.await
 		);
 
+		// Read the object and its children.
 		let key = crate::Key::Object(crate::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let result = txn.get(&key, false).await;
-		let checkout = crate::retry!(result)
-			.and_then(|bytes| tangram_index::object::Object::deserialize(&bytes).ok())
-			.and_then(|obj| obj.checkout);
-
-		txn.clear(&key);
-
 		let id_bytes = id.to_bytes();
-		Self::clear_update_propagated_versions(txn, subspace, id_bytes.as_ref());
-
 		let prefix = (Kind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, &prefix);
 		let range_subspace = Subspace::from_bytes(prefix);
@@ -858,11 +850,21 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let result = txn
-			.get_ranges_keyvalues(range, false)
-			.try_collect::<Vec<_>>()
-			.await;
-		let entries = crate::retry!(result);
+		let (object, entries) = futures::join!(
+			txn.get(&key, false),
+			txn.get_ranges_keyvalues(range, false)
+				.try_collect::<Vec<_>>(),
+		);
+		let checkout = crate::retry!(object)
+			.and_then(|bytes| tangram_index::object::Object::deserialize(&bytes).ok())
+			.and_then(|obj| obj.checkout);
+		let entries = crate::retry!(entries);
+
+		// Delete the object.
+		txn.clear(&key);
+		Self::clear_update_propagated_versions(txn, subspace, id_bytes.as_ref());
+
+		// Delete the children.
 		let children = entries
 			.iter()
 			.map(|entry| {
@@ -883,13 +885,18 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
-		for child in children {
-			crate::propagate!(
-				Self::decrement_object_reference_count(txn, subspace, &child, partition_total)
-					.await
-			);
+		let results = future::try_join_all(children.iter().map(|child| {
+			Self::decrement_object_reference_count(txn, subspace, child, partition_total)
+		}))
+		.await?;
+		for result in results {
+			match result {
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		}
 
+		// Delete the checkout.
 		if let Some(checkout) = &checkout {
 			let key = crate::Key::Object(crate::object::Key::ObjectCheckout {
 				object: id.clone(),
@@ -935,12 +942,39 @@ impl Index {
 			Self::delete_permissions_for_subject(txn, subspace, &subject, partition_total).await
 		);
 
+		// Read the process, its children, and its objects.
 		let key = crate::Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let result = txn.get(&key, false).await;
-		let process = crate::retry!(result)
+		let id_bytes = id.to_bytes();
+		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, &prefix);
+		let children_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&children_subspace)
+		};
+		let children_future = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>();
+		let prefix = (Kind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, &prefix);
+		let objects_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&objects_subspace)
+		};
+		let objects_future = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>();
+		let (process, child_entries, object_entries) =
+			futures::join!(txn.get(&key, false), children_future, objects_future);
+		let process = crate::retry!(process)
 			.map(|bytes| tangram_index::process::Process::deserialize(&bytes))
 			.transpose()?;
+		let child_entries = crate::retry!(child_entries);
+		let object_entries = crate::retry!(object_entries);
+
+		// Delete the process.
 		if let Some(process) = &process {
 			let key = crate::Key::Process(crate::process::Key::CommandCacheableProcess {
 				command: process.command_id.clone(),
@@ -951,22 +985,10 @@ impl Index {
 		}
 		txn.clear(&key);
 		Self::delete_process_data(txn, subspace, id);
-		let id_bytes = id.to_bytes();
 		Self::clear_update_propagated_versions(txn, subspace, id_bytes.as_ref());
 
-		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, &prefix);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-		let result = txn
-			.get_ranges_keyvalues(range, false)
-			.try_collect::<Vec<_>>()
-			.await;
-		let entries = crate::retry!(result);
-		let children = entries
+		// Delete the children.
+		let children = child_entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
@@ -977,7 +999,7 @@ impl Index {
 				Ok(child)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let (begin, end) = range_subspace.range();
+		let (begin, end) = children_subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
 			let key = crate::Key::Process(crate::process::Key::ChildProcess {
@@ -994,19 +1016,8 @@ impl Index {
 			);
 		}
 
-		let prefix = (Kind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, &prefix);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-		let result = txn
-			.get_ranges_keyvalues(range, false)
-			.try_collect::<Vec<_>>()
-			.await;
-		let entries = crate::retry!(result);
-		let object_processes = entries
+		// Delete the objects.
+		let object_processes = object_entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
@@ -1019,7 +1030,7 @@ impl Index {
 				Ok((object, kind))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let (begin, end) = range_subspace.range();
+		let (begin, end) = objects_subspace.range();
 		txn.clear_range(&begin, &end);
 		for (object, kind) in &object_processes {
 			let key = crate::Key::Object(crate::object::Key::ObjectProcess {

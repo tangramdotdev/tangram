@@ -458,20 +458,26 @@ impl Index {
 				Output::Ids { after, ids }
 			},
 			Request::ProcessObject { object, process } => {
-				let mut kinds = Vec::new();
-				for kind in [
+				let entries = [
 					tangram_index::process::object::Kind::Command,
 					tangram_index::process::object::Kind::Error,
 					tangram_index::process::object::Kind::Log,
 					tangram_index::process::object::Kind::Output,
-				] {
+				]
+				.map(|kind| {
 					let key = Key::Process(crate::process::Key::ProcessObject {
 						kind,
 						object: object.clone(),
 						process: process.clone(),
 					});
 					let key = Self::pack(subspace, &key);
-					let result = txn.get(&key, false).await;
+					(kind, key)
+				});
+				let results =
+					futures::future::join_all(entries.iter().map(|(_, key)| txn.get(key, false)))
+						.await;
+				let mut kinds = Vec::new();
+				for ((kind, _), result) in entries.into_iter().zip(results) {
 					let value = crate::retry!(result);
 					if value.is_some() {
 						kinds.push(kind);
