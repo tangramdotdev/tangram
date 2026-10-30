@@ -38,4 +38,29 @@ impl Compiler {
 
 		Ok(diagnostics)
 	}
+
+	/// Get the modules whose interfaces have a check export.
+	pub async fn check_exports(
+		&self,
+		modules: &[tg::module::Data],
+	) -> tg::Result<Vec<tg::module::Data>> {
+		let mut output = Vec::new();
+		for module in modules {
+			let checkable = module.kind.is_config()
+				|| matches!(
+					module.kind,
+					tg::module::Kind::JavaScript
+						| tg::module::Kind::Python
+						| tg::module::Kind::TypeScript
+				);
+			if !checkable {
+				continue;
+			}
+			#[cfg(all(feature = "javascript", feature = "python"))]
+			if self.interface(module).await?.exports.contains_key("check") {
+				output.push(module.clone());
+			}
+		}
+		Ok(output)
+	}
 }

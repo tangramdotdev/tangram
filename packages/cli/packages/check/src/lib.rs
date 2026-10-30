@@ -51,19 +51,9 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		return Err(tg::error!("type checking failed"));
 	}
 
-	// Build the check export of each module whose interface has one, echoing its stdio.
-	for module in modules {
-		let arg = tg::module::interface::Arg {
-			module: module.to_data(),
-		};
-		let interface = client
-			.module_interface(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the interface"))?
-			.interface;
-		if !interface.exports.contains_key("check") {
-			continue;
-		}
+	// Build the check exports, echoing their stdio.
+	for module in output.checks {
+		let module = tg::Module::try_from_data(module)?;
 		let command =
 			tg::command::Builder::with_module(module, Some("check".to_owned()), []).build()?;
 		let command = tg::Referent::with_node(tg::Either::Right(command));
