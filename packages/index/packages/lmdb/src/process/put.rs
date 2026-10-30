@@ -158,11 +158,14 @@ impl Index {
 		});
 		let sandbox = arg.data.as_ref().map_or_else(
 			|| {
-				arg.sandbox.clone().or_else(|| {
-					existing
-						.as_ref()
-						.and_then(|existing| existing.sandbox.clone())
-				})
+				arg.sandbox
+					.as_ref()
+					.map(|sandbox| sandbox.id().clone())
+					.or_else(|| {
+						existing
+							.as_ref()
+							.and_then(|existing| existing.sandbox.clone())
+					})
 			},
 			|data| data.sandbox.clone(),
 		);
@@ -317,7 +320,11 @@ impl Index {
 			}
 		}
 
-		if let Some(sandbox) = &arg.sandbox {
+		if let Some(sandbox) = arg
+			.sandbox
+			.as_ref()
+			.map(tangram_index::process::put::Sandbox::id)
+		{
 			Self::put_sandbox_process_with_transaction(db, subspace, transaction, sandbox, id)?;
 		}
 
@@ -476,6 +483,19 @@ impl Index {
 		usage_partition_total: u64,
 	) -> tg::Result<tg::Result<()>> {
 		for process in args {
+			// Put the sandbox, which the process's membership requires.
+			if let Some(tangram_index::process::put::Sandbox::Put(sandbox)) = &process.sandbox
+				&& let Err(error) = Self::put_sandboxes_with_transaction(
+					db,
+					subspace,
+					transaction,
+					std::slice::from_ref(sandbox),
+					usage_partition_total,
+				)? {
+				return Ok(Err(error));
+			}
+
+			// Put the process.
 			if let Err(error) = Self::put_process(
 				db,
 				subspace,

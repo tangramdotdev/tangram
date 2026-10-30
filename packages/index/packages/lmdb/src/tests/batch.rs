@@ -657,7 +657,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	// Permission spawn updates append once in indexed order without finalizing the list.
 	let mut first_membership = process_arg(first.clone(), tg::process::Status::Started);
 	first_membership.data = None;
-	first_membership.sandbox = Some(sandbox.clone());
+	first_membership.sandbox = Some(tangram_index::process::put::Sandbox::Id(sandbox.clone()));
 	let mut second_membership = first_membership.clone();
 	second_membership.id = second.clone();
 	let arg = tangram_index::batch::Arg {
@@ -774,7 +774,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	// A delayed spawn update must not change the finalized process list.
 	let mut membership = process_arg(tg::process::Id::new(), tg::process::Status::Started);
 	membership.data = None;
-	membership.sandbox = Some(sandbox.clone());
+	membership.sandbox = Some(tangram_index::process::put::Sandbox::Id(sandbox.clone()));
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(membership)],
 	};
@@ -928,7 +928,7 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 	let mut membership = process_arg.clone();
 	membership.data = None;
 	membership.id = process.clone();
-	membership.sandbox = Some(sandbox.clone());
+	membership.sandbox = Some(tangram_index::process::put::Sandbox::Id(sandbox.clone()));
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(membership)],
 	};

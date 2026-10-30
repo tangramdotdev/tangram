@@ -4,7 +4,7 @@ use {
 		request::{Item, Kind, Priority},
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::{StreamExt as _, stream},
+	futures::{FutureExt as _, StreamExt as _, stream},
 	opentelemetry as otel,
 	std::{
 		ops::{ControlFlow, Range},
@@ -173,7 +173,9 @@ impl Index {
 					process_permission_time_to_touch,
 					storage_relation_batch_size,
 				};
-				Self::execute_batch(&database, &subspace, batch, config).await;
+				Self::execute_batch(&database, &subspace, batch, config)
+					.boxed()
+					.await;
 			}
 		})
 		.await;
