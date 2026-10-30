@@ -291,12 +291,14 @@ impl Component {
 		if inserted == 0 {
 			return Err(tg::error!("the member is already in the group"));
 		}
-		batch.items.push(tangram_index::Item::PutGroupMember(
-			tangram_index::group::member::put::Arg {
-				group: group_id.clone().try_into()?,
-				member: member.clone(),
-			},
-		));
+		batch
+			.items
+			.push(tangram_index::Item::PutGroupMember(Box::new(
+				tangram_index::group::member::put::Arg {
+					group: group_id.clone().try_into()?,
+					member: member.clone(),
+				},
+			)));
 		let subject = match member {
 			tg::group::Member::Group(id) => tg::authorization::Subject::Group(id.clone()),
 			tg::group::Member::User(id) => tg::authorization::Subject::User(id.clone()),

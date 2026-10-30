@@ -15,7 +15,7 @@ async fn finished_syncs_are_recorded_until_they_expire() {
 				expires_at,
 				id: id.clone(),
 			};
-			tangram_index::Item::PutSync(arg)
+			tangram_index::Item::PutSync(Box::new(arg))
 		})
 		.collect();
 	let arg = tangram_index::write::Arg { items };

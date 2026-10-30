@@ -286,12 +286,12 @@ impl Component {
 		}
 		batch
 			.items
-			.push(tangram_index::Item::DeleteOrganizationMember(
+			.push(tangram_index::Item::DeleteOrganizationMember(Box::new(
 				tangram_index::organization::member::delete::Arg {
 					member: member.clone(),
 					organization: organization_id.clone().try_into()?,
 				},
-			));
+			)));
 		let subject = match member {
 			tg::organization::Member::Group(id) => tg::authorization::Subject::Group(id.clone()),
 			tg::organization::Member::User(id) => tg::authorization::Subject::User(id.clone()),

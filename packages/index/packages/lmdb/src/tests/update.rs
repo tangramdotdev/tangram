@@ -48,7 +48,7 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutProcess(
+			items: vec![tangram_index::Item::PutProcess(Box::new(
 				tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
@@ -73,7 +73,7 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				},
-			)],
+			))],
 		})
 		.await
 		.unwrap()
@@ -136,7 +136,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 	let unrelated = object_id(2);
 	let wrapper = object_id(0);
 	let put_object = |id: tg::object::Id, children| {
-		tangram_index::Item::PutObject(tangram_index::object::put::Arg {
+		tangram_index::Item::PutObject(Box::new(tangram_index::object::put::Arg {
 			account: None,
 			checkout: None,
 			children,
@@ -146,7 +146,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 			storage: tg::object::storage::Set::NODE,
 			time_to_touch: std::time::Duration::ZERO,
 			touched_at: 0,
-		})
+		}))
 	};
 	let node = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Node,
@@ -162,7 +162,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 				put_object(child.clone(), BTreeSet::new()),
 				put_object(unrelated.clone(), BTreeSet::new()),
 				put_object(wrapper.clone(), BTreeSet::from([child.clone()])),
-				tangram_index::Item::PutProcess(tangram_index::process::put::Arg {
+				tangram_index::Item::PutProcess(Box::new(tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
 					captures: tangram_index::permission::capture::Captures::default(),
@@ -185,8 +185,8 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
-				}),
-				tangram_index::Item::PutPermission(tangram_index::permission::put::Arg {
+				})),
+				tangram_index::Item::PutPermission(Box::new(tangram_index::permission::put::Arg {
 					created_at: 0,
 					creator: Some(creator.clone()),
 					permissions: node.into(),
@@ -195,7 +195,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 					subject: subject.clone(),
 					time_to_touch: None,
 					version: None,
-				}),
+				})),
 			],
 		})
 		.await
@@ -473,7 +473,7 @@ async fn shared_log_objects_do_not_materialize_implied_permissions_for_a_parent(
 		time_to_touch: None,
 		version: None,
 	};
-	items.push(tangram_index::Item::PutPermission(permission));
+	items.push(tangram_index::Item::PutPermission(Box::new(permission)));
 	index
 		.write(tangram_index::write::Arg { items })
 		.await
@@ -528,9 +528,9 @@ async fn object_aspect_permissions_are_not_materialized_for_a_subject_with_a_par
 		time_to_touch: None,
 		version: None,
 	};
-	items.push(tangram_index::Item::PutPermission(parent));
+	items.push(tangram_index::Item::PutPermission(Box::new(parent)));
 	let permission = subtree_permission_arg(&log, &subject);
-	items.push(tangram_index::Item::PutPermission(permission));
+	items.push(tangram_index::Item::PutPermission(Box::new(permission)));
 	index
 		.write(tangram_index::write::Arg { items })
 		.await
@@ -617,7 +617,7 @@ async fn object_aspect_permissions_materialize_the_longest_cover() {
 		time_to_touch: None,
 		version: None,
 	};
-	items.push(tangram_index::Item::PutPermission(node));
+	items.push(tangram_index::Item::PutPermission(Box::new(node)));
 	for expires_at in [100, 200] {
 		let permission = tangram_index::permission::put::Arg {
 			created_at: 0,
@@ -631,7 +631,7 @@ async fn object_aspect_permissions_materialize_the_longest_cover() {
 			time_to_touch: None,
 			version: None,
 		};
-		items.push(tangram_index::Item::PutPermission(permission));
+		items.push(tangram_index::Item::PutPermission(Box::new(permission)));
 	}
 	index
 		.write(tangram_index::write::Arg { items })
@@ -682,7 +682,7 @@ async fn process_subtree_permissions_materialize_the_longest_cover() {
 			time_to_touch: None,
 			version: None,
 		};
-		items.push(tangram_index::Item::PutPermission(permission));
+		items.push(tangram_index::Item::PutPermission(Box::new(permission)));
 	}
 	index
 		.write(tangram_index::write::Arg { items })
@@ -820,7 +820,7 @@ async fn materialized_permissions_are_rewritten_only_when_their_expiration_moves
 	};
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutObject(put_object)],
+			items: vec![tangram_index::Item::PutObject(Box::new(put_object))],
 		})
 		.await
 		.unwrap()
@@ -952,7 +952,7 @@ async fn object_aspect_permissions_materialize_their_subtree_permissions_in_the_
 		time_to_touch: None,
 		version: None,
 	};
-	items.push(tangram_index::Item::PutPermission(node));
+	items.push(tangram_index::Item::PutPermission(Box::new(node)));
 	index
 		.write(tangram_index::write::Arg { items })
 		.await
@@ -996,7 +996,7 @@ async fn put_log_object(index: &Index, log: &tg::object::Id) {
 	};
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutObject(object)],
+			items: vec![tangram_index::Item::PutObject(Box::new(object))],
 		})
 		.await
 		.unwrap()
@@ -1064,9 +1064,9 @@ fn put_process_with_log_items(
 		version: None,
 	};
 	vec![
-		tangram_index::Item::PutProcess(put_process),
-		tangram_index::Item::PutPermission(put_node_permission),
-		tangram_index::Item::PutPermission(put_log_permission),
+		tangram_index::Item::PutProcess(Box::new(put_process)),
+		tangram_index::Item::PutPermission(Box::new(put_node_permission)),
+		tangram_index::Item::PutPermission(Box::new(put_log_permission)),
 	]
 }
 
@@ -1127,8 +1127,8 @@ fn put_parent_object_items(
 		version: None,
 	};
 	vec![
-		tangram_index::Item::PutObject(put_object),
-		tangram_index::Item::PutPermission(put_node_permission),
+		tangram_index::Item::PutObject(Box::new(put_object)),
+		tangram_index::Item::PutPermission(Box::new(put_node_permission)),
 	]
 }
 

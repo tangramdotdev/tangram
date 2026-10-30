@@ -777,7 +777,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 	};
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(started)],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(started))],
 		})
 		.await
 		.unwrap()
@@ -814,14 +814,14 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 	};
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(destroyed.clone())],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(destroyed.clone()))],
 		})
 		.await
 		.unwrap()
 		.unwrap();
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(destroyed)],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(destroyed))],
 		})
 		.await
 		.unwrap()
@@ -882,7 +882,7 @@ async fn records_compute_once_when_destroy_precedes_start() {
 			touched_at: 2,
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(arg)],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(arg))],
 		};
 		index.write(arg).await.unwrap().unwrap();
 	}
@@ -931,7 +931,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 	};
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(started)],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(started))],
 		})
 		.await
 		.unwrap()
@@ -968,7 +968,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 	};
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(destroyed)],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(destroyed))],
 		})
 		.await
 		.unwrap()

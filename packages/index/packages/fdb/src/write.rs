@@ -46,12 +46,12 @@ impl Index {
 			}
 
 			match item {
-				tangram_index::Item::DeleteDelegations(subject) => {
+				tangram_index::Item::DeleteDelegations(arg) => {
 					crate::propagate!(
 						Self::delete_delegations_for_subject_with_transaction(
 							txn,
 							subspace,
-							subject,
+							&arg.subject,
 							partition_totals.cleaning
 						)
 						.await
@@ -70,9 +70,9 @@ impl Index {
 					);
 				},
 
-				tangram_index::Item::DeleteCheckout(id) => {
+				tangram_index::Item::DeleteCheckout(arg) => {
 					crate::propagate!(
-						Self::delete_checkout(txn, subspace, id, partition_total).await
+						Self::delete_checkout(txn, subspace, &arg.id, partition_total).await
 					);
 				},
 				tangram_index::Item::DeletePermission(arg) => {
@@ -86,12 +86,12 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::Item::DeleteGroup(id) => {
+				tangram_index::Item::DeleteGroup(arg) => {
 					crate::propagate!(
 						Self::delete_groups_with_transaction(
 							txn,
 							subspace,
-							std::slice::from_ref(id),
+							std::slice::from_ref(&arg.id),
 						)
 						.await
 					);
@@ -103,12 +103,12 @@ impl Index {
 						std::slice::from_ref(arg),
 					));
 				},
-				tangram_index::Item::DeleteOrganization(id) => {
+				tangram_index::Item::DeleteOrganization(arg) => {
 					crate::propagate!(
 						Self::delete_organizations_with_transaction(
 							txn,
 							subspace,
-							std::slice::from_ref(id),
+							std::slice::from_ref(&arg.id),
 						)
 						.await
 					);
@@ -120,34 +120,34 @@ impl Index {
 						std::slice::from_ref(arg),
 					));
 				},
-				tangram_index::Item::DeleteSandbox(id) => {
+				tangram_index::Item::DeleteSandbox(arg) => {
 					crate::propagate!(
 						Self::delete_sandboxes_with_transaction(
 							txn,
 							subspace,
-							std::slice::from_ref(id),
+							std::slice::from_ref(&arg.id),
 							partition_totals.cleaning,
 						)
 						.await
 					);
 				},
-				tangram_index::Item::DeleteTag(id) => {
+				tangram_index::Item::DeleteTag(arg) => {
 					crate::propagate!(
 						Self::delete_tags_with_transaction(
 							txn,
 							subspace,
-							std::slice::from_ref(id),
+							std::slice::from_ref(&arg.id),
 							partition_totals,
 						)
 						.await
 					);
 				},
-				tangram_index::Item::DeleteUser(id) => {
+				tangram_index::Item::DeleteUser(arg) => {
 					crate::propagate!(
 						Self::delete_users_with_transaction(
 							txn,
 							subspace,
-							std::slice::from_ref(id),
+							std::slice::from_ref(&arg.id),
 						)
 						.await
 					);
