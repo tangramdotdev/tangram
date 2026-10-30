@@ -367,7 +367,10 @@ impl Component {
 				},
 			}
 		}
-		Err(tg::error!("failed to receive the put end message"))
+		Err(tg::error!(
+			code = tg::error::Code::Cancellation,
+			"failed to receive the put end message"
+		))
 	}
 
 	async fn sync_get_input_node(
