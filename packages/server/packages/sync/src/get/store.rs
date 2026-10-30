@@ -287,6 +287,7 @@ impl Component {
 				Ok(tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
+					captures: tangram_index::permission::capture::Captures::default(),
 					children: data.children.clone(),
 					command: Some(
 						data.command

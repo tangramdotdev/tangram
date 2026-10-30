@@ -185,7 +185,7 @@ impl Component {
 		let objects = Self::finished_process_objects(&token_data)
 			.into_iter()
 			.map(|object| object.map(Into::into));
-		let put_permissions = session.server.components.authorization.create_captures(
+		let captures = session.server.components.authorization.create_captures(
 			session,
 			destination,
 			None,
@@ -197,6 +197,7 @@ impl Component {
 		let mut put_process_arg = tangram_index::process::put::Arg {
 			account: None,
 			cached: false,
+			captures,
 			children,
 			command: Some(
 				arg.data
@@ -263,9 +264,7 @@ impl Component {
 
 		// Put the process in the index.
 		let arg = tangram_index::batch::Arg {
-			items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
-				.chain(put_permissions.into_items())
-				.collect(),
+			items: vec![tangram_index::batch::Item::PutProcess(put_process_arg)],
 		};
 		let result = if defer_index {
 			session

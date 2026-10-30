@@ -594,10 +594,32 @@ impl Component {
 			Some(arg) => tangram_index::process::put::Sandbox::Put(arg),
 			None => tangram_index::process::put::Sandbox::Id(sandbox_id.clone()),
 		};
-		let mut items = vec![tangram_index::batch::Item::PutProcess(
+		let mut captures = tangram_index::permission::capture::Captures::default();
+		let permission_arg =
+			Self::create_process_sandbox_permission_arg(session, &id, sandbox_id, touched_at)?;
+		captures.permissions.push(permission_arg);
+		if assign {
+			let parent = parent
+				.as_ref()
+				.ok_or_else(|| tg::error!("a process on the shortcut path must have a parent"))?;
+			let destination = id.clone().into();
+			let roots = command_objects.into_iter().map(|root| root.map(Into::into));
+			let source = tg::Principal::Process(parent.clone());
+			let command_captures = session.server.components.authorization.create_captures(
+				session,
+				destination,
+				None,
+				roots.into_iter().collect(),
+				source,
+				touched_at,
+			)?;
+			captures.extend(command_captures);
+		}
+		let items = vec![tangram_index::batch::Item::PutProcess(
 			tangram_index::process::put::Arg {
 				account,
 				cached: false,
+				captures,
 				children: None,
 				command: Some(
 					data.command
@@ -624,32 +646,6 @@ impl Component {
 				touched_at,
 			},
 		)];
-		let permission_arg =
-			Self::create_process_sandbox_permission_arg(session, &id, sandbox_id, touched_at)?;
-		items.push(tangram_index::batch::Item::PutPermission(permission_arg));
-		if assign {
-			let parent = parent
-				.as_ref()
-				.ok_or_else(|| tg::error!("a process on the shortcut path must have a parent"))?;
-			let destination = id.clone().into();
-			let roots = command_objects.into_iter().map(|root| root.map(Into::into));
-			let source = tg::Principal::Process(parent.clone());
-			items.extend(
-				session
-					.server
-					.components
-					.authorization
-					.create_captures(
-						session,
-						destination,
-						None,
-						roots.into_iter().collect(),
-						source,
-						touched_at,
-					)?
-					.into_items(),
-			);
-		}
 
 		// Submit the prepared batch without waiting for its index commit, continuing if the index cannot accept it.
 		let index_arg = tangram_index::batch::Arg { items };

@@ -10,6 +10,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 		let mut process = tangram_index::process::put::Arg {
 			account: None,
 			cached: false,
+			captures: tangram_index::permission::capture::Captures::default(),
 			children: None,
 			command: Some(vec![command.clone().into()]),
 			command_id: command.clone().into(),

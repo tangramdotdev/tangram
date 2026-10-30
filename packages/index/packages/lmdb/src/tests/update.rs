@@ -52,6 +52,7 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 				tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
+					captures: tangram_index::permission::capture::Captures::default(),
 					children: None,
 					command: Some(vec![command.clone()]),
 					command_id: command.clone(),
@@ -163,6 +164,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 				tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
 					account: None,
 					cached: false,
+					captures: tangram_index::permission::capture::Captures::default(),
 					children: None,
 					command: Some(vec![wrapper.clone()]),
 					command_id: wrapper.clone(),
@@ -1011,6 +1013,7 @@ fn put_process_with_log_items(
 	let put_process = tangram_index::process::put::Arg {
 		account: None,
 		cached: false,
+		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
 		command: None,
 		command_id: log.clone(),

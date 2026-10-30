@@ -40,6 +40,7 @@ async fn delegation_traversal_and_propagation() {
 	let arg = tangram_index::process::put::Arg {
 		account: None,
 		cached: false,
+		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
 		command: Some(vec![root.clone()]),
 		command_id: root.clone(),
@@ -327,6 +328,7 @@ fn process_object(process: &tg::process::Id, root: &tg::object::Id) -> tangram_i
 	let arg = tangram_index::process::put::Arg {
 		account: None,
 		cached: false,
+		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
 		command: Some(vec![root.clone()]),
 		command_id: root.clone(),
@@ -768,6 +770,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 	let process_arg = tangram_index::process::put::Arg {
 		account: None,
 		cached: false,
+		captures: tangram_index::permission::capture::Captures::default(),
 		children: None,
 		command: Some(vec![directory.clone()]),
 		command_id: directory.clone(),

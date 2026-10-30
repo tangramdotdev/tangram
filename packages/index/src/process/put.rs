@@ -9,6 +9,14 @@ pub struct Arg {
 	#[tangram_serialize(id = 13)]
 	pub cached: bool,
 
+	/// The captures to put after the process, only if the process put is accepted.
+	#[tangram_serialize(
+		default,
+		id = 21,
+		skip_serializing_if = "crate::permission::capture::Captures::is_empty"
+	)]
+	pub captures: crate::permission::capture::Captures,
+
 	#[tangram_serialize(id = 0)]
 	pub children: Option<Vec<tg::process::data::Child>>,
 

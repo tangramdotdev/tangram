@@ -340,6 +340,7 @@ impl Component {
 							tangram_index::process::put::Arg {
 								account: None,
 								cached: false,
+								captures: tangram_index::permission::capture::Captures::default(),
 								children: None,
 								command: Some(
 									data.command
