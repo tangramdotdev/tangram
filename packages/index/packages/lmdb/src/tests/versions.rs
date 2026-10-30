@@ -314,7 +314,7 @@ fn object(
 async fn put(index: &Index, objects: Vec<tangram_index::object::put::Arg>) {
 	let items = objects
 		.into_iter()
-		.map(tangram_index::Item::PutObject)
+		.map(|arg| tangram_index::Item::PutObject(Box::new(arg)))
 		.collect();
 	let arg = tangram_index::write::Arg { items };
 	index.write(arg).await.unwrap().unwrap();
@@ -331,7 +331,7 @@ async fn associate(
 		touched_at: 0,
 	};
 	let arg = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutAccountObject(arg)],
+		items: vec![tangram_index::Item::PutAccountObject(Box::new(arg))],
 	};
 	index.write(arg).await.unwrap().unwrap();
 }

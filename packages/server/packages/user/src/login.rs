@@ -355,13 +355,13 @@ impl Component {
 				.execute(statement.into(), db::params![id.to_string(), name])
 				.await;
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
-			batch.items.push(tangram_index::Item::PutUser(
+			batch.items.push(tangram_index::Item::PutUser(Box::new(
 				tangram_index::user::put::Arg {
 					billing_ready: Some(false),
 					id: id.clone(),
 					specifier: specifier.clone(),
 				},
-			));
+			)));
 			match Self::try_get_user_with_transaction(transaction, &id).await? {
 				ControlFlow::Break(user) => user,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),

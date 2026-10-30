@@ -1842,7 +1842,7 @@ impl Component {
 			touched_at,
 		};
 		let arg = tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutSandbox(sandbox)],
+			items: vec![tangram_index::Item::PutSandbox(Box::new(sandbox))],
 		};
 		session
 			.server

@@ -189,10 +189,10 @@ impl Indexer {
 
 	fn database_index_queue_named_node_id(item: &tangram_index::Item) -> Option<tg::Id> {
 		let id = match item {
-			tangram_index::Item::DeleteGroup(id) => id.clone().into(),
-			tangram_index::Item::DeleteOrganization(id) => id.clone().into(),
-			tangram_index::Item::DeleteTag(id) => id.clone().into(),
-			tangram_index::Item::DeleteUser(id) => id.clone().into(),
+			tangram_index::Item::DeleteGroup(arg) => arg.id.clone().into(),
+			tangram_index::Item::DeleteOrganization(arg) => arg.id.clone().into(),
+			tangram_index::Item::DeleteTag(arg) => arg.id.clone().into(),
+			tangram_index::Item::DeleteUser(arg) => arg.id.clone().into(),
 			tangram_index::Item::PutGroup(arg) => arg.id.clone().into(),
 			tangram_index::Item::PutOrganization(arg) => arg.id.clone().into(),
 			tangram_index::Item::PutTag(arg) => arg.id.clone().into(),
@@ -224,20 +224,20 @@ impl Indexer {
 		let mut items = Vec::with_capacity(arg.items.len());
 		for item in arg.items {
 			let invalidation = match &item {
-				tangram_index::Item::DeleteGroup(id) => {
-					let id = tg::Id::from(id.clone());
+				tangram_index::Item::DeleteGroup(arg) => {
+					let id = tg::Id::from(arg.id.clone());
 					nodes.get(&id).map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::Item::DeleteOrganization(id) => {
-					let id = tg::Id::from(id.clone());
+				tangram_index::Item::DeleteOrganization(arg) => {
+					let id = tg::Id::from(arg.id.clone());
 					nodes.get(&id).map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::Item::DeleteTag(id) => {
-					let id = tg::Id::from(id.clone());
+				tangram_index::Item::DeleteTag(arg) => {
+					let id = tg::Id::from(arg.id.clone());
 					nodes.get(&id).map(|node| (id, node.specifier.clone()))
 				},
-				tangram_index::Item::DeleteUser(id) => {
-					let id = tg::Id::from(id.clone());
+				tangram_index::Item::DeleteUser(arg) => {
+					let id = tg::Id::from(arg.id.clone());
 					nodes.get(&id).map(|node| (id, node.specifier.clone()))
 				},
 				tangram_index::Item::PutGroup(arg) => {
@@ -275,7 +275,9 @@ impl Indexer {
 				_ => None,
 			};
 			if let Some((id, specifier)) = invalidation {
-				items.push(tangram_index::Item::DeleteCheckout(id.clone()));
+				items.push(tangram_index::Item::DeleteCheckout(Box::new(
+					tangram_index::checkout::delete::Arg { id: id.clone() },
+				)));
 				invalidations.insert(id, specifier);
 			}
 			items.push(item);

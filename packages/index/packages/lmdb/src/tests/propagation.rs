@@ -11,9 +11,17 @@ async fn incomplete_parents_complete_after_their_descendants_are_put() {
 	let top = object_arg(2, [middle.id.clone()], 4);
 
 	// Put the parents before their descendants.
-	write(&index, vec![tangram_index::Item::PutObject(top.clone())]).await;
+	write(
+		&index,
+		vec![tangram_index::Item::PutObject(Box::new(top.clone()))],
+	)
+	.await;
 	drain(&index).await;
-	write(&index, vec![tangram_index::Item::PutObject(middle.clone())]).await;
+	write(
+		&index,
+		vec![tangram_index::Item::PutObject(Box::new(middle.clone()))],
+	)
+	.await;
 	drain(&index).await;
 	let objects = index
 		.try_get_objects(&[top.id.clone(), middle.id.clone()])
@@ -26,7 +34,7 @@ async fn incomplete_parents_complete_after_their_descendants_are_put() {
 	}
 
 	// Put the leaf.
-	write(&index, vec![tangram_index::Item::PutObject(leaf)]).await;
+	write(&index, vec![tangram_index::Item::PutObject(Box::new(leaf))]).await;
 	drain(&index).await;
 
 	// Verify that the parents are complete.
@@ -48,13 +56,21 @@ async fn incomplete_parents_complete_after_their_children_are_already_complete()
 	let parent = object_arg(1, [leaf.id.clone()], 2);
 
 	// Put the child and complete it.
-	write(&index, vec![tangram_index::Item::PutObject(leaf.clone())]).await;
+	write(
+		&index,
+		vec![tangram_index::Item::PutObject(Box::new(leaf.clone()))],
+	)
+	.await;
 	drain(&index).await;
 	let leaf = index.try_get_object(&leaf.id).await.unwrap().unwrap();
 	assert!(leaf.complete());
 
 	// Put the parent.
-	write(&index, vec![tangram_index::Item::PutObject(parent.clone())]).await;
+	write(
+		&index,
+		vec![tangram_index::Item::PutObject(Box::new(parent.clone()))],
+	)
+	.await;
 	drain(&index).await;
 
 	// Verify that the parent is complete.
@@ -76,8 +92,8 @@ async fn incomplete_parents_derive_the_metadata_of_children_whose_storage_never_
 	write(
 		&index,
 		vec![
-			tangram_index::Item::PutObject(top.clone()),
-			tangram_index::Item::PutObject(middle.clone()),
+			tangram_index::Item::PutObject(Box::new(top.clone())),
+			tangram_index::Item::PutObject(Box::new(middle.clone())),
 		],
 	)
 	.await;
@@ -86,7 +102,7 @@ async fn incomplete_parents_derive_the_metadata_of_children_whose_storage_never_
 	// Put the leaf without storage, so that the parents never have subtree storage.
 	let mut leaf = leaf;
 	leaf.storage = tg::object::storage::Set::empty();
-	write(&index, vec![tangram_index::Item::PutObject(leaf)]).await;
+	write(&index, vec![tangram_index::Item::PutObject(Box::new(leaf))]).await;
 	drain(&index).await;
 
 	// Verify that the top derived its subtree metadata.
@@ -111,7 +127,7 @@ async fn incomplete_processes_complete_after_their_children_and_objects_are_put(
 	// Put the parent before its child and its command.
 	write(
 		&index,
-		vec![tangram_index::Item::PutProcess(parent.clone())],
+		vec![tangram_index::Item::PutProcess(Box::new(parent.clone()))],
 	)
 	.await;
 	drain(&index).await;
@@ -123,9 +139,9 @@ async fn incomplete_processes_complete_after_their_children_and_objects_are_put(
 	write(
 		&index,
 		vec![
-			tangram_index::Item::PutObject(parent_command),
-			tangram_index::Item::PutObject(child_command),
-			tangram_index::Item::PutProcess(child),
+			tangram_index::Item::PutObject(Box::new(parent_command)),
+			tangram_index::Item::PutObject(Box::new(child_command)),
+			tangram_index::Item::PutProcess(Box::new(child)),
 		],
 	)
 	.await;

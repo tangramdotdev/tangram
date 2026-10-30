@@ -213,11 +213,11 @@ impl Component {
 		let index_arg = tangram_index::write::Arg {
 			items: put_object_args
 				.into_iter()
-				.map(tangram_index::Item::PutObject)
+				.map(|arg| tangram_index::Item::PutObject(Box::new(arg)))
 				.chain(
 					put_permission_args
 						.into_iter()
-						.map(tangram_index::Item::PutPermission),
+						.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
 				)
 				.collect(),
 		};

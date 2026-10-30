@@ -613,7 +613,7 @@ impl Component {
 		if let Some(permission) =
 			Self::spawn_process_create_creator_permission_arg(session, &id, now)?
 		{
-			items.push(tangram_index::Item::PutPermission(permission));
+			items.push(tangram_index::Item::PutPermission(Box::new(permission)));
 		}
 		if write_command_permissions {
 			let destination = id.clone().into();

@@ -164,18 +164,20 @@ impl Component {
 			affected_users.extend(users.iter().map(|row| row.id.clone()));
 			let billing_ready = update.ready;
 			batch.items.extend(organizations.into_iter().map(|row| {
-				tangram_index::Item::PutOrganization(tangram_index::organization::put::Arg {
-					billing_ready: Some(billing_ready),
-					id: row.id,
-					specifier: row.specifier,
-				})
+				tangram_index::Item::PutOrganization(Box::new(
+					tangram_index::organization::put::Arg {
+						billing_ready: Some(billing_ready),
+						id: row.id,
+						specifier: row.specifier,
+					},
+				))
 			}));
 			batch.items.extend(users.into_iter().map(|row| {
-				tangram_index::Item::PutUser(tangram_index::user::put::Arg {
+				tangram_index::Item::PutUser(Box::new(tangram_index::user::put::Arg {
 					billing_ready: Some(billing_ready),
 					id: row.id,
 					specifier: row.specifier,
-				})
+				}))
 			}));
 
 			for table in ["organizations", "users"] {

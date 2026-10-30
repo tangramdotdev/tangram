@@ -272,7 +272,7 @@ impl Component {
 				id: id.clone(),
 			};
 			let arg = tangram_index::write::Arg {
-				items: vec![tangram_index::Item::PutSync(arg)],
+				items: vec![tangram_index::Item::PutSync(Box::new(arg))],
 			};
 			server.components.indexer.write(&server, arg).await?;
 

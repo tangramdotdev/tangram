@@ -20,7 +20,7 @@ async fn object_children_are_returned_in_pages() {
 	};
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutObject(object)],
+			items: vec![tangram_index::Item::PutObject(Box::new(object))],
 		})
 		.await
 		.unwrap()

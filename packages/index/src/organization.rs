@@ -1,5 +1,6 @@
 use {futures::FutureExt as _, tangram_client::prelude::*};
 
+pub mod delete;
 pub mod member;
 pub mod put;
 

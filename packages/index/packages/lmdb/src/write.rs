@@ -42,12 +42,12 @@ impl Index {
 			}
 
 			match item {
-				tangram_index::Item::DeleteDelegations(subject) => {
+				tangram_index::Item::DeleteDelegations(arg) => {
 					Self::delete_delegations_for_subject_with_transaction(
 						db,
 						subspace,
 						transaction,
-						subject,
+						&arg.subject,
 					)?;
 				},
 
@@ -60,8 +60,8 @@ impl Index {
 					)?;
 				},
 
-				tangram_index::Item::DeleteCheckout(id) => {
-					Self::delete_checkout(db, subspace, transaction, id)?;
+				tangram_index::Item::DeleteCheckout(arg) => {
+					Self::delete_checkout(db, subspace, transaction, &arg.id)?;
 				},
 				tangram_index::Item::DeletePermission(arg) => {
 					Self::delete_permissions_with_transaction(
@@ -71,12 +71,12 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::Item::DeleteGroup(id) => {
+				tangram_index::Item::DeleteGroup(arg) => {
 					Self::delete_groups_with_transaction(
 						db,
 						subspace,
 						transaction,
-						std::slice::from_ref(id),
+						std::slice::from_ref(&arg.id),
 					)?;
 				},
 				tangram_index::Item::DeleteGroupMember(arg) => {
@@ -87,12 +87,12 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::Item::DeleteOrganization(id) => {
+				tangram_index::Item::DeleteOrganization(arg) => {
 					Self::delete_organizations_with_transaction(
 						db,
 						subspace,
 						transaction,
-						std::slice::from_ref(id),
+						std::slice::from_ref(&arg.id),
 					)?;
 				},
 				tangram_index::Item::DeleteOrganizationMember(arg) => {
@@ -103,28 +103,28 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				tangram_index::Item::DeleteSandbox(id) => {
+				tangram_index::Item::DeleteSandbox(arg) => {
 					Self::delete_sandboxes_with_transaction(
 						db,
 						subspace,
 						transaction,
-						std::slice::from_ref(id),
+						std::slice::from_ref(&arg.id),
 					)?;
 				},
-				tangram_index::Item::DeleteTag(id) => {
+				tangram_index::Item::DeleteTag(arg) => {
 					Self::delete_tags_with_transaction(
 						db,
 						subspace,
 						transaction,
-						std::slice::from_ref(id),
+						std::slice::from_ref(&arg.id),
 					)?;
 				},
-				tangram_index::Item::DeleteUser(id) => {
+				tangram_index::Item::DeleteUser(arg) => {
 					Self::delete_users_with_transaction(
 						db,
 						subspace,
 						transaction,
-						std::slice::from_ref(id),
+						std::slice::from_ref(&arg.id),
 					)?;
 				},
 				tangram_index::Item::PutCheckout(arg) => {

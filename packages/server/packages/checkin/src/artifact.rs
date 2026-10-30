@@ -1387,8 +1387,10 @@ impl Component {
 			}
 		});
 		let arg = tangram_index::write::Arg {
-			items: std::iter::once(tangram_index::Item::PutObject(put_object_arg))
-				.chain(put_permission_arg.map(tangram_index::Item::PutPermission))
+			items: std::iter::once(tangram_index::Item::PutObject(Box::new(put_object_arg)))
+				.chain(
+					put_permission_arg.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
+				)
 				.collect(),
 		};
 		// Store and index the object.

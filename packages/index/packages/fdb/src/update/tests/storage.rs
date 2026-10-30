@@ -259,7 +259,7 @@ async fn associate(
 		touched_at,
 	};
 	let arg = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutAccountObject(arg)],
+		items: vec![tangram_index::Item::PutAccountObject(Box::new(arg))],
 	};
 	index.write(arg).await.unwrap().unwrap();
 }

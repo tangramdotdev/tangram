@@ -195,8 +195,8 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 	};
 	let batch = tangram_index::write::Arg {
 		items: vec![
-			tangram_index::Item::PutDelegation(delegation.clone()),
-			tangram_index::Item::EnqueuePermissionCapture(arg.clone()),
+			tangram_index::Item::PutDelegation(Box::new(delegation.clone())),
+			tangram_index::Item::EnqueuePermissionCapture(Box::new(arg.clone())),
 		],
 	};
 	index.write(batch).await.unwrap().unwrap();
@@ -220,8 +220,14 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 		(process.clone().into(), None),
 		vec![(object.clone().into(), subtree())],
 	));
-	let mut items = vec![tangram_index::Item::PutDelegation(delegation.clone())];
-	items.extend(writes.into_iter().map(tangram_index::Item::PutPermission));
+	let mut items = vec![tangram_index::Item::PutDelegation(Box::new(
+		delegation.clone(),
+	))];
+	items.extend(
+		writes
+			.into_iter()
+			.map(|arg| tangram_index::Item::PutPermission(Box::new(arg))),
+	);
 	let batch = tangram_index::write::Arg { items };
 	index.write(batch).await.unwrap().unwrap();
 	let process_subject = tg::authorization::Subject::Process(process);
@@ -231,7 +237,7 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 	let writes = permission_args(0, destination, vec![(object.clone().into(), subtree())]);
 	write_permissions(&index, writes).await;
 	let batch = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutDelegation(delegation)],
+		items: vec![tangram_index::Item::PutDelegation(Box::new(delegation))],
 	};
 	index.write(batch).await.unwrap().unwrap();
 	enqueue(&index, arg).await;
@@ -409,7 +415,9 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		touched_at: 0,
 	};
 	let batch = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutProcess(process_arg.clone())],
+		items: vec![tangram_index::Item::PutProcess(Box::new(
+			process_arg.clone(),
+		))],
 	};
 	index.write(batch).await.unwrap().unwrap();
 	let children = index
@@ -423,7 +431,7 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 	process_arg.log = Some(None);
 	process_arg.output = Some(Some(vec![output.clone()]));
 	let batch = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::PutProcess(process_arg)],
+		items: vec![tangram_index::Item::PutProcess(Box::new(process_arg))],
 	};
 	index.write(batch).await.unwrap().unwrap();
 	let children = index

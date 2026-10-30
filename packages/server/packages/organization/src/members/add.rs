@@ -292,12 +292,14 @@ impl Component {
 		if inserted == 0 {
 			return Err(tg::error!("the member is already in the organization"));
 		}
-		batch.items.push(tangram_index::Item::PutOrganizationMember(
-			tangram_index::organization::member::put::Arg {
-				member: member.clone(),
-				organization: organization_id.clone().try_into()?,
-			},
-		));
+		batch
+			.items
+			.push(tangram_index::Item::PutOrganizationMember(Box::new(
+				tangram_index::organization::member::put::Arg {
+					member: member.clone(),
+					organization: organization_id.clone().try_into()?,
+				},
+			)));
 		let subject = match member {
 			tg::organization::Member::Group(id) => tg::authorization::Subject::Group(id.clone()),
 			tg::organization::Member::User(id) => tg::authorization::Subject::User(id.clone()),

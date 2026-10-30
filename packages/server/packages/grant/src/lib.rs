@@ -542,18 +542,20 @@ impl Component {
 			tangram_server_core::database::retry!(result, "failed to execute the statement");
 			(created_at, Some(creator.clone()), permissions, true)
 		};
-		batch.items.push(tangram_index::Item::PutPermission(
-			tangram_index::permission::put::Arg {
-				created_at,
-				creator: output_creator.clone(),
-				permissions,
-				resource: resource.clone(),
-				source: tangram_index::permission::Source::Grant,
-				subject: subject.clone(),
-				time_to_touch: None,
-				version: None,
-			},
-		));
+		batch
+			.items
+			.push(tangram_index::Item::PutPermission(Box::new(
+				tangram_index::permission::put::Arg {
+					created_at,
+					creator: output_creator.clone(),
+					permissions,
+					resource: resource.clone(),
+					source: tangram_index::permission::Source::Grant,
+					subject: subject.clone(),
+					time_to_touch: None,
+					version: None,
+				},
+			)));
 		Ok(ControlFlow::Break((
 			tg::grant::Data {
 				created_at,
@@ -674,15 +676,17 @@ impl Component {
 			}
 		}
 		if !deleted.is_empty() {
-			batch.items.push(tangram_index::Item::DeletePermission(
-				tangram_index::permission::delete::Arg {
-					creator: Some(creator),
-					permissions: deleted,
-					resource,
-					source: tangram_index::permission::Source::Grant,
-					subject,
-				},
-			));
+			batch
+				.items
+				.push(tangram_index::Item::DeletePermission(Box::new(
+					tangram_index::permission::delete::Arg {
+						creator: Some(creator),
+						permissions: deleted,
+						resource,
+						source: tangram_index::permission::Source::Grant,
+						subject,
+					},
+				)));
 		}
 		Ok(ControlFlow::Break(Some(())))
 	}
@@ -821,15 +825,17 @@ impl Component {
 			.await;
 		let rows = tangram_server_core::database::retry!(result, "failed to execute the statement");
 		for row in rows {
-			batch.items.push(tangram_index::Item::DeletePermission(
-				tangram_index::permission::delete::Arg {
-					creator: Some(row.creator),
-					permissions: row.permissions,
-					resource: row.resource,
-					source: tangram_index::permission::Source::Grant,
-					subject: row.subject,
-				},
-			));
+			batch
+				.items
+				.push(tangram_index::Item::DeletePermission(Box::new(
+					tangram_index::permission::delete::Arg {
+						creator: Some(row.creator),
+						permissions: row.permissions,
+						resource: row.resource,
+						source: tangram_index::permission::Source::Grant,
+						subject: row.subject,
+					},
+				)));
 		}
 		let statement = formatdoc!(
 			"

@@ -153,7 +153,9 @@ mod tests {
 	use {super::pack, tangram_client::prelude::*, tangram_server_core::indexer::EnqueueArg};
 
 	fn index_item() -> tangram_index::Item {
-		tangram_index::Item::DeleteCheckout(tg::tag::Id::new().into())
+		tangram_index::Item::DeleteCheckout(Box::new(tangram_index::checkout::delete::Arg {
+			id: tg::tag::Id::new().into(),
+		}))
 	}
 
 	fn size(item: &tangram_index::Item) -> usize {

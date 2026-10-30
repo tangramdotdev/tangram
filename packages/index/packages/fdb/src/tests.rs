@@ -63,7 +63,7 @@ pub(crate) fn directory(children: &[(&str, tg::object::Id)]) -> tangram_index::o
 pub(crate) async fn put(index: &Index, objects: Vec<tangram_index::object::put::Arg>) {
 	let items = objects
 		.into_iter()
-		.map(tangram_index::Item::PutObject)
+		.map(|arg| tangram_index::Item::PutObject(Box::new(arg)))
 		.collect();
 	let arg = tangram_index::write::Arg { items };
 	index.write(arg).await.unwrap().unwrap();

@@ -203,9 +203,9 @@ impl Component {
 		};
 		let mut items = Vec::with_capacity(3);
 		if let Some(parent_arg) = parent_arg {
-			items.push(tangram_index::Item::PutProcess(parent_arg));
+			items.push(tangram_index::Item::PutProcess(Box::new(parent_arg)));
 		}
-		items.push(tangram_index::Item::PutProcess(child_arg));
+		items.push(tangram_index::Item::PutProcess(Box::new(child_arg)));
 		let arg = tangram_index::write::Arg { items };
 		session
 			.server

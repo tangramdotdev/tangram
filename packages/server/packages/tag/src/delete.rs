@@ -193,10 +193,11 @@ impl Component {
 			ControlFlow::Break(()) => (),
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		batch.items.extend(
-			tags.iter()
-				.map(|tag| tangram_index::Item::DeleteTag(tag.id.clone())),
-		);
+		batch.items.extend(tags.iter().map(|tag| {
+			tangram_index::Item::DeleteTag(Box::new(tangram_index::tag::delete::Arg {
+				id: tag.id.clone(),
+			}))
+		}));
 		match session
 			.server
 			.components

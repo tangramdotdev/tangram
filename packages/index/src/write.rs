@@ -69,8 +69,10 @@ mod tests {
 		};
 		let arg = Arg {
 			items: vec![
-				crate::Item::DeleteCheckout(tag.clone().into()),
-				crate::Item::DeletePermission(crate::permission::delete::Arg {
+				crate::Item::DeleteCheckout(Box::new(crate::checkout::delete::Arg {
+					id: tag.clone().into(),
+				})),
+				crate::Item::DeletePermission(Box::new(crate::permission::delete::Arg {
 					creator: Some(tg::Principal::Root),
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
@@ -78,12 +80,14 @@ mod tests {
 					resource: group.clone().into(),
 					source: crate::permission::Source::Grant,
 					subject: tg::authorization::Subject::Root,
-				}),
-				crate::Item::DeleteGroup(group.clone()),
-				crate::Item::DeleteOrganization(organization.clone()),
-				crate::Item::DeleteTag(tag),
-				crate::Item::DeleteUser(user.clone()),
-				crate::Item::PutPermission(crate::permission::put::Arg {
+				})),
+				crate::Item::DeleteGroup(Box::new(crate::group::delete::Arg { id: group.clone() })),
+				crate::Item::DeleteOrganization(Box::new(crate::organization::delete::Arg {
+					id: organization.clone(),
+				})),
+				crate::Item::DeleteTag(Box::new(crate::tag::delete::Arg { id: tag })),
+				crate::Item::DeleteUser(Box::new(crate::user::delete::Arg { id: user.clone() })),
+				crate::Item::PutPermission(Box::new(crate::permission::put::Arg {
 					created_at: 1,
 					creator: Some(tg::Principal::Root),
 					permissions: tg::authorization::permission::Set::Group(
@@ -94,16 +98,18 @@ mod tests {
 					subject: tg::authorization::Subject::Root,
 					time_to_touch: Some(std::time::Duration::new(30, 456)),
 					version: None,
-				}),
-				crate::Item::PutGroupMember(crate::group::member::put::Arg {
+				})),
+				crate::Item::PutGroupMember(Box::new(crate::group::member::put::Arg {
 					group,
 					member: tg::group::Member::User(user.clone()),
-				}),
-				crate::Item::PutOrganizationMember(crate::organization::member::put::Arg {
-					member: tg::organization::Member::User(user),
-					organization,
-				}),
-				crate::Item::PutSandbox(crate::sandbox::put::Arg {
+				})),
+				crate::Item::PutOrganizationMember(Box::new(
+					crate::organization::member::put::Arg {
+						member: tg::organization::Member::User(user),
+						organization,
+					},
+				)),
+				crate::Item::PutSandbox(Box::new(crate::sandbox::put::Arg {
 					account: None,
 					created_at: 1,
 					data: Some(data),
@@ -114,7 +120,7 @@ mod tests {
 					processes: None,
 					runner: None,
 					touched_at: 2,
-				}),
+				})),
 			],
 		};
 

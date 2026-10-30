@@ -277,12 +277,14 @@ impl Component {
 		if deleted == 0 {
 			return Ok(ControlFlow::Break(None));
 		}
-		batch.items.push(tangram_index::Item::DeleteGroupMember(
-			tangram_index::group::member::delete::Arg {
-				group: group_id.clone().try_into()?,
-				member: member.clone(),
-			},
-		));
+		batch
+			.items
+			.push(tangram_index::Item::DeleteGroupMember(Box::new(
+				tangram_index::group::member::delete::Arg {
+					group: group_id.clone().try_into()?,
+					member: member.clone(),
+				},
+			)));
 		let subject = match member {
 			tg::group::Member::Group(id) => tg::authorization::Subject::Group(id.clone()),
 			tg::group::Member::User(id) => tg::authorization::Subject::User(id.clone()),

@@ -62,7 +62,7 @@ async fn delegation_traversal_and_propagation() {
 	};
 	index
 		.write(tangram_index::write::Arg {
-			items: vec![tangram_index::Item::PutProcess(arg)],
+			items: vec![tangram_index::Item::PutProcess(Box::new(arg))],
 		})
 		.await
 		.unwrap()
@@ -265,7 +265,7 @@ async fn process_parent_traverses_delegations_before_propagation() {
 					time_to_touch: None,
 					version: None,
 				};
-				items.push(tangram_index::Item::PutPermission(arg));
+				items.push(tangram_index::Item::PutPermission(Box::new(arg)));
 			}
 			let arg = tangram_index::write::Arg { items };
 			index.write(arg).await.unwrap().unwrap();
@@ -348,7 +348,7 @@ fn process_object(process: &tg::process::Id, root: &tg::object::Id) -> tangram_i
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,
 	};
-	tangram_index::Item::PutProcess(arg)
+	tangram_index::Item::PutProcess(Box::new(arg))
 }
 async fn clean(index: &Index) {
 	let arg = tangram_index::clean::Arg {
@@ -380,7 +380,7 @@ fn put_object(id: &tg::object::Id, children: BTreeSet<tg::object::Id>) -> tangra
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,
 	};
-	tangram_index::Item::PutObject(arg)
+	tangram_index::Item::PutObject(Box::new(arg))
 }
 
 fn delegation(
@@ -395,7 +395,7 @@ fn delegation(
 		subject: subject.clone(),
 		version: None,
 	};
-	tangram_index::Item::PutDelegation(arg)
+	tangram_index::Item::PutDelegation(Box::new(arg))
 }
 
 fn permission(
@@ -420,7 +420,7 @@ fn permission(
 		time_to_touch: None,
 		version: None,
 	};
-	tangram_index::Item::PutPermission(arg)
+	tangram_index::Item::PutPermission(Box::new(arg))
 }
 
 async fn verified(
@@ -573,7 +573,11 @@ async fn subject_deletion_removes_all_delegation_indexes() {
 	};
 	index.write(arg).await.unwrap().unwrap();
 	let arg = tangram_index::write::Arg {
-		items: vec![tangram_index::Item::DeleteDelegations(subject.clone())],
+		items: vec![tangram_index::Item::DeleteDelegations(Box::new(
+			tangram_index::delegation::delete::Arg {
+				subject: subject.clone(),
+			},
+		))],
 	};
 	index.write(arg).await.unwrap().unwrap();
 	drain(&index).await;
@@ -788,7 +792,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 	let put = tangram_index::write::Arg {
 		items: vec![
 			put_object(&directory, BTreeSet::from([file.clone()])),
-			tangram_index::Item::PutProcess(process_arg),
+			tangram_index::Item::PutProcess(Box::new(process_arg)),
 			delegation(&directory, &recipient, &parent),
 		],
 	};

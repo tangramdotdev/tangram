@@ -1,5 +1,6 @@
 use {futures::FutureExt as _, tangram_client::prelude::*};
 
+pub mod delete;
 pub mod put;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
