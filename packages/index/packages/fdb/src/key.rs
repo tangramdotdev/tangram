@@ -94,6 +94,7 @@ pub enum Kind {
 	Sync = 77,
 	SyncExpiresAt = 78,
 	Propagation = 79,
+	PropagationClean = 80,
 	PermissionCapture = 90,
 }
 
@@ -672,6 +673,25 @@ impl fdbt::TuplePack for Key {
 					parent.as_ref(),
 				)
 					.pack(w, tuple_depth)
+			},
+
+			Key::Update(crate::update::Key::PropagationClean {
+				id,
+				partition,
+				version,
+			}) => {
+				let mut offset = Kind::PropagationClean
+					.to_i32()
+					.unwrap()
+					.pack(w, tuple_depth)?;
+				offset += partition.pack(w, tuple_depth)?;
+				offset += version.pack(w, tuple_depth)?;
+				let id = match id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				offset += id.as_ref().pack(w, tuple_depth)?;
+				Ok(offset)
 			},
 
 			Key::Update(crate::update::Key::StorageAndMetadataUpdate {
@@ -1732,6 +1752,19 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, parent): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let parent = unpack_item_id(&parent)?;
 				let key = Key::Update(crate::update::Key::Propagation { child, parent });
+				Ok((input, key))
+			},
+
+			Kind::PropagationClean => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = unpack_item_id(&id)?;
+				let key = Key::Update(crate::update::Key::PropagationClean {
+					id,
+					partition,
+					version,
+				});
 				Ok((input, key))
 			},
 

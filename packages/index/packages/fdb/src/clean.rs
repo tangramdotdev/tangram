@@ -263,11 +263,24 @@ impl Index {
 			)
 			.await
 		);
+		let remaining_batch_size = remaining_batch_size.saturating_sub(propagated_versions);
+		let propagations = crate::propagate!(
+			Self::clean_update_propagations(
+				txn,
+				subspace,
+				remaining_batch_size,
+				partition_start,
+				partition_end,
+				partition_totals,
+			)
+			.await
+		);
 		output.done = delegations == 0
 			&& permissions == 0
 			&& syncs == 0
 			&& candidates.is_empty()
-			&& propagated_versions == 0;
+			&& propagated_versions == 0
+			&& propagations == 0;
 
 		Ok(ControlFlow::Break(output))
 	}
