@@ -10,11 +10,7 @@ let local = server spawn --name local --config {
 let runtime = '
 	export default async (arg: { export: string }) => {
 		if (arg.export === "interface") {
-			return {
-				exports: {
-					greet: { type: { kind: "command", args: { kind: "tuple", elements: [] }, output: { kind: "string" } } },
-				},
-			};
+			return "// @tangram interface javascript\nexport declare const greet: tg.Command<[], string>;\n";
 		}
 		return "Hello!";
 	};

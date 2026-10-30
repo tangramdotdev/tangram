@@ -793,7 +793,12 @@ async fn check_interface(
 	let result = tg::process::build::build_with_instance(client, arg)
 		.boxed_local()
 		.await
-		.and_then(|value| tg::Interface::try_from_value(&value));
+		.and_then(|value| {
+			let tg::Value::String(text) = value else {
+				return Err(tg::error!("expected the interface to be a string"));
+			};
+			tg::interface::parse::parse(&text)
+		});
 	let generated = match result {
 		Ok(interface) => interface,
 		Err(error) => {
