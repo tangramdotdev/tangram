@@ -168,6 +168,7 @@ export const build = async (...args: tg.Args<Arg>) => {
 	// Build tangram.
 	const env = std.env.arg(...envs, env_ ?? null);
 	const output = cargo.build({
+		...merged,
 		...(await std.triple.rotate({ build, host })),
 		captureStderr,
 		disableDefaultFeatures,
@@ -345,7 +346,7 @@ const assertHelp = async (env: tg.Unresolved<std.env.Arg>) => {
 	tg.assert(output.includes("Usage:"));
 };
 
-const nodeModules = async (hostArg?: string) => {
+export const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? std.triple.host();
 
 	// Create subset of source relevant for bun install.
