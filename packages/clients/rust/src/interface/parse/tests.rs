@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	std::collections::BTreeMap,
-	tg::interface::{Element, Export, Field, Interface, Literal, Syntax, Type},
+	tg::interface::{Element, Export, Field, Interface, Language, Literal, Type},
 };
 
 /// Get an interface that uses every type.
@@ -160,38 +160,18 @@ fn interface() -> Interface {
 }
 
 #[test]
-fn an_interface_round_trips_through_the_javascript_syntax() {
+fn an_interface_round_trips_through_every_language() {
 	let interface = interface();
-	let text = tg::interface::print::print(&interface, Syntax::JavaScript).unwrap();
-	assert!(
-		text.starts_with("// @tangram interface javascript\n"),
-		"{text}"
-	);
-	let parsed = tg::interface::parse::parse(&text).unwrap();
-	assert_eq!(parsed, interface, "{text}");
+	for language in Language::ALL {
+		let text = tg::interface::print::print(&interface, language).unwrap();
+		let parsed = tg::interface::parse::parse(&text, language).unwrap();
+		assert_eq!(parsed, interface, "{text}");
+	}
 }
 
 #[test]
-fn an_interface_round_trips_through_the_python_syntax() {
-	let interface = interface();
-	let text = tg::interface::print::print(&interface, Syntax::Python).unwrap();
-	assert!(text.starts_with("# @tangram interface python\n"), "{text}");
-	let parsed = tg::interface::parse::parse(&text).unwrap();
-	assert_eq!(parsed, interface, "{text}");
-}
-
-#[test]
-fn an_interface_round_trips_through_json() {
-	let interface = interface();
-	let text = tg::interface::print::print(&interface, Syntax::Json).unwrap();
-	assert!(text.starts_with('{'), "{text}");
-	let parsed = tg::interface::parse::parse(&text).unwrap();
-	assert_eq!(parsed, interface, "{text}");
-}
-
-#[test]
-fn a_handwritten_interface_parses_in_both_syntaxes() {
-	let javascript = r#"
+fn a_handwritten_interface_parses_in_typescript_and_python() {
+	let typescript = r#"
 		import type * as greeting from "./greeting.tg.ts";
 
 		/** Greet someone by name. */
@@ -200,8 +180,7 @@ fn a_handwritten_interface_parses_in_both_syntaxes() {
 		export default _default;
 		export type Options = { name: string; verbose?: boolean; env: { [key: string]: string }[] };
 	"#;
-	let python = r#"# @tangram interface python
-# /// script
+	let python = r#"# /// script
 # [tool.tangram.dependencies.greeting]
 # specifier = "./greeting.tg.ts"
 # ///
@@ -216,11 +195,11 @@ class Options(TypedDict):
     verbose: NotRequired[bool]
     env: list[dict[str, str]]
 "#;
-	let javascript = tg::interface::parse::parse(javascript).unwrap();
-	let python = tg::interface::parse::parse(python).unwrap();
-	assert_eq!(javascript, python);
+	let typescript = tg::interface::parse::parse(typescript, Language::TypeScript).unwrap();
+	let python = tg::interface::parse::parse(python, Language::Python).unwrap();
+	assert_eq!(typescript, python);
 	assert_eq!(
-		javascript.exports["greet"].documentation.as_deref(),
+		typescript.exports["greet"].documentation.as_deref(),
 		Some("Greet someone by name.")
 	);
 }
@@ -229,22 +208,21 @@ class Options(TypedDict):
 fn invalid_interfaces_have_ranges() {
 	let cases = [
 		(
-			"// @tangram interface javascript\nexport declare const x: Missing;\n",
+			"\nexport declare const x: Missing;\n",
+			Language::TypeScript,
 			1,
 		),
 		(
-			"// @tangram interface javascript\n\nexport declare const x: tg.Nope;\n",
+			"\n\nexport declare const x: tg.Nope;\n",
+			Language::TypeScript,
 			2,
 		),
-		("# @tangram interface python\nx: str\n  y: str\n", 2),
-		("# @tangram interface javascript\n", 0),
-		(
-			"// @tangram interface javascript\ndeclare const x: string;\n",
-			1,
-		),
+		("x: str\n\n  y: str\n", Language::Python, 2),
+		("{\n  \"exports\": 1\n}\n", Language::Json, 1),
+		("declare const x: string;\n", Language::TypeScript, 0),
 	];
-	for (text, line) in cases {
-		let Err((_, range)) = tg::interface::parse::parse_with_range(text) else {
+	for (text, language, line) in cases {
+		let Err((_, range)) = tg::interface::parse::parse_with_range(text, language) else {
 			panic!("expected an error: {text}");
 		};
 		assert_eq!(range.unwrap().start.line, line, "{text}");

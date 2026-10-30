@@ -3,8 +3,8 @@ use {
 	std::{collections::BTreeMap, ops::Range, path::PathBuf},
 };
 
-mod javascript;
 mod python;
+mod typescript;
 
 #[cfg(test)]
 mod tests;
@@ -54,20 +54,20 @@ const PUNCTUATION: &[&str] = &[
 	"...", "(", ")", "*", ",", "-", ".", ":", ";", "<", "=", ">", "?", "[", "]", "{", "|", "}",
 ];
 
-/// Parse an interface file in the syntax that the magic comment on its first line names, or as JSON if it begins with an object, or else in the JavaScript syntax.
-pub fn parse(text: &str) -> tg::Result<tg::Interface> {
-	parse_with_range(text).map_err(|(error, _)| error)
+/// Parse an interface file in a language.
+pub fn parse(text: &str, language: tg::interface::Language) -> tg::Result<tg::Interface> {
+	parse_with_range(text, language).map_err(|(error, _)| error)
 }
 
-/// Parse an interface file, returning the range of the error in the text if it has one.
+/// Parse an interface file in a language, returning the range of the error in the text if it has one.
 pub fn parse_with_range(
 	text: &str,
+	language: tg::interface::Language,
 ) -> std::result::Result<tg::Interface, (tg::Error, Option<tg::Range>)> {
-	let result = match syntax(text) {
-		Ok(tg::interface::Syntax::JavaScript) => javascript::parse(text),
-		Ok(tg::interface::Syntax::Json) => json(text),
-		Ok(tg::interface::Syntax::Python) => python::parse(text),
-		Err(error) => Err(error),
+	let result = match language {
+		tg::interface::Language::Json => json(text),
+		tg::interface::Language::Python => python::parse(text),
+		tg::interface::Language::TypeScript => typescript::parse(text),
 	};
 	result.map_err(|error| {
 		let range = tg::Range::try_from_byte_range_in_string(
@@ -78,36 +78,6 @@ pub fn parse_with_range(
 		let message = error.message;
 		(tg::error!(argument, %message, "invalid interface"), range)
 	})
-}
-
-/// Get the syntax of an interface file from the magic comment on its first line, which is `// @tangram interface javascript` or `# @tangram interface python`, or else JSON if the file begins with an object.
-fn syntax(text: &str) -> Result<tg::interface::Syntax, Error> {
-	if text.trim_start().starts_with('{') {
-		return Ok(tg::interface::Syntax::Json);
-	}
-	let line = text.lines().next().unwrap_or_default();
-	let range = 0..line.len();
-	let comment = line
-		.trim()
-		.strip_prefix("//")
-		.map(|rest| ("//", rest))
-		.or_else(|| line.trim().strip_prefix('#').map(|rest| ("#", rest)));
-	let Some((prefix, rest)) = comment else {
-		return Ok(tg::interface::Syntax::JavaScript);
-	};
-	let Some(name) = rest.trim().strip_prefix("@tangram interface") else {
-		return Ok(tg::interface::Syntax::JavaScript);
-	};
-	let syntax = match (prefix, name.trim()) {
-		("//", "javascript") => tg::interface::Syntax::JavaScript,
-		("#", "python") => tg::interface::Syntax::Python,
-		(_, name) => {
-			let message =
-				format!("the interface syntax {name:?} is not known in a {prefix} comment");
-			return Err(Error { message, range });
-		},
-	};
-	Ok(syntax)
 }
 
 /// Parse an interface file in JSON.
@@ -129,8 +99,8 @@ fn json(text: &str) -> Result<tg::Interface, Error> {
 	})
 }
 
-/// Split the text of an interface file into tokens, skipping comments other than JavaScript documentation comments.
-fn lex(text: &str, syntax: tg::interface::Syntax) -> Result<Vec<Token>, Error> {
+/// Split the text of an interface file into tokens, skipping comments other than TypeScript documentation comments.
+fn lex(text: &str, language: tg::interface::Language) -> Result<Vec<Token>, Error> {
 	let bytes = text.as_bytes();
 	let mut tokens = Vec::new();
 	let mut index = 0;
@@ -152,17 +122,17 @@ fn lex(text: &str, syntax: tg::interface::Syntax) -> Result<Vec<Token>, Error> {
 			continue;
 		}
 
-		// Skip comments, and keep JavaScript documentation comments.
+		// Skip comments, and keep TypeScript documentation comments.
 		let rest = &text[index..];
-		let line_comment = match syntax {
-			tg::interface::Syntax::JavaScript => rest.starts_with("//"),
-			tg::interface::Syntax::Json => false,
-			tg::interface::Syntax::Python => byte == b'#',
+		let line_comment = match language {
+			tg::interface::Language::Json => false,
+			tg::interface::Language::Python => byte == b'#',
+			tg::interface::Language::TypeScript => rest.starts_with("//"),
 		};
 		let kind = if line_comment {
 			index += rest.find('\n').unwrap_or(rest.len());
 			continue;
-		} else if syntax == tg::interface::Syntax::JavaScript && rest.starts_with("/*") {
+		} else if language == tg::interface::Language::TypeScript && rest.starts_with("/*") {
 			let Some(end) = rest[2..].find("*/") else {
 				let message = "the comment is not closed".to_owned();
 				return Err(Error {
@@ -181,7 +151,7 @@ fn lex(text: &str, syntax: tg::interface::Syntax) -> Result<Vec<Token>, Error> {
 			}
 			TokenKind::Documentation(documentation_text(&comment[3..comment.len() - 2]))
 		} else if byte == b'"' || byte == b'\'' {
-			let (string, length) = string(rest, syntax).ok_or_else(|| Error {
+			let (string, length) = string(rest, language).ok_or_else(|| Error {
 				message: "the string is not closed".to_owned(),
 				range: start..text.len(),
 			})?;
@@ -243,10 +213,10 @@ fn documentation_text(comment: &str) -> String {
 }
 
 /// Lex a string at the beginning of the text, returning its value and its length in the text.
-fn string(text: &str, syntax: tg::interface::Syntax) -> Option<(String, usize)> {
+fn string(text: &str, language: tg::interface::Language) -> Option<(String, usize)> {
 	let quote = text.chars().next()?;
-	let triple =
-		syntax == tg::interface::Syntax::Python && text.starts_with(&quote.to_string().repeat(3));
+	let triple = language == tg::interface::Language::Python
+		&& text.starts_with(&quote.to_string().repeat(3));
 	let delimiter = if triple {
 		quote.to_string().repeat(3)
 	} else {

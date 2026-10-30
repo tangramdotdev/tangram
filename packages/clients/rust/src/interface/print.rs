@@ -1,14 +1,14 @@
 use crate::prelude::*;
 
-mod javascript;
 mod python;
+mod typescript;
 
-/// Print an interface as an interface file in a syntax, with the magic comment that names the syntax on its first line if the syntax is not JSON.
-pub fn print(interface: &tg::Interface, syntax: tg::interface::Syntax) -> tg::Result<String> {
-	match syntax {
-		tg::interface::Syntax::JavaScript => javascript::print(interface),
-		tg::interface::Syntax::Json => Ok(interface.serialize_json()? + "\n"),
-		tg::interface::Syntax::Python => python::print(interface),
+/// Print an interface as an interface file in a language.
+pub fn print(interface: &tg::Interface, language: tg::interface::Language) -> tg::Result<String> {
+	match language {
+		tg::interface::Language::Json => Ok(interface.serialize_json()? + "\n"),
+		tg::interface::Language::Python => python::print(interface),
+		tg::interface::Language::TypeScript => typescript::print(interface),
 	}
 }
 
@@ -40,7 +40,7 @@ fn number(value: f64) -> tg::Result<String> {
 	Ok(value.to_string())
 }
 
-/// Print a string as a quoted string with escapes, which is valid in JavaScript and Python.
+/// Print a string as a quoted string with escapes, which is valid in TypeScript and Python.
 fn string(value: &str) -> String {
 	serde_json::to_string(value).unwrap()
 }

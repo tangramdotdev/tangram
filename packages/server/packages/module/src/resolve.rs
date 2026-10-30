@@ -305,7 +305,9 @@ impl Component {
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
-					| tg::module::Kind::Interface
+					| tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript
 					| tg::module::Kind::File,
 				),
 				tg::Object::File(_),
@@ -340,7 +342,9 @@ impl Component {
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
-					| tg::module::Kind::Interface,
+					| tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript,
 				),
 				_,
 			) => {
@@ -659,7 +663,9 @@ impl Component {
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
-					| tg::module::Kind::Interface
+					| tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript
 					| tg::module::Kind::File,
 				),
 				tg::Object::File(_),
@@ -688,7 +694,9 @@ impl Component {
 					| tg::module::Kind::Python
 					| tg::module::Kind::TypeScript
 					| tg::module::Kind::TypeScriptDeclaration
-					| tg::module::Kind::Interface,
+					| tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript,
 				),
 				_,
 			) => {

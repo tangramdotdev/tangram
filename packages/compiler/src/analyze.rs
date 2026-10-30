@@ -54,13 +54,25 @@ impl Compiler {
 
 				// Import the interface beside a config on disk, so that checking in the config includes it.
 				if let tg::module::data::Source::Path(path) = &module.referent.node
-					&& let Some(name) = tg::module::config::interface_file_name(path)
-					&& path.with_file_name(&name).is_file()
+					&& let Some(stem) = tg::module::config::interface_file_stem(path)
 				{
-					imports.insert(tg::module::Import {
-						kind: Some(tg::module::Kind::Interface),
-						reference: format!("./{name}").parse()?,
-					});
+					let mut interfaces = tg::interface::Language::ALL
+						.into_iter()
+						.map(|language| (language, format!("{stem}.{}", language.extension())))
+						.filter(|(_, name)| path.with_file_name(name).is_file());
+					if let Some((language, name)) = interfaces.next() {
+						if interfaces.next().is_some() {
+							return Err(tg::error!(
+								argument,
+								%stem,
+								"the config has more than one interface beside it"
+							));
+						}
+						imports.insert(tg::module::Import {
+							kind: Some(language.kind()),
+							reference: format!("./{name}").parse()?,
+						});
+					}
 				}
 
 				let analysis = Analysis {
@@ -69,9 +81,12 @@ impl Compiler {
 				};
 				Ok(analysis)
 			},
-			tg::module::Kind::Interface => {
+			tg::module::Kind::InterfaceJson
+			| tg::module::Kind::InterfacePython
+			| tg::module::Kind::InterfaceTypeScript => {
 				// Get the imports of the interface whose paths are relative to it.
-				let interface = tg::interface::parse::parse(text)?;
+				let language = tg::interface::Language::for_kind(module.kind).unwrap();
+				let interface = tg::interface::parse::parse(text, language)?;
 				let mut imports = HashSet::default();
 				for import in interface.imports.values() {
 					let tg::module::data::Source::Path(path) = &import.referent.node else {

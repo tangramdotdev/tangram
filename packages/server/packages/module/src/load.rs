@@ -72,7 +72,9 @@ impl Component {
 			.await?;
 			let interface = if let Some(module) = module {
 				let text = self.load_module_inner(session, &module).await?.text;
-				tg::interface::parse::parse(&text)?
+				let language = tg::interface::Language::for_kind(module.kind)
+					.ok_or_else(|| tg::error!("expected an interface module"))?;
+				tg::interface::parse::parse(&text, language)?
 			} else {
 				tg::Interface::default()
 			};
@@ -113,7 +115,9 @@ impl Component {
 			// Handle a text module from a path.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::Interface
+					tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript
 					| tg::module::Kind::Json
 					| tg::module::Kind::Toml
 					| tg::module::Kind::Yaml
@@ -140,7 +144,9 @@ impl Component {
 			// Handle a text module from an object.
 			tg::module::Data {
 				kind:
-					tg::module::Kind::Interface
+					tg::module::Kind::InterfaceJson
+					| tg::module::Kind::InterfacePython
+					| tg::module::Kind::InterfaceTypeScript
 					| tg::module::Kind::Json
 					| tg::module::Kind::Toml
 					| tg::module::Kind::Yaml

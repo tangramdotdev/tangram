@@ -34,7 +34,7 @@ struct Dependency {
 	specifier: String,
 }
 
-/// Parse an interface file in the Python syntax, which is a subset of Python type declarations, with its imports in a script metadata block.
+/// Parse an interface file in Python, as a subset of Python type declarations with its imports in a script metadata block.
 pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 	// Get the imports from the script metadata block.
 	let mut interface = tg::Interface {
@@ -43,7 +43,7 @@ pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
 	};
 
 	// Parse the statements.
-	let tokens = super::lex(text, tg::interface::Syntax::Python)?;
+	let tokens = super::lex(text, tg::interface::Language::Python)?;
 	let mut parser = Parser::new(tokens, text.len());
 	while let Some(token) = parser.peek() {
 		let start = token.range.start;

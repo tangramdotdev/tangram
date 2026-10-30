@@ -15,9 +15,9 @@ impl Compiler {
 	pub async fn check(&self, modules: Vec<tg::module::Data>) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Check the modules of each language with its backend.
 		let roots = modules.clone();
-		let (config, modules): (Vec<_>, Vec<_>) = modules.into_iter().partition(|module| {
-			module.kind.is_config() || module.kind == tg::module::Kind::Interface
-		});
+		let (config, modules): (Vec<_>, Vec<_>) = modules
+			.into_iter()
+			.partition(|module| module.kind.is_config() || module.kind.is_interface());
 		let (python, javascript): (Vec<_>, Vec<_>) = modules
 			.into_iter()
 			.partition(|module| module.kind == tg::module::Kind::Python);

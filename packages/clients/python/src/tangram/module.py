@@ -47,7 +47,9 @@ class Module:
     referent: Referent[ModuleSource]
 
     Kind = Literal[
-        "interface",
+        "interface_json",
+        "interface_python",
+        "interface_typescript",
         "javascript",
         "json",
         "python",

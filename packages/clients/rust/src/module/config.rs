@@ -6,8 +6,8 @@ use {
 #[cfg(test)]
 mod tests;
 
-/// The file name of the interface in a runtime package that configs which use the runtime have when they have no interface beside them.
-pub const RUNTIME_INTERFACE_FILE_NAME: &str = "config.tgi";
+/// The stem of the file name of the interface in a runtime package that configs which use the runtime have when they have no interface beside them, which is followed by the extension of the interface's language.
+pub const RUNTIME_INTERFACE_FILE_STEM: &str = "config.tgi";
 
 /// The config of a config module, which names the runtime that runs the module and the module's dependencies.
 #[derive(Clone, Debug)]
@@ -68,12 +68,13 @@ struct RawDependencyMap {
 	specifier: String,
 }
 
-/// Get the file name of the interface beside a config: `tangram.json` has `tangram.tgi`, and `foo.tg.json` has `foo.tg.tgi`.
+/// Get the stem of the file name of the interface beside a config, which is followed by the extension of the interface's language: `tangram.json` has `tangram.tgi`, and `foo.tg.json` has `foo.tgi`.
 #[must_use]
-pub fn interface_file_name(path: impl AsRef<Path>) -> Option<String> {
+pub fn interface_file_stem(path: impl AsRef<Path>) -> Option<String> {
 	Format::for_path(path.as_ref())?;
 	let name = path.as_ref().file_name()?.to_str()?;
 	let stem = name.rsplit_once('.')?.0;
+	let stem = stem.strip_suffix(".tg").unwrap_or(stem);
 	Some(format!("{stem}.tgi"))
 }
 

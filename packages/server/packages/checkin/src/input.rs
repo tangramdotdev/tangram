@@ -982,8 +982,8 @@ impl Component {
 		if let Some(format) = tg::module::config::Format::for_path(path) {
 			return Ok(Some(format.kind()));
 		}
-		if path.extension().is_some_and(|extension| extension == "tgi") {
-			return Ok(Some(tg::module::Kind::Interface));
+		if let Some(language) = tg::interface::Language::for_path(path) {
+			return Ok(Some(language.kind()));
 		}
 		tg::file::xattrs::read_module(path)
 	}

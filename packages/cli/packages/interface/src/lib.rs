@@ -7,9 +7,9 @@ pub struct Args {
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 
-	/// The syntax to print the interface in, which is javascript, json, or python.
-	#[arg(default_value = "javascript", long)]
-	pub syntax: tg::interface::Syntax,
+	/// The language to print the interface in, which is json, python, or typescript.
+	#[arg(default_value = "typescript", long)]
+	pub language: tg::interface::Language,
 }
 
 pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
@@ -28,7 +28,7 @@ pub async fn run(cli: &mut Cli, args: Args) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to get the interface"))?;
 
 	// Print the interface.
-	let text = tg::interface::print::print(&output.interface, args.syntax)?;
+	let text = tg::interface::print::print(&output.interface, args.language)?;
 	print!("{text}");
 
 	Ok(())

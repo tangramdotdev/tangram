@@ -28,14 +28,14 @@ let path = artifact {
 		export interface Greeting { text: string; }
 	'
 }
-let output = tg interface --syntax json ($path | path join greet.tg.ts) | complete
+let output = tg interface --language json ($path | path join greet.tg.ts) | complete
 success $output
 let interface = $output.stdout | from json
 assert equal ($interface.imports | columns) [greeting]
 assert equal ($interface.imports.greeting.referent.options.path) './greeting.tg.ts' 
 assert equal $interface.exports.greet.type.output { kind: reference, import: greeting, name: Greeting }
 assert ('definitions' not-in $interface)
-let output = tg interface --syntax json ($path | path join greeting.tg.ts) | complete
+let output = tg interface --language json ($path | path join greeting.tg.ts) | complete
 success $output
 assert equal ($output.stdout | from json | get definitions.Greeting) { kind: record, fields: { text: { type: { kind: string } } } }
 success (tg check $path | complete)
@@ -94,12 +94,12 @@ let path = artifact {
 		    text: str
 	'
 }
-let output = tg interface --syntax json ($path | path join greet.tg.py) | complete
+let output = tg interface --language json ($path | path join greet.tg.py) | complete
 success $output
 let interface = $output.stdout | from json
 assert equal ($interface.imports | columns) [greeting]
 assert equal $interface.exports.greet.type.output { kind: reference, import: greeting, name: Greeting }
-let output = tg interface --syntax json ($path | path join greeting.tg.py) | complete
+let output = tg interface --language json ($path | path join greeting.tg.py) | complete
 success $output
 let interface = $output.stdout | from json
 assert equal ($interface.exports | columns) []
@@ -120,7 +120,7 @@ let path = artifact {
 		    return {"text": f"Hello, {name}!"}
 	'
 }
-let output = tg interface --syntax json $path | complete
+let output = tg interface --language json $path | complete
 success $output
 let greet = $output.stdout | from json | get exports.greet
 assert ($greet.error | str contains 'a typed dict must be closed to be a value') $greet.error

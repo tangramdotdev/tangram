@@ -4,12 +4,11 @@ use ../../util/lsp.nu
 # Editing the interface in the runtime package of a config module, or creating the interface beside it, updates the types that its importers see.
 
 let local = server spawn
-let interface = '// @tangram interface javascript
-export declare const greet: tg.Command<[], OUTPUT>;'
+let interface = 'export declare const greet: tg.Command<[], OUTPUT>;'
 let source = "import { greet } from \"./greet.tg.json\";\nexport default async () => { const text: string = await greet.build(); return text; };\n"
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	runtime: { config.tgi: ($interface | str replace OUTPUT string), tangram.ts: 'export default async () => null;' }
+	runtime: { config.tgi.ts: ($interface | str replace OUTPUT string), tangram.ts: 'export default async () => null;' }
 	tangram.ts: $source
 }
 let uri = lsp uri ($path | path join tangram.ts)
@@ -19,13 +18,13 @@ let response = lsp wait_result $session 10
 $session = $response.session
 assert equal $response.result.items []
 
-$interface | str replace OUTPUT number | save --force ($path | path join runtime/config.tgi)
+$interface | str replace OUTPUT number | save --force ($path | path join runtime/config.tgi.ts)
 $session = lsp send $session (lsp diagnostics 11 $uri)
 let response = lsp wait_result $session 11
 $session = $response.session
 assert equal ($response.result.items | where severity == 1 | length) 1
 
-$interface | str replace OUTPUT string | save ($path | path join greet.tg.tgi)
+$interface | str replace OUTPUT string | save ($path | path join greet.tgi.ts)
 $session = lsp send $session (lsp diagnostics 12 $uri)
 let response = lsp wait_result $session 12
 $session = $response.session

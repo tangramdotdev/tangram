@@ -12,7 +12,7 @@ let path = artifact {
 	'
 }
 
-let output = tg interface --syntax json $path | complete
+let output = tg interface --language json $path | complete
 success $output
 let interface = $output.stdout | from json
 
@@ -45,7 +45,7 @@ let path = artifact {
 		export function curry(name: string) { return () => name; }
 	'
 }
-let output = tg interface --syntax json $path | complete
+let output = tg interface --language json $path | complete
 success $output
 let curry = $output.stdout | from json | get exports.curry
 assert ('type' not-in $curry)

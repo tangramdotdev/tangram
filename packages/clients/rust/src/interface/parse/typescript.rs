@@ -11,9 +11,9 @@ struct Local {
 	used: bool,
 }
 
-/// Parse an interface file in the JavaScript syntax, which is a subset of TypeScript declarations.
+/// Parse an interface file in TypeScript, as a subset of TypeScript declarations.
 pub(super) fn parse(text: &str) -> Result<tg::Interface, Error> {
-	let tokens = super::lex(text, tg::interface::Syntax::JavaScript)?;
+	let tokens = super::lex(text, tg::interface::Language::TypeScript)?;
 	let mut parser = Parser::new(tokens, text.len());
 	let mut interface = tg::Interface::default();
 	let mut locals = BTreeMap::<String, Local>::new();

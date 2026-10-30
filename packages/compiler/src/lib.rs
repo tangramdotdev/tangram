@@ -858,7 +858,7 @@ impl Compiler {
 	/// Get the backend for modules of a kind.
 	#[expect(clippy::unused_self)]
 	fn backend(&self, kind: tg::module::Kind) -> &'static dyn backend::Backend {
-		if kind.is_config() || kind == tg::module::Kind::Interface {
+		if kind.is_config() || kind.is_interface() {
 			return &config::Backend;
 		}
 		if kind == tg::module::Kind::Python {

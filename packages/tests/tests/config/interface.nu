@@ -11,14 +11,13 @@ let runtime = '
 	};
 '
 let interface = '
-	// @tangram interface javascript
 	export declare const greet: tg.Command<[string], string>;
 '
 
 # The interface beside a config is its interface.
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	greet.tg.tgi: $interface
+	greet.tgi.ts: $interface
 	runtime: { tangram.ts: $runtime }
 	tangram.ts: '
 		import { greet } from "./greet.tg.json";
@@ -28,7 +27,7 @@ let path = artifact {
 		};
 	'
 }
-let output = tg interface --syntax json ($path | path join greet.tg.json) | complete
+let output = tg interface --language json ($path | path join greet.tg.json) | complete
 success $output
 let expected = {
 	kind: command,
@@ -38,11 +37,9 @@ let expected = {
 assert equal ($output.stdout | from json | get exports.greet.type) $expected
 let output = tg interface ($path | path join greet.tg.json) | complete
 success $output
-assert ($output.stdout | str starts-with "// @tangram interface javascript\n") $output.stdout
 assert ($output.stdout | str contains "export declare const greet: tg.Command<[string], string>;") $output.stdout
-let output = tg interface --syntax python ($path | path join greet.tg.json) | complete
+let output = tg interface --language python ($path | path join greet.tg.json) | complete
 success $output
-assert ($output.stdout | str starts-with "# @tangram interface python\n") $output.stdout
 assert ($output.stdout | str contains "greet: tg.Command[tuple[str], str]") $output.stdout
 success (tg check $path | complete)
 let output = tg build $path | complete
@@ -52,7 +49,7 @@ assert equal ($output.stdout | from json) 'Hello, World!'
 # A wrong use fails checking in TypeScript and in Python.
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	greet.tg.tgi: $interface
+	greet.tgi.ts: $interface
 	runtime: { tangram.ts: $runtime }
 	tangram.ts: '
 		import { greet } from "./greet.tg.json";
@@ -64,7 +61,7 @@ failure $output
 assert ($output.stderr | str contains 'tangram.ts:2:') $output.stderr
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	greet.tg.tgi: $interface
+	greet.tgi.ts: $interface
 	runtime: { tangram.ts: $runtime }
 	tangram.py: '
 		# /// script
@@ -83,7 +80,7 @@ assert ($output.stderr | str contains 'tangram.py:7:') $output.stderr
 # A config without an interface beside it has its runtime's interface for configs.
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	runtime: { config.tgi: $interface, tangram.ts: $runtime }
+	runtime: { config.tgi.ts: $interface, tangram.ts: $runtime }
 	tangram.ts: '
 		import { greet } from "./greet.tg.json";
 		export default async () => {
@@ -100,8 +97,8 @@ assert equal ($output.stdout | from json) 'Hello, World!'
 # The interface beside a config replaces its runtime's interface for configs.
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	greet.tg.tgi: '{ "exports": {} }'
-	runtime: { config.tgi: $interface, tangram.ts: $runtime }
+	greet.tgi.json: '{ "exports": {} }'
+	runtime: { config.tgi.ts: $interface, tangram.ts: $runtime }
 	tangram.ts: '
 		import { greet } from "./greet.tg.json";
 		export default async () => greet.build("World");
@@ -110,6 +107,17 @@ let path = artifact {
 let output = tg check $path | complete
 failure $output
 assert ($output.stderr | str contains 'tangram.ts:1:') $output.stderr
+
+# A config with more than one interface beside it is invalid.
+let path = artifact {
+	greet.tg.json: '{ "runtime": "./runtime" }'
+	greet.tgi.json: '{ "exports": {} }'
+	greet.tgi.ts: $interface
+	runtime: { tangram.ts: $runtime }
+}
+let output = tg check ($path | path join greet.tg.json) | complete
+failure $output
+assert ($output.stderr | str contains 'more than one interface') $output.stderr
 
 # A config without an interface has no exports, but its exports still build.
 let path = artifact {
@@ -120,7 +128,7 @@ let path = artifact {
 		export default async () => greet.build("World");
 	'
 }
-let output = tg interface --syntax json ($path | path join greet.tg.json) | complete
+let output = tg interface --language json ($path | path join greet.tg.json) | complete
 success $output
 assert equal ($output.stdout | from json | get exports) {}
 let output = tg check $path | complete
@@ -148,7 +156,6 @@ assert equal ($output.stdout | from json) 'Hello, World!'
 
 # An interface may import a module relative to itself, in the config's directory or in the runtime package.
 let greeting = '
-	# @tangram interface python
 	# /// script
 	# [tool.tangram.dependencies.greeting]
 	# specifier = "./greeting.tg.ts"
@@ -162,7 +169,7 @@ let source = '
 '
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	greet.tg.tgi: $greeting
+	greet.tgi.py: $greeting
 	greeting.tg.ts: 'export interface Greeting { text: string; }'
 	runtime: { tangram.ts: 'export default async () => ({ text: "Hello!" });' }
 	tangram.ts: $source
@@ -173,7 +180,7 @@ assert ($output.stderr | str contains "Type 'string' is not assignable to type '
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
 	runtime: {
-		config.tgi: $greeting
+		config.tgi.py: $greeting
 		greeting.tg.ts: 'export interface Greeting { text: string; }'
 		tangram.ts: 'export default async () => ({ text: "Hello!" });'
 	}
@@ -190,7 +197,7 @@ let importer = '
 '
 let package = artifact {
 	tangram.json: '{ "runtime": "./runtime" }'
-	tangram.tgi: $greeting
+	tangram.tgi.py: $greeting
 	greeting.tg.ts: 'export interface Greeting { text: string; }'
 	runtime: { tangram.ts: 'export default async () => ({ text: "Hello!" });' }
 }
@@ -201,7 +208,7 @@ assert ($output.stderr | str contains "Type 'string' is not assignable to type '
 let package = artifact {
 	tangram.json: '{ "runtime": "./runtime" }'
 	runtime: {
-		config.tgi: $greeting
+		config.tgi.py: $greeting
 		greeting.tg.ts: 'export interface Greeting { text: string; }'
 		tangram.ts: 'export default async () => ({ text: "Hello!" });'
 	}
@@ -214,7 +221,7 @@ assert ($output.stderr | str contains "Type 'string' is not assignable to type '
 # Importers in TypeScript and Python run a config whose interface imports a module.
 let config = {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	greet.tg.tgi: $greeting
+	greet.tgi.py: $greeting
 	greeting.tg.ts: 'export interface Greeting { text: string; }'
 	runtime: { tangram.ts: 'export default async () => ({ text: "Hello!" });' }
 }

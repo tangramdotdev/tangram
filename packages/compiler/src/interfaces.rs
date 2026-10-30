@@ -435,7 +435,9 @@ impl Interfaces {
 /// Get the group of a module's checker.
 fn group(kind: tg::module::Kind) -> Option<Group> {
 	match kind {
-		tg::module::Kind::Interface
+		tg::module::Kind::InterfaceJson
+		| tg::module::Kind::InterfacePython
+		| tg::module::Kind::InterfaceTypeScript
 		| tg::module::Kind::Json
 		| tg::module::Kind::Toml
 		| tg::module::Kind::Yaml => Some(Group::Config),

@@ -70,7 +70,14 @@ pub enum Kind {
 	Graph,
 
 	#[tangram_serialize(id = 16)]
-	Interface,
+	InterfaceJson,
+
+	#[tangram_serialize(id = 17)]
+	InterfacePython,
+
+	#[tangram_serialize(id = 18)]
+	#[display("interface_typescript")]
+	InterfaceTypeScript,
 
 	#[tangram_serialize(id = 0)]
 	#[display("javascript")]
@@ -118,8 +125,8 @@ pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Ki
 		Ok(tg::module::Kind::Python)
 	} else if let Some(format) = tg::module::config::Format::for_path(path) {
 		Ok(format.kind())
-	} else if path.extension().is_some_and(|extension| extension == "tgi") {
-		Ok(tg::module::Kind::Interface)
+	} else if let Some(language) = tg::interface::Language::for_path(path) {
+		Ok(language.kind())
 	} else {
 		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
 	}
@@ -135,7 +142,15 @@ pub fn is_module_path(path: &Path) -> bool {
 	};
 	tg::module::ROOT_MODULE_FILE_NAMES.contains(&name)
 		|| [
-			".tg.js", ".tg.json", ".tg.py", ".tg.toml", ".tg.ts", ".tg.yaml", ".tgi",
+			".tg.js",
+			".tg.json",
+			".tg.py",
+			".tg.toml",
+			".tg.ts",
+			".tg.yaml",
+			".tgi.json",
+			".tgi.py",
+			".tgi.ts",
 		]
 		.iter()
 		.any(|suffix| name.ends_with(suffix))
@@ -222,6 +237,15 @@ impl Kind {
 	pub fn is_config(self) -> bool {
 		matches!(self, Self::Json | Self::Toml | Self::Yaml)
 	}
+
+	/// Determine whether the kind is a kind of interface module.
+	#[must_use]
+	pub fn is_interface(self) -> bool {
+		matches!(
+			self,
+			Self::InterfaceJson | Self::InterfacePython | Self::InterfaceTypeScript
+		)
+	}
 }
 
 impl std::str::FromStr for Kind {
@@ -235,7 +259,9 @@ impl std::str::FromStr for Kind {
 			"error" => Self::Error,
 			"file" => Self::File,
 			"graph" => Self::Graph,
-			"interface" => Self::Interface,
+			"interface_json" => Self::InterfaceJson,
+			"interface_python" => Self::InterfacePython,
+			"interface_typescript" => Self::InterfaceTypeScript,
 			"javascript" => Self::JavaScript,
 			"json" => Self::Json,
 			"object" => Self::Object,

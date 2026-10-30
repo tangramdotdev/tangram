@@ -18,7 +18,9 @@ export class Module {
 
 export namespace Module {
 	export type Kind =
-		| "interface"
+		| "interface_json"
+		| "interface_python"
+		| "interface_typescript"
 		| "javascript"
 		| "json"
 		| "python"

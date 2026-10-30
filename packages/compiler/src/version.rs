@@ -59,7 +59,9 @@ impl Compiler {
 		// Get the path.
 		let tg::module::Data {
 			kind:
-				tg::module::Kind::Interface
+				tg::module::Kind::InterfaceJson
+				| tg::module::Kind::InterfacePython
+				| tg::module::Kind::InterfaceTypeScript
 				| tg::module::Kind::JavaScript
 				| tg::module::Kind::Json
 				| tg::module::Kind::Python

@@ -62,14 +62,11 @@ const RESERVED: &[&str] = &[
 	"yield",
 ];
 
-/// Print an interface in the JavaScript syntax.
+/// Print an interface in TypeScript.
 pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
-	let mut output = "// @tangram interface javascript\n".to_owned();
+	let mut output = String::new();
 
 	// Print the imports.
-	if !interface.imports.is_empty() {
-		output.push('\n');
-	}
 	for (alias, module) in &interface.imports {
 		if !super::is_identifier(alias, RESERVED) {
 			return Err(tg::error!(%alias, "the name of the import is not an identifier"));
@@ -122,6 +119,8 @@ pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 	if !renames.is_empty() {
 		writeln!(output, "\nexport {{ {} }};", renames.join(", ")).unwrap();
 	}
+
+	let output = output.trim_start_matches('\n').to_owned();
 
 	Ok(output)
 }

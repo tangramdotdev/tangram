@@ -8,9 +8,9 @@ const RESERVED: &[&str] = &[
 	"while", "with", "yield",
 ];
 
-/// Print an interface in the Python syntax.
+/// Print an interface in Python.
 pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
-	let mut output = "# @tangram interface python\n".to_owned();
+	let mut output = String::new();
 
 	// Print the imports in a script metadata block.
 	if !interface.imports.is_empty() {
@@ -69,6 +69,8 @@ pub(super) fn print(interface: &tg::Interface) -> tg::Result<String> {
 			writeln!(output, "{}", super::string(documentation)).unwrap();
 		}
 	}
+
+	let output = output.trim_start_matches('\n').to_owned();
 
 	Ok(output)
 }
