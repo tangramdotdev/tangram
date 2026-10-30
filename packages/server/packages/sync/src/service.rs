@@ -6,7 +6,7 @@ use {
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stopper,
+	tangram_futures::{stream::TryExt as _, task::Stopper},
 	tangram_messenger::service,
 	tangram_server_core::{Server, Session},
 	tokio::time::Instant,
@@ -67,14 +67,14 @@ impl Component {
 		let handle = Handle { sender };
 		let (nodes_sender, nodes) = tokio::sync::mpsc::unbounded_channel();
 		graph.lock().unwrap().set_changed(nodes_sender.downgrade());
-		let subject = subject(id);
 		self.service_tasks
 			.spawn({
 				let component = self.clone();
+				let id = id.clone();
 				let server = session.server.clone();
 				move |stopper| async move {
 					let result = component
-						.sync_service_task(&server, subject, graph, finish, nodes, stopper)
+						.sync_service_task(&server, &id, graph, finish, nodes, stopper)
 						.await;
 
 					// Close the graph's node notifications once the service stops.
@@ -127,7 +127,7 @@ impl Component {
 	async fn sync_service_task(
 		&self,
 		server: &Server,
-		subject: String,
+		id: &tg::sync::Id,
 		graph: Arc<Mutex<Graph>>,
 		mut finish: tokio::sync::mpsc::UnboundedReceiver<tg::Result<()>>,
 		mut nodes: tokio::sync::mpsc::UnboundedReceiver<Vec<tg::Id>>,
@@ -135,6 +135,7 @@ impl Component {
 	) -> tg::Result<()> {
 		// Start answering the sync's verification requests.
 		tangram_server_core::checkpoint!(server, "sync.service.subscribe").await;
+		let subject = subject(id);
 		let options = server.config.sync.service;
 		let observer = Arc::new(Observer::new(server.checkpoints.clone()));
 		let mut service =
@@ -143,7 +144,9 @@ impl Component {
 				.map_err(|source| tg::error!(!source, "failed to start the sync service"))?;
 
 		// Answer the requests as the sync's nodes arrive, retaining each until it can be answered.
-		let mut finished = None::<(Instant, tg::Result<()>)>;
+		let mut finished = None::<tg::Result<()>>;
+		let mut record = None;
+		let mut recorded = false;
 		let mut retained = BTreeMap::<tg::Id, Vec<Retained>>::new();
 		let mut prune = tokio::time::interval(options.retry_interval);
 		prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -164,6 +167,13 @@ impl Component {
 						Err(tg::error!(code = tg::error::Code::Cancellation, "the sync was cancelled"))
 					};
 					self.sync_service_finish(server, &graph, &mut finished, &mut retained, result).await;
+					if record.is_none() && !recorded {
+						record = Some(Self::sync_service_record(server.clone(), id.clone()).boxed());
+					}
+				},
+				() = async { record.as_mut().unwrap().await }, if record.is_some() => {
+					record = None;
+					recorded = true;
 				},
 				Some(ids) = nodes.recv() => {
 					for id in ids {
@@ -201,14 +211,13 @@ impl Component {
 				},
 			}
 
-			// Stop once a stopping server's responses are acknowledged, or once a finished sync has no attempts left.
+			// Stop once a stopping server's responses are acknowledged, or once the index records that the sync finished and the sync has no attempts left.
 			let now = Instant::now();
 			let status = service.status();
 			let drained = stopping_at.is_some() && status.unacknowledged == 0;
 			if stopping_at.is_some_and(|deadline| drained || now >= deadline)
-				|| finished.as_ref().is_some_and(|(finished_at, _)| {
-					now >= *finished_at + options.attempt_ttl && status.attempts == 0
-				}) {
+				|| (recorded && status.attempts == 0)
+			{
 				break;
 			}
 		}
@@ -223,25 +232,69 @@ impl Component {
 		&self,
 		server: &Server,
 		graph: &Mutex<Graph>,
-		finished: &mut Option<(Instant, tg::Result<()>)>,
+		finished: &mut Option<tg::Result<()>>,
 		retained: &mut BTreeMap<tg::Id, Vec<Retained>>,
 		result: tg::Result<()>,
 	) {
 		if finished.is_some() {
 			return;
 		}
-		*finished = Some((Instant::now(), result));
+		*finished = Some(result);
 		for requests in std::mem::take(retained).into_values() {
 			Self::sync_service_answer(server, graph, finished.as_ref(), requests);
 		}
 		tangram_server_core::checkpoint!(server, "sync.service.finish").await;
 	}
 
+	/// Record in the index that the sync finished, after its permissions are indexed, so that verification does not ask the sync's service once it stops.
+	async fn sync_service_record(server: Server, id: tg::sync::Id) {
+		let result = async {
+			// Wait for the sync's permissions to be indexed.
+			let session = server.session(&server.context);
+			Self::sync_service_await_indexing(&session).await?;
+
+			// Record that the sync finished.
+			let time_to_live = server.config.sync.permission_time_to_live.as_secs();
+			let time_to_live = i64::try_from(time_to_live)
+				.map_err(|source| tg::error!(!source, "invalid sync permission time to live"))?;
+			let expires_at = server.clock.unix_timestamp() + time_to_live;
+			let arg = tangram_index::sync::put::Arg {
+				expires_at,
+				id: id.clone(),
+			};
+			let arg = tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::PutSync(arg)],
+			};
+			server.components.indexer.index_batch(&server, arg).await?;
+
+			// Wait for the record to be indexed.
+			Self::sync_service_await_indexing(&session).await?;
+
+			Ok::<_, tg::Error>(())
+		}
+		.await;
+		if let Err(error) = result {
+			tracing::error!(error = %error.trace(), %id, "failed to record that the sync finished");
+		}
+	}
+
+	async fn sync_service_await_indexing(session: &Session) -> tg::Result<()> {
+		session
+			.server
+			.components
+			.indexer
+			.index(session, tg::index::Arg::default())
+			.await?
+			.try_last()
+			.await?;
+		Ok(())
+	}
+
 	/// Answer the requests that the sync can answer, and return the rest.
 	fn sync_service_answer(
 		server: &Server,
 		graph: &Mutex<Graph>,
-		finished: Option<&(Instant, tg::Result<()>)>,
+		finished: Option<&tg::Result<()>>,
 		requests: Vec<Retained>,
 	) -> Vec<Retained> {
 		let mut remaining = Vec::new();
@@ -249,8 +302,7 @@ impl Component {
 			if request.reply.is_cancelled() {
 				continue;
 			}
-			let result =
-				Self::sync_service_result(graph, finished.map(|(_, result)| result), &request.arg);
+			let result = Self::sync_service_result(graph, finished, &request.arg);
 			let Some(result) = result else {
 				remaining.push(request);
 				continue;

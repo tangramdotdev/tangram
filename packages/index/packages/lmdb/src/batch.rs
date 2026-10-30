@@ -231,6 +231,9 @@ impl Index {
 						return Ok(Err(error));
 					}
 				},
+				tangram_index::batch::Item::PutSync(arg) => {
+					Self::put_sync_with_transaction(db, subspace, transaction, arg)?;
+				},
 				tangram_index::batch::Item::PutTag(arg) => {
 					Self::put_tags_with_transaction(
 						db,

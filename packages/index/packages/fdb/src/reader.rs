@@ -563,6 +563,11 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::TryGetSpecifiersForIds(output)
 			},
+			tangram_index::read::Request::TryGetSyncs { ids } => {
+				let result = Self::try_get_syncs_with_transaction(transaction, subspace, ids).await;
+				let output = crate::propagate!(result);
+				tangram_index::read::Response::TryGetSyncs(output)
+			},
 			tangram_index::read::Request::TryGetTags { ids } => {
 				let result = Self::try_get_tags_with_transaction(transaction, subspace, ids).await;
 				let output = crate::propagate!(result);

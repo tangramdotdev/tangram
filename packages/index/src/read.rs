@@ -97,6 +97,9 @@ pub enum Request {
 	TryGetSpecifiersForIds {
 		ids: Vec<tg::Id>,
 	},
+	TryGetSyncs {
+		ids: Vec<tg::sync::Id>,
+	},
 	TryGetTags {
 		ids: Vec<tg::tag::Id>,
 	},
@@ -143,6 +146,7 @@ pub enum Response {
 	TryGetSandboxProcessesCount(Option<u64>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),
 	TryGetSpecifiersForIds(Vec<Option<tg::Specifier>>),
+	TryGetSyncs(Vec<Option<crate::sync::Sync>>),
 	TryGetTags(Vec<Option<crate::tag::Tag>>),
 	TryGetUsers(Vec<Option<crate::user::User>>),
 	VerifyBatch(Vec<crate::verify::Output>),

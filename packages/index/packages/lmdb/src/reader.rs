@@ -392,6 +392,10 @@ impl Index {
 				)?;
 				tangram_index::read::Response::TryGetSpecifiersForIds(output)
 			},
+			tangram_index::read::Request::TryGetSyncs { ids } => {
+				let output = Self::try_get_syncs_with_transaction(db, subspace, transaction, &ids)?;
+				tangram_index::read::Response::TryGetSyncs(output)
+			},
 			tangram_index::read::Request::TryGetTags { ids } => {
 				let output = Self::try_get_tags_with_transaction(db, subspace, transaction, &ids)?;
 				tangram_index::read::Response::TryGetTags(output)

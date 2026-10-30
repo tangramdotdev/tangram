@@ -1721,6 +1721,7 @@ fn batch_item_kind(item: &tangram_index::batch::Item) -> &'static str {
 		tangram_index::batch::Item::PutPermission(_) => "put_permission",
 		tangram_index::batch::Item::PutProcess(_) => "put_process",
 		tangram_index::batch::Item::PutSandbox(_) => "put_sandbox",
+		tangram_index::batch::Item::PutSync(_) => "put_sync",
 		tangram_index::batch::Item::PutTag(_) => "put_tag",
 		tangram_index::batch::Item::PutUser(_) => "put_user",
 	}

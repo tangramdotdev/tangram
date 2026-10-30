@@ -19,6 +19,7 @@ pub enum Key {
 	Process(crate::process::Key),
 	Runner(crate::runner::Key),
 	Sandbox(crate::sandbox::Key),
+	Sync(crate::sync::Key),
 	Tag(crate::tag::Key),
 	Update(crate::update::Key),
 	Usage(crate::usage::Key),
@@ -92,6 +93,8 @@ pub enum Kind {
 	DelegationSource = 74,
 	DelegationExpiresAt = 75,
 	DelegationSubject = 76,
+	Sync = 77,
+	SyncExpiresAt = 78,
 	PermissionCapture = 90,
 }
 
@@ -250,6 +253,17 @@ impl fdbt::TuplePack for Key {
 
 			Key::Sandbox(crate::sandbox::Key::Sandbox(id)) => {
 				(Kind::Sandbox.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+			},
+
+			Key::Sync(crate::sync::Key::ExpiresAt { expires_at, id }) => (
+				Kind::SyncExpiresAt.to_i32().unwrap(),
+				expires_at,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sync(crate::sync::Key::Sync { id }) => {
+				(Kind::Sync.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 
 			Key::Runner(crate::runner::Key::RunnerSandbox { runner, sandbox }) => (
@@ -923,6 +937,24 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let id = tg::sandbox::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
 				Ok((input, Key::Sandbox(crate::sandbox::Key::Sandbox(id))))
+			},
+
+			Kind::Sync => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sync::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sync id".into()))?;
+				Ok((input, Key::Sync(crate::sync::Key::Sync { id })))
+			},
+
+			Kind::SyncExpiresAt => {
+				let (input, expires_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sync::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sync id".into()))?;
+				Ok((
+					input,
+					Key::Sync(crate::sync::Key::ExpiresAt { expires_at, id }),
+				))
 			},
 
 			Kind::RunnerSandbox => {

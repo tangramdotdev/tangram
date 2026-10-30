@@ -203,35 +203,67 @@ impl Component {
 		items: &mut [Item],
 		current_sync: Option<&tg::sync::Id>,
 	) -> tg::Result<()> {
-		// Ask each sync named by a valid token for what each unproven item is missing.
+		// Collect the syncs named by the valid tokens of each unproven item.
+		let syncs = items
+			.iter()
+			.map(|item| {
+				let tg::Selector::Id(_) = &item.resource else {
+					return BTreeSet::new();
+				};
+				if item.proven()
+					|| !matches!(
+						item.requested,
+						tg::authorization::permission::Set::Object(_)
+							| tg::authorization::permission::Set::Process(_)
+					) {
+					return BTreeSet::new();
+				}
+				item.tokens
+					.iter()
+					.filter_map(|token| {
+						session
+							.server
+							.components
+							.authorization
+							.try_get_sync_id_from_token(session, token)
+					})
+					.filter(|sync| current_sync != Some(sync))
+					.collect::<BTreeSet<_>>()
+			})
+			.collect::<Vec<_>>();
+
+		// Skip the syncs that the index records as finished, whose permissions are already indexed.
+		let ids = syncs
+			.iter()
+			.flatten()
+			.cloned()
+			.collect::<BTreeSet<_>>()
+			.into_iter()
+			.collect::<Vec<_>>();
+		let finished = session
+			.server
+			.index
+			.try_get_syncs(&ids)
+			.await?
+			.into_iter()
+			.zip(ids)
+			.filter_map(|(sync, id)| sync.map(|_| id))
+			.collect::<BTreeSet<_>>();
+
+		// Ask each remaining sync for what each unproven item is missing.
 		let mut aborts = vec![Vec::new(); items.len()];
 		let mut futures = FuturesUnordered::new();
-		for (position, item) in items.iter().enumerate() {
-			if item.proven() {
-				continue;
-			}
+		for (position, (item, syncs)) in std::iter::zip(items.iter(), syncs).enumerate() {
 			let tg::Selector::Id(id) = &item.resource else {
 				continue;
 			};
-			if !matches!(
-				item.requested,
-				tg::authorization::permission::Set::Object(_)
-					| tg::authorization::permission::Set::Process(_)
-			) {
+			let syncs = syncs
+				.into_iter()
+				.filter(|sync| !finished.contains(sync))
+				.collect::<Vec<_>>();
+			if syncs.is_empty() {
 				continue;
 			}
-			let syncs = item
-				.tokens
-				.iter()
-				.filter_map(|token| {
-					session
-						.server
-						.components
-						.authorization
-						.try_get_sync_id_from_token(session, token)
-				})
-				.filter(|sync| current_sync != Some(sync))
-				.collect::<BTreeSet<_>>();
 			let permissions = item.missing_permissions();
 			let storage = if item.stored.contains(item.storage) {
 				empty_storage(permissions)
