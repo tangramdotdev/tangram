@@ -39,6 +39,7 @@ pub(super) struct Arg {
 	pub receiver_medium: RequestReceiver,
 	pub storage_relation_batch_size: usize,
 	pub subspace: fdbt::Subspace,
+	pub write_item_transaction_concurrency: usize,
 	pub write_operation_batch_size: usize,
 	pub write_transaction_concurrency: usize,
 }
@@ -86,9 +87,13 @@ impl Index {
 			mut receiver_medium,
 			storage_relation_batch_size,
 			subspace,
+			write_item_transaction_concurrency,
 			write_operation_batch_size,
 			write_transaction_concurrency,
 		} = arg;
+		let write_item_semaphore = Arc::new(tokio::sync::Semaphore::new(
+			write_item_transaction_concurrency,
+		));
 		stream::unfold(
 			(&mut receiver_high, &mut receiver_medium, &mut receiver_low),
 			|(rh, rm, rl)| async move {
@@ -164,7 +169,20 @@ impl Index {
 			let database = database.clone();
 			let metrics = metrics.clone();
 			let subspace = subspace.clone();
+			let write_item_semaphore = write_item_semaphore.clone();
 			async move {
+				// Limit the transactions that write index items, so that a large write cannot flood the database or memory.
+				let writes_items = batch
+					.requests
+					.iter()
+					.any(|request| matches!(request, Request::Write(_)));
+				let _permit = if writes_items {
+					Some(write_item_semaphore.acquire_owned().await.unwrap())
+				} else {
+					None
+				};
+
+				// Execute the batch.
 				let config = ExecutionConfig {
 					max_process_depth,
 					metrics: &metrics,

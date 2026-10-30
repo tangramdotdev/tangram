@@ -59,6 +59,7 @@ async fn run_with_partition_totals(
 		usage_update_partition_total: partition_totals.usage_update,
 		usage_partition_total: partition_totals.usage,
 		max_write_operation_batch_size: 1024,
+		write_item_transaction_concurrency: 1,
 		write_operation_batch_size: 1024,
 		write_transaction_concurrency: 1,
 	};

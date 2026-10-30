@@ -894,6 +894,9 @@ pub struct FdbIndex {
 	pub verification: Option<FdbIndexVerification>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_item_transaction_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_operation_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
