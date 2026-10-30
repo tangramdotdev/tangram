@@ -68,7 +68,7 @@ assert equal ($output.stdout | from json | get package) true
 let path = artifact {
 	greet: {
 		tangram.json: '{ "runtime": "./runtime" }'
-		tangram.tgi: '{ "exports": { "default": { "type": { "kind": "command", "args": { "kind": "array", "item": { "kind": "value" } }, "output": { "kind": "value" } } } } }'
+		tangram.tgi: 'declare const greet: tg.Command<Array<tg.Value>, tg.Value>; export default greet;'
 		runtime: { tangram.ts: $runtime }
 	}
 	tangram.ts: '

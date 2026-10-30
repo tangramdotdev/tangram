@@ -10,17 +10,10 @@ let runtime = '
 		return `Hello, ${arg.args[0]}!`;
 	};
 '
-let interface = {
-	exports: {
-		greet: {
-			type: {
-				kind: command,
-				args: { kind: tuple, elements: [{ type: { kind: string } }] },
-				output: { kind: string },
-			},
-		},
-	},
-} | to json
+let interface = '
+	// @tangram interface javascript
+	export declare const greet: tg.Command<[string], string>;
+'
 
 # The interface beside a config is its interface.
 let path = artifact {
@@ -37,7 +30,12 @@ let path = artifact {
 }
 let output = tg interface ($path | path join greet.tg.json) | complete
 success $output
-assert equal ($output.stdout | from json | get exports.greet.type) ($interface | from json | get exports.greet.type)
+let expected = {
+	kind: command,
+	args: { kind: tuple, elements: [{ type: { kind: string } }] },
+	output: { kind: string },
+}
+assert equal ($output.stdout | from json | get exports.greet.type) $expected
 success (tg check $path | complete)
 let output = tg build $path | complete
 success $output
@@ -94,7 +92,7 @@ assert equal ($output.stdout | from json) 'Hello, World!'
 # The interface beside a config replaces its runtime's interface for configs.
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'
-	greet.tg.tgi: '{ "exports": {} }'
+	greet.tg.tgi: '// @tangram interface javascript'
 	runtime: { config.tgi: $interface, tangram.ts: $runtime }
 	tangram.ts: '
 		import { greet } from "./greet.tg.json";
@@ -141,18 +139,15 @@ success $output
 assert equal ($output.stdout | from json) 'Hello, World!'
 
 # An interface may import a module relative to itself, in the config's directory or in the runtime package.
-let greeting = {
-	imports: { greeting: { kind: typescript, referent: { node: './greeting.tg.ts' } } },
-	exports: {
-		greet: {
-			type: {
-				kind: command,
-				args: { kind: tuple, elements: [] },
-				output: { kind: reference, import: greeting, name: Greeting },
-			},
-		},
-	},
-} | to json
+let greeting = '
+	# @tangram interface python
+	# /// script
+	# [tool.tangram.dependencies.greeting]
+	# specifier = "./greeting.tg.ts"
+	# ///
+
+	greet: tg.Command[tuple[()], greeting.Greeting]
+'
 let source = '
 	import { greet } from "./greet.tg.json";
 	export default async () => { const text: number = (await greet.build()).text; return text; };

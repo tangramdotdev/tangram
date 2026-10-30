@@ -3,6 +3,9 @@ use {crate::prelude::*, std::collections::BTreeMap};
 #[cfg(test)]
 mod tests;
 
+pub mod parse;
+pub mod print;
+
 /// The interface of a module, which describes its exports with types over values.
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -166,6 +169,14 @@ pub enum Literal {
 	Boolean(bool),
 	Number(f64),
 	String(String),
+}
+
+/// The syntax of an interface file, which the magic comment on its first line names.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Syntax {
+	#[default]
+	JavaScript,
+	Python,
 }
 
 impl Interface {

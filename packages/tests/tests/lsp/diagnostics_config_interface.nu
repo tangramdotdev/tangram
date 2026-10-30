@@ -4,7 +4,8 @@ use ../../util/lsp.nu
 # Editing the interface in the runtime package of a config module, or creating the interface beside it, updates the types that its importers see.
 
 let local = server spawn
-let interface = '{ "exports": { "greet": { "type": { "kind": "command", "args": { "kind": "tuple", "elements": [] }, "output": { "kind": "OUTPUT" } } } } }'
+let interface = '// @tangram interface javascript
+export declare const greet: tg.Command<[], OUTPUT>;'
 let source = "import { greet } from \"./greet.tg.json\";\nexport default async () => { const text: string = await greet.build(); return text; };\n"
 let path = artifact {
 	greet.tg.json: '{ "runtime": "./runtime" }'

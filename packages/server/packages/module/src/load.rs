@@ -72,8 +72,7 @@ impl Component {
 			.await?;
 			let interface = if let Some(module) = module {
 				let text = self.load_module_inner(session, &module).await?.text;
-				tg::Interface::deserialize_json(&text)
-					.map_err(|error| tg::error!(argument, !error, "invalid interface"))?
+				tg::interface::parse::parse(&text)?
 			} else {
 				tg::Interface::default()
 			};

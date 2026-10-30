@@ -108,7 +108,9 @@ impl Compiler {
 					referent: tg::Referent::with_node(tg::module::data::Source::Path(path)),
 				});
 			}
-		} else if let Some(module) = try_get_sibling_interface_module(&self.instance, module).await? {
+		} else if let Some(module) =
+			try_get_sibling_interface_module(&self.instance, module).await?
+		{
 			modules.push(module);
 		}
 
@@ -137,8 +139,7 @@ impl Compiler {
 		module: &tg::module::Data,
 	) -> tg::Result<tg::Interface> {
 		let text = self.load_module(module).await?;
-		let mut interface = tg::Interface::deserialize_json(&text)
-			.map_err(|error| tg::error!(argument, !error, "invalid interface"))?;
+		let mut interface = tg::interface::parse::parse(&text)?;
 		for import in interface.imports.values_mut() {
 			let tg::module::data::Source::Path(path) = &import.referent.node else {
 				continue;
@@ -333,7 +334,9 @@ where
 	let directory = match &package.referent.node {
 		tg::module::data::Source::Path(path) => tokio::fs::metadata(path)
 			.await
-			.map_err(|error| tg::error!(!error, path = %path.display(), "failed to get the metadata of the runtime"))?
+			.map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to get the metadata of the runtime"),
+			)?
 			.is_dir(),
 		tg::module::data::Source::Edge(tg::graph::data::Edge::Index(_)) => {
 			return Err(tg::error!("missing graph"));

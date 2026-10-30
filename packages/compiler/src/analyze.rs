@@ -71,8 +71,7 @@ impl Compiler {
 			},
 			tg::module::Kind::Interface => {
 				// Get the imports of the interface whose paths are relative to it.
-				let interface = tg::Interface::deserialize_json(text)
-					.map_err(|error| tg::error!(argument, !error, "invalid interface"))?;
+				let interface = tg::interface::parse::parse(text)?;
 				let mut imports = HashSet::default();
 				for import in interface.imports.values() {
 					let tg::module::data::Source::Path(path) = &import.referent.node else {

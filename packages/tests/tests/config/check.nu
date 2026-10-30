@@ -18,7 +18,8 @@ let runtime = '
 		return null;
 	};
 '
-let interface = '{ "exports": { "check": { "type": { "kind": "command", "args": { "kind": "tuple", "elements": [] }, "output": { "kind": "null" } } } } }'
+let interface = '// @tangram interface javascript
+export declare const check: tg.Command<[], null>;'
 
 let path = artifact {
 	env.tg.json: '{ "runtime": "./runtime" }'
@@ -51,7 +52,7 @@ success (tg check ($path | path join env.tg.json) | complete)
 # An invalid interface fails checking.
 let path = artifact {
 	env.tg.json: '{ "runtime": "./runtime" }'
-	env.tg.tgi: '{ "exports": 1 }'
+	env.tg.tgi: 'export declare const check: number[;'
 	runtime: { tangram.ts: $runtime }
 }
 let output = tg check ($path | path join env.tg.json) | complete
